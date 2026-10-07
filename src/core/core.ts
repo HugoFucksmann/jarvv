@@ -516,8 +516,10 @@ export class JarvisCore {
   // --- Persistence Helper ---
   private persistTasks(): void {
     try {
-      const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
-      localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(serialized.slice(-20))); // Keep last 20 tasks
+      if (typeof localStorage !== "undefined") {
+        const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
+        localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(serialized.slice(-20))); // Keep last 20 tasks
+      }
     } catch (e) {
       console.warn("Failed to persist task state to localStorage:", e);
     }
@@ -525,17 +527,19 @@ export class JarvisCore {
 
   private loadPersistedTasks(): void {
     try {
-      const stored = localStorage.getItem(TASKS_STORAGE_KEY);
-      if (stored) {
-        const tasks: Task[] = JSON.parse(stored);
-        for (const task of tasks) {
-          this.taskContexts.set(task.id, {
-            task,
-            isCancelled: task.state === "CANCELLED",
-            pendingApproval: null,
-            executedSignatures: new Set(),
-            toolCallsCountPerStep: new Map(),
-          });
+      if (typeof localStorage !== "undefined") {
+        const stored = localStorage.getItem(TASKS_STORAGE_KEY);
+        if (stored) {
+          const tasks: Task[] = JSON.parse(stored);
+          for (const task of tasks) {
+            this.taskContexts.set(task.id, {
+              task,
+              isCancelled: task.state === "CANCELLED",
+              pendingApproval: null,
+              executedSignatures: new Set(),
+              toolCallsCountPerStep: new Map(),
+            });
+          }
         }
       }
     } catch (e) {

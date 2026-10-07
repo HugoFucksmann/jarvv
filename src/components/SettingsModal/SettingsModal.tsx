@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Settings, X, Check, Terminal } from "lucide-react";
 import { ConfigManager, JarvisConfig } from "../../core/config.ts";
+import { getApiUrl } from "../../utils/apiUrl.ts";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -16,11 +17,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [config, setConfig] = useState<JarvisConfig>(ConfigManager.getConfig());
   const [saved, setSaved] = useState(false);
 
+  useEffect(() => {
+    if (isOpen) {
+      // Refresh config from backend
+      fetch(getApiUrl("/api/jarvis/config"))
+        .then((res) => res.json())
+        .then((backendCfg) => {
+          if (backendCfg && typeof backendCfg === "object") {
+            setConfig(backendCfg);
+            ConfigManager.updateConfig(backendCfg);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     ConfigManager.updateConfig(config);
+    // Push updated config to backend
+    fetch(getApiUrl("/api/jarvis/config"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    }).catch(console.error);
+
     setSaved(true);
     setTimeout(() => {
       setSaved(false);

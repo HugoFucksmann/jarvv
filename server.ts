@@ -1,5 +1,12 @@
 /**
- * JARVIS Core — Node.js Full-Stack Server & MCP Runtime Host
+ * JARVIS Core — Node.js Full-Stack Server & Authoritative Runtime Host
+ * 
+ * Target Architecture:
+ * - Browser (React) communicates with JARVIS Core via HTTP (/api/jarvis/*).
+ * - JarvisCore runs exclusively in Node.js backend.
+ * - Decision20Engine calls Decision 2.0 via HTTP from Node.js (no browser CORS).
+ * - QwenEngine calls Ollama / Qwen via HTTP from Node.js.
+ * - DiscoveryEngine coordinates MCP servers via persistent stdio processes.
  * 
  * Strict Routing Order:
  * 1. Express /api/* routes (JSON-only, never falls through to HTML)
@@ -15,6 +22,12 @@ import { WindowsMCPServer } from './src/core/mcp/windowsMcp.ts';
 import { DesktopCommanderMCPServer } from './src/core/mcp/desktopCommanderMcp.ts';
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
 import { IMCPServer } from './src/core/mcp/types.ts';
+import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
+import { Decision20Engine } from './src/core/decision.ts';
+import { QwenEngine } from './src/core/reasoner/qwen.ts';
+import { JarvisCore } from './src/core/core.ts';
+import { ConfigManager } from './src/core/config.ts';
+import { PendingApproval } from './src/core/types.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,18 +47,41 @@ async function main() {
     next();
   });
 
-  // Persistent singleton instances of the 3 MCP servers in Node.js backend
+  // ============================================================
+  // BACKEND RUNTIME INSTANCES (SINGLETONS)
+  // ============================================================
+  const windowsServer = new WindowsMCPServer();
+  const desktopServer = new DesktopCommanderMCPServer();
+  const freeSearchServer = new FreeSearchMCPServer();
+
   const servers: Record<string, IMCPServer> = {
-    windows: new WindowsMCPServer(),
-    desktop_commander: new DesktopCommanderMCPServer(),
-    free_search: new FreeSearchMCPServer(),
+    windows: windowsServer,
+    desktop_commander: desktopServer,
+    free_search: freeSearchServer,
   };
 
+  const discoveryEngine = new DiscoveryEngine(servers);
+  const decisionEngine = new Decision20Engine();
+  const qwenEngine = new QwenEngine();
+
+  // Primary authoritative JarvisCore instance in Node.js
+  const jarvisCore = new JarvisCore(decisionEngine, discoveryEngine, qwenEngine);
+
   function getServer(name: string): IMCPServer | undefined {
-    if (name === 'windows') return servers.windows;
-    if (name === 'desktop_commander' || name === 'desktop') return servers.desktop_commander;
-    if (name === 'free_search' || name === 'search') return servers.free_search;
-    return undefined;
+    return discoveryEngine.getServer(name);
+  }
+
+  function serializePendingApproval(pending: PendingApproval | null) {
+    if (!pending) return null;
+    return {
+      id: pending.id,
+      stepId: pending.stepId,
+      mcp: pending.mcp,
+      tool: pending.tool,
+      capability: pending.capability,
+      args: pending.args,
+      reason: pending.reason,
+    };
   }
 
   // ============================================================
@@ -53,44 +89,185 @@ async function main() {
   // ============================================================
   const api = express.Router();
 
-  // 1.1 Descubrimiento de todas las herramientas
-  api.get('/mcp/discover-all', async (req, res) => {
-    try {
-      const [winResult, deskResult, searchResult] = await Promise.allSettled([
-        servers.windows.listTools(),
-        servers.desktop_commander.listTools(),
-        servers.free_search.listTools(),
-      ]);
+  // ------------------------------------------------------------
+  // 1.1 JARVIS CORE ORCHESTRATION APIS (/api/jarvis/*)
+  // ------------------------------------------------------------
 
-      res.setHeader('Content-Type', 'application/json');
+  // Iniciar tarea
+  api.post(['/jarvis/process', '/jarvis/task'], async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const { message, mode } = req.body;
+      if (!message || typeof message !== 'string' || !message.trim()) {
+        return res.status(400).json({ error: 'Mensaje requerido.' });
+      }
+      const task = await jarvisCore.initiateTask(message.trim(), mode || 'NORMAL');
+      res.json({ task });
+    } catch (err: any) {
+      console.error('[JARVIS Task Initiation Error]', err);
+      res.status(500).json({ error: err.message || 'Error al iniciar tarea.' });
+    }
+  });
+
+  // Cancelar tarea
+  api.post('/jarvis/cancel', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId } = req.body;
+    if (taskId) {
+      jarvisCore.cancelTask(taskId);
+    } else {
+      const allTasks = jarvisCore.getAllTasks();
+      const running = allTasks.find((t) => t.state === 'RUNNING');
+      if (running) jarvisCore.cancelTask(running.id);
+    }
+    res.json({ ok: true });
+  });
+
+  // Confirmar plan (modo PLAN)
+  api.post('/jarvis/confirm-plan', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId } = req.body;
+    if (taskId) {
+      jarvisCore.confirmPlan(taskId);
+    } else {
+      const allTasks = jarvisCore.getAllTasks();
+      const latest = allTasks[allTasks.length - 1];
+      if (latest) jarvisCore.confirmPlan(latest.id);
+    }
+    res.json({ ok: true });
+  });
+
+  // Aprobar operación con compuerta de seguridad Guard
+  api.post('/jarvis/approve', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId } = req.body;
+    const pending = jarvisCore.getPendingApproval(taskId);
+    if (pending) {
+      pending.onApprove();
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ error: 'No se encontró ninguna aprobación pendiente.' });
+    }
+  });
+
+  // Rechazar operación con compuerta de seguridad Guard
+  api.post('/jarvis/deny', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId, reason } = req.body;
+    const pending = jarvisCore.getPendingApproval(taskId);
+    if (pending) {
+      pending.onDeny(reason);
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ error: 'No se encontró ninguna aprobación pendiente.' });
+    }
+  });
+
+  // Consultar estado actual / snapshot reactivo de JARVIS
+  api.get('/jarvis/state', async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const taskId = req.query.taskId as string | undefined;
+      const allTasks = jarvisCore.getAllTasks();
+      const task = taskId ? jarvisCore.getTask(taskId) : allTasks[allTasks.length - 1] || null;
+      const pending = jarvisCore.getPendingApproval(task?.id);
+      const tools = await discoveryEngine.discoverAll().catch(() => ({}));
+      const extra = await discoveryEngine.discoverExtraCapabilities().catch(() => ({
+        prompts: {},
+        resourceTemplates: {},
+      }));
+
       res.json({
-        windows: winResult.status === 'fulfilled' ? winResult.value : [],
-        desktop_commander: deskResult.status === 'fulfilled' ? deskResult.value : [],
-        free_search: searchResult.status === 'fulfilled' ? searchResult.value : [],
+        task,
+        pendingApproval: serializePendingApproval(pending),
+        allTasks,
+        discoveredTools: tools,
+        extraCapabilities: extra,
       });
     } catch (err: any) {
-      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Stream Server-Sent Events (SSE) para eventos de Core en tiempo real
+  api.get('/jarvis/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const unsubscribe = jarvisCore.addEventListener((event) => {
+      const currentTask = jarvisCore.getTask(event.taskId);
+      const pending = jarvisCore.getPendingApproval(event.taskId);
+      const payload = JSON.stringify({
+        event,
+        task: currentTask,
+        pendingApproval: serializePendingApproval(pending),
+      });
+      res.write(`data: ${payload}\n\n`);
+    });
+
+    const keepAlive = setInterval(() => {
+      res.write(': ping\n\n');
+    }, 15000);
+
+    req.on('close', () => {
+      clearInterval(keepAlive);
+      unsubscribe();
+    });
+  });
+
+  // Refrescar catálogo de Discovery dinámicamente
+  api.all(['/jarvis/refresh-discovery', '/jarvis/discovery'], async (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const tools = await discoveryEngine.discoverAll();
+      const extra = await discoveryEngine.discoverExtraCapabilities();
+      res.json({ tools, extraCapabilities: extra });
+    } catch (err: any) {
+      res.json({ tools: {}, extraCapabilities: { prompts: {}, resourceTemplates: {} }, error: err.message });
+    }
+  });
+
+  // Configuración de endpoints externos
+  api.get('/jarvis/config', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.json(ConfigManager.getConfig());
+  });
+
+  api.post('/jarvis/config', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const updated = ConfigManager.updateConfig(req.body);
+    res.json(updated);
+  });
+
+  // ------------------------------------------------------------
+  // 1.2 RUTAS DIRECTAS DE MCP (/api/mcp/*)
+  // ------------------------------------------------------------
+
+  // Descubrimiento de todas las herramientas
+  api.get('/mcp/discover-all', async (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      const tools = await discoveryEngine.discoverAll();
+      res.json(tools);
+    } catch (err: any) {
       res.json({ windows: [], desktop_commander: [], free_search: [], error: err.message });
     }
   });
 
-  // 1.2 Capacidades extra (prompts y resource templates)
-  api.get('/mcp/extra-capabilities', async (req, res) => {
-    const prompts: Record<string, any[]> = {};
-    const resourceTemplates: Record<string, any[]> = {};
-
-    if (servers.free_search.listPrompts) {
-      prompts.free_search = await servers.free_search.listPrompts().catch(() => []);
-    }
-    if (servers.free_search.listResourceTemplates) {
-      resourceTemplates.free_search = await servers.free_search.listResourceTemplates().catch(() => []);
-    }
-
+  // Capacidades extra (prompts y resource templates)
+  api.get('/mcp/extra-capabilities', async (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    res.json({ prompts, resourceTemplates });
+    try {
+      const extra = await discoveryEngine.discoverExtraCapabilities();
+      res.json(extra);
+    } catch {
+      res.json({ prompts: {}, resourceTemplates: {} });
+    }
   });
 
-  // 1.3 Listar herramientas de un servidor específico
+  // Listar herramientas de un servidor específico
   api.get('/mcp/:server/tools', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -101,12 +278,11 @@ async function main() {
       const tools = await server.listTools();
       res.json({ tools });
     } catch (err: any) {
-      // Devolver JSON válido con lista vacía y descripción de error para no quebrar el frontend
       res.json({ error: err.message, tools: [] });
     }
   });
 
-  // 1.4 Ejecución de herramientas por stdio
+  // Ejecución de herramientas por stdio
   api.post('/mcp/:server/call', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -137,7 +313,7 @@ async function main() {
     }
   });
 
-  // 1.5 Prompts
+  // Prompts
   api.get('/mcp/:server/prompts', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -152,7 +328,7 @@ async function main() {
     }
   });
 
-  // 1.6 Plantillas de recursos
+  // Plantillas de recursos
   api.get('/mcp/:server/resource-templates', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -167,7 +343,7 @@ async function main() {
     }
   });
 
-  // 1.7 Lectura de recurso
+  // Lectura de recurso
   api.post('/mcp/:server/resources', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -182,7 +358,7 @@ async function main() {
     }
   });
 
-  // 1.8 Reconexión de proceso stdio
+  // Reconexión de proceso stdio
   api.post('/mcp/:server/reconnect', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -197,7 +373,7 @@ async function main() {
     }
   });
 
-  // 1.9 Estado de conexión
+  // Estado de conexión
   api.get('/mcp/:server/status', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -215,10 +391,10 @@ async function main() {
   });
 
   // Barrera estricta de errores: cualquier excepción en /api o /mcp devuelve siempre JSON y jamás HTML
-  app.use(['/api', '/mcp'], (err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('[API MCP Error]', err);
+  app.use(['/api', '/mcp'], (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('[API Error]', err);
     res.setHeader('Content-Type', 'application/json');
-    res.status(500).json({ error: err?.message || 'Error interno en API MCP', tools: [] });
+    res.status(500).json({ error: err?.message || 'Error interno en API', tools: [] });
   });
 
   // ============================================================
@@ -285,7 +461,7 @@ async function main() {
 
   const PORT = Number(process.env.PORT) || 3000;
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`JARVIS Core full-stack host running on:`);
+    console.log(`JARVIS Core authoritative full-stack host running on:`);
     console.log(`  - Local:    http://localhost:${PORT}`);
     console.log(`  - Loopback: http://127.0.0.1:${PORT}`);
   });

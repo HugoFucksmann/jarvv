@@ -1,15 +1,17 @@
 /**
- * React Hook for JARVIS Core Orchestration
- * Exposes reactive state, event stream, and action handlers with task isolation.
+ * React Hook for JARVIS Client
+ * 
+ * Communicates exclusively with the authoritative Node.js JARVIS backend via HTTP / SSE.
+ * Does NOT instantiate or bundle JarvisCore, DiscoveryEngine, Decision20Engine,
+ * QwenEngine, child_process, or any MCP transport inside the browser.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { JarvisCore } from "../core/core.ts";
 import { Task, PendingApproval, CoreEvent, MCPTool } from "../core/types.ts";
 import { MCPPrompt, MCPResourceTemplate } from "../core/mcp/types.ts";
+import { getApiUrl } from "../utils/apiUrl.ts";
 
 export function useJarvis() {
-  const coreRef = useRef<JarvisCore | null>(null);
   const activeTaskIdRef = useRef<string | null>(null);
 
   const [task, setTask] = useState<Task | null>(null);
@@ -22,95 +24,219 @@ export function useJarvis() {
   }>({ prompts: {}, resourceTemplates: {} });
   const [mode, setMode] = useState<"NORMAL" | "PLAN">("NORMAL");
 
-  // Initialize Core instance once
-  useEffect(() => {
-    const core = new JarvisCore();
-    coreRef.current = core;
-
-    // Load initial discovery catalog and extra capabilities
-    const disc = core.getDiscoveryEngine();
-    disc.discoverAll().then((tools) => {
-      setDiscoveredTools(tools);
-    }).catch(() => {
-      // MCP servers not running yet locally - keep empty without failing
-      setDiscoveredTools({});
-    });
-
-    disc.discoverExtraCapabilities().then((extra) => {
-      setExtraCapabilities(extra);
-    }).catch(() => {
-      setExtraCapabilities({ prompts: {}, resourceTemplates: {} });
-    });
-
-    // Check for any persisted active task
-    const allTasks = core.getAllTasks();
-    if (allTasks.length > 0) {
-      const latest = allTasks[allTasks.length - 1];
-      activeTaskIdRef.current = latest.id;
-      setTask(latest);
-      setPendingApproval(core.getPendingApproval(latest.id));
+  // Approve action
+  const approvePending = useCallback(async () => {
+    try {
+      await fetch(getApiUrl("/api/jarvis/approve"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: activeTaskIdRef.current }),
+      });
+      setPendingApproval(null);
+    } catch (err) {
+      console.error("Error approving pending step:", err);
     }
-
-    const unsubscribe = core.addEventListener((event) => {
-      // Filter events to active task
-      if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
-        setEvents((prev) => [...prev.slice(-49), event]);
-        const currentTask = core.getTask(event.taskId);
-        if (currentTask) {
-          setTask({ ...currentTask, steps: [...currentTask.steps], scratchpad: { ...currentTask.scratchpad } });
-        }
-        setPendingApproval(core.getPendingApproval(event.taskId));
-      }
-    });
-
-    return () => {
-      unsubscribe();
-    };
   }, []);
 
+  // Deny action
+  const denyPending = useCallback(async (reason?: string) => {
+    try {
+      await fetch(getApiUrl("/api/jarvis/deny"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: activeTaskIdRef.current, reason }),
+      });
+      setPendingApproval(null);
+    } catch (err) {
+      console.error("Error denying pending step:", err);
+    }
+  }, []);
+
+  // Hydrate PendingApproval object with interactive handlers for UI
+  const hydratePendingApproval = useCallback(
+    (raw: any): PendingApproval | null => {
+      if (!raw) return null;
+      return {
+        id: raw.id,
+        stepId: raw.stepId,
+        mcp: raw.mcp,
+        tool: raw.tool,
+        capability: raw.capability,
+        args: raw.args || {},
+        reason: raw.reason || "",
+        onApprove: () => {
+          approvePending();
+        },
+        onDeny: (denyReason?: string) => {
+          denyPending(denyReason);
+        },
+      };
+    },
+    [approvePending, denyPending]
+  );
+
+  // Fetch full state snapshot from backend
+  const fetchState = useCallback(async () => {
+    try {
+      const url = activeTaskIdRef.current
+        ? getApiUrl(`/api/jarvis/state?taskId=${encodeURIComponent(activeTaskIdRef.current)}`)
+        : getApiUrl("/api/jarvis/state");
+
+      const res = await fetch(url);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (data.task) {
+        setTask(data.task);
+        if (!activeTaskIdRef.current) {
+          activeTaskIdRef.current = data.task.id;
+        }
+      }
+      if (data.pendingApproval) {
+        setPendingApproval(hydratePendingApproval(data.pendingApproval));
+      } else {
+        setPendingApproval(null);
+      }
+      if (data.discoveredTools && Object.keys(data.discoveredTools).length > 0) {
+        setDiscoveredTools(data.discoveredTools);
+      }
+      if (data.extraCapabilities) {
+        setExtraCapabilities(data.extraCapabilities);
+      }
+    } catch (err) {
+      console.warn("Failed to fetch JARVIS state from backend:", err);
+    }
+  }, [hydratePendingApproval]);
+
+  // Subscribe to real-time events via Server-Sent Events (SSE)
+  useEffect(() => {
+    // 1. Initial snapshot fetch
+    fetchState();
+
+    // 2. Open SSE stream
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource(getApiUrl("/api/jarvis/events"));
+
+      eventSource.onmessage = (messageEvent) => {
+        try {
+          const payload = JSON.parse(messageEvent.data);
+          const { event, task: updatedTask, pendingApproval: rawPending } = payload;
+
+          if (event) {
+            if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
+              setEvents((prev) => [...prev.slice(-49), event]);
+            }
+          }
+
+          if (updatedTask) {
+            if (!activeTaskIdRef.current || updatedTask.id === activeTaskIdRef.current) {
+              setTask({ ...updatedTask });
+            }
+          }
+
+          if (rawPending !== undefined) {
+            setPendingApproval(hydratePendingApproval(rawPending));
+          }
+        } catch (e) {
+          console.error("Failed to parse JARVIS SSE message:", e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Fallback polling if SSE disconnects
+        fetchState();
+      };
+    } catch (err) {
+      console.warn("EventSource not supported or failed to connect:", err);
+    }
+
+    // 3. Fallback polling interval to ensure sync
+    const pollInterval = setInterval(() => {
+      fetchState();
+    }, 3000);
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+      clearInterval(pollInterval);
+    };
+  }, [fetchState, hydratePendingApproval]);
+
+  // Initiate a new task on the backend
   const runTask = useCallback(
     async (message: string, executionMode?: "NORMAL" | "PLAN") => {
-      if (!coreRef.current || !message.trim()) return;
+      if (!message.trim()) return;
       setEvents([]);
       const effectiveMode = executionMode || mode;
-      const createdTask = await coreRef.current.initiateTask(message, effectiveMode);
-      activeTaskIdRef.current = createdTask.id;
-      setTask(createdTask);
+
+      try {
+        const res = await fetch(getApiUrl("/api/jarvis/process"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: message.trim(), mode: effectiveMode }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.task) {
+          activeTaskIdRef.current = data.task.id;
+          setTask(data.task);
+          setPendingApproval(null);
+        }
+      } catch (err) {
+        console.error("Failed to initiate task on backend:", err);
+      }
     },
     [mode]
   );
 
-  const cancelTask = useCallback(() => {
-    if (!coreRef.current || !activeTaskIdRef.current) return;
-    coreRef.current.cancelTask(activeTaskIdRef.current);
-  }, []);
-
-  const confirmPlan = useCallback(() => {
-    if (!coreRef.current || !activeTaskIdRef.current) return;
-    coreRef.current.confirmPlan(activeTaskIdRef.current);
-  }, []);
-
-  const approvePending = useCallback(() => {
-    pendingApproval?.onApprove();
-  }, [pendingApproval]);
-
-  const denyPending = useCallback(
-    (reason?: string) => {
-      pendingApproval?.onDeny(reason);
-    },
-    [pendingApproval]
-  );
-
-  const refreshDiscovery = useCallback(async () => {
-    if (!coreRef.current) return;
-    const disc = coreRef.current.getDiscoveryEngine();
+  // Cancel task
+  const cancelTask = useCallback(async () => {
     try {
-      const tools = await disc.discoverAll();
-      const extra = await disc.discoverExtraCapabilities();
-      setDiscoveredTools(tools);
-      setExtraCapabilities(extra);
-    } catch {
-      // Expected if local MCP daemon is not active
+      await fetch(getApiUrl("/api/jarvis/cancel"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: activeTaskIdRef.current }),
+      });
+      fetchState();
+    } catch (err) {
+      console.error("Failed to cancel task on backend:", err);
+    }
+  }, [fetchState]);
+
+  // Confirm plan
+  const confirmPlan = useCallback(async () => {
+    try {
+      await fetch(getApiUrl("/api/jarvis/confirm-plan"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: activeTaskIdRef.current }),
+      });
+      fetchState();
+    } catch (err) {
+      console.error("Failed to confirm plan on backend:", err);
+    }
+  }, [fetchState]);
+
+  // Refresh discovery catalog
+  const refreshDiscovery = useCallback(async () => {
+    try {
+      const res = await fetch(getApiUrl("/api/jarvis/refresh-discovery"), {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.tools) setDiscoveredTools(data.tools);
+        if (data.extraCapabilities) setExtraCapabilities(data.extraCapabilities);
+      }
+    } catch (err) {
+      console.warn("Failed to refresh discovery catalog:", err);
     }
   }, []);
 

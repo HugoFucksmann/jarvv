@@ -76,37 +76,41 @@ export class ConfigManager {
   }
 
   private static loadConfig(): JarvisConfig {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed.qwenModel === "qwen2.5:7b") {
-          parsed.qwenModel = "";
-        }
-        // Migrate away from deprecated HTTP URLs if present
-        delete parsed.windowsMcpUrl;
-        delete parsed.desktopCommanderMcpUrl;
-        delete parsed.freeSearchMcpUrl;
+    if (typeof localStorage !== "undefined") {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed.qwenModel === "qwen2.5:7b") {
+            parsed.qwenModel = "";
+          }
+          // Migrate away from deprecated HTTP URLs if present
+          delete parsed.windowsMcpUrl;
+          delete parsed.desktopCommanderMcpUrl;
+          delete parsed.freeSearchMcpUrl;
 
-        return {
-          ...DEFAULT_CONFIG,
-          ...parsed,
-          windowsMcp: parsed.windowsMcp || DEFAULT_CONFIG.windowsMcp,
-          desktopCommanderMcp: parsed.desktopCommanderMcp || DEFAULT_CONFIG.desktopCommanderMcp,
-          freeSearchMcp: parsed.freeSearchMcp || DEFAULT_CONFIG.freeSearchMcp,
-        };
+          return {
+            ...DEFAULT_CONFIG,
+            ...parsed,
+            windowsMcp: parsed.windowsMcp || DEFAULT_CONFIG.windowsMcp,
+            desktopCommanderMcp: parsed.desktopCommanderMcp || DEFAULT_CONFIG.desktopCommanderMcp,
+            freeSearchMcp: parsed.freeSearchMcp || DEFAULT_CONFIG.freeSearchMcp,
+          };
+        }
+      } catch (e) {
+        console.warn("Failed to load JARVIS config from localStorage:", e);
       }
-    } catch (e) {
-      console.warn("Failed to load JARVIS config from localStorage:", e);
     }
     return { ...DEFAULT_CONFIG };
   }
 
   private static saveConfig(cfg: JarvisConfig): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-    } catch (e) {
-      console.warn("Failed to persist JARVIS config to localStorage:", e);
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+      } catch (e) {
+        console.warn("Failed to persist JARVIS config to localStorage:", e);
+      }
     }
   }
 }

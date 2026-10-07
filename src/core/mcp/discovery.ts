@@ -13,17 +13,24 @@
 
 import { MCPTool, StepRoute } from "../types.ts";
 import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
-import { ClientMcpServer, getApiUrl } from "./clientMcpServer.ts";
+import { WindowsMCPServer } from "./windowsMcp.ts";
+import { DesktopCommanderMCPServer } from "./desktopCommanderMcp.ts";
+import { FreeSearchMCPServer } from "./freeSearchMcp.ts";
 
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();
   private toolsCache: Map<string, { tools: MCPTool[]; hash: string; lastFetched: number }> = new Map();
 
-  constructor() {
-    // Register default core MCP client adapters connected to backend Node.js runtime
-    this.registerServer(new ClientMcpServer("windows", "1.3.27"));
-    this.registerServer(new ClientMcpServer("desktop_commander", "2.1.0"));
-    this.registerServer(new ClientMcpServer("free_search", "0.13.1"));
+  constructor(customServers?: Record<string, IMCPServer>) {
+    if (customServers) {
+      for (const server of Object.values(customServers)) {
+        this.registerServer(server);
+      }
+    } else {
+      this.registerServer(new WindowsMCPServer());
+      this.registerServer(new DesktopCommanderMCPServer());
+      this.registerServer(new FreeSearchMCPServer());
+    }
   }
 
   registerServer(server: IMCPServer) {
@@ -76,21 +83,6 @@ export class DiscoveryEngine {
    * Returns a snapshot of all discovered tools across all servers
    */
   async discoverAll(): Promise<Record<string, MCPTool[]>> {
-    try {
-      const res = await fetch(getApiUrl("/api/mcp/discover-all"));
-      const contentType = res.headers.get("content-type") || "";
-      if (res.ok && contentType.includes("application/json")) {
-        const data = await res.json();
-        for (const [name, tools] of Object.entries(data)) {
-          if (Array.isArray(tools)) {
-            const hash = this.computeToolsHash(tools as MCPTool[]);
-            this.toolsCache.set(name, { tools: tools as MCPTool[], hash, lastFetched: Date.now() });
-          }
-        }
-        return data;
-      }
-    } catch {}
-
     const result: Record<string, MCPTool[]> = {};
     for (const server of this.servers.values()) {
       result[server.name] = await this.getDiscoveredTools(server.name);
@@ -105,23 +97,23 @@ export class DiscoveryEngine {
     prompts: Record<string, MCPPrompt[]>;
     resourceTemplates: Record<string, MCPResourceTemplate[]>;
   }> {
-    try {
-      const res = await fetch(getApiUrl("/api/mcp/extra-capabilities"));
-      const contentType = res.headers.get("content-type") || "";
-      if (res.ok && contentType.includes("application/json")) {
-        return await res.json();
-      }
-    } catch {}
-
     const prompts: Record<string, MCPPrompt[]> = {};
     const resourceTemplates: Record<string, MCPResourceTemplate[]> = {};
 
     for (const [name, server] of this.servers.entries()) {
       if (server.listPrompts) {
-        prompts[name] = await server.listPrompts();
+        try {
+          prompts[name] = await server.listPrompts();
+        } catch {
+          prompts[name] = [];
+        }
       }
       if (server.listResourceTemplates) {
-        resourceTemplates[name] = await server.listResourceTemplates();
+        try {
+          resourceTemplates[name] = await server.listResourceTemplates();
+        } catch {
+          resourceTemplates[name] = [];
+        }
       }
     }
 
