@@ -18,6 +18,7 @@ import {
   MAX_STEPS,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
+import { PROMPTS } from "./prompts.ts";
 
 export class LLMServiceUnavailableError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -125,7 +126,7 @@ export class QwenEngine implements ILLMClient {
       ],
       temperature: 0.1,
       stream: false,
-      reasoning_effort: isThinking ? "medium" : "none",
+      reasoning_effort: isThinking ? "low" : "none",
     };
 
     if (maxTokens) {
@@ -223,9 +224,7 @@ export class QwenEngine implements ILLMClient {
     context: string
   ): Promise<Record<string, unknown>> {
     return await this.executeStage("generateArguments", async () => {
-      const systemPrompt = `Eres el generador de argumentos de JARVIS Core.
-Tu única función es generar un objeto JSON válido con los argumentos para la herramienta indicada, cumpliendo estrictamente con su inputSchema.
-NO agregues explicaciones, markdown adicional ni comentarios. Devuelve únicamente el objeto JSON con los campos requeridos.`;
+      const systemPrompt = PROMPTS.ARGUMENTS.SYSTEM;
 
       // Prune excessive scratchpad data to respect context boundary (§4.13, §21)
       const compactScratchpad: Record<string, unknown> = { ...scratchpad };
@@ -236,14 +235,7 @@ NO agregues explicaciones, markdown adicional ni comentarios. Devuelve únicamen
         compactScratchpad.search_results = compactScratchpad.search_results.slice(0, 3);
       }
 
-      const userPrompt = `Tool seleccionada: "${tool.name}"
-Descripción de la tool: "${tool.description}"
-Input Schema: ${JSON.stringify(tool.inputSchema)}
-Instrucción del paso: "${step.instruction}"
-Contexto de la tarea: "${context}"
-Scratchpad actual: ${JSON.stringify(compactScratchpad)}
-
-Genera los argumentos JSON para ejecutar la tool.`;
+      const userPrompt = PROMPTS.ARGUMENTS.buildUserPrompt(step, tool, compactScratchpad, context);
 
       const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true, 1024);
       let parsed: any;
@@ -255,7 +247,7 @@ Genera los argumentos JSON para ejecutar la tool.`;
         if (match) {
           try {
             parsed = JSON.parse(match[0]);
-          } catch {}
+          } catch { }
         }
       }
 
@@ -286,19 +278,8 @@ Genera los argumentos JSON para ejecutar la tool.`;
     scratchpad: Scratchpad
   ): Promise<Plan> {
     return await this.executeStage("generatePlan", async () => {
-      const systemPrompt = `Eres el planificador de JARVIS Core.
-Tu objetivo es descomponer la solicitud del usuario en una secuencia ordenada de pasos deterministas.
-Rutas disponibles: "chat", "windows", "desktop_commander", "free_search".
-Reglas estrictas:
-1. Máximo 15 pasos.
-2. Cada paso debe tener la estructura: { "id": "step-1", "route": "...", "instruction": "..." }.
-3. NO incluyas campos adicionales.
-4. Devuelve ÚNICAMENTE un JSON con la estructura: { "steps": [ ... ] }.`;
-
-      const userPrompt = `Solicitud del usuario: "${userMessage}"
-Scratchpad actual: ${JSON.stringify(scratchpad)}
-
-Genera el plan de ejecución en JSON:`;
+      const systemPrompt = PROMPTS.PLAN.SYSTEM;
+      const userPrompt = PROMPTS.PLAN.buildUserPrompt(userMessage, scratchpad);
 
       const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true, 1500);
       let parsed: any;
@@ -309,7 +290,7 @@ Genera el plan de ejecución en JSON:`;
         if (match) {
           try {
             parsed = JSON.parse(match[0]);
-          } catch {}
+          } catch { }
         }
       }
 
@@ -345,12 +326,8 @@ Genera el plan de ejecución en JSON:`;
     scratchpad: Scratchpad
   ): Promise<string> {
     return await this.executeStage("generateChatResponse", async () => {
-      const systemPrompt = `Eres JARVIS Core (asistente de sistema).
-Responde de forma concisa, precisa y profesional en español a la consulta o instrucción del usuario.
-Usa los datos del Scratchpad si son relevantes. NO inventes hechos fuera del contexto del sistema.`;
-
-      const userPrompt = `Instrucción: "${instruction}"
-Datos de Scratchpad: ${JSON.stringify(scratchpad)}`;
+      const systemPrompt = PROMPTS.CHAT.SYSTEM;
+      const userPrompt = PROMPTS.CHAT.buildUserPrompt(instruction, scratchpad);
 
       return await this.dispatchPrompt(systemPrompt, userPrompt, false, 1024);
     });
@@ -366,9 +343,7 @@ Datos de Scratchpad: ${JSON.stringify(scratchpad)}`;
     evidenceList: Evidence[]
   ): Promise<string> {
     return await this.executeStage("synthesizeFinalResponse", async () => {
-      const systemPrompt = `Eres JARVIS Core sintetizando el resultado final de una tarea.
-Resume en un párrafo claro y profesional qué acciones se completaron, qué evidencia se obtuvo y la conclusión para el usuario.
-Menciona si hubo pasos no verificados o fallidos.`;
+      const systemPrompt = PROMPTS.SYNTHESIS.SYSTEM;
 
       const summaryPayload = {
         tarea: taskMessage,
@@ -383,10 +358,7 @@ Menciona si hubo pasos no verificados o fallidos.`;
         scratchpad,
       };
 
-      const userPrompt = `Resumen de ejecución:
-${JSON.stringify(summaryPayload, null, 2)}
-
-Genera la respuesta final en español:`;
+      const userPrompt = PROMPTS.SYNTHESIS.buildUserPrompt(summaryPayload);
 
       return await this.dispatchPrompt(systemPrompt, userPrompt, false, 1500);
     });
