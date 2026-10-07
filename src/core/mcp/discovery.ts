@@ -20,6 +20,8 @@ import { FreeSearchMCPServer } from "./freeSearchMcp.ts";
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();
   private toolsCache: Map<string, { tools: MCPTool[]; hash: string; lastFetched: number }> = new Map();
+  /** Servers that failed to start and should not be retried automatically. */
+  private unavailableServers: Map<string, { reason: string; since: number }> = new Map();
 
   constructor(customServers?: Record<string, IMCPServer>) {
     if (customServers) {
@@ -36,6 +38,8 @@ export class DiscoveryEngine {
   registerServer(server: IMCPServer) {
     this.servers.set(server.name, server);
     this.toolsCache.delete(server.name);
+    // Clear unavailable status when a server is re-registered
+    this.unavailableServers.delete(server.name);
   }
 
   getServer(name: string): IMCPServer | undefined {
@@ -60,6 +64,12 @@ export class DiscoveryEngine {
       return [];
     }
 
+    // If server has a known permanent failure and we are not forcing a refresh, return cached/empty immediately
+    if (!forceRefresh && this.unavailableServers.has(serverName)) {
+      const cached = this.toolsCache.get(serverName);
+      return cached ? cached.tools : [];
+    }
+
     const cached = this.toolsCache.get(serverName);
     const now = Date.now();
 
@@ -68,26 +78,45 @@ export class DiscoveryEngine {
       return cached.tools;
     }
 
+    // If forcing refresh, clear the unavailable mark so we give the server another chance
+    if (forceRefresh) {
+      this.unavailableServers.delete(serverName);
+    }
+
     try {
       const tools = await server.listTools();
       const hash = this.computeToolsHash(tools);
       this.toolsCache.set(serverName, { tools, hash, lastFetched: now });
+      // Server responded successfully — ensure it's no longer marked unavailable
+      this.unavailableServers.delete(serverName);
       return tools;
-    } catch (err) {
-      console.error(`Discovery error fetching tools for ${serverName}:`, err);
+    } catch (err: any) {
+      // Mark as unavailable so we don't keep hammering a dead process
+      this.unavailableServers.set(serverName, { reason: err?.message || String(err), since: Date.now() });
+      console.error(`[Discovery] MCP '${serverName}' marcado como no disponible: ${err?.message}`);
       return cached ? cached.tools : [];
     }
   }
 
   /**
-   * Returns a snapshot of all discovered tools across all servers
+   * Returns a snapshot of all discovered tools across all servers.
+   * forceRefresh=true clears unavailable marks and retries all servers.
    */
-  async discoverAll(): Promise<Record<string, MCPTool[]>> {
+  async discoverAll(forceRefresh = false): Promise<Record<string, MCPTool[]>> {
     const result: Record<string, MCPTool[]> = {};
     for (const server of this.servers.values()) {
-      result[server.name] = await this.getDiscoveredTools(server.name);
+      result[server.name] = await this.getDiscoveredTools(server.name, forceRefresh);
     }
     return result;
+  }
+
+  /** Returns which servers are currently marked as unavailable and why. */
+  getUnavailableServers(): Record<string, { reason: string; since: number }> {
+    const out: Record<string, { reason: string; since: number }> = {};
+    for (const [name, info] of this.unavailableServers.entries()) {
+      out[name] = info;
+    }
+    return out;
   }
 
   /**

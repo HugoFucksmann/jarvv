@@ -24,12 +24,12 @@ export interface JarvisConfig {
 const STORAGE_KEY = "jarvis_core_config_v1";
 
 const DEFAULT_CONFIG: JarvisConfig = {
-  qwenUrl: "",
-  qwenModel: "",
+  qwenUrl: "http://127.0.0.1:11434",
+  qwenModel: "qwen3.5:9b",
   decisionUrl: "http://127.0.0.1:8765",
   windowsMcp: {
     command: "uvx",
-    args: ["mcp-windows"],
+    args: ["windows-mcp", "serve"],
   },
   desktopCommanderMcp: {
     command: "npx",
@@ -37,7 +37,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   },
   freeSearchMcp: {
     command: "uvx",
-    args: ["free-search-mcp"],
+    args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
   timeoutMs: 30000,
 };

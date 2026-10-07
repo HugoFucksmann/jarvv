@@ -64,9 +64,9 @@ export class Decision20Engine {
       );
     }
 
-    const url = endpointUrl.endsWith("/system_one")
+    const url = endpointUrl.endsWith("/v1/decide")
       ? endpointUrl
-      : `${endpointUrl.replace(/\/+$/, "")}/system_one`;
+      : `${endpointUrl.replace(/\/+$/, "")}/v1/decide`;
 
     let response: Response;
     try {

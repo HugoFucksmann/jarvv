@@ -183,6 +183,7 @@ async function main() {
         allTasks,
         discoveredTools: tools,
         extraCapabilities: extra,
+        unavailableServers: discoveryEngine.getUnavailableServers(),
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -217,13 +218,13 @@ async function main() {
     });
   });
 
-  // Refrescar catálogo de Discovery dinámicamente
+  // Refrescar catálogo de Discovery dinámicamente (forceRefresh=true limpia servidores marcados como no disponibles)
   api.all(['/jarvis/refresh-discovery', '/jarvis/discovery'], async (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     try {
-      const tools = await discoveryEngine.discoverAll();
+      const tools = await discoveryEngine.discoverAll(true);
       const extra = await discoveryEngine.discoverExtraCapabilities();
-      res.json({ tools, extraCapabilities: extra });
+      res.json({ tools, extraCapabilities: extra, unavailableServers: discoveryEngine.getUnavailableServers() });
     } catch (err: any) {
       res.json({ tools: {}, extraCapabilities: { prompts: {}, resourceTemplates: {} }, error: err.message });
     }

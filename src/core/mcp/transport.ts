@@ -63,6 +63,9 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   >();
   private stderrLines: string[] = [];
+  /** Set when the process exits fatally before initialization completes (e.g. ImportError).
+   *  Prevents infinite retry loops. Cleared only by an explicit reconnect(). */
+  private permanentFailure: MCPTransportError | null = null;
 
   constructor(
     public readonly serverName: string,
@@ -74,7 +77,18 @@ export class StdioMcpTransport implements IMCPTransport {
     return this.connected && this.childProcess !== null && !this.childProcess.killed;
   }
 
+  /** Returns the permanent failure error if this transport has crashed unrecoverably, or null. */
+  getPermanentFailure(): MCPTransportError | null {
+    return this.permanentFailure;
+  }
+
   private async startProcess(): Promise<ChildProcess> {
+    // If this transport has permanently failed, surface the original error immediately
+    // without attempting to restart the process. Call reconnect() to retry.
+    if (this.permanentFailure) {
+      throw this.permanentFailure;
+    }
+
     if (this.childProcess && !this.childProcess.killed && this.connected) {
       return this.childProcess;
     }
@@ -92,6 +106,9 @@ export class StdioMcpTransport implements IMCPTransport {
       ...process.env,
       ...(this.config.env || {}),
     };
+
+    // Track whether initialization completed successfully
+    let initCompleted = false;
 
     try {
       const child = spawn(command, args, {
@@ -122,15 +139,33 @@ export class StdioMcpTransport implements IMCPTransport {
       child.on("error", (err: Error) => {
         this.connected = false;
         this.initialized = false;
-        this.rejectAllPending(new MCPTransportError(this.serverName, `Fallo en proceso hijo: ${err.message}`, err));
+        const transportErr = new MCPTransportError(this.serverName, `Fallo en proceso hijo: ${err.message}`, err);
+        if (!initCompleted) {
+          // Process failed before initialization — mark as permanently failed
+          this.permanentFailure = transportErr;
+          console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar proceso: ${err.message}`);
+        }
+        this.rejectAllPending(transportErr);
       });
 
       child.on("exit", (code, signal) => {
         this.connected = false;
         this.initialized = false;
         const lastStderr = this.stderrLines.slice(-5).join("\n").trim();
-        const reason = `El proceso MCP '${this.serverName}' terminó (código: ${code}, señal: ${signal}). ${lastStderr ? `Stderr: ${lastStderr}` : ""}`;
-        this.rejectAllPending(new MCPTransportError(this.serverName, reason));
+        const reason = `El proceso MCP '${this.serverName}' terminó (código: ${code}, señal: ${signal}). ${
+          lastStderr ? `Stderr: ${lastStderr}` : ""
+        }`;
+        const transportErr = new MCPTransportError(this.serverName, reason);
+        if (!initCompleted && code !== 0) {
+          // Process exited with error before initialization completed — permanent failure
+          this.permanentFailure = transportErr;
+          console.error(
+            `[MCP '${this.serverName}'] Fallo permanente (exit ${code}). No se reintentará hasta reconnect(). Stderr: ${
+              lastStderr || "(sin stderr)"
+            }`
+          );
+        }
+        this.rejectAllPending(transportErr);
         this.childProcess = null;
       });
 
@@ -150,17 +185,25 @@ export class StdioMcpTransport implements IMCPTransport {
           // If server is lightweight and does not implement 'initialize', proceed gracefully
         }
         this.initialized = true;
+        initCompleted = true;
+      } else {
+        initCompleted = true;
       }
 
       return child;
     } catch (err: any) {
       this.connected = false;
       this.initialized = false;
-      throw new MCPTransportError(
+      const transportErr = new MCPTransportError(
         this.serverName,
         `No fue posible iniciar el proceso MCP '${command} ${args.join(" ")}': ${err.message}`,
         err
       );
+      if (!initCompleted) {
+        this.permanentFailure = transportErr;
+        console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar: ${err.message}`);
+      }
+      throw transportErr;
     }
   }
 
@@ -327,6 +370,9 @@ export class StdioMcpTransport implements IMCPTransport {
   }
 
   async reconnect(): Promise<void> {
+    // Clear any permanent failure state before attempting reconnect
+    this.permanentFailure = null;
+    this.stderrLines = [];
     await this.close();
     await this.listTools();
   }
