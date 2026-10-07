@@ -18,7 +18,7 @@
 
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { MCPPrompt, MCPResourceTemplate } from "./types.ts";
-import type { ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 
 export interface StdioConfig {
   command: string;
@@ -74,15 +74,6 @@ export class StdioMcpTransport implements IMCPTransport {
     return this.connected && this.childProcess !== null && !this.childProcess.killed;
   }
 
-  private async getSpawnFunction() {
-    try {
-      const cp = await import("node:child_process");
-      return cp.spawn;
-    } catch {
-      return null;
-    }
-  }
-
   private async startProcess(): Promise<ChildProcess> {
     if (this.childProcess && !this.childProcess.killed && this.connected) {
       return this.childProcess;
@@ -92,14 +83,6 @@ export class StdioMcpTransport implements IMCPTransport {
       throw new MCPTransportError(
         this.serverName,
         `El comando stdio para '${this.serverName}' no está configurado.`
-      );
-    }
-
-    const spawn = await this.getSpawnFunction();
-    if (!spawn) {
-      throw new MCPTransportError(
-        this.serverName,
-        "El runtime actual no dispone de soporte para spawn de procesos en stdio (requiere entorno Node.js)."
       );
     }
 

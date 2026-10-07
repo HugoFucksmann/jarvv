@@ -13,19 +13,17 @@
 
 import { MCPTool, StepRoute } from "../types.ts";
 import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
-import { WindowsMCPServer } from "./windowsMcp.ts";
-import { DesktopCommanderMCPServer } from "./desktopCommanderMcp.ts";
-import { FreeSearchMCPServer } from "./freeSearchMcp.ts";
+import { ClientMcpServer } from "./clientMcpServer.ts";
 
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();
   private toolsCache: Map<string, { tools: MCPTool[]; hash: string; lastFetched: number }> = new Map();
 
   constructor() {
-    // Register default core MCP adapters
-    this.registerServer(new WindowsMCPServer());
-    this.registerServer(new DesktopCommanderMCPServer());
-    this.registerServer(new FreeSearchMCPServer());
+    // Register default core MCP client adapters connected to backend Node.js runtime
+    this.registerServer(new ClientMcpServer("windows", "1.3.27"));
+    this.registerServer(new ClientMcpServer("desktop_commander", "2.1.0"));
+    this.registerServer(new ClientMcpServer("free_search", "0.13.1"));
   }
 
   registerServer(server: IMCPServer) {
@@ -78,6 +76,20 @@ export class DiscoveryEngine {
    * Returns a snapshot of all discovered tools across all servers
    */
   async discoverAll(): Promise<Record<string, MCPTool[]>> {
+    try {
+      const res = await fetch("/api/mcp/discover-all");
+      if (res.ok) {
+        const data = await res.json();
+        for (const [name, tools] of Object.entries(data)) {
+          if (Array.isArray(tools)) {
+            const hash = this.computeToolsHash(tools as MCPTool[]);
+            this.toolsCache.set(name, { tools: tools as MCPTool[], hash, lastFetched: Date.now() });
+          }
+        }
+        return data;
+      }
+    } catch {}
+
     const result: Record<string, MCPTool[]> = {};
     for (const server of this.servers.values()) {
       result[server.name] = await this.getDiscoveredTools(server.name);
@@ -92,6 +104,13 @@ export class DiscoveryEngine {
     prompts: Record<string, MCPPrompt[]>;
     resourceTemplates: Record<string, MCPResourceTemplate[]>;
   }> {
+    try {
+      const res = await fetch("/api/mcp/extra-capabilities");
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {}
+
     const prompts: Record<string, MCPPrompt[]> = {};
     const resourceTemplates: Record<string, MCPResourceTemplate[]> = {};
 

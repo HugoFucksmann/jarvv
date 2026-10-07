@@ -20,4 +20,5 @@ export interface IMCPServer {
   reconnect(): Promise<void>;
   listPrompts?(): Promise<MCPPrompt[]>;
   listResourceTemplates?(): Promise<MCPResourceTemplate[]>;
+  readResource?(uri: string): Promise<string>;
 }
