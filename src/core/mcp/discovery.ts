@@ -13,7 +13,7 @@
 
 import { MCPTool, StepRoute } from "../types.ts";
 import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
-import { ClientMcpServer } from "./clientMcpServer.ts";
+import { ClientMcpServer, getApiUrl } from "./clientMcpServer.ts";
 
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();
@@ -77,8 +77,9 @@ export class DiscoveryEngine {
    */
   async discoverAll(): Promise<Record<string, MCPTool[]>> {
     try {
-      const res = await fetch("/api/mcp/discover-all");
-      if (res.ok) {
+      const res = await fetch(getApiUrl("/api/mcp/discover-all"));
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.includes("application/json")) {
         const data = await res.json();
         for (const [name, tools] of Object.entries(data)) {
           if (Array.isArray(tools)) {
@@ -105,8 +106,9 @@ export class DiscoveryEngine {
     resourceTemplates: Record<string, MCPResourceTemplate[]>;
   }> {
     try {
-      const res = await fetch("/api/mcp/extra-capabilities");
-      if (res.ok) {
+      const res = await fetch(getApiUrl("/api/mcp/extra-capabilities"));
+      const contentType = res.headers.get("content-type") || "";
+      if (res.ok && contentType.includes("application/json")) {
         return await res.json();
       }
     } catch {}

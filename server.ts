@@ -23,6 +23,17 @@ async function main() {
   const app = express();
   app.use(express.json());
 
+  // CORS para permitir desarrollo con frontend en puerto desacoplado (e.g. Vite en :5173)
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // Persistent singleton instances of the 3 MCP servers in Node.js backend
   const servers: Record<string, IMCPServer> = {
     windows: new WindowsMCPServer(),
@@ -193,17 +204,18 @@ async function main() {
     res.json({ connected: server ? server.isConnected() : false });
   });
 
-  // Montar router API
+  // Montar router API en /api y alias /mcp
   app.use('/api', api);
+  app.use('/mcp', api);
 
-  // Barrera estricta 404: ninguna ruta /api no encontrada puede continuar
-  app.use('/api', (req, res) => {
+  // Barrera estricta 404: ninguna ruta de API puede continuar a Vite o servir HTML
+  app.use(['/api', '/mcp'], (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.`, tools: [] });
   });
 
-  // Barrera estricta de errores: cualquier excepción en /api devuelve siempre JSON y jamás HTML
-  app.use('/api', (err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Barrera estricta de errores: cualquier excepción en /api o /mcp devuelve siempre JSON y jamás HTML
+  app.use(['/api', '/mcp'], (err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('[API MCP Error]', err);
     res.setHeader('Content-Type', 'application/json');
     res.status(500).json({ error: err?.message || 'Error interno en API MCP', tools: [] });
@@ -219,13 +231,30 @@ async function main() {
       server: { middlewareMode: true },
       appType: 'custom',
     });
-    app.use(vite.middlewares);
+
+    // Bypass estricto: Vite middleware nunca toca peticiones /api o /mcp
+    app.use((req, res, next) => {
+      if (
+        req.originalUrl.startsWith('/api') ||
+        req.originalUrl.startsWith('/mcp') ||
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/mcp')
+      ) {
+        return next();
+      }
+      vite.middlewares(req, res, next);
+    });
 
     // ============================================================
-    // 3. FALLBACK DEL FRONTEND (INDEX.HTML DE VITE - NUNCA PARA /api)
+    // 3. FALLBACK DEL FRONTEND (INDEX.HTML DE VITE - NUNCA PARA /api o /mcp)
     // ============================================================
     app.use('*', async (req, res, next) => {
-      if (req.originalUrl.startsWith('/api') || req.path.startsWith('/api')) {
+      if (
+        req.originalUrl.startsWith('/api') ||
+        req.originalUrl.startsWith('/mcp') ||
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/mcp')
+      ) {
         res.setHeader('Content-Type', 'application/json');
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
@@ -241,7 +270,12 @@ async function main() {
   } else {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req, res) => {
-      if (req.originalUrl.startsWith('/api') || req.path.startsWith('/api')) {
+      if (
+        req.originalUrl.startsWith('/api') ||
+        req.originalUrl.startsWith('/mcp') ||
+        req.path.startsWith('/api') ||
+        req.path.startsWith('/mcp')
+      ) {
         res.setHeader('Content-Type', 'application/json');
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
@@ -249,9 +283,11 @@ async function main() {
     });
   }
 
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`JARVIS Core full-stack host running on http://0.0.0.0:${PORT}`);
+    console.log(`JARVIS Core full-stack host running on:`);
+    console.log(`  - Local:    http://localhost:${PORT}`);
+    console.log(`  - Loopback: http://127.0.0.1:${PORT}`);
   });
 }
 
