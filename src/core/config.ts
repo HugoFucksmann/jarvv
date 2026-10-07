@@ -18,7 +18,10 @@ export interface JarvisConfig {
   windowsMcp: StdioServerConfig;
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
-  timeoutMs: number;
+  timeoutMs?: number;
+  decisionTimeoutMs: number;
+  qwenTimeoutMs: number;
+  mcpTimeoutMs: number;
 }
 
 const STORAGE_KEY = "jarvis_core_config_v1";
@@ -40,6 +43,9 @@ const DEFAULT_CONFIG: JarvisConfig = {
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
   timeoutMs: 30000,
+  decisionTimeoutMs: 30000,
+  qwenTimeoutMs: 60000,
+  mcpTimeoutMs: 30000,
 };
 
 export class ConfigManager {
@@ -92,6 +98,9 @@ export class ConfigManager {
           return {
             ...DEFAULT_CONFIG,
             ...parsed,
+            decisionTimeoutMs: parsed.decisionTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.decisionTimeoutMs,
+            qwenTimeoutMs: parsed.qwenTimeoutMs ?? DEFAULT_CONFIG.qwenTimeoutMs,
+            mcpTimeoutMs: parsed.mcpTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.mcpTimeoutMs,
             windowsMcp: parsed.windowsMcp || DEFAULT_CONFIG.windowsMcp,
             desktopCommanderMcp: parsed.desktopCommanderMcp || DEFAULT_CONFIG.desktopCommanderMcp,
             freeSearchMcp: parsed.freeSearchMcp || DEFAULT_CONFIG.freeSearchMcp,

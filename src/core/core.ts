@@ -136,6 +136,7 @@ export class JarvisCore {
       toolCallsCountPerStep: new Map(),
     };
 
+    console.log(`[Task] start id=${taskId}`);
     this.taskContexts.set(taskId, context);
     this.sessionHistory.push(message);
     this.persistTasks();
@@ -143,7 +144,7 @@ export class JarvisCore {
 
     // Execute pipeline independently in task context
     this.runTaskPipeline(context).catch((err) => {
-      console.error(`Task ${taskId} execution error:`, err);
+      console.error(`[Task] failed id=${taskId} error=${err?.message || err}`);
       if (context.task.state === "RUNNING") {
         context.task.state = "FAILED";
         this.persistTasks();
@@ -161,6 +162,7 @@ export class JarvisCore {
     context.task.state = "CANCELLED";
     context.pendingApproval = null;
     this.persistTasks();
+    console.log(`[Task] cancelled id=${taskId}`);
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
   }
 
@@ -281,6 +283,11 @@ export class JarvisCore {
       }
 
       task.state = finalState;
+      if (finalState === "FAILED") {
+        console.error(`[Task] failed id=${task.id}`);
+      } else {
+        console.log(`[Task] ${finalState.toLowerCase()} id=${task.id}`);
+      }
 
       // Synthesize Final Response
       const evidenceList = task.steps.map((s) => s.evidence).filter(Boolean) as any[];
@@ -326,6 +333,7 @@ export class JarvisCore {
     }
 
     let discoveredTools = await this.discoveryEngine.getDiscoveredTools(step.route);
+    console.log(`[Discovery] ${serverName} tools=${discoveredTools.length}`);
     this.emitEvent(task.id, "DISCOVERY_REFRESH", { mcp: serverName, toolCount: discoveredTools.length }, step.id);
 
     if (discoveredTools.length === 0) {
@@ -436,7 +444,22 @@ export class JarvisCore {
 
     // 6. MCP Execution
     this.emitEvent(task.id, "MCP_DISPATCHED", { mcp: step.mcp, tool: step.tool, args }, step.id);
-    let rawResult = await server.callTool(step.tool, args);
+    const mcpT0 = Date.now();
+    let rawResult: any;
+    try {
+      rawResult = await server.callTool(step.tool, args);
+      const mcpDuration = Date.now() - mcpT0;
+      if (rawResult.isError) {
+        const errText = rawResult.content?.find((c: any) => c.text)?.text || "error";
+        console.error(`[MCP] ${step.mcp} tool=${step.tool} error=${String(errText).replace(/\r?\n/g, " ").slice(0, 100)} duration=${mcpDuration}ms`);
+      } else {
+        console.log(`[MCP] ${step.mcp} tool=${step.tool} duration=${mcpDuration}ms`);
+      }
+    } catch (mcpErr: any) {
+      const mcpDuration = Date.now() - mcpT0;
+      console.error(`[MCP] ${step.mcp} tool=${step.tool} error=${mcpErr?.message || mcpErr} duration=${mcpDuration}ms`);
+      throw mcpErr;
+    }
 
     // Windows MCP Stale Element Recovery Flow (§8, §9)
     if (step.mcp === "windows" && rawResult.staleElement) {

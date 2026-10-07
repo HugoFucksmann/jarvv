@@ -93,7 +93,7 @@ export class DiscoveryEngine {
     } catch (err: any) {
       // Mark as unavailable so we don't keep hammering a dead process
       this.unavailableServers.set(serverName, { reason: err?.message || String(err), since: Date.now() });
-      console.error(`[Discovery] MCP '${serverName}' marcado como no disponible: ${err?.message}`);
+      console.error(`[Discovery] ${serverName} error=${err?.message || err}`);
       return cached ? cached.tools : [];
     }
   }

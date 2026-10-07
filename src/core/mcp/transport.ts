@@ -19,6 +19,7 @@
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { MCPPrompt, MCPResourceTemplate } from "./types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
+import { ConfigManager } from "../config.ts";
 
 export interface StdioConfig {
   command: string;
@@ -75,6 +76,21 @@ export class StdioMcpTransport implements IMCPTransport {
 
   isConnected(): boolean {
     return this.connected && this.childProcess !== null && !this.childProcess.killed;
+  }
+
+  private getLastStderr(): string {
+    const raw = this.stderrLines.slice(-5).join("").trim();
+    if (!raw) return "";
+    return raw.replace(/\r?\n\s*/g, " | ").slice(0, 300);
+  }
+
+  private getTimeoutMs(): number {
+    try {
+      const config = ConfigManager.getConfig();
+      return config.mcpTimeoutMs ?? this.timeoutMs ?? 30000;
+    } catch {
+      return this.timeoutMs ?? 30000;
+    }
   }
 
   /** Returns the permanent failure error if this transport has crashed unrecoverably, or null. */
@@ -139,11 +155,13 @@ export class StdioMcpTransport implements IMCPTransport {
       child.on("error", (err: Error) => {
         this.connected = false;
         this.initialized = false;
+        const lastStderr = this.getLastStderr();
+        if (lastStderr) {
+          console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
+        }
         const transportErr = new MCPTransportError(this.serverName, `Fallo en proceso hijo: ${err.message}`, err);
         if (!initCompleted) {
-          // Process failed before initialization — mark as permanently failed
           this.permanentFailure = transportErr;
-          console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar proceso: ${err.message}`);
         }
         this.rejectAllPending(transportErr);
       });
@@ -151,19 +169,14 @@ export class StdioMcpTransport implements IMCPTransport {
       child.on("exit", (code, signal) => {
         this.connected = false;
         this.initialized = false;
-        const lastStderr = this.stderrLines.slice(-5).join("\n").trim();
-        const reason = `El proceso MCP '${this.serverName}' terminó (código: ${code}, señal: ${signal}). ${
-          lastStderr ? `Stderr: ${lastStderr}` : ""
-        }`;
+        const lastStderr = this.getLastStderr();
+        if (code !== 0 && code !== null && lastStderr) {
+          console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
+        }
+        const reason = `El proceso MCP '${this.serverName}' terminó (código: ${code}, señal: ${signal}).`;
         const transportErr = new MCPTransportError(this.serverName, reason);
         if (!initCompleted && code !== 0) {
-          // Process exited with error before initialization completed — permanent failure
           this.permanentFailure = transportErr;
-          console.error(
-            `[MCP '${this.serverName}'] Fallo permanente (exit ${code}). No se reintentará hasta reconnect(). Stderr: ${
-              lastStderr || "(sin stderr)"
-            }`
-          );
         }
         this.rejectAllPending(transportErr);
         this.childProcess = null;
@@ -241,6 +254,10 @@ export class StdioMcpTransport implements IMCPTransport {
           this.pendingRequests.delete(typeof reqId === "string" ? Number(reqId) : String(reqId));
 
           if (msg.error) {
+            const lastStderr = this.getLastStderr();
+            if (lastStderr) {
+              console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
+            }
             pending.reject(
               new MCPTransportError(
                 this.serverName,
@@ -291,17 +308,22 @@ export class StdioMcpTransport implements IMCPTransport {
       method,
       params,
     };
+    const currentTimeoutMs = this.getTimeoutMs();
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
+        const lastStderr = this.getLastStderr();
+        if (lastStderr) {
+          console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
+        }
         reject(
           new MCPTransportError(
             this.serverName,
-            `Timeout de ${this.timeoutMs}ms esperando respuesta stdio para '${method}' (id: ${id}).`
+            `Timeout de ${currentTimeoutMs}ms esperando respuesta stdio para '${method}' (id: ${id}).`
           )
         );
-      }, this.timeoutMs);
+      }, currentTimeoutMs);
 
       this.pendingRequests.set(id, { resolve, reject, timer, method });
 

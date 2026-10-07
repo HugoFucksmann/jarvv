@@ -61,6 +61,33 @@ export interface ILLMClient {
 
 export class QwenEngine implements ILLMClient {
   /**
+   * Helper to wrap stages with concise observability logging.
+   */
+  private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
+    const t0 = Date.now();
+    console.log(`[Qwen] ${stage} start`);
+    try {
+      const result = await fn();
+      const duration = Date.now() - t0;
+      console.log(`[Qwen] ${stage} done duration=${duration}ms`);
+      return result;
+    } catch (err: any) {
+      const duration = Date.now() - t0;
+      const isTimeout =
+        err?.name === "TimeoutError" ||
+        err?.message?.toLowerCase().includes("timeout") ||
+        err?.cause?.name === "TimeoutError";
+      if (isTimeout) {
+        console.error(`[Qwen] ${stage} timeout duration=${duration}ms`);
+      } else {
+        const errMsg = err?.message || String(err);
+        console.error(`[Qwen] ${stage} error=${errMsg.replace(/\r?\n/g, " ").slice(0, 100)} duration=${duration}ms`);
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Helper to dispatch inference requests to the configured Qwen HTTP endpoint.
    */
   private async dispatchPrompt(systemPrompt: string, userPrompt: string, expectJson = true): Promise<string> {
@@ -98,6 +125,8 @@ export class QwenEngine implements ILLMClient {
       bodyPayload.format = "json"; // Native Ollama format parameter
     }
 
+    const timeoutMs = config.qwenTimeoutMs ?? config.timeoutMs ?? 60000;
+
     try {
       response = await fetch(url, {
         method: "POST",
@@ -108,7 +137,7 @@ export class QwenEngine implements ILLMClient {
           "bypass-tunnel-reminder": "true",
         },
         body: JSON.stringify(bodyPayload),
-        signal: AbortSignal.timeout(config.timeoutMs || 30000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err: any) {
       if (err.name === "TimeoutError") {
@@ -160,20 +189,21 @@ export class QwenEngine implements ILLMClient {
     scratchpad: Scratchpad,
     context: string
   ): Promise<Record<string, unknown>> {
-    const systemPrompt = `Eres el generador de argumentos de JARVIS Core.
+    return await this.executeStage("generateArguments", async () => {
+      const systemPrompt = `Eres el generador de argumentos de JARVIS Core.
 Tu única función es generar un objeto JSON válido con los argumentos para la herramienta indicada, cumpliendo estrictamente con su inputSchema.
 NO agregues explicaciones, markdown adicional ni comentarios. Devuelve únicamente el objeto JSON con los campos requeridos.`;
 
-    // Prune excessive scratchpad data to respect context boundary (§4.13, §21)
-    const compactScratchpad: Record<string, unknown> = { ...scratchpad };
-    if (typeof compactScratchpad.text === "string" && compactScratchpad.text.length > 500) {
-      compactScratchpad.text = `${compactScratchpad.text.substring(0, 500)}... [truncado]`;
-    }
-    if (Array.isArray(compactScratchpad.search_results) && compactScratchpad.search_results.length > 3) {
-      compactScratchpad.search_results = compactScratchpad.search_results.slice(0, 3);
-    }
+      // Prune excessive scratchpad data to respect context boundary (§4.13, §21)
+      const compactScratchpad: Record<string, unknown> = { ...scratchpad };
+      if (typeof compactScratchpad.text === "string" && compactScratchpad.text.length > 500) {
+        compactScratchpad.text = `${compactScratchpad.text.substring(0, 500)}... [truncado]`;
+      }
+      if (Array.isArray(compactScratchpad.search_results) && compactScratchpad.search_results.length > 3) {
+        compactScratchpad.search_results = compactScratchpad.search_results.slice(0, 3);
+      }
 
-    const userPrompt = `Tool seleccionada: "${tool.name}"
+      const userPrompt = `Tool seleccionada: "${tool.name}"
 Descripción de la tool: "${tool.description}"
 Input Schema: ${JSON.stringify(tool.inputSchema)}
 Instrucción del paso: "${step.instruction}"
@@ -182,35 +212,36 @@ Scratchpad actual: ${JSON.stringify(compactScratchpad)}
 
 Genera los argumentos JSON para ejecutar la tool.`;
 
-    const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true);
-    let parsed: any;
-    try {
-      parsed = JSON.parse(rawJson);
-    } catch (e) {
-      // Clean possible markdown code fences if model returned them
-      const match = rawJson.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          parsed = JSON.parse(match[0]);
-        } catch {}
+      const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(rawJson);
+      } catch (e) {
+        // Clean possible markdown code fences if model returned them
+        const match = rawJson.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            parsed = JSON.parse(match[0]);
+          } catch {}
+        }
       }
-    }
 
-    if (!parsed || typeof parsed !== "object") {
-      throw new LLMValidationError(`Qwen 3.5 9B generó argumentos inválidos (no es un objeto JSON): "${rawJson.substring(0, 100)}"`);
-    }
-
-    // Validate required properties against tool.inputSchema
-    const required = (tool.inputSchema?.required as string[]) || [];
-    for (const req of required) {
-      if (parsed[req] === undefined) {
-        throw new LLMValidationError(
-          `Argumentos generados por Qwen 3.5 9B omiten el campo obligatorio '${req}' requerido por el schema de '${tool.name}'.`
-        );
+      if (!parsed || typeof parsed !== "object") {
+        throw new LLMValidationError(`Qwen 3.5 9B generó argumentos inválidos (no es un objeto JSON): "${rawJson.substring(0, 100)}"`);
       }
-    }
 
-    return parsed;
+      // Validate required properties against tool.inputSchema
+      const required = (tool.inputSchema?.required as string[]) || [];
+      for (const req of required) {
+        if (parsed[req] === undefined) {
+          throw new LLMValidationError(
+            `Argumentos generados por Qwen 3.5 9B omiten el campo obligatorio '${req}' requerido por el schema de '${tool.name}'.`
+          );
+        }
+      }
+
+      return parsed;
+    });
   }
 
   /**
@@ -221,7 +252,8 @@ Genera los argumentos JSON para ejecutar la tool.`;
     userMessage: string,
     scratchpad: Scratchpad
   ): Promise<Plan> {
-    const systemPrompt = `Eres el planificador de JARVIS Core.
+    return await this.executeStage("generatePlan", async () => {
+      const systemPrompt = `Eres el planificador de JARVIS Core.
 Tu objetivo es descomponer la solicitud del usuario en una secuencia ordenada de pasos deterministas.
 Rutas disponibles: "chat", "windows", "desktop_commander", "free_search".
 Reglas estrictas:
@@ -230,42 +262,43 @@ Reglas estrictas:
 3. NO incluyas campos adicionales.
 4. Devuelve ÚNICAMENTE un JSON con la estructura: { "steps": [ ... ] }.`;
 
-    const userPrompt = `Solicitud del usuario: "${userMessage}"
+      const userPrompt = `Solicitud del usuario: "${userMessage}"
 Scratchpad actual: ${JSON.stringify(scratchpad)}
 
 Genera el plan de ejecución en JSON:`;
 
-    const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true);
-    let parsed: any;
-    try {
-      parsed = JSON.parse(rawJson);
-    } catch (e) {
-      const match = rawJson.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          parsed = JSON.parse(match[0]);
-        } catch {}
+      const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true);
+      let parsed: any;
+      try {
+        parsed = JSON.parse(rawJson);
+      } catch (e) {
+        const match = rawJson.match(/\{[\s\S]*\}/);
+        if (match) {
+          try {
+            parsed = JSON.parse(match[0]);
+          } catch {}
+        }
       }
-    }
 
-    if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-      throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta la clave 'steps' o está vacía.");
-    }
-
-    if (parsed.steps.length > MAX_STEPS) {
-      parsed.steps = parsed.steps.slice(0, MAX_STEPS);
-    }
-
-    for (let i = 0; i < parsed.steps.length; i++) {
-      const s = parsed.steps[i];
-      if (!s.id || !s.route || !s.instruction) {
-        throw new LLMValidationError(
-          `Paso #${i + 1} del plan generado por Qwen 3.5 9B no cumple con los campos requeridos (id, route, instruction).`
-        );
+      if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+        throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta la clave 'steps' o está vacía.");
       }
-    }
 
-    return parsed as Plan;
+      if (parsed.steps.length > MAX_STEPS) {
+        parsed.steps = parsed.steps.slice(0, MAX_STEPS);
+      }
+
+      for (let i = 0; i < parsed.steps.length; i++) {
+        const s = parsed.steps[i];
+        if (!s.id || !s.route || !s.instruction) {
+          throw new LLMValidationError(
+            `Paso #${i + 1} del plan generado por Qwen 3.5 9B no cumple con los campos requeridos (id, route, instruction).`
+          );
+        }
+      }
+
+      return parsed as Plan;
+    });
   }
 
   /**
@@ -275,14 +308,16 @@ Genera el plan de ejecución en JSON:`;
     instruction: string,
     scratchpad: Scratchpad
   ): Promise<string> {
-    const systemPrompt = `Eres JARVIS Core (asistente de sistema).
+    return await this.executeStage("generateChatResponse", async () => {
+      const systemPrompt = `Eres JARVIS Core (asistente de sistema).
 Responde de forma concisa, precisa y profesional en español a la consulta o instrucción del usuario.
 Usa los datos del Scratchpad si son relevantes. NO inventes hechos fuera del contexto del sistema.`;
 
-    const userPrompt = `Instrucción: "${instruction}"
+      const userPrompt = `Instrucción: "${instruction}"
 Datos de Scratchpad: ${JSON.stringify(scratchpad)}`;
 
-    return await this.dispatchPrompt(systemPrompt, userPrompt, false);
+      return await this.dispatchPrompt(systemPrompt, userPrompt, false);
+    });
   }
 
   /**
@@ -294,28 +329,30 @@ Datos de Scratchpad: ${JSON.stringify(scratchpad)}`;
     scratchpad: Scratchpad,
     evidenceList: Evidence[]
   ): Promise<string> {
-    const systemPrompt = `Eres JARVIS Core sintetizando el resultado final de una tarea.
+    return await this.executeStage("synthesizeFinalResponse", async () => {
+      const systemPrompt = `Eres JARVIS Core sintetizando el resultado final de una tarea.
 Resume en un párrafo claro y profesional qué acciones se completaron, qué evidencia se obtuvo y la conclusión para el usuario.
 Menciona si hubo pasos no verificados o fallidos.`;
 
-    const summaryPayload = {
-      tarea: taskMessage,
-      pasos_completados: steps.map((s) => ({
-        id: s.id,
-        route: s.route,
-        tool: s.tool,
-        estado: s.state,
-        verificacion: s.verification,
-      })),
-      evidencia: evidenceList.map((e) => e.summary),
-      scratchpad,
-    };
+      const summaryPayload = {
+        tarea: taskMessage,
+        pasos_completados: steps.map((s) => ({
+          id: s.id,
+          route: s.route,
+          tool: s.tool,
+          estado: s.state,
+          verificacion: s.verification,
+        })),
+        evidencia: evidenceList.map((e) => e.summary),
+        scratchpad,
+      };
 
-    const userPrompt = `Resumen de ejecución:
+      const userPrompt = `Resumen de ejecución:
 ${JSON.stringify(summaryPayload, null, 2)}
 
 Genera la respuesta final en español:`;
 
-    return await this.dispatchPrompt(systemPrompt, userPrompt, false);
+      return await this.dispatchPrompt(systemPrompt, userPrompt, false);
+    });
   }
 }

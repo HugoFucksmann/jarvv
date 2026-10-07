@@ -25,7 +25,7 @@ export class FreeSearchMCPServer implements IMCPServer {
     this.transport = transport || new StdioMcpTransport(
       "free_search",
       config.freeSearchMcp,
-      config.timeoutMs
+      config.mcpTimeoutMs ?? config.timeoutMs ?? 30000
     );
   }
 

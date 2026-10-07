@@ -70,6 +70,7 @@ export class Decision20Engine {
 
     let response: Response;
     try {
+      const timeoutMs = config.decisionTimeoutMs ?? config.timeoutMs ?? 30000;
       response = await fetch(url, {
         method: "POST",
         headers: {
@@ -79,7 +80,7 @@ export class Decision20Engine {
           "bypass-tunnel-reminder": "true",
         },
         body: JSON.stringify({ state: stateStr, questions }),
-        signal: AbortSignal.timeout(config.timeoutMs || 30000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err: any) {
       if (err.name === "TimeoutError") {
@@ -151,7 +152,14 @@ export class Decision20Engine {
       },
     };
 
-    const response = await this.systemOne(statePayload, questions);
+    const t0 = Date.now();
+    let response: DecisionResponse;
+    try {
+      response = await this.systemOne(statePayload, questions);
+    } catch (err: any) {
+      console.error(`[Decision] error=${err?.message || err} duration=${Date.now() - t0}ms`);
+      throw err;
+    }
 
     const routeAnswer = response.answers.route as DecisionAnswerChoice;
     const multiStepAnswer = response.answers.multi_step as DecisionAnswerNoul;
@@ -162,6 +170,8 @@ export class Decision20Engine {
     const route = validRoutes.includes(candidateRoute) ? candidateRoute : "chat";
     const multiStep = multiStepAnswer.noul >= 0.5;
     const needsContext = needsContextAnswer.noul >= 0.6;
+
+    console.log(`[Decision] route=${route} duration=${Date.now() - t0}ms`);
 
     return {
       route,
@@ -195,6 +205,7 @@ export class Decision20Engine {
         probabilities: { [tool.name]: 1.0 },
         confidence: 1.0,
       };
+      console.log(`[Decision] tool=${tool.name} duration=0ms`);
       return {
         selectedTool: tool,
         choiceAnswer: answer,
@@ -226,15 +237,25 @@ export class Decision20Engine {
       },
     };
 
-    const response = await this.systemOne(statePayload, questions);
+    const t0 = Date.now();
+    let response: DecisionResponse;
+    try {
+      response = await this.systemOne(statePayload, questions);
+    } catch (err: any) {
+      console.error(`[Decision] error=${err?.message || err} duration=${Date.now() - t0}ms`);
+      throw err;
+    }
     const choiceAnswer = response.answers.selected_tool as DecisionAnswerChoice;
 
     const matchedTool = limitedTools.find((t) => t.name === choiceAnswer.choice);
     if (!matchedTool) {
+      console.error(`[Decision] error=unmatched_choice duration=${Date.now() - t0}ms`);
       throw new DecisionValidationError(
         `Decision 2.0 seleccionó una opción '${choiceAnswer.choice}' que no corresponde a ninguna de las herramientas descubiertas.`
       );
     }
+
+    console.log(`[Decision] tool=${matchedTool.name} duration=${Date.now() - t0}ms`);
 
     return {
       selectedTool: matchedTool,
