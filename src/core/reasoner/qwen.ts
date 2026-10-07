@@ -281,6 +281,9 @@ Genera el plan de ejecución en JSON:`;
       }
 
       if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
+        const preview = (rawJson || "").replace(/\r?\n\s*/g, " ").slice(0, 160);
+        const keys = parsed && typeof parsed === "object" ? (Array.isArray(parsed) ? `array[${parsed.length}]` : Object.keys(parsed).join(",")) : typeof parsed;
+        console.error(`[Qwen] generatePlan preview="${preview}" keys=${keys}`);
         throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta la clave 'steps' o está vacía.");
       }
 
