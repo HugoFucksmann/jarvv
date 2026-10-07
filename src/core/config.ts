@@ -14,6 +14,7 @@ export interface StdioServerConfig {
 export interface JarvisConfig {
   qwenUrl: string;
   qwenModel: string;
+  thinking: boolean;
   decisionUrl: string;
   windowsMcp: StdioServerConfig;
   desktopCommanderMcp: StdioServerConfig;
@@ -29,6 +30,7 @@ const STORAGE_KEY = "jarvis_core_config_v1";
 const DEFAULT_CONFIG: JarvisConfig = {
   qwenUrl: "http://127.0.0.1:11434",
   qwenModel: "qwen3.5:9b",
+  thinking: false,
   decisionUrl: "http://127.0.0.1:8765",
   windowsMcp: {
     command: "uvx",
@@ -98,6 +100,7 @@ export class ConfigManager {
           return {
             ...DEFAULT_CONFIG,
             ...parsed,
+            thinking: typeof parsed.thinking === "boolean" ? parsed.thinking : DEFAULT_CONFIG.thinking,
             decisionTimeoutMs: parsed.decisionTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.decisionTimeoutMs,
             qwenTimeoutMs: parsed.qwenTimeoutMs ?? DEFAULT_CONFIG.qwenTimeoutMs,
             mcpTimeoutMs: parsed.mcpTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.mcpTimeoutMs,

@@ -108,6 +108,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 font-mono text-[11px] focus:outline-none focus:border-sky-500"
               />
             </div>
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex flex-col">
+                <span className="font-mono text-xs text-slate-300 font-medium">
+                  Modo Thinking (Ollama think):
+                </span>
+                <span className="font-mono text-[10px] text-slate-500">
+                  {config.thinking ? "Habilitado (think: true - razonamiento completo)" : "Deshabilitado (think: false - modo rápido)"}
+                </span>
+              </div>
+              <input
+                type="checkbox"
+                checked={Boolean(config.thinking)}
+                onChange={(e) => setConfig({ ...config, thinking: e.target.checked })}
+                className="w-4 h-4 accent-sky-500 rounded cursor-pointer bg-slate-950 border-slate-800"
+              />
+            </div>
           </div>
 
           {/* 2. Decision 2.0 URL (HTTP default 127.0.0.1:8765) */}

@@ -90,7 +90,12 @@ export class QwenEngine implements ILLMClient {
   /**
    * Helper to dispatch inference requests to the configured Qwen HTTP endpoint.
    */
-  private async dispatchPrompt(systemPrompt: string, userPrompt: string, expectJson = true): Promise<string> {
+  private async dispatchPrompt(
+    systemPrompt: string,
+    userPrompt: string,
+    expectJson = true,
+    maxTokens?: number
+  ): Promise<string> {
     const config = ConfigManager.getConfig();
     const endpointUrl = config.qwenUrl?.trim();
 
@@ -110,6 +115,8 @@ export class QwenEngine implements ILLMClient {
 
     let response: Response;
     const modelName = config.qwenModel?.trim();
+    const isThinking = Boolean(config.thinking);
+
     const bodyPayload: any = {
       ...(modelName ? { model: modelName } : {}),
       messages: [
@@ -118,7 +125,16 @@ export class QwenEngine implements ILLMClient {
       ],
       temperature: 0.1,
       stream: false,
+      reasoning_effort: isThinking ? "medium" : "none",
     };
+
+    if (maxTokens) {
+      bodyPayload.max_tokens = maxTokens;
+      bodyPayload.options = {
+        ...(bodyPayload.options || {}),
+        num_predict: maxTokens,
+      };
+    }
 
     if (expectJson) {
       bodyPayload.response_format = { type: "json_object" };
@@ -163,17 +179,34 @@ export class QwenEngine implements ILLMClient {
       throw new LLMValidationError("La respuesta de Qwen 3.5 9B no contiene un cuerpo JSON legible.");
     }
 
-    // Support standard OpenAI format ({ choices: [{ message: { content } }] }) or Ollama format ({ message: { content } })
-    let content: string | undefined;
-    if (data.choices?.[0]?.message?.content) {
-      content = data.choices[0].message.content;
-    } else if (data.message?.content) {
-      content = data.message.content;
-    } else if (data.response) {
-      content = data.response;
+    const firstChoice = data.choices?.[0];
+    const messageObj = firstChoice?.message || data.message;
+
+    // Logging de diagnóstico de reasoning si está presente (sin usarlo como respuesta visible)
+    const reasoningTrace =
+      messageObj?.reasoning ||
+      messageObj?.reasoning_content ||
+      messageObj?.thinking ||
+      data.thinking;
+    if (reasoningTrace && typeof reasoningTrace === "string") {
+      const preview = reasoningTrace.replace(/\r?\n/g, " ").slice(0, 120);
+      console.log(`[Qwen] Reasoning trace detected (${reasoningTrace.length} chars): ${preview}...`);
     }
 
-    if (!content || typeof content !== "string") {
+    // La respuesta visible al usuario debe ser el contenido final (message.content, data.response o firstChoice.text)
+    // NO utilizar message.reasoning / reasoning_content / thinking como respuesta final
+    let content: string | undefined;
+
+    if (typeof messageObj?.content === "string" && messageObj.content.trim()) {
+      content = messageObj.content;
+    } else if (typeof data.response === "string" && data.response.trim()) {
+      content = data.response;
+    } else if (typeof firstChoice?.text === "string" && firstChoice.text.trim()) {
+      content = firstChoice.text;
+    }
+
+    if (!content || typeof content !== "string" || !content.trim()) {
+      console.error("[Qwen] Raw response keys / sample:", JSON.stringify(data).slice(0, 300));
       throw new LLMValidationError("Respuesta de Qwen 3.5 9B vacía o con estructura no reconocida.");
     }
 
@@ -212,7 +245,7 @@ Scratchpad actual: ${JSON.stringify(compactScratchpad)}
 
 Genera los argumentos JSON para ejecutar la tool.`;
 
-      const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true);
+      const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true, 1024);
       let parsed: any;
       try {
         parsed = JSON.parse(rawJson);
@@ -267,7 +300,7 @@ Scratchpad actual: ${JSON.stringify(scratchpad)}
 
 Genera el plan de ejecución en JSON:`;
 
-      const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true);
+      const rawJson = await this.dispatchPrompt(systemPrompt, userPrompt, true, 1500);
       let parsed: any;
       try {
         parsed = JSON.parse(rawJson);
@@ -319,7 +352,7 @@ Usa los datos del Scratchpad si son relevantes. NO inventes hechos fuera del con
       const userPrompt = `Instrucción: "${instruction}"
 Datos de Scratchpad: ${JSON.stringify(scratchpad)}`;
 
-      return await this.dispatchPrompt(systemPrompt, userPrompt, false);
+      return await this.dispatchPrompt(systemPrompt, userPrompt, false, 1024);
     });
   }
 
@@ -355,7 +388,7 @@ ${JSON.stringify(summaryPayload, null, 2)}
 
 Genera la respuesta final en español:`;
 
-      return await this.dispatchPrompt(systemPrompt, userPrompt, false);
+      return await this.dispatchPrompt(systemPrompt, userPrompt, false, 1500);
     });
   }
 }
