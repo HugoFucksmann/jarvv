@@ -77,10 +77,11 @@ export default function App() {
         </div>
       </main>
 
-      {/* 6. Context Inspector — Scratchpad, Evidence & Discovered Tools */}
+      {/* 6. Context Inspector — Scratchpad, Evidence, Memoria & Discovered Tools */}
       <ContextInspector
         scratchpad={task?.scratchpad || {}}
         steps={task?.steps || []}
+        memory={task?.memory}
         discoveredTools={discoveredTools}
         extraCapabilities={extraCapabilities}
       />

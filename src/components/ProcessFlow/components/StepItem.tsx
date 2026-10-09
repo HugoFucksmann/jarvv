@@ -1,5 +1,16 @@
-import React from "react";
-import { CheckCircle2, AlertCircle, Clock, ShieldX, HelpCircle, Loader2, ShieldAlert } from "lucide-react";
+import React, { useState } from "react";
+import {
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  ShieldX,
+  HelpCircle,
+  Loader2,
+  ShieldAlert,
+  ChevronDown,
+  ChevronRight,
+  Terminal,
+} from "lucide-react";
 import { Step } from "../../../core/types.ts";
 
 interface StepItemProps {
@@ -9,6 +20,8 @@ interface StepItemProps {
 }
 
 export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) => {
+  const [showCalls, setShowCalls] = useState(false);
+
   const renderStatusIcon = () => {
     switch (step.state) {
       case "COMPLETED":
@@ -37,17 +50,22 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
         return "Desktop Commander";
       case "free_search":
         return "Free Search MCP";
+      case "fin":
       case "chat":
-        return "Qwen 3.5 9B Chat";
+        return "Fin / Qwen Chat";
       default:
         return step.route;
     }
   };
 
+  const callsCount = step.calls?.length ?? 0;
+
   return (
     <div
       className={`flex flex-col gap-2 py-3 px-3.5 rounded-lg transition-colors ${
-        isCurrent
+        step.superseded
+          ? "opacity-50 bg-slate-950/60 border border-slate-900"
+          : isCurrent
           ? "bg-slate-900/90 border border-slate-700/60"
           : "hover:bg-slate-900/40 border border-transparent"
       }`}
@@ -71,10 +89,20 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                   </span>
                 </>
               )}
+              {step.superseded && (
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-950/50 text-rose-400 border border-rose-900/50">
+                  SUPERSEDED {step.rev ? `(rev ${step.rev})` : ""}
+                </span>
+              )}
             </div>
-            <p className="text-sm text-slate-200">
+            <p className={`text-sm ${step.superseded ? "line-through text-slate-500" : "text-slate-200"}`}>
               {step.instruction}
             </p>
+            {step.expectedOutcome && !step.superseded && (
+              <p className="text-xs text-emerald-400/70 font-mono mt-0.5">
+                Esperado: {step.expectedOutcome}
+              </p>
+            )}
           </div>
         </div>
 
@@ -94,6 +122,72 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
           </span>
         </div>
       </div>
+
+      {/* Accordion toggle for calls history */}
+      {callsCount > 0 && (
+        <div className="ml-7 mt-1">
+          <button
+            type="button"
+            onClick={() => setShowCalls(!showCalls)}
+            className="flex items-center gap-1.5 text-xs text-sky-400/90 hover:text-sky-300 font-mono transition-colors cursor-pointer"
+          >
+            {showCalls ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {callsCount} llamada{callsCount > 1 ? "s" : ""} a herramientas
+            </span>
+          </button>
+
+          {showCalls && (
+            <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-slate-800 pl-3 py-1">
+              {step.calls!.map((c) => {
+                const isError = Boolean(c.error);
+                const isVerified = c.verification === "VERIFIED";
+                return (
+                  <div
+                    key={c.id}
+                    className="p-2 rounded bg-slate-950/70 border border-slate-800/80 text-xs font-mono"
+                  >
+                    <div className="flex items-center justify-between text-slate-400 mb-1">
+                      <span className="text-sky-300 font-semibold flex items-center gap-1">
+                        <Terminal className="w-3 h-3 text-sky-400" />
+                        {c.mcp}:{c.tool}
+                      </span>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span
+                          className={
+                            isError
+                              ? "text-rose-400"
+                              : isVerified
+                              ? "text-emerald-400"
+                              : "text-slate-400"
+                          }
+                        >
+                          [{isError ? "error" : c.verification || "ok"}]
+                        </span>
+                      </div>
+                    </div>
+
+                    {c.args && Object.keys(c.args).length > 0 && (
+                      <div className="text-[11px] text-slate-400 truncate mb-1">
+                        <span className="text-slate-500">args: </span>
+                        {JSON.stringify(c.args)}
+                      </div>
+                    )}
+
+                    <div className="text-[11px] text-slate-300 bg-slate-900/60 p-1.5 rounded border border-slate-800/40 line-clamp-3">
+                      {c.evidence?.summary || c.error || "Sin detalle textual"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Render evidence or execution details if present */}
       {step.evidence && (
@@ -120,3 +214,4 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
     </div>
   );
 };
+

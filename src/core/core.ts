@@ -1,21 +1,6 @@
 /**
- * JARVIS Core v1.0 — Orchestrator & Deterministic Authority
- * 
- * Invariants Enforced (§4, §51):
- * - Core controls all transitions.
- * - Models do not execute tools.
- * - Decision 2.0 only produces structured decisions according to contract.
- * - Qwen 3.5 9B does not select tools or assign capabilities.
- * - Discovery is the single source of truth for available tools.
- * - Policy Registry classifies capabilities; Guard authorizes (ALLOW, DENY, APPROVAL).
- * - APPROVAL always requires explicit human confirmation (no auto-approval).
- * - DENY cannot be bypassed by retry loops.
- * - Unknown tools are never executed (unknown tool flow: tools/list -> update cache -> re-select -> if still unknown -> NO EXECUTE).
- * - Side-effect dispatched but outcome unverified -> UNVERIFIED. No automatic retry.
- * - Strict task isolation: concurrent tasks have independent execution contexts.
- * - Global limits: MAX_STEPS = 15, MAX_TOOL_CALLS_PER_STEP = 4, MAX_PLAN_GENERATION_ATTEMPTS = 1, MAX_ARG_RETRIES = 1.
- * - Anti-loop: identical invocation signature blocks execution to prevent loops.
- * - Windows stale element recovery: detects stale element, refreshes UI tree, and attempts single recovery.
+ * JARVIS Core v2.1 — Unified Reactive Engine & Deterministic Authority
+ * Implements FAST and PLAN modes over a single execution engine (§1, §4, §8, §9)
  */
 
 import {
@@ -24,27 +9,46 @@ import {
   Step,
   StepState,
   StepRoute,
+  StepCall,
   CoreEvent,
   CoreEventType,
   PendingApproval,
   MAX_STEPS,
   MAX_TOOL_CALLS_PER_STEP,
-  MAX_ARG_RETRIES,
+  MAX_TOOL_CALLS_TASK,
+  MAX_ESCALATIONS,
+  MAX_REPLAN,
+  DECISION_MIN_CONFIDENCE,
+  DECISION_MIN_CONFIDENCE_POST_ACTION,
+  StepExecutionResult,
+  EscalationResponse,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
+import { PolicyRegistry } from "./policy/policyRegistry.ts";
 import { QwenEngine, ILLMClient } from "./reasoner/qwen.ts";
-import { ResultProcessor } from "./processor/resultProcessor.ts";
+import { ResultProcessor, RefStore, ProcessedResult } from "./processor/resultProcessor.ts";
 
 export type CoreEventListener = (event: CoreEvent) => void;
 
 export interface TaskExecutionContext {
   task: Task;
+  abortController: AbortController;
   isCancelled: boolean;
   pendingApproval: PendingApproval | null;
   executedSignatures: Set<string>;
-  toolCallsCountPerStep: Map<string, number>;
+  nonReadCounter: number;
+  lastActionWasRead: boolean;
+  consecutiveLoopBlocks: number;
+  totalToolCalls: number;
+  escalations: number;
+  startTime: number;
+  overridesCount: number;
+  retriesCount: number;
+  activeServerOverride?: string;
+  excludedToolForNextCall?: string;
+  lastCallCompactObs?: string;
 }
 
 const TASKS_STORAGE_KEY = "jarvis_tasks_history_v1";
@@ -100,7 +104,6 @@ export class JarvisCore {
     if (taskId) {
       return this.taskContexts.get(taskId)?.pendingApproval || null;
     }
-    // Return first active pending approval across contexts if not specified
     for (const ctx of this.taskContexts.values()) {
       if (ctx.pendingApproval) return ctx.pendingApproval;
     }
@@ -126,25 +129,40 @@ export class JarvisCore {
       currentStep: 0,
       scratchpad: {},
       state: "RUNNING",
+      memory: { log: [], facts: {}, fail: [] },
+      replans: 0,
+      escalations: 0,
+      stepSeq: 0,
     };
 
     const context: TaskExecutionContext = {
       task,
+      abortController: new AbortController(),
       isCancelled: false,
       pendingApproval: null,
       executedSignatures: new Set(),
-      toolCallsCountPerStep: new Map(),
+      nonReadCounter: 0,
+      lastActionWasRead: false,
+      consecutiveLoopBlocks: 0,
+      totalToolCalls: 0,
+      escalations: 0,
+      startTime: Date.now(),
+      overridesCount: 0,
+      retriesCount: 0,
     };
 
-    console.log(`[Task] start id=${taskId}`);
+    console.log(`[Task] start id=${taskId} mode=${mode}`);
     this.taskContexts.set(taskId, context);
     this.sessionHistory.push(message);
     this.persistTasks();
     this.emitEvent(taskId, "TASK_CREATED", { task });
 
-    // Execute pipeline independently in task context
+    // Execute pipeline independently
     this.runTaskPipeline(context).catch((err) => {
-      console.error(`[Task] failed id=${taskId} error=${err?.message || err}`);
+      const durationTotalMs = Date.now() - context.startTime;
+      console.error(
+        `[Task Summary] id=${taskId} state=FAILED reason="${err?.message || err}" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
+      );
       if (context.task.state === "RUNNING") {
         context.task.state = "FAILED";
         this.persistTasks();
@@ -159,10 +177,25 @@ export class JarvisCore {
     const context = this.taskContexts.get(taskId);
     if (!context || context.task.state !== "RUNNING") return;
     context.isCancelled = true;
+    context.abortController.abort();
     context.task.state = "CANCELLED";
-    context.pendingApproval = null;
+
+    if (context.pendingApproval) {
+      context.pendingApproval.onDeny("Operación cancelada por el usuario.");
+      context.pendingApproval = null;
+    }
+
+    const currentStep = context.task.steps[context.task.currentStep];
+    if (currentStep && currentStep.state === "RUNNING") {
+      currentStep.state = "FAILED";
+      currentStep.error = "CANCELLED";
+    }
+
     this.persistTasks();
-    console.log(`[Task] cancelled id=${taskId}`);
+    const durationTotalMs = Date.now() - context.startTime;
+    console.log(
+      `[Task Summary] id=${taskId} state=CANCELLED reason="Cancelada por usuario" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
+    );
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
   }
 
@@ -172,250 +205,447 @@ export class JarvisCore {
     context.task.planConfirmed = true;
     this.persistTasks();
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { planConfirmed: true });
-    // Resume task step execution
-    this.executeStepsPipeline(context);
+    // Resume plan execution
+    this.runPlanLoop(context).catch((err) => {
+      console.error(`[Plan Resume Error] id=${taskId}`, err);
+    });
   }
 
-  // --- Core Execution Pipeline ---
+  // --- Pipeline Orchestration ---
   private async runTaskPipeline(context: TaskExecutionContext): Promise<void> {
-    const { task } = context;
     if (context.isCancelled) return;
 
-    // 1. Decision #1 — Structural Routing (§15, §16)
-    let historyContext = this.sessionHistory.slice(-2);
-    let d1 = await this.decisionEngine.evaluateDecisionOne(task.message, historyContext);
-
-    // Expand context up to 5-10 messages if needed
-    if (d1.needsContext && this.sessionHistory.length > 2) {
-      historyContext = this.sessionHistory.slice(-5);
-      d1 = await this.decisionEngine.evaluateDecisionOne(task.message, historyContext);
+    if (context.task.mode === "PLAN") {
+      await this.initiatePlanMode(context);
+    } else {
+      await this.runFastLoop(context);
     }
+  }
 
-    this.emitEvent(task.id, "DECISION_ONE", {
-      route: d1.route,
-      multiStep: d1.multiStep,
-      needsContext: d1.needsContext,
-      answers: d1.rawResponse.answers,
-    });
+  // ============================================================
+  // FAST MODE ENGINE (§4, §8)
+  // ============================================================
+  private async runFastLoop(context: TaskExecutionContext): Promise<void> {
+    const { task } = context;
 
-    // 2. Determine Step Strategy
-    if (task.mode === "PLAN" || d1.multiStep) {
-      // Qwen 3.5 9B generates plan (MAX_PLAN_GENERATION_ATTEMPTS = 1)
-      const plan = await this.qwenEngine.generatePlan(task.message, task.scratchpad);
-      
-      // Core validation of Plan schema (§7, §22)
-      if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
-        task.state = "FAILED";
-        this.persistTasks();
-        this.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: "Plan inválido generado por Qwen 3.5 9B." });
+    while (!context.isCancelled) {
+      const currentStepSeq = task.stepSeq ?? 0;
+      if (currentStepSeq >= MAX_STEPS) {
+        console.warn(`[FAST] MAX_STEPS (${MAX_STEPS}) alcanzado. Parada controlada PARTIAL.`);
+        await this.concludeTask(context, "PARTIAL", "Límite MAX_STEPS alcanzado.");
         return;
       }
 
-      task.steps = plan.steps.slice(0, MAX_STEPS).map((s) => ({
-        id: s.id,
-        route: s.route as StepRoute,
-        instruction: s.instruction,
-        state: "PENDING" as StepState,
-      }));
-
-      this.persistTasks();
-      this.emitEvent(task.id, "PLAN_GENERATED", { steps: task.steps });
-
-      // If mode is PLAN, pause and await user confirmation in UI (§14.2, §42)
-      if (task.mode === "PLAN") {
-        task.planConfirmed = false;
-        return; // Execution pauses until confirmPlan() is called
+      if (context.totalToolCalls >= MAX_TOOL_CALLS_TASK) {
+        console.warn(`[FAST] MAX_TOOL_CALLS_TASK (${MAX_TOOL_CALLS_TASK}) alcanzado.`);
+        await this.concludeTask(context, "PARTIAL", "Límite MAX_TOOL_CALLS_TASK alcanzado.");
+        return;
       }
-    } else {
-      // Single step in NORMAL mode
-      task.steps = [
-        {
-          id: "step-1",
+
+      // Step 1: Decision #1 Route
+      let selectedRoute: StepRoute;
+      if (context.activeServerOverride) {
+        selectedRoute = context.activeServerOverride as StepRoute;
+        context.activeServerOverride = undefined;
+      } else {
+        const isFirst = task.stepSeq === 0;
+        const d1 = await this.decisionEngine.evaluateDecisionOne(
+          task.message,
+          this.buildHistoryContext(task),
+          {
+            allowFin: true,
+            isPostAction: context.nonReadCounter > 0,
+            isFirstIteration: isFirst,
+          }
+        );
+
+        this.emitEvent(task.id, "DECISION_ONE", {
           route: d1.route,
-          instruction: task.message,
-          state: "PENDING",
-        },
-      ];
-    }
+          confidence: d1.confidence,
+          probabilities: d1.probabilities,
+          needsContext: d1.needsContext,
+        });
 
-    // 3. Execute Steps
-    await this.executeStepsPipeline(context);
-  }
+        // Validation of FIN (§5)
+        if (d1.route === "fin") {
+          if (isFirst) {
+            // Conversational query: no Step created, respond directly
+            console.log(`[FAST] Conversación directa (fin inicial). Respondiendo directo.`);
+            const finalResp = await this.qwenEngine.generateFinalResponse({
+              goal: task.message,
+              logLines: [],
+              facts: task.memory?.facts || {},
+              failLines: [],
+              evidenceSummaries: [],
+            }, context.abortController.signal);
 
-  private async executeStepsPipeline(context: TaskExecutionContext): Promise<void> {
-    const { task } = context;
+            task.finalResponse = finalResp;
+            task.state = "COMPLETED";
+            this.persistTasks();
+            this.emitEvent(task.id, "FINAL_RESPONSE", { response: finalResp });
+            this.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
+            return;
+          }
 
-    for (let i = 0; i < task.steps.length; i++) {
-      if (context.isCancelled) break;
-      task.currentStep = i;
-      const step = task.steps[i];
-      step.state = "RUNNING";
-      this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex: i }, step.id);
+          // Validate non-initial fin: must have >= 1 successful tool call and no unverified pending
+          const hasSuccessfulTool = task.steps.some((s) => s.calls && s.calls.some((c) => c.outcome?.success));
+          const hasPendingUnverified = task.steps.some((s) => s.calls && s.calls.some((c) => c.verification === "UNVERIFIED"));
 
-      try {
-        await this.executeStep(context, step);
-      } catch (err: any) {
+          if (hasSuccessfulTool && !hasPendingUnverified) {
+            console.log(`[FAST] fin validado. Concluyendo con éxito.`);
+            await this.concludeTask(context, "COMPLETED");
+            return;
+          } else {
+            console.warn(`[FAST] fin rechazado por validación de Core. Redirigiendo a mejor ruta.`);
+            this.addFailEntry(context, "fin rechazado: faltan acciones verificadas previas");
+            selectedRoute = "desktop_commander";
+          }
+        } else {
+          selectedRoute = d1.route;
+        }
+      }
+
+      // Create Step for this iteration
+      task.stepSeq = (task.stepSeq ?? 0) + 1;
+      const stepIndex = task.steps.length;
+      task.currentStep = stepIndex;
+
+      const step: Step = {
+        id: `s${task.stepSeq}`,
+        route: selectedRoute,
+        instruction: task.message,
+        state: "RUNNING",
+        calls: [],
+        rev: 0,
+        superseded: false,
+      };
+
+      task.steps.push(step);
+      this.persistTasks();
+      this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+
+      // Execute single call
+      const execResult = await this.executeCall(context, step);
+
+      if (execResult.status === "ok") {
+        step.state = "COMPLETED";
+        this.persistTasks();
+        this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+        // Continue loop to Etapa 1 with result injected into memory
+      } else if (execResult.status === "unverified") {
+        step.state = "UNVERIFIED";
+        this.persistTasks();
+        this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+        // UNVERIFIED: lock non-READ actions for 1 iteration (§4, §6)
+        console.warn(`[FAST] Acción UNVERIFIED registrada. Requiere observación.`);
+      } else if (execResult.status === "blocked_loop") {
+        if (context.consecutiveLoopBlocks >= 2) {
+          console.warn(`[FAST] 2 bloqueos seguidos de anti-loop. Cerrando PARTIAL.`);
+          step.state = "FAILED";
+          step.error = "Bloqueos repetidos por anti-loop.";
+          await this.concludeTask(context, "PARTIAL", "Detenido por anti-loop (2 bloqueos seguidos).");
+          return;
+        }
+      } else {
+        // Logical error -> Etapa 5B (Análisis del fallo / Escalación Qwen)
         step.state = "FAILED";
-        step.error = err.message || String(err);
+        step.error = execResult.error || "Fallo lógico en ejecución.";
         this.persistTasks();
         this.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
-        break; // Stop sequence on unhandled step failure
+
+        const shouldContinue = await this.handleEscalation(context, step, execResult);
+        if (!shouldContinue) {
+          return;
+        }
       }
-
-      this.persistTasks();
-      this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex: i }, step.id);
-    }
-
-    // 4. Conclude Task State
-    if (!context.isCancelled) {
-      const hasFailed = task.steps.some((s) => s.state === "FAILED" || s.state === "BLOCKED");
-      const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-      const hasUnverified = task.steps.some((s) => s.state === "UNVERIFIED");
-
-      let finalState: TaskState = "COMPLETED";
-      if (hasFailed && hasCompleted) {
-        finalState = "PARTIAL";
-      } else if (hasFailed && !hasCompleted) {
-        finalState = "FAILED";
-      } else if (hasUnverified) {
-        // If there are unverified steps, task is PARTIAL to avoid false completion (§4.12, §5.1, §36)
-        finalState = "PARTIAL";
-      }
-
-      task.state = finalState;
-      if (finalState === "FAILED") {
-        console.error(`[Task] failed id=${task.id}`);
-      } else {
-        console.log(`[Task] ${finalState.toLowerCase()} id=${task.id}`);
-      }
-
-      // Synthesize Final Response
-      const evidenceList = task.steps.map((s) => s.evidence).filter(Boolean) as any[];
-      try {
-        task.finalResponse = await this.qwenEngine.synthesizeFinalResponse(
-          task.message,
-          task.steps,
-          task.scratchpad,
-          evidenceList
-        );
-      } catch (synthErr) {
-        task.finalResponse = `Tarea concluida con estado ${task.state}. (No fue posible generar síntesis conversacional adicional).`;
-      }
-
-      this.persistTasks();
-      this.emitEvent(task.id, "FINAL_RESPONSE", { response: task.finalResponse });
-      this.emitEvent(task.id, "TASK_STATE_CHANGED", { state: task.state });
     }
   }
 
-  private async executeStep(context: TaskExecutionContext, step: Step): Promise<void> {
+  // ============================================================
+  // PLAN MODE ENGINE (§9)
+  // ============================================================
+  private async initiatePlanMode(context: TaskExecutionContext): Promise<void> {
     const { task } = context;
 
-    // If route is 'chat', Qwen 3.5 9B handles directly without tool execution (§23)
-    if (step.route === "chat") {
-      const chatResp = await this.qwenEngine.generateChatResponse(step.instruction, task.scratchpad);
-      step.state = "COMPLETED";
-      step.evidence = {
-        ok: true,
-        summary: chatResp,
-        ref: "qwen:chat",
-      };
-      step.verification = "VERIFIED";
-      task.scratchpad.text = chatResp;
+    // Check if prompt is direct conversation via Decision #1
+    const d1Initial = await this.decisionEngine.evaluateDecisionOne(task.message, [], {
+      allowFin: true,
+      isFirstIteration: true,
+    });
+
+    if (d1Initial.route === "fin" && d1Initial.confidence >= DECISION_MIN_CONFIDENCE) {
+      console.log(`[PLAN] Objetivo clasificado como conversación directa (fin). Respondiendo sin plan.`);
+      const finalResp = await this.qwenEngine.generateFinalResponse({
+        goal: task.message,
+        logLines: [],
+        facts: {},
+        failLines: [],
+        evidenceSummaries: [],
+      }, context.abortController.signal);
+
+      task.finalResponse = finalResp;
+      task.state = "COMPLETED";
+      this.persistTasks();
+      this.emitEvent(task.id, "FINAL_RESPONSE", { response: finalResp });
+      this.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
       return;
     }
 
-    // 1. Discovery for the route's MCP server
-    const serverName = step.route;
+    // 1 call to Qwen to generate plan (§9.1)
+    let plan;
+    try {
+      plan = await this.qwenEngine.generatePlan(task.message, undefined, context.abortController.signal);
+    } catch (err: any) {
+      task.state = "FAILED";
+      this.persistTasks();
+      this.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: `Plan inválido: ${err.message}` });
+      return;
+    }
+
+    if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
+      task.state = "FAILED";
+      this.persistTasks();
+      this.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: "Plan inválido en único intento." });
+      return;
+    }
+
+    task.steps = plan.steps.slice(0, MAX_STEPS).map((s, idx) => ({
+      id: s.id || `s${idx + 1}`,
+      route: (s.suggested_mcp || "desktop_commander") as StepRoute,
+      instruction: s.goal || s.instruction || "Objetivo",
+      expectedOutcome: s.expected_outcome || s.expectedOutcome,
+      state: "PENDING" as StepState,
+      calls: [],
+      rev: 0,
+      superseded: false,
+    }));
+
+    task.stepSeq = task.steps.length;
+    task.planConfirmed = false;
+    this.persistTasks();
+    this.emitEvent(task.id, "PLAN_GENERATED", { steps: task.steps });
+    console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación.`);
+  }
+
+  private async runPlanLoop(context: TaskExecutionContext): Promise<void> {
+    const { task } = context;
+
+    while (!context.isCancelled) {
+      // Find first non-superseded PENDING/RUNNING step
+      const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
+      if (stepIndex === -1) {
+        // All active steps completed!
+        console.log(`[PLAN] Todos los pasos completados. Concluyendo tarea.`);
+        await this.concludeTask(context, "COMPLETED");
+        return;
+      }
+
+      task.currentStep = stepIndex;
+      const step = task.steps[stepIndex];
+      step.state = "RUNNING";
+      this.persistTasks();
+      this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+
+      // Mini-loop FAST for this step (max MAX_TOOL_CALLS_PER_STEP = 4 calls)
+      let stepCompleted = false;
+      let stepCalls = 0;
+
+      while (stepCalls < MAX_TOOL_CALLS_PER_STEP && !stepCompleted && !context.isCancelled) {
+        stepCalls++;
+
+        const execResult = await this.executeCall(context, step);
+
+        if (execResult.status === "ok") {
+          // Verify with Decision against expected_outcome (§9.3)
+          if (step.expectedOutcome) {
+            const extract = execResult.call?.evidence?.summary || "";
+            const judgement = await this.decisionEngine.evaluatePlanJudgement(
+              step.expectedOutcome,
+              execResult.call?.evidence?.summary || "",
+              extract
+            );
+
+            if (judgement.met) {
+              stepCompleted = true;
+              step.state = "COMPLETED";
+              this.persistTasks();
+              this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+              break;
+            } else {
+              console.log(`[PLAN Judgement] Criterio no cumplido aún. Continuando mini-loop.`);
+            }
+          } else {
+            stepCompleted = true;
+            step.state = "COMPLETED";
+            this.persistTasks();
+            this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+            break;
+          }
+        } else if (execResult.status === "unverified") {
+          step.state = "UNVERIFIED";
+          this.persistTasks();
+          this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+          break;
+        } else if (execResult.status === "blocked_loop") {
+          // Replan on loop block
+          break;
+        } else {
+          // Logical error
+          break;
+        }
+      }
+
+      // If step did not complete after calls exhausted or logical error -> Replan localizado (§9.4)
+      if (!stepCompleted && !context.isCancelled) {
+        step.state = "FAILED";
+        step.error = step.error || "Paso falló o agotó calls sin cumplir criterio.";
+        this.persistTasks();
+        this.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+
+        if ((task.replans || 0) >= MAX_REPLAN) {
+          console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
+          await this.concludeTask(context, "PARTIAL", "Límite de replanes alcanzado.");
+          return;
+        }
+
+        const replanSuccess = await this.handleReplan(context, stepIndex);
+        if (!replanSuccess) {
+          return;
+        }
+      }
+    }
+  }
+
+  // ============================================================
+  // EXECUTE CALL (UNA call determinista: Etapas 2 -> 5)
+  // ============================================================
+  private async executeCall(context: TaskExecutionContext, step: Step): Promise<StepExecutionResult> {
+    const { task } = context;
+
+    // 1. Determine MCP Server
+    let serverName = context.activeServerOverride || step.route;
+    if (serverName === "fin" || serverName === "chat") {
+      serverName = "desktop_commander";
+    }
+    context.activeServerOverride = undefined;
+
     const server = this.discoveryEngine.getServer(serverName);
     if (!server) {
-      throw new Error(`Servidor MCP no disponible para la ruta '${step.route}'.`);
+      throw new Error(`Servidor MCP '${serverName}' no disponible.`);
     }
 
-    let discoveredTools = await this.discoveryEngine.getDiscoveredTools(step.route);
-    console.log(`[Discovery] ${serverName} tools=${discoveredTools.length}`);
-    this.emitEvent(task.id, "DISCOVERY_REFRESH", { mcp: serverName, toolCount: discoveredTools.length }, step.id);
-
+    // 2. Discovery
+    let discoveredTools = await this.discoveryEngine.getDiscoveredTools(serverName);
     if (discoveredTools.length === 0) {
-      throw new Error(`Discovery: No se encontraron herramientas disponibles en el servidor '${serverName}'.`);
+      throw new Error(`Discovery: No hay herramientas disponibles en '${serverName}'.`);
     }
 
-    // 2. Decision #2 — Tool Selection
-    let d2 = await this.decisionEngine.evaluateDecisionTwo(
+    // Filter out excluded tool if same MCP
+    if (context.excludedToolForNextCall) {
+      discoveredTools = discoveredTools.filter((t) => t.name !== context.excludedToolForNextCall);
+      context.excludedToolForNextCall = undefined;
+    }
+
+    // 3. Decision #2: Tool Selection
+    const d2 = await this.decisionEngine.evaluateDecisionTwo(
       step.instruction,
       discoveredTools,
-      task.scratchpad.url || task.scratchpad.path
+      this.buildScratchpadContextForDecision(task)
     );
 
-    step.mcp = serverName;
-    step.tool = d2.selectedTool.name;
+    const selectedTool = d2.selectedTool;
 
-    // Validate tool exists in Discovery. Unknown tool flow as per §41:
-    // Unknown Tool -> tools/list -> Update Discovery Cache -> Re-select -> If still unknown -> NO EXECUTE
-    let exists = await this.discoveryEngine.validateToolExists(serverName, step.tool);
+    // Validate tool exists in Discovery
+    let exists = await this.discoveryEngine.validateToolExists(serverName, selectedTool.name);
     if (!exists) {
-      // Refresh Discovery cache
       discoveredTools = await this.discoveryEngine.getDiscoveredTools(serverName, true);
-      // Re-select tool
-      d2 = await this.decisionEngine.evaluateDecisionTwo(
-        step.instruction,
-        discoveredTools,
-        task.scratchpad.url || task.scratchpad.path
-      );
-      step.tool = d2.selectedTool.name;
-      exists = await this.discoveryEngine.validateToolExists(serverName, step.tool);
+      exists = await this.discoveryEngine.validateToolExists(serverName, selectedTool.name);
       if (!exists) {
         step.state = "FAILED";
-        throw new Error(`Herramienta desconocida '${step.tool}': NO EXECUTE como manda la política de seguridad.`);
+        throw new Error(`Herramienta desconocida '${selectedTool.name}': NO EXECUTE.`);
       }
     }
 
     this.emitEvent(task.id, "DECISION_TWO", {
-      tool: step.tool,
+      tool: selectedTool.name,
       confidence: d2.choiceAnswer.confidence,
       probabilities: d2.choiceAnswer.probabilities,
     }, step.id);
 
-    // 3. Qwen 3.5 9B Argument Generation (MAX_ARG_RETRIES = 1)
-    let argRetries = 0;
+    // 4. Qwen Etapa 3: Argument Generation
+    const cleanedSchema = this.discoveryEngine.getCleanedSchema(serverName, selectedTool.name) || selectedTool.inputSchema;
     let args: Record<string, unknown> = {};
 
-    while (argRetries <= MAX_ARG_RETRIES) {
-      try {
-        args = await this.qwenEngine.generateArguments(step, d2.selectedTool, task.scratchpad, task.message);
-        break;
-      } catch (err) {
-        argRetries++;
-        if (argRetries > MAX_ARG_RETRIES) {
-          throw new Error(`Fallo de generación de argumentos para '${step.tool}' tras límite de retries.`);
-        }
-      }
+    try {
+      args = await this.qwenEngine.generateArguments({
+        goal: task.message,
+        logLines: task.memory?.log || [],
+        planLines: task.mode === "PLAN" ? this.buildPlanLines(task) : undefined,
+        failLines: task.memory?.fail || [],
+        facts: task.memory?.facts || {},
+        tool: selectedTool,
+        cleanedSchema,
+        lastObs: context.lastCallCompactObs ? {
+          stepIndex: task.currentStep + 1,
+          toolName: selectedTool.name,
+          obsText: context.lastCallCompactObs,
+        } : undefined,
+        taskInstruction: step.instruction,
+      }, undefined, undefined, undefined, context.abortController.signal);
+    } catch (argErr: any) {
+      console.error(`[Qwen Args Error]`, argErr);
+      this.addFailEntry(context, `${selectedTool.name} -> argumentos inválidos tras reintentos`);
+      return {
+        status: "logical_error",
+        step,
+        error: `Argumentos inválidos: ${argErr.message}`,
+      };
     }
-    step.args = args;
+
     this.emitEvent(task.id, "ARGUMENTS_GENERATED", { args }, step.id);
 
-    // Anti-loop operational signature check (§38):
-    // Identical signature repeated within same step triggers immediate loop prevention
-    const stepSig = `${step.id}:${step.mcp}:${step.tool}:${JSON.stringify(args)}`;
-    if (context.executedSignatures.has(stepSig)) {
-      throw new Error(
-        `Detección de bucle: Invocación idéntica detectada para '${step.tool}' en el paso ${step.id}. Operación abortada por anti-loop.`
-      );
-    }
-    context.executedSignatures.add(stepSig);
+    // 5. Anti-Loop Verification (§7)
+    const policy = PolicyRegistry.getPolicy(serverName, selectedTool.name);
+    const isRead = policy.kind === "READ";
+    const isExempt = selectedTool.name === "read_process_output" || selectedTool.name === "ui_wait";
 
-    // 4. Policy Registry & Guard Authorization (§3.9, §31, §33)
-    const guardDecision = Guard.evaluate(step.mcp, step.tool, args);
+    if (!isExempt) {
+      const sig = `${serverName}:${selectedTool.name}:${JSON.stringify(args)}:m${context.nonReadCounter}`;
+      if (!isRead && context.executedSignatures.has(sig) && !context.lastActionWasRead) {
+        context.consecutiveLoopBlocks++;
+        const failMsg = `${selectedTool.name} -> ya ejecutado (anti-loop)`;
+        this.addFailEntry(context, failMsg);
+        return {
+          status: "blocked_loop",
+          step,
+          error: "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).",
+        };
+      }
+      if (isRead && context.executedSignatures.has(sig)) {
+        context.consecutiveLoopBlocks++;
+        const failMsg = `${selectedTool.name} -> ya ejecutado (anti-loop lectura)`;
+        this.addFailEntry(context, failMsg);
+        return {
+          status: "blocked_loop",
+          step,
+          error: "Lectura idéntica bloqueada por anti-loop.",
+        };
+      }
+      context.executedSignatures.add(sig);
+    }
+
+    // 6. Policy & Guard (§2, §7)
+    const guardDecision = Guard.evaluate(serverName, selectedTool.name, args);
     this.emitEvent(task.id, "GUARD_EVALUATION", { guardDecision }, step.id);
 
     if (guardDecision.decision === "DENY") {
       step.state = "BLOCKED";
-      step.error = guardDecision.reason || "Operación denegada por Guard.";
-      throw new Error(step.error); // Invariant: DENY cannot be bypassed by retry (§4.8)
+      step.error = guardDecision.reason || "Operación rechazada por Guard (DENY).";
+      this.addFailEntry(context, `${selectedTool.name} -> DENY: ${step.error}`);
+      throw new Error(step.error); // Fatal: never retried
     }
 
     if (guardDecision.decision === "APPROVAL") {
-      // Pause and request user approval in UI (§4.7, state: WAITING_APPROVAL)
       step.state = "WAITING_APPROVAL";
       this.persistTasks();
       this.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id);
@@ -424,8 +654,7 @@ export class JarvisCore {
       if (!approved) {
         step.state = "BLOCKED";
         step.error = "Operación rechazada por el usuario en Guard.";
-        this.persistTasks();
-        this.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
+        this.addFailEntry(context, `${selectedTool.name} -> RECHAZADO por usuario`);
         throw new Error(step.error);
       }
       step.state = "RUNNING";
@@ -433,77 +662,358 @@ export class JarvisCore {
       this.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id);
     }
 
-    // 5. Track and Enforce MAX_TOOL_CALLS_PER_STEP = 4 (§13)
-    const currentCalls = (context.toolCallsCountPerStep.get(step.id) || 0) + 1;
-    context.toolCallsCountPerStep.set(step.id, currentCalls);
-
-    if (currentCalls > MAX_TOOL_CALLS_PER_STEP) {
+    // 7. Enforce MAX_TOOL_CALLS_TASK
+    context.totalToolCalls++;
+    if (context.totalToolCalls > MAX_TOOL_CALLS_TASK) {
       step.state = "FAILED";
-      throw new Error(`Límite MAX_TOOL_CALLS_PER_STEP (${MAX_TOOL_CALLS_PER_STEP}) alcanzado en el paso.`);
+      step.error = `Tope global MAX_TOOL_CALLS_TASK (${MAX_TOOL_CALLS_TASK}) alcanzado.`;
+      return {
+        status: "logical_error",
+        step,
+        error: step.error,
+      };
     }
 
-    // 6. MCP Execution
-    this.emitEvent(task.id, "MCP_DISPATCHED", { mcp: step.mcp, tool: step.tool, args }, step.id);
-    const mcpT0 = Date.now();
+    // 8. Execute Tool on Server
+    this.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: selectedTool.name, args }, step.id);
     let rawResult: any;
     try {
-      rawResult = await server.callTool(step.tool, args);
-      const mcpDuration = Date.now() - mcpT0;
-      if (rawResult.isError) {
-        const errText = rawResult.content?.find((c: any) => c.text)?.text || "error";
-        console.error(`[MCP] ${step.mcp} tool=${step.tool} error=${String(errText).replace(/\r?\n/g, " ").slice(0, 100)} duration=${mcpDuration}ms`);
-      } else {
-        console.log(`[MCP] ${step.mcp} tool=${step.tool} duration=${mcpDuration}ms`);
-      }
+      rawResult = await server.callTool(selectedTool.name, args);
     } catch (mcpErr: any) {
-      const mcpDuration = Date.now() - mcpT0;
-      console.error(`[MCP] ${step.mcp} tool=${step.tool} error=${mcpErr?.message || mcpErr} duration=${mcpDuration}ms`);
+      console.error(`[MCP Call Error]`, mcpErr);
       throw mcpErr;
     }
 
-    // Windows MCP Stale Element Recovery Flow (§8, §9)
-    if (step.mcp === "windows" && rawResult.staleElement) {
-      const callsAfterRecovery = (context.toolCallsCountPerStep.get(step.id) || 0) + 1;
-      context.toolCallsCountPerStep.set(step.id, callsAfterRecovery);
-
-      if (callsAfterRecovery <= MAX_TOOL_CALLS_PER_STEP) {
-        this.emitEvent(task.id, "DISCOVERY_REFRESH", { reason: "STALE_ELEMENT_DETECTED", mcp: "windows" }, step.id);
-        // Refresh UI snapshot to get valid element IDs from discovered tools dynamically (§8, §9, §15)
-        const treeTool =
-          discoveredTools.find((t) => /tree|snapshot|window.*tree|ui_read/i.test(t.name))?.name ||
-          step.tool;
-        const freshSnapshot = await server.callTool(treeTool, {});
-        if (freshSnapshot.windowHandle) {
-          task.scratchpad.window_handle = freshSnapshot.windowHandle as string;
+    // Windows Stale Element recovery (§6, keep current behavior core.ts:465-482)
+    if (serverName === "windows" && rawResult.staleElement) {
+      console.log(`[Windows] Stale element detectado. Refrescando árbol...`);
+      const treeTool = discoveredTools.find((t) => /tree|snapshot|window.*tree/i.test(t.name))?.name || "ui_get_window_tree";
+      try {
+        const fresh = await server.callTool(treeTool, {});
+        if (fresh.windowHandle) {
+          task.scratchpad.window_handle = String(fresh.windowHandle);
         }
-        // Retry action once with refreshed state
-        rawResult = await server.callTool(step.tool, args);
+        context.retriesCount++;
+        rawResult = await server.callTool(selectedTool.name, args);
+      } catch (retryErr) {
+        console.warn(`[Windows Stale Retry Error]`, retryErr);
       }
     }
 
     this.emitEvent(task.id, "MCP_RESULT", { rawResult }, step.id);
 
-    // 7. Result Processor (§24, §44)
-    const processed = ResultProcessor.process(step.mcp, step.tool, rawResult, args);
+    // 9. Process Result with Extractors (§10.5)
+    const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args);
+    context.lastCallCompactObs = processed.compactObs;
+
+    // Update Scratchpad & Facts
+    Object.assign(task.scratchpad, processed.scratchpadDelta);
+    if (task.memory) {
+      Object.assign(task.memory.facts, processed.factsDelta);
+    }
+
+    // 10. Etapa 5: Decision Evaluation
+    const d5 = await this.decisionEngine.evaluateDecisionFive(
+      step.instruction,
+      selectedTool.name,
+      processed.summaryText,
+      processed.signals
+    );
+    if (d5.override) {
+      context.overridesCount++;
+    }
+
+    // Append to LOG (§10.3)
+    const logStatus = processed.signals.not_found || processed.signals.empty_output
+      ? "nf"
+      : !d5.isCorrect || processed.outcome.isError
+      ? "err"
+      : processed.verification === "UNVERIFIED"
+      ? "unv"
+      : "ok";
+
+    const logLine = `${task.stepSeq}|${selectedTool.name}|${logStatus}|${processed.finding}`;
+    this.addLogEntry(context, logLine);
+
+    // Update anti-loop state trackers
+    if (processed.outcome.success || processed.verification === "UNVERIFIED") {
+      if (!isRead) {
+        context.nonReadCounter++;
+        context.lastActionWasRead = false;
+      } else {
+        context.lastActionWasRead = true;
+      }
+      context.consecutiveLoopBlocks = 0;
+    }
+
+    // Record Call on Step
+    const callRecord: StepCall = {
+      id: `call_${Date.now()}`,
+      mcp: serverName,
+      tool: selectedTool.name,
+      args,
+      evidence: processed.evidence,
+      verification: processed.verification,
+      outcome: processed.outcome,
+      error: !d5.isCorrect ? processed.summaryText : undefined,
+      timestamp: Date.now(),
+    };
+
+    step.calls = step.calls || [];
+    step.calls.push(callRecord);
+
+    // Mirror last call onto Step for UI compatibility
+    step.mcp = serverName;
+    step.tool = selectedTool.name;
+    step.args = args;
     step.evidence = processed.evidence;
     step.verification = processed.verification;
     step.outcome = processed.outcome;
 
-    // Update Scratchpad
-    Object.assign(task.scratchpad, processed.scratchpadDelta);
-    this.emitEvent(task.id, "RESULT_PROCESSED", { processed }, step.id);
+    this.emitEvent(task.id, "RESULT_PROCESSED", { processed, d5 }, step.id);
 
-    // 8. Step State Resolution (§36)
     if (processed.verification === "UNVERIFIED") {
-      // Side effect dispatched but outcome unverified -> UNVERIFIED (§4.12, §36)
-      step.state = "UNVERIFIED";
-    } else if (processed.outcome.success && !processed.outcome.isError) {
-      step.state = "COMPLETED";
-    } else {
-      step.state = "FAILED";
-      step.error = processed.summaryText;
-      throw new Error(step.error);
+      return {
+        status: "unverified",
+        step,
+        call: callRecord,
+        signals: processed.signals,
+      };
     }
+
+    if (!d5.isCorrect || processed.outcome.isError) {
+      this.addFailEntry(context, `${selectedTool.name} -> ${processed.finding}`);
+      return {
+        status: "logical_error",
+        step,
+        call: callRecord,
+        error: processed.summaryText,
+        signals: processed.signals,
+      };
+    }
+
+    return {
+      status: "ok",
+      step,
+      call: callRecord,
+      signals: processed.signals,
+    };
+  }
+
+  // ============================================================
+  // ESCALATION & REPLAN (§4, §5B, §9.4)
+  // ============================================================
+  private async handleEscalation(
+    context: TaskExecutionContext,
+    step: Step,
+    execResult: StepExecutionResult
+  ): Promise<boolean> {
+    const { task } = context;
+
+    if (context.escalations >= MAX_ESCALATIONS) {
+      console.warn(`[Escalation] MAX_ESCALATIONS (${MAX_ESCALATIONS}) agotado.`);
+      const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
+      await this.concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", "Tope de escalaciones agotado.");
+      return false;
+    }
+
+    context.escalations++;
+    console.log(`[Escalation] Activando Etapa 5B (${context.escalations}/${MAX_ESCALATIONS}).`);
+
+    const escResp: EscalationResponse = await this.qwenEngine.escalate({
+      goal: task.message,
+      logLines: task.memory?.log || [],
+      failLines: task.memory?.fail || [],
+      facts: task.memory?.facts || {},
+      failedAction: `${step.tool || step.route}`,
+      errorMessage: execResult.error || "Fallo en ejecución",
+      lastObs: context.lastCallCompactObs,
+    }, context.abortController.signal);
+
+    if (escResp.action === "abort") {
+      console.log(`[Escalation] Qwen decidió abortar: ${escResp.reason}`);
+      const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
+      await this.concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", escResp.reason);
+      return false;
+    }
+
+    if (escResp.action === "switch_mcp" && escResp.mcp) {
+      const targetMcp = escResp.mcp.toLowerCase();
+      console.log(`[Escalation] Qwen solicitó switch_mcp a '${targetMcp}'. Razón: ${escResp.reason}`);
+      context.activeServerOverride = targetMcp;
+      if (targetMcp === step.mcp && step.tool) {
+        context.excludedToolForNextCall = step.tool;
+      }
+      return true;
+    }
+
+    return false;
+  }
+
+  private async handleReplan(context: TaskExecutionContext, failedStepIndex: number): Promise<boolean> {
+    const { task } = context;
+    task.replans = (task.replans || 0) + 1;
+
+    const failedStep = task.steps[failedStepIndex];
+    console.log(`[PLAN] Activando Replan localizado (${task.replans}/${MAX_REPLAN}) para paso '${failedStep.id}'.`);
+
+    const completedSummary = task.steps
+      .slice(0, failedStepIndex)
+      .filter((s) => s.state === "COMPLETED")
+      .map((s) => `[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || 'ok'}`);
+
+    const remainingGoals = task.steps
+      .slice(failedStepIndex + 1)
+      .map((s) => `[ ] ${s.id} ${s.instruction}`);
+
+    const nextIdNum = (task.stepSeq ?? 0) + 1;
+
+    const replanResult = await this.qwenEngine.replan({
+      goal: task.message,
+      completedStepsSummary: completedSummary,
+      facts: task.memory?.facts || {},
+      failLines: task.memory?.fail || [],
+      failedStepGoal: failedStep.instruction,
+      failedStepResult: failedStep.error || "error",
+      remainingPlanGoals: remainingGoals,
+      nextStepNumber: nextIdNum,
+    }, context.abortController.signal);
+
+    if (replanResult.action === "abort" || !replanResult.plan) {
+      console.log(`[PLAN Replan] Replan devolvió abort: ${replanResult.reason}`);
+      const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
+      await this.concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", replanResult.reason || "Replan abortado.");
+      return false;
+    }
+
+    // Supersede failed step and all subsequent steps
+    for (let i = failedStepIndex; i < task.steps.length; i++) {
+      task.steps[i].superseded = true;
+    }
+
+    const newRev = (failedStep.rev || 0) + 1;
+    const newSteps: Step[] = replanResult.plan.steps.map((s, idx) => ({
+      id: s.id || `s${nextIdNum + idx}`,
+      route: (s.suggested_mcp || "desktop_commander") as StepRoute,
+      instruction: s.goal || s.instruction || "Meta",
+      expectedOutcome: s.expected_outcome || s.expectedOutcome,
+      state: "PENDING" as StepState,
+      calls: [],
+      rev: newRev,
+      superseded: false,
+    }));
+
+    task.steps.push(...newSteps);
+    task.stepSeq = (task.stepSeq ?? 0) + newSteps.length;
+    this.persistTasks();
+    this.emitEvent(task.id, "PLAN_GENERATED", { steps: task.steps });
+    console.log(`[PLAN] Replan completado. ${newSteps.length} pasos nuevos agregados.`);
+    return true;
+  }
+
+  // ============================================================
+  // CONCLUSION & FINAL RESPONSE (§4, §5, Etapa 6)
+  // ============================================================
+  private async concludeTask(
+    context: TaskExecutionContext,
+    state: TaskState,
+    abortReason?: string
+  ): Promise<void> {
+    const { task } = context;
+    task.state = state;
+
+    // Collect last 3 compacted observations from refStore or evidence
+    const lastCalls = task.steps
+      .flatMap((s) => s.calls || [])
+      .filter((c) => c.evidence?.summary)
+      .slice(-3);
+    const evidenceSummaries = lastCalls.map((c) => `${c.tool}: ${c.evidence?.summary || ''}`);
+
+    try {
+      task.finalResponse = await this.qwenEngine.generateFinalResponse({
+        goal: task.message,
+        logLines: task.memory?.log || [],
+        facts: task.memory?.facts || {},
+        failLines: task.memory?.fail || [],
+        evidenceSummaries,
+        abortReason,
+      }, context.abortController.signal);
+    } catch {
+      task.finalResponse = `Tarea concluida con estado ${state}.${abortReason ? ` Motivo: ${abortReason}` : ""}`;
+    }
+
+    RefStore.clear();
+    this.persistTasks();
+    const durationTotalMs = Date.now() - context.startTime;
+    console.log(
+      `[Task Summary] id=${task.id} state=${state} reason="${abortReason || 'None'}" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
+    );
+    this.emitEvent(task.id, "FINAL_RESPONSE", { response: task.finalResponse });
+    this.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
+  }
+
+  // ============================================================
+  // HELPERS (Memory, Approval, Persistence)
+  // ============================================================
+  private addLogEntry(context: TaskExecutionContext, line: string): void {
+    if (!context.task.memory) {
+      context.task.memory = { log: [], facts: {}, fail: [] };
+    }
+    const log = context.task.memory.log;
+    log.push(line);
+    // Collapse older lines if > 12 lines (§10.3)
+    if (log.length > 12) {
+      const old = log.slice(0, log.length - 6);
+      const okCount = old.filter((l) => l.includes("|ok|")).length;
+      const errCount = old.length - okCount;
+      const summaryLine = `1-${old.length}: ${okCount} ok, ${errCount} err`;
+      context.task.memory.log = [summaryLine, ...log.slice(-6)];
+    }
+  }
+
+  private addFailEntry(context: TaskExecutionContext, line: string): void {
+    if (!context.task.memory) {
+      context.task.memory = { log: [], facts: {}, fail: [] };
+    }
+    const fail = context.task.memory.fail;
+    fail.push(line);
+    if (fail.length > 5) {
+      context.task.memory.fail = fail.slice(-5);
+    }
+  }
+
+  private buildHistoryContext(task: Task): string {
+    const logLines = task.memory?.log || [];
+    const failLines = task.memory?.fail || [];
+    const historyParts: string[] = [];
+    if (logLines.length > 0) {
+      historyParts.push(logLines.slice(-3).join("\n"));
+    }
+    if (failLines.length > 0) {
+      historyParts.push(`FAIL:\n${failLines.slice(-2).join("\n")}`);
+    }
+    return historyParts.join("\n") || task.message;
+  }
+
+  private buildScratchpadContextForDecision(task: Task): string {
+    const facts = task.memory?.facts || {};
+    const factsStr = Object.entries(facts).map(([k, v]) => `${k}=${v}`).join(" ");
+    const failLines = (task.memory?.fail || []).slice(-2).join("; ");
+    return `FACTS: ${factsStr} | FAIL: ${failLines}`;
+  }
+
+  private buildPlanLines(task: Task): string[] {
+    return task.steps
+      .filter((s) => !s.superseded)
+      .map((s) => {
+        if (s.state === "COMPLETED") {
+          return `[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || 'ok'}`;
+        }
+        if (s.state === "RUNNING") {
+          return `[>] ${s.id} ${s.instruction} | éxito: ${s.expectedOutcome || 'completado'}`;
+        }
+        return `[ ] ${s.id} ${s.instruction}`;
+      });
   }
 
   private requestUserApproval(
@@ -536,15 +1046,14 @@ export class JarvisCore {
     });
   }
 
-  // --- Persistence Helper ---
   private persistTasks(): void {
     try {
       if (typeof localStorage !== "undefined") {
         const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
-        localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(serialized.slice(-20))); // Keep last 20 tasks
+        localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(serialized.slice(-20)));
       }
     } catch (e) {
-      console.warn("Failed to persist task state to localStorage:", e);
+      console.warn("Failed to persist task state:", e);
     }
   }
 
@@ -555,12 +1064,29 @@ export class JarvisCore {
         if (stored) {
           const tasks: Task[] = JSON.parse(stored);
           for (const task of tasks) {
+            task.memory = task.memory || { log: [], facts: {}, fail: [] };
+            task.replans = task.replans ?? 0;
+            task.escalations = task.escalations ?? 0;
+            task.stepSeq = task.stepSeq ?? task.steps.length;
+            for (const step of task.steps) {
+              step.calls = step.calls || [];
+              step.rev = step.rev ?? 0;
+              step.superseded = step.superseded ?? false;
+            }
             this.taskContexts.set(task.id, {
               task,
+              abortController: new AbortController(),
               isCancelled: task.state === "CANCELLED",
               pendingApproval: null,
               executedSignatures: new Set(),
-              toolCallsCountPerStep: new Map(),
+              nonReadCounter: 0,
+              lastActionWasRead: false,
+              consecutiveLoopBlocks: 0,
+              totalToolCalls: 0,
+              escalations: task.escalations,
+              startTime: Date.now(),
+              overridesCount: 0,
+              retriesCount: 0,
             });
           }
         }

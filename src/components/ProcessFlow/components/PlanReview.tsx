@@ -52,9 +52,16 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
             <span className="font-mono text-sky-400/90 whitespace-nowrap">
               [{step.route}]
             </span>
-            <span className="text-slate-300 flex-1">
-              {step.instruction}
-            </span>
+            <div className="flex flex-col flex-1">
+              <span className="text-slate-300">
+                {step.instruction}
+              </span>
+              {step.expectedOutcome && (
+                <span className="text-emerald-400/80 text-[11px] font-mono mt-0.5">
+                  Esperado: {step.expectedOutcome}
+                </span>
+              )}
+            </div>
             <ArrowRight className="w-3.5 h-3.5 text-slate-600 shrink-0 mt-0.5" />
           </div>
         ))}

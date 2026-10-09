@@ -20,10 +20,23 @@ export type StepState =
   | "BLOCKED";
 
 export type StepRoute =
-  | "chat"
+  | "fin"
   | "windows"
   | "desktop_commander"
-  | "free_search";
+  | "free_search"
+  | "chat"; // Legacy transition
+
+export interface StepCall {
+  id: string;
+  mcp: string;
+  tool: string;
+  args?: Record<string, unknown>;
+  evidence?: Evidence;
+  verification?: VerificationState;
+  outcome?: ExecutionOutcome;
+  error?: string;
+  timestamp?: number;
+}
 
 export interface Step {
   id: string;
@@ -37,15 +50,25 @@ export interface Step {
   verification?: VerificationState;
   outcome?: ExecutionOutcome;
   error?: string;
+  // v2.1 contracts (§8, §14):
+  calls?: StepCall[];
+  rev?: number;
+  superseded?: boolean;
+  expectedOutcome?: string;
 }
 
 export interface PlanStep {
   id: string;
-  route: StepRoute;
+  goal?: string;
   instruction: string;
+  suggested_mcp?: string;
+  route?: StepRoute;
+  expected_outcome?: string;
+  expectedOutcome?: string;
 }
 
 export interface Plan {
+  objective?: string;
   steps: PlanStep[];
 }
 
@@ -60,6 +83,12 @@ export interface Scratchpad {
   text?: string;
 }
 
+export interface TaskMemory {
+  log: string[];
+  facts: Record<string, string>;
+  fail: string[];
+}
+
 export interface Task {
   id: string;
   message: string;
@@ -70,6 +99,11 @@ export interface Task {
   state: TaskState;
   finalResponse?: string;
   planConfirmed?: boolean;
+  // v2.1 contracts (§8, §10.11, §14):
+  memory?: TaskMemory;
+  replans?: number;
+  escalations?: number;
+  stepSeq?: number;
 }
 
 export interface Evidence {
@@ -102,6 +136,8 @@ export type Capability =
   | "DOWNLOAD"
   | "CONFIGURATION";
 
+export type ToolKind = "READ" | "no-READ";
+
 export type GuardResult = "ALLOW" | "DENY" | "APPROVAL";
 
 export interface GuardDecision {
@@ -113,13 +149,53 @@ export interface GuardDecision {
 export interface ToolPolicy {
   capability: Capability;
   requiresApproval?: boolean;
+  kind?: ToolKind;
+  mutates?: boolean;
+  emptyIsError?: boolean;
 }
 
-// Global Core Limits
+// v2.1 Escalation & Step Result Types (§4, §5B, §8)
+export type EscalationAction = "switch_mcp" | "abort";
+
+export interface EscalationResponse {
+  action: EscalationAction;
+  mcp?: string;
+  reason: string;
+}
+
+export type StepExecutionStatus = "ok" | "logical_error" | "unverified" | "blocked_loop";
+
+export interface StepExecutionSignals {
+  exit_code?: number;
+  exception?: boolean;
+  timeout?: boolean;
+  not_found?: boolean;
+  denied?: boolean;
+  unverified?: boolean;
+  empty_output?: boolean;
+}
+
+export interface StepExecutionResult {
+  status: StepExecutionStatus;
+  step: Step;
+  call?: StepCall;
+  error?: string;
+  signals?: StepExecutionSignals;
+}
+
+// Global Core Limits (§11 & §15)
 export const MAX_STEPS = 15;
 export const MAX_TOOL_CALLS_PER_STEP = 4;
+export const MAX_TOOL_CALLS_TASK = 30;
+export const MAX_ARG_RETRIES = 2; // §11
+export const MAX_ESCALATIONS = 2;
 export const MAX_PLAN_GENERATION_ATTEMPTS = 1;
-export const MAX_ARG_RETRIES = 1;
+export const MAX_REPLAN = 2;
+export const DECISION_MIN_CONFIDENCE = 0.80;
+export const DECISION_MIN_CONFIDENCE_POST_ACTION = 0.60;
+export const QWEN_CTX = 8192;
+export const QWEN_ESCALATION_THINKING = true;
+export const DECISION_OVERRIDE_CONFIDENCE_THRESHOLD = 0.60;
 
 // Decision 2.0 Integration Types (vllm-sr/Decision-2.0-Kai-0.6B)
 export type DecisionQuestionType = "choice" | "noul" | "score";

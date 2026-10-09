@@ -17,9 +17,44 @@ import { WindowsMCPServer } from "./windowsMcp.ts";
 import { DesktopCommanderMCPServer } from "./desktopCommanderMcp.ts";
 import { FreeSearchMCPServer } from "./freeSearchMcp.ts";
 
+/**
+ * Removes $schema, title, additionalProperties, and examples from inputSchema (§10.3)
+ */
+export function cleanInputSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  if (!schema || typeof schema !== "object") return {};
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "$schema" || key === "title" || key === "additionalProperties" || key === "examples") {
+      continue;
+    }
+    if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
+      const cleanedProps: Record<string, unknown> = {};
+      for (const [propName, propDef] of Object.entries(value as Record<string, unknown>)) {
+        if (propDef && typeof propDef === "object" && !Array.isArray(propDef)) {
+          cleanedProps[propName] = cleanInputSchema(propDef as Record<string, unknown>);
+        } else {
+          cleanedProps[propName] = propDef;
+        }
+      }
+      cleaned[key] = cleanedProps;
+    } else {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned;
+}
+
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();
-  private toolsCache: Map<string, { tools: MCPTool[]; hash: string; lastFetched: number }> = new Map();
+  private toolsCache: Map<
+    string,
+    {
+      tools: MCPTool[];
+      cleanedSchemas: Map<string, Record<string, unknown>>;
+      hash: string;
+      lastFetched: number;
+    }
+  > = new Map();
   /** Servers that failed to start and should not be retried automatically. */
   private unavailableServers: Map<string, { reason: string; since: number }> = new Map();
 
@@ -86,7 +121,14 @@ export class DiscoveryEngine {
     try {
       const tools = await server.listTools();
       const hash = this.computeToolsHash(tools);
-      this.toolsCache.set(serverName, { tools, hash, lastFetched: now });
+      let cleanedSchemas = cached?.hash === hash ? cached.cleanedSchemas : new Map<string, Record<string, unknown>>();
+      if (cleanedSchemas.size === 0 || cached?.hash !== hash) {
+        cleanedSchemas = new Map();
+        for (const t of tools) {
+          cleanedSchemas.set(t.name, cleanInputSchema(t.inputSchema || {}));
+        }
+      }
+      this.toolsCache.set(serverName, { tools, cleanedSchemas, hash, lastFetched: now });
       // Server responded successfully — ensure it's no longer marked unavailable
       this.unavailableServers.delete(serverName);
       return tools;
@@ -96,6 +138,17 @@ export class DiscoveryEngine {
       console.error(`[Discovery] ${serverName} error=${err?.message || err}`);
       return cached ? cached.tools : [];
     }
+  }
+
+  /**
+   * Returns the cached cleaned schema for a tool (§10.3), recalculating only on hash change.
+   */
+  getCleanedSchema(routeOrMcp: string, toolName: string): Record<string, unknown> | null {
+    const serverName = this.normalizeServerName(routeOrMcp);
+    if (!serverName) return null;
+    const cached = this.toolsCache.get(serverName);
+    if (!cached) return null;
+    return cached.cleanedSchemas.get(toolName) || null;
   }
 
   /**
@@ -165,16 +218,19 @@ export class DiscoveryEngine {
 
   private normalizeServerName(name: string): string | null {
     if (name === "windows") return "windows";
-    if (name === "desktop_commander" || name === "desktop") return "desktop_commander";
-    if (name === "free_search" || name === "search") return "free_search";
+    if (name === "desktop_commander" || name === "desktop" || name === "commander") return "desktop_commander";
+    if (name === "free_search" || name === "search" || name === "web") return "free_search";
     return this.servers.has(name) ? name : null;
   }
 
   private computeToolsHash(tools: MCPTool[]): string {
-    const names = tools.map((t) => t.name).sort().join(",");
+    const data = tools
+      .map((t) => `${t.name}:${JSON.stringify(t.inputSchema || {})}`)
+      .sort()
+      .join("|");
     let hash = 0;
-    for (let i = 0; i < names.length; i++) {
-      hash = (hash << 5) - hash + names.charCodeAt(i);
+    for (let i = 0; i < data.length; i++) {
+      hash = (hash << 5) - hash + data.charCodeAt(i);
       hash |= 0;
     }
     return hash.toString(16);

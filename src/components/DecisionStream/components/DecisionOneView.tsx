@@ -8,7 +8,7 @@ interface DecisionOneViewProps {
 export const DecisionOneView: React.FC<DecisionOneViewProps> = ({ d1Event }) => {
   if (!d1Event) return null;
 
-  const { route, multiStep, needsContext, answers } = d1Event.data as any;
+  const { route, confidence, needsContext, answers } = d1Event.data as any;
   const routeAnswer = answers?.route;
   const probabilities = routeAnswer?.probabilities || {};
 
@@ -23,19 +23,19 @@ export const DecisionOneView: React.FC<DecisionOneViewProps> = ({ d1Event }) => 
         <div>
           <span className="text-slate-500">Ruta: </span>
           <span className="text-sky-300 font-medium font-sans">
-            {route}
+            {route === "fin" ? "Fin (Terminación)" : route}
           </span>
         </div>
         <div>
-          <span className="text-slate-500">Multi-step: </span>
-          <span className={multiStep ? "text-amber-300" : "text-slate-400"}>
-            {multiStep ? "Sí (noul >= 0.5)" : "No"}
+          <span className="text-slate-500">Confianza: </span>
+          <span className="text-emerald-400">
+            {typeof confidence === "number" ? `${(confidence * 100).toFixed(1)}%` : "N/A"}
           </span>
         </div>
         <div>
           <span className="text-slate-500">Contexto: </span>
           <span className={needsContext ? "text-amber-300" : "text-slate-400"}>
-            {needsContext ? "Ampliar (noul >= 0.6)" : "Estándar"}
+            {needsContext ? "Ampliar (>= 0.6)" : "Estándar"}
           </span>
         </div>
       </div>

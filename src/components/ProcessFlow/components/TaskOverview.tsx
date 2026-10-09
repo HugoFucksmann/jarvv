@@ -53,11 +53,27 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task }) => {
       <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
         <span className="text-slate-300 font-medium">{getStatusText()}</span>
         <span aria-hidden="true" className="text-slate-600">·</span>
-        <span>Modo {task.mode}</span>
+        <span>Modo {task.mode === "NORMAL" ? "FAST" : task.mode}</span>
         <span aria-hidden="true" className="text-slate-600">·</span>
         <span className="tabular-nums">
-          Paso {task.currentStep + 1} de {Math.max(task.steps.length, 1)}
+          {task.steps.length === 0
+            ? "Respuesta directa"
+            : task.mode === "PLAN"
+            ? `Paso ${Math.min(task.currentStep + 1, task.steps.length)} de ${task.steps.length}`
+            : `Paso ${task.currentStep + 1}`}
         </span>
+        {task.replans && task.replans > 0 ? (
+          <>
+            <span aria-hidden="true" className="text-slate-600">·</span>
+            <span className="text-amber-400 font-semibold">Replans: {task.replans}</span>
+          </>
+        ) : null}
+        {task.escalations && task.escalations > 0 ? (
+          <>
+            <span aria-hidden="true" className="text-slate-600">·</span>
+            <span className="text-orange-400 font-semibold">Escalaciones: {task.escalations}</span>
+          </>
+        ) : null}
       </div>
     </div>
   );
