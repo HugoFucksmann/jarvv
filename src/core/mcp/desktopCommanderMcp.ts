@@ -12,6 +12,7 @@
  * - NO in-memory simulated file dictionaries.
  */
 
+import path from "node:path";
 import { IMCPServer } from "./types.ts";
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
@@ -54,13 +55,14 @@ export class DesktopCommanderMCPServer implements IMCPServer {
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
-    // If allowedDirectories is configured, enforce boundary checks (§10)
+    // Boundary check sobre allowedDirectories (§10) con resolución canónica segura
     const candidatePath = (args.path || args.directory || args.file) as string | undefined;
     if (this.allowedDirectories.length > 0 && typeof candidatePath === "string") {
-      const targetPath = candidatePath.replace(/\\/g, "/");
+      const resolvedTarget = path.resolve(candidatePath);
       const isAllowed = this.allowedDirectories.some((dir) => {
-        const normDir = dir.replace(/\\/g, "/").replace(/\/+$/, "");
-        return targetPath.startsWith(normDir);
+        const resolvedDir = path.resolve(dir);
+        const rel = path.relative(resolvedDir, resolvedTarget);
+        return !rel.startsWith("..") && !path.isAbsolute(rel);
       });
 
       if (!isAllowed) {

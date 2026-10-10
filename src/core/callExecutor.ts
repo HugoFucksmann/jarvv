@@ -199,7 +199,14 @@ export async function executeCall(
         step.state = "BLOCKED";
         step.error = guardDecision.reason || "Operación rechazada por Guard (DENY).";
         addFailEntry(context, `${selectedTool.name} -> DENY: ${step.error}`);
-        throw new Error(step.error); // Fatal: never retried
+        deps.persistTasks();
+        deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
+        return {
+            status: "logical_error",
+            step,
+            error: step.error,
+            signals: { denied: true },
+        };
     }
 
     if (guardDecision.decision === "APPROVAL") {
@@ -212,7 +219,14 @@ export async function executeCall(
             step.state = "BLOCKED";
             step.error = "Operación rechazada por el usuario en Guard.";
             addFailEntry(context, `${selectedTool.name} -> RECHAZADO por usuario`);
-            throw new Error(step.error);
+            deps.persistTasks();
+            deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
+            return {
+                status: "logical_error",
+                step,
+                error: step.error,
+                signals: { denied: true },
+            };
         }
         step.state = "RUNNING";
         deps.persistTasks();

@@ -72,7 +72,7 @@ export class StdioMcpTransport implements IMCPTransport {
     public readonly serverName: string,
     public readonly config: StdioConfig,
     private readonly timeoutMs: number = 30000
-  ) {}
+  ) { }
 
   isConnected(): boolean {
     return this.connected && this.childProcess !== null && !this.childProcess.killed;
@@ -153,8 +153,10 @@ export class StdioMcpTransport implements IMCPTransport {
       });
 
       child.on("error", (err: Error) => {
-        this.connected = false;
-        this.initialized = false;
+        if (this.childProcess === child) {
+          this.connected = false;
+          this.initialized = false;
+        }
         const lastStderr = this.getLastStderr();
         if (lastStderr) {
           console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -167,8 +169,12 @@ export class StdioMcpTransport implements IMCPTransport {
       });
 
       child.on("exit", (code, signal) => {
-        this.connected = false;
-        this.initialized = false;
+        // Garantizar que solo el proceso activo actual modifique el estado de la instancia
+        if (this.childProcess === child) {
+          this.connected = false;
+          this.initialized = false;
+          this.childProcess = null;
+        }
         const lastStderr = this.getLastStderr();
         if (code !== 0 && code !== null && lastStderr) {
           console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -179,7 +185,6 @@ export class StdioMcpTransport implements IMCPTransport {
           this.permanentFailure = transportErr;
         }
         this.rejectAllPending(transportErr);
-        this.childProcess = null;
       });
 
       // Perform MCP initialization handshake if not yet initialized
@@ -415,4 +420,3 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   }
 }
-

@@ -65,23 +65,24 @@ export class Guard {
     cap: Capability,
     args: Record<string, unknown>
   ): string | null {
-    const argsStr = JSON.stringify(args).toLowerCase();
+    // Normalizar a minúsculas y convertir barras invertidas a '/' para neutralizar el doble escape de JSON.stringify
+    const argsStr = JSON.stringify(args).toLowerCase().replace(/\\\\/g, "/");
 
-    // Critical root system destruction patterns
+    // Critical root system destruction patterns (compatibles con POSIX y Windows)
     if (
       argsStr.includes("rm -rf /") ||
       argsStr.includes("format c:") ||
       argsStr.includes("mkfs") ||
-      argsStr.includes("del /f /s /q c:\\windows") ||
+      argsStr.includes("del /f /s /q c:/windows") ||
       argsStr.includes("/etc/shadow") ||
-      argsStr.includes("system32\\drivers")
+      argsStr.includes("system32/drivers")
     ) {
       return "Operación rechazada (DENY): Patrón destructivo prohibido sobre el sistema operativo raíz.";
     }
 
     // Command injection escape attempts
     if (cap === "COMMAND_EXECUTION") {
-      const command = (args.command as string) || (args.cmd as string) || "";
+      const command = ((args.command as string) || (args.cmd as string) || "").replace(/\\/g, "/");
       if (/;\s*rm\s+-rf\s+\/|\|\s*rm\s+-rf\s+\//.test(command)) {
         return "Operación rechazada (DENY): Inyección de comando detectada.";
       }

@@ -348,7 +348,7 @@ export const DECISION_PROMPTS = {
     }
 
     const instructions = hasAttempts
-      ? "¿Qué ruta corresponde a la siguiente acción? No repitas lo que ya funcionó; si una ruta falló, valora otra distinta."
+      ? "Determina la siguiente ruta evaluando el último resultado de herramienta: si satisface al usuario, finaliza; si falló, prueba una alternativa."
       : "¿Qué ruta corresponde a la siguiente acción?";
 
     const questions: Record<string, DecisionQuestion> = {
