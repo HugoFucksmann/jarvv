@@ -676,6 +676,9 @@ export class JarvisCore {
 
     // 8. Execute Tool on Server
     this.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: selectedTool.name, args }, step.id);
+    // Diagnostic log: MCP tool name and args sent
+    const _mcpArgsTrunc = JSON.stringify(args).slice(0, 300);
+    console.log(`[MCP → SEND] server=${serverName} tool=${selectedTool.name} args=${_mcpArgsTrunc}`);
     let rawResult: any;
     try {
       rawResult = await server.callTool(selectedTool.name, args);
@@ -683,6 +686,9 @@ export class JarvisCore {
       console.error(`[MCP Call Error]`, mcpErr);
       throw mcpErr;
     }
+    // Diagnostic log: MCP result received
+    const _mcpResultTrunc = JSON.stringify(rawResult).slice(0, 400);
+    console.log(`[MCP ← RECV] server=${serverName} tool=${selectedTool.name} result=${_mcpResultTrunc}`);
 
     // Windows Stale Element recovery (§6, keep current behavior core.ts:465-482)
     if (serverName === "windows" && rawResult.staleElement) {

@@ -191,11 +191,11 @@ export const MAX_ARG_RETRIES = 2; // §11
 export const MAX_ESCALATIONS = 2;
 export const MAX_PLAN_GENERATION_ATTEMPTS = 1;
 export const MAX_REPLAN = 2;
-export const DECISION_MIN_CONFIDENCE = 0.80;
+export const DECISION_MIN_CONFIDENCE = 0.51;
 export const DECISION_MIN_CONFIDENCE_POST_ACTION = 0.60;
 export const QWEN_CTX = 8192;
 export const QWEN_ESCALATION_THINKING = true;
-export const DECISION_OVERRIDE_CONFIDENCE_THRESHOLD = 0.60;
+export const DECISION_OVERRIDE_CONFIDENCE_THRESHOLD = 0.50;
 
 // Decision 2.0 Integration Types (vllm-sr/Decision-2.0-Kai-0.6B)
 export type DecisionQuestionType = "choice" | "noul" | "score";

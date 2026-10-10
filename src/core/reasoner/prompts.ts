@@ -3,7 +3,7 @@
  * Contracts from Architecture Doc (§9, §10)
  */
 
-import { Step, MCPTool } from "../types.ts";
+import { Step, MCPTool, DecisionQuestion } from "../types.ts";
 
 export interface ArgumentPromptData {
   goal: string;
@@ -208,3 +208,172 @@ Genera el nuevo plan restante o aborta en JSON:`;
     },
   },
 } as const;
+
+// ============================================================
+// Interfaces de datos para los builders de Decision 2.0
+// ============================================================
+
+export interface DecisionOnePromptData {
+  taskMessage: string;
+  history: string;
+  allowFin: boolean;
+  isFirstIteration: boolean;
+}
+
+export interface DecisionTwoPromptData {
+  instruction: string;
+  scratchpadContext: string;
+  tools: MCPTool[];
+}
+
+export interface DecisionFivePromptData {
+  goal: string;
+  tool: string;
+  resultSummary: string;
+  signals: {
+    exit_code?: number;
+    not_found?: boolean;
+    denied?: boolean;
+    empty_output?: boolean;
+    timeout?: boolean;
+  };
+}
+
+export interface DecisionJudgementPromptData {
+  expectedOutcome: string;
+  finding: string;
+  extract: string;
+}
+
+// ============================================================
+// Builders de state + questions para Decision 2.0 (§3, §4, §10.6)
+// ============================================================
+
+export const DECISION_PROMPTS = {
+  /**
+   * Decision #1: Routing estructural (§3, §4, §10.6, §14)
+   * Opciones: windows, desktop_commander, free_search, fin (condicional).
+   */
+  buildDecisionOne(data: DecisionOnePromptData): {
+    state: Record<string, unknown>;
+    questions: Record<string, DecisionQuestion>;
+  } {
+    const state = {
+      current_message: data.taskMessage,
+      history: data.history,
+    };
+
+    const criteria: Record<string, string> = {
+      windows: "Interacción con ventanas de la interfaz gráfica de Windows, UI automation, clics en botones, foco de aplicaciones.",
+      desktop_commander: "Operaciones de filesystem, ejecución de procesos, comandos bash/cmd, creación o lectura de archivos locales.",
+      free_search: "Búsqueda de información externa en la web, fetch de páginas o lectura de documentación online.",
+    };
+
+    if (data.allowFin) {
+      criteria.fin = "Consultas conversacionales directas, o declarar que el objetivo de la tarea está cumplido y se debe finalizar.";
+    }
+
+    const questions: Record<string, DecisionQuestion> = {
+      route: {
+        type: "choice",
+        instructions: "¿Qué subsistema o ruta debe procesar la solicitud, o fin si el objetivo está completado/es conversacional?",
+        criteria,
+      },
+    };
+
+    if (data.isFirstIteration) {
+      questions.needs_context = {
+        type: "noul",
+        instructions: "¿Se requiere ampliar el contexto de mensajes anteriores para interpretar correctamente la intención?",
+      };
+    }
+
+    return { state, questions };
+  },
+
+  /**
+   * Decision #2: Selección de tool dentro de las tools descubiertas del MCP activo (§3, §4)
+   */
+  buildDecisionTwo(data: DecisionTwoPromptData): {
+    state: Record<string, unknown>;
+    questions: Record<string, DecisionQuestion>;
+  } {
+    const limitedTools = data.tools.slice(0, 255);
+    const criteria: Record<string, string> = {};
+    for (const t of limitedTools) {
+      criteria[t.name] = t.description || `Tool ${t.name}`;
+    }
+
+    const state = {
+      instruction: data.instruction,
+      scratchpad_context: data.scratchpadContext,
+    };
+
+    const questions: Record<string, DecisionQuestion> = {
+      selected_tool: {
+        type: "choice",
+        instructions: "¿Cuál es la herramienta idónea para cumplir la instrucción dada?",
+        criteria,
+      },
+    };
+
+    return { state, questions };
+  },
+
+  /**
+   * Decision #5: Evaluación del resultado de la tool (§3, §4, §10.6)
+   * Evalúa si el resultado sirve al objetivo: 'correcta' o 'incorrecta'.
+   */
+  buildDecisionFive(data: DecisionFivePromptData): {
+    state: Record<string, unknown>;
+    questions: Record<string, DecisionQuestion>;
+  } {
+    const state = {
+      goal: data.goal,
+      tool: data.tool,
+      result_summary: data.resultSummary.slice(0, 400),
+      signals: JSON.stringify(data.signals),
+    };
+
+    const questions: Record<string, DecisionQuestion> = {
+      evaluation: {
+        type: "choice",
+        instructions: "¿El resultado de la herramienta sirve al objetivo planteado?",
+        criteria: {
+          correcta: "El resultado sirve al objetivo (o responde adecuadamente, ej. archivo no existe).",
+          incorrecta: "El resultado falló, dio error o no sirve al objetivo.",
+        },
+      },
+    };
+
+    return { state, questions };
+  },
+
+  /**
+   * Juicio de criterio de plan (§3, §9.3, §10.6)
+   * Evalúa si el expected_outcome fue cumplido: 'cumple' o 'no_cumple'.
+   */
+  buildDecisionJudgement(data: DecisionJudgementPromptData): {
+    state: Record<string, unknown>;
+    questions: Record<string, DecisionQuestion>;
+  } {
+    const state = {
+      expected_outcome: data.expectedOutcome,
+      finding: data.finding,
+      extract: data.extract.slice(0, 400),
+    };
+
+    const questions: Record<string, DecisionQuestion> = {
+      judgement: {
+        type: "choice",
+        instructions: "¿El resultado obtenido cumple con el resultado esperado para el objetivo del paso?",
+        criteria: {
+          cumple: "El resultado satisface claramente el resultado esperado.",
+          no_cumple: "El resultado no satisface o contradice el resultado esperado.",
+        },
+      },
+    };
+
+    return { state, questions };
+  },
+};

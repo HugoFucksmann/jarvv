@@ -139,10 +139,8 @@ export class QwenEngine implements ILLMClient {
       ? options.thinking
       : Boolean(config.thinking);
 
-    const isDebug = process.env.DEBUG === "true" || process.env.JARVIS_DEBUG === "true" || process.env.DEBUG === "1" || process.env.JARVIS_DEBUG === "1";
-    if (isDebug) {
-      console.log(`[DEBUG Qwen Stage: ${options?.stage || 'unknown'}]\n--- SYSTEM PROMPT ---\n${systemPrompt}\n--- USER PROMPT ---\n${userPrompt}`);
-    }
+    // Diagnostic log: exact messages sent to Qwen
+    console.log(`[Qwen → SEND] stage=${options?.stage || 'unknown'} system=${JSON.stringify(systemPrompt).slice(0, 200)} user=${JSON.stringify(userPrompt).slice(0, 300)}`);
 
     const bodyPayload: any = {
       ...(modelName ? { model: modelName } : {}),
@@ -223,6 +221,9 @@ export class QwenEngine implements ILLMClient {
     const isLengthExceeded = finishReason === "length";
     const stageLabel = options?.stage || "inference";
     const thinkingLabel = isThinking ? "yes" : "no";
+
+    // Diagnostic log: raw response received from Qwen
+    console.log(`[Qwen ← RECV] stage=${stageLabel} raw=${JSON.stringify(data).slice(0, 400)}`);
 
     console.log(
       `[Qwen] stage=${stageLabel} tokens=(in=${promptTokens}, out=${completionTokens}, max=${maxTokens ?? "default"}) finish_reason=${finishReason}${isLengthExceeded ? " [LENGTH_EXCEEDED]" : ""} thinking=${thinkingLabel} duration=${durationMs}ms`

@@ -25,6 +25,7 @@ import {
   DECISION_OVERRIDE_CONFIDENCE_THRESHOLD,
 } from "./types.ts";
 import { ConfigManager } from "./config.ts";
+import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
 
 export class DecisionServiceUnavailableError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -71,10 +72,8 @@ export class Decision20Engine {
       ? endpointUrl
       : `${endpointUrl.replace(/\/+$/, "")}/v1/decide`;
 
-    const isDebug = process.env.DEBUG === "true" || process.env.JARVIS_DEBUG === "true" || process.env.DEBUG === "1" || process.env.JARVIS_DEBUG === "1";
-    if (isDebug) {
-      console.log(`[DEBUG Decision Payload]\n${JSON.stringify({ state: stateStr, questions }, null, 2)}`);
-    }
+    // Diagnostic log: exact payload sent to Decision
+    console.log(`[Decision → SEND] state=${JSON.stringify(stateStr).slice(0, 300)} questions=${JSON.stringify(questions)}`);
 
     let response: Response;
     try {
@@ -114,6 +113,9 @@ export class Decision20Engine {
       throw new DecisionValidationError("La respuesta de Decision 2.0 no es un JSON válido.");
     }
 
+    // Diagnostic log: raw response received from Decision
+    console.log(`[Decision ← RECV] ${JSON.stringify(data)}`);
+
     // Validate response payload conforms strictly to Decision 2.0 contract
     this.validateResponse(data, questions);
 
@@ -145,36 +147,12 @@ export class Decision20Engine {
       ? historyContext.slice(-3).join("\n")
       : historyContext;
 
-    const statePayload = {
-      current_message: taskMessage,
+    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionOne({
+      taskMessage,
       history,
-    };
-
-    const criteria: Record<string, string> = {
-      windows: "Interacción con ventanas de la interfaz gráfica de Windows, UI automation, clics en botones, foco de aplicaciones.",
-      desktop_commander: "Operaciones de filesystem, ejecución de procesos, comandos bash/cmd, creación o lectura de archivos locales.",
-      free_search: "Búsqueda de información externa en la web, fetch de páginas o lectura de documentación online.",
-    };
-
-    if (options?.allowFin !== false) {
-      criteria.fin = "Consultas conversacionales directas, o declarar que el objetivo de la tarea está cumplido y se debe finalizar.";
-    }
-
-    const questions: Record<string, DecisionQuestion> = {
-      route: {
-        type: "choice",
-        instructions: "¿Qué subsistema o ruta debe procesar la solicitud, o fin si el objetivo está completado/es conversacional?",
-        criteria,
-      },
-    };
-
-    // needs_context only asked on first iteration (§3)
-    if (options?.isFirstIteration !== false) {
-      questions.needs_context = {
-        type: "noul",
-        instructions: "¿Se requiere ampliar el contexto de mensajes anteriores para interpretar correctamente la intención?",
-      };
-    }
+      allowFin: options?.allowFin !== false,
+      isFirstIteration: options?.isFirstIteration !== false,
+    });
 
     const t0 = Date.now();
     let response: DecisionResponse;
@@ -270,23 +248,12 @@ export class Decision20Engine {
     rawResponse: DecisionResponse;
   }> {
     // If exit code is 0 and no error signal, low confidence defaults to correcta (§4 Etapa 5)
-    const statePayload = {
+    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionFive({
       goal,
       tool,
-      result_summary: resultSummary.slice(0, 400),
-      signals: JSON.stringify(signals),
-    };
-
-    const questions: Record<string, DecisionQuestion> = {
-      evaluation: {
-        type: "choice",
-        instructions: "¿El resultado de la herramienta sirve al objetivo planteado?",
-        criteria: {
-          correcta: "El resultado sirve al objetivo (o responde adecuadamente, ej. archivo no existe).",
-          incorrecta: "El resultado falló, dio error o no sirve al objetivo.",
-        },
-      },
-    };
+      resultSummary,
+      signals,
+    });
 
     const t0 = Date.now();
     let response: DecisionResponse;
@@ -350,22 +317,11 @@ export class Decision20Engine {
     confidence: number;
     rawResponse: DecisionResponse;
   }> {
-    const statePayload = {
-      expected_outcome: expectedOutcome,
+    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionJudgement({
+      expectedOutcome,
       finding,
-      extract: extract.slice(0, 400),
-    };
-
-    const questions: Record<string, DecisionQuestion> = {
-      judgement: {
-        type: "choice",
-        instructions: "¿El resultado obtenido cumple con el resultado esperado para el objetivo del paso?",
-        criteria: {
-          cumple: "El resultado satisface claramente el resultado esperado.",
-          no_cumple: "El resultado no satisface o contradice el resultado esperado.",
-        },
-      },
-    };
+      extract,
+    });
 
     const t0 = Date.now();
     const response = await this.systemOne(statePayload, questions);
@@ -419,25 +375,13 @@ export class Decision20Engine {
       };
     }
 
-    // Contract limit: 2–255 options
-    const limitedTools = discoveredTools.slice(0, 255);
-    const criteria: Record<string, string> = {};
-    for (const t of limitedTools) {
-      criteria[t.name] = t.description || `Tool ${t.name}`;
-    }
-
-    const statePayload = {
+    // Contract limit: 2–255 options applied inside builder
+    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionTwo({
       instruction,
-      scratchpad_context: scratchpadSummary || "",
-    };
-
-    const questions: Record<string, DecisionQuestion> = {
-      selected_tool: {
-        type: "choice",
-        instructions: "¿Cuál es la herramienta idónea para cumplir la instrucción dada?",
-        criteria,
-      },
-    };
+      scratchpadContext: scratchpadSummary || "",
+      tools: discoveredTools,
+    });
+    const limitedTools = discoveredTools.slice(0, 255);
 
     const t0 = Date.now();
     let response: DecisionResponse;
