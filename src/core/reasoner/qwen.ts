@@ -1,5 +1,6 @@
 import {
   Step,
+  StepRoute,
   MCPTool,
   Plan,
   Scratchpad,
@@ -33,6 +34,80 @@ export class LLMValidationError extends Error {
     this.name = "LLMValidationError";
   }
 }
+
+export const VALID_STEP_ROUTES: readonly StepRoute[] = [
+  "windows",
+  "desktop_commander",
+  "free_search",
+] as const;
+
+/**
+ * Type Guard formal para validar rutas de subsistemas MCP en tiempo de ejecución
+ */
+export function isStepRoute(route: unknown): route is StepRoute {
+  return typeof route === "string" && (VALID_STEP_ROUTES as readonly string[]).includes(route);
+}
+
+// ============================================================
+// Esquemas JSON estrictos para Structured Outputs (§9.1, §9.4)
+// ============================================================
+
+export const PLAN_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    objective: { type: "string" },
+    steps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          goal: { type: "string" },
+          suggested_mcp: {
+            type: "string",
+            enum: ["windows", "desktop_commander", "free_search"],
+          },
+          expected_outcome: { type: "string" },
+        },
+        required: ["id", "goal", "suggested_mcp", "expected_outcome"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["objective", "steps"],
+  additionalProperties: false,
+} as const;
+
+export const REPLAN_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    action: {
+      type: "string",
+      enum: ["continue", "abort"],
+    },
+    reason: { type: "string" },
+    objective: { type: "string" },
+    steps: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          goal: { type: "string" },
+          suggested_mcp: {
+            type: "string",
+            enum: ["windows", "desktop_commander", "free_search"],
+          },
+          expected_outcome: { type: "string" },
+        },
+        required: ["id", "goal", "suggested_mcp", "expected_outcome"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["steps"],
+  additionalProperties: false,
+} as const;
 
 export interface ILLMClient {
   generateArguments(
@@ -107,6 +182,7 @@ export class QwenEngine implements ILLMClient {
 
   /**
    * Dispatches inference requests to configured Qwen endpoint (§10.10)
+   * Supports strict Structured Outputs via JSON Schema.
    */
   private async dispatchPrompt(
     systemPrompt: string,
@@ -117,6 +193,7 @@ export class QwenEngine implements ILLMClient {
       stage?: string;
       thinking?: boolean;
       signal?: AbortSignal;
+      schema?: Record<string, unknown>;
     }
   ): Promise<string> {
     const config = ConfigManager.getConfig();
@@ -139,7 +216,6 @@ export class QwenEngine implements ILLMClient {
       ? options.thinking
       : Boolean(config.thinking);
 
-    // Diagnostic log: exact messages sent to Qwen
     console.log(`[Qwen → SEND] stage=${options?.stage || 'unknown'} system=${JSON.stringify(systemPrompt).slice(0, 200)} user=${JSON.stringify(userPrompt).slice(0, 300)}`);
 
     const bodyPayload: any = {
@@ -161,7 +237,18 @@ export class QwenEngine implements ILLMClient {
       bodyPayload.max_tokens = maxTokens;
     }
 
-    if (expectJson) {
+    // Structured Outputs: aplicación estricta de esquemas JSON con enums
+    if (options?.schema) {
+      bodyPayload.response_format = {
+        type: "json_schema",
+        json_schema: {
+          name: options.stage || "structured_output",
+          strict: true,
+          schema: options.schema,
+        },
+      };
+      bodyPayload.format = options.schema;
+    } else if (expectJson) {
       bodyPayload.response_format = { type: "json_object" };
       bodyPayload.format = "json";
     }
@@ -222,9 +309,7 @@ export class QwenEngine implements ILLMClient {
     const stageLabel = options?.stage || "inference";
     const thinkingLabel = isThinking ? "yes" : "no";
 
-    // Diagnostic log: raw response received from Qwen
     console.log(`[Qwen ← RECV] stage=${stageLabel} raw=${JSON.stringify(data).slice(0, 400)}`);
-
     console.log(
       `[Qwen] stage=${stageLabel} tokens=(in=${promptTokens}, out=${completionTokens}, max=${maxTokens ?? "default"}) finish_reason=${finishReason}${isLengthExceeded ? " [LENGTH_EXCEEDED]" : ""} thinking=${thinkingLabel} duration=${durationMs}ms`
     );
@@ -263,7 +348,6 @@ export class QwenEngine implements ILLMClient {
     signal?: AbortSignal
   ): Promise<Record<string, unknown>> {
     return await this.executeStage("generateArguments", async () => {
-      // Normalize prompt data
       let promptData: ArgumentPromptData;
       let targetTool: MCPTool;
 
@@ -308,12 +392,11 @@ export class QwenEngine implements ILLMClient {
           if (match) {
             try {
               parsed = JSON.parse(match[0]);
-            } catch {}
+            } catch { }
           }
         }
 
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          // Eliminar claves no requeridas cuyo valor sea null, "" o []
           for (const [key, value] of Object.entries(parsed)) {
             if (!required.includes(key)) {
               if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
@@ -322,7 +405,6 @@ export class QwenEngine implements ILLMClient {
             }
           }
 
-          // Check required schema fields
           const missing = required.filter((r) => parsed[r] === undefined);
           if (missing.length === 0) {
             return parsed;
@@ -371,22 +453,23 @@ export class QwenEngine implements ILLMClient {
         if (match) {
           try {
             parsed = JSON.parse(match[0]);
-          } catch {}
+          } catch { }
         }
       }
 
       if (!parsed || (parsed.action !== "switch_mcp" && parsed.action !== "abort")) {
         console.error(`[Qwen escalate] Fallo de parseo o acción no reconocida. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
-        // Fallback determinista si Qwen falla el formato
         return {
           action: "abort",
           reason: "Análisis de fallo de Qwen no devolvió una acción válida.",
         };
       }
 
+      const validMcp = isStepRoute(parsed.mcp) ? parsed.mcp : undefined;
+
       return {
         action: parsed.action,
-        mcp: parsed.mcp,
+        mcp: validMcp,
         reason: parsed.reason || "Sin detalle.",
       };
     });
@@ -412,7 +495,7 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Modo PLAN: Planificación Inicial (§9.1)
+   * Modo PLAN: Planificación Inicial con Structured Outputs (§9.1)
    */
   async generatePlan(
     userMessage: string,
@@ -423,12 +506,18 @@ export class QwenEngine implements ILLMClient {
       const chatContext = typeof scratchpadOrChat === "string" ? scratchpadOrChat : undefined;
       const userPrompt = PROMPTS.PLAN.buildUserPrompt(userMessage, chatContext);
 
+      // Se fuerza muestreo restringido mediante PLAN_JSON_SCHEMA
       const rawJson = await this.dispatchPrompt(
         PROMPTS.PLAN.SYSTEM,
         userPrompt,
         true,
         1500,
-        { stage: "plan", thinking: false, signal }
+        {
+          stage: "plan",
+          thinking: false,
+          signal,
+          schema: PLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
+        }
       );
 
       let parsed: any;
@@ -439,7 +528,7 @@ export class QwenEngine implements ILLMClient {
         if (match) {
           try {
             parsed = JSON.parse(match[0]);
-          } catch {}
+          } catch { }
         }
       }
 
@@ -448,15 +537,20 @@ export class QwenEngine implements ILLMClient {
         throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta 'steps'.");
       }
 
-      const steps = parsed.steps.slice(0, MAX_STEPS).map((s: any, idx: number) => ({
-        id: s.id || `s${idx + 1}`,
-        goal: s.goal || s.instruction || `Paso ${idx + 1}`,
-        instruction: s.goal || s.instruction || `Paso ${idx + 1}`,
-        suggested_mcp: s.suggested_mcp || s.route || "desktop_commander",
-        route: (s.suggested_mcp || s.route || "desktop_commander") as any,
-        expected_outcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
-        expectedOutcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
-      }));
+      const steps = parsed.steps.slice(0, MAX_STEPS).map((s: any, idx: number) => {
+        const rawRoute = s.suggested_mcp || s.route;
+        const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
+
+        return {
+          id: s.id || `s${idx + 1}`,
+          goal: s.goal || s.instruction || `Paso ${idx + 1}`,
+          instruction: s.goal || s.instruction || `Paso ${idx + 1}`,
+          suggested_mcp: safeRoute,
+          route: safeRoute,
+          expected_outcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
+          expectedOutcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
+        };
+      });
 
       return {
         objective: parsed.objective || userMessage,
@@ -466,7 +560,7 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Modo PLAN: Replan Localizado (§9.4)
+   * Modo PLAN: Replan Localizado con Structured Outputs (§9.4)
    */
   async replan(
     data: ReplanPromptData,
@@ -474,12 +568,19 @@ export class QwenEngine implements ILLMClient {
   ): Promise<{ action?: "abort"; reason?: string; plan?: Plan }> {
     return await this.executeStage("replan", async () => {
       const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
+
+      // Se fuerza muestreo restringido mediante REPLAN_JSON_SCHEMA
       const rawJson = await this.dispatchPrompt(
         PROMPTS.REPLAN.SYSTEM,
         userPrompt,
         true,
         1500,
-        { stage: "replan", thinking: false, signal }
+        {
+          stage: "replan",
+          thinking: false,
+          signal,
+          schema: REPLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
+        }
       );
 
       let parsed: any;
@@ -490,7 +591,7 @@ export class QwenEngine implements ILLMClient {
         if (match) {
           try {
             parsed = JSON.parse(match[0]);
-          } catch {}
+          } catch { }
         }
       }
 
@@ -506,15 +607,20 @@ export class QwenEngine implements ILLMClient {
         throw new LLMValidationError("Replan no produjo pasos válidos.");
       }
 
-      const steps = parsed.steps.slice(0, MAX_STEPS).map((s: any, idx: number) => ({
-        id: s.id || `s${data.nextStepNumber + idx}`,
-        goal: s.goal || s.instruction || "Paso",
-        instruction: s.goal || s.instruction || "Paso",
-        suggested_mcp: s.suggested_mcp || s.route || "desktop_commander",
-        route: (s.suggested_mcp || s.route || "desktop_commander") as any,
-        expected_outcome: s.expected_outcome || s.expectedOutcome || "Completado",
-        expectedOutcome: s.expected_outcome || s.expectedOutcome || "Completado",
-      }));
+      const steps = parsed.steps.slice(0, MAX_STEPS).map((s: any, idx: number) => {
+        const rawRoute = s.suggested_mcp || s.route;
+        const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
+
+        return {
+          id: s.id || `s${data.nextStepNumber + idx}`,
+          goal: s.goal || s.instruction || "Paso",
+          instruction: s.goal || s.instruction || "Paso",
+          suggested_mcp: safeRoute,
+          route: safeRoute,
+          expected_outcome: s.expected_outcome || s.expectedOutcome || "Completado",
+          expectedOutcome: s.expected_outcome || s.expectedOutcome || "Completado",
+        };
+      });
 
       return {
         plan: {

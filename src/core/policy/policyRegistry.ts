@@ -5,14 +5,16 @@
  * Rules:
  * - Deterministic mapping: (mcp, tool) -> capability.
  * - Cannot be modified dynamically by Qwen, Decision 2.0, or tool output.
- * - New or unknown tools trigger Discovery re-check; if unregistered, assigned fallback strict capability.
+ * - Dynamic command inspection delegated to Guard for run_command.
  */
 
 import { Capability, ToolPolicy } from "../types.ts";
 
 export class PolicyRegistry {
   private static policies: Map<string, ToolPolicy> = new Map([
-    // --- Windows MCP ---
+    // ============================================================
+    // Windows MCP
+    // ============================================================
     ["windows:ui_get_window_tree", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
     ["windows:ui_get_diff_tree", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
     ["windows:ui_search_elements", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
@@ -26,31 +28,45 @@ export class PolicyRegistry {
     ["windows:launch_app", { capability: "PROCESS_CONTROL", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["windows:close_window", { capability: "PROCESS_CONTROL", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
 
-    // --- Desktop Commander MCP ---
+    // ============================================================
+    // Desktop Commander MCP
+    // ============================================================
     ["desktop_commander:list_directory", { capability: "FILE_READ", kind: "READ", mutates: false, emptyIsError: false }],
     ["desktop_commander:read_file", { capability: "FILE_READ", kind: "READ", mutates: false, emptyIsError: true }],
     ["desktop_commander:search_files", { capability: "FILE_READ", kind: "READ", mutates: false, emptyIsError: true }],
+    ["desktop_commander:read_process_output", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    // run_command se evalúa dinámicamente en Guard (comandos seguros -> auto-allow; destructivos -> approval)
+    ["desktop_commander:run_command", { capability: "COMMAND_EXECUTION", requiresApproval: false, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["desktop_commander:write_file", { capability: "FILE_WRITE", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["desktop_commander:edit_file", { capability: "FILE_WRITE", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["desktop_commander:delete_file", { capability: "FILE_DELETE", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["desktop_commander:start_process", { capability: "PROCESS_CONTROL", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
-    ["desktop_commander:run_command", { capability: "COMMAND_EXECUTION", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["desktop_commander:kill_process", { capability: "PROCESS_CONTROL", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["desktop_commander:interact_process", { capability: "PROCESS_CONTROL", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
-    ["desktop_commander:read_process_output", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
     ["desktop_commander:set_config", { capability: "CONFIGURATION", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
 
-    // --- free-search-mcp ---
+    // ============================================================
+    // free-search-mcp (Catálogo completo de herramientas web)
+    // ============================================================
     ["free_search:search", { capability: "READ", kind: "READ", mutates: false, emptyIsError: true }],
+    ["free_search:fetch", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
     ["free_search:fetch_page", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
-    ["free_search:extract_structured", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:fetch_batch", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:read_doc", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:research", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:paper_graph", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:cache_search", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
     ["free_search:read_cached_resource", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:engines", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:compare", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:extract_structured", { capability: "READ", kind: "READ", mutates: false, emptyIsError: false }],
+    ["free_search:download", { capability: "DOWNLOAD", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
     ["free_search:download_document", { capability: "DOWNLOAD", requiresApproval: true, kind: "no-READ", mutates: true, emptyIsError: false }],
   ]);
 
   /**
    * Retrieves policy for given MCP and tool.
-   * If tool is unknown, returns fallback with strict APPROVAL requirement.
+   * Recognizes benign inspection prefixes dynamically before forcing fallback approval.
    */
   static getPolicy(mcp: string, tool: string): ToolPolicy {
     const key = `${mcp}:${tool}`;
@@ -59,13 +75,24 @@ export class PolicyRegistry {
       return policy;
     }
 
-    // Invariant: Unregistered tools are treated as potentially high-risk and require approval
-    const isDestructiveName = /delete|remove|rm|kill|exec|cmd|shell|run|write|drop|interact/i.test(tool);
+    const isDestructiveName = /delete|remove|rm|kill|exec|cmd|shell|run|write|drop|interact|install|edit/i.test(tool);
+    const isExplicitRead = /^(read|get|search|list|inspect|fetch|find|check|view|show|cat|info)/i.test(tool);
+
+    if (isExplicitRead && !isDestructiveName) {
+      return {
+        capability: "READ",
+        requiresApproval: false,
+        kind: "READ",
+        mutates: false,
+        emptyIsError: false,
+      };
+    }
+
     const capability: Capability = isDestructiveName ? "COMMAND_EXECUTION" : "READ";
     const kind = capability === "READ" ? "READ" : "no-READ";
     return {
       capability,
-      requiresApproval: true, // Always require approval for unregistered tools
+      requiresApproval: isDestructiveName,
       kind,
       mutates: kind !== "READ",
       emptyIsError: false,

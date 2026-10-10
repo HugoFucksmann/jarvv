@@ -27,6 +27,7 @@ import {
     EngineDependencies,
     executeCall,
 } from "./callExecutor.ts";
+import { isStepRoute } from "./reasoner/qwen.ts";
 
 // ============================================================
 // CONCLUSION & FINAL RESPONSE (§4, §5, Etapa 6)
@@ -116,8 +117,8 @@ export async function handleEscalation(
     if (escResp.action === "switch_mcp" && escResp.mcp) {
         const targetMcp = escResp.mcp.toLowerCase();
         console.log(`[Escalation] Qwen solicitó switch_mcp a '${targetMcp}'. Razón: ${escResp.reason}`);
-        context.activeServerOverride = targetMcp;
-        if (targetMcp === step.mcp && step.tool) {
+        context.activeServerOverride = isStepRoute(targetMcp) ? targetMcp : "desktop_commander";
+        if (context.activeServerOverride === step.mcp && step.tool) {
             context.excludedToolForNextCall = step.tool;
         }
         return true;
@@ -171,16 +172,21 @@ export async function handleReplan(
     }
 
     const newRev = (failedStep.rev || 0) + 1;
-    const newSteps: Step[] = replanResult.plan.steps.map((s, idx) => ({
-        id: s.id || `s${nextIdNum + idx}`,
-        route: (s.suggested_mcp || "desktop_commander") as StepRoute,
-        instruction: s.goal || s.instruction || "Meta",
-        expectedOutcome: s.expected_outcome || s.expectedOutcome,
-        state: "PENDING" as StepState,
-        calls: [],
-        rev: newRev,
-        superseded: false,
-    }));
+    const newSteps: Step[] = replanResult.plan.steps.map((s, idx) => {
+        const rawRoute = s.suggested_mcp || s.route;
+        const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
+
+        return {
+            id: s.id || `s${nextIdNum + idx}`,
+            route: safeRoute,
+            instruction: s.goal || s.instruction || "Meta",
+            expectedOutcome: s.expected_outcome || s.expectedOutcome,
+            state: "PENDING" as StepState,
+            calls: [],
+            rev: newRev,
+            superseded: false,
+        };
+    });
 
     task.steps.push(...newSteps);
     task.stepSeq = (task.stepSeq ?? 0) + newSteps.length;
@@ -216,7 +222,9 @@ export async function runFastLoop(
         // Step 1: Decision #1 Route
         let selectedRoute: StepRoute;
         if (context.activeServerOverride) {
-            selectedRoute = context.activeServerOverride as StepRoute;
+            selectedRoute = isStepRoute(context.activeServerOverride)
+                ? (context.activeServerOverride as StepRoute)
+                : "desktop_commander";
             context.activeServerOverride = undefined;
         } else {
             const isFirst = task.stepSeq === 0;
@@ -227,7 +235,6 @@ export async function runFastLoop(
                     allowFin: true,
                     isPostAction: context.nonReadCounter > 0,
                     isFirstIteration: isFirst,
-                    // Se alimenta con el resumen estructurado en lugar de fragmentos crudos de URL
                     lastResult: context.lastCallDecisionSummary || context.lastCallCompactObs,
                     attempts: buildAttempts(task),
                 }
@@ -381,7 +388,7 @@ export async function initiatePlanMode(
 
     task.steps = plan.steps.slice(0, MAX_STEPS).map((s, idx) => ({
         id: s.id || `s${idx + 1}`,
-        route: (s.suggested_mcp || "desktop_commander") as StepRoute,
+        route: isStepRoute(s.suggested_mcp) ? s.suggested_mcp : (isStepRoute(s.route) ? s.route : "desktop_commander"),
         instruction: s.goal || s.instruction || "Objetivo",
         expectedOutcome: s.expected_outcome || s.expectedOutcome,
         state: "PENDING" as StepState,
