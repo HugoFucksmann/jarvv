@@ -14,12 +14,12 @@ export interface ProcessedResult {
   verification: VerificationState;
   scratchpadDelta: Partial<Scratchpad>;
   summaryText: string;
-  // v2.1 additions (§10.4, §10.5):
   finding: string;
   compactObs: string;
   factsDelta: Record<string, string>;
   signals: StepExecutionSignals;
   refKey?: string;
+  decisionSummary: string; // Resumen estructurado para modelos clasificadores (Decision 2.0)
 }
 
 /**
@@ -107,7 +107,7 @@ export class ResultProcessor {
             } else if (Array.isArray(parsed)) {
               embeddedPayload.results = parsed;
             }
-          } catch {}
+          } catch { }
         }
       } else if (item.type === "image") {
         flags.push("IMAGE_CONTENT_ATTACHED");
@@ -123,7 +123,7 @@ export class ResultProcessor {
     // 2. Compute signals (§4, §5, §10.5)
     const isNotFound = fullText.includes("[NOT_FOUND]") || fullText.toLowerCase().includes("not found");
     const isDenied = fullText.includes("[DENIED]") || fullText.toLowerCase().includes("access denied");
-    
+
     // empty_output is calculated ONLY for read/search tools (§4, §10.5)
     let emptyOutput = false;
     if (policy.emptyIsError) {
@@ -142,7 +142,6 @@ export class ResultProcessor {
             emptyOutput = true;
           }
         } else {
-          // Cualquier otra tool de free_search (research, fetch_page, etc.)
           if (fullText.length < 50) {
             emptyOutput = true;
           }
@@ -186,8 +185,7 @@ export class ResultProcessor {
       const count = tree.length > 0 ? tree.length : (fullText.split("\n").length);
       const inc = mergedData.snapshotIncomplete ? " (incompleto)" : "";
       finding = sanitizeForMemory(`Ventana: ${winHandle || 'activa'}, ${count} elementos${inc}`);
-      
-      // Compact obs: interactive elements id|rol|nombre up to ~30
+
       const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
       const interactive = lines.slice(0, 30).join("\n");
       compactObs = interactive || "Árbol de UI inspeccionado.";
@@ -206,12 +204,10 @@ export class ResultProcessor {
         factsDelta.path = firstMatch;
         scratchpadDelta.path = firstMatch;
       }
-      // Populate cand up to 5 paths
       const candidates = lines.slice(0, 5).map((l) => l.split(":")[0].trim()).filter(Boolean);
       if (candidates.length > 0) {
         factsDelta.cand = candidates.join(", ");
       }
-      // Recorte LAST: top 10 path:línea: fragmento(100)
       const top10 = lines.slice(0, 10).map((l) => l.substring(0, 100)).join("\n");
       compactObs = top10 || "Sin coincidencias.";
       if (lines.length > 10 && refKey) {
@@ -238,7 +234,6 @@ export class ResultProcessor {
         factsDelta.path = String(args.path);
         scratchpadDelta.path = String(args.path);
       }
-      // Head (~15 lines) + tail (~15 lines)
       if (lines.length > 30) {
         const head = lines.slice(0, 15).join("\n");
         const tail = lines.slice(-15).join("\n");
@@ -256,7 +251,6 @@ export class ResultProcessor {
       }
       const exitCode = mergedData.exit_code ?? (isError ? "error" : "running");
       finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, status=${exitCode}`);
-      // Tail of ~30 lines of stdout + first line stderr
       const lines = fullText.split("\n");
       const tail = lines.slice(-30).join("\n");
       compactObs = tail || `Proceso ${pid} ejecutado.`;
@@ -309,8 +303,6 @@ export class ResultProcessor {
         }
       }
 
-      // Regla de seguridad: si el parser no encuentra resultados pero el MCP dice N>0 o el texto es largo (> 500 chars),
-      // NO marcar empty_output ni "nf": caer al extractor genérico.
       if (items.length === 0 && ((reportedCount !== undefined && reportedCount > 0) || fullText.length > 500)) {
         signals.empty_output = false;
         const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
@@ -415,6 +407,20 @@ export class ResultProcessor {
       ref: refKey ? `${mcp}:${tool}:${refKey}` : `${mcp}:${tool}`,
     };
 
+    // 7. Resumen estructurado para modelos clasificadores (Decision 2.0)
+    let decisionSummary = "";
+    if (signals.not_found) {
+      decisionSummary = `[SIN RESULTADOS] ${mcp}/${tool}: ${finding}. Recurso no encontrado.`;
+    } else if (signals.empty_output) {
+      decisionSummary = `[VACÍO] ${mcp}/${tool}: ${finding}. La salida no contiene datos útiles.`;
+    } else if (isError || signals.exit_code !== 0 || signals.denied) {
+      decisionSummary = `[FALLO] ${mcp}/${tool}: ${finding || 'Error en ejecución'}.`;
+    } else if (success && !isError) {
+      decisionSummary = `[ÉXITO] ${mcp}/${tool}: ${finding}. Información obtenida y registrada en memoria.`;
+    } else {
+      decisionSummary = `[INFO] ${mcp}/${tool}: ${finding}.`;
+    }
+
     return {
       outcome,
       evidence,
@@ -426,6 +432,7 @@ export class ResultProcessor {
       factsDelta,
       signals,
       refKey,
+      decisionSummary,
     };
   }
 }

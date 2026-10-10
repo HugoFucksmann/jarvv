@@ -26,6 +26,8 @@ export interface TaskExecutionContext {
     activeServerOverride?: string;
     excludedToolForNextCall?: string;
     lastCallCompactObs?: string;
+    /** Resumen sintético estructurado para Decision 2.0 ([ÉXITO]/[FALLO]) */
+    lastCallDecisionSummary?: string;
     /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
     lastCallTool?: string;
 }

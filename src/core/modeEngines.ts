@@ -166,7 +166,6 @@ export async function handleReplan(
         return false;
     }
 
-    // Supersede failed step and all subsequent steps
     for (let i = failedStepIndex; i < task.steps.length; i++) {
         task.steps[i].superseded = true;
     }
@@ -228,7 +227,8 @@ export async function runFastLoop(
                     allowFin: true,
                     isPostAction: context.nonReadCounter > 0,
                     isFirstIteration: isFirst,
-                    lastResult: context.lastCallCompactObs,
+                    // Se alimenta con el resumen estructurado en lugar de fragmentos crudos de URL
+                    lastResult: context.lastCallDecisionSummary || context.lastCallCompactObs,
                     attempts: buildAttempts(task),
                 }
             );

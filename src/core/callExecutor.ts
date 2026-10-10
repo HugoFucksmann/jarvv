@@ -281,6 +281,7 @@ export async function executeCall(
     const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args);
     context.lastCallCompactObs = processed.compactObs;
     context.lastCallTool = selectedTool.name;
+    context.lastCallDecisionSummary = processed.decisionSummary;
 
     // Update Scratchpad & Facts
     Object.assign(task.scratchpad, processed.scratchpadDelta);
@@ -288,11 +289,11 @@ export async function executeCall(
         Object.assign(task.memory.facts, processed.factsDelta);
     }
 
-    // 10. Etapa 5: Decision Evaluation
+    // 10. Etapa 5: Decision Evaluation (Alimentada con resumen sintético en vez de markdown crudo)
     const d5 = await deps.decisionEngine.evaluateDecisionFive(
         step.instruction,
         selectedTool.name,
-        processed.compactObs || processed.summaryText,
+        processed.decisionSummary || processed.summaryText,
         processed.signals,
         step.expectedOutcome
     );

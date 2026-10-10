@@ -112,7 +112,6 @@ ${DATA_NOTICE}`,
     buildUserPrompt(data: ArgumentPromptData): string {
       const toolDesc = (data.tool.description || "").trim().split(/\r?\n/)[0].split(/(?<=[.!?])\s/)[0];
 
-      // Bloques estables primero (cache de prefijo); lo que cambia por llamada, después.
       return join([
         `GOAL: ${data.goal}`,
         data.chatContext ? `CHAT:\n${data.chatContext}` : null,
@@ -227,12 +226,10 @@ Responde solo con JSON, una de dos formas:
 // Interfaces Decision 2.0
 // ============================================================
 
-/** Registro mínimo de una acción ya ejecutada (lo arma el runtime). */
 export interface Attempt {
   mcp?: string;
   tool: string;
   ok: boolean;
-  /** Motivo breve del fallo, o hallazgo relevante si ok=false por objetivo no cumplido. */
   note?: string;
 }
 
@@ -241,9 +238,7 @@ export interface DecisionOnePromptData {
   history: string;
   allowFin: boolean;
   isFirstIteration: boolean;
-  /** Opcional: acciones ya ejecutadas en esta tarea (más recientes al final). */
   attempts?: Attempt[];
-  /** Opcional: resumen del último resultado obtenido. */
   lastResult?: string;
 }
 
@@ -251,7 +246,6 @@ export interface DecisionTwoPromptData {
   instruction: string;
   scratchpadContext: string;
   tools: MCPTool[];
-  /** Opcional: acciones ya ejecutadas en esta tarea (más recientes al final). */
   attempts?: Attempt[];
 }
 
@@ -266,7 +260,6 @@ export interface DecisionFivePromptData {
     empty_output?: boolean;
     timeout?: boolean;
   };
-  /** Opcional: criterio de éxito del paso (expected_outcome). */
   expectedOutcome?: string;
 }
 
@@ -276,10 +269,6 @@ export interface DecisionJudgementPromptData {
   extract: string;
 }
 
-/**
- * Decision-2.0-Eos-0.8B: `state` es un string (contexto en texto plano)
- * y `questions` un mapa id -> pregunta.
- */
 export interface DecisionInput {
   state: string;
   questions: Record<string, DecisionQuestion>;
@@ -331,7 +320,6 @@ export const DECISION_PROMPTS = {
       data.lastResult ? `Último resultado: ${clip(data.lastResult, MAX_RESULT_CHARS)}` : null,
     ].filter(Boolean).join("\n");
 
-    // Rutas con un fallo como último estado se marcan en el criterio.
     const mcpStatus = lastStatusBy(data.attempts, (a) => a.mcp);
     const mark = (route: string, desc: string) =>
       mcpStatus.get(route) === false ? `${desc} [falló en el intento anterior]` : desc;
@@ -341,14 +329,15 @@ export const DECISION_PROMPTS = {
       desktop_commander: mark("desktop_commander", "Archivos locales, procesos y comandos de terminal."),
       free_search: mark("free_search", "Buscar o leer información en la web."),
     };
+
     if (data.allowFin) {
       criteria.fin = hasAttempts
-        ? "Conversación directa, o las acciones ya realizadas cumplen el objetivo y no queda nada por hacer."
+        ? "Las acciones ya realizadas aportaron la información necesaria o cumplieron el objetivo. No requiere más herramientas."
         : "Conversación directa, o la tarea ya está cumplida y no queda nada por hacer.";
     }
 
     const instructions = hasAttempts
-      ? "Determina la siguiente ruta evaluando el último resultado de herramienta: si satisface al usuario, finaliza; si falló, prueba una alternativa."
+      ? "¿Qué ruta corresponde a la siguiente acción? Si las acciones ya aportaron lo necesario, elige 'fin'. No repitas lo que ya funcionó; si una ruta falló, valora otra distinta."
       : "¿Qué ruta corresponde a la siguiente acción?";
 
     const questions: Record<string, DecisionQuestion> = {
@@ -375,7 +364,11 @@ export const DECISION_PROMPTS = {
       const base = shortDesc(t.description, t.name);
       const st = toolStatus.get(t.name);
       criteria[t.name] =
-        st === false ? `${base} [ya falló]` : st === true ? `${base} [ya ejecutada]` : base;
+        st === false
+          ? `${base} [ya falló - EVITAR]`
+          : st === true
+            ? `${base} [ya ejecutada - NO REPETIR]`
+            : base;
     }
 
     const state = [
@@ -390,7 +383,7 @@ export const DECISION_PROMPTS = {
         selected_tool: {
           type: "choice",
           instructions: hasAttempts
-            ? "¿Qué tool cumple la instrucción? Evita una tool marcada [ya falló], salvo que no haya otra."
+            ? "¿Qué tool cumple la instrucción? PROHIBIDO repetir una tool marcada [ya ejecutada - NO REPETIR] o [ya falló - EVITAR]. Si ya se ejecutó search, usa fetch sobre las URLs obtenidas o cambia de acción."
             : "¿Qué tool cumple la instrucción?",
           criteria,
         },
@@ -400,7 +393,6 @@ export const DECISION_PROMPTS = {
 
   /**
    * Decision #5: ¿el resultado cumple el objetivo?
-   * Separa ejecución técnica (señales) de cumplimiento del objetivo (contenido).
    */
   buildDecisionFive(data: DecisionFivePromptData): DecisionInput {
     const s = data.signals;
