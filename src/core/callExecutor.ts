@@ -21,6 +21,7 @@ import {
     addLogEntry,
     addFailEntry,
     buildScratchpadContextForDecision,
+    buildAttempts,
     buildPlanLines,
 } from "./context.ts";
 
@@ -105,7 +106,8 @@ export async function executeCall(
     const d2 = await deps.decisionEngine.evaluateDecisionTwo(
         step.instruction,
         discoveredTools,
-        buildScratchpadContextForDecision(task)
+        buildScratchpadContextForDecision(task),
+        buildAttempts(task)
     );
 
     const selectedTool = d2.selectedTool;
@@ -142,7 +144,7 @@ export async function executeCall(
             cleanedSchema,
             lastObs: context.lastCallCompactObs ? {
                 stepIndex: task.currentStep + 1,
-                toolName: selectedTool.name,
+                toolName: context.lastCallTool || selectedTool.name,
                 obsText: context.lastCallCompactObs,
             } : undefined,
             taskInstruction: step.instruction,
@@ -264,6 +266,7 @@ export async function executeCall(
     // 9. Process Result with Extractors (§10.5)
     const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args);
     context.lastCallCompactObs = processed.compactObs;
+    context.lastCallTool = selectedTool.name;
 
     // Update Scratchpad & Facts
     Object.assign(task.scratchpad, processed.scratchpadDelta);
@@ -275,8 +278,9 @@ export async function executeCall(
     const d5 = await deps.decisionEngine.evaluateDecisionFive(
         step.instruction,
         selectedTool.name,
-        processed.summaryText,
-        processed.signals
+        processed.compactObs || processed.summaryText,
+        processed.signals,
+        step.expectedOutcome
     );
     if (d5.override) {
         context.overridesCount++;
@@ -311,7 +315,11 @@ export async function executeCall(
         mcp: serverName,
         tool: selectedTool.name,
         args,
-        evidence: processed.evidence,
+        evidence: {
+            ...processed.evidence,
+            ok: logStatus === "ok" || logStatus === "unv",
+            obs: processed.compactObs ? processed.compactObs.slice(0, 1500) : undefined,
+        },
         verification: processed.verification,
         outcome: processed.outcome,
         error: !d5.isCorrect ? processed.summaryText : undefined,

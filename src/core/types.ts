@@ -111,6 +111,7 @@ export interface Evidence {
   summary?: string;
   flags?: string[];
   ref?: string;
+  obs?: string;
 }
 
 export type VerificationState =

@@ -21,6 +21,7 @@ import {
     TaskExecutionContext,
     addFailEntry,
     buildHistoryContext,
+    buildAttempts,
 } from "./context.ts";
 import {
     EngineDependencies,
@@ -41,9 +42,15 @@ export async function concludeTask(
 
     const lastCalls = task.steps
         .flatMap((s) => s.calls || [])
-        .filter((c) => c.evidence?.summary)
         .slice(-3);
-    const evidenceSummaries = lastCalls.map((c) => `${c.tool}: ${c.evidence?.summary || ''}`);
+    const safeStr = (s: string) => s.replace(/<\/?obs>/gi, "[obs]");
+    const evidenceSummaries = lastCalls.map((c) => {
+        const obs = (c.evidence?.obs || c.evidence?.summary || "").slice(0, 1500);
+        return `${c.tool}: ${safeStr(obs)}`;
+    });
+    if (evidenceSummaries.length === 0 && abortReason) {
+        evidenceSummaries.push(`abort: ${safeStr(abortReason).slice(0, 1500)}`);
+    }
 
     try {
         task.finalResponse = await deps.qwenEngine.generateFinalResponse({
@@ -221,6 +228,8 @@ export async function runFastLoop(
                     allowFin: true,
                     isPostAction: context.nonReadCounter > 0,
                     isFirstIteration: isFirst,
+                    lastResult: context.lastCallCompactObs,
+                    attempts: buildAttempts(task),
                 }
             );
 

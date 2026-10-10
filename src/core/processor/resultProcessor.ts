@@ -131,8 +131,22 @@ export class ResultProcessor {
         emptyOutput = true;
       } else if (tool === "search_files" && /0\s+(matches|coincidencias|archivos)/i.test(fullText)) {
         emptyOutput = true;
-      } else if (tool === "search" && /0\s+(results|resultados)/i.test(fullText)) {
-        emptyOutput = true;
+      } else if (mcp === "free_search") {
+        if (tool === "search") {
+          const resultsMatch = fullText.match(/_results:\s*(\d+)_/i);
+          if (resultsMatch) {
+            emptyOutput = parseInt(resultsMatch[1], 10) === 0;
+          } else if (/0\s+(results|resultados)/i.test(fullText) && fullText.length < 500) {
+            emptyOutput = true;
+          } else if (fullText.length < 50) {
+            emptyOutput = true;
+          }
+        } else {
+          // Cualquier otra tool de free_search (research, fetch_page, etc.)
+          if (fullText.length < 50) {
+            emptyOutput = true;
+          }
+        }
       }
     }
 
@@ -251,28 +265,121 @@ export class ResultProcessor {
       }
     }
     // Specific extractor: search (web)
-    else if (mcp === "free_search" && (tool === "search" || tool === "fetch_page")) {
-      const results = mergedData.results || mergedData.documents || [];
-      const count = Array.isArray(results) ? results.length : fullText.split("\n").length;
-      const firstTitle = Array.isArray(results) && results[0]?.title ? results[0].title : (fullText.split("\n")[0] || "");
-      finding = sanitizeForMemory(`${count} resultados web, primero: ${firstTitle}`);
-      if (mergedData.url || args.url) {
-        const urlStr = String(mergedData.url || args.url);
-        factsDelta.url = urlStr;
-        scratchpadDelta.url = urlStr;
+    else if (mcp === "free_search" && tool === "search") {
+      let jsonResults = Array.isArray(mergedData.results) ? mergedData.results : (Array.isArray(mergedData.documents) ? mergedData.documents : null);
+
+      let items: { title: string; url?: string; snippet?: string }[] = [];
+      let reportedCount: number | undefined;
+      let leadText: string | undefined;
+
+      if (jsonResults && jsonResults.length > 0) {
+        items = jsonResults.map((r: any) => ({
+          title: r.title || "Resultado",
+          url: r.url,
+          snippet: r.snippet || r.description,
+        }));
+        reportedCount = items.length;
+      } else {
+        const resultsMatch = fullText.match(/_results:\s*(\d+)_/i);
+        if (resultsMatch) {
+          reportedCount = parseInt(resultsMatch[1], 10);
+        }
+
+        const leadMatch = fullText.match(/>\s*\*\*Lead:\*\*\s*([^\n]+(?:\n>[^\n]+)*)/i);
+        if (leadMatch) {
+          leadText = leadMatch[1].replace(/\n>\s*/g, " ").trim();
+        }
+
+        const sections = fullText.split(/\n(?=##\s*\d+\.\s*)/);
+        for (const sec of sections) {
+          const headerMatch = sec.match(/^##\s*\d+\.\s*([^\n]+)/);
+          if (!headerMatch) continue;
+          const title = headerMatch[1].trim();
+
+          const urlMatch = sec.match(/<([^>]+)>/) || sec.match(/\n(https?:\/\/[^\s\n]+)/);
+          const url = urlMatch ? urlMatch[1].trim() : undefined;
+
+          const snippetMatch = sec.match(/(?:^|\n)>\s*(?!\*\*Lead:\*\*)([^\n]+(?:\n>[^\n]+)*)/);
+          let snippet: string | undefined;
+          if (snippetMatch) {
+            snippet = snippetMatch[1].replace(/\n>\s*/g, " ").trim();
+          }
+
+          items.push({ title, url, snippet });
+        }
       }
-      if (Array.isArray(results) && results.length > 0) {
-        scratchpadDelta.search_results = results;
-        const cands = results.slice(0, 5).map((r: any) => r.url || r.title).filter(Boolean);
+
+      // Regla de seguridad: si el parser no encuentra resultados pero el MCP dice N>0 o el texto es largo (> 500 chars),
+      // NO marcar empty_output ni "nf": caer al extractor genérico.
+      if (items.length === 0 && ((reportedCount !== undefined && reportedCount > 0) || fullText.length > 500)) {
+        signals.empty_output = false;
+        const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
+        finding = sanitizeForMemory(`${isError ? 'err' : 'ok'}: ${firstLine}`);
+        if (fullText.length > 1500) {
+          compactObs = `${fullText.substring(0, 750)}\n[... omitidos, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
+        } else {
+          compactObs = fullText || "Búsqueda web completada.";
+        }
+      } else if (items.length === 0 && (reportedCount === 0 || fullText.length < 50)) {
+        signals.empty_output = true;
+        finding = sanitizeForMemory(`0 resultados web`);
+        compactObs = "0 resultados encontrados.";
+      } else {
+        const count = reportedCount !== undefined ? reportedCount : items.length;
+        const firstTitle = items[0]?.title || "";
+        finding = sanitizeForMemory(`${count} resultados web, primero: ${firstTitle}`);
+
+        if (items[0]?.url) {
+          factsDelta.url = items[0].url;
+          scratchpadDelta.url = items[0].url;
+        }
+
+        const cands = items.slice(0, 5).map((r) => r.url).filter(Boolean);
         if (cands.length > 0) {
           factsDelta.cand = cands.join(", ");
         }
+
+        scratchpadDelta.search_results = items;
+
+        const obsLines: string[] = [];
+        if (leadText) {
+          obsLines.push(`Lead: ${leadText.slice(0, 300)}`);
+        }
+        for (const it of items.slice(0, 5)) {
+          const snip = it.snippet ? ` - ${it.snippet.slice(0, 150)}` : "";
+          obsLines.push(`${it.title}: ${it.url || ""} ${snip}`.trim());
+        }
+        let formattedObs = obsLines.join("\n") || "Búsqueda web completada.";
+        if (items.length > 5 && refKey) {
+          formattedObs += `\n[... omitidos ${items.length - 5} resultados, ref:${refKey}]`;
+        }
+        compactObs = formattedObs;
       }
-      // Top 5 title + url + snippet
-      if (Array.isArray(results) && results.length > 0) {
-        compactObs = results.slice(0, 5).map((r: any) => `${r.title || 'Doc'}: ${r.url || ''} - ${(r.snippet || '').slice(0, 150)}`).join("\n");
+    }
+    // Specific extractor: research (web)
+    else if (mcp === "free_search" && tool === "research") {
+      const firstHeaderMatch = fullText.match(/^#+\s*([^\n]+)/m);
+      const firstLine = firstHeaderMatch ? firstHeaderMatch[1].trim() : (fullText.split("\n")[0] || "Reporte de investigación");
+      finding = sanitizeForMemory(`reporte: ${firstLine}`);
+      if (fullText.length > 1500) {
+        compactObs = `${fullText.substring(0, 1500)}\n[... reporte continúa, ref:${refKey}]`;
       } else {
-        compactObs = fullText.slice(0, 1500) || "Búsqueda web completada.";
+        compactObs = fullText || "Reporte de investigación generado.";
+      }
+    }
+    // Specific extractor: fetch_page (web)
+    else if (mcp === "free_search" && tool === "fetch_page") {
+      const urlStr = String(mergedData.url || args.url || "");
+      if (urlStr) {
+        factsDelta.url = urlStr;
+        scratchpadDelta.url = urlStr;
+      }
+      const firstLine = fullText.split("\n")[0] || "Página web";
+      finding = sanitizeForMemory(`página: ${firstLine}`);
+      if (fullText.length > 1500) {
+        compactObs = `${fullText.substring(0, 750)}\n[... contenido omitido, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
+      } else {
+        compactObs = fullText || "Página web leída.";
       }
     }
     // Generic extractor: any other tool
@@ -301,8 +408,9 @@ export class ResultProcessor {
 
     // 6. Evidence object
     const evidence: Evidence = {
-      ok: success && !isError,
+      ok: success && !isError && !signals.empty_output && !signals.not_found,
       summary: finding,
+      obs: compactObs ? compactObs.slice(0, 1500) : undefined,
       flags: flags.length > 0 ? flags : undefined,
       ref: refKey ? `${mcp}:${tool}:${refKey}` : `${mcp}:${tool}`,
     };

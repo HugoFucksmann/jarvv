@@ -313,6 +313,15 @@ export class QwenEngine implements ILLMClient {
         }
 
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          // Eliminar claves no requeridas cuyo valor sea null, "" o []
+          for (const [key, value] of Object.entries(parsed)) {
+            if (!required.includes(key)) {
+              if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
+                delete parsed[key];
+              }
+            }
+          }
+
           // Check required schema fields
           const missing = required.filter((r) => parsed[r] === undefined);
           if (missing.length === 0) {

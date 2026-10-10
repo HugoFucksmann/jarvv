@@ -5,7 +5,9 @@
 import {
     Task,
     PendingApproval,
+    StepCall,
 } from "./types.ts";
+import { Attempt } from "./reasoner/prompts.ts";
 
 export interface TaskExecutionContext {
     task: Task;
@@ -24,6 +26,8 @@ export interface TaskExecutionContext {
     activeServerOverride?: string;
     excludedToolForNextCall?: string;
     lastCallCompactObs?: string;
+    /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
+    lastCallTool?: string;
 }
 
 export function addLogEntry(context: TaskExecutionContext, line: string): void {
@@ -69,8 +73,24 @@ export function buildHistoryContext(task: Task): string {
 export function buildScratchpadContextForDecision(task: Task): string {
     const facts = task.memory?.facts || {};
     const factsStr = Object.entries(facts).map(([k, v]) => `${k}=${v}`).join(" ");
+    const logLines = (task.memory?.log || []).slice(-2).join("; ");
     const failLines = (task.memory?.fail || []).slice(-2).join("; ");
-    return `FACTS: ${factsStr} | FAIL: ${failLines}`;
+    return `FACTS: ${factsStr} | LOG: ${logLines} | FAIL: ${failLines}`;
+}
+
+/**
+ * Construye el historial de acciones ejecutadas a partir de task.steps[].calls[].
+ * Usado por Decision #1 y Decision #2 para marcar rutas/tools ya intentadas.
+ */
+export function buildAttempts(task: Task): Attempt[] {
+    return task.steps
+        .flatMap((s) => (s.calls || []) as StepCall[])
+        .map((c) => ({
+            mcp: c.mcp,
+            tool: c.tool,
+            ok: c.evidence?.ok === true,
+            note: c.evidence?.summary,
+        }));
 }
 
 export function buildPlanLines(task: Task): string[] {

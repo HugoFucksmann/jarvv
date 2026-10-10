@@ -25,7 +25,7 @@ import {
   DECISION_OVERRIDE_CONFIDENCE_THRESHOLD,
 } from "./types.ts";
 import { ConfigManager } from "./config.ts";
-import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
+import { DECISION_PROMPTS, Attempt } from "./reasoner/prompts.ts";
 
 export class DecisionServiceUnavailableError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -134,6 +134,10 @@ export class Decision20Engine {
       allowFin?: boolean;
       isPostAction?: boolean;
       isFirstIteration?: boolean;
+      /** Observación compacta del último resultado obtenido, para que D1 la vea. */
+      lastResult?: string;
+      /** Historial de acciones ya ejecutadas, para marcar rutas fallidas. */
+      attempts?: Attempt[];
     }
   ): Promise<{
     route: StepRoute;
@@ -152,6 +156,8 @@ export class Decision20Engine {
       history,
       allowFin: options?.allowFin !== false,
       isFirstIteration: options?.isFirstIteration !== false,
+      lastResult: options?.lastResult,
+      attempts: options?.attempts,
     });
 
     const t0 = Date.now();
@@ -239,7 +245,8 @@ export class Decision20Engine {
       denied?: boolean;
       empty_output?: boolean;
       timeout?: boolean;
-    }
+    },
+    expectedOutcome?: string
   ): Promise<{
     isCorrect: boolean;
     choice: "correcta" | "incorrecta";
@@ -253,6 +260,7 @@ export class Decision20Engine {
       tool,
       resultSummary,
       signals,
+      expectedOutcome,
     });
 
     const t0 = Date.now();
@@ -345,7 +353,8 @@ export class Decision20Engine {
   async evaluateDecisionTwo(
     instruction: string,
     discoveredTools: MCPTool[],
-    scratchpadSummary?: string
+    scratchpadSummary?: string,
+    attempts?: Attempt[]
   ): Promise<{
     selectedTool: MCPTool;
     choiceAnswer: DecisionAnswerChoice;
@@ -380,6 +389,7 @@ export class Decision20Engine {
       instruction,
       scratchpadContext: scratchpadSummary || "",
       tools: discoveredTools,
+      attempts,
     });
     const limitedTools = discoveredTools.slice(0, 255);
 
