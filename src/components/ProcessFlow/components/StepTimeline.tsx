@@ -20,7 +20,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({ steps, currentStepIn
     <div className="flex flex-col divide-y divide-slate-800/60">
       {steps.map((step, idx) => (
         <StepItem
-          key={step.id || idx}
+          key={`step-${step.id || "item"}-${step.rev ?? 0}-${idx}`}
           step={step}
           index={idx}
           isCurrent={idx === currentStepIndex}

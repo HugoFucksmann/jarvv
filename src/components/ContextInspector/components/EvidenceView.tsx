@@ -25,7 +25,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ steps }) => {
       step.calls.forEach((call, cIdx) => {
         if (call.evidence || call.error) {
           items.push({
-            key: `${step.id}-${call.id || cIdx}`,
+            key: `ev-${sIdx}-${step.id || "step"}-${call.id || cIdx}`,
             stepIndex: sIdx + 1,
             stepRoute: step.route,
             source: `${call.mcp}:${call.tool}`,
@@ -39,7 +39,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ steps }) => {
       });
     } else if (step.evidence) {
       items.push({
-        key: `${step.id}-root`,
+        key: `ev-${sIdx}-${step.id || "step"}-root`,
         stepIndex: sIdx + 1,
         stepRoute: step.route,
         source: step.tool || step.evidence.ref || step.route,

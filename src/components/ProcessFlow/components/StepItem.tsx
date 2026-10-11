@@ -157,12 +157,12 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
 
           {showCalls && (
             <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-slate-800 pl-3 py-1">
-              {step.calls!.map((c) => {
+              {step.calls!.map((c, cIdx) => {
                 const isError = Boolean(c.error);
                 const isVerified = c.verification === "VERIFIED";
                 return (
                   <div
-                    key={c.id}
+                    key={`call-${c.id || "item"}-${cIdx}`}
                     className="p-2 rounded bg-slate-950/70 border border-slate-800/80 text-xs font-mono"
                   >
                     <div className="flex items-center justify-between text-slate-400 mb-1">
