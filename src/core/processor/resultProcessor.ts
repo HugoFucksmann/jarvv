@@ -19,31 +19,49 @@ export interface ProcessedResult {
   factsDelta: Record<string, string>;
   signals: StepExecutionSignals;
   refKey?: string;
-  decisionSummary: string; // Resumen estructurado para modelos clasificadores (Decision 2.0)
+  decisionSummary: string;
 }
 
 /**
- * Volatile reference store for complete tool outputs (§10.4, §10.11)
- * Discarded when task ends.
+ * Task-isolated reference store for complete tool outputs (§10.4, §10.11).
+ * Isolates data per taskId to prevent cross-task clearing and memory leaks.
  */
 export class RefStore {
-  private static storeMap: Map<string, string> = new Map();
-  private static counter = 0;
+  private static taskStores: Map<string, Map<string, string>> = new Map();
+  private static taskCounters: Map<string, number> = new Map();
 
-  static put(content: string): string {
-    this.counter++;
-    const key = `r${this.counter}`;
-    this.storeMap.set(key, content);
+  static put(content: string, taskId: string = "default"): string {
+    let store = this.taskStores.get(taskId);
+    if (!store) {
+      store = new Map<string, string>();
+      this.taskStores.set(taskId, store);
+    }
+    const currentCounter = (this.taskCounters.get(taskId) || 0) + 1;
+    this.taskCounters.set(taskId, currentCounter);
+    const key = `r${currentCounter}`;
+    store.set(key, content);
     return key;
   }
 
-  static get(key: string): string | undefined {
-    return this.storeMap.get(key);
+  static get(key: string, taskId?: string): string | undefined {
+    if (taskId) {
+      return this.taskStores.get(taskId)?.get(key);
+    }
+    for (const store of this.taskStores.values()) {
+      const val = store.get(key);
+      if (val !== undefined) return val;
+    }
+    return undefined;
   }
 
-  static clear(): void {
-    this.storeMap.clear();
-    this.counter = 0;
+  static clear(taskId?: string): void {
+    if (taskId) {
+      this.taskStores.delete(taskId);
+      this.taskCounters.delete(taskId);
+    } else {
+      this.taskStores.clear();
+      this.taskCounters.clear();
+    }
   }
 }
 
@@ -72,7 +90,8 @@ export class ResultProcessor {
     mcp: string,
     tool: string,
     rawResult: MCPCallResult,
-    args: Record<string, unknown> = {}
+    args: Record<string, unknown> = {},
+    taskId?: string
   ): ProcessedResult {
     const isError = Boolean(rawResult.isError);
     const success = Boolean(rawResult.success !== undefined ? rawResult.success : !isError);
@@ -123,8 +142,12 @@ export class ResultProcessor {
     // 2. Compute signals (§4, §5, §10.5)
     const isNotFound = fullText.includes("[NOT_FOUND]") || fullText.toLowerCase().includes("not found");
     const isDenied = fullText.includes("[DENIED]") || fullText.toLowerCase().includes("access denied");
+    const isStale = Boolean(rawResult.staleElement || mergedData.staleElement || /\[stale_element\]/i.test(fullText));
 
-    // empty_output is calculated ONLY for read/search tools (§4, §10.5)
+    if (isStale) {
+      flags.push("STALE_ELEMENT");
+    }
+
     let emptyOutput = false;
     if (policy.emptyIsError) {
       if (!fullText || fullText.length === 0) {
@@ -151,25 +174,25 @@ export class ResultProcessor {
 
     const signals: StepExecutionSignals = {
       exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : 0),
-      exception: isError && !isNotFound && !isDenied,
+      exception: isError && !isNotFound && !isDenied && !isStale,
       timeout: Boolean(mergedData.timed_out || /timeout/i.test(fullText)),
       not_found: isNotFound,
       denied: isDenied,
       unverified: actionDispatched && !outcomeVerified,
       empty_output: emptyOutput,
+      stale_element: isStale,
     };
 
-    // 3. Store full result in RefStore (§10.4)
+    // 3. Store full result in task-isolated RefStore (§10.4)
     let refKey: string | undefined;
     if (fullText.length > 0) {
-      refKey = RefStore.put(fullText);
+      refKey = RefStore.put(fullText, taskId);
     }
 
     // 4. Deterministic Extractors per Tool (§10.5)
     let finding = "";
     let compactObs = "";
 
-    // Specific extractor: UI tree (windows: ui_get_window_tree, ui_get_diff_tree)
     if (tool.includes("tree") || tool.includes("window_tree")) {
       const winHandle = mergedData.windowHandle || mergedData.window_handle || args.window_handle;
       if (winHandle) {
@@ -192,9 +215,7 @@ export class ResultProcessor {
       if (lines.length > 30 && refKey) {
         compactObs += `\n[... omitidos ${lines.length - 30} elementos, ref:${refKey}]`;
       }
-    }
-    // Specific extractor: search_files
-    else if (tool === "search_files") {
+    } else if (tool === "search_files") {
       const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
       const count = lines.length;
       const firstLine = lines[0] || "";
@@ -213,9 +234,7 @@ export class ResultProcessor {
       if (lines.length > 10 && refKey) {
         compactObs += `\n[... ${lines.length - 10} coincidencias omitidas, ref:${refKey}]`;
       }
-    }
-    // Specific extractor: list_directory
-    else if (tool === "list_directory") {
+    } else if (tool === "list_directory") {
       const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
       finding = sanitizeForMemory(`${lines.length} entradas en directorio`);
       const top40 = lines.slice(0, 40).join("\n");
@@ -223,9 +242,7 @@ export class ResultProcessor {
       if (lines.length > 40 && refKey) {
         compactObs += `\n[... ${lines.length - 40} entradas omitidas, ref:${refKey}]`;
       }
-    }
-    // Specific extractor: read_file
-    else if (tool === "read_file") {
+    } else if (tool === "read_file") {
       const lines = fullText.split("\n");
       const sizeBytes = Buffer.byteLength(fullText, "utf-8");
       const sizeKb = (sizeBytes / 1024).toFixed(1);
@@ -241,9 +258,7 @@ export class ResultProcessor {
       } else {
         compactObs = fullText || "Archivo leído (vacío).";
       }
-    }
-    // Specific extractor: start_process, interact_process, read_process_output
-    else if (tool.includes("process")) {
+    } else if (tool.includes("process")) {
       const pid = mergedData.process_id || mergedData.pid || args.pid || args.process_id;
       if (pid) {
         factsDelta.pid = String(pid);
@@ -257,9 +272,7 @@ export class ResultProcessor {
       if (lines.length > 30 && refKey) {
         compactObs = `[... salida previa omitida, ref:${refKey}]\n` + compactObs;
       }
-    }
-    // Specific extractor: search (web)
-    else if (mcp === "free_search" && tool === "search") {
+    } else if (mcp === "free_search" && tool === "search") {
       let jsonResults = Array.isArray(mergedData.results) ? mergedData.results : (Array.isArray(mergedData.documents) ? mergedData.documents : null);
 
       let items: { title: string; url?: string; snippet?: string }[] = [];
@@ -347,9 +360,7 @@ export class ResultProcessor {
         }
         compactObs = formattedObs;
       }
-    }
-    // Specific extractor: research (web)
-    else if (mcp === "free_search" && tool === "research") {
+    } else if (mcp === "free_search" && tool === "research") {
       const firstHeaderMatch = fullText.match(/^#+\s*([^\n]+)/m);
       const firstLine = firstHeaderMatch ? firstHeaderMatch[1].trim() : (fullText.split("\n")[0] || "Reporte de investigación");
       finding = sanitizeForMemory(`reporte: ${firstLine}`);
@@ -358,9 +369,7 @@ export class ResultProcessor {
       } else {
         compactObs = fullText || "Reporte de investigación generado.";
       }
-    }
-    // Specific extractor: fetch_page (web)
-    else if (mcp === "free_search" && tool === "fetch_page") {
+    } else if (mcp === "free_search" && tool === "fetch_page") {
       const urlStr = String(mergedData.url || args.url || "");
       if (urlStr) {
         factsDelta.url = urlStr;
@@ -373,9 +382,7 @@ export class ResultProcessor {
       } else {
         compactObs = fullText || "Página web leída.";
       }
-    }
-    // Generic extractor: any other tool
-    else {
+    } else {
       const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
       finding = sanitizeForMemory(`${isError ? 'err' : 'ok'}: ${firstLine}`);
       if (fullText.length > 1500) {
@@ -400,7 +407,7 @@ export class ResultProcessor {
 
     // 6. Evidence object
     const evidence: Evidence = {
-      ok: success && !isError && !signals.empty_output && !signals.not_found,
+      ok: success && !isError && !signals.empty_output && !signals.not_found && !signals.stale_element,
       summary: finding,
       obs: compactObs ? compactObs.slice(0, 1500) : undefined,
       flags: flags.length > 0 ? flags : undefined,
@@ -409,7 +416,9 @@ export class ResultProcessor {
 
     // 7. Resumen estructurado para modelos clasificadores (Decision 2.0)
     let decisionSummary = "";
-    if (signals.not_found) {
+    if (signals.stale_element) {
+      decisionSummary = `[STALE] ${mcp}/${tool}: ${finding}. Elemento de UI desincronizado o no disponible en ventana activa.`;
+    } else if (signals.not_found) {
       decisionSummary = `[SIN RESULTADOS] ${mcp}/${tool}: ${finding}. Recurso no encontrado.`;
     } else if (signals.empty_output) {
       decisionSummary = `[VACÍO] ${mcp}/${tool}: ${finding}. La salida no contiene datos útiles.`;

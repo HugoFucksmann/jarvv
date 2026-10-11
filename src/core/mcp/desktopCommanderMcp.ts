@@ -1,19 +1,10 @@
 /**
  * Desktop Commander MCP — Real Client Adapter
  * Contract Reference: Desktop Commander MCP Contract
- * 
- * Rules:
- * - Real MCP transport over stdio JSON-RPC.
- * - Dynamic discovery via tools/list.
- * - Configurable allowedDirectories inspection (§10).
- * - Distinguishes [NOT_FOUND] vs [DENIED] (§6).
- * - Preserves process and session lifecycles (§7).
- * - Supports pagination and negative offsets (§5).
- * - NO in-memory simulated file dictionaries.
  */
 
 import path from "node:path";
-import { IMCPServer } from "./types.ts";
+import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { ConfigManager } from "../config.ts";
@@ -24,14 +15,14 @@ export class DesktopCommanderMCPServer implements IMCPServer {
   private transport: IMCPTransport;
   private allowedDirectories: string[] = [];
 
-  constructor(transport?: IMCPTransport, allowedDirs: string[] = []) {
+  constructor(transport?: IMCPTransport, allowedDirs?: string[]) {
     const config = ConfigManager.getConfig();
     this.transport = transport || new StdioMcpTransport(
       "desktop_commander",
       config.desktopCommanderMcp,
       config.mcpTimeoutMs ?? config.timeoutMs ?? 30000
     );
-    this.allowedDirectories = allowedDirs;
+    this.allowedDirectories = allowedDirs || config.desktopCommanderMcp?.allowedDirectories || [];
   }
 
   setAllowedDirectories(dirs: string[]): void {
@@ -50,12 +41,17 @@ export class DesktopCommanderMCPServer implements IMCPServer {
     await this.transport.reconnect();
   }
 
+  async close(): Promise<void> {
+    if (this.transport.close) {
+      await this.transport.close();
+    }
+  }
+
   async listTools(): Promise<MCPTool[]> {
     return await this.transport.listTools();
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
-    // Boundary check sobre allowedDirectories (§10) con resolución canónica segura
     const candidatePath = (args.path || args.directory || args.file) as string | undefined;
     if (this.allowedDirectories.length > 0 && typeof candidatePath === "string") {
       const resolvedTarget = path.resolve(candidatePath);
@@ -80,5 +76,26 @@ export class DesktopCommanderMCPServer implements IMCPServer {
     }
 
     return await this.transport.callTool(name, args);
+  }
+
+  async listPrompts(): Promise<MCPPrompt[]> {
+    if (this.transport.listPrompts) {
+      return await this.transport.listPrompts();
+    }
+    return [];
+  }
+
+  async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
+    if (this.transport.listResourceTemplates) {
+      return await this.transport.listResourceTemplates();
+    }
+    return [];
+  }
+
+  async readResource(uri: string): Promise<string> {
+    if (this.transport.readResource) {
+      return await this.transport.readResource(uri);
+    }
+    return "";
   }
 }

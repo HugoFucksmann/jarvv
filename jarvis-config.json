@@ -1,0 +1,34 @@
+{
+  "qwenUrl": "http://127.0.0.1:11434",
+  "qwenModel": "qwen3.5:9b",
+  "thinking": false,
+  "decisionUrl": "http://127.0.0.1:8765",
+  "windowsMcp": {
+    "command": "uvx",
+    "args": [
+      "windows-mcp",
+      "serve"
+    ]
+  },
+  "desktopCommanderMcp": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@wonderwhy-er/desktop-commander"
+    ]
+  },
+  "freeSearchMcp": {
+    "command": "uvx",
+    "args": [
+      "--from",
+      "free-search-mcp==0.13.1",
+      "--with",
+      "selectolax==0.3.34",
+      "free-search-mcp"
+    ]
+  },
+  "timeoutMs": 30000,
+  "decisionTimeoutMs": 30000,
+  "qwenTimeoutMs": 60000,
+  "mcpTimeoutMs": 30000
+}

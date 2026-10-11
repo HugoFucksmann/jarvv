@@ -1,13 +1,6 @@
 /**
  * free-search-mcp — Real Client Adapter
  * Contract Reference: sweetcornna/free-search-mcp (v0.13.1)
- * 
- * Rules:
- * - Real MCP transport over stdio JSON-RPC.
- * - Dynamic discovery via tools/list, prompts/list, resources/templates/list (§3, §7).
- * - Real tools/call execution.
- * - Web content is treated strictly as DATA, not instructions (§14, §28).
- * - NO simulated mock search results.
  */
 
 import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
@@ -35,6 +28,12 @@ export class FreeSearchMCPServer implements IMCPServer {
 
   async reconnect(): Promise<void> {
     await this.transport.reconnect();
+  }
+
+  async close(): Promise<void> {
+    if (this.transport.close) {
+      await this.transport.close();
+    }
   }
 
   async listPrompts(): Promise<MCPPrompt[]> {

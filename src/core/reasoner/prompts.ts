@@ -261,6 +261,7 @@ export interface DecisionFivePromptData {
     denied?: boolean;
     empty_output?: boolean;
     timeout?: boolean;
+    stale_element?: boolean;
   };
   expectedOutcome?: string;
 }
@@ -402,6 +403,7 @@ export const DECISION_PROMPTS = {
     if (s.exit_code !== undefined && s.exit_code !== 0) techErrors.push(`código de salida ${s.exit_code}`);
     if (s.denied) techErrors.push("acceso denegado");
     if (s.timeout) techErrors.push("tiempo agotado");
+    if (s.stale_element) techErrors.push("elemento de interfaz obsoleto (stale element)");
 
     const findings: string[] = [];
     if (s.not_found) findings.push("recurso no encontrado");

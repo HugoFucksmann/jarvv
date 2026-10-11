@@ -1,18 +1,9 @@
 /**
  * Windows MCP — Real Client Adapter
  * Contract Reference: sbroenne/mcp-windows (v1.3.27)
- * 
- * Rules:
- * - Real MCP transport over stdio JSON-RPC.
- * - Dynamic discovery via tools/list.
- * - Handles dynamic element IDs and window handles.
- * - Detects stale element errors for re-discovery recovery (§8, §9).
- * - Distinguishes actionDispatched vs outcomeVerified (§6).
- * - Preserves persistent process connection across requests (§8).
- * - NO fake UI trees or simulated clicks.
  */
 
-import { IMCPServer } from "./types.ts";
+import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { ConfigManager } from "../config.ts";
@@ -38,9 +29,14 @@ export class WindowsMCPServer implements IMCPServer {
   }
 
   async reconnect(): Promise<void> {
-    // Invalidate session token and dynamic IDs upon reconnect (§8)
     this.currentSessionToken = `win_${Date.now()}`;
     await this.transport.reconnect();
+  }
+
+  async close(): Promise<void> {
+    if (this.transport.close) {
+      await this.transport.close();
+    }
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -50,7 +46,6 @@ export class WindowsMCPServer implements IMCPServer {
   async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
     try {
       const result = await this.transport.callTool(name, args);
-      // Check if application payload returned a stale element or missing id error
       const contentText = (result.content || [])
         .map((c) => (typeof c.text === "string" ? c.text : ""))
         .join(" ")
@@ -66,7 +61,6 @@ export class WindowsMCPServer implements IMCPServer {
       }
       return result;
     } catch (err: any) {
-      // Check if the error indicates a stale element error (§8, §9)
       const errStr = (err.message || "").toLowerCase();
       if (errStr.includes("stale") || errStr.includes("not found") || errStr.includes("invalid id")) {
         return {
@@ -83,6 +77,27 @@ export class WindowsMCPServer implements IMCPServer {
       }
       throw err;
     }
+  }
+
+  async listPrompts(): Promise<MCPPrompt[]> {
+    if (this.transport.listPrompts) {
+      return await this.transport.listPrompts();
+    }
+    return [];
+  }
+
+  async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
+    if (this.transport.listResourceTemplates) {
+      return await this.transport.listResourceTemplates();
+    }
+    return [];
+  }
+
+  async readResource(uri: string): Promise<string> {
+    if (this.transport.readResource) {
+      return await this.transport.readResource(uri);
+    }
+    return "";
   }
 
   getSessionToken(): string {

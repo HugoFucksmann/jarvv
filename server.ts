@@ -3,17 +3,12 @@
  * 
  * Target Architecture:
  * - Browser (React) communicates with JARVIS Core via HTTP (/api/jarvis/*).
+ * - Direct external tools/inspectors communicate with MCP endpoints (/mcp/* or /api/mcp/*).
  * - JarvisCore runs exclusively in Node.js backend.
- * - Decision20Engine calls Decision 2.0 via HTTP from Node.js (no browser CORS).
- * - QwenEngine calls Ollama / Qwen via HTTP from Node.js.
- * - DiscoveryEngine coordinates MCP servers via persistent stdio processes.
- * 
- * Strict Routing Order:
- * 1. Express /api/* routes (JSON-only, never falls through to HTML)
- * 2. Vite middlewares (appType: 'custom' for assets, HMR, and scripts)
- * 3. Frontend SPA fallback (index.html, strictly non-API routes)
+ * - Clean shutdown handling for SIGINT/SIGTERM to terminate child process trees.
  */
 
+import 'dotenv/config';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -36,7 +31,7 @@ async function main() {
   const app = express();
   app.use(express.json());
 
-  // CORS para permitir desarrollo con frontend en puerto desacoplado (e.g. Vite en :5173)
+  // CORS para permitir desarrollo con frontend en puerto desacoplado
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -85,16 +80,44 @@ async function main() {
   }
 
   // ============================================================
-  // 1. RUTAS /api/* (EXPRESS / BACKEND EXCLUSIVO - SIEMPRE JSON)
+  // CIERRE ORDENADO DE PROCESOS (CLEAN SHUTDOWN HOOKS)
   // ============================================================
-  const api = express.Router();
+  let isShuttingDown = false;
+  const cleanShutdown = async (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
+
+    for (const [name, server] of Object.entries(servers)) {
+      try {
+        if ('close' in server && typeof (server as any).close === 'function') {
+          await (server as any).close();
+        } else if ((server as any).transport && typeof (server as any).transport.close === 'function') {
+          await (server as any).transport.close();
+        }
+      } catch (err) {
+        console.warn(`[Host] Error cerrando transporte para '${name}':`, err);
+      }
+    }
+
+    console.log('[Host] Todos los subprocesos MCP han finalizado limpiamente.');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => cleanShutdown('SIGINT'));
+  process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
+
+  // ============================================================
+  // 1. SUB-ROUTERS API
+  // ============================================================
 
   // ------------------------------------------------------------
-  // 1.1 JARVIS CORE ORCHESTRATION APIS (/api/jarvis/*)
+  // 1.1 JARVIS CORE ORCHESTRATION ROUTER
   // ------------------------------------------------------------
+  const jarvisRouter = express.Router();
 
   // Iniciar tarea
-  api.post(['/jarvis/process', '/jarvis/task'], async (req, res) => {
+  jarvisRouter.post(['/process', '/task'], async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     try {
       const { message, mode } = req.body;
@@ -110,7 +133,7 @@ async function main() {
   });
 
   // Cancelar tarea
-  api.post('/jarvis/cancel', (req, res) => {
+  jarvisRouter.post('/cancel', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const { taskId } = req.body;
     if (taskId) {
@@ -124,7 +147,7 @@ async function main() {
   });
 
   // Confirmar plan (modo PLAN)
-  api.post('/jarvis/confirm-plan', (req, res) => {
+  jarvisRouter.post('/confirm-plan', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const { taskId } = req.body;
     if (taskId) {
@@ -138,7 +161,7 @@ async function main() {
   });
 
   // Aprobar operación con compuerta de seguridad Guard
-  api.post('/jarvis/approve', (req, res) => {
+  jarvisRouter.post('/approve', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const { taskId } = req.body;
     const pending = jarvisCore.getPendingApproval(taskId);
@@ -151,7 +174,7 @@ async function main() {
   });
 
   // Rechazar operación con compuerta de seguridad Guard
-  api.post('/jarvis/deny', (req, res) => {
+  jarvisRouter.post('/deny', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const { taskId, reason } = req.body;
     const pending = jarvisCore.getPendingApproval(taskId);
@@ -164,7 +187,7 @@ async function main() {
   });
 
   // Consultar estado actual / snapshot reactivo de JARVIS
-  api.get('/jarvis/state', async (req, res) => {
+  jarvisRouter.get('/state', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     try {
       const taskId = req.query.taskId as string | undefined;
@@ -191,7 +214,7 @@ async function main() {
   });
 
   // Stream Server-Sent Events (SSE) para eventos de Core en tiempo real
-  api.get('/jarvis/events', (req, res) => {
+  jarvisRouter.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -218,8 +241,8 @@ async function main() {
     });
   });
 
-  // Refrescar catálogo de Discovery dinámicamente (forceRefresh=true limpia servidores marcados como no disponibles)
-  api.all(['/jarvis/refresh-discovery', '/jarvis/discovery'], async (_req, res) => {
+  // Refrescar catálogo de Discovery dinámicamente
+  jarvisRouter.all(['/refresh-discovery', '/discovery'], async (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     try {
       const tools = await discoveryEngine.discoverAll(true);
@@ -231,23 +254,24 @@ async function main() {
   });
 
   // Configuración de endpoints externos
-  api.get('/jarvis/config', (_req, res) => {
+  jarvisRouter.get('/config', (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     res.json(ConfigManager.getConfig());
   });
 
-  api.post('/jarvis/config', (req, res) => {
+  jarvisRouter.post('/config', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const updated = ConfigManager.updateConfig(req.body);
     res.json(updated);
   });
 
   // ------------------------------------------------------------
-  // 1.2 RUTAS DIRECTAS DE MCP (/api/mcp/*)
+  // 1.2 MCP DIRECT ENDPOINTS ROUTER
   // ------------------------------------------------------------
+  const mcpRouter = express.Router();
 
   // Descubrimiento de todas las herramientas
-  api.get('/mcp/discover-all', async (_req, res) => {
+  mcpRouter.get('/discover-all', async (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     try {
       const tools = await discoveryEngine.discoverAll();
@@ -258,7 +282,7 @@ async function main() {
   });
 
   // Capacidades extra (prompts y resource templates)
-  api.get('/mcp/extra-capabilities', async (_req, res) => {
+  mcpRouter.get('/extra-capabilities', async (_req, res) => {
     res.setHeader('Content-Type', 'application/json');
     try {
       const extra = await discoveryEngine.discoverExtraCapabilities();
@@ -269,7 +293,7 @@ async function main() {
   });
 
   // Listar herramientas de un servidor específico
-  api.get('/mcp/:server/tools', async (req, res) => {
+  mcpRouter.get('/:server/tools', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     if (!server) {
@@ -284,7 +308,7 @@ async function main() {
   });
 
   // Ejecución de herramientas por stdio
-  api.post('/mcp/:server/call', async (req, res) => {
+  mcpRouter.post('/:server/call', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     if (!server) {
@@ -315,7 +339,7 @@ async function main() {
   });
 
   // Prompts
-  api.get('/mcp/:server/prompts', async (req, res) => {
+  mcpRouter.get('/:server/prompts', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     if (!server || !server.listPrompts) {
@@ -330,7 +354,7 @@ async function main() {
   });
 
   // Plantillas de recursos
-  api.get('/mcp/:server/resource-templates', async (req, res) => {
+  mcpRouter.get('/:server/resource-templates', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     if (!server || !server.listResourceTemplates) {
@@ -345,7 +369,7 @@ async function main() {
   });
 
   // Lectura de recurso
-  api.post('/mcp/:server/resources', async (req, res) => {
+  mcpRouter.post('/:server/resources', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     if (!server || !server.readResource) {
@@ -360,7 +384,7 @@ async function main() {
   });
 
   // Reconexión de proceso stdio
-  api.post('/mcp/:server/reconnect', async (req, res) => {
+  mcpRouter.post('/:server/reconnect', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     if (!server) {
@@ -375,32 +399,44 @@ async function main() {
   });
 
   // Estado de conexión
-  api.get('/mcp/:server/status', (req, res) => {
+  mcpRouter.get('/:server/status', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
     res.json({ connected: server ? server.isConnected() : false });
   });
 
-  // Montar router API en /api y alias /mcp
-  app.use('/api', api);
-  app.use('/mcp', api);
+  // ============================================================
+  // MONTAJE UNIFICADO DE RUTAS
+  // ============================================================
+  app.use('/api/jarvis', jarvisRouter);
+  app.use('/jarvis', jarvisRouter);
+  app.use('/api/mcp', mcpRouter);
+  app.use('/mcp', mcpRouter);
 
-  // Barrera estricta 404: ninguna ruta de API puede continuar a Vite o servir HTML
-  app.use(['/api', '/mcp'], (req, res) => {
+  // Barrera estricta 404 para prefijos de API
+  app.use(['/api', '/mcp', '/jarvis'], (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.`, tools: [] });
+    res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
   });
 
-  // Barrera estricta de errores: cualquier excepción en /api o /mcp devuelve siempre JSON y jamás HTML
-  app.use(['/api', '/mcp'], (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  // Barrera estricta de errores para prefijos de API
+  app.use(['/api', '/mcp', '/jarvis'], (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('[API Error]', err);
     res.setHeader('Content-Type', 'application/json');
-    res.status(500).json({ error: err?.message || 'Error interno en API', tools: [] });
+    res.status(500).json({ error: err?.message || 'Error interno en API' });
   });
 
   // ============================================================
   // 2. MIDDLEWARE DE VITE (DESARROLLO) / ESTÁTICOS (PRODUCCIÓN)
   // ============================================================
+  const isApiRequest = (url: string, pathName: string) =>
+    url.startsWith('/api') ||
+    url.startsWith('/mcp') ||
+    url.startsWith('/jarvis') ||
+    pathName.startsWith('/api') ||
+    pathName.startsWith('/mcp') ||
+    pathName.startsWith('/jarvis');
+
   const isProduction = process.env.NODE_ENV === 'production';
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');
@@ -409,29 +445,18 @@ async function main() {
       appType: 'custom',
     });
 
-    // Bypass estricto: Vite middleware nunca toca peticiones /api o /mcp
     app.use((req, res, next) => {
-      if (
-        req.originalUrl.startsWith('/api') ||
-        req.originalUrl.startsWith('/mcp') ||
-        req.path.startsWith('/api') ||
-        req.path.startsWith('/mcp')
-      ) {
+      if (isApiRequest(req.originalUrl, req.path)) {
         return next();
       }
       vite.middlewares(req, res, next);
     });
 
     // ============================================================
-    // 3. FALLBACK DEL FRONTEND (INDEX.HTML DE VITE - NUNCA PARA /api o /mcp)
+    // 3. FALLBACK DEL FRONTEND (INDEX.HTML DE VITE)
     // ============================================================
     app.use('*', async (req, res, next) => {
-      if (
-        req.originalUrl.startsWith('/api') ||
-        req.originalUrl.startsWith('/mcp') ||
-        req.path.startsWith('/api') ||
-        req.path.startsWith('/mcp')
-      ) {
+      if (isApiRequest(req.originalUrl, req.path)) {
         res.setHeader('Content-Type', 'application/json');
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
@@ -447,12 +472,7 @@ async function main() {
   } else {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req, res) => {
-      if (
-        req.originalUrl.startsWith('/api') ||
-        req.originalUrl.startsWith('/mcp') ||
-        req.path.startsWith('/api') ||
-        req.path.startsWith('/mcp')
-      ) {
+      if (isApiRequest(req.originalUrl, req.path)) {
         res.setHeader('Content-Type', 'application/json');
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }

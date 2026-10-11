@@ -5,14 +5,11 @@
  * Implements:
  * - JSON-RPC 2.0 protocol over stdio (newline-delimited messages).
  * - Persistent child process per MCP server across requests.
+ * - Atomic initialization promise to eliminate race conditions on concurrent starts.
  * - Request correlation via JSON-RPC IDs.
  * - Chunk buffering and line framing on stdout.
  * - Stderr logging without corrupting JSON-RPC stream.
- * - tools/list
- * - tools/call
- * - prompts/list
- * - resources/templates/list
- * - resources/read
+ * - Process tree termination (taskkill on Windows) to prevent zombie processes.
  * - Reconnection, session persistence, and clean process termination.
  */
 
@@ -52,6 +49,7 @@ export class StdioMcpTransport implements IMCPTransport {
   private childProcess: ChildProcess | null = null;
   private connected = false;
   private initialized = false;
+  private initPromise: Promise<ChildProcess> | null = null;
   private requestId = 0;
   private stdoutBuffer = "";
   private pendingRequests = new Map<
@@ -64,8 +62,7 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   >();
   private stderrLines: string[] = [];
-  /** Set when the process exits fatally before initialization completes (e.g. ImportError).
-   *  Prevents infinite retry loops. Cleared only by an explicit reconnect(). */
+  /** Set when the process exits fatally before initialization completes. */
   private permanentFailure: MCPTransportError | null = null;
 
   constructor(
@@ -75,7 +72,7 @@ export class StdioMcpTransport implements IMCPTransport {
   ) { }
 
   isConnected(): boolean {
-    return this.connected && this.childProcess !== null && !this.childProcess.killed;
+    return this.connected && this.initialized && this.childProcess !== null && !this.childProcess.killed;
   }
 
   private getLastStderr(): string {
@@ -93,142 +90,153 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   }
 
-  /** Returns the permanent failure error if this transport has crashed unrecoverably, or null. */
   getPermanentFailure(): MCPTransportError | null {
     return this.permanentFailure;
   }
 
   private async startProcess(): Promise<ChildProcess> {
-    // If this transport has permanently failed, surface the original error immediately
-    // without attempting to restart the process. Call reconnect() to retry.
     if (this.permanentFailure) {
       throw this.permanentFailure;
     }
 
-    if (this.childProcess && !this.childProcess.killed && this.connected) {
+    if (this.childProcess && !this.childProcess.killed && this.connected && this.initialized) {
       return this.childProcess;
     }
 
-    if (!this.config.command || !this.config.command.trim()) {
-      throw new MCPTransportError(
-        this.serverName,
-        `El comando stdio para '${this.serverName}' no está configurado.`
-      );
+    if (this.initPromise) {
+      return await this.initPromise;
     }
 
-    const command = this.config.command;
-    const args = this.config.args || [];
-    const env = {
-      ...process.env,
-      ...(this.config.env || {}),
-    };
+    this.initPromise = (async () => {
+      if (!this.config.command || !this.config.command.trim()) {
+        const err = new MCPTransportError(
+          this.serverName,
+          `El comando stdio para '${this.serverName}' no está configurado.`
+        );
+        this.permanentFailure = err;
+        throw err;
+      }
 
-    // Track whether initialization completed successfully
-    let initCompleted = false;
+      const command = this.config.command;
+      const args = this.config.args || [];
+      const env = {
+        ...process.env,
+        ...(this.config.env || {}),
+      };
 
-    try {
-      const child = spawn(command, args, {
-        env,
-        cwd: this.config.cwd,
-        stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32",
-      });
+      let initCompleted = false;
 
-      this.childProcess = child;
-      this.stdoutBuffer = "";
-      this.connected = true;
+      try {
+        const child = spawn(command, args, {
+          env,
+          cwd: this.config.cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: process.platform === "win32",
+        });
 
-      // Frame incoming stdout by newlines (\n or \r\n) with buffer preservation for chunked messages
-      child.stdout?.on("data", (chunk: Buffer | string) => {
-        this.handleStdoutData(chunk.toString());
-      });
+        this.childProcess = child;
+        this.stdoutBuffer = "";
+        this.connected = true;
 
-      // Capture stderr without corrupting the JSON-RPC pipe
-      child.stderr?.on("data", (chunk: Buffer | string) => {
-        const text = chunk.toString();
-        this.stderrLines.push(text);
-        if (this.stderrLines.length > 50) {
-          this.stderrLines.shift();
+        child.stdout?.on("data", (chunk: Buffer | string) => {
+          this.handleStdoutData(chunk.toString());
+        });
+
+        child.stderr?.on("data", (chunk: Buffer | string) => {
+          const text = chunk.toString();
+          this.stderrLines.push(text);
+          if (this.stderrLines.length > 50) {
+            this.stderrLines.shift();
+          }
+        });
+
+        child.on("error", (err: Error) => {
+          if (this.childProcess === child) {
+            this.connected = false;
+            this.initialized = false;
+            this.initPromise = null;
+          }
+          const lastStderr = this.getLastStderr();
+          if (lastStderr) {
+            console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
+          }
+          const transportErr = new MCPTransportError(this.serverName, `Fallo en proceso hijo: ${err.message}`, err);
+          if (!initCompleted) {
+            this.permanentFailure = transportErr;
+          }
+          this.rejectAllPending(transportErr);
+        });
+
+        child.on("exit", (code, signal) => {
+          if (this.childProcess === child) {
+            this.connected = false;
+            this.initialized = false;
+            this.childProcess = null;
+            this.initPromise = null;
+          }
+          const lastStderr = this.getLastStderr();
+          if (code !== 0 && code !== null && lastStderr) {
+            console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
+          }
+          const reason = `El proceso MCP '${this.serverName}' terminó (código: ${code}, señal: ${signal}).`;
+          const transportErr = new MCPTransportError(this.serverName, reason);
+          if (!initCompleted && code !== 0) {
+            this.permanentFailure = transportErr;
+          }
+          this.rejectAllPending(transportErr);
+        });
+
+        // Handshake obligatorio antes de permitir tráfico externo
+        if (!this.initialized) {
+          try {
+            await this.rawRpcCall("initialize", {
+              protocolVersion: "2024-11-05",
+              capabilities: {},
+              clientInfo: {
+                name: "jarvis-core",
+                version: "1.0.0",
+              },
+            });
+            this.sendNotification("notifications/initialized", {});
+          } catch {
+            // Tolera servidores que omiten initialize
+          }
+          this.initialized = true;
+          initCompleted = true;
+        } else {
+          initCompleted = true;
         }
-      });
 
-      child.on("error", (err: Error) => {
-        if (this.childProcess === child) {
-          this.connected = false;
-          this.initialized = false;
-        }
-        const lastStderr = this.getLastStderr();
-        if (lastStderr) {
-          console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
-        }
-        const transportErr = new MCPTransportError(this.serverName, `Fallo en proceso hijo: ${err.message}`, err);
+        return child;
+      } catch (err: any) {
+        this.connected = false;
+        this.initialized = false;
+        this.initPromise = null;
+        const transportErr = err instanceof MCPTransportError
+          ? err
+          : new MCPTransportError(
+            this.serverName,
+            `No fue posible iniciar el proceso MCP '${command} ${args.join(" ")}': ${err.message}`,
+            err
+          );
         if (!initCompleted) {
           this.permanentFailure = transportErr;
+          console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar: ${err.message}`);
         }
-        this.rejectAllPending(transportErr);
-      });
-
-      child.on("exit", (code, signal) => {
-        // Garantizar que solo el proceso activo actual modifique el estado de la instancia
-        if (this.childProcess === child) {
-          this.connected = false;
-          this.initialized = false;
-          this.childProcess = null;
+        throw transportErr;
+      } finally {
+        if (!this.initialized) {
+          this.initPromise = null;
         }
-        const lastStderr = this.getLastStderr();
-        if (code !== 0 && code !== null && lastStderr) {
-          console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
-        }
-        const reason = `El proceso MCP '${this.serverName}' terminó (código: ${code}, señal: ${signal}).`;
-        const transportErr = new MCPTransportError(this.serverName, reason);
-        if (!initCompleted && code !== 0) {
-          this.permanentFailure = transportErr;
-        }
-        this.rejectAllPending(transportErr);
-      });
-
-      // Perform MCP initialization handshake if not yet initialized
-      if (!this.initialized) {
-        try {
-          await this.rawRpcCall("initialize", {
-            protocolVersion: "2024-11-05",
-            capabilities: {},
-            clientInfo: {
-              name: "jarvis-core",
-              version: "1.0.0",
-            },
-          });
-          this.sendNotification("notifications/initialized", {});
-        } catch {
-          // If server is lightweight and does not implement 'initialize', proceed gracefully
-        }
-        this.initialized = true;
-        initCompleted = true;
-      } else {
-        initCompleted = true;
       }
+    })();
 
-      return child;
-    } catch (err: any) {
-      this.connected = false;
-      this.initialized = false;
-      const transportErr = new MCPTransportError(
-        this.serverName,
-        `No fue posible iniciar el proceso MCP '${command} ${args.join(" ")}': ${err.message}`,
-        err
-      );
-      if (!initCompleted) {
-        this.permanentFailure = transportErr;
-        console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar: ${err.message}`);
-      }
-      throw transportErr;
-    }
+    return await this.initPromise;
   }
 
   private handleStdoutData(data: string): void {
     this.stdoutBuffer += data;
     const lines = this.stdoutBuffer.split(/\r?\n/);
-    // Keep the last incomplete segment in buffer
     this.stdoutBuffer = lines.pop() || "";
 
     for (const line of lines) {
@@ -239,11 +247,9 @@ export class StdioMcpTransport implements IMCPTransport {
       try {
         msg = JSON.parse(trimmed);
       } catch {
-        // Non-JSON line from server output (banner/log), ignore
         continue;
       }
 
-      // Check if message is a JSON-RPC response with id
       if (msg && typeof msg === "object" && typeof msg.id !== "undefined") {
         const reqId = msg.id;
         let pending = this.pendingRequests.get(reqId);
@@ -397,8 +403,8 @@ export class StdioMcpTransport implements IMCPTransport {
   }
 
   async reconnect(): Promise<void> {
-    // Clear any permanent failure state before attempting reconnect
     this.permanentFailure = null;
+    this.initPromise = null;
     this.stderrLines = [];
     await this.close();
     await this.listTools();
@@ -407,14 +413,30 @@ export class StdioMcpTransport implements IMCPTransport {
   async close(): Promise<void> {
     this.connected = false;
     this.initialized = false;
+    this.initPromise = null;
     this.stdoutBuffer = "";
     this.rejectAllPending(new MCPTransportError(this.serverName, "Transporte cerrado por reconexión o terminación."));
 
     if (this.childProcess && !this.childProcess.killed) {
-      try {
-        this.childProcess.kill("SIGTERM");
-      } catch {
-        // Ignore kill errors
+      const pid = this.childProcess.pid;
+      if (pid && process.platform === "win32") {
+        try {
+          // En Windows, termina el árbol de procesos completo (/T) forzadamente (/F) para evitar huérfanos de cmd.exe
+          spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"], {
+            stdio: "ignore",
+            windowsHide: true,
+          });
+        } catch {
+          try {
+            this.childProcess.kill("SIGKILL");
+          } catch { }
+        }
+      } else {
+        try {
+          this.childProcess.kill("SIGTERM");
+        } catch {
+          // Ignore kill errors
+        }
       }
       this.childProcess = null;
     }

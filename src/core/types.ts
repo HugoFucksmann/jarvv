@@ -24,7 +24,7 @@ export type StepRoute =
   | "windows"
   | "desktop_commander"
   | "free_search"
-  | "chat"; // Legacy transition
+  | "chat";
 
 export interface StepCall {
   id: string;
@@ -50,7 +50,6 @@ export interface Step {
   verification?: VerificationState;
   outcome?: ExecutionOutcome;
   error?: string;
-  // v2.1 contracts (§8, §14):
   calls?: StepCall[];
   rev?: number;
   superseded?: boolean;
@@ -99,7 +98,6 @@ export interface Task {
   state: TaskState;
   finalResponse?: string;
   planConfirmed?: boolean;
-  // v2.1 contracts (§8, §10.11, §14):
   memory?: TaskMemory;
   replans?: number;
   escalations?: number;
@@ -155,7 +153,7 @@ export interface ToolPolicy {
   emptyIsError?: boolean;
 }
 
-// v2.1 Escalation & Step Result Types (§4, §5B, §8)
+// Escalation & Step Result Types
 export type EscalationAction = "switch_mcp" | "abort";
 
 export interface EscalationResponse {
@@ -174,6 +172,7 @@ export interface StepExecutionSignals {
   denied?: boolean;
   unverified?: boolean;
   empty_output?: boolean;
+  stale_element?: boolean;
 }
 
 export interface StepExecutionResult {
@@ -184,11 +183,11 @@ export interface StepExecutionResult {
   signals?: StepExecutionSignals;
 }
 
-// Global Core Limits (§11 & §15)
+// Global Core Limits
 export const MAX_STEPS = 15;
 export const MAX_TOOL_CALLS_PER_STEP = 4;
 export const MAX_TOOL_CALLS_TASK = 30;
-export const MAX_ARG_RETRIES = 2; // §11
+export const MAX_ARG_RETRIES = 2;
 export const MAX_ESCALATIONS = 2;
 export const MAX_PLAN_GENERATION_ATTEMPTS = 1;
 export const MAX_REPLAN = 2;
@@ -198,13 +197,13 @@ export const QWEN_CTX = 8192;
 export const QWEN_ESCALATION_THINKING = true;
 export const DECISION_OVERRIDE_CONFIDENCE_THRESHOLD = 0.50;
 
-// Decision 2.0 Integration Types (vllm-sr/Decision-2.0-Kai-0.6B)
+// Decision 2.0 Integration Types
 export type DecisionQuestionType = "choice" | "noul" | "score";
 
 export interface DecisionQuestionChoice {
   type: "choice";
   instructions: string;
-  criteria: Record<string, string>; // 2–255 options
+  criteria: Record<string, string>;
 }
 
 export interface DecisionQuestionNoul {
@@ -215,7 +214,7 @@ export interface DecisionQuestionNoul {
 export interface DecisionQuestionScore {
   type: "score";
   instructions: string;
-  criteria: string[]; // 2–10 ordered levels
+  criteria: string[];
 }
 
 export type DecisionQuestion =
@@ -232,7 +231,7 @@ export interface DecisionAnswerChoice {
 
 export interface DecisionAnswerNoul {
   type: "noul";
-  noul: number; // Probability of YES/true (0.0 to 1.0)
+  noul: number;
 }
 
 export interface DecisionAnswerScore {
@@ -277,8 +276,8 @@ export interface MCPContentItem {
 export interface MCPCallResult {
   content: MCPContentItem[];
   isError?: boolean;
-  // Specific potential fields from Windows, Desktop Commander, Free Search
   success?: boolean;
+  staleElement?: boolean;
   actionDispatched?: boolean;
   outcomeVerified?: boolean;
   kind?: "full" | "diff";

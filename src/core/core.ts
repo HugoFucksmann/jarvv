@@ -3,6 +3,8 @@
  * Implements FAST and PLAN modes over a single execution engine (§1, §4, §8, §9)
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import {
   Task,
   CoreEvent,
@@ -14,6 +16,7 @@ import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, ILLMClient } from "./reasoner/qwen.ts";
 import { TaskExecutionContext } from "./context.ts";
 import { EngineDependencies } from "./callExecutor.ts";
+import { RefStore } from "./processor/resultProcessor.ts";
 import {
   runFastLoop,
   initiatePlanMode,
@@ -23,7 +26,7 @@ import {
 export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
 
-const TASKS_STORAGE_KEY = "jarvis_tasks_history_v1";
+const TASKS_FILE_PATH = path.resolve(process.cwd(), "jarvis-tasks.json");
 
 export class JarvisCore {
   private decisionEngine: Decision20Engine;
@@ -145,6 +148,7 @@ export class JarvisCore {
       console.error(
         `[Task Summary] id=${taskId} state=FAILED reason="${err?.message || err}" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
       );
+      RefStore.clear(taskId);
       if (context.task.state === "RUNNING") {
         context.task.state = "FAILED";
         this.persistTasks();
@@ -173,6 +177,7 @@ export class JarvisCore {
       currentStep.error = "CANCELLED";
     }
 
+    RefStore.clear(taskId);
     this.persistTasks();
     const durationTotalMs = Date.now() - context.startTime;
     console.log(
@@ -188,9 +193,9 @@ export class JarvisCore {
     this.persistTasks();
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { planConfirmed: true });
 
-    // Resume plan execution
     runPlanLoop(context, this.getEngineDeps()).catch((err) => {
       console.error(`[Plan Resume Error] id=${taskId}`, err);
+      RefStore.clear(taskId);
     });
   }
 
@@ -206,22 +211,20 @@ export class JarvisCore {
     }
   }
 
-  // --- Persistence ---
+  // --- Persistence con soporte real para Node.js ---
   private persistTasks(): void {
     try {
-      if (typeof localStorage !== "undefined") {
-        const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
-        localStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(serialized.slice(-20)));
-      }
+      const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
+      fs.writeFileSync(TASKS_FILE_PATH, JSON.stringify(serialized.slice(-20), null, 2), "utf-8");
     } catch (e) {
-      console.warn("Failed to persist task state:", e);
+      console.warn("[JarvisCore] Error al persistir tareas en archivo local:", e);
     }
   }
 
   private loadPersistedTasks(): void {
     try {
-      if (typeof localStorage !== "undefined") {
-        const stored = localStorage.getItem(TASKS_STORAGE_KEY);
+      if (fs.existsSync(TASKS_FILE_PATH)) {
+        const stored = fs.readFileSync(TASKS_FILE_PATH, "utf-8");
         if (stored) {
           const tasks: Task[] = JSON.parse(stored);
           for (const task of tasks) {
@@ -253,7 +256,7 @@ export class JarvisCore {
         }
       }
     } catch (e) {
-      console.warn("Failed to load persisted task state:", e);
+      console.warn("[JarvisCore] Error al cargar tareas persistidas desde archivo local:", e);
     }
   }
 }

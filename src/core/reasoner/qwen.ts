@@ -154,6 +154,34 @@ export interface ILLMClient {
 
 export class QwenEngine implements ILLMClient {
   /**
+   * Helper unificado para parsear JSON tolerante a texto explicativo o Markdown
+   */
+  private safeJsonParse<T = any>(raw: string): T | null {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          return JSON.parse(match[0]);
+        } catch { }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Helper unificado para convertir Scratchpad a un diccionario plano de cadenas
+   */
+  private scratchpadToFacts(scratchpad?: Scratchpad): Record<string, string> {
+    if (!scratchpad) return {};
+    return Object.entries(scratchpad).reduce((acc, [k, v]) => {
+      if (v && typeof v === "string") acc[k] = v;
+      return acc;
+    }, {} as Record<string, string>);
+  }
+
+  /**
    * Helper to wrap stages with concise observability logging.
    */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
@@ -182,7 +210,6 @@ export class QwenEngine implements ILLMClient {
 
   /**
    * Dispatches inference requests to configured Qwen endpoint (§10.10)
-   * Supports strict Structured Outputs via JSON Schema.
    */
   private async dispatchPrompt(
     systemPrompt: string,
@@ -237,7 +264,6 @@ export class QwenEngine implements ILLMClient {
       bodyPayload.max_tokens = maxTokens;
     }
 
-    // Structured Outputs: aplicación estricta de esquemas JSON con enums
     if (options?.schema) {
       bodyPayload.response_format = {
         type: "json_schema",
@@ -296,7 +322,7 @@ export class QwenEngine implements ILLMClient {
     let data: any;
     try {
       data = await response.json();
-    } catch (err) {
+    } catch {
       throw new LLMValidationError("La respuesta de Qwen 3.5 9B no contiene un JSON legible.");
     }
 
@@ -362,10 +388,7 @@ export class QwenEngine implements ILLMClient {
           tool: targetTool,
           cleanedSchema: cleanInputSchema(targetTool.inputSchema || {}),
           taskInstruction: step.instruction,
-          facts: scratchpadParam ? Object.entries(scratchpadParam).reduce((acc, [k, v]) => {
-            if (v && typeof v === "string") acc[k] = v;
-            return acc;
-          }, {} as Record<string, string>) : {},
+          facts: this.scratchpadToFacts(scratchpadParam),
         };
       }
 
@@ -384,17 +407,7 @@ export class QwenEngine implements ILLMClient {
           { stage: "arguments", thinking: false, signal }
         );
 
-        let parsed: any;
-        try {
-          parsed = JSON.parse(rawJson);
-        } catch {
-          const match = rawJson.match(/\{[\s\S]*\}/);
-          if (match) {
-            try {
-              parsed = JSON.parse(match[0]);
-            } catch { }
-          }
-        }
+        const parsed = this.safeJsonParse(rawJson);
 
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           for (const [key, value] of Object.entries(parsed)) {
@@ -445,17 +458,7 @@ export class QwenEngine implements ILLMClient {
         { stage: "escalate", thinking: QWEN_ESCALATION_THINKING, signal }
       );
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(rawJson);
-      } catch {
-        const match = rawJson.match(/\{[\s\S]*\}/);
-        if (match) {
-          try {
-            parsed = JSON.parse(match[0]);
-          } catch { }
-        }
-      }
+      const parsed = this.safeJsonParse<any>(rawJson);
 
       if (!parsed || (parsed.action !== "switch_mcp" && parsed.action !== "abort")) {
         console.error(`[Qwen escalate] Fallo de parseo o acción no reconocida. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
@@ -506,7 +509,6 @@ export class QwenEngine implements ILLMClient {
       const chatContext = typeof scratchpadOrChat === "string" ? scratchpadOrChat : undefined;
       const userPrompt = PROMPTS.PLAN.buildUserPrompt(userMessage, chatContext);
 
-      // Se fuerza muestreo restringido mediante PLAN_JSON_SCHEMA
       const rawJson = await this.dispatchPrompt(
         PROMPTS.PLAN.SYSTEM,
         userPrompt,
@@ -520,17 +522,7 @@ export class QwenEngine implements ILLMClient {
         }
       );
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(rawJson);
-      } catch {
-        const match = rawJson.match(/\{[\s\S]*\}/);
-        if (match) {
-          try {
-            parsed = JSON.parse(match[0]);
-          } catch { }
-        }
-      }
+      const parsed = this.safeJsonParse<any>(rawJson);
 
       if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
         console.error(`[Qwen plan] Fallo de parseo de plan. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
@@ -569,7 +561,6 @@ export class QwenEngine implements ILLMClient {
     return await this.executeStage("replan", async () => {
       const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
 
-      // Se fuerza muestreo restringido mediante REPLAN_JSON_SCHEMA
       const rawJson = await this.dispatchPrompt(
         PROMPTS.REPLAN.SYSTEM,
         userPrompt,
@@ -583,17 +574,7 @@ export class QwenEngine implements ILLMClient {
         }
       );
 
-      let parsed: any;
-      try {
-        parsed = JSON.parse(rawJson);
-      } catch {
-        const match = rawJson.match(/\{[\s\S]*\}/);
-        if (match) {
-          try {
-            parsed = JSON.parse(match[0]);
-          } catch { }
-        }
-      }
+      const parsed = this.safeJsonParse<any>(rawJson);
 
       if (!parsed) {
         console.error(`[Qwen replan] Fallo de parseo de replan. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
@@ -656,10 +637,7 @@ export class QwenEngine implements ILLMClient {
     return await this.generateFinalResponse({
       goal: taskMessage,
       logLines: steps.map((s, i) => `${i + 1}|${s.tool || s.route}|${s.state}|${s.evidence?.summary || ''}`),
-      facts: Object.entries(scratchpad).reduce((acc, [k, v]) => {
-        if (v && typeof v === "string") acc[k] = v;
-        return acc;
-      }, {} as Record<string, string>),
+      facts: this.scratchpadToFacts(scratchpad),
       failLines: steps.filter((s) => s.error).map((s) => `${s.tool || s.route} -> ${s.error}`),
       evidenceSummaries: evidenceList.map((e) => e.summary || "").filter(Boolean),
     });

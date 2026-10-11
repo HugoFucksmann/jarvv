@@ -13,9 +13,6 @@
 
 import { MCPTool, StepRoute } from "../types.ts";
 import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
-import { WindowsMCPServer } from "./windowsMcp.ts";
-import { DesktopCommanderMCPServer } from "./desktopCommanderMcp.ts";
-import { FreeSearchMCPServer } from "./freeSearchMcp.ts";
 
 /**
  * Removes $schema, title, additionalProperties, and examples from inputSchema (§10.3)
@@ -58,22 +55,18 @@ export class DiscoveryEngine {
   /** Servers that failed to start and should not be retried automatically. */
   private unavailableServers: Map<string, { reason: string; since: number }> = new Map();
 
-  constructor(customServers?: Record<string, IMCPServer>) {
+  constructor(customServers?: Record<string, IMCPServer> | IMCPServer[]) {
     if (customServers) {
-      for (const server of Object.values(customServers)) {
+      const serverList = Array.isArray(customServers) ? customServers : Object.values(customServers);
+      for (const server of serverList) {
         this.registerServer(server);
       }
-    } else {
-      this.registerServer(new WindowsMCPServer());
-      this.registerServer(new DesktopCommanderMCPServer());
-      this.registerServer(new FreeSearchMCPServer());
     }
   }
 
   registerServer(server: IMCPServer) {
     this.servers.set(server.name, server);
     this.toolsCache.delete(server.name);
-    // Clear unavailable status when a server is re-registered
     this.unavailableServers.delete(server.name);
   }
 
@@ -99,7 +92,6 @@ export class DiscoveryEngine {
       return [];
     }
 
-    // If server has a known permanent failure and we are not forcing a refresh, return cached/empty immediately
     if (!forceRefresh && this.unavailableServers.has(serverName)) {
       const cached = this.toolsCache.get(serverName);
       return cached ? cached.tools : [];
@@ -108,12 +100,10 @@ export class DiscoveryEngine {
     const cached = this.toolsCache.get(serverName);
     const now = Date.now();
 
-    // Cache valid for 30s unless forced
     if (!forceRefresh && cached && now - cached.lastFetched < 30000) {
       return cached.tools;
     }
 
-    // If forcing refresh, clear the unavailable mark so we give the server another chance
     if (forceRefresh) {
       this.unavailableServers.delete(serverName);
     }
@@ -129,11 +119,9 @@ export class DiscoveryEngine {
         }
       }
       this.toolsCache.set(serverName, { tools, cleanedSchemas, hash, lastFetched: now });
-      // Server responded successfully — ensure it's no longer marked unavailable
       this.unavailableServers.delete(serverName);
       return tools;
     } catch (err: any) {
-      // Mark as unavailable so we don't keep hammering a dead process
       this.unavailableServers.set(serverName, { reason: err?.message || String(err), since: Date.now() });
       console.error(`[Discovery] ${serverName} error=${err?.message || err}`);
       return cached ? cached.tools : [];
@@ -153,7 +141,6 @@ export class DiscoveryEngine {
 
   /**
    * Returns a snapshot of all discovered tools across all servers.
-   * forceRefresh=true clears unavailable marks and retries all servers.
    */
   async discoverAll(forceRefresh = false): Promise<Record<string, MCPTool[]>> {
     const result: Record<string, MCPTool[]> = {};
@@ -209,7 +196,6 @@ export class DiscoveryEngine {
     const tools = await this.getDiscoveredTools(routeOrMcp);
     const found = tools.some((t) => t.name === toolName);
     if (!found) {
-      // Refresh once dynamically as per §41
       const refreshed = await this.getDiscoveredTools(routeOrMcp, true);
       return refreshed.some((t) => t.name === toolName);
     }

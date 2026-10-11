@@ -1,14 +1,18 @@
 /**
  * JARVIS Core — Configuration & Persistence Manager
  * Manages endpoints for Qwen 3.5 9B, Decision 2.0, and local MCP servers.
- * Persists settings to localStorage so they survive page reloads.
+ * Persists settings safely to local file system so they survive server restarts.
  */
+
+import fs from "node:fs";
+import path from "node:path";
 
 export interface StdioServerConfig {
   command: string;
   args: string[];
   env?: Record<string, string>;
   cwd?: string;
+  allowedDirectories?: string[];
 }
 
 export interface JarvisConfig {
@@ -25,7 +29,7 @@ export interface JarvisConfig {
   mcpTimeoutMs: number;
 }
 
-const STORAGE_KEY = "jarvis_core_config_v1";
+const CONFIG_FILE_PATH = path.resolve(process.cwd(), "jarvis-config.json");
 
 const DEFAULT_CONFIG: JarvisConfig = {
   qwenUrl: "http://127.0.0.1:11434",
@@ -39,6 +43,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   desktopCommanderMcp: {
     command: "npx",
     args: ["-y", "@wonderwhy-er/desktop-commander"],
+    allowedDirectories: [],
   },
   freeSearchMcp: {
     command: "uvx",
@@ -84,45 +89,45 @@ export class ConfigManager {
   }
 
   private static loadConfig(): JarvisConfig {
-    if (typeof localStorage !== "undefined") {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.qwenModel === "qwen2.5:7b") {
-            parsed.qwenModel = "";
-          }
-          // Migrate away from deprecated HTTP URLs if present
-          delete parsed.windowsMcpUrl;
-          delete parsed.desktopCommanderMcpUrl;
-          delete parsed.freeSearchMcpUrl;
+    try {
+      if (fs.existsSync(CONFIG_FILE_PATH)) {
+        const fileContent = fs.readFileSync(CONFIG_FILE_PATH, "utf-8");
+        const parsed = JSON.parse(fileContent);
 
-          return {
-            ...DEFAULT_CONFIG,
-            ...parsed,
-            thinking: typeof parsed.thinking === "boolean" ? parsed.thinking : DEFAULT_CONFIG.thinking,
-            decisionTimeoutMs: parsed.decisionTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.decisionTimeoutMs,
-            qwenTimeoutMs: parsed.qwenTimeoutMs ?? DEFAULT_CONFIG.qwenTimeoutMs,
-            mcpTimeoutMs: parsed.mcpTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.mcpTimeoutMs,
-            windowsMcp: parsed.windowsMcp || DEFAULT_CONFIG.windowsMcp,
-            desktopCommanderMcp: parsed.desktopCommanderMcp || DEFAULT_CONFIG.desktopCommanderMcp,
-            freeSearchMcp: parsed.freeSearchMcp || DEFAULT_CONFIG.freeSearchMcp,
-          };
+        if (parsed.qwenModel === "qwen2.5:7b") {
+          parsed.qwenModel = "";
         }
-      } catch (e) {
-        console.warn("Failed to load JARVIS config from localStorage:", e);
+
+        delete parsed.windowsMcpUrl;
+        delete parsed.desktopCommanderMcpUrl;
+        delete parsed.freeSearchMcpUrl;
+
+        return {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          thinking: typeof parsed.thinking === "boolean" ? parsed.thinking : DEFAULT_CONFIG.thinking,
+          decisionTimeoutMs: parsed.decisionTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.decisionTimeoutMs,
+          qwenTimeoutMs: parsed.qwenTimeoutMs ?? DEFAULT_CONFIG.qwenTimeoutMs,
+          mcpTimeoutMs: parsed.mcpTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.mcpTimeoutMs,
+          windowsMcp: parsed.windowsMcp || DEFAULT_CONFIG.windowsMcp,
+          desktopCommanderMcp: {
+            ...DEFAULT_CONFIG.desktopCommanderMcp,
+            ...(parsed.desktopCommanderMcp || {}),
+          },
+          freeSearchMcp: parsed.freeSearchMcp || DEFAULT_CONFIG.freeSearchMcp,
+        };
       }
+    } catch (e) {
+      console.warn("[ConfigManager] No se pudo leer el archivo de configuración local. Usando defaults:", e);
     }
     return { ...DEFAULT_CONFIG };
   }
 
   private static saveConfig(cfg: JarvisConfig): void {
-    if (typeof localStorage !== "undefined") {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
-      } catch (e) {
-        console.warn("Failed to persist JARVIS config to localStorage:", e);
-      }
+    try {
+      fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(cfg, null, 2), "utf-8");
+    } catch (e) {
+      console.warn("[ConfigManager] Error al guardar configuración en archivo local:", e);
     }
   }
 }

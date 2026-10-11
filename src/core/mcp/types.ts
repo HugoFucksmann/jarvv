@@ -18,6 +18,7 @@ export interface IMCPServer {
   callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult>;
   isConnected(): boolean;
   reconnect(): Promise<void>;
+  close?(): Promise<void>;
   listPrompts?(): Promise<MCPPrompt[]>;
   listResourceTemplates?(): Promise<MCPResourceTemplate[]>;
   readResource?(uri: string): Promise<string>;

@@ -4,7 +4,6 @@
 
 import {
     Step,
-    StepRoute,
     StepCall,
     CoreEventType,
     MAX_TOOL_CALLS_TASK,
@@ -277,8 +276,14 @@ export async function executeCall(
 
     deps.emitEvent(task.id, "MCP_RESULT", { rawResult }, step.id);
 
-    // 9. Process Result with Extractors (§10.5)
-    const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args);
+    // 9. Process Result with Extractors scoped by taskId (§10.5)
+    const processed: ProcessedResult = ResultProcessor.process(
+        serverName,
+        selectedTool.name,
+        rawResult,
+        args,
+        task.id
+    );
     context.lastCallCompactObs = processed.compactObs;
     context.lastCallTool = selectedTool.name;
     context.lastCallDecisionSummary = processed.decisionSummary;
@@ -289,7 +294,7 @@ export async function executeCall(
         Object.assign(task.memory.facts, processed.factsDelta);
     }
 
-    // 10. Etapa 5: Decision Evaluation (Alimentada con resumen sintético en vez de markdown crudo)
+    // 10. Etapa 5: Decision Evaluation
     const d5 = await deps.decisionEngine.evaluateDecisionFive(
         step.instruction,
         selectedTool.name,

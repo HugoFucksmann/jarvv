@@ -66,7 +66,8 @@ export async function concludeTask(
         task.finalResponse = `Tarea concluida con estado ${state}.${abortReason ? ` Motivo: ${abortReason}` : ""}`;
     }
 
-    RefStore.clear();
+    // Limpieza exclusiva de las referencias de esta tarea
+    RefStore.clear(task.id);
     deps.persistTasks();
     const durationTotalMs = Date.now() - context.startTime;
     console.log(
@@ -247,7 +248,6 @@ export async function runFastLoop(
                 needsContext: d1.needsContext,
             });
 
-            // Validation of FIN (§5)
             if (d1.route === "fin") {
                 if (isFirst) {
                     console.log(`[FAST] Conversación directa (fin inicial). Respondiendo directo.`);
@@ -261,6 +261,7 @@ export async function runFastLoop(
 
                     task.finalResponse = finalResp;
                     task.state = "COMPLETED";
+                    RefStore.clear(task.id);
                     deps.persistTasks();
                     deps.emitEvent(task.id, "FINAL_RESPONSE", { response: finalResp });
                     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
@@ -303,8 +304,30 @@ export async function runFastLoop(
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
 
-        // Execute single call
-        const execResult = await executeCall(context, step, deps);
+        // Execute single call con captura garantizada de excepciones
+        let execResult: StepExecutionResult;
+        try {
+            execResult = await executeCall(context, step, deps);
+        } catch (err: any) {
+            console.error(`[FAST] Excepción no controlada en executeCall:`, err);
+            step.state = "FAILED";
+            step.error = err?.message || String(err);
+            deps.persistTasks();
+            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+
+            const syntheticResult: StepExecutionResult = {
+                status: "logical_error",
+                step,
+                error: step.error,
+                signals: { exception: true },
+            };
+
+            const shouldContinue = await handleEscalation(context, step, syntheticResult, deps);
+            if (!shouldContinue) {
+                return;
+            }
+            continue;
+        }
 
         if (execResult.status === "ok") {
             step.state = "COMPLETED";
@@ -363,6 +386,7 @@ export async function initiatePlanMode(
 
         task.finalResponse = finalResp;
         task.state = "COMPLETED";
+        RefStore.clear(task.id);
         deps.persistTasks();
         deps.emitEvent(task.id, "FINAL_RESPONSE", { response: finalResp });
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
@@ -374,6 +398,7 @@ export async function initiatePlanMode(
         plan = await deps.qwenEngine.generatePlan(task.message, undefined, context.abortController.signal);
     } catch (err: any) {
         task.state = "FAILED";
+        RefStore.clear(task.id);
         deps.persistTasks();
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: `Plan inválido: ${err.message}` });
         return;
@@ -381,6 +406,7 @@ export async function initiatePlanMode(
 
     if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
         task.state = "FAILED";
+        RefStore.clear(task.id);
         deps.persistTasks();
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: "Plan inválido en único intento." });
         return;
@@ -430,7 +456,17 @@ export async function runPlanLoop(
         while (stepCalls < MAX_TOOL_CALLS_PER_STEP && !stepCompleted && !context.isCancelled) {
             stepCalls++;
 
-            const execResult = await executeCall(context, step, deps);
+            let execResult: StepExecutionResult;
+            try {
+                execResult = await executeCall(context, step, deps);
+            } catch (err: any) {
+                console.error(`[PLAN] Excepción no controlada en executeCall:`, err);
+                step.state = "FAILED";
+                step.error = err?.message || String(err);
+                deps.persistTasks();
+                deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+                break;
+            }
 
             if (execResult.status === "ok") {
                 if (step.expectedOutcome) {
