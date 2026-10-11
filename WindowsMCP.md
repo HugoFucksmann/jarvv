@@ -1,317 +1,208 @@
-# Windows MCP — Contrato de integración
+# Windows MCP 1.3.27 — Documentación de referencia
 
-## 1. Alcance
+## 1. Identificación
 
-Windows MCP expone capacidades de automatización de Windows mediante MCP.
+- **Proyecto:** `sbroenne/mcp-windows`
+- **Repositorio oficial:** https://github.com/sbroenne/mcp-windows
+- **Versión de referencia:** `1.3.27`
+- **Licencia:** MIT
+- **Plataforma:** Windows
+- **Tecnología de automatización:** Windows UI Automation (UIA)
 
-La integración de JARVIS debe ser dinámica. No debe hardcodear nombres, parámetros ni schemas de herramientas.
+Windows MCP permite automatizar aplicaciones de Windows mediante controles accesibles, lectura de texto y tablas, gestión de ventanas, entrada de teclado y ratón, y capturas de pantalla.
 
-Fuente de verdad:
+## 2. Protocolo MCP
 
-```text
-tools/list
-```
+El servidor expone herramientas mediante el protocolo Model Context Protocol (MCP).
 
-Este contrato describe cómo interpretar lo que el servidor devuelve. Levantar o configurar el servidor no es responsabilidad del código de JARVIS.
+### Descubrimiento de herramientas
 
-## 2. Descubrimiento
+La operación `tools/list` devuelve las herramientas disponibles y sus definiciones.
 
-Usar MCP `tools/list`.
+Una definición MCP puede contener:
 
-Definición de cada tool:
+- `name`: nombre de la herramienta.
+- `description`: descripción de su función.
+- `inputSchema`: esquema de los argumentos admitidos.
 
-```json
-{
-  "name": "tool_name",
-  "description": "...",
-  "inputSchema": {
-    "type": "object",
-    "properties": {},
-    "required": []
-  }
-}
-```
+El esquema especifica los tipos de datos, los parámetros obligatorios y las restricciones de entrada.
 
-JARVIS utiliza directamente:
+### Ejecución
 
-- `name`
-- `description`
-- `inputSchema`
+La operación `tools/call` ejecuta una herramienta identificada por su nombre y recibe los argumentos correspondientes.
 
-No mantener un catálogo estático de tools.
+La respuesta sigue el formato MCP. Puede contener varios bloques en `content[]`, un indicador `isError` y, según la herramienta y la implementación, contenido estructurado adicional.
 
-## 3. Ejecución
+Los campos específicos de cada resultado pertenecen al contrato de la herramienta correspondiente; no todas las herramientas devuelven la misma estructura.
 
-Usar MCP `tools/call`:
+## 3. Herramientas disponibles
 
-```json
-{
-  "name": "tool_name",
-  "arguments": {}
-}
-```
+La siguiente lista resume las principales herramientas documentadas. La disponibilidad efectiva debe comprobarse mediante el descubrimiento MCP de la versión instalada.
 
-`arguments` debe ajustarse al `inputSchema` descubierto.
+| Herramienta | Función |
+|---|---|
+| `app` | Inicia una aplicación y permite observar la ventana resultante. |
+| `ui_snapshot` | Obtiene una representación de los controles de una ventana y, cuando corresponde, sus cambios. |
+| `ui_find` | Busca controles por nombre, tipo, identificador de automatización u otros criterios admitidos. |
+| `ui_click` | Hace clic en un control identificado. |
+| `ui_type` | Introduce texto en un control editable. |
+| `ui_select` | Selecciona una opción en un control compatible. |
+| `ui_read` | Lee texto de controles o ventanas mediante UIA y mecanismos OCR compatibles. |
+| `ui_read_table` | Extrae tablas o cuadrículas en filas y encabezados estructurados. |
+| `ui_wait` | Espera a que aparezca, desaparezca o alcance un estado determinado un control. |
+| `ui_batch` | Ejecuta una secuencia de pasos de automatización de interfaz. |
+| `file_save` | Automatiza operaciones compatibles de guardado mediante el diálogo correspondiente. |
+| `file_open` | Automatiza operaciones compatibles de apertura mediante el diálogo correspondiente. |
+| `clipboard` | Lee, escribe o limpia el portapapeles de texto de Windows. |
+| `process` | Enumera o finaliza procesos compatibles con la herramienta. |
+| `screenshot_control` | Obtiene capturas anotadas para observar controles y facilitar la automatización visual. |
+| `keyboard_control` | Envía entradas de teclado y combinaciones de teclas. |
+| `mouse_control` | Realiza operaciones de ratón, como clics, movimientos o desplazamientos. |
+| `window_management` | Busca, activa, mueve, redimensiona y gestiona ventanas. |
 
-## 4. Respuesta MCP
+La lista no sustituye los esquemas de las herramientas. Los nombres, argumentos y operaciones admitidas pueden variar según la versión.
 
-La respuesta MCP puede contener múltiples bloques en `content[]`.
+## 4. Automatización mediante UI Automation
 
-JARVIS debe:
+Windows MCP prioriza la identificación semántica de los controles mediante Windows UI Automation, en lugar de depender exclusivamente de coordenadas o capturas de pantalla.
 
-- procesar todos los elementos de `content`;
-- respetar el `type` de cada bloque;
-- no asumir que existe un único bloque;
-- no asumir que todo contenido es texto;
-- no convertir indiscriminadamente contenido multimedia o estructurado a texto.
+Entre las capacidades documentadas se encuentran:
 
-El payload específico de cada tool tiene su propio formato, además del envelope MCP.
+- Identificar controles por nombre, tipo o identificador de automatización.
+- Leer el texto y el estado de controles.
+- Hacer clic en botones, pestañas y otros elementos interactivos.
+- Introducir texto en campos editables.
+- Seleccionar opciones en listas y cuadros combinados compatibles.
+- Esperar a que aparezcan controles o cambien de estado.
+- Consultar los cambios producidos en la interfaz después de una observación inicial.
 
-## 5. Resultados Windows
+La cobertura depende de la información de accesibilidad que exponga cada aplicación.
 
-Ejemplos de payload:
+## 5. Identificación de controles
 
-```json
-{
-  "success": true,
-  "kind": "full",
-  "tree": []
-}
-```
+Las herramientas de descubrimiento pueden devolver identificadores de controles y datos sobre su ubicación, tipo, nombre y estado.
 
-```json
-{
-  "success": true,
-  "kind": "diff",
-  "changes": []
-}
-```
+Los identificadores de elementos son valores opacos generados durante la interacción. No deben interpretarse como identificadores globales, permanentes o independientes de la sesión.
 
-Campos relevantes cuando aparecen:
+Un elemento puede dejar de ser válido si la interfaz cambia, el control se reemplaza o la ventana cambia de estado. En estos casos, la herramienta puede rechazar el identificador obsoleto.
 
-```text
-success
-kind
-tree
-changes
-snapshotIncomplete
-snapshotWarning
-postActionSnapshotIncomplete
-postActionWarning
-search_incomplete
-truncated
-actionDispatched
-outcomeVerified
-postActionState
-postActionElement
-postActionElementWarning
-```
+Las búsquedas por nombre parcial, expresión regular o profundidad pueden tener límites de exploración. Cuando una búsqueda no examina todos los candidatos, el resultado puede incluir `search_incomplete`. En ese caso, no puede concluirse que el elemento no exista.
 
-No asumir que todos aparecen en todas las tools.
+## 6. Snapshots y cambios
 
-## 6. Significado de resultados
+`ui_snapshot` permite obtener una representación de los controles observados de una ventana. También puede devolver cambios respecto de una observación anterior.
 
-### `success`
+En las respuestas que utilizan el campo `kind`:
 
-Indica que la operación tuvo éxito según el contrato de la propia tool.
+- `full`: representa una vista completa según el resultado generado.
+- `diff`: representa cambios respecto de una baseline previa.
 
-No significa necesariamente que el efecto final de una acción haya sido verificado.
+Una respuesta `full` no garantiza que todos los controles de la aplicación hayan sido examinados.
 
-Un `success: false` dentro del payload es un **resultado de la tool**, no necesariamente un error MCP (ver sección 12).
+Los snapshots pueden incluir indicadores de información incompleta o advertencias. Si aparecen, la representación debe interpretarse teniendo en cuenta esas limitaciones.
 
-### `actionDispatched`
+Los nombres exactos de los campos y el formato del árbol dependen de la versión y del contrato de la herramienta.
 
-Indica que una acción fue enviada al sistema.
+## 7. Resultados de acciones y verificación
 
-### `outcomeVerified`
+Las acciones de interfaz pueden enviar una entrada al sistema sin demostrar que se haya producido el efecto final esperado.
 
-Indica si la propia operación verificó el efecto posterior de la acción.
+La documentación distingue entre el envío de una acción y la observación de su resultado. Por ejemplo, un clic puede haberse enviado correctamente sin que eso demuestre que la operación de la aplicación haya terminado.
 
-Para acciones como clicks:
+La confirmación del resultado puede requerir una lectura posterior, un nuevo snapshot o una espera de estado mediante `ui_wait`.
 
-```text
-success=true
-actionDispatched=true
-outcomeVerified=false
-```
+Los campos concretos que expresan el estado de una acción dependen del contrato de la versión instalada. No deben suponerse nombres universales como `success`, `actionDispatched` u `outcomeVerified` sin comprobar que la herramienta los devuelve.
 
-significa que la acción fue enviada, pero **no constituye evidencia de que el resultado final haya ocurrido**.
+## 8. Automatización por lotes
 
-JARVIS debe obtener evidencia posterior cuando la tarea requiera confirmar el efecto: una snapshot posterior, `ui_wait`, `ui_read` u otra lectura.
+`ui_batch` permite agrupar varios pasos de automatización en una sola llamada.
 
-No repetir automáticamente una acción solamente porque `outcomeVerified=false`.
+Según los pasos admitidos, la secuencia puede incluir operaciones como buscar, hacer clic, introducir texto, seleccionar opciones, esperar, leer controles, obtener snapshots y utilizar entradas de teclado o ratón.
 
-El mapeo de estos campos hacia la evidencia del núcleo (`evidence[].ok`) pertenece al núcleo de JARVIS, no a este contrato.
+Los argumentos de cada paso deben respetar el esquema de `ui_batch`. Los resultados deben interpretarse según la estructura devuelta: el resultado de una secuencia no implica necesariamente que todos sus pasos hayan terminado con éxito.
 
-## 7. Snapshots y resultados incompletos
+La herramienta `ui_macro` fue retirada en la versión `1.3.26`; no debe asumirse que está disponible en la versión `1.3.27`.
 
-`kind`:
+## 9. Lectura de texto y tablas
 
-- `full`: snapshot completo según la respuesta generada.
-- `diff`: cambios respecto de la baseline correspondiente.
+### `ui_read`
 
-`kind="full"` **no garantiza que todos los controles hayan sido examinados**.
+Permite leer texto de un control específico o, cuando se solicita expresamente, de una ventana completa.
 
-Si aparece:
+Puede utilizar UI Automation y mecanismos OCR compatibles. La lectura OCR depende de que la ventana y el contenido sean accesibles para el mecanismo correspondiente.
 
-```text
-snapshotIncomplete=true
-snapshotWarning
-```
+Un identificador de control inválido o un error de acceso no debe interpretarse como una lectura válida de otro elemento.
 
-el árbol es parcial.
+### `ui_read_table`
 
-Si aparece:
+Extrae tablas o cuadrículas compatibles como datos estructurados, con encabezados y filas. La calidad del resultado depende de la estructura que la aplicación exponga mediante sus controles.
 
-```text
-search_incomplete
-```
+## 10. Ventanas, archivos y procesos
 
-la búsqueda no pudo comprobar todos los candidatos.
+### Ventanas
 
-Un resultado incompleto no demuestra la ausencia del elemento. Realizar una búsqueda más específica o un nuevo discovery.
+`window_management` permite buscar ventanas y realizar operaciones de gestión como activarlas, moverlas o cambiar su tamaño. Las acciones disponibles dependen de los argumentos admitidos por la herramienta.
 
-## 8. IDs y conexión
+### Archivos
 
-`windowHandle`, `elementId` y cualquier token de snapshot o baseline que devuelva el servidor son identificadores dinámicos.
+`file_open` y `file_save` automatizan determinados diálogos estándar de apertura y guardado. La documentación indica que estos ayudantes de diálogo dependen de las etiquetas en inglés de Windows.
 
-Reglas:
+### Procesos
 
-- no inventarlos;
-- no asumir persistencia;
-- no reutilizarlos después de que el elemento haya sido reemplazado;
-- realizar nuevo discovery cuando un ID quede obsoleto;
-- **mantener una conexión MCP persistente durante la sesión**: reconectar en cada llamada invalida los IDs;
-- los IDs pertenecen al estado de la conexión MCP que los generó;
-- no reutilizar IDs entre conexiones MCP diferentes.
+`process` ofrece operaciones compatibles para enumerar y finalizar procesos. La posibilidad de controlar un proceso depende de los permisos y las restricciones del sistema operativo.
 
-Una reconexión requiere considerar los IDs y baselines anteriores como inválidos y realizar nuevo discovery.
+## 11. Capturas, teclado y ratón
 
-## 9. UI Automation
+Las herramientas visuales complementan la automatización semántica:
 
-Regla general:
+- `screenshot_control`: obtiene capturas anotadas para observar elementos.
+- `keyboard_control`: envía entradas de teclado y atajos.
+- `mouse_control`: permite interactuar mediante coordenadas.
 
-```text
-discovery → action → verification
-```
+Las capturas pueden utilizar compresión y escalado para reducir el tamaño de los resultados.
 
-Descubrir un elemento no garantiza que siga existiendo cuando se ejecuta la acción.
+La automatización por coordenadas depende de la geometría de la pantalla, la posición de la ventana, la escala DPI y el estado actual de la interfaz. No proporciona las mismas garantías de identificación que un control semántico válido.
 
-Enviar una acción correctamente tampoco garantiza que el efecto final haya terminado.
+## 12. Errores y resultados incompletos
 
-Para operaciones que requieren confirmación, utilizar una observación posterior.
+Los resultados deben distinguir entre errores de protocolo MCP y errores propios de una herramienta.
 
-## 10. Resultados grandes
+Entre las situaciones que pueden aparecer se encuentran:
 
-Los resultados pueden incluir:
+- Argumentos inválidos.
+- Ventana o control no disponible.
+- Identificador de elemento obsoleto.
+- Permisos insuficientes.
+- Búsqueda incompleta.
+- Snapshot incompleto.
+- Resultado truncado.
+- Acción enviada sin confirmación del efecto final.
 
-- UI trees;
-- diffs;
-- tablas;
-- texto;
-- screenshots;
-- contenido multimedia;
-- logs.
+Los campos de error y sus valores dependen de la herramienta. En la documentación de Windows MCP también se utilizan nombres compactos, como `ok`, para algunos resultados. No debe asumirse que todas las respuestas contienen un campo `success`.
 
-No introducir automáticamente contenido grande en el contexto del modelo.
+## 13. Requisitos y limitaciones
 
-Este contrato no garantiza que el servidor proporcione referencias, handles o recursos para resultados grandes. JARVIS debe cubrir ambos casos:
+- Requiere Windows y un escritorio disponible y desbloqueado para las operaciones de automatización de interfaz.
+- La cobertura de UI Automation depende de la aplicación.
+- Las aplicaciones WinForms, WinUI, Electron, Edge y Chrome cuentan con soporte específico, pero eso no garantiza que todos sus controles sean accesibles.
+- La automatización de barras y elementos del navegador puede ser más limitada que la de los controles de las páginas web.
+- Los diálogos estándar de apertura y guardado dependen de etiquetas en inglés.
+- Una aplicación ejecutada como administrador puede no ser accesible desde un proceso sin privilegios equivalentes.
+- Las solicitudes de seguridad de Windows pueden requerir aprobación humana.
+- Todas las conexiones que operan sobre el mismo escritorio comparten el entorno de escritorio físico.
 
-- si la respuesta proporciona una referencia, handle o recurso, conservarlo como referencia;
-- si no la proporciona, aplicar las reglas generales de manejo de resultados grandes de JARVIS.
+## 14. Seguridad
 
-`truncated=true` indica que el resultado entregado está limitado y no debe interpretarse como contenido completo.
+Windows MCP permite actuar sobre aplicaciones reales y sobre el escritorio del sistema.
 
-Los contenidos multimedia conservan su tipo MCP (ver sección 4).
+La documentación advierte que deshabilitar herramientas MCP no constituye un sandbox de Windows ni restringe por sí solo otros mecanismos de ejecución, como comandos de la CLI.
 
-## 11. Batch
+El nivel de acceso efectivo depende de los permisos del proceso, las herramientas habilitadas y las protecciones del sistema operativo.
 
-Si una tool batch está disponible mediante discovery, utilizar exclusivamente el `inputSchema` descubierto.
+## 15. Referencias oficiales
 
-Los resultados pueden contener un resultado por paso.
-
-Un batch parcialmente ejecutado no debe interpretarse como completamente exitoso.
-
-## 12. Errores
-
-Envelope de error de una tool:
-
-```json
-{
-  "content": [
-    {
-      "type": "text",
-      "text": "..."
-    }
-  ],
-  "isError": true
-}
-```
-
-Distinguir al menos:
-
-```text
-MCP/protocol error
-Tool error (isError: true)
-Invalid arguments
-Timeout
-Stale element
-Unavailable window
-search_incomplete
-Incomplete snapshot
-Truncated result
-Action dispatched but outcome unverified
-```
-
-Un `success: false` dentro del payload de una tool es resultado de la tool, no necesariamente un error MCP.
-
-Un fallo de un elemento, búsqueda o snapshot no implica necesariamente que Windows MCP completo esté inutilizable.
-
-## 13. Seguridad
-
-Windows MCP puede proporcionar control real sobre Windows.
-
-Las operaciones sensibles deben pasar por las reglas de autorización de JARVIS.
-
-Deshabilitar una tool no constituye un sandbox de seguridad.
-
-Aplicaciones ejecutándose con privilegios superiores pueden requerir privilegios equivalentes para ser automatizadas.
-
-## 14. Limitaciones
-
-- La cobertura depende de lo que la aplicación exponga mediante Windows UI Automation.
-- Los IDs son dinámicos.
-- Los snapshots y búsquedas pueden ser incompletos.
-- Las coordenadas dependen del entorno de pantalla/DPI.
-- Algunas capacidades dependen de la aplicación, configuración o idioma de Windows.
-- El escritorio es compartido: todas las conexiones operan sobre el mismo escritorio físico.
-- Aplicaciones elevadas pueden requerir privilegios equivalentes.
-- La automatización visual es un fallback, no una garantía de éxito.
-
-## 15. Regla de compatibilidad
-
-JARVIS depende únicamente de:
-
-1. el contrato MCP;
-2. las capacidades descubiertas mediante `tools/list`;
-3. el `inputSchema` de cada tool;
-4. la respuesta real de cada ejecución.
-
-No depender de:
-
-- nombres de tools conocidos;
-- parámetros hardcodeados;
-- cantidad fija de tools;
-- IDs persistentes;
-- estructura fija de respuestas de todas las tools;
-- una versión concreta del servidor.
-
-`tools/list` determina las capacidades disponibles e `inputSchema` determina cómo ejecutarlas.
-
-## 16. Referencia
-
-```text
-Repositorio: sbroenne/mcp-windows
-Versión de referencia: 1.3.27
-Licencia: MIT
-```
+- Repositorio: https://github.com/sbroenne/mcp-windows
+- Referencia de herramientas y funcionalidades: https://github.com/sbroenne/mcp-windows/blob/main/FEATURES.md
+- Versiones publicadas: https://github.com/sbroenne/mcp-windows/releases
+- Instalación: https://windowsmcpserver.dev/installation/
+- Limitaciones y evaluación: https://windowsmcpserver.dev/benchmark/

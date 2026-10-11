@@ -1,344 +1,125 @@
+# Desktop Commander MCP — Documentación de referencia
 
-# Desktop Commander MCP — Contrato de integración
+## 1. Identificación
 
-## 1. Alcance
+- **Proyecto:** `wonderwhy-er/DesktopCommanderMCP`
+- **Repositorio oficial:** https://github.com/wonderwhy-er/DesktopCommanderMCP
+- **Licencia:** MIT
+- **Propósito:** servidor MCP que permite ejecutar comandos de terminal, gestionar procesos, operar con archivos y directorios, buscar contenido y realizar ediciones de texto.
 
-Desktop Commander MCP proporciona capacidades de automatización local sobre:
+## 2. Capacidades principales
 
-- procesos y terminal;
-- archivos y filesystem;
-- búsqueda de archivos/contenido;
-- edición de archivos;
-- gestión de sesiones/procesos;
-- configuración y diagnóstico.
+### Terminal y procesos
 
-Para JARVIS se integra como un **servidor MCP dinámico**. La fuente de verdad de sus capacidades es el protocolo MCP y el discovery en tiempo de ejecución, no este documento ni un catálogo estático.
+Permite iniciar comandos y procesos, recuperar sus resultados, interactuar con procesos en ejecución y finalizar procesos.
 
----
+Entre las herramientas documentadas se encuentran:
 
-## 2. Discovery
+- `start_process`
+- `interact_with_process`
+- `read_process_output`
+- `list_processes`
+- `kill_process`
+- `force_terminate`
+- `list_sessions`
 
-JARVIS debe descubrir las capacidades mediante MCP:
+Los argumentos concretos dependen de cada herramienta y de su esquema MCP.
 
-```text
-tools/list
-```
+### Archivos y directorios
 
-Cada tool descubierta proporciona, como mínimo:
+Incluye operaciones para leer, escribir, editar, crear, enumerar y mover archivos o directorios.
 
-```json
-{
-  "name": "...",
-  "description": "...",
-  "inputSchema": {}
-}
-```
+Entre las herramientas documentadas se encuentran:
 
-JARVIS debe utilizar el `inputSchema` descubierto para construir y validar las llamadas.
+- `read_file`
+- `read_multiple_files`
+- `write_file`
+- `edit_block`
+- `write_pdf`
+- `list_directory`
+- `create_directory`
+- `move_file`
 
-**No asumir:**
+El proyecto también documenta lectura de archivos en formatos compatibles, incluidos documentos y hojas de cálculo, según la herramienta y la implementación.
 
-- nombres concretos de tools;
-- cantidad de tools;
-- parámetros;
-- estructura fija de resultados;
-- versión concreta del servidor.
+### Búsqueda
 
-La documentación propia de Desktop Commander confirma que las descripciones MCP contienen los parámetros y formatos de retorno de cada tool.
+Ofrece búsqueda de archivos y de contenido dentro de directorios, incluida búsqueda recursiva.
 
----
+Entre las herramientas documentadas se encuentran:
 
-## 3. Ejecución
+- `start_search`
+- `get_more_search_results`
+- `list_searches`
+- `stop_search`
 
-Las operaciones se ejecutan mediante:
+### Configuración e historial
 
-```text
-tools/call
-```
+- `get_config`: permite consultar la configuración expuesta por el servidor.
+- `get_recent_tool_calls`: permite consultar llamadas recientes a herramientas y vistas previas acotadas de sus resultados.
 
-con:
+La disponibilidad exacta de herramientas depende de la versión instalada.
 
-```json
-{
-  "name": "<tool>",
-  "arguments": {}
-}
-```
+## 3. Argumentos y esquemas
 
-Los `arguments` deben cumplir el `inputSchema` obtenido mediante discovery.
+Cada herramienta MCP declara su propio esquema de entrada, incluidos nombres de parámetros, tipos, campos obligatorios y restricciones.
 
-JARVIS no debe reconstruir ni modificar arbitrariamente los argumentos para intentar superar restricciones del servidor.
+No existe un único formato de argumentos válido para todas las herramientas. El esquema publicado por la instancia en ejecución es la referencia para conocer los argumentos aceptados.
 
----
+Algunas operaciones de lectura admiten parámetros como `offset` y `length` para seleccionar partes de un archivo. En las herramientas compatibles, los desplazamientos negativos permiten leer desde el final del contenido.
 
-## 4. Respuesta MCP
+## 4. Resultados y manejo de contenido
 
-JARVIS debe procesar la respuesta MCP como un resultado potencialmente compuesto por múltiples elementos `content`.
+Las herramientas devuelven contenido y resultados a través del protocolo MCP. El formato específico depende de la operación.
 
-No debe asumir que una llamada devuelve únicamente texto.
+- Las lecturas pueden devolver el contenido solicitado o un fragmento de este.
+- Las búsquedas pueden devolver resultados parciales y ofrecer herramientas para recuperar más resultados.
+- Las operaciones sobre procesos permiten recuperar salida y consultar su estado.
+- Las herramientas de edición y escritura devuelven información sobre el resultado de la operación.
+- Los errores pueden indicar que una ruta no existe, que no hay permisos suficientes o que una operación no se pudo completar.
 
-Debe preservar el tipo de contenido cuando exista y delegar el procesamiento posterior al `Result Processor`.
+Las cadenas como `[NOT_FOUND]` o `[DENIED]` no deben interpretarse como un formato universal de error para todas las herramientas: su significado depende de la operación y de la implementación.
 
-Los resultados pueden contener:
+## 5. Gestión de procesos y sesiones
 
-- texto;
-- resultados estructurados;
-- salidas de procesos;
-- contenido de archivos;
-- resultados de búsqueda;
-- información de estado;
-- errores o marcadores operativos.
+El servidor permite gestionar procesos de terminal y recuperar sus salidas. Las herramientas disponibles permiten consultar procesos, interactuar con ellos y finalizarlos.
 
----
+Las operaciones de inicio, interacción, lectura y terminación tienen esquemas diferentes. No debe suponerse que todas las herramientas comparten un mismo identificador de proceso o sesión sin comprobar sus definiciones.
 
-## 5. Resultados grandes y paginación
+## 6. Configuración
 
-Desktop Commander implementa paginación para resultados potencialmente grandes mediante:
+La configuración documentada incluye controles como:
 
-```text
-offset
-length
-```
+- `allowedDirectories`: directorios autorizados para determinadas operaciones de archivos.
+- `blockedCommands`: lista de comandos bloqueados.
+- Configuración del shell.
+- Límites de lectura y escritura.
+- Configuración de telemetría y otras opciones disponibles en la versión.
 
-Esto aplica, entre otros casos, a lectura de archivos, salida de procesos y resultados de búsqueda. También admite offsets negativos para obtener contenido desde el final.
+Los nombres, tipos, valores predeterminados y opciones admitidas deben comprobarse en la documentación correspondiente a la versión instalada.
 
-JARVIS debe:
+## 7. Seguridad y límites
 
-1. evitar introducir resultados completos y grandes automáticamente en el contexto de Qwen;
-2. conservar referencias al resultado cuando sea posible;
-3. solicitar únicamente el rango necesario;
-4. utilizar paginación para continuar una lectura;
-5. compactar resultados antes de devolverlos al modelo.
+Desktop Commander es una herramienta de automatización local con acceso a archivos y ejecución de comandos bajo los permisos de la cuenta que la ejecuta.
 
----
+La documentación oficial advierte que:
 
-## 6. Archivos y rutas
+- Las restricciones de directorios son medidas de protección, no una frontera de seguridad completa.
+- La lista de comandos bloqueados puede eludirse mediante determinadas formas de ejecución de comandos.
+- La prevención del recorrido mediante enlaces simbólicos no constituye aislamiento completo.
+- La ejecución de comandos puede acceder a recursos disponibles para el usuario del sistema operativo.
+- El aislamiento mediante Docker o una máquina virtual proporciona una frontera de aislamiento más sólida que las restricciones internas del servidor.
 
-Las rutas absolutas son la forma recomendada y más fiable. Las rutas relativas pueden depender del directorio de trabajo y las rutas `~` no necesariamente se expanden.
+El alcance efectivo depende de los permisos del sistema operativo, la configuración y el entorno de ejecución.
 
-JARVIS debe preferir:
+## 8. Registro local y telemetría
 
-```text
-C:\...
-```
+El proyecto documenta un historial local de llamadas a herramientas y vistas previas limitadas de resultados. También documenta telemetría opcional y una configuración para desactivarla.
 
-en Windows y rutas absolutas equivalentes en otros sistemas.
+El historial local y la telemetría son mecanismos diferentes. Para conocer los datos recogidos, almacenados o enviados, deben consultarse la política de privacidad y la configuración de la versión instalada.
 
-### Resultado de acceso
+## 9. Documentación oficial
 
-Desktop Commander distingue al menos:
-
-```text
-[NOT_FOUND]
-[DENIED]
-```
-
-`[NOT_FOUND]` indica que el recurso no existe.
-
-`[DENIED]` indica que el recurso no es accesible por permisos, restricciones u otras condiciones de acceso.
-
-JARVIS no debe tratar ambos estados como equivalentes.
-
-Una operación `[DENIED]` no debe provocar automáticamente reintentos modificando la ruta.
-
----
-
-## 7. Procesos y sesiones
-
-Desktop Commander puede mantener procesos de larga duración y sesiones interactivas.
-
-Una ejecución no debe asumirse necesariamente como:
-
-```text
-call → ejecución completa → resultado final
-```
-
-Puede existir:
-
-```text
-start → process running → read output → interact → read output → finish
-```
-
-El estado del proceso puede indicar que:
-
-- está ejecutándose;
-- terminó;
-- está esperando entrada;
-- requiere lectura adicional de salida.
-
-Las sesiones persistentes y la paginación de salida forman parte del modelo de ejecución del servidor.
-
-JARVIS debe conservar los identificadores de sesión/proceso mientras sean necesarios y no asumir que un proceso terminó simplemente porque una llamada individual finalizó.
-
----
-
-## 8. Estado y verificación
-
-La existencia de una respuesta exitosa de MCP no implica por sí misma que el objetivo final de JARVIS haya sido alcanzado.
-
-Para operaciones sobre procesos, archivos o sistema:
-
-```text
-acción ejecutada ≠ objetivo verificado
-```
-
-Cuando el objetivo requiera confirmación, JARVIS debe realizar una observación posterior utilizando una tool apropiada.
-
-Esto es especialmente importante para:
-
-- procesos;
-- escritura/edición de archivos;
-- comandos;
-- operaciones que modifican estado.
-
----
-
-## 9. Errores y estados especiales
-
-JARVIS debe distinguir, como mínimo:
-
-- error MCP/protocolo;
-- tool inexistente;
-- argumentos inválidos;
-- ejecución rechazada;
-- `[NOT_FOUND]`;
-- `[DENIED]`;
-- proceso en ejecución;
-- proceso esperando entrada;
-- proceso terminado;
-- timeout;
-- resultado parcial;
-- resultado truncado;
-- recurso inaccesible.
-
-Un error de una operación no debe interpretarse automáticamente como fallo de todo el servidor MCP.
-
-Los errores de filesystem deben conservar la diferencia entre inexistencia y falta de acceso.
-
----
-
-## 10. Configuración y restricciones
-
-Desktop Commander dispone de mecanismos como:
-
-- `allowedDirectories`;
-- restricciones/bloqueos de comandos;
-- configuración del shell;
-- límites de lectura;
-- configuración de red.
-
-Estas configuraciones pueden afectar directamente el resultado de una operación.
-
-JARVIS debe considerar la configuración efectiva descubierta/obtenida del servidor antes de asumir que una capacidad está disponible.
-
----
-
-## 11. Seguridad
-
-Desktop Commander tiene capacidad privilegiada para:
-
-- leer y escribir archivos;
-- ejecutar comandos de terminal;
-- iniciar programas;
-- administrar procesos.
-
-Su propia documentación de seguridad establece explícitamente que sus restricciones son **guardrails y no un sandbox de seguridad**. Las restricciones de directorios y comandos pueden ser evitadas mediante determinadas operaciones de terminal.
-
-Por lo tanto:
-
-### JARVIS no debe delegar la seguridad exclusivamente en Desktop Commander.
-
-La arquitectura debe mantener:
-
-```text
-Usuario
-   ↓
-JARVIS Policy
-   ↓
-Desktop Commander
-   ↓
-Sistema operativo
-```
-
-La Policy de JARVIS debe decidir:
-
-```text
-allow
-deny
-approval
-```
-
-antes de ejecutar operaciones sensibles.
-
-Para aislamiento real, la documentación oficial recomienda aislamiento a nivel de sistema operativo, Docker, VM o entorno dedicado.
-
----
-
-## 12. Operaciones destructivas
-
-Las operaciones de:
-
-- ejecución de comandos;
-- eliminación/modificación de archivos;
-- terminación de procesos;
-- cambios de configuración;
-
-deben considerarse potencialmente destructivas.
-
-JARVIS no debe interpretar las restricciones internas del MCP como autorización del usuario.
-
-La autorización pertenece a la Policy de JARVIS.
-
----
-
-## 13. Compatibilidad
-
-La integración de JARVIS debe depender únicamente de:
-
-1. protocolo MCP;
-2. `tools/list`;
-3. `inputSchema`;
-4. `tools/call`;
-5. estructura real de la respuesta MCP;
-6. estados y resultados realmente proporcionados por la tool.
-
-No depender de:
-
-- número fijo de tools;
-- nombres hardcodeados;
-- parámetros específicos;
-- estructura fija de resultados;
-- versión concreta;
-- rutas predeterminadas;
-- IDs persistentes;
-- mensajes textuales exactos.
-
-El servidor declara compatibilidad con Windows, Linux y macOS y requiere Node.js ≥18.
-
----
-
-## 14. Regla de integración para JARVIS
-
-La integración debe seguir:
-
-```text
-Discovery
-    ↓
-Tool selection
-    ↓
-Policy
-    ↓
-tools/call
-    ↓
-MCP result
-    ↓
-Result Processor
-    ↓
-Evidence / State
-    ↓
-Qwen re-evaluation
-```
-
-Desktop Commander ejecuta la operación.
-
-**JARVIS decide qué hacer, si está permitido, cómo interpretar el resultado y si el objetivo realmente fue cumplido.**
+- Repositorio y README: https://github.com/wonderwhy-er/DesktopCommanderMCP
+- Política de seguridad: https://github.com/wonderwhy-er/DesktopCommanderMCP/blob/main/SECURITY.md
+- Preguntas frecuentes: https://github.com/wonderwhy-er/DesktopCommanderMCP/blob/main/FAQ.md

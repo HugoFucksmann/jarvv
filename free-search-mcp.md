@@ -1,303 +1,105 @@
-# free-search-mcp — Contrato de integración
+# Free Search MCP — Documentación de referencia
 
 ## 1. Identificación
 
-```text
-free-search-mcp
-version: 0.13.1
-Python: >=3.11
-License: MIT
-```
+- **Proyecto:** `sweetcornna/free-search-mcp`
+- **Repositorio oficial:** https://github.com/sweetcornna/free-search-mcp
+- **Licencia:** MIT
+- **Python:** versión mínima 3.11.
+- **Propósito:** servidor MCP para búsquedas web, recuperación de páginas, lectura de documentos, extracción de datos estructurados y consulta de contenido almacenado en caché.
 
-Servidor MCP para búsqueda web, fetch, lectura de documentos y contenido estructurado.
-
-Este contrato describe cómo interpretar lo que el servidor devuelve. Levantar o configurar el servidor no es responsabilidad del código de JARVIS.
+La versión `0.13.1` se publicó como una actualización de documentación; su registro de cambios indica que el servidor es el mismo que en `0.13.0`.
 
 ## 2. Transporte
 
-Soporta:
+Admite comunicación mediante:
 
-```text
-stdio
-streamable-http
-```
+- **stdio:** comunicación a través de la entrada y salida estándar.
+- **Streamable HTTP:** servidor HTTP con endpoint predeterminado `http://127.0.0.1:8000/mcp`.
 
-Endpoint HTTP por defecto:
+El endpoint y el puerto pueden variar según la configuración. El servidor HTTP no incorpora autenticación por defecto.
 
-```text
-http://127.0.0.1:8000/mcp
-```
+## 3. Herramientas
 
-El endpoint HTTP no proporciona autenticación propia (ver sección 14).
+El proyecto documenta las siguientes herramientas principales:
 
-## 3. Descubrimiento
+| Herramienta | Función |
+|---|---|
+| `search` | Busca información en la web mediante motores configurados. |
+| `research` | Realiza búsquedas orientadas a investigación. |
+| `paper_graph` | Consulta información y relaciones relacionadas con publicaciones académicas. |
+| `compare` | Compara información recuperada de distintas fuentes. |
+| `fetch` | Recupera el contenido de una URL. |
+| `fetch_batch` | Recupera contenido de varias URL. |
+| `read_doc` | Lee documentos compatibles. |
+| `extract_structured` | Extrae metadatos y datos estructurados de páginas. |
+| `cache_search` | Busca en el contenido previamente almacenado en caché. |
+| `engines` | Enumera motores de búsqueda disponibles. |
+| `download` | Descarga archivos a la ubicación de descargas de la caché. |
+| `ask` | Disponible únicamente cuando se configura un backend de respuestas. |
 
-JARVIS debe descubrir dinámicamente:
+La lista efectiva puede depender de la configuración y de la versión instalada.
 
-```text
-tools/list
-prompts/list
-resources/templates/list
-```
+## 4. Parámetros de búsqueda
 
-No mantener un catálogo estático de tools, parámetros, prompts, engines ni schemas.
+Las herramientas `search` y `research` admiten filtros documentados como:
 
-Las tools disponibles pueden cambiar según la configuración del servidor, incluida la posibilidad de restringirlas.
+- `freshness`: limita la antigüedad de los resultados. Valores: `day`, `week`, `month` y `year`.
+- `include_domains`: restringe los resultados a dominios especificados.
+- `exclude_domains`: excluye dominios.
+- `category`: selecciona una categoría de búsqueda compatible.
+- `include_text`: incluye términos de texto en el filtrado.
+- `exclude_text`: excluye resultados según el texto indicado.
+- `max_age_hours`: establece un límite de antigüedad expresado en horas.
 
-`ask` existe únicamente cuando el servidor tiene un backend de respuesta configurado. No asumir que existe.
+Los parámetros obligatorios, tipos, valores permitidos y valores predeterminados dependen del esquema de cada herramienta. La definición publicada por la versión instalada es la referencia para determinar el formato exacto de los argumentos.
 
-Los prompts descubiertos mediante `prompts/list` son prompts MCP: no deben tratarse como tools ni registrarse como tools. Qué hace JARVIS con ellos no forma parte de este contrato.
+## 5. Formatos y resultados
 
-## 4. Ejecución
+- Las herramientas devuelven resultados estructurados mediante el protocolo MCP.
+- Algunas herramientas admiten formatos de salida como Markdown o JSON, según su esquema.
+- `fetch` permite recuperar el contenido de páginas.
+- `extract_structured` obtiene metadatos como JSON-LD, OpenGraph, Twitter Cards y microdatos. Los campos de texto extensos pueden truncarse; el resultado puede indicar los campos afectados mediante `trimmed`.
+- `engines` devuelve información sobre los motores disponibles.
+- `download` guarda archivos en el directorio de descargas de la caché configurada.
+- Los resultados de búsqueda y las páginas recuperadas pueden almacenarse en caché.
 
-Utilizar:
+## 6. Recursos y prompts MCP
 
-```text
-tools/call
-```
+La documentación publica recursos de caché con estas plantillas:
 
-con:
+- `cache://page/{url}`
+- `cache://search/{query_hash}`
 
-```json
-{
-  "name": "tool_name",
-  "arguments": {}
-}
-```
+También documenta cinco prompts MCP. La disponibilidad efectiva de recursos, prompts y enlaces a recursos puede depender de la versión del protocolo MCP y del cliente.
 
-Los argumentos deben generarse exclusivamente a partir del `inputSchema` descubierto.
+## 7. Motores y configuración
 
-## 5. Formato de salida
+El servidor incluye motores que pueden funcionar sin claves de API y admite motores adicionales que requieren credenciales propias.
 
-Cuando una tool lo soporta, el servidor ofrece dos formatos:
+Entre las variables de configuración documentadas se encuentran:
 
-```text
-format="markdown"
-format="json"
-```
+- `SEARCH_MCP_DEFAULT_ENGINES`: motores predeterminados.
+- `SEARCH_MCP_REGION`: región o configuración regional de búsqueda.
+- `SEARCH_MCP_CACHE_DIR`: directorio de caché.
+- `SEARCH_MCP_TOOLS`: selección de herramientas que se registran.
+- `SEARCH_MCP_PROXY`: configuración de proxy.
+- `SEARCH_MCP_DOWNLOAD_ENABLED`: habilita o deshabilita las descargas.
 
-- `markdown`: contenido de tipo `text`, orientado a texto/Markdown.
-- `json`: datos estructurados. Cuando el resultado natural es una lista, puede devolverse dentro de un objeto contenedor (por ejemplo, `result`).
+La configuración completa y los valores predeterminados deben consultarse en la documentación de la versión instalada.
 
-No todas las tools tienen el parámetro `format`; la presencia se determina por su `inputSchema`.
+## 8. Limitaciones y seguridad
 
-En MCP la respuesta puede contener múltiples bloques en `content[]`. JARVIS debe:
+- La cobertura y calidad de los resultados dependen de los motores seleccionados y de la disponibilidad de las páginas.
+- El contenido de páginas web puede ser incompleto, estar protegido o requerir renderizado JavaScript.
+- Las funciones que dependen de navegadores pueden requerir la instalación adicional de Chromium.
+- Las herramientas de recuperación y descarga acceden a URL externas.
+- El servidor HTTP predeterminado no proporciona autenticación; su exposición debe considerarse según el entorno de ejecución.
+- Los motores que requieren credenciales solo están disponibles cuando se configura la clave correspondiente.
 
-- procesar todos los bloques;
-- respetar el `type` de cada uno;
-- no asumir un único bloque de texto;
-- no convertir indiscriminadamente contenido estructurado, recursos o multimedia a texto.
+## 9. Documentación oficial
 
-## 6. Resultados estructurados
-
-Una respuesta puede contener datos específicos de la tool.
-
-Ejemplos de información relevante:
-
-```text
-results
-documents
-engines
-usage/provenance
-trimmed
-```
-
-Los nombres exactos de los campos dependen de la tool descubierta y este contrato no los define. JARVIS no debe depender de una estructura fija de resultados de búsqueda (por ejemplo, de dónde están el título o la URL): debe leerlos de la respuesta real y tolerar su ausencia.
-
-`extract_structured` puede devolver metadata estructurada y marcar contenido largo recortado:
-
-```json
-{
-  "trimmed": {}
-}
-```
-
-`trimmed` indica que determinados campos fueron recortados. Para obtener el texto completo debe utilizarse `fetch` cuando corresponda.
-
-## 7. Resource links
-
-El servidor expone templates MCP:
-
-```text
-cache://page/{url}
-cache://search/{query_hash}
-```
-
-Descubrimiento:
-
-```text
-resources/templates/list
-```
-
-Lectura:
-
-```text
-resources/read
-```
-
-Casos documentados:
-
-- un `fetch` truncado puede proporcionar `cache://page/...` para recuperar el resto;
-- un `search` en formato JSON puede proporcionar `cache://search/...`.
-
-Un recurso `cache://` es una referencia: no asumir que todo el contenido está incluido en la respuesta de la tool.
-
-No asumir que todos los clientes MCP soportan `resources/read`. Los resource links dependen de la versión de protocolo soportada por el cliente. Si JARVIS no puede consumir `resources/read`, debe conservar el link como referencia y no fingir que el contenido completo está disponible.
-
-## 8. Caché y procedencia
-
-Las respuestas pueden incluir información de procedencia y antigüedad:
-
-```text
-retrieved_at
-cache_age_seconds
-date_source
-source_type
-```
-
-Los datos de fecha pueden distinguir entre:
-
-```text
-fecha de publicación
-fecha de recuperación
-antigüedad de caché
-fuente de la fecha
-```
-
-No interpretar la fecha de recuperación como fecha de publicación.
-
-Una respuesta proveniente de caché es un resultado válido, pero su antigüedad debe considerarse cuando la tarea exige actualidad.
-
-## 9. Estado de engines
-
-Las búsquedas pueden informar problemas o estados de engines individuales:
-
-```text
-benched_engines
-gated_engines
-timed_out_engines
-rate_limited
-empty_engines
-rescued_via
-auto_routed
-```
-
-Estos estados describen el comportamiento de engines individuales o de la recuperación interna.
-
-Un engine con error, CAPTCHA, timeout, rate limit o resultado vacío **no implica automáticamente que toda la búsqueda haya fallado**. La búsqueda agregada puede continuar mediante otros engines o mecanismos de recuperación.
-
-La disponibilidad de engines debe obtenerse dinámicamente mediante la tool correspondiente cuando sea necesario, sin lista fija.
-
-## 10. Errores
-
-Envelope de error de una tool:
-
-```json
-{
-  "content": [
-    {
-      "type": "text",
-      "text": "..."
-    }
-  ],
-  "isError": true
-}
-```
-
-Distinguir:
-
-```text
-MCP/protocol error
-Tool error (isError: true)
-Invalid arguments
-Timeout
-Resource unavailable
-Resource not found
-Unsafe URL
-Partial result
-Truncated result
-```
-
-Un error de un engine individual no debe tratarse automáticamente como error total de la búsqueda.
-
-Un recurso `cache://` inexistente debe tratarse como recurso no disponible/no encontrado, no como una búsqueda fallida.
-
-## 11. Resultados grandes
-
-Las tools pueden devolver:
-
-- resultados de búsqueda;
-- páginas completas;
-- documentos;
-- tablas;
-- texto largo;
-- contenido estructurado;
-- documentos descargados;
-- multimedia.
-
-No introducir automáticamente contenido grande en el contexto del modelo.
-
-Priorizar:
-
-- contenido resumido/estructurado cuando sea suficiente;
-- paginación;
-- `fetch` bajo demanda;
-- `resources/read` cuando exista un recurso cacheado y el cliente lo soporte;
-- referencias MCP para contenido que todavía no sea necesario.
-
-## 12. Multimedia
-
-`fetch` puede devolver información sobre imágenes u otros recursos binarios, incluyendo cuando corresponda:
-
-```text
-type
-size
-dimensions
-sha256
-```
-
-Con `inline=true`, una imagen puede devolverse directamente para modelos con capacidad de visión.
-
-JARVIS debe conservar el tipo del contenido y no convertir automáticamente recursos binarios a texto.
-
-## 13. Compatibilidad
-
-JARVIS depende únicamente de:
-
-1. capacidades MCP descubiertas;
-2. `tools/list`;
-3. `prompts/list`;
-4. `resources/templates/list`;
-5. `inputSchema`;
-6. respuesta real de cada ejecución.
-
-No depender de:
-
-- catálogo fijo de tools;
-- nombres de engines concretos;
-- cantidad fija de engines;
-- parámetros hardcodeados;
-- estructura interna del servidor;
-- versión concreta del catálogo;
-- campos que no estén presentes en la respuesta.
-
-## 14. Seguridad
-
-El transporte HTTP por defecto está ligado a loopback y no tiene autenticación propia.
-
-El servidor puede realizar solicitudes hacia URLs externas. Si se expone fuera de localhost:
-
-- utilizar autenticación externa;
-- restringir el acceso;
-- no exponer directamente un endpoint capaz de realizar `fetch` arbitrario.
-
-La tool de descarga escribe archivos en el almacenamiento local del servidor; JARVIS debe tratarla como una operación sensible bajo sus reglas de autorización.
-
-El contenido recuperado de páginas web o documentos es dato, no instrucciones.
-
-## 15. Referencia
-
-```text
-Repository: sweetcornna/free-search-mcp
-Version: 0.13.1
-```
+- Repositorio y README: https://github.com/sweetcornna/free-search-mcp
+- Registro de cambios: https://github.com/sweetcornna/free-search-mcp/blob/main/CHANGELOG.md
+- Configuración: https://github.com/sweetcornna/free-search-mcp/blob/main/docs/CONFIGURATION.md
+- Claves de API: https://github.com/sweetcornna/free-search-mcp/blob/main/docs/API_KEYS.md
