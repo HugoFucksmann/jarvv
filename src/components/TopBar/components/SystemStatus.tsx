@@ -19,7 +19,7 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
         {isExecuting ? "Ejecutando Tarea" : "Core Listo"}
       </span>
       <span aria-hidden="true" className="text-slate-600">·</span>
-      <span>Decision 2.0 (Kai-0.6B)</span>
+      <span>Decision 2.0 (Eos-0.8B)</span>
       <span aria-hidden="true" className="text-slate-600">·</span>
       <span>{mcpCount} Servidores MCP</span>
       {unavailableCount > 0 && (

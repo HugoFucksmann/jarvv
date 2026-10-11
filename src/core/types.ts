@@ -246,7 +246,7 @@ export type DecisionAnswer =
   | DecisionAnswerScore;
 
 export interface DecisionResponse {
-  model: "Decision-2.0-Kai-0.6B";
+  model: "Decision-2.0-Eos-0.8B";
   answers: Record<string, DecisionAnswer>;
   usage: {
     input_tokens: number;

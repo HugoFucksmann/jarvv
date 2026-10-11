@@ -92,7 +92,7 @@ Tipos de memoria y estructuras administradas en el ciclo de vida de la tarea:
 
 - **Límites de contexto del modelo:**
   - `QWEN_CTX = 8192` tokens: ventana máxima de contexto configurada para Qwen 3.5 9B (`num_ctx`).
-  - Límite de Decision 2.0: `8192` tokens. En `Decision20Engine.systemOne` se estima el consumo previo (`Math.ceil(stateStr.length / 3.5) + questions * 40`); si supera 8.192 tokens, se aborta la llamada con `DecisionValidationError` controlado.
+  - Presupuesto operativo de Decision 2.0: `8192` tokens (techo asignado por el orquestador en runtime; aunque la especificación de referencia de Decision 2.0 Eos admite hasta 16.384 tokens, el sistema restringe el consumo a este límite). En `Decision20Engine.systemOne` se estima el consumo previo (`Math.ceil(stateStr.length / 3.5) + questions * 40`); si supera 8.192 tokens, se aborta la llamada con `DecisionValidationError` controlado.
 - **Límites de salida (`max_tokens` / `num_predict` en Qwen):**
   - Generación de argumentos (Etapa 3): `1024` tokens.
   - Escalación (Etapa 5B): `500` tokens.

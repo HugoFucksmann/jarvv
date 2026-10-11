@@ -78,7 +78,7 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({ events, isExecut
               <div className="flex items-center justify-between px-1 text-[11px] font-mono text-slate-400">
                 <div className="flex items-center gap-1.5">
                   <Cpu className="w-3 h-3 text-sky-400" />
-                  <span className="text-slate-300 font-medium">Modelos de Decisión 2.0 (Kai-0.6B)</span>
+                  <span className="text-slate-300 font-medium">Modelos de Decisión 2.0 (Eos-0.8B)</span>
                 </div>
                 {!isExecuting && (
                   <button

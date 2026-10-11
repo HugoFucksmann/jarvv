@@ -89,18 +89,16 @@ flowchart TD
     Core --> ConfigFile
 ```
 
-## Grafo de dependencias
+## Verificación de dependencias
 
-![Dependencias](assets/deps.svg)
-
-> **Nota de verificación:** La ejecución de `npx madge --circular src/` en el código fuente actual concluye exitosamente: `✔ No circular dependency found!`. La generación del archivo gráfico SVG `docs/assets/deps.svg` requiere la utilidad de sistema Graphviz (`gvpr` en `$PATH`); en entornos donde Graphviz no está preinstalado, el comando falla con `spawn gvpr ENOENT`.
+La integridad de las dependencias modulares se comprueba de forma determinista mediante `madge`:
 
 ```bash
-# Regenerar (requiere Graphviz instalado en el sistema operativo)
-npx madge --extensions ts,tsx --ts-config tsconfig.json --image docs/assets/deps.svg src/
 # Detectar dependencias circulares (verificado: 0 dependencias circulares)
 npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 ```
+
+> **Verificación comprobada:** El análisis en el código fuente actual concluye exitosamente: `✔ No circular dependency found!`.
 
 ## Componentes y responsabilidades
 
@@ -156,9 +154,9 @@ npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 | Formato de salida (Qwen) | `json_object` estándar o `json_schema` estricto (`PLAN_JSON_SCHEMA`, `REPLAN_JSON_SCHEMA`) |
 | Timeout (Qwen) | `60000 ms` (`qwenTimeoutMs` en `jarvis-config.json`, fallback a 60 s) |
 | Reintentos de argumentos (Qwen) | `MAX_ARG_RETRIES = 2` (ante schema validation failure) |
-| Modelo clasificador estructurado | `Decision-2.0-Kai-0.6B` / `Decision-2.0-Eos-0.8B` |
+| Modelo clasificador estructurado | `Decision-2.0-Eos-0.8B` |
 | Endpoint clasificador | `http://127.0.0.1:8765/v1/decide` (configurable en `decisionUrl`) |
-| Ventana de contexto (Decision 2.0) | `8192` tokens (límite evaluado con `Math.ceil(state.length / 3.5) + questions * 40 <= 8192`) |
+| Ventana de contexto (Decision 2.0) | `8192` tokens (presupuesto operativo de runtime evaluado con `Math.ceil(state.length / 3.5) + questions * 40 <= 8192`; la especificación nativa de Eos admite hasta 16.384) |
 | Tipos de preguntas (Decision 2.0) | `choice` (2-255 opciones), `noul` (probabilidad [0.0, 1.0]), `score` (escala ordinal 2-10) |
 | Umbral de confianza Decision #1 | `0.51` normal (`DECISION_MIN_CONFIDENCE`) · `0.60` post-acción (`DECISION_MIN_CONFIDENCE_POST_ACTION`) |
 | Umbral de juicio en modo PLAN | `0.60` (`evaluatePlanJudgement`: exige choice `"cumple"` y `confidence >= 0.60`) |

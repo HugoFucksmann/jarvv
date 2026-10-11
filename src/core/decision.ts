@@ -1,6 +1,6 @@
 /**
  * Decision 2.0 — Real HTTP Client Adapter
- * Model: vllm-sr/Decision-2.0-Kai-0.6B
+ * Model: vllm-sr/Decision-2.0-Eos-0.8B
  * 
  * Rules:
  * - REAL HTTP integration against configured URL (e.g. ngrok endpoint).
@@ -275,7 +275,7 @@ export class Decision20Engine {
           isCorrect: true,
           choice: "correcta",
           confidence: 0.5,
-          rawResponse: { model: "Decision-2.0-Kai-0.6B" as any, answers: {}, usage: { input_tokens: 0, output_tokens: 0 } },
+          rawResponse: { model: "Decision-2.0-Eos-0.8B" as any, answers: {}, usage: { input_tokens: 0, output_tokens: 0 } },
         };
       }
       throw err;
@@ -377,7 +377,7 @@ export class Decision20Engine {
         selectedTool: tool,
         choiceAnswer: answer,
         rawResponse: {
-          model: "Decision-2.0-Kai-0.6B",
+          model: "Decision-2.0-Eos-0.8B",
           answers: { selected_tool: answer },
           usage: { input_tokens: 0, output_tokens: 0 },
         },

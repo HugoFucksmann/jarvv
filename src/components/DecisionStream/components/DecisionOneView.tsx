@@ -16,7 +16,7 @@ export const DecisionOneView: React.FC<DecisionOneViewProps> = ({ d1Event }) => 
     <div className="flex flex-col gap-2 p-3 bg-slate-900/40 border border-slate-800 rounded-lg text-xs font-mono">
       <div className="flex items-center justify-between text-slate-400">
         <span className="font-semibold text-slate-300">DECISION #1 — ROUTING</span>
-        <span>Decision-2.0-Kai-0.6B</span>
+        <span>Decision-2.0-Eos-0.8B</span>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 py-1 text-slate-300">

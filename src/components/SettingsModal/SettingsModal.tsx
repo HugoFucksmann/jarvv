@@ -195,7 +195,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex flex-col gap-1 pl-1 pt-2">
                 <div className="flex items-center justify-between">
                   <label htmlFor="cfg-decision-url" className="font-mono text-slate-300 font-medium">
-                    Decision 2.0 URL (Kai-0.6B / HTTP):
+                    Decision 2.0 URL (Eos-0.8B / HTTP):
                   </label>
                   <span className={`font-mono text-[11px] ${config.decisionUrl ? "text-emerald-400" : "text-amber-400"}`}>
                     {config.decisionUrl ? "Configurado" : "Pendiente"}
