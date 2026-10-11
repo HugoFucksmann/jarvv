@@ -7,7 +7,7 @@ export const BrandWordmark: React.FC = () => {
         JARVIS
       </span>
       <span className="text-xs text-slate-400 font-mono tracking-wider">
-        v1.0
+        v2.2
       </span>
     </div>
   );

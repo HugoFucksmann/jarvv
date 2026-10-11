@@ -7,8 +7,9 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Task, PendingApproval, CoreEvent, MCPTool } from "../core/types.ts";
-import { MCPPrompt, MCPResourceTemplate } from "../core/mcp/types.ts";
+import type { Task, PendingApproval, CoreEvent, MCPTool } from "../core/types.ts";
+import type { MCPPrompt, MCPResourceTemplate } from "../core/mcp/types.ts";
+import { jarvisApi } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
 
 export function useJarvis() {
@@ -22,40 +23,41 @@ export function useJarvis() {
     prompts: Record<string, MCPPrompt[]>;
     resourceTemplates: Record<string, MCPResourceTemplate[]>;
   }>({ prompts: {}, resourceTemplates: {} });
+  const [unavailableServers, setUnavailableServers] = useState<Record<string, { reason: string; since: number }>>({});
   const [mode, setMode] = useState<"NORMAL" | "PLAN">("NORMAL");
+  const [error, setError] = useState<string | null>(null);
 
-  // Approve action
-  const approvePending = useCallback(async () => {
+  // Approve action (INT-02: resolves taskId safely without sending null)
+  const approvePending = useCallback(async (explicitTaskId?: string) => {
+    const tid = explicitTaskId || activeTaskIdRef.current || task?.id || undefined;
     try {
-      await fetch(getApiUrl("/api/jarvis/approve"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: activeTaskIdRef.current }),
-      });
+      setError(null);
+      await jarvisApi.approvePending(tid);
       setPendingApproval(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error approving pending step:", err);
+      setError(err.message || "Error al aprobar la operación pendiente.");
     }
-  }, []);
+  }, [task?.id]);
 
-  // Deny action
-  const denyPending = useCallback(async (reason?: string) => {
+  // Deny action (INT-02: resolves taskId safely without sending null)
+  const denyPending = useCallback(async (reason?: string, explicitTaskId?: string) => {
+    const tid = explicitTaskId || activeTaskIdRef.current || task?.id || undefined;
     try {
-      await fetch(getApiUrl("/api/jarvis/deny"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: activeTaskIdRef.current, reason }),
-      });
+      setError(null);
+      await jarvisApi.denyPending(tid, reason);
       setPendingApproval(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error denying pending step:", err);
+      setError(err.message || "Error al denegar la operación pendiente.");
     }
-  }, []);
+  }, [task?.id]);
 
   // Hydrate PendingApproval object with interactive handlers for UI
   const hydratePendingApproval = useCallback(
-    (raw: any): PendingApproval | null => {
+    (raw: any, fallbackTaskId?: string): PendingApproval | null => {
       if (!raw) return null;
+      const associatedTaskId = raw.taskId || fallbackTaskId || activeTaskIdRef.current || task?.id;
       return {
         id: raw.id,
         stepId: raw.stepId,
@@ -65,27 +67,20 @@ export function useJarvis() {
         args: raw.args || {},
         reason: raw.reason || "",
         onApprove: () => {
-          approvePending();
+          approvePending(associatedTaskId);
         },
         onDeny: (denyReason?: string) => {
-          denyPending(denyReason);
+          denyPending(denyReason, associatedTaskId);
         },
       };
     },
-    [approvePending, denyPending]
+    [approvePending, denyPending, task?.id]
   );
 
   // Fetch full state snapshot from backend
   const fetchState = useCallback(async () => {
     try {
-      const url = activeTaskIdRef.current
-        ? getApiUrl(`/api/jarvis/state?taskId=${encodeURIComponent(activeTaskIdRef.current)}`)
-        : getApiUrl("/api/jarvis/state");
-
-      const res = await fetch(url);
-      if (!res.ok) return;
-
-      const data = await res.json();
+      const data = await jarvisApi.getState(activeTaskIdRef.current || undefined);
       if (data.task) {
         setTask(data.task);
         if (!activeTaskIdRef.current) {
@@ -93,7 +88,7 @@ export function useJarvis() {
         }
       }
       if (data.pendingApproval) {
-        setPendingApproval(hydratePendingApproval(data.pendingApproval));
+        setPendingApproval(hydratePendingApproval(data.pendingApproval, data.task?.id));
       } else {
         setPendingApproval(null);
       }
@@ -103,20 +98,44 @@ export function useJarvis() {
       if (data.extraCapabilities) {
         setExtraCapabilities(data.extraCapabilities);
       }
-    } catch (err) {
+      if (data.unavailableServers) {
+        setUnavailableServers(data.unavailableServers);
+      }
+    } catch (err: any) {
       console.warn("Failed to fetch JARVIS state from backend:", err);
     }
   }, [hydratePendingApproval]);
 
-  // Subscribe to real-time events via Server-Sent Events (SSE)
+  // Subscribe to real-time events via Server-Sent Events (SSE) (INT-04: eliminates redundant polling)
   useEffect(() => {
     // 1. Initial snapshot fetch
     fetchState();
 
-    // 2. Open SSE stream
     let eventSource: EventSource | null = null;
+    let fallbackPollInterval: NodeJS.Timeout | null = null;
+
+    const startFallbackPolling = () => {
+      if (!fallbackPollInterval) {
+        fallbackPollInterval = setInterval(() => {
+          fetchState();
+        }, 5000);
+      }
+    };
+
+    const stopFallbackPolling = () => {
+      if (fallbackPollInterval) {
+        clearInterval(fallbackPollInterval);
+        fallbackPollInterval = null;
+      }
+    };
+
     try {
       eventSource = new EventSource(getApiUrl("/api/jarvis/events"));
+
+      eventSource.onopen = () => {
+        // SSE connection is established and healthy; stop aggressive polling
+        stopFallbackPolling();
+      };
 
       eventSource.onmessage = (messageEvent) => {
         try {
@@ -131,12 +150,13 @@ export function useJarvis() {
 
           if (updatedTask) {
             if (!activeTaskIdRef.current || updatedTask.id === activeTaskIdRef.current) {
+              activeTaskIdRef.current = updatedTask.id;
               setTask({ ...updatedTask });
             }
           }
 
           if (rawPending !== undefined) {
-            setPendingApproval(hydratePendingApproval(rawPending));
+            setPendingApproval(hydratePendingApproval(rawPending, updatedTask?.id));
           }
         } catch (e) {
           console.error("Failed to parse JARVIS SSE message:", e);
@@ -144,99 +164,87 @@ export function useJarvis() {
       };
 
       eventSource.onerror = () => {
-        // Fallback polling if SSE disconnects
+        // Fallback polling only when SSE disconnects or encounters an error
+        startFallbackPolling();
         fetchState();
       };
     } catch (err) {
       console.warn("EventSource not supported or failed to connect:", err);
+      startFallbackPolling();
     }
-
-    // 3. Fallback polling interval to ensure sync
-    const pollInterval = setInterval(() => {
-      fetchState();
-    }, 3000);
 
     return () => {
       if (eventSource) {
         eventSource.close();
       }
-      clearInterval(pollInterval);
+      stopFallbackPolling();
     };
   }, [fetchState, hydratePendingApproval]);
 
-  // Initiate a new task on the backend
+  // Initiate a new task on the backend (FUNC-01: auto-syncs mode when executionMode is specified)
   const runTask = useCallback(
     async (message: string, executionMode?: "NORMAL" | "PLAN") => {
       if (!message.trim()) return;
       setEvents([]);
+      setError(null);
       const effectiveMode = executionMode || mode;
 
+      if (executionMode && executionMode !== mode) {
+        setMode(executionMode);
+      }
+
       try {
-        const res = await fetch(getApiUrl("/api/jarvis/process"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: message.trim(), mode: effectiveMode }),
-        });
-
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || `HTTP ${res.status}`);
-        }
-
-        const data = await res.json();
+        const data = await jarvisApi.initiateTask(message, effectiveMode);
         if (data.task) {
           activeTaskIdRef.current = data.task.id;
           setTask(data.task);
           setPendingApproval(null);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to initiate task on backend:", err);
+        setError(err.message || "Error al iniciar la tarea.");
       }
     },
     [mode]
   );
 
-  // Cancel task
+  // Cancel task (INT-02: resolves taskId safely without sending null)
   const cancelTask = useCallback(async () => {
+    const tid = activeTaskIdRef.current || task?.id || undefined;
     try {
-      await fetch(getApiUrl("/api/jarvis/cancel"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: activeTaskIdRef.current }),
-      });
-      fetchState();
-    } catch (err) {
+      setError(null);
+      await jarvisApi.cancelTask(tid);
+      await fetchState();
+    } catch (err: any) {
       console.error("Failed to cancel task on backend:", err);
+      setError(err.message || "Error al cancelar la tarea.");
     }
-  }, [fetchState]);
+  }, [fetchState, task?.id]);
 
-  // Confirm plan
+  // Confirm plan (INT-02: resolves taskId safely without sending null)
   const confirmPlan = useCallback(async () => {
+    const tid = activeTaskIdRef.current || task?.id || undefined;
     try {
-      await fetch(getApiUrl("/api/jarvis/confirm-plan"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: activeTaskIdRef.current }),
-      });
-      fetchState();
-    } catch (err) {
+      setError(null);
+      await jarvisApi.confirmPlan(tid);
+      await fetchState();
+    } catch (err: any) {
       console.error("Failed to confirm plan on backend:", err);
+      setError(err.message || "Error al confirmar el plan.");
     }
-  }, [fetchState]);
+  }, [fetchState, task?.id]);
 
-  // Refresh discovery catalog
+  // Refresh discovery catalog (INT-03: captures unavailableServers)
   const refreshDiscovery = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/jarvis/refresh-discovery"), {
-        method: "POST",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.tools) setDiscoveredTools(data.tools);
-        if (data.extraCapabilities) setExtraCapabilities(data.extraCapabilities);
-      }
-    } catch (err) {
+      setError(null);
+      const data = await jarvisApi.refreshDiscovery();
+      if (data.tools) setDiscoveredTools(data.tools);
+      if (data.extraCapabilities) setExtraCapabilities(data.extraCapabilities);
+      if (data.unavailableServers) setUnavailableServers(data.unavailableServers);
+    } catch (err: any) {
       console.warn("Failed to refresh discovery catalog:", err);
+      setError(err.message || "Error al refrescar el catálogo de herramientas.");
     }
   }, []);
 
@@ -248,6 +256,9 @@ export function useJarvis() {
     events,
     discoveredTools,
     extraCapabilities,
+    unavailableServers,
+    error,
+    clearError: () => setError(null),
     isExecuting: task?.state === "RUNNING",
     runTask,
     cancelTask,

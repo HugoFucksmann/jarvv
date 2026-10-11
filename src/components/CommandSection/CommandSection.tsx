@@ -1,6 +1,5 @@
 import React from "react";
 import { PromptInput } from "./components/PromptInput.tsx";
-import { PresetScenarios } from "./components/PresetScenarios.tsx";
 
 interface CommandSectionProps {
   onRun: (prompt: string, mode?: "NORMAL" | "PLAN") => void;
@@ -23,7 +22,6 @@ export const CommandSection: React.FC<CommandSectionProps> = ({
         isExecuting={isExecuting}
         mode={mode}
       />
-      <PresetScenarios onSelect={onRun} disabled={isExecuting} />
     </section>
   );
 };

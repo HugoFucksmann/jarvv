@@ -8,7 +8,7 @@ interface ModeSelectorProps {
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, disabled }) => {
   return (
-    <div className="flex items-center gap-1 p-0.5 bg-slate-900 border border-slate-800 rounded-md">
+    <div className="flex items-center gap-1 p-0.5 bg-slate-900 border border-slate-800 rounded-md" role="group" aria-label="Selector de modo de ejecución">
       <button
         type="button"
         disabled={disabled}
@@ -19,7 +19,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, disa
             : "text-slate-400 hover:text-slate-200"
         } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
       >
-        NORMAL
+        NORMAL (FAST)
       </button>
       <button
         type="button"

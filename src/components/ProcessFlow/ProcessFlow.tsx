@@ -21,7 +21,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       <div className="flex flex-col items-center justify-center py-16 px-6 text-center text-slate-500">
         <p className="text-sm">No hay tareas activas en este momento.</p>
         <p className="text-xs font-mono text-slate-600 mt-1">
-          Ingresa una instrucción arriba o selecciona uno de los escenarios para iniciar el flujo.
+          Ingresa una instrucción en la línea de comando superior para iniciar el flujo.
         </p>
       </div>
     );

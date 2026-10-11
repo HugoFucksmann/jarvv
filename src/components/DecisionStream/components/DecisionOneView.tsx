@@ -8,9 +8,9 @@ interface DecisionOneViewProps {
 export const DecisionOneView: React.FC<DecisionOneViewProps> = ({ d1Event }) => {
   if (!d1Event) return null;
 
-  const { route, confidence, needsContext, answers } = d1Event.data as any;
+  const { route, confidence, needsContext, probabilities: directProbabilities, answers } = d1Event.data as any;
   const routeAnswer = answers?.route;
-  const probabilities = routeAnswer?.probabilities || {};
+  const probabilities = directProbabilities || routeAnswer?.probabilities || {};
 
   return (
     <div className="flex flex-col gap-2 p-3 bg-slate-900/40 border border-slate-800 rounded-lg text-xs font-mono">

@@ -30,7 +30,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="relative flex items-center w-full">
+    <form onSubmit={handleSubmit} className="relative flex items-center w-full" role="search" aria-label="Línea de comando de JARVIS">
       <input
         type="text"
         value={value}
@@ -39,8 +39,9 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         placeholder={
           mode === "PLAN"
             ? "Describe una tarea compleja para generar y revisar el plan paso a paso..."
-            : "Instrucción u objetivo para JARVIS (ej: buscar documentación, inspeccionar UI o crear archivo)..."
+            : "Instrucción u objetivo para JARVIS (modo reactivo FAST)..."
         }
+        aria-label="Instrucción u objetivo para JARVIS"
         disabled={isExecuting}
         className="w-full pl-4 pr-24 py-3 bg-slate-900 border border-slate-800 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-slate-700 transition-colors disabled:opacity-60"
       />
@@ -50,6 +51,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           <button
             type="button"
             onClick={onCancel}
+            aria-label="Cancelar ejecución actual"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-400 bg-rose-950/60 border border-rose-900/60 rounded-md hover:bg-rose-900/40 transition-colors cursor-pointer"
           >
             <XCircle className="w-3.5 h-3.5" />
@@ -59,6 +61,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           <button
             type="submit"
             disabled={!value.trim()}
+            aria-label="Ejecutar instrucción"
             className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 rounded-md transition-colors cursor-pointer disabled:cursor-not-allowed"
           >
             <span>Ejecutar</span>
