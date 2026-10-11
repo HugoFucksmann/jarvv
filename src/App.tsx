@@ -4,7 +4,7 @@
  * and high-fidelity UX focused on deterministic process and workflow.
  */
 
-import { useState, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
 import { CommandSection } from "./components/CommandSection/CommandSection.tsx";
@@ -23,9 +23,11 @@ const SettingsModal = lazy(() =>
 
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const {
     task,
+    allTasks,
     mode,
     setMode,
     pendingApproval,
@@ -42,14 +44,35 @@ export default function App() {
     approvePending,
     denyPending,
     refreshDiscovery,
+    clearTaskView,
+    selectHistoricalTask,
   } = useJarvis();
+
+  // Atajo global Ctrl+K / Cmd+K para enfocar el input de instrucción
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
+
+  const handleNewTask = () => {
+    clearTaskView();
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+  };
 
   const mcpServerCount = Object.keys(discoveredTools).length;
   const unavailableCount = Object.keys(unavailableServers).length;
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 overflow-hidden">
-      {/* 1. Header — Top Bar Contract */}
+      {/* 1. Header — Top Bar Contract with Session History (P3-02) */}
       <TopBar
         mode={mode}
         onModeChange={setMode}
@@ -57,6 +80,9 @@ export default function App() {
         isExecuting={isExecuting}
         mcpCount={mcpServerCount}
         unavailableCount={unavailableCount}
+        tasks={allTasks}
+        activeTaskId={task?.id}
+        onSelectTask={selectHistoricalTask}
       />
 
       {/* Error Banner (INT-05) */}
@@ -79,35 +105,37 @@ export default function App() {
 
       {/* Main scrollable body */}
       <main className="flex-1 flex flex-col overflow-y-auto max-w-5xl w-full mx-auto pb-4">
-        {/* 2. Command Section — Input & Presets */}
+        {/* 2. Command Section — Input with Ref & ⌘K shortcut */}
         <CommandSection
+          inputRef={inputRef}
           onRun={runTask}
           onCancel={cancelTask}
           isExecuting={isExecuting}
           mode={mode}
         />
 
-        {/* 3. Guard Banner — Displayed only when APPROVAL gate triggers */}
+        {/* 3. Guard Banner — Sticky high-visibility authorization gate */}
         <GuardBanner
           pending={pendingApproval}
           onApprove={approvePending}
           onDeny={denyPending}
         />
 
-        {/* 4. Decision Stream — Live Decision #1, #2 & Operational Event Trace */}
-        <DecisionStream events={events} />
+        {/* 4. Decision Stream — Live Decision #1, #2 & Operational Event Trace with Progressive Disclosure */}
+        <DecisionStream events={events} isExecuting={isExecuting} />
 
-        {/* 5. Process Flow — Plan review, step timeline, verification, final output */}
+        {/* 5. Process Flow — Plan review, step timeline, verification, final output, new query action */}
         <div className="flex-1">
           <ProcessFlow
             task={task}
             onConfirmPlan={confirmPlan}
             onCancelTask={cancelTask}
+            onNewTask={handleNewTask}
           />
         </div>
       </main>
 
-      {/* 6. Context Inspector — Scratchpad, Evidence, Memoria & Discovered Tools */}
+      {/* 6. Context Inspector — Scratchpad, Evidence, Memoria & Discovered Tools with compact indicators */}
       <ContextInspector
         scratchpad={task?.scratchpad || {}}
         steps={task?.steps || []}

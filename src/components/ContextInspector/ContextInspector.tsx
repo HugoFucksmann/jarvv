@@ -35,10 +35,21 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   const totalDiscovered = Object.values(discoveredTools).reduce((acc, t) => acc + t.length, 0);
   const unavailableCount = Object.keys(unavailableServers).length;
 
+  // Cálculo preciso de datos disponibles en cada pestaña (Etapa B.5)
+  const factsCount = Object.keys(memory?.facts || {}).length;
+  const failCount = (memory?.fail || []).length;
+  const scratchpadKeysCount = Object.keys(scratchpad || {}).length;
+  const evidenceCount = steps.reduce((acc, s) => {
+    if (s.calls && s.calls.length > 0) {
+      return acc + s.calls.filter((c) => c.evidence || c.error).length;
+    }
+    return acc + (s.evidence ? 1 : 0);
+  }, 0);
+
   return (
     <footer className="mt-auto border-t border-slate-800 bg-slate-950/90 text-xs">
-      <div className="flex items-center justify-between px-6 py-2.5">
-        <div className="flex items-center gap-4">
+      <div className="flex items-center justify-between px-6 py-2">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setIsOpen(!isOpen)}
@@ -60,55 +71,65 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 role="tab"
                 aria-selected={activeTab === "memory"}
                 onClick={() => setActiveTab("memory")}
-                className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
                   activeTab === "memory"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Memoria v2.1
+                <span>Memoria</span>
+                <span className="text-[10px] text-slate-500 ml-1">
+                  ({factsCount > 0 ? `${factsCount}h` : "0"}{failCount > 0 ? `·${failCount}f` : ""})
+                </span>
               </button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "scratchpad"}
                 onClick={() => setActiveTab("scratchpad")}
-                className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
                   activeTab === "scratchpad"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Scratchpad
+                <span>Scratchpad</span>
+                {scratchpadKeysCount > 0 && (
+                  <span className="text-[10px] text-slate-500 ml-1">({scratchpadKeysCount})</span>
+                )}
               </button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "evidence"}
                 onClick={() => setActiveTab("evidence")}
-                className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
                   activeTab === "evidence"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Evidencia
+                <span>Evidencia</span>
+                {evidenceCount > 0 && (
+                  <span className="text-[10px] text-slate-500 ml-1">({evidenceCount})</span>
+                )}
               </button>
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "discovery"}
                 onClick={() => setActiveTab("discovery")}
-                className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1.5 ${
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
                   activeTab === "discovery"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <span>Discovery ({totalDiscovered})</span>
+                <span>Discovery</span>
+                <span className="text-[10px] text-slate-500 ml-0.5">({totalDiscovered})</span>
                 {unavailableCount > 0 && (
-                  <span className="text-[10px] px-1 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80">
-                    {unavailableCount} caído{unavailableCount > 1 ? "s" : ""}
+                  <span className="text-[9px] px-1 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80">
+                    {unavailableCount}!
                   </span>
                 )}
               </button>
@@ -116,7 +137,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
           )}
         </div>
 
-        <div className="hidden sm:flex items-center gap-3 text-slate-500 font-mono text-[11px]">
+        <div className="hidden sm:flex items-center gap-2.5 text-slate-500 font-mono text-[10px]">
           <span>MAX_STEPS=15</span>
           <span aria-hidden="true">·</span>
           <span>MAX_CALLS_STEP=4</span>
@@ -128,7 +149,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
       </div>
 
       {isOpen && (
-        <div id="context-inspector-panel" className="px-6 py-4 border-t border-slate-800/80 max-h-64 overflow-y-auto">
+        <div id="context-inspector-panel" className="px-6 py-3 border-t border-slate-800/80 max-h-52 overflow-y-auto">
           {activeTab === "memory" && <MemoryView memory={memory} />}
           {activeTab === "scratchpad" && <ScratchpadView scratchpad={scratchpad} />}
           {activeTab === "evidence" && <EvidenceView steps={steps} />}

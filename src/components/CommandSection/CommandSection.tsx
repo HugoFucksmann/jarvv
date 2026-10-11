@@ -6,6 +6,7 @@ interface CommandSectionProps {
   onCancel: () => void;
   isExecuting: boolean;
   mode: "NORMAL" | "PLAN";
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
 export const CommandSection: React.FC<CommandSectionProps> = ({
@@ -13,10 +14,12 @@ export const CommandSection: React.FC<CommandSectionProps> = ({
   onCancel,
   isExecuting,
   mode,
+  inputRef,
 }) => {
   return (
     <section className="flex flex-col gap-2.5 px-6 pt-5 pb-3">
       <PromptInput
+        inputRef={inputRef}
         onRun={(p) => onRun(p, mode)}
         onCancel={onCancel}
         isExecuting={isExecuting}

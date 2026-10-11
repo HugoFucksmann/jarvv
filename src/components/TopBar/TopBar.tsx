@@ -3,6 +3,8 @@ import { Settings } from "lucide-react";
 import { BrandWordmark } from "./components/BrandWordmark.tsx";
 import { SystemStatus } from "./components/SystemStatus.tsx";
 import { ModeSelector } from "./components/ModeSelector.tsx";
+import { HistoryMenu } from "./components/HistoryMenu.tsx";
+import type { Task } from "../../core/types.ts";
 
 interface TopBarProps {
   mode: "NORMAL" | "PLAN";
@@ -11,6 +13,9 @@ interface TopBarProps {
   isExecuting: boolean;
   mcpCount: number;
   unavailableCount?: number;
+  tasks?: Task[];
+  activeTaskId?: string | null;
+  onSelectTask?: (taskId: string) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -20,11 +25,23 @@ export const TopBar: React.FC<TopBarProps> = ({
   isExecuting,
   mcpCount,
   unavailableCount = 0,
+  tasks = [],
+  activeTaskId,
+  onSelectTask,
 }) => {
   return (
-    <header className="flex items-center justify-between px-6 py-3.5 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
-      {/* Zone 1: Brand Wordmark */}
-      <BrandWordmark />
+    <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
+      {/* Zone 1: Brand Wordmark & Session History */}
+      <div className="flex items-center gap-3">
+        <BrandWordmark />
+        {tasks.length > 1 && onSelectTask && (
+          <HistoryMenu
+            tasks={tasks}
+            activeTaskId={activeTaskId}
+            onSelectTask={onSelectTask}
+          />
+        )}
+      </div>
 
       {/* Zone 2: System Status */}
       <SystemStatus

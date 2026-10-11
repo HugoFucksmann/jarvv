@@ -14,8 +14,11 @@ import { getApiUrl } from "../utils/apiUrl.ts";
 
 export function useJarvis() {
   const activeTaskIdRef = useRef<string | null>(null);
+  const isInitialSnapshotLoaded = useRef<boolean>(false);
+  const userClearedViewRef = useRef<boolean>(false);
 
   const [task, setTask] = useState<Task | null>(null);
+  const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [events, setEvents] = useState<CoreEvent[]>([]);
   const [discoveredTools, setDiscoveredTools] = useState<Record<string, MCPTool[]>>({});
@@ -27,7 +30,7 @@ export function useJarvis() {
   const [mode, setMode] = useState<"NORMAL" | "PLAN">("NORMAL");
   const [error, setError] = useState<string | null>(null);
 
-  // Approve action (INT-02: resolves taskId safely without sending null)
+  // Approve action (resolves taskId safely without sending null)
   const approvePending = useCallback(async (explicitTaskId?: string) => {
     const tid = explicitTaskId || activeTaskIdRef.current || task?.id || undefined;
     try {
@@ -40,7 +43,7 @@ export function useJarvis() {
     }
   }, [task?.id]);
 
-  // Deny action (INT-02: resolves taskId safely without sending null)
+  // Deny action (resolves taskId safely without sending null)
   const denyPending = useCallback(async (reason?: string, explicitTaskId?: string) => {
     const tid = explicitTaskId || activeTaskIdRef.current || task?.id || undefined;
     try {
@@ -81,10 +84,17 @@ export function useJarvis() {
   const fetchState = useCallback(async () => {
     try {
       const data = await jarvisApi.getState(activeTaskIdRef.current || undefined);
+      if (data.allTasks) {
+        setAllTasks(data.allTasks);
+      }
       if (data.task) {
-        setTask(data.task);
-        if (!activeTaskIdRef.current) {
+        if (!isInitialSnapshotLoaded.current) {
+          isInitialSnapshotLoaded.current = true;
           activeTaskIdRef.current = data.task.id;
+          setTask(data.task);
+        } else if (!userClearedViewRef.current || data.task.state === "RUNNING") {
+          activeTaskIdRef.current = data.task.id;
+          setTask(data.task);
         }
       }
       if (data.pendingApproval) {
@@ -106,9 +116,8 @@ export function useJarvis() {
     }
   }, [hydratePendingApproval]);
 
-  // Subscribe to real-time events via Server-Sent Events (SSE) (INT-04: eliminates redundant polling)
+  // Subscribe to real-time events via Server-Sent Events (SSE)
   useEffect(() => {
-    // 1. Initial snapshot fetch
     fetchState();
 
     let eventSource: EventSource | null = null;
@@ -133,7 +142,6 @@ export function useJarvis() {
       eventSource = new EventSource(getApiUrl("/api/jarvis/events"));
 
       eventSource.onopen = () => {
-        // SSE connection is established and healthy; stop aggressive polling
         stopFallbackPolling();
       };
 
@@ -149,7 +157,12 @@ export function useJarvis() {
           }
 
           if (updatedTask) {
-            if (!activeTaskIdRef.current || updatedTask.id === activeTaskIdRef.current) {
+            // Prevenir que SSE restaure inesperadamente una tarea inactiva si el usuario limpió la vista
+            const matchesActive = activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current;
+            const isFreshRunningTask = !activeTaskIdRef.current && updatedTask.state === "RUNNING";
+
+            if (matchesActive || isFreshRunningTask) {
+              userClearedViewRef.current = false;
               activeTaskIdRef.current = updatedTask.id;
               setTask({ ...updatedTask });
             }
@@ -164,7 +177,6 @@ export function useJarvis() {
       };
 
       eventSource.onerror = () => {
-        // Fallback polling only when SSE disconnects or encounters an error
         startFallbackPolling();
         fetchState();
       };
@@ -181,10 +193,11 @@ export function useJarvis() {
     };
   }, [fetchState, hydratePendingApproval]);
 
-  // Initiate a new task on the backend (FUNC-01: auto-syncs mode when executionMode is specified)
+  // Initiate a new task on the backend
   const runTask = useCallback(
     async (message: string, executionMode?: "NORMAL" | "PLAN") => {
       if (!message.trim()) return;
+      userClearedViewRef.current = false;
       setEvents([]);
       setError(null);
       const effectiveMode = executionMode || mode;
@@ -208,7 +221,7 @@ export function useJarvis() {
     [mode]
   );
 
-  // Cancel task (INT-02: resolves taskId safely without sending null)
+  // Cancel task
   const cancelTask = useCallback(async () => {
     const tid = activeTaskIdRef.current || task?.id || undefined;
     try {
@@ -221,7 +234,7 @@ export function useJarvis() {
     }
   }, [fetchState, task?.id]);
 
-  // Confirm plan (INT-02: resolves taskId safely without sending null)
+  // Confirm plan
   const confirmPlan = useCallback(async () => {
     const tid = activeTaskIdRef.current || task?.id || undefined;
     try {
@@ -234,7 +247,7 @@ export function useJarvis() {
     }
   }, [fetchState, task?.id]);
 
-  // Refresh discovery catalog (INT-03: captures unavailableServers)
+  // Refresh discovery catalog
   const refreshDiscovery = useCallback(async () => {
     try {
       setError(null);
@@ -248,8 +261,33 @@ export function useJarvis() {
     }
   }, []);
 
+  // Limpiar vista local para iniciar una nueva consulta sin alterar el historial del backend
+  const clearTaskView = useCallback(() => {
+    userClearedViewRef.current = true;
+    activeTaskIdRef.current = null;
+    setTask(null);
+    setEvents([]);
+    setPendingApproval(null);
+    setError(null);
+  }, []);
+
+  // Seleccionar tarea previa del historial para visualización de solo lectura
+  const selectHistoricalTask = useCallback(
+    (taskId: string) => {
+      const found = allTasks.find((t) => t.id === taskId);
+      if (found) {
+        userClearedViewRef.current = false;
+        activeTaskIdRef.current = found.id;
+        setTask(found);
+        setPendingApproval(null);
+      }
+    },
+    [allTasks]
+  );
+
   return {
     task,
+    allTasks,
     mode,
     setMode,
     pendingApproval,
@@ -266,5 +304,7 @@ export function useJarvis() {
     approvePending,
     denyPending,
     refreshDiscovery,
+    clearTaskView,
+    selectHistoricalTask,
   };
 }

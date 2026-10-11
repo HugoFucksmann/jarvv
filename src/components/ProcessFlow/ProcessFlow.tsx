@@ -1,5 +1,5 @@
 import React from "react";
-import { Task } from "../../core/types.ts";
+import type { Task } from "../../core/types.ts";
 import { TaskOverview } from "./components/TaskOverview.tsx";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
@@ -9,12 +9,14 @@ interface ProcessFlowProps {
   task: Task | null;
   onConfirmPlan: () => void;
   onCancelTask: () => void;
+  onNewTask?: () => void;
 }
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   task,
   onConfirmPlan,
   onCancelTask,
+  onNewTask,
 }) => {
   if (!task) {
     return (
@@ -32,7 +34,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   return (
     <section className="flex flex-col gap-4 px-6 py-4">
       {/* 1. Header Overview */}
-      <TaskOverview task={task} />
+      <TaskOverview task={task} onNewTask={onNewTask} />
 
       {/* 2. Plan Confirmation Gate (if PLAN mode) */}
       {isAwaitingPlanConfirmation && (

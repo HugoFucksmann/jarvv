@@ -10,6 +10,8 @@ import {
   ChevronDown,
   ChevronRight,
   Terminal,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Step } from "../../../core/types.ts";
 
@@ -21,6 +23,18 @@ interface StepItemProps {
 
 export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) => {
   const [showCalls, setShowCalls] = useState(false);
+  const [copiedError, setCopiedError] = useState(false);
+
+  const handleCopyError = async () => {
+    if (!step.error) return;
+    try {
+      await navigator.clipboard.writeText(step.error);
+      setCopiedError(true);
+      setTimeout(() => setCopiedError(false), 2000);
+    } catch (err) {
+      console.error("Error al copiar error:", err);
+    }
+  };
 
   const renderStatusIcon = () => {
     switch (step.state) {
@@ -207,8 +221,27 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
 
       {/* Render error if failed */}
       {step.error && (
-        <div className="ml-7 text-xs text-rose-400 font-mono border-l border-rose-900/60 pl-3 py-1">
-          {step.error}
+        <div className="ml-7 flex items-start justify-between gap-3 text-xs text-rose-400 font-mono border-l border-rose-900/60 pl-3 py-1.5 bg-rose-950/20 rounded-r">
+          <span className="flex-1 break-all">{step.error}</span>
+          <button
+            type="button"
+            onClick={handleCopyError}
+            title="Copiar error al portapapeles"
+            aria-label="Copiar mensaje de error"
+            className="flex items-center gap-1 px-1.5 py-0.5 text-[11px] text-rose-300 hover:text-white bg-rose-950/60 hover:bg-rose-900/40 border border-rose-900/60 rounded transition-colors cursor-pointer shrink-0"
+          >
+            {copiedError ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-400" />
+                <span className="text-emerald-400">Copiado</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span>Copiar</span>
+              </>
+            )}
+          </button>
         </div>
       )}
     </div>
