@@ -30,7 +30,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectTask,
 }) => {
   return (
-    <header className="flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
+    <header className="relative z-30 flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
       {/* Zone 1: Brand Wordmark & Session History */}
       <div className="flex items-center gap-3">
         <BrandWordmark />

@@ -64,7 +64,7 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-1.5 w-72 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-1 z-40 flex flex-col gap-0.5 text-xs font-mono max-h-64 overflow-y-auto">
+        <div className="absolute left-0 mt-1.5 w-72 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-1 z-50 flex flex-col gap-0.5 text-xs font-mono max-h-64 overflow-y-auto">
           <div className="px-2.5 py-1.5 text-[10px] text-slate-500 font-semibold border-b border-slate-800/80 mb-0.5">
             TAREAS RECIENTES DE LA SESIÓN
           </div>
