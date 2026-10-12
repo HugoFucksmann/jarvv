@@ -2,7 +2,7 @@
 
 > Última revisión: **2026-10-11**
 
-JARVIS Core implementa una arquitectura determinista full-stack desacoplada: el backend en Node.js (`server.ts` y `src/core/core.ts`) actúa como autoridad de ejecución orquestando los modos FAST y PLAN, mientras que la interfaz en React/Vite (`src/App.tsx`) opera como cliente reactivo mediante HTTP y Server-Sent Events. El orquestador integra Decision 2.0 para enrutamiento y evaluación estructurada, Qwen 3.5 9B para generación de argumentos, planificación y síntesis final, y servidores locales MCP (Windows, Desktop Commander y Free Search) por transporte stdio bajo la supervisión estricta de la compuerta de seguridad Guard y el registro de políticas.
+JARVIS Core implementa una arquitectura full-stack desacoplada: el backend en Node.js (`server.ts` y `src/core/core.ts`) actúa como autoridad de ejecución orquestando los modos FAST y PLAN, mientras que la interfaz en React/Vite (`src/App.tsx`) opera como cliente reactivo mediante HTTP y Server-Sent Events. El orquestador integra modelos probabilísticos (Decision 2.0 para enrutamiento y evaluación estructurada; Qwen 3.5 9B para generación de argumentos, planificación y síntesis final) con compuertas deterministas (Guard para control de políticas y ResultProcessor para extracción estructurada) y servidores locales MCP (Windows, Desktop Commander y Free Search) por transporte stdio.
 
 ## Diagrama general
 
@@ -130,7 +130,7 @@ npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 | `src/core/modeEngines.ts` | `context`, `callExecutor`, `resultProcessor`, `qwen`, `types` | UI, servidores Express |
 | `src/core/callExecutor.ts` | `decision`, `discovery`, `guard`, `policyRegistry`, `qwen`, `resultProcessor`, `context`, `types` | UI, `core.ts` directamente (usa `EngineDependencies`) |
 | `src/core/decision.ts` | `config`, `prompts`, `types` | `core.ts`, transportes MCP, UI |
-| `src/core/reasoner/qwen.ts` | `config`, `prompts`, `discovery` (`cleanInputSchema`), `types` | `core.ts`, UI, transportes MCP |
+| `src/core/reasoner/qwen.ts` | `config`, `prompts`, `discovery` (función utilitaria `cleanInputSchema`), `types` | `core.ts`, UI, transportes MCP |
 | `src/core/policy/guard.ts` | `policyRegistry`, `types` | Modelos LLM (`qwen.ts`, `decision.ts`), ejecutores, UI |
 | `src/core/policy/policyRegistry.ts` | `types` | Ningún otro módulo (registro estático independiente) |
 | `src/core/processor/resultProcessor.ts` | `policyRegistry`, `types` | `callExecutor.ts`, `core.ts`, UI |
@@ -148,11 +148,11 @@ npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 | Endpoint principal de razonamiento | `http://127.0.0.1:11434/v1/chat/completions` (configurable en `qwenUrl`) |
 | Temperatura (Qwen) | `0.1` (fijada en `dispatchPrompt`) |
 | Ventana de contexto (Qwen) | `8192` tokens (`QWEN_CTX = 8192`, parámetro `num_ctx`) |
-| Máx. tokens de salida (Qwen) | Etapa 3 (Argumentos): `1024` · Etapa 5B (Escalación): `500` · Etapa 6 (Final): `1000` · PLAN (Plan/Replan): `1500` |
+| Máx. tokens de salida (Qwen) | Etapa 3 (Argumentos): `1024` · Etapa 5B (Escalación): `500` · Etapa 6 (Final): `1500` (`1000` en fallback) · PLAN (Plan/Replan): `1500` |
 | Streaming (Qwen) | `false` (desactivado en todas las etapas en `dispatchPrompt`) |
 | Modo de razonamiento (Qwen thinking) | Controlado por el usuario desde Ajustes (`thinking: boolean` en `jarvis-config.json`); activa `reasoning_effort: "low"` en PLAN, Replan, Escalación y Respuesta Final; `none` si está desactivado (`thinking: false` directo rápido) |
 | Formato de salida (Qwen) | `json_object` estándar o `json_schema` estricto (`PLAN_JSON_SCHEMA`, `REPLAN_JSON_SCHEMA`) |
-| Timeout (Qwen) | `60000 ms` (`qwenTimeoutMs` en `jarvis-config.json`, fallback a 60 s) |
+| Timeout (Qwen) | `120000 ms` (`qwenTimeoutMs` en `jarvis-config.json`, fallback a 120 s; se extiende a mín. 180 s con `thinking: true`) |
 | Reintentos de argumentos (Qwen) | `MAX_ARG_RETRIES = 2` (ante schema validation failure) |
 | Modelo clasificador estructurado | `Decision-2.0-Eos-0.8B` |
 | Endpoint clasificador | `http://127.0.0.1:8765/v1/decide` (configurable en `decisionUrl`) |
@@ -169,7 +169,7 @@ npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 
 - **Separación de roles entre Clasificador Estructurado y Generador LLM:** Decision 2.0 se especializa en decisiones categóricas (enrutamiento de subsistema en D1, selección de tool en D2 y evaluación en D5) mediante probabilidades calibradas, mientras Qwen 3.5 9B se reserva para generación de argumentos conforme a esquema, replanificación y síntesis de respuesta en lenguaje natural.
 - **Descubrimiento dinámico de herramientas MCP sin catálogos estáticos:** Las capacidades disponibles no están prefijadas; se consultan en tiempo de ejecución invocando `tools/list`, `prompts/list` y `resources/templates/list` por stdio en cada servidor, limpiando esquemas para eliminar ruido y permitiendo refresco en caliente (`refreshDiscovery`).
-- **Compuerta de seguridad Guard independiente e inviolable:** Ningún modelo LLM puede autorizar operaciones sensibles ni mutar las políticas de seguridad. Acciones destructivas reciben `DENY` incondicional, comandos de inspección segura reciben `ALLOW` automático, y mutaciones de archivos o comandos de terminal requieren autorización humana obligatoria (`APPROVAL`).
+- **Compuerta de seguridad Guard independiente del razonamiento LLM:** Ningún modelo LLM puede autorizar operaciones sensibles por sí mismo ni alterar las políticas de seguridad. Guard evalúa de forma determinista cada llamada: los patrones destructivos contra el sistema raíz o inyecciones de comandos reciben `DENY` incondicional; los comandos de inspección segura en allowlist reciben `ALLOW` automático; y las mutaciones de archivos (incluida la eliminación con `delete_file`), descargas o comandos de consola requieren autorización humana previa (`APPROVAL`).
 - **Ejecución autoritativa desacoplada en backend Node.js:** Todo el ciclo de vida del agente, subprocesos de MCP por stdio y persistencia de tareas residen en el host de Node.js; el frontend web interactúa como visor reactivo mediante llamadas REST y Server-Sent Events (SSE), evitando empaquetar binarios nativos en el navegador.
 - **Almacén de referencias (`RefStore`) aislado por tarea con compresión de memoria:** Las salidas extensas de herramientas se guardan íntegras en memoria bajo identificadores de referencia (`r1`, `r2`...) y solo se inyectan resúmenes compactos y delimitados (`<obs>`) en los prompts, evitando desbordamiento del contexto de 8192 tokens.
 

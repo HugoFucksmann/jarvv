@@ -34,9 +34,9 @@
 | **#1** | `SEGURIDAD` | Media | Confirmada | `jarvis-config.json` / `config.ts:46` / `desktopCommanderMcp.ts:25,56` | `allowedDirectories` vacío por defecto desactiva la contención de rutas en el adaptador MCP. |
 | **#3** | `SIN_REFERENCIAS` | Baja | Confirmada | `policyRegistry.ts:64` vs `free-search-mcp.md:26` | Política estática registrada para `download_document` (alias de `download`). |
 | **#5** | `DUPLICACIÓN` | Baja | Confirmada | `decision.ts:146,228` | Retorno residual `{ multiStep: false }` deprecado en v2.1 mantenido en la firma de Decision #1. |
-| **#6** | `DUPLICACIÓN` | Baja | Confirmada | `qwen.ts:141-152,618-644` | Wrappers legados (`generateChatResponse`, `synthesizeFinalResponse`) sin uso en el flujo activo. |
+| **#6** | `DUPLICACIÓN` | Baja | Confirmada | `qwen.ts:141-152,695-721` | Wrappers legados (`generateChatResponse`, `synthesizeFinalResponse`) sin uso en el flujo activo. |
 | **#7** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `WindowsMCP.md:44-57` vs `policyRegistry.ts:18-29` | Nombres de herramientas en `PolicyRegistry` divergen de la referencia upstream (mapeo documentado). |
-| **#9** | `NOMBRE_VS_COMPORTAMIENTO` | Media | Confirmada | `types.ts:315-330` / `modeEngines.ts:305,451` / `callExecutor.ts:214,232` | El evento `STEP_COMPLETED` se emite cuando un paso entra a `RUNNING` o `WAITING_APPROVAL`. |
+| **#9** | `NOMBRE_VS_COMPORTAMIENTO` | Media | Confirmada | `types.ts:315-330` / `modeEngines.ts:324,476` / `callExecutor.ts:214,232` | El evento `STEP_COMPLETED` se emite cuando un paso entra a `RUNNING` o `WAITING_APPROVAL`. |
 | **#13** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `Desktop CommanderMCP.md:18-59` vs `policyRegistry.ts:34-46` | Herramientas de Desktop Commander upstream mapeadas a claves locales en la documentación. |
 
 ---
@@ -90,7 +90,7 @@
 - **Tipo:** `DUPLICACIÓN`.
 - **Severidad:** Baja.
 - **Archivos y líneas:**
-  - `src/core/reasoner/qwen.ts`: interfaz `ILLMClient` (líneas 141-152) y métodos (líneas 618-644).
+  - `src/core/reasoner/qwen.ts`: interfaz `ILLMClient` (líneas 141-152) y métodos (líneas 695-721).
 - **Condiciones necesarias:** Inspección de la clase `QwenEngine`.
 - **Consecuencias observables:** Los métodos `generateChatResponse()` y `synthesizeFinalResponse()` están marcados como heredados y delegan directamente en `generateFinalResponse()`. Ningún bucle de ejecución autoritativo (`core.ts`, `modeEngines.ts`, `callExecutor.ts`) los utiliza.
 - **Relación con otros hallazgos:** Independiente.
@@ -120,8 +120,8 @@
 - **Archivos y líneas:**
   - `src/core/types.ts`: líneas 315-330 (`CoreEventType`).
   - `src/core/modeEngines.ts`:
-    - FAST: línea 305 (emite `STEP_COMPLETED` apenas se crea el paso en `RUNNING`).
-    - PLAN: línea 451 (emite `STEP_COMPLETED` cuando el paso pasa a `RUNNING`).
+    - FAST: línea 324 (emite `STEP_COMPLETED` apenas se crea el paso en `RUNNING`).
+    - PLAN: línea 476 (emite `STEP_COMPLETED` cuando el paso pasa a `RUNNING`).
   - `src/core/callExecutor.ts`:
     - Línea 214: emite `STEP_COMPLETED` cuando el paso entra a `WAITING_APPROVAL`.
     - Línea 232: emite `STEP_COMPLETED` cuando el usuario aprueba y el paso vuelve a `RUNNING`.

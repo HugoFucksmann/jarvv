@@ -2,7 +2,7 @@
 
 > Última revisión: **2026-10-11**
 
-JARVIS Core se integra con tres servidores locales de herramientas a través del protocolo Model Context Protocol (MCP) sobre transporte stdio: `windows` (`windows-mcp`), `desktop_commander` (`@wonderwhy-er/desktop-commander`) y `free_search` (`free-search-mcp`). Las herramientas y capacidades se descubren dinámicamente en tiempo de ejecución. La seguridad se gestiona mediante una arquitectura determinista en capas inviolables: un registro inmutable de políticas (`PolicyRegistry`), una compuerta de seguridad (`Guard`) que aplica bloqueos incondicionales ante comandos destructivos (`DENY`), autoriza autónomamente lecturas seguras (`ALLOW`) y exige aprobación humana explícita (`APPROVAL`) para mutaciones o comandos de terminal, restricciones de directorios en el adaptador (`allowedDirectories`) y un mecanismo de anti-loop contra acciones idénticas consecutivas.
+JARVIS Core se integra con tres servidores locales de herramientas a través del protocolo Model Context Protocol (MCP) sobre transporte stdio: `windows` (`windows-mcp`), `desktop_commander` (`@wonderwhy-er/desktop-commander`) y `free_search` (`free-search-mcp`). Las herramientas y capacidades se descubren dinámicamente en tiempo de ejecución. La seguridad se gestiona mediante compuertas deterministas independientes de los modelos LLM: un registro estático de políticas (`PolicyRegistry`), una compuerta de seguridad (`Guard`) que aplica bloqueos incondicionales ante comandos que ataquen el sistema raíz o inyecciones de shell (`DENY`), autoriza autónomamente comandos seguros en allowlist o lecturas (`ALLOW`), y exige aprobación humana explícita (`APPROVAL`) para mutaciones del sistema de archivos (incluyendo creación, modificación y eliminación con `delete_file`), descargas o comandos de terminal, restricciones de directorios en el adaptador (`allowedDirectories`) y un mecanismo de anti-loop contra acciones idénticas consecutivas.
 
 ## Catálogo de herramientas
 
@@ -45,7 +45,7 @@ Herramientas registradas en `PolicyRegistry` (`src/core/policy/policyRegistry.ts
 | `free_search:engines` | Free Search | Enumera los motores de búsqueda web actualmente disponibles | Bajo (READ, mutates: false) |
 | `free_search:compare` | Free Search | Compara información y contenidos de distintas fuentes web | Bajo (READ, mutates: false) |
 | `free_search:extract_structured` | Free Search | Extrae metadatos estructurados (JSON-LD, OpenGraph, microdatos) | Bajo (READ, mutates: false) |
-| `free_search:download` / `download_document` | Free Search | Descarga archivos binarios o documentos externos a almacenamiento | Alto (DOWNLOAD, APPROVAL) |
+| `free_search:download` / `download_document` | Free Search | Descarga archivos binarios o documentos externos (`download_document` es alias interno en PolicyRegistry) | Alto (DOWNLOAD, APPROVAL) |
 
 ## Selección de herramientas
 
@@ -65,7 +65,7 @@ tool_call → validar existencia en Discovery → generar argumentos con Qwen (J
 - **Timeouts:**
   - Llamadas MCP por stdio: `30000 ms` (`mcpTimeoutMs` o `timeoutMs` en `jarvis-config.json`).
   - Decision 2.0 HTTP: `30000 ms` (`decisionTimeoutMs` en `jarvis-config.json`).
-  - Qwen 3.5 9B HTTP: `60000 ms` (`qwenTimeoutMs` en `jarvis-config.json`).
+  - Qwen 3.5 9B HTTP: `120000 ms` (`qwenTimeoutMs` en `jarvis-config.json`, ampliado a mín. 180 s con `thinking: true`).
 - **Reintentos:**
   - Argumentos de Qwen: hasta 2 reintentos (`MAX_ARG_RETRIES = 2`) reportando el error de schema en el siguiente intento.
   - Windows stale element: 1 reintento automático tras refrescar el árbol de ventanas con `ui_get_window_tree` o similar.
@@ -108,7 +108,7 @@ Políticas de seguridad por categoría de herramienta definidas en `PolicyRegist
 | `FILE_WRITE` | Requiere aprobación humana (`APPROVAL`) | `desktop_commander:write_file`, `desktop_commander:edit_file` |
 | `FILE_DELETE` | Requiere aprobación humana (`APPROVAL`) | `desktop_commander:delete_file` |
 | `PROCESS_CONTROL` | Requiere aprobación humana (`APPROVAL`) | `windows:launch_app`, `windows:close_window`, `desktop_commander:start_process`, `kill_process` |
-| `DOWNLOAD` | Requiere aprobación humana (`APPROVAL`) | `free_search:download`, `free_search:download_document` |
+| `DOWNLOAD` | Requiere aprobación humana (`APPROVAL`) | `free_search:download`, `free_search:download_document` (alias de `download`) |
 | `CONFIGURATION` | Requiere aprobación humana (`APPROVAL`) | `desktop_commander:set_config` |
 | Patrones destructivos raíz | Bloqueo incondicional (`DENY`) | Intentos contra el sistema raíz (`rm -rf /`, `format c:`, `del /f /s /q c:/windows`, etc.) |
 
@@ -116,7 +116,7 @@ Políticas de seguridad por categoría de herramienta definidas en `PolicyRegist
 
 ## Aprobaciones
 
-- **Flujo:** Cuando Guard dictamina `APPROVAL`, el paso actual se coloca en estado `WAITING_APPROVAL`, se genera un registro `PendingApproval` (con ID, tool, capacidad, argumentos y motivo descriptivo) y el orquestador emite el evento `APPROVAL_REQUESTED`. En la interfaz web, el componente persistente `GuardBanner` presenta los detalles de la acción junto a botones interactivos de "Autorizar" y "Rechazar" (con campo opcional de motivo). La interacción invoca `POST /api/jarvis/approve` o `POST /api/jarvis/deny`.
+- **Flujo:** Cuando Guard dictamina `APPROVAL`, el paso actual se coloca en estado `WAITING_APPROVAL`, se genera un registro `PendingApproval` (con ID, tool, capacidad, argumentos y motivo descriptivo) y el orquestador emite el evento `APPROVAL_REQUESTED`. En la interfaz web, el componente persistente `GuardBanner` presenta los detalles de la acción junto a botones interactivos de "Autorizar" y "Rechazar" (con campo opcional de motivo). La interacción invoca `POST /api/jarvis/approve` o `POST /api/jarvis/deny`. La compuerta no implementa un temporizador o timeout de expiración automática: permanece suspendida en memoria de forma indefinida hasta que el usuario resuelva explícitamente o cancele la tarea (`POST /api/jarvis/cancel`).
 - **Alcance:** Por invocación única (una sola vez). No existe autorización permanente en sesión ni bypass global, garantizando que cada mutación o comando potencialmente peligroso sea evaluado individualmente.
 - **Si se rechaza:** La llamada se bloquea, el paso pasa a estado `BLOCKED` con error "Operación rechazada por el usuario en Guard", se añade la entrada `${tool} -> RECHAZADO por usuario` a `task.memory.fail`, se asigna la señal `denied: true` y se activa el mecanismo de escalación (`handleEscalation` en FAST o replan en PLAN) para que el agente proponga una alternativa o aborte la tarea.
 
@@ -127,7 +127,7 @@ Políticas de seguridad por categoría de herramienta definidas en `PolicyRegist
   - `log`: cada acción ejecutada se audita como `${stepSeq}|${tool}|${logStatus}|${finding}` (`logStatus` toma valores `ok`, `err`, `nf` o `unv`).
   - `fail`: registra motivos exactos de denegación o fallos lógicos (`${tool} -> motivo`).
 - **Historial de llamadas (`task.steps[].calls[]`):** Cada ejecución se registra en un objeto `StepCall` con `id`, `mcp`, `tool`, `args`, `evidence` (`ok`, `summary`, `obs`, `ref`), `verification` (`VERIFIED`, `UNVERIFIED`), `outcome` (`success`, `isError`), `error` y `timestamp`.
-- **Persistencia en disco:** Todas las tareas activas y las últimas 20 completadas se guardan en `jarvis-tasks.json`.
+- **Persistencia en disco:** Se guardan en disco (`jarvis-tasks.json`) las últimas 20 tareas en total (`serialized.slice(-20)`), mediante sobrescritura directa con `fs.writeFileSync` (sin escritura atómica con archivo temporal ni cifrado en reposo; los argumentos y observaciones se almacenan en texto claro en disco y las llamadas completan trazas en la consola estándar del servidor).
 - **Stream de eventos en tiempo real:** Los eventos de auditoría (`MCP_DISPATCHED`, `MCP_RESULT`, `GUARD_EVALUATION`, `RESULT_PROCESSED`, `STEP_COMPLETED`) se transmiten por Server-Sent Events (`/api/jarvis/events`) y se visualizan en el componente `DecisionStream`.
 
 ## Archivos relacionados

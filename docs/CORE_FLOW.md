@@ -143,15 +143,15 @@ Puntos donde el flujo se bifurca y el criterio técnico exacto utilizado en el c
   - `abort`: Qwen determina que la meta es inalcanzable; la tarea concluye con estado `PARTIAL` (si hubo pasos previos completados) o `FAILED`.
 - **Juicio de criterio en modo PLAN (`src/core/modeEngines.ts:runPlanLoop`):**
   - Si el paso define `expectedOutcome`, se invoca `evaluatePlanJudgement`. Si el modelo responde `cumple` con confianza >= `0.60`, el paso se da por completado; si no, se permite hasta 4 llamadas (`MAX_TOOL_CALLS_PER_STEP`) antes de forzar un `handleReplan`.
-  - *Comportamiento de acciones `UNVERIFIED`:* a diferencia del modo FAST (donde `UNVERIFIED` se continúa para permitir observaciones posteriores), en la implementación actual de `runPlanLoop` una acción que devuelva `status: "unverified"` interrumpe el bucle interno y, al no marcarse `stepCompleted`, transiciona el paso a `FAILED` activando `handleReplan` (ver `INCONSISTENCIAS.md`, Hallazgo #8).
+  - *Comportamiento de acciones `UNVERIFIED`:* Al igual que en modo FAST, si una acción devuelve `status: "unverified"`, el paso se registra como `UNVERIFIED` y el bucle `runPlanLoop` continúa hacia el siguiente paso del plan (`continue`) sin marcar el paso como `FAILED` ni activar `handleReplan`, permitiendo que observaciones posteriores confirmen el estado.
 
 ## Iteraciones
 
 Límites globales del bucle y condiciones deterministas de parada:
 
-- **Máx. pasos por tarea (`MAX_STEPS`):** `15` pasos (en modo FAST detiene la tarea en `PARTIAL`; en modo PLAN limita la cantidad de pasos generados).
+- **Máx. pasos por tarea (`MAX_STEPS`):** `15` pasos (en modo FAST cada iteración genera un paso, limitando efectivamente las llamadas a ~15; en modo PLAN limita la cantidad de pasos generados en el plan inicial o replanes).
 - **Máx. llamadas por paso en PLAN (`MAX_TOOL_CALLS_PER_STEP`):** `4` llamadas.
-- **Tope global de llamadas por tarea (`MAX_TOOL_CALLS_TASK`):** `30` llamadas acumuladas (si se alcanza, detiene la tarea en `PARTIAL`).
+- **Tope global de llamadas por tarea (`MAX_TOOL_CALLS_TASK`):** `30` llamadas acumuladas (en PLAN un plan de 15 pasos con hasta 4 llamadas por paso teóricamente alcanzaría 60 llamadas, actuando este tope como salvaguarda dura para detener la tarea en `PARTIAL`).
 - **Máx. reintentos de schema de argumentos (`MAX_ARG_RETRIES`):** `2` reintentos.
 - **Máx. escalaciones por tarea (`MAX_ESCALATIONS`):** `2` escalaciones.
 - **Máx. replanificaciones en modo PLAN (`MAX_REPLAN`):** `2` replanes.
@@ -160,6 +160,8 @@ Límites globales del bucle y condiciones deterministas de parada:
   2. `PARTIAL`: parada controlada cuando se alcanza `MAX_STEPS`, `MAX_TOOL_CALLS_TASK`, el tope de escalaciones o replanes, o tras 2 bloqueos seguidos de anti-loop, habiendo completado al menos un paso previo.
   3. `FAILED`: fallo irrecuperable en generación de plan inicial, aborto decidido en escalación sin pasos previos completados, o excepción no recuperable.
   4. `CANCELLED`: el usuario cancela la tarea activamente desde la UI (`POST /api/jarvis/cancel`).
+- **Recuperación tras reinicio:** Si el servidor se reinicia mientras existían tareas en ejecución (`RUNNING`) o pasos en espera (`WAITING_APPROVAL`), `loadPersistedTasks` las transiciona a `CANCELLED` (marcando los pasos activos como `BLOCKED`) con el mensaje `"Tarea interrumpida: servidor reiniciado durante la ejecución"`. No existe reanudación automática ni timeout de expiración en las aprobaciones pendientes.
+- **Concurrencia:** El orquestador ejecuta tareas de forma asíncrona independiente en memoria, pero el entorno comparte un único escritorio gráfico y sistema de archivos, por lo que tareas simultáneas que utilicen `windows` pueden interferir en el foco visual y controles activos de la pantalla.
 
 ## Manejo de errores
 
@@ -176,7 +178,7 @@ Tipos de error y respuesta técnica del sistema en cada caso:
 | Timeout en proceso MCP stdio | Se rechaza la promesa con `MCPTransportError` tras 30 s (`mcpTimeoutMs`); si el proceso hijo cae, se limpian peticiones pendientes |
 | Proceso MCP termina inesperadamente | Se registra el último bloque de stderr (`getLastStderr`), se limpia el estado de transporte y se marca el servidor como no disponible en `unavailableServers` |
 | Servicio Decision 2.0 inaccesible | Se lanza `DecisionServiceUnavailableError`. En Decision #5 se aplica fallback determinista a `correcta` si `exit_code == 0` y no hay señales de error; en D1 o D2 detiene el paso |
-| Servicio Qwen inaccesible o timeout | Se lanza `LLMServiceUnavailableError` tras 60 s (`qwenTimeoutMs`); al concluir la tarea se aplica una respuesta sintética estructurada |
+| Servicio Qwen inaccesible o timeout | Se lanza `LLMServiceUnavailableError` tras 120 s (`qwenTimeoutMs`); al concluir la tarea se aplica una respuesta sintética estructurada |
 | Paso fallido en modo PLAN | Si el paso no cumple su `expected_outcome` tras 4 llamadas, se invoca `handleReplan` para que Qwen sustituya los pasos pendientes (hasta 2 replanes) |
 
 ## Ejemplo de traza

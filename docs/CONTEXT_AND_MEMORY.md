@@ -43,7 +43,7 @@ Prompts existentes en el sistema, centralizados como funciones y constantes tipa
 
 - **Almacenamiento:**
   - En memoria activa: las tareas se mantienen en el mapa en memoria `taskContexts` (`Map<string, TaskExecutionContext>`) en `JarvisCore` (`src/core/core.ts`). En sesión del orquestador, se guarda un array de strings `sessionHistory`.
-  - En disco: persistencia automática en el archivo local `jarvis-tasks.json` tras cada cambio de estado, conservando las últimas 20 tareas (`serialized.slice(-20)`).
+  - En disco: persistencia automática en el archivo local `jarvis-tasks.json` tras cada cambio de estado, conservando las últimas 20 tareas en total (`serialized.slice(-20)`). La escritura se realiza sincrónicamente mediante `fs.writeFileSync` (sin archivo temporal intermedio ni escritura atómica basada en rename; los datos, argumentos y observaciones se persisten en texto claro sin cifrado).
 - **Estrategia de recorte:**
   - **LOG de pasos (`task.memory.log`):** Cuando la lista supera 12 líneas, las líneas previas a las últimas 6 se colapsan estadísticamente en una sola entrada de resumen `1-N: X ok, Y err`, preservando intactas las 6 más recientes (`context.task.memory.log = [summaryLine, ...log.slice(-6)]`).
   - **Cola de fallos (`task.memory.fail`):** Mantiene únicamente las 5 entradas más recientes (`fail.slice(-5)`).
@@ -59,7 +59,7 @@ Tipos de memoria y estructuras administradas en el ciclo de vida de la tarea:
 | Línea de tiempo (`TaskMemory.log`) | Entradas estructuradas de cada acción ejecutada: `stepSeq\|tool\|status\|finding` | Por tarea, persistido en `jarvis-tasks.json` (colapsado si > 12) | `1\|search_files\|ok\|3 coincidencias, primera: C:/repo/notes.txt` |
 | Hechos estructurados (`TaskMemory.facts`) | Pares clave-valor extraídos deterministamente por `ResultProcessor` (`path`, `win`, `el`, `pid`, `url`, `cand`) | Por tarea, persistido en `jarvis-tasks.json` | `url=https://docs.rs \npath=src/main.rs \npid=4512` |
 | Registro de fallos (`TaskMemory.fail`) | Causas de error técnico, denegaciones de Guard o rechazos del usuario (máx. 5) | Por tarea, persistido en `jarvis-tasks.json` | `write_file -> RECHAZADO por usuario` |
-| Espacio volátil (`Scratchpad`) | Variables de estado operativo (`search_results`, `selected_result`, `url`, `path`, `process_id`, `window_handle`, `element_id`) | Por tarea, persistido en `jarvis-tasks.json` | `window_handle="0x102A4", path="C:/app/log.txt"` |
+| Espacio de trabajo (`Scratchpad`) | Variables de estado operativo (`search_results`, `selected_result`, `url`, `path`, `process_id`, `window_handle`, `element_id`). Nota: aunque conceptualmente actúa como pizarra de trabajo de la tarea, se serializa y persiste en `task.scratchpad` dentro de `jarvis-tasks.json`. Mantiene claves funcionalmente duplicadas con `TaskMemory.facts` bajo distinta nomenclatura (`path` vs `path`, `win` vs `window_handle`, `el` vs `element_id`, `pid` vs `process_id`), donde `facts.path` y `facts.url` adoptan de forma determinista el primer resultado hallado. | Por tarea, persistido en `task.scratchpad` en `jarvis-tasks.json` | `window_handle="0x102A4", path="C:/app/log.txt"` |
 | Almacén de referencias (`RefStore`) | Contenido textual íntegro sin truncar devuelto por las herramientas, indexado por clave `r1`, `r2`... | En memoria volátil de Node.js, aislado por `taskId` | `r1` -> 50.000 caracteres de salida de terminal |
 
 > **Nota sobre persistencia entre sesiones:** No existe un subsistema de memoria a largo plazo permanente de usuario (como bases de datos vectoriales entre reinicios independientes). La memoria opera estrictamente en el ámbito de cada tarea y su historial persistido en `jarvis-tasks.json`.
@@ -86,7 +86,7 @@ Tipos de memoria y estructuras administradas en el ciclo de vida de la tarea:
 | Esquema JSON limpio de parámetros (`cleanedSchema`) para que Qwen genere argumentos válidos | Saltos de línea y caracteres de control ASCII (`[\x00-\x1F\x7F]`) en líneas de memoria, filtrados mediante `sanitizeForMemory` |
 | Observación compacta del último resultado delimitada por `<obs>...</obs>` (máx. 1.500 caracteres) | Etiquetas delimitadoras `<obs>` y `</obs>` en datos externos, neutralizadas a `[obs]` con `safe()` |
 | Señales booleanas y códigos de salida (`exit_code`, `not_found`, `denied`, `empty_output`, `timeout`, `stale_element`) hacia Decision #5 | Nombres de bloques reservados prefijados (`GOAL:`, `FACTS:`, `LOG:`, `FAIL:`, etc.), transformados a `$1_` para evitar inyecciones |
-| Resúmenes estructurados prefijados (`[ÉXITO]`, `[FALLO]`, `[VACÍO]`, `[STALE]`) hacia Decision 2.0 (recortados a 400 caracteres) | Claves de API secretas o tokens de autenticación privados (las comunicaciones con Qwen en Ollama y Decision 2.0 van a endpoints HTTP locales o tunelizados sin credenciales) |
+| Resúmenes estructurados prefijados (`[ÉXITO]`, `[FALLO]`, `[VACÍO]`, `[STALE]`) hacia Decision 2.0 (recortados a 400 caracteres) | Claves de API secretas o tokens de autenticación privados (las comunicaciones con Qwen en Ollama y Decision 2.0 van a endpoints HTTP locales o tunelizados sin credenciales). *Nota de privacidad:* Los argumentos pasados a herramientas (incluyendo cadenas tipeadas con `ui_type_text` o contenidos de archivos) se almacenan sin enmascarar en el objeto `StepCall` persistido en disco, y los prompts con el estado completo se emiten a la consola estándar de depuración del servidor Node.js. |
 
 ## Límites y presupuesto de tokens
 
@@ -96,7 +96,7 @@ Tipos de memoria y estructuras administradas en el ciclo de vida de la tarea:
 - **Límites de salida (`max_tokens` / `num_predict` en Qwen):**
   - Generación de argumentos (Etapa 3): `1024` tokens.
   - Escalación (Etapa 5B): `500` tokens.
-  - Respuesta final (Etapa 6): `1000` tokens.
+  - Respuesta final (Etapa 6): `1500` tokens (`1000` en fallback rápido sin pensamiento).
   - Plan y Replan (Modo PLAN): `1500` tokens.
 - **Límites por bloque de texto:**
   - `MAX_HISTORY_CHARS = 4000`: Historial recortado en Decision #1.

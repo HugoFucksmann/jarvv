@@ -46,7 +46,7 @@ JARVIS permite a usuarios y operadores ejecutar flujos de trabajo sobre el siste
 | `freeSearchMcp` (`jarvis-config.json`) | Comando y argumentos para Free Search MCP | `uvx --from free-search-mcp==0.13.1 --with selectolax==0.3.34 free-search-mcp` |
 | `timeoutMs` (`jarvis-config.json`) | Timeout general por defecto para operaciones | `30000` (30 s) |
 | `decisionTimeoutMs` (`jarvis-config.json`) | Timeout para inferencias de Decision 2.0 | `30000` (30 s) |
-| `qwenTimeoutMs` (`jarvis-config.json`) | Timeout para inferencias de Qwen 3.5 9B | `60000` (60 s) |
+| `qwenTimeoutMs` (`jarvis-config.json`) | Timeout para inferencias de Qwen 3.5 9B | `120000` (120 s) |
 | `mcpTimeoutMs` (`jarvis-config.json`) | Timeout para ejecuciones de herramientas MCP | `30000` (30 s) |
 
 ## Inicio rápido
