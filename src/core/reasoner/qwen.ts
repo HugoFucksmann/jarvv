@@ -254,10 +254,13 @@ export class QwenEngine implements ILLMClient {
       ],
       temperature: 0.1,
       stream: false,
-      reasoning_effort: isThinking ? "low" : "none",
+      ...(isThinking
+        ? { reasoning_effort: "low", think: true }
+        : { reasoning_effort: "none", think: false }),
       options: {
         num_ctx: QWEN_CTX,
         ...(maxTokens ? { num_predict: maxTokens } : {}),
+        think: isThinking,
       },
     };
 
@@ -350,6 +353,31 @@ export class QwenEngine implements ILLMClient {
       content = data.response;
     } else if (typeof firstChoice?.text === "string" && firstChoice.text.trim()) {
       content = firstChoice.text;
+    }
+
+    // Extraer traza de pensamiento / razonamiento de todas las llaves posibles de Ollama y OpenAI/vLLM
+    const thinkingTrace =
+      (typeof messageObj?.reasoning_content === "string" && messageObj.reasoning_content.trim() ? messageObj.reasoning_content.trim() : "") ||
+      (typeof messageObj?.thinking === "string" && messageObj.thinking.trim() ? messageObj.thinking.trim() : "") ||
+      (typeof data?.thinking === "string" && data.thinking.trim() ? data.thinking.trim() : "") ||
+      (typeof firstChoice?.reasoning_content === "string" && firstChoice.reasoning_content.trim() ? firstChoice.reasoning_content.trim() : "");
+
+    // Si content vino vacío pero hay thinkingTrace disponible, usar la traza de pensamiento como respuesta
+    if (!content && thinkingTrace) {
+      console.log(`[Qwen] content venía vacío pero se extrajo respuesta de la llave de pensamiento (${thinkingTrace.length} chars).`);
+      content = thinkingTrace;
+    }
+
+    // Si content es una frase genérica de confirmación de cierre ("tarea completada con éxito") mientras thinkingTrace contiene la respuesta real
+    if (
+      content &&
+      thinkingTrace &&
+      content.length < 90 &&
+      /tarea\s+(concluida|completada|finalizada|terminada)/i.test(content) &&
+      thinkingTrace.length > content.length
+    ) {
+      console.log(`[Qwen] content contenía solo frase genérica de cierre ("${content}"). Priorizando respuesta detallada de traza de pensamiento (${thinkingTrace.length} chars).`);
+      content = thinkingTrace;
     }
 
     if (!content || typeof content !== "string" || !content.trim()) {
@@ -492,10 +520,23 @@ export class QwenEngine implements ILLMClient {
         PROMPTS.FINAL_RESPONSE.SYSTEM,
         userPrompt,
         false,
-        1000,
+        2000,
         { stage: "final_response", signal }
       );
-      return rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+      
+      const thoughtMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
+      const thoughtText = thoughtMatch ? thoughtMatch[1].trim() : "";
+      const outsideText = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+      // Si outsideText quedó vacío o solo una frase genérica de tarea completada, pero thoughtText contiene la respuesta real:
+      if (!outsideText || (outsideText.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(outsideText))) {
+        if (thoughtText && thoughtText.length > outsideText.length) {
+          console.log(`[generateFinalResponse] Priorizando contenido sustantivo de bloque <think> (${thoughtText.length} chars).`);
+          return thoughtText;
+        }
+      }
+
+      return outsideText || thoughtText || rawText.trim();
     });
   }
 

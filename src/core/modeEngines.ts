@@ -62,8 +62,13 @@ export async function concludeTask(
             evidenceSummaries,
             abortReason,
         }, context.abortController.signal);
-    } catch {
-        task.finalResponse = `Tarea concluida con estado ${state}.${abortReason ? ` Motivo: ${abortReason}` : ""}`;
+    } catch (err: any) {
+        console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err);
+        if (evidenceSummaries.length > 0) {
+            task.finalResponse = `Información recopilada para su solicitud:\n${evidenceSummaries.map((e) => `• ${e}`).join("\n")}`;
+        } else {
+            task.finalResponse = `Tarea concluida con estado ${state}.${abortReason ? ` Motivo: ${abortReason}` : ""}`;
+        }
     }
 
     // Limpieza exclusiva de las referencias de esta tarea
