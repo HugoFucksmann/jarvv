@@ -232,6 +232,16 @@ export class JarvisCore {
             task.replans = task.replans ?? 0;
             task.escalations = task.escalations ?? 0;
             task.stepSeq = task.stepSeq ?? task.steps.length;
+            if (task.state === "RUNNING") {
+              task.state = "CANCELLED";
+              task.finalResponse = task.finalResponse || "Tarea interrumpida: servidor reiniciado durante la ejecución.";
+              for (const step of task.steps) {
+                if (step.state === "RUNNING" || step.state === "WAITING_APPROVAL") {
+                  step.state = "BLOCKED";
+                  step.error = "Interrumpido por reinicio del servidor.";
+                }
+              }
+            }
             for (const step of task.steps) {
               step.calls = step.calls || [];
               step.rev = step.rev ?? 0;

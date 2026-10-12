@@ -79,7 +79,7 @@ export async function executeCall(
 
     // 1. Determine MCP Server
     let serverName = context.activeServerOverride || step.route;
-    if (serverName === "fin" || serverName === "chat") {
+    if (serverName === "fin") {
         serverName = "desktop_commander";
     }
     context.activeServerOverride = undefined;

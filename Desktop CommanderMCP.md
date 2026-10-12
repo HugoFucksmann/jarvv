@@ -123,3 +123,22 @@ El historial local y la telemetría son mecanismos diferentes. Para conocer los 
 - Repositorio y README: https://github.com/wonderwhy-er/DesktopCommanderMCP
 - Política de seguridad: https://github.com/wonderwhy-er/DesktopCommanderMCP/blob/main/SECURITY.md
 - Preguntas frecuentes: https://github.com/wonderwhy-er/DesktopCommanderMCP/blob/main/FAQ.md
+
+## 10. Mapeo en JARVIS Core (PolicyRegistry)
+
+En el orquestador JARVIS Core (`src/core/policy/policyRegistry.ts`), las herramientas expuestas se gestionan bajo las siguientes claves canónicas:
+
+| Nombre Upstream | Clave en JARVIS Core | Capacidad | Requiere Aprobación |
+|-----------------|----------------------|-----------|---------------------|
+| `list_directory` | `desktop_commander:list_directory` | `FILE_READ` | No (ALLOW) |
+| `read_file` | `desktop_commander:read_file` | `FILE_READ` | No (ALLOW) |
+| `start_search` / búsqueda | `desktop_commander:search_files` | `FILE_READ` | No (ALLOW) |
+| `read_process_output` | `desktop_commander:read_process_output` | `READ` | No (ALLOW, exenta de anti-loop) |
+| Consola del sistema | `desktop_commander:run_command` | `COMMAND_EXECUTION` | Dinámica (Guard: ALLOW solo lectura, APPROVAL mutaciones) |
+| `write_file` | `desktop_commander:write_file` | `FILE_WRITE` | Sí (APPROVAL) |
+| `edit_block` | `desktop_commander:edit_file` | `FILE_WRITE` | Sí (APPROVAL) |
+| Eliminación | `desktop_commander:delete_file` | `FILE_DELETE` | Sí (APPROVAL) |
+| `start_process` | `desktop_commander:start_process` | `PROCESS_CONTROL` | Sí (APPROVAL) |
+| `kill_process` | `desktop_commander:kill_process` | `PROCESS_CONTROL` | Sí (APPROVAL) |
+| `interact_with_process` | `desktop_commander:interact_process` | `PROCESS_CONTROL` | Sí (APPROVAL) |
+| `get_config` / ajustes | `desktop_commander:set_config` | `CONFIGURATION` | Sí (APPROVAL) |

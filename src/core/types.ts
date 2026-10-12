@@ -23,8 +23,7 @@ export type StepRoute =
   | "fin"
   | "windows"
   | "desktop_commander"
-  | "free_search"
-  | "chat";
+  | "free_search";
 
 export interface StepCall {
   id: string;

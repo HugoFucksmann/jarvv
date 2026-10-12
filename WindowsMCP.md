@@ -206,3 +206,22 @@ El nivel de acceso efectivo depende de los permisos del proceso, las herramienta
 - Versiones publicadas: https://github.com/sbroenne/mcp-windows/releases
 - Instalación: https://windowsmcpserver.dev/installation/
 - Limitaciones y evaluación: https://windowsmcpserver.dev/benchmark/
+
+## 16. Mapeo en JARVIS Core (PolicyRegistry)
+
+En el orquestador JARVIS Core (`src/core/policy/policyRegistry.ts`), las herramientas expuestas se gestionan bajo las siguientes claves canónicas:
+
+| Nombre Upstream | Clave en JARVIS Core | Capacidad | Requiere Aprobación |
+|-----------------|----------------------|-----------|---------------------|
+| `ui_snapshot` | `windows:ui_get_window_tree` | `READ` | No (ALLOW) |
+| `ui_snapshot` (diff) | `windows:ui_get_diff_tree` | `READ` | No (ALLOW) |
+| `ui_find` | `windows:ui_search_elements` | `READ` | No (ALLOW) |
+| Inspección UIA | `windows:ui_inspect_element` | `READ` | No (ALLOW) |
+| `ui_read` | `windows:ui_read` | `READ` | No (ALLOW) |
+| `ui_wait` | `windows:ui_wait` | `READ` | No (ALLOW, exenta de anti-loop) |
+| `ui_click` | `windows:ui_click` | `UI_ACTION` | No (ALLOW, acción de interfaz) |
+| Foco de control | `windows:ui_set_focus` | `UI_ACTION` | No (ALLOW, acción de interfaz) |
+| `ui_type` | `windows:ui_type_text` | `UI_ACTION` | No (ALLOW, acción de interfaz) |
+| Control de volumen | `windows:set_volume` | `UI_ACTION` | No (ALLOW, acción de interfaz) |
+| `app` (lanzamiento) | `windows:launch_app` | `PROCESS_CONTROL` | Sí (APPROVAL) |
+| Cierre de ventana | `windows:close_window` | `PROCESS_CONTROL` | Sí (APPROVAL) |

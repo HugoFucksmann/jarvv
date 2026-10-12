@@ -8,7 +8,6 @@ import {
   MAX_STEPS,
   MAX_ARG_RETRIES,
   QWEN_CTX,
-  QWEN_ESCALATION_THINKING,
   EscalationResponse,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
@@ -157,10 +156,12 @@ export class QwenEngine implements ILLMClient {
    * Helper unificado para parsear JSON tolerante a texto explicativo o Markdown
    */
   private safeJsonParse<T = any>(raw: string): T | null {
+    if (!raw || typeof raw !== "string") return null;
+    const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
     try {
-      return JSON.parse(raw);
+      return JSON.parse(cleaned);
     } catch {
-      const match = raw.match(/\{[\s\S]*\}/);
+      const match = cleaned.match(/\{[\s\S]*\}/);
       if (match) {
         try {
           return JSON.parse(match[0]);
@@ -455,7 +456,7 @@ export class QwenEngine implements ILLMClient {
         userPrompt,
         true,
         500,
-        { stage: "escalate", thinking: QWEN_ESCALATION_THINKING, signal }
+        { stage: "escalate", signal }
       );
 
       const parsed = this.safeJsonParse<any>(rawJson);
@@ -487,13 +488,14 @@ export class QwenEngine implements ILLMClient {
   ): Promise<string> {
     return await this.executeStage("generateFinalResponse", async () => {
       const userPrompt = PROMPTS.FINAL_RESPONSE.buildUserPrompt(data);
-      return await this.dispatchPrompt(
+      const rawText = await this.dispatchPrompt(
         PROMPTS.FINAL_RESPONSE.SYSTEM,
         userPrompt,
         false,
         1000,
-        { stage: "final_response", thinking: false, signal }
+        { stage: "final_response", signal }
       );
+      return rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
     });
   }
 
@@ -516,7 +518,6 @@ export class QwenEngine implements ILLMClient {
         1500,
         {
           stage: "plan",
-          thinking: false,
           signal,
           schema: PLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
         }
@@ -568,7 +569,6 @@ export class QwenEngine implements ILLMClient {
         1500,
         {
           stage: "replan",
-          thinking: false,
           signal,
           schema: REPLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
         }

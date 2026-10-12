@@ -104,7 +104,7 @@ npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 
 | Componente | Responsabilidad | Ruta |
 |------------|----------------|------|
-| Host HTTP & API | Expone endpoints REST (`/api/jarvis/*`, `/api/mcp/*`), canal SSE de eventos y gestiona el ciclo de vida de procesos | `server.ts` |
+| Host HTTP & API | Expone endpoints REST (`/api/jarvis/*`, `/api/mcp/*` con alias directos `/jarvis/*`, `/mcp/*`), canal SSE de eventos y gestiona el ciclo de vida de procesos | `server.ts` |
 | Orquestador Central (`JarvisCore`) | Coordina el ciclo de vida de tareas, concurrencia, persistencia en disco y despacho de eventos reactivos | `src/core/core.ts` |
 | Motores de Ejecución (`ModeEngines`) | Implementa los bucles de ejecución para modo FAST (`runFastLoop`) y PLAN (`initiatePlanMode`, `runPlanLoop`), escalación (5B) y replan | `src/core/modeEngines.ts` |
 | Ejecutor de Llamadas (`CallExecutor`) | Ejecuta el ciclo de un paso de tool: consulta a D2, genera argumentos con Qwen, verifica anti-loop, evalúa con Guard, despacha al MCP y procesa el resultado | `src/core/callExecutor.ts` |
@@ -150,7 +150,7 @@ npx madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
 | Ventana de contexto (Qwen) | `8192` tokens (`QWEN_CTX = 8192`, parámetro `num_ctx`) |
 | Máx. tokens de salida (Qwen) | Etapa 3 (Argumentos): `1024` · Etapa 5B (Escalación): `500` · Etapa 6 (Final): `1000` · PLAN (Plan/Replan): `1500` |
 | Streaming (Qwen) | `false` (desactivado en todas las etapas en `dispatchPrompt`) |
-| Modo de razonamiento (Qwen thinking) | `none` por defecto (`thinking: false` en config); `low` en Escalación (`QWEN_ESCALATION_THINKING = true`) |
+| Modo de razonamiento (Qwen thinking) | Controlado por el usuario desde Ajustes (`thinking: boolean` en `jarvis-config.json`); activa `reasoning_effort: "low"` en PLAN, Replan, Escalación y Respuesta Final; `none` si está desactivado (`thinking: false` directo rápido) |
 | Formato de salida (Qwen) | `json_object` estándar o `json_schema` estricto (`PLAN_JSON_SCHEMA`, `REPLAN_JSON_SCHEMA`) |
 | Timeout (Qwen) | `60000 ms` (`qwenTimeoutMs` en `jarvis-config.json`, fallback a 60 s) |
 | Reintentos de argumentos (Qwen) | `MAX_ARG_RETRIES = 2` (ante schema validation failure) |

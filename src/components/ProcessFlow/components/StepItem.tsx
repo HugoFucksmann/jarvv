@@ -65,7 +65,6 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
       case "free_search":
         return "Free Search MCP";
       case "fin":
-      case "chat":
         return "Fin / Qwen Chat";
       default:
         return step.route;

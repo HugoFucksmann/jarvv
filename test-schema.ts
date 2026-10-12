@@ -1,6 +1,6 @@
 const URL = "http://localhost:11434/v1/chat/completions"; // ajustá a tu qwenUrl
 const MODEL = "qwen3.5:9b";                                // ajustá a tu qwenModel
-const ROUTES = ["chat", "windows", "desktop_commander", "free_search"];
+const ROUTES = ["windows", "desktop_commander", "free_search"];
 
 const body = {
     model: MODEL,

@@ -437,6 +437,12 @@ export async function runPlanLoop(
     const { task } = context;
 
     while (!context.isCancelled) {
+        if (context.totalToolCalls >= MAX_TOOL_CALLS_TASK) {
+            console.warn(`[PLAN] MAX_TOOL_CALLS_TASK (${MAX_TOOL_CALLS_TASK}) alcanzado. Parada controlada PARTIAL.`);
+            await concludeTask(context, "PARTIAL", deps, "Límite MAX_TOOL_CALLS_TASK alcanzado.");
+            return;
+        }
+
         const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
         if (stepIndex === -1) {
             console.log(`[PLAN] Todos los pasos completados. Concluyendo tarea.`);
@@ -506,6 +512,11 @@ export async function runPlanLoop(
         }
 
         if (!stepCompleted && !context.isCancelled) {
+            if (step.state === "UNVERIFIED") {
+                console.log(`[PLAN] Paso ${step.id} registrado como UNVERIFIED. Continuando hacia el siguiente paso.`);
+                continue;
+            }
+
             step.state = "FAILED";
             step.error = step.error || "Paso falló o agotó calls sin cumplir criterio.";
             deps.persistTasks();

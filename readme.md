@@ -20,7 +20,7 @@ JARVIS permite a usuarios y operadores ejecutar flujos de trabajo sobre el siste
 | Backend & Host | Express | 4.21.2 |
 | Frontend UI | React + Vite + Tailwind CSS | React 19 / Vite 8 / Tailwind 4 |
 | Modelo Razonador LLM | Qwen 3.5 9B (vía Ollama/vLLM) | qwen3.5:9b |
-| Modelo Clasificador | Decision 2.0 (Kai-0.6B / Eos-0.8B) | Decision-2.0-Kai-0.6B |
+| Modelo Clasificador | Decision 2.0 (Eos-0.8B) | Decision-2.0-Eos-0.8B |
 | Protocolo de Herramientas | Model Context Protocol (MCP) | JSON-RPC 2.0 sobre stdio |
 | Servidores MCP | windows-mcp, DesktopCommanderMCP, free-search-mcp | 1.3.27 / 2.1.0 / 0.13.1 |
 | Almacenamiento / Estado | JSON local persistido (`jarvis-tasks.json`) | — |

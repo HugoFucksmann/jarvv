@@ -23,6 +23,7 @@ import { QwenEngine } from './src/core/reasoner/qwen.ts';
 import { JarvisCore } from './src/core/core.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { PendingApproval } from './src/core/types.ts';
+import { RefStore } from './src/core/processor/resultProcessor.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,6 +251,19 @@ async function main() {
       res.json({ tools, extraCapabilities: extra, unavailableServers: discoveryEngine.getUnavailableServers() });
     } catch (err: any) {
       res.json({ tools: {}, extraCapabilities: { prompts: {}, resourceTemplates: {} }, error: err.message });
+    }
+  });
+
+  // Recuperar contenido de una referencia en RefStore (Hallazgo #10)
+  jarvisRouter.get('/ref/:refKey', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { refKey } = req.params;
+    const taskId = req.query.taskId as string | undefined;
+    const content = RefStore.get(refKey, taskId);
+    if (content !== undefined) {
+      res.json({ refKey, content, found: true });
+    } else {
+      res.status(404).json({ error: `Referencia '${refKey}' no encontrada.`, found: false });
     }
   });
 

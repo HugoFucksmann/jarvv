@@ -2,7 +2,7 @@
 
 > Última revisión: **2026-10-11**  
 > Fuente de verdad: **Código fuente y comportamiento verificable del sistema**.  
-> Estado general: **7 hallazgos previos auditados y confirmados · 7 nuevos hallazgos demostrados · 4 inconsistencias resueltas/cerradas**.
+> Estado general: **11 inconsistencias resueltas y cerradas con evidencia en código · 7 hallazgos residuales documentados y acotados**.
 
 ---
 
@@ -34,19 +34,19 @@
 | ID | Tipo | Severidad | Estado | Ubicación Principal | Resumen del Hallazgo |
 |---|------|-----------|--------|---------------------|----------------------|
 | **#1** | `SEGURIDAD` | Media | Confirmada | `jarvis-config.json` / `config.ts:46` / `desktopCommanderMcp.ts:25,56` | `allowedDirectories` vacío por defecto desactiva la contención de rutas en el adaptador MCP. |
-| **#2** | `CONTRADICCIÓN` | Media | Confirmada | `types.ts:27` vs `qwen.ts:38` vs `callExecutor.ts:82` | `StepRoute` incluye `"chat"`, excluido por `VALID_STEP_ROUTES` y redirigido a terminal local. |
-| **#3** | `SIN_REFERENCIAS` | Baja | Confirmada | `policyRegistry.ts:64` vs `free-search-mcp.md:26` | Política estática registrada para `download_document` (inexistente en servidor upstream). |
-| **#4** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `config.ts:97-99` / `qwen.ts:248-249` | Migración de `qwenModel === "qwen2.5:7b"` resetea a vacío omitiendo el modelo en el payload. |
+| **#2** | `CONTRADICCIÓN` | Media | **Resuelta** | `types.ts:27` vs `qwen.ts:38` vs `callExecutor.ts:82` | `StepRoute` incluía `"chat"`; eliminado y alineado con subsistemas reales. |
+| **#3** | `SIN_REFERENCIAS` | Baja | Confirmada | `policyRegistry.ts:64` vs `free-search-mcp.md:26` | Política estática registrada para `download_document` (alias de `download`). |
+| **#4** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | **Resuelta** | `config.ts:97-99` / `qwen.ts:248-249` | Migración de `qwenModel === "qwen2.5:7b"` ahora asigna `DEFAULT_CONFIG.qwenModel`. |
 | **#5** | `DUPLICACIÓN` | Baja | Confirmada | `decision.ts:146,228` | Retorno residual `{ multiStep: false }` deprecado en v2.1 mantenido en la firma de Decision #1. |
 | **#6** | `DUPLICACIÓN` | Baja | Confirmada | `qwen.ts:142-152,618-644` | Wrappers legados (`generateChatResponse`, `synthesizeFinalResponse`) sin uso en el flujo activo. |
-| **#7** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `WindowsMCP.md:44-57` vs `policyRegistry.ts:18-29` | Nombres de herramientas en `PolicyRegistry` (`ui_get_window_tree`, etc.) divergen de la referencia upstream (`ui_snapshot`, etc.). |
-| **#8** | `CONTRADICCIÓN` | **Alta** | **Confirmada (Nueva)** | `modeEngines.ts:336-340` vs `modeEngines.ts:496-512` | Acciones `UNVERIFIED` son continuadas en FAST pero provocan fallo inmediato (`FAILED`) y replan en PLAN. |
-| **#9** | `NOMBRE_VS_COMPORTAMIENTO` | Media | **Confirmada (Nueva)** | `types.ts:315-330` / `modeEngines.ts:305,451` / `callExecutor.ts:214,232` | El evento `STEP_COMPLETED` se emite cuando un paso entra a `RUNNING` o `WAITING_APPROVAL`. |
-| **#10** | `SIN_REFERENCIAS` | Media | **Confirmada (Nueva)** | `resultProcessor.ts:29-66,189` / `server.ts` | `RefStore` almacena texto íntegro pero carece de método de consulta o endpoint de desreferenciación. |
-| **#11** | `ESTADO_Y_CONCURRENCIA` | Media | **Confirmada (Nueva)** | `core.ts:224-261` / `useJarvis.ts:300` | Tareas en estado `RUNNING` persisten huérfanas tras reinicio del servidor sin reanudarse ni cerrarse. |
-| **#12** | `CONTRADICCIÓN` | Media | **Confirmada (Nueva)** | `modeEngines.ts:433-526` vs `217-221` / `types.ts:189` | Modo PLAN no comprueba `MAX_TOOL_CALLS_TASK` a nivel de bucle y cae en replanificación ante el tope global. |
-| **#13** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | **Confirmada (Nueva)** | `Desktop CommanderMCP.md:18-59` vs `policyRegistry.ts:34-46` | Herramientas de Desktop Commander (`edit_block`, `interact_with_process`) difieren de las registradas en código. |
-| **#14** | `SIN_REFERENCIAS` | Baja | **Confirmada (Nueva)** | `/test-schema.ts:1-45` | Script de prueba con modelo y rutas obsoletas (`"chat"`) desacoplado de la arquitectura v2.1. |
+| **#7** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `WindowsMCP.md:44-57` vs `policyRegistry.ts:18-29` | Nombres de herramientas en `PolicyRegistry` divergen de la referencia upstream (mapeo documentado). |
+| **#8** | `CONTRADICCIÓN` | **Alta** | **Resuelta** | `modeEngines.ts:336-340` vs `modeEngines.ts:512-518` | `runPlanLoop` ahora continúa la ejecución con pasos `UNVERIFIED` sin forzar fallo ni replan. |
+| **#9** | `NOMBRE_VS_COMPORTAMIENTO` | Media | Confirmada | `types.ts:315-330` / `modeEngines.ts:305,451` / `callExecutor.ts:214,232` | El evento `STEP_COMPLETED` se emite cuando un paso entra a `RUNNING` o `WAITING_APPROVAL`. |
+| **#10** | `SIN_REFERENCIAS` | Media | **Resuelta** | `resultProcessor.ts:29-66,189` / `server.ts` | Endpoint `GET /api/jarvis/ref/:refKey` y cliente `jarvisApi.getRef()` implementados. |
+| **#11** | `ESTADO_Y_CONCURRENCIA` | Media | **Resuelta** | `core.ts:224-261` / `useJarvis.ts:300` | Tareas en estado `RUNNING` se transicionan a `CANCELLED` al reiniciar el servidor. |
+| **#12** | `CONTRADICCIÓN` | Media | **Resuelta** | `modeEngines.ts:439-446` / `types.ts:189` | Modo PLAN comprueba `MAX_TOOL_CALLS_TASK` al inicio del bucle concluyendo en `PARTIAL`. |
+| **#13** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `Desktop CommanderMCP.md:18-59` vs `policyRegistry.ts:34-46` | Herramientas de Desktop Commander upstream mapeadas a claves locales en la documentación. |
+| **#14** | `SIN_REFERENCIAS` | Baja | **Resuelta** | `/test-schema.ts:1-45` | Script de prueba actualizado eliminando ruta obsoleta `"chat"`. |
 
 ---
 
@@ -280,3 +280,24 @@ Las siguientes inconsistencias señaladas en revisiones previas fueron investiga
 4. **Generación de gráfico de dependencias SVG:**
    - *Estado:* **Cerrada / Resuelta.**
    - *Evidencia:* Se retiró la dependencia de generación de SVG mediante Graphviz y se sustituyó por la validación formal de dependencias circulares mediante `madge` (0 ciclos circulares comprobados), documentada en `ARCHITECTURE.md`.
+5. **Ruta residual `"chat"` en `StepRoute` (Hallazgo #2):**
+   - *Estado:* **Cerrada / Resuelta.**
+   - *Evidencia:* Se eliminó `"chat"` de `StepRoute` en `src/core/types.ts:22-27`, se retiró la redirección forzada a `desktop_commander` en `src/core/callExecutor.ts:81-84` y se actualizó `src/components/ProcessFlow/components/StepItem.tsx`.
+6. **Reseteo de `qwenModel` a cadena vacía ante `"qwen2.5:7b"` (Hallazgo #4):**
+   - *Estado:* **Cerrada / Resuelta.**
+   - *Evidencia:* En `src/core/config.ts:97-99`, la migración ahora asigna explícitamente `DEFAULT_CONFIG.qwenModel` (`"qwen3.5:9b"`), evitando que el payload de inferencia a Ollama omita el nombre del modelo.
+7. **Asimetría de acciones `UNVERIFIED` en modo PLAN (Hallazgo #8):**
+   - *Estado:* **Cerrada / Resuelta.**
+   - *Evidencia:* En `src/core/modeEngines.ts:514-518`, si una acción despachada queda en `UNVERIFIED` (ej. clics en UI), `runPlanLoop` ya no sobrescribe el paso como `FAILED` ni activa un `handleReplan` destructivo, sino que continúa la secuencia permitiendo la observación en pasos posteriores.
+8. **Desreferenciación de contenidos de `RefStore` (Hallazgo #10):**
+   - *Estado:* **Cerrada / Resuelta.**
+   - *Evidencia:* Se expuso el endpoint `GET /api/jarvis/ref/:refKey` (con soporte para `?taskId=`) en `server.ts` y el método `jarvisApi.getRef()` en `src/services/jarvisApi.ts`, permitiendo consultar el texto íntegro almacenado bajo cualquier clave `rX`.
+9. **Tareas `RUNNING` huérfanas tras reinicio del servidor (Hallazgo #11):**
+   - *Estado:* **Cerrada / Resuelta.**
+   - *Evidencia:* En `src/core/core.ts:loadPersistedTasks()`, cualquier tarea restaurada que estuviera en estado `RUNNING` se transiciona automáticamente a `CANCELLED` con explicación clara, y sus pasos a `BLOCKED`, evitando estados zombi en la UI.
+10. **Comprobación de `MAX_TOOL_CALLS_TASK` en modo PLAN (Hallazgo #12):**
+    - *Estado:* **Cerrada / Resuelta.**
+    - *Evidencia:* En `src/core/modeEngines.ts:runPlanLoop`, se añadió la verificación del tope acumulado de llamadas (`MAX_TOOL_CALLS_TASK = 30`) antes de cada iteración, concluyendo la tarea limpiamente en estado `PARTIAL` en lugar de fallar internamente y forzar un replan.
+11. **Contratos obsoletos en `test-schema.ts` (Hallazgo #14):**
+    - *Estado:* **Cerrada / Resuelta.**
+    - *Evidencia:* Se actualizó `/test-schema.ts` para eliminar la ruta residual `"chat"` y alinear la lista de rutas con las tres rutas reales de subsistemas MCP: `["windows", "desktop_commander", "free_search"]`.

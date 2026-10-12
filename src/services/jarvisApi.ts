@@ -59,6 +59,15 @@ export const jarvisApi = {
   },
 
   /**
+   * Consulta el texto íntegro almacenado bajo una referencia de RefStore (Hallazgo #10).
+   */
+  async getRef(refKey: string, taskId?: string): Promise<{ refKey: string; content: string; found: boolean }> {
+    const query = taskId ? `?taskId=${encodeURIComponent(taskId)}` : "";
+    const res = await fetch(getApiUrl(`/api/jarvis/ref/${encodeURIComponent(refKey)}${query}`));
+    return handleResponse(res, `Error al obtener referencia ${refKey}`);
+  },
+
+  /**
    * Inicia una nueva tarea en el backend.
    */
   async initiateTask(message: string, mode: "NORMAL" | "PLAN"): Promise<{ task: Task }> {

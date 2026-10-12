@@ -143,6 +143,7 @@ Puntos donde el flujo se bifurca y el criterio técnico exacto utilizado en el c
   - `abort`: Qwen determina que la meta es inalcanzable; la tarea concluye con estado `PARTIAL` (si hubo pasos previos completados) o `FAILED`.
 - **Juicio de criterio en modo PLAN (`src/core/modeEngines.ts:runPlanLoop`):**
   - Si el paso define `expectedOutcome`, se invoca `evaluatePlanJudgement`. Si el modelo responde `cumple` con confianza >= `0.60`, el paso se da por completado; si no, se permite hasta 4 llamadas (`MAX_TOOL_CALLS_PER_STEP`) antes de forzar un `handleReplan`.
+  - *Comportamiento de acciones `UNVERIFIED`:* a diferencia del modo FAST (donde `UNVERIFIED` se continúa para permitir observaciones posteriores), en la implementación actual de `runPlanLoop` una acción que devuelva `status: "unverified"` interrumpe el bucle interno y, al no marcarse `stepCompleted`, transiciona el paso a `FAILED` activando `handleReplan` (ver `INCONSISTENCIAS.md`, Hallazgo #8).
 
 ## Iteraciones
 

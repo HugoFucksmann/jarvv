@@ -94,8 +94,8 @@ export class ConfigManager {
         const fileContent = fs.readFileSync(CONFIG_FILE_PATH, "utf-8");
         const parsed = JSON.parse(fileContent);
 
-        if (parsed.qwenModel === "qwen2.5:7b") {
-          parsed.qwenModel = "";
+        if (parsed.qwenModel === "qwen2.5:7b" || !parsed.qwenModel) {
+          parsed.qwenModel = DEFAULT_CONFIG.qwenModel;
         }
 
         delete parsed.windowsMcpUrl;
