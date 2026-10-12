@@ -283,7 +283,12 @@ export class QwenEngine implements ILLMClient {
       bodyPayload.format = "json";
     }
 
-    const timeoutMs = config.qwenTimeoutMs ?? config.timeoutMs ?? 60000;
+    const baseTimeout = config.qwenTimeoutMs ?? config.timeoutMs ?? 120000;
+    // En modo pensamiento (isThinking), la inferencia requiere más tiempo por la generación de tokens de razonamiento.
+    // Garantizamos al menos 180s o el doble del timeout base para evitar que AbortSignal aborte prematuramente en local.
+    const timeoutMs = isThinking
+      ? Math.max(baseTimeout * 2, 180000)
+      : baseTimeout;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const combinedSignal = options?.signal
       ? AbortSignal.any([options.signal, timeoutSignal])
@@ -516,27 +521,58 @@ export class QwenEngine implements ILLMClient {
   ): Promise<string> {
     return await this.executeStage("generateFinalResponse", async () => {
       const userPrompt = PROMPTS.FINAL_RESPONSE.buildUserPrompt(data);
-      const rawText = await this.dispatchPrompt(
-        PROMPTS.FINAL_RESPONSE.SYSTEM,
-        userPrompt,
-        false,
-        2000,
-        { stage: "final_response", signal }
-      );
-      
-      const thoughtMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
-      const thoughtText = thoughtMatch ? thoughtMatch[1].trim() : "";
-      const outsideText = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+      const isThinking = ConfigManager.getConfig().thinking;
 
-      // Si outsideText quedó vacío o solo una frase genérica de tarea completada, pero thoughtText contiene la respuesta real:
-      if (!outsideText || (outsideText.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(outsideText))) {
-        if (thoughtText && thoughtText.length > outsideText.length) {
-          console.log(`[generateFinalResponse] Priorizando contenido sustantivo de bloque <think> (${thoughtText.length} chars).`);
+      try {
+        const rawText = await this.dispatchPrompt(
+          PROMPTS.FINAL_RESPONSE.SYSTEM,
+          userPrompt,
+          false,
+          1500,
+          { stage: "final_response", signal }
+        );
+        
+        const thoughtMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
+        const thoughtText = thoughtMatch ? thoughtMatch[1].trim() : "";
+        const outsideText = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+        // Si outsideText quedó vacío o solo una frase genérica de tarea completada, pero thoughtText contiene la respuesta real:
+        if (!outsideText || (outsideText.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(outsideText))) {
+          if (thoughtText && thoughtText.length > outsideText.length) {
+            console.log(`[generateFinalResponse] Priorizando contenido sustantivo de bloque <think> (${thoughtText.length} chars).`);
+            return thoughtText;
+          }
+        }
+
+        const candidate = outsideText || thoughtText || rawText.trim();
+        if (candidate.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(candidate) && thoughtText) {
           return thoughtText;
         }
-      }
 
-      return outsideText || thoughtText || rawText.trim();
+        return candidate;
+      } catch (err: any) {
+        // Si falló por timeout o error mientras el modo pensamiento estaba activo,
+        // intentamos un reintento rápido con thinking=false para garantizar que el usuario reciba su respuesta sustantiva.
+        if (isThinking && !signal?.aborted) {
+          console.warn(`[generateFinalResponse] Falló con modo pensamiento activo (${err?.message || err}). Reintentando con thinking=false...`);
+          try {
+            const fallbackText = await this.dispatchPrompt(
+              PROMPTS.FINAL_RESPONSE.SYSTEM,
+              userPrompt,
+              false,
+              1000,
+              { stage: "final_response_fallback", thinking: false, signal }
+            );
+            const cleanFallback = fallbackText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+            if (cleanFallback) {
+              return cleanFallback;
+            }
+          } catch (retryErr: any) {
+            console.error(`[generateFinalResponse] Reintento rápido también falló:`, retryErr?.message || retryErr);
+          }
+        }
+        throw err;
+      }
     });
   }
 

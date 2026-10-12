@@ -21,7 +21,7 @@ const INITIAL_CONFIG: JarvisConfig = {
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
   decisionTimeoutMs: 30000,
-  qwenTimeoutMs: 60000,
+  qwenTimeoutMs: 120000,
   mcpTimeoutMs: 30000,
 };
 
@@ -354,8 +354,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <label className="block text-[10px] font-mono text-slate-400 mb-1">Qwen 3.5 9B:</label>
                   <input
                     type="number"
-                    value={config.qwenTimeoutMs || 60000}
-                    onChange={(e) => setConfig({ ...config, qwenTimeoutMs: Number(e.target.value) || 60000 })}
+                    value={config.qwenTimeoutMs || 120000}
+                    onChange={(e) => setConfig({ ...config, qwenTimeoutMs: Number(e.target.value) || 120000 })}
                     className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px]"
                   />
                 </div>

@@ -51,7 +51,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   },
   timeoutMs: 30000,
   decisionTimeoutMs: 30000,
-  qwenTimeoutMs: 60000,
+  qwenTimeoutMs: 120000,
   mcpTimeoutMs: 30000,
 };
 

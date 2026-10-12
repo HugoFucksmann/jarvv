@@ -45,10 +45,12 @@ export async function concludeTask(
         .flatMap((s) => s.calls || [])
         .slice(-3);
     const safeStr = (s: string) => s.replace(/<\/?obs>/gi, "[obs]");
-    const evidenceSummaries = lastCalls.map((c) => {
-        const obs = (c.evidence?.obs || c.evidence?.summary || "").slice(0, 1500);
-        return `${c.tool}: ${safeStr(obs)}`;
-    });
+    const evidenceSummaries = lastCalls
+        .map((c) => {
+            const obs = (c.evidence?.obs || c.evidence?.summary || "").trim().slice(0, 1500);
+            return obs ? `${c.tool}: ${safeStr(obs)}` : "";
+        })
+        .filter(Boolean);
     if (evidenceSummaries.length === 0 && abortReason) {
         evidenceSummaries.push(`abort: ${safeStr(abortReason).slice(0, 1500)}`);
     }
@@ -64,8 +66,20 @@ export async function concludeTask(
         }, context.abortController.signal);
     } catch (err: any) {
         console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err);
-        if (evidenceSummaries.length > 0) {
-            task.finalResponse = `Información recopilada para su solicitud:\n${evidenceSummaries.map((e) => `• ${e}`).join("\n")}`;
+        const factsEntries = Object.entries(task.memory?.facts || {});
+        const logLines = task.memory?.log || [];
+
+        if (factsEntries.length > 0 || evidenceSummaries.length > 0 || logLines.length > 0) {
+            const parts: string[] = [];
+            if (factsEntries.length > 0) {
+                parts.push(`Hallazgos:\n${factsEntries.map(([k, v]) => `• ${k}: ${v}`).join("\n")}`);
+            }
+            if (evidenceSummaries.length > 0) {
+                parts.push(`Evidencias:\n${evidenceSummaries.map((e) => `• ${e}`).join("\n")}`);
+            } else if (logLines.length > 0) {
+                parts.push(`Acciones realizadas:\n${logLines.slice(-3).map((l) => `• ${l}`).join("\n")}`);
+            }
+            task.finalResponse = `Información recopilada para su solicitud:\n\n${parts.join("\n\n")}`;
         } else {
             task.finalResponse = `Tarea concluida con estado ${state}.${abortReason ? ` Motivo: ${abortReason}` : ""}`;
         }
