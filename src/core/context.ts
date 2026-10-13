@@ -8,6 +8,8 @@ import {
     StepCall,
     ProgressiveMemoryLimit,
     PROGRESSIVE_MEMORY_TIERS,
+    StepHandoff,
+    Step,
 } from "./types.ts";
 import { Attempt } from "./reasoner/prompts.ts";
 
@@ -34,6 +36,8 @@ export interface TaskExecutionContext {
     lastCallDecisionSummary?: string;
     /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
     lastCallTool?: string;
+    /** Fase 4: Handoff determinista del último paso completado */
+    lastHandoff?: StepHandoff;
 }
 
 /**
@@ -57,25 +61,38 @@ export function expandMemoryContext(context: TaskExecutionContext): ProgressiveM
     return next;
 }
 
+/**
+ * Agrega una entrada a LOG preservando continuidad factual sin colapso prematuro (Fase 4, §3.2.5).
+ */
 export function addLogEntry(context: TaskExecutionContext, line: string): void {
     if (!context.task.memory) {
-        context.task.memory = { log: [], facts: {}, fail: [] };
+        context.task.memory = { log: [], facts: {}, fail: [], effects: [] };
     }
     const log = context.task.memory.log;
     log.push(line);
-    // Collapse older lines if > 12 lines (§10.3)
-    if (log.length > 12) {
-        const old = log.slice(0, log.length - 6);
-        const okCount = old.filter((l) => l.includes("|ok|")).length;
-        const errCount = old.length - okCount;
-        const summaryLine = `1-${old.length}: ${okCount} ok, ${errCount} err`;
-        context.task.memory.log = [summaryLine, ...log.slice(-6)];
+    // Preservar entradas continuas sin sustitución estadística destructiva (hasta 30 entradas completas)
+    if (log.length > 30) {
+        context.task.memory.log = log.slice(-30);
+    }
+}
+
+/**
+ * Registra efectos secundarios confirmados en el entorno (Fase 4, §3.2.5).
+ */
+export function addEffectEntry(context: TaskExecutionContext, effect: string): void {
+    if (!context.task.memory) {
+        context.task.memory = { log: [], facts: {}, fail: [], effects: [] };
+    }
+    context.task.memory.effects = context.task.memory.effects || [];
+    context.task.memory.effects.push(effect);
+    if (context.task.memory.effects.length > 25) {
+        context.task.memory.effects = context.task.memory.effects.slice(-25);
     }
 }
 
 export function addFailEntry(context: TaskExecutionContext, line: string): void {
     if (!context.task.memory) {
-        context.task.memory = { log: [], facts: {}, fail: [] };
+        context.task.memory = { log: [], facts: {}, fail: [], effects: [] };
     }
     const fail = context.task.memory.fail;
     fail.push(line);
@@ -148,4 +165,46 @@ export function buildPlanLines(task: Task): string[] {
             }
             return `[ ] ${s.id} ${s.instruction}`;
         });
+}
+
+/**
+ * Obtiene las entradas más recientes del log de efectos secundarios (Fase 4, §3.2.5).
+ */
+export function buildEffectsContext(task: Task, limit = 5): string[] {
+    const effects = task.memory?.effects || [];
+    return effects.slice(-limit);
+}
+
+/**
+ * Aplica el handoff determinista entre pasos completados y el paso activo (Fase 4, §3.2.5, §11).
+ * Transfiere hechos clave, hallazgos y referencias de los pasos previos o de dependencias directas.
+ */
+export function applyStepHandoff(step: Step, context: TaskExecutionContext): string {
+    const handoff = context.lastHandoff;
+    if (!handoff) {
+        return step.instruction;
+    }
+
+    const parts: string[] = [step.instruction];
+
+    // Si el paso declara dependencias específicas (ej. ["s1", "s2"])
+    if (step.dependencies && step.dependencies.length > 0) {
+        const depSteps = context.task.steps.filter((s) => step.dependencies?.includes(s.id) && s.state === "COMPLETED");
+        if (depSteps.length > 0) {
+            const depSummaries = depSteps.map((ds) => {
+                const h = ds.handoff;
+                const summary = h?.finding || ds.evidence?.summary || "ok";
+                const ref = h?.refKey ? ` (ref:${h.refKey})` : ds.evidence?.ref ? ` (${ds.evidence.ref})` : "";
+                return `• ${ds.id} [${ds.tool || ds.route}]: ${summary}${ref}`;
+            });
+            parts.push(`[DATOS PREVIOS DE DEPENDENCIAS]:\n${depSummaries.join("\n")}`);
+        }
+    } else if (handoff.finding) {
+        // Enlace secuencial directo con el paso inmediatamente anterior
+        const refNote = handoff.refKey ? ` [ref:${handoff.refKey}]` : "";
+        const factNote = handoff.primaryFact ? ` | ${handoff.primaryFact.key}=${handoff.primaryFact.value}` : "";
+        parts.push(`[HANDOFF ${handoff.fromStepId} (${handoff.tool})]: ${handoff.finding}${refNote}${factNote}`);
+    }
+
+    return parts.join("\n");
 }

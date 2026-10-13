@@ -58,6 +58,17 @@ export interface Step {
   expectedOutcome?: string;
   dependencies?: string[];
   candidate_tools?: string[];
+  handoff?: StepHandoff;
+}
+
+export interface StepHandoff {
+  fromStepId: string;
+  tool: string;
+  finding: string;
+  primaryFact?: { key: string; value: string };
+  refKey?: string;
+  factsDelta?: Record<string, string>;
+  timestamp: number;
 }
 
 export interface PlanStep {
@@ -117,6 +128,7 @@ export interface TaskMemory {
   log: string[];
   facts: Record<string, string>;
   fail: string[];
+  effects?: string[];
 }
 
 export interface Task {

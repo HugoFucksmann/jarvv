@@ -117,7 +117,7 @@ export class JarvisCore {
       currentStep: 0,
       scratchpad: {},
       state: "RUNNING",
-      memory: { log: [], facts: {}, fail: [] },
+      memory: { log: [], facts: {}, fail: [], effects: [] },
       replans: 0,
       escalations: 0,
       stepSeq: 0,
@@ -324,7 +324,7 @@ export class JarvisCore {
         if (stored) {
           const tasks: Task[] = JSON.parse(stored);
           for (const task of tasks) {
-            task.memory = task.memory || { log: [], facts: {}, fail: [] };
+            task.memory = task.memory || { log: [], facts: {}, fail: [], effects: [] };
             task.replans = task.replans ?? 0;
             task.escalations = task.escalations ?? 0;
             task.stepSeq = task.stepSeq ?? task.steps.length;

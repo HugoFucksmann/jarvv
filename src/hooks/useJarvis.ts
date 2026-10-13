@@ -247,6 +247,45 @@ export function useJarvis() {
     }
   }, [fetchState, task?.id]);
 
+  // Reject plan
+  const rejectPlan = useCallback(async (reason?: string) => {
+    const tid = activeTaskIdRef.current || task?.id || undefined;
+    try {
+      setError(null);
+      await jarvisApi.rejectPlan(tid, reason);
+      await fetchState();
+    } catch (err: any) {
+      console.error("Failed to reject plan on backend:", err);
+      setError(err.message || "Error al rechazar el plan.");
+    }
+  }, [fetchState, task?.id]);
+
+  // Modify plan
+  const modifyPlan = useCallback(async (feedback?: string) => {
+    const tid = activeTaskIdRef.current || task?.id || undefined;
+    try {
+      setError(null);
+      await jarvisApi.modifyPlan(tid, feedback);
+      await fetchState();
+    } catch (err: any) {
+      console.error("Failed to request plan modification on backend:", err);
+      setError(err.message || "Error al solicitar modificación del plan.");
+    }
+  }, [fetchState, task?.id]);
+
+  // Provide user answer to interactive question
+  const provideUserAnswer = useCallback(async (answer: string) => {
+    const tid = activeTaskIdRef.current || task?.id || undefined;
+    try {
+      setError(null);
+      await jarvisApi.provideUserAnswer(tid, answer);
+      await fetchState();
+    } catch (err: any) {
+      console.error("Failed to submit interactive user answer:", err);
+      setError(err.message || "Error al enviar respuesta interactiva.");
+    }
+  }, [fetchState, task?.id]);
+
   // Refresh discovery catalog
   const refreshDiscovery = useCallback(async () => {
     try {
@@ -301,6 +340,9 @@ export function useJarvis() {
     runTask,
     cancelTask,
     confirmPlan,
+    rejectPlan,
+    modifyPlan,
+    provideUserAnswer,
     approvePending,
     denyPending,
     refreshDiscovery,

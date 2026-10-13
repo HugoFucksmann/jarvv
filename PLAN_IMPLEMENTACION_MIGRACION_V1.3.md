@@ -407,24 +407,29 @@ Acciones ejecutadas:
 - Garantizada la prohibición absoluta de replanificar ante Guard DENY o rechazo del usuario.
 - Persistencia mínima de metadatos y plan sin retener estados volátiles no serializables.
 Criterio de Salida: CUMPLIDO. PLAN opera como capa de coordinación pura sobre runStep; separación planificación/ejecución/verificación verificada; sin duplicación de ejecución; regla de materialidad y control de Guard aplicados; compilación y tipado limpios con 0 errores (compile_applet / tsc --noEmit). Documentado en `docs/FASE_3B_CIERRE_AUDITORIA.md`.
-Fase 4: Manejo Factual, Sustitución de Referencias y Reintentos
+Fase 4: Manejo Factual, Sustitución de Referencias y Reintentos [COMPLETADA Y CERTIFICADA]
 Objetivo: Consolidar la transferencia de datos entre llamadas y pasos sin subsistemas complejos.
-Acciones:
-Implementar la sustitución de referencias {{ref:rX}} desde memoria temporal antes de la evaluación de Guard.
-Consolidar las capas de memoria en memoria (LOG continuo sin colapso estadístico prematuro, FACTS y effects).
-Auditar y consolidar las reglas de reintentos deterministas garantizando que una denegación de Guard jamás sea reintentada.
-Implementar el handoff determinista entre pasos completados.
-Auditar si el handoff y los mecanismos de memoria factual son aplicables al encadenamiento de etapas dependientes de PLAN (sección 3.2.5) y documentar, a partir de la auditoría, la frontera entre reintentos de FAST y replanificación de PLAN (sección 6.2), sin agregar límites, políticas de reintentos ni subsistemas nuevos.
-Criterio de Salida: Argumentos resueltos validados por Guard; memoria factual transferida entre pasos; reintentos controlados sin eludir seguridad.
-Fase 5: Interfaz de Usuario y Sincronización en Tiempo Real
+Acciones ejecutadas:
+- Implementada la sustitución de referencias temporales {{ref:rX}} desde RefStore antes de la evaluación de Guard (`resolveReferences` en `src/core/processor/refResolver.ts`).
+- Argumentos reales resueltos inspeccionados por Guard antes de cualquier comprobación o despacho.
+- Consolidado LOG continuo sin colapso estadístico prematuro preservando hasta 30 entradas completas (`src/core/context.ts`).
+- Incorporada la capa de registro de efectos secundarios confirmados (`effects` en `TaskMemory`).
+- Implementado el handoff determinista entre pasos completados (`StepHandoff` y `applyStepHandoff`).
+- Implementada la validación de dependencias de etapa en PLAN, activando replanificación acotada ante invalidación de dependencias.
+- Auditadas y certificadas las reglas de reintento: prohibición absoluta de reintentar ante Guard DENY o rechazo del usuario.
+- Creada suite de pruebas automatizadas `test-phase4.ts` con 18/18 aserciones exitosas. Documentado en `docs/FASE_4_CIERRE_AUDITORIA.md`.
+Criterio de Salida: CUMPLIDO. Argumentos resueltos validados por Guard; memoria factual transferida entre pasos; reintentos controlados sin eludir seguridad; tipado y compilación limpios (0 errores).
+Fase 5: Interfaz de Usuario y Sincronización en Tiempo Real [COMPLETADA Y CERTIFICADA]
 Objetivo: Reflejar el nuevo flujo y estados en la interfaz web sin errores.
-Acciones:
-Adaptar DecisionStream para visualizar la selección unificada y los veredictos ok / cumple.
-Adaptar ContextInspector para exponer effects, ledger, facts y referencias temporales.
-Adaptar GuardBanner para reflejar la solicitud de aprobación (sin cuenta regresiva de timeout).
-Adaptar ProcessFlow para visualizar la línea de tiempo de forma homogénea.
-Reflejar en la interfaz el modo PLAN: presentación del plan para aceptar, rechazar o solicitar modificaciones; avance por etapa; resultado de la verificación por etapa; y replanificaciones. Qué componentes concretos se adaptan o se crean para ello queda por definir tras la auditoría del frontend; no se asumen componentes nuevos.
-Criterio de Salida: UI reactiva sincronizada con eventos del Core; compilación y renderizado limpios sin errores en consola.
+Acciones ejecutadas:
+- Adaptado `DecisionStream` incorporando `DecisionVerificationView` para visualizar la selección unificada y los veredictos binarios `ok` y `cumple` evaluados por Eos sobre señales limpias ($p \ge 0.5$).
+- Adaptado `ContextInspector` y `MemoryView` exponiendo `effects` (mutaciones secundarias confirmadas), `ledger` de handoffs deterministas (`step.handoff`), hechos `facts` y exploración interactiva de referencias temporales (`RefStore` / `/api/jarvis/ref/:refKey`).
+- Actualizado el pie de página de `ContextInspector` eliminando la referencia obsoleta `MAX_CALLS_STEP=4` y reflejando la arquitectura real: `MAX_STEPS=15 · PROG_MEM=2→5→10 · MAX_REPLANS=2`.
+- Adaptado `GuardBanner` y `ApprovalAction` para reflejar la solicitud de aprobación en `WAITING_INPUT` sin cronómetros de expiración, e incorporado soporte para respuestas interactivas a preguntas (`user_answer`).
+- Adaptado `ProcessFlow`, `PlanReview` y `StepItem` para visualizar la línea de tiempo de forma homogénea con dependencias, herramientas candidatas, handoffs deterministas y etapas `SUPERSEDED`.
+- Implementado el ciclo de vida interactivo completo del modo PLAN en la UI: aceptación (`confirmPlan`), rechazo con motivo (`rejectPlan`), y solicitud de modificaciones con feedback correctivo (`modifyPlan`).
+- Creada suite de pruebas automatizadas `test-phase5.ts` con 10/10 aserciones exitosas. Documentado en `docs/FASE_5_CIERRE_AUDITORIA.md`.
+Criterio de Salida: CUMPLIDO. UI reactiva sincronizada con eventos del Core; ciclo PLAN interactivo completo; veredictos ok/cumple y memoria factual expuestos; compilación limpia con 0 errores (compile_applet / tsc --noEmit).
 Fase 6: Calibración, Documentación y Cierre
 Objetivo: Validar la estabilidad global y sincronizar toda la documentación.
 Acciones:

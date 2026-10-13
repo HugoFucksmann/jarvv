@@ -71,6 +71,7 @@ export async function concludeTask(
             logLines: task.memory?.log || [],
             facts: task.memory?.facts || {},
             failLines: task.memory?.fail || [],
+            effects: task.memory?.effects || [],
             evidenceSummaries,
             abortReason,
         }, context.abortController.signal);
@@ -606,6 +607,34 @@ export async function runPlanLoop(
 
         task.currentStep = stepIndex;
         const step = task.steps[stepIndex];
+
+        // Verificación determinista de dependencias de etapa (Fase 4, §3.2.5, §6.2)
+        if (step.dependencies && step.dependencies.length > 0) {
+            const brokenDep = step.dependencies.find((depId) => {
+                const found = task.steps.find((s) => s.id === depId);
+                return !found || found.state !== "COMPLETED";
+            });
+            if (brokenDep) {
+                console.warn(`[PLAN] Dependencia '${brokenDep}' del paso '${step.id}' no satisfecha. Activando replanificación por invalidación de dependencia.`);
+                step.state = "FAILED";
+                step.error = `Dependencia previa '${brokenDep}' no completada con éxito.`;
+                deps.persistTasks();
+                deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+
+                if ((task.replans || 0) >= MAX_REPLAN) {
+                    console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado ante fallo de dependencia.`);
+                    await concludeTask(context, "PARTIAL", deps, `Dependencia '${brokenDep}' no completada y límite de replanes agotado.`);
+                    return;
+                }
+
+                const replanSuccess = await handleReplan(context, stepIndex, deps);
+                if (!replanSuccess || (task.state as TaskState) === "WAITING_INPUT") {
+                    return;
+                }
+                continue;
+            }
+        }
+
         step.state = "RUNNING";
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);

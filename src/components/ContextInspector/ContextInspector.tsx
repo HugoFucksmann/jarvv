@@ -12,6 +12,7 @@ interface ContextInspectorProps {
   steps: Step[];
   discoveredTools: Record<string, MCPTool[]>;
   memory?: TaskMemory;
+  taskId?: string;
   extraCapabilities?: {
     prompts: Record<string, MCPPrompt[]>;
     resourceTemplates: Record<string, MCPResourceTemplate[]>;
@@ -25,6 +26,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   steps,
   discoveredTools,
   memory,
+  taskId,
   extraCapabilities,
   unavailableServers = {},
   onRefreshDiscovery,
@@ -35,8 +37,9 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   const totalDiscovered = Object.values(discoveredTools).reduce((acc, t) => acc + t.length, 0);
   const unavailableCount = Object.keys(unavailableServers).length;
 
-  // Cálculo preciso de datos disponibles en cada pestaña (Etapa B.5)
+  // Cálculo preciso de datos disponibles en cada pestaña (Etapa B.5 y Fase 5)
   const factsCount = Object.keys(memory?.facts || {}).length;
+  const effectsCount = (memory?.effects || []).length;
   const failCount = (memory?.fail || []).length;
   const scratchpadKeysCount = Object.keys(scratchpad || {}).length;
   const evidenceCount = steps.reduce((acc, s) => {
@@ -79,7 +82,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
               >
                 <span>Memoria</span>
                 <span className="text-[10px] text-slate-500 ml-1">
-                  ({factsCount > 0 ? `${factsCount}h` : "0"}{failCount > 0 ? `·${failCount}f` : ""})
+                  ({factsCount > 0 ? `${factsCount}h` : "0"}{effectsCount > 0 ? `·${effectsCount}e` : ""}{failCount > 0 ? `·${failCount}f` : ""})
                 </span>
               </button>
               <button
@@ -140,7 +143,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
         <div className="hidden sm:flex items-center gap-2.5 text-slate-500 font-mono text-[10px]">
           <span>MAX_STEPS=15</span>
           <span aria-hidden="true">·</span>
-          <span>MAX_CALLS_STEP=4</span>
+          <span>PROG_MEM=2→5→10</span>
           <span aria-hidden="true">·</span>
           <span>MAX_RETRIES=2</span>
           <span aria-hidden="true">·</span>
@@ -149,8 +152,8 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
       </div>
 
       {isOpen && (
-        <div id="context-inspector-panel" className="px-6 py-3 border-t border-slate-800/80 max-h-52 overflow-y-auto">
-          {activeTab === "memory" && <MemoryView memory={memory} />}
+        <div id="context-inspector-panel" className="px-6 py-3 border-t border-slate-800/80 max-h-56 overflow-y-auto">
+          {activeTab === "memory" && <MemoryView memory={memory} steps={steps} taskId={taskId} />}
           {activeTab === "scratchpad" && <ScratchpadView scratchpad={scratchpad} />}
           {activeTab === "evidence" && <EvidenceView steps={steps} />}
           {activeTab === "discovery" && (

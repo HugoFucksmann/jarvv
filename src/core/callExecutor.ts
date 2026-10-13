@@ -9,6 +9,7 @@ import {
     StepExecutionResult,
     isTerminalState,
     MCPTool,
+    StepHandoff,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
@@ -16,10 +17,14 @@ import { Guard } from "./policy/guard.ts";
 import { PolicyRegistry } from "./policy/policyRegistry.ts";
 import { ILLMClient } from "./reasoner/qwen.ts";
 import { ResultProcessor, ProcessedResult } from "./processor/resultProcessor.ts";
+import { resolveReferences } from "./processor/refResolver.ts";
 import {
     TaskExecutionContext,
     addLogEntry,
     addFailEntry,
+    addEffectEntry,
+    buildEffectsContext,
+    applyStepHandoff,
     buildScratchpadContextForDecision,
     buildAttempts,
     buildPlanLines,
@@ -203,6 +208,7 @@ export async function runStep(
         ? (deps.discoveryEngine.getCleanedSchema(serverName, selectedTool.name) || selectedTool.inputSchema)
         : (selectedTool.inputSchema || {});
     let args: Record<string, unknown> = {};
+    const effectiveInstruction = applyStepHandoff(step, context);
 
     try {
         args = await deps.qwenEngine.generateArguments({
@@ -211,6 +217,7 @@ export async function runStep(
             planLines: task.mode === "PLAN" ? buildPlanLines(task) : undefined,
             failLines: task.memory?.fail || [],
             facts: task.memory?.facts || {},
+            effects: buildEffectsContext(task),
             tool: selectedTool,
             cleanedSchema,
             lastObs: context.lastCallCompactObs ? {
@@ -218,7 +225,7 @@ export async function runStep(
                 toolName: context.lastCallTool || selectedTool.name,
                 obsText: context.lastCallCompactObs,
             } : undefined,
-            taskInstruction: step.instruction,
+            taskInstruction: effectiveInstruction,
         }, undefined, undefined, undefined, context.abortController.signal);
     } catch (argErr: any) {
         console.error(`[Qwen Args Error]`, argErr);
@@ -230,7 +237,18 @@ export async function runStep(
         };
     }
 
-    deps.emitEvent(task.id, "ARGUMENTS_GENERATED", { args }, step.id);
+    // 4.1. Sustitución determinista de referencias temporales {{ref:rX}} antes de Guard (Fase 4, §3, §12 Criterio 7)
+    const refResolution = resolveReferences(args, task.id);
+    args = refResolution.resolvedArgs;
+    if (refResolution.replacedCount > 0) {
+        console.log(`[runStep] Sustituidas ${refResolution.replacedCount} referencias temporales (${refResolution.resolvedRefs.join(", ")}) desde RefStore.`);
+    }
+
+    deps.emitEvent(task.id, "ARGUMENTS_GENERATED", {
+        args,
+        resolvedRefs: refResolution.resolvedRefs,
+        replacedCount: refResolution.replacedCount,
+    }, step.id);
 
     // 5. Anti-Loop Verification (§7)
     const policy = PolicyRegistry.getPolicy(serverName, selectedTool.name);
@@ -462,6 +480,28 @@ export async function runStep(
         error: !isStepSuccess ? processed.summaryText : undefined,
         timestamp: Date.now(),
     };
+
+    // Registrar efectos secundarios e inyectar handoff determinista (Fase 4, §3.2.5)
+    if (isStepSuccess) {
+        if (policy.mutates || policy.capability !== "READ") {
+            const effectDesc = `${selectedTool.name}: ${processed.finding || processed.summaryText || 'mutación aplicada'}`;
+            addEffectEntry(context, `${step.id}|${effectDesc}`);
+        }
+
+        const factKeys = Object.keys(processed.factsDelta);
+        const primaryFactKey = factKeys[0];
+        const handoff: StepHandoff = {
+            fromStepId: step.id,
+            tool: selectedTool.name,
+            finding: processed.finding || processed.summaryText || "Paso ejecutado con éxito",
+            primaryFact: primaryFactKey ? { key: primaryFactKey, value: processed.factsDelta[primaryFactKey] } : undefined,
+            refKey: processed.refKey,
+            factsDelta: processed.factsDelta,
+            timestamp: Date.now(),
+        };
+        step.handoff = handoff;
+        context.lastHandoff = handoff;
+    }
 
     step.calls = step.calls || [];
     step.calls.push(callRecord);

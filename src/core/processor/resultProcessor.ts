@@ -54,6 +54,15 @@ export class RefStore {
     return undefined;
   }
 
+  static has(key: string, taskId?: string): boolean {
+    return this.get(key, taskId) !== undefined;
+  }
+
+  static list(taskId: string): string[] {
+    const store = this.taskStores.get(taskId);
+    return store ? Array.from(store.keys()) : [];
+  }
+
   static clear(taskId?: string): void {
     if (taskId) {
       this.taskStores.delete(taskId);

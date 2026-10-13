@@ -107,6 +107,11 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                   SUPERSEDED {step.rev ? `(rev ${step.rev})` : ""}
                 </span>
               )}
+              {step.dependencies && step.dependencies.length > 0 && (
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-950/50 text-amber-300 border border-amber-900/50">
+                  deps: [{step.dependencies.join(", ")}]
+                </span>
+              )}
             </div>
             <p className={`text-sm ${step.superseded ? "line-through text-slate-500" : "text-slate-200"}`}>
               {step.instruction}
@@ -115,6 +120,20 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
               <p className="text-xs text-emerald-400/70 font-mono mt-0.5">
                 Esperado: {step.expectedOutcome}
               </p>
+            )}
+            {step.handoff && !step.superseded && (
+              <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 bg-cyan-950/40 border border-cyan-900/50 px-2 py-0.5 rounded mt-1">
+                <span className="text-cyan-400 font-semibold">Handoff:</span>
+                <span className="text-slate-300">{step.handoff.finding}</span>
+                {step.handoff.primaryFact && (
+                  <span className="text-emerald-400 bg-emerald-950/80 px-1 rounded">
+                    {step.handoff.primaryFact.key}={step.handoff.primaryFact.value}
+                  </span>
+                )}
+                {step.handoff.refKey && (
+                  <span className="text-sky-300 font-medium">[{step.handoff.refKey}]</span>
+                )}
+              </div>
             )}
           </div>
         </div>

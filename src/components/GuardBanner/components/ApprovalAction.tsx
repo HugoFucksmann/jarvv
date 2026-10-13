@@ -80,6 +80,10 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
             <span>{pending.capability}</span>
             <span aria-hidden="true">·</span>
             <span>{pending.mcp}:{pending.tool}</span>
+            <span aria-hidden="true">·</span>
+            <span className="text-emerald-400 font-sans text-[11px] bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/60">
+              Espera activa sin expiración
+            </span>
           </div>
           <p className="text-sm text-amber-100 font-medium">
             {pending.reason}

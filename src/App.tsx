@@ -41,6 +41,9 @@ export default function App() {
     runTask,
     cancelTask,
     confirmPlan,
+    rejectPlan,
+    modifyPlan,
+    provideUserAnswer,
     approvePending,
     denyPending,
     refreshDiscovery,
@@ -119,6 +122,8 @@ export default function App() {
           pending={pendingApproval}
           onApprove={approvePending}
           onDeny={denyPending}
+          isWaitingUserAnswer={task?.state === "WAITING_INPUT" && task?.waitingReason === "user_answer"}
+          onProvideUserAnswer={provideUserAnswer}
         />
 
         {/* 4. Decision Stream — Live Decision #1, #2 & Operational Event Trace with Progressive Disclosure */}
@@ -129,6 +134,8 @@ export default function App() {
           <ProcessFlow
             task={task}
             onConfirmPlan={confirmPlan}
+            onRejectPlan={rejectPlan}
+            onModifyPlan={modifyPlan}
             onCancelTask={cancelTask}
             onNewTask={handleNewTask}
           />
@@ -140,6 +147,7 @@ export default function App() {
         scratchpad={task?.scratchpad || {}}
         steps={task?.steps || []}
         memory={task?.memory}
+        taskId={task?.id}
         discoveredTools={discoveredTools}
         extraCapabilities={extraCapabilities}
         unavailableServers={unavailableServers}

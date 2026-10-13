@@ -112,6 +112,60 @@ export const jarvisApi = {
   },
 
   /**
+   * Rechaza el plan propuesto con motivo opcional.
+   */
+  async rejectPlan(taskId?: string, reason?: string): Promise<{ ok: boolean }> {
+    const body: Record<string, unknown> = {};
+    if (taskId) {
+      body.taskId = taskId;
+    }
+    if (reason) {
+      body.reason = reason;
+    }
+    const res = await fetch(getApiUrl("/api/jarvis/reject-plan"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return handleResponse<{ ok: boolean }>(res, "Error al rechazar el plan");
+  },
+
+  /**
+   * Solicita modificación de un plan en modo PLAN enviando feedback correctivo.
+   */
+  async modifyPlan(taskId?: string, feedback?: string): Promise<{ ok: boolean }> {
+    const body: Record<string, unknown> = {};
+    if (taskId) {
+      body.taskId = taskId;
+    }
+    if (feedback) {
+      body.feedback = feedback;
+    }
+    const res = await fetch(getApiUrl("/api/jarvis/modify-plan"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return handleResponse<{ ok: boolean }>(res, "Error al solicitar modificación del plan");
+  },
+
+  /**
+   * Envía respuesta del usuario a una solicitud interactiva en WAITING_INPUT (user_answer).
+   */
+  async provideUserAnswer(taskId?: string, answer: string = ""): Promise<{ ok: boolean }> {
+    const body: Record<string, unknown> = { answer };
+    if (taskId) {
+      body.taskId = taskId;
+    }
+    const res = await fetch(getApiUrl("/api/jarvis/user-answer"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return handleResponse<{ ok: boolean }>(res, "Error al enviar respuesta interactiva");
+  },
+
+  /**
    * Aprueba una operación pendiente bloqueada por Guard.
    */
   async approvePending(taskId?: string): Promise<{ ok: boolean }> {

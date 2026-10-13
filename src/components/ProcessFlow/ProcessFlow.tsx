@@ -7,14 +7,18 @@ import { FinalResponseView } from "./components/FinalResponseView.tsx";
 
 interface ProcessFlowProps {
   task: Task | null;
-  onConfirmPlan: () => void;
-  onCancelTask: () => void;
+  onConfirmPlan: () => void | Promise<void>;
+  onRejectPlan?: (reason?: string) => void | Promise<void>;
+  onModifyPlan?: (feedback: string) => void | Promise<void>;
+  onCancelTask: () => void | Promise<void>;
   onNewTask?: () => void;
 }
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   task,
   onConfirmPlan,
+  onRejectPlan,
+  onModifyPlan,
   onCancelTask,
   onNewTask,
 }) => {
@@ -40,7 +44,10 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       {isAwaitingPlanConfirmation && (
         <PlanReview
           steps={task.steps}
+          replans={task.replans}
           onConfirm={onConfirmPlan}
+          onReject={onRejectPlan}
+          onModify={onModifyPlan}
           onCancel={onCancelTask}
         />
       )}
