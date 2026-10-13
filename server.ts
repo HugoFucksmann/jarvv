@@ -147,18 +147,71 @@ async function main() {
     res.json({ ok: true });
   });
 
-  // Confirmar plan (modo PLAN)
-  jarvisRouter.post('/confirm-plan', (req, res) => {
+  // Confirmar, rechazar o solicitar modificación de plan (modo PLAN §3.2.4)
+  jarvisRouter.post('/confirm-plan', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    const { taskId } = req.body;
-    if (taskId) {
-      jarvisCore.confirmPlan(taskId);
-    } else {
-      const allTasks = jarvisCore.getAllTasks();
-      const latest = allTasks[allTasks.length - 1];
-      if (latest) jarvisCore.confirmPlan(latest.id);
+    const { taskId, action, feedback, reason } = req.body;
+    const allTasks = jarvisCore.getAllTasks();
+    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
+
+    if (!targetId) {
+      return res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
     }
-    res.json({ ok: true });
+
+    if (action === 'reject') {
+      jarvisCore.rejectPlan(targetId, reason);
+      return res.json({ ok: true, action: 'reject' });
+    }
+
+    if (action === 'modify') {
+      await jarvisCore.modifyPlan(targetId, feedback || reason || 'Ajustar plan.');
+      return res.json({ ok: true, action: 'modify' });
+    }
+
+    jarvisCore.confirmPlan(targetId);
+    res.json({ ok: true, action: 'confirm' });
+  });
+
+  // Rechazar plan formalmente
+  jarvisRouter.post('/reject-plan', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId, reason } = req.body;
+    const allTasks = jarvisCore.getAllTasks();
+    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
+    if (targetId) {
+      jarvisCore.rejectPlan(targetId, reason);
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
+    }
+  });
+
+  // Solicitar modificación de plan
+  jarvisRouter.post('/modify-plan', async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId, feedback } = req.body;
+    const allTasks = jarvisCore.getAllTasks();
+    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
+    if (targetId) {
+      await jarvisCore.modifyPlan(targetId, feedback || 'Ajustar pasos según solicitud.');
+      res.json({ ok: true });
+    } else {
+      res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
+    }
+  });
+
+  // Responder a pregunta interactiva (WAITING_INPUT user_answer)
+  jarvisRouter.post('/user-answer', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    const { taskId, answer } = req.body;
+    const allTasks = jarvisCore.getAllTasks();
+    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
+    if (targetId && typeof answer === 'string') {
+      jarvisCore.provideUserAnswer(targetId, answer);
+      res.json({ ok: true });
+    } else {
+      res.status(400).json({ error: 'Se requiere taskId y respuesta válida.' });
+    }
   });
 
   // Aprobar operación con compuerta de seguridad Guard

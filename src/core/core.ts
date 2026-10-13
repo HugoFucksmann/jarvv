@@ -10,10 +10,13 @@ import {
   CoreEvent,
   CoreEventType,
   PendingApproval,
+  isTerminalState,
+  MAX_STEPS,
+  StepState,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
-import { QwenEngine, ILLMClient } from "./reasoner/qwen.ts";
+import { QwenEngine, ILLMClient, isStepRoute } from "./reasoner/qwen.ts";
 import { TaskExecutionContext } from "./context.ts";
 import { EngineDependencies } from "./callExecutor.ts";
 import { RefStore } from "./processor/resultProcessor.ts";
@@ -134,6 +137,7 @@ export class JarvisCore {
       startTime: Date.now(),
       overridesCount: 0,
       retriesCount: 0,
+      memoryRetrievalLimit: 2,
     };
 
     console.log(`[Task] start id=${taskId} mode=${mode}`);
@@ -149,7 +153,8 @@ export class JarvisCore {
         `[Task Summary] id=${taskId} state=FAILED reason="${err?.message || err}" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
       );
       RefStore.clear(taskId);
-      if (context.task.state === "RUNNING") {
+      // Invarianza de estados terminales: si ya fue CANCELLED u otro estado terminal, no sobreescribir
+      if (!context.isCancelled && !isTerminalState(context.task.state)) {
         context.task.state = "FAILED";
         this.persistTasks();
         this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "FAILED", error: String(err) });
@@ -161,7 +166,7 @@ export class JarvisCore {
 
   cancelTask(taskId: string): void {
     const context = this.taskContexts.get(taskId);
-    if (!context || context.task.state !== "RUNNING") return;
+    if (!context || isTerminalState(context.task.state) || context.isCancelled) return;
     context.isCancelled = true;
     context.abortController.abort();
     context.task.state = "CANCELLED";
@@ -172,7 +177,7 @@ export class JarvisCore {
     }
 
     const currentStep = context.task.steps[context.task.currentStep];
-    if (currentStep && currentStep.state === "RUNNING") {
+    if (currentStep && (currentStep.state === "RUNNING" || currentStep.state === "WAITING_APPROVAL" || currentStep.state === "PENDING")) {
       currentStep.state = "FAILED";
       currentStep.error = "CANCELLED";
     }
@@ -189,14 +194,105 @@ export class JarvisCore {
   confirmPlan(taskId: string): void {
     const context = this.taskContexts.get(taskId);
     if (!context || context.task.mode !== "PLAN") return;
+    if (context.isCancelled || isTerminalState(context.task.state)) return;
     context.task.planConfirmed = true;
+    context.task.state = "RUNNING";
+    context.task.waitingReason = undefined;
     this.persistTasks();
-    this.emitEvent(taskId, "TASK_STATE_CHANGED", { planConfirmed: true });
+    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", planConfirmed: true });
 
     runPlanLoop(context, this.getEngineDeps()).catch((err) => {
       console.error(`[Plan Resume Error] id=${taskId}`, err);
       RefStore.clear(taskId);
     });
+  }
+
+  rejectPlan(taskId: string, reason?: string): void {
+    const context = this.taskContexts.get(taskId);
+    if (!context || context.task.mode !== "PLAN") return;
+    if (context.isCancelled || isTerminalState(context.task.state)) return;
+
+    context.task.state = "CANCELLED";
+    context.task.waitingReason = undefined;
+    context.task.planConfirmed = false;
+    RefStore.clear(taskId);
+    this.persistTasks();
+    this.emitEvent(taskId, "PLAN_REJECTED", { reason: reason || "Plan rechazado por el usuario." });
+    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
+    console.log(`[JarvisCore] Plan rechazado por el usuario para tarea '${taskId}'.`);
+  }
+
+  async modifyPlan(taskId: string, feedback: string): Promise<void> {
+    const context = this.taskContexts.get(taskId);
+    if (!context || context.task.mode !== "PLAN") return;
+    if (context.isCancelled || isTerminalState(context.task.state)) return;
+
+    console.log(`[JarvisCore] Modificación de plan solicitada para tarea '${taskId}': "${feedback}"`);
+    const existingPlanSummary = context.task.steps
+      .map((s, idx) => `${idx + 1}. [${s.route}] ${s.instruction} -> ${s.expectedOutcome || "ok"}`)
+      .join("\n");
+
+    try {
+      const newPlan = await this.qwenEngine.generatePlan(
+        context.task.message,
+        undefined,
+        context.abortController.signal,
+        undefined,
+        feedback,
+        existingPlanSummary
+      );
+
+      if (newPlan && Array.isArray(newPlan.steps) && newPlan.steps.length > 0) {
+        context.task.steps = newPlan.steps.slice(0, MAX_STEPS).map((s, idx) => ({
+          id: s.id || `s${idx + 1}`,
+          route: isStepRoute(s.suggested_mcp) ? s.suggested_mcp : (isStepRoute(s.route) ? s.route : "desktop_commander"),
+          instruction: s.goal || s.instruction || "Objetivo",
+          expectedOutcome: s.expected_outcome || s.expectedOutcome,
+          dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
+          candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
+          state: "PENDING" as StepState,
+          calls: [],
+          rev: 0,
+          superseded: false,
+        }));
+        context.task.stepSeq = context.task.steps.length;
+        context.task.planConfirmed = false;
+        context.task.state = "WAITING_INPUT";
+        context.task.waitingReason = "plan_confirmation";
+        this.persistTasks();
+        this.emitEvent(taskId, "PLAN_MODIFIED", { feedback, steps: context.task.steps });
+        this.emitEvent(taskId, "PLAN_GENERATED", { steps: context.task.steps });
+        this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
+      }
+    } catch (err: any) {
+      console.error(`[JarvisCore] Error al modificar plan:`, err);
+    }
+  }
+
+  provideUserAnswer(taskId: string, answer: string): void {
+    const context = this.taskContexts.get(taskId);
+    if (!context) return;
+    if (context.isCancelled || isTerminalState(context.task.state)) return;
+    if (context.task.state !== "WAITING_INPUT" || context.task.waitingReason !== "user_answer") return;
+
+    context.task.memory = context.task.memory || { log: [], facts: {}, fail: [] };
+    context.task.memory.facts[`user_input_${Date.now()}`] = answer;
+    context.task.state = "RUNNING";
+    context.task.waitingReason = undefined;
+    this.persistTasks();
+    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", userAnswerProvided: true });
+
+    if (context.task.mode === "PLAN") {
+      runPlanLoop(context, this.getEngineDeps()).catch((err) => {
+        console.error(`[Plan Resume Error after user answer] id=${taskId}`, err);
+        RefStore.clear(taskId);
+      });
+    } else {
+      runFastLoop(context, this.getEngineDeps()).catch((err) => {
+        console.error(`[Fast Resume Error after user answer] id=${taskId}`, err);
+        RefStore.clear(taskId);
+      });
+    }
   }
 
   // --- Pipeline Orchestration ---
@@ -261,6 +357,7 @@ export class JarvisCore {
               startTime: Date.now(),
               overridesCount: 0,
               retriesCount: 0,
+              memoryRetrievalLimit: 2,
             });
           }
         }

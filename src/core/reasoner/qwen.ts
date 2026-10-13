@@ -9,6 +9,8 @@ import {
   MAX_ARG_RETRIES,
   QWEN_CTX,
   EscalationResponse,
+  StageVerificationResult,
+  StageVerificationPromptData,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
 import {
@@ -68,6 +70,14 @@ export const PLAN_JSON_SCHEMA = {
             enum: ["windows", "desktop_commander", "free_search"],
           },
           expected_outcome: { type: "string" },
+          dependencies: {
+            type: "array",
+            items: { type: "string" },
+          },
+          candidate_tools: {
+            type: "array",
+            items: { type: "string" },
+          },
         },
         required: ["id", "goal", "suggested_mcp", "expected_outcome"],
         additionalProperties: false,
@@ -99,6 +109,14 @@ export const REPLAN_JSON_SCHEMA = {
             enum: ["windows", "desktop_commander", "free_search"],
           },
           expected_outcome: { type: "string" },
+          dependencies: {
+            type: "array",
+            items: { type: "string" },
+          },
+          candidate_tools: {
+            type: "array",
+            items: { type: "string" },
+          },
         },
         required: ["id", "goal", "suggested_mcp", "expected_outcome"],
         additionalProperties: false,
@@ -106,6 +124,20 @@ export const REPLAN_JSON_SCHEMA = {
     },
   },
   required: ["steps"],
+  additionalProperties: false,
+} as const;
+
+export const STAGE_VERIFICATION_JSON_SCHEMA = {
+  type: "object",
+  properties: {
+    status: {
+      type: "string",
+      enum: ["completed", "recoverable_deviation", "insufficient_info", "unrecoverable_blocked"],
+    },
+    reason: { type: "string" },
+    question_for_user: { type: "string" },
+  },
+  required: ["status", "reason"],
   additionalProperties: false,
 } as const;
 
@@ -118,6 +150,9 @@ export interface ILLMClient {
     signal?: AbortSignal
   ): Promise<Record<string, unknown>>;
 
+  /**
+   * @deprecated Fase 3: Migrada a Core determinista + arbitraje de Decision 2.0 Eos (handleEscalation).
+   */
   escalate(
     data: EscalationPromptData,
     signal?: AbortSignal
@@ -132,13 +167,23 @@ export interface ILLMClient {
     userMessage: string,
     scratchpadOrChat?: Scratchpad | string,
     signal?: AbortSignal,
-    compactCatalog?: string
+    compactCatalog?: string,
+    modificationFeedback?: string,
+    existingPlanSummary?: string
   ): Promise<Plan>;
 
   replan(
     data: ReplanPromptData,
     signal?: AbortSignal
   ): Promise<{ action?: "abort"; reason?: string; plan?: Plan }>;
+
+  /**
+   * Fase 3B: Verificación semántica de etapa frente a objetivo observable (§3.2.6)
+   */
+  verifyStage(
+    data: StageVerificationPromptData,
+    signal?: AbortSignal
+  ): Promise<StageVerificationResult>;
 
   generateChatResponse(
     instruction: string,
@@ -579,18 +624,26 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Modo PLAN: Planificación Inicial con Structured Outputs (§9.1)
+   * Modo PLAN: Planificación Inicial con Structured Outputs (§9.1, §3.2.3, §3.2.4)
    */
   async generatePlan(
     userMessage: string,
     scratchpadOrChat?: Scratchpad | string,
     signal?: AbortSignal,
-    compactCatalog?: string
+    compactCatalog?: string,
+    modificationFeedback?: string,
+    existingPlanSummary?: string
   ): Promise<Plan> {
     return await this.executeStage("generatePlan", async () => {
       const chatContext = typeof scratchpadOrChat === "string" ? scratchpadOrChat : undefined;
       const catalog = compactCatalog || buildCompactCatalog();
-      const userPrompt = PROMPTS.PLAN.buildUserPrompt(userMessage, chatContext, catalog);
+      const userPrompt = PROMPTS.PLAN.buildUserPrompt(
+        userMessage,
+        chatContext,
+        catalog,
+        modificationFeedback,
+        existingPlanSummary
+      );
 
       const rawJson = await this.dispatchPrompt(
         PROMPTS.PLAN.SYSTEM,
@@ -623,6 +676,8 @@ export class QwenEngine implements ILLMClient {
           route: safeRoute,
           expected_outcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
           expectedOutcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
+          dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
+          candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
         };
       });
 
@@ -634,7 +689,7 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Modo PLAN: Replan Localizado con Structured Outputs (§9.4)
+   * Modo PLAN: Replan Localizado con Structured Outputs (§9.4, §3.2.6)
    */
   async replan(
     data: ReplanPromptData,
@@ -681,6 +736,8 @@ export class QwenEngine implements ILLMClient {
           route: safeRoute,
           expected_outcome: s.expected_outcome || s.expectedOutcome || "Completado",
           expectedOutcome: s.expected_outcome || s.expectedOutcome || "Completado",
+          dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
+          candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
         };
       });
 
@@ -689,6 +746,59 @@ export class QwenEngine implements ILLMClient {
           objective: parsed.objective || data.goal,
           steps,
         },
+      };
+    });
+  }
+
+  /**
+   * Fase 3B: Verificación semántica de etapa frente a objetivo observable (§3.2.6)
+   */
+  async verifyStage(
+    data: StageVerificationPromptData,
+    signal?: AbortSignal
+  ): Promise<StageVerificationResult> {
+    return await this.executeStage("verifyStage", async () => {
+      const userPrompt = PROMPTS.STAGE_VERIFICATION.buildUserPrompt(data);
+
+      const rawJson = await this.dispatchPrompt(
+        PROMPTS.STAGE_VERIFICATION.SYSTEM,
+        userPrompt,
+        true,
+        1000,
+        {
+          stage: "verify_stage",
+          signal,
+          schema: STAGE_VERIFICATION_JSON_SCHEMA as unknown as Record<string, unknown>,
+        }
+      );
+
+      const parsed = this.safeJsonParse<any>(rawJson);
+      if (!parsed || !parsed.status) {
+        console.warn(`[Qwen verifyStage] Respuesta no parseable como JSON estricto. Raw: ${rawJson.slice(0, 200)}`);
+        if (data.eosOk && data.eosCumple) {
+          return {
+            status: "completed",
+            reason: "Verificación validada por concordancia de señales factuales.",
+          };
+        }
+        return {
+          status: "recoverable_deviation",
+          reason: "Fallo al evaluar cumplimiento de etapa; requiere revisión de plan.",
+        };
+      }
+
+      const validStatuses: StageVerificationResult["status"][] = [
+        "completed",
+        "recoverable_deviation",
+        "insufficient_info",
+        "unrecoverable_blocked",
+      ];
+      const status = validStatuses.includes(parsed.status) ? parsed.status : "recoverable_deviation";
+
+      return {
+        status,
+        reason: parsed.reason || "Sin detalle.",
+        questionForUser: parsed.question_for_user || undefined,
       };
     });
   }

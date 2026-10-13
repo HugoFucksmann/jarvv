@@ -6,6 +6,8 @@ import {
     Task,
     PendingApproval,
     StepCall,
+    ProgressiveMemoryLimit,
+    PROGRESSIVE_MEMORY_TIERS,
 } from "./types.ts";
 import { Attempt } from "./reasoner/prompts.ts";
 
@@ -23,6 +25,8 @@ export interface TaskExecutionContext {
     startTime: number;
     overridesCount: number;
     retriesCount: number;
+    /** Límite de recuperación de memoria contextual progresiva (2 -> 5 -> 10) */
+    memoryRetrievalLimit: ProgressiveMemoryLimit;
     activeServerOverride?: string;
     excludedToolForNextCall?: string;
     lastCallCompactObs?: string;
@@ -30,6 +34,27 @@ export interface TaskExecutionContext {
     lastCallDecisionSummary?: string;
     /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
     lastCallTool?: string;
+}
+
+/**
+ * Expande progresivamente el límite de recuperación de memoria contextual:
+ * 2 -> 5 -> 10 (máximo). Cumple estrictamente la Sección 7.1.
+ */
+export function expandMemoryContext(context: TaskExecutionContext): ProgressiveMemoryLimit {
+    const current = context.memoryRetrievalLimit || 2;
+    let next: ProgressiveMemoryLimit;
+    if (current < 5) {
+        next = 5;
+    } else if (current < 10) {
+        next = 10;
+    } else {
+        next = 10;
+    }
+    if (next !== current) {
+        console.log(`[MemoryContext] Expansión progresiva de memoria: ${current} -> ${next} elementos relevantes.`);
+        context.memoryRetrievalLimit = next;
+    }
+    return next;
 }
 
 export function addLogEntry(context: TaskExecutionContext, line: string): void {
@@ -59,15 +84,31 @@ export function addFailEntry(context: TaskExecutionContext, line: string): void 
     }
 }
 
-export function buildHistoryContext(task: Task): string {
+/**
+ * Construye el contexto de memoria de manera progresiva (2 -> 5 -> 10).
+ * Preserva el contexto estrictamente compacto según la Sección 7.1.
+ */
+export function buildHistoryContext(
+    task: Task,
+    limit: ProgressiveMemoryLimit = 2,
+    sessionHistory?: string[]
+): string {
     const logLines = task.memory?.log || [];
     const failLines = task.memory?.fail || [];
     const historyParts: string[] = [];
+
+    // Si existen mensajes previos de sesión, recuperar hasta 'limit' más recientes
+    if (sessionHistory && sessionHistory.length > 0) {
+        const recentSession = sessionHistory.slice(-limit);
+        historyParts.push(`SESIÓN_PREVIA:\n${recentSession.map((m) => `• ${m}`).join("\n")}`);
+    }
+
     if (logLines.length > 0) {
-        historyParts.push(logLines.slice(-3).join("\n"));
+        historyParts.push(logLines.slice(-limit).join("\n"));
     }
     if (failLines.length > 0) {
-        historyParts.push(`FAIL:\n${failLines.slice(-2).join("\n")}`);
+        const failSlice = failLines.slice(-Math.min(limit, 5));
+        historyParts.push(`FAIL:\n${failSlice.join("\n")}`);
     }
     return historyParts.join("\n") || task.message;
 }

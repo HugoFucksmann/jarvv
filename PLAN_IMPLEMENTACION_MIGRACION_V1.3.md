@@ -375,36 +375,38 @@ Acciones ejecutadas:
 - PolicyRegistry sincronizado estrictamente con SYSTEM_TOOL_MANIFEST.
 - Implementado extractor buildCompactCatalog() integrado en la planificación de Qwen (Sec. 3.2.3).
 Criterio de Salida: CUMPLIDO. Catálogo tipado activo, PolicyRegistry sincronizado y compilación limpia con 0 errores (compile_applet / tsc --noEmit).
-Fase 2: Erradicación de Límites de Llamadas, Auditoría de Cancelación y Memoria Progresiva
+Fase 2: Erradicación de Límites de Llamadas, Auditoría de Cancelación y Memoria Progresiva [COMPLETADA Y CERTIFICADA]
 Objetivo: Eliminar los límites globales de llamadas, auditar los mecanismos preexistentes de memoria y cancelación, e implementar la política acordada de recuperación progresiva y cancelación simple sin cambios innecesarios.
-Acciones:
-Eliminar MAX_TOOL_CALLS_TASK y MAX_TOOL_CALLS_PER_STEP de types.ts, modeEngines.ts y callExecutor.ts, verificando que no subsistan pools ni techos globales alternativos.
-Comprobar y auditar el comportamiento actual del manejo de memoria e historial en context.ts y modeEngines.ts antes de alterarlo; implementar la política de memoria contextual progresiva (2 → 5 → 10 elementos relevantes) preservando el alcance confirmado.
-Comprobar el mecanismo actual de cancelación en core.ts y sus dependencias; implementar la cancelación simple (marcar CANCELLED e ignorar resultados tardíos) sin introducir subsistemas complejos de interrupción, asegurando que cubra también los resultados tardíos de Qwen en PLAN.
-Criterio de Salida: Límites de llamadas eliminados; dependencias de memoria y cancelación auditadas y ajustadas al alcance confirmado; cancelación simple y memoria progresiva operativas sin código superfluo.
-Fase 3: Implementación de Motor Unificado (runStep) e Integración de Eos
+Acciones ejecutadas:
+- Eliminadas las constantes `MAX_TOOL_CALLS_TASK` (30) y `MAX_TOOL_CALLS_PER_STEP` (4) de `types.ts`, `callExecutor.ts` y `modeEngines.ts`.
+- Certificada la ausencia de pools de llamadas o techos alternativos; parada de ejecución gobernada exclusivamente por `MAX_STEPS = 15`.
+- Implementada la política de memoria contextual progresiva (2 → 5 → 10) en `types.ts` y `context.ts` (`expandMemoryContext`), conectada a la señal `needsContext` de Decision #1 y flujos de recuperación en `modeEngines.ts`.
+- Implementada la cancelación simple en `core.ts` (`cancelTask`, `confirmPlan`), asegurando la invarianza de estados terminales (`isTerminalState`) y neutralizando resultados tardíos de MCP y Qwen en `concludeTask`, `initiatePlanMode`, `runFastLoop` y `runPlanLoop`.
+- Documentación de cierre formal archivada en `docs/FASE_2_CIERRE_AUDITORIA.md`.
+Criterio de Salida: CUMPLIDO. Límites de llamadas totalmente eliminados; memoria contextual progresiva operativa (2 → 5 → 10); cancelación simple e invarianza de estados terminales implementadas y validadas; compilación limpia con 0 errores (compile_applet / tsc --noEmit).
+Fase 3: Implementación de Motor Unificado (runStep) e Integración de Eos [COMPLETADA Y CERTIFICADA]
 Objetivo: Avanzar hacia el objetivo de unificación de la ejecución de pasos e integrar la toma de decisiones con Eos, condicionando la supresión de motores anteriores a la verificación de cobertura de responsabilidades.
-Acciones:
-Implementar runStep como bucle atómico de ejecución de pasos persiguiendo la unificación del flujo.
-Validar contra el código que todas las responsabilidades operativas de runFastLoop, runPlanLoop (las clasificadas como ejecución) y de las decisiones D1, D2 y D5 estén plenamente cubiertas antes de autorizar su eliminación física.
-Implementar la selección de herramientas en Eos con validación estricta contra el catálogo y resolución por mayor probabilidad (argmax) sin umbrales numéricos de corte.
-Implementar las verificaciones binarias ok y cumple en Eos sobre señales limpias evaluadas por mayor probabilidad sin umbrales numéricos.
-Integrar el estado WAITING_INPUT sin temporizadores de caducidad para esperas de usuario.
-Migrar la responsabilidad de escalación hacia código y Eos; autorizar la supresión de deps.qwenEngine.escalate únicamente tras demostrar en la auditoría que todas sus funciones de recuperación están cubiertas.
-Criterio de Salida: runStep operativo; responsabilidades previas auditadas y cubiertas; selección y verificación resueltas por Eos por mayor probabilidad; migración de escalación verificada.
-Fase 3B: Capa de Coordinación del Modo PLAN sobre el Flujo FAST
+Acciones ejecutadas:
+- Implementado runStep como bucle atómico de ejecución de pasos unificando la selección, validación, despacho, procesamiento y verificación entre FAST y PLAN (`callExecutor.ts:112-504`).
+- Validada contra el código la cobertura plena de responsabilidades de ejecución de runFastLoop, runPlanLoop y de las decisiones D1, D2 y D5, documentada en `docs/FASE_3_CIERRE_AUDITORIA.md`.
+- Implementada la selección de herramientas en Eos con validación estricta contra el catálogo activo y resolución por mayor probabilidad (argmax) sin umbrales numéricos de corte (`decision.ts:180-230, 410-476, 480-515`).
+- Implementadas las verificaciones binarias ok y cumple en Eos sobre señales limpias (CLEAN) evaluadas por mayor probabilidad ($p \ge 0.5$) sin umbrales arbitrarios (`callExecutor.ts:383-421`, `decision.ts:320-368`), suprimiendo el override forzado de D5.
+- Integrado y certificado el estado WAITING_INPUT sin temporizadores de caducidad para esperas por aprobación (`approval`), confirmación de plan (`plan_confirmation`) y preguntas interactivas (`user_answer`).
+- Prohibida de forma estricta la replanificación ante Guard DENY o rechazo del usuario en PLAN (`modeEngines.ts:618-623`).
+- Migrada la responsabilidad de escalación hacia código y Eos (`handleEscalation` en `modeEngines.ts:119-197`), auditando y certificando la cobertura total de funciones de `deps.qwenEngine.escalate`.
+Criterio de Salida: CUMPLIDO. runStep operativo y unificado; responsabilidades previas auditadas y cubiertas; selección y verificación resueltas por Eos por mayor probabilidad; migración de escalación verificada; compilación limpia con 0 errores (compile_applet / tsc --noEmit). Documentado en `docs/FASE_3_CIERRE_AUDITORIA.md`.
+Fase 3B: Capa de Coordinación del Modo PLAN sobre el Flujo FAST [COMPLETADA Y CERTIFICADA]
 Prerrequisitos: Fase 0 completada (flujo actual de PLAN auditado) y runStep operativo (Fase 3). Esta fase no modifica runStep.
 Objetivo: Implementar PLAN como capa de coordinación y supervisión que reutiliza el flujo FAST, sin duplicar su lógica de ejecución.
-Acciones:
-Implementar la planificación con Qwen conforme a la sección 3.2.3 (entrada: solicitud, contexto relevante, system prompt y catálogo compacto; salida: plan en etapas con objetivo operativo verificable, dependencias, resultado esperado, criterio de éxito y herramientas candidatas opcionales), validando que no se inventen herramientas ni servidores.
-Implementar la aprobación del plan conforme a la sección 3.2.4 (aceptar, rechazar, solicitar modificaciones) sin timers; la ejecución solo comienza tras la aceptación.
-Implementar la entrega de cada etapa al flujo FAST existente y la recepción de su resultado, sin reimplementar selección, argumentos, validación ni ejecución en PLAN; el contrato técnico se toma de la auditoría de Fase 0.
-Implementar la verificación por etapa con Qwen conforme a la sección 3.2.6: evidencia observable, evaluaciones de Eos a nivel de paso conservadas y discrepancias analizadas sin asumir automáticamente el éxito; distingue etapa cumplida, desviación recuperable, información insuficiente y bloqueo o error no recuperable (mapeadas a estados existentes tras la auditoría).
-Implementar la replanificación con el mismo Qwen conforme a las secciones 3.2.4, 3.2.6 y 6.2: contexto compacto, solo etapas pendientes, sin regenerar el plan innecesariamente, replanificación solo según la frontera con los reintentos de FAST y nueva aprobación únicamente ante cambio material, de impacto significativo o que requiera una decisión del usuario.
-Garantizar que la aprobación del plan no sustituya los controles de Guard y FAST, que la replanificación no pueda eludir una denegación ni autorizar acciones, y que una acción denegada por Guard o rechazada por el usuario no se ejecute, no se reintente y no se replanifique para eludir la denegación.
-Persistir únicamente metadatos, plan y resúmenes mínimos conforme a la sección 3.2.8.
-Retirar de PLAN toda lógica de ejecución duplicada de runPlanLoop, solo si la auditoría de Fase 0 demostró que está cubierta por FAST.
-Criterio de Salida: PLAN opera como capa de coordinación sobre FAST; separación planificación/ejecución/verificación verificable; sin lógica de ejecución duplicada; Guard y controles de FAST aplicados a cada etapa; contratos técnicos de PLAN derivados de la auditoría del código y documentados antes de su implementación.
+Acciones ejecutadas:
+- Implementada la planificación estructurada con Qwen validada contra el catálogo real compacto (`buildCompactCatalog`) y sin inventar herramientas o servidores.
+- Implementado el ciclo de vida interactivo de aprobación, rechazo y modificación de plan en `WAITING_INPUT` sin temporizadores de expiración (`confirmPlan`, `rejectPlan`, `modifyPlan`, `user-answer` en `server.ts` y `core.ts`).
+- Entrega directa de cada etapa a `runStep` sin duplicación de lógica de selección, argumentos, validación o despacho dentro de PLAN.
+- Implementada la verificación semántica por etapa con Qwen (`verifyStage`) distinguiendo etapa cumplida, desviación recuperable, información insuficiente y bloqueo no recuperable.
+- Implementada la replanificación localizada preservando etapas completadas y acotada determinísticamente por la regla de cambio material (`isMaterialReplan`).
+- Garantizada la prohibición absoluta de replanificar ante Guard DENY o rechazo del usuario.
+- Persistencia mínima de metadatos y plan sin retener estados volátiles no serializables.
+Criterio de Salida: CUMPLIDO. PLAN opera como capa de coordinación pura sobre runStep; separación planificación/ejecución/verificación verificada; sin duplicación de ejecución; regla de materialidad y control de Guard aplicados; compilación y tipado limpios con 0 errores (compile_applet / tsc --noEmit). Documentado en `docs/FASE_3B_CIERRE_AUDITORIA.md`.
 Fase 4: Manejo Factual, Sustitución de Referencias y Reintentos
 Objetivo: Consolidar la transferencia de datos entre llamadas y pasos sin subsistemas complejos.
 Acciones:

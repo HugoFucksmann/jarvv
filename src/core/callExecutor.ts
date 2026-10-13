@@ -6,8 +6,9 @@ import {
     Step,
     StepCall,
     CoreEventType,
-    MAX_TOOL_CALLS_TASK,
     StepExecutionResult,
+    isTerminalState,
+    MCPTool,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
@@ -70,29 +71,96 @@ export async function requestUserApproval(
     });
 }
 
-export async function executeCall(
+async function executeLocalTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    context: TaskExecutionContext,
+    deps: EngineDependencies
+): Promise<any> {
+    if (toolName === "recall") {
+        return {
+            facts: context.task.memory?.facts || {},
+            scratchpad: context.task.scratchpad || {},
+            recentLog: (context.task.memory?.log || []).slice(-(context.memoryRetrievalLimit || 2)),
+        };
+    }
+    if (toolName === "compose") {
+        const textToCompose = String(args.prompt || args.text || args.content || context.task.message);
+        const composed = await deps.qwenEngine.generateFinalResponse({
+            goal: textToCompose,
+            logLines: context.task.memory?.log || [],
+            facts: context.task.memory?.facts || {},
+            failLines: context.task.memory?.fail || [],
+            evidenceSummaries: [],
+        }, context.abortController.signal);
+        return { composedText: composed };
+    }
+    if (toolName === "ask_user") {
+        const question = String(args.question || args.prompt || "Por favor clarifique la solicitud.");
+        context.task.state = "WAITING_INPUT";
+        context.task.waitingReason = "user_answer";
+        deps.persistTasks();
+        deps.emitEvent(context.task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "user_answer", question });
+        return { promptSent: question, status: "waiting_user_response" };
+    }
+    return { status: "local_tool_executed", tool: toolName };
+}
+
+/**
+ * Motor Unificado de Ejecución Atómica de Pasos (runStep)
+ * Eje central de la unificación de ejecución en JARVIS Core v1.3 (§3, §3.1, §4, §5)
+ */
+export async function runStep(
     context: TaskExecutionContext,
     step: Step,
     deps: EngineDependencies
 ): Promise<StepExecutionResult> {
     const { task } = context;
 
-    // 1. Determine MCP Server
+    if (context.isCancelled || isTerminalState(task.state)) {
+        return {
+            status: "logical_error",
+            step,
+            error: "CANCELLED",
+        };
+    }
+
+    // 1. Determine Server
     let serverName = context.activeServerOverride || step.route;
     if (serverName === "fin") {
         serverName = "desktop_commander";
     }
     context.activeServerOverride = undefined;
 
-    const server = deps.discoveryEngine.getServer(serverName);
-    if (!server) {
-        throw new Error(`Servidor MCP '${serverName}' no disponible.`);
-    }
-
     // 2. Discovery
-    let discoveredTools = await deps.discoveryEngine.getDiscoveredTools(serverName);
-    if (discoveredTools.length === 0) {
-        throw new Error(`Discovery: No hay herramientas disponibles en '${serverName}'.`);
+    let discoveredTools: MCPTool[];
+    if (serverName === "local") {
+        discoveredTools = [
+            {
+                name: "recall",
+                description: "Recuperar hechos factuales, referencias previas o contexto relevante de memoria.",
+                inputSchema: { type: "object", properties: {} },
+            },
+            {
+                name: "compose",
+                description: "Redactar texto estructurado o respuesta en lenguaje natural asistido por Qwen.",
+                inputSchema: { type: "object", properties: { prompt: { type: "string" } } },
+            },
+            {
+                name: "ask_user",
+                description: "Solicitar clarificación o parámetro indispensable directamente al usuario.",
+                inputSchema: { type: "object", properties: { question: { type: "string" } }, required: ["question"] },
+            },
+        ];
+    } else {
+        const server = deps.discoveryEngine.getServer(serverName);
+        if (!server) {
+            throw new Error(`Servidor MCP '${serverName}' no disponible.`);
+        }
+        discoveredTools = await deps.discoveryEngine.getDiscoveredTools(serverName);
+        if (discoveredTools.length === 0) {
+            throw new Error(`Discovery: No hay herramientas disponibles en '${serverName}'.`);
+        }
     }
 
     // Filter out excluded tool if same MCP
@@ -111,14 +179,16 @@ export async function executeCall(
 
     const selectedTool = d2.selectedTool;
 
-    // Validate tool exists in Discovery
-    let exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
-    if (!exists) {
-        discoveredTools = await deps.discoveryEngine.getDiscoveredTools(serverName, true);
-        exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
+    // Validate tool exists in Discovery (si no es local)
+    if (serverName !== "local") {
+        let exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
         if (!exists) {
-            step.state = "FAILED";
-            throw new Error(`Herramienta desconocida '${selectedTool.name}': NO EXECUTE.`);
+            discoveredTools = await deps.discoveryEngine.getDiscoveredTools(serverName, true);
+            exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
+            if (!exists) {
+                step.state = "FAILED";
+                throw new Error(`Herramienta desconocida '${selectedTool.name}': NO EXECUTE.`);
+            }
         }
     }
 
@@ -129,7 +199,9 @@ export async function executeCall(
     }, step.id);
 
     // 4. Qwen Etapa 3: Argument Generation
-    const cleanedSchema = deps.discoveryEngine.getCleanedSchema(serverName, selectedTool.name) || selectedTool.inputSchema;
+    const cleanedSchema = serverName !== "local"
+        ? (deps.discoveryEngine.getCleanedSchema(serverName, selectedTool.name) || selectedTool.inputSchema)
+        : (selectedTool.inputSchema || {});
     let args: Record<string, unknown> = {};
 
     try {
@@ -190,7 +262,7 @@ export async function executeCall(
         context.executedSignatures.add(sig);
     }
 
-    // 6. Policy & Guard (§2, §7)
+    // 6. Policy & Guard (§2, §7, §8.1 WAITING_INPUT sin timers)
     const guardDecision = Guard.evaluate(serverName, selectedTool.name, args);
     deps.emitEvent(task.id, "GUARD_EVALUATION", { guardDecision }, step.id);
 
@@ -209,17 +281,23 @@ export async function executeCall(
     }
 
     if (guardDecision.decision === "APPROVAL") {
+        task.state = "WAITING_INPUT";
+        task.waitingReason = "approval";
         step.state = "WAITING_APPROVAL";
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id);
+        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "approval" });
 
         const approved = await requestUserApproval(context, step, guardDecision.reason || "Operación sensible", deps.emitEvent);
         if (!approved) {
+            task.state = "RUNNING";
+            task.waitingReason = undefined;
             step.state = "BLOCKED";
             step.error = "Operación rechazada por el usuario en Guard.";
             addFailEntry(context, `${selectedTool.name} -> RECHAZADO por usuario`);
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
+            deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
             return {
                 status: "logical_error",
                 step,
@@ -227,33 +305,40 @@ export async function executeCall(
                 signals: { denied: true },
             };
         }
+        task.state = "RUNNING";
+        task.waitingReason = undefined;
         step.state = "RUNNING";
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id);
+        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
     }
 
-    // 7. Enforce MAX_TOOL_CALLS_TASK
+    // 7. Registro métrico de invocación (Fase 2: límites globales erradicados)
     context.totalToolCalls++;
-    if (context.totalToolCalls > MAX_TOOL_CALLS_TASK) {
-        step.state = "FAILED";
-        step.error = `Tope global MAX_TOOL_CALLS_TASK (${MAX_TOOL_CALLS_TASK}) alcanzado.`;
+    if (context.isCancelled || isTerminalState(task.state)) {
         return {
             status: "logical_error",
             step,
-            error: step.error,
+            error: "CANCELLED",
         };
     }
 
-    // 8. Execute Tool on Server
+    // 8. Execute Tool on Server or Local Handler
     deps.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: selectedTool.name, args }, step.id);
     const _mcpArgsTrunc = JSON.stringify(args).slice(0, 300);
     console.log(`[MCP → SEND] server=${serverName} tool=${selectedTool.name} args=${_mcpArgsTrunc}`);
     let rawResult: any;
-    try {
-        rawResult = await server.callTool(selectedTool.name, args);
-    } catch (mcpErr: any) {
-        console.error(`[MCP Call Error]`, mcpErr);
-        throw mcpErr;
+
+    if (serverName === "local") {
+        rawResult = await executeLocalTool(selectedTool.name, args, context, deps);
+    } else {
+        const server = deps.discoveryEngine.getServer(serverName)!;
+        try {
+            rawResult = await server.callTool(selectedTool.name, args);
+        } catch (mcpErr: any) {
+            console.error(`[MCP Call Error]`, mcpErr);
+            throw mcpErr;
+        }
     }
     const _mcpResultTrunc = JSON.stringify(rawResult).slice(0, 400);
     console.log(`[MCP ← RECV] server=${serverName} tool=${selectedTool.name} result=${_mcpResultTrunc}`);
@@ -263,6 +348,7 @@ export async function executeCall(
         console.log(`[Windows] Stale element detectado. Refrescando árbol...`);
         const treeTool = discoveredTools.find((t) => /tree|snapshot|window.*tree/i.test(t.name))?.name || "ui_get_window_tree";
         try {
+            const server = deps.discoveryEngine.getServer("windows")!;
             const fresh = await server.callTool(treeTool, {});
             if (fresh.windowHandle) {
                 task.scratchpad.window_handle = String(fresh.windowHandle);
@@ -294,22 +380,50 @@ export async function executeCall(
         Object.assign(task.memory.facts, processed.factsDelta);
     }
 
-    // 10. Etapa 5: Decision Evaluation
-    const d5 = await deps.decisionEngine.evaluateDecisionFive(
-        step.instruction,
-        selectedTool.name,
-        processed.decisionSummary || processed.summaryText,
-        processed.signals,
-        step.expectedOutcome
-    );
-    if (d5.override) {
-        context.overridesCount++;
+    // 10. Verificación Factual con Eos sobre señales limpias (CLEAN) (Fase 3, §5)
+    const isCleanSignals =
+        !processed.outcome.isError &&
+        !processed.signals.exception &&
+        !processed.signals.timeout &&
+        !processed.signals.denied &&
+        !processed.signals.not_found &&
+        !processed.signals.empty_output &&
+        !processed.signals.stale_element &&
+        (processed.signals.exit_code === 0 || processed.signals.exit_code === undefined);
+
+    let stepVerificationOk = false;
+    let stepVerificationCumple = false;
+    let verificationDetail: any = null;
+
+    if (isCleanSignals) {
+        try {
+            const verification = await deps.decisionEngine.evaluateStepVerification(
+                step.instruction,
+                selectedTool.name,
+                processed.decisionSummary || processed.summaryText,
+                processed.evidence?.summary || processed.compactObs,
+                step.expectedOutcome
+            );
+            stepVerificationOk = verification.ok;
+            stepVerificationCumple = verification.cumple;
+            verificationDetail = verification;
+        } catch (verErr: any) {
+            console.warn(`[runStep] Fallo al consultar verificación Eos:`, verErr?.message || verErr);
+            // Fallback determinista en ausencia del servicio Eos si las señales físicas son limpias
+            stepVerificationOk = true;
+            stepVerificationCumple = true;
+        }
+    } else {
+        stepVerificationOk = false;
+        stepVerificationCumple = false;
     }
+
+    const isStepSuccess = isCleanSignals && stepVerificationOk && stepVerificationCumple;
 
     // Append to LOG (§10.3)
     const logStatus = processed.signals.not_found || processed.signals.empty_output
         ? "nf"
-        : !d5.isCorrect || processed.outcome.isError
+        : !isStepSuccess || processed.outcome.isError
             ? "err"
             : processed.verification === "UNVERIFIED"
                 ? "unv"
@@ -319,7 +433,7 @@ export async function executeCall(
     addLogEntry(context, logLine);
 
     // Update anti-loop state trackers
-    if (processed.outcome.success || processed.verification === "UNVERIFIED") {
+    if (processed.outcome.success || processed.verification === "UNVERIFIED" || isStepSuccess) {
         if (!isRead) {
             context.nonReadCounter++;
             context.lastActionWasRead = false;
@@ -337,12 +451,15 @@ export async function executeCall(
         args,
         evidence: {
             ...processed.evidence,
-            ok: logStatus === "ok" || logStatus === "unv",
+            ok: isStepSuccess,
             obs: processed.compactObs ? processed.compactObs.slice(0, 1500) : undefined,
         },
         verification: processed.verification,
-        outcome: processed.outcome,
-        error: !d5.isCorrect ? processed.summaryText : undefined,
+        outcome: {
+            ...processed.outcome,
+            success: isStepSuccess,
+        },
+        error: !isStepSuccess ? processed.summaryText : undefined,
         timestamp: Date.now(),
     };
 
@@ -353,11 +470,11 @@ export async function executeCall(
     step.mcp = serverName;
     step.tool = selectedTool.name;
     step.args = args;
-    step.evidence = processed.evidence;
+    step.evidence = callRecord.evidence;
     step.verification = processed.verification;
-    step.outcome = processed.outcome;
+    step.outcome = callRecord.outcome;
 
-    deps.emitEvent(task.id, "RESULT_PROCESSED", { processed, d5 }, step.id);
+    deps.emitEvent(task.id, "RESULT_PROCESSED", { processed, verification: verificationDetail, isStepSuccess }, step.id);
 
     if (processed.verification === "UNVERIFIED") {
         return {
@@ -368,8 +485,8 @@ export async function executeCall(
         };
     }
 
-    if (!d5.isCorrect || processed.outcome.isError) {
-        addFailEntry(context, `${selectedTool.name} -> ${processed.finding}`);
+    if (!isStepSuccess || processed.outcome.isError) {
+        addFailEntry(context, `${selectedTool.name} -> ${processed.finding || processed.summaryText}`);
         return {
             status: "logical_error",
             step,
@@ -386,3 +503,8 @@ export async function executeCall(
         signals: processed.signals,
     };
 }
+
+/**
+ * Alias de compatibilidad retroactiva durante la transición de Fase 3
+ */
+export const executeCall = runStep;

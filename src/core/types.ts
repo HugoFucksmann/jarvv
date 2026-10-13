@@ -5,10 +5,13 @@
 
 export type TaskState =
   | "RUNNING"
+  | "WAITING_INPUT"
   | "COMPLETED"
   | "FAILED"
   | "PARTIAL"
   | "CANCELLED";
+
+export type WaitingReason = "approval" | "plan_confirmation" | "user_answer";
 
 export type StepState =
   | "PENDING"
@@ -53,6 +56,8 @@ export interface Step {
   rev?: number;
   superseded?: boolean;
   expectedOutcome?: string;
+  dependencies?: string[];
+  candidate_tools?: string[];
 }
 
 export interface PlanStep {
@@ -63,11 +68,38 @@ export interface PlanStep {
   route?: StepRoute;
   expected_outcome?: string;
   expectedOutcome?: string;
+  dependencies?: string[];
+  candidate_tools?: string[];
 }
 
 export interface Plan {
   objective?: string;
   steps: PlanStep[];
+}
+
+// Fase 3B: Verificación semántica de etapas en modo PLAN (§3.2.6)
+export type StageVerificationStatus =
+  | "completed"
+  | "recoverable_deviation"
+  | "insufficient_info"
+  | "unrecoverable_blocked";
+
+export interface StageVerificationResult {
+  status: StageVerificationStatus;
+  reason: string;
+  questionForUser?: string;
+}
+
+export interface StageVerificationPromptData {
+  goal: string;
+  stepInstruction: string;
+  expectedOutcome: string;
+  evidenceSummary?: string;
+  compactObs?: string;
+  facts?: Record<string, string>;
+  eosOk?: boolean;
+  eosCumple?: boolean;
+  logLines?: string[];
 }
 
 export interface Scratchpad {
@@ -95,6 +127,7 @@ export interface Task {
   currentStep: number;
   scratchpad: Scratchpad;
   state: TaskState;
+  waitingReason?: WaitingReason;
   finalResponse?: string;
   planConfirmed?: boolean;
   memory?: TaskMemory;
@@ -182,19 +215,28 @@ export interface StepExecutionResult {
   signals?: StepExecutionSignals;
 }
 
-// Global Core Limits
+export const TERMINAL_TASK_STATES: readonly TaskState[] = [
+  "COMPLETED",
+  "PARTIAL",
+  "FAILED",
+  "CANCELLED",
+] as const;
+
+export function isTerminalState(state: TaskState): boolean {
+  return (TERMINAL_TASK_STATES as readonly string[]).includes(state);
+}
+
+// Global Core Limits & Memory Tiers (Fase 2: límites de llamadas erradicados)
 export const MAX_STEPS = 15;
-export const MAX_TOOL_CALLS_PER_STEP = 4;
-export const MAX_TOOL_CALLS_TASK = 30;
 export const MAX_ARG_RETRIES = 2;
 export const MAX_ESCALATIONS = 2;
 export const MAX_PLAN_GENERATION_ATTEMPTS = 1;
 export const MAX_REPLAN = 2;
-export const DECISION_MIN_CONFIDENCE = 0.51;
-export const DECISION_MIN_CONFIDENCE_POST_ACTION = 0.60;
+export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;
+export type ProgressiveMemoryLimit = (typeof PROGRESSIVE_MEMORY_TIERS)[number];
+// Decision 2.0 Integration Types (Fase 3: Argmax sin umbrales numéricos de corte)
 export const QWEN_CTX = 8192;
 export const QWEN_ESCALATION_THINKING = true;
-export const DECISION_OVERRIDE_CONFIDENCE_THRESHOLD = 0.50;
 
 // Decision 2.0 Integration Types
 export type DecisionQuestionType = "choice" | "noul" | "score";
@@ -326,7 +368,10 @@ export type CoreEventType =
   | "STEP_COMPLETED"
   | "FINAL_RESPONSE"
   | "TASK_STATE_CHANGED"
-  | "PLAN_GENERATED";
+  | "PLAN_GENERATED"
+  | "PLAN_REJECTED"
+  | "PLAN_MODIFIED"
+  | "STAGE_VERIFIED";
 
 export interface CoreEvent {
   type: CoreEventType;

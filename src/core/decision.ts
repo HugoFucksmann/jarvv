@@ -20,9 +20,6 @@ import {
   DecisionAnswerNoul,
   StepRoute,
   MCPTool,
-  DECISION_MIN_CONFIDENCE,
-  DECISION_MIN_CONFIDENCE_POST_ACTION,
-  DECISION_OVERRIDE_CONFIDENCE_THRESHOLD,
 } from "./types.ts";
 import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS, Attempt } from "./reasoner/prompts.ts";
@@ -181,34 +178,24 @@ export class Decision20Engine {
     const routeConfidence = routeAnswer.confidence ?? 0;
     const probabilities = routeAnswer.probabilities || {};
 
-    const minConfidence = options?.isPostAction
-      ? DECISION_MIN_CONFIDENCE_POST_ACTION
-      : DECISION_MIN_CONFIDENCE;
-
-    let route: StepRoute = candidateRoute;
+    let route: StepRoute;
     let adoptedConfidence = routeConfidence;
 
-    // Validate fin against confidence threshold (§3, §5)
-    if (candidateRoute === "fin") {
-      if (routeConfidence < minConfidence) {
-        // Find best non-fin candidate route from probabilities
-        const sortedNonFin = Object.entries(probabilities)
-          .filter(([k]) => k !== "fin" && validNonFinRoutes.includes(k as StepRoute))
-          .sort(([, a], [, b]) => Number(b) - Number(a));
-        route = (sortedNonFin[0]?.[0] as StepRoute) || "desktop_commander";
-        adoptedConfidence = Number(sortedNonFin[0]?.[1] ?? 0);
-        console.log(`[Decision] 'fin' rechazado por confianza (${routeConfidence.toFixed(2)} < ${minConfidence.toFixed(2)}). Tomada ruta '${route}' con confianza ${adoptedConfidence.toFixed(2)}.`);
-      }
-    } else if (!validRoutes.includes(candidateRoute)) {
-      // Invalid selection: fallback to best non-fin route; fallback can NEVER be fin (§3)
-      const sortedNonFin = Object.entries(probabilities)
-        .filter(([k]) => k !== "fin" && validNonFinRoutes.includes(k as StepRoute))
+    // Resolución por mayor probabilidad (argmax) sin umbrales numéricos de corte (Fase 3, §4.2, §10)
+    if (validRoutes.includes(candidateRoute)) {
+      route = candidateRoute;
+    } else {
+      // Si la opción no pertenece a las rutas válidas, tomar la ruta válida con mayor probabilidad (argmax)
+      const sortedValid = Object.entries(probabilities)
+        .filter(([k]) => validRoutes.includes(k as StepRoute))
         .sort(([, a], [, b]) => Number(b) - Number(a));
-      route = (sortedNonFin[0]?.[0] as StepRoute) || "desktop_commander";
-      adoptedConfidence = Number(sortedNonFin[0]?.[1] ?? 0);
+      route = (sortedValid[0]?.[0] as StepRoute) || "desktop_commander";
+      adoptedConfidence = Number(sortedValid[0]?.[1] ?? 1.0);
+      console.warn(`[Decision #1] Opción '${candidateRoute}' no válida. Resuelto por argmax a '${route}' (${adoptedConfidence.toFixed(2)}).`);
     }
 
-    const needsContext = needsContextAnswer ? needsContextAnswer.noul >= 0.6 : false;
+    // Argmax binario para necesidad de contexto (>= 0.5) sin umbrales arbitrarios
+    const needsContext = needsContextAnswer ? needsContextAnswer.noul >= 0.5 : false;
 
     // Ordered distribution of probabilities
     const sortedProbabilities = Object.entries(probabilities)
@@ -216,9 +203,8 @@ export class Decision20Engine {
       .map(([k, v]) => `${k}: ${(Number(v) * 100).toFixed(1)}%`)
       .join(", ");
 
-    const thresholdType = options?.isPostAction ? "post-action" : "normal";
     console.log(
-      `[Decision #1] route=${route} confidence=${adoptedConfidence.toFixed(2)} threshold=${minConfidence.toFixed(2)} (${thresholdType}) probabilities=[${sortedProbabilities}] duration=${Date.now() - t0}ms`
+      `[Decision #1] route=${route} confidence=${adoptedConfidence.toFixed(2)} (argmax) probabilities=[${sortedProbabilities}] duration=${Date.now() - t0}ms`
     );
 
     return {
@@ -233,7 +219,8 @@ export class Decision20Engine {
 
   /**
    * Decision #5: Evaluation of tool execution outcome (§3, §4, §10.6)
-   * Evaluates if the result serves the goal: 'correcta' or 'incorrecta'.
+   * Deprecada y sustituida en Fase 3 por evaluateStepVerification (ok y cumple) sobre señales limpias.
+   * Supresión confirmada del override forzado de exit_code === 0 con baja confianza.
    */
   async evaluateDecisionFive(
     goal: string,
@@ -251,10 +238,8 @@ export class Decision20Engine {
     isCorrect: boolean;
     choice: "correcta" | "incorrecta";
     confidence: number;
-    override?: boolean;
     rawResponse: DecisionResponse;
   }> {
-    // If exit code is 0 and no error signal, low confidence defaults to correcta (§4 Etapa 5)
     const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionFive({
       goal,
       tool,
@@ -269,7 +254,6 @@ export class Decision20Engine {
       response = await this.systemOne(statePayload, questions);
     } catch (err: any) {
       console.error(`[Decision #5] error=${err?.message || err} duration=${Date.now() - t0}ms`);
-      // Deterministic fallback on service error if exit code is 0 and no signals
       if (signals.exit_code === 0 && !signals.not_found && !signals.denied && !signals.empty_output) {
         return {
           isCorrect: true,
@@ -283,25 +267,10 @@ export class Decision20Engine {
 
     const answer = response.answers.evaluation as DecisionAnswerChoice;
     const rawChoice = answer.choice;
-    let isCorrect = rawChoice === "correcta";
-    let override = false;
-
-    // Ante baja confianza: exit_code == 0 y sin señal de error -> correcta (§4 Etapa 5)
-    if (
-      answer.confidence < DECISION_OVERRIDE_CONFIDENCE_THRESHOLD &&
-      signals.exit_code === 0 &&
-      !signals.not_found &&
-      !signals.denied &&
-      !signals.empty_output
-    ) {
-      if (!isCorrect) {
-        isCorrect = true;
-        override = true;
-      }
-    }
+    const isCorrect = rawChoice === "correcta";
 
     console.log(
-      `[Decision #5] raw=${rawChoice} conf=${answer.confidence.toFixed(2)} override=${override} isCorrect=${isCorrect} signals=${JSON.stringify(signals)} duration=${Date.now() - t0}ms`
+      `[Decision #5] raw=${rawChoice} conf=${answer.confidence.toFixed(2)} isCorrect=${isCorrect} signals=${JSON.stringify(signals)} duration=${Date.now() - t0}ms`
     );
 
     return {
@@ -313,8 +282,64 @@ export class Decision20Engine {
   }
 
   /**
+   * Verificación factual a nivel de paso con Eos (Fase 3, §5)
+   * Preguntas binarias noul sobre señales limpias (CLEAN): ok y cumple
+   * Evaluación por mayor probabilidad (argmax: >= 0.5) sin umbrales arbitrarios.
+   */
+  async evaluateStepVerification(
+    instruction: string,
+    toolName: string,
+    resultSummary: string,
+    evidenceSummary?: string,
+    expectedOutcome?: string
+  ): Promise<{
+    ok: boolean;
+    cumple: boolean;
+    okProbability: number;
+    cumpleProbability: number;
+    rawResponse: DecisionResponse;
+  }> {
+    const { state: statePayload, questions } = DECISION_PROMPTS.buildStepVerification({
+      instruction,
+      toolName,
+      resultSummary,
+      evidenceSummary,
+      expectedOutcome,
+    });
+
+    const t0 = Date.now();
+    let response: DecisionResponse;
+    try {
+      response = await this.systemOne(statePayload, questions);
+    } catch (err: any) {
+      console.error(`[StepVerification] error=${err?.message || err} duration=${Date.now() - t0}ms`);
+      throw err;
+    }
+
+    const okAns = response.answers.ok as DecisionAnswerNoul;
+    const cumpleAns = response.answers.cumple as DecisionAnswerNoul;
+
+    // Argmax binario: mayor probabilidad (>= 0.5) sin umbrales de corte arbitrarios (§4.2, §5)
+    const ok = okAns ? okAns.noul >= 0.5 : false;
+    const cumple = cumpleAns ? cumpleAns.noul >= 0.5 : false;
+
+    console.log(
+      `[StepVerification Eos] tool=${toolName} ok=${ok} (p=${okAns?.noul?.toFixed(2) ?? "N/A"}) cumple=${cumple} (p=${cumpleAns?.noul?.toFixed(2) ?? "N/A"}) duration=${Date.now() - t0}ms`
+    );
+
+    return {
+      ok,
+      cumple,
+      okProbability: okAns?.noul ?? 0,
+      cumpleProbability: cumpleAns?.noul ?? 0,
+      rawResponse: response,
+    };
+  }
+
+  /**
    * PLAN criteria judgement (§3, §9.3, §10.6)
    * Evaluates if the expected_outcome was met: 'cumple' or 'no_cumple'.
+   * Argmax por mayor probabilidad sin umbrales numéricos de corte (§4.2).
    */
   async evaluatePlanJudgement(
     expectedOutcome: string,
@@ -335,8 +360,8 @@ export class Decision20Engine {
     const response = await this.systemOne(statePayload, questions);
     const answer = response.answers.judgement as DecisionAnswerChoice;
 
-    // Baja confianza cuenta como no_cumple (§9.3)
-    const met = answer.choice === "cumple" && answer.confidence >= 0.6;
+    // Argmax por mayor probabilidad (sin umbral arbitrario de 0.6)
+    const met = answer.choice === "cumple";
 
     console.log(`[Decision Judgement] judgement=${answer.choice} met=${met} confidence=${answer.confidence.toFixed(2)} duration=${Date.now() - t0}ms`);
 
@@ -457,10 +482,20 @@ export class Decision20Engine {
           throw new DecisionValidationError(`Respuesta choice para '${key}' no contiene un campo 'choice' válido.`);
         }
         if (!choiceAns.probabilities || typeof choiceAns.probabilities !== "object") {
-          throw new DecisionValidationError(`Respuesta choice para '${key}' no contiene distribución 'probabilities'.`);
+          choiceAns.probabilities = {};
         }
         if (typeof choiceAns.confidence !== "number") {
-          throw new DecisionValidationError(`Respuesta choice para '${key}' no contiene valor 'confidence' numérico.`);
+          choiceAns.confidence = (choiceAns.probabilities && typeof choiceAns.probabilities[choiceAns.choice] === "number")
+            ? choiceAns.probabilities[choiceAns.choice]
+            : 1.0;
+        }
+        if ("criteria" in qDef && qDef.criteria && typeof qDef.criteria === "object") {
+          const validCriteriaKeys = Object.keys(qDef.criteria);
+          if (!validCriteriaKeys.includes(choiceAns.choice)) {
+            throw new DecisionValidationError(
+              `Respuesta choice para '${key}' seleccionó '${choiceAns.choice}', que no coincide con ninguna opción permitida (${validCriteriaKeys.join(", ")}).`
+            );
+          }
         }
       } else if (qDef.type === "noul") {
         const noulAns = ans as DecisionAnswerNoul;
