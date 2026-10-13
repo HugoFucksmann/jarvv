@@ -19,6 +19,7 @@ import {
   ReplanPromptData,
 } from "./prompts.ts";
 import { cleanInputSchema } from "../mcp/discovery.ts";
+import { buildCompactCatalog } from "../tools/manifest.ts";
 
 export class LLMServiceUnavailableError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -130,7 +131,8 @@ export interface ILLMClient {
   generatePlan(
     userMessage: string,
     scratchpadOrChat?: Scratchpad | string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    compactCatalog?: string
   ): Promise<Plan>;
 
   replan(
@@ -582,11 +584,13 @@ export class QwenEngine implements ILLMClient {
   async generatePlan(
     userMessage: string,
     scratchpadOrChat?: Scratchpad | string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    compactCatalog?: string
   ): Promise<Plan> {
     return await this.executeStage("generatePlan", async () => {
       const chatContext = typeof scratchpadOrChat === "string" ? scratchpadOrChat : undefined;
-      const userPrompt = PROMPTS.PLAN.buildUserPrompt(userMessage, chatContext);
+      const catalog = compactCatalog || buildCompactCatalog();
+      const userPrompt = PROMPTS.PLAN.buildUserPrompt(userMessage, chatContext, catalog);
 
       const rawJson = await this.dispatchPrompt(
         PROMPTS.PLAN.SYSTEM,

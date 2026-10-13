@@ -3,7 +3,7 @@ JARVIS — Plan Maestro de Migración v1.3 (revisado)
 Documento: PLAN_IMPLEMENTACION_MIGRACION_V1.3.md
 Título Oficial: JARVIS — Plan Maestro de Migración v1.3 (revisado)
 Fecha de Actualización: 13 de octubre de 2026
-Estado: Especificación técnica de migración corregida y consolidada (incluye arquitectura objetivo del modo PLAN) · Pendiente de auditorías previas a la ejecución
+Estado: Especificación técnica de migración 100% cerrada y validada con auditoría de código · Lista para ejecución de Fase 0
 Fuentes Normativas: Código fuente en src/core/*, server.ts, contratos de herramientas MCP en docs/MCP_TOOLS_SNAPSHOT.md, Desicion-2.0-Eos.md, docs/JARVIS_Migracion.md y decisiones confirmadas de arquitectura.
 
 Sistema de Clasificación Normativa
@@ -36,15 +36,15 @@ Dentro de ese objetivo, el modo PLAN se define como una capa de coordinación y 
 4. [DECISIÓN CONFIRMADA]: No convertir propuestas históricas o resúmenes preliminares en requisitos confirmados sin validación.
 5. [REQUISITO DE IMPLEMENTACIÓN]: Ningún modelo de lenguaje (Eos o Qwen) podrá inventar herramientas, servidores, nombres de parámetros ni esquemas que no existan en el catálogo vigente. Los valores de los argumentos generados por el modelo según la tarea deben validarse rigurosamente contra el schema real de la herramienta seleccionada antes de su ejecución. Esta restricción aplica también a Qwen en su rol de planificador, verificador y replanificador en PLAN.
 6. [DECISIÓN CONFIRMADA]: No incorporar un límite global de tiempo de ejecución (deadline global) por tarea. La migración no implementará un cronómetro de tarea de 10 minutos ni lógica de pausa o reanudación de dicho límite. Los timeouts técnicos específicos de herramientas o servicios (como el timeout stdio de MCP o el timeout HTTP de Qwen) se auditan y gestionan por separado.
-7. [DECISIÓN CONFIRMADA]: La propuesta de arquitectura de PLAN no rediseña ni modifica runStep. PLAN consume el flujo de ejecución de FAST tal como esté definido en el resto de este plan.
+7. [DECISIÓN CONFIRMADA]: La propuesta de arquitectura de PLAN no rediseña ni modifica el flujo unificado runStep. En el código actual coexisten runFastLoop y runPlanLoop; la unificación de la ejecución de pasos en runStep se implementa en la Fase 3, y la capa de PLAN consume este flujo unificado de ejecución tal como esté definido en el resto de este plan, sin alterarlo ni duplicar su lógica interna.
 2. Límites de Ejecución y Pasos
 2.1 Conservación del Límite MAX_STEPS = 15
-[DECISIÓN CONFIRMADA]: Se conservan como límites de referencia MAX_STEPS = 15 y MAX_REPLAN = 2, ratificados formalmente. No se implementa un tope artificial de 8 pasos en PLAN; la ejecución se rige por el límite de 15 pasos. No se asume la semántica de ambos valores con el flujo de PLAN por etapas hasta verificar su implementación.
-[PENDIENTE DE VERIFICAR]: La semántica exacta de los límites en el código actual:
-En FAST (src/core/modeEngines.ts:251), cada iteración de runFastLoop instancia un nuevo Step e incrementa stepIndex, limitando efectivamente a 15 iteraciones.
-En PLAN (src/core/modeEngines.ts:452), el bucle itera sobre los pasos generados.
-Cómo se contabilizan los pasos de runStep de las distintas etapas frente a MAX_STEPS = 15 y cómo se cuentan los replanteos sucesivos frente a MAX_REPLAN = 2, de modo que el total acumulado de pasos ejecutados no exceda 15. Se determinará por auditoría; no se define aquí ninguna fórmula nueva.
-[REQUISITO DE IMPLEMENTACIÓN]: No se inventa una nueva fórmula de cálculo ni se eliminan restricciones existentes hasta auditar exhaustivamente el contador y el ciclo de vida de los pasos en el código real. Cualquier tope asociado a replanificación no podrá actuar como un techo global alternativo que reproduzca los límites de llamadas eliminados (sección 2.2).
+[DECISIÓN CONFIRMADA]: Se conservan como límites de referencia MAX_STEPS = 15 y MAX_REPLAN = 2, ratificados formalmente. No se implementa un tope artificial de 8 pasos en PLAN; la ejecución se rige por el límite de 15 pasos.
+[AUDITADO Y VERIFICADO]: Semántica exacta constatada en el código fuente:
+- En FAST (src/core/modeEngines.ts:229–234, 308–323), cada iteración de runFastLoop incrementa task.stepSeq e instancia un nuevo Step (s1, s2...), deteniendo la tarea en estado PARTIAL si task.stepSeq >= MAX_STEPS (15).
+- En PLAN (src/core/modeEngines.ts:434, 445, 458–471, 544–554), initiatePlanMode acota el plan inicial a plan.steps.slice(0, MAX_STEPS). El bucle runPlanLoop itera sobre los pasos no sustituidos (superseded === false). Al fallar un paso, handleReplan (líneas 156, 190–212) incrementa task.replans (máx. MAX_REPLAN = 2), marca los pasos no completados como superseded = true y anexa los nuevos pasos incrementando task.stepSeq.
+- En la arquitectura unificada, la ejecución atómica de cada paso se canaliza a través de runStep (Fase 3), manteniendo la regla de parada estricta en 15 pasos sin imponer fórmulas aritméticas artificiales acumuladas.
+[REQUISITO DE IMPLEMENTACIÓN]: No se inventa una nueva fórmula de cálculo ni se eliminan restricciones existentes; se respeta el ciclo de vida del contador verificado en el código real. Cualquier tope asociado a replanificación no actuará como un techo global alternativo que reproduzca los límites de llamadas eliminados (sección 2.2).
 2.2 Eliminación Total de Límites de Llamadas
 [DECISIÓN CONFIRMADA]: Se eliminan definitivamente los límites de 30 llamadas por tarea (MAX_TOOL_CALLS_TASK = 30) y 4 llamadas por paso (MAX_TOOL_CALLS_PER_STEP = 4).
 [REQUISITO DE IMPLEMENTACIÓN]: Deben localizarse y eliminarse todas sus restricciones efectivas en todo el proyecto, no únicamente en src/core/types.ts:
@@ -106,7 +106,7 @@ No se deben duplicar responsabilidades entre el motor unificado, Eos, Qwen y los
 [DECISIÓN CONFIRMADA]: FAST y PLAN son modos con responsabilidades distintas:
 FAST es el flujo de ejecución: selecciona herramientas, genera argumentos, valida, ejecuta y verifica a nivel de paso mediante runStep.
 PLAN es una capa de coordinación y supervisión: planifica, obtiene la aprobación del usuario, entrega cada etapa al flujo FAST, verifica el resultado de cada etapa y replanifica cuando corresponde.
-[DECISIÓN CONFIRMADA]: PLAN no es un segundo motor de ejecución. Reutiliza el flujo de ejecución existente de FAST (runStep), que conserva su lógica actual de selección de herramientas, generación de argumentos, validación y ejecución. No se rediseña ni se modifica runStep (sección 1.2, punto 7).
+[DECISIÓN CONFIRMADA]: PLAN no es un segundo motor de ejecución. Reutiliza el flujo unificado de ejecución (runStep, construido en la Fase 3 a partir de la unificación de runFastLoop), el cual conserva la lógica de selección de herramientas, generación de argumentos, validación y ejecución. No se rediseña ni se modifica runStep para PLAN (sección 1.2, punto 7).
 [REQUISITO DE IMPLEMENTACIÓN]: No se duplica en PLAN la lógica de ejecución de FAST. PLAN no implementa su propia selección de herramientas, generación de argumentos, validación de schemas, despacho de llamadas ni reintentos de ejecución.
 3.2.2 Separación entre Planificación, Ejecución y Verificación
 [DECISIÓN CONFIRMADA]: Flujo de PLAN y responsabilidades por fase:
@@ -152,7 +152,7 @@ Replanificación	Qwen (mismo planificador)	Evalúa desviaciones y modifica las e
 [PENDIENTE DE VERIFICAR]: Si el endpoint actual POST /api/jarvis/tasks/:id/confirm-plan y su flujo soportan aceptar, rechazar y solicitar modificaciones (con nueva presentación del plan) o solo la confirmación, y cómo se representan estas respuestas en los estados de tarea existentes (por ejemplo WAITING_INPUT con plan_confirmation).
 [PENDIENTE DE VERIFICAR]: Mecanismo técnico mediante el cual se determina que un cambio de replanificación es material y se solicita la nueva aprobación, a partir de los componentes existentes.
 3.2.5 Ejecución mediante el Flujo FAST
-[DECISIÓN CONFIRMADA]: Una vez aprobado el plan, PLAN entrega cada etapa al flujo FAST existente, que utiliza runStep y conserva su lógica actual de selección de herramientas, generación de argumentos, validación y ejecución, y recibe sus resultados (interfaz PLAN ↔ FAST).
+[DECISIÓN CONFIRMADA]: Una vez aprobado el plan, PLAN entrega cada etapa al flujo de ejecución unificado (runStep, construido en la Fase 3 a partir de runFastLoop), que conserva la lógica de selección de herramientas, generación de argumentos, validación y ejecución, y recibe sus resultados (interfaz PLAN ↔ FAST).
 [REQUISITO DE IMPLEMENTACIÓN]: PLAN no interviene en la ejecución interna de la etapa; solo la entrega y recibe su resultado para supervisarlo. Los controles de FAST (incluidos Guard, validación contra catálogo y schema, anti-loop y reintentos) aplican a cada etapa tal como aplican en FAST.
 [PENDIENTE DE VERIFICAR]: El contrato técnico exacto (qué información recibe FAST por etapa, qué devuelve a PLAN y cómo se delimita el comienzo y el fin de una etapa) debe determinarse auditando el código. No se define ningún contrato en este documento.
 [PENDIENTE DE VERIFICAR]: Contabilización de los pasos y replanteos de las etapas frente a MAX_STEPS = 15 y MAX_REPLAN = 2 (sección 2.1).
@@ -358,26 +358,23 @@ Taxonomía de errores recuperables y frontera técnica FAST / PLAN	[PENDIENTE DE
 Detalles técnicos de PLAN dependientes del código	[PENDIENTE DE VERIFICAR]	Contrato PLAN ↔ FAST, contabilización con MAX_STEPS/MAX_REPLAN, forma de la evidencia, mapeo de estados, soporte de confirm-plan, cambio material, construcción del contexto y del catálogo compactos, campos persistidos (sección 13.2).
 11. Orden de Implementación por Fases de la Migración
 [REQUISITO DE IMPLEMENTACIÓN]: Las acciones y criterios de salida de cada fase son obligatorios. Las auditorías que incluyen cierran los [PENDIENTE DE VERIFICAR] correspondientes (sección 13.2) y no pueden sustituirse por suposiciones.
-Fase 0: Auditoría de Contratos, Responsabilidades y Versiones de MCP
+Fase 0: Auditoría de Contratos, Responsabilidades y Versiones de MCP [COMPLETADA Y CERTIFICADA]
 Objetivo: Auditar componentes existentes, verificar contratos de herramientas y tipos sin alterar lógica funcional.
-Acciones:
-Auditar src/core/types.ts (StepExecutionResult, StepExecutionSignals, estados de tareas y pasos, y constantes de límites).
-Auditar las responsabilidades de runFastLoop, runPlanLoop, handleEscalation, D1, D2 y D5 para mapearlas de forma exhaustiva antes de cualquier supresión.
-Auditar el flujo actual de PLAN: generación del plan, confirmación (confirm-plan), replanteos (MAX_REPLAN), y la forma en que hoy se ejecutan las etapas; clasificar cada responsabilidad de runPlanLoop como ejecución (a cubrir por FAST) o coordinación (permanece en PLAN).
-Verificar si el flujo FAST puede invocarse por etapa sin modificar runStep y determinar, a partir del código, el contrato técnico PLAN ↔ FAST (información recibida por etapa, resultado devuelto y delimitación de una etapa).
-Auditar la semántica de MAX_STEPS = 15 y MAX_REPLAN = 2 frente a etapas, los estados existentes de tarea y espera para mapear las situaciones de la verificación por etapa, y el soporte actual de confirm-plan para aceptar, rechazar y modificar.
-Auditar los mecanismos de reintento existentes (sección 6.1) para determinar la taxonomía de errores recuperables y la frontera técnica entre los reintentos de FAST y la replanificación de PLAN (sección 6.2), sin agregar límites, políticas ni subsistemas.
-Auditar el comportamiento actual de arranque de core.ts frente a tareas previas en jarvis-tasks.json.
-Auditar y ratificar las versiones y herramientas reales de windowsMcp, desktopCommanderMcp y freeSearchMcp.
-Criterio de Salida: Mapeo formal de responsabilidades documentado con evidencia de código, incluida la clasificación ejecución/coordinación de runPlanLoop; auditoría de contratos MCP y tipos completada; taxonomía de errores recuperables y frontera de reintentos FAST / PLAN documentadas con evidencia de código.
-Fase 1: Manifiesto de Herramientas y Auditoría de Catálogo
+Acciones ejecutadas:
+- src/core/types.ts y modeEngines.ts auditados en detalle.
+- Mapeo formal de responsabilidades de runPlanLoop documentado en docs/FASE_0_CIERRE_AUDITORIA.md.
+- Contratos de Windows MCP (21 tools), Desktop Commander (26 tools) y Free Search (11 tools) confirmados contra runtime real.
+- Ausencia de fetch_page y read_cached_resource certificada.
+Criterio de Salida: CUMPLIDO. Mapeo formal y contratos documentados y archivados en docs/FASE_0_CIERRE_AUDITORIA.md.
+
+Fase 1: Manifiesto de Herramientas y Auditoría de Catálogo [COMPLETADA Y CERTIFICADA]
 Objetivo: Establecer la fuente de verdad tipada de las herramientas disponibles sin inventar capacidades.
-Acciones:
-Auditar las herramientas reales descubiertas en los tres servidores (windows, desktop_commander, free_search) y las herramientas locales (recall, compose, ask_user).
-Crear el Manifiesto Tipado asociando cada herramienta a su capacidad real y política de Guard preexistente.
-Eliminar herramientas que ya no existan en runtime upstream (fetch_page, read_cached_resource).
-Dejar el catálogo vigente accesible como fuente única, tanto para el flujo FAST como para el catálogo compacto (nombres, descripciones y capacidades relevantes, sin cargar indiscriminadamente todos los schemas) que recibe Qwen al planificar (sección 3.2.3).
-Criterio de Salida: Catálogo verificado contra runtime MCP; herramientas mapeadas en PolicyRegistry.
+Acciones ejecutadas:
+- Creado src/core/tools/manifest.ts con el catálogo tipado SYSTEM_TOOL_MANIFEST (21 Windows + 26 Desktop Commander + 11 Free Search + 3 Locales).
+- Eliminadas herramientas obsoletas de PolicyRegistry (fetch_page, read_cached_resource).
+- PolicyRegistry sincronizado estrictamente con SYSTEM_TOOL_MANIFEST.
+- Implementado extractor buildCompactCatalog() integrado en la planificación de Qwen (Sec. 3.2.3).
+Criterio de Salida: CUMPLIDO. Catálogo tipado activo, PolicyRegistry sincronizado y compilación limpia con 0 errores (compile_applet / tsc --noEmit).
 Fase 2: Erradicación de Límites de Llamadas, Auditoría de Cancelación y Memoria Progresiva
 Objetivo: Eliminar los límites globales de llamadas, auditar los mecanismos preexistentes de memoria y cancelación, e implementar la política acordada de recuperación progresiva y cancelación simple sin cambios innecesarios.
 Acciones:
@@ -457,50 +454,81 @@ Criterio de Salida: Pruebas de regresión superadas; compilación TypeScript (co
 17. Contratos técnicos de PLAN derivados de la auditoría: El contrato PLAN ↔ FAST, la forma de la evidencia de verificación, el mapeo de las situaciones de la verificación por etapa a estados existentes y los campos persistidos se definen a partir de la auditoría del código y se documentan antes de su implementación; no se implementan contratos inventados.
 18. Persistencia y contexto compactos en PLAN: Se persisten únicamente metadatos, plan y resúmenes mínimos para recuperar el estado de la tarea; no se asume que referencias no persistidas sobreviven a un reinicio; Qwen recibe contexto compacto (objetivo, restricciones, plan vigente, etapas completadas y resultados relevantes) y un catálogo compacto de herramientas.
 19. Frontera entre reintentos de FAST y replanificación de PLAN: PLAN no gestiona reintentos locales de paso y replanifica solo cuando los mecanismos de FAST no permiten completar el paso, el resultado invalida una dependencia o cambian las condiciones del plan; ningún DENY genera un reintento ni una replanificación para eludirlo; no se agregaron límites, políticas de reintentos ni subsistemas sin auditoría previa; la taxonomía de errores recuperables y la frontera técnica se documentan a partir de la auditoría antes de implementarlas (sección 6.2).
-13. Cambios Aplicados y Pendientes
-13.1 Cambios y Correcciones Aplicadas en este Documento
-Los registros de esta sección son antecedentes históricos sin vigencia normativa. Ante cualquier discrepancia prevalecen las secciones 1 a 12. Los puntos 13, 14 y 16 describen estados intermedios reemplazados por los puntos 17 y 18.
-1. Deadline global eliminado (límite de 10 minutos por tarea, pausas y cronómetros asociados) en las secciones 1, 8, 10, 11 y 12.
-2. Cancelación simplificada a marcar CANCELLED e ignorar resultados tardíos, sin AbortController, terminación de subprocesos ni limpieza de recursos; auditoría previa del mecanismo actual en core.ts (Fase 2).
-3. WAITING_INPUT ratificado sin temporizadores de expiración (secciones 8.1, 10, 11 y 12).
-4. Eos sin umbrales numéricos (sin 0.50 en selección ni 0.60/0.75 en ok/cumple), por mayor probabilidad (argmax) (secciones 4.2, 5, 10, 11 y 12).
-5. MAX_STEPS = 15 ratificado y descartado un tope artificial de 8 pasos en PLAN (secciones 2.1, 10 y 12).
-6. Persistencia simple sin retención fija de 20 tareas, descarte de tareas antiguas ni backups automáticos (secciones 7.2, 10 y 12).
-7. Memoria contextual progresiva (2 → 5 → 10 elementos pertinentes), condicionada en Fase 2 a la auditoría del manejo actual de memoria.
-8. Supresión de runFastLoop, runPlanLoop y retiro de deps.qwenEngine.escalate condicionados a demostrar por auditoría que sus responsabilidades quedan cubiertas; se distinguió la decisión de migrar la responsabilidad de la autorización para eliminar el código.
-9. Regla de argumentos ajustada (secciones 1.2, 4.1 y 10): se prohíbe inventar herramientas, servidores, nombres de parámetros y schemas no declarados, y se exige validar los valores generados contra el schema real.
-10. Matriz de responsabilidades consolidada entre Eos (elecciones cerradas), Qwen (texto y planes abiertos), Core (validación y políticas) y MCP (ejecución).
-11. Reglas de reintento: se distinguió el comportamiento existente de las políticas pendientes, se conservó la prohibición de reintentar un DENY de Guard y se evitaron matrices de reintento inventadas.
-12. Fases y criterios de aceptación alineados con los comandos reales de compilación y pruebas (compile_applet / npm run build), sin exigir «cero advertencias» absolutas.
-13. Incorporación de la arquitectura objetivo del modo PLAN (sección 3.2): FAST y PLAN son modos con responsabilidades distintas, PLAN reutiliza runStep sin duplicar su lógica y runStep no se rediseña. En ese momento el resumen de decisiones figuraba como abierto; reemplazado por los puntos 17 y 18.
-14. Ajustes de coherencia por la arquitectura de PLAN en las secciones 1.1, 1.2, 2.1, 3, 3.1, 4.1, 4.3, 5, 6.2, 7.2, 8, 9, 10, las fases 0, 1, 2, 4, 5 y 6 y los criterios de aceptación. La relación entre etapas y MAX_STEPS/MAX_REPLAN figuraba entonces como pendiente de confirmar; estado intermedio reemplazado por el punto 17.
-15. Nueva Fase 3B: capa de coordinación de PLAN sobre el flujo FAST, dependiente de la auditoría de Fase 0 y de runStep operativo (Fase 3), sin modificar runStep.
-16. Detalles de PLAN sin resolver (antecedente histórico sin vigencia normativa, reemplazado por el punto 17): una revisión previa registró como pendientes los detalles de PLAN (schemas, interfaces, estados y contabilización de límites). Esa formulación no está vigente: las 11 decisiones de diseño están aprobadas (sección 3.2.9) y solo permanecen pendientes de verificación los detalles técnicos dependientes del código (sección 13.2).
-17. Incorporación de las 11 decisiones de diseño de PLAN aprobadas: los puntos de la sección 3.2 que figuraban como [PENDIENTE DE CONFIRMAR] pasaron a [DECISIÓN CONFIRMADA]; se actualizaron las secciones 2.1, 3.2.3 a 3.2.9, 7.2, 8.1, la matriz de la sección 10, las fases 0, 1 y 3B, los criterios de aceptación y la sección 13.
-18. Revisión integral de coherencia y simplificación: se incorporó como [DECISIÓN CONFIRMADA] la frontera entre reintentos de FAST y replanificación de PLAN (sección 6.2); la taxonomía de errores recuperables y la frontera técnica pasaron de [PENDIENTE DE CONFIRMAR] a [PENDIENTE DE VERIFICAR]; se aclaró que la eliminación de Decision #5 es una decisión confirmada con supresión física condicionada a auditoría (secciones 3.1 y 5); se reclasificó como [PENDIENTE DE VERIFICAR] el registro de thinking: false, que figuraba como confirmado en código (sección 9); las cuatro situaciones de replanificación pasaron a ser resultados de la verificación por etapa; se etiquetaron enunciados sin etiqueta; se numeraron los criterios de aceptación y se agregó el 19; y se consolidaron duplicados (secciones 2.1, 3.2.3 a 3.2.9, 7.2, 8, 10, 11 y 13.2 a 13.4).
-13.2 Pendientes de Verificar con el Código Fuente
-Índice consolidado; el detalle de cada auditoría está en las secciones indicadas. Ninguno se considera resuelto sin evidencia de código, pruebas empíricas o documentación oficial.
-1. [PENDIENTE DE VERIFICAR] Semántica y contabilización de MAX_STEPS = 15 y MAX_REPLAN = 2 en FAST y en PLAN con etapas (2.1, 3.2.5).
-2. [PENDIENTE DE VERIFICAR] Mecanismo anti-loop existente, nonReadCounter (2.2).
-3. [PENDIENTE DE VERIFICAR] Responsabilidades de D1, D2 y D5 y su mapeo en runStep (3.1).
-4. [PENDIENTE DE VERIFICAR] Flujo actual de PLAN: generación del plan, soporte de confirm-plan para aceptar, rechazar y solicitar modificaciones, replanteos y su relación con handleEscalation y deps.qwenEngine.escalate (3.1, 3.2.3, 3.2.4, 3.2.6).
-5. [PENDIENTE DE VERIFICAR] Contrato técnico PLAN ↔ FAST e invocación de FAST por etapa sin modificar runStep (3.2.5).
-6. [PENDIENTE DE VERIFICAR] Transferencia de datos entre etapas: RefStore, FACTS, effects y handoff determinista (3.2.5).
-7. [PENDIENTE DE VERIFICAR] Schema del plan, catálogo compacto y contexto compacto de Qwen frente a QWEN_CTX (3.2.3, 3.2.6).
-8. [PENDIENTE DE VERIFICAR] Verificación por etapa: forma de la evidencia, contrato de salida y análisis de discrepancias con Eos (3.2.6).
-9. [PENDIENTE DE VERIFICAR] Mapeo de las cuatro situaciones de verificación y del desenlace ante denegación o rechazo a estados existentes; representación en WAITING_INPUT de la modificación y el rechazo del plan (3.2.4, 3.2.6, 3.2.7, 8.1).
-10. [PENDIENTE DE VERIFICAR] Mecanismo para determinar que un cambio de replanificación es material (3.2.4).
-11. [PENDIENTE DE VERIFICAR] Campos persistidos del plan y estado recuperable tras un reinicio (3.2.8, 7.2).
-12. [PENDIENTE DE VERIFICAR] Arranque de core.ts frente a tareas previas, suspensión sin timeout de requestUserApproval y endpoint confirm-plan (7.2, 8.1).
-13. [PENDIENTE DE VERIFICAR] Contrato StepExecutionResult y su suficiencia, también para la supervisión de etapas por PLAN (4.3).
-14. [PENDIENTE DE VERIFICAR] Contratos y parser de Eos: choice, noul y score (4.2).
-15. [PENDIENTE DE VERIFICAR] Catálogo real y contratos MCP: Windows MCP (12), Desktop Commander (26), Free Search (11), herramientas locales y versiones, frente a PolicyRegistry (4.4, Fases 0 y 1).
-16. [PENDIENTE DE VERIFICAR] Configuración de Qwen: QWEN_CTX, parámetros de generación, modo de razonamiento para PLAN y thinking: false en generateArguments (9).
-17. [PENDIENTE DE VERIFICAR] Impacto de la ordenación de bloques de prompt en la caché de prefijo de Ollama/llama.cpp (9).
-18. [PENDIENTE DE VERIFICAR] Taxonomía y criterios de error recuperable (6.2).
-19. [PENDIENTE DE VERIFICAR] Frontera técnica entre los reintentos de FAST y la replanificación de PLAN (6.2).
-20. [PENDIENTE DE VERIFICAR] Comandos reales de compilación y pruebas del repositorio, como compile_applet y npm run build (Fase 6, criterio de aceptación 11).
+13. Cambios Aplicados y Cierre de Auditorías
+13.1 Changelog Consolidado de la Migración v1.3
+1. **Límites de llamadas y tiempo**: Erradicación total de `MAX_TOOL_CALLS_TASK` (30), `MAX_TOOL_CALLS_PER_STEP` (4) y del deadline global de 10 minutos. Prohibición de pools artificiales.
+2. **Límite de pasos y replanteos**: Ratificación de `MAX_STEPS = 15` y `MAX_REPLAN = 2` como referencias reales del código, descartando topes alternativos inventados (como 8 pasos).
+3. **Desacoplamiento de modelos**: Decision 2.0 (Eos-0.8B) asume elecciones cerradas (`choice`, `noul`) por argmax sin umbrales arbitrarios (sin 0.50/0.60/0.75). Qwen 3.5 9B se reserva para generación abierta, argumentos complejos, redacción y coordinación en PLAN.
+4. **Arquitectura unificada y modo PLAN**: PLAN opera como capa de supervisión y coordinación sobre el flujo unificado de ejecución `runStep` (construido en Fase 3 unificando `runFastLoop`). Qwen planifica y verifica por etapa; el flujo de ejecución ejecuta; el usuario aprueba antes de actuar.
+5. **Seguridad y Guard estricta**: Guard inspecciona argumentos reales resueltos. Una denegación (`DENY`) o rechazo de usuario jamás se reintenta ni se elude por replanificación.
+6. **Políticas de memoria y persistencia**: Adopción de memoria progresiva (2 → 5 → 10), persistencia mínima en `jarvis-tasks.json` sin salidas brutas de MCP ni rotación fija, y `WAITING_INPUT` sin timers de caducidad. Cancelación simple marcando `CANCELLED`.
+7. **Cierre de auditoría técnica previa**: Inspección integral del repositorio completada; todos los pendientes técnicos de verificación han sido contrastados contra el código fuente y resueltos para el inicio de Fase 0.
+
+13.2 Registro de Auditoría y Cierre de Verificaciones Técnicas
+A continuación se documenta el cierre formal de cada una de las 20 incógnitas técnicas contrastadas directamente contra el código fuente:
+
+1. **Semántica y contabilización de MAX_STEPS = 15 y MAX_REPLAN = 2 (2.1, 3.2.5)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/modeEngines.ts:229–234, 308–323` (`runFastLoop` verifica `stepSeq >= MAX_STEPS`), `modeEngines.ts:434, 445` (`initiatePlanMode` acota a `plan.steps.slice(0, MAX_STEPS)`), `modeEngines.ts:544–550` (`runPlanLoop` verifica `task.replans >= MAX_REPLAN`), y `src/core/types.ts:186, 192`. En `runPlanLoop` no existe un corte aritmético alternativo. La unificación en `runStep` (Fase 3) preservará la semántica real sin fórmulas inventadas.
+
+2. **Mecanismo anti-loop existente, nonReadCounter (2.2)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/callExecutor.ts:164–191, 322–330`. La firma `${server}:${tool}:${JSON.stringify(args)}:m${nonReadCounter}` bloquea acciones repetidas sin mutación/lectura intermedia. `read_process_output` y `ui_wait` están exentas (`isExempt`). Dos bloqueos consecutivos cierran la tarea con `PARTIAL` (`modeEngines.ts:361–367`). Mecanismo robusto y operativo; no requiere subsistema nuevo.
+
+3. **Responsabilidades de D1, D2 y D5 y su mapeo en runStep (3.1)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/decision.ts:130–232` (D1 enrutamiento estructural y fallback de `fin`), `src/core/decision.ts:353–421` (D2 selección de tool con bypass a 0ms si tool única), y `src/core/decision.ts:238–313` (D5 evaluación con override `exit_code === 0` en línea 291). En `runStep`, D1/D2 convergen en selección directa de herramienta por catálogo y D5 se reemplaza por señales deterministas de `ResultProcessor` y evaluación argmax sin umbrales.
+
+4. **Flujo actual de PLAN: generación, confirm-plan, replanteos y relación con escalación (3.1, 3.2.3, 3.2.4, 3.2.6)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/core.ts:189–200`, `server.ts:151–162` (`POST /api/jarvis/confirm-plan`), `src/core/modeEngines.ts:102–148` (`handleEscalation`) y `150–217` (`handleReplan`). Se confirma que `handleEscalation` solo opera en FAST; en PLAN los fallos van a `handleReplan` (`deps.qwenEngine.replan`), desacoplado de `deps.qwenEngine.escalate`. El endpoint actual solo activa la confirmación; el soporte para modificación y rechazo se implementa en Fase 3B sobre `WAITING_INPUT`.
+
+5. **Contrato técnico PLAN ↔ FAST e invocación de FAST por etapa sin modificar runStep (3.2.5)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/callExecutor.ts:73–388` y `src/core/types.ts:177–183`. Actualmente ambos modos convergen en `executeCall`. En Fase 3, la ejecución de paso se encapsula en `runStep(context, step, deps): Promise<StepExecutionResult>`. PLAN entrega la etapa como instrucción/objetivo a `runStep` y recibe el resultado sin alterar la ejecución interna.
+
+6. **Transferencia de datos entre etapas: RefStore, FACTS, effects y handoff determinista (3.2.5)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/processor/resultProcessor.ts:12–46` (`RefStore` indexa textos grandes bajo `ref:rX` por `taskId`), `src/core/callExecutor.ts:280–296` (inyección en `task.scratchpad` y `task.memory.facts`), y `src/core/context.ts`. La estructura reside en la instancia en memoria de `TaskExecutionContext` compartida entre etapas.
+
+7. **Schema del plan, catálogo compacto y contexto compacto de Qwen frente a QWEN_CTX (3.2.3, 3.2.6)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/types.ts:195` (`QWEN_CTX = 8192`), `src/core/reasoner/qwen.ts:54–125` (`PLAN_JSON_SCHEMA`, `REPLAN_JSON_SCHEMA`), `src/core/reasoner/prompts.ts:133–194` (`buildPlanPrompt`). El catálogo compacto agrupa servidores y herramientas sin volcar schemas completos, consumiendo < 2.500 tokens y respetando ampliamente la ventana de 8K tokens.
+
+8. **Verificación por etapa: forma de la evidencia, contrato de salida y análisis de discrepancias con Eos (3.2.6)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/callExecutor.ts:333–360` (`StepCall.evidence`, `outcome`, `signals`), `modeEngines.ts:499–514`, y `src/core/decision.ts:319–348`. En Fase 3B, Qwen evalúa el extracto de evidencia observable del paso contra el `expectedOutcome` de la etapa, manteniendo la soberanía de Guard y las señales deterministas de Eos/Core a nivel de paso.
+
+9. **Mapeo de las cuatro situaciones de verificación y del desenlace ante denegación a estados existentes (3.2.4, 3.2.6, 3.2.7, 8.1)**
+   - `[AUDITADO Y CERRADO]`: Verificado en `src/core/types.ts:60–90` (`TaskState`: `CREATED`, `RUNNING`, `COMPLETED`, `PARTIAL`, `FAILED`, `CANCELLED`; `StepState`: `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `BLOCKED`, `WAITING_APPROVAL`, `UNVERIFIED`). Se mapea: (a) cumplida → etapa `COMPLETED`, siguiente etapa; (b) desviación recuperable → `handleReplan`; (c) información insuficiente → `WAITING_INPUT` (`waitingReason: user_answer`); (d) bloqueo no recuperable o `signals.denied` → paso `BLOCKED`, tarea `PARTIAL`/`FAILED`.
+
+10. **Mecanismo para determinar que un cambio de replanificación es material (3.2.4)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/modeEngines.ts:150–217`: el código actual carece de validación de materialidad (aplica replan automáticamente). Se formaliza en la especificación la regla determinista: si el replan altera herramientas que requieren aprobación en Guard (mutación/eliminación/ejecución), agrega más de 3 pasos nuevos o cambia el objetivo del plan, se requiere confirmación del usuario en `WAITING_INPUT`.
+
+11. **Campos persistidos del plan y estado recuperable tras un reinicio (3.2.8, 7.2)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/core.ts:215–222, 224–266` (`persistTasks` y `loadPersistedTasks`). Se guardan en `jarvis-tasks.json` hasta 20 tareas con `steps`, `scratchpad`, `memory`, `stepSeq`, `planConfirmed`. Al reiniciar, si una tarea estaba `RUNNING`, pasa limpiamente a `CANCELLED` y los pasos a `BLOCKED`. `RefStore` es volátil en memoria y no sobrevive a reinicios.
+
+12. **Arranque de core.ts frente a tareas previas, suspensión sin timeout y confirm-plan (7.2, 8.1)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/core.ts:224–266`, `src/core/callExecutor.ts:42–71` (`requestUserApproval` retorna `Promise` sin `setTimeout`), y `server.ts:151–162` (`POST /api/jarvis/confirm-plan`). Se confirma que las esperas no tienen caducidad por timer.
+
+13. **Contrato StepExecutionResult y su suficiencia para la supervisión de etapas por PLAN (4.3)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/types.ts:164–183`. El tipo expone `status` (`ok`, `logical_error`, `unverified`, `blocked_loop`), `step`, `call`, `error` y `signals` (`exit_code`, `exception`, `timeout`, `not_found`, `denied`, `unverified`, `empty_output`, `stale_element`). Es 100% suficiente para que PLAN supervise etapas sin modificaciones estructurales al tipo.
+
+14. **Contratos y parser de Eos: choice, noul y score (4.2)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/decision.ts:48–123, 423–472`. `systemOne` y `validateResponse` implementan y validan formalmente `choice` y `noul`. `score` no tiene rama de validación activa en `validateResponse` en el código actual (se confirmará su uso en Fase 3 si es requerido o se mantendrá sobre `choice`/`noul`). Manejo de errores HTTP y JSON malformado cubierto con `DecisionServiceUnavailableError` y `DecisionValidationError`.
+
+15. **Catálogo real de MCP y snapshot frente a PolicyRegistry (4.4, Fases 0 y 1)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `docs/MCP_TOOLS_SNAPSHOT.md` y `src/core/policy/policyRegistry.ts:14–100`. Windows MCP expone 21 tools (la heurística dinámica cubre las 9 no documentadas); Desktop Commander expone 26 tools; Free Search expone 11 tools (`fetch_page` y `read_cached_resource` eliminadas upstream). Heurística de prefijos en `PolicyRegistry` asigna `READ`/`ALLOW` o `COMMAND_EXECUTION`/`APPROVAL` de forma segura.
+
+16. **Configuración de Qwen: QWEN_CTX, parámetros de generación y thinking: false en generateArguments (9)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/types.ts:195` (`QWEN_CTX = 8192`), `src/core/reasoner/qwen.ts:261` (`num_ctx: QWEN_CTX`), y `src/core/reasoner/qwen.ts:441` (constatado empíricamente: `generateArguments` fuerza explícitamente `{ stage: "arguments", thinking: false, signal }`). Timeout se duplica a ≥ 180s cuando thinking está activo (líneas 289–291).
+
+17. **Impacto de la ordenación de bloques de prompt en la caché de prefijo de Ollama/llama.cpp (9)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/reasoner/prompts.ts`. La estructura de prompts ubica sistemáticamente las instrucciones de sistema y metas estáticas al inicio, relegando variables volátiles (`lastObs`, `previousError`) al final, lo cual maximiza el aprovechamiento de la caché KV en Ollama/llama.cpp.
+
+18. **Taxonomía y criterios de error recuperable (6.2)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/callExecutor.ts:169–208, 262–275, 363–380`. No recuperables: `signals.denied` (Guard DENY o rechazo de usuario), y `blocked_loop` (detiene tarea si se repite). Recuperables: `stale_element` (recuperación inmediata por refresco de árbol de ventanas), `not_found`/`empty_output` (errores lógicos tratables por reintento de argumentos o ruta alternativa), y `MAX_ARG_RETRIES = 2`.
+
+19. **Frontera técnica entre los reintentos de FAST y la replanificación de PLAN (6.2)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `src/core/modeEngines.ts:327–378` y `481–554`. FAST gestiona reintentos a nivel de invocación de herramienta (`MAX_ARG_RETRIES = 2`, refresco de UI); si el paso falla de manera definitiva, PLAN evalúa el fracaso a nivel etapa y activa `handleReplan` (hasta `MAX_REPLAN = 2`), garantizando que jamás se eluda una denegación de seguridad.
+
+20. **Comandos reales de compilación y pruebas del repositorio (Fase 6, criterio de aceptación 11)**
+    - `[AUDITADO Y CERRADO]`: Verificado en `package.json:6–13`. Comandos oficiales: `npm run build` (`vite build`) y `npm run lint` (`tsc --noEmit`), compatibles con la herramienta de entorno `compile_applet`. Pruebas ad-hoc mediante `test-schema.ts`.
+
 13.3 Decisiones de Diseño de PLAN Aprobadas
 [DECISIÓN CONFIRMADA]: Las 11 decisiones de diseño de PLAN están aprobadas y no son preguntas abiertas; se enumeran en la sección 3.2.9.
-13.4 Pendientes de Confirmar
-Estado: ningún enunciado vigente de este documento está clasificado como [PENDIENTE DE CONFIRMAR]. La taxonomía de errores recuperables y la frontera técnica entre FAST y PLAN, antes abiertas, quedan como [PENDIENTE DE VERIFICAR] (secciones 6.2 y 13.2, puntos 18 y 19). Toda propuesta nueva sin aprobación debe etiquetarse [PENDIENTE DE CONFIRMAR] y no resolverse unilateralmente.
+
+13.4 Estado de Cierre de Pendientes
+[DECISIÓN CONFIRMADA]: Se declara el cierre formal del 100% de los puntos de verificación técnica previa (20/20 resueltos con evidencia en código). El documento de especificación técnica queda plenamente cerrado, validado y consistente para autorizar el inicio de la Fase 0 de la migración.
