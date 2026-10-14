@@ -4,6 +4,7 @@ import { TaskOverview } from "./components/TaskOverview.tsx";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
 import { FinalResponseView } from "./components/FinalResponseView.tsx";
+import { History } from "lucide-react";
 
 interface ProcessFlowProps {
   task: Task | null;
@@ -34,25 +35,51 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   }
 
   const isAwaitingPlanConfirmation = task.mode === "PLAN" && task.planConfirmed === false;
+  const isMaterialReplan = (task.replans ?? 0) > 0;
+  const hasExecutedSteps = task.steps.some(
+    (s) => s.state !== "PENDING" || (s.calls && s.calls.length > 0)
+  );
 
   return (
     <section className="flex flex-col gap-4 px-6 py-4">
       {/* 1. Header Overview */}
       <TaskOverview task={task} onNewTask={onNewTask} />
 
-      {/* 2. Plan Confirmation Gate (if PLAN mode) */}
+      {/* 2. Plan Confirmation Gate (if PLAN mode awaiting confirmation) */}
       {isAwaitingPlanConfirmation && (
-        <PlanReview
-          steps={task.steps}
-          replans={task.replans}
-          onConfirm={onConfirmPlan}
-          onReject={onRejectPlan}
-          onModify={onModifyPlan}
-          onCancel={onCancelTask}
-        />
+        <div className="flex flex-col gap-3">
+          <PlanReview
+            steps={task.steps}
+            replans={task.replans}
+            onConfirm={onConfirmPlan}
+            onReject={onRejectPlan}
+            onModify={onModifyPlan}
+            onCancel={onCancelTask}
+          />
+
+          {/* Si ya hay pasos ejecutados o es una replanificación material, mantener visible el StepTimeline */}
+          {(hasExecutedSteps || isMaterialReplan) && (
+            <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-800">
+              <div className="flex items-center gap-2 text-xs font-mono text-slate-400 px-1">
+                <History className="w-3.5 h-3.5 text-sky-400" />
+                <span className="font-semibold text-slate-300">
+                  Pasos Previos Ejecutados y En Curso ({task.steps.filter((s) => s.state !== "PENDING").length} ejecutados)
+                </span>
+                <span className="text-slate-500">·</span>
+                <span className="text-slate-500">
+                  Consulte abajo las evidencias y llamadas MCP acumuladas
+                </span>
+              </div>
+              <StepTimeline
+                steps={task.steps}
+                currentStepIndex={task.currentStep}
+              />
+            </div>
+          )}
+        </div>
       )}
 
-      {/* 3. Steps Timeline */}
+      {/* 3. Steps Timeline (cuando no está en espera de confirmación de plan) */}
       {!isAwaitingPlanConfirmation && (
         <StepTimeline
           steps={task.steps}

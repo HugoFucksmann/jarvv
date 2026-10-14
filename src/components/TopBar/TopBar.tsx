@@ -34,7 +34,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* Zone 1: Brand Wordmark & Session History */}
       <div className="flex items-center gap-3">
         <BrandWordmark />
-        {tasks.length > 1 && onSelectTask && (
+        {tasks.length > 0 && onSelectTask && (
           <HistoryMenu
             tasks={tasks}
             activeTaskId={activeTaskId}

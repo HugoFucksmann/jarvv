@@ -31,7 +31,9 @@ export default function App() {
     mode,
     setMode,
     pendingApproval,
+    userQuestion,
     events,
+    modelIterations,
     discoveredTools,
     extraCapabilities,
     unavailableServers,
@@ -123,11 +125,17 @@ export default function App() {
           onApprove={approvePending}
           onDeny={denyPending}
           isWaitingUserAnswer={task?.state === "WAITING_INPUT" && task?.waitingReason === "user_answer"}
+          userQuestion={userQuestion}
           onProvideUserAnswer={provideUserAnswer}
         />
 
-        {/* 4. Decision Stream — Live Decision #1, #2 & Operational Event Trace with Progressive Disclosure */}
-        <DecisionStream events={events} isExecuting={isExecuting} />
+        {/* 4. Decision Stream — Live Decision #1, #2 & Model Iterations by Step with Progressive Disclosure */}
+        <DecisionStream
+          events={events}
+          modelIterations={modelIterations}
+          isExecuting={isExecuting}
+          task={task}
+        />
 
         {/* 5. Process Flow — Plan review, step timeline, verification, final output, new query action */}
         <div className="flex-1">
@@ -142,8 +150,9 @@ export default function App() {
         </div>
       </main>
 
-      {/* 6. Context Inspector — Scratchpad, Evidence, Memoria & Discovered Tools with compact indicators */}
+      {/* 6. Context Inspector — Estado Vivo, Scratchpad, Evidence, Memoria & Discovered Tools with compact indicators */}
       <ContextInspector
+        task={task}
         scratchpad={task?.scratchpad || {}}
         steps={task?.steps || []}
         memory={task?.memory}

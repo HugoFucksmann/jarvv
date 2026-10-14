@@ -19,21 +19,29 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await onApprove();
+      if (pending.onApprove) {
+        await pending.onApprove();
+      } else {
+        await onApprove();
+      }
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, onApprove]);
+  }, [isSubmitting, pending, onApprove]);
 
   const handleDeny = useCallback(async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await onDeny("Rechazado manualmente por el usuario");
+      if (pending.onDeny) {
+        await pending.onDeny("Rechazado manualmente por el usuario");
+      } else {
+        await onDeny("Rechazado manualmente por el usuario");
+      }
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, onDeny]);
+  }, [isSubmitting, pending, onDeny]);
 
   // Atajos de teclado seguros: 'Y' para aprobar y 'N' para denegar
   useEffect(() => {

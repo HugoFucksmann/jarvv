@@ -44,7 +44,43 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
   };
 
   const activeSteps = task.steps.filter((s) => !s.superseded);
-  const activeStepProgress = task.steps.slice(0, task.currentStep + 1).filter((s) => !s.superseded).length;
+  const totalSteps = activeSteps.length;
+  const completedSteps = activeSteps.filter((s) => s.state === "COMPLETED").length;
+  const activeStepProgress = task.steps
+    .slice(0, task.currentStep + 1)
+    .filter((s) => !s.superseded).length;
+
+  const getProgressText = () => {
+    if (totalSteps === 0) {
+      return "Respuesta directa";
+    }
+
+    if (task.state === "COMPLETED") {
+      return `${completedSteps} de ${totalSteps} ${totalSteps === 1 ? "paso completado" : "pasos completados"}`;
+    }
+
+    if (task.state === "FAILED") {
+      return `Falló en paso ${Math.max(1, activeStepProgress)} (${completedSteps} completados)`;
+    }
+
+    if (task.state === "CANCELLED") {
+      return `Cancelada (${completedSteps} de ${totalSteps} completados)`;
+    }
+
+    if (task.state === "PARTIAL") {
+      return `Parcial (${completedSteps} de ${totalSteps} completados)`;
+    }
+
+    if (task.mode === "PLAN") {
+      const current = Math.min(Math.max(1, activeStepProgress), totalSteps);
+      return `Paso ${current} de ${totalSteps}`;
+    }
+
+    const currentSeq = Math.max(1, task.currentStep + 1);
+    return totalSteps > currentSeq
+      ? `Paso ${currentSeq} de ${totalSteps}`
+      : `Paso ${currentSeq}`;
+  };
 
   return (
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
@@ -61,11 +97,7 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
         <span>Modo {task.mode === "NORMAL" ? "NORMAL (FAST)" : task.mode}</span>
         <span aria-hidden="true" className="text-slate-600">·</span>
         <span className="tabular-nums">
-          {task.steps.length === 0
-            ? "Respuesta directa"
-            : task.mode === "PLAN"
-            ? `Paso ${Math.min(activeStepProgress || 1, activeSteps.length)} de ${activeSteps.length}`
-            : `Paso ${task.currentStep + 1}`}
+          {getProgressText()}
         </span>
         {task.replans && task.replans > 0 ? (
           <>

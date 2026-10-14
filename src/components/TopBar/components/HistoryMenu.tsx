@@ -31,7 +31,7 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
     };
   }, [isOpen]);
 
-  if (tasks.length <= 1) return null;
+  if (tasks.length === 0) return null;
 
   const getStatusType = (state: Task["state"]) => {
     switch (state) {

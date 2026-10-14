@@ -20,8 +20,10 @@ export const PromptInput: React.FC<PromptInputProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!value.trim() || isExecuting) return;
-    onRun(value.trim());
+    const trimmed = value.trim();
+    if (!trimmed || isExecuting) return;
+    setValue("");
+    onRun(trimmed);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

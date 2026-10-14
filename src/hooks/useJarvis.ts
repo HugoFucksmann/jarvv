@@ -9,11 +9,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Task, PendingApproval, CoreEvent, MCPTool } from "../core/types.ts";
 import type { MCPPrompt, MCPResourceTemplate } from "../core/mcp/types.ts";
+import type { ModelIteration } from "../types/debug.ts";
 import { jarvisApi } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
+import { createIterationFromEvent, reconstructIterationsFromTask } from "../utils/debugAccumulator.ts";
 
 export function useJarvis() {
   const activeTaskIdRef = useRef<string | null>(null);
+  const taskRef = useRef<Task | null>(null);
+  const eventsByTaskRef = useRef<Record<string, CoreEvent[]>>({});
+  const iterationsByTaskRef = useRef<Record<string, ModelIteration[]>>({});
   const isInitialSnapshotLoaded = useRef<boolean>(false);
   const userClearedViewRef = useRef<boolean>(false);
 
@@ -21,6 +26,7 @@ export function useJarvis() {
   const [allTasks, setAllTasks] = useState<Task[]>([]);
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [events, setEvents] = useState<CoreEvent[]>([]);
+  const [modelIterations, setModelIterations] = useState<ModelIteration[]>([]);
   const [discoveredTools, setDiscoveredTools] = useState<Record<string, MCPTool[]>>({});
   const [extraCapabilities, setExtraCapabilities] = useState<{
     prompts: Record<string, MCPPrompt[]>;
@@ -29,10 +35,25 @@ export function useJarvis() {
   const [unavailableServers, setUnavailableServers] = useState<Record<string, { reason: string; since: number }>>({});
   const [mode, setMode] = useState<"NORMAL" | "PLAN">("NORMAL");
   const [error, setError] = useState<string | null>(null);
+  const [userQuestion, setUserQuestion] = useState<string | null>(null);
+
+  // Refs para estabilizar callbacks dentro de EventSource y evitar reconexiones cíclicas (FRONT-02)
+  const allTasksRef = useRef<Task[]>([]);
+  useEffect(() => {
+    allTasksRef.current = allTasks;
+  }, [allTasks]);
+
+  // Sincronizar referencia síncrona del task actual
+  useEffect(() => {
+    taskRef.current = task;
+    if (task?.id) {
+      activeTaskIdRef.current = task.id;
+    }
+  }, [task]);
 
   // Approve action (resolves taskId safely without sending null)
   const approvePending = useCallback(async (explicitTaskId?: string) => {
-    const tid = explicitTaskId || activeTaskIdRef.current || task?.id || undefined;
+    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
     try {
       setError(null);
       await jarvisApi.approvePending(tid);
@@ -41,11 +62,11 @@ export function useJarvis() {
       console.error("Error approving pending step:", err);
       setError(err.message || "Error al aprobar la operación pendiente.");
     }
-  }, [task?.id]);
+  }, []);
 
   // Deny action (resolves taskId safely without sending null)
   const denyPending = useCallback(async (reason?: string, explicitTaskId?: string) => {
-    const tid = explicitTaskId || activeTaskIdRef.current || task?.id || undefined;
+    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
     try {
       setError(null);
       await jarvisApi.denyPending(tid, reason);
@@ -54,13 +75,13 @@ export function useJarvis() {
       console.error("Error denying pending step:", err);
       setError(err.message || "Error al denegar la operación pendiente.");
     }
-  }, [task?.id]);
+  }, []);
 
   // Hydrate PendingApproval object with interactive handlers for UI
   const hydratePendingApproval = useCallback(
     (raw: any, fallbackTaskId?: string): PendingApproval | null => {
       if (!raw) return null;
-      const associatedTaskId = raw.taskId || fallbackTaskId || activeTaskIdRef.current || task?.id;
+      const associatedTaskId = raw.taskId || fallbackTaskId || activeTaskIdRef.current || taskRef.current?.id;
       return {
         id: raw.id,
         stepId: raw.stepId,
@@ -77,8 +98,37 @@ export function useJarvis() {
         },
       };
     },
-    [approvePending, denyPending, task?.id]
+    [approvePending, denyPending]
   );
+
+  const hydratePendingApprovalRef = useRef(hydratePendingApproval);
+  useEffect(() => {
+    hydratePendingApprovalRef.current = hydratePendingApproval;
+  }, [hydratePendingApproval]);
+
+function extractUserQuestion(t: Task | null): string | null {
+  if (!t || t.state !== "WAITING_INPUT" || t.waitingReason !== "user_answer") return null;
+  for (let i = t.steps.length - 1; i >= 0; i--) {
+    const s = t.steps[i];
+    if (s.calls) {
+      for (let j = s.calls.length - 1; j >= 0; j--) {
+        const c = s.calls[j];
+        if (c.tool === "ask_user" && c.args) {
+          const q = (c.args.question as string) || (c.args.prompt as string);
+          if (q) return q;
+        }
+      }
+    }
+    if (s.tool === "ask_user" && s.args) {
+      const q = (s.args.question as string) || (s.args.prompt as string);
+      if (q) return q;
+    }
+    if (s.error && (s.state === "UNVERIFIED" || s.state === "RUNNING")) {
+      return s.error;
+    }
+  }
+  return null;
+}
 
   // Fetch full state snapshot from backend
   const fetchState = useCallback(async () => {
@@ -86,15 +136,33 @@ export function useJarvis() {
       const data = await jarvisApi.getState(activeTaskIdRef.current || undefined);
       if (data.allTasks) {
         setAllTasks(data.allTasks);
+        allTasksRef.current = data.allTasks;
       }
       if (data.task) {
+        const taskId = data.task.id;
+        const existingIter = iterationsByTaskRef.current[taskId];
+        if (!existingIter || existingIter.length === 0) {
+          const reconstructed = reconstructIterationsFromTask(data.task);
+          iterationsByTaskRef.current[taskId] = reconstructed;
+        }
+
         if (!isInitialSnapshotLoaded.current) {
           isInitialSnapshotLoaded.current = true;
-          activeTaskIdRef.current = data.task.id;
+          activeTaskIdRef.current = taskId;
+          taskRef.current = data.task;
           setTask(data.task);
+          setModelIterations(iterationsByTaskRef.current[taskId] || []);
         } else if (!userClearedViewRef.current || data.task.state === "RUNNING") {
-          activeTaskIdRef.current = data.task.id;
+          activeTaskIdRef.current = taskId;
+          taskRef.current = data.task;
           setTask(data.task);
+          setModelIterations(iterationsByTaskRef.current[taskId] || []);
+        }
+
+        if (data.task.state === "WAITING_INPUT" && data.task.waitingReason === "user_answer") {
+          setUserQuestion((prev) => prev || extractUserQuestion(data.task));
+        } else {
+          setUserQuestion(null);
         }
       }
       if (data.pendingApproval) {
@@ -116,9 +184,15 @@ export function useJarvis() {
     }
   }, [hydratePendingApproval]);
 
-  // Subscribe to real-time events via Server-Sent Events (SSE)
+  const fetchStateRef = useRef(fetchState);
   useEffect(() => {
-    fetchState();
+    fetchStateRef.current = fetchState;
+  }, [fetchState]);
+
+  // Subscribe to real-time events via Server-Sent Events (SSE)
+  // Montaje único y conexión persistente sin cierres por cambios de dependencias (FRONT-02)
+  useEffect(() => {
+    fetchStateRef.current();
 
     let eventSource: EventSource | null = null;
     let fallbackPollInterval: NodeJS.Timeout | null = null;
@@ -126,7 +200,7 @@ export function useJarvis() {
     const startFallbackPolling = () => {
       if (!fallbackPollInterval) {
         fallbackPollInterval = setInterval(() => {
-          fetchState();
+          fetchStateRef.current();
         }, 5000);
       }
     };
@@ -151,12 +225,63 @@ export function useJarvis() {
           const { event, task: updatedTask, pendingApproval: rawPending } = payload;
 
           if (event) {
+            // Buffer expandido a 500 eventos e indexado por taskId
+            const taskEvents = eventsByTaskRef.current[event.taskId] || [];
+            const updatedTaskEvents = [...taskEvents.slice(-499), event];
+            eventsByTaskRef.current[event.taskId] = updatedTaskEvents;
+
             if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
-              setEvents((prev) => [...prev.slice(-49), event]);
+              setEvents((prev) => [...prev.slice(-499), event]);
+            }
+
+            // Capturar pregunta interactiva del evento si requiere respuesta del usuario (FRONT-03)
+            if (event.type === "TASK_STATE_CHANGED") {
+              const evtData = (event.data || {}) as any;
+              if (evtData.state === "WAITING_INPUT" && evtData.waitingReason === "user_answer") {
+                setUserQuestion(evtData.question || null);
+              } else if (evtData.state && evtData.state !== "WAITING_INPUT") {
+                setUserQuestion(null);
+              }
+            }
+
+            // Captura reactiva de iteración de modelo (Eos / Qwen)
+            const currentContextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
+            const newIteration = createIterationFromEvent(event, currentContextTask);
+            if (newIteration) {
+              const taskIterList = iterationsByTaskRef.current[event.taskId] || [];
+              if (!taskIterList.some((it) => it.id === newIteration.id)) {
+                const nextList = [...taskIterList, newIteration];
+                iterationsByTaskRef.current[event.taskId] = nextList;
+                if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
+                  setModelIterations(nextList);
+                }
+              }
             }
           }
 
           if (updatedTask) {
+            taskRef.current = updatedTask;
+            // Sincronizar allTasks inmutablemente en tiempo real (FRONT-01)
+            setAllTasks((prev) => {
+              const idx = prev.findIndex((t) => t.id === updatedTask.id);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = updatedTask;
+                allTasksRef.current = next;
+                return next;
+              }
+              const next = [...prev, updatedTask];
+              allTasksRef.current = next;
+              return next;
+            });
+
+            // Sincronizar pregunta de usuario si la tarea está en espera de respuesta
+            if (updatedTask.state === "WAITING_INPUT" && updatedTask.waitingReason === "user_answer") {
+              setUserQuestion((prev) => prev || extractUserQuestion(updatedTask));
+            } else if (updatedTask.state !== "WAITING_INPUT") {
+              setUserQuestion(null);
+            }
+
             // Prevenir que SSE restaure inesperadamente una tarea inactiva si el usuario limpió la vista
             const matchesActive = activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current;
             const isFreshRunningTask = !activeTaskIdRef.current && updatedTask.state === "RUNNING";
@@ -165,11 +290,19 @@ export function useJarvis() {
               userClearedViewRef.current = false;
               activeTaskIdRef.current = updatedTask.id;
               setTask({ ...updatedTask });
+
+              // Si la lista de iteraciones está vacía, reconstruir fielmente
+              const currentIters = iterationsByTaskRef.current[updatedTask.id] || [];
+              if (currentIters.length === 0 && updatedTask.steps && updatedTask.steps.length > 0) {
+                const reconstructed = reconstructIterationsFromTask(updatedTask);
+                iterationsByTaskRef.current[updatedTask.id] = reconstructed;
+                setModelIterations(reconstructed);
+              }
             }
           }
 
           if (rawPending !== undefined) {
-            setPendingApproval(hydratePendingApproval(rawPending, updatedTask?.id));
+            setPendingApproval(hydratePendingApprovalRef.current(rawPending, updatedTask?.id));
           }
         } catch (e) {
           console.error("Failed to parse JARVIS SSE message:", e);
@@ -178,7 +311,7 @@ export function useJarvis() {
 
       eventSource.onerror = () => {
         startFallbackPolling();
-        fetchState();
+        fetchStateRef.current();
       };
     } catch (err) {
       console.warn("EventSource not supported or failed to connect:", err);
@@ -191,7 +324,7 @@ export function useJarvis() {
       }
       stopFallbackPolling();
     };
-  }, [fetchState, hydratePendingApproval]);
+  }, []);
 
   // Initiate a new task on the backend
   const runTask = useCallback(
@@ -199,6 +332,7 @@ export function useJarvis() {
       if (!message.trim()) return;
       userClearedViewRef.current = false;
       setEvents([]);
+      setModelIterations([]);
       setError(null);
       const effectiveMode = executionMode || mode;
 
@@ -210,8 +344,22 @@ export function useJarvis() {
         const data = await jarvisApi.initiateTask(message, effectiveMode);
         if (data.task) {
           activeTaskIdRef.current = data.task.id;
+          taskRef.current = data.task;
           setTask(data.task);
           setPendingApproval(null);
+          // Sincronizar allTasks inmediatamente al iniciar la tarea (FRONT-01)
+          setAllTasks((prev) => {
+            const idx = prev.findIndex((t) => t.id === data.task.id);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = data.task;
+              allTasksRef.current = next;
+              return next;
+            }
+            const next = [...prev, data.task];
+            allTasksRef.current = next;
+            return next;
+          });
         }
       } catch (err: any) {
         console.error("Failed to initiate task on backend:", err);
@@ -278,6 +426,7 @@ export function useJarvis() {
     const tid = activeTaskIdRef.current || task?.id || undefined;
     try {
       setError(null);
+      setUserQuestion(null);
       await jarvisApi.provideUserAnswer(tid, answer);
       await fetchState();
     } catch (err: any) {
@@ -304,21 +453,65 @@ export function useJarvis() {
   const clearTaskView = useCallback(() => {
     userClearedViewRef.current = true;
     activeTaskIdRef.current = null;
+    taskRef.current = null;
     setTask(null);
     setEvents([]);
+    setModelIterations([]);
     setPendingApproval(null);
+    setUserQuestion(null);
     setError(null);
   }, []);
 
   // Seleccionar tarea previa del historial para visualización de solo lectura
   const selectHistoricalTask = useCallback(
-    (taskId: string) => {
-      const found = allTasks.find((t) => t.id === taskId);
+    async (taskId: string) => {
+      let found = allTasks.find((t) => t.id === taskId) || allTasksRef.current.find((t) => t.id === taskId);
+      if (!found) {
+        try {
+          const data = await jarvisApi.getState(taskId);
+          if (data.task && data.task.id === taskId) {
+            const fetchedTask: Task = data.task;
+            found = fetchedTask;
+            setAllTasks((prev) => {
+              const idx = prev.findIndex((t) => t.id === taskId);
+              if (idx >= 0) {
+                const next = [...prev];
+                next[idx] = fetchedTask;
+                allTasksRef.current = next;
+                return next;
+              }
+              const next = [...prev, fetchedTask];
+              allTasksRef.current = next;
+              return next;
+            });
+          }
+        } catch (e) {
+          console.warn("Failed to retrieve historical task:", e);
+        }
+      }
+
       if (found) {
         userClearedViewRef.current = false;
         activeTaskIdRef.current = found.id;
-        setTask(found);
+        taskRef.current = found;
+        setTask({ ...found });
         setPendingApproval(null);
+        setError(null);
+
+        if (found.state === "WAITING_INPUT" && found.waitingReason === "user_answer") {
+          setUserQuestion(extractUserQuestion(found));
+        } else {
+          setUserQuestion(null);
+        }
+
+        // Restaurar eventos registrados para esta tarea
+        setEvents(eventsByTaskRef.current[found.id] || []);
+
+        // Restaurar iteraciones o reconstruirlas a partir del snapshot del task
+        const existingIter = iterationsByTaskRef.current[found.id] || [];
+        const finalIter = existingIter.length > 0 ? existingIter : reconstructIterationsFromTask(found);
+        iterationsByTaskRef.current[found.id] = finalIter;
+        setModelIterations(finalIter);
       }
     },
     [allTasks]
@@ -330,7 +523,9 @@ export function useJarvis() {
     mode,
     setMode,
     pendingApproval,
+    userQuestion,
     events,
+    modelIterations,
     discoveredTools,
     extraCapabilities,
     unavailableServers,

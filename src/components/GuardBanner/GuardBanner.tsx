@@ -8,6 +8,7 @@ interface GuardBannerProps {
   onApprove: () => void | Promise<void>;
   onDeny: (reason?: string) => void | Promise<void>;
   isWaitingUserAnswer?: boolean;
+  userQuestion?: string | null;
   onProvideUserAnswer?: (answer: string) => void | Promise<void>;
 }
 
@@ -16,6 +17,7 @@ export const GuardBanner: React.FC<GuardBannerProps> = ({
   onApprove,
   onDeny,
   isWaitingUserAnswer = false,
+  userQuestion = null,
   onProvideUserAnswer,
 }) => {
   const [answerInput, setAnswerInput] = useState("");
@@ -40,8 +42,8 @@ export const GuardBanner: React.FC<GuardBannerProps> = ({
       {pending && (
         <ApprovalAction
           pending={pending}
-          onApprove={onApprove}
-          onDeny={onDeny}
+          onApprove={pending.onApprove || onApprove}
+          onDeny={pending.onDeny || onDeny}
         />
       )}
 
@@ -60,8 +62,8 @@ export const GuardBanner: React.FC<GuardBannerProps> = ({
                   Sin temporizador de expiración
                 </span>
               </div>
-              <p className="text-sm text-sky-100 font-medium">
-                JARVIS requiere aclaración del usuario para proceder con la ejecución de la tarea.
+              <p className="text-sm text-sky-100 font-medium whitespace-pre-wrap leading-relaxed">
+                {userQuestion || "JARVIS requiere aclaración del usuario para proceder con la ejecución de la tarea."}
               </p>
               <div className="mt-1 flex items-center gap-2 w-full">
                 <input

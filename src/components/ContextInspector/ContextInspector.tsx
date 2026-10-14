@@ -1,13 +1,15 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import type { Scratchpad, Step, MCPTool, TaskMemory } from "../../core/types.ts";
+import type { Scratchpad, Step, MCPTool, TaskMemory, Task } from "../../core/types.ts";
 import type { MCPPrompt, MCPResourceTemplate } from "../../core/mcp/types.ts";
+import { SessionStateView } from "./components/SessionStateView.tsx";
 import { ScratchpadView } from "./components/ScratchpadView.tsx";
 import { EvidenceView } from "./components/EvidenceView.tsx";
 import { DiscoveryCatalogView } from "./components/DiscoveryCatalogView.tsx";
 import { MemoryView } from "./components/MemoryView.tsx";
 
 interface ContextInspectorProps {
+  task?: Task | null;
   scratchpad: Scratchpad;
   steps: Step[];
   discoveredTools: Record<string, MCPTool[]>;
@@ -22,6 +24,7 @@ interface ContextInspectorProps {
 }
 
 export const ContextInspector: React.FC<ContextInspectorProps> = ({
+  task = null,
   scratchpad,
   steps,
   discoveredTools,
@@ -32,12 +35,12 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   onRefreshDiscovery,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"scratchpad" | "evidence" | "discovery" | "memory">("memory");
+  const [activeTab, setActiveTab] = useState<"state" | "memory" | "scratchpad" | "evidence" | "discovery">("state");
 
   const totalDiscovered = Object.values(discoveredTools).reduce((acc, t) => acc + t.length, 0);
   const unavailableCount = Object.keys(unavailableServers).length;
 
-  // Cálculo preciso de datos disponibles en cada pestaña (Etapa B.5 y Fase 5)
+  // Cálculo preciso de datos disponibles en cada pestaña
   const factsCount = Object.keys(memory?.facts || {}).length;
   const effectsCount = (memory?.effects || []).length;
   const failCount = (memory?.fail || []).length;
@@ -69,6 +72,19 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
 
           {isOpen && (
             <div className="flex items-center gap-1" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "state"}
+                onClick={() => setActiveTab("state")}
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                  activeTab === "state"
+                    ? "bg-slate-800 text-white font-medium"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <span>Estado</span>
+              </button>
               <button
                 type="button"
                 role="tab"
@@ -152,7 +168,15 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
       </div>
 
       {isOpen && (
-        <div id="context-inspector-panel" className="px-6 py-3 border-t border-slate-800/80 max-h-56 overflow-y-auto">
+        <div id="context-inspector-panel" className="px-6 py-3 border-t border-slate-800/80 max-h-64 overflow-y-auto">
+          {activeTab === "state" && (
+            <SessionStateView
+              task={task}
+              scratchpad={scratchpad}
+              memory={memory}
+              steps={steps}
+            />
+          )}
           {activeTab === "memory" && <MemoryView memory={memory} steps={steps} taskId={taskId} />}
           {activeTab === "scratchpad" && <ScratchpadView scratchpad={scratchpad} />}
           {activeTab === "evidence" && <EvidenceView steps={steps} />}

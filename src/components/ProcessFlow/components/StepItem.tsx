@@ -24,6 +24,22 @@ interface StepItemProps {
 export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) => {
   const [showCalls, setShowCalls] = useState(false);
   const [copiedError, setCopiedError] = useState(false);
+  const [expandedObs, setExpandedObs] = useState<Record<string, boolean>>({});
+  const [copiedObsKey, setCopiedObsKey] = useState<string | null>(null);
+
+  const toggleObs = (key: string) => {
+    setExpandedObs((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleCopyObs = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedObsKey(key);
+      setTimeout(() => setCopiedObsKey(null), 2000);
+    } catch (err) {
+      console.error("Error al copiar observación:", err);
+    }
+  };
 
   const handleCopyError = async () => {
     if (!step.error) return;
@@ -210,9 +226,57 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                       </div>
                     )}
 
-                    <div className="text-[11px] text-slate-300 bg-slate-900/60 p-1.5 rounded border border-slate-800/40 line-clamp-3">
-                      {c.evidence?.summary || c.error || "Sin detalle textual"}
+                    <div className="text-[11px] text-slate-300 bg-slate-900/60 p-1.5 rounded border border-slate-800/40">
+                      <p className="line-clamp-3">
+                        {c.evidence?.summary || c.error || c.evidence?.obs || "Sin detalle textual"}
+                      </p>
                     </div>
+
+                    {c.evidence?.obs && (
+                      <div className="mt-1 flex flex-col gap-1">
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => toggleObs(`call-${c.id || cIdx}`)}
+                            className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer font-mono"
+                          >
+                            {expandedObs[`call-${c.id || cIdx}`] ? (
+                              <ChevronDown className="w-3 h-3" />
+                            ) : (
+                              <ChevronRight className="w-3 h-3" />
+                            )}
+                            <span>
+                              Salida completa ({c.evidence.obs.length} caracteres)
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopyObs(`call-${c.id || cIdx}`, c.evidence!.obs!)}
+                            title="Copiar salida de herramienta"
+                            className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
+                          >
+                            {copiedObsKey === `call-${c.id || cIdx}` ? (
+                              <>
+                                <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                <span className="text-emerald-400">Copiado</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-2.5 h-2.5" />
+                                <span>Copiar</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {expandedObs[`call-${c.id || cIdx}`] && (
+                          <div className="p-2 bg-slate-950 rounded border border-slate-800 text-[10px] font-mono text-slate-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                            {c.evidence.obs}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -223,10 +287,51 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
 
       {/* Render evidence or execution details if present */}
       {step.evidence && (
-        <div className="ml-7 text-xs text-slate-400 border-l border-slate-800 pl-3 py-0.5">
+        <div className="ml-7 text-xs text-slate-400 border-l border-slate-800 pl-3 py-0.5 flex flex-col gap-1">
           <p className="line-clamp-2 text-slate-300">
-            {step.evidence.summary}
+            {step.evidence.summary || step.evidence.obs || "Paso ejecutado"}
           </p>
+          {step.evidence.obs && callsCount === 0 && (
+            <div className="flex flex-col gap-1 mt-0.5">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => toggleObs(`step-${step.id || index}`)}
+                  className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer font-mono"
+                >
+                  {expandedObs[`step-${step.id || index}`] ? (
+                    <ChevronDown className="w-3 h-3" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3" />
+                  )}
+                  <span>Salida completa ({step.evidence.obs.length} caracteres)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyObs(`step-${step.id || index}`, step.evidence!.obs!)}
+                  title="Copiar salida de evidencia"
+                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
+                >
+                  {copiedObsKey === `step-${step.id || index}` ? (
+                    <>
+                      <Check className="w-2.5 h-2.5 text-emerald-400" />
+                      <span className="text-emerald-400">Copiado</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-2.5 h-2.5" />
+                      <span>Copiar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              {expandedObs[`step-${step.id || index}`] && (
+                <div className="p-2 bg-slate-950 rounded border border-slate-800 text-[10px] font-mono text-slate-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                  {step.evidence.obs}
+                </div>
+              )}
+            </div>
+          )}
           {step.evidence.flags && step.evidence.flags.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-1 text-slate-500 font-mono text-[11px]">
               {step.evidence.flags.map((flag, fIdx) => (
