@@ -48,6 +48,8 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
       "MCP_DISPATCHED",
       "MCP_RESULT",
       "RESULT_PROCESSED",
+      "STEP_STATE_CHANGED",
+      "STEP_COMPLETED",
       "STAGE_VERIFIED",
       "PLAN_GENERATED",
       "PLAN_MODIFIED",
@@ -251,6 +253,10 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
                       ? `Plan rechazado: ${(ev.data as any)?.reason || "cancelado por usuario"}`
                       : ev.type === "FINAL_RESPONSE"
                       ? "Respuesta sintetizada"
+                      : ev.type === "STEP_STATE_CHANGED"
+                      ? `paso ${ev.stepId || ""}: estado -> ${(ev.data as any)?.state || (ev.data as any)?.step?.state}`
+                      : ev.type === "STEP_COMPLETED"
+                      ? `paso ${ev.stepId || ""}: concluido (${(ev.data as any)?.step?.state || "COMPLETED"})${(ev.data as any)?.error ? ` [error: ${(ev.data as any).error}]` : ""}`
                       : JSON.stringify(ev.data || {})}
                   </span>
                 </div>

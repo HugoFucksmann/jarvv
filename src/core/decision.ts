@@ -287,46 +287,6 @@ export class Decision20Engine {
   }
 
   /**
-   * PLAN criteria judgement (§3, §9.3, §10.6)
-   * Evaluates if the expected_outcome was met: 'cumple' or 'no_cumple'.
-   * Argmax por mayor probabilidad sin umbrales numéricos de corte (§4.2).
-   */
-  async evaluatePlanJudgement(
-    expectedOutcome: string,
-    finding: string,
-    extract: string
-  ): Promise<{
-    met: boolean;
-    confidence: number;
-    rawResponse: DecisionResponse;
-    rawInput: string;
-    rawOutput: string;
-  }> {
-    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionJudgement({
-      expectedOutcome,
-      finding,
-      extract,
-    });
-
-    const t0 = Date.now();
-    const response = await this.systemOne(statePayload, questions);
-    const answer = response.answers.judgement as DecisionAnswerChoice;
-
-    // Argmax por mayor probabilidad (sin umbral arbitrario de 0.6)
-    const met = answer.choice === "cumple";
-
-    console.log(`[Decision Judgement] judgement=${answer.choice} met=${met} confidence=${answer.confidence.toFixed(2)} duration=${Date.now() - t0}ms`);
-
-    return {
-      met,
-      confidence: answer.confidence,
-      rawResponse: response,
-      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
-      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
-    };
-  }
-
-  /**
    * Decision #2: Tool selection within discovered tools of the active MCP
    */
   async evaluateDecisionTwo(

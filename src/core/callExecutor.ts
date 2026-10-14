@@ -315,7 +315,7 @@ export async function runStep(
         task.waitingReason = "approval";
         step.state = "WAITING_APPROVAL";
         deps.persistTasks();
-        deps.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id);
+        deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, state: "WAITING_APPROVAL" }, step.id);
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "approval" });
 
         const approved = await requestUserApproval(context, step, guardDecision.reason || "Operación sensible", deps.emitEvent);
@@ -339,7 +339,7 @@ export async function runStep(
         task.waitingReason = undefined;
         step.state = "RUNNING";
         deps.persistTasks();
-        deps.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id);
+        deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, state: "RUNNING" }, step.id);
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
     }
 
@@ -567,8 +567,3 @@ export async function runStep(
         signals: processed.signals,
     };
 }
-
-/**
- * Alias de compatibilidad retroactiva durante la transición de Fase 3
- */
-export const executeCall = runStep;

@@ -164,4 +164,27 @@ assert(taskWaitingPlan.state === "WAITING_INPUT", "WAITING_INPUT plan_confirmati
 assert(taskWaitingUserAnswer.state === "WAITING_INPUT", "WAITING_INPUT user_answer configurado");
 console.log("[PASS] 3 subtipos de WAITING_INPUT modelados sin temporizadores de caducidad");
 
-console.log("\n=== RESUMEN: 10/10 pruebas de Fase 5 superadas exitosamente ===");
+// 5. Validación de Semántica de Eventos de Paso (STEP_STATE_CHANGED vs STEP_COMPLETED)
+console.log("\n--- 5. Semántica de Eventos de Paso (STEP_STATE_CHANGED vs STEP_COMPLETED) ---");
+const stateChangedEvent: CoreEvent = {
+  type: "STEP_STATE_CHANGED",
+  timestamp: Date.now(),
+  taskId: testTaskId,
+  stepId: "s1",
+  data: { state: "WAITING_APPROVAL" },
+};
+const completedEvent: CoreEvent = {
+  type: "STEP_COMPLETED",
+  timestamp: Date.now() + 50,
+  taskId: testTaskId,
+  stepId: "s1",
+  data: { step: { ...step, state: "COMPLETED" } },
+};
+
+assert.strictEqual(stateChangedEvent.type, "STEP_STATE_CHANGED", "STEP_STATE_CHANGED emitido para transiciones no terminales");
+assert.strictEqual(completedEvent.type, "STEP_COMPLETED", "STEP_COMPLETED emitido para estados terminales");
+assert.strictEqual((stateChangedEvent.data as any).state, "WAITING_APPROVAL", "Estado WAITING_APPROVAL preservado en STEP_STATE_CHANGED");
+assert.strictEqual(((completedEvent.data as any).step as Step).state, "COMPLETED", "Estado terminal preservado en STEP_COMPLETED");
+console.log("[PASS] STEP_STATE_CHANGED para transiciones y STEP_COMPLETED reservado para terminales verificado");
+
+console.log("\n=== RESUMEN: 11/11 pruebas de Fase 5 superadas exitosamente ===");

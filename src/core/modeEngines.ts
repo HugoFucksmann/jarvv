@@ -11,7 +11,6 @@ import {
     MAX_ESCALATIONS,
     MAX_REPLAN,
     StepExecutionResult,
-    EscalationResponse,
     isTerminalState,
 } from "./types.ts";
 import { RefStore } from "./processor/resultProcessor.ts";
@@ -25,7 +24,6 @@ import {
 import {
     EngineDependencies,
     runStep,
-    executeCall,
 } from "./callExecutor.ts";
 import { isStepRoute } from "./reasoner/qwen.ts";
 import { PolicyRegistry } from "./policy/policyRegistry.ts";
@@ -474,7 +472,7 @@ export async function runFastLoop(
 
         task.steps.push(step);
         deps.persistTasks();
-        deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+        deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
         // Execute single call con motor unificado runStep
         let execResult: StepExecutionResult;
@@ -685,7 +683,7 @@ export async function runPlanLoop(
 
         step.state = "RUNNING";
         deps.persistTasks();
-        deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+        deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
         // Fase 3B: Entrega directa de la etapa a FAST (runStep) sin duplicar ejecución
         let execResult: StepExecutionResult;

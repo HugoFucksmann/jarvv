@@ -265,12 +265,6 @@ export interface DecisionTwoPromptData {
   attempts?: Attempt[];
 }
 
-export interface DecisionJudgementPromptData {
-  expectedOutcome: string;
-  finding: string;
-  extract: string;
-}
-
 export interface StepVerificationPromptData {
   instruction: string;
   toolName: string;
@@ -395,29 +389,6 @@ export const DECISION_PROMPTS = {
             ? "¿Qué tool cumple la instrucción? PROHIBIDO repetir una tool marcada [ya ejecutada - NO REPETIR] o [ya falló - EVITAR]. Si ya se ejecutó search, usa fetch sobre las URLs obtenidas o cambia de acción."
             : "¿Qué tool cumple la instrucción?",
           criteria,
-        },
-      },
-    };
-  },
-
-  /** Juicio de criterio de plan: ¿se cumplió expected_outcome? */
-  buildDecisionJudgement(data: DecisionJudgementPromptData): DecisionInput {
-    const state = [
-      `Esperado: ${data.expectedOutcome}`,
-      `Obtenido: ${data.finding}`,
-      `Extracto: ${clip(data.extract, MAX_RESULT_CHARS)}`,
-    ].join("\n");
-
-    return {
-      state,
-      questions: {
-        judgement: {
-          type: "choice",
-          instructions: "¿Lo obtenido cumple lo esperado?",
-          criteria: {
-            cumple: "Lo obtenido satisface lo esperado.",
-            no_cumple: "Lo obtenido no satisface o contradice lo esperado.",
-          },
         },
       },
     };

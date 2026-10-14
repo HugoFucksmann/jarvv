@@ -219,15 +219,7 @@ export interface ToolPolicy {
   emptyIsError?: boolean;
 }
 
-// Escalation & Step Result Types
-export type EscalationAction = "switch_mcp" | "abort";
-
-export interface EscalationResponse {
-  action: EscalationAction;
-  mcp?: string;
-  reason: string;
-}
-
+// Step Result Types
 export type StepExecutionStatus = "ok" | "logical_error" | "unverified" | "blocked_loop";
 
 export interface StepExecutionSignals {
@@ -264,16 +256,14 @@ export function isTerminalState(state: TaskState): boolean {
 export const MAX_STEPS = 15;
 export const MAX_ARG_RETRIES = 2;
 export const MAX_ESCALATIONS = 2;
-export const MAX_PLAN_GENERATION_ATTEMPTS = 1;
 export const MAX_REPLAN = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;
 export type ProgressiveMemoryLimit = (typeof PROGRESSIVE_MEMORY_TIERS)[number];
 // Decision 2.0 Integration Types (Fase 3: Argmax sin umbrales numéricos de corte)
 export const QWEN_CTX = 8192;
-export const QWEN_ESCALATION_THINKING = true;
 
 // Decision 2.0 Integration Types
-export type DecisionQuestionType = "choice" | "noul" | "score";
+export type DecisionQuestionType = "choice" | "noul";
 
 export interface DecisionQuestionChoice {
   type: "choice";
@@ -286,16 +276,9 @@ export interface DecisionQuestionNoul {
   instructions: string;
 }
 
-export interface DecisionQuestionScore {
-  type: "score";
-  instructions: string;
-  criteria: string[];
-}
-
 export type DecisionQuestion =
   | DecisionQuestionChoice
-  | DecisionQuestionNoul
-  | DecisionQuestionScore;
+  | DecisionQuestionNoul;
 
 export interface DecisionAnswerChoice {
   type: "choice";
@@ -309,16 +292,9 @@ export interface DecisionAnswerNoul {
   noul: number;
 }
 
-export interface DecisionAnswerScore {
-  type: "score";
-  score: number;
-  probabilities: Record<string, number>;
-}
-
 export type DecisionAnswer =
   | DecisionAnswerChoice
-  | DecisionAnswerNoul
-  | DecisionAnswerScore;
+  | DecisionAnswerNoul;
 
 export interface DecisionResponse {
   model: "Decision-2.0-Eos-0.8B";
@@ -401,6 +377,7 @@ export type CoreEventType =
   | "MCP_DISPATCHED"
   | "MCP_RESULT"
   | "RESULT_PROCESSED"
+  | "STEP_STATE_CHANGED"
   | "STEP_COMPLETED"
   | "FINAL_RESPONSE"
   | "TASK_STATE_CHANGED"
