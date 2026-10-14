@@ -37,6 +37,7 @@ export default function App() {
     discoveredTools,
     extraCapabilities,
     unavailableServers,
+    mcpInitStatus,
     error,
     clearError,
     isExecuting,
@@ -85,6 +86,7 @@ export default function App() {
         isExecuting={isExecuting}
         mcpCount={mcpServerCount}
         unavailableCount={unavailableCount}
+        mcpInitStatus={mcpInitStatus}
         tasks={allTasks}
         activeTaskId={task?.id}
         onSelectTask={selectHistoricalTask}
@@ -160,6 +162,7 @@ export default function App() {
         discoveredTools={discoveredTools}
         extraCapabilities={extraCapabilities}
         unavailableServers={unavailableServers}
+        mcpInitStatus={mcpInitStatus}
         onRefreshDiscovery={refreshDiscovery}
       />
 

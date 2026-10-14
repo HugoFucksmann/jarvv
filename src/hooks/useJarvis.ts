@@ -36,6 +36,8 @@ export function useJarvis() {
   const [mode, setMode] = useState<"NORMAL" | "PLAN">("NORMAL");
   const [error, setError] = useState<string | null>(null);
   const [userQuestion, setUserQuestion] = useState<string | null>(null);
+  const [mcpInitStatus, setMcpInitStatus] = useState<"loading" | "ready" | "partial" | "error">("loading");
+  const mcpInitDoneRef = useRef<boolean>(false);
 
   // Refs para estabilizar callbacks dentro de EventSource y evitar reconexiones cíclicas (FRONT-02)
   const allTasksRef = useRef<Task[]>([]);
@@ -183,8 +185,29 @@ function extractUserQuestion(t: Task | null): string | null {
       if (data.unavailableServers) {
         setUnavailableServers(data.unavailableServers);
       }
+
+      // Resolve MCP initialization status after the first successful fetch
+      if (!mcpInitDoneRef.current) {
+        mcpInitDoneRef.current = true;
+        const unavailable = data.unavailableServers ? Object.keys(data.unavailableServers).length : 0;
+        const discovered = data.discoveredTools ? Object.keys(data.discoveredTools).length : 0;
+        if (discovered === 0 && unavailable === 0) {
+          // No tools and no errors: still initializing or no servers configured
+          setMcpInitStatus("loading");
+        } else if (unavailable === 0) {
+          setMcpInitStatus("ready");
+        } else if (discovered > 0) {
+          setMcpInitStatus("partial");
+        } else {
+          setMcpInitStatus("error");
+        }
+      }
     } catch (err: any) {
       console.warn("Failed to fetch JARVIS state from backend:", err);
+      if (!mcpInitDoneRef.current) {
+        mcpInitDoneRef.current = true;
+        setMcpInitStatus("error");
+      }
     }
   }, [hydratePendingApproval]);
 
@@ -448,12 +471,26 @@ function extractUserQuestion(t: Task | null): string | null {
   const refreshDiscovery = useCallback(async () => {
     try {
       setError(null);
+      setMcpInitStatus("loading");
       const data = await jarvisApi.refreshDiscovery();
       if (data.tools) setDiscoveredTools(data.tools);
       if (data.extraCapabilities) setExtraCapabilities(data.extraCapabilities);
       if (data.unavailableServers) setUnavailableServers(data.unavailableServers);
+      // Update init status after refresh
+      const unavailable = data.unavailableServers ? Object.keys(data.unavailableServers).length : 0;
+      const discovered = data.tools ? Object.keys(data.tools).length : 0;
+      if (discovered === 0 && unavailable === 0) {
+        setMcpInitStatus("error");
+      } else if (unavailable === 0) {
+        setMcpInitStatus("ready");
+      } else if (discovered > 0) {
+        setMcpInitStatus("partial");
+      } else {
+        setMcpInitStatus("error");
+      }
     } catch (err: any) {
       console.warn("Failed to refresh discovery catalog:", err);
+      setMcpInitStatus("error");
       setError(err.message || "Error al refrescar el catálogo de herramientas.");
     }
   }, []);
@@ -540,6 +577,7 @@ function extractUserQuestion(t: Task | null): string | null {
     discoveredTools,
     extraCapabilities,
     unavailableServers,
+    mcpInitStatus,
     error,
     clearError: () => setError(null),
     isExecuting: task?.state === "RUNNING",

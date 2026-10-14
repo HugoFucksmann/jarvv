@@ -13,6 +13,7 @@ interface TopBarProps {
   isExecuting: boolean;
   mcpCount: number;
   unavailableCount?: number;
+  mcpInitStatus?: "loading" | "ready" | "partial" | "error";
   tasks?: Task[];
   activeTaskId?: string | null;
   onSelectTask?: (taskId: string) => void;
@@ -25,6 +26,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   isExecuting,
   mcpCount,
   unavailableCount = 0,
+  mcpInitStatus = "ready",
   tasks = [],
   activeTaskId,
   onSelectTask,
@@ -48,6 +50,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         isExecuting={isExecuting}
         mcpCount={mcpCount}
         unavailableCount={unavailableCount}
+        mcpInitStatus={mcpInitStatus}
       />
 
       {/* Zone 3: Mode Selector & Settings */}

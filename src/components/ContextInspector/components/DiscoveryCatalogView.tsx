@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import type { MCPTool } from "../../../core/types.ts";
 import type { MCPPrompt, MCPResourceTemplate } from "../../../core/mcp/types.ts";
 import { jarvisApi } from "../../../services/jarvisApi.ts";
-import { AlertTriangle, RefreshCw, ChevronDown, ChevronRight, Terminal, Database, Sparkles } from "lucide-react";
+import { AlertTriangle, RefreshCw, ChevronDown, ChevronRight, Terminal, Database, Sparkles, Loader2 } from "lucide-react";
 
 interface DiscoveryCatalogViewProps {
   discoveredTools: Record<string, MCPTool[]>;
@@ -12,6 +12,7 @@ interface DiscoveryCatalogViewProps {
   };
   unavailableServers?: Record<string, { reason: string; since: number }>;
   onRefreshDiscovery?: () => Promise<void>;
+  mcpInitStatus?: "loading" | "ready" | "partial" | "error";
 }
 
 export const DiscoveryCatalogView: React.FC<DiscoveryCatalogViewProps> = ({
@@ -19,6 +20,7 @@ export const DiscoveryCatalogView: React.FC<DiscoveryCatalogViewProps> = ({
   extraCapabilities,
   unavailableServers = {},
   onRefreshDiscovery,
+  mcpInitStatus = "ready",
 }) => {
   const [selectedTool, setSelectedTool] = useState<MCPTool | null>(null);
   const [reconnectingServer, setReconnectingServer] = useState<string | null>(null);
@@ -92,7 +94,42 @@ export const DiscoveryCatalogView: React.FC<DiscoveryCatalogViewProps> = ({
 
       {/* 2. Herramientas Descubiertas por Servidor */}
       <div className="flex flex-col gap-4">
-        {toolServers.length === 0 ? (
+        {mcpInitStatus === "loading" ? (
+          /* Skeleton loading state while MCP servers are initializing */
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center gap-2 text-sky-400 text-[11px] font-mono animate-pulse">
+              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+              <span>Inicializando servidores MCP via stdio…</span>
+            </div>
+            {["windows", "desktop_commander", "free_search"].map((serverName) => (
+              <div key={serverName} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between font-mono border-b border-slate-800/80 pb-1.5">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-3.5 h-3.5 text-slate-600" />
+                    <span className="text-slate-600 font-bold uppercase">{serverName}</span>
+                    <span className="text-slate-700 font-normal text-[10px]">descubriendo…</span>
+                  </div>
+                  <Loader2 className="w-3 h-3 animate-spin text-slate-700" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="p-2.5 bg-slate-900/30 border border-slate-800/50 rounded animate-pulse"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="h-3 bg-slate-800 rounded w-24" />
+                        <div className="h-2.5 bg-slate-800/60 rounded w-8" />
+                      </div>
+                      <div className="h-2 bg-slate-800/40 rounded w-full mt-2" />
+                      <div className="h-2 bg-slate-800/40 rounded w-3/4 mt-1" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : toolServers.length === 0 ? (
           <div className="py-6 text-center text-slate-500 font-mono">
             No se han descubierto herramientas todavía. Compruebe la configuración de servidores stdio.
           </div>

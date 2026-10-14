@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import type { Scratchpad, Step, MCPTool, TaskMemory, Task } from "../../core/types.ts";
 import type { MCPPrompt, MCPResourceTemplate } from "../../core/mcp/types.ts";
 import { SessionStateView } from "./components/SessionStateView.tsx";
@@ -25,6 +25,7 @@ interface ContextInspectorProps {
   };
   unavailableServers?: Record<string, { reason: string; since: number }>;
   onRefreshDiscovery?: () => Promise<void>;
+  mcpInitStatus?: "loading" | "ready" | "partial" | "error";
 }
 
 export const ContextInspector: React.FC<ContextInspectorProps> = ({
@@ -37,6 +38,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   extraCapabilities,
   unavailableServers = {},
   onRefreshDiscovery,
+  mcpInitStatus = "ready",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"state" | "memory" | "scratchpad" | "evidence" | "discovery">("state");
@@ -175,7 +177,12 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
           >
             {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
             <span>Inspección de Contexto</span>
-            {unavailableCount > 0 && (
+            {mcpInitStatus === "loading" && (
+              <span title="Inicializando servidores MCP…">
+                <Loader2 className="w-2.5 h-2.5 animate-spin text-sky-400 ml-0.5" />
+              </span>
+            )}
+            {mcpInitStatus !== "loading" && unavailableCount > 0 && (
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse ml-0.5" title="Servidores con advertencias" />
             )}
           </button>
@@ -255,8 +262,12 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 }`}
               >
                 <span>Discovery</span>
-                <span className="text-[10px] text-slate-500 ml-0.5">({totalDiscovered})</span>
-                {unavailableCount > 0 && (
+                {mcpInitStatus === "loading" ? (
+                  <Loader2 className="w-2.5 h-2.5 animate-spin text-sky-400 ml-0.5" />
+                ) : (
+                  <span className="text-[10px] text-slate-500 ml-0.5">({totalDiscovered})</span>
+                )}
+                {unavailableCount > 0 && mcpInitStatus !== "loading" && (
                   <span className="text-[9px] px-1 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80">
                     {unavailableCount}!
                   </span>
@@ -300,6 +311,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
               extraCapabilities={extraCapabilities}
               unavailableServers={unavailableServers}
               onRefreshDiscovery={onRefreshDiscovery}
+              mcpInitStatus={mcpInitStatus}
             />
           )}
         </div>
