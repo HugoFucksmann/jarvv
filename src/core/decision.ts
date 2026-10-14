@@ -140,7 +140,6 @@ export class Decision20Engine {
     route: StepRoute;
     confidence: number;
     probabilities: Record<string, number>;
-    multiStep: boolean; // maintained for UI compatibility
     needsContext: boolean;
     rawResponse: DecisionResponse;
   }> {
@@ -211,72 +210,7 @@ export class Decision20Engine {
       route,
       confidence: adoptedConfidence,
       probabilities,
-      multiStep: false, // multi_step query deprecated in v2.1 (§14)
       needsContext,
-      rawResponse: response,
-    };
-  }
-
-  /**
-   * Decision #5: Evaluation of tool execution outcome (§3, §4, §10.6)
-   * Deprecada y sustituida en Fase 3 por evaluateStepVerification (ok y cumple) sobre señales limpias.
-   * Supresión confirmada del override forzado de exit_code === 0 con baja confianza.
-   */
-  async evaluateDecisionFive(
-    goal: string,
-    tool: string,
-    resultSummary: string,
-    signals: {
-      exit_code?: number;
-      not_found?: boolean;
-      denied?: boolean;
-      empty_output?: boolean;
-      timeout?: boolean;
-    },
-    expectedOutcome?: string
-  ): Promise<{
-    isCorrect: boolean;
-    choice: "correcta" | "incorrecta";
-    confidence: number;
-    rawResponse: DecisionResponse;
-  }> {
-    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionFive({
-      goal,
-      tool,
-      resultSummary,
-      signals,
-      expectedOutcome,
-    });
-
-    const t0 = Date.now();
-    let response: DecisionResponse;
-    try {
-      response = await this.systemOne(statePayload, questions);
-    } catch (err: any) {
-      console.error(`[Decision #5] error=${err?.message || err} duration=${Date.now() - t0}ms`);
-      if (signals.exit_code === 0 && !signals.not_found && !signals.denied && !signals.empty_output) {
-        return {
-          isCorrect: true,
-          choice: "correcta",
-          confidence: 0.5,
-          rawResponse: { model: "Decision-2.0-Eos-0.8B" as any, answers: {}, usage: { input_tokens: 0, output_tokens: 0 } },
-        };
-      }
-      throw err;
-    }
-
-    const answer = response.answers.evaluation as DecisionAnswerChoice;
-    const rawChoice = answer.choice;
-    const isCorrect = rawChoice === "correcta";
-
-    console.log(
-      `[Decision #5] raw=${rawChoice} conf=${answer.confidence.toFixed(2)} isCorrect=${isCorrect} signals=${JSON.stringify(signals)} duration=${Date.now() - t0}ms`
-    );
-
-    return {
-      isCorrect,
-      choice: isCorrect ? "correcta" : "incorrecta",
-      confidence: answer.confidence,
       rawResponse: response,
     };
   }

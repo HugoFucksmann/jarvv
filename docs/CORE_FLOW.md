@@ -1,266 +1,263 @@
-# Flujo principal
+# Flujo Principal de JARVIS Core
 
-> Última revisión: **2026-10-11**
+> Última revisión: **2026-10-13** (v1.3 — Motor Unificado `runStep`, Argmax Eos y Coordinación PLAN)
 
-Cuando el usuario envía una instrucción y elige un modo (`NORMAL` / FAST o `PLAN`) desde la interfaz web o mediante `POST /api/jarvis/process`, el orquestador autoritativo `JarvisCore` inicializa un contexto de tarea (`TaskExecutionContext`) con estado `RUNNING` y arranca la ejecución asíncrona. En modo **FAST**, el bucle `runFastLoop` evalúa de forma iterativa el enrutamiento con Decision #1 (sub-sistemas `windows`, `desktop_commander`, `free_search` o `fin`), selecciona la herramienta óptima con Decision #2, genera parámetros validados mediante Qwen 3.5 9B, somete la acción a las compuertas de Anti-Loop y Guard (solicitando aprobación interactiva en `GuardBanner` si muta el sistema), ejecuta la llamada vía stdio en el servidor MCP correspondiente, procesa evidencias en `ResultProcessor` y evalúa el éxito con Decision #5 (activando escalación si falla). En modo **PLAN**, `initiatePlanMode` solicita a Qwen un plan estructurado de hasta 15 pasos con criterios observables (`expected_outcome`), pausa la ejecución hasta recibir confirmación explícita del usuario (`POST /api/jarvis/confirm-plan`) y ejecuta cada paso en `runPlanLoop` verificando su cumplimiento con `evaluatePlanJudgement` y activando replanificaciones automáticas (`handleReplan`) ante incidencias.
+Cuando el usuario envía una instrucción y elige un modo (`NORMAL` / FAST o `PLAN`) desde la interfaz web o mediante `POST /api/jarvis/process`, el orquestador autoritativo `JarvisCore` inicializa un contexto de tarea (`TaskExecutionContext`) con estado `RUNNING` y arranca la ejecución asíncrona. 
 
-## Diagrama del flujo
+- En modo **FAST**, el bucle `runFastLoop` evalúa iterativamente el enrutamiento con Decision #1 (sub-sistemas `windows`, `desktop_commander`, `free_search` o `fin`) y canaliza la ejecución de cada acción hacia el motor unificado `runStep`.
+- En modo **PLAN**, el orquestador opera como una capa pura de coordinación y supervisión: `initiatePlanMode` solicita a Qwen 3.5 9B un plan estructurado de hasta 15 etapas verificables utilizando un catálogo compacto de herramientas, suspende la tarea en `WAITING_INPUT` (`waitingReason: "plan_confirmation"`) sin temporizador de expiración hasta que el usuario confirme, rechace o solicite modificaciones, y luego entrega cada etapa de forma secuencial al motor unificado `runStep`. Tras la ejecución del paso, Qwen evalúa el resultado observable mediante `verifyStage` para determinar si la etapa está cumplida, si requiere aclaración interactiva (`user_answer`), si activa replanificación acotada (`handleReplan`, sujeta a la regla de cambio material `isMaterialReplan`), o si concluye por bloqueo no recuperable.
+
+---
+
+## Diagrama del Flujo de Ejecución (v1.3)
 
 ```mermaid
 flowchart TD
     Start([Instrucción del usuario: mensaje + modo]) --> InitTask[JarvisCore: initiateTask, estado RUNNING]
     InitTask --> CheckMode{¿Modo de ejecución?}
 
-    %% MODO PLAN
-    CheckMode -- PLAN --> PlanGen[Qwen: generatePlan hasta 15 pasos con expected_outcome]
-    PlanGen --> PlanWait[/Pausa: Esperando confirmación de usuario en UI/]
-    PlanWait --> PlanConfirm[Usuario confirma plan: POST /api/jarvis/confirm-plan]
-    PlanConfirm --> PlanStepLoop[Tomar siguiente paso PENDING]
-    PlanStepLoop --> ExecCall
+    %% ============================================================
+    %% MODO PLAN (COORDINACIÓN Y SUPERVISIÓN)
+    %% ============================================================
+    CheckMode -- PLAN --> PlanGen[Qwen: generatePlan estructurado con catálogo compacto]
+    PlanGen --> PlanWait[/Pausa: WAITING_INPUT plan_confirmation sin timeout/]
+    
+    PlanWait --> PlanAction{Acción del usuario en UI}
+    PlanAction -- Rechazar --> PlanReject[rejectPlan: estado CANCELLED, emite PLAN_REJECTED] --> TaskDone
+    PlanAction -- Modificar --> PlanModify[modifyPlan: Qwen regenera plan con feedback] --> PlanWait
+    PlanAction -- Confirmar --> PlanConfirm[confirmPlan: estado RUNNING, inicia runPlanLoop]
+    
+    PlanConfirm --> PlanNextStep{¿Quedan etapas pendientes?}
+    PlanNextStep -- No --> GenFinal[Qwen: generateFinalResponse]
+    PlanNextStep -- Sí --> CheckDeps{¿Dependencias cumplidas?\nCOMPLETED en steps previos}
+    
+    CheckDeps -- No (Invalidación) --> PlanReplan[handleReplan: Qwen replanifica restantes]
+    CheckDeps -- Sí --> ExecRunStep[Delegar etapa al Motor Unificado runStep]
 
-    %% MODO FAST (NORMAL)
+    %% ============================================================
+    %% MODO FAST (EJECUCIÓN DIRECTA)
+    %% ============================================================
     CheckMode -- NORMAL / FAST --> FastLoop[runFastLoop: iteración de paso]
-    FastLoop --> D1[Decision #1: evaluateDecisionOne]
-    D1 --> CheckD1{Ruta seleccionada}
+    FastLoop --> D1[Decision #1: evaluateDecisionOne en Eos]
+    D1 --> CheckD1{Ruta seleccionada por argmax}
     
     CheckD1 -- "fin" --> CheckFinValid{¿Fin validado?\nPrimera iteración o acciones verificadas previas}
-    CheckFinValid -- Sí --> GenFinal[Qwen: generateFinalResponse Etapa 6]
-    CheckFinValid -- No --> D1Fallback[Redirigir a mejor ruta alternativa desktop_commander] --> ExecCall
+    CheckFinValid -- Sí --> GenFinal
+    CheckFinValid -- No --> D1Fallback[Redirigir a mejor ruta alternativa desktop_commander] --> ExecRunStep
 
-    CheckD1 -- "windows | desktop_commander | free_search" --> ExecCall[CallExecutor: executeCall]
+    CheckD1 -- "windows | desktop_commander | free_search" --> ExecRunStep
 
-    %% CICLO EXECUTECALL
-    subgraph ExecutionCycle ["Ciclo de Ejecución de Herramienta (executeCall)"]
-        Disc[Discovery: obtener herramientas del MCP activo] --> D2[Decision #2: evaluateDecisionTwo]
-        D2 --> ValidateTool{¿Tool existe en Discovery?}
-        ValidateTool -- No --> DiscRefresh[Refrescar Discovery y revalidar]
-        DiscRefresh --> D2
-        ValidateTool -- Sí --> QwenArgs[Qwen Etapa 3: generateArguments con JSON Schema]
+    %% ============================================================
+    %% MOTOR UNIFICADO: runStep (src/core/callExecutor.ts)
+    %% ============================================================
+    subgraph UnifiedRunStep ["Motor Unificado de Paso (runStep)"]
+        Disc[Discovery: obtener herramientas del MCP activo] --> ToolChoice{¿Candidato único?}
+        ToolChoice -- Sí (1 tool) --> SingleTool[Seleccionar tool directamente con confianza 1.0]
+        ToolChoice -- No (>1 tools) --> D2[Decision #2: evaluateDecisionTwo en Eos por argmax]
+        
+        SingleTool & D2 --> ValidateTool{¿Tool existe en catálogo activo?}
+        ValidateTool -- No --> FatalToolErr[DecisionValidationError: denegar ejecución]
+        ValidateTool -- Sí --> QwenArgs[Qwen: generateArguments con JSON schema limpio]
+        
         QwenArgs --> ArgRetry{¿Schema válido?\nReintentos <= 2}
         ArgRetry -- No --> ArgFail[Error de argumentos: registrar en FAIL]
-        ArgRetry -- Sí --> AntiLoop{¿Pasa verificación Anti-Loop?\nFirma repetida sin lectura}
-        AntiLoop -- No --> LoopBlock[status: blocked_loop, registrar en FAIL]
-        AntiLoop -- Sí --> GuardCheck{Guard: evaluate\nALLOW / APPROVAL / DENY}
+        ArgRetry -- Sí --> RefResolve[RefResolver: sustituir {{ref:rX}} desde RefStore]
         
-        GuardCheck -- DENY --> GuardDeny[Paso BLOCKED: patrón destructivo prohibido]
-        GuardCheck -- APPROVAL --> GuardWait[/Pausa: APPROVAL_REQUESTED en GuardBanner/]
+        RefResolve --> AntiLoop{¿Pasa Anti-Loop?\nFirma repetida sin lectura}
+        AntiLoop -- No --> LoopBlock[status: blocked_loop, registrar en FAIL]
+        AntiLoop -- Sí --> GuardCheck{Guard: evaluate sobre args resueltos\nALLOW / APPROVAL / DENY}
+        
+        GuardCheck -- DENY --> GuardDeny[Paso BLOCKED: signals.denied = true]
+        GuardCheck -- APPROVAL --> GuardWait[/Pausa: WAITING_INPUT approval sin timeout/]
         GuardWait --> UserDecision{Decisión del usuario}
-        UserDecision -- Rechazar --> UserDeny[Paso BLOCKED: denied por usuario]
+        UserDecision -- Rechazar --> UserDeny[Paso BLOCKED: signals.denied = true]
         UserDecision -- Aprobar --> DispatchMCP[Despachar tool por stdio al servidor MCP]
         GuardCheck -- ALLOW --> DispatchMCP
         
         DispatchMCP --> WindowsStale{¿Windows staleElement?}
-        WindowsStale -- Sí --> WinRefreshTree[ui_get_window_tree: refrescar window_handle y reintentar]
+        WindowsStale -- Sí --> WinRefreshTree[Refrescar árbol de ventanas y reintentar 1 vez]
         WinRefreshTree --> ProcessResult
-        WindowsStale -- No --> ProcessResult[ResultProcessor: deltas, sanitización y RefStore]
+        WindowsStale -- No --> ProcessResult[ResultProcessor: deltas, hechos, señales y RefStore]
         
-        ProcessResult --> D5[Decision #5: evaluateDecisionFive\ncorrecta vs incorrecta]
-        D5 --> CheckD5{¿Resultado correcto?}
-        CheckD5 -- Sí --> StepOk[Actualizar LOG: ok / unv, deltas en memoria]
-        CheckD5 -- No --> StepFail[Actualizar FAIL: err, registrar causa]
+        ProcessResult --> CheckClean{¿Señales físicas limpias?\nexit_code=0, sin error/timeout/stale}
+        CheckClean -- No (Error físico) --> StepFail[Determinar fallo directamente sin consultar a Eos]
+        CheckClean -- Sí (CLEAN) --> EosVerif[Eos: evaluación binaria ok y cumple por argmax]
+        
+        EosVerif --> StepVerifResult{¿ok=true Y cumple=true?}
+        StepVerifResult -- Sí --> StepOk[Actualizar LOG: ok, hechos y efectos confirmados]
+        StepVerifResult -- No --> StepFail
     end
 
-    %% POST EJECUCIÓN FAST
-    StepOk --> CheckLoopFast{¿Es modo FAST?}
-    CheckLoopFast -- Sí --> FastLoop
-    StepFail --> Escalation[handleEscalation: Qwen Etapa 5B]
-    Escalation --> EscDecision{Acción Qwen}
-    EscDecision -- switch_mcp --> FastLoop
-    EscDecision -- abort o límite MAX_ESCALATIONS --> ConcludePartial[concludeTask: estado PARTIAL o FAILED]
+    %% ============================================================
+    %% CONTROL POST-EJECUCIÓN: FAST vs PLAN
+    %% ============================================================
+    StepOk --> CheckLoopMode{¿Modo de ejecución?}
+    StepFail --> CheckLoopMode
+    GuardDeny & UserDeny --> DenyHandle[Seguridad: Prohibido eludir DENY] --> ConcludePartial
 
-    %% POST EJECUCIÓN PLAN
-    CheckLoopFast -- No (PLAN) --> CheckPlanCriteria{¿Tiene expected_outcome?}
-    CheckPlanCriteria -- Sí --> PlanJudge[Decision: evaluatePlanJudgement\ncumple vs no_cumple]
-    PlanJudge --> JudgeMet{¿Cumple con confianza >= 0.60?}
-    JudgeMet -- Sí --> PlanNext{¿Quedan pasos?}
-    JudgeMet -- No --> PlanMiniLoop{¿Llamadas en paso < 4?}
-    PlanMiniLoop -- Sí --> ExecCall
-    PlanMiniLoop -- No --> PlanReplan[handleReplan: Qwen replanifica restantes]
-    CheckPlanCriteria -- No --> PlanNext
+    %% Flujo FAST Post-Ejecución
+    CheckLoopMode -- FAST --> CheckFastResult{¿Paso exitoso?}
+    CheckFastResult -- Sí --> CheckFastSteps{¿task.stepSeq < 15?}
+    CheckFastSteps -- Sí --> FastLoop
+    CheckFastSteps -- No --> ConcludePartial[concludeTask: estado PARTIAL o FAILED]
     
-    PlanReplan --> ReplanOk{¿Replan exitoso?\nreplans <= 2}
-    ReplanOk -- Sí --> PlanStepLoop
-    ReplanOk -- No --> ConcludePartial
+    CheckFastResult -- No --> FastEscalation[handleEscalation: código determinista + Eos D1]
+    FastEscalation --> EscAction{¿Conmutar ruta o abortar?\nescalations <= 2}
+    EscAction -- switch_mcp --> FastLoop
+    EscAction -- abort o agotado --> ConcludePartial
 
-    PlanNext -- Sí --> PlanStepLoop
-    PlanNext -- No --> GenFinal
+    %% Flujo PLAN Post-Ejecución
+    CheckLoopMode -- PLAN --> PlanStageVerif[Qwen: verifyStage evaluación semántica de etapa]
+    PlanStageVerif --> StageSituation{Clasificación normativa de etapa}
+    
+    StageSituation -- "completed" --> PlanNextStep
+    StageSituation -- "insufficient_info" --> UserAnswerWait[/WAITING_INPUT: user_answer sin timeout/]
+    UserAnswerWait --> UserAnswers[Operador provee respuesta vía POST /user-answer] --> ExecRunStep
+    StageSituation -- "unrecoverable_blocked" --> ConcludePartial
+    StageSituation -- "recoverable_deviation" --> CheckReplans{¿replans < 2?}
+    
+    CheckReplans -- No --> ConcludePartial
+    CheckReplans -- Sí --> PlanReplan
+    
+    PlanReplan --> MaterialCheck{¿isMaterialReplan?\nMutaciones Guard, >3 pasos o cambio objetivo}
+    MaterialCheck -- Sí (Material) --> PlanWait
+    MaterialCheck -- No (No material) --> PlanNextStep
 
     LoopBlock --> ConsecutiveCheck{¿2 bloqueos seguidos?}
     ConsecutiveCheck -- Sí --> ConcludePartial
     ConsecutiveCheck -- No --> FastLoop
 
-    GuardDeny & UserDeny & ArgFail --> Escalation
-
     GenFinal --> TaskDone([Tarea COMPLETED: respuesta entregada y emitida por SSE])
     ConcludePartial --> TaskDone
 ```
 
-## Pasos
+---
 
-Secuencia ordenada de ejecución desde la recepción de la instrucción hasta la entrega de la respuesta final:
+## Secuencia Canónica de Ejecución de Pasos
 
-| # | Paso | Descripción | Código |
-|---|------|-------------|--------|
-| 1 | Recepción e inicio de tarea | Se recibe el mensaje y modo, se genera un ID único, se crea `TaskExecutionContext` en estado `RUNNING` y se emite el evento `TASK_CREATED` | `src/core/core.ts:initiateTask()` |
-| 2 | Enrutamiento estructural (Decision #1) | Decision 2.0 evalúa la meta, historial colapsado y acciones previas para determinar la ruta (`windows`, `desktop_commander`, `free_search` o `fin`) | `src/core/decision.ts:evaluateDecisionOne()` |
-| 3 | Verificación de fin / conversación directa | Si D1 elige `fin` en la primera iteración o tras herramientas previas verificadas, se concluye la tarea; si no cumple criterios, se redirige a `desktop_commander` | `src/core/modeEngines.ts:runFastLoop()` |
-| 4 | Descubrimiento de herramientas | Se consultan las herramientas del servidor MCP seleccionado desde el caché de Discovery o llamando a `tools/list` mediante stdio | `src/core/mcp/discovery.ts:getDiscoveredTools()` |
-| 5 | Selección de herramienta (Decision #2) | Decision 2.0 selecciona la herramienta específica dentro de las 2-255 herramientas descubiertas, marcando advertencias anti-repetición | `src/core/decision.ts:evaluateDecisionTwo()` |
-| 6 | Generación de argumentos (Qwen Etapa 3) | Qwen 3.5 9B genera los parámetros JSON conforme al esquema de entrada limpio (`cleanedSchema`), aplicando hasta 2 reintentos ante error de schema | `src/core/reasoner/qwen.ts:generateArguments()` |
-| 7 | Verificación Anti-Loop | Se verifica la firma `mcp:tool:args:mCounter` impidiendo ejecutar acciones idénticas consecutivas sin lectura intermedia | `src/core/callExecutor.ts:executeCall()` |
-| 8 | Evaluación de seguridad (Guard) | Guard evalúa las políticas deterministas: autoriza lecturas seguras (`ALLOW`), bloquea patrones raíz (`DENY`) o exige aprobación (`APPROVAL`) | `src/core/policy/guard.ts:evaluate()` |
-| 9 | Compuerta de aprobación interactiva | Si Guard dictamina `APPROVAL`, el paso pasa a `WAITING_APPROVAL` y emite `APPROVAL_REQUESTED` hasta que el usuario resuelva en la UI | `src/core/callExecutor.ts:requestUserApproval()` |
-| 10 | Despacho al servidor MCP | Se transmite la solicitud JSON-RPC 2.0 `tools/call` al proceso hijo correspondiente a través del transporte stdio persistente | `src/core/mcp/transport.ts:callTool()` |
-| 11 | Recuperación de stale element en Windows | Si el servidor Windows retorna `staleElement: true`, se consulta el árbol de ventanas para refrescar el `window_handle` y se reintenta una vez | `src/core/callExecutor.ts:executeCall()` |
-| 12 | Procesamiento de resultados y aislamiento | `ResultProcessor` extrae el hallazgo sintético, calcula señales (`exit_code`, `not_found`, etc.), guarda el texto en `RefStore` y actualiza hechos | `src/core/processor/resultProcessor.ts:process()` |
-| 13 | Evaluación de resultado (Decision #5) | Decision 2.0 evalúa si el resultado aporta lo requerido por el objetivo (`correcta` vs `incorrecta`) con regla de override ante exit_code 0 | `src/core/decision.ts:evaluateDecisionFive()` |
-| 14 | Actualización de memoria y auditoría | Se registra la línea en `task.memory.log` (`ok`, `err`, `nf`, `unv`), se graba el objeto `StepCall` y se emite `STEP_COMPLETED` | `src/core/callExecutor.ts:executeCall()` |
-| 15 | Escalación o Replanificación | Si la acción falló, en modo FAST se activa la Etapa 5B con Qwen para cambiar de MCP o abortar; en modo PLAN se reformulan los pasos restantes | `src/core/modeEngines.ts:handleEscalation()` / `handleReplan()` |
-| 16 | Síntesis de respuesta final (Qwen Etapa 6) | Qwen genera la respuesta final basada estrictamente en LOG, FACTS y EVID; se limpian las referencias de la tarea en `RefStore` | `src/core/modeEngines.ts:concludeTask()` |
+| # | Fase | Descripción | Módulo y Código |
+|---|---|---|---|
+| **1** | **Iniciación** | Se recibe la instrucción del usuario y el modo (`NORMAL` o `PLAN`). Se genera `TaskExecutionContext`, estado `RUNNING`, y se emite `TASK_CREATED`. | `src/core/core.ts:initiateTask()` |
+| **2** | **Coordinación (PLAN)** | Si el modo es `PLAN`, Qwen descompone la meta en etapas estructuradas con el catálogo compacto. La tarea se suspende en `WAITING_INPUT` (`plan_confirmation`) hasta la aprobación humana. | `src/core/modeEngines.ts:initiatePlanMode()` |
+| **3** | **Enrutamiento (FAST)** | Si el modo es `FAST`, Decision 2.0 (Eos) evalúa la ruta óptima (`windows`, `desktop_commander`, `free_search` o `fin`) por mayor probabilidad (argmax). | `src/core/decision.ts:evaluateDecisionOne()` |
+| **4** | **Resolución de Herramienta** | En `runStep`, si existe una sola herramienta descubierta se selecciona con confianza 1.0; si existen varias, Eos resuelve la herramienta mediante `evaluateDecisionTwo` por argmax. | `src/core/callExecutor.ts:150-205` |
+| **5** | **Validación contra Catálogo** | Se verifica de forma estricta que la herramienta elegida exista en el catálogo de runtime (`validateToolExists`). Si no existe, se bloquea la ejecución con `DecisionValidationError`. | `src/core/callExecutor.ts:162-175` |
+| **6** | **Generación de Argumentos** | Qwen 3.5 9B genera los parámetros JSON recibiendo el esquema limpio de la herramienta (`cleanInputSchema`), con `thinking: false` forzado y hasta 2 reintentos (`MAX_ARG_RETRIES = 2`). | `src/core/reasoner/qwen.ts:generateArguments()` |
+| **7** | **Sustitución de Referencias** | `RefResolver` recorre recursivamente los argumentos e inyecta el contenido real de `RefStore` para cada token `{{ref:rX}}` antes de la evaluación de seguridad. | `src/core/processor/refResolver.ts:resolveReferences()` |
+| **8** | **Prevención Anti-Loop** | Se valida la firma `${server}:${tool}:${args}:m${nonReadCounter}` impidiendo ejecutar llamadas idénticas consecutivas sin una lectura intermedia. | `src/core/callExecutor.ts:253-282` |
+| **9** | **Evaluación de Guard** | Guard inspecciona los argumentos completamente resueltos: autoriza operaciones de lectura (`ALLOW`), exige autorización humana para mutaciones (`APPROVAL`) o bloquea patrones destructivos (`DENY`). | `src/core/policy/guard.ts:evaluate()` |
+| **10** | **Suspensión por Aprobación** | Si Guard dictamina `APPROVAL`, la tarea entra en `WAITING_INPUT` (`waitingReason: "approval"`), suspendida indefinidamente sin temporizador hasta `POST /approve` o `/deny`. | `src/core/callExecutor.ts:301-332` |
+| **11** | **Despacho Físico MCP** | Se transmite la solicitud JSON-RPC 2.0 por transporte `stdio` al proceso hijo correspondiente con control de timeout técnico (30 s). | `src/core/mcp/transport.ts:callTool()` |
+| **12** | **Recuperación de Stale Element** | En Windows MCP, si se detecta un control de interfaz obsoleto (`stale_element`), se refresca el árbol de accesibilidad y se reintenta automáticamente una vez. | `src/core/callExecutor.ts:365-380` |
+| **13** | **Procesamiento de Resultados** | `ResultProcessor` extrae el hallazgo sintético (`finding`), aísla el texto completo en `RefStore` bajo clave `rX`, detecta señales físicas y actualiza hechos deterministas (`facts`). | `src/core/processor/resultProcessor.ts:process()` |
+| **14** | **Verificación Factual con Eos** | Sobre señales físicas limpias (CLEAN), Eos evalúa de forma binaria si la ejecución técnica es correcta (`ok`) y si satisface el objetivo de la instrucción (`cumple`) por argmax ($p \ge 0.5$). | `src/core/callExecutor.ts:401-440` |
+| **15** | **Supervisión de Etapa (PLAN)** | En modo PLAN, Qwen evalúa el resultado observable mediante `verifyStage`, distinguiendo entre etapa cumplida, desviación recuperable (`handleReplan`), pregunta al usuario (`user_answer`) o bloqueo. | `src/core/modeEngines.ts:660-745` |
+| **16** | **Síntesis de Respuesta Final** | Al concluir satisfactoriamente todos los pasos o validarse `fin`, Qwen redacta la respuesta final basada estrictamente en LOG, FACTS y EVID. Se limpian las referencias de la tarea en `RefStore`. | `src/core/modeEngines.ts:concludeTask()` |
 
-## Decisiones
+---
 
-Puntos donde el flujo se bifurca y el criterio técnico exacto utilizado en el código:
+## Decisiones y Criterios Técnicos de Bifurcación
 
-- **Modo NORMAL vs PLAN (`src/core/core.ts:runTaskPipeline`):** Si `task.mode === "PLAN"`, se invoca `initiatePlanMode` (genera el plan y se detiene hasta confirmación del usuario); si `mode === "NORMAL"`, se arranca directamente `runFastLoop`.
-- **Enrutamiento Decision #1 (`src/core/decision.ts:evaluateDecisionOne`):**
-  - Si la opción elegida es `fin`: se valida contra el umbral de confianza (`0.51` normal, `0.60` si `nonReadCounter > 0`). Si no alcanza el umbral, se rechaza `fin` y se adopta la ruta no-fin con mayor probabilidad (`desktop_commander`).
-  - Si `fin` es validado: en la primera iteración se asume conversación directa y se responde sin tools; en iteraciones posteriores, se exige que exista al menos una acción exitosa previa y ninguna acción `UNVERIFIED` pendiente. Si no cumple, se redirige forzadamente a `desktop_commander`.
-- **Evaluación de seguridad Guard (`src/core/policy/guard.ts:evaluate`):**
-  - `DENY`: patrones destructivos prohibidos sobre el sistema raíz (`rm -rf /`, `format c:`, etc.) o inyecciones de comandos en terminal; la acción se aborta de inmediato con estado `BLOCKED` y señal `denied: true`.
-  - `APPROVAL`: comandos de terminal no seguros, mutación o eliminación de archivos, control de procesos o descargas externas; se emite `APPROVAL_REQUESTED` y la ejecución se suspende hasta la resolución del usuario.
-  - `ALLOW`: operaciones catalogadas como `READ` o comandos de terminal validados como inspección segura en `isSafeReadonlyCommand` (`dir`, `ls`, `type`, `cat`, `git status`, etc.); se despachan automáticamente.
-- **Protección Anti-Loop (`src/core/callExecutor.ts:executeCall`):**
-  - Si la firma `${serverName}:${tool}:${args}:m${nonReadCounter}` ya fue ejecutada sin una lectura intermedia, se devuelve `status: "blocked_loop"`.
-  - Exenciones de polling: las herramientas `read_process_output` y `ui_wait` están explícitamente exentas de la verificación anti-loop (`isExempt`) para permitir sondeos continuos de procesos o esperas de cambios en la interfaz.
-  - Si se acumulan 2 bloqueos consecutivos (`consecutiveLoopBlocks >= 2`), se detiene la tarea en estado `PARTIAL`.
-- **Evaluación de resultado Decision #5 (`src/core/decision.ts:evaluateDecisionFive`):**
-  - `correcta`: el paso concluye con éxito (`COMPLETED`) o queda en `UNVERIFIED` si fue una acción de interfaz despachada sin comprobación observable.
-  - `incorrecta`: se añade la entrada a `task.memory.fail` y se activa el proceso de escalación (Etapa 5B).
-  - Regla de override: si la confianza de D5 es inferior a `0.50` (`DECISION_OVERRIDE_CONFIDENCE_THRESHOLD`), `exit_code == 0` y no hay señales de error (`not_found`, `denied`, `empty_output`), se fuerza el resultado a `correcta`.
-- **Acción de escalación Etapa 5B (`src/core/modeEngines.ts:handleEscalation`):**
-  - `switch_mcp`: Qwen designa un nuevo subsistema MCP (`windows`, `desktop_commander` o `free_search`) que se fija en `activeServerOverride` y excluye la tool previa si se mantiene el mismo MCP.
-  - `abort`: Qwen determina que la meta es inalcanzable; la tarea concluye con estado `PARTIAL` (si hubo pasos previos completados) o `FAILED`.
-- **Juicio de criterio en modo PLAN (`src/core/modeEngines.ts:runPlanLoop`):**
-  - Si el paso define `expectedOutcome`, se invoca `evaluatePlanJudgement`. Si el modelo responde `cumple` con confianza >= `0.60`, el paso se da por completado; si no, se permite hasta 4 llamadas (`MAX_TOOL_CALLS_PER_STEP`) antes de forzar un `handleReplan`.
-  - *Comportamiento de acciones `UNVERIFIED`:* Al igual que en modo FAST, si una acción devuelve `status: "unverified"`, el paso se registra como `UNVERIFIED` y el bucle `runPlanLoop` continúa hacia el siguiente paso del plan (`continue`) sin marcar el paso como `FAILED` ni activar `handleReplan`, permitiendo que observaciones posteriores confirmen el estado.
+- **Frontera Técnica entre FAST y PLAN:**
+  - `FAST` es el motor de ejecución a nivel de llamada de herramienta. Maneja reintentos de schema (`MAX_ARG_RETRIES = 2`), recuperación de stale elements en Windows y conmutación de subsistema (`handleEscalation`).
+  - `PLAN` es el supervisor de etapas. Nunca ejecuta herramientas directamente ni implementa mini-bucles; entrega cada etapa a `runStep` y reacciona a nivel estructural ante fallos o desviaciones con `handleReplan`.
+- **Enrutamiento por Argmax en Eos (Decision #1):**
+  - Eos resuelve la ruta por mayor probabilidad matemática entre `windows`, `desktop_commander`, `free_search` y `fin`. No se aplican umbrales arbitrarios de 0.51 o 0.60.
+  - Si Eos emite `fin`, el Core valida determinísticamente si es admisible: en la primera iteración se permite como conversación directa; en iteraciones posteriores exige que existan acciones previas exitosas.
+- **Inviolabilidad de Guard DENY:**
+  - Si Guard emite `DENY` o el operador pulsa "Rechazar" en `GuardBanner`, el paso queda marcado como `BLOCKED` con la señal `signals.denied = true`.
+  - **Prohibición de evasión:** En FAST concluye la tarea de inmediato; en PLAN detiene la tarea como `PARTIAL`/`FAILED` y queda categóricamente prohibido invocar `handleReplan` para eludir la política de seguridad.
+- **Regla Determinista de Cambio Material (`isMaterialReplan`):**
+  - Ante una desviación recuperable en PLAN, Qwen genera nuevas etapas para los pasos pendientes.
+  - Se clasifica como **cambio material** si:
+    1. Introduce herramientas que requieren autorización en Guard (`requiresApproval === true` o mutación de archivos/procesos).
+    2. Incrementa en más de 3 etapas el trabajo restante.
+    3. Altera sustancialmente la meta original declarada.
+  - Si es material, la tarea entra automáticamente en `WAITING_INPUT` (`plan_confirmation`) requiriendo nueva aprobación del usuario. Si no es material, la ejecución continúa de forma autónoma.
+- **Verificación Factual Binaria (`ok` / `cumple`):**
+  - Sustituye a la anterior Decision #5.
+  - Solo se consulta a Eos si las señales físicas son limpias (`isCleanSignals`). Ante excepciones, código de salida != 0, timeouts o recursos no encontrados, el Core dictamina fallo determinista directamente.
+  - La respuesta de Eos se adopta por argmax ($p \ge 0.5$). Si el servicio Eos no responde pero las señales físicas son limpias, se aplica fallback determinista a éxito para evitar bloqueos por disponibilidad de red local.
 
-## Iteraciones
+---
 
-Límites globales del bucle y condiciones deterministas de parada:
+## Límites de Ejecución y Parada Determinista
 
-- **Máx. pasos por tarea (`MAX_STEPS`):** `15` pasos (en modo FAST cada iteración genera un paso, limitando efectivamente las llamadas a ~15; en modo PLAN limita la cantidad de pasos generados en el plan inicial o replanes).
-- **Máx. llamadas por paso en PLAN (`MAX_TOOL_CALLS_PER_STEP`):** `4` llamadas.
-- **Tope global de llamadas por tarea (`MAX_TOOL_CALLS_TASK`):** `30` llamadas acumuladas (en PLAN un plan de 15 pasos con hasta 4 llamadas por paso teóricamente alcanzaría 60 llamadas, actuando este tope como salvaguarda dura para detener la tarea en `PARTIAL`).
-- **Máx. reintentos de schema de argumentos (`MAX_ARG_RETRIES`):** `2` reintentos.
-- **Máx. escalaciones por tarea (`MAX_ESCALATIONS`):** `2` escalaciones.
-- **Máx. replanificaciones en modo PLAN (`MAX_REPLAN`):** `2` replanes.
-- **Condiciones de parada:**
-  1. `COMPLETED`: cuando Decision #1 elige `fin` validado (en FAST) o cuando se completan todos los pasos del plan cumpliendo sus criterios (en PLAN).
-  2. `PARTIAL`: parada controlada cuando se alcanza `MAX_STEPS`, `MAX_TOOL_CALLS_TASK`, el tope de escalaciones o replanes, o tras 2 bloqueos seguidos de anti-loop, habiendo completado al menos un paso previo.
-  3. `FAILED`: fallo irrecuperable en generación de plan inicial, aborto decidido en escalación sin pasos previos completados, o excepción no recuperable.
-  4. `CANCELLED`: el usuario cancela la tarea activamente desde la UI (`POST /api/jarvis/cancel`).
-- **Recuperación tras reinicio:** Si el servidor se reinicia mientras existían tareas en ejecución (`RUNNING`) o pasos en espera (`WAITING_APPROVAL`), `loadPersistedTasks` las transiciona a `CANCELLED` (marcando los pasos activos como `BLOCKED`) con el mensaje `"Tarea interrumpida: servidor reiniciado durante la ejecución"`. No existe reanudación automática ni timeout de expiración en las aprobaciones pendientes.
-- **Concurrencia:** El orquestador ejecuta tareas de forma asíncrona independiente en memoria, pero el entorno comparte un único escritorio gráfico y sistema de archivos, por lo que tareas simultáneas que utilicen `windows` pueden interferir en el foco visual y controles activos de la pantalla.
+| Límite / Condición | Valor Oficial v1.3 | Semántica y Comportamiento en Runtime |
+|---|:---:|---|
+| `MAX_STEPS` | **15** | Límite estructural de pasos. Si `task.stepSeq >= 15`, la tarea se detiene limpiamente en estado `PARTIAL`. |
+| `MAX_REPLAN` | **2** | Límite de replanificaciones acumuladas en PLAN. Si se agota, concluye la tarea en `PARTIAL`. |
+| `MAX_ARG_RETRIES` | **2** | Reintentos locales en `generateArguments` reportando el error de schema previo. |
+| `MAX_ESCALATIONS` | **2** | Conmutaciones de ruta en modo FAST ante fallos de herramientas. |
+| `PROGRESSIVE_MEMORY_TIERS` | **2 → 5 → 10** | Recuperación progresiva del historial contextualmente relevante sin saturar la ventana del modelo. |
+| `MAX_TOOL_CALLS_TASK` | **ERRADICADO** | Suprimido en Fase 2. No existen límites globales ni pools sustitutos de 30 llamadas. |
+| `MAX_TOOL_CALLS_PER_STEP` | **ERRADICADO** | Suprimido en Fase 2. No existen mini-bucles de 4 llamadas por paso. |
+| `DEADLINE_GLOBAL` | **NO IMPLEMENTADO** | No existe cronómetro de caducidad global por tarea. Las esperas en `WAITING_INPUT` no expiran. |
 
-## Manejo de errores
+---
 
-Tipos de error y respuesta técnica del sistema en cada caso:
+## Manejo de Errores y Matriz de Mitigación
 
-| Error | Respuesta del sistema |
-|-------|----------------------|
-| Argumentos no cumplen el schema | Se reintenta hasta 2 veces (`MAX_ARG_RETRIES`) enviando el error en `ERROR_PREVIO`; si se agotan, se registra en FAIL y el paso falla como `logical_error` |
-| Herramienta desconocida en Discovery | Se invalida el caché forzando re-descubrimiento en el servidor MCP; si sigue sin existir, la ejecución se interrumpe lanzando error fatal |
-| Rechazo de seguridad Guard (`DENY`) | Se marca el paso como `BLOCKED`, se registra en FAIL como `DENY` y se devuelve `signals.denied = true` activando escalación |
-| Operación rechazada por el usuario | Se marca el paso como `BLOCKED`, se registra `${tool} -> RECHAZADO por usuario` en FAIL y se activa la escalación para buscar alternativa |
-| Invocación repetida (Anti-loop) | Se bloquea la ejecución retornando `status: "blocked_loop"`; si ocurren 2 bloqueos consecutivos, la tarea se detiene controladamente en `PARTIAL` |
-| Stale element en Windows MCP | Se captura la señal `staleElement: true`, se consulta el árbol de ventanas mediante herramienta de UI para actualizar `window_handle` y se reintenta la llamada |
-| Timeout en proceso MCP stdio | Se rechaza la promesa con `MCPTransportError` tras 30 s (`mcpTimeoutMs`); si el proceso hijo cae, se limpian peticiones pendientes |
-| Proceso MCP termina inesperadamente | Se registra el último bloque de stderr (`getLastStderr`), se limpia el estado de transporte y se marca el servidor como no disponible en `unavailableServers` |
-| Servicio Decision 2.0 inaccesible | Se lanza `DecisionServiceUnavailableError`. En Decision #5 se aplica fallback determinista a `correcta` si `exit_code == 0` y no hay señales de error; en D1 o D2 detiene el paso |
-| Servicio Qwen inaccesible o timeout | Se lanza `LLMServiceUnavailableError` tras 120 s (`qwenTimeoutMs`); al concluir la tarea se aplica una respuesta sintética estructurada |
-| Paso fallido en modo PLAN | Si el paso no cumple su `expected_outcome` tras 4 llamadas, se invoca `handleReplan` para que Qwen sustituya los pasos pendientes (hasta 2 replanes) |
+| Error o Situación Anómala | Manejo en Motor FAST (`runStep`) | Manejo en Capa Coordinadora (`PLAN`) |
+|---|---|---|
+| **Fallo de Schema en Argumentos** | Reintenta localmente hasta 2 veces con `previousError`. Si se agota, falla el paso como `logical_error`. | Recibe `logical_error` de `runStep`, evalúa con `verifyStage` y activa `handleReplan`. |
+| **Herramienta Fuera de Catálogo** | Bloquea inmediatamente con `DecisionValidationError` impidiendo despacho físico. | Detiene el plan o replanifica excluyendo la herramienta inválida. |
+| **Denegación Guard o Rechazo Usuario** | Marca paso `BLOCKED`, fija `signals.denied = true` y detiene la tarea en `PARTIAL`/`FAILED`. | Detiene la tarea inmediatamente en `PARTIAL`/`FAILED`. **Prohibido replanificar.** |
+| **Invocación Repetida (Anti-Loop)** | Retorna `status: "blocked_loop"`. Si ocurren 2 bloqueos seguidos, detiene la tarea en `PARTIAL`. | Tras fallo repetido, `verifyStage` clasifica bloqueo o activa replanificación con ruta alterna. |
+| **Stale Element en Windows MCP** | Captura `staleElement: true`, invoca herramienta de árbol (`ui_get_window_tree`) y reintenta 1 vez. | Transparente para PLAN; se resuelve internamente dentro de `runStep`. |
+| **Timeout de Transporte MCP (30s)** | Cancela el subproceso con `MCPTransportError` y marca el paso como fallido con `signals.timeout`. | Trata el timeout como desviación o fallo no recuperable según la criticidad de la etapa. |
+| **Servicio Eos Inaccesible** | Si las señales físicas son limpias, aplica fallback determinista (`ok=true`, `cumple=true`). | Continúa la ejecución sin detener el flujo por indisponibilidad de Eos. |
+| **Reinicio Imprevisto del Servidor** | `loadPersistedTasks` transiciona tareas en curso a `CANCELLED` y pasos a `BLOCKED`. | Previene ejecuciones fantasmas o estados corruptos tras rearranque. |
 
-## Ejemplo de traza
+---
 
-Caso real de punta a punta: el usuario solicita `"Busca en la web la versión actual de Node.js y guárdala en un archivo version.txt"` en modo `NORMAL`.
+## Ejemplo de Traza Real de Extremo a Extremo (v1.3)
+
+Instrucción del usuario en modo `NORMAL`: `"Busca en la web el precio actual de Bitcoin y guárdalo en un archivo btc.txt"`.
 
 ```
-1. Usuario envía instrucción: "Busca en la web la versión actual de Node.js y guárdala en un archivo version.txt" (Modo: NORMAL)
-→ Core crea tarea (id: task_174000_a1b2, state: RUNNING), emite TASK_CREATED.
-→ Decision #1 (evaluación inicial):
-  - state: Meta actual, historial vacío, sin intentos previos.
-  - questions: route (choice: windows, desktop_commander, free_search, fin), needs_context (noul).
-  - Decision 2.0 responde: route="free_search" (confianza: 0.88), needs_context=0.05.
-→ Paso s1 creado (route: free_search).
-→ Discovery: lista herramientas de free_search (search, fetch, read_doc...).
-→ Decision #2:
-  - state: Instrucción del paso, contexto de scratchpad.
-  - questions: selected_tool (choice entre tools de free_search).
-  - Decision 2.0 responde: selected_tool="search" (confianza: 0.94).
-→ Qwen Etapa 3 (generación de argumentos):
-  - Input: SCHEMA de search {query: string, max_results?: number}.
-  - Output JSON: {"query": "Node.js current latest version", "max_results": 5}.
-→ Anti-loop: primera llamada, pasa validación.
-→ Guard: evalúa free_search:search -> capacidad READ -> decide ALLOW (automático).
-→ Despacho MCP stdio: envía JSON-RPC tools/call a free-search-mcp.
-→ Resultado MCP recibido: 5 resultados web devueltos en formato Markdown.
-→ ResultProcessor:
-  - Extrae URL principal (https://nodejs.org) y candidatos.
-  - Almacena el texto completo en RefStore (ref: r1).
-  - finding: "5 resultados web, primero: Node.js" (sanitizado a una línea).
-  - compactObs: top 5 resultados recortados (780 chars).
-  - signals: exit_code=0, sin errores técnicos.
-→ Decision #5:
-  - questions: evaluation ("¿El resultado aporta lo que pide el objetivo?").
-  - Decision 2.0 responde: choice="correcta" (confianza: 0.91).
-→ Memoria: añade línea a LOG "1|search|ok|5 resultados web, primero: Node.js". FACTS: url=https://nodejs.org.
-→ Paso s1 COMPLETED.
+1. Recepción y Enrutamiento Inicial:
+   → POST /api/jarvis/process {"message": "Busca en la web el precio actual de Bitcoin y guárdalo en btc.txt", "mode": "NORMAL"}
+   → Core inicializa Task (id: task_174001, mode: NORMAL, state: RUNNING). Emite TASK_CREATED.
+   → Decision #1 (Eos): state=[GOAL: ..., ATTEMPTS: []], questions=[route, needs_context]
+   → Eos responde: route="free_search" (argmax: 89%), needs_context=0.04 (false).
 
-2. Siguiente iteración en runFastLoop:
-→ Decision #1 (segunda iteración):
-  - state: Meta, LOG con paso s1 ok, intentos previos: [free_search/search: ok], último resultado.
-  - Decision 2.0 responde: route="desktop_commander" (confianza: 0.82).
-→ Paso s2 creado (route: desktop_commander).
-→ Discovery: lista herramientas de desktop_commander (read_file, write_file, run_command...).
-→ Decision #2:
-  - Decision 2.0 responde: selected_tool="write_file" (confianza: 0.92).
-→ Qwen Etapa 3 (generación de argumentos):
-  - Input: SCHEMA de write_file {path: string, content: string}, FACTS con datos de Node.js.
-  - Output JSON: {"path": "version.txt", "content": "Node.js versión actual: v22.14.0 LTS"}.
-→ Anti-loop: acción no ejecutada previamente, pasa validación.
-→ Guard: evalúa desktop_commander:write_file -> capacidad FILE_WRITE -> decide APPROVAL.
-→ Paso s2 pasa a WAITING_APPROVAL. Emite APPROVAL_REQUESTED.
-→ GuardBanner se despliega en UI: "Modificación o creación de archivo en la ruta 'version.txt'".
-→ Usuario hace clic en "Autorizar" -> POST /api/jarvis/approve.
-→ Paso s2 vuelve a RUNNING. Emite APPROVAL_RESOLVED.
-→ Despacho MCP stdio: envía tools/call a desktop-commander.
-→ Resultado MCP recibido: archivo creado satisfactoriamente.
-→ ResultProcessor: finding: "Archivo version.txt escrito correctamente". RefStore: r2.
-→ Decision #5: evalúa evaluation -> "correcta" (confianza: 0.95).
-→ Memoria: añade línea a LOG "2|write_file|ok|Archivo version.txt escrito". FACTS: path=version.txt.
-→ Paso s2 COMPLETED.
+2. Ejecución del Paso s1 en runStep:
+   → Paso s1 instanciado (route: free_search, instruction: "Buscar precio actual de Bitcoin en la web").
+   → DiscoveryEngine: cataloga herramientas activas de free_search (search, fetch, read_doc...).
+   → Decision #2 (Eos): questions=[selected_tool] -> responde "search" (argmax: 95%).
+   → Qwen generateArguments: recibe schema de "search", produce {"query": "Bitcoin current price USD", "max_results": 5}.
+   → RefResolver: no detecta tokens en argumentos iniciales.
+   → Anti-Loop: primera acción, pasa validación.
+   → Guard: free_search:search -> capacidad READ -> ALLOW automático.
+   → Despacho MCP stdio: envía JSON-RPC tools/call a free-search-mcp. Retorna 5 resultados web con precios.
+   → ResultProcessor: extrae URL (https://coinmarketcap.com), genera finding: "5 resultados web, primero: Bitcoin USD $68,450", almacena salida completa en RefStore (r1).
+   → Verificación Factual Eos: señales físicas limpias (exit_code=0) -> Eos evalúa ok=true (96%), cumple=true (93%).
+   → Memoria: registra en LOG "1|search|ok|5 resultados web, primero: Bitcoin USD $68,450". FACTS: url=https://coinmarketcap.com.
+   → Paso s1 transiciona a COMPLETED.
 
-3. Siguiente iteración en runFastLoop:
-→ Decision #1 (tercera iteración):
-  - state: Meta, 2 pasos completados satisfactoriamente, acciones previas ok.
-  - Decision 2.0 responde: route="fin" (confianza: 0.87 > 0.60 umbral post-acción).
-→ Verificación de fin: validado (hubo acciones previas exitosas y ninguna UNVERIFIED).
-→ Qwen Etapa 6 (concludeTask):
-  - Input: GOAL, LOG de pasos 1 y 2, FACTS, EVID de las llamadas.
-  - Output en español: "He consultado la web y guardado la información en el archivo version.txt. La versión actual de Node.js es la v22.14.0 LTS."
-→ RefStore.clear(task_174000_a1b2): libera memoria de la tarea.
-→ Tarea state pasa a COMPLETED. Se emiten FINAL_RESPONSE y TASK_STATE_CHANGED.
+3. Siguiente Iteración en runFastLoop:
+   → Decision #1 (Eos): state=[GOAL, LOG: paso 1 ok, FACTS, attempts: [free_search/search: ok]]
+   → Eos responde: route="desktop_commander" (argmax: 85%).
+   → Paso s2 instanciado (route: desktop_commander, instruction: "Guardar precio obtenido en btc.txt").
+   → Handoff determinista: applyStepHandoff enriquece instrucción con "[HANDOFF s1 (search)]: url=https://coinmarketcap.com [ref:r1]".
+   → Decision #2 (Eos): questions=[selected_tool] -> responde "write_file" (argmax: 92%).
+   → Qwen generateArguments: genera {"path": "btc.txt", "content": "Precio actual Bitcoin: $68,450 USD {{ref:r1}}"}.
+   → RefResolver: detecta "{{ref:r1}}", deserializa contenido de RefStore y genera el argumento real resuelto.
+   → Guard: desktop_commander:write_file -> capacidad FILE_WRITE -> APPROVAL requerido.
+   → Tarea pasa a WAITING_INPUT (waitingReason: "approval"), paso s2 pasa a WAITING_APPROVAL.
+   → GuardBanner despliega en UI la solicitud sin temporizador de expiración.
+   → Operador pulsa "Autorizar" -> POST /api/jarvis/approve.
+   → Paso s2 regresa a RUNNING. Se despacha a desktop-commander vía stdio. Archivo btc.txt creado en disco.
+   → ResultProcessor: finding: "Archivo btc.txt creado exitosamente". RefStore: r2.
+   → Verificación Factual Eos: ok=true (98%), cumple=true (95%).
+   → Memoria: registra LOG "2|write_file|ok|Archivo btc.txt creado exitosamente". Registra EFFECT "s2|write_file: Archivo btc.txt escrito".
+   → Paso s2 transiciona a COMPLETED.
+
+4. Conclusión de la Tarea:
+   → Decision #1 (Eos): evalúa estado completo -> responde route="fin" (argmax: 91%).
+   → Core valida condiciones de fin: 2 pasos completados satisfactoriamente, sin pasos UNVERIFIED pendientes -> Validado.
+   → Qwen Etapa 6 (concludeTask): genera respuesta final en español basándose en LOG, FACTS y EFFECTS.
+   → RefStore.clear("task_174001"): libera memoria volátil de la tarea.
+   → Tarea transiciona a COMPLETED. Se emiten FINAL_RESPONSE y TASK_STATE_CHANGED.
 ```
-
-## Archivos relacionados
-
-| Ruta | Rol |
-|------|-----|
-| `src/core/core.ts` | Orquestador principal `JarvisCore`, iniciación de tareas, persistencia y despacho de eventos reactivos |
-| `src/core/modeEngines.ts` | Implementación del bucle directo FAST (`runFastLoop`), planificación (`runPlanLoop`), escalación y replan |
-| `src/core/callExecutor.ts` | Ciclo de ejecución de herramienta (`executeCall`), compuerta Guard y verificación anti-loop |
-| `src/core/decision.ts` | Evaluaciones de enrutamiento (D1), selección de tool (D2), éxito (D5) y juicio de plan en Decision 2.0 |
-| `src/core/reasoner/qwen.ts` | Generación de argumentos con JSON schema, análisis de escalación (5B) y síntesis de respuesta final (6) |
-| `src/core/policy/guard.ts` | Motor de compuerta de seguridad, detección de comandos seguros y reglas de autorización humana |
-| `src/core/processor/resultProcessor.ts` | Procesamiento determinista de respuestas MCP, cálculo de señales y almacén `RefStore` |

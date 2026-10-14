@@ -69,16 +69,6 @@ export interface ArgumentPromptData {
   previousError?: string;
 }
 
-export interface EscalationPromptData {
-  goal: string;
-  logLines: string[];
-  failLines: string[];
-  facts: Record<string, string>;
-  failedAction: string;
-  errorMessage: string;
-  lastObs?: string;
-}
-
 export interface FinalResponsePromptData {
   goal: string;
   logLines: string[];
@@ -132,30 +122,6 @@ ${DATA_NOTICE}`,
           ? `ERROR_PREVIO: los argumentos anteriores no pasaron el schema: ${data.previousError}. Corrígelos.`
           : null,
         `TASK: ${data.taskInstruction}`,
-      ]);
-    },
-  },
-
-  /** Etapa 5B: análisis del fallo y escalación (§4, §10.6) */
-  ESCALATION: {
-    SYSTEM: `Analiza por qué falló la acción y decide la siguiente vía.
-Subsistemas:
-- windows: interfaz gráfica y controles de Windows.
-- desktop_commander: archivos, terminal y procesos locales.
-- free_search: búsqueda y consulta web.
-Responde solo con JSON:
-- {"action":"switch_mcp","mcp":"windows|desktop_commander|free_search","reason":"..."} si otro subsistema, o una tool distinta del mismo, puede resolver la tarea.
-- {"action":"abort","reason":"..."} si la tarea es imposible o irrecuperable.
-${DATA_NOTICE}`,
-
-    buildUserPrompt(data: EscalationPromptData): string {
-      return join([
-        `GOAL: ${data.goal}`,
-        block("LOG", data.logLines),
-        block("FAIL", data.failLines),
-        factsBlock(data.facts),
-        `ACCIÓN FALLIDA: ${safe(data.failedAction)} -> ${safe(data.errorMessage)}`,
-        data.lastObs ? `LAST:\n<obs>${safe(data.lastObs)}</obs>` : null,
       ]);
     },
   },
@@ -299,21 +265,6 @@ export interface DecisionTwoPromptData {
   attempts?: Attempt[];
 }
 
-export interface DecisionFivePromptData {
-  goal: string;
-  tool: string;
-  resultSummary: string;
-  signals: {
-    exit_code?: number;
-    not_found?: boolean;
-    denied?: boolean;
-    empty_output?: boolean;
-    timeout?: boolean;
-    stale_element?: boolean;
-  };
-  expectedOutcome?: string;
-}
-
 export interface DecisionJudgementPromptData {
   expectedOutcome: string;
   finding: string;
@@ -444,47 +395,6 @@ export const DECISION_PROMPTS = {
             ? "¿Qué tool cumple la instrucción? PROHIBIDO repetir una tool marcada [ya ejecutada - NO REPETIR] o [ya falló - EVITAR]. Si ya se ejecutó search, usa fetch sobre las URLs obtenidas o cambia de acción."
             : "¿Qué tool cumple la instrucción?",
           criteria,
-        },
-      },
-    };
-  },
-
-  /**
-   * Decision #5: ¿el resultado cumple el objetivo?
-   */
-  buildDecisionFive(data: DecisionFivePromptData): DecisionInput {
-    const s = data.signals;
-
-    const techErrors: string[] = [];
-    if (s.exit_code !== undefined && s.exit_code !== 0) techErrors.push(`código de salida ${s.exit_code}`);
-    if (s.denied) techErrors.push("acceso denegado");
-    if (s.timeout) techErrors.push("tiempo agotado");
-    if (s.stale_element) techErrors.push("elemento de interfaz obsoleto (stale element)");
-
-    const findings: string[] = [];
-    if (s.not_found) findings.push("recurso no encontrado");
-    if (s.empty_output) findings.push("salida vacía");
-
-    const state = [
-      `Objetivo: ${data.goal}`,
-      data.expectedOutcome ? `Esperado: ${data.expectedOutcome}` : null,
-      `Tool: ${data.tool}`,
-      `Ejecución técnica: ${techErrors.length > 0 ? `con errores (${techErrors.join(", ")})` : "sin errores"}`,
-      findings.length > 0 ? `Hallazgos: ${findings.join(", ")}` : null,
-      `Resultado: ${clip(data.resultSummary, MAX_RESULT_CHARS)}`,
-    ].filter(Boolean).join("\n");
-
-    return {
-      state,
-      questions: {
-        evaluation: {
-          type: "choice",
-          instructions:
-            "¿El resultado aporta lo que pide el objetivo? Que la ejecución sea técnicamente exitosa no basta. Un resultado negativo (p. ej. no existe) es correcto solo si el objetivo era averiguar eso.",
-          criteria: {
-            correcta: "El resultado aporta lo que el objetivo pide.",
-            incorrecta: "Hubo error técnico, o se ejecutó sin errores pero el resultado no aporta lo que el objetivo pide.",
-          },
         },
       },
     };

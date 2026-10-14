@@ -1,143 +1,151 @@
-# Herramientas y seguridad
+# Herramientas y Seguridad en JARVIS Core
 
-> Última revisión: **2026-10-11**
+> Última revisión: **2026-10-13** (v1.3 — Manifiesto Tipado de 61 Herramientas, Guard sobre Argumentos Resueltos y Argmax Eos)
 
-JARVIS Core se integra con tres servidores locales de herramientas a través del protocolo Model Context Protocol (MCP) sobre transporte stdio: `windows` (`windows-mcp`), `desktop_commander` (`@wonderwhy-er/desktop-commander`) y `free_search` (`free-search-mcp`). Las herramientas y capacidades se descubren dinámicamente en tiempo de ejecución. La seguridad se gestiona mediante compuertas deterministas independientes de los modelos LLM: un registro estático de políticas (`PolicyRegistry`), una compuerta de seguridad (`Guard`) que aplica bloqueos incondicionales ante comandos que ataquen el sistema raíz o inyecciones de shell (`DENY`), autoriza autónomamente comandos seguros en allowlist o lecturas (`ALLOW`), y exige aprobación humana explícita (`APPROVAL`) para mutaciones del sistema de archivos (incluyendo creación, modificación y eliminación con `delete_file`), descargas o comandos de terminal, restricciones de directorios en el adaptador (`allowedDirectories`) y un mecanismo de anti-loop contra acciones idénticas consecutivas.
+JARVIS Core se integra con tres servidores de herramientas a través del protocolo **Model Context Protocol (MCP)** sobre transporte `stdio` persistente:
+- **Windows MCP (`windows`)**: 21 herramientas de automatización de interfaz gráfica, controles UIA, procesos y registros.
+- **Desktop Commander (`desktop_commander`)**: 26 herramientas de manipulación de archivos locales, procesos de consola y terminal interactivo.
+- **Free Search MCP (`free_search`)**: 11 herramientas de búsqueda web, lectura de documentos remotos, análisis estructurado y descargas.
+- **Herramientas Locales Internas (`local`)**: 3 herramientas deterministas (`recall`, `compose`, `ask_user`) integradas en el Core sin transporte externo.
 
-## Catálogo de herramientas
+La seguridad del sistema está completamente desacoplada de los modelos probabilísticos LLM: se rige mediante un registro tipado de políticas (`PolicyRegistry` poblado desde `SYSTEM_TOOL_MANIFEST`), un resolutor determinista de referencias (`RefResolver`) y una compuerta estricta de seguridad (`Guard`) que bloquea comandos destructivos (`DENY`), autoriza autónomamente inspecciones seguras (`ALLOW`) y suspende la ejecución sin temporizadores de expiración ante mutaciones sensibles (`APPROVAL`).
 
-Herramientas registradas en `PolicyRegistry` (`src/core/policy/policyRegistry.ts`), clasificadas por servidor de origen, descripción y nivel de riesgo:
+---
 
-| Tool | Origen | Descripción | Riesgo |
-|------|--------|-------------|--------|
-| `windows:ui_get_window_tree` | Windows MCP | Obtiene el árbol estructurado de controles de la ventana activa | Bajo (READ, mutates: false) |
-| `windows:ui_get_diff_tree` | Windows MCP | Obtiene únicamente los cambios respecto a la observación anterior | Bajo (READ, mutates: false) |
-| `windows:ui_search_elements` | Windows MCP | Busca elementos interactivos por nombre, tipo o AutomationId | Bajo (READ, mutates: false) |
-| `windows:ui_inspect_element` | Windows MCP | Inspecciona en profundidad las propiedades de un elemento | Bajo (READ, mutates: false) |
-| `windows:ui_read` | Windows MCP | Lee el texto de un control o ventana mediante UIA u OCR | Bajo (READ, mutates: false) |
-| `windows:ui_wait` | Windows MCP | Espera a que un control aparezca o alcance un estado determinado | Bajo (READ, mutates: false) |
-| `windows:ui_click` | Windows MCP | Envía clic de ratón o acción de pulsación sobre un elemento | Medio (UI_ACTION, mutates: true) |
-| `windows:ui_set_focus` | Windows MCP | Establece el foco del sistema en el elemento de destino | Medio (UI_ACTION, mutates: true) |
-| `windows:ui_type_text` | Windows MCP | Introduce texto simulado en un control editable enfocado | Medio (UI_ACTION, mutates: true) |
-| `windows:set_volume` | Windows MCP | Modifica el nivel de volumen general del sistema operativo | Medio (UI_ACTION, mutates: true) |
-| `windows:launch_app` | Windows MCP | Inicia una aplicación ejecutable en el escritorio de Windows | Alto (PROCESS_CONTROL, APPROVAL) |
-| `windows:close_window` | Windows MCP | Cierra la ventana activa o finaliza la aplicación asociada | Alto (PROCESS_CONTROL, APPROVAL) |
-| `desktop_commander:list_directory` | Desktop Commander | Enumera archivos y subcarpetas dentro de un directorio | Bajo (FILE_READ, mutates: false) |
-| `desktop_commander:read_file` | Desktop Commander | Lee el contenido de un archivo local (soporta offset y length) | Bajo (FILE_READ, mutates: false) |
-| `desktop_commander:search_files` | Desktop Commander | Busca archivos por nombre o patrón en el sistema local | Bajo (FILE_READ, mutates: false) |
-| `desktop_commander:read_process_output` | Desktop Commander | Lee la salida de terminal generada por un proceso en ejecución | Bajo (READ, mutates: false) |
-| `desktop_commander:run_command` | Desktop Commander | Ejecuta un comando en la terminal del sistema (cmd/powershell/bash) | Dinámico (Inspección: Bajo; Mutación: Alto, APPROVAL) |
-| `desktop_commander:write_file` | Desktop Commander | Crea o sobreescribe un archivo en disco con el contenido dado | Alto (FILE_WRITE, APPROVAL) |
-| `desktop_commander:edit_file` | Desktop Commander | Modifica bloques o líneas específicas en un archivo existente | Alto (FILE_WRITE, APPROVAL) |
-| `desktop_commander:delete_file` | Desktop Commander | Elimina de forma destructiva y permanente un archivo o carpeta | Crítico (FILE_DELETE, APPROVAL) |
-| `desktop_commander:start_process` | Desktop Commander | Inicia un nuevo proceso de consola en segundo plano | Alto (PROCESS_CONTROL, APPROVAL) |
-| `desktop_commander:kill_process` | Desktop Commander | Finaliza forzadamente un proceso del sistema por su PID | Alto (PROCESS_CONTROL, APPROVAL) |
-| `desktop_commander:interact_process` | Desktop Commander | Envía entradas por stdin a un proceso de terminal interactivo | Alto (PROCESS_CONTROL, APPROVAL) |
-| `desktop_commander:set_config` | Desktop Commander | Modifica opciones de configuración local del servidor MCP | Alto (CONFIGURATION, APPROVAL) |
-| `free_search:search` | Free Search | Busca información en la web mediante los motores configurados | Bajo (READ, mutates: false) |
-| `free_search:fetch` / `fetch_page` | Free Search | Descarga y extrae el texto legible de una página web | Bajo (READ, mutates: false) |
-| `free_search:fetch_batch` | Free Search | Descarga el contenido de múltiples URLs web en lote | Bajo (READ, mutates: false) |
-| `free_search:read_doc` | Free Search | Lee documentos y artículos extensos extraídos de la web | Bajo (READ, mutates: false) |
-| `free_search:research` | Free Search | Ejecuta una investigación iterativa y estructurada en la web | Bajo (READ, mutates: false) |
-| `free_search:paper_graph` | Free Search | Consulta grafos y relaciones de artículos académicos | Bajo (READ, mutates: false) |
-| `free_search:cache_search` | Free Search | Busca dentro del contenido previamente almacenado en caché | Bajo (READ, mutates: false) |
-| `free_search:read_cached_resource` | Free Search | Lee un recurso específico almacenado en la caché local | Bajo (READ, mutates: false) |
-| `free_search:engines` | Free Search | Enumera los motores de búsqueda web actualmente disponibles | Bajo (READ, mutates: false) |
-| `free_search:compare` | Free Search | Compara información y contenidos de distintas fuentes web | Bajo (READ, mutates: false) |
-| `free_search:extract_structured` | Free Search | Extrae metadatos estructurados (JSON-LD, OpenGraph, microdatos) | Bajo (READ, mutates: false) |
-| `free_search:download` / `download_document` | Free Search | Descarga archivos binarios o documentos externos (`download_document` es alias interno en PolicyRegistry) | Alto (DOWNLOAD, APPROVAL) |
+## 1. Catálogo Completo de Herramientas y Políticas de Seguridad
 
-## Selección de herramientas
+Fuente única de verdad: `SYSTEM_TOOL_MANIFEST` (`src/core/tools/manifest.ts`):
 
-- **Exposición:** Se determina en dos niveles:
-  1. *Nivel de subsistema (Decision #1):* Decision 2.0 evalúa entre las rutas generales `windows`, `desktop_commander`, `free_search` y `fin`.
-  2. *Nivel de herramientas (Discovery):* Se consultan dinámicamente las herramientas provistas por el servidor seleccionado invocando `DiscoveryEngine.getDiscoveredTools(serverName)`. Los esquemas JSON de las herramientas se depuran mediante `cleanInputSchema` para suprimir metadatos irrelevantes (`$schema`, `title`, `additionalProperties`, `examples`). Si hubo una herramienta fallida previa en el mismo MCP, se excluye temporalmente de la selección (`excludedToolForNextCall`).
-- **Elección:** La realiza Decision 2.0 en `evaluateDecisionTwo`. El modelo recibe una pregunta de tipo `choice` con hasta 255 herramientas descubiertas, donde cada opción incluye la descripción corta anotada con advertencias anti-repetición (`[ya ejecutada - NO REPETIR]` o `[ya falló - EVITAR]`). Si el servidor cuenta con una sola herramienta, se selecciona automáticamente con confianza 1.0 sin invocar inferencia externa.
+### 1.1 Windows MCP (`windows`) — 21 Herramientas en Runtime
+| Herramienta | Capacidad | Riesgo / Tipo | Política Guard | Descripción Operativa |
+|---|:---:|:---:|:---:|---|
+| `ControlStatus` | `READ` | Bajo (READ) | `ALLOW` | Estado del dueño del control de escritorio e idle wait. |
+| `DisplayInventory` | `READ` | Bajo (READ) | `ALLOW` | Layout de pantallas activas y metadatos de escala DPI. |
+| `Snapshot` | `READ` | Bajo (READ) | `ALLOW` | Captura de accesibilidad del árbol visual de ventanas. |
+| `Screenshot` | `READ` | Bajo (READ) | `ALLOW` | Captura rápida de pantalla en formato gráfico. |
+| `Scrape` | `READ` | Bajo (READ) | `ALLOW` | Extracción estructurada de texto visible en pantalla. |
+| `Clipboard` | `READ` | Bajo (READ) | `ALLOW` | Lectura del portapapeles del sistema operativo. |
+| `Process` | `READ` | Bajo (READ) | `ALLOW` | Enumeración de procesos y ventanas activas de Windows. |
+| `Registry` | `READ` | Bajo (READ) | `ALLOW` | Consulta e inspección de claves del registro de Windows. |
+| `Click` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Clic de ratón sobre elemento de interfaz o coordenadas. |
+| `Type` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Tipeo de texto simulado en el control con foco. |
+| `Scroll` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Desplazamiento vertical u horizontal de rueda de ratón. |
+| `Move` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Movimiento de cursor o acción de arrastrar y soltar. |
+| `Shortcut` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Combinación de teclas de acceso rápido (ej. Ctrl+C). |
+| `Wait` | `UI_ACTION` | Bajo (READ, exenta) | `ALLOW` | Pausa controlada o espera activa de sincronización. |
+| `WaitFor` | `UI_ACTION` | Bajo (READ, exenta) | `ALLOW` | Espera reactiva a que un elemento visual aparezca. |
+| `MultiSelect` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Selección múltiple de elementos interactivos. |
+| `MultiEdit` | `UI_ACTION` | Medio (no-READ) | `ALLOW` | Edición múltiple de campos de formulario. |
+| `App` | `PROCESS_CONTROL` | Alto (no-READ) | `APPROVAL` | Lanzar o cerrar aplicaciones ejecutables de Windows. |
+| `PowerShell` | `COMMAND_EXECUTION` | Dinámico / Alto | `APPROVAL` / `DENY` | Ejecución de scripts PowerShell y comandos terminal. |
+| `FileSystem` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Operaciones de sistema de archivos en Windows. |
+| `Notification` | `UI_ACTION` | Medio (no-READ) | `APPROVAL` | Emisión o gestión de notificaciones nativas de Windows. |
 
-## Ejecución
+### 1.2 Desktop Commander (`desktop_commander`) — 26 Herramientas en Runtime
+| Herramienta | Capacidad | Riesgo / Tipo | Política Guard | Descripción Operativa |
+|---|:---:|:---:|:---:|---|
+| `list_directory` | `FILE_READ` | Bajo (READ) | `ALLOW` | Enumerar archivos y carpetas locales. |
+| `read_file` | `FILE_READ` | Bajo (READ) | `ALLOW` | Leer contenido de un archivo (con offset y length). |
+| `search_files` | `FILE_READ` | Bajo (READ) | `ALLOW` | Buscar archivos por patrón o nombre en el disco. |
+| `read_process_output`| `READ` | Bajo (READ, exenta) | `ALLOW` | Leer salida generada por un proceso de terminal. |
+| `get_file_info` | `FILE_READ` | Bajo (READ) | `ALLOW` | Metadatos y tamaño de archivo local. |
+| `read_multiple_files`| `FILE_READ` | Bajo (READ) | `ALLOW` | Lectura en lote de múltiples archivos. |
+| `start_search` | `FILE_READ` | Bajo (READ) | `ALLOW` | Iniciar búsqueda indexada en segundo plano. |
+| `get_more_search_results`| `FILE_READ` | Bajo (READ) | `ALLOW` | Obtener más resultados de búsqueda activa. |
+| `stop_search` | `FILE_READ` | Bajo (READ) | `ALLOW` | Detener búsqueda activa en segundo plano. |
+| `list_searches` | `FILE_READ` | Bajo (READ) | `ALLOW` | Listar búsquedas en segundo plano activas. |
+| `list_processes` | `READ` | Bajo (READ) | `ALLOW` | Listar procesos del sistema en ejecución. |
+| `list_sessions` | `READ` | Bajo (READ) | `ALLOW` | Listar sesiones de terminal abiertas. |
+| `run_command` | `COMMAND_EXECUTION` | Dinámico | Inspección Guard | Ejecución de comandos en consola (inspección de shell). |
+| `write_file` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Crear o sobreescribir archivo local en disco. |
+| `edit_file` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Modificar archivo local existente. |
+| `edit_block` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Modificar bloque específico de texto en archivo. |
+| `delete_file` | `FILE_DELETE` | Crítico (no-READ) | `APPROVAL` | Eliminar de forma destructiva y permanente un archivo. |
+| `create_directory` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Crear un nuevo directorio en el disco. |
+| `move_file` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Mover o renombrar archivo o directorio. |
+| `write_pdf` | `FILE_WRITE` | Alto (no-READ) | `APPROVAL` | Generar y escribir documento PDF en disco. |
+| `start_process` | `PROCESS_CONTROL` | Alto (no-READ) | `APPROVAL` | Iniciar proceso de consola en segundo plano. |
+| `kill_process` | `PROCESS_CONTROL` | Alto (no-READ) | `APPROVAL` | Finalizar un proceso por su PID. |
+| `force_terminate` | `PROCESS_CONTROL` | Alto (no-READ) | `APPROVAL` | Terminación forzada e inmediata de un proceso. |
+| `interact_process` | `PROCESS_CONTROL` | Alto (no-READ) | `APPROVAL` | Enviar entradas interactivas por stdin a proceso. |
+| `set_config` | `CONFIGURATION` | Alto (no-READ) | `APPROVAL` | Modificar configuración del servidor MCP. |
+| `get_config` | `CONFIGURATION` | Bajo (READ) | `ALLOW` | Consultar configuración activa del servidor MCP. |
 
-Ciclo de vida completo de una llamada:
+### 1.3 Free Search MCP (`free_search`) — 11 Herramientas en Runtime (v0.13.1)
+| Herramienta | Capacidad | Riesgo / Tipo | Política Guard | Descripción Operativa |
+|---|:---:|:---:|:---:|---|
+| `search` | `READ` | Bajo (READ) | `ALLOW` | Búsqueda web multi-motor con snippets limpios. |
+| `fetch` | `READ` | Bajo (READ) | `ALLOW` | Descargar y convertir página web a Markdown limpio. |
+| `fetch_batch` | `READ` | Bajo (READ) | `ALLOW` | Descargar múltiples páginas web en paralelo. |
+| `read_doc` | `READ` | Bajo (READ) | `ALLOW` | Leer y parsear documento remoto (PDF, DOCX) a Markdown. |
+| `research` | `READ` | Bajo (READ) | `ALLOW` | Investigación web iterativa en profundidad. |
+| `paper_graph` | `READ` | Bajo (READ) | `ALLOW` | Explorar grafos de citas y papers académicos. |
+| `cache_search` | `READ` | Bajo (READ) | `ALLOW` | Búsqueda full-text en caché local SQLite FTS5. |
+| `engines` | `READ` | Bajo (READ) | `ALLOW` | Listar motores de búsqueda disponibles y activos. |
+| `compare` | `READ` | Bajo (READ) | `ALLOW` | Comparar contenido de 2 a 5 páginas web. |
+| `extract_structured`| `READ` | Bajo (READ) | `ALLOW` | Extraer microdatos, OpenGraph y JSON-LD. |
+| `download` | `DOWNLOAD` | Alto (no-READ) | `APPROVAL` | Descargar archivo binario o documento a directorio local. |
+
+> **Certificación de Ausencia:** Las herramientas deprecadas `fetch_page` y `read_cached_resource` fueron retiradas formalmente del sistema al confirmar que no existen upstream en la versión 0.13.1.
+
+### 1.4 Herramientas Locales Internas (`local`) — 3 Herramientas
+| Herramienta | Capacidad | Riesgo / Tipo | Política Guard | Descripción Operativa |
+|---|:---:|:---:|:---:|---|
+| `recall` | `READ` | Bajo (READ) | `ALLOW` | Recuperar hechos factuales, referencias o contexto de memoria. |
+| `compose` | `READ` | Bajo (READ) | `ALLOW` | Redactar texto estructurado o respuesta en lenguaje natural. |
+| `ask_user` | `READ` | Bajo (READ) | `ALLOW` | Solicitar aclaración indispensable al usuario (`user_answer`). |
+
+---
+
+## 2. Compuerta de Seguridad Guard e Inspección Dinámica
+
+`Guard` (`src/core/policy/guard.ts`) actúa como barrera determinista e inmutable antes del despacho físico a cualquier servidor:
 
 ```
-tool_call → validar existencia en Discovery → generar argumentos con Qwen (JSON schema) → verificar Anti-Loop → evaluar Guard (ALLOW / APPROVAL / DENY) → ejecutar en MCP por stdio → recuperación de stale element (Windows) → ResultProcessor (señales, sanitización, RefStore) → evaluación de éxito con Decision #5
+[Qwen genera args] ──► [RefResolver sustituye {{ref:rX}}] ──► [Guard.evaluate(mcp, tool, args_resueltos)]
+                                                                               │
+                          ┌────────────────────────────────────────────────────┼────────────────────────────────────────────────────┐
+                          ▼                                                    ▼                                                    ▼
+                       [ALLOW]                                             [APPROVAL]                                             [DENY]
+             Operación de lectura segura                         Mutación de disco/procesos                         Patrón destructivo raíz
+             o comando en allowlist                              o comando terminal modificador                     o inyección maliciosa
+                          │                                                    │                                                    │
+                          ▼                                                    ▼                                                    ▼
+                   [Despacho stdio]                               [Pausa: WAITING_INPUT approval]                    [Paso BLOCKED: signals.denied=true]
+                                                                  (Sin temporizador de caducidad)                   [Parada inmediata sin reintentos]
 ```
 
-- **Timeouts:**
-  - Llamadas MCP por stdio: `30000 ms` (`mcpTimeoutMs` o `timeoutMs` en `jarvis-config.json`).
-  - Decision 2.0 HTTP: `30000 ms` (`decisionTimeoutMs` en `jarvis-config.json`).
-  - Qwen 3.5 9B HTTP: `120000 ms` (`qwenTimeoutMs` en `jarvis-config.json`, ampliado a mín. 180 s con `thinking: true`).
-- **Reintentos:**
-  - Argumentos de Qwen: hasta 2 reintentos (`MAX_ARG_RETRIES = 2`) reportando el error de schema en el siguiente intento.
-  - Windows stale element: 1 reintento automático tras refrescar el árbol de ventanas con `ui_get_window_tree` o similar.
-  - Reconexión MCP: disponible por API vía `POST /api/mcp/:server/reconnect`.
+### 2.1 Inspección Dinámica de Comandos de Terminal (`run_command`)
+Para herramientas de consola como `desktop_commander:run_command` y `windows:PowerShell`, Guard analiza los argumentos ya desempaquetados por `RefResolver`:
+1. **Detección de Patrones Destructivos (`DENY`):**
+   - Bloqueo incondicional de comandos dirigidos contra el sistema raíz o directorios críticos: `rm -rf /`, `format c:`, `del /f /s /q c:\windows`, `drop database`, o secuencias de escape/inyección `; rm`, `&& rm`, `| rm`.
+   - Transiciona el paso inmediatamente a `BLOCKED` con la señal `signals.denied = true`.
+   - **Prohibición absoluta:** Ningún reintento ni replanificación puede eludir una denegación de seguridad.
+2. **Inspección de Comandos Seguros (`ALLOW`):**
+   - Comandos de solo lectura verificados en allowlist (`dir`, `ls`, `cat`, `type`, `git status`, `git log`, `node -v`, `npm list`, etc.) sin operadores de concatenación ni redirección destructiva (`>`, `>>`, `|`) se autorizan autónomamente sin interrumpir al usuario.
+3. **Comandos Modificadores (`APPROVAL`):**
+   - Comandos que alteran el entorno (`git commit`, `npm install`, `cp`, `mv`, compilaciones, scripts de PowerShell) suspenden la tarea en `WAITING_INPUT` (`waitingReason: "approval"`).
 
-## MCP
+---
 
-Servidores MCP configurados en `jarvis-config.json` y gestionados mediante procesos hijos por stdio:
+## 3. Estado `WAITING_INPUT` sin Temporizadores de Expiración
 
-| Servidor | Transporte | Tools expuestas | Config |
-|----------|-----------|-----------------|--------|
-| `windows` | Stdio (`uvx windows-mcp serve`) | 12 herramientas (automatización UI, ventanas, foco, clics, procesos) | `jarvis-config.json:windowsMcp` |
-| `desktop_commander` | Stdio (`npx -y @wonderwhy-er/desktop-commander`) | 12 herramientas (archivos locales, comandos de consola, procesos) | `jarvis-config.json:desktopCommanderMcp` (soporta `allowedDirectories`) |
-| `free_search` | Stdio (`uvx --from free-search-mcp==0.13.1 --with selectolax==0.3.34 free-search-mcp`) | 14 herramientas (búsqueda web, extracción estructurada, fetch, caché) | `jarvis-config.json:freeSearchMcp` |
+Conforme al Criterio de Aceptación 10 del Plan Maestro v1.3:
+- Las esperas por autorización humana operan mediante una promesa suspendida en memoria de Node.js.
+- **Sin Timers:** No existen cronómetros de cuenta regresiva, `setTimeout` ni expiraciones automáticas. La tarea aguarda indefinidamente la acción voluntaria del operador.
+- **Acciones Disponibles:**
+  - `POST /api/jarvis/approve`: reanuda inmediatamente la ejecución de la llamada aprobada.
+  - `POST /api/jarvis/deny`: marca el paso como `BLOCKED`, fija `signals.denied = true` y detiene la tarea en `PARTIAL`/`FAILED`.
+  - `POST /api/jarvis/cancel`: transiciona la tarea a `CANCELLED` y limpia la memoria.
 
-## Procesamiento de resultados
+---
 
-Antes de devolver el resultado al orquestador y a los modelos, `ResultProcessor.process` aplica:
+## 4. Selección y Verificación de Herramientas con Eos
 
-- **Aislamiento en `RefStore`:** El contenido bruto completo devuelto por la herramienta se almacena en memoria bajo una clave `rX` (ej. `r1`), aislada estrictamente por `taskId` para evitar fugas de memoria o colisiones entre tareas.
-- **Detección de señales técnicas:** Identifica códigos de salida (`exit_code`), si el recurso no fue encontrado (`not_found`), si el acceso fue denegado (`denied`), si el elemento de UI quedó obsoleto (`stale_element`), si hubo timeout o si la salida fue vacía de forma anómala (`empty_output` evaluado solo en herramientas configuradas con `emptyIsError: true`: `desktop_commander:read_file`, `desktop_commander:search_files` y `free_search:search`).
-- **Extractores deterministas por tool:**
-  - *Árbol de ventanas:* extrae `window_handle` y `element_id` para scratchpad y facts; trunca la visualización a las primeras 30 líneas interactivas.
-  - *Búsqueda de archivos:* extrae el conteo de coincidencias, la primera ruta para `facts.path` y hasta 5 candidatos; trunca a las 10 mejores coincidencias.
-  - *Lectura de archivos:* extrae número de líneas y tamaño en KB; si supera 30 líneas, conserva solo las primeras 15 y últimas 15 con el indicador `[... N líneas omitidas, ref:rX]`.
-  - *Procesos de consola:* extrae PID y status; trunca a las últimas 30 líneas de salida.
-  - *Búsqueda web:* parsea resultados estructurados o secciones Markdown (Lead, títulos, URLs, snippets); extrae la primera URL y candidatos a facts; formatea los top 5 resultados.
-- **Sanitización de memoria:** `sanitizeForMemory` elimina saltos de línea y caracteres de control ASCII (`[\x00-\x1F\x7F]`), sustituye etiquetas `<obs>` por `[obs]`, neutraliza prefijos reservados (`GOAL_`, `FACTS_`...) y recorta a 120 caracteres.
-- **Formateo de Evidencia y Resumen estructurado:** Construye el objeto `Evidence` (con `summary`, `obs` recortado a 1.500 caracteres y `ref`) y sintetiza un prefijo para Decision #5 (`[ÉXITO]`, `[FALLO]`, `[VACÍO]`, `[SIN RESULTADOS]`, `[STALE]`).
-
-## Permisos
-
-Políticas de seguridad por categoría de herramienta definidas en `PolicyRegistry` y evaluadas en `Guard`:
-
-| Categoría | Política | Ejemplo |
-|-----------|----------|---------|
-| `READ` / `FILE_READ` | Autorización automática (`ALLOW`) | `desktop_commander:read_file`, `list_directory`, `free_search:search`, `windows:ui_get_window_tree` |
-| `UI_ACTION` | Autorización automática (`ALLOW`) sobre la interfaz gráfica de Windows | `windows:ui_click`, `windows:ui_type_text`, `windows:ui_set_focus`, `windows:set_volume` |
-| `COMMAND_EXECUTION` | Inspección dinámica en `Guard.isSafeReadonlyCommand`: comandos de solo lectura en allowlist reciben `ALLOW`; comandos modificadores o desconocidos reciben `APPROVAL`; inyecciones reciben `DENY` | Comandos seguros: `dir`, `ls`, `cat`, `git status`, `node -v` (ALLOW) · Comandos con mutación: `npm install`, `rm`, `git commit` (APPROVAL) · Inyecciones: `; rm -rf /` (DENY) |
-| `FILE_WRITE` | Requiere aprobación humana (`APPROVAL`) | `desktop_commander:write_file`, `desktop_commander:edit_file` |
-| `FILE_DELETE` | Requiere aprobación humana (`APPROVAL`) | `desktop_commander:delete_file` |
-| `PROCESS_CONTROL` | Requiere aprobación humana (`APPROVAL`) | `windows:launch_app`, `windows:close_window`, `desktop_commander:start_process`, `kill_process` |
-| `DOWNLOAD` | Requiere aprobación humana (`APPROVAL`) | `free_search:download`, `free_search:download_document` (alias de `download`) |
-| `CONFIGURATION` | Requiere aprobación humana (`APPROVAL`) | `desktop_commander:set_config` |
-| Patrones destructivos raíz | Bloqueo incondicional (`DENY`) | Intentos contra el sistema raíz (`rm -rf /`, `format c:`, `del /f /s /q c:/windows`, etc.) |
-
-> **Clasificación dinámica de herramientas no registradas:** Si un servidor MCP descubre una herramienta no mapeada estáticamente en `PolicyRegistry`, `getPolicy()` aplica una heurística determinista: si el nombre comienza con prefijos de lectura (`read`, `get`, `search`, `list`, `inspect`, `fetch`, etc.) y no contiene términos destructivos, se clasifica como `READ` con `ALLOW` automático (`mutates: false`). Si contiene palabras destructivas (`delete`, `remove`, `kill`, `exec`, `write`, `drop`, etc.), se clasifica como `COMMAND_EXECUTION` exigiendo `APPROVAL` humano (`mutates: true`).
-
-## Aprobaciones
-
-- **Flujo:** Cuando Guard dictamina `APPROVAL`, el paso actual se coloca en estado `WAITING_APPROVAL`, se genera un registro `PendingApproval` (con ID, tool, capacidad, argumentos y motivo descriptivo) y el orquestador emite el evento `APPROVAL_REQUESTED`. En la interfaz web, el componente persistente `GuardBanner` presenta los detalles de la acción junto a botones interactivos de "Autorizar" y "Rechazar" (con campo opcional de motivo). La interacción invoca `POST /api/jarvis/approve` o `POST /api/jarvis/deny`. La compuerta no implementa un temporizador o timeout de expiración automática: permanece suspendida en memoria de forma indefinida hasta que el usuario resuelva explícitamente o cancele la tarea (`POST /api/jarvis/cancel`).
-- **Alcance:** Por invocación única (una sola vez). No existe autorización permanente en sesión ni bypass global, garantizando que cada mutación o comando potencialmente peligroso sea evaluado individualmente.
-- **Si se rechaza:** La llamada se bloquea, el paso pasa a estado `BLOCKED` con error "Operación rechazada por el usuario en Guard", se añade la entrada `${tool} -> RECHAZADO por usuario` a `task.memory.fail`, se asigna la señal `denied: true` y se activa el mecanismo de escalación (`handleEscalation` en FAST o replan en PLAN) para que el agente proponga una alternativa o aborte la tarea.
-
-## Auditoría y logs
-
-- **Consola del servidor Node.js:** Registro unificado de trazas con prefijos estructurados: `[Task] start`, `[Decision → SEND]`, `[Decision ← RECV]`, `[Qwen → SEND]`, `[Qwen ← RECV]`, `[MCP → SEND]`, `[MCP ← RECV]`, con duraciones en ms y detalles de tokens.
-- **Memoria de tarea (`TaskMemory`):**
-  - `log`: cada acción ejecutada se audita como `${stepSeq}|${tool}|${logStatus}|${finding}` (`logStatus` toma valores `ok`, `err`, `nf` o `unv`).
-  - `fail`: registra motivos exactos de denegación o fallos lógicos (`${tool} -> motivo`).
-- **Historial de llamadas (`task.steps[].calls[]`):** Cada ejecución se registra en un objeto `StepCall` con `id`, `mcp`, `tool`, `args`, `evidence` (`ok`, `summary`, `obs`, `ref`), `verification` (`VERIFIED`, `UNVERIFIED`), `outcome` (`success`, `isError`), `error` y `timestamp`.
-- **Persistencia en disco:** Se guardan en disco (`jarvis-tasks.json`) las últimas 20 tareas en total (`serialized.slice(-20)`), mediante sobrescritura directa con `fs.writeFileSync` (sin escritura atómica con archivo temporal ni cifrado en reposo; los argumentos y observaciones se almacenan en texto claro en disco y las llamadas completan trazas en la consola estándar del servidor).
-- **Stream de eventos en tiempo real:** Los eventos de auditoría (`MCP_DISPATCHED`, `MCP_RESULT`, `GUARD_EVALUATION`, `RESULT_PROCESSED`, `STEP_COMPLETED`) se transmiten por Server-Sent Events (`/api/jarvis/events`) y se visualizan en el componente `DecisionStream`.
-
-## Archivos relacionados
-
-| Ruta | Rol |
-|------|-----|
-| `src/core/policy/guard.ts` | Motor de compuerta de seguridad, verificación de reglas DENY e inspección dinámica de comandos seguros |
-| `src/core/policy/policyRegistry.ts` | Mapeo determinista e inmutable de herramientas MCP a capacidades y tipos de acción (READ / no-READ) |
-| `src/core/mcp/transport.ts` | Transporte stdio JSON-RPC 2.0, persistencia de procesos hijos, timeouts y terminación de árboles de procesos |
-| `src/core/mcp/discovery.ts` | Motor de descubrimiento dinámico de herramientas y limpieza de esquemas de entrada (`cleanInputSchema`) |
-| `src/core/processor/resultProcessor.ts` | Procesamiento determinista de salidas de herramientas, cálculo de señales de error y almacén `RefStore` |
-| `src/core/callExecutor.ts` | Ejecución determinista de llamadas a herramientas, compuerta de aprobación y verificación anti-loop |
-| `src/components/GuardBanner/GuardBanner.tsx` | Componente visual en el cliente web para la autorización y rechazo interactivo de operaciones sensibles |
+- **Selección de Herramienta en Runtime:**
+  - Si un subsistema cuenta con un único candidato disponible (`discoveredTools.length === 1`), se adopta directamente con confianza 1.0 (0 ms de latencia sin llamada HTTP).
+  - Si existen múltiples candidatos válidos, se consulta a Decision 2.0 (`evaluateDecisionTwo`), resolviendo la herramienta con mayor probabilidad (argmax) sin umbrales arbitrarios de corte.
+- **Verificación Factual (`ok` / `cumple`):**
+  - Decision #5 fue totalmente retirada.
+  - Sobre señales físicas limpias (`isCleanSignals`), Eos evalúa binariamente la corrección técnica (`ok`) y el cumplimiento de la expectativa (`cumple`) con un criterio determinista de argmax ($p \ge 0.5$).
+  - Si el servicio local de Eos no se encuentra disponible pero las señales físicas son limpias, se aplica un fallback determinista a éxito para garantizar la continuidad operativa.

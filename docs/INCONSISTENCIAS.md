@@ -1,8 +1,8 @@
-# Inconsistencias de JARVIS Core — Hallazgos Pendientes
+# Inconsistencias de JARVIS Core — Registro de Hallazgos y Estado de Resolución
 
-> Última revisión: **2026-10-11**  
+> Última revisión: **2026-10-13** (v1.3 — Actualización de Auditoría y Preparación de Fase 6)  
 > Fuente de verdad: **Código fuente y comportamiento verificable del sistema**.  
-> Estado general: **7 inconsistencias pendientes por resolver** (todas las inconsistencias previamente solventadas han sido retiradas de este informe).
+> Estado general: **1 hallazgo cerrado formalmente**, **5 hallazgos calendarizados para limpieza/calibración en Fase 6**, y **1 decisión pendiente de preferencia de configuración**.
 
 ---
 
@@ -13,7 +13,7 @@
 - `CONTRADICCIÓN`: Conflicto de contratos, tipos o comportamientos opuestos entre módulos.
 - `ESTADO_Y_CONCURRENCIA`: Comportamientos anómalos en el ciclo de vida, persistencia o recuperación ante caídas.
 - `NOMBRE_VS_COMPORTAMIENTO`: Nombres de eventos, herramientas o funciones que no reflejan su efecto real.
-- `SIN_REFERENCIAS`: Código, métodos o almacenes de datos declarados que no se consumen ni referencian.
+- `SIN_REFERENCIAS`: Código, métodos o almacenes de datos declarados que no se consumen ni referencian (código muerto).
 - `DUPLICACIÓN`: Lógica residual o redundante mantenida de versiones previas.
 
 ### Criterios de severidad
@@ -21,125 +21,74 @@
 - **Media:** Incongruencias entre contratos y runtime, efectos secundarios ocultos o asimetrías de ejecución entre modos.
 - **Baja:** Código o métodos residuales, discrepancias de nomenclatura frente a referencias upstream o archivos de pruebas obsoletos.
 
-### Estados de verificación
-- **Confirmada:** Evidencia directa e irrefutable en el código y flujos.
-- **Parcialmente confirmada:** El problema existe pero su alcance o impacto difería de la hipótesis original.
+---
+
+## 2. Matriz de Hallazgos y Estado Actual
+
+| ID | Tipo | Severidad | Estado en v1.3 | Ubicación Principal | Resumen del Hallazgo | Tratamiento en Fase 6 |
+|:---:|:---:|:---:|:---:|---|---|---|
+| **#1** | `SEGURIDAD` | Media | Abierta (Decisión) | `jarvis-config.json` / `config.ts:46` / `desktopCommanderMcp.ts:25,56` | `allowedDirectories: []` vacío por defecto desactiva la contención en el adaptador MCP, delegando la seguridad a Guard. | P2-1: Configurar `[process.cwd()]` por defecto. |
+| **#3** | `SIN_REFERENCIAS` | Baja | ✅ **SOLVENTADA** | `policyRegistry.ts` vs `manifest.ts` | Herramienta `download_document` redundante en `PolicyRegistry`. | **Cerrada:** En Fase 1 `PolicyRegistry` se pobló desde `SYSTEM_TOOL_MANIFEST`, eliminando la entrada obsoleta. |
+| **#5** | `DUPLICACIÓN` | Baja | Programada | `src/core/decision.ts:143,214` | Campo residual `multiStep: false` deprecado en v2.1 mantenido en retorno de Decision #1. | P0-2: Retirar propiedad residual del tipo y retorno. |
+| **#6** | `DUPLICACIÓN` | Baja | Programada | `src/core/reasoner/qwen.ts:188,809` | Wrappers legados (`generateChatResponse`, `synthesizeFinalResponse`) sin invocadores activos. | P0-2: Remover métodos huérfanos de `ILLMClient`. |
+| **#7** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Mitigada | `WindowsMCP.md` vs `manifest.ts:20-220` | Divergencia de nombres upstream (`app` vs `launch_app`, etc.). | Mitigada en Fase 1 con el manifiesto tipado de 21 herramientas Windows. |
+| **#9** | `NOMBRE_VS_COMPORTAMIENTO` | Media | Programada | `types.ts:380`, `callExecutor.ts:306,330`, `modeEngines.ts:439,640` | `STEP_COMPLETED` se emite cuando un paso entra en `WAITING_APPROVAL` o regresa a `RUNNING`. | P1-1: Introducir `STEP_STATE_CHANGED` y reservar `STEP_COMPLETED` para finalizados. |
+| **#13** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Mitigada | `Desktop CommanderMCP.md` vs `manifest.ts:225-475` | Nombres de Desktop Commander upstream mapeados a claves locales. | Mitigada en Fase 1 con las 26 herramientas tipadas en `SYSTEM_TOOL_MANIFEST`. |
+| **#14** | `SIN_REFERENCIAS` | Baja | Programada (Nueva) | `decision.ts:225-313`, `prompts.ts:455-485` | Código muerto de Decision #5 (`evaluateDecisionFive` y `buildDecisionFive`) sin invocadores. | P0-2: Retirar método y prompts asociados sustituidos por Eos `ok`/`cumple`. |
+| **#15** | `SIN_REFERENCIAS` | Baja | Programada (Nueva) | `qwen.ts:156,528-560`, `prompts.ts:31,90-115` | Código muerto de escalación en Qwen (`qwenEngine.escalate` y `PROMPTS.ESCALATION`) sin invocadores. | P0-2: Retirar método residual migrado a `handleEscalation` en código y Eos. |
 
 ---
 
-## 2. Matriz de Hallazgos Pendientes
-
-| ID | Tipo | Severidad | Estado | Ubicación Principal | Resumen del Hallazgo |
-|---|------|-----------|--------|---------------------|----------------------|
-| **#1** | `SEGURIDAD` | Media | Confirmada | `jarvis-config.json` / `config.ts:46` / `desktopCommanderMcp.ts:25,56` | `allowedDirectories` vacío por defecto desactiva la contención de rutas en el adaptador MCP. |
-| **#3** | `SIN_REFERENCIAS` | Baja | Confirmada | `policyRegistry.ts:64` vs `free-search-mcp.md:26` | Política estática registrada para `download_document` (alias de `download`). |
-| **#5** | `DUPLICACIÓN` | Baja | Confirmada | `decision.ts:146,228` | Retorno residual `{ multiStep: false }` deprecado en v2.1 mantenido en la firma de Decision #1. |
-| **#6** | `DUPLICACIÓN` | Baja | Confirmada | `qwen.ts:141-152,695-721` | Wrappers legados (`generateChatResponse`, `synthesizeFinalResponse`) sin uso en el flujo activo. |
-| **#7** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `WindowsMCP.md:44-57` vs `policyRegistry.ts:18-29` | Nombres de herramientas en `PolicyRegistry` divergen de la referencia upstream (mapeo documentado). |
-| **#9** | `NOMBRE_VS_COMPORTAMIENTO` | Media | Confirmada | `types.ts:315-330` / `modeEngines.ts:324,476` / `callExecutor.ts:214,232` | El evento `STEP_COMPLETED` se emite cuando un paso entra a `RUNNING` o `WAITING_APPROVAL`. |
-| **#13** | `NOMBRE_VS_COMPORTAMIENTO` | Baja | Confirmada | `Desktop CommanderMCP.md:18-59` vs `policyRegistry.ts:34-46` | Herramientas de Desktop Commander upstream mapeadas a claves locales en la documentación. |
-
----
-
-## 3. Fichas Detalladas de Hallazgos Pendientes
+## 3. Fichas Detalladas de Hallazgos Pendientes y Soluciones
 
 ### Hallazgo #1 — `allowedDirectories` vacío por defecto en Desktop Commander
-- **Estado de verificación:** Confirmada.
+- **Estado:** Abierta (Pendiente de preferencia del usuario).
 - **Tipo:** `SEGURIDAD`.
 - **Severidad:** Media.
-- **Archivos y líneas:**
-  - `jarvis-config.json`: bloque `desktopCommanderMcp` no declara la propiedad.
-  - `src/core/config.ts`: línea 46 (`allowedDirectories: []`).
-  - `src/core/mcp/desktopCommanderMcp.ts`: líneas 25 y 56 (`if (this.allowedDirectories.length > 0 && typeof candidatePath === "string")`).
-- **Condiciones necesarias:** Iniciar el sistema con la configuración predeterminada sin rutas autorizadas explícitas.
-- **Consecuencias observables:** La validación de contención de rutas en el adaptador MCP queda inactiva, permitiendo interactuar con cualquier ruta del sistema de archivos a nivel de transporte MCP y delegando toda la barrera de seguridad a Guard. Además, `SettingsModal.tsx` no expone ningún campo para configurar este parámetro desde la UI.
-- **Relación con otros hallazgos:** Se vincula con el Hallazgo #7 y #13 sobre configuración de MCPs.
-- **Corrección recomendada:** Definir rutas iniciales seguras en `DEFAULT_CONFIG` (ej. `[process.cwd()]`) o requerir configuración explícita, y añadir el campo en `SettingsModal`.
+- **Detalle Técnico:** En `desktopCommanderMcp.ts:56`, la comprobación `if (this.allowedDirectories.length > 0 && typeof candidatePath === "string")` solo restringe rutas si el arreglo no está vacío. Si está vacío (`[]`), el transporte MCP permite acceder a cualquier ruta del disco local, delegando la contención exclusivamente a las reglas dinámicas de Guard.
+- **Solución Propuesta para Fase 6:** Fijar `allowedDirectories: [process.cwd()]` en `DEFAULT_CONFIG` y exponer el campo en `SettingsModal.tsx`.
 
 ---
 
 ### Hallazgo #3 — Herramienta `download_document` redundante en PolicyRegistry
-- **Estado de verificación:** Confirmada.
+- **Estado:** ✅ **SOLVENTADA Y CERRADA**.
 - **Tipo:** `SIN_REFERENCIAS`.
-- **Severidad:** Baja.
-- **Archivos y líneas:**
-  - `src/core/policy/policyRegistry.ts`: línea 64 (`["free_search:download_document", { capability: "DOWNLOAD", requiresApproval: true ... }]`).
-  - `free-search-mcp.md`: líneas 26-40 (la herramienta expuesta por el servidor oficial es únicamente `download`).
-- **Condiciones necesarias:** Consulta de políticas de Free Search en `PolicyRegistry`.
-- **Consecuencias observables:** Entrada estática en el mapa de políticas que no corresponde a ninguna herramienta real expuesta por el servidor upstream `sweetcornna/free-search-mcp`.
-- **Relación con otros hallazgos:** Independiente.
-- **Corrección recomendada:** Eliminar la entrada `download_document` de `policyRegistry.ts` o mantenerla únicamente como alias documentado.
+- **Evidencia de Cierre:** En la Fase 1, `PolicyRegistry` fue refactorizado para poblarse automáticamente desde `SYSTEM_TOOL_MANIFEST` (`src/core/tools/manifest.ts:1-645`). En `manifest.ts:553`, la única herramienta registrada para descargas en Free Search es `download`. La entrada obsoleta `download_document` ya no existe en el mapa estático del registro.
 
 ---
 
-### Hallazgo #5 — Campo `multiStep: false` deprecado en Decision #1
-- **Estado de verificación:** Confirmada.
+### Hallazgo #5 — Campo residual `multiStep: false` en Decision #1
+- **Estado:** Programada para Fase 6 (Tarea P0-2).
 - **Tipo:** `DUPLICACIÓN`.
 - **Severidad:** Baja.
-- **Archivos y líneas:**
-  - `src/core/decision.ts`: líneas 146 y 228 (`multiStep: false, // multi_step query deprecated in v2.1 (§14)`).
-- **Condiciones necesarias:** Invocación de `evaluateDecisionOne()`.
-- **Consecuencias observables:** Retorno de una propiedad residual fija en el objeto resultante que no refleja ninguna consulta real realizada a Decision 2.0.
-- **Relación con otros hallazgos:** Independiente.
-- **Corrección recomendada:** Retirar el campo del tipo de retorno una vez que ningún componente visual dependa de él.
+- **Detalle Técnico:** `src/core/decision.ts:143, 214` retorna `multiStep: false` exclusivamente por compatibilidad con firmas antiguas de la UI. Ningún componente activo consume este campo.
+- **Solución Propuesta para Fase 6:** Retirar el campo del tipo de retorno una vez auditado que ningún componente dependa de él.
 
 ---
 
 ### Hallazgo #6 — Wrappers heredados en QwenEngine
-- **Estado de verificación:** Confirmada.
+- **Estado:** Programada para Fase 6 (Tarea P0-2).
 - **Tipo:** `DUPLICACIÓN`.
 - **Severidad:** Baja.
-- **Archivos y líneas:**
-  - `src/core/reasoner/qwen.ts`: interfaz `ILLMClient` (líneas 141-152) y métodos (líneas 695-721).
-- **Condiciones necesarias:** Inspección de la clase `QwenEngine`.
-- **Consecuencias observables:** Los métodos `generateChatResponse()` y `synthesizeFinalResponse()` están marcados como heredados y delegan directamente en `generateFinalResponse()`. Ningún bucle de ejecución autoritativo (`core.ts`, `modeEngines.ts`, `callExecutor.ts`) los utiliza.
-- **Relación con otros hallazgos:** Independiente.
-- **Corrección recomendada:** Deprecar formalmente y remover de la interfaz `ILLMClient`.
+- **Detalle Técnico:** `src/core/reasoner/qwen.ts:188-195, 809-835` declara `generateChatResponse()` y `synthesizeFinalResponse()`. Ambos delegan en `generateFinalResponse()` y ningún bucle de ejecución autoritativo los utiliza.
+- **Solución Propuesta para Fase 6:** Retirar de `ILLMClient` y de `QwenEngine`.
 
 ---
 
-### Hallazgo #7 — Divergencia de nomenclatura entre Windows MCP upstream y PolicyRegistry
-- **Estado de verificación:** Confirmada.
-- **Tipo:** `NOMBRE_VS_COMPORTAMIENTO`.
-- **Severidad:** Baja.
-- **Archivos y líneas:**
-  - `WindowsMCP.md`: líneas 44-57 (`app`, `ui_snapshot`, `ui_find`, `ui_type`, `process`).
-  - `src/core/policy/policyRegistry.ts`: líneas 18-29 (`ui_get_window_tree`, `launch_app`, `close_window`, `ui_search_elements`, `ui_type_text`).
-  - `src/core/callExecutor.ts`: línea 264 (heurística regex `/tree|snapshot|window.*tree/i`).
-- **Condiciones necesarias:** Conexión con una versión de Windows MCP que exponga nombres upstream como `ui_snapshot` o `app`.
-- **Consecuencias observables:** Las herramientas no coinciden con las claves de `policyRegistry.ts`, por lo que el sistema debe recurrir a la heurística de herramientas desconocidas en `PolicyRegistry.getPolicy()` o a regex ad-hoc en `callExecutor.ts`.
-- **Relación con otros hallazgos:** Hallazgo #13 (misma situación en Desktop Commander).
-- **Corrección recomendada:** Incorporar alias bidireccionales en `PolicyRegistry` para cubrir tanto las versiones con prefijo como la especificación upstream.
-
----
-
-### Hallazgo #9 — Evento `STEP_COMPLETED` emitido en transiciones de inicio, pausa y ejecución
-- **Estado de verificación:** Confirmada.
+### Hallazgo #9 — Semántica distorsionada del evento `STEP_COMPLETED`
+- **Estado:** Programada para Fase 6 (Tarea P1-1).
 - **Tipo:** `NOMBRE_VS_COMPORTAMIENTO`.
 - **Severidad:** Media.
-- **Archivos y líneas:**
-  - `src/core/types.ts`: líneas 315-330 (`CoreEventType`).
-  - `src/core/modeEngines.ts`:
-    - FAST: línea 324 (emite `STEP_COMPLETED` apenas se crea el paso en `RUNNING`).
-    - PLAN: línea 476 (emite `STEP_COMPLETED` cuando el paso pasa a `RUNNING`).
-  - `src/core/callExecutor.ts`:
-    - Línea 214: emite `STEP_COMPLETED` cuando el paso entra a `WAITING_APPROVAL`.
-    - Línea 232: emite `STEP_COMPLETED` cuando el usuario aprueba y el paso vuelve a `RUNNING`.
-- **Condiciones necesarias:** Suscripción al stream de eventos SSE (`/api/jarvis/events`).
-- **Consecuencias observables:** Inconsistencia semántica grave: el evento denominado `"STEP_COMPLETED"` no representa la finalización de un paso, sino cualquier cambio de estado del mismo (iniciado, en espera de aprobación, aprobado, fallido o completado). Clientes externos no pueden interpretar el evento sin examinar el campo interno `data.step.state`.
-- **Relación con otros hallazgos:** Independiente.
-- **Corrección recomendada:** Introducir los eventos `STEP_STARTED` y `STEP_STATE_CHANGED` en `CoreEventType` y reservar `STEP_COMPLETED` exclusivamente para pasos finalizados.
+- **Detalle Técnico:** En `src/core/callExecutor.ts:306, 330` y `src/core/modeEngines.ts:439, 640`, se emite `deps.emitEvent(task.id, "STEP_COMPLETED", { step }, step.id)` cuando el paso entra en `WAITING_APPROVAL` (pausa para autorización) o cuando regresa a `RUNNING` tras la autorización del usuario.
+- **Solución Propuesta para Fase 6:** Incorporar el evento `STEP_STATE_CHANGED` en `src/core/types.ts` y emitirlo durante transiciones intermedias, reservando `STEP_COMPLETED` únicamente para pasos finalizados (`COMPLETED`, `FAILED` o `BLOCKED`).
 
 ---
 
-### Hallazgo #13 — Discrepancia en nomenclatura de herramientas en `Desktop CommanderMCP.md` vs `PolicyRegistry`
-- **Estado de verificación:** Confirmada.
-- **Tipo:** `NOMBRE_VS_COMPORTAMIENTO`.
+### Hallazgos #14 y #15 (Nuevos) — Código muerto de Decision #5 y Escalación en Qwen
+- **Estado:** Programada para Fase 6 (Tarea P0-2).
+- **Tipo:** `SIN_REFERENCIAS`.
 - **Severidad:** Baja.
-- **Archivos y líneas:**
-  - `Desktop CommanderMCP.md`: líneas 18-59 (`interact_with_process`, `edit_block`, `start_search`, `get_more_search_results`, `get_config`).
-  - `src/core/policy/policyRegistry.ts`: líneas 34-46 (`interact_process`, `edit_file`, `search_files`, `set_config`, `run_command`, `delete_file`).
-- **Condiciones necesarias:** Conexión con un servidor Desktop Commander que reporte los nombres oficiales de su documentación.
-- **Consecuencias observables:** Las herramientas documentadas como `edit_block` o `interact_with_process` no están en el mapa estático de políticas, cayendo en la heurística dinámica de nombres en `PolicyRegistry.getPolicy()`. Además, `run_command` y `delete_file` no figuran en la documentación de referencia pero sí en el código.
-- **Relación con otros hallazgos:** Hallazgo #7.
-- **Corrección recomendada:** Sincronizar el catálogo documentado en `Desktop CommanderMCP.md` con las herramientas reales manejadas por el adaptador.
+- **Detalle Técnico:**
+  - `evaluateDecisionFive` (`decision.ts:225`) y `buildDecisionFive` (`prompts.ts:455`) fueron sustituidos por la verificación binaria Eos (`ok` y `cumple`) en `runStep`, quedando sin invocadores.
+  - `qwenEngine.escalate` (`qwen.ts:528`) y `PROMPTS.ESCALATION` (`prompts.ts:31`) fueron sustituidos por `handleEscalation` en `modeEngines.ts:119-197`, quedando huérfanos.
+- **Solución Propuesta para Fase 6:** Eliminar las firmas y cuerpos de estos métodos en la limpieza de código muerto.

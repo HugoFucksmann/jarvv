@@ -8,7 +8,6 @@ import {
   MAX_STEPS,
   MAX_ARG_RETRIES,
   QWEN_CTX,
-  EscalationResponse,
   StageVerificationResult,
   StageVerificationPromptData,
 } from "../types.ts";
@@ -16,7 +15,6 @@ import { ConfigManager } from "../config.ts";
 import {
   PROMPTS,
   ArgumentPromptData,
-  EscalationPromptData,
   FinalResponsePromptData,
   ReplanPromptData,
 } from "./prompts.ts";
@@ -150,14 +148,6 @@ export interface ILLMClient {
     signal?: AbortSignal
   ): Promise<Record<string, unknown>>;
 
-  /**
-   * @deprecated Fase 3: Migrada a Core determinista + arbitraje de Decision 2.0 Eos (handleEscalation).
-   */
-  escalate(
-    data: EscalationPromptData,
-    signal?: AbortSignal
-  ): Promise<EscalationResponse>;
-
   generateFinalResponse(
     data: FinalResponsePromptData,
     signal?: AbortSignal
@@ -184,18 +174,6 @@ export interface ILLMClient {
     data: StageVerificationPromptData,
     signal?: AbortSignal
   ): Promise<StageVerificationResult>;
-
-  generateChatResponse(
-    instruction: string,
-    scratchpad: Scratchpad
-  ): Promise<string>;
-
-  synthesizeFinalResponse(
-    taskMessage: string,
-    steps: Step[],
-    scratchpad: Scratchpad,
-    evidenceList: Evidence[]
-  ): Promise<string>;
 }
 
 export class QwenEngine implements ILLMClient {
@@ -523,43 +501,6 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Etapa 5B: Análisis del Fallo y Escalación (§4, §10.6)
-   */
-  async escalate(
-    data: EscalationPromptData,
-    signal?: AbortSignal
-  ): Promise<EscalationResponse> {
-    return await this.executeStage("escalate", async () => {
-      const userPrompt = PROMPTS.ESCALATION.buildUserPrompt(data);
-      const rawJson = await this.dispatchPrompt(
-        PROMPTS.ESCALATION.SYSTEM,
-        userPrompt,
-        true,
-        500,
-        { stage: "escalate", signal }
-      );
-
-      const parsed = this.safeJsonParse<any>(rawJson);
-
-      if (!parsed || (parsed.action !== "switch_mcp" && parsed.action !== "abort")) {
-        console.error(`[Qwen escalate] Fallo de parseo o acción no reconocida. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
-        return {
-          action: "abort",
-          reason: "Análisis de fallo de Qwen no devolvió una acción válida.",
-        };
-      }
-
-      const validMcp = isStepRoute(parsed.mcp) ? parsed.mcp : undefined;
-
-      return {
-        action: parsed.action,
-        mcp: validMcp,
-        reason: parsed.reason || "Sin detalle.",
-      };
-    });
-  }
-
-  /**
    * Etapa 6: Respuesta final libre (§4, §10.6)
    */
   async generateFinalResponse(
@@ -800,37 +741,6 @@ export class QwenEngine implements ILLMClient {
         reason: parsed.reason || "Sin detalle.",
         questionForUser: parsed.question_for_user || undefined,
       };
-    });
-  }
-
-  /**
-   * Legacy chat response helper for transition
-   */
-  async generateChatResponse(instruction: string, _scratchpad?: any): Promise<string> {
-    return await this.generateFinalResponse({
-      goal: instruction,
-      logLines: [],
-      facts: {},
-      failLines: [],
-      evidenceSummaries: [],
-    });
-  }
-
-  /**
-   * Synthesize final response wrapper for backward compatibility
-   */
-  async synthesizeFinalResponse(
-    taskMessage: string,
-    steps: Step[],
-    scratchpad: Scratchpad,
-    evidenceList: Evidence[]
-  ): Promise<string> {
-    return await this.generateFinalResponse({
-      goal: taskMessage,
-      logLines: steps.map((s, i) => `${i + 1}|${s.tool || s.route}|${s.state}|${s.evidence?.summary || ''}`),
-      facts: this.scratchpadToFacts(scratchpad),
-      failLines: steps.filter((s) => s.error).map((s) => `${s.tool || s.route} -> ${s.error}`),
-      evidenceSummaries: evidenceList.map((e) => e.summary || "").filter(Boolean),
     });
   }
 }
