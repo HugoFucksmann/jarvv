@@ -91,14 +91,14 @@ async function executeLocalTool(
     }
     if (toolName === "compose") {
         const textToCompose = String(args.prompt || args.text || args.content || context.task.message);
-        const composed = await deps.qwenEngine.generateFinalResponse({
+        const composedRes = await deps.qwenEngine.generateFinalResponse({
             goal: textToCompose,
             logLines: context.task.memory?.log || [],
             facts: context.task.memory?.facts || {},
             failLines: context.task.memory?.fail || [],
             evidenceSummaries: [],
         }, context.abortController.signal);
-        return { composedText: composed };
+        return { composedText: composedRes.response };
     }
     if (toolName === "ask_user") {
         const question = String(args.question || args.prompt || "Por favor clarifique la solicitud.");
@@ -197,10 +197,15 @@ export async function runStep(
         }
     }
 
+    step.rawInput = d2.rawInput;
+    step.rawOutput = d2.rawOutput;
+
     deps.emitEvent(task.id, "DECISION_TWO", {
         tool: selectedTool.name,
         confidence: d2.choiceAnswer.confidence,
         probabilities: d2.choiceAnswer.probabilities,
+        rawInput: d2.rawInput,
+        rawOutput: d2.rawOutput,
     }, step.id);
 
     // 4. Qwen Etapa 3: Argument Generation
@@ -208,10 +213,12 @@ export async function runStep(
         ? (deps.discoveryEngine.getCleanedSchema(serverName, selectedTool.name) || selectedTool.inputSchema)
         : (selectedTool.inputSchema || {});
     let args: Record<string, unknown> = {};
+    let argRawInput = "";
+    let argRawOutput = "";
     const effectiveInstruction = applyStepHandoff(step, context);
 
     try {
-        args = await deps.qwenEngine.generateArguments({
+        const argGenRes = await deps.qwenEngine.generateArguments({
             goal: task.message,
             logLines: task.memory?.log || [],
             planLines: task.mode === "PLAN" ? buildPlanLines(task) : undefined,
@@ -227,6 +234,9 @@ export async function runStep(
             } : undefined,
             taskInstruction: effectiveInstruction,
         }, undefined, undefined, undefined, context.abortController.signal);
+        args = argGenRes.args;
+        argRawInput = argGenRes.rawInput;
+        argRawOutput = argGenRes.rawOutput;
     } catch (argErr: any) {
         console.error(`[Qwen Args Error]`, argErr);
         addFailEntry(context, `${selectedTool.name} -> argumentos inválidos tras reintentos`);
@@ -248,6 +258,8 @@ export async function runStep(
         args,
         resolvedRefs: refResolution.resolvedRefs,
         replacedCount: refResolution.replacedCount,
+        rawInput: argRawInput,
+        rawOutput: argRawOutput,
     }, step.id);
 
     // 5. Anti-Loop Verification (§7)
@@ -479,6 +491,8 @@ export async function runStep(
         },
         error: !isStepSuccess ? processed.summaryText : undefined,
         timestamp: Date.now(),
+        rawInput: argRawInput || undefined,
+        rawOutput: argRawOutput || undefined,
     };
 
     // Registrar efectos secundarios e inyectar handoff determinista (Fase 4, §3.2.5)
@@ -513,8 +527,18 @@ export async function runStep(
     step.evidence = callRecord.evidence;
     step.verification = processed.verification;
     step.outcome = callRecord.outcome;
+    if (verificationDetail?.rawInput) {
+        step.rawInput = verificationDetail.rawInput;
+        step.rawOutput = verificationDetail.rawOutput;
+    }
 
-    deps.emitEvent(task.id, "RESULT_PROCESSED", { processed, verification: verificationDetail, isStepSuccess }, step.id);
+    deps.emitEvent(task.id, "RESULT_PROCESSED", {
+        processed,
+        verification: verificationDetail,
+        isStepSuccess,
+        rawInput: verificationDetail?.rawInput,
+        rawOutput: verificationDetail?.rawOutput,
+    }, step.id);
 
     if (processed.verification === "UNVERIFIED") {
         return {

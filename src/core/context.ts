@@ -102,6 +102,26 @@ export function addFailEntry(context: TaskExecutionContext, line: string): void 
 }
 
 /**
+ * Registra traza cruda de interacción con modelo en la memoria del contexto.
+ */
+export function addRawInteraction(
+    context: TaskExecutionContext,
+    interaction: { model: string; stage: string; rawInput: string; rawOutput: string }
+): void {
+    if (!context.task.memory) {
+        context.task.memory = { log: [], facts: {}, fail: [], effects: [], rawInteractions: [] };
+    }
+    context.task.memory.rawInteractions = context.task.memory.rawInteractions || [];
+    context.task.memory.rawInteractions.push({
+        timestamp: Date.now(),
+        ...interaction,
+    });
+    if (context.task.memory.rawInteractions.length > 50) {
+        context.task.memory.rawInteractions = context.task.memory.rawInteractions.slice(-50);
+    }
+}
+
+/**
  * Construye el contexto de memoria de manera progresiva (2 -> 5 -> 10).
  * Preserva el contexto estrictamente compacto según la Sección 7.1.
  */

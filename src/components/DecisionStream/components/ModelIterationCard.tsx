@@ -62,9 +62,49 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
     }
   };
 
+  const [isCopiedInput, setIsCopiedInput] = useState(false);
+  const [isCopiedOutput, setIsCopiedOutput] = useState(false);
+
+  const displayInput = iteration.rawInput || (typeof iteration.input === "string" ? iteration.input : JSON.stringify(iteration.input, null, 2));
+  const displayOutput = iteration.rawOutput || (typeof iteration.output === "string" ? iteration.output : JSON.stringify(iteration.output, null, 2));
+
+  const handleCopyInput = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(displayInput);
+      setIsCopiedInput(true);
+      setTimeout(() => setIsCopiedInput(false), 2000);
+    } catch (err) {
+      console.error("Error al copiar entrada:", err);
+    }
+  };
+
+  const handleCopyOutput = async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(displayOutput);
+      setIsCopiedOutput(true);
+      setTimeout(() => setIsCopiedOutput(false), 2000);
+    } catch (err) {
+      console.error("Error al copiar salida:", err);
+    }
+  };
+
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     try {
+      if (activeTab === "input") {
+        await handleCopyInput(e);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+        return;
+      }
+      if (activeTab === "output") {
+        await handleCopyOutput(e);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+        return;
+      }
       const payload = {
         id: iteration.id,
         timestamp: new Date(iteration.timestamp).toISOString(),
@@ -73,6 +113,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
         stepId: iteration.stepId,
         stepSeq: iteration.stepSeq,
         metrics: iteration.metrics,
+        rawInput: displayInput,
+        rawOutput: displayOutput,
         input: iteration.input,
         output: iteration.output,
       };
@@ -225,7 +267,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
           <button
             type="button"
             onClick={handleCopy}
-            title="Copiar datos completos de la iteración en JSON"
+            title={activeTab === "input" ? "Copiar entrada cruda al portapapeles" : (activeTab === "output" ? "Copiar salida cruda al portapapeles" : "Copiar datos completos de la iteración en JSON")}
             className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors cursor-pointer"
           >
             {isCopied ? (
@@ -236,7 +278,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
             ) : (
               <>
                 <Copy className="w-3 h-3 text-slate-400" />
-                <span>Copiar</span>
+                <span>{activeTab === "input" ? "Copiar Entrada" : (activeTab === "output" ? "Copiar Salida" : "Copiar")}</span>
               </>
             )}
           </button>
@@ -478,27 +520,63 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
           )}
 
           {activeTab === "input" && (
-            <div className="flex flex-col gap-1 p-2 rounded bg-slate-900/60 border border-slate-800/80">
-              <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
-                Entrada (Prompt / Estado enviado al modelo)
-              </span>
-              <pre className="text-slate-300 whitespace-pre-wrap break-all max-h-56 overflow-y-auto leading-relaxed text-[11px]">
-                {typeof iteration.input === "string"
-                  ? iteration.input
-                  : JSON.stringify(iteration.input, null, 2)}
+            <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+              <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
+                  Entrada Cruda ({isEos ? "Payload { state, questions } enviado a Eos" : "Payload JSON completo enviado a Qwen"})
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyInput}
+                  title="Copiar string crudo completo de entrada"
+                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  {isCopiedInput ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span className="text-emerald-400 font-medium">Copiado</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-slate-400" />
+                      <span>Copiar entrada cruda</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <pre className="text-slate-200 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed text-[11px] font-mono select-text p-1 bg-slate-950/40 rounded">
+                {displayInput}
               </pre>
             </div>
           )}
 
           {activeTab === "output" && (
-            <div className="flex flex-col gap-1 p-2 rounded bg-slate-900/60 border border-slate-800/80">
-              <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
-                Salida Completa (Respuesta JSON del modelo)
-              </span>
-              <pre className="text-slate-300 whitespace-pre-wrap break-all max-h-56 overflow-y-auto leading-relaxed text-[11px]">
-                {typeof iteration.output === "string"
-                  ? iteration.output
-                  : JSON.stringify(iteration.output, null, 2)}
+            <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+              <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
+                <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
+                  Salida Cruda ({isEos ? "Respuesta original devuelta por Eos" : "Respuesta original devuelta por Qwen"})
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopyOutput}
+                  title="Copiar string crudo completo de salida"
+                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
+                >
+                  {isCopiedOutput ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-400" />
+                      <span className="text-emerald-400 font-medium">Copiado</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-slate-400" />
+                      <span>Copiar salida cruda</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <pre className="text-slate-200 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed text-[11px] font-mono select-text p-1 bg-slate-950/40 rounded">
+                {displayOutput}
               </pre>
             </div>
           )}

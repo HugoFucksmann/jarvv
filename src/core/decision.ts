@@ -72,6 +72,9 @@ export class Decision20Engine {
     // Diagnostic log: exact payload sent to Decision
     console.log(`[Decision → SEND] state=${JSON.stringify(stateStr).slice(0, 300)} questions=${JSON.stringify(questions)}`);
 
+    const requestPayload = { state: stateStr, questions };
+    const requestBody = JSON.stringify(requestPayload, null, 2);
+
     let response: Response;
     try {
       const timeoutMs = config.decisionTimeoutMs ?? config.timeoutMs ?? 30000;
@@ -83,7 +86,7 @@ export class Decision20Engine {
           "ngrok-skip-browser-warning": "true",
           "bypass-tunnel-reminder": "true",
         },
-        body: JSON.stringify({ state: stateStr, questions }),
+        body: JSON.stringify(requestPayload),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err: any) {
@@ -103,18 +106,23 @@ export class Decision20Engine {
       );
     }
 
+    let rawOutput: string;
     let data: any;
     try {
-      data = await response.json();
+      rawOutput = await response.text();
+      data = JSON.parse(rawOutput);
     } catch (err) {
       throw new DecisionValidationError("La respuesta de Decision 2.0 no es un JSON válido.");
     }
 
     // Diagnostic log: raw response received from Decision
-    console.log(`[Decision ← RECV] ${JSON.stringify(data)}`);
+    console.log(`[Decision ← RECV] ${rawOutput}`);
 
     // Validate response payload conforms strictly to Decision 2.0 contract
     this.validateResponse(data, questions);
+
+    data.rawInput = requestBody;
+    data.rawOutput = rawOutput;
 
     return data as DecisionResponse;
   }
@@ -142,6 +150,8 @@ export class Decision20Engine {
     probabilities: Record<string, number>;
     needsContext: boolean;
     rawResponse: DecisionResponse;
+    rawInput: string;
+    rawOutput: string;
   }> {
     const history = Array.isArray(historyContext)
       ? historyContext.slice(-3).join("\n")
@@ -212,6 +222,8 @@ export class Decision20Engine {
       probabilities,
       needsContext,
       rawResponse: response,
+      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
+      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
     };
   }
 
@@ -232,6 +244,8 @@ export class Decision20Engine {
     okProbability: number;
     cumpleProbability: number;
     rawResponse: DecisionResponse;
+    rawInput: string;
+    rawOutput: string;
   }> {
     const { state: statePayload, questions } = DECISION_PROMPTS.buildStepVerification({
       instruction,
@@ -267,6 +281,8 @@ export class Decision20Engine {
       okProbability: okAns?.noul ?? 0,
       cumpleProbability: cumpleAns?.noul ?? 0,
       rawResponse: response,
+      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
+      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
     };
   }
 
@@ -283,6 +299,8 @@ export class Decision20Engine {
     met: boolean;
     confidence: number;
     rawResponse: DecisionResponse;
+    rawInput: string;
+    rawOutput: string;
   }> {
     const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionJudgement({
       expectedOutcome,
@@ -303,6 +321,8 @@ export class Decision20Engine {
       met,
       confidence: answer.confidence,
       rawResponse: response,
+      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
+      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
     };
   }
 
@@ -318,6 +338,8 @@ export class Decision20Engine {
     selectedTool: MCPTool;
     choiceAnswer: DecisionAnswerChoice;
     rawResponse: DecisionResponse;
+    rawInput: string;
+    rawOutput: string;
   }> {
     if (discoveredTools.length === 0) {
       throw new DecisionValidationError("Decision #2 falló: No se proporcionaron herramientas descubiertas.");
@@ -332,14 +354,23 @@ export class Decision20Engine {
         confidence: 1.0,
       };
       console.log(`[Decision] tool=${tool.name} duration=0ms`);
+      const mockRaw: DecisionResponse = {
+        model: "Decision-2.0-Eos-0.8B",
+        answers: { selected_tool: answer },
+        usage: { input_tokens: 0, output_tokens: 0 },
+      };
+      const rawIn = JSON.stringify({ state: instruction, single_tool: tool.name }, null, 2);
+      const rawOut = JSON.stringify(mockRaw, null, 2);
       return {
         selectedTool: tool,
         choiceAnswer: answer,
         rawResponse: {
-          model: "Decision-2.0-Eos-0.8B",
-          answers: { selected_tool: answer },
-          usage: { input_tokens: 0, output_tokens: 0 },
+          ...mockRaw,
+          rawInput: rawIn,
+          rawOutput: rawOut,
         },
+        rawInput: rawIn,
+        rawOutput: rawOut,
       };
     }
 
@@ -376,6 +407,8 @@ export class Decision20Engine {
       selectedTool: matchedTool,
       choiceAnswer,
       rawResponse: response,
+      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
+      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
     };
   }
 

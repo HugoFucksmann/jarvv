@@ -140,10 +140,14 @@ function extractUserQuestion(t: Task | null): string | null {
       }
       if (data.task) {
         const taskId = data.task.id;
-        const existingIter = iterationsByTaskRef.current[taskId];
-        if (!existingIter || existingIter.length === 0) {
+        const taskIters = (data.task.modelIterations && data.task.modelIterations.length > 0)
+          ? data.task.modelIterations
+          : iterationsByTaskRef.current[taskId];
+        if (!taskIters || taskIters.length === 0) {
           const reconstructed = reconstructIterationsFromTask(data.task);
           iterationsByTaskRef.current[taskId] = reconstructed;
+        } else {
+          iterationsByTaskRef.current[taskId] = taskIters;
         }
 
         if (!isInitialSnapshotLoaded.current) {
@@ -291,12 +295,17 @@ function extractUserQuestion(t: Task | null): string | null {
               activeTaskIdRef.current = updatedTask.id;
               setTask({ ...updatedTask });
 
-              // Si la lista de iteraciones está vacía, reconstruir fielmente
-              const currentIters = iterationsByTaskRef.current[updatedTask.id] || [];
+              // Sincronizar iteraciones de modelo priorizando las persistidas en el task
+              const currentIters = (updatedTask.modelIterations && updatedTask.modelIterations.length > 0)
+                ? updatedTask.modelIterations
+                : (iterationsByTaskRef.current[updatedTask.id] || []);
               if (currentIters.length === 0 && updatedTask.steps && updatedTask.steps.length > 0) {
                 const reconstructed = reconstructIterationsFromTask(updatedTask);
                 iterationsByTaskRef.current[updatedTask.id] = reconstructed;
                 setModelIterations(reconstructed);
+              } else {
+                iterationsByTaskRef.current[updatedTask.id] = currentIters;
+                setModelIterations(currentIters);
               }
             }
           }
@@ -509,7 +518,9 @@ function extractUserQuestion(t: Task | null): string | null {
 
         // Restaurar iteraciones o reconstruirlas a partir del snapshot del task
         const existingIter = iterationsByTaskRef.current[found.id] || [];
-        const finalIter = existingIter.length > 0 ? existingIter : reconstructIterationsFromTask(found);
+        const finalIter = (found.modelIterations && found.modelIterations.length > 0)
+          ? found.modelIterations
+          : (existingIter.length > 0 ? existingIter : reconstructIterationsFromTask(found));
         iterationsByTaskRef.current[found.id] = finalIter;
         setModelIterations(finalIter);
       }

@@ -38,6 +38,8 @@ export interface ModelIteration {
   timestamp: number;
   input: Record<string, unknown> | string;
   output: Record<string, unknown> | string;
+  rawInput?: string;
+  rawOutput?: string;
   metrics?: ModelIterationMetrics;
 }
 

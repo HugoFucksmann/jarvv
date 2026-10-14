@@ -139,6 +139,25 @@ export const STAGE_VERIFICATION_JSON_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+export interface ArgumentsGenerationResult {
+  args: Record<string, unknown>;
+  rawInput: string;
+  rawOutput: string;
+}
+
+export interface FinalResponseResult {
+  response: string;
+  rawInput: string;
+  rawOutput: string;
+}
+
+export interface QwenDispatchResult {
+  content: string;
+  rawInput: string;
+  rawOutput: string;
+  rawResponse?: string;
+}
+
 export interface ILLMClient {
   generateArguments(
     stepOrData: Step | ArgumentPromptData,
@@ -146,12 +165,12 @@ export interface ILLMClient {
     scratchpad?: Scratchpad,
     context?: string,
     signal?: AbortSignal
-  ): Promise<Record<string, unknown>>;
+  ): Promise<ArgumentsGenerationResult>;
 
   generateFinalResponse(
     data: FinalResponsePromptData,
     signal?: AbortSignal
-  ): Promise<string>;
+  ): Promise<FinalResponseResult>;
 
   generatePlan(
     userMessage: string,
@@ -165,7 +184,7 @@ export interface ILLMClient {
   replan(
     data: ReplanPromptData,
     signal?: AbortSignal
-  ): Promise<{ action?: "abort"; reason?: string; plan?: Plan }>;
+  ): Promise<{ action?: "abort"; reason?: string; plan?: Plan; rawInput?: string; rawOutput?: string }>;
 
   /**
    * Fase 3B: Verificación semántica de etapa frente a objetivo observable (§3.2.6)
@@ -248,7 +267,7 @@ export class QwenEngine implements ILLMClient {
       signal?: AbortSignal;
       schema?: Record<string, unknown>;
     }
-  ): Promise<string> {
+  ): Promise<QwenDispatchResult> {
     const config = ConfigManager.getConfig();
     const endpointUrl = config.qwenUrl?.trim();
 
@@ -353,9 +372,13 @@ export class QwenEngine implements ILLMClient {
       );
     }
 
+    const rawInput = JSON.stringify(bodyPayload, null, 2);
+
+    let rawOutputText = "";
     let data: any;
     try {
-      data = await response.json();
+      rawOutputText = await response.text();
+      data = JSON.parse(rawOutputText);
     } catch {
       throw new LLMValidationError("La respuesta de Qwen 3.5 9B no contiene un JSON legible.");
     }
@@ -410,16 +433,19 @@ export class QwenEngine implements ILLMClient {
       content = thinkingTrace;
     }
 
-    if (!content || typeof content !== "string" || !content.trim()) {
-      const rawSnippet = typeof data === "object" ? JSON.stringify(data).slice(0, 300) : String(data).slice(0, 300);
-      console.error(`[Qwen] Respuesta vacía o no reconocida. finish_reason=${finishReason}. Raw (primeros 300 chars): ${rawSnippet}`);
-      if (isLengthExceeded) {
-        throw new LLMValidationError(`Respuesta de Qwen 3.5 9B cortada por longitud (finish_reason=length, tokens out=${completionTokens}/${maxTokens}).`);
-      }
-      throw new LLMValidationError(`Respuesta de Qwen 3.5 9B vacía o no reconocida. finish_reason=${finishReason}`);
-    }
+    const rawGeneratedOutput = (typeof messageObj?.content === "string" && messageObj.content)
+      ? (thinkingTrace ? `<think>\n${thinkingTrace}\n</think>\n\n${messageObj.content}` : messageObj.content)
+      : (content || rawOutputText);
 
-    return content.trim();
+    // Salida cruda completa recibida del modelo sin truncamiento
+    const rawCompleteOutput = rawOutputText || rawGeneratedOutput;
+
+    return {
+      content: (content || "").trim(),
+      rawInput,
+      rawOutput: rawCompleteOutput,
+      rawResponse: rawOutputText,
+    };
   }
 
   /**
@@ -431,7 +457,7 @@ export class QwenEngine implements ILLMClient {
     scratchpadParam?: Scratchpad,
     contextParam?: string,
     signal?: AbortSignal
-  ): Promise<Record<string, unknown>> {
+  ): Promise<ArgumentsGenerationResult> {
     return await this.executeStage("generateArguments", async () => {
       let promptData: ArgumentPromptData;
       let targetTool: MCPTool;
@@ -458,7 +484,7 @@ export class QwenEngine implements ILLMClient {
       while (attempts <= MAX_ARG_RETRIES) {
         promptData.previousError = previousError;
         const userPrompt = PROMPTS.ARGUMENTS.buildUserPrompt(promptData);
-        const rawJson = await this.dispatchPrompt(
+        const dispatchRes = await this.dispatchPrompt(
           PROMPTS.ARGUMENTS.SYSTEM,
           userPrompt,
           true,
@@ -466,7 +492,7 @@ export class QwenEngine implements ILLMClient {
           { stage: "arguments", thinking: false, signal }
         );
 
-        const parsed = this.safeJsonParse(rawJson);
+        const parsed = this.safeJsonParse(dispatchRes.content);
 
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           for (const [key, value] of Object.entries(parsed)) {
@@ -479,11 +505,15 @@ export class QwenEngine implements ILLMClient {
 
           const missing = required.filter((r) => parsed[r] === undefined);
           if (missing.length === 0) {
-            return parsed;
+            return {
+              args: parsed,
+              rawInput: dispatchRes.rawInput,
+              rawOutput: dispatchRes.rawOutput,
+            };
           }
           previousError = `Faltan campos requeridos: ${missing.join(", ")}`;
         } else {
-          console.error(`[Qwen arguments] Fallo de parseo JSON. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
+          console.error(`[Qwen arguments] Fallo de parseo JSON. Raw (primeros 300 chars): ${dispatchRes.rawOutput.slice(0, 300)}`);
           previousError = `La respuesta no es un objeto JSON válido`;
         }
 
@@ -506,19 +536,20 @@ export class QwenEngine implements ILLMClient {
   async generateFinalResponse(
     data: FinalResponsePromptData,
     signal?: AbortSignal
-  ): Promise<string> {
+  ): Promise<FinalResponseResult> {
     return await this.executeStage("generateFinalResponse", async () => {
       const userPrompt = PROMPTS.FINAL_RESPONSE.buildUserPrompt(data);
       const isThinking = ConfigManager.getConfig().thinking;
 
       try {
-        const rawText = await this.dispatchPrompt(
+        const dispatchRes = await this.dispatchPrompt(
           PROMPTS.FINAL_RESPONSE.SYSTEM,
           userPrompt,
           false,
           1500,
           { stage: "final_response", signal }
         );
+        const rawText = dispatchRes.content;
         
         const thoughtMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
         const thoughtText = thoughtMatch ? thoughtMatch[1].trim() : "";
@@ -528,32 +559,48 @@ export class QwenEngine implements ILLMClient {
         if (!outsideText || (outsideText.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(outsideText))) {
           if (thoughtText && thoughtText.length > outsideText.length) {
             console.log(`[generateFinalResponse] Priorizando contenido sustantivo de bloque <think> (${thoughtText.length} chars).`);
-            return thoughtText;
+            return {
+              response: thoughtText,
+              rawInput: dispatchRes.rawInput,
+              rawOutput: dispatchRes.rawOutput,
+            };
           }
         }
 
         const candidate = outsideText || thoughtText || rawText.trim();
         if (candidate.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(candidate) && thoughtText) {
-          return thoughtText;
+          return {
+            response: thoughtText,
+            rawInput: dispatchRes.rawInput,
+            rawOutput: dispatchRes.rawOutput,
+          };
         }
 
-        return candidate;
+        return {
+          response: candidate,
+          rawInput: dispatchRes.rawInput,
+          rawOutput: dispatchRes.rawOutput,
+        };
       } catch (err: any) {
         // Si falló por timeout o error mientras el modo pensamiento estaba activo,
         // intentamos un reintento rápido con thinking=false para garantizar que el usuario reciba su respuesta sustantiva.
         if (isThinking && !signal?.aborted) {
           console.warn(`[generateFinalResponse] Falló con modo pensamiento activo (${err?.message || err}). Reintentando con thinking=false...`);
           try {
-            const fallbackText = await this.dispatchPrompt(
+            const fallbackRes = await this.dispatchPrompt(
               PROMPTS.FINAL_RESPONSE.SYSTEM,
               userPrompt,
               false,
               1000,
               { stage: "final_response_fallback", thinking: false, signal }
             );
-            const cleanFallback = fallbackText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+            const cleanFallback = fallbackRes.content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
             if (cleanFallback) {
-              return cleanFallback;
+              return {
+                response: cleanFallback,
+                rawInput: fallbackRes.rawInput,
+                rawOutput: fallbackRes.rawOutput,
+              };
             }
           } catch (retryErr: any) {
             console.error(`[generateFinalResponse] Reintento rápido también falló:`, retryErr?.message || retryErr);
@@ -586,7 +633,7 @@ export class QwenEngine implements ILLMClient {
         existingPlanSummary
       );
 
-      const rawJson = await this.dispatchPrompt(
+      const dispatchRes = await this.dispatchPrompt(
         PROMPTS.PLAN.SYSTEM,
         userPrompt,
         true,
@@ -598,10 +645,10 @@ export class QwenEngine implements ILLMClient {
         }
       );
 
-      const parsed = this.safeJsonParse<any>(rawJson);
+      const parsed = this.safeJsonParse<any>(dispatchRes.content);
 
       if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-        console.error(`[Qwen plan] Fallo de parseo de plan. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
+        console.error(`[Qwen plan] Fallo de parseo de plan. Raw (primeros 300 chars): ${dispatchRes.rawOutput.slice(0, 300)}`);
         throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta 'steps'.");
       }
 
@@ -625,6 +672,8 @@ export class QwenEngine implements ILLMClient {
       return {
         objective: parsed.objective || userMessage,
         steps,
+        rawInput: dispatchRes.rawInput,
+        rawOutput: dispatchRes.rawOutput,
       };
     });
   }
@@ -639,7 +688,7 @@ export class QwenEngine implements ILLMClient {
     return await this.executeStage("replan", async () => {
       const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
 
-      const rawJson = await this.dispatchPrompt(
+      const dispatchRes = await this.dispatchPrompt(
         PROMPTS.REPLAN.SYSTEM,
         userPrompt,
         true,
@@ -651,14 +700,19 @@ export class QwenEngine implements ILLMClient {
         }
       );
 
-      const parsed = this.safeJsonParse<any>(rawJson);
+      const parsed = this.safeJsonParse<any>(dispatchRes.content);
 
       if (!parsed) {
-        console.error(`[Qwen replan] Fallo de parseo de replan. Raw (primeros 300 chars): ${rawJson.slice(0, 300)}`);
+        console.error(`[Qwen replan] Fallo de parseo de replan. Raw (primeros 300 chars): ${dispatchRes.rawOutput.slice(0, 300)}`);
       }
 
       if (parsed?.action === "abort") {
-        return { action: "abort", reason: parsed.reason || "Replan decidió abortar." };
+        return {
+          action: "abort",
+          reason: parsed.reason || "Replan decidió abortar.",
+          rawInput: dispatchRes.rawInput,
+          rawOutput: dispatchRes.rawOutput,
+        };
       }
 
       if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
@@ -686,7 +740,11 @@ export class QwenEngine implements ILLMClient {
         plan: {
           objective: parsed.objective || data.goal,
           steps,
+          rawInput: dispatchRes.rawInput,
+          rawOutput: dispatchRes.rawOutput,
         },
+        rawInput: dispatchRes.rawInput,
+        rawOutput: dispatchRes.rawOutput,
       };
     });
   }
@@ -701,7 +759,7 @@ export class QwenEngine implements ILLMClient {
     return await this.executeStage("verifyStage", async () => {
       const userPrompt = PROMPTS.STAGE_VERIFICATION.buildUserPrompt(data);
 
-      const rawJson = await this.dispatchPrompt(
+      const dispatchRes = await this.dispatchPrompt(
         PROMPTS.STAGE_VERIFICATION.SYSTEM,
         userPrompt,
         true,
@@ -713,18 +771,22 @@ export class QwenEngine implements ILLMClient {
         }
       );
 
-      const parsed = this.safeJsonParse<any>(rawJson);
+      const parsed = this.safeJsonParse<any>(dispatchRes.content);
       if (!parsed || !parsed.status) {
-        console.warn(`[Qwen verifyStage] Respuesta no parseable como JSON estricto. Raw: ${rawJson.slice(0, 200)}`);
+        console.warn(`[Qwen verifyStage] Respuesta no parseable como JSON estricto. Raw: ${dispatchRes.rawOutput.slice(0, 200)}`);
         if (data.eosOk && data.eosCumple) {
           return {
             status: "completed",
             reason: "Verificación validada por concordancia de señales factuales.",
+            rawInput: dispatchRes.rawInput,
+            rawOutput: dispatchRes.rawOutput,
           };
         }
         return {
           status: "recoverable_deviation",
           reason: "Fallo al evaluar cumplimiento de etapa; requiere revisión de plan.",
+          rawInput: dispatchRes.rawInput,
+          rawOutput: dispatchRes.rawOutput,
         };
       }
 
@@ -740,6 +802,8 @@ export class QwenEngine implements ILLMClient {
         status,
         reason: parsed.reason || "Sin detalle.",
         questionForUser: parsed.question_for_user || undefined,
+        rawInput: dispatchRes.rawInput,
+        rawOutput: dispatchRes.rawOutput,
       };
     });
   }

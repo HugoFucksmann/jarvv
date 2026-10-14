@@ -65,8 +65,10 @@ export async function concludeTask(
         evidenceSummaries.push(`abort: ${safeStr(abortReason).slice(0, 1500)}`);
     }
 
+    let finalRawInput: string | undefined;
+    let finalRawOutput: string | undefined;
     try {
-        task.finalResponse = await deps.qwenEngine.generateFinalResponse({
+        const finalRespRes = await deps.qwenEngine.generateFinalResponse({
             goal: task.message,
             logLines: task.memory?.log || [],
             facts: task.memory?.facts || {},
@@ -75,6 +77,9 @@ export async function concludeTask(
             evidenceSummaries,
             abortReason,
         }, context.abortController.signal);
+        task.finalResponse = finalRespRes.response;
+        finalRawInput = finalRespRes.rawInput;
+        finalRawOutput = finalRespRes.rawOutput;
     } catch (err: any) {
         console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err);
         const factsEntries = Object.entries(task.memory?.facts || {});
@@ -105,12 +110,18 @@ export async function concludeTask(
 
     // Limpieza exclusiva de las referencias de esta tarea
     RefStore.clear(task.id);
+    task.rawFinalInput = finalRawInput;
+    task.rawFinalOutput = finalRawOutput;
     deps.persistTasks();
     const durationTotalMs = Date.now() - context.startTime;
     console.log(
         `[Task Summary] id=${task.id} state=${state} reason="${abortReason || 'None'}" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
     );
-    deps.emitEvent(task.id, "FINAL_RESPONSE", { response: task.finalResponse });
+    deps.emitEvent(task.id, "FINAL_RESPONSE", {
+        response: task.finalResponse,
+        rawInput: finalRawInput,
+        rawOutput: finalRawOutput,
+    });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
 }
 
@@ -309,19 +320,32 @@ export async function handleReplan(
         newSteps
     );
 
+    task.rawPlanInput = replanResult.rawInput;
+    task.rawPlanOutput = replanResult.rawOutput;
+
     if (isMaterial) {
         task.state = "WAITING_INPUT";
         task.waitingReason = "plan_confirmation";
         task.planConfirmed = false;
         deps.persistTasks();
-        deps.emitEvent(task.id, "PLAN_GENERATED", { steps: task.steps, isMaterialReplan: true });
+        deps.emitEvent(task.id, "PLAN_GENERATED", {
+            steps: task.steps,
+            isMaterialReplan: true,
+            rawInput: replanResult.rawInput,
+            rawOutput: replanResult.rawOutput,
+        });
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
         console.log(`[PLAN] Replan clasificado como CAMBIO MATERIAL (§3.2.4). Esperando confirmación del usuario en WAITING_INPUT.`);
         return true;
     }
 
     deps.persistTasks();
-    deps.emitEvent(task.id, "PLAN_GENERATED", { steps: task.steps, isMaterialReplan: false });
+    deps.emitEvent(task.id, "PLAN_GENERATED", {
+        steps: task.steps,
+        isMaterialReplan: false,
+        rawInput: replanResult.rawInput,
+        rawOutput: replanResult.rawOutput,
+    });
     console.log(`[PLAN] Replan completado (no material). Continuando ejecución directa de ${newSteps.length} pasos.`);
     return true;
 }
@@ -345,6 +369,9 @@ export async function runFastLoop(
 
         // Step 1: Decision #1 Route
         let selectedRoute: StepRoute;
+        let d1RawInput: string | undefined;
+        let d1RawOutput: string | undefined;
+
         if (context.activeServerOverride) {
             selectedRoute = isStepRoute(context.activeServerOverride)
                 ? (context.activeServerOverride as StepRoute)
@@ -365,11 +392,16 @@ export async function runFastLoop(
                 }
             );
 
+            d1RawInput = d1.rawInput;
+            d1RawOutput = d1.rawOutput;
+
             deps.emitEvent(task.id, "DECISION_ONE", {
                 route: d1.route,
                 confidence: d1.confidence,
                 probabilities: d1.probabilities,
                 needsContext: d1.needsContext,
+                rawInput: d1.rawInput,
+                rawOutput: d1.rawOutput,
             });
 
             // Si Decision #1 señala necesidad de contexto adicional, expandir progresivamente (2 -> 5 -> 10)
@@ -380,7 +412,7 @@ export async function runFastLoop(
             if (d1.route === "fin") {
                 if (isFirst) {
                     console.log(`[FAST] Conversación directa (fin inicial). Respondiendo directo.`);
-                    const finalResp = await deps.qwenEngine.generateFinalResponse({
+                    const finalRespRes = await deps.qwenEngine.generateFinalResponse({
                         goal: task.message,
                         logLines: [],
                         facts: task.memory?.facts || {},
@@ -393,11 +425,15 @@ export async function runFastLoop(
                         return;
                     }
 
-                    task.finalResponse = finalResp;
+                    task.finalResponse = finalRespRes.response;
                     task.state = "COMPLETED";
                     RefStore.clear(task.id);
                     deps.persistTasks();
-                    deps.emitEvent(task.id, "FINAL_RESPONSE", { response: finalResp });
+                    deps.emitEvent(task.id, "FINAL_RESPONSE", {
+                        response: finalRespRes.response,
+                        rawInput: finalRespRes.rawInput,
+                        rawOutput: finalRespRes.rawOutput,
+                    });
                     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
                     return;
                 }
@@ -432,6 +468,8 @@ export async function runFastLoop(
             calls: [],
             rev: 0,
             superseded: false,
+            rawInput: d1RawInput,
+            rawOutput: d1RawOutput,
         };
 
         task.steps.push(step);
@@ -518,7 +556,7 @@ export async function initiatePlanMode(
 
     if (d1Initial.route === "fin") {
         console.log(`[PLAN] Objetivo clasificado como conversación directa (fin por argmax). Respondiendo sin plan.`);
-        const finalResp = await deps.qwenEngine.generateFinalResponse({
+        const finalRespRes = await deps.qwenEngine.generateFinalResponse({
             goal: task.message,
             logLines: [],
             facts: {},
@@ -531,11 +569,15 @@ export async function initiatePlanMode(
             return;
         }
 
-        task.finalResponse = finalResp;
+        task.finalResponse = finalRespRes.response;
         task.state = "COMPLETED";
         RefStore.clear(task.id);
         deps.persistTasks();
-        deps.emitEvent(task.id, "FINAL_RESPONSE", { response: finalResp });
+        deps.emitEvent(task.id, "FINAL_RESPONSE", {
+            response: finalRespRes.response,
+            rawInput: finalRespRes.rawInput,
+            rawOutput: finalRespRes.rawOutput,
+        });
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
         return;
     }
@@ -583,10 +625,16 @@ export async function initiatePlanMode(
 
     task.stepSeq = task.steps.length;
     task.planConfirmed = false;
+    task.rawPlanInput = plan.rawInput;
+    task.rawPlanOutput = plan.rawOutput;
     task.state = "WAITING_INPUT";
     task.waitingReason = "plan_confirmation";
     deps.persistTasks();
-    deps.emitEvent(task.id, "PLAN_GENERATED", { steps: task.steps });
+    deps.emitEvent(task.id, "PLAN_GENERATED", {
+        steps: task.steps,
+        rawInput: plan.rawInput,
+        rawOutput: plan.rawOutput,
+    });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
     console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación en WAITING_INPUT.`);
 }
@@ -695,11 +743,16 @@ export async function runPlanLoop(
                 logLines: task.memory?.log || [],
             }, context.abortController.signal);
 
+            step.rawInput = stageVerif.rawInput;
+            step.rawOutput = stageVerif.rawOutput;
+
             deps.emitEvent(task.id, "STAGE_VERIFIED", {
                 stepId: step.id,
                 stageVerification: stageVerif,
                 eosOk,
                 eosCumple,
+                rawInput: stageVerif.rawInput,
+                rawOutput: stageVerif.rawOutput,
             }, step.id);
 
             console.log(`[PLAN StageVerification] step=${step.id} status=${stageVerif.status} reason=${stageVerif.reason}`);

@@ -55,6 +55,8 @@ export function createIterationFromEvent(
         stepSeq: resolvedStepSeq,
         stepTitle,
         timestamp: ts,
+        rawInput: data.rawInput,
+        rawOutput: data.rawOutput,
         input: {
           objetivo: task?.message || "Instrucción del usuario",
           historialRegistrado: task?.memory?.log || [],
@@ -86,6 +88,8 @@ export function createIterationFromEvent(
         stepSeq,
         stepTitle: currentStep ? `Paso #${stepSeq || 1}: ${currentStep.instruction.slice(0, 40)}` : "Selección de Herramienta",
         timestamp: ts,
+        rawInput: data.rawInput,
+        rawOutput: data.rawOutput,
         input: {
           instruccionEtapa: currentStep?.instruction || "Acción inmediata",
           servidorMCP: currentStep?.route || "desktop_commander",
@@ -114,6 +118,8 @@ export function createIterationFromEvent(
         stepSeq,
         stepTitle: currentStep ? `Paso #${stepSeq || 1}: Invocación de Argumentos` : "Generación de Argumentos",
         timestamp: ts,
+        rawInput: data.rawInput,
+        rawOutput: data.rawOutput,
         input: {
           meta: task?.message || "",
           herramienta: currentStep?.tool || "MCP Tool",
@@ -147,6 +153,8 @@ export function createIterationFromEvent(
         stepSeq,
         stepTitle: currentStep ? `Paso #${stepSeq || 1}: Verificación Factual` : "Verificación de Resultado",
         timestamp: ts,
+        rawInput: data.rawInput || verification?.rawInput,
+        rawOutput: data.rawOutput || verification?.rawOutput,
         input: {
           instruccionEtapa: currentStep?.instruction || "",
           herramientaEjecutada: currentStep?.tool || currentStep?.calls?.slice(-1)[0]?.tool || "MCP",
@@ -170,29 +178,37 @@ export function createIterationFromEvent(
 
     case "STAGE_VERIFIED": {
       const data = event.data as any;
+      const sv = data.stageVerification || data;
+      const stageStatus = sv.status || data.status;
+      const stageReason = sv.reason || data.reason;
+      const stageQuestion = sv.questionForUser || data.questionForUser || sv.question_for_user || data.question_for_user;
+      const stageConf = sv.confidence ?? data.confidence;
+      const targetStepId = stepId || data.stepId || data.stageId;
       return {
-        id: `iter_${ts}_qwen_stage_${stepId || "stage"}`,
+        id: `iter_${ts}_qwen_stage_${targetStepId || "stage"}`,
         taskId,
         model: "QWEN_3_5_9B",
         stage: "STAGE_VERIFICATION",
-        stepId,
+        stepId: targetStepId,
         stepSeq,
-        stepTitle: `Verificación Semántica de Etapa ${data.stageId || ""}`,
+        stepTitle: `Verificación Semántica de Etapa ${targetStepId || ""}`,
         timestamp: ts,
+        rawInput: data.rawInput || sv.rawInput,
+        rawOutput: data.rawOutput || sv.rawOutput,
         input: {
           meta: task?.message || "",
-          etapaId: data.stageId,
+          etapaId: targetStepId,
           situacionObservada: data.situation,
         },
         output: {
-          estado: data.status,
-          motivo: data.reason,
-          confianza: data.confidence,
-          preguntaUsuario: data.questionForUser,
+          estado: stageStatus,
+          motivo: stageReason,
+          confianza: stageConf,
+          preguntaUsuario: stageQuestion,
         },
         metrics: {
-          confidence: typeof data.confidence === "number" ? data.confidence : undefined,
-          verdict: data.status,
+          confidence: typeof stageConf === "number" ? stageConf : undefined,
+          verdict: stageStatus,
         },
       };
     }
@@ -208,6 +224,8 @@ export function createIterationFromEvent(
         stepId: "plan_global",
         stepTitle: "Planificación Estratégica Global",
         timestamp: ts,
+        rawInput: data.rawInput,
+        rawOutput: data.rawOutput,
         input: {
           objetivoUsuario: task?.message || "",
           modo: "PLAN",
@@ -238,6 +256,8 @@ export function createIterationFromEvent(
         stepId: "final_response",
         stepTitle: "Síntesis y Respuesta Final",
         timestamp: ts,
+        rawInput: data.rawInput,
+        rawOutput: data.rawOutput,
         input: {
           objetivo: task?.message || "",
           hechosConfirmados: task?.memory?.facts || {},
@@ -264,6 +284,11 @@ export function createIterationFromEvent(
  * Guarantees that historical tasks and page refreshes maintain all model traces.
  */
 export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
+  // Si la tarea ya tiene sus iteraciones de modelo completas preservadas en memoria/persistencia, retornarlas directamente
+  if (task.modelIterations && task.modelIterations.length > 0) {
+    return task.modelIterations;
+  }
+
   const iterations: ModelIteration[] = [];
   const baseTime = Date.now();
 
@@ -277,6 +302,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
       stepId: "plan_global",
       stepTitle: "Planificación Estratégica Global",
       timestamp: baseTime - (task.steps.length * 1000 + 5000),
+      rawInput: task.rawPlanInput,
+      rawOutput: task.rawPlanOutput,
       input: {
         objetivoUsuario: task.message,
         modo: "PLAN",
@@ -313,6 +340,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
         stepSeq,
         stepTitle: `Paso #${stepSeq}: Enrutamiento (${step.instruction.slice(0, 35)})`,
         timestamp: stepTime,
+        rawInput: step.rawInput,
+        rawOutput: step.rawOutput,
         input: {
           objetivo: task.message,
           pasoActual: step.instruction,
@@ -341,6 +370,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
         outcome: step.outcome,
         error: step.error,
         timestamp: stepTime + 200,
+        rawInput: step.rawInput,
+        rawOutput: step.rawOutput,
       } as StepCall] : []
     );
 
@@ -357,6 +388,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
         stepSeq,
         stepTitle: `Paso #${stepSeq}: Selección de ${call.tool}`,
         timestamp: callTime,
+        rawInput: call.rawInput || step.rawInput,
+        rawOutput: call.rawOutput || step.rawOutput,
         input: {
           servidor: call.mcp,
           instruccion: step.instruction,
@@ -378,6 +411,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
           stepSeq,
           stepTitle: `Paso #${stepSeq}: Argumentos para ${call.tool}`,
           timestamp: callTime + 50,
+          rawInput: call.rawInput,
+          rawOutput: call.rawOutput,
           input: {
             herramienta: call.tool,
             instruccion: step.instruction,
@@ -400,6 +435,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
           stepSeq,
           stepTitle: `Paso #${stepSeq}: Verificación ${call.tool}`,
           timestamp: callTime + 150,
+          rawInput: call.rawInput || step.rawInput,
+          rawOutput: call.rawOutput || step.rawOutput,
           input: {
             herramienta: call.tool,
             observacion: call.evidence?.obs || call.evidence?.summary || "",
@@ -431,6 +468,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
       stepId: "final_response",
       stepTitle: "Síntesis y Respuesta Final",
       timestamp: baseTime,
+      rawInput: task.rawFinalInput,
+      rawOutput: task.rawFinalOutput,
       input: {
         objetivo: task.message,
         hechosConfirmados: task.memory?.facts || {},

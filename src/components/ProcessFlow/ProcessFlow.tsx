@@ -89,7 +89,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
 
       {/* 4. Final Synthesized Output */}
       {task.finalResponse && (
-        <FinalResponseView response={task.finalResponse} />
+        <FinalResponseView response={task.finalResponse} rawOutput={task.rawFinalOutput} />
       )}
     </section>
   );

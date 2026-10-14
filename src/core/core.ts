@@ -17,7 +17,7 @@ import {
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, ILLMClient, isStepRoute } from "./reasoner/qwen.ts";
-import { TaskExecutionContext } from "./context.ts";
+import { TaskExecutionContext, addRawInteraction } from "./context.ts";
 import { EngineDependencies } from "./callExecutor.ts";
 import { RefStore } from "./processor/resultProcessor.ts";
 import {
@@ -25,6 +25,10 @@ import {
   initiatePlanMode,
   runPlanLoop,
 } from "./modeEngines.ts";
+import {
+  createIterationFromEvent,
+  reconstructIterationsFromTask,
+} from "../utils/debugAccumulator.ts";
 
 export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
@@ -74,6 +78,30 @@ export class JarvisCore {
       stepId,
       data,
     };
+
+    // Almacenamiento determinista en memoria/contexto de la iteración de modelo
+    const ctx = this.taskContexts.get(taskId);
+    if (ctx?.task) {
+      const iteration = createIterationFromEvent(event, ctx.task);
+      if (iteration) {
+        ctx.task.modelIterations = ctx.task.modelIterations || [];
+        const existingIdx = ctx.task.modelIterations.findIndex((it) => it.id === iteration.id);
+        if (existingIdx >= 0) {
+          ctx.task.modelIterations[existingIdx] = iteration;
+        } else {
+          ctx.task.modelIterations.push(iteration);
+        }
+        if (iteration.rawInput && iteration.rawOutput) {
+          addRawInteraction(ctx, {
+            model: iteration.model,
+            stage: iteration.stage,
+            rawInput: iteration.rawInput,
+            rawOutput: iteration.rawOutput,
+          });
+        }
+      }
+    }
+
     for (const listener of this.listeners) {
       try {
         listener(event);
@@ -257,11 +285,17 @@ export class JarvisCore {
         }));
         context.task.stepSeq = context.task.steps.length;
         context.task.planConfirmed = false;
+        context.task.rawPlanInput = newPlan.rawInput;
+        context.task.rawPlanOutput = newPlan.rawOutput;
         context.task.state = "WAITING_INPUT";
         context.task.waitingReason = "plan_confirmation";
         this.persistTasks();
         this.emitEvent(taskId, "PLAN_MODIFIED", { feedback, steps: context.task.steps });
-        this.emitEvent(taskId, "PLAN_GENERATED", { steps: context.task.steps });
+        this.emitEvent(taskId, "PLAN_GENERATED", {
+          steps: context.task.steps,
+          rawInput: newPlan.rawInput,
+          rawOutput: newPlan.rawOutput,
+        });
         this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
       }
     } catch (err: any) {
@@ -328,6 +362,10 @@ export class JarvisCore {
             task.replans = task.replans ?? 0;
             task.escalations = task.escalations ?? 0;
             task.stepSeq = task.stepSeq ?? task.steps.length;
+            task.modelIterations = task.modelIterations || [];
+            if (task.modelIterations.length === 0 && task.steps.length > 0) {
+              task.modelIterations = reconstructIterationsFromTask(task);
+            }
             if (task.state === "RUNNING") {
               task.state = "CANCELLED";
               task.finalResponse = task.finalResponse || "Tarea interrumpida: servidor reiniciado durante la ejecución.";

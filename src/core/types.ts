@@ -3,6 +3,8 @@
  * Single Source of Truth for Core Types according to norm v1.0
  */
 
+import type { ModelIteration } from "../types/debug.ts";
+
 export type TaskState =
   | "RUNNING"
   | "WAITING_INPUT"
@@ -38,6 +40,8 @@ export interface StepCall {
   outcome?: ExecutionOutcome;
   error?: string;
   timestamp?: number;
+  rawInput?: string;
+  rawOutput?: string;
 }
 
 export interface Step {
@@ -59,6 +63,8 @@ export interface Step {
   dependencies?: string[];
   candidate_tools?: string[];
   handoff?: StepHandoff;
+  rawInput?: string;
+  rawOutput?: string;
 }
 
 export interface StepHandoff {
@@ -86,6 +92,8 @@ export interface PlanStep {
 export interface Plan {
   objective?: string;
   steps: PlanStep[];
+  rawInput?: string;
+  rawOutput?: string;
 }
 
 // Fase 3B: Verificación semántica de etapas en modo PLAN (§3.2.6)
@@ -99,6 +107,8 @@ export interface StageVerificationResult {
   status: StageVerificationStatus;
   reason: string;
   questionForUser?: string;
+  rawInput?: string;
+  rawOutput?: string;
 }
 
 export interface StageVerificationPromptData {
@@ -129,6 +139,13 @@ export interface TaskMemory {
   facts: Record<string, string>;
   fail: string[];
   effects?: string[];
+  rawInteractions?: Array<{
+    timestamp: number;
+    model: string;
+    stage: string;
+    rawInput: string;
+    rawOutput: string;
+  }>;
 }
 
 export interface Task {
@@ -146,6 +163,11 @@ export interface Task {
   replans?: number;
   escalations?: number;
   stepSeq?: number;
+  modelIterations?: ModelIteration[];
+  rawPlanInput?: string;
+  rawPlanOutput?: string;
+  rawFinalInput?: string;
+  rawFinalOutput?: string;
 }
 
 export interface Evidence {
@@ -305,6 +327,8 @@ export interface DecisionResponse {
     input_tokens: number;
     output_tokens: number;
   };
+  rawInput?: string;
+  rawOutput?: string;
 }
 
 // MCP Contracts
