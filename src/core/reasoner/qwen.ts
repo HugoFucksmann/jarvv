@@ -1,15 +1,21 @@
+/**
+ * JARVIS Core — Qwen 3.5 9B LLM Reasoning Engine Client
+ */
+
 import {
   Step,
   StepRoute,
   MCPTool,
   Plan,
+  PlanStep,
   Scratchpad,
-  Evidence,
   MAX_STEPS,
   MAX_ARG_RETRIES,
   QWEN_CTX,
   StageVerificationResult,
   StageVerificationPromptData,
+  VALID_STEP_ROUTES,
+  isStepRoute,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
 import {
@@ -18,8 +24,10 @@ import {
   FinalResponsePromptData,
   ReplanPromptData,
 } from "./prompts.ts";
-import { cleanInputSchema } from "../mcp/discovery.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
+
+// Re-exportar por retrocompatibilidad con consumidores que importaban desde qwen.ts
+export { VALID_STEP_ROUTES, isStepRoute };
 
 export class LLMServiceUnavailableError extends Error {
   constructor(message: string, public readonly cause?: unknown) {
@@ -33,19 +41,6 @@ export class LLMValidationError extends Error {
     super(`[Qwen 3.5 9B Validation] ${message}`);
     this.name = "LLMValidationError";
   }
-}
-
-export const VALID_STEP_ROUTES: readonly StepRoute[] = [
-  "windows",
-  "desktop_commander",
-  "free_search",
-] as const;
-
-/**
- * Type Guard formal para validar rutas de subsistemas MCP en tiempo de ejecución
- */
-export function isStepRoute(route: unknown): route is StepRoute {
-  return typeof route === "string" && (VALID_STEP_ROUTES as readonly string[]).includes(route);
 }
 
 // ============================================================
@@ -161,7 +156,7 @@ export interface QwenDispatchResult {
 export interface ILLMClient {
   generateArguments(
     stepOrData: Step | ArgumentPromptData,
-    tool?: MCPTool,
+    toolOrSignal?: MCPTool | AbortSignal,
     scratchpad?: Scratchpad,
     context?: string,
     signal?: AbortSignal
@@ -186,18 +181,40 @@ export interface ILLMClient {
     signal?: AbortSignal
   ): Promise<{ action?: "abort"; reason?: string; plan?: Plan; rawInput?: string; rawOutput?: string }>;
 
-  /**
-   * Fase 3B: Verificación semántica de etapa frente a objetivo observable (§3.2.6)
-   */
   verifyStage(
     data: StageVerificationPromptData,
     signal?: AbortSignal
   ): Promise<StageVerificationResult>;
 }
 
+/**
+ * Normaliza y valida determinísticamente los pasos de plan generados por Qwen
+ */
+function mapRawPlanSteps(rawSteps: any[], nextStepOffset = 1): PlanStep[] {
+  return rawSteps.slice(0, MAX_STEPS).map((s: any, idx: number) => {
+    const rawRoute = s.suggested_mcp || s.route;
+    const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
+    const stepId = s.id || `s${nextStepOffset + idx}`;
+    const instruction = s.goal || s.instruction || `Paso ${nextStepOffset + idx}`;
+    const expectedOutcome = s.expected_outcome || s.expectedOutcome || "Resultado completado";
+
+    return {
+      id: stepId,
+      goal: instruction,
+      instruction,
+      suggested_mcp: safeRoute,
+      route: safeRoute,
+      expected_outcome: expectedOutcome,
+      expectedOutcome,
+      dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
+      candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
+    };
+  });
+}
+
 export class QwenEngine implements ILLMClient {
   /**
-   * Helper unificado para parsear JSON tolerante a texto explicativo o Markdown
+   * Helper unificado para parsear JSON tolerante a bloques de pensamiento o Markdown
    */
   private safeJsonParse<T = any>(raw: string): T | null {
     if (!raw || typeof raw !== "string") return null;
@@ -216,18 +233,7 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Helper unificado para convertir Scratchpad a un diccionario plano de cadenas
-   */
-  private scratchpadToFacts(scratchpad?: Scratchpad): Record<string, string> {
-    if (!scratchpad) return {};
-    return Object.entries(scratchpad).reduce((acc, [k, v]) => {
-      if (v && typeof v === "string") acc[k] = v;
-      return acc;
-    }, {} as Record<string, string>);
-  }
-
-  /**
-   * Helper to wrap stages with concise observability logging.
+   * Envuelve etapas de ejecución con registro de métricas y observabilidad
    */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
     const t0 = Date.now();
@@ -254,7 +260,7 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Dispatches inference requests to configured Qwen endpoint (§10.10)
+   * Despacha peticiones de inferencia hacia el endpoint configurado de Qwen (§10.10)
    */
   private async dispatchPrompt(
     systemPrompt: string,
@@ -328,8 +334,6 @@ export class QwenEngine implements ILLMClient {
     }
 
     const baseTimeout = config.qwenTimeoutMs ?? config.timeoutMs ?? 120000;
-    // En modo pensamiento (isThinking), la inferencia requiere más tiempo por la generación de tokens de razonamiento.
-    // Garantizamos al menos 180s o el doble del timeout base para evitar que AbortSignal aborte prematuramente en local.
     const timeoutMs = isThinking
       ? Math.max(baseTimeout * 2, 180000)
       : baseTimeout;
@@ -408,28 +412,14 @@ export class QwenEngine implements ILLMClient {
       content = firstChoice.text;
     }
 
-    // Extraer traza de pensamiento / razonamiento de todas las llaves posibles de Ollama y OpenAI/vLLM
     const thinkingTrace =
       (typeof messageObj?.reasoning_content === "string" && messageObj.reasoning_content.trim() ? messageObj.reasoning_content.trim() : "") ||
       (typeof messageObj?.thinking === "string" && messageObj.thinking.trim() ? messageObj.thinking.trim() : "") ||
       (typeof data?.thinking === "string" && data.thinking.trim() ? data.thinking.trim() : "") ||
       (typeof firstChoice?.reasoning_content === "string" && firstChoice.reasoning_content.trim() ? firstChoice.reasoning_content.trim() : "");
 
-    // Si content vino vacío pero hay thinkingTrace disponible, usar la traza de pensamiento como respuesta
     if (!content && thinkingTrace) {
       console.log(`[Qwen] content venía vacío pero se extrajo respuesta de la llave de pensamiento (${thinkingTrace.length} chars).`);
-      content = thinkingTrace;
-    }
-
-    // Si content es una frase genérica de confirmación de cierre ("tarea completada con éxito") mientras thinkingTrace contiene la respuesta real
-    if (
-      content &&
-      thinkingTrace &&
-      content.length < 90 &&
-      /tarea\s+(concluida|completada|finalizada|terminada)/i.test(content) &&
-      thinkingTrace.length > content.length
-    ) {
-      console.log(`[Qwen] content contenía solo frase genérica de cierre ("${content}"). Priorizando respuesta detallada de traza de pensamiento (${thinkingTrace.length} chars).`);
       content = thinkingTrace;
     }
 
@@ -437,7 +427,6 @@ export class QwenEngine implements ILLMClient {
       ? (thinkingTrace ? `<think>\n${thinkingTrace}\n</think>\n\n${messageObj.content}` : messageObj.content)
       : (content || rawOutputText);
 
-    // Salida cruda completa recibida del modelo sin truncamiento
     const rawCompleteOutput = rawOutputText || rawGeneratedOutput;
 
     return {
@@ -453,11 +442,13 @@ export class QwenEngine implements ILLMClient {
    */
   async generateArguments(
     stepOrData: Step | ArgumentPromptData,
-    toolParam?: MCPTool,
-    scratchpadParam?: Scratchpad,
-    contextParam?: string,
-    signal?: AbortSignal
+    toolOrSignal?: MCPTool | AbortSignal,
+    _scratchpadParam?: Scratchpad,
+    _contextParam?: string,
+    signalParam?: AbortSignal
   ): Promise<ArgumentsGenerationResult> {
+    const effectiveSignal = toolOrSignal instanceof AbortSignal ? toolOrSignal : signalParam;
+
     return await this.executeStage("generateArguments", async () => {
       let promptData: ArgumentPromptData;
       let targetTool: MCPTool;
@@ -467,13 +458,13 @@ export class QwenEngine implements ILLMClient {
         targetTool = promptData.tool;
       } else {
         const step = stepOrData as Step;
-        targetTool = toolParam!;
+        targetTool = (toolOrSignal as MCPTool) || { name: step.tool || "unknown", description: "", inputSchema: {} };
         promptData = {
-          goal: contextParam || step.instruction,
+          goal: step.instruction,
           tool: targetTool,
-          cleanedSchema: cleanInputSchema(targetTool.inputSchema || {}),
+          cleanedSchema: targetTool.inputSchema || {},
           taskInstruction: step.instruction,
-          facts: this.scratchpadToFacts(scratchpadParam),
+          facts: {},
         };
       }
 
@@ -489,7 +480,7 @@ export class QwenEngine implements ILLMClient {
           userPrompt,
           true,
           1024,
-          { stage: "arguments", thinking: false, signal }
+          { stage: "arguments", thinking: false, signal: effectiveSignal }
         );
 
         const parsed = this.safeJsonParse(dispatchRes.content);
@@ -550,12 +541,12 @@ export class QwenEngine implements ILLMClient {
           { stage: "final_response", signal }
         );
         const rawText = dispatchRes.content;
-        
+
         const thoughtMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
         const thoughtText = thoughtMatch ? thoughtMatch[1].trim() : "";
         const outsideText = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
 
-        // Si outsideText quedó vacío o solo una frase genérica de tarea completada, pero thoughtText contiene la respuesta real:
+        // Si outsideText quedó vacío o solo una frase genérica de tarea completada mientras thoughtText contiene la respuesta sustantiva:
         if (!outsideText || (outsideText.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(outsideText))) {
           if (thoughtText && thoughtText.length > outsideText.length) {
             console.log(`[generateFinalResponse] Priorizando contenido sustantivo de bloque <think> (${thoughtText.length} chars).`);
@@ -568,22 +559,12 @@ export class QwenEngine implements ILLMClient {
         }
 
         const candidate = outsideText || thoughtText || rawText.trim();
-        if (candidate.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(candidate) && thoughtText) {
-          return {
-            response: thoughtText,
-            rawInput: dispatchRes.rawInput,
-            rawOutput: dispatchRes.rawOutput,
-          };
-        }
-
         return {
           response: candidate,
           rawInput: dispatchRes.rawInput,
           rawOutput: dispatchRes.rawOutput,
         };
       } catch (err: any) {
-        // Si falló por timeout o error mientras el modo pensamiento estaba activo,
-        // intentamos un reintento rápido con thinking=false para garantizar que el usuario reciba su respuesta sustantiva.
         if (isThinking && !signal?.aborted) {
           console.warn(`[generateFinalResponse] Falló con modo pensamiento activo (${err?.message || err}). Reintentando con thinking=false...`);
           try {
@@ -652,26 +633,9 @@ export class QwenEngine implements ILLMClient {
         throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta 'steps'.");
       }
 
-      const steps = parsed.steps.slice(0, MAX_STEPS).map((s: any, idx: number) => {
-        const rawRoute = s.suggested_mcp || s.route;
-        const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
-
-        return {
-          id: s.id || `s${idx + 1}`,
-          goal: s.goal || s.instruction || `Paso ${idx + 1}`,
-          instruction: s.goal || s.instruction || `Paso ${idx + 1}`,
-          suggested_mcp: safeRoute,
-          route: safeRoute,
-          expected_outcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
-          expectedOutcome: s.expected_outcome || s.expectedOutcome || "Resultado completado",
-          dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
-          candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
-        };
-      });
-
       return {
         objective: parsed.objective || userMessage,
-        steps,
+        steps: mapRawPlanSteps(parsed.steps, 1),
         rawInput: dispatchRes.rawInput,
         rawOutput: dispatchRes.rawOutput,
       };
@@ -684,7 +648,7 @@ export class QwenEngine implements ILLMClient {
   async replan(
     data: ReplanPromptData,
     signal?: AbortSignal
-  ): Promise<{ action?: "abort"; reason?: string; plan?: Plan }> {
+  ): Promise<{ action?: "abort"; reason?: string; plan?: Plan; rawInput?: string; rawOutput?: string }> {
     return await this.executeStage("replan", async () => {
       const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
 
@@ -702,10 +666,6 @@ export class QwenEngine implements ILLMClient {
 
       const parsed = this.safeJsonParse<any>(dispatchRes.content);
 
-      if (!parsed) {
-        console.error(`[Qwen replan] Fallo de parseo de replan. Raw (primeros 300 chars): ${dispatchRes.rawOutput.slice(0, 300)}`);
-      }
-
       if (parsed?.action === "abort") {
         return {
           action: "abort",
@@ -719,27 +679,10 @@ export class QwenEngine implements ILLMClient {
         throw new LLMValidationError("Replan no produjo pasos válidos.");
       }
 
-      const steps = parsed.steps.slice(0, MAX_STEPS).map((s: any, idx: number) => {
-        const rawRoute = s.suggested_mcp || s.route;
-        const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
-
-        return {
-          id: s.id || `s${data.nextStepNumber + idx}`,
-          goal: s.goal || s.instruction || "Paso",
-          instruction: s.goal || s.instruction || "Paso",
-          suggested_mcp: safeRoute,
-          route: safeRoute,
-          expected_outcome: s.expected_outcome || s.expectedOutcome || "Completado",
-          expectedOutcome: s.expected_outcome || s.expectedOutcome || "Completado",
-          dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
-          candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
-        };
-      });
-
       return {
         plan: {
           objective: parsed.objective || data.goal,
-          steps,
+          steps: mapRawPlanSteps(parsed.steps, data.nextStepNumber),
           rawInput: dispatchRes.rawInput,
           rawOutput: dispatchRes.rawOutput,
         },

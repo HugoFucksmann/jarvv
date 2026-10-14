@@ -393,3 +393,16 @@ export interface CoreEvent {
   stepId?: string;
   data: Record<string, unknown>;
 }
+
+export const VALID_STEP_ROUTES: readonly StepRoute[] = [
+  "windows",
+  "desktop_commander",
+  "free_search",
+] as const;
+
+/**
+ * Type Guard formal para validar rutas de subsistemas MCP en tiempo de ejecución
+ */
+export function isStepRoute(route: unknown): route is StepRoute {
+  return typeof route === "string" && (VALID_STEP_ROUTES as readonly string[]).includes(route);
+}

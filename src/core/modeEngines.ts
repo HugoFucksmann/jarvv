@@ -26,7 +26,14 @@ import {
     runStep,
 } from "./callExecutor.ts";
 import { isStepRoute } from "./reasoner/qwen.ts";
-import { PolicyRegistry } from "./policy/policyRegistry.ts";
+
+/**
+ * Determina determinísticamente si una tarea abortada califica como PARTIAL o FAILED
+ * según si completó al menos un paso productivo.
+ */
+function resolveFailureState(task: TaskExecutionContext["task"]): TaskState {
+    return task.steps.some((s) => s.state === "COMPLETED") ? "PARTIAL" : "FAILED";
+}
 
 // ============================================================
 // CONCLUSION & FINAL RESPONSE (§4, §5, Etapa 6)
@@ -139,8 +146,7 @@ export async function handleEscalation(
     // Regla estricta de seguridad (§6.2): Bajo ninguna circunstancia se elude un DENY de Guard o un rechazo
     if (execResult.signals?.denied) {
         console.warn(`[Escalation] Acción denegada por Guard o usuario (denied). Prohibido reintentar o conmutar para eludir seguridad.`);
-        const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-        await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, "Operación denegada por política de seguridad (Guard).");
+        await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
         return false;
     }
 
@@ -149,8 +155,7 @@ export async function handleEscalation(
 
     if (context.escalations >= MAX_ESCALATIONS) {
         console.warn(`[Escalation] MAX_ESCALATIONS (${MAX_ESCALATIONS}) agotado.`);
-        const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-        await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, "Tope de escalaciones agotado.");
+        await concludeTask(context, resolveFailureState(task), deps, "Tope de escalaciones agotado.");
         return false;
     }
 
@@ -184,8 +189,7 @@ export async function handleEscalation(
 
         if (d1Arbitration.route === "fin") {
             console.log(`[Escalation Eos] Arbitraje Eos determinó fin de alternativas viables.`);
-            const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-            await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, "Fin de alternativas viables según arbitraje de Decision 2.0.");
+            await concludeTask(context, resolveFailureState(task), deps, "Fin de alternativas viables según arbitraje de Decision 2.0.");
             return false;
         }
     } catch (eosErr) {
@@ -201,40 +205,7 @@ export async function handleEscalation(
         return true;
     }
 
-    const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-    await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, "No se hallaron rutas alternativas de recuperación.");
-    return false;
-}
-
-/**
- * Determina determinísticamente si un replanteo constituye un cambio material (§3.2.4, §13.2 punto 10)
- * Requiere confirmación del usuario en WAITING_INPUT si:
- * 1. Altera herramientas que requieren aprobación en Guard (mutación/eliminación/ejecución sensible).
- * 2. Agrega más de 3 pasos nuevos.
- * 3. Modifica sustancialmente el objetivo de la tarea.
- */
-export function isMaterialReplan(
-    originalObjective: string,
-    replanObjective: string | undefined,
-    pendingStepsBefore: Step[],
-    newSteps: Step[]
-): boolean {
-    if (replanObjective && replanObjective.trim().length > 0 && replanObjective.trim() !== originalObjective.trim()) {
-        return true;
-    }
-    if (newSteps.length > pendingStepsBefore.length + 3 || newSteps.length > 5) {
-        return true;
-    }
-    for (const step of newSteps) {
-        if (step.candidate_tools && step.candidate_tools.length > 0) {
-            for (const toolName of step.candidate_tools) {
-                const pol = PolicyRegistry.getPolicy(step.route, toolName);
-                if (pol.requiresApproval || pol.mutates) {
-                    return true;
-                }
-            }
-        }
-    }
+    await concludeTask(context, resolveFailureState(task), deps, "No se hallaron rutas alternativas de recuperación.");
     return false;
 }
 
@@ -246,13 +217,21 @@ export async function handleReplan(
     const { task } = context;
 
     if (context.isCancelled || isTerminalState(task.state)) return false;
+
+    // Verificación centralizada de límite de replanificaciones
+    if ((task.replans || 0) >= MAX_REPLAN) {
+        console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
+        await concludeTask(context, resolveFailureState(task), deps, "Límite de replanificaciones alcanzado.");
+        return false;
+    }
+
     // Expansión progresiva de memoria ante replan (2 -> 5 -> 10)
     expandMemoryContext(context);
 
     task.replans = (task.replans || 0) + 1;
 
     const failedStep = task.steps[failedStepIndex];
-    console.log(`[PLAN] Activando Replan localizado (${task.replans}/${MAX_REPLAN}) para paso '${failedStep.id}'.`);
+    console.log(`[PLAN] Activando Replan autónomo (${task.replans}/${MAX_REPLAN}) para paso '${failedStep.id}'.`);
 
     const completedSummary = task.steps
         .slice(0, failedStepIndex)
@@ -278,12 +257,9 @@ export async function handleReplan(
 
     if (replanResult.action === "abort" || !replanResult.plan) {
         console.log(`[PLAN Replan] Replan devolvió abort: ${replanResult.reason}`);
-        const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-        await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, replanResult.reason || "Replan abortado.");
+        await concludeTask(context, resolveFailureState(task), deps, replanResult.reason || "Replan abortado.");
         return false;
     }
-
-    const pendingBefore = task.steps.slice(failedStepIndex).filter((s) => !s.superseded);
 
     for (let i = failedStepIndex; i < task.steps.length; i++) {
         task.steps[i].superseded = true;
@@ -310,33 +286,10 @@ export async function handleReplan(
 
     task.steps.push(...newSteps);
     task.stepSeq = (task.stepSeq ?? 0) + newSteps.length;
-
-    const isMaterial = isMaterialReplan(
-        task.message,
-        replanResult.plan.objective,
-        pendingBefore,
-        newSteps
-    );
-
     task.rawPlanInput = replanResult.rawInput;
     task.rawPlanOutput = replanResult.rawOutput;
 
-    if (isMaterial) {
-        task.state = "WAITING_INPUT";
-        task.waitingReason = "plan_confirmation";
-        task.planConfirmed = false;
-        deps.persistTasks();
-        deps.emitEvent(task.id, "PLAN_GENERATED", {
-            steps: task.steps,
-            isMaterialReplan: true,
-            rawInput: replanResult.rawInput,
-            rawOutput: replanResult.rawOutput,
-        });
-        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
-        console.log(`[PLAN] Replan clasificado como CAMBIO MATERIAL (§3.2.4). Esperando confirmación del usuario en WAITING_INPUT.`);
-        return true;
-    }
-
+    // Ejecución 100% autónoma: sin suspensión en WAITING_INPUT tras confirmación inicial
     deps.persistTasks();
     deps.emitEvent(task.id, "PLAN_GENERATED", {
         steps: task.steps,
@@ -344,7 +297,7 @@ export async function handleReplan(
         rawInput: replanResult.rawInput,
         rawOutput: replanResult.rawOutput,
     });
-    console.log(`[PLAN] Replan completado (no material). Continuando ejecución directa de ${newSteps.length} pasos.`);
+    console.log(`[PLAN] Replan autónomo completado. Continuando ejecución directa de ${newSteps.length} pasos.`);
     return true;
 }
 
@@ -409,30 +362,8 @@ export async function runFastLoop(
 
             if (d1.route === "fin") {
                 if (isFirst) {
-                    console.log(`[FAST] Conversación directa (fin inicial). Respondiendo directo.`);
-                    const finalRespRes = await deps.qwenEngine.generateFinalResponse({
-                        goal: task.message,
-                        logLines: [],
-                        facts: task.memory?.facts || {},
-                        failLines: [],
-                        evidenceSummaries: [],
-                    }, context.abortController.signal);
-
-                    if (context.isCancelled || task.state === "CANCELLED") {
-                        RefStore.clear(task.id);
-                        return;
-                    }
-
-                    task.finalResponse = finalRespRes.response;
-                    task.state = "COMPLETED";
-                    RefStore.clear(task.id);
-                    deps.persistTasks();
-                    deps.emitEvent(task.id, "FINAL_RESPONSE", {
-                        response: finalRespRes.response,
-                        rawInput: finalRespRes.rawInput,
-                        rawOutput: finalRespRes.rawOutput,
-                    });
-                    deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
+                    console.log(`[FAST] Conversación directa (fin inicial). Concluyendo directo.`);
+                    await concludeTask(context, "COMPLETED", deps);
                     return;
                 }
 
@@ -509,10 +440,13 @@ export async function runFastLoop(
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
             console.warn(`[FAST] Acción UNVERIFIED registrada. Requiere observación.`);
         } else if (execResult.status === "blocked_loop") {
+            step.state = "BLOCKED";
+            step.error = execResult.error || "Invocación bloqueada por anti-loop.";
+            deps.persistTasks();
+            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+
             if (context.consecutiveLoopBlocks >= 2) {
                 console.warn(`[FAST] 2 bloqueos seguidos de anti-loop. Cerrando PARTIAL.`);
-                step.state = "FAILED";
-                step.error = "Bloqueos repetidos por anti-loop.";
                 await concludeTask(context, "PARTIAL", deps, "Detenido por anti-loop (2 bloqueos seguidos).");
                 return;
             }
@@ -520,7 +454,7 @@ export async function runFastLoop(
             step.state = "FAILED";
             step.error = execResult.error || "Fallo lógico en ejecución.";
             deps.persistTasks();
-            deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
+            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
             const shouldContinue = await handleEscalation(context, step, execResult, deps);
             if (!shouldContinue) {
@@ -553,30 +487,8 @@ export async function initiatePlanMode(
     if (context.isCancelled || isTerminalState(task.state)) return;
 
     if (d1Initial.route === "fin") {
-        console.log(`[PLAN] Objetivo clasificado como conversación directa (fin por argmax). Respondiendo sin plan.`);
-        const finalRespRes = await deps.qwenEngine.generateFinalResponse({
-            goal: task.message,
-            logLines: [],
-            facts: {},
-            failLines: [],
-            evidenceSummaries: [],
-        }, context.abortController.signal);
-
-        if (context.isCancelled || task.state === "CANCELLED") {
-            RefStore.clear(task.id);
-            return;
-        }
-
-        task.finalResponse = finalRespRes.response;
-        task.state = "COMPLETED";
-        RefStore.clear(task.id);
-        deps.persistTasks();
-        deps.emitEvent(task.id, "FINAL_RESPONSE", {
-            response: finalRespRes.response,
-            rawInput: finalRespRes.rawInput,
-            rawOutput: finalRespRes.rawOutput,
-        });
-        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "COMPLETED" });
+        console.log(`[PLAN] Objetivo clasificado como conversación directa (fin por argmax). Concluyendo directo.`);
+        await concludeTask(context, "COMPLETED", deps);
         return;
     }
 
@@ -634,7 +546,7 @@ export async function initiatePlanMode(
         rawOutput: plan.rawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
-    console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación en WAITING_INPUT.`);
+    console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación inicial en WAITING_INPUT.`);
 }
 
 export async function runPlanLoop(
@@ -661,20 +573,13 @@ export async function runPlanLoop(
                 return !found || found.state !== "COMPLETED";
             });
             if (brokenDep) {
-                console.warn(`[PLAN] Dependencia '${brokenDep}' del paso '${step.id}' no satisfecha. Activando replanificación por invalidación de dependencia.`);
+                console.warn(`[PLAN] Dependencia '${brokenDep}' del paso '${step.id}' no satisfecha. Activando replanificación autónoma.`);
                 step.state = "FAILED";
                 step.error = `Dependencia previa '${brokenDep}' no completada con éxito.`;
                 deps.persistTasks();
                 deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
-                if ((task.replans || 0) >= MAX_REPLAN) {
-                    console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado ante fallo de dependencia.`);
-                    await concludeTask(context, "PARTIAL", deps, `Dependencia '${brokenDep}' no completada y límite de replanes agotado.`);
-                    return;
-                }
-
-                const replanSuccess = await handleReplan(context, stepIndex, deps);
-                if (!replanSuccess || (task.state as TaskState) === "WAITING_INPUT") {
+                if (!await handleReplan(context, stepIndex, deps)) {
                     return;
                 }
                 continue;
@@ -696,14 +601,7 @@ export async function runPlanLoop(
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
-            if ((task.replans || 0) >= MAX_REPLAN) {
-                console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
-                await concludeTask(context, "PARTIAL", deps, "Límite de replanes alcanzado.");
-                return;
-            }
-
-            const replanSuccess = await handleReplan(context, stepIndex, deps);
-            if (!replanSuccess || (task.state as TaskState) === "WAITING_INPUT") {
+            if (!await handleReplan(context, stepIndex, deps)) {
                 return;
             }
             continue;
@@ -716,8 +614,7 @@ export async function runPlanLoop(
         // Regla estricta de seguridad (§3.2.7 y §6.2): si el paso fue denegado por Guard o por el usuario, PROHIBIDO replanificar
         if (execResult.signals?.denied || (step.state as StepState) === "BLOCKED") {
             console.warn(`[PLAN] Acción denegada por Guard o usuario. Prohibido replanificar para eludir denegación.`);
-            const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-            await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, "Operación denegada por política de seguridad (Guard).");
+            await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
             return;
         }
 
@@ -727,7 +624,7 @@ export async function runPlanLoop(
             const evidenceSummary = execResult.call?.evidence?.summary || execResult.call?.evidence?.obs || "";
             const compactObs = context.lastCallCompactObs || "";
             const eosOk = execResult.call?.evidence?.ok ?? true;
-            const eosCumple = execResult.call?.outcome?.success ?? true;
+            const eosCumple = (execResult.call?.evidence as any)?.cumple ?? execResult.call?.outcome?.success ?? true;
 
             const stageVerif = await deps.qwenEngine.verifyStage({
                 goal: task.message,
@@ -778,8 +675,7 @@ export async function runPlanLoop(
                 step.error = stageVerif.reason;
                 deps.persistTasks();
                 deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
-                const hasCompleted = task.steps.some((s) => s.state === "COMPLETED");
-                await concludeTask(context, hasCompleted ? "PARTIAL" : "FAILED", deps, stageVerif.reason);
+                await concludeTask(context, resolveFailureState(task), deps, stageVerif.reason);
                 return;
             } else {
                 // recoverable_deviation:
@@ -788,14 +684,7 @@ export async function runPlanLoop(
                 deps.persistTasks();
                 deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
-                if ((task.replans || 0) >= MAX_REPLAN) {
-                    console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
-                    await concludeTask(context, "PARTIAL", deps, "Límite de replanes alcanzado.");
-                    return;
-                }
-
-                const replanSuccess = await handleReplan(context, stepIndex, deps);
-                if (!replanSuccess || (task.state as TaskState) === "WAITING_INPUT") {
+                if (!await handleReplan(context, stepIndex, deps)) {
                     return;
                 }
                 continue;
@@ -813,14 +702,7 @@ export async function runPlanLoop(
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
-            if ((task.replans || 0) >= MAX_REPLAN) {
-                console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
-                await concludeTask(context, "PARTIAL", deps, "Límite de replanes alcanzado.");
-                return;
-            }
-
-            const replanSuccess = await handleReplan(context, stepIndex, deps);
-            if (!replanSuccess || (task.state as TaskState) === "WAITING_INPUT") {
+            if (!await handleReplan(context, stepIndex, deps)) {
                 return;
             }
             continue;
