@@ -276,9 +276,6 @@ ${DATA_NOTICE}`,
         `OBJETIVO GENERAL: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
         `ETAPA EJECUTADA: ${safe(clip(data.stepInstruction, MAX_GOAL_CHARS))}`,
         `CRITERIO ESPERADO: ${safe(clip(data.expectedOutcome, MAX_GOAL_CHARS))}`,
-        data.eosOk !== undefined || data.eosCumple !== undefined
-          ? `EVALUACIÓN DE PASO (EOS): ok=${data.eosOk ?? "N/A"}, cumple=${data.eosCumple ?? "N/A"}`
-          : null,
         dataBlock("EVIDENCIA OBSERVABLE", data.evidenceSummary, MAX_OBS_CHARS),
         dataBlock("OBSERVACIÓN COMPACTA", data.compactObs, MAX_OBS_CHARS),
         factsBlock(data.facts, MAX_FACTS_CHARS),

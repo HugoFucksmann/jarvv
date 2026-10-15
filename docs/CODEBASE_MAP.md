@@ -2,365 +2,384 @@
 
 ## 1. Árbol de Archivos del Proyecto
 
-├── docs
-│   ├── ARCHITECTURE.md
-│   ├── CODEBASE_MAP.md
-│   ├── CONTEXT_AND_MEMORY.md
-│   ├── CORE_FLOW.md
-│   ├── Desicion-2.0-Eos.md
-│   ├── Desktop CommanderMCP.md
-│   ├── free-search-mcp.md
-│   ├── INCONSISTENCIAS.md
-│   ├── MCP_TOOLS_SNAPSHOT.md
-│   ├── TOOLS_AND_SECURITY.md
-│   └── WindowsMCP.md
-├── src
-│   ├── components
-│   │   ├── CommandSection
-│   │   │   ├── components
-│   │   │   │   └── PromptInput.tsx
-│   │   │   └── CommandSection.tsx
-│   │   ├── ContextInspector
-│   │   │   ├── components
-│   │   │   │   ├── DiscoveryCatalogView.tsx
-│   │   │   │   ├── EvidenceView.tsx
-│   │   │   │   ├── MemoryView.tsx
-│   │   │   │   ├── ScratchpadView.tsx
-│   │   │   │   └── SessionStateView.tsx
-│   │   │   └── ContextInspector.tsx
-│   │   ├── DecisionStream
-│   │   │   ├── components
-│   │   │   │   ├── DecisionOneView.tsx
-│   │   │   │   ├── DecisionTwoView.tsx
-│   │   │   │   ├── DecisionVerificationView.tsx
-│   │   │   │   ├── ModelIterationCard.tsx
-│   │   │   │   └── StepIterationGroup.tsx
-│   │   │   └── DecisionStream.tsx
-│   │   ├── GuardBanner
-│   │   │   ├── components
-│   │   │   │   └── ApprovalAction.tsx
-│   │   │   └── GuardBanner.tsx
-│   │   ├── ProcessFlow
-│   │   │   ├── components
-│   │   │   │   ├── FinalResponseView.tsx
-│   │   │   │   ├── PlanReview.tsx
-│   │   │   │   ├── StepItem.tsx
-│   │   │   │   ├── StepTimeline.tsx
-│   │   │   │   └── TaskOverview.tsx
-│   │   │   └── ProcessFlow.tsx
-│   │   ├── SettingsModal
-│   │   │   └── SettingsModal.tsx
-│   │   ├── Shared
-│   │   │   ├── MarkdownRenderer.tsx
-│   │   │   └── StatusDot.tsx
-│   │   └── TopBar
-│   │       ├── components
-│   │       │   ├── BrandWordmark.tsx
-│   │       │   ├── HistoryMenu.tsx
-│   │       │   ├── ModeSelector.tsx
-│   │       │   └── SystemStatus.tsx
-│   │       └── TopBar.tsx
-│   ├── core
-│   │   ├── mcp
-│   │   │   ├── desktopCommanderMcp.ts
-│   │   │   ├── discovery.ts
-│   │   │   ├── freeSearchMcp.ts
-│   │   │   ├── transport.ts
-│   │   │   ├── types.ts
-│   │   │   └── windowsMcp.ts
-│   │   ├── policy
-│   │   │   ├── guard.ts
-│   │   │   └── policyRegistry.ts
-│   │   ├── processor
-│   │   │   ├── refResolver.ts
-│   │   │   └── resultProcessor.ts
-│   │   ├── reasoner
-│   │   │   ├── prompts.ts
-│   │   │   └── qwen.ts
-│   │   ├── tools
-│   │   │   └── manifest.ts
-│   │   ├── callExecutor.ts
-│   │   ├── config.ts
-│   │   ├── context.ts
-│   │   ├── core.ts
-│   │   ├── decision.ts
-│   │   ├── modeEngines.ts
-│   │   └── types.ts
-│   ├── hooks
-│   │   └── useJarvis.ts
-│   ├── services
-│   │   └── jarvisApi.ts
-│   ├── types
-│   │   └── debug.ts
-│   ├── utils
-│   │   ├── apiUrl.ts
-│   │   └── debugAccumulator.ts
-│   ├── App.tsx
-│   ├── index.css
-│   └── main.tsx
-├── .gitignore
-├── index.html
-├── jarvis-config.json
-├── jarvis-tasks.json
-├── metadata.json
-├── package.json
-├── PLAN_IMPLEMENTACION_MIGRACION_V1.3.md
-├── readme.md
-├── server.ts
-├── test-phase4.ts
-├── test-phase5.ts
-├── test-phase6.ts
-├── tsconfig.json
-└── vite.config.ts
+|-- docs
+|   |-- ARCHITECTURE.md
+|   |-- CODEBASE_MAP.md
+|   |-- CONTEXT_AND_MEMORY.md
+|   |-- CORE_FLOW.md
+|   |-- Desicion-2.0-Eos.md
+|   |-- Desktop CommanderMCP.md
+|   |-- free-search-mcp.md
+|   |-- INCONSISTENCIAS.md
+|   |-- MCP_TOOLS_SNAPSHOT.md
+|   |-- TOOLS_AND_SECURITY.md
+|   \-- WindowsMCP.md
+|-- src
+|   |-- components
+|   |   |-- CommandSection
+|   |   |   |-- components
+|   |   |   |   \-- PromptInput.tsx
+|   |   |   \-- CommandSection.tsx
+|   |   |-- ContextInspector
+|   |   |   |-- components
+|   |   |   |   |-- DiscoveryCatalogView.tsx
+|   |   |   |   |-- EvidenceView.tsx
+|   |   |   |   |-- MemoryView.tsx
+|   |   |   |   |-- ScratchpadView.tsx
+|   |   |   |   \-- SessionStateView.tsx
+|   |   |   \-- ContextInspector.tsx
+|   |   |-- DecisionStream
+|   |   |   |-- components
+|   |   |   |   |-- DecisionOneView.tsx
+|   |   |   |   |-- DecisionTwoView.tsx
+|   |   |   |   |-- DecisionVerificationView.tsx
+|   |   |   |   |-- ModelIterationCard.tsx
+|   |   |   |   \-- StepIterationGroup.tsx
+|   |   |   \-- DecisionStream.tsx
+|   |   |-- GuardBanner
+|   |   |   |-- components
+|   |   |   |   \-- ApprovalAction.tsx
+|   |   |   \-- GuardBanner.tsx
+|   |   |-- ProcessFlow
+|   |   |   |-- components
+|   |   |   |   |-- FinalResponseView.tsx
+|   |   |   |   |-- PlanReview.tsx
+|   |   |   |   |-- StepItem.tsx
+|   |   |   |   |-- StepTimeline.tsx
+|   |   |   |   \-- TaskOverview.tsx
+|   |   |   \-- ProcessFlow.tsx
+|   |   |-- SettingsModal
+|   |   |   \-- SettingsModal.tsx
+|   |   |-- Shared
+|   |   |   |-- MarkdownRenderer.tsx
+|   |   |   \-- StatusDot.tsx
+|   |   \-- TopBar
+|   |       |-- components
+|   |       |   |-- BrandWordmark.tsx
+|   |       |   |-- HistoryMenu.tsx
+|   |       |   |-- ModeSelector.tsx
+|   |       |   \-- SystemStatus.tsx
+|   |       \-- TopBar.tsx
+|   |-- core
+|   |   |-- mcp
+|   |   |   |-- desktopCommanderMcp.ts
+|   |   |   |-- discovery.ts
+|   |   |   |-- freeSearchMcp.ts
+|   |   |   |-- transport.ts
+|   |   |   |-- types.ts
+|   |   |   \-- windowsMcp.ts
+|   |   |-- policy
+|   |   |   |-- guard.ts
+|   |   |   \-- policyRegistry.ts
+|   |   |-- processor
+|   |   |   |-- refResolver.ts
+|   |   |   \-- resultProcessor.ts
+|   |   |-- reasoner
+|   |   |   |-- prompts.ts
+|   |   |   \-- qwen.ts
+|   |   |-- tools
+|   |   |   \-- manifest.ts
+|   |   |-- callExecutor.ts
+|   |   |-- config.ts
+|   |   |-- context.ts
+|   |   |-- core.ts
+|   |   |-- decision.ts
+|   |   |-- llmTransport.ts
+|   |   |-- modeEngines.ts
+|   |   \-- types.ts
+|   |-- hooks
+|   |   \-- useJarvis.ts
+|   |-- services
+|   |   \-- jarvisApi.ts
+|   |-- types
+|   |   \-- debug.ts
+|   |-- utils
+|   |   |-- apiUrl.ts
+|   |   \-- debugAccumulator.ts
+|   |-- App.tsx
+|   |-- index.css
+|   \-- main.tsx
+|-- .gitignore
+|-- index.html
+|-- jarvis-config.json
+|-- jarvis-tasks.json
+|-- metadata.json
+|-- package.json
+|-- readme.md
+|-- server.ts
+|-- tsconfig.json
+\-- vite.config.ts
 
 ---
 
 ## 2. Mapa de Dependencias por Importaciones
 
 {
-  "App.tsx": [
-    "components/CommandSection/CommandSection.tsx",
-    "components/ContextInspector/ContextInspector.tsx",
-    "components/DecisionStream/DecisionStream.tsx",
-    "components/GuardBanner/GuardBanner.tsx",
-    "components/ProcessFlow/ProcessFlow.tsx",
-    "components/SettingsModal/SettingsModal.tsx",
-    "components/TopBar/TopBar.tsx",
-    "hooks/useJarvis.ts"
+  "server.ts": [
+    "src/core/config.ts",
+    "src/core/core.ts",
+    "src/core/decision.ts",
+    "src/core/mcp/desktopCommanderMcp.ts",
+    "src/core/mcp/discovery.ts",
+    "src/core/mcp/freeSearchMcp.ts",
+    "src/core/mcp/types.ts",
+    "src/core/mcp/windowsMcp.ts",
+    "src/core/processor/resultProcessor.ts",
+    "src/core/reasoner/qwen.ts",
+    "src/core/types.ts"
   ],
-  "components/CommandSection/CommandSection.tsx": [
-    "components/CommandSection/components/PromptInput.tsx"
+  "src/App.tsx": [
+    "src/components/CommandSection/CommandSection.tsx",
+    "src/components/ContextInspector/ContextInspector.tsx",
+    "src/components/DecisionStream/DecisionStream.tsx",
+    "src/components/GuardBanner/GuardBanner.tsx",
+    "src/components/ProcessFlow/ProcessFlow.tsx",
+    "src/components/SettingsModal/SettingsModal.tsx",
+    "src/components/TopBar/TopBar.tsx",
+    "src/hooks/useJarvis.ts"
   ],
-  "components/CommandSection/components/PromptInput.tsx": [],
-  "components/ContextInspector/ContextInspector.tsx": [
-    "components/ContextInspector/components/DiscoveryCatalogView.tsx",
-    "components/ContextInspector/components/EvidenceView.tsx",
-    "components/ContextInspector/components/MemoryView.tsx",
-    "components/ContextInspector/components/ScratchpadView.tsx",
-    "components/ContextInspector/components/SessionStateView.tsx",
-    "core/mcp/types.ts",
-    "core/types.ts"
+  "src/components/CommandSection/CommandSection.tsx": [
+    "src/components/CommandSection/components/PromptInput.tsx"
   ],
-  "components/ContextInspector/components/DiscoveryCatalogView.tsx": [
-    "core/mcp/types.ts",
-    "core/types.ts",
-    "services/jarvisApi.ts"
+  "src/components/CommandSection/components/PromptInput.tsx": [],
+  "src/components/ContextInspector/ContextInspector.tsx": [
+    "src/components/ContextInspector/components/DiscoveryCatalogView.tsx",
+    "src/components/ContextInspector/components/EvidenceView.tsx",
+    "src/components/ContextInspector/components/MemoryView.tsx",
+    "src/components/ContextInspector/components/ScratchpadView.tsx",
+    "src/components/ContextInspector/components/SessionStateView.tsx",
+    "src/core/mcp/types.ts",
+    "src/core/types.ts"
   ],
-  "components/ContextInspector/components/EvidenceView.tsx": [
-    "core/types.ts"
+  "src/components/ContextInspector/components/DiscoveryCatalogView.tsx": [
+    "src/core/mcp/types.ts",
+    "src/core/types.ts",
+    "src/services/jarvisApi.ts"
   ],
-  "components/ContextInspector/components/MemoryView.tsx": [
-    "core/types.ts",
-    "services/jarvisApi.ts"
+  "src/components/ContextInspector/components/EvidenceView.tsx": [
+    "src/core/types.ts"
   ],
-  "components/ContextInspector/components/ScratchpadView.tsx": [
-    "core/types.ts"
+  "src/components/ContextInspector/components/MemoryView.tsx": [
+    "src/core/types.ts",
+    "src/services/jarvisApi.ts"
   ],
-  "components/ContextInspector/components/SessionStateView.tsx": [
-    "core/types.ts"
+  "src/components/ContextInspector/components/ScratchpadView.tsx": [
+    "src/core/types.ts"
   ],
-  "components/DecisionStream/DecisionStream.tsx": [
-    "components/DecisionStream/components/DecisionOneView.tsx",
-    "components/DecisionStream/components/DecisionTwoView.tsx",
-    "components/DecisionStream/components/DecisionVerificationView.tsx",
-    "components/DecisionStream/components/StepIterationGroup.tsx",
-    "core/types.ts",
-    "types/debug.ts",
-    "utils/debugAccumulator.ts"
+  "src/components/ContextInspector/components/SessionStateView.tsx": [
+    "src/core/types.ts"
   ],
-  "components/DecisionStream/components/DecisionOneView.tsx": [
-    "core/types.ts"
+  "src/components/DecisionStream/DecisionStream.tsx": [
+    "src/components/DecisionStream/components/DecisionOneView.tsx",
+    "src/components/DecisionStream/components/DecisionTwoView.tsx",
+    "src/components/DecisionStream/components/DecisionVerificationView.tsx",
+    "src/components/DecisionStream/components/StepIterationGroup.tsx",
+    "src/core/types.ts",
+    "src/types/debug.ts",
+    "src/utils/debugAccumulator.ts"
   ],
-  "components/DecisionStream/components/DecisionTwoView.tsx": [
-    "core/types.ts"
+  "src/components/DecisionStream/components/DecisionOneView.tsx": [
+    "src/core/types.ts"
   ],
-  "components/DecisionStream/components/DecisionVerificationView.tsx": [
-    "core/types.ts"
+  "src/components/DecisionStream/components/DecisionTwoView.tsx": [
+    "src/core/types.ts"
   ],
-  "components/DecisionStream/components/ModelIterationCard.tsx": [
-    "types/debug.ts"
+  "src/components/DecisionStream/components/DecisionVerificationView.tsx": [
+    "src/core/types.ts"
   ],
-  "components/DecisionStream/components/StepIterationGroup.tsx": [
-    "components/DecisionStream/components/ModelIterationCard.tsx",
-    "types/debug.ts"
+  "src/components/DecisionStream/components/ModelIterationCard.tsx": [
+    "src/types/debug.ts"
   ],
-  "components/GuardBanner/GuardBanner.tsx": [
-    "components/GuardBanner/components/ApprovalAction.tsx",
-    "core/types.ts"
+  "src/components/DecisionStream/components/StepIterationGroup.tsx": [
+    "src/components/DecisionStream/components/ModelIterationCard.tsx",
+    "src/types/debug.ts"
   ],
-  "components/GuardBanner/components/ApprovalAction.tsx": [
-    "core/types.ts"
+  "src/components/GuardBanner/GuardBanner.tsx": [
+    "src/components/GuardBanner/components/ApprovalAction.tsx",
+    "src/core/types.ts"
   ],
-  "components/ProcessFlow/ProcessFlow.tsx": [
-    "components/ProcessFlow/components/FinalResponseView.tsx",
-    "components/ProcessFlow/components/PlanReview.tsx",
-    "components/ProcessFlow/components/StepTimeline.tsx",
-    "components/ProcessFlow/components/TaskOverview.tsx",
-    "core/types.ts"
+  "src/components/GuardBanner/components/ApprovalAction.tsx": [
+    "src/core/types.ts"
   ],
-  "components/ProcessFlow/components/FinalResponseView.tsx": [
-    "components/Shared/MarkdownRenderer.tsx"
+  "src/components/ProcessFlow/ProcessFlow.tsx": [
+    "src/components/ProcessFlow/components/FinalResponseView.tsx",
+    "src/components/ProcessFlow/components/PlanReview.tsx",
+    "src/components/ProcessFlow/components/StepTimeline.tsx",
+    "src/components/ProcessFlow/components/TaskOverview.tsx",
+    "src/core/types.ts"
   ],
-  "components/ProcessFlow/components/PlanReview.tsx": [
-    "core/types.ts"
+  "src/components/ProcessFlow/components/FinalResponseView.tsx": [
+    "src/components/Shared/MarkdownRenderer.tsx"
   ],
-  "components/ProcessFlow/components/StepItem.tsx": [
-    "core/types.ts"
+  "src/components/ProcessFlow/components/PlanReview.tsx": [
+    "src/core/types.ts"
   ],
-  "components/ProcessFlow/components/StepTimeline.tsx": [
-    "components/ProcessFlow/components/StepItem.tsx",
-    "core/types.ts"
+  "src/components/ProcessFlow/components/StepItem.tsx": [
+    "src/core/types.ts"
   ],
-  "components/ProcessFlow/components/TaskOverview.tsx": [
-    "components/Shared/StatusDot.tsx",
-    "core/types.ts"
+  "src/components/ProcessFlow/components/StepTimeline.tsx": [
+    "src/components/ProcessFlow/components/StepItem.tsx",
+    "src/core/types.ts"
   ],
-  "components/SettingsModal/SettingsModal.tsx": [
-    "core/config.ts",
-    "services/jarvisApi.ts"
+  "src/components/ProcessFlow/components/TaskOverview.tsx": [
+    "src/components/Shared/StatusDot.tsx",
+    "src/core/types.ts"
   ],
-  "components/Shared/MarkdownRenderer.tsx": [],
-  "components/Shared/StatusDot.tsx": [],
-  "components/TopBar/TopBar.tsx": [
-    "components/TopBar/components/BrandWordmark.tsx",
-    "components/TopBar/components/HistoryMenu.tsx",
-    "components/TopBar/components/ModeSelector.tsx",
-    "components/TopBar/components/SystemStatus.tsx",
-    "core/types.ts"
+  "src/components/SettingsModal/SettingsModal.tsx": [
+    "src/core/config.ts",
+    "src/services/jarvisApi.ts"
   ],
-  "components/TopBar/components/BrandWordmark.tsx": [],
-  "components/TopBar/components/HistoryMenu.tsx": [
-    "components/Shared/StatusDot.tsx",
-    "core/types.ts"
+  "src/components/Shared/MarkdownRenderer.tsx": [],
+  "src/components/Shared/StatusDot.tsx": [],
+  "src/components/TopBar/TopBar.tsx": [
+    "src/components/TopBar/components/BrandWordmark.tsx",
+    "src/components/TopBar/components/HistoryMenu.tsx",
+    "src/components/TopBar/components/ModeSelector.tsx",
+    "src/components/TopBar/components/SystemStatus.tsx",
+    "src/core/types.ts"
   ],
-  "components/TopBar/components/ModeSelector.tsx": [],
-  "components/TopBar/components/SystemStatus.tsx": [
-    "components/Shared/StatusDot.tsx"
+  "src/components/TopBar/components/BrandWordmark.tsx": [],
+  "src/components/TopBar/components/HistoryMenu.tsx": [
+    "src/components/Shared/StatusDot.tsx",
+    "src/core/types.ts"
   ],
-  "core/callExecutor.ts": [
-    "core/context.ts",
-    "core/decision.ts",
-    "core/mcp/discovery.ts",
-    "core/policy/guard.ts",
-    "core/policy/policyRegistry.ts",
-    "core/processor/refResolver.ts",
-    "core/processor/resultProcessor.ts",
-    "core/reasoner/qwen.ts",
-    "core/types.ts"
+  "src/components/TopBar/components/ModeSelector.tsx": [],
+  "src/components/TopBar/components/SystemStatus.tsx": [
+    "src/components/Shared/StatusDot.tsx"
   ],
-  "core/config.ts": [],
-  "core/context.ts": [
-    "core/reasoner/prompts.ts",
-    "core/types.ts"
+  "src/core/callExecutor.ts": [
+    "src/core/context.ts",
+    "src/core/decision.ts",
+    "src/core/llmTransport.ts",
+    "src/core/mcp/discovery.ts",
+    "src/core/policy/guard.ts",
+    "src/core/processor/refResolver.ts",
+    "src/core/processor/resultProcessor.ts",
+    "src/core/reasoner/qwen.ts",
+    "src/core/tools/manifest.ts",
+    "src/core/types.ts"
   ],
-  "core/core.ts": [
-    "core/callExecutor.ts",
-    "core/context.ts",
-    "core/decision.ts",
-    "core/mcp/discovery.ts",
-    "core/modeEngines.ts",
-    "core/processor/resultProcessor.ts",
-    "core/reasoner/qwen.ts",
-    "core/types.ts",
-    "utils/debugAccumulator.ts"
+  "src/core/config.ts": [],
+  "src/core/context.ts": [
+    "src/core/reasoner/prompts.ts",
+    "src/core/types.ts"
   ],
-  "core/decision.ts": [
-    "core/config.ts",
-    "core/reasoner/prompts.ts",
-    "core/types.ts"
+  "src/core/core.ts": [
+    "src/core/callExecutor.ts",
+    "src/core/context.ts",
+    "src/core/decision.ts",
+    "src/core/llmTransport.ts",
+    "src/core/mcp/discovery.ts",
+    "src/core/modeEngines.ts",
+    "src/core/processor/resultProcessor.ts",
+    "src/core/reasoner/qwen.ts",
+    "src/core/types.ts",
+    "src/utils/debugAccumulator.ts"
   ],
-  "core/mcp/desktopCommanderMcp.ts": [
-    "core/config.ts",
-    "core/mcp/transport.ts",
-    "core/mcp/types.ts",
-    "core/types.ts"
+  "src/core/decision.ts": [
+    "src/core/config.ts",
+    "src/core/llmTransport.ts",
+    "src/core/reasoner/prompts.ts",
+    "src/core/types.ts"
   ],
-  "core/mcp/discovery.ts": [
-    "core/mcp/types.ts",
-    "core/types.ts"
+  "src/core/llmTransport.ts": [
+    "src/core/types.ts"
   ],
-  "core/mcp/freeSearchMcp.ts": [
-    "core/config.ts",
-    "core/mcp/transport.ts",
-    "core/mcp/types.ts",
-    "core/types.ts"
+  "src/core/mcp/desktopCommanderMcp.ts": [
+    "src/core/config.ts",
+    "src/core/mcp/transport.ts",
+    "src/core/mcp/types.ts",
+    "src/core/types.ts"
   ],
-  "core/mcp/transport.ts": [
-    "core/config.ts",
-    "core/mcp/types.ts",
-    "core/types.ts"
+  "src/core/mcp/discovery.ts": [
+    "src/core/mcp/types.ts",
+    "src/core/types.ts"
   ],
-  "core/mcp/types.ts": [
-    "core/types.ts"
+  "src/core/mcp/freeSearchMcp.ts": [
+    "src/core/config.ts",
+    "src/core/mcp/transport.ts",
+    "src/core/mcp/types.ts",
+    "src/core/types.ts"
   ],
-  "core/mcp/windowsMcp.ts": [
-    "core/config.ts",
-    "core/mcp/transport.ts",
-    "core/mcp/types.ts",
-    "core/types.ts"
+  "src/core/mcp/transport.ts": [
+    "src/core/config.ts",
+    "src/core/mcp/types.ts",
+    "src/core/types.ts"
   ],
-  "core/modeEngines.ts": [
-    "core/callExecutor.ts",
-    "core/context.ts",
-    "core/policy/policyRegistry.ts",
-    "core/processor/resultProcessor.ts",
-    "core/reasoner/qwen.ts",
-    "core/types.ts"
+  "src/core/mcp/types.ts": [
+    "src/core/types.ts"
   ],
-  "core/policy/guard.ts": [
-    "core/policy/policyRegistry.ts",
-    "core/types.ts"
+  "src/core/mcp/windowsMcp.ts": [
+    "src/core/config.ts",
+    "src/core/mcp/transport.ts",
+    "src/core/mcp/types.ts",
+    "src/core/types.ts"
   ],
-  "core/policy/policyRegistry.ts": [
-    "core/tools/manifest.ts",
-    "core/types.ts"
+  "src/core/modeEngines.ts": [
+    "src/core/callExecutor.ts",
+    "src/core/context.ts",
+    "src/core/llmTransport.ts",
+    "src/core/processor/resultProcessor.ts",
+    "src/core/types.ts"
   ],
-  "core/processor/refResolver.ts": [
-    "core/processor/resultProcessor.ts"
+  "src/core/policy/guard.ts": [
+    "src/core/tools/manifest.ts",
+    "src/core/types.ts"
   ],
-  "core/processor/resultProcessor.ts": [
-    "core/policy/policyRegistry.ts",
-    "core/types.ts"
+  "src/core/policy/policyRegistry.ts": [
+    "src/core/tools/manifest.ts",
+    "src/core/types.ts"
   ],
-  "core/reasoner/prompts.ts": [
-    "core/types.ts"
+  "src/core/processor/refResolver.ts": [
+    "src/core/processor/resultProcessor.ts"
   ],
-  "core/reasoner/qwen.ts": [
-    "core/config.ts",
-    "core/mcp/discovery.ts",
-    "core/reasoner/prompts.ts",
-    "core/tools/manifest.ts",
-    "core/types.ts"
+  "src/core/processor/resultProcessor.ts": [
+    "src/core/tools/manifest.ts",
+    "src/core/types.ts"
   ],
-  "core/tools/manifest.ts": [
-    "core/types.ts"
+  "src/core/reasoner/prompts.ts": [
+    "src/core/tools/manifest.ts",
+    "src/core/types.ts"
   ],
-  "core/types.ts": [
-    "types/debug.ts"
+  "src/core/reasoner/qwen.ts": [
+    "src/core/config.ts",
+    "src/core/llmTransport.ts",
+    "src/core/processor/refResolver.ts",
+    "src/core/reasoner/prompts.ts",
+    "src/core/tools/manifest.ts",
+    "src/core/types.ts"
   ],
-  "hooks/useJarvis.ts": [
-    "core/mcp/types.ts",
-    "core/types.ts",
-    "services/jarvisApi.ts",
-    "types/debug.ts",
-    "utils/apiUrl.ts",
-    "utils/debugAccumulator.ts"
+  "src/core/tools/manifest.ts": [
+    "src/core/types.ts"
   ],
-  "index.css": [],
-  "main.tsx": [
-    "App.tsx",
-    "index.css"
+  "src/core/types.ts": [
+    "src/types/debug.ts"
   ],
-  "services/jarvisApi.ts": [
-    "core/config.ts",
-    "core/mcp/types.ts",
-    "core/types.ts",
-    "utils/apiUrl.ts"
+  "src/hooks/useJarvis.ts": [
+    "src/core/mcp/types.ts",
+    "src/core/types.ts",
+    "src/services/jarvisApi.ts",
+    "src/types/debug.ts",
+    "src/utils/apiUrl.ts",
+    "src/utils/debugAccumulator.ts"
   ],
-  "types/debug.ts": [],
-  "utils/apiUrl.ts": [],
-  "utils/debugAccumulator.ts": [
-    "core/types.ts",
-    "types/debug.ts"
-  ]
+  "src/index.css": [],
+  "src/main.tsx": [
+    "src/App.tsx",
+    "src/index.css"
+  ],
+  "src/services/jarvisApi.ts": [
+    "src/core/config.ts",
+    "src/core/mcp/types.ts",
+    "src/core/types.ts",
+    "src/utils/apiUrl.ts"
+  ],
+  "src/types/debug.ts": [],
+  "src/utils/apiUrl.ts": [],
+  "src/utils/debugAccumulator.ts": [
+    "src/core/types.ts",
+    "src/types/debug.ts"
+  ],
+  "vite.config.ts": []
 }
+

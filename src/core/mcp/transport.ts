@@ -7,10 +7,12 @@
  * - Persistent child process per MCP server across requests.
  * - Atomic initialization promise to eliminate race conditions on concurrent starts.
  * - Request correlation via JSON-RPC IDs.
- * - Chunk buffering and line framing on stdout.
+ * - Chunk buffering and line framing on stdout (decodificación UTF-8 en streaming).
  * - Stderr logging without corrupting JSON-RPC stream.
  * - Process tree termination (taskkill on Windows) to prevent zombie processes.
  * - Reconnection, session persistence, and clean process termination.
+ * - Aislamiento por proceso: los eventos de un proceso cerrado o reemplazado se ignoran y
+ *   nunca afectan a peticiones ni al estado del proceso vigente.
  */
 
 import { MCPTool, MCPCallResult } from "../types.ts";
@@ -125,6 +127,12 @@ export class StdioMcpTransport implements IMCPTransport {
       };
 
       let initCompleted = false;
+      let started: ChildProcess | null = null;
+      /**
+       * El proceso que arrancó esta inicialización ya no es el vigente (cerrado, reemplazado o
+       * terminado). Su manejador de eventos ya limpió el estado compartido, así que no debe tocarlo.
+       */
+      const superseded = () => started !== null && this.childProcess !== started;
 
       try {
         const child = spawn(command, args, {
@@ -134,28 +142,41 @@ export class StdioMcpTransport implements IMCPTransport {
           shell: process.platform === "win32",
         });
 
+        started = child;
         this.childProcess = child;
         this.stdoutBuffer = "";
         this.connected = true;
 
-        child.stdout?.on("data", (chunk: Buffer | string) => {
-          this.handleStdoutData(chunk.toString());
+        // Decodificación en streaming: un carácter multibyte partido entre dos chunks no se corrompe.
+        child.stdout?.setEncoding("utf8");
+        child.stderr?.setEncoding("utf8");
+
+        child.stdout?.on("data", (chunk: string) => {
+          if (this.childProcess !== child) return;
+          this.handleStdoutData(chunk);
         });
 
-        child.stderr?.on("data", (chunk: Buffer | string) => {
-          const text = chunk.toString();
-          this.stderrLines.push(text);
+        child.stderr?.on("data", (chunk: string) => {
+          if (this.childProcess !== child) return;
+          this.stderrLines.push(chunk);
           if (this.stderrLines.length > 50) {
             this.stderrLines.shift();
           }
         });
 
-        child.on("error", (err: Error) => {
+        // Sin listener, un EPIPE al escribir en un proceso que ya no lee se eleva como excepción no controlada.
+        // La petición afectada se rechaza por el callback de escritura o por su timeout.
+        child.stdin?.on("error", (err: Error) => {
           if (this.childProcess === child) {
-            this.connected = false;
-            this.initialized = false;
-            this.initPromise = null;
+            console.error(`[MCP] ${this.serverName} stdin: ${err.message}`);
           }
+        });
+
+        child.on("error", (err: Error) => {
+          if (this.childProcess !== child) return;
+          this.connected = false;
+          this.initialized = false;
+          this.initPromise = null;
           const lastStderr = this.getLastStderr();
           if (lastStderr) {
             console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -168,12 +189,11 @@ export class StdioMcpTransport implements IMCPTransport {
         });
 
         child.on("exit", (code, signal) => {
-          if (this.childProcess === child) {
-            this.connected = false;
-            this.initialized = false;
-            this.childProcess = null;
-            this.initPromise = null;
-          }
+          if (this.childProcess !== child) return;
+          this.connected = false;
+          this.initialized = false;
+          this.childProcess = null;
+          this.initPromise = null;
           const lastStderr = this.getLastStderr();
           if (code !== 0 && code !== null && lastStderr) {
             console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -187,31 +207,37 @@ export class StdioMcpTransport implements IMCPTransport {
         });
 
         // Handshake obligatorio antes de permitir tráfico externo
-        if (!this.initialized) {
-          try {
-            await this.rawRpcCall("initialize", {
-              protocolVersion: "2024-11-05",
-              capabilities: {},
-              clientInfo: {
-                name: "jarvis-core",
-                version: "1.0.0",
-              },
-            });
-            this.sendNotification("notifications/initialized", {});
-          } catch {
-            // Tolera servidores que omiten initialize
-          }
-          this.initialized = true;
-          initCompleted = true;
-        } else {
-          initCompleted = true;
+        try {
+          await this.rawRpcCall("initialize", {
+            protocolVersion: "2024-11-05",
+            capabilities: {},
+            clientInfo: {
+              name: "jarvis-core",
+              version: "1.0.0",
+            },
+          });
+          this.sendNotification("notifications/initialized", {});
+        } catch {
+          // Tolera servidores que omiten initialize (error RPC o timeout).
+          // Un proceso que murió o fue cerrado durante el handshake se detecta justo debajo.
         }
+
+        if (this.permanentFailure) {
+          throw this.permanentFailure;
+        }
+        if (this.childProcess !== child) {
+          const lastStderr = this.getLastStderr();
+          throw new MCPTransportError(
+            this.serverName,
+            `El proceso MCP terminó o fue cerrado durante la inicialización.${lastStderr ? ` stderr: ${lastStderr}` : ""}`
+          );
+        }
+
+        this.initialized = true;
+        initCompleted = true;
 
         return child;
       } catch (err: any) {
-        this.connected = false;
-        this.initialized = false;
-        this.initPromise = null;
         const transportErr = err instanceof MCPTransportError
           ? err
           : new MCPTransportError(
@@ -219,13 +245,19 @@ export class StdioMcpTransport implements IMCPTransport {
             `No fue posible iniciar el proceso MCP '${command} ${args.join(" ")}': ${err.message}`,
             err
           );
+        if (superseded()) {
+          throw transportErr;
+        }
+        this.connected = false;
+        this.initialized = false;
+        this.initPromise = null;
         if (!initCompleted) {
           this.permanentFailure = transportErr;
           console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar: ${err.message}`);
         }
         throw transportErr;
       } finally {
-        if (!this.initialized) {
+        if (!this.initialized && !superseded()) {
           this.initPromise = null;
         }
       }
@@ -247,6 +279,12 @@ export class StdioMcpTransport implements IMCPTransport {
       try {
         msg = JSON.parse(trimmed);
       } catch {
+        continue;
+      }
+
+      // Petición o notificación originada en el servidor: no es la respuesta a ninguna petición del
+      // cliente, aunque su `id` coincida con el de una pendiente.
+      if (msg && typeof msg === "object" && typeof msg.method === "string") {
         continue;
       }
 

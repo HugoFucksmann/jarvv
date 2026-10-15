@@ -66,7 +66,7 @@ export interface StepCall {
 
 export interface Step {
   id: string;
-  route: StepRoute;
+  route: ExecutableRoute;
   instruction: string;
   mcp?: string;
   tool?: string;
@@ -80,11 +80,11 @@ export interface Step {
   rev?: number;
   superseded?: boolean;
   expectedOutcome?: string;
-  dependencies?: string[];
-  candidate_tools?: string[];
   handoff?: StepHandoff;
   rawInput?: string;
   rawOutput?: string;
+  candidate_tools?: string[];
+  dependencies?: string[];
 }
 
 export interface StepHandoff {
@@ -97,16 +97,12 @@ export interface StepHandoff {
   timestamp: number;
 }
 
+/** Paso de plan ya validado por qwen.ts: ruta ejecutable y criterio de éxito siempre presentes. */
 export interface PlanStep {
   id: string;
-  goal?: string;
   instruction: string;
-  suggested_mcp?: ExecutableRoute;
-  route?: ExecutableRoute;
-  expected_outcome?: string;
-  expectedOutcome?: string;
-  dependencies?: string[];
-  candidate_tools?: string[];
+  route: ExecutableRoute;
+  expectedOutcome: string;
 }
 
 export interface Plan {
@@ -141,8 +137,6 @@ export interface StageVerificationPromptData {
   evidenceSummary?: string;
   compactObs?: string;
   facts?: Record<string, string>;
-  eosOk?: boolean;
-  eosCumple?: boolean;
   logLines?: string[];
 }
 
@@ -157,6 +151,8 @@ export interface Scratchpad {
   path?: string;
   process_id?: string;
   text?: string;
+  window_handle?: string;
+  element_id?: string;
 }
 
 export interface TaskMemory {
@@ -224,7 +220,6 @@ export type Capability =
   | "PROCESS_CONTROL"
   | "FILE_READ"
   | "FILE_WRITE"
-  | "FILE_DELETE"
   | "COMMAND_EXECUTION"
   | "DOWNLOAD"
   | "CONFIGURATION";
@@ -245,6 +240,8 @@ export interface ToolPolicy {
   kind?: ToolKind;
   mutates?: boolean;
   emptyIsError?: boolean;
+  /** Exenta del anti-loop (p. ej. sondeos repetidos de una misma salida). */
+  loopExempt?: boolean;
 }
 
 // ============================================================
@@ -259,7 +256,6 @@ export interface StepExecutionSignals {
   timeout?: boolean;
   not_found?: boolean;
   denied?: boolean;
-  unverified?: boolean;
   empty_output?: boolean;
 }
 

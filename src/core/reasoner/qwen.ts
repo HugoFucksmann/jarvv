@@ -303,15 +303,7 @@ export function parsePlanSteps(
     const expected = nonEmptyString(s.expected_outcome);
     if (!expected) return { error: `paso ${n}: 'expected_outcome' vacío` };
 
-    steps.push({
-      id: `s${firstNumber + i}`,
-      goal,
-      instruction: goal,
-      suggested_mcp: route,
-      route,
-      expected_outcome: expected,
-      expectedOutcome: expected,
-    });
+    steps.push({ id: `s${firstNumber + i}`, instruction: goal, route, expectedOutcome: expected });
   }
   return { steps };
 }
@@ -510,8 +502,10 @@ export class QwenEngine implements ILLMClient {
 
       const v = o.validate(res, attempt === LLM_INVALID_OUTPUT_RETRIES);
       if (v.ok) return { value: v.value, res };
-      previousError = v.error;
-      console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
+      else {
+        previousError = v.error;
+        console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
+      }
     }
 
     throw new LLMValidationError(

@@ -19,7 +19,7 @@ export class WindowsMCPServer implements IMCPServer {
     this.transport = transport || new StdioMcpTransport(
       "windows",
       config.windowsMcp,
-      config.mcpTimeoutMs ?? config.timeoutMs ?? 30000
+      config.mcpTimeoutMs ?? 30000
     );
     this.currentSessionToken = `win_${Date.now()}`;
   }

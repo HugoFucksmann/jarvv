@@ -2,11 +2,13 @@
  * JARVIS Core — Tool Manifest (fuente única de herramientas, políticas y descripciones)
  * Referencia: docs/MCP_TOOLS_SNAPSHOT.md
  *
- * - Una sola tabla: (server, name) -> capability + política derivada.
+ * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas
+ *   (policyRegistry.ts fue eliminado).
  * - Lookup insensible a mayúsculas, políticas inmutables, claves duplicadas = error al arrancar.
  * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al
- *   planificador (ver `applyManifest`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad.
- * - No hay herramientas de manejo de interfaz gráfica (clic, teclado, portapapeles…): decisión de diseño vigente.
+ *   planificador (ver `applyManifest`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
+ * - No hay herramientas de interfaz gráfica (clic, teclado, portapapeles, capturas, esperas de UI…) ni
+ *   herramientas meta (feedback, prompts, estadísticas): decisión de diseño vigente.
  * - Las descripciones están en inglés: son la fuente única para Decision (criterios) y para el catálogo del planificador.
  */
 
@@ -18,11 +20,9 @@ import {
   type ToolPolicy,
 } from "../types.ts";
 
-export type ToolServer = ExecutableRoute | "local";
-
 export interface ToolDefinition {
   readonly name: string;
-  readonly server: ToolServer;
+  readonly server: ExecutableRoute;
   readonly description: string;
   readonly policy: Readonly<ToolPolicy>;
 }
@@ -46,12 +46,19 @@ export const ROUTE_DESCRIPTIONS: Readonly<Record<ExecutableRoute, string>> = {
   free_search: "Search and read information on the web: search, page fetching, documents, papers.",
 };
 
+interface ToolOptions {
+  /** Una salida vacía es un error (lecturas y búsquedas). */
+  emptyIsError?: boolean;
+  /** Exenta del anti-loop. */
+  loopExempt?: boolean;
+}
+
 function def(
-  server: ToolServer,
+  server: ExecutableRoute,
   name: string,
   capability: Capability,
   description: string,
-  emptyIsError = false
+  opts: ToolOptions = {}
 ): ToolDefinition {
   if (description.length > MAX_DESCRIPTION_CHARS) {
     throw new Error(`[Manifest] descripción de '${server}:${name}' excede ${MAX_DESCRIPTION_CHARS} caracteres.`);
@@ -66,56 +73,33 @@ function def(
       requiresApproval: NEEDS_APPROVAL.has(capability),
       mutates,
       kind: mutates ? ("no-READ" as const) : ("READ" as const),
-      emptyIsError,
+      emptyIsError: opts.emptyIsError ?? false,
+      loopExempt: opts.loopExempt ?? false,
     }),
   });
 }
 
-/** Herramientas locales: definición única (runStep y la política leen de aquí). No se exponen al planificador. */
-export const LOCAL_TOOLS: readonly MCPTool[] = [
-  {
-    name: "recall",
-    description: "Retrieve facts, earlier references or relevant context from memory.",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "compose",
-    description: "Write structured text or a natural-language answer using the LLM.",
-    inputSchema: { type: "object", properties: { prompt: { type: "string" } } },
-  },
-  {
-    name: "ask_user",
-    description: "Ask the user for a clarification or an indispensable parameter.",
-    inputSchema: { type: "object", properties: { question: { type: "string" } }, required: ["question"] },
-  },
-];
-
-const winTool = (name: string, cap: Capability, desc: string) => def("windows", name, cap, desc);
-const dcTool = (name: string, cap: Capability, desc: string, emptyIsError = false) =>
-  def("desktop_commander", name, cap, desc, emptyIsError);
-const searchTool = (name: string, cap: Capability, desc: string, emptyIsError = false) =>
-  def("free_search", name, cap, desc, emptyIsError);
+const winTool = (name: string, cap: Capability, desc: string, opts?: ToolOptions) =>
+  def("windows", name, cap, desc, opts);
+const dcTool = (name: string, cap: Capability, desc: string, opts?: ToolOptions) =>
+  def("desktop_commander", name, cap, desc, opts);
+const searchTool = (name: string, cap: Capability, desc: string, opts?: ToolOptions) =>
+  def("free_search", name, cap, desc, opts);
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
-  // ---- windows (12) ----
-  winTool("ControlStatus", "READ", "Show the current owner of desktop control and idle-wait status."),
+  // ---- windows (6) ----
   winTool("App", "PROCESS_CONTROL", "Launch applications and manage their windows."),
-  winTool("DisplayInventory", "READ", "Read the layout of active displays and DPI metadata."),
   winTool("PowerShell", "COMMAND_EXECUTION", "Run PowerShell scripts and terminal commands on Windows."),
   winTool("FileSystem", "FILE_WRITE", "Windows file operations: read, write, delete, copy, move and list."),
-  winTool("Snapshot", "READ", "Capture the screen and inspect the UI accessibility tree."),
-  winTool("Screenshot", "READ", "Take a quick screenshot of the desktop or the active window."),
-  winTool("Wait", "READ", "Pause for a fixed duration."),
-  winTool("WaitFor", "READ", "Wait until a specific UI condition is met."),
   winTool("Scrape", "READ", "Fetch a web page by URL and extract its content."),
   winTool("Process", "PROCESS_CONTROL", "List and terminate system processes."),
   winTool("Registry", "PROCESS_CONTROL", "Read and modify the Windows Registry: get, set, delete and list."),
 
-  // ---- desktop_commander (26) ----
+  // ---- desktop_commander (22) ----
   dcTool("get_config", "READ", "Get the full Desktop Commander server configuration."),
   dcTool("set_config_value", "CONFIGURATION", "Change a single configuration value."),
-  dcTool("read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", true),
-  dcTool("read_multiple_files", "FILE_READ", "Read several files in parallel.", true),
+  dcTool("read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", { emptyIsError: true }),
+  dcTool("read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
   dcTool("write_file", "FILE_WRITE", "Create or overwrite a file on disk."),
   dcTool("write_pdf", "FILE_WRITE", "Create or modify a PDF document."),
   dcTool("create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
@@ -128,19 +112,15 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   dcTool("get_file_info", "FILE_READ", "Get file metadata: size, permissions and dates."),
   dcTool("edit_block", "FILE_WRITE", "Make a targeted block edit inside an existing file."),
   dcTool("start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
-  dcTool("read_process_output", "READ", "Read the accumulated output of a running process."),
+  dcTool("read_process_output", "READ", "Read the accumulated output of a running process.", { loopExempt: true }),
   dcTool("interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
   dcTool("force_terminate", "PROCESS_CONTROL", "Force-terminate a terminal session or process."),
   dcTool("list_sessions", "READ", "List active terminal sessions."),
   dcTool("list_processes", "READ", "List running system processes."),
   dcTool("kill_process", "PROCESS_CONTROL", "Terminate a process by PID."),
-  dcTool("get_usage_stats", "READ", "Get usage statistics for diagnostics."),
-  dcTool("get_recent_tool_calls", "READ", "Get the recent tool calls and their arguments."),
-  dcTool("give_feedback_to_desktop_commander", "READ", "Open the feedback form."),
-  dcTool("get_prompts", "READ", "Retrieve an onboarding prompt by ID."),
 
   // ---- free_search (11) ----
-  searchTool("search", "READ", "Deduplicated multi-engine web search with clean snippets.", true),
+  searchTool("search", "READ", "Deduplicated multi-engine web search with clean snippets.", { emptyIsError: true }),
   searchTool("fetch", "READ", "Download a web page and convert it to clean Markdown."),
   searchTool("fetch_batch", "READ", "Download several URLs in parallel."),
   searchTool("read_doc", "READ", "Read a remote document (PDF, DOCX) and parse it to Markdown."),
@@ -151,9 +131,6 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   searchTool("compare", "READ", "Compare the content of 2 to 5 web pages in parallel."),
   searchTool("extract_structured", "READ", "Extract microdata, OpenGraph and JSON-LD from a web page."),
   searchTool("download", "DOWNLOAD", "Download a file or document to a local directory."),
-
-  // ---- local (3) ----
-  ...LOCAL_TOOLS.map((t) => def("local", t.name, "READ", t.description)),
 ];
 
 // ---------------------------------------------------------------
@@ -175,6 +152,7 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   mutates: true,
   kind: "no-READ" as const,
   emptyIsError: false,
+  loopExempt: false,
 });
 
 export function lookupToolManifest(server: string, tool: string): ToolDefinition | undefined {
@@ -194,7 +172,7 @@ export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy
  * y sustituye la descripción por la del manifest (inglés, ≤80 caracteres).
  * Conserva el `name` y el `inputSchema` reales del servidor.
  */
-export function applyManifest(server: ToolServer, tools: readonly MCPTool[]): MCPTool[] {
+export function applyManifest(server: ExecutableRoute, tools: readonly MCPTool[]): MCPTool[] {
   const allowed: MCPTool[] = [];
   for (const t of tools) {
     const d = INDEX.get(keyOf(server, t.name));
@@ -204,12 +182,12 @@ export function applyManifest(server: ToolServer, tools: readonly MCPTool[]): MC
 }
 
 // ---------------------------------------------------------------
-// Catálogo compacto para el planificador (solo rutas ejecutables; sin herramientas locales)
+// Catálogo compacto para el planificador
 // ---------------------------------------------------------------
 
 /**
  * @param discoveredTools Herramientas realmente descubiertas por ruta. Si se omite o está vacío,
- *   se lista el manifest completo de las rutas ejecutables.
+ *   se lista el manifest completo.
  */
 export function buildCompactCatalog(
   discoveredTools?: Partial<Record<ExecutableRoute, readonly MCPTool[]>>

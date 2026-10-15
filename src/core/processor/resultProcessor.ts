@@ -1,4 +1,4 @@
-import {
+import type {
   MCPCallResult,
   Evidence,
   VerificationState,
@@ -6,7 +6,7 @@ import {
   Scratchpad,
   StepExecutionSignals,
 } from "../types.ts";
-import { PolicyRegistry } from "../policy/policyRegistry.ts";
+import { getToolPolicy } from "../tools/manifest.ts";
 
 export interface ProcessedResult {
   outcome: ExecutionOutcome;
@@ -146,22 +146,15 @@ export class ResultProcessor {
 
     const mergedData: Record<string, any> = { ...rawResult, ...embeddedPayload };
     const fullText = textPieces.join("\n").trim();
-    const policy = PolicyRegistry.getPolicy(mcp, tool);
+    const policy = getToolPolicy(mcp, tool);
 
     // 2. Compute signals (§4, §5, §10.5)
     const isNotFound = fullText.includes("[NOT_FOUND]") || fullText.toLowerCase().includes("not found");
     const isDenied = fullText.includes("[DENIED]") || fullText.toLowerCase().includes("access denied");
-    const isStale = Boolean(rawResult.staleElement || mergedData.staleElement || /\[stale_element\]/i.test(fullText));
-
-    if (isStale) {
-      flags.push("STALE_ELEMENT");
-    }
 
     let emptyOutput = false;
     if (policy.emptyIsError) {
       if (!fullText || fullText.length === 0) {
-        emptyOutput = true;
-      } else if (tool === "search_files" && /0\s+(matches|coincidencias|archivos)/i.test(fullText)) {
         emptyOutput = true;
       } else if (mcp === "free_search") {
         if (tool === "search") {
@@ -183,13 +176,11 @@ export class ResultProcessor {
 
     const signals: StepExecutionSignals = {
       exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : 0),
-      exception: isError && !isNotFound && !isDenied && !isStale,
+      exception: isError && !isNotFound && !isDenied,
       timeout: Boolean(mergedData.timed_out || /timeout/i.test(fullText)),
       not_found: isNotFound,
       denied: isDenied,
-      unverified: actionDispatched && !outcomeVerified,
       empty_output: emptyOutput,
-      stale_element: isStale,
     };
 
     // 3. Store full result in task-isolated RefStore (§10.4)
@@ -202,48 +193,7 @@ export class ResultProcessor {
     let finding = "";
     let compactObs = "";
 
-    if (tool.includes("tree") || tool.includes("window_tree")) {
-      const winHandle = mergedData.windowHandle || mergedData.window_handle || args.window_handle;
-      if (winHandle) {
-        scratchpadDelta.window_handle = String(winHandle);
-        factsDelta.win = String(winHandle);
-      }
-      const elId = mergedData.elementId || mergedData.element_id;
-      if (elId) {
-        scratchpadDelta.element_id = String(elId);
-        factsDelta.el = String(elId);
-      }
-      const tree = Array.isArray(mergedData.tree) ? mergedData.tree : [];
-      const count = tree.length > 0 ? tree.length : (fullText.split("\n").length);
-      const inc = mergedData.snapshotIncomplete ? " (incompleto)" : "";
-      finding = sanitizeForMemory(`Ventana: ${winHandle || 'activa'}, ${count} elementos${inc}`);
-
-      const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
-      const interactive = lines.slice(0, 30).join("\n");
-      compactObs = interactive || "Árbol de UI inspeccionado.";
-      if (lines.length > 30 && refKey) {
-        compactObs += `\n[... omitidos ${lines.length - 30} elementos, ref:${refKey}]`;
-      }
-    } else if (tool === "search_files") {
-      const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
-      const count = lines.length;
-      const firstLine = lines[0] || "";
-      const firstMatch = firstLine.split(":")[0]?.trim() || firstLine;
-      finding = sanitizeForMemory(`${count} coincidencias, primera: ${firstMatch}`);
-      if (firstMatch) {
-        factsDelta.path = firstMatch;
-        scratchpadDelta.path = firstMatch;
-      }
-      const candidates = lines.slice(0, 5).map((l) => l.split(":")[0].trim()).filter(Boolean);
-      if (candidates.length > 0) {
-        factsDelta.cand = candidates.join(", ");
-      }
-      const top10 = lines.slice(0, 10).map((l) => l.substring(0, 100)).join("\n");
-      compactObs = top10 || "Sin coincidencias.";
-      if (lines.length > 10 && refKey) {
-        compactObs += `\n[... ${lines.length - 10} coincidencias omitidas, ref:${refKey}]`;
-      }
-    } else if (tool === "list_directory") {
+    if (tool === "list_directory") {
       const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
       finding = sanitizeForMemory(`${lines.length} entradas en directorio`);
       const top40 = lines.slice(0, 40).join("\n");
@@ -378,7 +328,7 @@ export class ResultProcessor {
       } else {
         compactObs = fullText || "Reporte de investigación generado.";
       }
-    } else if (mcp === "free_search" && tool === "fetch_page") {
+    } else if (mcp === "free_search" && tool === "fetch") {
       const urlStr = String(mergedData.url || args.url || "");
       if (urlStr) {
         factsDelta.url = urlStr;
@@ -416,7 +366,7 @@ export class ResultProcessor {
 
     // 6. Evidence object
     const evidence: Evidence = {
-      ok: success && !isError && !signals.empty_output && !signals.not_found && !signals.stale_element,
+      ok: success && !isError && !signals.empty_output && !signals.not_found,
       summary: finding,
       obs: compactObs ? compactObs.slice(0, 1500) : undefined,
       flags: flags.length > 0 ? flags : undefined,
@@ -424,17 +374,15 @@ export class ResultProcessor {
     };
 
     // 7. Resumen estructurado para modelos clasificadores (Decision 2.0)
-    let decisionSummary = "";
-    if (signals.stale_element) {
-      decisionSummary = `[STALE] ${mcp}/${tool}: ${finding}. Elemento de UI desincronizado o no disponible en ventana activa.`;
-    } else if (signals.not_found) {
-      decisionSummary = `[SIN RESULTADOS] ${mcp}/${tool}: ${finding}. Recurso no encontrado.`;
+    let decisionSummary: string;
+    if (signals.not_found) {
+      decisionSummary = `[NOT FOUND] ${mcp}/${tool}: ${finding}. Resource not found.`;
     } else if (signals.empty_output) {
-      decisionSummary = `[VACÍO] ${mcp}/${tool}: ${finding}. La salida no contiene datos útiles.`;
+      decisionSummary = `[EMPTY] ${mcp}/${tool}: ${finding}. The output contains no useful data.`;
     } else if (isError || signals.exit_code !== 0 || signals.denied) {
-      decisionSummary = `[FALLO] ${mcp}/${tool}: ${finding || 'Error en ejecución'}.`;
-    } else if (success && !isError) {
-      decisionSummary = `[ÉXITO] ${mcp}/${tool}: ${finding}. Información obtenida y registrada en memoria.`;
+      decisionSummary = `[FAILURE] ${mcp}/${tool}: ${finding || 'Execution error'}.`;
+    } else if (success) {
+      decisionSummary = `[SUCCESS] ${mcp}/${tool}: ${finding}. Information obtained and stored in memory.`;
     } else {
       decisionSummary = `[INFO] ${mcp}/${tool}: ${finding}.`;
     }

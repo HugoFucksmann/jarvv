@@ -7,7 +7,13 @@ const INITIAL_CONFIG: JarvisConfig = {
   qwenUrl: "http://127.0.0.1:11434",
   qwenModel: "qwen3.5:9b",
   thinking: false,
+  qwenNumCtx: 16384,
+  qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, verify: 1024, final: 2048 },
+  qwenTimeoutMs: 120000,
+  qwenThinkingTimeoutMs: 180000,
   decisionUrl: "http://127.0.0.1:8765",
+  decisionMaxContext: 16384,
+  decisionTimeoutMs: 30000,
   windowsMcp: {
     command: "uvx",
     args: ["windows-mcp", "serve"],
@@ -20,8 +26,6 @@ const INITIAL_CONFIG: JarvisConfig = {
     command: "uvx",
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
-  decisionTimeoutMs: 30000,
-  qwenTimeoutMs: 120000,
   mcpTimeoutMs: 30000,
 };
 

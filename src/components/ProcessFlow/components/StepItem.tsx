@@ -13,7 +13,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import { Step } from "../../../core/types.ts";
+import { Step, StepRoute } from "../../../core/types.ts";
 
 interface StepItemProps {
   step: Step;
@@ -73,7 +73,7 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
   };
 
   const getRouteLabel = () => {
-    switch (step.route) {
+    switch (step.route as StepRoute) {
       case "windows":
         return "Windows MCP";
       case "desktop_commander":

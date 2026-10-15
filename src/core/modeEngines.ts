@@ -3,40 +3,83 @@
  */
 
 import {
-    TaskState,
-    Step,
-    StepState,
-    StepRoute,
-    MAX_STEPS,
     MAX_ESCALATIONS,
     MAX_REPLAN,
-    StepExecutionResult,
+    MAX_STEPS,
     isTerminalState,
+    type ExecutableRoute,
+    type PlanStep,
+    type Step,
+    type StepExecutionResult,
+    type StepRoute,
+    type StepState,
+    type TaskState,
 } from "./types.ts";
 import { RefStore } from "./processor/resultProcessor.ts";
 import {
-    TaskExecutionContext,
+    type TaskExecutionContext,
     addFailEntry,
-    buildHistoryContext,
     buildAttempts,
+    buildHistoryContext,
     expandMemoryContext,
 } from "./context.ts";
-import {
-    EngineDependencies,
-    runStep,
-} from "./callExecutor.ts";
-import { isStepRoute } from "./reasoner/qwen.ts";
+import { type EngineDependencies, runStep } from "./callExecutor.ts";
+import { RequestAbortedError } from "./llmTransport.ts";
 
-/**
- * Determina determinísticamente si una tarea abortada califica como PARTIAL o FAILED
- * según si completó al menos un paso productivo.
- */
+/** ¿Hay que abandonar el trabajo en curso? (cancelación o estado terminal) */
+const isStopped = (context: TaskExecutionContext): boolean =>
+    context.isCancelled || isTerminalState(context.task.state);
+
+/** Una cancelación del usuario nunca es un error que reportar. */
+const isCancellation = (context: TaskExecutionContext, err: unknown): boolean =>
+    context.isCancelled || err instanceof RequestAbortedError;
+
+/** PARTIAL si se completó al menos un paso productivo; FAILED si no. */
 function resolveFailureState(task: TaskExecutionContext["task"]): TaskState {
     return task.steps.some((s) => s.state === "COMPLETED") ? "PARTIAL" : "FAILED";
 }
 
+/** Decision #1 con allowFin=false solo puede devolver rutas ejecutables. */
+function toExecutableRoute(route: StepRoute): ExecutableRoute {
+    if (route === "fin") {
+        throw new Error("Decision #1 devolvió 'fin' con allowFin=false.");
+    }
+    return route;
+}
+
+/** PlanStep validado -> Step pendiente. Sin valores por defecto: ruta y criterio vienen validados de qwen.ts. */
+export function planStepsToSteps(steps: readonly PlanStep[], rev: number): Step[] {
+    return steps.map((s) => ({
+        id: s.id,
+        route: s.route,
+        instruction: s.instruction,
+        expectedOutcome: s.expectedOutcome,
+        state: "PENDING" as StepState,
+        calls: [],
+        rev,
+        superseded: false,
+    }));
+}
+
+/**
+ * Cierra la tarea ante un fallo de infraestructura LLM (Qwen o Decision no disponibles, salida inválida
+ * persistente). Genera respuesta final con lo logrado. La cancelación se ignora. Devuelve siempre false.
+ */
+async function concludeOnLLMError(
+    context: TaskExecutionContext,
+    deps: EngineDependencies,
+    what: string,
+    err: unknown
+): Promise<false> {
+    if (isCancellation(context, err) || isTerminalState(context.task.state)) return false;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[${what}] ${msg}`);
+    await concludeTask(context, resolveFailureState(context.task), deps, `${what}: ${msg}`);
+    return false;
+}
+
 // ============================================================
-// CONCLUSION & FINAL RESPONSE (§4, §5, Etapa 6)
+// CONCLUSION & FINAL RESPONSE
 // ============================================================
 export async function concludeTask(
     context: TaskExecutionContext,
@@ -46,8 +89,7 @@ export async function concludeTask(
 ): Promise<void> {
     const { task } = context;
 
-    // Invarianza de estados terminales (§8.2, Fase 2): si la tarea ya alcanzó un estado terminal
-    // (ej. CANCELLED), ningún resultado tardío puede alterar dicho estado.
+    // Invarianza de estados terminales: si la tarea ya fue cancelada, ningún resultado tardío la altera.
     if (context.isCancelled || task.state === "CANCELLED") {
         console.log(`[concludeTask] Tarea ${task.id} previamente cancelada. Ignorando conclusión tardía.`);
         RefStore.clear(task.id);
@@ -56,24 +98,22 @@ export async function concludeTask(
 
     task.state = state;
 
-    const lastCalls = task.steps
+    const evidenceSummaries = task.steps
         .flatMap((s) => s.calls || [])
-        .slice(-3);
-    const safeStr = (s: string) => s.replace(/<\/?obs>/gi, "[obs]");
-    const evidenceSummaries = lastCalls
+        .slice(-3)
         .map((c) => {
             const obs = (c.evidence?.obs || c.evidence?.summary || "").trim().slice(0, 1500);
-            return obs ? `${c.tool}: ${safeStr(obs)}` : "";
+            return obs ? `${c.tool}: ${obs}` : "";
         })
         .filter(Boolean);
     if (evidenceSummaries.length === 0 && abortReason) {
-        evidenceSummaries.push(`abort: ${safeStr(abortReason).slice(0, 1500)}`);
+        evidenceSummaries.push(`abort: ${abortReason.slice(0, 1500)}`);
     }
 
     let finalRawInput: string | undefined;
     let finalRawOutput: string | undefined;
     try {
-        const finalRespRes = await deps.qwenEngine.generateFinalResponse({
+        const finalRes = await deps.qwenEngine.generateFinalResponse({
             goal: task.message,
             logLines: task.memory?.log || [],
             facts: task.memory?.facts || {},
@@ -82,11 +122,11 @@ export async function concludeTask(
             evidenceSummaries,
             abortReason,
         }, context.abortController.signal);
-        task.finalResponse = finalRespRes.response;
-        finalRawInput = finalRespRes.rawInput;
-        finalRawOutput = finalRespRes.rawOutput;
-    } catch (err: any) {
-        console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err);
+        task.finalResponse = finalRes.response;
+        finalRawInput = finalRes.rawInput;
+        finalRawOutput = finalRes.rawOutput;
+    } catch (err) {
+        console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err instanceof Error ? err.message : err);
         const factsEntries = Object.entries(task.memory?.facts || {});
         const logLines = task.memory?.log || [];
 
@@ -106,21 +146,19 @@ export async function concludeTask(
         }
     }
 
-    // Verificación de invarianza tras generación asíncrona
+    // La generación fue asíncrona: la tarea pudo cancelarse mientras tanto.
     if (context.isCancelled || task.state === "CANCELLED") {
         console.log(`[concludeTask] Tarea ${task.id} cancelada durante generación de respuesta final. Descartando resultado.`);
         RefStore.clear(task.id);
         return;
     }
 
-    // Limpieza exclusiva de las referencias de esta tarea
     RefStore.clear(task.id);
     task.rawFinalInput = finalRawInput;
     task.rawFinalOutput = finalRawOutput;
     deps.persistTasks();
-    const durationTotalMs = Date.now() - context.startTime;
     console.log(
-        `[Task Summary] id=${task.id} state=${state} reason="${abortReason || 'None'}" calls=${context.totalToolCalls} escalations=${context.escalations} overrides=${context.overridesCount} retries=${context.retriesCount} duration=${durationTotalMs}ms`
+        `[Task Summary] id=${task.id} state=${state} reason="${abortReason || 'None'}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
     );
     deps.emitEvent(task.id, "FINAL_RESPONSE", {
         response: task.finalResponse,
@@ -131,8 +169,13 @@ export async function concludeTask(
 }
 
 // ============================================================
-// ESCALATION & REPLAN (§4, §5B, §9.4)
+// ESCALATION & REPLAN
 // ============================================================
+
+/**
+ * Escalación FAST tras un fallo de paso. Devuelve true si el bucle debe continuar.
+ * El arbitraje es de Decision #1; sin arbitraje no se adivina una ruta: la tarea se cierra.
+ */
 export async function handleEscalation(
     context: TaskExecutionContext,
     step: Step,
@@ -141,16 +184,15 @@ export async function handleEscalation(
 ): Promise<boolean> {
     const { task } = context;
 
-    if (context.isCancelled || isTerminalState(task.state)) return false;
+    if (isStopped(context)) return false;
 
-    // Regla estricta de seguridad (§6.2): Bajo ninguna circunstancia se elude un DENY de Guard o un rechazo
+    // Un DENY de Guard o un rechazo del usuario jamás se elude.
     if (execResult.signals?.denied) {
         console.warn(`[Escalation] Acción denegada por Guard o usuario (denied). Prohibido reintentar o conmutar para eludir seguridad.`);
         await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
         return false;
     }
 
-    // Expansión progresiva de memoria ante escalación (2 -> 5 -> 10)
     expandMemoryContext(context);
 
     if (context.escalations >= MAX_ESCALATIONS) {
@@ -162,51 +204,38 @@ export async function handleEscalation(
     context.escalations++;
     console.log(`[Escalation] Activando arbitraje de recuperación (${context.escalations}/${MAX_ESCALATIONS}).`);
 
-    // Excluir la tool fallida de reintento inmediato
+    // La tool fallida no se reintenta de inmediato
     if (step.tool) {
         context.excludedToolForNextCall = step.tool;
     }
 
-    // Arbitraje migrado hacia Eos y reglas deterministas de código (Fase 3, §3, §3.1)
+    let arbitration;
     try {
-        const d1Arbitration = await deps.decisionEngine.evaluateDecisionOne(
+        arbitration = await deps.decisionEngine.evaluateDecisionOne(
             task.message,
-            buildHistoryContext(task, context.memoryRetrievalLimit || 5),
+            buildHistoryContext(task, context.memoryRetrievalLimit),
             {
                 allowFin: true,
-                isPostAction: true,
-                isFirstIteration: false,
                 lastResult: context.lastCallDecisionSummary || context.lastCallCompactObs,
                 attempts: buildAttempts(task),
+                signal: context.abortController.signal,
             }
         );
-
-        if (d1Arbitration.route !== "fin" && d1Arbitration.route !== step.route) {
-            console.log(`[Escalation Eos] Arbitraje Eos determinó conmutar subsistema a '${d1Arbitration.route}' con confianza ${d1Arbitration.confidence.toFixed(2)}.`);
-            context.activeServerOverride = d1Arbitration.route;
-            return true;
-        }
-
-        if (d1Arbitration.route === "fin") {
-            console.log(`[Escalation Eos] Arbitraje Eos determinó fin de alternativas viables.`);
-            await concludeTask(context, resolveFailureState(task), deps, "Fin de alternativas viables según arbitraje de Decision 2.0.");
-            return false;
-        }
-    } catch (eosErr) {
-        console.warn(`[Escalation] Fallo en arbitraje Eos, activando conmutación determinista de respaldo:`, eosErr);
+    } catch (err) {
+        return concludeOnLLMError(context, deps, "Arbitraje de recuperación (Decision #1)", err);
     }
 
-    // Conmutación determinista de respaldo hacia subsistemas alternativos no fallidos
-    const fallbackRoutes: StepRoute[] = ["desktop_commander", "free_search", "windows"];
-    const candidateFallback = fallbackRoutes.find((r) => r !== step.route && r !== step.mcp);
-    if (candidateFallback) {
-        console.log(`[Escalation] Conmutación determinista de respaldo hacia '${candidateFallback}'.`);
-        context.activeServerOverride = candidateFallback;
-        return true;
+    if (arbitration.route === "fin") {
+        console.log(`[Escalation] Decision #1 determinó fin de alternativas viables.`);
+        await concludeTask(context, resolveFailureState(task), deps, "Fin de alternativas viables según arbitraje de Decision 2.0.");
+        return false;
     }
 
-    await concludeTask(context, resolveFailureState(task), deps, "No se hallaron rutas alternativas de recuperación.");
-    return false;
+    if (arbitration.route !== step.route) {
+        console.log(`[Escalation] Decision #1 determinó conmutar subsistema a '${arbitration.route}'.`);
+        context.activeServerOverride = arbitration.route;
+    }
+    return true;
 }
 
 export async function handleReplan(
@@ -216,16 +245,14 @@ export async function handleReplan(
 ): Promise<boolean> {
     const { task } = context;
 
-    if (context.isCancelled || isTerminalState(task.state)) return false;
+    if (isStopped(context)) return false;
 
-    // Verificación centralizada de límite de replanificaciones
     if ((task.replans || 0) >= MAX_REPLAN) {
         console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
         await concludeTask(context, resolveFailureState(task), deps, "Límite de replanificaciones alcanzado.");
         return false;
     }
 
-    // Expansión progresiva de memoria ante replan (2 -> 5 -> 10)
     expandMemoryContext(context);
 
     task.replans = (task.replans || 0) + 1;
@@ -244,16 +271,23 @@ export async function handleReplan(
 
     const nextIdNum = (task.stepSeq ?? 0) + 1;
 
-    const replanResult = await deps.qwenEngine.replan({
-        goal: task.message,
-        completedStepsSummary: completedSummary,
-        facts: task.memory?.facts || {},
-        failLines: task.memory?.fail || [],
-        failedStepGoal: failedStep.instruction,
-        failedStepResult: failedStep.error || "error",
-        remainingPlanGoals: remainingGoals,
-        nextStepNumber: nextIdNum,
-    }, context.abortController.signal);
+    let replanResult;
+    try {
+        replanResult = await deps.qwenEngine.replan({
+            goal: task.message,
+            completedStepsSummary: completedSummary,
+            facts: task.memory?.facts || {},
+            failLines: task.memory?.fail || [],
+            failedStepGoal: failedStep.instruction,
+            failedStepResult: failedStep.error || "error",
+            remainingPlanGoals: remainingGoals,
+            nextStepNumber: nextIdNum,
+        }, context.abortController.signal);
+    } catch (err) {
+        return concludeOnLLMError(context, deps, "Replan", err);
+    }
+
+    if (isStopped(context)) return false;
 
     if (replanResult.action === "abort" || !replanResult.plan) {
         console.log(`[PLAN Replan] Replan devolvió abort: ${replanResult.reason}`);
@@ -265,31 +299,13 @@ export async function handleReplan(
         task.steps[i].superseded = true;
     }
 
-    const newRev = (failedStep.rev || 0) + 1;
-    const newSteps: Step[] = replanResult.plan.steps.map((s, idx) => {
-        const rawRoute = s.suggested_mcp || s.route;
-        const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
-
-        return {
-            id: s.id || `s${nextIdNum + idx}`,
-            route: safeRoute,
-            instruction: s.goal || s.instruction || "Meta",
-            expectedOutcome: s.expected_outcome || s.expectedOutcome,
-            dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
-            candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
-            state: "PENDING" as StepState,
-            calls: [],
-            rev: newRev,
-            superseded: false,
-        };
-    });
-
+    const newSteps = planStepsToSteps(replanResult.plan.steps, (failedStep.rev || 0) + 1);
     task.steps.push(...newSteps);
     task.stepSeq = (task.stepSeq ?? 0) + newSteps.length;
     task.rawPlanInput = replanResult.rawInput;
     task.rawPlanOutput = replanResult.rawOutput;
 
-    // Ejecución 100% autónoma: sin suspensión en WAITING_INPUT tras confirmación inicial
+    // Ejecución autónoma: sin suspensión en WAITING_INPUT tras la confirmación inicial
     deps.persistTasks();
     deps.emitEvent(task.id, "PLAN_GENERATED", {
         steps: task.steps,
@@ -302,63 +318,62 @@ export async function handleReplan(
 }
 
 // ============================================================
-// FAST MODE ENGINE (§4, §8)
+// FAST MODE ENGINE
 // ============================================================
 export async function runFastLoop(
     context: TaskExecutionContext,
     deps: EngineDependencies
 ): Promise<void> {
     const { task } = context;
+    const signal = context.abortController.signal;
 
-    while (!context.isCancelled && !isTerminalState(task.state)) {
-        const currentStepSeq = task.stepSeq ?? 0;
-        if (currentStepSeq >= MAX_STEPS) {
+    /** Decision #1 sobre el estado actual de la tarea. */
+    const askRoute = (allowFin: boolean) =>
+        deps.decisionEngine.evaluateDecisionOne(
+            task.message,
+            buildHistoryContext(task, context.memoryRetrievalLimit),
+            {
+                allowFin,
+                lastResult: context.lastCallDecisionSummary || context.lastCallCompactObs,
+                attempts: buildAttempts(task),
+                signal,
+            }
+        );
+
+    while (!isStopped(context)) {
+        if ((task.stepSeq ?? 0) >= MAX_STEPS) {
             console.warn(`[FAST] MAX_STEPS (${MAX_STEPS}) alcanzado. Parada controlada PARTIAL.`);
             await concludeTask(context, "PARTIAL", deps, "Límite MAX_STEPS alcanzado.");
             return;
         }
 
-        // Step 1: Decision #1 Route
-        let selectedRoute: StepRoute;
+        // Paso 1: Decision #1 (ruta)
+        let selectedRoute: ExecutableRoute;
         let d1RawInput: string | undefined;
         let d1RawOutput: string | undefined;
 
         if (context.activeServerOverride) {
-            selectedRoute = isStepRoute(context.activeServerOverride)
-                ? (context.activeServerOverride as StepRoute)
-                : "desktop_commander";
+            selectedRoute = context.activeServerOverride;
             context.activeServerOverride = undefined;
         } else {
             const isFirst = task.stepSeq === 0;
-            const historyCtx = buildHistoryContext(task, context.memoryRetrievalLimit || 2);
-            const d1 = await deps.decisionEngine.evaluateDecisionOne(
-                task.message,
-                historyCtx,
-                {
-                    allowFin: true,
-                    isPostAction: context.nonReadCounter > 0,
-                    isFirstIteration: isFirst,
-                    lastResult: context.lastCallDecisionSummary || context.lastCallCompactObs,
-                    attempts: buildAttempts(task),
-                }
-            );
+            let d1;
+            try {
+                d1 = await askRoute(true);
+            } catch (err) {
+                await concludeOnLLMError(context, deps, "Decision #1", err);
+                return;
+            }
 
             d1RawInput = d1.rawInput;
             d1RawOutput = d1.rawOutput;
 
             deps.emitEvent(task.id, "DECISION_ONE", {
                 route: d1.route,
-                confidence: d1.confidence,
                 probabilities: d1.probabilities,
-                needsContext: d1.needsContext,
                 rawInput: d1.rawInput,
                 rawOutput: d1.rawOutput,
             });
-
-            // Si Decision #1 señala necesidad de contexto adicional, expandir progresivamente (2 -> 5 -> 10)
-            if (d1.needsContext) {
-                expandMemoryContext(context);
-            }
 
             if (d1.route === "fin") {
                 if (isFirst) {
@@ -374,17 +389,28 @@ export async function runFastLoop(
                     console.log(`[FAST] fin validado. Concluyendo con éxito.`);
                     await concludeTask(context, "COMPLETED", deps);
                     return;
-                } else {
-                    console.warn(`[FAST] fin rechazado por validación de Core. Redirigiendo a mejor ruta.`);
-                    addFailEntry(context, "fin rechazado: faltan acciones verificadas previas");
-                    selectedRoute = "desktop_commander";
+                }
+
+                // `fin` rechazado: se pide a Decision #1 la mejor ruta ejecutable (sin ruta por defecto).
+                console.warn(`[FAST] fin rechazado por validación de Core. Solicitando mejor ruta ejecutable.`);
+                addFailEntry(context, "fin rechazado: faltan acciones verificadas previas");
+                try {
+                    const alt = await askRoute(false);
+                    selectedRoute = toExecutableRoute(alt.route);
+                    d1RawInput = alt.rawInput;
+                    d1RawOutput = alt.rawOutput;
+                } catch (err) {
+                    await concludeOnLLMError(context, deps, "Decision #1 (reselección tras fin rechazado)", err);
+                    return;
                 }
             } else {
                 selectedRoute = d1.route;
             }
         }
 
-        // Create Step for this iteration
+        if (isStopped(context)) return;
+
+        // Crear el Step de esta iteración
         task.stepSeq = (task.stepSeq ?? 0) + 1;
         const stepIndex = task.steps.length;
         task.currentStep = stepIndex;
@@ -405,14 +431,15 @@ export async function runFastLoop(
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
-        // Execute single call con motor unificado runStep
+        // Ejecución única con el motor unificado
         let execResult: StepExecutionResult;
         try {
             execResult = await runStep(context, step, deps);
-        } catch (err: any) {
+        } catch (err) {
+            if (isCancellation(context, err)) return;
             console.error(`[FAST] Excepción no controlada en runStep:`, err);
             step.state = "FAILED";
-            step.error = err?.message || String(err);
+            step.error = err instanceof Error ? err.message : String(err);
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
@@ -422,9 +449,7 @@ export async function runFastLoop(
                 error: step.error,
                 signals: { exception: true },
             };
-
-            const shouldContinue = await handleEscalation(context, step, syntheticResult, deps);
-            if (!shouldContinue) {
+            if (!await handleEscalation(context, step, syntheticResult, deps)) {
                 return;
             }
             continue;
@@ -456,8 +481,7 @@ export async function runFastLoop(
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
-            const shouldContinue = await handleEscalation(context, step, execResult, deps);
-            if (!shouldContinue) {
+            if (!await handleEscalation(context, step, execResult, deps)) {
                 return;
             }
         }
@@ -465,74 +489,71 @@ export async function runFastLoop(
 }
 
 // ============================================================
-// PLAN MODE ENGINE (§9)
+// PLAN MODE ENGINE
 // ============================================================
 export async function initiatePlanMode(
     context: TaskExecutionContext,
     deps: EngineDependencies
 ): Promise<void> {
     const { task } = context;
+    const signal = context.abortController.signal;
 
-    if (context.isCancelled || isTerminalState(task.state)) return;
+    if (isStopped(context)) return;
 
-    const d1Initial = await deps.decisionEngine.evaluateDecisionOne(
-        task.message,
-        buildHistoryContext(task, context.memoryRetrievalLimit || 2),
-        {
-            allowFin: true,
-            isFirstIteration: true,
-        }
-    );
+    let d1Initial;
+    try {
+        d1Initial = await deps.decisionEngine.evaluateDecisionOne(
+            task.message,
+            buildHistoryContext(task, context.memoryRetrievalLimit),
+            { allowFin: true, signal }
+        );
+    } catch (err) {
+        await concludeOnLLMError(context, deps, "Decision #1 (inicio de plan)", err);
+        return;
+    }
 
-    if (context.isCancelled || isTerminalState(task.state)) return;
+    if (isStopped(context)) return;
 
     if (d1Initial.route === "fin") {
-        console.log(`[PLAN] Objetivo clasificado como conversación directa (fin por argmax). Concluyendo directo.`);
+        console.log(`[PLAN] Objetivo clasificado como conversación directa. Concluyendo directo.`);
         await concludeTask(context, "COMPLETED", deps);
         return;
     }
 
     let plan;
     try {
-        plan = await deps.qwenEngine.generatePlan(task.message, undefined, context.abortController.signal);
-    } catch (err: any) {
-        if (context.isCancelled || isTerminalState(task.state)) {
+        plan = await deps.qwenEngine.generatePlan(task.message, undefined, signal);
+    } catch (err) {
+        if (isCancellation(context, err) || isTerminalState(task.state)) {
             RefStore.clear(task.id);
             return;
         }
+        console.error(`[PLAN] Plan inválido:`, err instanceof Error ? err.message : err);
         task.state = "FAILED";
         RefStore.clear(task.id);
         deps.persistTasks();
-        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: `Plan inválido: ${err.message}` });
+        deps.emitEvent(task.id, "TASK_STATE_CHANGED", {
+            state: "FAILED",
+            error: `Plan inválido: ${err instanceof Error ? err.message : String(err)}`,
+        });
         return;
     }
 
-    if (context.isCancelled || isTerminalState(task.state)) {
+    if (isStopped(context)) {
         RefStore.clear(task.id);
         return;
     }
 
-    if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) {
-        task.state = "FAILED";
-        RefStore.clear(task.id);
-        deps.persistTasks();
-        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: "Plan inválido en único intento." });
+    // Un plan sin pasos significa que la solicitud no requiere herramientas: respuesta directa.
+    if (plan.steps.length === 0) {
+        console.log(`[PLAN] El plan no requiere herramientas. Concluyendo con respuesta directa.`);
+        task.rawPlanInput = plan.rawInput;
+        task.rawPlanOutput = plan.rawOutput;
+        await concludeTask(context, "COMPLETED", deps);
         return;
     }
 
-    task.steps = plan.steps.slice(0, MAX_STEPS).map((s, idx) => ({
-        id: s.id || `s${idx + 1}`,
-        route: isStepRoute(s.suggested_mcp) ? s.suggested_mcp : (isStepRoute(s.route) ? s.route : "desktop_commander"),
-        instruction: s.goal || s.instruction || "Objetivo",
-        expectedOutcome: s.expected_outcome || s.expectedOutcome,
-        dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
-        candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
-        state: "PENDING" as StepState,
-        calls: [],
-        rev: 0,
-        superseded: false,
-    }));
-
+    task.steps = planStepsToSteps(plan.steps, 0);
     task.stepSeq = task.steps.length;
     task.planConfirmed = false;
     task.rawPlanInput = plan.rawInput;
@@ -554,8 +575,9 @@ export async function runPlanLoop(
     deps: EngineDependencies
 ): Promise<void> {
     const { task } = context;
+    const signal = context.abortController.signal;
 
-    while (!context.isCancelled && !isTerminalState(task.state) && (task.state as TaskState) !== "WAITING_INPUT") {
+    while (!isStopped(context) && (task.state as TaskState) !== "WAITING_INPUT") {
         const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
         if (stepIndex === -1) {
             console.log(`[PLAN] Todos los pasos completados. Concluyendo tarea.`);
@@ -566,38 +588,19 @@ export async function runPlanLoop(
         task.currentStep = stepIndex;
         const step = task.steps[stepIndex];
 
-        // Verificación determinista de dependencias de etapa (Fase 4, §3.2.5, §6.2)
-        if (step.dependencies && step.dependencies.length > 0) {
-            const brokenDep = step.dependencies.find((depId) => {
-                const found = task.steps.find((s) => s.id === depId);
-                return !found || found.state !== "COMPLETED";
-            });
-            if (brokenDep) {
-                console.warn(`[PLAN] Dependencia '${brokenDep}' del paso '${step.id}' no satisfecha. Activando replanificación autónoma.`);
-                step.state = "FAILED";
-                step.error = `Dependencia previa '${brokenDep}' no completada con éxito.`;
-                deps.persistTasks();
-                deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
-
-                if (!await handleReplan(context, stepIndex, deps)) {
-                    return;
-                }
-                continue;
-            }
-        }
-
         step.state = "RUNNING";
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
-        // Fase 3B: Entrega directa de la etapa a FAST (runStep) sin duplicar ejecución
+        // La etapa se ejecuta con el mismo motor unificado que FAST
         let execResult: StepExecutionResult;
         try {
             execResult = await runStep(context, step, deps);
-        } catch (err: any) {
+        } catch (err) {
+            if (isCancellation(context, err)) return;
             console.error(`[PLAN] Excepción no controlada en runStep:`, err);
             step.state = "FAILED";
-            step.error = err?.message || String(err);
+            step.error = err instanceof Error ? err.message : String(err);
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
@@ -607,36 +610,34 @@ export async function runPlanLoop(
             continue;
         }
 
-        if (context.isCancelled || isTerminalState(task.state) || (task.state as TaskState) === "WAITING_INPUT") {
+        if (isStopped(context) || (task.state as TaskState) === "WAITING_INPUT") {
             return;
         }
 
-        // Regla estricta de seguridad (§3.2.7 y §6.2): si el paso fue denegado por Guard o por el usuario, PROHIBIDO replanificar
+        // Si el paso fue denegado por Guard o por el usuario, PROHIBIDO replanificar para eludirlo
         if (execResult.signals?.denied || (step.state as StepState) === "BLOCKED") {
             console.warn(`[PLAN] Acción denegada por Guard o usuario. Prohibido replanificar para eludir denegación.`);
             await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
             return;
         }
 
-        // Supervisión y Verificación por Etapa con Qwen (Fase 3B, §3.2.6)
         if (execResult.status === "ok") {
-            const expectedOutcome = step.expectedOutcome || "Cumplimiento del objetivo de la etapa";
-            const evidenceSummary = execResult.call?.evidence?.summary || execResult.call?.evidence?.obs || "";
-            const compactObs = context.lastCallCompactObs || "";
-            const eosOk = execResult.call?.evidence?.ok ?? true;
-            const eosCumple = (execResult.call?.evidence as any)?.cumple ?? execResult.call?.outcome?.success ?? true;
-
-            const stageVerif = await deps.qwenEngine.verifyStage({
-                goal: task.message,
-                stepInstruction: step.instruction,
-                expectedOutcome,
-                evidenceSummary,
-                compactObs,
-                facts: task.memory?.facts || {},
-                eosOk,
-                eosCumple,
-                logLines: task.memory?.log || [],
-            }, context.abortController.signal);
+            // Eos ya aprobó el paso (ok y cumple); Qwen emite el veredicto semántico.
+            let stageVerif;
+            try {
+                stageVerif = await deps.qwenEngine.verifyStage({
+                    goal: task.message,
+                    stepInstruction: step.instruction,
+                    expectedOutcome: step.expectedOutcome || "Cumplimiento del objetivo de la etapa",
+                    evidenceSummary: execResult.call?.evidence?.summary || execResult.call?.evidence?.obs || "",
+                    compactObs: context.lastCallCompactObs || "",
+                    facts: task.memory?.facts || {},
+                    logLines: task.memory?.log || [],
+                }, signal);
+            } catch (err) {
+                await concludeOnLLMError(context, deps, "Verificación de etapa", err);
+                return;
+            }
 
             step.rawInput = stageVerif.rawInput;
             step.rawOutput = stageVerif.rawOutput;
@@ -644,8 +645,6 @@ export async function runPlanLoop(
             deps.emitEvent(task.id, "STAGE_VERIFIED", {
                 stepId: step.id,
                 stageVerification: stageVerif,
-                eosOk,
-                eosCumple,
                 rawInput: stageVerif.rawInput,
                 rawOutput: stageVerif.rawOutput,
             }, step.id);
@@ -678,7 +677,7 @@ export async function runPlanLoop(
                 await concludeTask(context, resolveFailureState(task), deps, stageVerif.reason);
                 return;
             } else {
-                // recoverable_deviation:
+                // recoverable_deviation
                 step.state = "FAILED";
                 step.error = stageVerif.reason;
                 deps.persistTasks();
@@ -696,7 +695,7 @@ export async function runPlanLoop(
             console.log(`[PLAN] Paso ${step.id} registrado como UNVERIFIED. Continuando hacia la siguiente etapa.`);
             continue;
         } else {
-            // execResult.status === "logical_error" | "blocked_loop"
+            // logical_error | blocked_loop
             step.state = "FAILED";
             step.error = execResult.error || "Fallo en ejecución del paso.";
             deps.persistTasks();

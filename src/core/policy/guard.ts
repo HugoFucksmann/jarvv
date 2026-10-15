@@ -4,9 +4,10 @@
  * Invariantes:
  * - Ningún modelo puede eludir Guard.
  * - Patrones destructivos sobre el SO => DENY siempre.
- * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed).
+ * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
  * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura).
- * - Resto => ALLOW (lecturas y UI_ACTION, por decisión de diseño).
+ * - Resto => ALLOW (lecturas).
+ * - La política sale únicamente del manifest (tools/manifest.ts); no hay otra fuente.
  */
 
 import type { Capability, GuardDecision } from "../types.ts";

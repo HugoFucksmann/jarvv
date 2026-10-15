@@ -20,7 +20,7 @@ export class DesktopCommanderMCPServer implements IMCPServer {
     this.transport = transport || new StdioMcpTransport(
       "desktop_commander",
       config.desktopCommanderMcp,
-      config.mcpTimeoutMs ?? config.timeoutMs ?? 30000
+      config.mcpTimeoutMs ?? 30000
     );
     this.allowedDirectories = allowedDirs || config.desktopCommanderMcp?.allowedDirectories || [];
   }
