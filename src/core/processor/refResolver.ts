@@ -1,7 +1,13 @@
 /**
- * JARVIS Core — Deterministic Reference Resolver (RefResolver)
- * Replaces temporal memory references {{ref:rX}} or {{rX}} from RefStore
- * before Guard security evaluation and tool dispatch (§3, §10.4, §12 Criterio 7).
+ * JARVIS Core — Deterministic Reference Resolver
+ * Sustituye referencias temporales del RefStore antes de Guard y del despacho MCP.
+ *
+ * Formas aceptadas (el prefijo `ref:` es obligatorio):
+ * - Embebida en cualquier string: `{{ref:r1}}`
+ * - Valor completo del argumento:  `{{ref:r1}}` o `ref:r1`
+ *
+ * Un `r1` desnudo NO es una referencia.
+ * El contenido sustituido nunca se vuelve a escanear (sin referencias anidadas).
  */
 
 import { RefStore } from "./resultProcessor.ts";
@@ -10,114 +16,126 @@ export interface ReferenceResolutionResult {
   resolvedArgs: Record<string, unknown>;
   replacedCount: number;
   resolvedRefs: string[];
+  /** Referencias que no existen en el RefStore; permanecen literales en `resolvedArgs`. El llamador debe tratarlas como error. */
   unresolvedRefs: string[];
 }
 
-/**
- * Regex patterns matching temporal reference tokens
- * Standard format: {{ref:r1}}, {{r1}}, or standalone ref:r1
- */
-const REF_TOKEN_REGEX = /\{\{(?:ref:)?(r\d+)\}\}/gi;
-const STANDALONE_REF_REGEX = /^(?:ref:)?(r\d+)$/i;
+const EMBEDDED_REF = /\{\{ref:(r\d+)\}\}/gi;
+const WHOLE_REF = /^(?:\{\{ref:(r\d+)\}\}|ref:(r\d+))$/i;
 
-/**
- * Recursively resolves reference placeholders in an arbitrary value
- */
-function resolveValue(
-  value: unknown,
-  taskId: string,
-  resolvedRefs: Set<string>,
-  unresolvedRefs: Set<string>
-): { val: unknown; count: number } {
-  if (value === null || value === undefined) {
-    return { val: value, count: 0 };
+/** ¿El valor completo es un token de referencia (`{{ref:rX}}` o `ref:rX`)? */
+export const isWholeRefToken = (value: unknown): boolean =>
+  typeof value === "string" && WHOLE_REF.test(value.trim());
+
+interface ResolutionState {
+  taskId: string;
+  resolved: Set<string>;
+  unresolved: Set<string>;
+  replaced: number;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Tipos JSON-Schema que admite un nodo, incluyendo ramas anyOf/oneOf. */
+export function schemaTypes(schema: unknown, out = new Set<string>()): Set<string> {
+  if (!isRecord(schema)) return out;
+  const t = schema.type;
+  if (typeof t === "string") out.add(t);
+  else if (Array.isArray(t)) t.forEach((x) => typeof x === "string" && out.add(x));
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const branches = schema[key];
+    if (Array.isArray(branches)) branches.forEach((b) => schemaTypes(b, out));
   }
+  return out;
+}
 
-  if (typeof value === "string") {
-    // 1. Caso exacto: el valor es un token completo (ej. "{{ref:r1}}" o "ref:r1")
-    const standaloneMatch = value.trim().match(STANDALONE_REF_REGEX) || value.trim().match(/^\{\{(?:ref:)?(r\d+)\}\}$/i);
-    if (standaloneMatch) {
-      const refKey = standaloneMatch[1].toLowerCase();
-      const content = RefStore.get(refKey, taskId);
-      if (content !== undefined) {
-        resolvedRefs.add(refKey);
-        // Si el contenido almacenado es JSON válido, intentar parsearlo
-        if (content.startsWith("{") || content.startsWith("[")) {
-          try {
-            const parsedJson = JSON.parse(content);
-            return { val: parsedJson, count: 1 };
-          } catch {
-            // No era JSON válido, devolver como string
-          }
-        }
-        return { val: content, count: 1 };
-      } else {
-        unresolvedRefs.add(refKey);
-        console.warn(`[RefResolver] Referencia '${refKey}' no encontrada en RefStore para tarea '${taskId}'.`);
-        return { val: value, count: 0 };
+/** Solo se parsea el JSON de un ref si el schema pide object/array y no admite string. */
+function expectsStructured(schema: unknown): boolean {
+  const types = schemaTypes(schema);
+  return (types.has("object") || types.has("array")) && !types.has("string");
+}
+
+function lookup(key: string, state: ResolutionState): string | undefined {
+  const content = RefStore.get(key, state.taskId);
+  if (content === undefined) {
+    state.unresolved.add(key);
+    console.warn(`[RefResolver] Referencia '${key}' no encontrada en RefStore para tarea '${state.taskId}'.`);
+    return undefined;
+  }
+  state.resolved.add(key);
+  return content;
+}
+
+function resolveString(value: string, schema: unknown, state: ResolutionState): unknown {
+  const whole = WHOLE_REF.exec(value.trim());
+  if (whole) {
+    const content = lookup((whole[1] ?? whole[2]).toLowerCase(), state);
+    if (content === undefined) return value;
+    state.replaced++;
+    if (expectsStructured(schema)) {
+      try {
+        const parsed: unknown = JSON.parse(content);
+        if (typeof parsed === "object" && parsed !== null) return parsed;
+      } catch {
+        // No es JSON: se entrega como string y la validación del tool lo reportará.
       }
     }
-
-    // 2. Caso embebido: el string contiene uno o más tokens {{ref:rX}} o {{rX}}
-    let replacedCountInString = 0;
-    const replacedString = value.replace(REF_TOKEN_REGEX, (_match, rawKey) => {
-      const refKey = String(rawKey).toLowerCase();
-      const content = RefStore.get(refKey, taskId);
-      if (content !== undefined) {
-        resolvedRefs.add(refKey);
-        replacedCountInString++;
-        return content;
-      } else {
-        unresolvedRefs.add(refKey);
-        console.warn(`[RefResolver] Referencia embebida '${refKey}' no encontrada en RefStore para tarea '${taskId}'.`);
-        return _match;
-      }
-    });
-
-    return { val: replacedString, count: replacedCountInString };
+    return content;
   }
+
+  return value.replace(EMBEDDED_REF, (match, rawKey: string) => {
+    const content = lookup(rawKey.toLowerCase(), state);
+    if (content === undefined) return match;
+    state.replaced++;
+    return content;
+  });
+}
+
+function resolveValue(value: unknown, schema: unknown, state: ResolutionState): unknown {
+  if (typeof value === "string") return resolveString(value, schema, state);
 
   if (Array.isArray(value)) {
-    let arrayReplacedCount = 0;
-    const resolvedArray = value.map((item) => {
-      const res = resolveValue(item, taskId, resolvedRefs, unresolvedRefs);
-      arrayReplacedCount += res.count;
-      return res.val;
-    });
-    return { val: resolvedArray, count: arrayReplacedCount };
+    const itemSchema = isRecord(schema) ? schema.items : undefined;
+    return value.map((item) => resolveValue(item, itemSchema, state));
   }
 
-  if (typeof value === "object") {
-    let objReplacedCount = 0;
-    const resolvedObj: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const res = resolveValue(v, taskId, resolvedRefs, unresolvedRefs);
-      objReplacedCount += res.count;
-      resolvedObj[k] = res.val;
-    }
-    return { val: resolvedObj, count: objReplacedCount };
+  if (isRecord(value)) {
+    const props = isRecord(schema) && isRecord(schema.properties) ? schema.properties : {};
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [
+        k,
+        resolveValue(v, Object.hasOwn(props, k) ? props[k] : undefined, state),
+      ]),
+    );
   }
 
-  return { val: value, count: 0 };
+  return value;
 }
 
 /**
- * Resolves all temporal references {{ref:rX}} inside an arguments object
- * before passing to Guard and tool execution.
+ * @param inputSchema Schema real de la tool (`inputSchema`). Sin schema para una propiedad,
+ *   el contenido del ref se entrega siempre como string.
+ *   No se resuelven `$ref` internos del schema: esas propiedades se tratan como "sin schema".
  */
 export function resolveReferences(
   args: Record<string, unknown>,
-  taskId: string
+  taskId: string,
+  inputSchema?: Record<string, unknown>,
 ): ReferenceResolutionResult {
-  const resolvedRefs = new Set<string>();
-  const unresolvedRefs = new Set<string>();
+  const state: ResolutionState = {
+    taskId,
+    resolved: new Set(),
+    unresolved: new Set(),
+    replaced: 0,
+  };
 
-  const { val, count } = resolveValue(args, taskId, resolvedRefs, unresolvedRefs);
+  const resolvedArgs = resolveValue(args, inputSchema, state) as Record<string, unknown>;
 
   return {
-    resolvedArgs: (val as Record<string, unknown>) || {},
-    replacedCount: count,
-    resolvedRefs: Array.from(resolvedRefs),
-    unresolvedRefs: Array.from(unresolvedRefs),
+    resolvedArgs,
+    replacedCount: state.replaced,
+    resolvedRefs: [...state.resolved],
+    unresolvedRefs: [...state.unresolved],
   };
 }

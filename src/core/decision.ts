@@ -1,32 +1,29 @@
 /**
- * Decision 2.0 — Real HTTP Client Adapter
- * Model: vllm-sr/Decision-2.0-Eos-0.8B
- * 
- * Rules:
- * - REAL HTTP integration against configured URL (e.g. ngrok endpoint).
- * - NO heuristics, NO keyword simulation.
- * - If service is unconfigured or unreachable, raises explicit controlled DecisionServiceUnavailableError.
- * - Adheres strictly to official contract:
- *   - system_one(state, questions)
- *   - types: choice (2-255), noul, score (2-10)
- *   - 8192 tokens max context check
+ * Decision 2.0 — Adaptador HTTP real
+ * Modelo: vllm-sr/Decision-2.0-Eos-0.8B (contrato: state + questions -> answers)
+ *
+ * - Integración HTTP real contra la URL configurada; sin simulaciones. Si el servicio no está configurado o no
+ *   responde, lanza DecisionServiceUnavailableError.
+ * - Tipos de pregunta implementados: `choice` y `noul`. El contrato también define `score`; no se usa ni se implementa.
+ * - Validación de la respuesta en un solo punto (parseResponse); el resto del código confía en ella.
+ * - Umbral de `noul`: se aprueba solo con probabilidad estrictamente mayor que 0.5 (ante ambigüedad, no se aprueba).
+ * - Transporte (reintento único en red/503, timeout, cancelación): llmTransport.ts.
  */
 
 import {
-  DecisionQuestion,
-  DecisionResponse,
-  DecisionAnswer,
-  DecisionAnswerChoice,
-  DecisionAnswerNoul,
-  StepRoute,
-  MCPTool,
+  type DecisionAnswer,
+  type DecisionQuestion,
+  type DecisionResponse,
+  type MCPTool,
+  type StepRoute,
 } from "./types.ts";
 import { ConfigManager } from "./config.ts";
-import { DECISION_PROMPTS, Attempt } from "./reasoner/prompts.ts";
+import { DECISION_PROMPTS, type Attempt } from "./reasoner/prompts.ts";
+import { estimateTokens, postJson, TransportError } from "./llmTransport.ts";
 
 export class DecisionServiceUnavailableError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
-    super(`[Decision 2.0 Unavailable] ${message}`);
+  constructor(message: string, cause?: unknown) {
+    super(`[Decision 2.0 Unavailable] ${message}`, { cause });
     this.name = "DecisionServiceUnavailableError";
   }
 }
@@ -38,216 +35,182 @@ export class DecisionValidationError extends Error {
   }
 }
 
+/** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
+const NOUL_APPROVE = 0.5;
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const pct = (probabilities: Record<string, number>): string =>
+  Object.entries(probabilities)
+    .sort(([, a], [, b]) => b - a)
+    .map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`)
+    .join(", ");
+
 export class Decision20Engine {
   /**
-   * Invokes system_one on the real Decision 2.0 model endpoint.
+   * Invoca `system_one` sobre el endpoint real. Devuelve las respuestas ya validadas contra `questions`
+   * y los crudos de entrada/salida para depuración.
    */
   async systemOne(
-    state: string | Record<string, unknown>,
-    questions: Record<string, DecisionQuestion>
+    state: string,
+    questions: Record<string, DecisionQuestion>,
+    options?: { signal?: AbortSignal }
   ): Promise<DecisionResponse> {
     const config = ConfigManager.getConfig();
-    const endpointUrl = config.decisionUrl?.trim();
-
-    if (!endpointUrl) {
+    const endpoint = config.decisionUrl;
+    if (!endpoint) {
       throw new DecisionServiceUnavailableError(
-        "La URL de Decision 2.0 no está configurada. Configure la URL de ngrok/HTTP en la barra de configuración."
+        "La URL de Decision 2.0 no está configurada. Configure la URL HTTP en la barra de configuración."
       );
     }
 
-    const stateStr = typeof state === "string" ? state : JSON.stringify(state);
+    const payload = { state, questions };
+    const body = JSON.stringify(payload);
 
-    // Verify context boundary (8192 tokens)
-    const estimatedTokens = Math.ceil(stateStr.length / 3.5) + Object.keys(questions).length * 40;
-    if (estimatedTokens > 8192) {
+    // Guarda de contexto sobre el payload completo (los `criteria` viajan dentro de `questions`).
+    const estimated = estimateTokens(body);
+    if (estimated > config.decisionMaxContext) {
       throw new DecisionValidationError(
-        `Desbordamiento de contexto en Decision 2.0: estimación de ${estimatedTokens} tokens supera el límite de 8.192 tokens.`
+        `Desbordamiento de contexto: ~${estimated} tokens superan el límite de ${config.decisionMaxContext}.`
       );
     }
 
-    const url = endpointUrl.endsWith("/v1/decide")
-      ? endpointUrl
-      : `${endpointUrl.replace(/\/+$/, "")}/v1/decide`;
+    const url = endpoint.endsWith("/v1/decide") ? endpoint : `${endpoint.replace(/\/+$/, "")}/v1/decide`;
+    console.log(`[Decision → SEND] state=${JSON.stringify(state).slice(0, 300)} questions=${JSON.stringify(questions).slice(0, 300)}`);
 
-    // Diagnostic log: exact payload sent to Decision
-    console.log(`[Decision → SEND] state=${JSON.stringify(stateStr).slice(0, 300)} questions=${JSON.stringify(questions)}`);
-
-    const requestPayload = { state: stateStr, questions };
-    const requestBody = JSON.stringify(requestPayload, null, 2);
-
-    let response: Response;
+    let result;
     try {
-      const timeoutMs = config.decisionTimeoutMs ?? config.timeoutMs ?? 30000;
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "ngrok-skip-browser-warning": "true",
-          "bypass-tunnel-reminder": "true",
-        },
-        body: JSON.stringify(requestPayload),
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch (err: any) {
-      if (err.name === "TimeoutError") {
-        throw new DecisionServiceUnavailableError(`Timeout al conectar con Decision 2.0 en ${url}`, err);
-      }
-      throw new DecisionServiceUnavailableError(
-        `No fue posible conectar con el servicio Decision 2.0 en ${url}. Verifique que el servicio y ngrok estén en ejecución en su PC.`,
-        err
-      );
-    }
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      throw new DecisionServiceUnavailableError(
-        `Decision 2.0 HTTP error ${response.status} (${response.statusText}): ${errText}`
-      );
-    }
-
-    let rawOutput: string;
-    let data: any;
-    try {
-      rawOutput = await response.text();
-      data = JSON.parse(rawOutput);
+      result = await postJson({ url, body, timeoutMs: config.decisionTimeoutMs, signal: options?.signal });
     } catch (err) {
-      throw new DecisionValidationError("La respuesta de Decision 2.0 no es un JSON válido.");
+      if (err instanceof TransportError) {
+        throw new DecisionServiceUnavailableError(
+          err.kind === "timeout"
+            ? `Timeout (${config.decisionTimeoutMs}ms) esperando a Decision 2.0 en ${url}`
+            : `No fue posible conectar con Decision 2.0 en ${url}. Verifique que el servicio esté en ejecución. ${err.message}`,
+          err
+        );
+      }
+      throw err; // RequestAbortedError
     }
 
-    // Diagnostic log: raw response received from Decision
-    console.log(`[Decision ← RECV] ${rawOutput}`);
+    if (!result.ok) {
+      throw new DecisionServiceUnavailableError(
+        `HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`
+      );
+    }
+    console.log(`[Decision ← RECV] ${result.text.slice(0, 600)}`);
 
-    // Validate response payload conforms strictly to Decision 2.0 contract
-    this.validateResponse(data, questions);
-
-    data.rawInput = requestBody;
-    data.rawOutput = rawOutput;
-
-    return data as DecisionResponse;
+    return {
+      answers: this.parseResponse(result.text, questions),
+      rawInput: JSON.stringify(payload, null, 2), // el mismo payload, legible
+      rawOutput: result.text,
+    };
   }
 
-  /**
-   * Decision #1: Structural routing for JARVIS (§3, §4, §10.6, §14)
-   * Options: windows, desktop_commander, free_search, fin.
-   * Validates confidence threshold for fin and picks best non-fin on low confidence.
-   */
+  /** Decision #1: ruta de la siguiente acción. */
   async evaluateDecisionOne(
     taskMessage: string,
     historyContext: string | string[] = [],
     options?: {
       allowFin?: boolean;
-      isPostAction?: boolean;
-      isFirstIteration?: boolean;
-      /** Observación compacta del último resultado obtenido, para que D1 la vea. */
+      /** Observación compacta del último resultado, para que Decision la vea. */
       lastResult?: string;
-      /** Historial de acciones ya ejecutadas, para marcar rutas fallidas. */
+      /** Acciones ya ejecutadas; marcan rutas cuyo último intento falló. */
       attempts?: Attempt[];
+      signal?: AbortSignal;
     }
   ): Promise<{
     route: StepRoute;
-    confidence: number;
     probabilities: Record<string, number>;
-    needsContext: boolean;
-    rawResponse: DecisionResponse;
     rawInput: string;
     rawOutput: string;
   }> {
-    const history = Array.isArray(historyContext)
-      ? historyContext.slice(-3).join("\n")
-      : historyContext;
-
-    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionOne({
+    const history = Array.isArray(historyContext) ? historyContext.slice(-3).join("\n") : historyContext;
+    const { state, questions } = DECISION_PROMPTS.buildDecisionOne({
       taskMessage,
       history,
       allowFin: options?.allowFin !== false,
-      isFirstIteration: options?.isFirstIteration !== false,
       lastResult: options?.lastResult,
       attempts: options?.attempts,
     });
 
     const t0 = Date.now();
-    let response: DecisionResponse;
-    try {
-      response = await this.systemOne(statePayload, questions);
-    } catch (err: any) {
-      console.error(`[Decision] error=${err?.message || err} duration=${Date.now() - t0}ms`);
-      throw err;
+    const response = await this.ask("Decision #1", state, questions, options?.signal);
+    // parseResponse garantiza que `choice` pertenece a `criteria` (rutas ejecutables, más `fin` si se permite).
+    const { choice, probabilities } = response.answers.route as { choice: string; probabilities: Record<string, number> };
+
+    console.log(`[Decision #1] route=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+    return { route: choice as StepRoute, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput };
+  }
+
+  /** Decision #2: tool dentro de las herramientas descubiertas del MCP activo. */
+  async evaluateDecisionTwo(
+    instruction: string,
+    discoveredTools: MCPTool[],
+    scratchpadSummary?: string,
+    attempts?: Attempt[],
+    options?: { mcp?: string; signal?: AbortSignal }
+  ): Promise<{
+    selectedTool: MCPTool;
+    probabilities: Record<string, number>;
+    rawInput: string;
+    rawOutput: string;
+  }> {
+    if (discoveredTools.length === 0) {
+      throw new DecisionValidationError("Decision #2 falló: no se proporcionaron herramientas descubiertas.");
     }
 
-    const routeAnswer = response.answers.route as DecisionAnswerChoice;
-    const needsContextAnswer = response.answers.needs_context as DecisionAnswerNoul | undefined;
-
-    const validNonFinRoutes: StepRoute[] = ["windows", "desktop_commander", "free_search"];
-    const validRoutes: StepRoute[] = options?.allowFin !== false
-      ? ["fin", ...validNonFinRoutes]
-      : validNonFinRoutes;
-
-    const candidateRoute = routeAnswer.choice as StepRoute;
-    const routeConfidence = routeAnswer.confidence ?? 0;
-    const probabilities = routeAnswer.probabilities || {};
-
-    let route: StepRoute;
-    let adoptedConfidence = routeConfidence;
-
-    // Resolución por mayor probabilidad (argmax) sin umbrales numéricos de corte (Fase 3, §4.2, §10)
-    if (validRoutes.includes(candidateRoute)) {
-      route = candidateRoute;
-    } else {
-      // Si la opción no pertenece a las rutas válidas, tomar la ruta válida con mayor probabilidad (argmax)
-      const sortedValid = Object.entries(probabilities)
-        .filter(([k]) => validRoutes.includes(k as StepRoute))
-        .sort(([, a], [, b]) => Number(b) - Number(a));
-      route = (sortedValid[0]?.[0] as StepRoute) || "desktop_commander";
-      adoptedConfidence = Number(sortedValid[0]?.[1] ?? 1.0);
-      console.warn(`[Decision #1] Opción '${candidateRoute}' no válida. Resuelto por argmax a '${route}' (${adoptedConfidence.toFixed(2)}).`);
+    // Con una sola opción no hay decisión que tomar: se omite la llamada (sin simular una respuesta del modelo).
+    if (discoveredTools.length === 1) {
+      const tool = discoveredTools[0];
+      console.log(`[Decision] tool=${tool.name} (única opción) duration=0ms`);
+      return {
+        selectedTool: tool,
+        probabilities: { [tool.name]: 1 },
+        rawInput: JSON.stringify({ state: instruction, single_tool: tool.name }, null, 2),
+        rawOutput: JSON.stringify({ choice: tool.name, source: "single_tool_shortcut" }, null, 2),
+      };
     }
 
-    // Argmax binario para necesidad de contexto (>= 0.5) sin umbrales arbitrarios
-    const needsContext = needsContextAnswer ? needsContextAnswer.noul >= 0.5 : false;
+    const { state, questions } = DECISION_PROMPTS.buildDecisionTwo({
+      instruction,
+      scratchpadContext: scratchpadSummary ?? "",
+      tools: discoveredTools,
+      attempts,
+      mcp: options?.mcp,
+    });
 
-    // Ordered distribution of probabilities
-    const sortedProbabilities = Object.entries(probabilities)
-      .sort(([, a], [, b]) => Number(b) - Number(a))
-      .map(([k, v]) => `${k}: ${(Number(v) * 100).toFixed(1)}%`)
-      .join(", ");
+    const t0 = Date.now();
+    const response = await this.ask("Decision #2", state, questions, options?.signal);
+    const { choice, probabilities } = response.answers.selected_tool as { choice: string; probabilities: Record<string, number> };
+    // `criteria` se construyó con los nombres de discoveredTools y parseResponse validó la pertenencia.
+    const selectedTool = discoveredTools.find((t) => t.name === choice)!;
 
-    console.log(
-      `[Decision #1] route=${route} confidence=${adoptedConfidence.toFixed(2)} (argmax) probabilities=[${sortedProbabilities}] duration=${Date.now() - t0}ms`
-    );
-
-    return {
-      route,
-      confidence: adoptedConfidence,
-      probabilities,
-      needsContext,
-      rawResponse: response,
-      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
-      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
-    };
+    console.log(`[Decision] tool=${selectedTool.name} duration=${Date.now() - t0}ms`);
+    return { selectedTool, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput };
   }
 
   /**
-   * Verificación factual a nivel de paso con Eos (Fase 3, §5)
-   * Preguntas binarias noul sobre señales limpias (CLEAN): ok y cumple
-   * Evaluación por mayor probabilidad (argmax: >= 0.5) sin umbrales arbitrarios.
+   * Verificación factual de paso con Eos: dos preguntas `noul` (`ok`, `cumple`).
+   * Aprueba solo con probabilidad estrictamente mayor que NOUL_APPROVE.
    */
   async evaluateStepVerification(
     instruction: string,
     toolName: string,
     resultSummary: string,
     evidenceSummary?: string,
-    expectedOutcome?: string
+    expectedOutcome?: string,
+    signal?: AbortSignal
   ): Promise<{
     ok: boolean;
     cumple: boolean;
     okProbability: number;
     cumpleProbability: number;
-    rawResponse: DecisionResponse;
     rawInput: string;
     rawOutput: string;
   }> {
-    const { state: statePayload, questions } = DECISION_PROMPTS.buildStepVerification({
+    const { state, questions } = DECISION_PROMPTS.buildStepVerification({
       instruction,
       toolName,
       resultSummary,
@@ -256,180 +219,76 @@ export class Decision20Engine {
     });
 
     const t0 = Date.now();
-    let response: DecisionResponse;
-    try {
-      response = await this.systemOne(statePayload, questions);
-    } catch (err: any) {
-      console.error(`[StepVerification] error=${err?.message || err} duration=${Date.now() - t0}ms`);
-      throw err;
-    }
-
-    const okAns = response.answers.ok as DecisionAnswerNoul;
-    const cumpleAns = response.answers.cumple as DecisionAnswerNoul;
-
-    // Argmax binario: mayor probabilidad (>= 0.5) sin umbrales de corte arbitrarios (§4.2, §5)
-    const ok = okAns ? okAns.noul >= 0.5 : false;
-    const cumple = cumpleAns ? cumpleAns.noul >= 0.5 : false;
+    const response = await this.ask("StepVerification", state, questions, signal);
+    const okProbability = (response.answers.ok as { noul: number }).noul;
+    const cumpleProbability = (response.answers.cumple as { noul: number }).noul;
+    const ok = okProbability > NOUL_APPROVE;
+    const cumple = cumpleProbability > NOUL_APPROVE;
 
     console.log(
-      `[StepVerification Eos] tool=${toolName} ok=${ok} (p=${okAns?.noul?.toFixed(2) ?? "N/A"}) cumple=${cumple} (p=${cumpleAns?.noul?.toFixed(2) ?? "N/A"}) duration=${Date.now() - t0}ms`
+      `[StepVerification Eos] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
     );
+    return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput };
+  }
 
-    return {
-      ok,
-      cumple,
-      okProbability: okAns?.noul ?? 0,
-      cumpleProbability: cumpleAns?.noul ?? 0,
-      rawResponse: response,
-      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
-      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
-    };
+  /** `systemOne` con el registro de error común a todas las evaluaciones. */
+  private async ask(
+    label: string,
+    state: string,
+    questions: Record<string, DecisionQuestion>,
+    signal?: AbortSignal
+  ): Promise<DecisionResponse> {
+    const t0 = Date.now();
+    try {
+      return await this.systemOne(state, questions, { signal });
+    } catch (err) {
+      console.error(`[${label}] error=${err instanceof Error ? err.message : String(err)} duration=${Date.now() - t0}ms`);
+      throw err;
+    }
   }
 
   /**
-   * Decision #2: Tool selection within discovered tools of the active MCP
+   * Único punto de validación. Verifica por pregunta (según su tipo, por forma y sin exigir un campo `type`):
+   * - choice: `choice` existe en `criteria`; `probabilities` se conserva solo con valores numéricos.
+   * - noul: número en [0, 1].
    */
-  async evaluateDecisionTwo(
-    instruction: string,
-    discoveredTools: MCPTool[],
-    scratchpadSummary?: string,
-    attempts?: Attempt[]
-  ): Promise<{
-    selectedTool: MCPTool;
-    choiceAnswer: DecisionAnswerChoice;
-    rawResponse: DecisionResponse;
-    rawInput: string;
-    rawOutput: string;
-  }> {
-    if (discoveredTools.length === 0) {
-      throw new DecisionValidationError("Decision #2 falló: No se proporcionaron herramientas descubiertas.");
-    }
-
-    if (discoveredTools.length === 1) {
-      const tool = discoveredTools[0];
-      const answer: DecisionAnswerChoice = {
-        type: "choice",
-        choice: tool.name,
-        probabilities: { [tool.name]: 1.0 },
-        confidence: 1.0,
-      };
-      console.log(`[Decision] tool=${tool.name} duration=0ms`);
-      const mockRaw: DecisionResponse = {
-        model: "Decision-2.0-Eos-0.8B",
-        answers: { selected_tool: answer },
-        usage: { input_tokens: 0, output_tokens: 0 },
-      };
-      const rawIn = JSON.stringify({ state: instruction, single_tool: tool.name }, null, 2);
-      const rawOut = JSON.stringify(mockRaw, null, 2);
-      return {
-        selectedTool: tool,
-        choiceAnswer: answer,
-        rawResponse: {
-          ...mockRaw,
-          rawInput: rawIn,
-          rawOutput: rawOut,
-        },
-        rawInput: rawIn,
-        rawOutput: rawOut,
-      };
-    }
-
-    // Contract limit: 2–255 options applied inside builder
-    const { state: statePayload, questions } = DECISION_PROMPTS.buildDecisionTwo({
-      instruction,
-      scratchpadContext: scratchpadSummary || "",
-      tools: discoveredTools,
-      attempts,
-    });
-    const limitedTools = discoveredTools.slice(0, 255);
-
-    const t0 = Date.now();
-    let response: DecisionResponse;
+  private parseResponse(raw: string, questions: Record<string, DecisionQuestion>): Record<string, DecisionAnswer> {
+    let data: unknown;
     try {
-      response = await this.systemOne(statePayload, questions);
-    } catch (err: any) {
-      console.error(`[Decision] error=${err?.message || err} duration=${Date.now() - t0}ms`);
-      throw err;
+      data = JSON.parse(raw);
+    } catch {
+      throw new DecisionValidationError("La respuesta de Decision 2.0 no es un JSON válido.");
     }
-    const choiceAnswer = response.answers.selected_tool as DecisionAnswerChoice;
-
-    const matchedTool = limitedTools.find((t) => t.name === choiceAnswer.choice);
-    if (!matchedTool) {
-      console.error(`[Decision] error=unmatched_choice duration=${Date.now() - t0}ms`);
-      throw new DecisionValidationError(
-        `Decision 2.0 seleccionó una opción '${choiceAnswer.choice}' que no corresponde a ninguna de las herramientas descubiertas.`
-      );
-    }
-
-    console.log(`[Decision] tool=${matchedTool.name} duration=${Date.now() - t0}ms`);
-
-    return {
-      selectedTool: matchedTool,
-      choiceAnswer,
-      rawResponse: response,
-      rawInput: response.rawInput || JSON.stringify({ state: statePayload, questions }, null, 2),
-      rawOutput: response.rawOutput || JSON.stringify(response, null, 2),
-    };
-  }
-
-  private validateResponse(data: any, expectedQuestions: Record<string, DecisionQuestion>): void {
-    if (!data || typeof data !== "object") {
-      throw new DecisionValidationError("La respuesta de Decision 2.0 debe ser un objeto JSON.");
-    }
-
-    // Support both standard { answers: { ... } } and direct answers map
-    if (!data.answers && typeof data === "object") {
-      const hasAnyQuestion = Object.keys(expectedQuestions).some((k) => k in data);
-      if (hasAnyQuestion) {
-        data.answers = { ...data };
-      }
-    }
-
-    if (!data.answers || typeof data.answers !== "object") {
+    if (!isRecord(data) || !isRecord(data.answers)) {
       throw new DecisionValidationError("La respuesta de Decision 2.0 no contiene la clave 'answers'.");
     }
 
-    for (const [key, qDef] of Object.entries(expectedQuestions)) {
-      const ans = data.answers[key] as DecisionAnswer;
-      if (!ans) {
-        throw new DecisionValidationError(
-          `La respuesta de Decision 2.0 no incluye respuesta para la pregunta '${key}'.`
-        );
+    const answers: Record<string, DecisionAnswer> = {};
+    for (const [key, question] of Object.entries(questions)) {
+      const ans = data.answers[key];
+      if (!isRecord(ans)) {
+        throw new DecisionValidationError(`La respuesta no incluye la pregunta '${key}'.`);
       }
 
-      if (ans.type !== qDef.type) {
-        throw new DecisionValidationError(
-          `Inconsistencia de tipo para pregunta '${key}': esperado '${qDef.type}', recibido '${ans.type}'.`
-        );
-      }
-
-      if (qDef.type === "choice") {
-        const choiceAns = ans as DecisionAnswerChoice;
-        if (!choiceAns.choice || typeof choiceAns.choice !== "string") {
-          throw new DecisionValidationError(`Respuesta choice para '${key}' no contiene un campo 'choice' válido.`);
+      if (question.type === "choice") {
+        const choice = ans.choice;
+        if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
+          throw new DecisionValidationError(
+            `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
+          );
         }
-        if (!choiceAns.probabilities || typeof choiceAns.probabilities !== "object") {
-          choiceAns.probabilities = {};
+        const probabilities = isRecord(ans.probabilities)
+          ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
+          : {};
+        answers[key] = { choice, probabilities };
+      } else {
+        const noul = ans.noul;
+        if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
+          throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
         }
-        if (typeof choiceAns.confidence !== "number") {
-          choiceAns.confidence = (choiceAns.probabilities && typeof choiceAns.probabilities[choiceAns.choice] === "number")
-            ? choiceAns.probabilities[choiceAns.choice]
-            : 1.0;
-        }
-        if ("criteria" in qDef && qDef.criteria && typeof qDef.criteria === "object") {
-          const validCriteriaKeys = Object.keys(qDef.criteria);
-          if (!validCriteriaKeys.includes(choiceAns.choice)) {
-            throw new DecisionValidationError(
-              `Respuesta choice para '${key}' seleccionó '${choiceAns.choice}', que no coincide con ninguna opción permitida (${validCriteriaKeys.join(", ")}).`
-            );
-          }
-        }
-      } else if (qDef.type === "noul") {
-        const noulAns = ans as DecisionAnswerNoul;
-        if (typeof noulAns.noul !== "number" || noulAns.noul < 0 || noulAns.noul > 1) {
-          throw new DecisionValidationError(`Respuesta noul para '${key}' debe ser un float en el rango [0.0, 1.0].`);
-        }
+        answers[key] = { noul };
       }
     }
+    return answers;
   }
 }

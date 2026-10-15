@@ -1,9 +1,13 @@
 /**
- * JARVIS Core v1.0 — Architecture & Core Contracts
- * Single Source of Truth for Core Types according to norm v1.0
+ * JARVIS Core — Architecture & Core Contracts
+ * Fuente única de tipos del núcleo.
  */
 
 import type { ModelIteration } from "../types/debug.ts";
+
+// ============================================================
+// Estados de tarea y paso
+// ============================================================
 
 export type TaskState =
   | "RUNNING"
@@ -24,11 +28,27 @@ export type StepState =
   | "UNVERIFIED"
   | "BLOCKED";
 
-export type StepRoute =
-  | "fin"
-  | "windows"
-  | "desktop_commander"
-  | "free_search";
+// ============================================================
+// Rutas (fuente única)
+// ============================================================
+
+/**
+ * Rutas que ejecutan herramientas MCP. Todo lo demás (schemas JSON, prompts,
+ * criterios de Decision, validación de planes) debe derivarse de esta constante.
+ */
+export const EXECUTABLE_ROUTES = ["windows", "desktop_commander", "free_search"] as const;
+export type ExecutableRoute = (typeof EXECUTABLE_ROUTES)[number];
+
+/** `fin` es una señal de Decision #1 (terminar), nunca una ruta ejecutable. */
+export type StepRoute = ExecutableRoute | "fin";
+
+export function isExecutableRoute(route: unknown): route is ExecutableRoute {
+  return typeof route === "string" && (EXECUTABLE_ROUTES as readonly string[]).includes(route);
+}
+
+// ============================================================
+// Pasos, llamadas y planes
+// ============================================================
 
 export interface StepCall {
   id: string;
@@ -81,8 +101,8 @@ export interface PlanStep {
   id: string;
   goal?: string;
   instruction: string;
-  suggested_mcp?: string;
-  route?: StepRoute;
+  suggested_mcp?: ExecutableRoute;
+  route?: ExecutableRoute;
   expected_outcome?: string;
   expectedOutcome?: string;
   dependencies?: string[];
@@ -96,7 +116,10 @@ export interface Plan {
   rawOutput?: string;
 }
 
-// Fase 3B: Verificación semántica de etapas en modo PLAN (§3.2.6)
+// ============================================================
+// Verificación semántica de etapas (modo PLAN)
+// ============================================================
+
 export type StageVerificationStatus =
   | "completed"
   | "recoverable_deviation"
@@ -123,14 +146,16 @@ export interface StageVerificationPromptData {
   logLines?: string[];
 }
 
+// ============================================================
+// Memoria y tarea
+// ============================================================
+
 export interface Scratchpad {
   search_results?: unknown[];
   selected_result?: unknown;
   url?: string;
   path?: string;
   process_id?: string;
-  window_handle?: string;
-  element_id?: string;
   text?: string;
 }
 
@@ -190,9 +215,12 @@ export interface ExecutionOutcome {
   outcomeVerified?: boolean;
 }
 
+// ============================================================
+// Políticas y Guard
+// ============================================================
+
 export type Capability =
   | "READ"
-  | "UI_ACTION"
   | "PROCESS_CONTROL"
   | "FILE_READ"
   | "FILE_WRITE"
@@ -219,7 +247,10 @@ export interface ToolPolicy {
   emptyIsError?: boolean;
 }
 
-// Step Result Types
+// ============================================================
+// Resultado de ejecución de pasos
+// ============================================================
+
 export type StepExecutionStatus = "ok" | "logical_error" | "unverified" | "blocked_loop";
 
 export interface StepExecutionSignals {
@@ -230,7 +261,6 @@ export interface StepExecutionSignals {
   denied?: boolean;
   unverified?: boolean;
   empty_output?: boolean;
-  stale_element?: boolean;
 }
 
 export interface StepExecutionResult {
@@ -252,17 +282,26 @@ export function isTerminalState(state: TaskState): boolean {
   return (TERMINAL_TASK_STATES as readonly string[]).includes(state);
 }
 
-// Global Core Limits & Memory Tiers (Fase 2: límites de llamadas erradicados)
+// ============================================================
+// Límites globales del núcleo
+// ============================================================
+
 export const MAX_STEPS = 15;
-export const MAX_ARG_RETRIES = 2;
 export const MAX_ESCALATIONS = 2;
 export const MAX_REPLAN = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;
 export type ProgressiveMemoryLimit = (typeof PROGRESSIVE_MEMORY_TIERS)[number];
-// Decision 2.0 Integration Types (Fase 3: Argmax sin umbrales numéricos de corte)
-export const QWEN_CTX = 8192;
 
-// Decision 2.0 Integration Types
+/** Política unificada de reintentos hacia Qwen y Decision. Reintentos ante fallo de red o HTTP 503 (nunca ante timeout ni abort). */
+export const LLM_TRANSPORT_RETRIES = 1;
+export const LLM_TRANSPORT_BACKOFF_MS = 1000;
+/** Reintentos ante salida inválida o truncada del modelo. */
+export const LLM_INVALID_OUTPUT_RETRIES = 1;
+
+// ============================================================
+// Decision 2.0
+// ============================================================
+
 export type DecisionQuestionType = "choice" | "noul";
 
 export interface DecisionQuestionChoice {
@@ -280,15 +319,14 @@ export type DecisionQuestion =
   | DecisionQuestionChoice
   | DecisionQuestionNoul;
 
+/** Respuesta de una pregunta `choice`: opción elegida y distribución de probabilidades. */
 export interface DecisionAnswerChoice {
-  type: "choice";
   choice: string;
   probabilities: Record<string, number>;
-  confidence: number;
 }
 
+/** Respuesta de una pregunta `noul`: probabilidad de la afirmativa, en [0, 1]. */
 export interface DecisionAnswerNoul {
-  type: "noul";
   noul: number;
 }
 
@@ -297,17 +335,15 @@ export type DecisionAnswer =
   | DecisionAnswerNoul;
 
 export interface DecisionResponse {
-  model: "Decision-2.0-Eos-0.8B";
   answers: Record<string, DecisionAnswer>;
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-  };
-  rawInput?: string;
-  rawOutput?: string;
+  rawInput: string;
+  rawOutput: string;
 }
 
-// MCP Contracts
+// ============================================================
+// Contratos MCP
+// ============================================================
+
 export interface MCPTool {
   name: string;
   description: string;
@@ -330,18 +366,8 @@ export interface MCPCallResult {
   content: MCPContentItem[];
   isError?: boolean;
   success?: boolean;
-  staleElement?: boolean;
   actionDispatched?: boolean;
   outcomeVerified?: boolean;
-  kind?: "full" | "diff";
-  tree?: unknown[];
-  changes?: unknown[];
-  postActionState?: unknown;
-  postActionElement?: unknown;
-  snapshotIncomplete?: boolean;
-  snapshotWarning?: string;
-  postActionSnapshotIncomplete?: boolean;
-  postActionWarning?: string;
   search_incomplete?: boolean;
   truncated?: boolean;
   retrieved_at?: string;
@@ -351,7 +377,10 @@ export interface MCPCallResult {
   [key: string]: unknown;
 }
 
-// Pending Approval Request for UI interaction
+// ============================================================
+// Aprobaciones y eventos
+// ============================================================
+
 export interface PendingApproval {
   id: string;
   stepId: string;
@@ -364,7 +393,6 @@ export interface PendingApproval {
   onDeny: (reason?: string) => void;
 }
 
-// Live Core observable event stream
 export type CoreEventType =
   | "TASK_CREATED"
   | "DECISION_ONE"
@@ -392,17 +420,4 @@ export interface CoreEvent {
   taskId: string;
   stepId?: string;
   data: Record<string, unknown>;
-}
-
-export const VALID_STEP_ROUTES: readonly StepRoute[] = [
-  "windows",
-  "desktop_commander",
-  "free_search",
-] as const;
-
-/**
- * Type Guard formal para validar rutas de subsistemas MCP en tiempo de ejecución
- */
-export function isStepRoute(route: unknown): route is StepRoute {
-  return typeof route === "string" && (VALID_STEP_ROUTES as readonly string[]).includes(route);
 }

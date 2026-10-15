@@ -1,7 +1,8 @@
 /**
  * JARVIS Core — Configuration & Persistence Manager
- * Manages endpoints for Qwen 3.5 9B, Decision 2.0, and local MCP servers.
- * Persists settings safely to local file system so they survive server restarts.
+ * Endpoints y límites de Qwen, Decision 2.0 y servidores MCP locales.
+ * Persiste en jarvis-config.json; toda lectura o escritura pasa por `normalize`,
+ * de modo que el objeto en memoria siempre cumple la forma de `JarvisConfig`.
  */
 
 import fs from "node:fs";
@@ -15,19 +16,48 @@ export interface StdioServerConfig {
   allowedDirectories?: string[];
 }
 
+/** Tope de tokens de salida por etapa de Qwen. */
+export interface QwenMaxTokens {
+  arguments: number;
+  plan: number;
+  replan: number;
+  verify: number;
+  final: number;
+}
+
 export interface JarvisConfig {
   qwenUrl: string;
   qwenModel: string;
+  /**
+   * Solo gobierna `final_response`. Las demás etapas lo fijan en código:
+   * plan y replan => true; arguments y verify_stage => false.
+   */
   thinking: boolean;
+  /** Debe coincidir con el contexto real del motor (num_ctx / OLLAMA_CONTEXT_LENGTH). */
+  qwenNumCtx: number;
+  qwenMaxTokens: QwenMaxTokens;
+  qwenTimeoutMs: number;
+  /** Timeout de Qwen cuando la etapa usa thinking. */
+  qwenThinkingTimeoutMs: number;
   decisionUrl: string;
+  /** Ventana de contexto de Decision 2.0 según su contrato. */
+  decisionMaxContext: number;
+  decisionTimeoutMs: number;
   windowsMcp: StdioServerConfig;
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
-  timeoutMs?: number;
-  decisionTimeoutMs: number;
-  qwenTimeoutMs: number;
   mcpTimeoutMs: number;
 }
+
+/** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
+export type ConfigPatch = Partial<
+  Omit<JarvisConfig, "windowsMcp" | "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
+> & {
+  windowsMcp?: Partial<StdioServerConfig>;
+  desktopCommanderMcp?: Partial<StdioServerConfig>;
+  freeSearchMcp?: Partial<StdioServerConfig>;
+  qwenMaxTokens?: Partial<QwenMaxTokens>;
+};
 
 const CONFIG_FILE_PATH = path.resolve(process.cwd(), "jarvis-config.json");
 
@@ -35,7 +65,13 @@ const DEFAULT_CONFIG: JarvisConfig = {
   qwenUrl: "http://127.0.0.1:11434",
   qwenModel: "qwen3.5:9b",
   thinking: false,
+  qwenNumCtx: 16384,
+  qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, verify: 1024, final: 2048 },
+  qwenTimeoutMs: 120000,
+  qwenThinkingTimeoutMs: 180000,
   decisionUrl: "http://127.0.0.1:8765",
+  decisionMaxContext: 16384,
+  decisionTimeoutMs: 30000,
   windowsMcp: {
     command: "uvx",
     args: ["windows-mcp", "serve"],
@@ -49,83 +85,146 @@ const DEFAULT_CONFIG: JarvisConfig = {
     command: "uvx",
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
-  timeoutMs: 30000,
-  decisionTimeoutMs: 30000,
-  qwenTimeoutMs: 120000,
   mcpTimeoutMs: 30000,
 };
 
-export class ConfigManager {
-  private static currentConfig: JarvisConfig = this.loadConfig();
+// ------------------------------------------------------------
+// Normalización
+// ------------------------------------------------------------
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
+const text = (v: unknown, fallback: string): string =>
+  typeof v === "string" ? v.trim() : fallback;
+
+const nonEmptyText = (v: unknown, fallback: string): string =>
+  typeof v === "string" && v.trim() ? v.trim() : fallback;
+
+const positiveInt = (v: unknown, fallback: number): number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
+
+const stringList = (v: unknown): string[] | undefined =>
+  Array.isArray(v) && v.every((x) => typeof x === "string") ? [...(v as string[])] : undefined;
+
+const stringRecord = (v: unknown): Record<string, string> | undefined =>
+  isRecord(v) && Object.values(v).every((x) => typeof x === "string")
+    ? { ...(v as Record<string, string>) }
+    : undefined;
+
+function normalizeServer(raw: unknown, base: StdioServerConfig): StdioServerConfig {
+  const r = isRecord(raw) ? raw : {};
+  const server: StdioServerConfig = {
+    command: nonEmptyText(r.command, base.command),
+    args: stringList(r.args) ?? [...base.args],
+  };
+
+  const env = stringRecord(r.env) ?? base.env;
+  if (env) server.env = { ...env };
+
+  const cwd = nonEmptyText(r.cwd, base.cwd ?? "");
+  if (cwd) server.cwd = cwd;
+
+  const allowed = stringList(r.allowedDirectories) ?? base.allowedDirectories;
+  if (allowed) server.allowedDirectories = [...allowed];
+
+  return server;
+}
+
+/**
+ * Construye la configuración a partir de campos conocidos únicamente:
+ * claves legadas o desconocidas (p. ej. `timeoutMs`, `windowsMcpUrl`) se descartan.
+ * Un valor ausente o inválido toma el de `base` (defaults al cargar; configuración vigente al actualizar).
+ */
+function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisConfig {
+  const r = isRecord(raw) ? raw : {};
+  const t = isRecord(r.qwenMaxTokens) ? r.qwenMaxTokens : {};
+  const d = base;
+
+  return {
+    qwenUrl: text(r.qwenUrl, d.qwenUrl),
+    qwenModel: nonEmptyText(r.qwenModel, d.qwenModel),
+    thinking: typeof r.thinking === "boolean" ? r.thinking : d.thinking,
+    qwenNumCtx: positiveInt(r.qwenNumCtx, d.qwenNumCtx),
+    qwenMaxTokens: {
+      arguments: positiveInt(t.arguments, d.qwenMaxTokens.arguments),
+      plan: positiveInt(t.plan, d.qwenMaxTokens.plan),
+      replan: positiveInt(t.replan, d.qwenMaxTokens.replan),
+      verify: positiveInt(t.verify, d.qwenMaxTokens.verify),
+      final: positiveInt(t.final, d.qwenMaxTokens.final),
+    },
+    qwenTimeoutMs: positiveInt(r.qwenTimeoutMs, d.qwenTimeoutMs),
+    qwenThinkingTimeoutMs: positiveInt(r.qwenThinkingTimeoutMs, d.qwenThinkingTimeoutMs),
+    decisionUrl: text(r.decisionUrl, d.decisionUrl),
+    decisionMaxContext: positiveInt(r.decisionMaxContext, d.decisionMaxContext),
+    decisionTimeoutMs: positiveInt(r.decisionTimeoutMs, d.decisionTimeoutMs),
+    windowsMcp: normalizeServer(r.windowsMcp, d.windowsMcp),
+    desktopCommanderMcp: normalizeServer(r.desktopCommanderMcp, d.desktopCommanderMcp),
+    freeSearchMcp: normalizeServer(r.freeSearchMcp, d.freeSearchMcp),
+    mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
+  };
+}
+
+// ------------------------------------------------------------
+// Gestor
+// ------------------------------------------------------------
+
+export class ConfigManager {
+  private static currentConfig: JarvisConfig = ConfigManager.loadConfig();
+
+  /** Copia profunda: modificarla no altera la configuración activa. */
   static getConfig(): JarvisConfig {
-    return { ...this.currentConfig };
+    return structuredClone(this.currentConfig);
   }
 
-  static updateConfig(partial: Partial<JarvisConfig>): JarvisConfig {
-    this.currentConfig = {
-      ...this.currentConfig,
-      ...partial,
-    };
+  static updateConfig(patch: ConfigPatch): JarvisConfig {
+    const cur = this.currentConfig;
+    this.currentConfig = normalize({
+      ...cur,
+      ...patch,
+      windowsMcp: { ...cur.windowsMcp, ...patch.windowsMcp },
+      desktopCommanderMcp: { ...cur.desktopCommanderMcp, ...patch.desktopCommanderMcp },
+      freeSearchMcp: { ...cur.freeSearchMcp, ...patch.freeSearchMcp },
+      qwenMaxTokens: { ...cur.qwenMaxTokens, ...patch.qwenMaxTokens },
+    }, cur);
     this.saveConfig(this.currentConfig);
-    return { ...this.currentConfig };
+    return this.getConfig();
   }
 
   static isConfigured(service: "qwen" | "decision" | "windows" | "desktop" | "search"): boolean {
+    const c = this.currentConfig;
     switch (service) {
       case "qwen":
-        return Boolean(this.currentConfig.qwenUrl.trim());
+        return Boolean(c.qwenUrl);
       case "decision":
-        return Boolean(this.currentConfig.decisionUrl.trim());
+        return Boolean(c.decisionUrl);
       case "windows":
-        return Boolean(this.currentConfig.windowsMcp?.command?.trim());
+        return Boolean(c.windowsMcp.command);
       case "desktop":
-        return Boolean(this.currentConfig.desktopCommanderMcp?.command?.trim());
+        return Boolean(c.desktopCommanderMcp.command);
       case "search":
-        return Boolean(this.currentConfig.freeSearchMcp?.command?.trim());
-      default:
-        return false;
+        return Boolean(c.freeSearchMcp.command);
     }
   }
 
   private static loadConfig(): JarvisConfig {
     try {
       if (fs.existsSync(CONFIG_FILE_PATH)) {
-        const fileContent = fs.readFileSync(CONFIG_FILE_PATH, "utf-8");
-        const parsed = JSON.parse(fileContent);
-
-        if (parsed.qwenModel === "qwen2.5:7b" || !parsed.qwenModel) {
-          parsed.qwenModel = DEFAULT_CONFIG.qwenModel;
-        }
-
-        delete parsed.windowsMcpUrl;
-        delete parsed.desktopCommanderMcpUrl;
-        delete parsed.freeSearchMcpUrl;
-
-        return {
-          ...DEFAULT_CONFIG,
-          ...parsed,
-          thinking: typeof parsed.thinking === "boolean" ? parsed.thinking : DEFAULT_CONFIG.thinking,
-          decisionTimeoutMs: parsed.decisionTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.decisionTimeoutMs,
-          qwenTimeoutMs: parsed.qwenTimeoutMs ?? DEFAULT_CONFIG.qwenTimeoutMs,
-          mcpTimeoutMs: parsed.mcpTimeoutMs ?? parsed.timeoutMs ?? DEFAULT_CONFIG.mcpTimeoutMs,
-          windowsMcp: parsed.windowsMcp || DEFAULT_CONFIG.windowsMcp,
-          desktopCommanderMcp: {
-            ...DEFAULT_CONFIG.desktopCommanderMcp,
-            ...(parsed.desktopCommanderMcp || {}),
-          },
-          freeSearchMcp: parsed.freeSearchMcp || DEFAULT_CONFIG.freeSearchMcp,
-        };
+        return normalize(JSON.parse(fs.readFileSync(CONFIG_FILE_PATH, "utf-8")));
       }
     } catch (e) {
       console.warn("[ConfigManager] No se pudo leer el archivo de configuración local. Usando defaults:", e);
     }
-    return { ...DEFAULT_CONFIG };
+    return normalize({});
   }
 
+  /** Escritura atómica: un corte a mitad de escritura no corrompe el archivo vigente. */
   private static saveConfig(cfg: JarvisConfig): void {
     try {
-      fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(cfg, null, 2), "utf-8");
+      const tmp = `${CONFIG_FILE_PATH}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), "utf-8");
+      fs.renameSync(tmp, CONFIG_FILE_PATH);
     } catch (e) {
       console.warn("[ConfigManager] Error al guardar configuración en archivo local:", e);
     }

@@ -1,16 +1,24 @@
 /**
- * JARVIS Core — Tool Manifest (fuente única de herramientas y políticas)
- * Reemplaza a policyRegistry.ts. Referencia: docs/MCP_TOOLS_SNAPSHOT.md
+ * JARVIS Core — Tool Manifest (fuente única de herramientas, políticas y descripciones)
+ * Referencia: docs/MCP_TOOLS_SNAPSHOT.md
  *
  * - Una sola tabla: (server, name) -> capability + política derivada.
  * - Lookup insensible a mayúsculas, políticas inmutables, claves duplicadas = error al arrancar.
- * - Herramienta no catalogada => UNKNOWN_TOOL_POLICY (Guard exige aprobación).
- * - Las UI tools (UI_ACTION) no pasan por aprobación: decisión de diseño vigente.
+ * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al
+ *   planificador (ver `applyManifest`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad.
+ * - No hay herramientas de manejo de interfaz gráfica (clic, teclado, portapapeles…): decisión de diseño vigente.
+ * - Las descripciones están en inglés: son la fuente única para Decision (criterios) y para el catálogo del planificador.
  */
 
-import type { Capability, MCPTool, ToolPolicy } from "../types.ts";
+import {
+  EXECUTABLE_ROUTES,
+  type Capability,
+  type ExecutableRoute,
+  type MCPTool,
+  type ToolPolicy,
+} from "../types.ts";
 
-export type ToolServer = "windows" | "desktop_commander" | "free_search" | "local";
+export type ToolServer = ExecutableRoute | "local";
 
 export interface ToolDefinition {
   readonly name: string;
@@ -18,6 +26,9 @@ export interface ToolDefinition {
   readonly description: string;
   readonly policy: Readonly<ToolPolicy>;
 }
+
+/** Decision recorta a 80 caracteres; una descripción más larga se rechaza al arrancar. */
+const MAX_DESCRIPTION_CHARS = 80;
 
 const NO_MUTATION = new Set<Capability>(["READ", "FILE_READ"]);
 const NEEDS_APPROVAL = new Set<Capability>([
@@ -28,6 +39,13 @@ const NEEDS_APPROVAL = new Set<Capability>([
   "CONFIGURATION",
 ]);
 
+/** Descripción de cada ruta: criterios de Decision #1 y encabezados del catálogo del planificador. */
+export const ROUTE_DESCRIPTIONS: Readonly<Record<ExecutableRoute, string>> = {
+  windows: "Windows OS control: launch apps, run PowerShell, manage processes, registry and files.",
+  desktop_commander: "Local files, directories, processes and terminal commands.",
+  free_search: "Search and read information on the web: search, page fetching, documents, papers.",
+};
+
 function def(
   server: ToolServer,
   name: string,
@@ -35,6 +53,10 @@ function def(
   description: string,
   emptyIsError = false
 ): ToolDefinition {
+  if (description.length > MAX_DESCRIPTION_CHARS) {
+    throw new Error(`[Manifest] descripción de '${server}:${name}' excede ${MAX_DESCRIPTION_CHARS} caracteres.`);
+  }
+  const mutates = !NO_MUTATION.has(capability);
   return Object.freeze({
     name,
     server,
@@ -42,103 +64,95 @@ function def(
     policy: Object.freeze({
       capability,
       requiresApproval: NEEDS_APPROVAL.has(capability),
-      mutates: !NO_MUTATION.has(capability),
+      mutates,
+      kind: mutates ? ("no-READ" as const) : ("READ" as const),
       emptyIsError,
     }),
   });
 }
 
-/** Herramientas locales: definición única (runStep y el catálogo leen de aquí). */
+/** Herramientas locales: definición única (runStep y la política leen de aquí). No se exponen al planificador. */
 export const LOCAL_TOOLS: readonly MCPTool[] = [
   {
     name: "recall",
-    description: "Recuperar hechos factuales, referencias previas o contexto relevante de memoria.",
+    description: "Retrieve facts, earlier references or relevant context from memory.",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "compose",
-    description: "Redactar texto estructurado o respuesta en lenguaje natural asistido por Qwen.",
+    description: "Write structured text or a natural-language answer using the LLM.",
     inputSchema: { type: "object", properties: { prompt: { type: "string" } } },
   },
   {
     name: "ask_user",
-    description: "Solicitar clarificación o parámetro indispensable directamente al usuario.",
+    description: "Ask the user for a clarification or an indispensable parameter.",
     inputSchema: { type: "object", properties: { question: { type: "string" } }, required: ["question"] },
   },
 ];
 
-const win = (name: string, cap: Capability, desc: string) => def("windows", name, cap, desc);
-const dc = (name: string, cap: Capability, desc: string, emptyIsError = false) =>
+const winTool = (name: string, cap: Capability, desc: string) => def("windows", name, cap, desc);
+const dcTool = (name: string, cap: Capability, desc: string, emptyIsError = false) =>
   def("desktop_commander", name, cap, desc, emptyIsError);
-const fs = (name: string, cap: Capability, desc: string, emptyIsError = false) =>
+const searchTool = (name: string, cap: Capability, desc: string, emptyIsError = false) =>
   def("free_search", name, cap, desc, emptyIsError);
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
-  // ---- windows (21) ----
-  win("ControlStatus", "READ", "Estado del dueño del control de escritorio e idle wait."),
-  win("App", "PROCESS_CONTROL", "Abrir, iniciar, lanzar aplicaciones y gestionar ventanas."),
-  win("DisplayInventory", "READ", "Leer layout de pantallas activas y metadatos DPI."),
-  win("PowerShell", "COMMAND_EXECUTION", "Ejecución de scripts PowerShell y comandos terminal en Windows."),
-  win("FileSystem", "FILE_WRITE", "Operaciones de sistema de archivos Windows (read/write/delete/copy/move/list)."),
-  win("Snapshot", "READ", "Captura de pantalla e inspección visual de accesibilidad de la UI."),
-  win("Screenshot", "READ", "Snapshot rápido de escritorio o ventana activa."),
-  win("Click", "UI_ACTION", "Clic de ratón en coordenadas específicas o elemento UI."),
-  win("Type", "UI_ACTION", "Tipeo de texto en coordenadas o control con foco."),
-  win("Scroll", "UI_ACTION", "Desplazamiento vertical u horizontal de rueda de ratón."),
-  win("Move", "UI_ACTION", "Mover el cursor a una posición específica o drag-and-drop."),
-  win("Shortcut", "UI_ACTION", "Ejecutar combinaciones de teclas (ej. ctrl+c, alt+tab)."),
-  win("Wait", "READ", "Pausa por duración específica de tiempo."),
-  win("WaitFor", "READ", "Espera hasta que una condición específica de UI se cumpla."),
-  win("Scrape", "READ", "Fetch y extracción de página web por URL."),
-  win("MultiSelect", "UI_ACTION", "Selección múltiple de elementos o checkboxes."),
-  win("MultiEdit", "UI_ACTION", "Entrada de texto simultánea en múltiples campos por coordenadas."),
-  win("Clipboard", "UI_ACTION", "Operaciones de portapapeles de Windows (get/set/cut)."),
-  win("Process", "PROCESS_CONTROL", "Listar y terminar procesos del sistema."),
-  win("Notification", "UI_ACTION", "Enviar notificación toast informativa en el escritorio."),
-  win("Registry", "PROCESS_CONTROL", "Lectura y modificación del Registro de Windows (get/set/delete/list)."),
+  // ---- windows (12) ----
+  winTool("ControlStatus", "READ", "Show the current owner of desktop control and idle-wait status."),
+  winTool("App", "PROCESS_CONTROL", "Launch applications and manage their windows."),
+  winTool("DisplayInventory", "READ", "Read the layout of active displays and DPI metadata."),
+  winTool("PowerShell", "COMMAND_EXECUTION", "Run PowerShell scripts and terminal commands on Windows."),
+  winTool("FileSystem", "FILE_WRITE", "Windows file operations: read, write, delete, copy, move and list."),
+  winTool("Snapshot", "READ", "Capture the screen and inspect the UI accessibility tree."),
+  winTool("Screenshot", "READ", "Take a quick screenshot of the desktop or the active window."),
+  winTool("Wait", "READ", "Pause for a fixed duration."),
+  winTool("WaitFor", "READ", "Wait until a specific UI condition is met."),
+  winTool("Scrape", "READ", "Fetch a web page by URL and extract its content."),
+  winTool("Process", "PROCESS_CONTROL", "List and terminate system processes."),
+  winTool("Registry", "PROCESS_CONTROL", "Read and modify the Windows Registry: get, set, delete and list."),
 
   // ---- desktop_commander (26) ----
-  dc("get_config", "READ", "Obtener configuración completa del servidor Desktop Commander."),
-  dc("set_config_value", "CONFIGURATION", "Modificar un valor específico de configuración."),
-  dc("read_file", "FILE_READ", "Leer contenido de archivo local o remoto (PDF, texto, offset).", true),
-  dc("read_multiple_files", "FILE_READ", "Leer múltiples archivos de forma paralela.", true),
-  dc("write_file", "FILE_WRITE", "Crear o sobrescribir archivo en disco."),
-  dc("write_pdf", "FILE_WRITE", "Crear o modificar un documento PDF."),
-  dc("create_directory", "FILE_WRITE", "Crear un nuevo directorio o asegurar su existencia."),
-  dc("list_directory", "FILE_READ", "Listar archivos y subdirectorios de una ruta."),
-  dc("move_file", "FILE_WRITE", "Mover o renombrar archivos o directorios."),
-  dc("start_search", "FILE_READ", "Iniciar búsqueda de archivos en streaming progresivo."),
-  dc("get_more_search_results", "FILE_READ", "Paginación de resultados de búsqueda activa de archivos."),
-  dc("stop_search", "READ", "Detener una búsqueda de archivos en curso."),
-  dc("list_searches", "FILE_READ", "Listar búsquedas activas de archivos."),
-  dc("get_file_info", "FILE_READ", "Metadatos de archivo (tamaño, permisos, fechas)."),
-  dc("edit_block", "FILE_WRITE", "Edición quirúrgica de bloques dentro de un archivo existente."),
-  dc("start_process", "PROCESS_CONTROL", "Iniciar proceso de terminal o comando en segundo plano."),
-  dc("read_process_output", "READ", "Leer salida acumulada de un proceso en ejecución."),
-  dc("interact_with_process", "PROCESS_CONTROL", "Enviar stdin interactivo a un proceso o REPL."),
-  dc("force_terminate", "PROCESS_CONTROL", "Forzar terminación de sesión de terminal o proceso."),
-  dc("list_sessions", "READ", "Listar sesiones de terminal activas."),
-  dc("list_processes", "READ", "Listar procesos activos del sistema."),
-  dc("kill_process", "PROCESS_CONTROL", "Terminar un proceso por PID."),
-  dc("get_usage_stats", "READ", "Estadísticas de uso para diagnóstico."),
-  dc("get_recent_tool_calls", "READ", "Historial reciente de llamadas y argumentos."),
-  dc("give_feedback_to_desktop_commander", "READ", "Abrir formulario de feedback."),
-  dc("get_prompts", "READ", "Recuperar prompt de onboarding por ID."),
+  dcTool("get_config", "READ", "Get the full Desktop Commander server configuration."),
+  dcTool("set_config_value", "CONFIGURATION", "Change a single configuration value."),
+  dcTool("read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", true),
+  dcTool("read_multiple_files", "FILE_READ", "Read several files in parallel.", true),
+  dcTool("write_file", "FILE_WRITE", "Create or overwrite a file on disk."),
+  dcTool("write_pdf", "FILE_WRITE", "Create or modify a PDF document."),
+  dcTool("create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
+  dcTool("list_directory", "FILE_READ", "List files and subdirectories of a path."),
+  dcTool("move_file", "FILE_WRITE", "Move or rename files or directories."),
+  dcTool("start_search", "FILE_READ", "Start a streaming file search."),
+  dcTool("get_more_search_results", "FILE_READ", "Page through the results of an active file search."),
+  dcTool("stop_search", "READ", "Stop an ongoing file search."),
+  dcTool("list_searches", "FILE_READ", "List active file searches."),
+  dcTool("get_file_info", "FILE_READ", "Get file metadata: size, permissions and dates."),
+  dcTool("edit_block", "FILE_WRITE", "Make a targeted block edit inside an existing file."),
+  dcTool("start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
+  dcTool("read_process_output", "READ", "Read the accumulated output of a running process."),
+  dcTool("interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
+  dcTool("force_terminate", "PROCESS_CONTROL", "Force-terminate a terminal session or process."),
+  dcTool("list_sessions", "READ", "List active terminal sessions."),
+  dcTool("list_processes", "READ", "List running system processes."),
+  dcTool("kill_process", "PROCESS_CONTROL", "Terminate a process by PID."),
+  dcTool("get_usage_stats", "READ", "Get usage statistics for diagnostics."),
+  dcTool("get_recent_tool_calls", "READ", "Get the recent tool calls and their arguments."),
+  dcTool("give_feedback_to_desktop_commander", "READ", "Open the feedback form."),
+  dcTool("get_prompts", "READ", "Retrieve an onboarding prompt by ID."),
 
   // ---- free_search (11) ----
-  fs("search", "READ", "Búsqueda web multi-motor deduplicada con snippets limpios.", true),
-  fs("fetch", "READ", "Descargar y convertir página web a Markdown limpio."),
-  fs("fetch_batch", "READ", "Descargar múltiples URLs web en paralelo."),
-  fs("read_doc", "READ", "Leer documento remoto (PDF, DOCX) y parsear a Markdown."),
-  fs("research", "READ", "Investigación web iterativa en profundidad."),
-  fs("paper_graph", "READ", "Explorar citas y relaciones de papers académicos."),
-  fs("cache_search", "READ", "Búsqueda full-text en caché local FTS5 SQLite."),
-  fs("engines", "READ", "Listar motores de búsqueda disponibles y activos."),
-  fs("compare", "READ", "Comparar contenido de 2 a 5 páginas web en paralelo."),
-  fs("extract_structured", "READ", "Extraer microdatos, OpenGraph y JSON-LD de una página web."),
-  fs("download", "DOWNLOAD", "Descargar archivo o documento a un directorio local."),
+  searchTool("search", "READ", "Deduplicated multi-engine web search with clean snippets.", true),
+  searchTool("fetch", "READ", "Download a web page and convert it to clean Markdown."),
+  searchTool("fetch_batch", "READ", "Download several URLs in parallel."),
+  searchTool("read_doc", "READ", "Read a remote document (PDF, DOCX) and parse it to Markdown."),
+  searchTool("research", "READ", "Iterative in-depth web research."),
+  searchTool("paper_graph", "READ", "Explore citations and relations between academic papers."),
+  searchTool("cache_search", "READ", "Full-text search over the local SQLite FTS5 cache."),
+  searchTool("engines", "READ", "List the available and active search engines."),
+  searchTool("compare", "READ", "Compare the content of 2 to 5 web pages in parallel."),
+  searchTool("extract_structured", "READ", "Extract microdata, OpenGraph and JSON-LD from a web page."),
+  searchTool("download", "DOWNLOAD", "Download a file or document to a local directory."),
 
-  // ---- locales (3) ----
+  // ---- local (3) ----
   ...LOCAL_TOOLS.map((t) => def("local", t.name, "READ", t.description)),
 ];
 
@@ -159,6 +173,7 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   capability: "COMMAND_EXECUTION",
   requiresApproval: true,
   mutates: true,
+  kind: "no-READ" as const,
   emptyIsError: false,
 });
 
@@ -174,35 +189,47 @@ export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy
   return INDEX.get(keyOf(server, tool))?.policy ?? UNKNOWN_TOOL_POLICY;
 }
 
-// ---------------------------------------------------------------
-// Catálogo compacto para el planificador Qwen (Sec. 3.2.3)
-// ---------------------------------------------------------------
-const SECTION_TITLES: Record<ToolServer, string> = {
-  windows: "SUBSISTEMA windows - GUI, ventanas y controles Windows",
-  desktop_commander: "SUBSISTEMA desktop_commander - Archivos, procesos y terminal local",
-  free_search: "SUBSISTEMA free_search - Navegación, búsqueda y documentación web",
-  local: "HERRAMIENTAS LOCALES",
-};
-
-export function buildCompactCatalog(discoveredTools?: Record<string, MCPTool[]>): string {
-  const grouped: Record<ToolServer, string[]> = { windows: [], desktop_commander: [], free_search: [], local: [] };
-  const line = (name: string, cap: Capability, desc: string) => `• ${name} [${cap}]: ${desc.slice(0, 100)}`;
-
-  if (discoveredTools && Object.keys(discoveredTools).length > 0) {
-    for (const [server, tools] of Object.entries(discoveredTools)) {
-      if (!Object.hasOwn(grouped, server)) continue; // servidor no reconocido: se ignora
-      for (const t of tools) {
-        const d = lookupToolManifest(server, t.name);
-        const cap = (d?.policy ?? UNKNOWN_TOOL_POLICY).capability;
-        grouped[server as ToolServer].push(line(t.name, cap, d?.description || t.description || "Herramienta disponible"));
-      }
-    }
-  } else {
-    for (const d of SYSTEM_TOOL_MANIFEST) grouped[d.server].push(line(d.name, d.policy.capability, d.description));
+/**
+ * Lista cerrada: descarta las herramientas que el servidor expone y el manifest no cataloga,
+ * y sustituye la descripción por la del manifest (inglés, ≤80 caracteres).
+ * Conserva el `name` y el `inputSchema` reales del servidor.
+ */
+export function applyManifest(server: ToolServer, tools: readonly MCPTool[]): MCPTool[] {
+  const allowed: MCPTool[] = [];
+  for (const t of tools) {
+    const d = INDEX.get(keyOf(server, t.name));
+    if (d) allowed.push({ ...t, description: d.description });
   }
+  return allowed;
+}
 
-  return (Object.keys(SECTION_TITLES) as ToolServer[])
-    .filter((s) => grouped[s].length > 0)
-    .map((s) => `[${SECTION_TITLES[s]}]:\n${grouped[s].join("\n")}`)
-    .join("\n\n");
+// ---------------------------------------------------------------
+// Catálogo compacto para el planificador (solo rutas ejecutables; sin herramientas locales)
+// ---------------------------------------------------------------
+
+/**
+ * @param discoveredTools Herramientas realmente descubiertas por ruta. Si se omite o está vacío,
+ *   se lista el manifest completo de las rutas ejecutables.
+ */
+export function buildCompactCatalog(
+  discoveredTools?: Partial<Record<ExecutableRoute, readonly MCPTool[]>>
+): string {
+  const useDiscovery = discoveredTools !== undefined && Object.keys(discoveredTools).length > 0;
+
+  const sections: string[] = [];
+  for (const route of EXECUTABLE_ROUTES) {
+    let defs: ToolDefinition[];
+    if (useDiscovery) {
+      defs = (discoveredTools[route] ?? [])
+        .map((t) => lookupToolManifest(route, t.name))
+        .filter((d): d is ToolDefinition => d !== undefined);
+    } else {
+      defs = SYSTEM_TOOL_MANIFEST.filter((d) => d.server === route);
+    }
+    if (defs.length === 0) continue;
+
+    const lines = defs.map((d) => `• ${d.name} [${d.policy.capability}]: ${d.description}`);
+    sections.push(`[SUBSYSTEM ${route} - ${ROUTE_DESCRIPTIONS[route]}]:\n${lines.join("\n")}`);
+  }
+  return sections.join("\n\n");
 }

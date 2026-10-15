@@ -1,138 +1,121 @@
 /**
- * JARVIS Core — Qwen 3.5 9B LLM Reasoning Engine Client
+ * JARVIS Core — Cliente del motor de razonamiento (Qwen, API OpenAI-compatible)
+ *
+ * - Un solo dialecto: POST {qwenUrl}/v1/chat/completions.
+ * - Structured outputs (json_schema) + parser tolerante como red de seguridad.
+ *   Los argumentos de tools MCP usan json_object: sus schemas son dinámicos y no se fuerzan como strict.
+ * - Thinking por etapa: plan y replan = true; arguments y verify_stage = false; final_response = config.thinking.
+ * - Reintentos: red y HTTP 503 en llmTransport; salida inválida o truncada: 1 reintento aquí, con el error
+ *   previo en el prompt, más presupuesto de tokens y temperatura 0.3. Timeout y cancelación nunca se reintentan.
+ * - Nada se infiere en silencio: ruta inválida, plan demasiado largo o expected_outcome vacío invalidan la salida.
  */
 
 import {
-  Step,
-  StepRoute,
-  MCPTool,
-  Plan,
-  PlanStep,
-  Scratchpad,
+  EXECUTABLE_ROUTES,
+  LLM_INVALID_OUTPUT_RETRIES,
   MAX_STEPS,
-  MAX_ARG_RETRIES,
-  QWEN_CTX,
-  StageVerificationResult,
-  StageVerificationPromptData,
-  VALID_STEP_ROUTES,
-  isStepRoute,
+  isExecutableRoute,
+  type MCPTool,
+  type Plan,
+  type PlanStep,
+  type StageVerificationPromptData,
+  type StageVerificationResult,
+  type StageVerificationStatus,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
 import {
   PROMPTS,
-  ArgumentPromptData,
-  FinalResponsePromptData,
-  ReplanPromptData,
+  retryNote,
+  type ArgumentPromptData,
+  type FinalResponsePromptData,
+  type ReplanPromptData,
 } from "./prompts.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
+import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
+import { estimateTokens, postJson, RequestAbortedError, TransportError } from "../llmTransport.ts";
 
-// Re-exportar por retrocompatibilidad con consumidores que importaban desde qwen.ts
-export { VALID_STEP_ROUTES, isStepRoute };
+// ============================================================
+// Errores
+// ============================================================
 
+/** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
-    super(`[Qwen 3.5 9B Unavailable] ${message}`);
+  constructor(message: string, cause?: unknown) {
+    super(`[Qwen Unavailable] ${message}`, { cause });
     this.name = "LLMServiceUnavailableError";
   }
 }
 
+/** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
 export class LLMValidationError extends Error {
-  constructor(message: string) {
-    super(`[Qwen 3.5 9B Validation] ${message}`);
+  readonly raw?: { rawInput: string; rawOutput: string };
+  constructor(message: string, raw?: { rawInput: string; rawOutput: string }) {
+    super(`[Qwen Validation] ${message}`);
     this.name = "LLMValidationError";
+    this.raw = raw;
   }
 }
 
 // ============================================================
-// Esquemas JSON estrictos para Structured Outputs (§9.1, §9.4)
+// Schemas JSON (derivados de EXECUTABLE_ROUTES y MAX_STEPS)
 // ============================================================
 
-export const PLAN_JSON_SCHEMA = {
+type JsonSchema = Record<string, unknown>;
+
+const STEP_ITEM_SCHEMA: JsonSchema = {
+  type: "object",
+  properties: {
+    goal: { type: "string" },
+    suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
+    expected_outcome: { type: "string" },
+  },
+  required: ["goal", "suggested_mcp", "expected_outcome"],
+  additionalProperties: false,
+};
+
+export const PLAN_JSON_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     objective: { type: "string" },
-    steps: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          goal: { type: "string" },
-          suggested_mcp: {
-            type: "string",
-            enum: ["windows", "desktop_commander", "free_search"],
-          },
-          expected_outcome: { type: "string" },
-          dependencies: {
-            type: "array",
-            items: { type: "string" },
-          },
-          candidate_tools: {
-            type: "array",
-            items: { type: "string" },
-          },
-        },
-        required: ["id", "goal", "suggested_mcp", "expected_outcome"],
-        additionalProperties: false,
-      },
-    },
+    steps: { type: "array", items: STEP_ITEM_SCHEMA, maxItems: MAX_STEPS },
   },
   required: ["objective", "steps"],
   additionalProperties: false,
-} as const;
+};
 
-export const REPLAN_JSON_SCHEMA = {
+export const REPLAN_JSON_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
-    action: {
-      type: "string",
-      enum: ["continue", "abort"],
-    },
+    action: { type: "string", enum: ["continue", "abort"] },
     reason: { type: "string" },
     objective: { type: "string" },
-    steps: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          goal: { type: "string" },
-          suggested_mcp: {
-            type: "string",
-            enum: ["windows", "desktop_commander", "free_search"],
-          },
-          expected_outcome: { type: "string" },
-          dependencies: {
-            type: "array",
-            items: { type: "string" },
-          },
-          candidate_tools: {
-            type: "array",
-            items: { type: "string" },
-          },
-        },
-        required: ["id", "goal", "suggested_mcp", "expected_outcome"],
-        additionalProperties: false,
-      },
-    },
+    steps: { type: "array", items: STEP_ITEM_SCHEMA, maxItems: MAX_STEPS },
   },
-  required: ["steps"],
+  required: ["action", "steps"],
   additionalProperties: false,
-} as const;
+};
 
-export const STAGE_VERIFICATION_JSON_SCHEMA = {
+const STAGE_STATUSES = [
+  "completed",
+  "recoverable_deviation",
+  "insufficient_info",
+  "unrecoverable_blocked",
+] as const satisfies readonly StageVerificationStatus[];
+
+export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
-    status: {
-      type: "string",
-      enum: ["completed", "recoverable_deviation", "insufficient_info", "unrecoverable_blocked"],
-    },
+    status: { type: "string", enum: [...STAGE_STATUSES] },
     reason: { type: "string" },
     question_for_user: { type: "string" },
   },
   required: ["status", "reason"],
   additionalProperties: false,
-} as const;
+};
+
+// ============================================================
+// Contratos públicos
+// ============================================================
 
 export interface ArgumentsGenerationResult {
   args: Record<string, unknown>;
@@ -146,608 +129,589 @@ export interface FinalResponseResult {
   rawOutput: string;
 }
 
-export interface QwenDispatchResult {
-  content: string;
-  rawInput: string;
-  rawOutput: string;
-  rawResponse?: string;
+export interface ReplanResult {
+  action?: "abort";
+  reason?: string;
+  plan?: Plan;
+  rawInput?: string;
+  rawOutput?: string;
 }
 
 export interface ILLMClient {
-  generateArguments(
-    stepOrData: Step | ArgumentPromptData,
-    toolOrSignal?: MCPTool | AbortSignal,
-    scratchpad?: Scratchpad,
-    context?: string,
-    signal?: AbortSignal
-  ): Promise<ArgumentsGenerationResult>;
+  generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult>;
 
-  generateFinalResponse(
-    data: FinalResponsePromptData,
-    signal?: AbortSignal
-  ): Promise<FinalResponseResult>;
+  generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult>;
 
   generatePlan(
     userMessage: string,
-    scratchpadOrChat?: Scratchpad | string,
+    chatContext?: string,
     signal?: AbortSignal,
     compactCatalog?: string,
     modificationFeedback?: string,
     existingPlanSummary?: string
   ): Promise<Plan>;
 
-  replan(
-    data: ReplanPromptData,
-    signal?: AbortSignal
-  ): Promise<{ action?: "abort"; reason?: string; plan?: Plan; rawInput?: string; rawOutput?: string }>;
+  replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult>;
 
-  verifyStage(
-    data: StageVerificationPromptData,
-    signal?: AbortSignal
-  ): Promise<StageVerificationResult>;
+  verifyStage(data: StageVerificationPromptData, signal?: AbortSignal): Promise<StageVerificationResult>;
+}
+
+interface QwenDispatchResult {
+  content: string;
+  /** finish_reason === "length": la salida se cortó por el tope de tokens. */
+  truncated: boolean;
+  rawInput: string;
+  rawOutput: string;
+}
+
+// ============================================================
+// Parsing y validación (puros)
+// ============================================================
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const nonEmptyString = (v: unknown): string | undefined =>
+  typeof v === "string" && v.trim() ? v.trim() : undefined;
+
+/** Quita bloques <think>: cerrados, un </think> huérfano (la apertura iba en el template) y uno sin cierre. */
+export function stripThink(raw: string): string {
+  let s = raw.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const orphanClose = s.toLowerCase().lastIndexOf("</think>");
+  if (orphanClose >= 0) s = s.slice(orphanClose + "</think>".length);
+  return s.replace(/<think>[\s\S]*$/i, "").trim();
+}
+
+/** Primer objeto JSON de llaves balanceadas, respetando strings y escapes. */
+function extractJsonObject(s: string): string | null {
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return s.slice(start, i + 1);
+  }
+  return null;
+}
+
+/** think-strip, fences ```json y, si el JSON directo falla, extracción por llaves balanceadas. */
+export function parseJsonObject(raw: string): Record<string, unknown> | null {
+  const cleaned = stripThink(raw);
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(cleaned);
+  const candidate = (fenced ? fenced[1] : cleaned).trim();
+  if (!candidate) return null;
+
+  try {
+    const direct: unknown = JSON.parse(candidate);
+    return isRecord(direct) ? direct : null;
+  } catch {
+    const extracted = extractJsonObject(candidate);
+    if (!extracted) return null;
+    try {
+      const v: unknown = JSON.parse(extracted);
+      return isRecord(v) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+function typeName(v: unknown): string {
+  if (v === null) return "null";
+  if (Array.isArray(v)) return "array";
+  return typeof v;
+}
+
+function matchesType(v: unknown, t: string): boolean {
+  switch (t) {
+    case "string": return typeof v === "string";
+    case "number": return typeof v === "number" && Number.isFinite(v);
+    case "integer": return typeof v === "number" && Number.isInteger(v);
+    case "boolean": return typeof v === "boolean";
+    case "array": return Array.isArray(v);
+    case "object": return isRecord(v);
+    case "null": return v === null;
+    default: return true; // tipo desconocido: no se rechaza
+  }
 }
 
 /**
- * Normaliza y valida determinísticamente los pasos de plan generados por Qwen
+ * Valida los argumentos contra el inputSchema real de la tool (solo nivel superior):
+ * requeridos presentes y no nulos, tipo y enum de cada propiedad declarada.
+ * Un token de referencia ({{ref:rX}}) se acepta en cualquier propiedad: se sustituye después.
+ * No valida anidados ni resuelve $ref/$defs.
  */
-function mapRawPlanSteps(rawSteps: any[], nextStepOffset = 1): PlanStep[] {
-  return rawSteps.slice(0, MAX_STEPS).map((s: any, idx: number) => {
-    const rawRoute = s.suggested_mcp || s.route;
-    const safeRoute: StepRoute = isStepRoute(rawRoute) ? rawRoute : "desktop_commander";
-    const stepId = s.id || `s${nextStepOffset + idx}`;
-    const instruction = s.goal || s.instruction || `Paso ${nextStepOffset + idx}`;
-    const expectedOutcome = s.expected_outcome || s.expectedOutcome || "Resultado completado";
+export function validateArgs(args: Record<string, unknown>, schema: MCPTool["inputSchema"]): string | null {
+  const props = isRecord(schema.properties) ? schema.properties : {};
+  const problems: string[] = [];
 
-    return {
-      id: stepId,
-      goal: instruction,
-      instruction,
-      suggested_mcp: safeRoute,
-      route: safeRoute,
-      expected_outcome: expectedOutcome,
-      expectedOutcome,
-      dependencies: Array.isArray(s.dependencies) ? s.dependencies : undefined,
-      candidate_tools: Array.isArray(s.candidate_tools) ? s.candidate_tools : undefined,
-    };
-  });
+  const missing = (schema.required ?? []).filter((k) => args[k] === undefined || args[k] === null);
+  if (missing.length > 0) problems.push(`faltan campos requeridos: ${missing.join(", ")}`);
+
+  for (const [key, value] of Object.entries(args)) {
+    if (isWholeRefToken(value)) continue;
+    if (!Object.hasOwn(props, key)) {
+      if (schema.additionalProperties === false) problems.push(`parámetro no definido en el schema: ${key}`);
+      continue;
+    }
+    const prop = props[key];
+    if (isRecord(prop) && Array.isArray(prop.enum) && !prop.enum.includes(value)) {
+      problems.push(`${key}: valor fuera del enum`);
+      continue;
+    }
+    const types = schemaTypes(prop);
+    if (types.size > 0 && ![...types].some((t) => matchesType(value, t))) {
+      problems.push(`${key}: se esperaba ${[...types].join("|")} y se recibió ${typeName(value)}`);
+    }
+  }
+  return problems.length > 0 ? problems.join("; ") : null;
+}
+
+/**
+ * Valida y normaliza pasos de plan. No corrige nada en silencio: ruta inválida, texto vacío o exceso de
+ * pasos devuelven un error que se inyecta en el reintento. Los id los asigna el código (s<firstNumber>…).
+ */
+export function parsePlanSteps(
+  raw: unknown,
+  firstNumber: number,
+  allowEmpty: boolean,
+): { steps: PlanStep[] } | { error: string } {
+  if (!Array.isArray(raw)) return { error: "'steps' debe ser un arreglo" };
+  if (raw.length === 0) return allowEmpty ? { steps: [] } : { error: "'steps' no puede estar vacío" };
+  if (raw.length > MAX_STEPS) return { error: `máximo ${MAX_STEPS} pasos; se recibieron ${raw.length}` };
+
+  const steps: PlanStep[] = [];
+  for (const [i, s] of raw.entries()) {
+    const n = i + 1;
+    if (!isRecord(s)) return { error: `paso ${n}: no es un objeto` };
+    const goal = nonEmptyString(s.goal);
+    if (!goal) return { error: `paso ${n}: 'goal' vacío` };
+    const route = s.suggested_mcp;
+    if (!isExecutableRoute(route)) {
+      return { error: `paso ${n}: suggested_mcp ${JSON.stringify(route)} inválido; debe ser uno de ${EXECUTABLE_ROUTES.join(", ")}` };
+    }
+    const expected = nonEmptyString(s.expected_outcome);
+    if (!expected) return { error: `paso ${n}: 'expected_outcome' vacío` };
+
+    steps.push({
+      id: `s${firstNumber + i}`,
+      goal,
+      instruction: goal,
+      suggested_mcp: route,
+      route,
+      expected_outcome: expected,
+      expectedOutcome: expected,
+    });
+  }
+  return { steps };
+}
+
+type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
+const ok = <T>(value: T): Validation<T> => ({ ok: true, value });
+const fail = (error: string): Validation<never> => ({ ok: false, error });
+
+const TRUNCATED = "la salida se truncó por el límite de tokens";
+const NOT_JSON = "la respuesta no es un objeto JSON válido";
+
+// ============================================================
+// Motor
+// ============================================================
+
+const BASE_TEMPERATURE = 0.1;
+const RETRY_TEMPERATURE = 0.3;
+const RETRY_TOKEN_FACTOR = 1.5;
+/** Mínimo de tokens de salida que debe quedar libre en el contexto. */
+const MIN_COMPLETION_TOKENS = 256;
+
+interface DispatchOptions {
+  stage: string;
+  system: string;
+  user: string;
+  /** Pide JSON (json_schema si hay `schema`; si no, json_object). */
+  json: boolean;
+  schema?: JsonSchema;
+  maxTokens: number;
+  thinking: boolean;
+  temperature: number;
+  signal?: AbortSignal;
+}
+
+interface ValidatedDispatch<T> {
+  stage: string;
+  system: string;
+  /** Recibe el error del intento anterior (undefined en el primero). */
+  user: (previousError?: string) => string;
+  json: boolean;
+  schema?: JsonSchema;
+  maxTokens: number;
+  thinking: boolean;
+  /** Thinking en el reintento; por defecto el mismo. */
+  retryThinking?: boolean;
+  signal?: AbortSignal;
+  validate: (res: QwenDispatchResult, isLastAttempt: boolean) => Validation<T>;
 }
 
 export class QwenEngine implements ILLMClient {
-  /**
-   * Helper unificado para parsear JSON tolerante a bloques de pensamiento o Markdown
-   */
-  private safeJsonParse<T = any>(raw: string): T | null {
-    if (!raw || typeof raw !== "string") return null;
-    const cleaned = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-    try {
-      return JSON.parse(cleaned);
-    } catch {
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          return JSON.parse(match[0]);
-        } catch { }
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Envuelve etapas de ejecución con registro de métricas y observabilidad
-   */
+  /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
     const t0 = Date.now();
     console.log(`[Qwen] ${stage} start`);
     try {
       const result = await fn();
-      const duration = Date.now() - t0;
-      console.log(`[Qwen] ${stage} done duration=${duration}ms`);
+      console.log(`[Qwen] ${stage} done duration=${Date.now() - t0}ms`);
       return result;
-    } catch (err: any) {
+    } catch (err) {
       const duration = Date.now() - t0;
-      const isTimeout =
-        err?.name === "TimeoutError" ||
-        err?.message?.toLowerCase().includes("timeout") ||
-        err?.cause?.name === "TimeoutError";
-      if (isTimeout) {
-        console.error(`[Qwen] ${stage} timeout duration=${duration}ms`);
+      if (err instanceof RequestAbortedError) {
+        console.log(`[Qwen] ${stage} cancelled duration=${duration}ms`);
       } else {
-        const errMsg = err?.message || String(err);
-        console.error(`[Qwen] ${stage} error=${errMsg.replace(/\r?\n/g, " ").slice(0, 100)} duration=${duration}ms`);
+        const msg = (err instanceof Error ? err.message : String(err)).replace(/\r?\n/g, " ").slice(0, 160);
+        console.error(`[Qwen] ${stage} error=${msg} duration=${duration}ms`);
       }
       throw err;
     }
   }
 
-  /**
-   * Despacha peticiones de inferencia hacia el endpoint configurado de Qwen (§10.10)
-   */
-  private async dispatchPrompt(
-    systemPrompt: string,
-    userPrompt: string,
-    expectJson = true,
-    maxTokens?: number,
-    options?: {
-      stage?: string;
-      thinking?: boolean;
-      signal?: AbortSignal;
-      schema?: Record<string, unknown>;
+  private resolveUrl(raw: string): string {
+    const base = raw.trim().replace(/\/+$/, "");
+    if (!base) {
+      throw new LLMServiceUnavailableError("La URL de Qwen no está configurada. Configúrela en la barra de configuración.");
     }
-  ): Promise<QwenDispatchResult> {
-    const config = ConfigManager.getConfig();
-    const endpointUrl = config.qwenUrl?.trim();
-
-    if (!endpointUrl) {
+    if (base.endsWith("/v1/chat/completions")) return base;
+    if (/\/(generate|api\/chat)$/.test(base)) {
       throw new LLMServiceUnavailableError(
-        "La URL del servicio Qwen 3.5 9B no está configurada. Configure la URL en la barra de configuración."
+        `La URL de Qwen debe ser la base del servidor o terminar en /v1/chat/completions (recibido: ${base}). Los endpoints /generate y /api/chat ya no se admiten.`
       );
     }
+    return base.endsWith("/v1") ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
+  }
 
-    let url = endpointUrl;
-    if (url.endsWith("/")) url = url.slice(0, -1);
-    if (!url.endsWith("/v1/chat/completions") && !url.endsWith("/generate") && !url.endsWith("/api/chat")) {
-      url = `${url}/v1/chat/completions`;
+  /** Una petición de inferencia. No valida el contenido. */
+  private async dispatchPrompt(o: DispatchOptions): Promise<QwenDispatchResult> {
+    const config = ConfigManager.getConfig();
+    const url = this.resolveUrl(config.qwenUrl);
+
+    // Guarda de contexto: Ollama recorta en silencio el prompt que no cabe y puede perder el SYSTEM.
+    const promptEstimate = estimateTokens(o.system) + estimateTokens(o.user);
+    const available = config.qwenNumCtx - promptEstimate;
+    if (available < MIN_COMPLETION_TOKENS) {
+      throw new LLMValidationError(
+        `El prompt de '${o.stage}' (~${promptEstimate} tokens) no deja espacio de salida en el contexto de ${config.qwenNumCtx} tokens.`
+      );
+    }
+    const maxTokens = Math.min(o.maxTokens, available);
+    if (maxTokens < o.maxTokens) {
+      console.warn(`[Qwen] stage=${o.stage} max_tokens reducido ${o.maxTokens} -> ${maxTokens} por límite de contexto (${config.qwenNumCtx}).`);
     }
 
-    const modelName = config.qwenModel?.trim();
-    const isThinking = options?.thinking !== undefined
-      ? options.thinking
-      : Boolean(config.thinking);
-
-    console.log(`[Qwen → SEND] stage=${options?.stage || 'unknown'} system=${JSON.stringify(systemPrompt).slice(0, 200)} user=${JSON.stringify(userPrompt).slice(0, 300)}`);
-
-    const bodyPayload: any = {
-      ...(modelName ? { model: modelName } : {}),
+    const body: Record<string, unknown> = {
+      model: config.qwenModel,
       messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
+        { role: "system", content: o.system },
+        { role: "user", content: o.user },
       ],
-      temperature: 0.1,
+      temperature: o.temperature,
+      max_tokens: maxTokens,
       stream: false,
-      ...(isThinking
-        ? { reasoning_effort: "low", think: true }
-        : { reasoning_effort: "none", think: false }),
-      options: {
-        num_ctx: QWEN_CTX,
-        ...(maxTokens ? { num_predict: maxTokens } : {}),
-        think: isThinking,
-      },
+      reasoning_effort: o.thinking ? "low" : "none",
     };
-
-    if (maxTokens) {
-      bodyPayload.max_tokens = maxTokens;
-    }
-
-    if (options?.schema) {
-      bodyPayload.response_format = {
+    if (o.schema) {
+      body.response_format = {
         type: "json_schema",
-        json_schema: {
-          name: options.stage || "structured_output",
-          strict: true,
-          schema: options.schema,
-        },
+        json_schema: { name: o.stage, strict: false, schema: o.schema },
       };
-      bodyPayload.format = options.schema;
-    } else if (expectJson) {
-      bodyPayload.response_format = { type: "json_object" };
-      bodyPayload.format = "json";
+    } else if (o.json) {
+      body.response_format = { type: "json_object" };
     }
+    const rawInput = JSON.stringify(body, null, 2);
 
-    const baseTimeout = config.qwenTimeoutMs ?? config.timeoutMs ?? 120000;
-    const timeoutMs = isThinking
-      ? Math.max(baseTimeout * 2, 180000)
-      : baseTimeout;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const combinedSignal = options?.signal
-      ? AbortSignal.any([options.signal, timeoutSignal])
-      : timeoutSignal;
+    console.log(`[Qwen → SEND] stage=${o.stage} system=${JSON.stringify(o.system).slice(0, 200)} user=${JSON.stringify(o.user).slice(0, 300)}`);
 
     const t0 = Date.now();
-    let response: Response;
+    const timeoutMs = o.thinking ? config.qwenThinkingTimeoutMs : config.qwenTimeoutMs;
+    let result;
     try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-          "ngrok-skip-browser-warning": "true",
-          "bypass-tunnel-reminder": "true",
-        },
-        body: JSON.stringify(bodyPayload),
-        signal: combinedSignal,
-      });
-    } catch (err: any) {
-      if (err.name === "AbortError" && options?.signal?.aborted) {
-        throw new Error("Operación de Qwen 3.5 9B cancelada por el usuario.");
+      result = await postJson({ url, body: JSON.stringify(body), timeoutMs, signal: o.signal });
+    } catch (err) {
+      if (err instanceof TransportError) {
+        throw new LLMServiceUnavailableError(
+          err.kind === "timeout"
+            ? `Timeout (${timeoutMs}ms) esperando a Qwen en ${url}`
+            : `No fue posible conectar con Qwen en ${url}. Verifique que el servidor esté activo. ${err.message}`,
+          err
+        );
       }
-      if (err.name === "TimeoutError") {
-        throw new LLMServiceUnavailableError(`Timeout al conectar con Qwen 3.5 9B en ${url}`, err);
-      }
-      throw new LLMServiceUnavailableError(
-        `No fue posible conectar con el servicio Qwen 3.5 9B en ${url}. Verifique que Ollama/vLLM esté activo.`,
-        err
-      );
+      throw err; // RequestAbortedError
     }
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "");
-      throw new LLMServiceUnavailableError(
-        `Qwen 3.5 9B HTTP error ${response.status} (${response.statusText}): ${errText}`
-      );
+    if (!result.ok) {
+      throw new LLMServiceUnavailableError(`HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`);
     }
 
-    const rawInput = JSON.stringify(bodyPayload, null, 2);
-
-    let rawOutputText = "";
-    let data: any;
+    let data: unknown;
     try {
-      rawOutputText = await response.text();
-      data = JSON.parse(rawOutputText);
+      data = JSON.parse(result.text);
     } catch {
-      throw new LLMValidationError("La respuesta de Qwen 3.5 9B no contiene un JSON legible.");
+      throw new LLMValidationError("La respuesta de Qwen no es un JSON legible.", { rawInput, rawOutput: result.text });
     }
 
-    const durationMs = Date.now() - t0;
-    const promptTokens = data.usage?.prompt_tokens ?? data.prompt_eval_count ?? 0;
-    const completionTokens = data.usage?.completion_tokens ?? data.eval_count ?? 0;
-    const firstChoice = data.choices?.[0];
-    const finishReason = firstChoice?.finish_reason || data.done_reason || firstChoice?.stop_reason || (data.done ? "stop" : "unknown");
-    const isLengthExceeded = finishReason === "length";
-    const stageLabel = options?.stage || "inference";
-    const thinkingLabel = isThinking ? "yes" : "no";
+    const choice = isRecord(data) && Array.isArray(data.choices) ? data.choices[0] : undefined;
+    const message = isRecord(choice) && isRecord(choice.message) ? choice.message : undefined;
+    const content = typeof message?.content === "string" ? message.content : "";
+    const finishReason = isRecord(choice) && typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown";
+    const usage = isRecord(data) && isRecord(data.usage) ? data.usage : {};
+    const promptTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
+    const completionTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
+    const truncated = finishReason === "length";
 
-    console.log(`[Qwen ← RECV] stage=${stageLabel} raw=${JSON.stringify(data).slice(0, 400)}`);
+    console.log(`[Qwen ← RECV] stage=${o.stage} raw=${result.text.slice(0, 400)}`);
     console.log(
-      `[Qwen] stage=${stageLabel} tokens=(in=${promptTokens}, out=${completionTokens}, max=${maxTokens ?? "default"}) finish_reason=${finishReason}${isLengthExceeded ? " [LENGTH_EXCEEDED]" : ""} thinking=${thinkingLabel} duration=${durationMs}ms`
+      `[Qwen] stage=${o.stage} tokens=(in=${promptTokens}, out=${completionTokens}, max=${maxTokens}) finish_reason=${finishReason}${truncated ? " [LENGTH_EXCEEDED]" : ""} thinking=${o.thinking ? "yes" : "no"} duration=${Date.now() - t0}ms`
     );
-
-    const messageObj = firstChoice?.message || data.message;
-
-    let content: string | undefined;
-    if (typeof messageObj?.content === "string" && messageObj.content.trim()) {
-      content = messageObj.content;
-    } else if (typeof data.response === "string" && data.response.trim()) {
-      content = data.response;
-    } else if (typeof firstChoice?.text === "string" && firstChoice.text.trim()) {
-      content = firstChoice.text;
+    if (promptTokens + completionTokens >= config.qwenNumCtx) {
+      console.warn(`[Qwen] stage=${o.stage} agotó el contexto (${promptTokens + completionTokens}/${config.qwenNumCtx}); el servidor pudo recortar el prompt.`);
     }
 
-    const thinkingTrace =
-      (typeof messageObj?.reasoning_content === "string" && messageObj.reasoning_content.trim() ? messageObj.reasoning_content.trim() : "") ||
-      (typeof messageObj?.thinking === "string" && messageObj.thinking.trim() ? messageObj.thinking.trim() : "") ||
-      (typeof data?.thinking === "string" && data.thinking.trim() ? data.thinking.trim() : "") ||
-      (typeof firstChoice?.reasoning_content === "string" && firstChoice.reasoning_content.trim() ? firstChoice.reasoning_content.trim() : "");
-
-    if (!content && thinkingTrace) {
-      console.log(`[Qwen] content venía vacío pero se extrajo respuesta de la llave de pensamiento (${thinkingTrace.length} chars).`);
-      content = thinkingTrace;
-    }
-
-    const rawGeneratedOutput = (typeof messageObj?.content === "string" && messageObj.content)
-      ? (thinkingTrace ? `<think>\n${thinkingTrace}\n</think>\n\n${messageObj.content}` : messageObj.content)
-      : (content || rawOutputText);
-
-    const rawCompleteOutput = rawOutputText || rawGeneratedOutput;
-
-    return {
-      content: (content || "").trim(),
-      rawInput,
-      rawOutput: rawCompleteOutput,
-      rawResponse: rawOutputText,
-    };
+    return { content, truncated, rawInput, rawOutput: result.text };
   }
 
   /**
-   * Etapa 3: Generación de argumentos con validación y reintentos (§4, §10.2)
+   * Petición + validación con la política unificada de salida inválida: un reintento con el error
+   * previo en el prompt, 1.5x tokens y temperatura 0.3. Si vuelve a fallar, LLMValidationError con el crudo.
    */
-  async generateArguments(
-    stepOrData: Step | ArgumentPromptData,
-    toolOrSignal?: MCPTool | AbortSignal,
-    _scratchpadParam?: Scratchpad,
-    _contextParam?: string,
-    signalParam?: AbortSignal
-  ): Promise<ArgumentsGenerationResult> {
-    const effectiveSignal = toolOrSignal instanceof AbortSignal ? toolOrSignal : signalParam;
+  private async dispatchValidated<T>(o: ValidatedDispatch<T>): Promise<{ value: T; res: QwenDispatchResult }> {
+    let previousError: string | undefined;
+    let last: QwenDispatchResult | undefined;
 
-    return await this.executeStage("generateArguments", async () => {
-      let promptData: ArgumentPromptData;
-      let targetTool: MCPTool;
+    for (let attempt = 0; attempt <= LLM_INVALID_OUTPUT_RETRIES; attempt++) {
+      const retry = attempt > 0;
+      const res = await this.dispatchPrompt({
+        stage: o.stage,
+        system: o.system,
+        user: o.user(previousError),
+        json: o.json,
+        schema: o.schema,
+        maxTokens: retry ? Math.ceil(o.maxTokens * RETRY_TOKEN_FACTOR) : o.maxTokens,
+        thinking: retry ? (o.retryThinking ?? o.thinking) : o.thinking,
+        temperature: retry ? RETRY_TEMPERATURE : BASE_TEMPERATURE,
+        signal: o.signal,
+      });
+      last = res;
 
-      if ("goal" in stepOrData && "tool" in stepOrData) {
-        promptData = stepOrData as ArgumentPromptData;
-        targetTool = promptData.tool;
-      } else {
-        const step = stepOrData as Step;
-        targetTool = (toolOrSignal as MCPTool) || { name: step.tool || "unknown", description: "", inputSchema: {} };
-        promptData = {
-          goal: step.instruction,
-          tool: targetTool,
-          cleanedSchema: targetTool.inputSchema || {},
-          taskInstruction: step.instruction,
-          facts: {},
-        };
-      }
+      const v = o.validate(res, attempt === LLM_INVALID_OUTPUT_RETRIES);
+      if (v.ok) return { value: v.value, res };
+      previousError = v.error;
+      console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
+    }
 
-      const required = (targetTool.inputSchema?.required as string[]) || [];
-      let previousError: string | undefined;
-      let attempts = 0;
+    throw new LLMValidationError(
+      `${o.stage}: ${previousError}`,
+      last ? { rawInput: last.rawInput, rawOutput: last.rawOutput } : undefined
+    );
+  }
 
-      while (attempts <= MAX_ARG_RETRIES) {
-        promptData.previousError = previousError;
-        const userPrompt = PROMPTS.ARGUMENTS.buildUserPrompt(promptData);
-        const dispatchRes = await this.dispatchPrompt(
-          PROMPTS.ARGUMENTS.SYSTEM,
-          userPrompt,
-          true,
-          1024,
-          { stage: "arguments", thinking: false, signal: effectiveSignal }
-        );
+  /** Etapa 3: argumentos de tool, validados contra el inputSchema real. */
+  async generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
+    return this.executeStage("generateArguments", async () => {
+      const inputSchema = data.tool.inputSchema;
+      const required = inputSchema.required ?? [];
+      const userPrompt = PROMPTS.ARGUMENTS.buildUserPrompt(data);
 
-        const parsed = this.safeJsonParse(dispatchRes.content);
-
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          for (const [key, value] of Object.entries(parsed)) {
-            if (!required.includes(key)) {
-              if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
-                delete parsed[key];
-              }
-            }
+      const { value, res } = await this.dispatchValidated<Record<string, unknown>>({
+        stage: "arguments",
+        system: PROMPTS.ARGUMENTS.SYSTEM,
+        user: (prev) => userPrompt + retryNote(prev),
+        json: true,
+        maxTokens: ConfigManager.getConfig().qwenMaxTokens.arguments,
+        thinking: false,
+        signal,
+        validate: (r) => {
+          if (r.truncated) return fail(TRUNCATED);
+          const parsed = parseJsonObject(r.content);
+          if (!parsed) return fail(NOT_JSON);
+          // null en un parámetro opcional equivale a "no usado".
+          for (const k of Object.keys(parsed)) {
+            if (parsed[k] === null && !required.includes(k)) delete parsed[k];
           }
+          const problem = validateArgs(parsed, inputSchema);
+          return problem ? fail(problem) : ok(parsed);
+        },
+      });
 
-          const missing = required.filter((r) => parsed[r] === undefined);
-          if (missing.length === 0) {
-            return {
-              args: parsed,
-              rawInput: dispatchRes.rawInput,
-              rawOutput: dispatchRes.rawOutput,
-            };
-          }
-          previousError = `Faltan campos requeridos: ${missing.join(", ")}`;
-        } else {
-          console.error(`[Qwen arguments] Fallo de parseo JSON. Raw (primeros 300 chars): ${dispatchRes.rawOutput.slice(0, 300)}`);
-          previousError = `La respuesta no es un objeto JSON válido`;
-        }
-
-        attempts++;
-        if (attempts > MAX_ARG_RETRIES) {
-          throw new LLMValidationError(
-            `Fallo de argumentos para '${targetTool.name}' tras ${MAX_ARG_RETRIES} reintentos: ${previousError}`
-          );
-        }
-        console.warn(`[Qwen] Reintento de argumentos (${attempts}/${MAX_ARG_RETRIES}) para '${targetTool.name}': ${previousError}`);
-      }
-
-      throw new LLMValidationError(`Fallo no recuperable de argumentos para '${targetTool.name}'.`);
+      return { args: value, rawInput: res.rawInput, rawOutput: res.rawOutput };
     });
   }
 
-  /**
-   * Etapa 6: Respuesta final libre (§4, §10.6)
-   */
-  async generateFinalResponse(
-    data: FinalResponsePromptData,
-    signal?: AbortSignal
-  ): Promise<FinalResponseResult> {
-    return await this.executeStage("generateFinalResponse", async () => {
+  /** Etapa 6: respuesta final en texto libre. */
+  async generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult> {
+    return this.executeStage("generateFinalResponse", async () => {
+      const config = ConfigManager.getConfig();
       const userPrompt = PROMPTS.FINAL_RESPONSE.buildUserPrompt(data);
-      const isThinking = ConfigManager.getConfig().thinking;
 
-      try {
-        const dispatchRes = await this.dispatchPrompt(
-          PROMPTS.FINAL_RESPONSE.SYSTEM,
-          userPrompt,
-          false,
-          1500,
-          { stage: "final_response", signal }
-        );
-        const rawText = dispatchRes.content;
+      const { value, res } = await this.dispatchValidated<string>({
+        stage: "final_response",
+        system: PROMPTS.FINAL_RESPONSE.SYSTEM,
+        user: (prev) => userPrompt + retryNote(prev),
+        json: false,
+        maxTokens: config.qwenMaxTokens.final,
+        thinking: config.thinking,
+        retryThinking: false, // un final vacío suele ser thinking que agotó el presupuesto
+        signal,
+        validate: (r, isLast) => {
+          const text = stripThink(r.content);
+          if (!text) return fail("salida vacía");
+          if (!r.truncated) return ok(text);
+          return isLast ? ok(`${text}\n\n[Respuesta truncada por el límite de tokens]`) : fail(TRUNCATED);
+        },
+      });
 
-        const thoughtMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
-        const thoughtText = thoughtMatch ? thoughtMatch[1].trim() : "";
-        const outsideText = rawText.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-
-        // Si outsideText quedó vacío o solo una frase genérica de tarea completada mientras thoughtText contiene la respuesta sustantiva:
-        if (!outsideText || (outsideText.length < 90 && /tarea\s+(concluida|completada|finalizada|terminada)/i.test(outsideText))) {
-          if (thoughtText && thoughtText.length > outsideText.length) {
-            console.log(`[generateFinalResponse] Priorizando contenido sustantivo de bloque <think> (${thoughtText.length} chars).`);
-            return {
-              response: thoughtText,
-              rawInput: dispatchRes.rawInput,
-              rawOutput: dispatchRes.rawOutput,
-            };
-          }
-        }
-
-        const candidate = outsideText || thoughtText || rawText.trim();
-        return {
-          response: candidate,
-          rawInput: dispatchRes.rawInput,
-          rawOutput: dispatchRes.rawOutput,
-        };
-      } catch (err: any) {
-        if (isThinking && !signal?.aborted) {
-          console.warn(`[generateFinalResponse] Falló con modo pensamiento activo (${err?.message || err}). Reintentando con thinking=false...`);
-          try {
-            const fallbackRes = await this.dispatchPrompt(
-              PROMPTS.FINAL_RESPONSE.SYSTEM,
-              userPrompt,
-              false,
-              1000,
-              { stage: "final_response_fallback", thinking: false, signal }
-            );
-            const cleanFallback = fallbackRes.content.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-            if (cleanFallback) {
-              return {
-                response: cleanFallback,
-                rawInput: fallbackRes.rawInput,
-                rawOutput: fallbackRes.rawOutput,
-              };
-            }
-          } catch (retryErr: any) {
-            console.error(`[generateFinalResponse] Reintento rápido también falló:`, retryErr?.message || retryErr);
-          }
-        }
-        throw err;
-      }
+      return { response: value, rawInput: res.rawInput, rawOutput: res.rawOutput };
     });
   }
 
-  /**
-   * Modo PLAN: Planificación Inicial con Structured Outputs (§9.1, §3.2.3, §3.2.4)
-   */
+  /** Modo PLAN: plan inicial. `steps: []` es válido (la solicitud no requiere herramientas). */
   async generatePlan(
     userMessage: string,
-    scratchpadOrChat?: Scratchpad | string,
+    chatContext?: string,
     signal?: AbortSignal,
     compactCatalog?: string,
     modificationFeedback?: string,
     existingPlanSummary?: string
   ): Promise<Plan> {
-    return await this.executeStage("generatePlan", async () => {
-      const chatContext = typeof scratchpadOrChat === "string" ? scratchpadOrChat : undefined;
-      const catalog = compactCatalog || buildCompactCatalog();
+    return this.executeStage("generatePlan", async () => {
       const userPrompt = PROMPTS.PLAN.buildUserPrompt(
         userMessage,
         chatContext,
-        catalog,
+        compactCatalog || buildCompactCatalog(),
         modificationFeedback,
         existingPlanSummary
       );
 
-      const dispatchRes = await this.dispatchPrompt(
-        PROMPTS.PLAN.SYSTEM,
-        userPrompt,
-        true,
-        1500,
-        {
-          stage: "plan",
-          signal,
-          schema: PLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
-        }
-      );
+      const { value, res } = await this.dispatchValidated<{ objective: string; steps: PlanStep[] }>({
+        stage: "plan",
+        system: PROMPTS.PLAN.SYSTEM,
+        user: (prev) => userPrompt + retryNote(prev),
+        json: true,
+        schema: PLAN_JSON_SCHEMA,
+        maxTokens: ConfigManager.getConfig().qwenMaxTokens.plan,
+        thinking: true,
+        signal,
+        validate: (r) => {
+          if (r.truncated) return fail(TRUNCATED);
+          const parsed = parseJsonObject(r.content);
+          if (!parsed) return fail(NOT_JSON);
+          const parsedSteps = parsePlanSteps(parsed.steps, 1, true);
+          if ("error" in parsedSteps) return fail(parsedSteps.error);
+          return ok({ objective: nonEmptyString(parsed.objective) ?? userMessage, steps: parsedSteps.steps });
+        },
+      });
 
-      const parsed = this.safeJsonParse<any>(dispatchRes.content);
-
-      if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-        console.error(`[Qwen plan] Fallo de parseo de plan. Raw (primeros 300 chars): ${dispatchRes.rawOutput.slice(0, 300)}`);
-        throw new LLMValidationError("Qwen 3.5 9B generó un plan inválido: falta 'steps'.");
-      }
-
-      return {
-        objective: parsed.objective || userMessage,
-        steps: mapRawPlanSteps(parsed.steps, 1),
-        rawInput: dispatchRes.rawInput,
-        rawOutput: dispatchRes.rawOutput,
-      };
+      return { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput };
     });
   }
 
-  /**
-   * Modo PLAN: Replan Localizado con Structured Outputs (§9.4, §3.2.6)
-   */
-  async replan(
-    data: ReplanPromptData,
-    signal?: AbortSignal
-  ): Promise<{ action?: "abort"; reason?: string; plan?: Plan; rawInput?: string; rawOutput?: string }> {
-    return await this.executeStage("replan", async () => {
+  /** Modo PLAN: replan localizado. Exige `action`; "continue" exige pasos válidos. */
+  async replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult> {
+    return this.executeStage("replan", async () => {
       const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
 
-      const dispatchRes = await this.dispatchPrompt(
-        PROMPTS.REPLAN.SYSTEM,
-        userPrompt,
-        true,
-        1500,
-        {
-          stage: "replan",
-          signal,
-          schema: REPLAN_JSON_SCHEMA as unknown as Record<string, unknown>,
-        }
-      );
-
-      const parsed = this.safeJsonParse<any>(dispatchRes.content);
-
-      if (parsed?.action === "abort") {
-        return {
-          action: "abort",
-          reason: parsed.reason || "Replan decidió abortar.",
-          rawInput: dispatchRes.rawInput,
-          rawOutput: dispatchRes.rawOutput,
-        };
-      }
-
-      if (!parsed || !Array.isArray(parsed.steps) || parsed.steps.length === 0) {
-        throw new LLMValidationError("Replan no produjo pasos válidos.");
-      }
-
-      return {
-        plan: {
-          objective: parsed.objective || data.goal,
-          steps: mapRawPlanSteps(parsed.steps, data.nextStepNumber),
-          rawInput: dispatchRes.rawInput,
-          rawOutput: dispatchRes.rawOutput,
+      const { value, res } = await this.dispatchValidated<
+        { action: "abort"; reason: string } | { action: "continue"; objective: string; steps: PlanStep[] }
+      >({
+        stage: "replan",
+        system: PROMPTS.REPLAN.SYSTEM,
+        user: (prev) => userPrompt + retryNote(prev),
+        json: true,
+        schema: REPLAN_JSON_SCHEMA,
+        maxTokens: ConfigManager.getConfig().qwenMaxTokens.replan,
+        thinking: true,
+        signal,
+        validate: (r) => {
+          if (r.truncated) return fail(TRUNCATED);
+          const parsed = parseJsonObject(r.content);
+          if (!parsed) return fail(NOT_JSON);
+          if (parsed.action === "abort") {
+            return ok({ action: "abort" as const, reason: nonEmptyString(parsed.reason) ?? "Replan decidió abortar." });
+          }
+          if (parsed.action !== "continue") return fail(`'action' debe ser "continue" o "abort"`);
+          const parsedSteps = parsePlanSteps(parsed.steps, data.nextStepNumber, false);
+          if ("error" in parsedSteps) return fail(parsedSteps.error);
+          return ok({
+            action: "continue" as const,
+            objective: nonEmptyString(parsed.objective) ?? data.goal,
+            steps: parsedSteps.steps,
+          });
         },
-        rawInput: dispatchRes.rawInput,
-        rawOutput: dispatchRes.rawOutput,
+      });
+
+      if (value.action === "abort") {
+        return { action: "abort", reason: value.reason, rawInput: res.rawInput, rawOutput: res.rawOutput };
+      }
+      return {
+        plan: { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput },
+        rawInput: res.rawInput,
+        rawOutput: res.rawOutput,
       };
     });
   }
 
   /**
-   * Fase 3B: Verificación semántica de etapa frente a objetivo observable (§3.2.6)
+   * Verificación semántica de etapa. Si Qwen no produce un veredicto válido tras el reintento, el resultado es
+   * `recoverable_deviation`: la señal de Eos nunca sustituye al juez semántico.
    */
-  async verifyStage(
-    data: StageVerificationPromptData,
-    signal?: AbortSignal
-  ): Promise<StageVerificationResult> {
-    return await this.executeStage("verifyStage", async () => {
+  async verifyStage(data: StageVerificationPromptData, signal?: AbortSignal): Promise<StageVerificationResult> {
+    return this.executeStage("verifyStage", async () => {
       const userPrompt = PROMPTS.STAGE_VERIFICATION.buildUserPrompt(data);
 
-      const dispatchRes = await this.dispatchPrompt(
-        PROMPTS.STAGE_VERIFICATION.SYSTEM,
-        userPrompt,
-        true,
-        1000,
-        {
+      try {
+        const { value, res } = await this.dispatchValidated<Omit<StageVerificationResult, "rawInput" | "rawOutput">>({
           stage: "verify_stage",
+          system: PROMPTS.STAGE_VERIFICATION.SYSTEM,
+          user: (prev) => userPrompt + retryNote(prev),
+          json: true,
+          schema: STAGE_VERIFICATION_JSON_SCHEMA,
+          maxTokens: ConfigManager.getConfig().qwenMaxTokens.verify,
+          thinking: false,
           signal,
-          schema: STAGE_VERIFICATION_JSON_SCHEMA as unknown as Record<string, unknown>,
-        }
-      );
-
-      const parsed = this.safeJsonParse<any>(dispatchRes.content);
-      if (!parsed || !parsed.status) {
-        console.warn(`[Qwen verifyStage] Respuesta no parseable como JSON estricto. Raw: ${dispatchRes.rawOutput.slice(0, 200)}`);
-        if (data.eosOk && data.eosCumple) {
-          return {
-            status: "completed",
-            reason: "Verificación validada por concordancia de señales factuales.",
-            rawInput: dispatchRes.rawInput,
-            rawOutput: dispatchRes.rawOutput,
-          };
-        }
+          validate: (r) => {
+            if (r.truncated) return fail(TRUNCATED);
+            const parsed = parseJsonObject(r.content);
+            if (!parsed) return fail(NOT_JSON);
+            const status = (STAGE_STATUSES as readonly unknown[]).includes(parsed.status)
+              ? (parsed.status as StageVerificationStatus)
+              : undefined;
+            if (!status) return fail(`'status' debe ser uno de ${STAGE_STATUSES.join(", ")}`);
+            const reason = nonEmptyString(parsed.reason) ?? "Sin detalle.";
+            const question = nonEmptyString(parsed.question_for_user);
+            if (status === "insufficient_info" && !question) {
+              return ok({
+                status: "recoverable_deviation" as const,
+                reason: `${reason} (se requería información del usuario, pero no se formuló la pregunta)`,
+              });
+            }
+            return ok({ status, reason, questionForUser: question });
+          },
+        });
+        return { ...value, rawInput: res.rawInput, rawOutput: res.rawOutput };
+      } catch (err) {
+        if (!(err instanceof LLMValidationError)) throw err;
         return {
           status: "recoverable_deviation",
-          reason: "Fallo al evaluar cumplimiento de etapa; requiere revisión de plan.",
-          rawInput: dispatchRes.rawInput,
-          rawOutput: dispatchRes.rawOutput,
+          reason: `La verificación semántica no produjo un veredicto válido: ${err.message}`,
+          rawInput: err.raw?.rawInput,
+          rawOutput: err.raw?.rawOutput,
         };
       }
-
-      const validStatuses: StageVerificationResult["status"][] = [
-        "completed",
-        "recoverable_deviation",
-        "insufficient_info",
-        "unrecoverable_blocked",
-      ];
-      const status = validStatuses.includes(parsed.status) ? parsed.status : "recoverable_deviation";
-
-      return {
-        status,
-        reason: parsed.reason || "Sin detalle.",
-        questionForUser: parsed.question_for_user || undefined,
-        rawInput: dispatchRes.rawInput,
-        rawOutput: dispatchRes.rawOutput,
-      };
     });
   }
 }
