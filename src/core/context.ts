@@ -96,17 +96,15 @@ export function addFailEntry(context: TaskExecutionContext, line: string): void 
     }
 }
 
-/** Registra traza cruda de interacción con modelo (hasta 50). */
+/**
+ * @deprecated task.modelIterations es la única fuente canónica autoritativa de trazas de modelo.
+ * Se conserva la firma para compatibilidad con llamadas existentes sin duplicar memoria ni disco.
+ */
 export function addRawInteraction(
-    context: TaskExecutionContext,
-    interaction: { model: string; stage: string; rawInput: string; rawOutput: string }
+    _context: TaskExecutionContext,
+    _interaction: { model: string; stage: string; rawInput: string; rawOutput: string }
 ): void {
-    const memory = ensureMemory(context);
-    memory.rawInteractions = memory.rawInteractions || [];
-    memory.rawInteractions.push({ timestamp: Date.now(), ...interaction });
-    if (memory.rawInteractions.length > 50) {
-        memory.rawInteractions = memory.rawInteractions.slice(-50);
-    }
+    // No-op intencional: evita duplicar información masiva en memoria y disco.
 }
 
 /** Historial compacto para Decision #1: últimas `limit` líneas de LOG y FAIL. */

@@ -32,10 +32,10 @@ export function createIterationFromEvent(
       // Determinar stepId real sin asociar erróneamente pasos previos
       const targetStepSeq = (task?.stepSeq ?? (task?.steps?.length ? task.steps.length : 0)) + 1;
       const expectedStepId = isFin ? "routing_fin" : (stepId || `s${targetStepSeq}`);
-      
-      const matchingStep = task?.steps?.find((s) => s.id === expectedStepId) || 
+
+      const matchingStep = task?.steps?.find((s) => s.id === expectedStepId) ||
         (!isFin && task?.steps && task.steps.length > 0 ? task.steps[task.steps.length - 1] : undefined);
-      
+
       const resolvedStepSeq = matchingStep
         ? task?.steps?.indexOf(matchingStep)! + 1
         : (isFin ? undefined : targetStepSeq);
@@ -43,8 +43,8 @@ export function createIterationFromEvent(
       const stepTitle = isFin
         ? "Decisión de Finalización (Eos-0.8B)"
         : (matchingStep
-            ? `Paso #${resolvedStepSeq}: Enrutamiento (${matchingStep.instruction.slice(0, 35)})`
-            : `Paso #${resolvedStepSeq || 1}: Enrutamiento de Subsistema`);
+          ? `Paso #${resolvedStepSeq}: Enrutamiento (${matchingStep.instruction.slice(0, 35)})`
+          : `Paso #${resolvedStepSeq || 1}: Enrutamiento de Subsistema`);
 
       return {
         id: `iter_${ts}_eos_d1_${expectedStepId}`,
@@ -59,8 +59,8 @@ export function createIterationFromEvent(
         rawOutput: data.rawOutput,
         input: {
           objetivo: task?.message || "Instrucción del usuario",
-          historialRegistrado: task?.memory?.log || [],
-          hechosConfirmados: task?.memory?.facts || {},
+          historialRegistrado: task?.memory?.log ? [...task.memory.log] : [],
+          hechosConfirmados: task?.memory?.facts ? { ...task.memory.facts } : {},
           rutasCandidatas: ["windows", "desktop_commander", "free_search", "fin"],
           esPrimeraIteracion: (task?.steps?.length || 0) <= 1,
         },
@@ -93,8 +93,8 @@ export function createIterationFromEvent(
         input: {
           instruccionEtapa: currentStep?.instruction || "Acción inmediata",
           servidorMCP: currentStep?.route || "desktop_commander",
-          herramientasCandidatas: currentStep?.candidate_tools || [],
-          variablesScratchpad: task?.scratchpad || {},
+          herramientasCandidatas: currentStep?.candidate_tools ? [...currentStep.candidate_tools] : [],
+          variablesScratchpad: task?.scratchpad ? JSON.parse(JSON.stringify(task.scratchpad)) : {},
         },
         output: {
           herramientaSeleccionada: data.tool,
@@ -124,8 +124,8 @@ export function createIterationFromEvent(
           meta: task?.message || "",
           herramienta: currentStep?.tool || "MCP Tool",
           instruccion: currentStep?.instruction || "",
-          hechosFactuales: task?.memory?.facts || {},
-          fallosPrevios: task?.memory?.fail || [],
+          hechosFactuales: task?.memory?.facts ? { ...task.memory.facts } : {},
+          fallosPrevios: task?.memory?.fail ? [...task.memory.fail] : [],
         },
         output: {
           argumentos: data.args || {},
@@ -260,10 +260,10 @@ export function createIterationFromEvent(
         rawOutput: data.rawOutput,
         input: {
           objetivo: task?.message || "",
-          hechosConfirmados: task?.memory?.facts || {},
-          registroLog: task?.memory?.log || [],
-          efectosSecundarios: task?.memory?.effects || [],
-          fallosRegistrados: task?.memory?.fail || [],
+          hechosConfirmados: task?.memory?.facts ? { ...task.memory.facts } : {},
+          registroLog: task?.memory?.log ? [...task.memory.log] : [],
+          efectosSecundarios: task?.memory?.effects ? [...task.memory.effects] : [],
+          fallosRegistrados: task?.memory?.fail ? [...task.memory.fail] : [],
         },
         output: {
           respuestaSintetizada: data.response || task?.finalResponse || "",
@@ -546,7 +546,7 @@ export function groupIterationsByStep(
 
   // Filter out empty groups and sort by chronological order or sequence
   const result = Array.from(groupsMap.values()).filter((g) => g.iterations.length > 0);
-  
+
   result.sort((a, b) => {
     // Planning always comes first
     if (a.stepId === "planning") return -1;

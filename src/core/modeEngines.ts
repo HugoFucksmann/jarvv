@@ -21,6 +21,7 @@ import {
     type TaskExecutionContext,
     addFailEntry,
     buildAttempts,
+    buildEffectsContext,
     buildHistoryContext,
     expandMemoryContext,
     hasUnresolvedUnverified,
@@ -107,7 +108,7 @@ export function failTask(context: TaskExecutionContext, deps: EngineDependencies
     task.waitingReason = undefined;
     task.pendingQuestion = undefined;
     task.finalResponse = task.finalResponse || `La tarea falló: ${msg}`;
-    deps.persistTasks();
+    deps.persistTasks(true);
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: msg, finalResponse: task.finalResponse });
 }
 
@@ -200,8 +201,8 @@ export async function concludeTask(
         rawOutput: finalRawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
-    // Persistir DESPUÉS de emitir: los eventos añaden la iteración final y la última interacción cruda al task.
-    deps.persistTasks();
+    // Persistir DESPUÉS de emitir: los eventos añaden la iteración final al task.
+    deps.persistTasks(true);
 }
 
 // ============================================================
@@ -315,6 +316,8 @@ export async function handleReplan(
             completedStepsSummary: completedSummary,
             facts: task.memory?.facts || {},
             failLines: task.memory?.fail || [],
+            logLines: task.memory?.log || [],
+            effects: buildEffectsContext(task),
             failedStepGoal: failedStep.instruction,
             failedStepResult: failedStep.error || "error",
             remainingPlanGoals: remainingGoals,

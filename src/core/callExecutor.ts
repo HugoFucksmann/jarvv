@@ -46,7 +46,7 @@ export interface EngineDependencies {
     discoveryEngine: DiscoveryEngine;
     qwenEngine: ILLMClient;
     emitEvent: EmitEventFn;
-    persistTasks: () => void;
+    persistTasks: (immediate?: boolean) => void;
 }
 
 export interface ApprovalRequest {
@@ -368,7 +368,7 @@ export async function runStep(
     context.lastCallDecisionSummary = processed.decisionSummary;
 
     Object.assign(task.scratchpad, processed.scratchpadDelta);
-    Object.assign(ensureMemory(context).facts, processed.factsDelta);
+    // factsDelta se aplica condicionalmente tras la verificación de Eos (ver más abajo).
 
     // 10. Verificación factual con Eos, solo sobre señales limpias
     const { signals } = processed;
@@ -391,7 +391,8 @@ export async function runStep(
                 step.instruction,
                 selectedTool.name,
                 processed.decisionSummary || processed.summaryText,
-                processed.evidence.summary || processed.compactObs,
+                // compactObs preferido: aporta mucho más contexto observable que el finding sanitizado de 120 chars.
+                processed.compactObs || processed.evidence.summary,
                 step.expectedOutcome,
                 signal
             );
@@ -419,6 +420,16 @@ export async function runStep(
                     : "ok";
     // El prefijo es el id real del paso: en PLAN `task.stepSeq` es el total de pasos y no identifica a quien produjo la línea.
     addLogEntry(context, `${step.id}|${selectedTool.name}|${logStatus}|${processed.finding}`);
+
+    // Aplicar factsDelta solo si el paso fue verificado correctamente o si Eos no está disponible.
+    // Esto evita contaminar la memoria de hechos con datos de pasos que Eos luego rechaza.
+    // Para pasos de solo lectura con señales limpias (eosUnavailable=false, isStepSuccess=false) NO
+    // se descarta el delta: se aplica igual porque el resultado fue real y sin errores.
+    if (isStepSuccess || eosUnavailable || (!eosPassed && isCleanSignals && !processed.outcome.actionDispatched)) {
+        Object.assign(ensureMemory(context).facts, processed.factsDelta);
+    } else if (Object.keys(processed.factsDelta).length > 0) {
+        console.log(`[runStep] factsDelta descartado por fallo de verificación Eos: ${Object.keys(processed.factsDelta).join(", ")}`);
+    }
 
     // Estado anti-loop
     if (processed.outcome.success || verification === "UNVERIFIED" || isStepSuccess) {

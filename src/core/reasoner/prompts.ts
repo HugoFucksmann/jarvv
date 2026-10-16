@@ -139,6 +139,10 @@ export interface ReplanPromptData {
   completedStepsSummary: string[];
   facts: Record<string, string>;
   failLines: string[];
+  /** Líneas de LOG más recientes: acciones ejecutadas hasta el momento del fallo. */
+  logLines?: string[];
+  /** Efectos secundarios registrados hasta el momento del fallo. */
+  effects?: string[];
   failedStepGoal: string;
   failedStepResult: string;
   remainingPlanGoals: string[];
@@ -247,6 +251,8 @@ ${DATA_NOTICE}`,
         `OBJETIVO: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
         orNone("COMPLETADOS", linesBlock("COMPLETADOS", data.completedStepsSummary, MAX_PLAN_CHARS)),
         orNone("FACTS", factsBlock(data.facts, MAX_FACTS_CHARS)),
+        linesBlock("LOG", data.logLines, MAX_LOG_CHARS),
+        linesBlock("EFFECTS", data.effects, MAX_EFFECTS_CHARS),
         linesBlock("FAIL", data.failLines, MAX_FAIL_CHARS),
         `PASO FALLIDO:\nmeta: ${safe(clip(data.failedStepGoal, MAX_GOAL_CHARS))}`,
         dataBlock("RESULTADO DEL PASO FALLIDO", data.failedStepResult, MAX_STEP_RESULT_CHARS),

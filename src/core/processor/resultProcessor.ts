@@ -26,6 +26,9 @@ export interface ProcessedResult {
  * Task-isolated reference store for complete tool outputs (§10.4, §10.11).
  * Isolates data per taskId to prevent cross-task clearing and memory leaks.
  */
+export const MAX_REFS_PER_TASK = 30;
+export const MAX_REF_CONTENT_CHARS = 250_000;
+
 export class RefStore {
   private static taskStores: Map<string, Map<string, string>> = new Map();
   private static taskCounters: Map<string, number> = new Map();
@@ -36,10 +39,25 @@ export class RefStore {
       store = new Map<string, string>();
       this.taskStores.set(taskId, store);
     }
+
+    // Política de desalojo FIFO si se excede el tope de referencias por tarea
+    if (store.size >= MAX_REFS_PER_TASK) {
+      const oldestKey = store.keys().next().value;
+      if (oldestKey) {
+        store.delete(oldestKey);
+      }
+    }
+
     const currentCounter = (this.taskCounters.get(taskId) || 0) + 1;
     this.taskCounters.set(taskId, currentCounter);
     const key = `r${currentCounter}`;
-    store.set(key, content);
+
+    // Límite de seguridad para evitar saturación de memoria ante contenidos masivos
+    const safeContent = content.length > MAX_REF_CONTENT_CHARS
+      ? `${content.substring(0, MAX_REF_CONTENT_CHARS)}\n[... salida truncada en RefStore por superar ${MAX_REF_CONTENT_CHARS} caracteres]`
+      : content;
+
+    store.set(key, safeContent);
     return key;
   }
 
@@ -56,6 +74,10 @@ export class RefStore {
 
   static has(key: string, taskId?: string): boolean {
     return this.get(key, taskId) !== undefined;
+  }
+
+  static hasTask(taskId: string): boolean {
+    return this.taskStores.has(taskId);
   }
 
   static list(taskId: string): string[] {
@@ -331,7 +353,7 @@ export class ResultProcessor {
           factsDelta.cand = cands.join(", ");
         }
 
-        scratchpadDelta.search_results = items;
+        scratchpadDelta.search_results = items.slice(0, 10);
 
         const obsLines: string[] = [];
         if (leadText) {

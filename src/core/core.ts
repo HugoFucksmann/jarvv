@@ -19,6 +19,7 @@ import { RequestAbortedError } from "./llmTransport.ts";
 import { type TaskExecutionContext, addLogEntry, addRawInteraction, createEmptyMemory } from "./context.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
 import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
+import { TaskPersistenceManager } from "./taskPersistence.ts";
 import {
   failTask,
   runFastLoop,
@@ -42,12 +43,14 @@ export class JarvisCore {
   private qwenEngine: ILLMClient;
   private taskContexts: Map<string, TaskExecutionContext> = new Map();
   private listeners: Set<CoreEventListener> = new Set();
+  private persistenceManager: TaskPersistenceManager;
 
   constructor(
     decisionEngine?: Decision20Engine,
     discoveryEngine?: DiscoveryEngine,
     qwenEngine?: ILLMClient
   ) {
+    this.persistenceManager = new TaskPersistenceManager();
     this.decisionEngine = decisionEngine || new Decision20Engine();
     this.discoveryEngine = discoveryEngine || new DiscoveryEngine();
     this.qwenEngine = qwenEngine || new QwenEngine();
@@ -60,7 +63,7 @@ export class JarvisCore {
       discoveryEngine: this.discoveryEngine,
       qwenEngine: this.qwenEngine,
       emitEvent: (taskId, type, data, stepId) => this.emitEvent(taskId, type, data, stepId),
-      persistTasks: () => this.persistTasks(),
+      persistTasks: (immediate) => this.persistTasks(immediate),
     };
   }
 
@@ -96,7 +99,7 @@ export class JarvisCore {
       data,
     };
 
-    // Almacenamiento determinista en memoria/contexto de la iteración de modelo
+    // Almacenamiento determinista en memoria/contexto de la iteración de modelo (fuente canónica)
     const ctx = this.taskContexts.get(taskId);
     if (ctx?.task) {
       const iteration = createIterationFromEvent(event, ctx.task);
@@ -107,14 +110,6 @@ export class JarvisCore {
           ctx.task.modelIterations[existingIdx] = iteration;
         } else {
           ctx.task.modelIterations.push(iteration);
-        }
-        if (iteration.rawInput && iteration.rawOutput) {
-          addRawInteraction(ctx, {
-            model: iteration.model,
-            stage: iteration.stage,
-            rawInput: iteration.rawInput,
-            rawOutput: iteration.rawOutput,
-          });
         }
       }
     }
@@ -214,7 +209,7 @@ export class JarvisCore {
     }
 
     RefStore.clear(taskId);
-    this.persistTasks();
+    this.persistTasks(true);
     console.log(
       `[Task Summary] id=${taskId} state=CANCELLED reason="Cancelada por usuario" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
     );
@@ -228,7 +223,7 @@ export class JarvisCore {
     context.task.planConfirmed = true;
     context.task.state = "RUNNING";
     context.task.waitingReason = undefined;
-    this.persistTasks();
+    this.persistTasks(true);
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", planConfirmed: true });
 
     this.runDetached(context, () => runPlanLoop(context, this.getEngineDeps()));
@@ -242,7 +237,7 @@ export class JarvisCore {
     context.task.waitingReason = undefined;
     context.task.planConfirmed = false;
     RefStore.clear(taskId);
-    this.persistTasks();
+    this.persistTasks(true);
     this.emitEvent(taskId, "PLAN_REJECTED", { reason: reason || "Plan rechazado por el usuario." });
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
     console.log(`[JarvisCore] Plan rechazado por el usuario para tarea '${taskId}'.`);
@@ -353,7 +348,7 @@ export class JarvisCore {
     task.state = "RUNNING";
     task.waitingReason = undefined;
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", userAnswerProvided: true, stepId: step?.id });
-    this.persistTasks();
+    this.persistTasks(true);
 
     const deps = this.getEngineDeps();
     this.runDetached(context, () =>
@@ -373,11 +368,25 @@ export class JarvisCore {
     }
   }
 
-  // --- Persistence ---
-  private persistTasks(): void {
+  // --- Persistence & Memory Management ---
+  flushPersistence(): void {
+    this.persistTasks(true);
+  }
+
+  persistTasks(immediate = false): void {
     try {
       const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
-      fs.writeFileSync(TASKS_FILE_PATH, JSON.stringify(serialized.slice(-20), null, 2), "utf-8");
+      if (immediate) {
+        this.persistenceManager.flushSync(serialized);
+      } else {
+        this.persistenceManager.schedulePersist(serialized);
+      }
+
+      // Política de desalojo en RAM para evitar crecimiento desmedido de taskContexts
+      const evictedTaskIds = this.persistenceManager.pruneMemoryTasks(this.taskContexts);
+      for (const tid of evictedTaskIds) {
+        RefStore.clear(tid);
+      }
     } catch (e) {
       console.warn("[JarvisCore] Error al persistir tareas en archivo local:", e);
     }
@@ -385,11 +394,7 @@ export class JarvisCore {
 
   private loadPersistedTasks(): void {
     try {
-      if (!fs.existsSync(TASKS_FILE_PATH)) return;
-      const stored = fs.readFileSync(TASKS_FILE_PATH, "utf-8");
-      if (!stored) return;
-
-      const tasks: Task[] = JSON.parse(stored);
+      const tasks: Task[] = this.persistenceManager.loadTasks();
       for (const task of tasks) {
         task.memory = task.memory || createEmptyMemory();
         task.replans = task.replans ?? 0;

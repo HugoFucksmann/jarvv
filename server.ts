@@ -101,6 +101,13 @@ async function main() {
       }
     }
 
+    try {
+      console.log('[Host] Guardando estado final de tareas en disco...');
+      jarvisCore.flushPersistence();
+    } catch (err) {
+      console.warn('[Host] Error persistiendo tareas al apagar:', err);
+    }
+
     console.log('[Host] Todos los subprocesos MCP han finalizado limpiamente.');
     process.exit(0);
   };
