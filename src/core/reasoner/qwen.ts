@@ -204,26 +204,38 @@ function extractJsonObject(s: string): string | null {
   return null;
 }
 
-/** think-strip, fences ```json y, si el JSON directo falla, extracción por llaves balanceadas. */
+/**
+ * think-strip y, en este orden: JSON directo del texto completo, JSON directo del bloque ```json y extracción
+ * por llaves balanceadas (primero sobre el bloque, luego sobre el texto completo).
+ * El JSON directo va antes que el bloque ``` porque sus propios strings pueden contener fences (p. ej. el
+ * `content` de write_file con markdown): buscar el fence primero cortaría el JSON a mitad de un string.
+ * Un JSON válido que no sea objeto (p. ej. un arreglo) devuelve null, sin extraer nada en silencio.
+ */
 export function parseJsonObject(raw: string): Record<string, unknown> | null {
   const cleaned = stripThink(raw);
+  if (!cleaned) return null;
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(cleaned);
-  const candidate = (fenced ? fenced[1] : cleaned).trim();
-  if (!candidate) return null;
+  const fencedBody = fenced ? fenced[1].trim() : "";
 
-  try {
-    const direct: unknown = JSON.parse(candidate);
-    return isRecord(direct) ? direct : null;
-  } catch {
-    const extracted = extractJsonObject(candidate);
-    if (!extracted) return null;
+  const parseStrict = (text: string): { value: unknown } | null => {
     try {
-      const v: unknown = JSON.parse(extracted);
-      return isRecord(v) ? v : null;
+      return { value: JSON.parse(text) };
     } catch {
       return null;
     }
+  };
+
+  for (const candidate of fencedBody ? [cleaned, fencedBody] : [cleaned]) {
+    const direct = parseStrict(candidate);
+    if (direct) return isRecord(direct.value) ? direct.value : null;
   }
+
+  for (const candidate of fencedBody ? [fencedBody, cleaned] : [cleaned]) {
+    const extracted = extractJsonObject(candidate);
+    const parsed = extracted ? parseStrict(extracted) : null;
+    if (parsed && isRecord(parsed.value)) return parsed.value;
+  }
+  return null;
 }
 
 function typeName(v: unknown): string {

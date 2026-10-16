@@ -149,8 +149,15 @@ export class ResultProcessor {
     const policy = getToolPolicy(mcp, tool);
 
     // 2. Compute signals (§4, §5, §10.5)
-    const isNotFound = fullText.includes("[NOT_FOUND]") || fullText.toLowerCase().includes("not found");
-    const isDenied = fullText.includes("[DENIED]") || fullText.toLowerCase().includes("access denied");
+    // Una señal textual solo es fiable en un resultado de error o cuando el texto EMPIEZA con el marcador explícito
+    // (así los emiten los adaptadores). En un resultado exitoso el texto es dato (archivos, páginas, búsquedas):
+    // que contenga "not found", "access denied" o "timeout" no describe cómo terminó la herramienta.
+    const lowerText = fullText.toLowerCase();
+    const leadsWith = (marker: string) => fullText.startsWith(marker);
+    const isNotFound =
+      leadsWith("[NOT_FOUND]") || (isError && (fullText.includes("[NOT_FOUND]") || lowerText.includes("not found")));
+    const isDenied =
+      leadsWith("[DENIED]") || (isError && (fullText.includes("[DENIED]") || lowerText.includes("access denied")));
 
     let emptyOutput = false;
     if (policy.emptyIsError) {
@@ -177,7 +184,7 @@ export class ResultProcessor {
     const signals: StepExecutionSignals = {
       exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : 0),
       exception: isError && !isNotFound && !isDenied,
-      timeout: Boolean(mergedData.timed_out || /timeout/i.test(fullText)),
+      timeout: Boolean(mergedData.timed_out || (isError && /timeout/i.test(fullText))),
       not_found: isNotFound,
       denied: isDenied,
       empty_output: emptyOutput,
@@ -190,10 +197,12 @@ export class ResultProcessor {
     }
 
     // 4. Deterministic Extractors per Tool (§10.5)
+    // Un resultado de error no pasa por los extractores específicos (producirían un resumen de éxito y facts
+    // de una ruta, URL o PID que no se obtuvo): usa el extractor genérico, cuyo resumen es la primera línea del error.
     let finding = "";
     let compactObs = "";
 
-    if (tool === "list_directory") {
+    if (!isError && tool === "list_directory") {
       const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
       finding = sanitizeForMemory(`${lines.length} entradas en directorio`);
       const top40 = lines.slice(0, 40).join("\n");
@@ -201,7 +210,7 @@ export class ResultProcessor {
       if (lines.length > 40 && refKey) {
         compactObs += `\n[... ${lines.length - 40} entradas omitidas, ref:${refKey}]`;
       }
-    } else if (tool === "read_file") {
+    } else if (!isError && tool === "read_file") {
       const lines = fullText.split("\n");
       const sizeBytes = Buffer.byteLength(fullText, "utf-8");
       const sizeKb = (sizeBytes / 1024).toFixed(1);
@@ -217,21 +226,40 @@ export class ResultProcessor {
       } else {
         compactObs = fullText || "Archivo leído (vacío).";
       }
-    } else if (tool.includes("process")) {
-      const pid = mergedData.process_id || mergedData.pid || args.pid || args.process_id;
+    } else if (!isError && tool.includes("process")) {
+      // Desktop Commander no devuelve pid ni exit code estructurados. Formatos reales (MCP_REAL_OUTPUTS):
+      //   start_process       primera línea: "Process started with PID <n> (shell: ...)"; última: "✅ Process <n> has finished execution" (si terminó)
+      //   read_process_output última línea:   "✅ Process completed with exit code <n> (runtime: ...)" (si terminó)
+      // Solo se leen la primera y la última línea: el cuerpo es salida del proceso y no es fiable.
+      const textLines = fullText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+      const firstTextLine = textLines[0] ?? "";
+      const lastTextLine = textLines[textLines.length - 1] ?? "";
+      const textPid = /^Process started with PID (\d+)\b/.exec(firstTextLine)?.[1];
+      const textExit = /Process completed with exit code (-?\d+)\b/.exec(lastTextLine)?.[1];
+      const finished = /Process \d+ has finished execution$/.test(lastTextLine);
+
+      const pid = mergedData.process_id || mergedData.pid || args.pid || args.process_id || textPid;
       if (pid) {
         factsDelta.pid = String(pid);
         scratchpadDelta.process_id = String(pid);
       }
-      const exitCode = mergedData.exit_code ?? (isError ? "error" : "running");
-      finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, status=${exitCode}`);
+
+      let knownExit: number | undefined;
+      if (typeof mergedData.exit_code === "number") {
+        knownExit = mergedData.exit_code;
+      } else if (textExit !== undefined) {
+        knownExit = parseInt(textExit, 10);
+        signals.exit_code = knownExit;
+      }
+      const processStatus = knownExit !== undefined ? `exit=${knownExit}` : finished ? "status=finished" : "status=running";
+      finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, ${processStatus}`);
       const lines = fullText.split("\n");
       const tail = lines.slice(-30).join("\n");
       compactObs = tail || `Proceso ${pid} ejecutado.`;
       if (lines.length > 30 && refKey) {
         compactObs = `[... salida previa omitida, ref:${refKey}]\n` + compactObs;
       }
-    } else if (mcp === "free_search" && tool === "search") {
+    } else if (!isError && mcp === "free_search" && tool === "search") {
       let jsonResults = Array.isArray(mergedData.results) ? mergedData.results : (Array.isArray(mergedData.documents) ? mergedData.documents : null);
 
       let items: { title: string; url?: string; snippet?: string }[] = [];
@@ -319,7 +347,7 @@ export class ResultProcessor {
         }
         compactObs = formattedObs;
       }
-    } else if (mcp === "free_search" && tool === "research") {
+    } else if (!isError && mcp === "free_search" && tool === "research") {
       const firstHeaderMatch = fullText.match(/^#+\s*([^\n]+)/m);
       const firstLine = firstHeaderMatch ? firstHeaderMatch[1].trim() : (fullText.split("\n")[0] || "Reporte de investigación");
       finding = sanitizeForMemory(`reporte: ${firstLine}`);
@@ -328,7 +356,7 @@ export class ResultProcessor {
       } else {
         compactObs = fullText || "Reporte de investigación generado.";
       }
-    } else if (mcp === "free_search" && tool === "fetch") {
+    } else if (!isError && mcp === "free_search" && tool === "fetch") {
       const urlStr = String(mergedData.url || args.url || "");
       if (urlStr) {
         factsDelta.url = urlStr;

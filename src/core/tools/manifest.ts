@@ -1,6 +1,7 @@
 /**
  * JARVIS Core — Tool Manifest (fuente única de herramientas, políticas y descripciones)
- * Referencia: docs/MCP_TOOLS_SNAPSHOT.md
+ * Catálogo reducido por ahora: 11 herramientas de desktop_commander y 3 de free_search; el resto de ambos
+ * servidores queda fuera (se reactiva añadiendo su línea). Los nombres de argumento salen de sus inputSchema.
  *
  * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas
  *   (policyRegistry.ts fue eliminado).
@@ -43,7 +44,7 @@ const NEEDS_APPROVAL = new Set<Capability>([
 export const ROUTE_DESCRIPTIONS: Readonly<Record<ExecutableRoute, string>> = {
   windows: "Windows OS control: launch apps, run PowerShell, manage processes, registry and files.",
   desktop_commander: "Local files, directories, processes and terminal commands.",
-  free_search: "Search and read information on the web: search, page fetching, documents, papers.",
+  free_search: "Search the web and fetch the content of web pages.",
 };
 
 interface ToolOptions {
@@ -95,42 +96,23 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   winTool("Process", "PROCESS_CONTROL", "List and terminate system processes."),
   winTool("Registry", "PROCESS_CONTROL", "Read and modify the Windows Registry: get, set, delete and list."),
 
-  // ---- desktop_commander (22) ----
-  dcTool("get_config", "READ", "Get the full Desktop Commander server configuration."),
-  dcTool("set_config_value", "CONFIGURATION", "Change a single configuration value."),
+  // ---- desktop_commander (11) ----
   dcTool("read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", { emptyIsError: true }),
   dcTool("read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
   dcTool("write_file", "FILE_WRITE", "Create or overwrite a file on disk."),
-  dcTool("write_pdf", "FILE_WRITE", "Create or modify a PDF document."),
   dcTool("create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
   dcTool("list_directory", "FILE_READ", "List files and subdirectories of a path."),
   dcTool("move_file", "FILE_WRITE", "Move or rename files or directories."),
   dcTool("start_search", "FILE_READ", "Start a streaming file search."),
-  dcTool("get_more_search_results", "FILE_READ", "Page through the results of an active file search."),
-  dcTool("stop_search", "READ", "Stop an ongoing file search."),
-  dcTool("list_searches", "FILE_READ", "List active file searches."),
-  dcTool("get_file_info", "FILE_READ", "Get file metadata: size, permissions and dates."),
-  dcTool("edit_block", "FILE_WRITE", "Make a targeted block edit inside an existing file."),
+  dcTool("get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true }),
   dcTool("start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
   dcTool("read_process_output", "READ", "Read the accumulated output of a running process.", { loopExempt: true }),
   dcTool("interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
-  dcTool("force_terminate", "PROCESS_CONTROL", "Force-terminate a terminal session or process."),
-  dcTool("list_sessions", "READ", "List active terminal sessions."),
-  dcTool("list_processes", "READ", "List running system processes."),
-  dcTool("kill_process", "PROCESS_CONTROL", "Terminate a process by PID."),
 
-  // ---- free_search (11) ----
+  // ---- free_search (3) ----
   searchTool("search", "READ", "Deduplicated multi-engine web search with clean snippets.", { emptyIsError: true }),
   searchTool("fetch", "READ", "Download a web page and convert it to clean Markdown."),
   searchTool("fetch_batch", "READ", "Download several URLs in parallel."),
-  searchTool("read_doc", "READ", "Read a remote document (PDF, DOCX) and parse it to Markdown."),
-  searchTool("research", "READ", "Iterative in-depth web research."),
-  searchTool("paper_graph", "READ", "Explore citations and relations between academic papers."),
-  searchTool("cache_search", "READ", "Full-text search over the local SQLite FTS5 cache."),
-  searchTool("engines", "READ", "List the available and active search engines."),
-  searchTool("compare", "READ", "Compare the content of 2 to 5 web pages in parallel."),
-  searchTool("extract_structured", "READ", "Extract microdata, OpenGraph and JSON-LD from a web page."),
-  searchTool("download", "DOWNLOAD", "Download a file or document to a local directory."),
 ];
 
 // ---------------------------------------------------------------

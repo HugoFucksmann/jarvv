@@ -3,7 +3,9 @@
  *
  * Invariantes:
  * - Ningún modelo puede eludir Guard.
- * - Patrones destructivos sobre el SO => DENY siempre.
+ * - Patrones destructivos sobre el SO => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
+ *   escanean los de `free_search` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
+ *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
  * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
  * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura).
  * - Resto => ALLOW (lecturas).
@@ -29,7 +31,8 @@ export class Guard {
     const policy = getToolPolicy(mcp, tool);
     const capability = policy.capability;
 
-    if (this.matchesDenyPattern(args)) {
+    const scannable = this.denyScanArgs(mcp, tool, args);
+    if (scannable && this.matchesDenyPattern(scannable)) {
       return {
         decision: "DENY",
         reason: "Operación rechazada (DENY): patrón destructivo prohibido sobre el sistema operativo.",
@@ -50,6 +53,19 @@ export class Guard {
     }
 
     return { decision: "ALLOW", capability };
+  }
+
+  /** Argumentos sobre los que se aplica el DENY. `null` = sin escaneo (free_search); en write_file se omite `content`. */
+  private static denyScanArgs(mcp: string, tool: string, args: Record<string, unknown>): Record<string, unknown> | null {
+    const server = mcp.toLowerCase();
+    const name = tool.toLowerCase();
+    if (server === "free_search") return null;
+    if (server === "desktop_commander" && name === "write_file") {
+      const rest = { ...args };
+      delete rest.content;
+      return rest;
+    }
+    return args;
   }
 
   private static matchesDenyPattern(args: Record<string, unknown>): boolean {
