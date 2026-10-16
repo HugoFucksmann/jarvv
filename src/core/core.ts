@@ -16,10 +16,11 @@ import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { type TaskExecutionContext, addRawInteraction } from "./context.ts";
+import { type TaskExecutionContext, addLogEntry, addRawInteraction, createEmptyMemory } from "./context.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
-import { RefStore } from "./processor/resultProcessor.ts";
+import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
 import {
+  failTask,
   runFastLoop,
   initiatePlanMode,
   runPlanLoop,
@@ -152,26 +153,9 @@ export class JarvisCore {
 
   // --- Fallos de pipeline ---
 
-  /**
-   * Cierra como FAILED una tarea cuyo pipeline lanzó una excepción. Se usa en TODOS los puntos de entrada
-   * (inicio, confirmación de plan, respuesta del usuario). La cancelación y los estados terminales no se pisan.
-   */
-  private failTask(context: TaskExecutionContext, err: unknown): void {
-    const taskId = context.task.id;
-    RefStore.clear(taskId);
-    if (context.isCancelled || err instanceof RequestAbortedError || isTerminalState(context.task.state)) return;
-
-    console.error(
-      `[Task Summary] id=${taskId} state=FAILED reason="${err instanceof Error ? err.message : String(err)}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
-    );
-    context.task.state = "FAILED";
-    context.task.waitingReason = undefined;
-    this.persistTasks();
-    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "FAILED", error: String(err) });
-  }
-
+  /** Lanza trabajo en segundo plano; cualquier excepción cierra la tarea por el único punto de cierre (failTask). */
   private runDetached(context: TaskExecutionContext, work: () => Promise<void>): void {
-    work().catch((err) => this.failTask(context, err));
+    work().catch((err) => failTask(context, this.getEngineDeps(), err));
   }
 
   private isAwaitingPlanConfirmation(context: TaskExecutionContext): boolean {
@@ -192,7 +176,7 @@ export class JarvisCore {
       currentStep: 0,
       scratchpad: {},
       state: "RUNNING",
-      memory: { log: [], facts: {}, fail: [], effects: [] },
+      memory: createEmptyMemory(),
       replans: 0,
       escalations: 0,
       stepSeq: 0,
@@ -216,6 +200,7 @@ export class JarvisCore {
     context.isCancelled = true;
     context.abortController.abort();
     context.task.state = "CANCELLED";
+    context.task.pendingQuestion = undefined;
 
     if (context.pendingApproval) {
       context.pendingApproval.onDeny("Operación cancelada por el usuario.");
@@ -308,7 +293,6 @@ export class JarvisCore {
     task.planConfirmed = false;
     task.rawPlanInput = newPlan.rawInput;
     task.rawPlanOutput = newPlan.rawOutput;
-    this.persistTasks();
     this.emitEvent(taskId, "PLAN_MODIFIED", { feedback, steps: task.steps });
     this.emitEvent(taskId, "PLAN_GENERATED", {
       steps: task.steps,
@@ -316,23 +300,64 @@ export class JarvisCore {
       rawOutput: newPlan.rawOutput,
     });
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
+    // Persistir después de emitir: PLAN_GENERATED añade su iteración al task.
+    this.persistTasks();
   }
 
+  /**
+   * Responde la pregunta abierta de una tarea en WAITING_INPUT/user_answer.
+   * La respuesta queda en la memoria (fact `answer_<paso>` + línea de LOG) y en `task.userAnswers`; el paso que
+   * originó la pregunta se reabre (PENDING) para ejecutarse de nuevo con esa información, y las firmas anti-loop
+   * previas dejan de aplicar porque el estado cambió.
+   */
   provideUserAnswer(taskId: string, answer: string): void {
     const context = this.taskContexts.get(taskId);
     if (!context || context.isCancelled) return;
-    if (context.task.state !== "WAITING_INPUT" || context.task.waitingReason !== "user_answer") return;
+    const { task } = context;
+    if (task.state !== "WAITING_INPUT" || task.waitingReason !== "user_answer") return;
 
-    context.task.memory = context.task.memory || { log: [], facts: {}, fail: [] };
-    context.task.memory.facts[`user_input_${Date.now()}`] = answer;
-    context.task.state = "RUNNING";
-    context.task.waitingReason = undefined;
+    const clean = answer.trim();
+    if (!clean) {
+      console.warn(`[JarvisCore] Respuesta vacía ignorada para tarea '${taskId}'; sigue esperando.`);
+      return;
+    }
+
+    // Paso al que pertenece la pregunta. Tareas persistidas antes de `pendingQuestion`: último paso vigente UNVERIFIED.
+    const pending = task.pendingQuestion;
+    let step = pending ? task.steps.find((s) => s.id === pending.stepId) : undefined;
+    if (!step) {
+      for (let i = task.steps.length - 1; i >= 0; i--) {
+        if (!task.steps[i].superseded && task.steps[i].state === "UNVERIFIED") {
+          step = task.steps[i];
+          break;
+        }
+      }
+    }
+
+    task.memory = task.memory || createEmptyMemory();
+    task.memory.facts[step ? `answer_${step.id}` : `user_input_${Date.now()}`] = sanitizeForMemory(clean, 400);
+    addLogEntry(
+      context,
+      `${step?.id ?? `s${task.stepSeq ?? 0}`}|user|ok|${sanitizeForMemory(`${pending?.question ?? "pregunta"} -> ${clean}`, 200)}`
+    );
+    task.userAnswers = task.userAnswers || [];
+    task.userAnswers.push({ stepId: step?.id, question: pending?.question, answer: clean, answeredAt: Date.now() });
+    task.pendingQuestion = undefined;
+
+    if (step && task.mode === "PLAN") {
+      step.state = "PENDING";
+      step.error = undefined;
+    }
+    context.nonReadCounter++;
+
+    task.state = "RUNNING";
+    task.waitingReason = undefined;
+    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", userAnswerProvided: true, stepId: step?.id });
     this.persistTasks();
-    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", userAnswerProvided: true });
 
     const deps = this.getEngineDeps();
     this.runDetached(context, () =>
-      context.task.mode === "PLAN" ? runPlanLoop(context, deps) : runFastLoop(context, deps)
+      task.mode === "PLAN" ? runPlanLoop(context, deps) : runFastLoop(context, deps)
     );
   }
 
@@ -366,7 +391,7 @@ export class JarvisCore {
 
       const tasks: Task[] = JSON.parse(stored);
       for (const task of tasks) {
-        task.memory = task.memory || { log: [], facts: {}, fail: [], effects: [] };
+        task.memory = task.memory || createEmptyMemory();
         task.replans = task.replans ?? 0;
         task.escalations = task.escalations ?? 0;
         task.stepSeq = task.stepSeq ?? task.steps.length;
@@ -396,6 +421,23 @@ export class JarvisCore {
           step.calls = step.calls || [];
           step.rev = step.rev ?? 0;
           step.superseded = step.superseded ?? false;
+        }
+        // La pregunta abierta solo tiene sentido mientras la tarea la espera.
+        if (task.state === "WAITING_INPUT" && task.waitingReason === "user_answer") {
+          if (!task.pendingQuestion) {
+            // Tarea persistida antes de existir `pendingQuestion`: lo único disponible es el motivo del paso UNVERIFIED.
+            const waiting = [...task.steps].reverse().find((s) => !s.superseded && s.state === "UNVERIFIED");
+            if (waiting) {
+              task.pendingQuestion = {
+                stepId: waiting.id,
+                question: waiting.error || "Se requiere información adicional.",
+                reason: waiting.error || "",
+                askedAt: Date.now(),
+              };
+            }
+          }
+        } else {
+          task.pendingQuestion = undefined;
         }
         this.taskContexts.set(task.id, JarvisCore.createContext(task));
       }

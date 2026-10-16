@@ -108,29 +108,31 @@ export function useJarvis() {
     hydratePendingApprovalRef.current = hydratePendingApproval;
   }, [hydratePendingApproval]);
 
-function extractUserQuestion(t: Task | null): string | null {
-  if (!t || t.state !== "WAITING_INPUT" || t.waitingReason !== "user_answer") return null;
-  for (let i = t.steps.length - 1; i >= 0; i--) {
-    const s = t.steps[i];
-    if (s.calls) {
-      for (let j = s.calls.length - 1; j >= 0; j--) {
-        const c = s.calls[j];
-        if (c.tool === "ask_user" && c.args) {
-          const q = (c.args.question as string) || (c.args.prompt as string);
-          if (q) return q;
+  function extractUserQuestion(t: Task | null): string | null {
+    if (!t || t.state !== "WAITING_INPUT" || t.waitingReason !== "user_answer") return null;
+    // La pregunta persistida por el núcleo es la fuente de verdad; lo siguiente solo cubre tareas antiguas.
+    if (t.pendingQuestion?.question) return t.pendingQuestion.question;
+    for (let i = t.steps.length - 1; i >= 0; i--) {
+      const s = t.steps[i];
+      if (s.calls) {
+        for (let j = s.calls.length - 1; j >= 0; j--) {
+          const c = s.calls[j];
+          if (c.tool === "ask_user" && c.args) {
+            const q = (c.args.question as string) || (c.args.prompt as string);
+            if (q) return q;
+          }
         }
       }
+      if (s.tool === "ask_user" && s.args) {
+        const q = (s.args.question as string) || (s.args.prompt as string);
+        if (q) return q;
+      }
+      if (s.error && (s.state === "UNVERIFIED" || s.state === "RUNNING")) {
+        return s.error;
+      }
     }
-    if (s.tool === "ask_user" && s.args) {
-      const q = (s.args.question as string) || (s.args.prompt as string);
-      if (q) return q;
-    }
-    if (s.error && (s.state === "UNVERIFIED" || s.state === "RUNNING")) {
-      return s.error;
-    }
+    return null;
   }
-  return null;
-}
 
   // Fetch full state snapshot from backend
   const fetchState = useCallback(async () => {

@@ -6,6 +6,7 @@ import {
     MAX_ESCALATIONS,
     MAX_REPLAN,
     MAX_STEPS,
+    MAX_USER_QUESTIONS_PER_STEP,
     isTerminalState,
     type ExecutableRoute,
     type PlanStep,
@@ -22,8 +23,9 @@ import {
     buildAttempts,
     buildHistoryContext,
     expandMemoryContext,
+    hasUnresolvedUnverified,
 } from "./context.ts";
-import { type EngineDependencies, runStep } from "./callExecutor.ts";
+import { type EngineDependencies, recordFailedCall, runStep } from "./callExecutor.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 
 /** ¿Hay que abandonar el trabajo en curso? (cancelación o estado terminal) */
@@ -76,6 +78,37 @@ async function concludeOnLLMError(
     console.error(`[${what}] ${msg}`);
     await concludeTask(context, resolveFailureState(context.task), deps, `${what}: ${msg}`);
     return false;
+}
+
+/**
+ * Estado de un plan que se quedó sin pasos ejecutables pero con pasos sin resolver (UNVERIFIED): COMPLETED solo
+ * si todos los pasos vigentes están COMPLETED. PARTIAL si hubo trabajo hecho (completado o sin verificar).
+ */
+function resolveIncompleteState(task: TaskExecutionContext["task"]): TaskState {
+    const live = task.steps.filter((s) => !s.superseded);
+    return live.some((s) => s.state === "COMPLETED" || s.state === "UNVERIFIED") ? "PARTIAL" : "FAILED";
+}
+
+/**
+ * Cierra como FAILED una tarea cuyo pipeline lanzó una excepción. Único punto de cierre por excepción: lo usan
+ * todos los puntos de entrada y la planificación inválida. La cancelación y los estados terminales no se pisan.
+ * Deja siempre una respuesta final legible (sin depender de que Qwen esté disponible).
+ */
+export function failTask(context: TaskExecutionContext, deps: EngineDependencies, err: unknown): void {
+    const { task } = context;
+    RefStore.clear(task.id);
+    if (isCancellation(context, err) || isTerminalState(task.state)) return;
+
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+        `[Task Summary] id=${task.id} state=FAILED reason="${msg}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
+    );
+    task.state = "FAILED";
+    task.waitingReason = undefined;
+    task.pendingQuestion = undefined;
+    task.finalResponse = task.finalResponse || `La tarea falló: ${msg}`;
+    deps.persistTasks();
+    deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: msg, finalResponse: task.finalResponse });
 }
 
 // ============================================================
@@ -154,9 +187,10 @@ export async function concludeTask(
     }
 
     RefStore.clear(task.id);
+    task.pendingQuestion = undefined;
+    task.waitingReason = undefined;
     task.rawFinalInput = finalRawInput;
     task.rawFinalOutput = finalRawOutput;
-    deps.persistTasks();
     console.log(
         `[Task Summary] id=${task.id} state=${state} reason="${abortReason || 'None'}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
     );
@@ -166,6 +200,8 @@ export async function concludeTask(
         rawOutput: finalRawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
+    // Persistir DESPUÉS de emitir: los eventos añaden la iteración final y la última interacción cruda al task.
+    deps.persistTasks();
 }
 
 // ============================================================
@@ -202,6 +238,7 @@ export async function handleEscalation(
     }
 
     context.escalations++;
+    task.escalations = context.escalations;
     console.log(`[Escalation] Activando arbitraje de recuperación (${context.escalations}/${MAX_ESCALATIONS}).`);
 
     // La tool fallida no se reintenta de inmediato
@@ -306,13 +343,13 @@ export async function handleReplan(
     task.rawPlanOutput = replanResult.rawOutput;
 
     // Ejecución autónoma: sin suspensión en WAITING_INPUT tras la confirmación inicial
-    deps.persistTasks();
     deps.emitEvent(task.id, "PLAN_GENERATED", {
         steps: task.steps,
         isMaterialReplan: false,
         rawInput: replanResult.rawInput,
         rawOutput: replanResult.rawOutput,
     });
+    deps.persistTasks();
     console.log(`[PLAN] Replan autónomo completado. Continuando ejecución directa de ${newSteps.length} pasos.`);
     return true;
 }
@@ -383,7 +420,7 @@ export async function runFastLoop(
                 }
 
                 const hasSuccessfulTool = task.steps.some((s) => s.calls && s.calls.some((c) => c.outcome?.success));
-                const hasPendingUnverified = task.steps.some((s) => s.calls && s.calls.some((c) => c.verification === "UNVERIFIED"));
+                const hasPendingUnverified = hasUnresolvedUnverified(task);
 
                 if (hasSuccessfulTool && !hasPendingUnverified) {
                     console.log(`[FAST] fin validado. Concluyendo con éxito.`);
@@ -440,6 +477,7 @@ export async function runFastLoop(
             console.error(`[FAST] Excepción no controlada en runStep:`, err);
             step.state = "FAILED";
             step.error = err instanceof Error ? err.message : String(err);
+            recordFailedCall(context, step, { error: step.error });
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
@@ -529,13 +567,7 @@ export async function initiatePlanMode(
             return;
         }
         console.error(`[PLAN] Plan inválido:`, err instanceof Error ? err.message : err);
-        task.state = "FAILED";
-        RefStore.clear(task.id);
-        deps.persistTasks();
-        deps.emitEvent(task.id, "TASK_STATE_CHANGED", {
-            state: "FAILED",
-            error: `Plan inválido: ${err instanceof Error ? err.message : String(err)}`,
-        });
+        failTask(context, deps, new Error(`Plan inválido: ${err instanceof Error ? err.message : String(err)}`));
         return;
     }
 
@@ -560,13 +592,13 @@ export async function initiatePlanMode(
     task.rawPlanOutput = plan.rawOutput;
     task.state = "WAITING_INPUT";
     task.waitingReason = "plan_confirmation";
-    deps.persistTasks();
     deps.emitEvent(task.id, "PLAN_GENERATED", {
         steps: task.steps,
         rawInput: plan.rawInput,
         rawOutput: plan.rawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
+    deps.persistTasks();
     console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación inicial en WAITING_INPUT.`);
 }
 
@@ -580,8 +612,16 @@ export async function runPlanLoop(
     while (!isStopped(context) && (task.state as TaskState) !== "WAITING_INPUT") {
         const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
         if (stepIndex === -1) {
-            console.log(`[PLAN] Todos los pasos completados. Concluyendo tarea.`);
-            await concludeTask(context, "COMPLETED", deps);
+            // COMPLETED solo si todos los pasos vigentes están COMPLETED; un paso UNVERIFIED sin resolver no lo permite.
+            const unresolved = task.steps.filter((s) => !s.superseded && s.state !== "COMPLETED");
+            if (unresolved.length === 0) {
+                console.log(`[PLAN] Todos los pasos completados. Concluyendo tarea.`);
+                await concludeTask(context, "COMPLETED", deps);
+                return;
+            }
+            const detail = unresolved.map((s) => `${s.id}=${s.state}`).join(", ");
+            console.warn(`[PLAN] Sin pasos ejecutables pero con pasos sin resolver (${detail}). No se declara COMPLETED.`);
+            await concludeTask(context, resolveIncompleteState(task), deps, `Pasos sin resolver o sin verificar: ${detail}.`);
             return;
         }
 
@@ -601,6 +641,7 @@ export async function runPlanLoop(
             console.error(`[PLAN] Excepción no controlada en runStep:`, err);
             step.state = "FAILED";
             step.error = err instanceof Error ? err.message : String(err);
+            recordFailedCall(context, step, { error: step.error });
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
@@ -651,35 +692,48 @@ export async function runPlanLoop(
 
             console.log(`[PLAN StageVerification] step=${step.id} status=${stageVerif.status} reason=${stageVerif.reason}`);
 
-            if (stageVerif.status === "completed") {
+            // Una misma etapa no pregunta indefinidamente: agotado el tope, la falta de información se trata como desviación.
+            let verdictStatus = stageVerif.status;
+            let verdictReason = stageVerif.reason;
+            if (verdictStatus === "insufficient_info" && (step.questionsAsked ?? 0) >= MAX_USER_QUESTIONS_PER_STEP) {
+                verdictStatus = "recoverable_deviation";
+                verdictReason = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario: ${stageVerif.reason}`;
+            }
+
+            if (verdictStatus === "completed") {
                 step.state = "COMPLETED";
                 deps.persistTasks();
                 deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
                 continue;
-            } else if (stageVerif.status === "insufficient_info") {
-                task.state = "WAITING_INPUT";
-                task.waitingReason = "user_answer";
+            } else if (verdictStatus === "insufficient_info") {
+                // La pregunta se persiste en la tarea: sobrevive a recargas y reinicios. provideUserAnswer reabre este paso.
+                const question = stageVerif.questionForUser || stageVerif.reason;
+                step.questionsAsked = (step.questionsAsked ?? 0) + 1;
                 step.state = "UNVERIFIED";
                 step.error = stageVerif.reason;
+                task.pendingQuestion = { stepId: step.id, question, reason: stageVerif.reason, askedAt: Date.now() };
+                task.state = "WAITING_INPUT";
+                task.waitingReason = "user_answer";
                 deps.persistTasks();
                 deps.emitEvent(task.id, "TASK_STATE_CHANGED", {
                     state: "WAITING_INPUT",
                     waitingReason: "user_answer",
-                    question: stageVerif.questionForUser || stageVerif.reason,
+                    question,
+                    stepId: step.id,
                 });
-                console.log(`[PLAN] Información insuficiente en etapa '${step.id}'. Suspendido en WAITING_INPUT sin timers.`);
+                console.log(`[PLAN] Información insuficiente en etapa '${step.id}' (pregunta ${step.questionsAsked}/${MAX_USER_QUESTIONS_PER_STEP}). Suspendido en WAITING_INPUT sin timers.`);
                 return;
-            } else if (stageVerif.status === "unrecoverable_blocked") {
+            } else if (verdictStatus === "unrecoverable_blocked") {
                 step.state = "BLOCKED";
-                step.error = stageVerif.reason;
+                step.error = verdictReason;
                 deps.persistTasks();
                 deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
-                await concludeTask(context, resolveFailureState(task), deps, stageVerif.reason);
+                await concludeTask(context, resolveFailureState(task), deps, verdictReason);
                 return;
             } else {
                 // recoverable_deviation
                 step.state = "FAILED";
-                step.error = stageVerif.reason;
+                step.error = verdictReason;
                 deps.persistTasks();
                 deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 

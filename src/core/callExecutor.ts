@@ -18,7 +18,7 @@ import type { DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
 import { LLMValidationError, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { ResultProcessor, type ProcessedResult } from "./processor/resultProcessor.ts";
+import { ResultProcessor, sanitizeForMemory, type ProcessedResult } from "./processor/resultProcessor.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { applyManifest, getToolPolicy } from "./tools/manifest.ts";
 import {
@@ -26,6 +26,7 @@ import {
     addLogEntry,
     addFailEntry,
     addEffectEntry,
+    ensureMemory,
     buildEffectsContext,
     applyStepHandoff,
     buildScratchpadContextForDecision,
@@ -85,6 +86,41 @@ export async function requestUserApproval(
 }
 
 const cancelledResult = (step: Step): StepExecutionResult => ({ status: "logical_error", step, error: "CANCELLED" });
+
+const newCallId = (step: Step): string => `call_${step.id}_${(step.calls?.length ?? 0) + 1}_${Date.now()}`;
+
+/**
+ * Registra un intento que falló sin llegar a producir resultado (argumentos inválidos, referencias sin resolver,
+ * anti-loop, Guard, excepción de infraestructura). Así Decision #1/#2 lo ven en `attempts`, `step.tool` queda
+ * definido para que la escalación pueda excluir la herramienta, y `lastResult` deja de ser el de una llamada anterior.
+ * Sin tool conocida solo se actualiza el resumen para Decision.
+ */
+export function recordFailedCall(
+    context: TaskExecutionContext,
+    step: Step,
+    failure: { mcp?: string; tool?: string; args?: Record<string, unknown>; error: string }
+): void {
+    const mcp = failure.mcp ?? step.route;
+    const tool = failure.tool ?? step.tool;
+    const summary = sanitizeForMemory(failure.error, 120);
+    context.lastCallDecisionSummary = `[FAILURE] ${mcp}${tool ? `/${tool}` : ""}: ${summary}.`;
+    if (!tool) return;
+
+    step.calls = step.calls || [];
+    step.calls.push({
+        id: newCallId(step),
+        mcp,
+        tool,
+        args: failure.args,
+        evidence: { ok: false, summary },
+        outcome: { success: false, isError: true, actionDispatched: false },
+        error: failure.error,
+        timestamp: Date.now(),
+    });
+    step.mcp = mcp;
+    step.tool = tool;
+    if (failure.args) step.args = failure.args;
+}
 
 /** Huella de los argumentos para el anti-loop (evita guardar contenidos grandes en el Set). */
 const argsHash = (args: Record<string, unknown>): string =>
@@ -149,6 +185,9 @@ export async function runStep(
         }
     }
 
+    // La herramienta elegida se refleja de inmediato: si el paso falla antes de ejecutarse, la escalación sabe cuál excluir.
+    step.mcp = serverName;
+    step.tool = selectedTool.name;
     step.rawInput = d2.rawInput;
     step.rawOutput = d2.rawOutput;
 
@@ -176,7 +215,7 @@ export async function runStep(
             tool: selectedTool,
             cleanedSchema,
             lastObs: context.lastCallCompactObs ? {
-                stepIndex: task.currentStep + 1,
+                stepIndex: context.lastCallStepNumber ?? task.currentStep + 1,
                 toolName: context.lastCallTool || selectedTool.name,
                 obsText: context.lastCallCompactObs,
             } : undefined,
@@ -190,7 +229,9 @@ export async function runStep(
         if (!(argErr instanceof LLMValidationError)) throw argErr;
         console.error(`[Qwen Args Error]`, argErr.message);
         addFailEntry(context, `${selectedTool.name} -> argumentos inválidos tras reintentos`);
-        return { status: "logical_error", step, error: `Argumentos inválidos: ${argErr.message}` };
+        const argsError = `Argumentos inválidos: ${argErr.message}`;
+        recordFailedCall(context, step, { tool: selectedTool.name, error: argsError });
+        return { status: "logical_error", step, error: argsError };
     }
 
     // 4.1. Sustitución determinista de referencias {{ref:rX}} antes de Guard
@@ -213,28 +254,31 @@ export async function runStep(
     if (refResolution.unresolvedRefs.length > 0) {
         const unresolved = refResolution.unresolvedRefs.join(", ");
         addFailEntry(context, `${selectedTool.name} -> referencias sin resolver: ${unresolved}`);
-        return { status: "logical_error", step, error: `Referencias sin resolver: ${unresolved}` };
+        const refError = `Referencias sin resolver: ${unresolved}`;
+        recordFailedCall(context, step, { tool: selectedTool.name, args, error: refError });
+        return { status: "logical_error", step, error: refError };
     }
 
     // 5. Anti-loop
     const policy = getToolPolicy(serverName, selectedTool.name);
     const isRead = policy.kind === "READ";
 
+    // La firma se registra justo antes del despacho (paso 8): una llamada que nunca llegó a ejecutarse
+    // (Guard, rechazo del usuario, excepción de MCP) no puede bloquear su propio reintento.
+    let loopSignature: string | undefined;
     if (!policy.loopExempt) {
         const sig = `${serverName}:${selectedTool.name}:${argsHash(args)}:m${context.nonReadCounter}`;
         // Lectura idéntica: siempre bloqueada. Acción idéntica: bloqueada si no hubo una lectura intermedia.
         if (context.executedSignatures.has(sig) && (isRead || !context.lastActionWasRead)) {
             context.consecutiveLoopBlocks++;
             addFailEntry(context, `${selectedTool.name} -> ya ejecutado (anti-loop${isRead ? " lectura" : ""})`);
-            return {
-                status: "blocked_loop",
-                step,
-                error: isRead
-                    ? "Lectura idéntica bloqueada por anti-loop."
-                    : "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).",
-            };
+            const loopError = isRead
+                ? "Lectura idéntica bloqueada por anti-loop."
+                : "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).";
+            recordFailedCall(context, step, { tool: selectedTool.name, args, error: loopError });
+            return { status: "blocked_loop", step, error: loopError };
         }
-        context.executedSignatures.add(sig);
+        loopSignature = sig;
     }
 
     // 6. Guard y aprobación
@@ -245,6 +289,7 @@ export async function runStep(
         step.state = "BLOCKED";
         step.error = guardDecision.reason || "Operación rechazada por Guard (DENY).";
         addFailEntry(context, `${selectedTool.name} -> DENY: ${step.error}`);
+        recordFailedCall(context, step, { tool: selectedTool.name, args, error: step.error });
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
         return { status: "logical_error", step, error: step.error, signals: { denied: true } };
@@ -275,6 +320,7 @@ export async function runStep(
             step.state = "BLOCKED";
             step.error = "Operación rechazada por el usuario en Guard.";
             addFailEntry(context, `${selectedTool.name} -> RECHAZADO por usuario`);
+            recordFailedCall(context, step, { tool: selectedTool.name, args, error: step.error });
             deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
             deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
@@ -291,12 +337,26 @@ export async function runStep(
     // 7. Registro de invocación
     context.totalToolCalls++;
     if (isStopped()) return cancelledResult(step);
+    if (loopSignature) context.executedSignatures.add(loopSignature);
 
     // 8. Ejecución en el servidor MCP
     deps.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: selectedTool.name, args }, step.id);
     console.log(`[MCP → SEND] server=${serverName} tool=${selectedTool.name} args=${JSON.stringify(args).slice(0, 300)}`);
-    const rawResult = await server.callTool(selectedTool.name, args);
+    let rawResult: Awaited<ReturnType<typeof server.callTool>>;
+    try {
+        rawResult = await server.callTool(selectedTool.name, args);
+    } catch (callErr) {
+        // Fallo de infraestructura: la herramienta no produjo resultado, el reintento idéntico debe poder ejecutarse.
+        if (loopSignature) context.executedSignatures.delete(loopSignature);
+        throw callErr;
+    }
     console.log(`[MCP ← RECV] server=${serverName} tool=${selectedTool.name} result=${JSON.stringify(rawResult).slice(0, 400)}`);
+
+    // La tarea pudo cancelarse durante la llamada: un resultado tardío no toca memoria, refs ni eventos.
+    if (isStopped()) {
+        console.warn(`[runStep] Resultado tardío de '${selectedTool.name}' descartado: la tarea ${task.id} ya no está activa.`);
+        return cancelledResult(step);
+    }
 
     deps.emitEvent(task.id, "MCP_RESULT", { rawResult }, step.id);
 
@@ -304,12 +364,11 @@ export async function runStep(
     const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args, task.id);
     context.lastCallCompactObs = processed.compactObs;
     context.lastCallTool = selectedTool.name;
+    context.lastCallStepNumber = task.steps.indexOf(step) + 1;
     context.lastCallDecisionSummary = processed.decisionSummary;
 
     Object.assign(task.scratchpad, processed.scratchpadDelta);
-    if (task.memory) {
-        Object.assign(task.memory.facts, processed.factsDelta);
-    }
+    Object.assign(ensureMemory(context).facts, processed.factsDelta);
 
     // 10. Verificación factual con Eos, solo sobre señales limpias
     const { signals } = processed;
@@ -358,7 +417,8 @@ export async function runStep(
                 : verification === "UNVERIFIED"
                     ? "unv"
                     : "ok";
-    addLogEntry(context, `${task.stepSeq}|${selectedTool.name}|${logStatus}|${processed.finding}`);
+    // El prefijo es el id real del paso: en PLAN `task.stepSeq` es el total de pasos y no identifica a quien produjo la línea.
+    addLogEntry(context, `${step.id}|${selectedTool.name}|${logStatus}|${processed.finding}`);
 
     // Estado anti-loop
     if (processed.outcome.success || verification === "UNVERIFIED" || isStepSuccess) {
@@ -374,7 +434,7 @@ export async function runStep(
     // Registro de la llamada. `evidence.ok` alimenta los intentos que ven Decision #1/#2: con Eos caído la
     // herramienta corrió limpia, así que no se marca como fallida; `outcome.success` (compuerta de `fin`) sí queda en false.
     const callRecord: StepCall = {
-        id: `call_${Date.now()}`,
+        id: newCallId(step),
         mcp: serverName,
         tool: selectedTool.name,
         args,

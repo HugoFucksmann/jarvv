@@ -85,6 +85,8 @@ export interface Step {
   rawOutput?: string;
   candidate_tools?: string[];
   dependencies?: string[];
+  /** Preguntas al usuario ya formuladas para este paso (tope: MAX_USER_QUESTIONS_PER_STEP). */
+  questionsAsked?: number;
 }
 
 export interface StepHandoff {
@@ -169,6 +171,22 @@ export interface TaskMemory {
   }>;
 }
 
+/** Pregunta abierta al usuario (WAITING_INPUT/user_answer). Se persiste para sobrevivir a recargas y reinicios. */
+export interface PendingQuestion {
+  stepId: string;
+  question: string;
+  /** Motivo por el que la verificación semántica no pudo concluir. */
+  reason: string;
+  askedAt: number;
+}
+
+export interface UserAnswer {
+  stepId?: string;
+  question?: string;
+  answer: string;
+  answeredAt: number;
+}
+
 export interface Task {
   id: string;
   message: string;
@@ -178,6 +196,8 @@ export interface Task {
   scratchpad: Scratchpad;
   state: TaskState;
   waitingReason?: WaitingReason;
+  pendingQuestion?: PendingQuestion;
+  userAnswers?: UserAnswer[];
   finalResponse?: string;
   planConfirmed?: boolean;
   memory?: TaskMemory;
@@ -285,6 +305,8 @@ export function isTerminalState(state: TaskState): boolean {
 export const MAX_STEPS = 15;
 export const MAX_ESCALATIONS = 2;
 export const MAX_REPLAN = 2;
+/** Máximo de preguntas al usuario por paso antes de tratar la falta de información como desviación recuperable. */
+export const MAX_USER_QUESTIONS_PER_STEP = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;
 export type ProgressiveMemoryLimit = (typeof PROGRESSIVE_MEMORY_TIERS)[number];
 

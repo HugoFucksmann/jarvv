@@ -13,6 +13,7 @@ import {
     type Task,
 } from "./types.ts";
 import type { Attempt } from "./reasoner/prompts.ts";
+import { getToolPolicy } from "./tools/manifest.ts";
 
 export interface TaskExecutionContext {
     task: Task;
@@ -36,6 +37,8 @@ export interface TaskExecutionContext {
     lastCallDecisionSummary?: string;
     /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
     lastCallTool?: string;
+    /** Número de paso (1-based) que produjo lastCallCompactObs: el label LAST debe nombrar a quien la generó, no al paso actual. */
+    lastCallStepNumber?: number;
     /** Handoff determinista del último paso completado. */
     lastHandoff?: StepHandoff;
 }
@@ -54,9 +57,14 @@ export function expandMemoryContext(context: TaskExecutionContext): ProgressiveM
     return next;
 }
 
-function ensureMemory(context: TaskExecutionContext): NonNullable<Task["memory"]> {
+/** Única fuente de la forma de la memoria de una tarea. */
+export function createEmptyMemory(): NonNullable<Task["memory"]> {
+    return { log: [], facts: {}, fail: [], effects: [] };
+}
+
+export function ensureMemory(context: TaskExecutionContext): NonNullable<Task["memory"]> {
     if (!context.task.memory) {
-        context.task.memory = { log: [], facts: {}, fail: [], effects: [] };
+        context.task.memory = createEmptyMemory();
     }
     return context.task.memory;
 }
@@ -171,4 +179,23 @@ export function applyStepHandoff(step: Step, context: TaskExecutionContext): str
     const refNote = handoff.refKey ? ` [ref:${handoff.refKey}]` : "";
     const factNote = handoff.primaryFact ? ` | ${handoff.primaryFact.key}=${handoff.primaryFact.value}` : "";
     return `${step.instruction}\n[HANDOFF ${handoff.fromStepId} (${handoff.tool})]: ${handoff.finding}${refNote}${factNote}`;
+}
+
+/**
+ * ¿Queda una llamada UNVERIFIED sin resolver? Una llamada se resuelve cuando una lectura exitosa posterior
+ * la observa. Solo cuenta la última UNVERIFIED: una lectura exitosa posterior a ella resuelve las anteriores.
+ * Sin esta regla, una sola llamada sin verificar bloquearía `fin` durante el resto de la tarea.
+ */
+export function hasUnresolvedUnverified(task: Task): boolean {
+    const calls = task.steps.flatMap((s) => (s.calls || []) as StepCall[]);
+    let lastUnverified = -1;
+    for (let i = 0; i < calls.length; i++) {
+        if (calls[i].verification === "UNVERIFIED") lastUnverified = i;
+    }
+    if (lastUnverified < 0) return false;
+    for (let j = lastUnverified + 1; j < calls.length; j++) {
+        const c = calls[j];
+        if (c.outcome?.success === true && getToolPolicy(c.mcp, c.tool).kind === "READ") return false;
+    }
+    return true;
 }
