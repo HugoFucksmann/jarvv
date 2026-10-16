@@ -1,13 +1,18 @@
 import React from "react";
-import { Step } from "../../../core/types.ts";
+import { Step, TaskState, isTerminalState } from "../../../core/types.ts";
 import { StepItem } from "./StepItem.tsx";
 
 interface StepTimelineProps {
   steps: Step[];
   currentStepIndex: number;
+  taskState?: TaskState;
 }
 
-export const StepTimeline: React.FC<StepTimelineProps> = ({ steps, currentStepIndex }) => {
+export const StepTimeline: React.FC<StepTimelineProps> = ({
+  steps,
+  currentStepIndex,
+  taskState,
+}) => {
   if (steps.length === 0) {
     return (
       <div className="py-8 text-center text-xs font-mono text-slate-500">
@@ -16,6 +21,8 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({ steps, currentStepIn
     );
   }
 
+  const isTaskActive = taskState ? !isTerminalState(taskState) : true;
+
   return (
     <div className="flex flex-col divide-y divide-slate-800/60">
       {steps.map((step, idx) => (
@@ -23,7 +30,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({ steps, currentStepIn
           key={`step-${step.id || "item"}-${step.rev ?? 0}-${idx}`}
           step={step}
           index={idx}
-          isCurrent={idx === currentStepIndex}
+          isCurrent={isTaskActive && idx === currentStepIndex}
         />
       ))}
     </div>

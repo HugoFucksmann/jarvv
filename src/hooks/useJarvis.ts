@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { Task, PendingApproval, CoreEvent, MCPTool } from "../core/types.ts";
+import { isTerminalState, type Task, type PendingApproval, type CoreEvent, type MCPTool } from "../core/types.ts";
 import type { MCPPrompt, MCPResourceTemplate } from "../core/mcp/types.ts";
 import type { ModelIteration } from "../types/debug.ts";
 import { jarvisApi } from "../services/jarvisApi.ts";
@@ -21,6 +21,7 @@ export function useJarvis() {
   const iterationsByTaskRef = useRef<Record<string, ModelIteration[]>>({});
   const isInitialSnapshotLoaded = useRef<boolean>(false);
   const userClearedViewRef = useRef<boolean>(false);
+  const isEventSourceConnectedRef = useRef<boolean>(false);
 
   const [task, setTask] = useState<Task | null>(null);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
@@ -53,9 +54,12 @@ export function useJarvis() {
     }
   }, [task]);
 
-  // Approve action (resolves taskId safely without sending null)
+  // Approve action (resolves taskId safely against the task actively awaiting approval)
   const approvePending = useCallback(async (explicitTaskId?: string) => {
-    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
+    const waitingTask = allTasksRef.current.find(
+      (t) => t.state === "WAITING_INPUT" && t.waitingReason === "approval"
+    );
+    const tid = explicitTaskId || waitingTask?.id || activeTaskIdRef.current || taskRef.current?.id || undefined;
     try {
       setError(null);
       await jarvisApi.approvePending(tid);
@@ -66,9 +70,12 @@ export function useJarvis() {
     }
   }, []);
 
-  // Deny action (resolves taskId safely without sending null)
+  // Deny action (resolves taskId safely against the task actively awaiting approval)
   const denyPending = useCallback(async (reason?: string, explicitTaskId?: string) => {
-    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
+    const waitingTask = allTasksRef.current.find(
+      (t) => t.state === "WAITING_INPUT" && t.waitingReason === "approval"
+    );
+    const tid = explicitTaskId || waitingTask?.id || activeTaskIdRef.current || taskRef.current?.id || undefined;
     try {
       setError(null);
       await jarvisApi.denyPending(tid, reason);
@@ -83,7 +90,20 @@ export function useJarvis() {
   const hydratePendingApproval = useCallback(
     (raw: any, fallbackTaskId?: string): PendingApproval | null => {
       if (!raw) return null;
-      const associatedTaskId = raw.taskId || fallbackTaskId || activeTaskIdRef.current || taskRef.current?.id;
+      // Resolver la tarea asociada: prioridad por taskId explícito, paso contenedor o tarea en WAITING_INPUT
+      const matchingTaskByStep = allTasksRef.current.find(
+        (t) => t.steps?.some((s) => s.id === raw.stepId)
+      );
+      const waitingTask = allTasksRef.current.find(
+        (t) => t.state === "WAITING_INPUT" && t.waitingReason === "approval"
+      );
+      const associatedTaskId =
+        raw.taskId ||
+        fallbackTaskId ||
+        matchingTaskByStep?.id ||
+        waitingTask?.id ||
+        activeTaskIdRef.current ||
+        taskRef.current?.id;
       return {
         id: raw.id,
         stepId: raw.stepId,
@@ -110,20 +130,21 @@ export function useJarvis() {
 
   function extractUserQuestion(t: Task | null): string | null {
     if (!t || t.state !== "WAITING_INPUT" || t.waitingReason !== "user_answer") return null;
-    // La pregunta persistida por el núcleo es la fuente de verdad; lo siguiente solo cubre tareas antiguas.
+    // La pregunta persistida por el núcleo es la fuente autorizada de verdad
     if (t.pendingQuestion?.question) return t.pendingQuestion.question;
+    // Fallback de compatibilidad exclusiva para tareas históricas
     for (let i = t.steps.length - 1; i >= 0; i--) {
       const s = t.steps[i];
       if (s.calls) {
         for (let j = s.calls.length - 1; j >= 0; j--) {
           const c = s.calls[j];
-          if (c.tool === "ask_user" && c.args) {
+          if (c.args) {
             const q = (c.args.question as string) || (c.args.prompt as string);
             if (q) return q;
           }
         }
       }
-      if (s.tool === "ask_user" && s.args) {
+      if (s.args) {
         const q = (s.args.question as string) || (s.args.prompt as string);
         if (q) return q;
       }
@@ -245,6 +266,7 @@ export function useJarvis() {
       eventSource = new EventSource(getApiUrl("/api/jarvis/events"));
 
       eventSource.onopen = () => {
+        isEventSourceConnectedRef.current = true;
         stopFallbackPolling();
       };
 
@@ -263,26 +285,28 @@ export function useJarvis() {
               setEvents((prev) => [...prev.slice(-499), event]);
             }
 
-            // Capturar pregunta interactiva del evento si requiere respuesta del usuario (FRONT-03)
+            // Capturar pregunta interactiva del evento si requiere respuesta del usuario
             if (event.type === "TASK_STATE_CHANGED") {
               const evtData = (event.data || {}) as any;
               if (evtData.state === "WAITING_INPUT" && evtData.waitingReason === "user_answer") {
-                setUserQuestion(evtData.question || null);
+                setUserQuestion(updatedTask?.pendingQuestion?.question || evtData.question || null);
               } else if (evtData.state && evtData.state !== "WAITING_INPUT") {
                 setUserQuestion(null);
               }
             }
 
-            // Captura reactiva de iteración de modelo (Eos / Qwen)
-            const currentContextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
-            const newIteration = createIterationFromEvent(event, currentContextTask);
-            if (newIteration) {
-              const taskIterList = iterationsByTaskRef.current[event.taskId] || [];
-              if (!taskIterList.some((it) => it.id === newIteration.id)) {
-                const nextList = [...taskIterList, newIteration];
-                iterationsByTaskRef.current[event.taskId] = nextList;
-                if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
-                  setModelIterations(nextList);
+            // Captura reactiva local de iteración solo como fallback si el backend no incluye modelIterations
+            if (!updatedTask?.modelIterations || updatedTask.modelIterations.length === 0) {
+              const currentContextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
+              const newIteration = createIterationFromEvent(event, currentContextTask);
+              if (newIteration) {
+                const taskIterList = iterationsByTaskRef.current[event.taskId] || [];
+                if (!taskIterList.some((it) => it.id === newIteration.id || (it.stepId === newIteration.stepId && it.stage === newIteration.stage))) {
+                  const nextList = [...taskIterList, newIteration];
+                  iterationsByTaskRef.current[event.taskId] = nextList;
+                  if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
+                    setModelIterations(nextList);
+                  }
                 }
               }
             }
@@ -304,23 +328,23 @@ export function useJarvis() {
               return next;
             });
 
-            // Sincronizar pregunta de usuario si la tarea está en espera de respuesta
+            // Sincronizar pregunta de usuario directamente de la tarea autoritativa
             if (updatedTask.state === "WAITING_INPUT" && updatedTask.waitingReason === "user_answer") {
-              setUserQuestion((prev) => prev || extractUserQuestion(updatedTask));
+              setUserQuestion(updatedTask.pendingQuestion?.question || extractUserQuestion(updatedTask));
             } else if (updatedTask.state !== "WAITING_INPUT") {
               setUserQuestion(null);
             }
 
             // Prevenir que SSE restaure inesperadamente una tarea inactiva si el usuario limpió la vista
             const matchesActive = activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current;
-            const isFreshRunningTask = !activeTaskIdRef.current && updatedTask.state === "RUNNING";
+            const isFreshRunningTask = !activeTaskIdRef.current && (updatedTask.state === "RUNNING" || updatedTask.state === "WAITING_INPUT");
 
             if (matchesActive || isFreshRunningTask) {
               userClearedViewRef.current = false;
               activeTaskIdRef.current = updatedTask.id;
               setTask({ ...updatedTask });
 
-              // Sincronizar iteraciones de modelo priorizando las persistidas en el task
+              // Sincronizar iteraciones de modelo priorizando las persistidas autoritativas en el task (FINDING-03)
               const currentIters = (updatedTask.modelIterations && updatedTask.modelIterations.length > 0)
                 ? updatedTask.modelIterations
                 : (iterationsByTaskRef.current[updatedTask.id] || []);
@@ -336,7 +360,7 @@ export function useJarvis() {
           }
 
           if (rawPending !== undefined) {
-            setPendingApproval(hydratePendingApprovalRef.current(rawPending, updatedTask?.id));
+            setPendingApproval(hydratePendingApprovalRef.current(rawPending, updatedTask?.id || event?.taskId));
           }
         } catch (e) {
           console.error("Failed to parse JARVIS SSE message:", e);
@@ -344,15 +368,18 @@ export function useJarvis() {
       };
 
       eventSource.onerror = () => {
+        isEventSourceConnectedRef.current = false;
         startFallbackPolling();
         fetchStateRef.current();
       };
     } catch (err) {
       console.warn("EventSource not supported or failed to connect:", err);
+      isEventSourceConnectedRef.current = false;
       startFallbackPolling();
     }
 
     return () => {
+      isEventSourceConnectedRef.current = false;
       if (eventSource) {
         eventSource.close();
       }
@@ -364,6 +391,15 @@ export function useJarvis() {
   const runTask = useCallback(
     async (message: string, executionMode?: "NORMAL" | "PLAN") => {
       if (!message.trim()) return;
+
+      // Evitar envíos concurrentes si ya hay una tarea activa en RUNNING o WAITING_INPUT
+      if (taskRef.current && !isTerminalState(taskRef.current.state)) {
+        setError(
+          "Ya hay una tarea activa en ejecución o esperando confirmación. Completa la acción pendiente o cancélala antes de iniciar otra."
+        );
+        return;
+      }
+
       userClearedViewRef.current = false;
       setEvents([]);
       setModelIterations([]);
@@ -409,7 +445,9 @@ export function useJarvis() {
     try {
       setError(null);
       await jarvisApi.cancelTask(tid);
-      await fetchState();
+      if (!isEventSourceConnectedRef.current) {
+        await fetchState();
+      }
     } catch (err: any) {
       console.error("Failed to cancel task on backend:", err);
       setError(err.message || "Error al cancelar la tarea.");
@@ -422,7 +460,9 @@ export function useJarvis() {
     try {
       setError(null);
       await jarvisApi.confirmPlan(tid);
-      await fetchState();
+      if (!isEventSourceConnectedRef.current) {
+        await fetchState();
+      }
     } catch (err: any) {
       console.error("Failed to confirm plan on backend:", err);
       setError(err.message || "Error al confirmar el plan.");
@@ -435,7 +475,9 @@ export function useJarvis() {
     try {
       setError(null);
       await jarvisApi.rejectPlan(tid, reason);
-      await fetchState();
+      if (!isEventSourceConnectedRef.current) {
+        await fetchState();
+      }
     } catch (err: any) {
       console.error("Failed to reject plan on backend:", err);
       setError(err.message || "Error al rechazar el plan.");
@@ -448,7 +490,9 @@ export function useJarvis() {
     try {
       setError(null);
       await jarvisApi.modifyPlan(tid, feedback);
-      await fetchState();
+      if (!isEventSourceConnectedRef.current) {
+        await fetchState();
+      }
     } catch (err: any) {
       console.error("Failed to request plan modification on backend:", err);
       setError(err.message || "Error al solicitar modificación del plan.");
@@ -462,7 +506,9 @@ export function useJarvis() {
       setError(null);
       setUserQuestion(null);
       await jarvisApi.provideUserAnswer(tid, answer);
-      await fetchState();
+      if (!isEventSourceConnectedRef.current) {
+        await fetchState();
+      }
     } catch (err: any) {
       console.error("Failed to submit interactive user answer:", err);
       setError(err.message || "Error al enviar respuesta interactiva.");
@@ -583,6 +629,8 @@ export function useJarvis() {
     error,
     clearError: () => setError(null),
     isExecuting: task?.state === "RUNNING",
+    isWaitingInput: task?.state === "WAITING_INPUT",
+    isTaskActive: Boolean(task && !isTerminalState(task.state)),
     runTask,
     cancelTask,
     confirmPlan,

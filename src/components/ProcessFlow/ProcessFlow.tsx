@@ -73,6 +73,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
               <StepTimeline
                 steps={task.steps}
                 currentStepIndex={task.currentStep}
+                taskState={task.state}
               />
             </div>
           )}
@@ -84,6 +85,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
         <StepTimeline
           steps={task.steps}
           currentStepIndex={task.currentStep}
+          taskState={task.state}
         />
       )}
 

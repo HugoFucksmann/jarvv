@@ -41,6 +41,8 @@ export default function App() {
     error,
     clearError,
     isExecuting,
+    isWaitingInput,
+    isTaskActive,
     runTask,
     cancelTask,
     confirmPlan,
@@ -84,6 +86,8 @@ export default function App() {
         onModeChange={setMode}
         onOpenSettings={() => setIsSettingsOpen(true)}
         isExecuting={isExecuting}
+        isWaitingInput={isWaitingInput}
+        waitingReason={task?.waitingReason}
         mcpCount={mcpServerCount}
         unavailableCount={unavailableCount}
         mcpInitStatus={mcpInitStatus}
@@ -118,6 +122,8 @@ export default function App() {
           onRun={runTask}
           onCancel={cancelTask}
           isExecuting={isExecuting}
+          isWaitingInput={isWaitingInput}
+          isTaskActive={isTaskActive}
           mode={mode}
         />
 

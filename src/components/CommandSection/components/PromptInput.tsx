@@ -5,6 +5,8 @@ interface PromptInputProps {
   onRun: (prompt: string) => void;
   onCancel: () => void;
   isExecuting: boolean;
+  isWaitingInput?: boolean;
+  isTaskActive?: boolean;
   mode: "NORMAL" | "PLAN";
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }
@@ -13,15 +15,18 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onRun,
   onCancel,
   isExecuting,
+  isWaitingInput = false,
+  isTaskActive,
   mode,
   inputRef,
 }) => {
   const [value, setValue] = useState("");
+  const isBusy = isTaskActive !== undefined ? isTaskActive : (isExecuting || isWaitingInput);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = value.trim();
-    if (!trimmed || isExecuting) return;
+    if (!trimmed || isBusy) return;
     setValue("");
     onRun(trimmed);
   };
@@ -33,6 +38,18 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     }
   };
 
+  const getPlaceholder = () => {
+    if (isWaitingInput) {
+      return "Tarea en espera de interacción (revisa el panel de aprobación o responde la pregunta arriba)...";
+    }
+    if (isExecuting) {
+      return "Ejecutando pipeline y despachando herramientas MCP...";
+    }
+    return mode === "PLAN"
+      ? "Describe una tarea compleja en modo PLAN (Ctrl+K para enfocar)..."
+      : "Instrucción u objetivo para JARVIS (Ctrl+K para enfocar)...";
+  };
+
   return (
     <form onSubmit={handleSubmit} className="relative flex items-center w-full" role="search" aria-label="Línea de comando de JARVIS">
       <input
@@ -41,24 +58,20 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={
-          mode === "PLAN"
-            ? "Describe una tarea compleja en modo PLAN (Ctrl+K para enfocar)..."
-            : "Instrucción u objetivo para JARVIS (Ctrl+K para enfocar)..."
-        }
+        placeholder={getPlaceholder()}
         aria-label="Instrucción u objetivo para JARVIS"
-        disabled={isExecuting}
+        disabled={isBusy}
         className="w-full pl-4 pr-32 py-3 bg-slate-900 border border-slate-800 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-slate-700 transition-colors disabled:opacity-60"
       />
 
       <div className="absolute right-2 flex items-center gap-1.5">
-        {!isExecuting && !value && (
+        {!isBusy && !value && (
           <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-500 bg-slate-950/80 border border-slate-800 rounded">
             ⌘K
           </kbd>
         )}
 
-        {isExecuting ? (
+        {isBusy ? (
           <button
             type="button"
             onClick={onCancel}

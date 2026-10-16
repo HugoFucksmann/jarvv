@@ -31,29 +31,37 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ memory, steps = [], task
     .filter((s) => Boolean(s.handoff))
     .map((s) => s.handoff!);
 
-  // Extract all ref keys mentioned in handoffs, facts or effects
+  const normalizeRefKey = (k: string): string => k.replace(/^ref:/, "").trim();
+
+  // Extract all ref keys mentioned in handoffs, facts, effects, or operational log
   const collectedRefKeys = Array.from(
     new Set([
-      ...handoffs.filter((h) => Boolean(h.refKey)).map((h) => h.refKey!),
+      ...handoffs.filter((h) => Boolean(h.refKey)).map((h) => normalizeRefKey(h.refKey!)),
       ...Object.values(facts)
-        .flatMap((v) => (v.match(/ref:r\w+/g) || []))
-        .map((r) => r.replace("ref:", "")),
+        .flatMap((v) => (v.match(/(?:ref:)?r\w+/g) || []))
+        .map(normalizeRefKey),
+      ...effects
+        .flatMap((e) => (e.match(/(?:ref:)?r\w+/g) || []))
+        .map(normalizeRefKey),
+      ...log
+        .flatMap((l) => (l.match(/(?:ref:)?r\w+/g) || []))
+        .map(normalizeRefKey),
     ])
-  );
+  ).filter((k) => /^r\w+$/.test(k));
 
   const handleInspectRef = async (refKey: string) => {
-    setSelectedRef(refKey);
+    const cleanKey = normalizeRefKey(refKey);
+    setSelectedRef(cleanKey);
     setRefContent(null);
     setRefError(null);
     setIsLoadingRef(true);
 
     try {
-      const normalizedKey = refKey.startsWith("ref:") ? refKey : `ref:${refKey}`;
-      const res = await jarvisApi.getRef(normalizedKey, taskId);
+      const res = await jarvisApi.getRef(cleanKey, taskId);
       if (res && res.found) {
         setRefContent(res.content);
       } else {
-        setRefError(`No se encontró contenido en RefStore para '${normalizedKey}'.`);
+        setRefError(`No se encontró contenido en RefStore para 'ref:${cleanKey}'.`);
       }
     } catch (err: any) {
       setRefError(err?.message || "Error al consultar la referencia temporal en RefStore.");
@@ -70,7 +78,7 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ memory, steps = [], task
           <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
             <div className="flex items-center gap-1.5 text-sky-300 font-semibold">
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>Contenido íntegro en RefStore: ref:{selectedRef.replace("ref:", "")}</span>
+              <span>Contenido íntegro en RefStore: ref:{selectedRef}</span>
             </div>
             <button
               type="button"
@@ -230,7 +238,7 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ memory, steps = [], task
                       onClick={() => handleInspectRef(h.refKey!)}
                       className="text-sky-300 hover:text-sky-100 underline cursor-pointer"
                     >
-                      [{h.refKey}]
+                      [ref:{normalizeRefKey(h.refKey!)}]
                     </button>
                   )}
                 </div>

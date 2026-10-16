@@ -5,6 +5,8 @@ interface CommandSectionProps {
   onRun: (prompt: string, mode?: "NORMAL" | "PLAN") => void;
   onCancel: () => void;
   isExecuting: boolean;
+  isWaitingInput?: boolean;
+  isTaskActive?: boolean;
   mode: "NORMAL" | "PLAN";
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }
@@ -13,6 +15,8 @@ export const CommandSection: React.FC<CommandSectionProps> = ({
   onRun,
   onCancel,
   isExecuting,
+  isWaitingInput,
+  isTaskActive,
   mode,
   inputRef,
 }) => {
@@ -23,6 +27,8 @@ export const CommandSection: React.FC<CommandSectionProps> = ({
         onRun={(p) => onRun(p, mode)}
         onCancel={onCancel}
         isExecuting={isExecuting}
+        isWaitingInput={isWaitingInput}
+        isTaskActive={isTaskActive}
         mode={mode}
       />
     </section>

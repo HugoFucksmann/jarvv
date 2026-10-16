@@ -190,99 +190,52 @@ export const SessionStateView: React.FC<SessionStateViewProps> = ({
           )}
         </div>
 
-        {/* 2. Hechos Extraídos (FACTS) */}
-        <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
+        {/* 2. Resumen Métrico de Contexto Vivo (Sustituye la duplicación de listas de hechos y variables) */}
+        <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
           <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
             <div className="flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-emerald-400" />
-              <span>HECHOS FACTUALES (FACTS)</span>
+              <span>RESUMEN DE CONTEXTO VIVO</span>
             </div>
-            <span className="text-slate-500 tabular-nums">({Object.keys(facts).length})</span>
+            <span className="text-[10px] text-slate-500 font-normal">
+              Detalles en pestañas especializadas
+            </span>
           </div>
-          {Object.keys(facts).length === 0 ? (
-            <span className="text-slate-500 text-[11px] italic">Sin hechos extraídos</span>
-          ) : (
-            <div className="flex flex-col gap-1 max-h-28 overflow-y-auto pr-1">
-              {Object.entries(facts).map(([key, val]) => (
-                <div key={key} className="flex items-baseline gap-1.5 text-[11px] truncate">
-                  <span className="text-emerald-400 shrink-0 font-medium">{key}:</span>
-                  <span className="text-slate-200 truncate">{String(val)}</span>
-                </div>
-              ))}
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 flex flex-col">
+              <span className="text-slate-400 text-[10px]">Hechos Factuales</span>
+              <span className="text-emerald-400 font-semibold text-sm tabular-nums">
+                {Object.keys(facts).length}
+              </span>
+              <span className="text-[9px] text-slate-500 mt-0.5">Pestaña Memoria</span>
             </div>
-          )}
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 flex flex-col">
+              <span className="text-slate-400 text-[10px]">Scratchpad</span>
+              <span className="text-sky-300 font-semibold text-sm tabular-nums">
+                {scratchpadEntries.length} var{scratchpadEntries.length !== 1 ? "s" : ""}
+              </span>
+              <span className="text-[9px] text-slate-500 mt-0.5">Pestaña Scratchpad</span>
+            </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 flex flex-col">
+              <span className="text-slate-400 text-[10px]">Efectos Mutados</span>
+              <span className="text-amber-400 font-semibold text-sm tabular-nums">
+                {effects.length}
+              </span>
+              <span className="text-[9px] text-slate-500 mt-0.5">Efectos de herramientas</span>
+            </div>
+            <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 flex flex-col">
+              <span className="text-slate-400 text-[10px]">Fallos Registrados</span>
+              <span className={failLines.length > 0 ? "text-rose-400 font-semibold text-sm tabular-nums" : "text-emerald-400 font-semibold text-sm tabular-nums"}>
+                {failLines.length}
+              </span>
+              <span className="text-[9px] text-slate-500 mt-0.5">
+                {failLines.length === 0 ? "Limpio" : "Revisar alertas"}
+              </span>
+            </div>
+          </div>
         </div>
 
-        {/* 3. Scratchpad Activo */}
-        <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
-          <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
-            <div className="flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-sky-400" />
-              <span>SCRATCHPAD OPERATIVO</span>
-            </div>
-            <span className="text-slate-500 tabular-nums">({scratchpadEntries.length})</span>
-          </div>
-          {scratchpadEntries.length === 0 ? (
-            <span className="text-slate-500 text-[11px] italic">Scratchpad vacío</span>
-          ) : (
-            <div className="flex flex-col gap-1 max-h-28 overflow-y-auto pr-1">
-              {scratchpadEntries.map(([k, v]) => (
-                <div key={k} className="flex items-baseline gap-1.5 text-[11px] truncate">
-                  <span className="text-sky-300 shrink-0">{k}:</span>
-                  <span className="text-slate-300 truncate font-mono">
-                    {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 4. Efectos Secundarios Mutados (EFFECTS) */}
-        <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
-          <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
-            <div className="flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>EFECTOS SECUNDARIOS (EFFECTS)</span>
-            </div>
-            <span className="text-slate-500 tabular-nums">({effects.length})</span>
-          </div>
-          {effects.length === 0 ? (
-            <span className="text-slate-500 text-[11px] italic">Sin efectos secundarios registrados</span>
-          ) : (
-            <div className="flex flex-col gap-1 max-h-28 overflow-y-auto pr-1">
-              {effects.map((eff, i) => (
-                <div key={i} className="text-[11px] text-amber-300/90 truncate">
-                  • {eff}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 5. Registro de Fallos (FAIL) */}
-        <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
-          <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
-            <div className="flex items-center gap-1.5">
-              <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
-              <span>FALLOS Y ERRORES (FAIL)</span>
-            </div>
-            <span className="text-slate-500 tabular-nums">({failLines.length})</span>
-          </div>
-          {failLines.length === 0 ? (
-            <span className="text-emerald-400/80 text-[11px]">Sin fallos registrados (Limpio)</span>
-          ) : (
-            <div className="flex flex-col gap-1 max-h-28 overflow-y-auto pr-1">
-              {failLines.map((fl, i) => (
-                <div key={i} className="text-[11px] text-rose-400 truncate">
-                  • {fl}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* 6. Último Resultado Observable (Last Result / Obs) */}
+        {/* 3. Último Resultado Observable (Last Result / Obs) */}
         <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
           <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
             <div className="flex items-center gap-1.5">
@@ -291,13 +244,53 @@ export const SessionStateView: React.FC<SessionStateViewProps> = ({
             </div>
           </div>
           {lastObs ? (
-            <pre className="text-slate-300 text-[11px] whitespace-pre-wrap break-all max-h-28 overflow-y-auto leading-tight">
-              {lastObs.slice(0, 300)}
+            <pre className="text-slate-300 text-[11px] whitespace-pre-wrap break-all max-h-32 overflow-y-auto leading-tight font-mono p-1.5 bg-slate-950/60 rounded border border-slate-800/60">
+              {lastObs.slice(0, 400)}
             </pre>
           ) : (
             <span className="text-slate-500 text-[11px] italic">Ninguna observación registrada aún</span>
           )}
         </div>
+
+        {/* 4. Efectos Secundarios si existen */}
+        {effects.length > 0 && (
+          <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
+            <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>EFECTOS SECUNDARIOS (EFFECTS)</span>
+              </div>
+              <span className="text-slate-500 tabular-nums">({effects.length})</span>
+            </div>
+            <div className="flex flex-col gap-1 max-h-24 overflow-y-auto pr-1">
+              {effects.map((eff, i) => (
+                <div key={i} className="text-[11px] text-amber-300/90 truncate">
+                  • {eff}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 5. Fallos y Errores si existen */}
+        {failLines.length > 0 && (
+          <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/40 border border-slate-800/80">
+            <div className="flex items-center justify-between text-slate-400 font-semibold text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <AlertOctagon className="w-3.5 h-3.5 text-rose-400" />
+                <span>FALLOS Y ERRORES (FAIL)</span>
+              </div>
+              <span className="text-slate-500 tabular-nums">({failLines.length})</span>
+            </div>
+            <div className="flex flex-col gap-1 max-h-24 overflow-y-auto pr-1">
+              {failLines.map((fl, i) => (
+                <div key={i} className="text-[11px] text-rose-400 truncate">
+                  • {fl}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 7. Historial Continuo (LOG) — Hasta 30 entradas con badge de estado */}

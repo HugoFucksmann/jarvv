@@ -12,6 +12,7 @@ import {
   XCircle,
   Activity,
   Layers,
+  HelpCircle,
 } from "lucide-react";
 import type { ModelIteration } from "../../../types/debug.ts";
 
@@ -165,6 +166,12 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
   // Plan Generation
   const planStepsCount = outputData.cantidadEtapas || (Array.isArray(outputData.steps) ? outputData.steps.length : null);
 
+  // Stage Verification (Qwen Semantics)
+  const stageStatus = outputData.estado || outputData.status || iteration.metrics?.verdict;
+  const stageReason = outputData.motivo || outputData.reason || "";
+  const stageQuestion = outputData.preguntaUsuario || outputData.questionForUser || outputData.question_for_user || "";
+  const stageConfidence = outputData.confianza ?? iteration.metrics?.confidence;
+
   return (
     <div className={`flex flex-col rounded-md border ${modelBgClass} overflow-hidden text-xs transition-all`}>
       {/* Header — Click para abrir/cerrar (por defecto minimizado/encojido) */}
@@ -233,6 +240,23 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
             <>
               <span className="text-slate-600" aria-hidden="true">·</span>
               <span className="text-indigo-300">{planStepsCount} etapas propuestas</span>
+            </>
+          )}
+
+          {iteration.stage === "STAGE_VERIFICATION" && stageStatus && (
+            <>
+              <span className="text-slate-600" aria-hidden="true">·</span>
+              <span className={
+                stageStatus === "completed"
+                  ? "text-emerald-400 font-semibold"
+                  : stageStatus === "recoverable_deviation"
+                  ? "text-amber-400 font-semibold"
+                  : stageStatus === "insufficient_info"
+                  ? "text-sky-300 font-semibold"
+                  : "text-rose-400 font-semibold"
+              }>
+                {stageStatus === "completed" ? "✓ Etapa Completada" : stageStatus}
+              </span>
             </>
           )}
 
@@ -504,10 +528,67 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                 </div>
               )}
 
+              {/* Qwen Semantic Stage Verification */}
+              {iteration.stage === "STAGE_VERIFICATION" && (
+                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 text-slate-300">
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 font-medium">Veredicto Semántico:</span>
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
+                        stageStatus === "completed"
+                          ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
+                          : stageStatus === "recoverable_deviation"
+                          ? "bg-amber-950/80 text-amber-300 border-amber-800"
+                          : stageStatus === "insufficient_info"
+                          ? "bg-sky-950/80 text-sky-300 border-sky-800"
+                          : "bg-rose-950/80 text-rose-300 border-rose-800"
+                      }`}>
+                        {stageStatus === "completed" && "COMPLETED (Objetivo Cumplido)"}
+                        {stageStatus === "recoverable_deviation" && "RECOVERABLE_DEVIATION (Desviación)"}
+                        {stageStatus === "insufficient_info" && "INSUFFICIENT_INFO (Requiere Respuesta)"}
+                        {stageStatus === "unrecoverable_blocked" && "UNRECOVERABLE_BLOCKED (Bloqueado)"}
+                        {!["completed", "recoverable_deviation", "insufficient_info", "unrecoverable_blocked"].includes(stageStatus) && stageStatus}
+                      </span>
+                    </div>
+
+                    {typeof stageConfidence === "number" && (
+                      <div className="text-[11px]">
+                        <span className="text-slate-500">Confianza: </span>
+                        <span className="text-indigo-400 font-semibold font-mono">
+                          {(stageConfidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {stageReason && (
+                    <div className="flex flex-col gap-1 text-[11px] text-slate-300 pt-1">
+                      <span className="text-slate-400 font-medium">Justificación Semántica:</span>
+                      <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 text-slate-200 leading-relaxed font-sans">
+                        {stageReason}
+                      </div>
+                    </div>
+                  )}
+
+                  {stageQuestion && (
+                    <div className="flex flex-col gap-1 text-[11px] pt-1">
+                      <div className="flex items-center gap-1.5 text-sky-400 font-medium">
+                        <HelpCircle className="w-3.5 h-3.5" />
+                        <span>Pregunta Formulada al Usuario:</span>
+                      </div>
+                      <div className="p-2 rounded bg-sky-950/40 border border-sky-800/60 text-sky-200 leading-relaxed font-sans">
+                        {stageQuestion}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Qwen / Other Stages: Structured Overview */}
               {iteration.stage !== "DECISION_ONE" &&
                 iteration.stage !== "DECISION_TWO" &&
-                iteration.stage !== "STEP_VERIFICATION" && (
+                iteration.stage !== "STEP_VERIFICATION" &&
+                iteration.stage !== "STAGE_VERIFICATION" && (
                   <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
                     <pre className="text-slate-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto leading-relaxed text-[11px]">
                       {typeof iteration.output === "string"

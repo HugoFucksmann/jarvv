@@ -3,10 +3,7 @@ import type { CoreEvent, Task } from "../../core/types.ts";
 import type { ModelIteration } from "../../types/debug.ts";
 import { groupIterationsByStep } from "../../utils/debugAccumulator.ts";
 import { StepIterationGroup } from "./components/StepIterationGroup.tsx";
-import { DecisionOneView } from "./components/DecisionOneView.tsx";
-import { DecisionTwoView } from "./components/DecisionTwoView.tsx";
-import { DecisionVerificationView } from "./components/DecisionVerificationView.tsx";
-import { Activity, ChevronDown, ChevronRight, Cpu, Copy, Check, ShieldCheck, Sparkles, Layers } from "lucide-react";
+import { ChevronDown, ChevronRight, Cpu, Copy, Check, Layers, Activity } from "lucide-react";
 
 interface DecisionStreamProps {
   events: CoreEvent[];
@@ -24,7 +21,6 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
   const [showFullTrace, setShowFullTrace] = useState(false);
   const [expandAllGroups, setExpandAllGroups] = useState<boolean | null>(false);
   const [copiedAudit, setCopiedAudit] = useState(false);
-  const [showLegacyCards, setShowLegacyCards] = useState(false);
 
   // Agrupamiento estructurado por paso de ejecución
   const stepGroups = useMemo(() => {
@@ -57,11 +53,6 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
       "FINAL_RESPONSE",
     ].includes(e.type)
   );
-
-  // Eventos recientes para vista legacy/fallback
-  const d1Event = [...events].reverse().find((e: CoreEvent) => e.type === "DECISION_ONE");
-  const d2Event = [...events].reverse().find((e: CoreEvent) => e.type === "DECISION_TWO");
-  const resultEvent = [...events].reverse().find((e: CoreEvent) => e.type === "RESULT_PROCESSED");
 
   const handleCopyFullAudit = async () => {
     try {
@@ -146,7 +137,7 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
         </div>
       </div>
 
-      {/* 2. Lista de Grupos de Iteraciones Agrupados por Paso (Fase 3) */}
+      {/* 2. Lista de Grupos de Iteraciones Agrupados por Paso */}
       {stepGroups.length > 0 ? (
         <div className="flex flex-col gap-2.5">
           {stepGroups.map((group) => (
@@ -157,42 +148,12 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
             />
           ))}
         </div>
-      ) : (
-        /* Fallback directo a tarjetas individuales si no se han agrupado pasos todavía */
-        (d1Event || d2Event || resultEvent) && (
-          <div className="flex flex-col rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden text-xs">
-            <div className="flex items-center justify-between px-3.5 py-2 text-slate-300 font-mono text-[11px] bg-slate-950/40">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Cpu className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                <span className="text-slate-400 font-medium">Decisiones Core Activas:</span>
-                <span className="text-sky-300 font-semibold">{(d1Event?.data as any)?.route || "N/A"}</span>
-                {(d2Event?.data as any)?.tool && (
-                  <>
-                    <span className="text-slate-600">·</span>
-                    <span className="text-slate-400">Tool:</span>
-                    <span className="text-emerald-300 font-semibold">{(d2Event?.data as any)?.tool}</span>
-                  </>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowLegacyCards(!showLegacyCards)}
-                className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-sky-300 transition-colors cursor-pointer"
-              >
-                <span>{showLegacyCards ? "Ocultar" : "Ver detalle"}</span>
-                {showLegacyCards ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-              </button>
-            </div>
-            {showLegacyCards && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 p-2.5">
-                <DecisionOneView d1Event={d1Event} />
-                <DecisionTwoView d2Event={d2Event} />
-                {resultEvent && <DecisionVerificationView resultEvent={resultEvent} />}
-              </div>
-            )}
-          </div>
-        )
-      )}
+      ) : isExecuting ? (
+        <div className="flex items-center gap-2 p-3 rounded-lg border border-slate-800 bg-slate-900/30 text-xs text-slate-400 font-mono">
+          <Cpu className="w-3.5 h-3.5 text-sky-400 animate-pulse shrink-0" />
+          <span>Esperando iteraciones de inferencia de modelos...</span>
+        </div>
+      ) : null}
 
       {/* 3. Traza de Eventos Operativos en Vivo (Colapsable con recuento exacto) */}
       {relevantTraceEvents.length > 0 && (

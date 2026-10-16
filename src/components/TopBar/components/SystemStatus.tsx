@@ -4,6 +4,8 @@ import { Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 
 interface SystemStatusProps {
   isExecuting: boolean;
+  isWaitingInput?: boolean;
+  waitingReason?: string | null;
   mcpCount: number;
   unavailableCount?: number;
   mcpInitStatus?: "loading" | "ready" | "partial" | "error";
@@ -11,17 +13,46 @@ interface SystemStatusProps {
 
 export const SystemStatus: React.FC<SystemStatusProps> = ({
   isExecuting,
+  isWaitingInput = false,
+  waitingReason = null,
   mcpCount,
   unavailableCount = 0,
   mcpInitStatus = "ready",
 }) => {
   const isMcpLoading = mcpInitStatus === "loading";
 
+  // Determinar estado y texto visual diferenciando RUNNING, WAITING_INPUT y Listo
+  const statusType = isExecuting
+    ? "running"
+    : isWaitingInput
+    ? "approval"
+    : unavailableCount > 0
+    ? "unverified"
+    : "completed";
+
+  const statusLabel = isExecuting
+    ? "Ejecutando Tarea"
+    : isWaitingInput
+    ? waitingReason === "approval"
+      ? "Esperando Aprobación"
+      : waitingReason === "plan_confirmation"
+      ? "Esperando Confirmación de Plan"
+      : waitingReason === "user_answer"
+      ? "Esperando Respuesta"
+      : "Esperando Entrada"
+    : "Core Listo";
+
+  const statusColorClass = isExecuting
+    ? "text-sky-300 font-medium"
+    : isWaitingInput
+    ? "text-amber-300 font-medium animate-pulse"
+    : "text-slate-300 font-medium";
+
   return (
     <div className="hidden md:flex items-center gap-2 text-xs text-slate-400 font-mono">
-      <StatusDot status={isExecuting ? "running" : unavailableCount > 0 ? "unverified" : "completed"} />
-      <span className="text-slate-300 font-medium">
-        {isExecuting ? "Ejecutando Tarea" : "Core Listo"}
+      <StatusDot status={statusType} />
+      <span className={statusColorClass}>
+        {statusLabel}
       </span>
       <span aria-hidden="true" className="text-slate-600">·</span>
       <span>Decision 2.0 (Eos-0.8B)</span>

@@ -11,6 +11,8 @@ interface TopBarProps {
   onModeChange: (mode: "NORMAL" | "PLAN") => void;
   onOpenSettings: () => void;
   isExecuting: boolean;
+  isWaitingInput?: boolean;
+  waitingReason?: string | null;
   mcpCount: number;
   unavailableCount?: number;
   mcpInitStatus?: "loading" | "ready" | "partial" | "error";
@@ -24,6 +26,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onModeChange,
   onOpenSettings,
   isExecuting,
+  isWaitingInput = false,
+  waitingReason = null,
   mcpCount,
   unavailableCount = 0,
   mcpInitStatus = "ready",
@@ -48,6 +52,8 @@ export const TopBar: React.FC<TopBarProps> = ({
       {/* Zone 2: System Status */}
       <SystemStatus
         isExecuting={isExecuting}
+        isWaitingInput={isWaitingInput}
+        waitingReason={waitingReason}
         mcpCount={mcpCount}
         unavailableCount={unavailableCount}
         mcpInitStatus={mcpInitStatus}

@@ -282,8 +282,6 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
           <span aria-hidden="true">·</span>
           <span>PROG_MEM=2→5→10</span>
           <span aria-hidden="true">·</span>
-          <span>MAX_RETRIES=2</span>
-          <span aria-hidden="true">·</span>
           <span>MAX_REPLANS=2</span>
         </div>
       </div>
