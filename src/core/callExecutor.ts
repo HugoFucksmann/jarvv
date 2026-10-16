@@ -188,8 +188,6 @@ export async function runStep(
     // La herramienta elegida se refleja de inmediato: si el paso falla antes de ejecutarse, la escalación sabe cuál excluir.
     step.mcp = serverName;
     step.tool = selectedTool.name;
-    step.rawInput = d2.rawInput;
-    step.rawOutput = d2.rawOutput;
 
     deps.emitEvent(task.id, "DECISION_TWO", {
         tool: selectedTool.name,
@@ -449,8 +447,6 @@ export async function runStep(
             ? "Verificación Eos no disponible"
             : !isStepSuccess ? processed.summaryText : undefined,
         timestamp: Date.now(),
-        rawInput: argRawInput || undefined,
-        rawOutput: argRawOutput || undefined,
     };
 
     // Efectos: toda mutación ejecutada limpiamente ocurrió en el entorno, aunque la verificación semántica falle.
@@ -484,10 +480,6 @@ export async function runStep(
     step.evidence = callRecord.evidence;
     step.verification = verification;
     step.outcome = callRecord.outcome;
-    if (verificationDetail) {
-        step.rawInput = verificationDetail.rawInput;
-        step.rawOutput = verificationDetail.rawOutput;
-    }
 
     deps.emitEvent(task.id, "RESULT_PROCESSED", {
         processed,

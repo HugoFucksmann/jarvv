@@ -6,6 +6,20 @@
 import type { CoreEvent, Task, Step, StepCall } from "../core/types.ts";
 import type { ModelIteration, StepIterationGroupData } from "../types/debug.ts";
 
+// ---------------------------------------------------------------------------
+// Instantáneas: lo que se guarda en `iteration.input` debe ser el estado EN ESE MOMENTO. Referenciar los objetos
+// vivos de la tarea hacía que todas las iteraciones mostraran (y persistieran) el estado más reciente.
+// ---------------------------------------------------------------------------
+const snapLog = (t?: Task | null): string[] => [...(t?.memory?.log ?? [])];
+const snapFail = (t?: Task | null): string[] => [...(t?.memory?.fail ?? [])];
+const snapEffects = (t?: Task | null): string[] => [...(t?.memory?.effects ?? [])];
+const snapFacts = (t?: Task | null): Record<string, string> => ({ ...(t?.memory?.facts ?? {}) });
+const snapScratchpad = (t?: Task | null): Record<string, unknown> => {
+  const copy: Record<string, unknown> = { ...(t?.scratchpad ?? {}) };
+  if (Array.isArray(copy.search_results)) copy.search_results = [...copy.search_results];
+  return copy;
+};
+
 /**
  * Creates a ModelIteration from an SSE CoreEvent if applicable.
  */
@@ -32,10 +46,10 @@ export function createIterationFromEvent(
       // Determinar stepId real sin asociar erróneamente pasos previos
       const targetStepSeq = (task?.stepSeq ?? (task?.steps?.length ? task.steps.length : 0)) + 1;
       const expectedStepId = isFin ? "routing_fin" : (stepId || `s${targetStepSeq}`);
-      
-      const matchingStep = task?.steps?.find((s) => s.id === expectedStepId) || 
+
+      const matchingStep = task?.steps?.find((s) => s.id === expectedStepId) ||
         (!isFin && task?.steps && task.steps.length > 0 ? task.steps[task.steps.length - 1] : undefined);
-      
+
       const resolvedStepSeq = matchingStep
         ? task?.steps?.indexOf(matchingStep)! + 1
         : (isFin ? undefined : targetStepSeq);
@@ -43,8 +57,8 @@ export function createIterationFromEvent(
       const stepTitle = isFin
         ? "Decisión de Finalización (Eos-0.8B)"
         : (matchingStep
-            ? `Paso #${resolvedStepSeq}: Enrutamiento (${matchingStep.instruction.slice(0, 35)})`
-            : `Paso #${resolvedStepSeq || 1}: Enrutamiento de Subsistema`);
+          ? `Paso #${resolvedStepSeq}: Enrutamiento (${matchingStep.instruction.slice(0, 35)})`
+          : `Paso #${resolvedStepSeq || 1}: Enrutamiento de Subsistema`);
 
       return {
         id: `iter_${ts}_eos_d1_${expectedStepId}`,
@@ -59,8 +73,8 @@ export function createIterationFromEvent(
         rawOutput: data.rawOutput,
         input: {
           objetivo: task?.message || "Instrucción del usuario",
-          historialRegistrado: task?.memory?.log || [],
-          hechosConfirmados: task?.memory?.facts || {},
+          historialRegistrado: snapLog(task),
+          hechosConfirmados: snapFacts(task),
           rutasCandidatas: ["windows", "desktop_commander", "free_search", "fin"],
           esPrimeraIteracion: (task?.steps?.length || 0) <= 1,
         },
@@ -94,7 +108,7 @@ export function createIterationFromEvent(
           instruccionEtapa: currentStep?.instruction || "Acción inmediata",
           servidorMCP: currentStep?.route || "desktop_commander",
           herramientasCandidatas: currentStep?.candidate_tools || [],
-          variablesScratchpad: task?.scratchpad || {},
+          variablesScratchpad: snapScratchpad(task),
         },
         output: {
           herramientaSeleccionada: data.tool,
@@ -124,8 +138,8 @@ export function createIterationFromEvent(
           meta: task?.message || "",
           herramienta: currentStep?.tool || "MCP Tool",
           instruccion: currentStep?.instruction || "",
-          hechosFactuales: task?.memory?.facts || {},
-          fallosPrevios: task?.memory?.fail || [],
+          hechosFactuales: snapFacts(task),
+          fallosPrevios: snapFail(task),
         },
         output: {
           argumentos: data.args || {},
@@ -260,10 +274,10 @@ export function createIterationFromEvent(
         rawOutput: data.rawOutput,
         input: {
           objetivo: task?.message || "",
-          hechosConfirmados: task?.memory?.facts || {},
-          registroLog: task?.memory?.log || [],
-          efectosSecundarios: task?.memory?.effects || [],
-          fallosRegistrados: task?.memory?.fail || [],
+          hechosConfirmados: snapFacts(task),
+          registroLog: snapLog(task),
+          efectosSecundarios: snapEffects(task),
+          fallosRegistrados: snapFail(task),
         },
         output: {
           respuestaSintetizada: data.response || task?.finalResponse || "",
@@ -472,8 +486,8 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
       rawOutput: task.rawFinalOutput,
       input: {
         objetivo: task.message,
-        hechosConfirmados: task.memory?.facts || {},
-        efectosSecundarios: task.memory?.effects || [],
+        hechosConfirmados: snapFacts(task),
+        efectosSecundarios: snapEffects(task),
       },
       output: {
         respuestaSintetizada: task.finalResponse,
@@ -546,7 +560,7 @@ export function groupIterationsByStep(
 
   // Filter out empty groups and sort by chronological order or sequence
   const result = Array.from(groupsMap.values()).filter((g) => g.iterations.length > 0);
-  
+
   result.sort((a, b) => {
     // Planning always comes first
     if (a.stepId === "planning") return -1;
@@ -567,4 +581,94 @@ export function groupIterationsByStep(
   });
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Vista derivada de compatibilidad
+// ---------------------------------------------------------------------------
+
+const MAX_DERIVED_INTERACTIONS = 50;
+
+const hasRaw = (it: ModelIteration): boolean => it.rawInput !== undefined || it.rawOutput !== undefined;
+
+/**
+ * La traza cruda de los modelos vive solo en `task.modelIterations`. Los campos que históricamente la duplicaban
+ * (`memory.rawInteractions`, `step.rawInput/rawOutput`, `calls[].rawInput/rawOutput`) se reconstruyen aquí a partir de
+ * las iteraciones, solo cuando faltan, para quien los lea (UI) sin que el núcleo los almacene ni los transmita.
+ *
+ * - `memory.rawInteractions`: las últimas 50 iteraciones con entrada y salida crudas.
+ * - `step.rawInput/rawOutput`: la última iteración del paso (igual que la antigua semántica de "último sobrescrito").
+ * - `calls[].rawInput/rawOutput`: la iteración ARGUMENT_GENERATION de cada llamada. Se asocia por orden temporal:
+ *   cada iteración se asigna a la primera llamada sin asignar cuyo `timestamp` no la precede.
+ *
+ * No muta la tarea recibida; devuelve la misma referencia si no hay nada que derivar.
+ */
+export function deriveTaskView(task: Task, iterations: ModelIteration[]): Task {
+  if (!task || iterations.length === 0) return task;
+
+  const withRaw = iterations.filter(hasRaw);
+  if (withRaw.length === 0) return task;
+
+  let changed = false;
+
+  let memory = task.memory;
+  if (memory && !(memory.rawInteractions && memory.rawInteractions.length > 0)) {
+    const derived = withRaw
+      .filter((it) => it.rawInput !== undefined && it.rawOutput !== undefined)
+      .slice(-MAX_DERIVED_INTERACTIONS)
+      .map((it) => ({
+        timestamp: it.timestamp,
+        model: it.model,
+        stage: it.stage,
+        rawInput: it.rawInput as string,
+        rawOutput: it.rawOutput as string,
+      }));
+    if (derived.length > 0) {
+      memory = { ...memory, rawInteractions: derived };
+      changed = true;
+    }
+  }
+
+  const steps = (task.steps ?? []).map((step) => {
+    const stepIters = withRaw.filter((it) => it.stepId === step.id);
+    if (stepIters.length === 0) return step;
+
+    let nextStep: Step = step;
+
+    if (step.rawInput === undefined && step.rawOutput === undefined) {
+      const last = stepIters[stepIters.length - 1];
+      nextStep = { ...nextStep, rawInput: last.rawInput, rawOutput: last.rawOutput };
+    }
+
+    const calls = step.calls ?? [];
+    if (calls.some((c) => c.rawInput === undefined && c.rawOutput === undefined)) {
+      const argIters = stepIters
+        .filter((it) => it.stage === "ARGUMENT_GENERATION")
+        .sort((a, b) => a.timestamp - b.timestamp);
+      const assigned = new Set<number>();
+      const byCall = new Map<number, ModelIteration>();
+      for (const it of argIters) {
+        const j = calls.findIndex(
+          (c, idx) => !assigned.has(idx) && typeof c.timestamp === "number" && c.timestamp >= it.timestamp
+        );
+        if (j >= 0) {
+          assigned.add(j);
+          byCall.set(j, it);
+        }
+      }
+      if (byCall.size > 0) {
+        const derivedCalls = calls.map((c, idx) => {
+          const it = byCall.get(idx);
+          if (!it || c.rawInput !== undefined || c.rawOutput !== undefined) return c;
+          return { ...c, rawInput: it.rawInput, rawOutput: it.rawOutput } as StepCall;
+        });
+        nextStep = { ...nextStep, calls: derivedCalls };
+      }
+    }
+
+    if (nextStep !== step) changed = true;
+    return nextStep;
+  });
+
+  return changed ? { ...task, memory, steps } : task;
 }

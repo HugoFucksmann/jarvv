@@ -155,6 +155,8 @@ export interface Scratchpad {
   text?: string;
   window_handle?: string;
   element_id?: string;
+  /** Total de resultados de la última búsqueda; `search_results` solo conserva los primeros MAX_SCRATCHPAD_RESULTS. */
+  search_results_total?: number;
 }
 
 export interface TaskMemory {
@@ -162,6 +164,11 @@ export interface TaskMemory {
   facts: Record<string, string>;
   fail: string[];
   effects?: string[];
+  /**
+   * @deprecated Ya no se escribe: la traza cruda vive solo en `Task.modelIterations`. Se mantiene el campo para leer
+   * tareas persistidas antes de este cambio (la migración de carga lo elimina cuando es redundante) y para que la
+   * vista del cliente lo derive de las iteraciones (deriveTaskView).
+   */
   rawInteractions?: Array<{
     timestamp: number;
     model: string;
@@ -305,6 +312,10 @@ export function isTerminalState(state: TaskState): boolean {
 export const MAX_STEPS = 15;
 export const MAX_ESCALATIONS = 2;
 export const MAX_REPLAN = 2;
+/** Tareas retenidas en memoria y en disco. Las terminales más antiguas se expulsan (junto con sus refs). */
+export const MAX_RETAINED_TASKS = 20;
+/** Resultados de búsqueda conservados en `scratchpad.search_results`. */
+export const MAX_SCRATCHPAD_RESULTS = 10;
 /** Máximo de preguntas al usuario por paso antes de tratar la falta de información como desviación recuperable. */
 export const MAX_USER_QUESTIONS_PER_STEP = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;

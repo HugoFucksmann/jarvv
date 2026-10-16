@@ -24,6 +24,7 @@ import { JarvisCore } from './src/core/core.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { PendingApproval } from './src/core/types.ts';
 import { RefStore } from './src/core/processor/resultProcessor.ts';
+import { toWireTask } from './src/core/taskWire.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -87,6 +88,7 @@ async function main() {
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
+    jarvisCore.flushPersistence();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
 
     for (const [name, server] of Object.entries(servers)) {
@@ -257,7 +259,7 @@ async function main() {
       res.json({
         task,
         pendingApproval: serializePendingApproval(pending),
-        allTasks,
+        allTasks: allTasks.map(toWireTask),
         discoveredTools: tools,
         extraCapabilities: extra,
         unavailableServers: discoveryEngine.getUnavailableServers(),
@@ -279,7 +281,7 @@ async function main() {
       const pending = jarvisCore.getPendingApproval(event.taskId);
       const payload = JSON.stringify({
         event,
-        task: currentTask,
+        task: toWireTask(currentTask),
         pendingApproval: serializePendingApproval(pending),
       });
       res.write(`data: ${payload}\n\n`);

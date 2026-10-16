@@ -6,6 +6,7 @@
 
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
+import { isTerminalState } from "./core/types.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
 import { CommandSection } from "./components/CommandSection/CommandSection.tsx";
 import { GuardBanner } from "./components/GuardBanner/GuardBanner.tsx";
@@ -41,8 +42,6 @@ export default function App() {
     error,
     clearError,
     isExecuting,
-    isWaitingInput,
-    isTaskActive,
     runTask,
     cancelTask,
     confirmPlan,
@@ -55,6 +54,9 @@ export default function App() {
     clearTaskView,
     selectHistoricalTask,
   } = useJarvis();
+
+  const isWaitingInput = task?.state === "WAITING_INPUT";
+  const isTaskActive = Boolean(task && !isTerminalState(task.state));
 
   // Atajo global Ctrl+K / Cmd+K para enfocar el input de instrucción
   useEffect(() => {

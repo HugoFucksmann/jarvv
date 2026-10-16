@@ -262,6 +262,14 @@ export async function handleEscalation(
         return concludeOnLLMError(context, deps, "Arbitraje de recuperación (Decision #1)", err);
     }
 
+    deps.emitEvent(task.id, "DECISION_ONE", {
+        route: arbitration.route,
+        probabilities: arbitration.probabilities,
+        rawInput: arbitration.rawInput,
+        rawOutput: arbitration.rawOutput,
+        purpose: "escalation",
+    });
+
     if (arbitration.route === "fin") {
         console.log(`[Escalation] Decision #1 determinó fin de alternativas viables.`);
         await concludeTask(context, resolveFailureState(task), deps, "Fin de alternativas viables según arbitraje de Decision 2.0.");
@@ -386,8 +394,6 @@ export async function runFastLoop(
 
         // Paso 1: Decision #1 (ruta)
         let selectedRoute: ExecutableRoute;
-        let d1RawInput: string | undefined;
-        let d1RawOutput: string | undefined;
 
         if (context.activeServerOverride) {
             selectedRoute = context.activeServerOverride;
@@ -401,9 +407,6 @@ export async function runFastLoop(
                 await concludeOnLLMError(context, deps, "Decision #1", err);
                 return;
             }
-
-            d1RawInput = d1.rawInput;
-            d1RawOutput = d1.rawOutput;
 
             deps.emitEvent(task.id, "DECISION_ONE", {
                 route: d1.route,
@@ -434,8 +437,14 @@ export async function runFastLoop(
                 try {
                     const alt = await askRoute(false);
                     selectedRoute = toExecutableRoute(alt.route);
-                    d1RawInput = alt.rawInput;
-                    d1RawOutput = alt.rawOutput;
+                    // La reselección es una consulta más a Decision #1: su traza queda en modelIterations.
+                    deps.emitEvent(task.id, "DECISION_ONE", {
+                        route: alt.route,
+                        probabilities: alt.probabilities,
+                        rawInput: alt.rawInput,
+                        rawOutput: alt.rawOutput,
+                        purpose: "reselection",
+                    });
                 } catch (err) {
                     await concludeOnLLMError(context, deps, "Decision #1 (reselección tras fin rechazado)", err);
                     return;
@@ -460,8 +469,6 @@ export async function runFastLoop(
             calls: [],
             rev: 0,
             superseded: false,
-            rawInput: d1RawInput,
-            rawOutput: d1RawOutput,
         };
 
         task.steps.push(step);
@@ -679,9 +686,6 @@ export async function runPlanLoop(
                 await concludeOnLLMError(context, deps, "Verificación de etapa", err);
                 return;
             }
-
-            step.rawInput = stageVerif.rawInput;
-            step.rawOutput = stageVerif.rawOutput;
 
             deps.emitEvent(task.id, "STAGE_VERIFIED", {
                 stepId: step.id,

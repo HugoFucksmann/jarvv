@@ -3,20 +3,22 @@
  * Modos FAST y PLAN sobre un único motor de ejecución.
  */
 
-import fs from "node:fs";
 import path from "node:path";
 import {
+  MAX_RETAINED_TASKS,
   isTerminalState,
   type CoreEvent,
   type CoreEventType,
   type PendingApproval,
   type Task,
+  type TaskState,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { type TaskExecutionContext, addLogEntry, addRawInteraction, createEmptyMemory } from "./context.ts";
+import { type TaskExecutionContext, addLogEntry, createEmptyMemory } from "./context.ts";
+import { TaskStore, compactLegacyDuplicates } from "./persistence.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
 import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
 import {
@@ -42,6 +44,7 @@ export class JarvisCore {
   private qwenEngine: ILLMClient;
   private taskContexts: Map<string, TaskExecutionContext> = new Map();
   private listeners: Set<CoreEventListener> = new Set();
+  private store: TaskStore;
 
   constructor(
     decisionEngine?: Decision20Engine,
@@ -51,6 +54,7 @@ export class JarvisCore {
     this.decisionEngine = decisionEngine || new Decision20Engine();
     this.discoveryEngine = discoveryEngine || new DiscoveryEngine();
     this.qwenEngine = qwenEngine || new QwenEngine();
+    this.store = new TaskStore(TASKS_FILE_PATH, () => this.snapshotForDisk());
     this.loadPersistedTasks();
   }
 
@@ -108,14 +112,6 @@ export class JarvisCore {
         } else {
           ctx.task.modelIterations.push(iteration);
         }
-        if (iteration.rawInput && iteration.rawOutput) {
-          addRawInteraction(ctx, {
-            model: iteration.model,
-            stage: iteration.stage,
-            rawInput: iteration.rawInput,
-            rawOutput: iteration.rawOutput,
-          });
-        }
       }
     }
 
@@ -124,6 +120,14 @@ export class JarvisCore {
         listener(event);
       } catch (err) {
         console.error("Event listener error:", err);
+      }
+    }
+
+    // Transiciones que no deben perderse ante un corte: espera del usuario y estados terminales.
+    if (type === "TASK_STATE_CHANGED") {
+      const state = data.state;
+      if (typeof state === "string" && (state === "WAITING_INPUT" || isTerminalState(state as TaskState))) {
+        this.store.saveNow();
       }
     }
   }
@@ -186,6 +190,7 @@ export class JarvisCore {
 
     console.log(`[Task] start id=${taskId} mode=${mode}`);
     this.taskContexts.set(taskId, context);
+    this.pruneTasks();
     this.persistTasks();
     this.emitEvent(taskId, "TASK_CREATED", { task });
 
@@ -374,22 +379,40 @@ export class JarvisCore {
   }
 
   // --- Persistence ---
+
+  /** Solicita una escritura agrupada y atómica (ver TaskStore). */
   private persistTasks(): void {
-    try {
-      const serialized = Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
-      fs.writeFileSync(TASKS_FILE_PATH, JSON.stringify(serialized.slice(-20), null, 2), "utf-8");
-    } catch (e) {
-      console.warn("[JarvisCore] Error al persistir tareas en archivo local:", e);
+    this.store.schedule();
+  }
+
+  /** Vuelca de inmediato lo pendiente. Para un cierre ordenado del servidor. */
+  flushPersistence(): void {
+    this.store.flushSync();
+  }
+
+  private snapshotForDisk(): Task[] {
+    this.pruneTasks();
+    return Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
+  }
+
+  /**
+   * Conserva a lo sumo MAX_RETAINED_TASKS tareas, en memoria y en disco. Se expulsan primero las terminales más
+   * antiguas, junto con sus referencias; las tareas activas o en espera del usuario nunca se expulsan.
+   */
+  private pruneTasks(): void {
+    if (this.taskContexts.size <= MAX_RETAINED_TASKS) return;
+    for (const [id, ctx] of this.taskContexts) {
+      if (this.taskContexts.size <= MAX_RETAINED_TASKS) break;
+      if (!isTerminalState(ctx.task.state)) continue;
+      RefStore.clear(id);
+      this.taskContexts.delete(id);
     }
   }
 
   private loadPersistedTasks(): void {
     try {
-      if (!fs.existsSync(TASKS_FILE_PATH)) return;
-      const stored = fs.readFileSync(TASKS_FILE_PATH, "utf-8");
-      if (!stored) return;
-
-      const tasks: Task[] = JSON.parse(stored);
+      const tasks = this.store.load() as Task[];
+      let migrated = false;
       for (const task of tasks) {
         task.memory = task.memory || createEmptyMemory();
         task.replans = task.replans ?? 0;
@@ -399,12 +422,15 @@ export class JarvisCore {
         if (task.modelIterations.length === 0 && task.steps.length > 0) {
           task.modelIterations = reconstructIterationsFromTask(task);
         }
+        // Migración sin pérdida: copias crudas heredadas que ya existen idénticas en modelIterations.
+        if (compactLegacyDuplicates(task)) migrated = true;
 
         // Tras un reinicio no queda ninguna promesa que reanude una ejecución en curso ni una aprobación pendiente.
         // plan_confirmation y user_answer sí son reanudables: dependen de una nueva acción del usuario.
         const interruptedRun = task.state === "RUNNING";
         const orphanedApproval = task.state === "WAITING_INPUT" && task.waitingReason === "approval";
         if (interruptedRun || orphanedApproval) {
+          migrated = true;
           task.state = "CANCELLED";
           task.waitingReason = undefined;
           task.finalResponse = task.finalResponse || (orphanedApproval
@@ -441,6 +467,9 @@ export class JarvisCore {
         }
         this.taskContexts.set(task.id, JarvisCore.createContext(task));
       }
+      this.pruneTasks();
+      // Si la carga corrigió algo (migración, tareas interrumpidas), el archivo se actualiza.
+      if (migrated) this.persistTasks();
     } catch (e) {
       console.warn("[JarvisCore] Error al cargar tareas persistidas desde archivo local:", e);
     }

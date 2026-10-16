@@ -6,6 +6,7 @@ import type {
   Scratchpad,
   StepExecutionSignals,
 } from "../types.ts";
+import { MAX_SCRATCHPAD_RESULTS } from "../types.ts";
 import { getToolPolicy } from "../tools/manifest.ts";
 
 export interface ProcessedResult {
@@ -331,7 +332,12 @@ export class ResultProcessor {
           factsDelta.cand = cands.join(", ");
         }
 
-        scratchpadDelta.search_results = items;
+        // El scratchpad es estado visible/persistido, no contexto de modelo: se acota para no crecer sin límite.
+        scratchpadDelta.search_results = items.slice(0, MAX_SCRATCHPAD_RESULTS).map((r) => ({
+          ...r,
+          snippet: typeof r.snippet === "string" ? r.snippet.slice(0, 300) : r.snippet,
+        }));
+        scratchpadDelta.search_results_total = items.length;
 
         const obsLines: string[] = [];
         if (leadText) {

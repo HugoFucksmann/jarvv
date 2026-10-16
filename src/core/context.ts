@@ -96,19 +96,6 @@ export function addFailEntry(context: TaskExecutionContext, line: string): void 
     }
 }
 
-/** Registra traza cruda de interacción con modelo (hasta 50). */
-export function addRawInteraction(
-    context: TaskExecutionContext,
-    interaction: { model: string; stage: string; rawInput: string; rawOutput: string }
-): void {
-    const memory = ensureMemory(context);
-    memory.rawInteractions = memory.rawInteractions || [];
-    memory.rawInteractions.push({ timestamp: Date.now(), ...interaction });
-    if (memory.rawInteractions.length > 50) {
-        memory.rawInteractions = memory.rawInteractions.slice(-50);
-    }
-}
-
 /** Historial compacto para Decision #1: últimas `limit` líneas de LOG y FAIL. */
 export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 2): string {
     const logLines = task.memory?.log || [];
