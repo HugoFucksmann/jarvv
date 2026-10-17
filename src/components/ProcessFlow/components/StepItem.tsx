@@ -58,8 +58,6 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
         return <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />;
       case "RUNNING":
         return <Loader2 className="w-4 h-4 text-sky-400 animate-spin shrink-0" />;
-      case "WAITING_APPROVAL":
-        return <ShieldAlert className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />;
       case "FAILED":
         return <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />;
       case "UNVERIFIED":

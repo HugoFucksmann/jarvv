@@ -196,6 +196,14 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
           <span className="text-slate-600" aria-hidden="true">·</span>
           <span className="text-slate-200 font-semibold">{getStageTitle(iteration.stage)}</span>
+          {iteration.id.startsWith("iter_reconstructed_") && (
+            <span
+              title="Iteración sintetizada a partir del resultado de los pasos para tareas anteriores a v2.2 sin registro crudo persistido"
+              className="text-[10px] font-sans px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700/80"
+            >
+              Reconstruida
+            </span>
+          )}
           <span className="text-slate-600" aria-hidden="true">·</span>
           <span className="text-slate-500 tabular-nums">{formattedTime}</span>
 

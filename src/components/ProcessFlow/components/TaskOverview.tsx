@@ -13,6 +13,11 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
     switch (task.state) {
       case "RUNNING":
         return "En ejecución";
+      case "WAITING_INPUT":
+        if (task.waitingReason === "approval") return "Esperando aprobación Guard";
+        if (task.waitingReason === "plan_confirmation") return "Esperando confirmación de plan";
+        if (task.waitingReason === "user_answer") return "Esperando respuesta del usuario";
+        return "Esperando interacción";
       case "COMPLETED":
         return "Completada";
       case "PARTIAL":
@@ -30,6 +35,8 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
     switch (task.state) {
       case "RUNNING":
         return "running";
+      case "WAITING_INPUT":
+        return "approval";
       case "COMPLETED":
         return "completed";
       case "PARTIAL":

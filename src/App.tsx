@@ -13,7 +13,7 @@ import { GuardBanner } from "./components/GuardBanner/GuardBanner.tsx";
 import { DecisionStream } from "./components/DecisionStream/DecisionStream.tsx";
 import { ProcessFlow } from "./components/ProcessFlow/ProcessFlow.tsx";
 import { ContextInspector } from "./components/ContextInspector/ContextInspector.tsx";
-import { AlertCircle, X } from "lucide-react";
+import { AlertCircle, X, Loader2 } from "lucide-react";
 
 // Code-splitting heavy modal to optimize initial bundle size (PERF-01)
 const SettingsModal = lazy(() =>
@@ -58,6 +58,9 @@ export default function App() {
   const isWaitingInput = task?.state === "WAITING_INPUT";
   const isTaskActive = Boolean(task && !isTerminalState(task.state));
 
+  const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
+  const [isCancellingForNew, setIsCancellingForNew] = useState(false);
+
   // Atajo global Ctrl+K / Cmd+K para enfocar el input de instrucción
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -71,10 +74,38 @@ export default function App() {
   }, []);
 
   const handleNewTask = () => {
+    // Si la tarea está en ejecución activa en el backend, pedir confirmación explícita
+    if (task && task.state === "RUNNING") {
+      setIsNewTaskConfirmOpen(true);
+      return;
+    }
+
+    // Si no está en ejecución, limpiar la vista directamente y enfocar el input
     clearTaskView();
     setTimeout(() => {
       inputRef.current?.focus();
     }, 50);
+  };
+
+  const handleConfirmCancelAndNewTask = async () => {
+    setIsCancellingForNew(true);
+    try {
+      if (task?.id) {
+        await cancelTask(task.id);
+      }
+      clearTaskView();
+      setIsNewTaskConfirmOpen(false);
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    } finally {
+      setIsCancellingForNew(false);
+    }
+  };
+
+  const handleDismissNewTaskConfirm = () => {
+    if (isCancellingForNew) return;
+    setIsNewTaskConfirmOpen(false);
   };
 
   const mcpServerCount = Object.keys(discoveredTools).length;
@@ -154,7 +185,9 @@ export default function App() {
             onConfirmPlan={confirmPlan}
             onRejectPlan={rejectPlan}
             onModifyPlan={modifyPlan}
-            onCancelTask={cancelTask}
+            onCancelTask={() => {
+              cancelTask();
+            }}
             onNewTask={handleNewTask}
           />
         </div>
@@ -183,6 +216,58 @@ export default function App() {
             onConfigSaved={refreshDiscovery}
           />
         </Suspense>
+      )}
+
+      {/* 8. Modal de confirmación para cancelar tarea en ejecución al pulsar 'Nueva Tarea' (H-09) */}
+      {isNewTaskConfirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-task-dialog-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
+        >
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-5 text-slate-100 flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-amber-950/60 border border-amber-900/60 text-amber-400 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <h3 id="new-task-dialog-title" className="text-sm font-semibold text-slate-100">
+                  Tarea en ejecución activa
+                </h3>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Hay una tarea actualmente procesando llamadas y modelos en el servidor backend. Para iniciar una nueva tarea limpia, es necesario cancelar la ejecución en curso.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800/80">
+              <button
+                type="button"
+                disabled={isCancellingForNew}
+                onClick={handleDismissNewTaskConfirm}
+                className="px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                disabled={isCancellingForNew}
+                onClick={handleConfirmCancelAndNewTask}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isCancellingForNew ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Cancelando...</span>
+                  </>
+                ) : (
+                  <span>Cancelar tarea y empezar otra</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

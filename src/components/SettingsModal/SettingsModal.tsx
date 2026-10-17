@@ -222,6 +222,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <Terminal className="w-3.5 h-3.5 text-emerald-400" />
                 <span>2. Servidores MCP Locales (stdio)</span>
               </div>
+              <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded text-[11px] text-slate-400 leading-relaxed font-sans">
+                <span className="text-amber-400 font-medium font-mono">Nota de proceso: </span>
+                Los comandos y argumentos se persisten en el servidor. La modificación de comandos de arranque stdio no reinicia automáticamente los procesos hijos ya en ejecución; para aplicar cambios en el comando base se requiere reiniciar el proceso del servidor backend (<code className="font-mono text-slate-300">node server.ts</code>).
+              </div>
 
               <div className="grid grid-cols-1 gap-3 pl-1">
                 {/* Windows MCP */}

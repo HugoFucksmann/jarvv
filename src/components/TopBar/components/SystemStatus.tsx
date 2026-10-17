@@ -55,7 +55,7 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
         {statusLabel}
       </span>
       <span aria-hidden="true" className="text-slate-600">·</span>
-      <span>Decision 2.0 (Eos-0.8B)</span>
+      <span title="Motor de decisión configurado por defecto">Decision 2.0 (Eos-0.8B)</span>
       <span aria-hidden="true" className="text-slate-600">·</span>
 
       {/* MCP initialization status */}
@@ -82,7 +82,7 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
       )}
 
       <span aria-hidden="true" className="text-slate-600">·</span>
-      <span>Guard Activo</span>
+      <span title="Políticas de seguridad y compuertas de autorización habilitadas">Políticas Guard</span>
     </div>
   );
 };

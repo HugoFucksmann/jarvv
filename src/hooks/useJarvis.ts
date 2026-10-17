@@ -311,9 +311,9 @@ export function useJarvis() {
               setUserQuestion(null);
             }
 
-            // Prevenir que SSE restaure inesperadamente una tarea inactiva si el usuario limpió la vista
-            const matchesActive = activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current;
-            const isFreshRunningTask = !activeTaskIdRef.current && updatedTask.state === "RUNNING";
+            // Prevenir que SSE restaure inesperadamente una tarea si el usuario limpió la vista
+            const matchesActive = Boolean(activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current);
+            const isFreshRunningTask = !activeTaskIdRef.current && !userClearedViewRef.current && updatedTask.state === "RUNNING";
 
             if (matchesActive || isFreshRunningTask) {
               userClearedViewRef.current = false;
@@ -404,17 +404,19 @@ export function useJarvis() {
   );
 
   // Cancel task
-  const cancelTask = useCallback(async () => {
-    const tid = activeTaskIdRef.current || task?.id || undefined;
+  const cancelTask = useCallback(async (explicitTaskId?: string): Promise<boolean> => {
+    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
     try {
       setError(null);
-      await jarvisApi.cancelTask(tid);
+      const res = await jarvisApi.cancelTask(tid);
       await fetchState();
+      return Boolean(res && res.ok);
     } catch (err: any) {
       console.error("Failed to cancel task on backend:", err);
       setError(err.message || "Error al cancelar la tarea.");
+      return false;
     }
-  }, [fetchState, task?.id]);
+  }, [fetchState]);
 
   // Confirm plan
   const confirmPlan = useCallback(async () => {

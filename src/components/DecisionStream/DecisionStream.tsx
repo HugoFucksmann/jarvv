@@ -47,9 +47,6 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
       "STEP_STATE_CHANGED",
       "STEP_COMPLETED",
       "STAGE_VERIFIED",
-      "PLAN_GENERATED",
-      "PLAN_MODIFIED",
-      "PLAN_REJECTED",
       "FINAL_RESPONSE",
     ].includes(e.type)
   );
