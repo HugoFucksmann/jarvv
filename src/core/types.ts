@@ -209,6 +209,11 @@ export interface Task {
   pendingQuestion?: PendingQuestion;
   userAnswers?: UserAnswer[];
   finalResponse?: string;
+  /**
+   * `false` solo mientras el plan espera confirmación (WAITING_INPUT/plan_confirmation). Al terminar la tarea
+   * (cancelada, rechazada, fallida…) el núcleo lo deja sin definir: un `false` residual hace que la UI siga
+   * mostrando la revisión de un plan que ya no admite ninguna acción.
+   */
   planConfirmed?: boolean;
   memory?: TaskMemory;
   replans?: number;

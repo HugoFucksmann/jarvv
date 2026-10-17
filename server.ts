@@ -25,6 +25,9 @@ import { ConfigManager } from './src/core/config.ts';
 import { PendingApproval } from './src/core/types.ts';
 import { RefStore } from './src/core/processor/resultProcessor.ts';
 import { toWireTask } from './src/core/taskWire.ts';
+import { refArchive } from './src/core/persistence.ts';
+import { Guard } from './src/core/policy/guard.ts';
+import { getToolPolicy } from './src/core/tools/manifest.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -314,7 +317,9 @@ async function main() {
     res.setHeader('Content-Type', 'application/json');
     const { refKey } = req.params;
     const taskId = req.query.taskId as string | undefined;
-    const content = RefStore.get(refKey, taskId);
+    // En memoria mientras la tarea está activa; archivado en disco cuando terminó (historial, reinicios).
+    let content = RefStore.get(refKey, taskId);
+    if (content === undefined && taskId) content = refArchive.get(taskId, refKey);
     if (content !== undefined) {
       res.json({ refKey, content, found: true });
     } else {
@@ -387,16 +392,34 @@ async function main() {
         content: [{ type: 'text', text: `Servidor MCP '${req.params.server}' no encontrado.` }],
       });
     }
-    const { name, args } = req.body;
-    if (!name) {
+    const { name, args } = req.body ?? {};
+    if (!name || typeof name !== 'string') {
       return res.status(400).json({
         isError: true,
         success: false,
         content: [{ type: 'text', text: 'Falta el nombre de la herramienta.' }],
       });
     }
+    const toolArgs: Record<string, unknown> = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
+
+    // Este endpoint ejecuta herramientas sin tarea ni aprobación humana. Para que no sea un atajo que evada a Guard,
+    // solo admite lecturas que la política permita sin confirmación; todo lo que modifica el entorno (o no está en
+    // el catálogo) solo puede ejecutarse dentro de una tarea, donde Guard y el banner de aprobación intervienen.
+    const policy = getToolPolicy(req.params.server, name);
+    const verdict = Guard.evaluate(req.params.server, name, toolArgs);
+    if (policy.kind !== 'READ' || verdict.decision !== 'ALLOW') {
+      console.warn(`[MCP /call] Rechazada '${req.params.server}/${name}' (kind=${policy.kind ?? 'desconocido'}, guard=${verdict.decision}).`);
+      return res.status(403).json({
+        isError: true,
+        success: false,
+        content: [{
+          type: 'text',
+          text: `Operación no permitida desde este endpoint (${verdict.decision}${verdict.reason ? `: ${verdict.reason}` : ''}). Las acciones que modifican el entorno solo se ejecutan dentro de una tarea, con la política de seguridad y la aprobación correspondientes.`,
+        }],
+      });
+    }
     try {
-      const result = await server.callTool(name, args || {});
+      const result = await server.callTool(name, toolArgs);
       res.json(result);
     } catch (err: any) {
       res.json({

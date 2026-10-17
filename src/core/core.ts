@@ -18,7 +18,7 @@ import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { type TaskExecutionContext, addLogEntry, createEmptyMemory } from "./context.ts";
-import { TaskStore, compactLegacyDuplicates } from "./persistence.ts";
+import { TaskStore, compactLegacyDuplicates, refArchive } from "./persistence.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
 import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
 import {
@@ -55,7 +55,10 @@ export class JarvisCore {
     this.discoveryEngine = discoveryEngine || new DiscoveryEngine();
     this.qwenEngine = qwenEngine || new QwenEngine();
     this.store = new TaskStore(TASKS_FILE_PATH, () => this.snapshotForDisk());
+    // Al liberar las referencias de una tarea (fin, cancelación, fallo) se archivan para el historial.
+    RefStore.setArchiver((taskId, refs) => refArchive.save(taskId, refs));
     this.loadPersistedTasks();
+    refArchive.prune(new Set(this.taskContexts.keys()));
   }
 
   private getEngineDeps(): EngineDependencies {
@@ -103,6 +106,10 @@ export class JarvisCore {
     // Almacenamiento determinista en memoria/contexto de la iteración de modelo
     const ctx = this.taskContexts.get(taskId);
     if (ctx?.task) {
+      // `planConfirmed === false` significa "esperando confirmación del plan": al terminar la tarea ya no aplica.
+      if (ctx.task.planConfirmed === false && isTerminalState(ctx.task.state)) {
+        ctx.task.planConfirmed = undefined;
+      }
       const iteration = createIterationFromEvent(event, ctx.task);
       if (iteration) {
         ctx.task.modelIterations = ctx.task.modelIterations || [];
@@ -190,7 +197,7 @@ export class JarvisCore {
 
     console.log(`[Task] start id=${taskId} mode=${mode}`);
     this.taskContexts.set(taskId, context);
-    this.pruneTasks();
+    this.pruneTasks(true);
     this.persistTasks();
     this.emitEvent(taskId, "TASK_CREATED", { task });
 
@@ -397,14 +404,32 @@ export class JarvisCore {
 
   /**
    * Conserva a lo sumo MAX_RETAINED_TASKS tareas, en memoria y en disco. Se expulsan primero las terminales más
-   * antiguas, junto con sus referencias; las tareas activas o en espera del usuario nunca se expulsan.
+   * antiguas (con sus referencias archivadas); una tarea RUNNING nunca se expulsa. Con `cancelAbandoned` (al crear
+   * una tarea nueva), si aún se rebasa el tope, se cancelan y expulsan las tareas en espera del usuario más antiguas.
    */
-  private pruneTasks(): void {
+  private pruneTasks(cancelAbandoned = false): void {
+    this.evictTerminalTasks();
+    if (!cancelAbandoned) return;
+
+    // Las tareas en espera del usuario (aprobación, confirmación de plan, pregunta) no son terminales y, abandonadas,
+    // se acumularían sin límite. Rebasado el tope, las más antiguas se cancelan (liberando su promesa de aprobación y
+    // sus referencias) y se expulsan. Una tarea RUNNING nunca se toca.
+    while (this.taskContexts.size > MAX_RETAINED_TASKS) {
+      const abandoned = Array.from(this.taskContexts.values()).find((c) => c.task.state === "WAITING_INPUT");
+      if (!abandoned) break;
+      console.warn(`[JarvisCore] Tope de ${MAX_RETAINED_TASKS} tareas: se cancela la tarea en espera más antigua '${abandoned.task.id}'.`);
+      this.cancelTask(abandoned.task.id);
+      this.evictTerminalTasks();
+    }
+  }
+
+  private evictTerminalTasks(): void {
     if (this.taskContexts.size <= MAX_RETAINED_TASKS) return;
     for (const [id, ctx] of this.taskContexts) {
       if (this.taskContexts.size <= MAX_RETAINED_TASKS) break;
       if (!isTerminalState(ctx.task.state)) continue;
-      RefStore.clear(id);
+      RefStore.discard(id);
+      refArchive.remove(id);
       this.taskContexts.delete(id);
     }
   }
@@ -447,6 +472,11 @@ export class JarvisCore {
           step.calls = step.calls || [];
           step.rev = step.rev ?? 0;
           step.superseded = step.superseded ?? false;
+        }
+        // Tareas terminadas antes de existir esta normalización conservan `planConfirmed: false`.
+        if (isTerminalState(task.state) && task.planConfirmed === false) {
+          task.planConfirmed = undefined;
+          migrated = true;
         }
         // La pregunta abierta solo tiene sentido mientras la tarea la espera.
         if (task.state === "WAITING_INPUT" && task.waitingReason === "user_answer") {

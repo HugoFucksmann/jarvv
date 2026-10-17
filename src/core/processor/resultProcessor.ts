@@ -34,7 +34,15 @@ export interface RefDescriptor {
   chars: number;
 }
 
+/** Referencia completa, tal como se entrega al archivador al liberar una tarea. */
+export interface RefEntry {
+  key: string;
+  label: string;
+  content: string;
+}
+
 export class RefStore {
+  private static archiver?: (taskId: string, refs: RefEntry[]) => void;
   private static taskStores: Map<string, Map<string, string>> = new Map();
   private static taskCounters: Map<string, number> = new Map();
   private static taskMeta: Map<string, Map<string, { label: string; chars: number }>> = new Map();
@@ -87,15 +95,44 @@ export class RefStore {
     return store ? Array.from(store.keys()) : [];
   }
 
+  /** Registra quién archiva las referencias de una tarea al liberarlas (lo cablea el núcleo; evita acoplar este módulo a disco). */
+  static setArchiver(fn?: (taskId: string, refs: RefEntry[]) => void): void {
+    this.archiver = fn;
+  }
+
+  /**
+   * Libera las referencias de una tarea en memoria, archivándolas antes si hay archivador: la evidencia de una tarea
+   * terminada debe seguir consultable desde el historial. Sin referencias no hace nada (no pisa un archivo existente).
+   */
   static clear(taskId?: string): void {
     if (taskId) {
-      this.taskStores.delete(taskId);
-      this.taskCounters.delete(taskId);
-      this.taskMeta.delete(taskId);
+      this.archive(taskId);
+      this.discard(taskId);
     } else {
       this.taskStores.clear();
       this.taskCounters.clear();
       this.taskMeta.clear();
+    }
+  }
+
+  /** Descarta las referencias de una tarea en memoria SIN archivarlas (tarea expulsada del historial). */
+  static discard(taskId: string): void {
+    this.taskStores.delete(taskId);
+    this.taskCounters.delete(taskId);
+    this.taskMeta.delete(taskId);
+  }
+
+  private static archive(taskId: string): void {
+    const store = this.taskStores.get(taskId);
+    if (!store || store.size === 0 || !this.archiver) return;
+    const meta = this.taskMeta.get(taskId);
+    try {
+      this.archiver(
+        taskId,
+        Array.from(store.entries()).map(([key, content]) => ({ key, label: meta?.get(key)?.label ?? "", content }))
+      );
+    } catch (err) {
+      console.warn(`[RefStore] No se pudieron archivar las referencias de '${taskId}':`, err);
     }
   }
 }
