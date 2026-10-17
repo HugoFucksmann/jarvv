@@ -14,6 +14,7 @@ import {
 } from "./types.ts";
 import type { Attempt } from "./reasoner/prompts.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
+import { RefStore } from "./processor/resultProcessor.ts";
 
 export interface TaskExecutionContext {
     task: Task;
@@ -185,4 +186,38 @@ export function hasUnresolvedUnverified(task: Task): boolean {
         if (c.outcome?.success === true && getToolPolicy(c.mcp, c.tool).kind === "READ") return false;
     }
     return true;
+}
+
+const fmtChars = (n: number): string => (n >= 1024 ? `${(n / 1024).toFixed(1)}KB` : `${n}B`);
+
+/**
+ * Referencias disponibles ({{ref:rX}}) con su origen y tamaño. Es la única vía para que Qwen conozca referencias
+ * anteriores a la última observación: el marcador de LAST solo describe la más reciente y puede recortarse.
+ * Se construye del RefStore vivo, así que tras un reinicio (refs perdidas) no ofrece referencias inexistentes.
+ */
+export function buildRefsContext(task: Task, limit = 5): string[] {
+    return RefStore.describe(task.id, limit).map(
+        (r) => `ref:${r.key} ${r.label || "resultado"} (${fmtChars(r.chars)})`
+    );
+}
+
+/**
+ * Retira de la memoria los facts que un paso aportó cuando su verificación semántica NO lo aprobó, y el handoff
+ * que habría pasado al siguiente paso. Solo se retira lo que sigue valiendo lo que aportó el paso (no lo que otro
+ * paso sobrescribió después). Los facts de una mutación (p. ej. el pid de un proceso lanzado) se conservan: describen
+ * el entorno, no una hipótesis sobre el contenido observado.
+ */
+export function retractStepFacts(context: TaskExecutionContext, step: Step): void {
+    if (context.lastHandoff?.fromStepId === step.id) {
+        context.lastHandoff = undefined;
+    }
+    const delta = step.handoff?.factsDelta;
+    if (!delta) return;
+    const last = step.calls?.[step.calls.length - 1];
+    if (last && getToolPolicy(last.mcp, last.tool).mutates) return;
+    const facts = context.task.memory?.facts;
+    if (!facts) return;
+    for (const [key, value] of Object.entries(delta)) {
+        if (facts[key] === value) delete facts[key];
+    }
 }

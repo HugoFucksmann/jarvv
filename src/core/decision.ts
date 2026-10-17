@@ -201,6 +201,7 @@ export class Decision20Engine {
     resultSummary: string,
     evidenceSummary?: string,
     expectedOutcome?: string,
+    observation?: string,
     signal?: AbortSignal
   ): Promise<{
     ok: boolean;
@@ -216,6 +217,7 @@ export class Decision20Engine {
       resultSummary,
       evidenceSummary,
       expectedOutcome,
+      observation,
     });
 
     const t0 = Date.now();

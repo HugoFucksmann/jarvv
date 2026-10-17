@@ -27,11 +27,19 @@ export interface ProcessedResult {
  * Task-isolated reference store for complete tool outputs (§10.4, §10.11).
  * Isolates data per taskId to prevent cross-task clearing and memory leaks.
  */
+/** Descripción de una referencia guardada: origen legible y tamaño (para el bloque REFS del prompt de argumentos). */
+export interface RefDescriptor {
+  key: string;
+  label: string;
+  chars: number;
+}
+
 export class RefStore {
   private static taskStores: Map<string, Map<string, string>> = new Map();
   private static taskCounters: Map<string, number> = new Map();
+  private static taskMeta: Map<string, Map<string, { label: string; chars: number }>> = new Map();
 
-  static put(content: string, taskId: string = "default"): string {
+  static put(content: string, taskId: string = "default", label?: string): string {
     let store = this.taskStores.get(taskId);
     if (!store) {
       store = new Map<string, string>();
@@ -41,7 +49,22 @@ export class RefStore {
     this.taskCounters.set(taskId, currentCounter);
     const key = `r${currentCounter}`;
     store.set(key, content);
+    let meta = this.taskMeta.get(taskId);
+    if (!meta) {
+      meta = new Map();
+      this.taskMeta.set(taskId, meta);
+    }
+    meta.set(key, { label: label ?? "", chars: content.length });
     return key;
+  }
+
+  /** Las últimas `limit` referencias de la tarea, de la más antigua a la más reciente. */
+  static describe(taskId: string, limit = 5): RefDescriptor[] {
+    const meta = this.taskMeta.get(taskId);
+    if (!meta) return [];
+    return Array.from(meta.entries())
+      .slice(-limit)
+      .map(([key, m]) => ({ key, label: m.label, chars: m.chars }));
   }
 
   static get(key: string, taskId?: string): string | undefined {
@@ -68,9 +91,11 @@ export class RefStore {
     if (taskId) {
       this.taskStores.delete(taskId);
       this.taskCounters.delete(taskId);
+      this.taskMeta.delete(taskId);
     } else {
       this.taskStores.clear();
       this.taskCounters.clear();
+      this.taskMeta.clear();
     }
   }
 }
@@ -84,12 +109,23 @@ export function sanitizeForMemory(text: string, maxLen = 120): string {
     .replace(/[\r\n\t]+/g, " ")
     .replace(/[\x00-\x1F\x7F]/g, "")
     .replace(/<\/?obs>/gi, "[obs]")
-    .replace(/\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL):/gi, "$1_")
+    .replace(/\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST):/gi, "$1_")
     .trim();
   if (clean.length > maxLen) {
     clean = clean.substring(0, maxLen - 3) + "...";
   }
   return clean;
+}
+
+/** Argumentos que mejor identifican de dónde viene un resultado (para describirlo en REFS). */
+const REF_LABEL_ARGS = ["path", "file_path", "url", "query", "command", "pattern", "name"] as const;
+
+function refLabel(tool: string, args: Record<string, unknown>): string {
+  for (const key of REF_LABEL_ARGS) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return `${tool} ${sanitizeForMemory(value, 60)}`;
+  }
+  return tool;
 }
 
 export class ResultProcessor {
@@ -194,7 +230,7 @@ export class ResultProcessor {
     // 3. Store full result in task-isolated RefStore (§10.4)
     let refKey: string | undefined;
     if (fullText.length > 0) {
-      refKey = RefStore.put(fullText, taskId);
+      refKey = RefStore.put(fullText, taskId, refLabel(tool, args));
     }
 
     // 4. Deterministic Extractors per Tool (§10.5)

@@ -21,9 +21,11 @@ import {
     type TaskExecutionContext,
     addFailEntry,
     buildAttempts,
+    buildEffectsContext,
     buildHistoryContext,
     expandMemoryContext,
     hasUnresolvedUnverified,
+    retractStepFacts,
 } from "./context.ts";
 import { type EngineDependencies, recordFailedCall, runStep } from "./callExecutor.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
@@ -323,6 +325,9 @@ export async function handleReplan(
             completedStepsSummary: completedSummary,
             facts: task.memory?.facts || {},
             failLines: task.memory?.fail || [],
+            logLines: task.memory?.log || [],
+            // Las mutaciones ya aplicadas no se deshacen con la verificación: el replan debe conocerlas.
+            effects: buildEffectsContext(task, 10),
             failedStepGoal: failedStep.instruction,
             failedStepResult: failedStep.error || "error",
             remainingPlanGoals: remainingGoals,
@@ -681,6 +686,8 @@ export async function runPlanLoop(
                     compactObs: context.lastCallCompactObs || "",
                     facts: task.memory?.facts || {},
                     logLines: task.memory?.log || [],
+                    effects: buildEffectsContext(task),
+                    failLines: task.memory?.fail || [],
                 }, signal);
             } catch (err) {
                 await concludeOnLLMError(context, deps, "Verificación de etapa", err);
@@ -702,6 +709,11 @@ export async function runPlanLoop(
             if (verdictStatus === "insufficient_info" && (step.questionsAsked ?? 0) >= MAX_USER_QUESTIONS_PER_STEP) {
                 verdictStatus = "recoverable_deviation";
                 verdictReason = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario: ${stageVerif.reason}`;
+            }
+
+            // Si la etapa no quedó aprobada, lo que aportó (facts de contenido y handoff) deja de valer como confirmado.
+            if (verdictStatus !== "completed") {
+                retractStepFacts(context, step);
             }
 
             if (verdictStatus === "completed") {

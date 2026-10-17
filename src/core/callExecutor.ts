@@ -28,6 +28,7 @@ import {
     addEffectEntry,
     ensureMemory,
     buildEffectsContext,
+    buildRefsContext,
     applyStepHandoff,
     buildScratchpadContextForDecision,
     buildAttempts,
@@ -210,6 +211,7 @@ export async function runStep(
             failLines: task.memory?.fail || [],
             facts: task.memory?.facts || {},
             effects: buildEffectsContext(task),
+            refs: buildRefsContext(task),
             tool: selectedTool,
             cleanedSchema,
             lastObs: context.lastCallCompactObs ? {
@@ -365,8 +367,8 @@ export async function runStep(
     context.lastCallStepNumber = task.steps.indexOf(step) + 1;
     context.lastCallDecisionSummary = processed.decisionSummary;
 
+    // El scratchpad es solo estado visible ("lo último visto"); los facts se registran tras la verificación (más abajo).
     Object.assign(task.scratchpad, processed.scratchpadDelta);
-    Object.assign(ensureMemory(context).facts, processed.factsDelta);
 
     // 10. Verificación factual con Eos, solo sobre señales limpias
     const { signals } = processed;
@@ -388,9 +390,12 @@ export async function runStep(
             verificationDetail = await deps.decisionEngine.evaluateStepVerification(
                 step.instruction,
                 selectedTool.name,
-                processed.decisionSummary || processed.summaryText,
-                processed.evidence.summary || processed.compactObs,
+                // Resultado neutro: la etiqueta [SUCCESS] de decisionSummary ya concluye por el verificador.
+                `${selectedTool.name}: ${processed.finding || processed.summaryText}`,
+                processed.evidence.summary,
                 step.expectedOutcome,
+                // Fragmento real de lo observado. Es texto externo: se sanea y se quitan los marcadores de omisión.
+                sanitizeForMemory((processed.compactObs || "").replace(/\[\.\.\.[^\]]*\]/g, "[…]"), 500),
                 signal
             );
             eosPassed = verificationDetail.ok && verificationDetail.cumple;
@@ -404,6 +409,15 @@ export async function runStep(
 
     const isStepSuccess = isCleanSignals && eosPassed;
     const verification = eosUnavailable ? "UNVERIFIED" : processed.verification;
+
+    // Los facts son "hechos confirmados": solo se registran si el paso pasó la verificación, o si no pudo verificarse
+    // por falta de verificador (la herramienta corrió limpia). Excepción: una mutación ejecutada (p. ej. el pid de un
+    // proceso lanzado) describe el entorno, no una hipótesis sobre el contenido, y debe conservarse.
+    if (isStepSuccess || eosUnavailable || policy.mutates) {
+        Object.assign(ensureMemory(context).facts, processed.factsDelta);
+    } else if (Object.keys(processed.factsDelta).length > 0) {
+        console.log(`[runStep] Facts no confirmados descartados (${Object.keys(processed.factsDelta).join(", ")}): el paso no pasó la verificación.`);
+    }
 
     // LOG
     const logStatus = signals.not_found || signals.empty_output

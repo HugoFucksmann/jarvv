@@ -140,6 +140,9 @@ export interface StageVerificationPromptData {
   compactObs?: string;
   facts?: Record<string, string>;
   logLines?: string[];
+  /** Cambios ya aplicados al entorno: la verificación no debe tratarlos como pendientes. */
+  effects?: string[];
+  failLines?: string[];
 }
 
 // ============================================================

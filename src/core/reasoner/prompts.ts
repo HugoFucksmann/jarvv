@@ -36,12 +36,14 @@ const MAX_OBS_CHARS = 2000;
 const MAX_EVID_ITEM_CHARS = 1000;
 const MAX_EVID_CHARS = 6000;
 const MAX_STEP_RESULT_CHARS = 800;
+const MAX_REFS_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
 // Presupuestos en caracteres (Decision).
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_HISTORY_CHARS = 4000;
 const MAX_SCRATCHPAD_CHARS = 2000;
 const MAX_RESULT_CHARS = 400;
+const MAX_OBSERVATION_CHARS = 500;
 const MAX_TOOL_DESC_CHARS = 80;
 const MAX_ATTEMPTS = 8;
 const MAX_NOTE_CHARS = 60;
@@ -52,6 +54,31 @@ const clip = (s: string, n: number): string =>
 /** Conserva el final (lo más reciente). */
 const clipTail = (s: string, n: number): string =>
   s.length > n ? "…" + s.slice(-(n - 1)) : s;
+
+const REF_MARKER = /\bref:r\d+\b/i;
+const REF_KEY = /ref:r\d+/i;
+
+/**
+ * Recorte de una observación conservando cabeza, cola y los marcadores `ref:rX`.
+ * `clipTail` descartaba el principio: en una salida de proceso el marcador va en la primera línea y en una lectura
+ * larga, en medio; en ambos casos se perdía justo la clave que permite recuperar el contenido íntegro.
+ */
+const clipObs = (s: string, n: number): string => {
+  if (s.length <= n) return s;
+  const markers = s.split("\n").filter((l) => REF_MARKER.test(l)).map((l) => clip(l.trim(), 160)).slice(0, 3);
+  const fixed = markers.reduce((acc, l) => acc + l.length + 1, 0) + 12;
+  const budget = n - fixed;
+  if (budget < 200) return clipTail(s, n);
+
+  const head = s.slice(0, Math.floor(budget * 0.4));
+  const tail = s.slice(s.length - Math.floor(budget * 0.6));
+  const seen = `${head}\n${tail}`.toLowerCase();
+  const missing = markers.filter((l) => {
+    const key = l.match(REF_KEY)?.[0]?.toLowerCase();
+    return key ? !seen.includes(key) : true;
+  });
+  return [head, "[…]", ...missing, ...(missing.length > 0 ? ["[…]"] : []), tail].join("\n");
+};
 
 /** Neutraliza los delimitadores <obs> en cualquier texto interpolado. */
 const safe = (s: string): string => s.replace(/<\/?obs>/gi, "[obs]");
@@ -118,6 +145,8 @@ export interface ArgumentPromptData {
   failLines?: string[];
   facts?: Record<string, string>;
   effects?: string[];
+  /** Referencias disponibles (`ref:rX origen (tamaño)`), las más recientes. */
+  refs?: string[];
   tool: MCPTool;
   cleanedSchema: Record<string, unknown>;
   lastObs?: { stepIndex: number; toolName: string; obsText: string };
@@ -139,6 +168,9 @@ export interface ReplanPromptData {
   completedStepsSummary: string[];
   facts: Record<string, string>;
   failLines: string[];
+  /** Cambios ya aplicados al entorno (incluidos los de pasos cuya verificación falló). */
+  effects?: string[];
+  logLines?: string[];
   failedStepGoal: string;
   failedStepResult: string;
   remainingPlanGoals: string[];
@@ -155,7 +187,7 @@ export const PROMPTS = {
   ARGUMENTS: {
     SYSTEM: `Genera los argumentos de la herramienta indicada. Responde solo con el objeto JSON, conforme al SCHEMA.
 Incluye solo los parámetros necesarios y omite los opcionales que no uses. No inventes filtros que el usuario no pidió.
-Si necesitas el contenido íntegro de un resultado previo guardado en memoria como ref:rX, usa {{ref:rX}} como valor del argumento.
+Si necesitas el contenido íntegro de un resultado previo guardado en memoria, usa {{ref:rX}} como valor del argumento. REFS lista las referencias disponibles: usa solo las que aparezcan allí.
 ${DATA_NOTICE}`,
 
     buildUserPrompt(data: ArgumentPromptData): string {
@@ -170,8 +202,9 @@ ${DATA_NOTICE}`,
         linesBlock("FAIL", data.failLines, MAX_FAIL_CHARS),
         factsBlock(data.facts, MAX_FACTS_CHARS),
         linesBlock("EFFECTS", data.effects, MAX_EFFECTS_CHARS),
+        linesBlock("REFS", data.refs, MAX_REFS_CHARS),
         data.lastObs
-          ? dataBlock(`LAST (paso ${data.lastObs.stepIndex}, ${safe(data.lastObs.toolName)})`, data.lastObs.obsText, MAX_OBS_CHARS)
+          ? dataBlock(`LAST (paso ${data.lastObs.stepIndex}, ${safe(data.lastObs.toolName)})`, clipObs(data.lastObs.obsText, MAX_OBS_CHARS), MAX_OBS_CHARS)
           : null,
         `TASK: ${safe(clip(data.taskInstruction, MAX_GOAL_CHARS))}`,
       ]);
@@ -235,6 +268,7 @@ ${DATA_NOTICE}`,
   REPLAN: {
     SYSTEM: `Un paso del plan falló. Reformula el plan restante desde el paso fallido (inclusive), o aborta si la meta es inalcanzable.
 - Máximo ${MAX_STEPS} pasos. No repitas pasos ya completados.
+- EFFECTS lista cambios que ya se aplicaron al entorno (aunque su paso fallara): no los repitas y tenlos en cuenta al reformular.
 - Cada paso: {"goal":"...","suggested_mcp":"...","expected_outcome":"..."}.
 - suggested_mcp: una de ${ROUTE_LIST}; nunca una URL ni un nombre de herramienta.
 Responde solo con JSON, conforme a una de estas dos formas:
@@ -247,6 +281,8 @@ ${DATA_NOTICE}`,
         `OBJETIVO: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
         orNone("COMPLETADOS", linesBlock("COMPLETADOS", data.completedStepsSummary, MAX_PLAN_CHARS)),
         orNone("FACTS", factsBlock(data.facts, MAX_FACTS_CHARS)),
+        linesBlock("LOG", data.logLines, MAX_LOG_CHARS),
+        linesBlock("EFFECTS", data.effects, MAX_EFFECTS_CHARS),
         linesBlock("FAIL", data.failLines, MAX_FAIL_CHARS),
         `PASO FALLIDO:\nmeta: ${safe(clip(data.failedStepGoal, MAX_GOAL_CHARS))}`,
         dataBlock("RESULTADO DEL PASO FALLIDO", data.failedStepResult, MAX_STEP_RESULT_CHARS),
@@ -280,6 +316,8 @@ ${DATA_NOTICE}`,
         dataBlock("OBSERVACIÓN COMPACTA", data.compactObs, MAX_OBS_CHARS),
         factsBlock(data.facts, MAX_FACTS_CHARS),
         linesBlock("LOG", data.logLines, MAX_LOG_CHARS),
+        linesBlock("EFFECTS", data.effects, MAX_EFFECTS_CHARS),
+        linesBlock("FAIL", data.failLines, MAX_FAIL_CHARS),
       ]);
     },
   },
@@ -319,6 +357,8 @@ export interface StepVerificationPromptData {
   resultSummary: string;
   evidenceSummary?: string;
   expectedOutcome?: string;
+  /** Fragmento real de lo observado (ya saneado): sin él el verificador solo ve un hallazgo de una línea. */
+  observation?: string;
 }
 
 export interface DecisionInput {
@@ -424,12 +464,18 @@ export const DECISION_PROMPTS = {
    * (un modelo de 0.8B responde mejor a un criterio por pregunta).
    */
   buildStepVerification(data: StepVerificationPromptData): DecisionInput {
+    // La evidencia resumida suele ser el mismo hallazgo que `Result`: no se repite.
+    const evidence = data.evidenceSummary && !data.resultSummary.includes(data.evidenceSummary)
+      ? clip(data.evidenceSummary, MAX_RESULT_CHARS)
+      : null;
+
     const state = [
       `Step instruction: ${clip(data.instruction, MAX_MESSAGE_CHARS)}`,
       data.expectedOutcome ? `Expected outcome: ${clip(data.expectedOutcome, MAX_MESSAGE_CHARS)}` : null,
       `Tool: ${data.toolName}`,
       `Result: ${clip(data.resultSummary, MAX_RESULT_CHARS)}`,
-      data.evidenceSummary ? `Observable evidence: ${clip(data.evidenceSummary, MAX_RESULT_CHARS)}` : null,
+      evidence ? `Observable evidence: ${evidence}` : null,
+      data.observation ? `Observation: ${clip(data.observation, MAX_OBSERVATION_CHARS)}` : null,
     ].filter(Boolean).join("\n");
 
     return {
