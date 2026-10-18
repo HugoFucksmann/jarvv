@@ -50,7 +50,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
         if (!isNaN(parsed) && parsed >= MIN_HEIGHT) return parsed;
       }
     } catch {
-      // ignore
+
     }
     return DEFAULT_HEIGHT;
   });
@@ -77,7 +77,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
     if (!isDragging) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      // Arrastrar hacia arriba (menor clientY) aumenta la altura del inspector inferior
+
       const deltaY = dragStartY.current - e.clientY;
       const maxHeight = Math.floor(window.innerHeight * MAX_HEIGHT_RATIO);
       const newHeight = Math.min(Math.max(dragStartHeight.current + deltaY, MIN_HEIGHT), maxHeight);
@@ -101,7 +101,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
           return cur;
         });
       } catch {
-        // ignore
+
       }
     };
 
@@ -125,7 +125,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
   const totalDiscovered = Object.values(discoveredTools).reduce((acc, t) => acc + t.length, 0);
   const unavailableCount = Object.keys(unavailableServers).length;
 
-  // Cálculo preciso de datos disponibles en cada pestaña
+
   const factsCount = Object.keys(memory?.facts || {}).length;
   const effectsCount = (memory?.effects || []).length;
   const failCount = (memory?.fail || []).length;
@@ -139,7 +139,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
 
   return (
     <footer className="relative mt-auto border-t border-slate-800 bg-slate-950/90 text-xs">
-      {/* Tirador de redimensionamiento vertical interactivo */}
+
       {isOpen && (
         <div
           onMouseDown={handleMouseDown}
@@ -157,11 +157,10 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
           className="absolute -top-1.5 left-0 right-0 h-3.5 flex items-center justify-center cursor-row-resize z-20 group transition-all"
         >
           <div
-            className={`w-14 h-1 rounded-full transition-all duration-150 ${
-              isDragging
+            className={`w-14 h-1 rounded-full transition-all duration-150 ${isDragging
                 ? "bg-sky-400 w-20 shadow-[0_0_10px_rgba(56,189,248,0.7)]"
                 : "bg-slate-700/80 group-hover:bg-sky-400/90 group-hover:w-16"
-            }`}
+              }`}
           />
         </div>
       )}
@@ -194,11 +193,10 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 role="tab"
                 aria-selected={activeTab === "state"}
                 onClick={() => setActiveTab("state")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                  activeTab === "state"
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "state"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
               >
                 <span>Estado</span>
               </button>
@@ -207,11 +205,10 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 role="tab"
                 aria-selected={activeTab === "memory"}
                 onClick={() => setActiveTab("memory")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                  activeTab === "memory"
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "memory"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
               >
                 <span>Memoria</span>
                 <span className="text-[10px] text-slate-500 ml-1">
@@ -223,11 +220,10 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 role="tab"
                 aria-selected={activeTab === "scratchpad"}
                 onClick={() => setActiveTab("scratchpad")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                  activeTab === "scratchpad"
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "scratchpad"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
               >
                 <span>Scratchpad</span>
                 {scratchpadKeysCount > 0 && (
@@ -239,11 +235,10 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 role="tab"
                 aria-selected={activeTab === "evidence"}
                 onClick={() => setActiveTab("evidence")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                  activeTab === "evidence"
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "evidence"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
               >
                 <span>Evidencia</span>
                 {evidenceCount > 0 && (
@@ -255,11 +250,10 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
                 role="tab"
                 aria-selected={activeTab === "discovery"}
                 onClick={() => setActiveTab("discovery")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
-                  activeTab === "discovery"
+                className={`px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${activeTab === "discovery"
                     ? "bg-slate-800 text-white font-medium"
                     : "text-slate-400 hover:text-slate-200"
-                }`}
+                  }`}
               >
                 <span>Discovery</span>
                 {mcpInitStatus === "loading" ? (

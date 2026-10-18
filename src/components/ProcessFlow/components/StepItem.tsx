@@ -13,7 +13,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import { Step, StepRoute } from "../../../core/types.ts";
+import { Step } from "../../../core/types.ts";
 
 interface StepItemProps {
   step: Step;
@@ -71,17 +71,15 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
   };
 
   const getRouteLabel = () => {
-    switch (step.route as StepRoute) {
-      case "windows":
-        return "Windows MCP";
-      case "desktop_commander":
-        return "Desktop Commander";
-      case "free_search":
-        return "Free Search MCP";
-      case "fin":
-        return "Fin / Qwen Chat";
-      default:
-        return step.route;
+    switch (step.route) {
+      case "files":
+        return "Archivos";
+      case "search_local":
+        return "Búsqueda local";
+      case "terminal":
+        return "Terminal y procesos";
+      case "web":
+        return "Web";
     }
   };
 
@@ -89,13 +87,12 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
 
   return (
     <div
-      className={`flex flex-col gap-2 py-3 px-3.5 rounded-lg transition-colors ${
-        step.superseded
+      className={`flex flex-col gap-2 py-3 px-3.5 rounded-lg transition-colors ${step.superseded
           ? "opacity-50 bg-slate-950/60 border border-slate-900"
           : isCurrent
-          ? "bg-slate-900/90 border border-slate-700/60"
-          : "hover:bg-slate-900/40 border border-transparent"
-      }`}
+            ? "bg-slate-900/90 border border-slate-700/60"
+            : "hover:bg-slate-900/40 border border-transparent"
+        }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
@@ -208,8 +205,8 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                             isError
                               ? "text-rose-400"
                               : isVerified
-                              ? "text-emerald-400"
-                              : "text-slate-400"
+                                ? "text-emerald-400"
+                                : "text-slate-400"
                           }
                         >
                           [{isError ? "error" : c.verification || "ok"}]
@@ -368,4 +365,3 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
     </div>
   );
 };
-

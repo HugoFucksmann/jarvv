@@ -1,8 +1,4 @@
-/**
- * JARVIS Core v2.2 — Main Application Entry View
- * Composes modular sections with clean hierarchy, zero-pill discipline,
- * and high-fidelity UX focused on deterministic process and workflow.
- */
+
 
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";

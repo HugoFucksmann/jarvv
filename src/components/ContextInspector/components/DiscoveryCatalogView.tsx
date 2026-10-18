@@ -101,7 +101,7 @@ export const DiscoveryCatalogView: React.FC<DiscoveryCatalogViewProps> = ({
               <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
               <span>Inicializando servidores MCP via stdio…</span>
             </div>
-            {["windows", "desktop_commander", "free_search"].map((serverName) => (
+            {["desktop_commander", "free_search"].map((serverName) => (
               <div key={serverName} className="flex flex-col gap-2">
                 <div className="flex items-center justify-between font-mono border-b border-slate-800/80 pb-1.5">
                   <div className="flex items-center gap-2">
@@ -165,11 +165,10 @@ export const DiscoveryCatalogView: React.FC<DiscoveryCatalogViewProps> = ({
                     <div
                       key={t.name}
                       onClick={() => setSelectedTool(isSelected ? null : t)}
-                      className={`p-2.5 bg-slate-900/50 border rounded transition-colors cursor-pointer ${
-                        isSelected
+                      className={`p-2.5 bg-slate-900/50 border rounded transition-colors cursor-pointer ${isSelected
                           ? "border-sky-500 bg-slate-900/80"
                           : "border-slate-800/80 hover:border-slate-700"
-                      }`}
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-slate-200 font-semibold">{t.name}</span>

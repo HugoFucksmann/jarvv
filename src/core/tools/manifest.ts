@@ -1,13 +1,17 @@
 /**
  * JARVIS Core — Tool Manifest (fuente única de herramientas, políticas y descripciones)
- * Catálogo reducido por ahora: 11 herramientas de desktop_commander y 3 de free_search; el resto de ambos
- * servidores queda fuera (se reactiva añadiendo su línea). Los nombres de argumento salen de sus inputSchema.
+ * Catálogo reducido por ahora: 11 herramientas de desktop_commander y 3 de free_search, repartidas en 4 destinos
+ * (grupos funcionales que elige Decision #1); el resto de ambos servidores queda fuera (para ofrecer otra
+ * herramienta se añade su línea con su destino y, si su resultado necesita un tratamiento propio, su rama en
+ * ResultProcessor). Los nombres de argumento salen de sus inputSchema.
  *
  * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas
  *   (policyRegistry.ts fue eliminado).
+ * - Cada herramienta declara su destino (`route`): pertenece a uno solo y su servidor se deriva de DESTINATIONS.
+ *   Guard y las políticas siguen siendo por (server, name), nunca por destino.
  * - Lookup insensible a mayúsculas, políticas inmutables, claves duplicadas = error al arrancar.
  * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al
- *   planificador (ver `applyManifest`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
+ *   planificador (ver `applyDestination`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
  * - No hay herramientas de interfaz gráfica (clic, teclado, portapapeles, capturas, esperas de UI…) ni
  *   herramientas meta (feedback, prompts, estadísticas): decisión de diseño vigente.
  * - Las descripciones están en inglés: son la fuente única para Decision (criterios) y para el catálogo del planificador.
@@ -17,13 +21,15 @@ import {
   EXECUTABLE_ROUTES,
   type Capability,
   type ExecutableRoute,
+  type McpServerName,
   type MCPTool,
   type ToolPolicy,
 } from "../types.ts";
 
 export interface ToolDefinition {
   readonly name: string;
-  readonly server: ExecutableRoute;
+  readonly route: ExecutableRoute;
+  readonly server: McpServerName;
   readonly description: string;
   readonly policy: Readonly<ToolPolicy>;
 }
@@ -40,11 +46,30 @@ const NEEDS_APPROVAL = new Set<Capability>([
   "CONFIGURATION",
 ]);
 
-/** Descripción de cada ruta: criterios de Decision #1 y encabezados del catálogo del planificador. */
-export const ROUTE_DESCRIPTIONS: Readonly<Record<ExecutableRoute, string>> = {
-  windows: "Windows OS control: launch apps, run PowerShell, manage processes, registry and files.",
-  desktop_commander: "Local files, directories, processes and terminal commands.",
-  free_search: "Search the web and fetch the content of web pages.",
+/**
+ * Cada destino: servidor MCP que lo ejecuta y descripción (inglés). La descripción es el criterio de Decision #1
+ * y el encabezado del catálogo del planificador.
+ */
+export const DESTINATIONS: Readonly<
+  Record<ExecutableRoute, { readonly server: McpServerName; readonly description: string }>
+> = {
+  files: {
+    server: "desktop_commander",
+    description: "Read, create, save or move files and folders, and list a folder, when the path is already known.",
+  },
+  search_local: {
+    server: "desktop_commander",
+    description: "Find files by name or by text inside files when the location is unknown.",
+  },
+  terminal: {
+    server: "desktop_commander",
+    description:
+      "Run a command or program (including launching apps), and read its output or send it input while it runs. Not for reading or listing files.",
+  },
+  web: {
+    server: "free_search",
+    description: "Look up information online and read the content of web pages, including known URLs.",
+  },
 };
 
 interface ToolOptions {
@@ -55,19 +80,20 @@ interface ToolOptions {
 }
 
 function def(
-  server: ExecutableRoute,
+  route: ExecutableRoute,
   name: string,
   capability: Capability,
   description: string,
   opts: ToolOptions = {}
 ): ToolDefinition {
   if (description.length > MAX_DESCRIPTION_CHARS) {
-    throw new Error(`[Manifest] descripción de '${server}:${name}' excede ${MAX_DESCRIPTION_CHARS} caracteres.`);
+    throw new Error(`[Manifest] descripción de '${route}:${name}' excede ${MAX_DESCRIPTION_CHARS} caracteres.`);
   }
   const mutates = !NO_MUTATION.has(capability);
   return Object.freeze({
     name,
-    server,
+    route,
+    server: DESTINATIONS[route].server,
     description,
     policy: Object.freeze({
       capability,
@@ -80,39 +106,28 @@ function def(
   });
 }
 
-const winTool = (name: string, cap: Capability, desc: string, opts?: ToolOptions) =>
-  def("windows", name, cap, desc, opts);
-const dcTool = (name: string, cap: Capability, desc: string, opts?: ToolOptions) =>
-  def("desktop_commander", name, cap, desc, opts);
-const searchTool = (name: string, cap: Capability, desc: string, opts?: ToolOptions) =>
-  def("free_search", name, cap, desc, opts);
-
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
-  // ---- windows (6) ----
-  winTool("App", "PROCESS_CONTROL", "Launch applications and manage their windows."),
-  winTool("PowerShell", "COMMAND_EXECUTION", "Run PowerShell scripts and terminal commands on Windows."),
-  winTool("FileSystem", "FILE_WRITE", "Windows file operations: read, write, delete, copy, move and list."),
-  winTool("Scrape", "READ", "Fetch a web page by URL and extract its content."),
-  winTool("Process", "PROCESS_CONTROL", "List and terminate system processes."),
-  winTool("Registry", "PROCESS_CONTROL", "Read and modify the Windows Registry: get, set, delete and list."),
+  // ---- files (desktop_commander, 6) ----
+  def("files", "read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", { emptyIsError: true }),
+  def("files", "read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
+  def("files", "write_file", "FILE_WRITE", "Create or overwrite a file on disk."),
+  def("files", "create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
+  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path."),
+  def("files", "move_file", "FILE_WRITE", "Move or rename files or directories."),
 
-  // ---- desktop_commander (11) ----
-  dcTool("read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", { emptyIsError: true }),
-  dcTool("read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
-  dcTool("write_file", "FILE_WRITE", "Create or overwrite a file on disk."),
-  dcTool("create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
-  dcTool("list_directory", "FILE_READ", "List files and subdirectories of a path."),
-  dcTool("move_file", "FILE_WRITE", "Move or rename files or directories."),
-  dcTool("start_search", "FILE_READ", "Start a streaming file search."),
-  dcTool("get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true }),
-  dcTool("start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
-  dcTool("read_process_output", "READ", "Read the accumulated output of a running process.", { loopExempt: true }),
-  dcTool("interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
+  // ---- search_local (desktop_commander, 2) ----
+  def("search_local", "start_search", "FILE_READ", "Start a streaming file search."),
+  def("search_local", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true }),
 
-  // ---- free_search (3) ----
-  searchTool("search", "READ", "Deduplicated multi-engine web search with clean snippets.", { emptyIsError: true }),
-  searchTool("fetch", "READ", "Download a web page and convert it to clean Markdown."),
-  searchTool("fetch_batch", "READ", "Download several URLs in parallel."),
+  // ---- terminal (desktop_commander, 3) ----
+  def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
+  def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", { loopExempt: true }),
+  def("terminal", "interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
+
+  // ---- web (free_search, 3) ----
+  def("web", "search", "READ", "Deduplicated multi-engine web search with clean snippets.", { emptyIsError: true }),
+  def("web", "fetch", "READ", "Download a web page and convert it to clean Markdown."),
+  def("web", "fetch_batch", "READ", "Download several URLs in parallel."),
 ];
 
 // ---------------------------------------------------------------
@@ -137,10 +152,6 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   loopExempt: false,
 });
 
-export function lookupToolManifest(server: string, tool: string): ToolDefinition | undefined {
-  return INDEX.get(keyOf(server, tool));
-}
-
 export function isKnownTool(server: string, tool: string): boolean {
   return INDEX.has(keyOf(server, tool));
 }
@@ -149,16 +160,22 @@ export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy
   return INDEX.get(keyOf(server, tool))?.policy ?? UNKNOWN_TOOL_POLICY;
 }
 
+/** Servidor MCP que ejecuta un destino. */
+export function serverOf(route: ExecutableRoute): McpServerName {
+  return DESTINATIONS[route].server;
+}
+
 /**
- * Lista cerrada: descarta las herramientas que el servidor expone y el manifest no cataloga,
- * y sustituye la descripción por la del manifest (inglés, ≤80 caracteres).
+ * Lista cerrada: de las herramientas que expone el servidor del destino, conserva solo las que el manifest
+ * cataloga bajo ese destino y sustituye la descripción por la del manifest (inglés, ≤80 caracteres).
  * Conserva el `name` y el `inputSchema` reales del servidor.
  */
-export function applyManifest(server: ExecutableRoute, tools: readonly MCPTool[]): MCPTool[] {
+export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool[]): MCPTool[] {
+  const server = serverOf(route);
   const allowed: MCPTool[] = [];
   for (const t of tools) {
     const d = INDEX.get(keyOf(server, t.name));
-    if (d) allowed.push({ ...t, description: d.description });
+    if (d?.route === route) allowed.push({ ...t, description: d.description });
   }
   return allowed;
 }
@@ -167,29 +184,13 @@ export function applyManifest(server: ExecutableRoute, tools: readonly MCPTool[]
 // Catálogo compacto para el planificador
 // ---------------------------------------------------------------
 
-/**
- * @param discoveredTools Herramientas realmente descubiertas por ruta. Si se omite o está vacío,
- *   se lista el manifest completo.
- */
-export function buildCompactCatalog(
-  discoveredTools?: Partial<Record<ExecutableRoute, readonly MCPTool[]>>
-): string {
-  const useDiscovery = discoveredTools !== undefined && Object.keys(discoveredTools).length > 0;
-
+/** Lista el manifest completo, un bloque por destino. */
+export function buildCompactCatalog(): string {
   const sections: string[] = [];
   for (const route of EXECUTABLE_ROUTES) {
-    let defs: ToolDefinition[];
-    if (useDiscovery) {
-      defs = (discoveredTools[route] ?? [])
-        .map((t) => lookupToolManifest(route, t.name))
-        .filter((d): d is ToolDefinition => d !== undefined);
-    } else {
-      defs = SYSTEM_TOOL_MANIFEST.filter((d) => d.server === route);
-    }
-    if (defs.length === 0) continue;
-
+    const defs = SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route);
     const lines = defs.map((d) => `• ${d.name} [${d.policy.capability}]: ${d.description}`);
-    sections.push(`[SUBSYSTEM ${route} - ${ROUTE_DESCRIPTIONS[route]}]:\n${lines.join("\n")}`);
+    sections.push(`[SUBSYSTEM ${route} - ${DESTINATIONS[route].description}]:\n${lines.join("\n")}`);
   }
   return sections.join("\n\n");
 }

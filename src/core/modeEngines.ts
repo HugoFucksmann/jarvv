@@ -280,7 +280,7 @@ export async function handleEscalation(
 
     if (arbitration.route !== step.route) {
         console.log(`[Escalation] Decision #1 determinó conmutar subsistema a '${arbitration.route}'.`);
-        context.activeServerOverride = arbitration.route;
+        context.activeRouteOverride = arbitration.route;
     }
     return true;
 }
@@ -400,9 +400,9 @@ export async function runFastLoop(
         // Paso 1: Decision #1 (ruta)
         let selectedRoute: ExecutableRoute;
 
-        if (context.activeServerOverride) {
-            selectedRoute = context.activeServerOverride;
-            context.activeServerOverride = undefined;
+        if (context.activeRouteOverride) {
+            selectedRoute = context.activeRouteOverride;
+            context.activeRouteOverride = undefined;
         } else {
             const isFirst = task.stepSeq === 0;
             let d1;

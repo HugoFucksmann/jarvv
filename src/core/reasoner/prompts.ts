@@ -14,10 +14,12 @@ import {
   EXECUTABLE_ROUTES,
   MAX_STEPS,
   type DecisionQuestion,
+  type ExecutableRoute,
   type MCPTool,
   type StageVerificationPromptData,
 } from "../types.ts";
-import { ROUTE_DESCRIPTIONS } from "../tools/manifest.ts";
+import { DESTINATIONS } from "../tools/manifest.ts";
+import type { UserEnvironment } from "../environment.ts";
 
 // ============================================================
 // Helpers
@@ -37,6 +39,7 @@ const MAX_EVID_ITEM_CHARS = 1000;
 const MAX_EVID_CHARS = 6000;
 const MAX_STEP_RESULT_CHARS = 800;
 const MAX_REFS_CHARS = 800;
+const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
 // Presupuestos en caracteres (Decision).
 const MAX_MESSAGE_CHARS = 1000;
@@ -147,6 +150,8 @@ export interface ArgumentPromptData {
   effects?: string[];
   /** Referencias disponibles (`ref:rX origen (tamaño)`), las más recientes. */
   refs?: string[];
+  /** Rutas reales de esta PC (carpeta personal, escritorio, documentos, descargas). */
+  environment: UserEnvironment;
   tool: MCPTool;
   cleanedSchema: Record<string, unknown>;
   lastObs?: { stepIndex: number; toolName: string; obsText: string };
@@ -188,11 +193,13 @@ export const PROMPTS = {
     SYSTEM: `Genera los argumentos de la herramienta indicada. Responde solo con el objeto JSON, conforme al SCHEMA.
 Incluye solo los parámetros necesarios y omite los opcionales que no uses. No inventes filtros que el usuario no pidió.
 Si necesitas el contenido íntegro de un resultado previo guardado en memoria, usa {{ref:rX}} como valor del argumento. REFS lista las referencias disponibles: usa solo las que aparezcan allí.
+ENV lista las rutas reales de esta PC (carpeta personal, escritorio, documentos, descargas). Toda ruta del usuario debe partir de ellas tal cual; nunca escribas marcadores como <user> ni variables de entorno.
 ${DATA_NOTICE}`,
 
     buildUserPrompt(data: ArgumentPromptData): string {
       const desc = shortDesc(data.tool.description, "");
       return join([
+        linesBlock("ENV", Object.entries(data.environment).map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
         `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
         `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
         `GOAL: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
@@ -328,6 +335,9 @@ ${DATA_NOTICE}`,
 // ============================================================
 
 export interface Attempt {
+  /** Destino bajo el que se ejecutó la herramienta: es el vocabulario de Decision #1. */
+  route: ExecutableRoute;
+  /** Servidor MCP real: acota el estado "falló" de Decision #2. */
   mcp?: string;
   tool: string;
   ok: boolean;
@@ -376,7 +386,7 @@ const recentAttempts = (attempts?: readonly Attempt[]): Attempt[] =>
 const fmtAttempts = (attempts: readonly Attempt[]): string | null => {
   if (attempts.length === 0) return null;
   const lines = attempts.map((a) => {
-    const where = a.mcp ? `${a.mcp}/${a.tool}` : a.tool;
+    const where = `${a.route}/${a.tool}`;
     const note = a.note ? ` (${clip(a.note, MAX_NOTE_CHARS)})` : "";
     return `- ${where}: ${a.ok ? "ok" : "failed"}${note}`;
   });
@@ -413,10 +423,10 @@ export const DECISION_PROMPTS = {
       data.lastResult ? `Last result: ${clip(data.lastResult, MAX_RESULT_CHARS)}` : null,
     ].filter(Boolean).join("\n");
 
-    const routeStatus = lastStatusBy(attempts, (a) => a.mcp);
+    const routeStatus = lastStatusBy(attempts, (a) => a.route);
     const criteria: Record<string, string> = {};
     for (const route of EXECUTABLE_ROUTES) {
-      const desc = ROUTE_DESCRIPTIONS[route];
+      const desc = DESTINATIONS[route].description;
       criteria[route] = routeStatus.get(route) === false ? `${desc} [failed on the previous attempt]` : desc;
     }
 

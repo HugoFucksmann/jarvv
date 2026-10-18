@@ -31,7 +31,7 @@ export interface TaskExecutionContext {
     /** Límite de recuperación de memoria contextual progresiva (PROGRESSIVE_MEMORY_TIERS). */
     memoryRetrievalLimit: ProgressiveMemoryLimit;
     /** Ruta impuesta por el arbitraje de escalación para la siguiente iteración FAST. */
-    activeServerOverride?: ExecutableRoute;
+    activeRouteOverride?: ExecutableRoute;
     excludedToolForNextCall?: string;
     lastCallCompactObs?: string;
     /** Resumen sintético estructurado para Decision 2.0 ([SUCCESS]/[FAILURE]/…). */
@@ -125,14 +125,15 @@ export function buildScratchpadContextForDecision(task: Task): string {
  * Decision #1 y #2 lo usan para marcar rutas/tools cuyo último intento falló.
  */
 export function buildAttempts(task: Task): Attempt[] {
-    return task.steps
-        .flatMap((s) => (s.calls || []) as StepCall[])
-        .map((c) => ({
+    return task.steps.flatMap((s) =>
+        ((s.calls || []) as StepCall[]).map((c) => ({
+            route: s.route,
             mcp: c.mcp,
             tool: c.tool,
             ok: c.evidence?.ok === true,
             note: c.evidence?.summary,
-        }));
+        }))
+    );
 }
 
 export function buildPlanLines(task: Task): string[] {

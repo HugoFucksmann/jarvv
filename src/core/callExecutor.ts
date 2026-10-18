@@ -20,7 +20,8 @@ import { LLMValidationError, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { ResultProcessor, sanitizeForMemory, type ProcessedResult } from "./processor/resultProcessor.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
-import { applyManifest, getToolPolicy } from "./tools/manifest.ts";
+import { getUserEnvironment } from "./environment.ts";
+import { applyDestination, getToolPolicy, serverOf } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
     addLogEntry,
@@ -99,12 +100,13 @@ const newCallId = (step: Step): string => `call_${step.id}_${(step.calls?.length
 export function recordFailedCall(
     context: TaskExecutionContext,
     step: Step,
-    failure: { mcp?: string; tool?: string; args?: Record<string, unknown>; error: string }
+    failure: { tool?: string; args?: Record<string, unknown>; error: string }
 ): void {
-    const mcp = failure.mcp ?? step.route;
+    const mcp = serverOf(step.route);
     const tool = failure.tool ?? step.tool;
     const summary = sanitizeForMemory(failure.error, 120);
-    context.lastCallDecisionSummary = `[FAILURE] ${mcp}${tool ? `/${tool}` : ""}: ${summary}.`;
+    // Decision #1 solo ve herramientas y destinos: el nombre del servidor no forma parte de su vocabulario.
+    context.lastCallDecisionSummary = `[FAILURE] ${tool ?? step.route}: ${summary}.`;
     if (!tool) return;
 
     step.calls = step.calls || [];
@@ -144,17 +146,18 @@ export async function runStep(
 
     if (isStopped()) return cancelledResult(step);
 
-    // 1. Servidor MCP
-    const serverName = step.route;
+    // 1. Servidor MCP del destino
+    const route = step.route;
+    const serverName = serverOf(route);
     const server = deps.discoveryEngine.getServer(serverName);
     if (!server) {
         throw new Error(`Servidor MCP '${serverName}' no disponible.`);
     }
 
-    // 2. Discovery con lista cerrada: solo herramientas catalogadas en el manifest
-    let discoveredTools: MCPTool[] = applyManifest(serverName, await deps.discoveryEngine.getDiscoveredTools(serverName));
+    // 2. Discovery con lista cerrada: solo herramientas catalogadas en el manifest que pertenecen al destino
+    let discoveredTools: MCPTool[] = applyDestination(route, await deps.discoveryEngine.getDiscoveredTools(serverName));
     if (discoveredTools.length === 0) {
-        throw new Error(`Discovery: no hay herramientas catalogadas disponibles en '${serverName}'.`);
+        throw new Error(`Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${serverName}'.`);
     }
 
     if (context.excludedToolForNextCall) {
@@ -162,7 +165,7 @@ export async function runStep(
         context.excludedToolForNextCall = undefined;
         discoveredTools = discoveredTools.filter((t) => t.name !== excluded);
         if (discoveredTools.length === 0) {
-            throw new Error(`No hay herramientas alternativas en '${serverName}' tras excluir '${excluded}'.`);
+            throw new Error(`No hay herramientas alternativas en el destino '${route}' tras excluir '${excluded}'.`);
         }
     }
 
@@ -212,6 +215,7 @@ export async function runStep(
             facts: task.memory?.facts || {},
             effects: buildEffectsContext(task),
             refs: buildRefsContext(task),
+            environment: await getUserEnvironment(),
             tool: selectedTool,
             cleanedSchema,
             lastObs: context.lastCallCompactObs ? {

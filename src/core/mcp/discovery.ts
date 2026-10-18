@@ -11,7 +11,7 @@
  * - Serves tools directly to Decision #2 for selection.
  */
 
-import { MCPTool, StepRoute } from "../types.ts";
+import { MCPTool } from "../types.ts";
 import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
 
 /**
@@ -80,10 +80,10 @@ export class DiscoveryEngine {
   }
 
   /**
-   * Refreshes and returns the discovered tools for a given MCP or route
+   * Refreshes and returns the discovered tools for a given MCP server
    */
-  async getDiscoveredTools(routeOrMcp: StepRoute | string, forceRefresh = false): Promise<MCPTool[]> {
-    const serverName = this.normalizeServerName(routeOrMcp);
+  async getDiscoveredTools(serverOrAlias: string, forceRefresh = false): Promise<MCPTool[]> {
+    const serverName = this.normalizeServerName(serverOrAlias);
     if (!serverName) return [];
 
     const server = this.servers.get(serverName);
@@ -131,8 +131,8 @@ export class DiscoveryEngine {
   /**
    * Returns the cached cleaned schema for a tool (§10.3), recalculating only on hash change.
    */
-  getCleanedSchema(routeOrMcp: string, toolName: string): Record<string, unknown> | null {
-    const serverName = this.normalizeServerName(routeOrMcp);
+  getCleanedSchema(serverOrAlias: string, toolName: string): Record<string, unknown> | null {
+    const serverName = this.normalizeServerName(serverOrAlias);
     if (!serverName) return null;
     const cached = this.toolsCache.get(serverName);
     if (!cached) return null;
@@ -192,18 +192,17 @@ export class DiscoveryEngine {
   /**
    * Validates if a tool exists in the active discovery cache
    */
-  async validateToolExists(routeOrMcp: string, toolName: string): Promise<boolean> {
-    const tools = await this.getDiscoveredTools(routeOrMcp);
+  async validateToolExists(serverOrAlias: string, toolName: string): Promise<boolean> {
+    const tools = await this.getDiscoveredTools(serverOrAlias);
     const found = tools.some((t) => t.name === toolName);
     if (!found) {
-      const refreshed = await this.getDiscoveredTools(routeOrMcp, true);
+      const refreshed = await this.getDiscoveredTools(serverOrAlias, true);
       return refreshed.some((t) => t.name === toolName);
     }
     return true;
   }
 
   private normalizeServerName(name: string): string | null {
-    if (name === "windows") return "windows";
     if (name === "desktop_commander" || name === "desktop" || name === "commander") return "desktop_commander";
     if (name === "free_search" || name === "search" || name === "web") return "free_search";
     return this.servers.has(name) ? name : null;

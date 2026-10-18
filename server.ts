@@ -13,7 +13,6 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { WindowsMCPServer } from './src/core/mcp/windowsMcp.ts';
 import { DesktopCommanderMCPServer } from './src/core/mcp/desktopCommanderMcp.ts';
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
 import { IMCPServer } from './src/core/mcp/types.ts';
@@ -47,15 +46,13 @@ async function main() {
     next();
   });
 
-  // ============================================================
+
   // BACKEND RUNTIME INSTANCES (SINGLETONS)
-  // ============================================================
-  const windowsServer = new WindowsMCPServer();
+
   const desktopServer = new DesktopCommanderMCPServer();
   const freeSearchServer = new FreeSearchMCPServer();
 
   const servers: Record<string, IMCPServer> = {
-    windows: windowsServer,
     desktop_commander: desktopServer,
     free_search: freeSearchServer,
   };
@@ -84,9 +81,9 @@ async function main() {
     };
   }
 
-  // ============================================================
+
   // CIERRE ORDENADO DE PROCESOS (CLEAN SHUTDOWN HOOKS)
-  // ============================================================
+
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
@@ -113,13 +110,12 @@ async function main() {
   process.on('SIGINT', () => cleanShutdown('SIGINT'));
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
 
-  // ============================================================
-  // 1. SUB-ROUTERS API
-  // ============================================================
 
-  // ------------------------------------------------------------
+  // 1. SUB-ROUTERS API
+
+
   // 1.1 JARVIS CORE ORCHESTRATION ROUTER
-  // ------------------------------------------------------------
+
   const jarvisRouter = express.Router();
 
   // Iniciar tarea
@@ -339,9 +335,9 @@ async function main() {
     res.json(updated);
   });
 
-  // ------------------------------------------------------------
+
   // 1.2 MCP DIRECT ENDPOINTS ROUTER
-  // ------------------------------------------------------------
+
   const mcpRouter = express.Router();
 
   // Descubrimiento de todas las herramientas
@@ -351,7 +347,7 @@ async function main() {
       const tools = await discoveryEngine.discoverAll();
       res.json(tools);
     } catch (err: any) {
-      res.json({ windows: [], desktop_commander: [], free_search: [], error: err.message });
+      res.json({ desktop_commander: [], free_search: [], error: err.message });
     }
   });
 
@@ -402,9 +398,7 @@ async function main() {
     }
     const toolArgs: Record<string, unknown> = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
 
-    // Este endpoint ejecuta herramientas sin tarea ni aprobación humana. Para que no sea un atajo que evada a Guard,
-    // solo admite lecturas que la política permita sin confirmación; todo lo que modifica el entorno (o no está en
-    // el catálogo) solo puede ejecutarse dentro de una tarea, donde Guard y el banner de aprobación intervienen.
+
     const policy = getToolPolicy(req.params.server, name);
     const verdict = Guard.evaluate(req.params.server, name, toolArgs);
     if (policy.kind !== 'READ' || verdict.decision !== 'ALLOW') {
@@ -430,7 +424,7 @@ async function main() {
     }
   });
 
-  // Prompts
+
   mcpRouter.get('/:server/prompts', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
     const server = getServer(req.params.server);
@@ -497,9 +491,9 @@ async function main() {
     res.json({ connected: server ? server.isConnected() : false });
   });
 
-  // ============================================================
+
   // MONTAJE UNIFICADO DE RUTAS
-  // ============================================================
+
   app.use('/api/jarvis', jarvisRouter);
   app.use('/jarvis', jarvisRouter);
   app.use('/api/mcp', mcpRouter);
@@ -518,9 +512,9 @@ async function main() {
     res.status(500).json({ error: err?.message || 'Error interno en API' });
   });
 
-  // ============================================================
+
   // 2. MIDDLEWARE DE VITE (DESARROLLO) / ESTÁTICOS (PRODUCCIÓN)
-  // ============================================================
+
   const isApiRequest = (url: string, pathName: string) =>
     url.startsWith('/api') ||
     url.startsWith('/mcp') ||
@@ -544,9 +538,9 @@ async function main() {
       vite.middlewares(req, res, next);
     });
 
-    // ============================================================
+
     // 3. FALLBACK DEL FRONTEND (INDEX.HTML DE VITE)
-    // ============================================================
+
     app.use('*', async (req, res, next) => {
       if (isApiRequest(req.originalUrl, req.path)) {
         res.setHeader('Content-Type', 'application/json');

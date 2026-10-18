@@ -426,15 +426,6 @@ export class ResultProcessor {
         }
         compactObs = formattedObs;
       }
-    } else if (!isError && mcp === "free_search" && tool === "research") {
-      const firstHeaderMatch = fullText.match(/^#+\s*([^\n]+)/m);
-      const firstLine = firstHeaderMatch ? firstHeaderMatch[1].trim() : (fullText.split("\n")[0] || "Reporte de investigación");
-      finding = sanitizeForMemory(`reporte: ${firstLine}`);
-      if (fullText.length > 1500) {
-        compactObs = `${fullText.substring(0, 1500)}\n[... reporte continúa, ref:${refKey}]`;
-      } else {
-        compactObs = fullText || "Reporte de investigación generado.";
-      }
     } else if (!isError && mcp === "free_search" && tool === "fetch") {
       const urlStr = String(mergedData.url || args.url || "");
       if (urlStr) {
@@ -483,15 +474,15 @@ export class ResultProcessor {
     // 7. Resumen estructurado para modelos clasificadores (Decision 2.0)
     let decisionSummary: string;
     if (signals.not_found) {
-      decisionSummary = `[NOT FOUND] ${mcp}/${tool}: ${finding}. Resource not found.`;
+      decisionSummary = `[NOT FOUND] ${tool}: ${finding}. Resource not found.`;
     } else if (signals.empty_output) {
-      decisionSummary = `[EMPTY] ${mcp}/${tool}: ${finding}. The output contains no useful data.`;
+      decisionSummary = `[EMPTY] ${tool}: ${finding}. The output contains no useful data.`;
     } else if (isError || signals.exit_code !== 0 || signals.denied) {
-      decisionSummary = `[FAILURE] ${mcp}/${tool}: ${finding || 'Execution error'}.`;
+      decisionSummary = `[FAILURE] ${tool}: ${finding || 'Execution error'}.`;
     } else if (success) {
-      decisionSummary = `[SUCCESS] ${mcp}/${tool}: ${finding}. Information obtained and stored in memory.`;
+      decisionSummary = `[SUCCESS] ${tool}: ${finding}. Information obtained and stored in memory.`;
     } else {
-      decisionSummary = `[INFO] ${mcp}/${tool}: ${finding}.`;
+      decisionSummary = `[INFO] ${tool}: ${finding}.`;
     }
 
     return {

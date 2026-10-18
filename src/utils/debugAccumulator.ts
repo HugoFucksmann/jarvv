@@ -4,6 +4,7 @@
  */
 
 import type { CoreEvent, Task, Step, StepCall } from "../core/types.ts";
+import { EXECUTABLE_ROUTES } from "../core/types.ts";
 import type { ModelIteration, StepIterationGroupData } from "../types/debug.ts";
 
 // ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ export function createIterationFromEvent(
           objetivo: task?.message || "Instrucción del usuario",
           historialRegistrado: snapLog(task),
           hechosConfirmados: snapFacts(task),
-          rutasCandidatas: ["windows", "desktop_commander", "free_search", "fin"],
+          rutasCandidatas: [...EXECUTABLE_ROUTES, "fin"],
           esPrimeraIteracion: (task?.steps?.length || 0) <= 1,
         },
         output: {
@@ -106,7 +107,7 @@ export function createIterationFromEvent(
         rawOutput: data.rawOutput,
         input: {
           instruccionEtapa: currentStep?.instruction || "Acción inmediata",
-          servidorMCP: currentStep?.route || "desktop_commander",
+          servidorMCP: currentStep?.mcp,
           herramientasCandidatas: currentStep?.candidate_tools || [],
           variablesScratchpad: snapScratchpad(task),
         },
@@ -359,7 +360,7 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
         input: {
           objetivo: task.message,
           pasoActual: step.instruction,
-          rutasCandidatas: ["windows", "desktop_commander", "free_search", "fin"],
+          rutasCandidatas: [...EXECUTABLE_ROUTES, "fin"],
           rutaAsignada: step.route,
         },
         output: {
@@ -376,7 +377,7 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
     const calls = step.calls && step.calls.length > 0 ? step.calls : (
       step.tool ? [{
         id: `call_${step.id}`,
-        mcp: step.mcp || step.route,
+        mcp: step.mcp,
         tool: step.tool,
         args: step.args,
         evidence: step.evidence,
