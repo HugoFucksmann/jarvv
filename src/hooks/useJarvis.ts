@@ -405,7 +405,8 @@ export function useJarvis() {
 
   // Cancel task
   const cancelTask = useCallback(async (explicitTaskId?: string): Promise<boolean> => {
-    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
+    const validExplicitId = typeof explicitTaskId === "string" && explicitTaskId.trim().length > 0 ? explicitTaskId : undefined;
+    const tid = validExplicitId || activeTaskIdRef.current || taskRef.current?.id || undefined;
     try {
       setError(null);
       const res = await jarvisApi.cancelTask(tid);

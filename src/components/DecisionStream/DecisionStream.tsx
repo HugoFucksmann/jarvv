@@ -139,7 +139,7 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
         <div className="flex flex-col gap-2.5">
           {stepGroups.map((group) => (
             <StepIterationGroup
-              key={`group-${group.stepId}-${group.stepSeq || 0}`}
+              key={group.stepId}
               group={group}
               isInitiallyExpanded={Boolean(expandAllGroups)}
             />

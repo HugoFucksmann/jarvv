@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, Layers, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import type { StepIterationGroupData } from "../../../types/debug.ts";
+import type { ExecutableRoute } from "../../../core/types.ts";
+import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { ModelIterationCard } from "./ModelIterationCard.tsx";
 
 interface StepIterationGroupProps {
@@ -52,7 +54,7 @@ export const StepIterationGroup: React.FC<StepIterationGroupProps> = ({
           {group.route && (
             <>
               <span className="text-slate-600" aria-hidden="true">·</span>
-              <span className="text-sky-300">{group.route}</span>
+              <span className="text-sky-300">{getRouteLabel(group.route as ExecutableRoute)}</span>
             </>
           )}
           {group.tool && (

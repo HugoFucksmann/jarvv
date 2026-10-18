@@ -48,8 +48,7 @@ export function createIterationFromEvent(
       const targetStepSeq = (task?.stepSeq ?? (task?.steps?.length ? task.steps.length : 0)) + 1;
       const expectedStepId = isFin ? "routing_fin" : (stepId || `s${targetStepSeq}`);
 
-      const matchingStep = task?.steps?.find((s) => s.id === expectedStepId) ||
-        (!isFin && task?.steps && task.steps.length > 0 ? task.steps[task.steps.length - 1] : undefined);
+      const matchingStep = task?.steps?.find((s) => s.id === expectedStepId);
 
       const resolvedStepSeq = matchingStep
         ? task?.steps?.indexOf(matchingStep)! + 1

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Check, X, Edit3, ArrowRight, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import { Step } from "../../../core/types.ts";
+import { getRouteLabel } from "../../../utils/routeLabels.ts";
 
 interface PlanReviewProps {
   steps: Step[];
@@ -212,7 +213,7 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
             <div className="flex flex-col gap-1 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-sky-400 font-medium">
-                  [{step.route}]
+                  [{getRouteLabel(step.route)}]
                 </span>
                 {step.candidate_tools && step.candidate_tools.length > 0 && (
                   <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-1.5 py-0.2 rounded border border-slate-800">

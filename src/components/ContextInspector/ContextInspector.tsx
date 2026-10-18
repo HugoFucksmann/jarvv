@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, ExternalLink, X, Copy, Check } from "lucide-react";
 import type { Scratchpad, Step, MCPTool, TaskMemory, Task } from "../../core/types.ts";
 import type { MCPPrompt, MCPResourceTemplate } from "../../core/mcp/types.ts";
+import { jarvisApi } from "../../services/jarvisApi.ts";
 import { SessionStateView } from "./components/SessionStateView.tsx";
 import { ScratchpadView } from "./components/ScratchpadView.tsx";
 import { EvidenceView } from "./components/EvidenceView.tsx";
@@ -42,6 +43,36 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"state" | "memory" | "scratchpad" | "evidence" | "discovery">("state");
+  const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  const [refContent, setRefContent] = useState<string | null>(null);
+  const [isLoadingRef, setIsLoadingRef] = useState<boolean>(false);
+  const [refError, setRefError] = useState<string | null>(null);
+  const [copiedRef, setCopiedRef] = useState<boolean>(false);
+
+  const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const handleInspectRef = async (refKey: string) => {
+    const cleanKey = refKey.replace(/^ref:/, "").trim();
+    setSelectedRef(cleanKey);
+    setRefContent(null);
+    setRefError(null);
+    setIsLoadingRef(true);
+
+    try {
+      const activeId = taskId || task?.id;
+      const res = await jarvisApi.getRef(cleanKey, activeId);
+      if (res && res.found) {
+        setRefContent(res.content);
+      } else {
+        setRefError(`No se encontró contenido en RefStore para 'ref:${cleanKey}'.`);
+      }
+    } catch (err: any) {
+      setRefError(err?.message || "Error al consultar la referencia temporal en RefStore.");
+    } finally {
+      setIsLoadingRef(false);
+    }
+  };
+
   const [height, setHeight] = useState<number>(() => {
     try {
       const saved = localStorage.getItem("jarvis_context_inspector_height");
@@ -137,9 +168,35 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
     return acc + (s.evidence ? 1 : 0);
   }, 0);
 
+  const tabs = [
+    { id: "state" as const, label: "Estado", count: null },
+    { id: "memory" as const, label: "Memoria", count: factsCount > 0 ? factsCount : null },
+    { id: "scratchpad" as const, label: "Scratchpad", count: scratchpadKeysCount > 0 ? scratchpadKeysCount : null },
+    { id: "evidence" as const, label: "Evidencia", count: evidenceCount > 0 ? evidenceCount : null },
+    { id: "discovery" as const, label: "Discovery", count: mcpInitStatus === "loading" ? null : totalDiscovered },
+  ];
+
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    let targetIndex = -1;
+    if (e.key === "ArrowRight") {
+      targetIndex = (index + 1) % tabs.length;
+    } else if (e.key === "ArrowLeft") {
+      targetIndex = (index - 1 + tabs.length) % tabs.length;
+    } else if (e.key === "Home") {
+      targetIndex = 0;
+    } else if (e.key === "End") {
+      targetIndex = tabs.length - 1;
+    }
+    if (targetIndex !== -1) {
+      e.preventDefault();
+      const nextTab = tabs[targetIndex];
+      setActiveTab(nextTab.id);
+      tabButtonRefs.current[nextTab.id]?.focus();
+    }
+  };
+
   return (
     <footer className="relative mt-auto border-t border-slate-800 bg-slate-950/90 text-xs">
-
       {isOpen && (
         <div
           onMouseDown={handleMouseDown}
@@ -172,7 +229,7 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
             onClick={() => setIsOpen(!isOpen)}
             aria-expanded={isOpen}
             aria-controls="context-inspector-panel"
-            className="flex items-center gap-1.5 text-slate-300 hover:text-white font-mono font-medium transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-slate-300 hover:text-white font-mono font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-400 rounded px-1"
           >
             {isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
             <span>Inspección de Contexto</span>
@@ -187,86 +244,44 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
           </button>
 
           {isOpen && (
-            <div className="flex items-center gap-1" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "state"}
-                onClick={() => setActiveTab("state")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "state"
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                  }`}
-              >
-                <span>Estado</span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "memory"}
-                onClick={() => setActiveTab("memory")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "memory"
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                  }`}
-              >
-                <span>Memoria</span>
-                <span className="text-[10px] text-slate-500 ml-1">
-                  ({factsCount > 0 ? `${factsCount}h` : "0"}{effectsCount > 0 ? `·${effectsCount}e` : ""}{failCount > 0 ? `·${failCount}f` : ""})
-                </span>
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "scratchpad"}
-                onClick={() => setActiveTab("scratchpad")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "scratchpad"
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                  }`}
-              >
-                <span>Scratchpad</span>
-                {scratchpadKeysCount > 0 && (
-                  <span className="text-[10px] text-slate-500 ml-1">({scratchpadKeysCount})</span>
-                )}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "evidence"}
-                onClick={() => setActiveTab("evidence")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${activeTab === "evidence"
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                  }`}
-              >
-                <span>Evidencia</span>
-                {evidenceCount > 0 && (
-                  <span className="text-[10px] text-slate-500 ml-1">({evidenceCount})</span>
-                )}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={activeTab === "discovery"}
-                onClick={() => setActiveTab("discovery")}
-                className={`px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${activeTab === "discovery"
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                  }`}
-              >
-                <span>Discovery</span>
-                {mcpInitStatus === "loading" ? (
-                  <Loader2 className="w-2.5 h-2.5 animate-spin text-sky-400 ml-0.5" />
-                ) : (
-                  <span className="text-[10px] text-slate-500 ml-0.5">({totalDiscovered})</span>
-                )}
-                {unavailableCount > 0 && mcpInitStatus !== "loading" && (
-                  <span className="text-[9px] px-1 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80">
-                    {unavailableCount}!
-                  </span>
-                )}
-              </button>
+            <div className="flex items-center gap-1" role="tablist" aria-label="Pestañas de inspección de contexto">
+              {tabs.map((t, idx) => {
+                const isSelected = activeTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    ref={(el) => {
+                      tabButtonRefs.current[t.id] = el;
+                    }}
+                    id={`tab-${t.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelected}
+                    aria-controls={`tabpanel-${t.id}`}
+                    tabIndex={isSelected ? 0 : -1}
+                    onClick={() => setActiveTab(t.id)}
+                    onKeyDown={(e) => handleTabKeyDown(e, idx)}
+                    className={`px-2.5 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 text-xs focus:outline-none focus-visible:ring-1 focus-visible:ring-sky-400 ${
+                      isSelected
+                        ? "bg-slate-800 text-white font-medium shadow-xs"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <span>{t.label}</span>
+                    {t.id === "discovery" && mcpInitStatus === "loading" && (
+                      <Loader2 className="w-2.5 h-2.5 animate-spin text-sky-400 ml-0.5" />
+                    )}
+                    {t.count !== null && t.count > 0 && (
+                      <span className="text-[10px] text-slate-500 font-mono">({t.count})</span>
+                    )}
+                    {t.id === "discovery" && unavailableCount > 0 && mcpInitStatus !== "loading" && (
+                      <span className="text-[9px] px-1 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80 font-mono">
+                        {unavailableCount}!
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -283,29 +298,95 @@ export const ContextInspector: React.FC<ContextInspectorProps> = ({
       {isOpen && (
         <div
           id="context-inspector-panel"
+          role="tabpanel"
+          aria-labelledby={`tab-${activeTab}`}
           style={{ height: `${height}px` }}
-          className="px-6 py-3 border-t border-slate-800/80 overflow-y-auto select-text"
+          className="px-6 py-3 border-t border-slate-800/80 overflow-y-auto select-text flex flex-col"
         >
-          {activeTab === "state" && (
-            <SessionStateView
-              task={task}
-              scratchpad={scratchpad}
-              memory={memory}
-              steps={steps}
-            />
+          {/* Visor de RefStore compartido elevado a nivel contenedor */}
+          {selectedRef && (
+            <div className="mb-3 p-3 bg-slate-900 border border-sky-800/80 rounded-lg shadow-lg flex flex-col gap-2 shrink-0">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <div className="flex items-center gap-1.5 text-sky-300 font-semibold text-xs font-mono">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Contenido íntegro en RefStore: ref:{selectedRef}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {refContent && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(refContent);
+                        setCopiedRef(true);
+                        setTimeout(() => setCopiedRef(false), 2000);
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-white px-2 py-0.5 rounded bg-slate-950 border border-slate-800 transition-colors cursor-pointer"
+                    >
+                      {copiedRef ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedRef ? "Copiado" : "Copiar"}</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedRef(null)}
+                    className="text-slate-400 hover:text-white transition-colors cursor-pointer p-0.5"
+                    aria-label="Cerrar visor de referencia"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              {isLoadingRef && (
+                <div className="flex items-center gap-2 text-slate-400 text-xs py-2 font-mono">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400" />
+                  <span>Cargando contenido desde el servidor...</span>
+                </div>
+              )}
+              {refError && (
+                <div className="text-rose-400 text-xs py-1 font-mono">{refError}</div>
+              )}
+              {refContent && (
+                <pre className="max-h-48 overflow-y-auto p-2 bg-slate-950 rounded border border-slate-800 text-[11px] text-slate-200 whitespace-pre-wrap break-all font-mono leading-relaxed select-text">
+                  {refContent}
+                </pre>
+              )}
+            </div>
           )}
-          {activeTab === "memory" && <MemoryView memory={memory} steps={steps} taskId={taskId} />}
-          {activeTab === "scratchpad" && <ScratchpadView scratchpad={scratchpad} />}
-          {activeTab === "evidence" && <EvidenceView steps={steps} />}
-          {activeTab === "discovery" && (
-            <DiscoveryCatalogView
-              discoveredTools={discoveredTools}
-              extraCapabilities={extraCapabilities}
-              unavailableServers={unavailableServers}
-              onRefreshDiscovery={onRefreshDiscovery}
-              mcpInitStatus={mcpInitStatus}
-            />
-          )}
+
+          <div className="flex-1">
+            {activeTab === "state" && (
+              <SessionStateView
+                task={task}
+                scratchpad={scratchpad}
+                memory={memory}
+                steps={steps}
+              />
+            )}
+            {activeTab === "memory" && (
+              <MemoryView
+                memory={memory}
+                steps={steps}
+                taskId={taskId}
+                onInspectRef={handleInspectRef}
+              />
+            )}
+            {activeTab === "scratchpad" && <ScratchpadView scratchpad={scratchpad} />}
+            {activeTab === "evidence" && (
+              <EvidenceView
+                steps={steps}
+                onInspectRef={handleInspectRef}
+              />
+            )}
+            {activeTab === "discovery" && (
+              <DiscoveryCatalogView
+                discoveredTools={discoveredTools}
+                extraCapabilities={extraCapabilities}
+                unavailableServers={unavailableServers}
+                onRefreshDiscovery={onRefreshDiscovery}
+                mcpInitStatus={mcpInitStatus}
+              />
+            )}
+          </div>
         </div>
       )}
     </footer>

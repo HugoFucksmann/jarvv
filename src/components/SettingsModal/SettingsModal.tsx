@@ -14,10 +14,6 @@ const INITIAL_CONFIG: JarvisConfig = {
   decisionUrl: "http://127.0.0.1:8765",
   decisionMaxContext: 16384,
   decisionTimeoutMs: 30000,
-  windowsMcp: {
-    command: "uvx",
-    args: ["windows-mcp", "serve"],
-  },
   desktopCommanderMcp: {
     command: "npx",
     args: ["-y", "@wonderwhy-er/desktop-commander"],
@@ -27,6 +23,10 @@ const INITIAL_CONFIG: JarvisConfig = {
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
   mcpTimeoutMs: 30000,
+  windowsMcp: {
+    command: "npx",
+    args: ["-y", "@wonderwhy-er/windows-mcp"],
+  },
 };
 
 interface SettingsModalProps {
@@ -228,43 +228,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div className="grid grid-cols-1 gap-3 pl-1">
-                {/* Windows MCP */}
-                <div>
-                  <label htmlFor="cfg-windows-cmd" className="block text-[11px] font-mono text-slate-300 mb-1">
-                    Windows MCP (Comando / Argumentos):
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <input
-                      id="cfg-windows-cmd"
-                      type="text"
-                      value={config.windowsMcp?.command || ""}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          windowsMcp: { ...config.windowsMcp, command: e.target.value },
-                        })
-                      }
-                      placeholder="uvx"
-                      className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px]"
-                    />
-                    <input
-                      type="text"
-                      value={(config.windowsMcp?.args || []).join(" ")}
-                      onChange={(e) =>
-                        setConfig({
-                          ...config,
-                          windowsMcp: {
-                            ...config.windowsMcp,
-                            args: e.target.value.split(" ").filter(Boolean),
-                          },
-                        })
-                      }
-                      placeholder="windows-mcp serve"
-                      className="col-span-2 px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px]"
-                    />
-                  </div>
-                </div>
-
                 {/* Desktop Commander MCP */}
                 <div>
                   <label htmlFor="cfg-desktop-cmd" className="block text-[11px] font-mono text-slate-300 mb-1">

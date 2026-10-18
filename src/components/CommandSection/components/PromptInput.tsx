@@ -74,7 +74,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         {isBusy ? (
           <button
             type="button"
-            onClick={onCancel}
+            onClick={() => onCancel?.()}
             aria-label="Cancelar ejecución actual"
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-400 bg-rose-950/60 border border-rose-900/60 rounded-md hover:bg-rose-900/40 transition-colors cursor-pointer"
           >

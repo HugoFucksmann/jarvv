@@ -149,7 +149,9 @@ export default function App() {
         <CommandSection
           inputRef={inputRef}
           onRun={runTask}
-          onCancel={cancelTask}
+          onCancel={() => {
+            void cancelTask();
+          }}
           isExecuting={isExecuting}
           isWaitingInput={isWaitingInput}
           isTaskActive={isTaskActive}

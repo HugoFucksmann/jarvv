@@ -14,6 +14,7 @@ import {
   Check,
 } from "lucide-react";
 import { Step } from "../../../core/types.ts";
+import { getRouteLabel } from "../../../utils/routeLabels.ts";
 
 interface StepItemProps {
   step: Step;
@@ -70,19 +71,6 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
     }
   };
 
-  const getRouteLabel = () => {
-    switch (step.route) {
-      case "files":
-        return "Archivos";
-      case "search_local":
-        return "Búsqueda local";
-      case "terminal":
-        return "Terminal y procesos";
-      case "web":
-        return "Web";
-    }
-  };
-
   const callsCount = step.calls?.length ?? 0;
 
   return (
@@ -103,7 +91,7 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                 #{index + 1}
               </span>
               <span className="font-mono text-slate-400 font-medium">
-                {getRouteLabel()}
+                {getRouteLabel(step.route)}
               </span>
               {step.tool && (
                 <>
