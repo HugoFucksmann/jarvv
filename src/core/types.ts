@@ -330,6 +330,8 @@ export const MAX_REPLAN = 2;
 export const MAX_RETAINED_TASKS = 20;
 /** Resultados de búsqueda conservados en `scratchpad.search_results`. */
 export const MAX_SCRATCHPAD_RESULTS = 10;
+/** Tope (caracteres) de la observación compacta de una llamada en todo su recorrido: procesamiento, registro de la llamada y respuesta final. */
+export const MAX_EVIDENCE_OBS_CHARS = 2500;
 /** Máximo de preguntas al usuario por paso antes de tratar la falta de información como desviación recuperable. */
 export const MAX_USER_QUESTIONS_PER_STEP = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;

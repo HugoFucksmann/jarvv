@@ -4,6 +4,7 @@
 
 import { createHash } from "node:crypto";
 import {
+    MAX_EVIDENCE_OBS_CHARS,
     isTerminalState,
     type Capability,
     type CoreEventType,
@@ -461,7 +462,7 @@ export async function runStep(
         evidence: {
             ...processed.evidence,
             ok: eosUnavailable ? isCleanSignals : isStepSuccess,
-            obs: processed.compactObs ? processed.compactObs.slice(0, 1500) : undefined,
+            obs: processed.compactObs ? processed.compactObs.slice(0, MAX_EVIDENCE_OBS_CHARS) : undefined,
         },
         verification,
         outcome: { ...processed.outcome, success: isStepSuccess },

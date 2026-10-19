@@ -4,6 +4,7 @@
 
 import {
     MAX_ESCALATIONS,
+    MAX_EVIDENCE_OBS_CHARS,
     MAX_REPLAN,
     MAX_STEPS,
     MAX_USER_QUESTIONS_PER_STEP,
@@ -137,7 +138,7 @@ export async function concludeTask(
         .flatMap((s) => s.calls || [])
         .slice(-3)
         .map((c) => {
-            const obs = (c.evidence?.obs || c.evidence?.summary || "").trim().slice(0, 1500);
+            const obs = (c.evidence?.obs || c.evidence?.summary || "").trim().slice(0, MAX_EVIDENCE_OBS_CHARS);
             return obs ? `${c.tool}: ${obs}` : "";
         })
         .filter(Boolean);

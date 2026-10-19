@@ -6,7 +6,7 @@ import type {
   Scratchpad,
   StepExecutionSignals,
 } from "../types.ts";
-import { MAX_SCRATCHPAD_RESULTS } from "../types.ts";
+import { MAX_EVIDENCE_OBS_CHARS, MAX_SCRATCHPAD_RESULTS } from "../types.ts";
 import { getToolPolicy } from "../tools/manifest.ts";
 
 export interface ProcessedResult {
@@ -165,10 +165,11 @@ function refLabel(tool: string, args: Record<string, unknown>): string {
   return tool;
 }
 
-/** Tope de `evidence.obs`. La observación compacta de `search` se arma para caber en él. */
-const MAX_EVIDENCE_OBS_CHARS = 1500;
 /** Largo del snippet de cada resultado en la observación compacta de `search`. */
 const SEARCH_SNIPPET_CHARS = 40;
+
+/** Línea con la que `search` informa un motor inexistente: `- <motor>: Unknown engine: '<x>'.` */
+const UNKNOWN_ENGINE_LINE = /^- [^:\n]+: Unknown engine: '([^']+)'\./gm;
 
 interface SearchItem {
   title: string;
@@ -273,27 +274,8 @@ export class ResultProcessor {
     const isDenied =
       leadsWith("[DENIED]") || (isError && (fullText.includes("[DENIED]") || lowerText.includes("access denied")));
 
-    let emptyOutput = false;
-    if (policy.emptyIsError) {
-      if (!fullText || fullText.length === 0) {
-        emptyOutput = true;
-      } else if (mcp === "free_search") {
-        if (tool === "search") {
-          const resultsMatch = fullText.match(/_results:\s*(\d+)_/i);
-          if (resultsMatch) {
-            emptyOutput = parseInt(resultsMatch[1], 10) === 0;
-          } else if (/0\s+(results|resultados)/i.test(fullText) && fullText.length < 500) {
-            emptyOutput = true;
-          } else if (fullText.length < 50) {
-            emptyOutput = true;
-          }
-        } else {
-          if (fullText.length < 50) {
-            emptyOutput = true;
-          }
-        }
-      }
-    }
+    // La vacuidad de `free_search:search` se decide en su rama (necesita el recuento y los resultados leídos).
+    const emptyOutput = policy.emptyIsError === true && fullText.length === 0;
 
     const signals: StepExecutionSignals = {
       exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : 0),
@@ -417,8 +399,11 @@ export class ResultProcessor {
         }
       }
 
-      if (items.length === 0 && ((reportedCount !== undefined && reportedCount > 0) || fullText.length > 500)) {
-        signals.empty_output = false;
+      // Sin resultados leídos: `_results: 0_`, o un texto corto sin ese marcador, es una búsqueda vacía. Un recuento
+      // positivo, o un texto largo sin marcador, es un formato que no se supo leer.
+      const reportedPositive = reportedCount !== undefined && reportedCount > 0;
+      const longWithoutMarker = reportedCount === undefined && fullText.length > 500;
+      if (items.length === 0 && (reportedPositive || longWithoutMarker)) {
         const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
         finding = sanitizeForMemory(`${isError ? 'err' : 'ok'}: ${firstLine}`);
         if (fullText.length > 1500) {
@@ -426,9 +411,12 @@ export class ResultProcessor {
         } else {
           compactObs = fullText || "Búsqueda web completada.";
         }
-      } else if (items.length === 0 && (reportedCount === 0 || fullText.length < 50)) {
+      } else if (items.length === 0) {
         signals.empty_output = true;
-        finding = sanitizeForMemory(`0 resultados web`);
+        const unknownEngines = [...fullText.matchAll(UNKNOWN_ENGINE_LINE)].map((m) => m[1]);
+        finding = sanitizeForMemory(
+          unknownEngines.length > 0 ? `0 resultados web (motor desconocido: ${unknownEngines.join(", ")})` : "0 resultados web"
+        );
         compactObs = "0 resultados encontrados.";
       } else {
         const count = reportedCount !== undefined ? reportedCount : items.length;

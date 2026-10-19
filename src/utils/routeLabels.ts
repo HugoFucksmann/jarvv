@@ -8,7 +8,7 @@ export function getRouteLabel(route: ExecutableRoute): string {
   switch (route) {
     case "files":
       return "Archivos";
-    case "search_local":
+    case "locate":
       return "Búsqueda local";
     case "terminal":
       return "Terminal y procesos";
