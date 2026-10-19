@@ -711,8 +711,9 @@ export async function runPlanLoop(
                 verdictReason = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario: ${stageVerif.reason}`;
             }
 
-            // Si la etapa no quedó aprobada, lo que aportó (facts de contenido y handoff) deja de valer como confirmado.
-            if (verdictStatus !== "completed") {
+            // Un bloqueo irrecuperable o la falta de información no confirman lo que aportó el paso: sus facts y su
+            // handoff se retiran. Una desviación recuperable conserva lo observado, que el replan necesita.
+            if (verdictStatus === "unrecoverable_blocked" || verdictStatus === "insufficient_info") {
                 retractStepFacts(context, step);
             }
 

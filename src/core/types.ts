@@ -38,7 +38,7 @@ export type StepState =
  * prompts, criterios de Decision, validación de planes) debe derivarse de esta constante. Cada destino lo
  * ejecuta un servidor MCP (ver DESTINATIONS en tools/manifest.ts).
  */
-export const EXECUTABLE_ROUTES = ["files", "search_local", "terminal", "web"] as const;
+export const EXECUTABLE_ROUTES = ["files", "locate", "terminal", "web"] as const;
 export type ExecutableRoute = (typeof EXECUTABLE_ROUTES)[number];
 
 /** Servidores MCP activos. Windows MCP queda fuera de la configuración activa. */

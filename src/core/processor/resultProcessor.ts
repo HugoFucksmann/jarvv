@@ -165,6 +165,46 @@ function refLabel(tool: string, args: Record<string, unknown>): string {
   return tool;
 }
 
+/** Tope de `evidence.obs`. La observación compacta de `search` se arma para caber en él. */
+const MAX_EVIDENCE_OBS_CHARS = 1500;
+/** Largo del snippet de cada resultado en la observación compacta de `search`. */
+const SEARCH_SNIPPET_CHARS = 40;
+
+interface SearchItem {
+  title: string;
+  url?: string;
+  snippet?: string;
+}
+
+/**
+ * Observación compacta de `search` dentro de MAX_EVIDENCE_OBS_CHARS. Prioridad: título y URL de cada resultado
+ * (siempre completos); después los snippets, solo si caben en todos; el lead, solo si cabe. Si ni los títulos y
+ * URLs entran, se conservan los resultados completos que caben y el resto queda en la referencia.
+ */
+function buildSearchObs(items: readonly SearchItem[], leadText: string | undefined, refKey: string | undefined): string {
+  const shown = items.slice(0, MAX_SCRATCHPAD_RESULTS);
+  const bare = shown.map((it) => (it.url ? `${it.title}: ${it.url}` : it.title));
+  const withSnippet = shown.map((it, i) =>
+    it.snippet ? `${bare[i]} - ${it.snippet.slice(0, SEARCH_SNIPPET_CHARS)}` : bare[i]
+  );
+  const lead = leadText ? `Lead: ${leadText.slice(0, 300)}` : undefined;
+
+  const compose = (lines: readonly string[], withLead: boolean): string => {
+    const omitted = items.length - lines.length;
+    const note = omitted > 0 && refKey ? `\n[... omitidos ${omitted} resultados, ref:${refKey}]` : "";
+    return [...(withLead && lead ? [lead] : []), ...lines].join("\n") + note;
+  };
+
+  const fitting = [compose(withSnippet, true), compose(withSnippet, false), compose(bare, false)].find(
+    (obs) => obs.length <= MAX_EVIDENCE_OBS_CHARS
+  );
+  if (fitting) return fitting;
+
+  let kept = Math.max(bare.length - 1, 1);
+  while (kept > 1 && compose(bare.slice(0, kept), false).length > MAX_EVIDENCE_OBS_CHARS) kept--;
+  return compose(bare.slice(0, kept), false);
+}
+
 export class ResultProcessor {
   /**
    * Processes a raw MCP ToolResult into structured Core state and memory tokens.
@@ -336,7 +376,7 @@ export class ResultProcessor {
     } else if (!isError && mcp === "free_search" && tool === "search") {
       let jsonResults = Array.isArray(mergedData.results) ? mergedData.results : (Array.isArray(mergedData.documents) ? mergedData.documents : null);
 
-      let items: { title: string; url?: string; snippet?: string }[] = [];
+      let items: SearchItem[] = [];
       let reportedCount: number | undefined;
       let leadText: string | undefined;
 
@@ -412,19 +452,7 @@ export class ResultProcessor {
         }));
         scratchpadDelta.search_results_total = items.length;
 
-        const obsLines: string[] = [];
-        if (leadText) {
-          obsLines.push(`Lead: ${leadText.slice(0, 300)}`);
-        }
-        for (const it of items.slice(0, 5)) {
-          const snip = it.snippet ? ` - ${it.snippet.slice(0, 150)}` : "";
-          obsLines.push(`${it.title}: ${it.url || ""} ${snip}`.trim());
-        }
-        let formattedObs = obsLines.join("\n") || "Búsqueda web completada.";
-        if (items.length > 5 && refKey) {
-          formattedObs += `\n[... omitidos ${items.length - 5} resultados, ref:${refKey}]`;
-        }
-        compactObs = formattedObs;
+        compactObs = buildSearchObs(items, leadText, refKey);
       }
     } else if (!isError && mcp === "free_search" && tool === "fetch") {
       const urlStr = String(mergedData.url || args.url || "");
@@ -466,7 +494,7 @@ export class ResultProcessor {
     const evidence: Evidence = {
       ok: success && !isError && !signals.empty_output && !signals.not_found,
       summary: finding,
-      obs: compactObs ? compactObs.slice(0, 1500) : undefined,
+      obs: compactObs ? compactObs.slice(0, MAX_EVIDENCE_OBS_CHARS) : undefined,
       flags: flags.length > 0 ? flags : undefined,
       ref: refKey ? `${mcp}:${tool}:${refKey}` : `${mcp}:${tool}`,
     };

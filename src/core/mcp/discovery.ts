@@ -47,8 +47,6 @@ export class DiscoveryEngine {
     string,
     {
       tools: MCPTool[];
-      cleanedSchemas: Map<string, Record<string, unknown>>;
-      hash: string;
       lastFetched: number;
     }
   > = new Map();
@@ -110,15 +108,7 @@ export class DiscoveryEngine {
 
     try {
       const tools = await server.listTools();
-      const hash = this.computeToolsHash(tools);
-      let cleanedSchemas = cached?.hash === hash ? cached.cleanedSchemas : new Map<string, Record<string, unknown>>();
-      if (cleanedSchemas.size === 0 || cached?.hash !== hash) {
-        cleanedSchemas = new Map();
-        for (const t of tools) {
-          cleanedSchemas.set(t.name, cleanInputSchema(t.inputSchema || {}));
-        }
-      }
-      this.toolsCache.set(serverName, { tools, cleanedSchemas, hash, lastFetched: now });
+      this.toolsCache.set(serverName, { tools, lastFetched: now });
       this.unavailableServers.delete(serverName);
       return tools;
     } catch (err: any) {
@@ -126,17 +116,6 @@ export class DiscoveryEngine {
       console.error(`[Discovery] ${serverName} error=${err?.message || err}`);
       return cached ? cached.tools : [];
     }
-  }
-
-  /**
-   * Returns the cached cleaned schema for a tool (§10.3), recalculating only on hash change.
-   */
-  getCleanedSchema(serverOrAlias: string, toolName: string): Record<string, unknown> | null {
-    const serverName = this.normalizeServerName(serverOrAlias);
-    if (!serverName) return null;
-    const cached = this.toolsCache.get(serverName);
-    if (!cached) return null;
-    return cached.cleanedSchemas.get(toolName) || null;
   }
 
   /**
@@ -206,18 +185,5 @@ export class DiscoveryEngine {
     if (name === "desktop_commander" || name === "desktop" || name === "commander") return "desktop_commander";
     if (name === "free_search" || name === "search" || name === "web") return "free_search";
     return this.servers.has(name) ? name : null;
-  }
-
-  private computeToolsHash(tools: MCPTool[]): string {
-    const data = tools
-      .map((t) => `${t.name}:${JSON.stringify(t.inputSchema || {})}`)
-      .sort()
-      .join("|");
-    let hash = 0;
-    for (let i = 0; i < data.length; i++) {
-      hash = (hash << 5) - hash + data.charCodeAt(i);
-      hash |= 0;
-    }
-    return hash.toString(16);
   }
 }

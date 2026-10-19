@@ -14,7 +14,7 @@ import {
     type StepHandoff,
 } from "./types.ts";
 import type { Decision20Engine } from "./decision.ts";
-import type { DiscoveryEngine } from "./mcp/discovery.ts";
+import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
 import { LLMValidationError, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
@@ -157,7 +157,11 @@ export async function runStep(
     // 2. Discovery con lista cerrada: solo herramientas catalogadas en el manifest que pertenecen al destino
     let discoveredTools: MCPTool[] = applyDestination(route, await deps.discoveryEngine.getDiscoveredTools(serverName));
     if (discoveredTools.length === 0) {
-        throw new Error(`Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${serverName}'.`);
+        const unavailable = deps.discoveryEngine.getUnavailableServers()[serverName];
+        throw new Error(
+            `Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${serverName}'` +
+            (unavailable ? `: servidor no disponible (${unavailable.reason}).` : ".")
+        );
     }
 
     if (context.excludedToolForNextCall) {
@@ -201,7 +205,7 @@ export async function runStep(
     }, step.id);
 
     // 4. Qwen etapa 3: argumentos
-    const cleanedSchema = deps.discoveryEngine.getCleanedSchema(serverName, selectedTool.name) || selectedTool.inputSchema;
+    const cleanedSchema = cleanInputSchema(selectedTool.inputSchema);
     let args: Record<string, unknown>;
     let argRawInput: string;
     let argRawOutput: string;

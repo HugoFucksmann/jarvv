@@ -31,6 +31,8 @@ export interface ToolDefinition {
   readonly route: ExecutableRoute;
   readonly server: McpServerName;
   readonly description: string;
+  /** Parámetros que se ofrecen al modelo; sin esta lista se ofrecen todos los del schema del servidor. */
+  readonly params?: readonly string[];
   readonly policy: Readonly<ToolPolicy>;
 }
 
@@ -57,7 +59,7 @@ export const DESTINATIONS: Readonly<
     server: "desktop_commander",
     description: "Read, create, save or move files and folders, and list a folder, when the path is already known.",
   },
-  search_local: {
+  locate: {
     server: "desktop_commander",
     description: "Find files by name or by text inside files when the location is unknown.",
   },
@@ -77,6 +79,8 @@ interface ToolOptions {
   emptyIsError?: boolean;
   /** Exenta del anti-loop. */
   loopExempt?: boolean;
+  /** Parámetros permitidos: el resto no se muestra ni se acepta (ver `applyDestination`). */
+  params?: readonly string[];
 }
 
 function def(
@@ -95,6 +99,7 @@ function def(
     route,
     server: DESTINATIONS[route].server,
     description,
+    params: opts.params,
     policy: Object.freeze({
       capability,
       requiresApproval: NEEDS_APPROVAL.has(capability),
@@ -115,9 +120,9 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path."),
   def("files", "move_file", "FILE_WRITE", "Move or rename files or directories."),
 
-  // ---- search_local (desktop_commander, 2) ----
-  def("search_local", "start_search", "FILE_READ", "Start a streaming file search."),
-  def("search_local", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true }),
+  // ---- locate (desktop_commander, 2) ----
+  def("locate", "start_search", "FILE_READ", "Start a streaming file search."),
+  def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true }),
 
   // ---- terminal (desktop_commander, 3) ----
   def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
@@ -125,7 +130,10 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   def("terminal", "interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
 
   // ---- web (free_search, 3) ----
-  def("web", "search", "READ", "Deduplicated multi-engine web search with clean snippets.", { emptyIsError: true }),
+  def("web", "search", "READ", "Deduplicated multi-engine web search with clean snippets.", {
+    emptyIsError: true,
+    params: ["query", "max_results"],
+  }),
   def("web", "fetch", "READ", "Download a web page and convert it to clean Markdown."),
   def("web", "fetch_batch", "READ", "Download several URLs in parallel."),
 ];
@@ -165,17 +173,30 @@ export function serverOf(route: ExecutableRoute): McpServerName {
   return DESTINATIONS[route].server;
 }
 
+/** Deja en el schema solo los parámetros permitidos; `validateArgs` rechaza cualquier otro (additionalProperties: false). */
+function restrictParams(schema: MCPTool["inputSchema"], params: readonly string[]): MCPTool["inputSchema"] {
+  const properties = Object.fromEntries(
+    Object.entries(schema.properties ?? {}).filter(([name]) => params.includes(name))
+  );
+  return { ...schema, properties, additionalProperties: false };
+}
+
 /**
  * Lista cerrada: de las herramientas que expone el servidor del destino, conserva solo las que el manifest
- * cataloga bajo ese destino y sustituye la descripción por la del manifest (inglés, ≤80 caracteres).
- * Conserva el `name` y el `inputSchema` reales del servidor.
+ * cataloga bajo ese destino, sustituye la descripción por la del manifest (inglés, ≤80 caracteres) y, si la
+ * herramienta declara `params`, restringe su schema a esos parámetros. Conserva el `name` real del servidor.
  */
 export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool[]): MCPTool[] {
   const server = serverOf(route);
   const allowed: MCPTool[] = [];
   for (const t of tools) {
     const d = INDEX.get(keyOf(server, t.name));
-    if (d?.route === route) allowed.push({ ...t, description: d.description });
+    if (d?.route !== route) continue;
+    allowed.push({
+      ...t,
+      description: d.description,
+      ...(d.params && { inputSchema: restrictParams(t.inputSchema, d.params) }),
+    });
   }
   return allowed;
 }

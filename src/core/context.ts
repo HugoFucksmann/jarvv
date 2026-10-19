@@ -203,8 +203,8 @@ export function buildRefsContext(task: Task, limit = 5): string[] {
 }
 
 /**
- * Retira de la memoria los facts que un paso aportó cuando su verificación semántica NO lo aprobó, y el handoff
- * que habría pasado al siguiente paso. Solo se retira lo que sigue valiendo lo que aportó el paso (no lo que otro
+ * Retira de la memoria los facts que un paso aportó cuando su verificación semántica lo bloqueó o la información
+ * no alcanzó (no en una desviación recuperable), y el handoff que habría pasado al siguiente paso. Solo se retira lo que sigue valiendo lo que aportó el paso (no lo que otro
  * paso sobrescribió después). Los facts de una mutación (p. ej. el pid de un proceso lanzado) se conservan: describen
  * el entorno, no una hipótesis sobre el contenido observado.
  */
