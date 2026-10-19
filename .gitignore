@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+jarvis-tasks.json
+jarvis-tasks.json.bak
+jarvis-refs/*.json
