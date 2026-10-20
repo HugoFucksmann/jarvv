@@ -33,7 +33,17 @@
   ],
   "source": {
     "taskId": "task_example_args",
-    "iterationId": "iter_example_args"
+    "seq": 2
+  },
+  "reference": {
+    "originalOutput": "{\"path\":\"C:\\\\Users\\\\User\\\\Desktop\\\\notas.txt\"}",
+    "retried": false,
+    "error": null,
+    "toolRun": {
+      "tool": "read_file",
+      "ok": true,
+      "error": null
+    }
   },
   "notes": "Caso de ejemplo de generación de argumentos para la herramienta read_file con schema conocido."
 }

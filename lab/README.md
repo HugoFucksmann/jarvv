@@ -11,7 +11,7 @@ Entorno aislado y reproducible para experimentar, evaluar y contrastar variantes
    - Dentro de `lab/`, **únicamente `adapter.ts`** tiene permitido importar módulos desde `src/` (`ConfigManager`, `postJson`, `PROMPTS`, validadores). Ningún otro archivo (`run.ts`, `evaluate.ts`, `extract-cases.ts`, `types.ts`) importa desde `src/`.
 2. **Cero Efectos Colaterales**:
    - No se ejecutan herramientas físicas ni servidores MCP.
-   - No se modifican archivos de tareas (`jarvis-tasks.json`), referencias (`jarvis-refs/`) ni configuraciones del sistema.
+   - No se modifican archivos de trazas (`jarvis-traces.jsonl`), referencias (`jarvis-refs/`) ni configuraciones del sistema.
    - Nada dentro de `lab/` escribe fuera del directorio `lab/`.
 3. **Quien Propone No Evalúa**:
    - Las variantes de prompt (`prompts/variants/`) están estrictamente separadas de los casos de evaluación (`cases/`) y de la lógica de checks (`evaluate.ts`).
@@ -39,11 +39,27 @@ En el núcleo de JARVIS (`src/types/debug.ts`), las etapas se identifican con id
 
 ## 3. Comandos y Flujo de Trabajo
 
-### A. Extraer borradores desde tareas reales
+### Flujo Completo de Trabajo:
+1. **Habilitar el registro**: Activar en JARVIS el registro continuo de trazas (escribirá en `jarvis-traces.jsonl`).
+2. **Generar trazas reales**: Ejecutar entre 10 y 20 tareas reales en JARVIS que involucren navegación de archivos, búsqueda y herramientas.
+3. **Extraer borradores**: Correr `npx tsx lab/extract-cases.ts`.
+4. **Completar expectativas**: Inspeccionar los borradores en `lab/cases/<etapa>/_drafts/`, apoyándose en el bloque `reference` (salida original, `retried`, `error`, resultado de herramienta `toolRun`), y definir `expect: [...]` manualmente.
+5. **Promover casos**: Mover los casos validados fuera de `_drafts/` al directorio `lab/cases/<etapa>/`.
+6. **Ejecutar benchmarks**: Evaluar el prompt estable y variantes con `run.ts`.
+7. **Comparar cuantitativamente**: Contrastar corridas con `evaluate.ts`.
+
+### A. Extraer borradores desde el registro de trazas
 ```bash
+# Extraer desde el archivo de trazas por defecto (jarvis-traces.jsonl)
 npx tsx lab/extract-cases.ts
+
+# Extraer desde un archivo alternativo o fixture de prueba
+npx tsx lab/extract-cases.ts --file lab/fixtures/example-traces.jsonl
+
+# Extraer únicamente las llamadas de una tarea específica
+npx tsx lab/extract-cases.ts --task example-task-fast-01
 ```
-Lee `jarvis-tasks.json` en modo **solo lectura** y genera borradores en `cases/<etapa>/_drafts/` con la entrada real registrada, la salida histórica y `expect: null`. Los casos con `expect: null` no se ejecutan hasta que el usuario defina sus expectativas a mano y los mueva fuera de `_drafts/`.
+Lee el registro JSONL en modo **solo lectura** y genera borradores en `cases/<etapa>/_drafts/` con la entrada exacta registrada, `expect: null`, `source: { taskId, seq }` y un bloque `reference`. Los casos preexistentes no se sobrescriben.
 
 ### B. Ejecutar un benchmark (Stable o Variante)
 ```bash
@@ -55,16 +71,18 @@ npx tsx lab/run.ts decision_one example-concise --split dev
 npx tsx lab/run.ts arguments stable
 npx tsx lab/run.ts arguments example-strict-refs --split test
 ```
+- Realiza sondeo previo en la primera llamada: si el endpoint está desconectado (`ECONNREFUSED`), aborta de inmediato con código 1 sin guardar resultados en disco.
 - Corre cada caso $N$ veces de forma secuencial (según `lab/config.json`, por defecto 3).
-- Genera un archivo inmutable en `lab/results/<timestamp>-<etapa>-<variante>.json`.
-- Registra el texto exacto del prompt, hash del prompt estable, parámetros del modelo, latencia por repetición y salidas crudas.
+- Genera un archivo inmutable en `lab/results/<timestamp>-<etapa>-<variante>.json` (con flag `wx` para evitar sobreescrituras).
+- Registra el prompt exacto (o el prompt efectivo fusionado en Eos), hashes estables deterministas globales y por caso, parámetros de modelo, latencias, salidas crudas y banderas de truncamiento.
 
 ### C. Comparar dos corridas
 ```bash
 npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.json
 ```
+- Valida la integridad de ambas corridas: rechaza corridas con errores de conexión o con 100% de errores en sus repeticiones.
 - Valida que ambas corridas cubran exactamente los mismos casos y repeticiones.
-- Informa tasa de éxito global, detalle caso a caso (ej. 3/3 vs 2/3), casos que mejoran / empeoran / neutros, errores sintácticos de JSON, errores de schema y latencia media.
+- Muestra el split evaluado (`Split: dev`) y reporta tasa de acierto global, detalle caso a caso (ej. 3/3 vs 2/3), casos que mejoran / empeoran / neutros, errores sintácticos de JSON, errores de schema y latencia media.
 
 ---
 
@@ -73,7 +91,7 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 ### Formato de Casos (`cases/<etapa>/<id>.json`)
 ```json
 {
-  "id": "example-routing-files",
+  "id": "draft_d1_task_123_seq1",
   "stage": "decision_one",
   "split": "dev",
   "input": {
@@ -86,7 +104,13 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
   ],
   "source": {
     "taskId": "task_123",
-    "iterationId": "iter_456"
+    "seq": 1
+  },
+  "reference": {
+    "originalOutput": "{\"answers\":{\"route\":{\"choice\":\"files\"}}}",
+    "retried": false,
+    "error": null,
+    "toolRun": { "tool": "read_file", "ok": true, "error": null }
   },
   "notes": "Descripción del caso"
 }
@@ -106,30 +130,66 @@ Ejemplo: `lab/prompts/variants/arguments/example-strict-refs.md`.
 
 #### Para Eos (`decision_one`): Archivo `.json`
 Sobrescribe las `instructions` y los textos descriptivos de `criteria` por pregunta.
-**Regla de integridad**: Una variante de Eos **no puede alterar las opciones permitidas del choice** ni agregar/quitar claves de preguntas. Si lo intenta, el adaptador rechaza la variante inmediatamente.
+**Regla de integridad**: Una variante de Eos **no puede alterar las opciones permitidas del choice** ni agregar claves de preguntas. Si lo intenta, el adaptador rechaza la variante inmediatamente. Opciones omitidas en la variante conservan su criterio original.
 Ejemplo: `lab/prompts/variants/decision_one/example-concise.json`.
 
 ---
 
 ## 5. Particularidades de Integración y Diferencias con Producción
 
+### Contrato del Registro de Trazas (Versión 1)
+El extractor lee un archivo JSONL (por defecto `jarvis-traces.jsonl`), donde cada línea representa una tarea completa:
+```json
+{
+  "v": 1,
+  "taskId": "task-...",
+  "startedAt": "...",
+  "endedAt": "...",
+  "mode": "fast" | "plan",
+  "userMessage": "...",
+  "status": "completed" | "failed" | "aborted" | "waiting_input",
+  "finalResponse": "...",
+  "plan": { ... } | null,
+  "calls": [
+    {
+      "seq": 1,
+      "step": 1,
+      "stage": "DECISION_ONE" | "ARGUMENT_GENERATION",
+      "rawInput": "...",
+      "rawOutput": "...",
+      "latencyMs": 120,
+      "promptTokens": 140,
+      "completionTokens": 35,
+      "retried": false,
+      "error": null
+    }
+  ],
+  "toolRuns": [
+    {
+      "step": 1,
+      "tool": "read_file",
+      "args": { ... },
+      "ok": true,
+      "error": null
+    }
+  ]
+}
+```
+
 ### Aclaración de Pruebas del Extractor
-El script `extract-cases.ts` y la interpretación del formato de `rawInput` se diseñaron con base en el análisis estático del código fuente de JARVIS (`src/core/core.ts`, `src/utils/debugAccumulator.ts`, `src/core/decision.ts`, `src/core/reasoner/qwen.ts`). **No han sido probados con un archivo `jarvis-tasks.json` real de producción**, dado que dicho archivo no existe en el entorno inicial. Se recomienda verificar los primeros borradores extraídos de tareas reales antes de activarlos.
+El extractor `extract-cases.ts` fue rediseñado y verificado exhaustivamente contra el fixture representativo `lab/fixtures/example-traces.jsonl`. **No ha sido probado con un archivo `jarvis-traces.jsonl` generado en producción**, dado que la persistencia en `src/` aún debe ser implementada por el agente correspondiente.
 
 ### Stable Histórico de Eos (`decision_one`)
-En las trazas históricas de JARVIS (`modelIterations`), el campo `rawInput` almacena el `{ state, questions }` ya renderizado, sin conservar los datos estructurados originales en ese nivel. En consecuencia, el **prompt estable** de `decision_one` para un caso histórico corresponde al par `state` y `questions` registrado originalmente en la traza del caso, no a una regeneración en vivo desde `prompts.ts`. El hash estable se calcula sobre el conjunto global ordenado por `caseId` y por caso individual.
+En las trazas históricas de JARVIS, el campo `rawInput` de Eos almacena el `{ state, questions }` ya renderizado. El prompt estable corresponde al par `state` y `questions` registrado originalmente en la traza, no a una regeneración en vivo desde `prompts.ts`. El hash estable se calcula sobre el conjunto global ordenado alfabéticamente por `caseId` y por caso individual.
 
 ### Fusión de Criteria y Registro del Prompt Efectivo en Eos
-Una variante de `decision_one` puede sobrescribir selectivamente solo parte de los textos descriptivos de `criteria`. Las opciones no modificadas conservan automáticamente su descripción original del caso. No está permitido agregar opciones no existentes ni preguntas nuevas. El archivo de resultado en `lab/results/` guarda el **prompt efectivo ya fusionado por caso** (`effectivePromptsByCase`), permitiendo auditar con exactitud qué texto vio el modelo.
+Una variante de `decision_one` puede sobrescribir selectivamente solo parte de los criterios. Las opciones no mencionadas conservan su texto original. El benchmark guarda el prompt efectivo final resultante (`effectivePromptsByCase`) para auditar la entrada exacta del modelo.
 
 ### Schema en `arguments` (Qwen)
-El schema verificado en la capa de checks es el `cleanedSchema` capturado dentro del bloque `SCHEMA` del user prompt, no el `inputSchema` original completo con metadatos del servidor MCP. Esto garantiza que las pruebas sean 100% reproducibles sin requerir servidores MCP en ejecución.
+El schema verificado en los checks es el `cleanedSchema` capturado dentro del bloque `SCHEMA:` del user prompt mediante un analizador de llaves balanceadas, no el `inputSchema` del servidor MCP. Esto permite evaluar sin levantar servidores MCP en ejecución.
 
 ### Medición Previa a Reintentos
 En producción, JARVIS aplica reintentos con notas de corrección (`retryNote`, 1.5x tokens, temperatura 0.3). El laboratorio evalúa **un único intento por repetición** a temperatura base (0.1), midiendo la tasa pura de acierto de primera pasada del prompt evaluado.
-
-### Control de Truncamiento y Parámetros
-En Qwen (`arguments`), las salidas truncadas por alcanzar `max_tokens` (`finish_reason === "length"`) son identificadas explícitamente y reportadas en el resumen. Todos los parámetros del modelo se capturan de forma estática antes de ejecutar inferencias, evitando registros con valores desconocidos.
 
 ---
 
@@ -137,5 +197,5 @@ En Qwen (`arguments`), las salidas truncadas por alcanzar `max_tokens` (`finish_
 
 El archivo `lab/.gitignore` local garantiza que:
 - Los borradores con datos sensibles en `cases/**/_drafts/` no se suban al repositorio.
-- Los casos reales extraídos de tareas del usuario queden excluidos, preservando únicamente los casos de prueba `example-*`.
+- Los casos reales extraídos de tareas del usuario queden excluidos, preservando únicamente los casos de prueba `example-*` y los fixtures en `fixtures/`.
 - Los archivos generados en `results/*.json` queden fuera del seguimiento de git.

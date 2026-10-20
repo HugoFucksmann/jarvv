@@ -1,22 +1,69 @@
 /**
- * JARVIS Lab — Extracción de Borradores de Casos desde jarvis-tasks.json
+ * JARVIS Lab — Extracción de Borradores de Casos desde Registro de Trazas (JSONL)
  *
- * MODO SOLO LECTURA sobre jarvis-tasks.json.
+ * MODO SOLO LECTURA sobre el archivo de trazas (por defecto jarvis-traces.jsonl).
  * Únicamente escribe archivos nuevos en lab/cases/<etapa>/_drafts/.
  *
- * No importa de src/.
+ * No importa de src/. No tiene efectos colaterales ni simula respuestas.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
-import type { CaseInputArguments, CaseInputDecisionOne, LabCase } from "./types.ts";
+import type {
+  CaseInputArguments,
+  CaseInputDecisionOne,
+  CaseReference,
+  LabCase,
+} from "./types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 interface LabConfig {
-  tasksFilePath?: string;
+  tracesFilePath?: string;
+}
+
+export interface ExtractOptions {
+  filePath?: string;
+  taskId?: string;
+}
+
+interface TraceCall {
+  seq: number;
+  step?: number | string;
+  stage: string;
+  rawInput: unknown;
+  rawOutput?: string;
+  latencyMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  retried?: boolean;
+  error?: string | null;
+}
+
+interface TraceToolRun {
+  step?: number | string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  ok?: boolean;
+  error?: string | null;
+}
+
+interface TraceTaskLine {
+  v: number;
+  taskId: string;
+  startedAt?: string | number;
+  endedAt?: string | number;
+  mode?: "fast" | "plan";
+  userMessage?: string;
+  status?: string;
+  finalResponse?: string;
+  plan?: unknown;
+  calls?: TraceCall[];
+  toolRuns?: TraceToolRun[];
+  example?: boolean;
 }
 
 function loadConfig(): LabConfig {
@@ -107,30 +154,24 @@ function extractToolNameFromUserPrompt(userPrompt: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-export function extractCases(): { decisionOneCount: number; argumentsCount: number } {
+export async function extractCases(options?: ExtractOptions): Promise<{
+  decisionOneCount: number;
+  argumentsCount: number;
+  skippedExistingCount: number;
+}> {
   const config = loadConfig();
-  const tasksPath = path.resolve(process.cwd(), config.tasksFilePath || "./jarvis-tasks.json");
+  const rawPath = options?.filePath || config.tracesFilePath || "./jarvis-traces.jsonl";
+  const tracesPath = path.resolve(process.cwd(), rawPath);
 
-  console.log(`[extract-cases] Leyendo tareas desde: ${tasksPath}`);
+  console.log(`[extract-cases] Leyendo registro de trazas desde: ${tracesPath}`);
 
-  if (!fs.existsSync(tasksPath)) {
+  if (!fs.existsSync(tracesPath)) {
     console.warn(
-      `[extract-cases] El archivo '${tasksPath}' no existe actualmente. No hay tareas históricas para extraer borradores.`
+      `\n[extract-cases] El archivo de trazas '${tracesPath}' no existe actualmente.\n` +
+      `Para generar trazas, asegúrese de que el registro de tareas esté activo en JARVIS y ejecute tareas reales en el sistema.\n` +
+      `No se simularán datos ni respuestas.\n`
     );
-    return { decisionOneCount: 0, argumentsCount: 0 };
-  }
-
-  let tasks: unknown[];
-  try {
-    const raw = fs.readFileSync(tasksPath, "utf-8");
-    tasks = JSON.parse(raw);
-    if (!Array.isArray(tasks)) {
-      console.warn(`[extract-cases] '${tasksPath}' no contiene un arreglo de tareas.`);
-      return { decisionOneCount: 0, argumentsCount: 0 };
-    }
-  } catch (err) {
-    console.error(`[extract-cases] Error al leer '${tasksPath}':`, err);
-    return { decisionOneCount: 0, argumentsCount: 0 };
+    return { decisionOneCount: 0, argumentsCount: 0, skippedExistingCount: 0 };
   }
 
   const d1Dir = path.resolve(__dirname, "cases", "decision_one", "_drafts");
@@ -138,31 +179,90 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
   fs.mkdirSync(d1Dir, { recursive: true });
   fs.mkdirSync(argsDir, { recursive: true });
 
+  const fileStream = fs.createReadStream(tracesPath, { encoding: "utf-8" });
+  const rl = readline.createInterface({
+    input: fileStream,
+    crlfDelay: Infinity,
+  });
+
+  let lineIndex = 0;
+  let invalidLinesCount = 0;
+  let processedTasksCount = 0;
   let d1Count = 0;
   let argsCount = 0;
+  let skippedExistingCount = 0;
 
-  for (const task of tasks as any[]) {
-    if (!task || typeof task !== "object") continue;
-    const taskId = task.id || "unknown_task";
+  for await (const line of rl) {
+    lineIndex++;
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
-    // 1. Recorrer modelIterations si existen
-    const iterations = Array.isArray(task.modelIterations) ? task.modelIterations : [];
-    for (const iter of iterations) {
-      if (!iter || typeof iter !== "object") continue;
-      const stage = String(iter.stage || "").toUpperCase();
+    let task: TraceTaskLine;
+    try {
+      task = JSON.parse(trimmed);
+    } catch {
+      invalidLinesCount++;
+      console.warn(`[extract-cases] Línea ${lineIndex}: JSON inválido, omitiendo.`);
+      continue;
+    }
 
-      // Etapa Decision #1
+    if (!task || typeof task !== "object") {
+      invalidLinesCount++;
+      console.warn(`[extract-cases] Línea ${lineIndex}: no contiene un objeto válido.`);
+      continue;
+    }
+
+    if (typeof task.v !== "number" || task.v !== 1) {
+      invalidLinesCount++;
+      console.warn(
+        `[extract-cases] Línea ${lineIndex}: versión de contrato de trazas no soportada (esperada v=1, recibida: ${task.v}). Omitiendo.`
+      );
+      continue;
+    }
+
+    if (!task.taskId || typeof task.taskId !== "string") {
+      invalidLinesCount++;
+      console.warn(`[extract-cases] Línea ${lineIndex}: falta o es inválido el campo 'taskId'. Omitiendo.`);
+      continue;
+    }
+
+    if (options?.taskId && task.taskId !== options.taskId) {
+      continue;
+    }
+
+    processedTasksCount++;
+
+    const calls = Array.isArray(task.calls) ? task.calls : [];
+    for (const call of calls) {
+      if (!call || typeof call !== "object") continue;
+      const stage = String(call.stage || "").toUpperCase();
+
+      // 1. Etapa DECISION_ONE (Eos)
       if (stage === "DECISION_ONE") {
-        if (!iter.rawInput) continue;
+        if (!call.rawInput) continue;
         let parsedInput: any;
         try {
-          parsedInput = typeof iter.rawInput === "string" ? JSON.parse(iter.rawInput) : iter.rawInput;
+          parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
         } catch {
+          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${call.seq}): no se pudo parsear rawInput.`);
           continue;
         }
 
         if (parsedInput && parsedInput.state && parsedInput.questions) {
-          const draftId = `draft_d1_${taskId}_${iter.id || iter.stepId || d1Count + 1}`;
+          const draftId = `draft_d1_${task.taskId}_seq${call.seq}`;
+          const filePath = path.join(d1Dir, `${draftId}.json`);
+
+          if (fs.existsSync(filePath)) {
+            skippedExistingCount++;
+            continue;
+          }
+
+          const reference: CaseReference = {
+            originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
+            retried: Boolean(call.retried),
+            error: call.error ?? null,
+          };
+
           const draftCase: LabCase<CaseInputDecisionOne> = {
             id: draftId,
             stage: "decision_one",
@@ -173,26 +273,26 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
             },
             expect: null, // El usuario lo completa a mano
             source: {
-              taskId,
-              iterationId: iter.id,
-              originalOutput: iter.rawOutput,
+              taskId: task.taskId,
+              seq: call.seq,
             },
-            notes: `Borrador extraído de la tarea ${taskId} (iteración ${iter.id}).`,
+            reference,
+            notes: `Borrador extraído de la tarea '${task.taskId}' (seq ${call.seq}, modo: ${task.mode || "desconocido"}).`,
           };
 
-          const filePath = path.join(d1Dir, `${draftId}.json`);
           fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
           d1Count++;
         }
       }
 
-      // Etapa Arguments (Qwen)
+      // 2. Etapa ARGUMENT_GENERATION (Qwen)
       if (stage === "ARGUMENT_GENERATION") {
-        if (!iter.rawInput) continue;
+        if (!call.rawInput) continue;
         let parsedInput: any;
         try {
-          parsedInput = typeof iter.rawInput === "string" ? JSON.parse(iter.rawInput) : iter.rawInput;
+          parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
         } catch {
+          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${call.seq}): no se pudo parsear rawInput.`);
           continue;
         }
 
@@ -201,14 +301,39 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
         const systemMsg = messages.find((m: any) => m.role === "system")?.content || "";
 
         if (userMsg) {
-          const { schema, success: schemaSuccess } = extractSchemaFromUserPrompt(userMsg);
+          const schemaResult = extractSchemaFromUserPrompt(userMsg);
           const toolName = extractToolNameFromUserPrompt(userMsg);
-          const draftId = `draft_args_${taskId}_${iter.id || iter.stepId || argsCount + 1}`;
+          const draftId = `draft_args_${task.taskId}_seq${call.seq}`;
+          const filePath = path.join(argsDir, `${draftId}.json`);
 
-          let notes = `Borrador extraído de la tarea ${taskId} para herramienta '${toolName || "desconocida"}'.`;
-          if (!schemaSuccess || Object.keys(schema).length === 0) {
-            const warnMsg = `[ADVERTENCIA] No se pudo extraer SCHEMA para el borrador '${draftId}'. Se guardó schema vacío: verificar manualmente.`;
-            console.warn(`[extract-cases] ${warnMsg}`);
+          if (fs.existsSync(filePath)) {
+            skippedExistingCount++;
+            continue;
+          }
+
+          // Encontrar toolRun coincidente del mismo paso si existe
+          const matchingTool = Array.isArray(task.toolRuns)
+            ? task.toolRuns.find((tr) => String(tr.step) === String(call.step))
+            : undefined;
+
+          const reference: CaseReference = {
+            originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
+            retried: Boolean(call.retried),
+            error: call.error ?? null,
+            toolRun: matchingTool
+              ? {
+                  tool: matchingTool.tool,
+                  ok: matchingTool.ok,
+                  error: matchingTool.error ?? null,
+                }
+              : undefined,
+          };
+
+          let notes = `Borrador extraído de la tarea '${task.taskId}' (seq ${call.seq}, herramienta: '${toolName || "desconocida"}', modo: ${task.mode || "desconocido"}).`;
+          if (!schemaResult.success || Object.keys(schemaResult.schema).length === 0) {
+            console.warn(
+              `[extract-cases] [ADVERTENCIA] No se pudo extraer SCHEMA para el borrador '${draftId}'. Requiere revisión manual.`
+            );
             notes += ` [ADVERTENCIA: SCHEMA no se pudo extraer automáticamente del prompt; requiere revisión manual].`;
           }
 
@@ -220,18 +345,17 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
               toolName,
               user: userMsg,
               system: systemMsg || undefined,
-              schema,
+              schema: schemaResult.schema,
             },
             expect: null, // El usuario lo completa a mano
             source: {
-              taskId,
-              iterationId: iter.id,
-              originalOutput: iter.rawOutput,
+              taskId: task.taskId,
+              seq: call.seq,
             },
+            reference,
             notes,
           };
 
-          const filePath = path.join(argsDir, `${draftId}.json`);
           fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
           argsCount++;
         }
@@ -239,14 +363,38 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
     }
   }
 
-  console.log(`[extract-cases] Extracción finalizada.`);
-  console.log(` - Borradores para decision_one: ${d1Count} guardados en ${d1Dir}`);
-  console.log(` - Borradores para arguments:    ${argsCount} guardados en ${argsDir}`);
+  console.log(`\n============================================================`);
+  console.log(`[extract-cases] Resumen de Extracción:`);
+  console.log(` - Líneas leídas:             ${lineIndex}`);
+  console.log(` - Líneas inválidas/omitidas: ${invalidLinesCount}`);
+  console.log(` - Tareas procesadas:         ${processedTasksCount}`);
+  console.log(` - Borradores para decision_one creados: ${d1Count} en ${d1Dir}`);
+  console.log(` - Borradores para arguments creados:    ${argsCount} en ${argsDir}`);
+  if (skippedExistingCount > 0) {
+    console.log(` - Borradores preexistentes omitidos:   ${skippedExistingCount}`);
+  }
+  console.log(`============================================================\n`);
 
-  return { decisionOneCount: d1Count, argumentsCount: argsCount };
+  return { decisionOneCount: d1Count, argumentsCount: argsCount, skippedExistingCount };
 }
 
-// Ejecución directa si se invoca desde CLI
+// Ejecución directa desde CLI
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  extractCases();
+  const args = process.argv.slice(2);
+  const options: ExtractOptions = {};
+
+  const fileIdx = args.indexOf("--file");
+  if (fileIdx >= 0 && args[fileIdx + 1]) {
+    options.filePath = args[fileIdx + 1];
+  }
+
+  const taskIdx = args.indexOf("--task");
+  if (taskIdx >= 0 && args[taskIdx + 1]) {
+    options.taskId = args[taskIdx + 1];
+  }
+
+  extractCases(options).catch((err) => {
+    console.error(`[FATAL] Error en la extracción de casos: ${err.message}`);
+    process.exit(1);
+  });
 }

@@ -99,9 +99,21 @@ export type CaseCheck =
 // ============================================================
 
 export interface CaseSource {
-  taskId?: string;
-  iterationId?: string;
+  taskId: string;
+  seq: number;
+}
+
+export interface CaseReferenceToolRun {
+  tool?: string;
+  ok?: boolean;
+  error?: string | null;
+}
+
+export interface CaseReference {
   originalOutput?: string;
+  retried?: boolean;
+  error?: string | null;
+  toolRun?: CaseReferenceToolRun;
 }
 
 export interface LabCase<TInput = unknown> {
@@ -111,6 +123,7 @@ export interface LabCase<TInput = unknown> {
   input: TInput;
   expect: CaseCheck[] | null;
   source: CaseSource;
+  reference?: CaseReference;
   notes?: string;
 }
 

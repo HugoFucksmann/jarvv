@@ -30,7 +30,12 @@
   ],
   "source": {
     "taskId": "task_example_d1",
-    "iterationId": "iter_example_d1"
+    "seq": 1
+  },
+  "reference": {
+    "originalOutput": "{\"answers\":{\"route\":{\"choice\":\"files\",\"probabilities\":{\"files\":0.92,\"locate\":0.05,\"terminal\":0.01,\"web\":0.01,\"fin\":0.01}}}}",
+    "retried": false,
+    "error": null
   },
   "notes": "Caso de ejemplo de enrutamiento Decision #1 cuando el usuario pide leer un archivo específico."
 }
