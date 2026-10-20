@@ -16,6 +16,7 @@ import {
   argumentsStage,
   assertStageImplemented,
   decisionOneStage,
+  LabConnectionError,
 } from "./adapter.ts";
 import type {
   CaseCheck,
@@ -226,18 +227,48 @@ export async function runBenchmark(
 
   console.log(`\nIniciando corrida sobre ${runnable.length} caso(s) activos...\n`);
 
+  const initialModelParams =
+    stage === "arguments"
+      ? argumentsStage.getModelParameters()
+      : decisionOneStage.getModelParameters();
+
+  const casePromptHashes: Record<string, string> = {};
+  let stablePromptHash = "";
+
+  if (stage === "arguments") {
+    stablePromptHash = crypto
+      .createHash("sha256")
+      .update(argumentsStage.getStableSystemPrompt())
+      .digest("hex")
+      .slice(0, 16);
+  } else if (stage === "decision_one") {
+    const sortedCases = [...runnable].sort((a, b) => a.id.localeCompare(b.id));
+    for (const c of sortedCases) {
+      const stablePrompt = decisionOneStage.getStablePrompt(c.input as CaseInputDecisionOne);
+      const cHash = crypto
+        .createHash("sha256")
+        .update(JSON.stringify(stablePrompt))
+        .digest("hex")
+        .slice(0, 16);
+      casePromptHashes[c.id] = cHash;
+    }
+    const globalStableStr = sortedCases.map((c) => `${c.id}:${casePromptHashes[c.id]}`).join("|");
+    stablePromptHash = crypto
+      .createHash("sha256")
+      .update(globalStableStr)
+      .digest("hex")
+      .slice(0, 16);
+  }
+
+  const effectivePromptsByCase: Record<string, unknown> = {};
   const caseResults: CaseRunResult[] = [];
   let totalRepetitions = 0;
   let successfulRepetitions = 0;
   let totalLatencyMs = 0;
   let jsonErrors = 0;
   let schemaErrors = 0;
-  let lastModelParams: ModelParametersRecord | undefined;
-
-  let stablePromptReference = "";
-  if (stage === "arguments") {
-    stablePromptReference = argumentsStage.getStableSystemPrompt();
-  }
+  let truncatedCount = 0;
+  let lastModelParams: ModelParametersRecord = initialModelParams;
 
   for (const [caseIdx, caseItem] of runnable.entries()) {
     console.log(`[${caseIdx + 1}/${runnable.length}] Caso: ${caseItem.id} (split: ${caseItem.split})`);
@@ -266,6 +297,7 @@ export async function runBenchmark(
           lastModelParams = callRes.params;
           repRawOutput = callRes.rawOutput;
           repLatency = callRes.latencyMs;
+          if (callRes.truncated) truncatedCount++;
 
           const valRes = argumentsStage.parseAndValidate(callRes.parsedContent, input.schema);
           if (!valRes.jsonValid) jsonErrors++;
@@ -279,15 +311,32 @@ export async function runBenchmark(
             valRes.schemaValid,
             valRes.schemaError
           );
+
+          allPassed = checkResults.length > 0 && checkResults.every((c) => c.passed);
+          if (allPassed) {
+            passedReps++;
+            successfulRepetitions++;
+          }
+
+          reps.push({
+            rep,
+            latencyMs: repLatency,
+            rawOutput: repRawOutput,
+            parsedOutput: repParsedOutput,
+            checks: checkResults,
+            allPassed,
+            error: repError,
+            finishReason: callRes.finishReason,
+            usage: callRes.usage,
+            truncated: callRes.truncated,
+          });
         } else if (stage === "decision_one") {
           const input = caseItem.input as CaseInputDecisionOne;
           const prompt = variantData
             ? decisionOneStage.applyVariant(input, variantData.content)
             : decisionOneStage.getStablePrompt(input);
 
-          if (!stablePromptReference) {
-            stablePromptReference = JSON.stringify(decisionOneStage.getStablePrompt(input));
-          }
+          effectivePromptsByCase[caseItem.id] = prompt.questions;
 
           const callRes = await decisionOneStage.callModel(prompt.state, prompt.questions);
           lastModelParams = callRes.params;
@@ -296,39 +345,54 @@ export async function runBenchmark(
 
           const parseRes = decisionOneStage.parseOutput(callRes.rawOutput, prompt.questions);
           if (!parseRes.jsonValid) jsonErrors++;
+          if (parseRes.jsonValid && !parseRes.schemaValid) schemaErrors++;
 
           repParsedOutput = parseRes.answers ? { answers: parseRes.answers } : null;
           checkResults = evaluateChecks(
             caseItem.expect || [],
             repParsedOutput,
             parseRes.jsonValid,
-            true, // Schema no aplica para Eos (valida choices)
+            parseRes.schemaValid,
             parseRes.error
           );
-        }
 
-        allPassed = checkResults.length > 0 && checkResults.every((c) => c.passed);
-        if (allPassed) {
-          passedReps++;
-          successfulRepetitions++;
+          allPassed = checkResults.length > 0 && checkResults.every((c) => c.passed);
+          if (allPassed) {
+            passedReps++;
+            successfulRepetitions++;
+          }
+
+          reps.push({
+            rep,
+            latencyMs: repLatency,
+            rawOutput: repRawOutput,
+            parsedOutput: repParsedOutput,
+            checks: checkResults,
+            allPassed,
+            error: repError,
+          });
         }
       } catch (err: any) {
+        if (err instanceof LabConnectionError && err.isNetwork) {
+          console.error(`\n[FATAL] Error de conexión irrecuperable con el endpoint de ${stage}: ${err.message}`);
+          console.error(`Corrida abortada inmediatamente. No se escribió ningún archivo en lab/results/.\n`);
+          throw err;
+        }
         repError = err instanceof Error ? err.message : String(err);
         console.error(`   Repetición ${rep}/${repetitions} FALLÓ con error: ${repError}`);
+        reps.push({
+          rep,
+          latencyMs: repLatency,
+          rawOutput: repRawOutput,
+          parsedOutput: repParsedOutput,
+          checks: checkResults,
+          allPassed: false,
+          error: repError,
+        });
       }
 
       caseLatencySum += repLatency;
       totalLatencyMs += repLatency;
-
-      reps.push({
-        rep,
-        latencyMs: repLatency,
-        rawOutput: repRawOutput,
-        parsedOutput: repParsedOutput,
-        checks: checkResults,
-        allPassed,
-        error: repError,
-      });
 
       const repStatus = allPassed ? "✓ Acierto" : "✗ Fallo";
       console.log(`   Rep ${rep}/${repetitions}: ${repStatus} (${repLatency}ms)`);
@@ -359,12 +423,24 @@ export async function runBenchmark(
     avgLatencyMs,
     jsonErrors,
     schemaErrors,
+    truncatedCount: stage === "arguments" ? truncatedCount : 0,
   };
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const runId = `run_${timestamp}_${stage}_${isStable ? "stable" : variantId}`;
 
-  const promptHash = crypto.createHash("sha256").update(stablePromptReference).digest("hex").slice(0, 16);
+  let promptUsedRecord: unknown;
+  if (isStable) {
+    promptUsedRecord = "stable";
+  } else if (stage === "decision_one") {
+    promptUsedRecord = {
+      variantId,
+      effectivePromptsByCase,
+      rawOverride: variantData?.content,
+    };
+  } else {
+    promptUsedRecord = variantData ? variantData.content : null;
+  }
 
   const finalResult: RunResult = {
     id: runId,
@@ -373,31 +449,32 @@ export async function runBenchmark(
     promptType: isStable ? "stable" : "variant",
     variantId,
     split: targetSplit,
-    promptUsed: isStable ? "stable" : (variantData ? variantData.content : null),
-    stablePromptHash: promptHash,
-    modelParameters: lastModelParams || {
-      url: "unknown",
-      timeoutMs: 0,
-    },
+    promptUsed: promptUsedRecord,
+    stablePromptHash,
+    casePromptHashes: Object.keys(casePromptHashes).length > 0 ? casePromptHashes : undefined,
+    modelParameters: lastModelParams,
     repetitionsConfig: repetitions,
     cases: caseResults,
     summary,
   };
 
-  // Guardar resultado
+  // Guardar resultado de forma atómica y sin sobrescribir (flag: wx)
   const resultsDir = path.resolve(__dirname, "results");
   fs.mkdirSync(resultsDir, { recursive: true });
   const resultFileName = `${timestamp}-${stage}-${isStable ? "stable" : variantId}.json`;
   const resultFilePath = path.join(resultsDir, resultFileName);
 
-  fs.writeFileSync(resultFilePath, JSON.stringify(finalResult, null, 2), "utf-8");
+  fs.writeFileSync(resultFilePath, JSON.stringify(finalResult, null, 2), { encoding: "utf-8", flag: "wx" });
 
   console.log(`============================================================`);
   console.log(`RESUMEN DE CORRIDA:`);
   console.log(` - Tasa de éxito: ${successRatePct}% (${successfulRepetitions}/${totalRepetitions} repeticiones)`);
   console.log(` - Latencia promedio: ${avgLatencyMs}ms`);
   console.log(` - Errores de JSON: ${jsonErrors}`);
-  console.log(` - Errores de Schema: ${schemaErrors}`);
+  console.log(` - Errores de Schema / Validación: ${schemaErrors}`);
+  if (stage === "arguments") {
+    console.log(` - Salidas truncadas (max_tokens): ${truncatedCount}`);
+  }
   console.log(` - Archivo de resultado guardado en: ${resultFilePath}`);
   console.log(`============================================================\n`);
 

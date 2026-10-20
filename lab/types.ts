@@ -146,6 +146,9 @@ export interface RunRepetition {
   checks: CheckResult[];
   allPassed: boolean;
   error?: string;
+  finishReason?: string;
+  usage?: { promptTokens?: number; completionTokens?: number };
+  truncated?: boolean;
 }
 
 export interface CaseRunResult {
@@ -176,6 +179,7 @@ export interface RunResultSummary {
   avgLatencyMs: number;
   jsonErrors: number;
   schemaErrors: number;
+  truncatedCount?: number;
 }
 
 export interface RunResult {
@@ -187,6 +191,7 @@ export interface RunResult {
   split?: Split;
   promptUsed: unknown;
   stablePromptHash: string;
+  casePromptHashes?: Record<string, string>;
   modelParameters: ModelParametersRecord;
   repetitionsConfig: number;
   cases: CaseRunResult[];

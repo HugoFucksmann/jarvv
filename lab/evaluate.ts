@@ -28,11 +28,55 @@ function loadResult(filePath: string): RunResult {
   }
 }
 
+function validateRunValidity(res: RunResult, runLabel: string): void {
+  let totalReps = 0;
+  let errorReps = 0;
+  let hasConnectionError = false;
+  let connectionErrorDetail = "";
+
+  for (const c of res.cases) {
+    for (const r of c.repetitions) {
+      totalReps++;
+      if (r.error) {
+        errorReps++;
+        const errLower = r.error.toLowerCase();
+        if (
+          errLower.includes("connection error") ||
+          errLower.includes("econnrefused") ||
+          errLower.includes("enotfound") ||
+          errLower.includes("fetch failed") ||
+          errLower.includes("inalcanzable") ||
+          errLower.includes("no se pudo conectar")
+        ) {
+          hasConnectionError = true;
+          connectionErrorDetail = r.error;
+        }
+      }
+    }
+  }
+
+  if (hasConnectionError) {
+    throw new Error(
+      `La ${runLabel} (${res.id}) contiene errores de conexión de red:\n  ${connectionErrorDetail}\nNo es posible evaluar comparativamente corridas afectadas por problemas de conexión.`
+    );
+  }
+
+  if (totalReps > 0 && errorReps === totalReps) {
+    throw new Error(
+      `La ${runLabel} (${res.id}) no es válida para evaluación: el 100% de las repeticiones (${errorReps}/${totalReps}) fallaron con error.`
+    );
+  }
+}
+
 export function compareRuns(pathA: string, pathB: string): void {
   const resA = loadResult(pathA);
   const resB = loadResult(pathB);
 
-  // 1. Validar compatibilidad de corridas
+  // 1. Validar integridad de las corridas (rechazar caídas o 100% de errores)
+  validateRunValidity(resA, "Corrida A");
+  validateRunValidity(resB, "Corrida B");
+
+  // 2. Validar compatibilidad de etapas
   if (resA.stage !== resB.stage) {
     throw new Error(
       `Incompatibilidad de etapas: la corrida A es '${resA.stage}' y la corrida B es '${resB.stage}'.`
@@ -65,8 +109,8 @@ export function compareRuns(pathA: string, pathB: string): void {
   console.log(`\n============================================================`);
   console.log(`JARVIS Lab — Evaluación Comparativa`);
   console.log(`Etapa: ${resA.stage}`);
-  console.log(`Corrida A: [${resA.promptType.toUpperCase()}${resA.variantId ? `: ${resA.variantId}` : ""}] ${resA.id}`);
-  console.log(`Corrida B: [${resB.promptType.toUpperCase()}${resB.variantId ? `: ${resB.variantId}` : ""}] ${resB.id}`);
+  console.log(`Corrida A: [${resA.promptType.toUpperCase()}${resA.variantId ? `: ${resA.variantId}` : ""}] (Split: ${resA.split ?? "todos"}) ${resA.id}`);
+  console.log(`Corrida B: [${resB.promptType.toUpperCase()}${resB.variantId ? `: ${resB.variantId}` : ""}] (Split: ${resB.split ?? "todos"}) ${resB.id}`);
   console.log(`============================================================\n`);
 
   // 2. Desglose caso por caso
@@ -110,6 +154,7 @@ export function compareRuns(pathA: string, pathB: string): void {
 
   console.log(`\n--- RESUMEN GLOBAL ---`);
   console.log(`Casos evaluados:              ${casesA.length}`);
+  console.log(`Split evaluado:                A=${resA.split ?? "todos"}  vs  B=${resB.split ?? "todos"}`);
   console.log(`Total repeticiones por corrida: ${resA.summary.totalRepetitions}`);
   console.log(
     `Tasa de acierto global:        A=${resA.summary.successRatePct}%  vs  B=${resB.summary.successRatePct}%  (Diferencia: ${rateSign}%)`

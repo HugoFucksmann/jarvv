@@ -111,16 +111,25 @@ Ejemplo: `lab/prompts/variants/decision_one/example-concise.json`.
 
 ---
 
-## 5. Particularidades de Integración y Modelos
+## 5. Particularidades de Integración y Diferencias con Producción
 
-### Stable de Eos (`decision_one`)
-En las trazas históricas de JARVIS (`modelIterations`), el campo `rawInput` almacena el `{ state, questions }` ya renderizado, sin conservar los datos estructurados originales en ese nivel. En consecuencia, el **prompt estable** de `decision_one` para un caso histórico corresponde al par `state` y `questions` registrado originalmente en la traza del caso, no a una regeneración en vivo desde `prompts.ts`.
+### Aclaración de Pruebas del Extractor
+El script `extract-cases.ts` y la interpretación del formato de `rawInput` se diseñaron con base en el análisis estático del código fuente de JARVIS (`src/core/core.ts`, `src/utils/debugAccumulator.ts`, `src/core/decision.ts`, `src/core/reasoner/qwen.ts`). **No han sido probados con un archivo `jarvis-tasks.json` real de producción**, dado que dicho archivo no existe en el entorno inicial. Se recomienda verificar los primeros borradores extraídos de tareas reales antes de activarlos.
+
+### Stable Histórico de Eos (`decision_one`)
+En las trazas históricas de JARVIS (`modelIterations`), el campo `rawInput` almacena el `{ state, questions }` ya renderizado, sin conservar los datos estructurados originales en ese nivel. En consecuencia, el **prompt estable** de `decision_one` para un caso histórico corresponde al par `state` y `questions` registrado originalmente en la traza del caso, no a una regeneración en vivo desde `prompts.ts`. El hash estable se calcula sobre el conjunto global ordenado por `caseId` y por caso individual.
+
+### Fusión de Criteria y Registro del Prompt Efectivo en Eos
+Una variante de `decision_one` puede sobrescribir selectivamente solo parte de los textos descriptivos de `criteria`. Las opciones no modificadas conservan automáticamente su descripción original del caso. No está permitido agregar opciones no existentes ni preguntas nuevas. El archivo de resultado en `lab/results/` guarda el **prompt efectivo ya fusionado por caso** (`effectivePromptsByCase`), permitiendo auditar con exactitud qué texto vio el modelo.
 
 ### Schema en `arguments` (Qwen)
-El schema verificado en la capa 2 de checks es el `cleanedSchema` capturado dentro del bloque `SCHEMA` del user prompt, no el `inputSchema` original completo con metadatos del servidor MCP. Esto garantiza que las pruebas sean 100% reproducibles sin requerir servidores MCP en ejecución.
+El schema verificado en la capa de checks es el `cleanedSchema` capturado dentro del bloque `SCHEMA` del user prompt, no el `inputSchema` original completo con metadatos del servidor MCP. Esto garantiza que las pruebas sean 100% reproducibles sin requerir servidores MCP en ejecución.
 
 ### Medición Previa a Reintentos
-En producción, JARVIS aplica reintentos con notas de corrección (`retryNote`). El laboratorio evalúa **un único intento por repetición**, midiendo la tasa pura de acierto de primera pasada del prompt evaluado.
+En producción, JARVIS aplica reintentos con notas de corrección (`retryNote`, 1.5x tokens, temperatura 0.3). El laboratorio evalúa **un único intento por repetición** a temperatura base (0.1), midiendo la tasa pura de acierto de primera pasada del prompt evaluado.
+
+### Control de Truncamiento y Parámetros
+En Qwen (`arguments`), las salidas truncadas por alcanzar `max_tokens` (`finish_reason === "length"`) son identificadas explícitamente y reportadas en el resumen. Todos los parámetros del modelo se capturan de forma estática antes de ejecutar inferencias, evitando registros con valores desconocidos.
 
 ---
 

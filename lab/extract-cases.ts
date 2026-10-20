@@ -31,19 +31,75 @@ function loadConfig(): LabConfig {
   return {};
 }
 
-function extractSchemaFromUserPrompt(userPrompt: string): Record<string, unknown> {
-  const match = /SCHEMA:\s*(\{[\s\S]*?\})(?=\n[A-Z_]+:|$)/i.exec(userPrompt);
-  if (match) {
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (typeof parsed === "object" && parsed !== null) {
-        return parsed;
+/**
+ * Extrae el primer objeto JSON balanceado a partir de una posición dada,
+ * respetando llaves dentro de cadenas de texto y secuencias de escape.
+ * Implementación propia de lab/ sin importar de src/.
+ */
+function extractBalancedJsonObject(
+  text: string,
+  startIndex: number
+): { json: Record<string, unknown>; raw: string } | null {
+  const start = text.indexOf("{", startIndex);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let matchEnd = -1;
+
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (c === "\\") {
+        escaped = true;
+      } else if (c === '"') {
+        inString = false;
       }
-    } catch {
-      // Si el JSON falla al parsearse, continuar con fallback
+      continue;
+    }
+
+    if (c === '"') {
+      inString = true;
+    } else if (c === "{") {
+      depth++;
+    } else if (c === "}") {
+      depth--;
+      if (depth === 0) {
+        matchEnd = i;
+        break;
+      }
     }
   }
-  return {};
+
+  if (matchEnd >= 0) {
+    const candidate = text.slice(start, matchEnd + 1);
+    try {
+      const parsed = JSON.parse(candidate);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        return { json: parsed as Record<string, unknown>, raw: candidate };
+      }
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function extractSchemaFromUserPrompt(userPrompt: string): {
+  schema: Record<string, unknown>;
+  success: boolean;
+} {
+  const schemaMatch = /SCHEMA:\s*/i.exec(userPrompt);
+  if (schemaMatch) {
+    const extracted = extractBalancedJsonObject(userPrompt, schemaMatch.index + schemaMatch[0].length);
+    if (extracted) {
+      return { schema: extracted.json, success: true };
+    }
+  }
+  return { schema: {}, success: false };
 }
 
 function extractToolNameFromUserPrompt(userPrompt: string): string | undefined {
@@ -145,9 +201,16 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
         const systemMsg = messages.find((m: any) => m.role === "system")?.content || "";
 
         if (userMsg) {
-          const schema = extractSchemaFromUserPrompt(userMsg);
+          const { schema, success: schemaSuccess } = extractSchemaFromUserPrompt(userMsg);
           const toolName = extractToolNameFromUserPrompt(userMsg);
           const draftId = `draft_args_${taskId}_${iter.id || iter.stepId || argsCount + 1}`;
+
+          let notes = `Borrador extraído de la tarea ${taskId} para herramienta '${toolName || "desconocida"}'.`;
+          if (!schemaSuccess || Object.keys(schema).length === 0) {
+            const warnMsg = `[ADVERTENCIA] No se pudo extraer SCHEMA para el borrador '${draftId}'. Se guardó schema vacío: verificar manualmente.`;
+            console.warn(`[extract-cases] ${warnMsg}`);
+            notes += ` [ADVERTENCIA: SCHEMA no se pudo extraer automáticamente del prompt; requiere revisión manual].`;
+          }
 
           const draftCase: LabCase<CaseInputArguments> = {
             id: draftId,
@@ -165,7 +228,7 @@ export function extractCases(): { decisionOneCount: number; argumentsCount: numb
               iterationId: iter.id,
               originalOutput: iter.rawOutput,
             },
-            notes: `Borrador extraído de la tarea ${taskId} para herramienta '${toolName || "desconocida"}'.`,
+            notes,
           };
 
           const filePath = path.join(argsDir, `${draftId}.json`);

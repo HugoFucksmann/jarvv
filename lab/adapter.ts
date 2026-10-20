@@ -31,9 +31,13 @@ import type {
 // ============================================================
 
 export class LabConnectionError extends Error {
-  constructor(service: string, url: string, message: string, cause?: unknown) {
+  readonly isNetwork: boolean;
+  readonly isTimeout: boolean;
+  constructor(service: string, url: string, message: string, cause?: unknown, isTimeout: boolean = false) {
     super(`[Lab Connection Error] No se pudo conectar con ${service} en ${url}: ${message}`, { cause });
     this.name = "LabConnectionError";
+    this.isTimeout = isTimeout;
+    this.isNetwork = !isTimeout;
   }
 }
 
@@ -176,13 +180,38 @@ export const argumentsStage = {
   },
 
   /**
+   * Obtiene los parámetros del modelo vigentes antes de realizar cualquier llamada.
+   */
+  getModelParameters(): ModelParametersRecord {
+    const config = ConfigManager.getConfig();
+    const url = resolveQwenUrl(config.qwenUrl);
+    return {
+      url,
+      model: config.qwenModel,
+      temperature: BASE_TEMPERATURE,
+      maxTokens: config.qwenMaxTokens.arguments,
+      numCtx: config.qwenNumCtx,
+      reasoningEffort: "none",
+      timeoutMs: config.qwenTimeoutMs,
+    };
+  },
+
+  /**
    * Ejecuta la llamada a Qwen replicando fielmente QwenEngine.dispatchPrompt.
    * Realiza un único intento por repetición (sin reintentos automáticos).
    */
   async callModel(
     systemPrompt: string,
     userPrompt: string
-  ): Promise<{ rawOutput: string; parsedContent: string; latencyMs: number; params: ModelParametersRecord }> {
+  ): Promise<{
+    rawOutput: string;
+    parsedContent: string;
+    latencyMs: number;
+    params: ModelParametersRecord;
+    finishReason: string;
+    usage?: { promptTokens?: number; completionTokens?: number };
+    truncated: boolean;
+  }> {
     const config = ConfigManager.getConfig();
     const url = resolveQwenUrl(config.qwenUrl);
 
@@ -230,7 +259,8 @@ export const argumentsStage = {
       });
     } catch (err) {
       if (err instanceof TransportError) {
-        throw new LabConnectionError("Qwen", url, err.message, err);
+        const isTimeout = err.kind === "timeout";
+        throw new LabConnectionError("Qwen", url, err.message, err, isTimeout);
       }
       throw err;
     }
@@ -257,12 +287,22 @@ export const argumentsStage = {
       : undefined;
     const message = isRecord(choice) && isRecord(choice.message) ? choice.message : undefined;
     const content = typeof message?.content === "string" ? message.content : "";
+    const finishReason = isRecord(choice) && typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown";
+    const usageObj = isRecord(parsedResponse) && isRecord(parsedResponse.usage) ? parsedResponse.usage : {};
+    const usage = {
+      promptTokens: typeof usageObj.prompt_tokens === "number" ? usageObj.prompt_tokens : undefined,
+      completionTokens: typeof usageObj.completion_tokens === "number" ? usageObj.completion_tokens : undefined,
+    };
+    const truncated = finishReason === "length";
 
     return {
       rawOutput: result.text,
       parsedContent: content,
       latencyMs,
       params,
+      finishReason,
+      usage,
+      truncated,
     };
   },
 
@@ -397,6 +437,19 @@ export const decisionOneStage = {
   },
 
   /**
+   * Obtiene los parámetros del modelo vigentes antes de realizar cualquier llamada.
+   */
+  getModelParameters(): ModelParametersRecord {
+    const config = ConfigManager.getConfig();
+    const url = resolveDecisionUrl(config.decisionUrl);
+    return {
+      url,
+      timeoutMs: config.decisionTimeoutMs,
+      numCtx: config.decisionMaxContext,
+    };
+  },
+
+  /**
    * Ejecuta la llamada a Decision 2.0 (Eos) contra el endpoint HTTP real.
    */
   async callModel(
@@ -432,7 +485,8 @@ export const decisionOneStage = {
       });
     } catch (err) {
       if (err instanceof TransportError) {
-        throw new LabConnectionError("Decision 2.0", url, err.message, err);
+        const isTimeout = err.kind === "timeout";
+        throw new LabConnectionError("Decision 2.0", url, err.message, err, isTimeout);
       }
       throw err;
     }
@@ -456,6 +510,7 @@ export const decisionOneStage = {
 
   /**
    * Parsea y valida la salida de Decision 2.0 contra las preguntas.
+   * Distingue JSON inválido de fallo semántico/estructural de choices.
    */
   parseOutput(
     rawText: string,
@@ -463,18 +518,32 @@ export const decisionOneStage = {
   ): {
     answers: Record<string, DecisionAnswer> | null;
     jsonValid: boolean;
+    schemaValid: boolean;
     error?: string;
   } {
+    try {
+      JSON.parse(rawText);
+    } catch {
+      return {
+        answers: null,
+        jsonValid: false,
+        schemaValid: false,
+        error: "La respuesta de Decision 2.0 no es un JSON válido.",
+      };
+    }
+
     try {
       const answers = parseDecisionResponse(rawText, questions);
       return {
         answers,
         jsonValid: true,
+        schemaValid: true,
       };
     } catch (err) {
       return {
         answers: null,
-        jsonValid: false,
+        jsonValid: true,
+        schemaValid: false,
         error: err instanceof Error ? err.message : String(err),
       };
     }
