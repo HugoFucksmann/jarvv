@@ -30,20 +30,20 @@ async function main() {
   const app = express();
   app.use(express.json());
 
-  // CORS: el agente ejecuta comandos en esta PC, así que solo se acepta como origen cruzado a localhost
-  // (el frontend en otro puerto de localhost sigue funcionando).
-  const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+  // CORS: habilitar origen de solicitud para soportar localhost y preview en contenedor/cloud
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    const isLocal = !!origin && LOCAL_ORIGIN.test(origin);
-    if (isLocal) {
+    if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
     }
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(!origin || isLocal ? 200 : 403);
+      return res.sendStatus(200);
     }
     next();
   });
@@ -170,9 +170,9 @@ async function main() {
     });
   }
 
-  // Solo loopback por defecto: sin autenticación, exponerlo a la red local daría control de la PC. HOST=0.0.0.0 lo abre.
+  // Puerto y host accesibles en el entorno de despliegue / contenedor (0.0.0.0:3000)
   const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '127.0.0.1';
+  const HOST = process.env.HOST || '0.0.0.0';
   app.listen(PORT, HOST, () => {
     console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);
   });

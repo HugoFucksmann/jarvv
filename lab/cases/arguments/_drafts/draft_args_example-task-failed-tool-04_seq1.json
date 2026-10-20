@@ -1,0 +1,37 @@
+{
+  "id": "draft_args_example-task-failed-tool-04_seq1",
+  "stage": "arguments",
+  "split": "dev",
+  "input": {
+    "toolName": "read_file",
+    "user": "ENV:\nhome=C:\\Users\\User\n\nTOOL: read_file: Read file contents.\n\nSCHEMA: {\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}\n\nTASK: Lee secreto.txt",
+    "system": "Genera argumentos.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  "expect": null,
+  "source": {
+    "taskId": "example-task-failed-tool-04",
+    "seq": 1
+  },
+  "reference": {
+    "originalOutput": "{\"choices\":[{\"message\":{\"content\":\"{\\\"path\\\":\\\"C:\\\\\\\\Users\\\\\\\\User\\\\\\\\secreto.txt\\\"}\"}}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":16}}",
+    "retried": false,
+    "error": null,
+    "toolRun": {
+      "tool": "read_file",
+      "ok": false,
+      "error": "ENOENT: no such file or directory C:\\Users\\User\\secreto.txt"
+    }
+  },
+  "notes": "Borrador extraído de la tarea 'example-task-failed-tool-04' (seq 1, herramienta: 'read_file', modo: FAST)."
+}

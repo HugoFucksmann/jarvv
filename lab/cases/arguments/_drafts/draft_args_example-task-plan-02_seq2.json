@@ -1,0 +1,38 @@
+{
+  "id": "draft_args_example-task-plan-02_seq2",
+  "stage": "arguments",
+  "split": "dev",
+  "input": {
+    "toolName": "search_files",
+    "user": "ENV:\nhome=C:\\Users\\User\n\nTOOL: search_files: Search files by pattern.\n\nSCHEMA: {\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"description\":\"Search query\"}},\"required\":[\"query\"]}\n\nTASK: Busca ventas",
+    "system": "Genera los argumentos de la herramienta.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  "expect": null,
+  "source": {
+    "taskId": "example-task-plan-02",
+    "seq": 2
+  },
+  "reference": {
+    "originalOutput": "{\"choices\":[{\"message\":{\"content\":\"{\\\"query\\\":\\\"informe de ventas\\\"}\"}}],\"usage\":{\"prompt_tokens\":90,\"completion_tokens\":12}}",
+    "retried": false,
+    "error": null,
+    "toolRun": {
+      "tool": "search_files",
+      "ok": true,
+      "error": null
+    }
+  },
+  "notes": "Borrador extraído de la tarea 'example-task-plan-02' (seq 2, herramienta: 'search_files', modo: PLAN)."
+}

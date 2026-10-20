@@ -23,6 +23,7 @@ import type {
   CaseInputArguments,
   CaseInputDecisionOne,
   CaseRunResult,
+  CheckChoiceEquals,
   CheckResult,
   LabCase,
   ModelParametersRecord,
@@ -32,6 +33,7 @@ import type {
   Split,
   Stage,
   VariantDecisionOne,
+  WarmupResult,
 } from "./types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -59,7 +61,17 @@ function getRepetitions(stage: string): number {
     if (typeof cfg.repetitions[stage] === "number") return cfg.repetitions[stage];
     if (typeof cfg.repetitions.default === "number") return cfg.repetitions.default;
   }
-  return 3;
+  return stage === "decision_one" ? 1 : 3;
+}
+
+function calculateMedian(numbers: number[]): number {
+  if (numbers.length === 0) return 0;
+  const sorted = [...numbers].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 !== 0) {
+    return sorted[mid];
+  }
+  return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
 }
 
 function getByPath(obj: any, pathStr: string): any {
@@ -227,6 +239,39 @@ export async function runBenchmark(
 
   console.log(`\nIniciando corrida sobre ${runnable.length} caso(s) activos...\n`);
 
+  // Calentamiento (Warmup) — Ajuste B: una llamada previa descartada de las métricas
+  console.log(`Ejecutando llamada de calentamiento (warmup) para '${stage}'...`);
+  let warmupResult: WarmupResult | undefined;
+  try {
+    const tWarmup0 = Date.now();
+    if (stage === "arguments") {
+      const warmupInput = runnable[0].input as CaseInputArguments;
+      const { systemPrompt, userPrompt } = argumentsStage.preparePrompt(
+        warmupInput,
+        variantData ? variantData.rawText : undefined
+      );
+      await argumentsStage.callModel(systemPrompt, userPrompt);
+    } else if (stage === "decision_one") {
+      const warmupInput = runnable[0].input as CaseInputDecisionOne;
+      const prompt = variantData
+        ? decisionOneStage.applyVariant(warmupInput, variantData.content)
+        : decisionOneStage.getStablePrompt(warmupInput);
+      await decisionOneStage.callModel(prompt.state, prompt.questions);
+    }
+    const warmupLatencyMs = Date.now() - tWarmup0;
+    warmupResult = { latencyMs: warmupLatencyMs, ok: true };
+    console.log(`✓ Warmup completado en ${warmupLatencyMs}ms (descartado de las métricas).\n`);
+  } catch (err: any) {
+    if (err instanceof LabConnectionError && err.isNetwork) {
+      console.error(`\n[FATAL] Error de conexión irrecuperable en warmup con el endpoint de ${stage}: ${err.message}`);
+      console.error(`Corrida abortada inmediatamente. No se escribió ningún archivo en lab/results/.\n`);
+      throw err;
+    }
+    const errMsg = err instanceof Error ? err.message : String(err);
+    warmupResult = { latencyMs: 0, ok: false, error: errMsg };
+    console.warn(`⚠ Warmup falló (${errMsg}), continuando con la medición...\n`);
+  }
+
   const initialModelParams =
     stage === "arguments"
       ? argumentsStage.getModelParameters()
@@ -284,6 +329,7 @@ export async function runBenchmark(
       let repError: string | undefined;
       let checkResults: CheckResult[] = [];
       let allPassed = false;
+      let expectedChoiceProb: number | undefined;
 
       try {
         if (stage === "arguments") {
@@ -362,6 +408,16 @@ export async function runBenchmark(
             successfulRepetitions++;
           }
 
+          // Ajuste C: capturar probabilidad de la opción esperada
+          const choiceCheck = caseItem.expect?.find((c) => c.type === "choice_equals") as CheckChoiceEquals | undefined;
+          if (choiceCheck && repParsedOutput?.answers) {
+            const qKey = choiceCheck.questionKey || "route";
+            const probs = repParsedOutput.answers[qKey]?.probabilities;
+            if (probs && typeof probs[choiceCheck.expected] === "number") {
+              expectedChoiceProb = probs[choiceCheck.expected];
+            }
+          }
+
           reps.push({
             rep,
             latencyMs: repLatency,
@@ -369,6 +425,7 @@ export async function runBenchmark(
             parsedOutput: repParsedOutput,
             checks: checkResults,
             allPassed,
+            expectedChoiceProbability: expectedChoiceProb,
             error: repError,
           });
         }
@@ -395,24 +452,41 @@ export async function runBenchmark(
       totalLatencyMs += repLatency;
 
       const repStatus = allPassed ? "✓ Acierto" : "✗ Fallo";
-      console.log(`   Rep ${rep}/${repetitions}: ${repStatus} (${repLatency}ms)`);
+      const probInfo = expectedChoiceProb !== undefined ? ` [p=${(expectedChoiceProb * 100).toFixed(1)}%]` : "";
+      console.log(`   Rep ${rep}/${repetitions}: ${repStatus} (${repLatency}ms)${probInfo}`);
     }
 
+    const caseLatencies = reps.map((r) => r.latencyMs);
     const avgCaseLatency = Math.round(caseLatencySum / repetitions);
+    const medianCaseLatency = calculateMedian(caseLatencies);
+
+    const probList = reps
+      .map((r) => r.expectedChoiceProbability)
+      .filter((p): p is number => typeof p === "number");
+    const caseExpectedChoiceProb =
+      probList.length > 0
+        ? Number((probList.reduce((acc, v) => acc + v, 0) / probList.length).toFixed(4))
+        : undefined;
+
     caseResults.push({
       caseId: caseItem.id,
       split: caseItem.split,
       passedReps,
       totalReps: repetitions,
       avgLatencyMs: avgCaseLatency,
+      medianLatencyMs: medianCaseLatency,
+      expectedChoiceProbability: caseExpectedChoiceProb,
       repetitions: reps,
     });
 
-    console.log(`   Resultado caso: ${passedReps}/${repetitions} aciertos (latencia media: ${avgCaseLatency}ms)\n`);
+    const caseProbMsg = caseExpectedChoiceProb !== undefined ? ` (p_media: ${(caseExpectedChoiceProb * 100).toFixed(1)}%)` : "";
+    console.log(`   Resultado caso: ${passedReps}/${repetitions} aciertos (latencia media: ${avgCaseLatency}ms, mediana: ${medianCaseLatency}ms)${caseProbMsg}\n`);
   }
 
   const successRatePct = Number(((successfulRepetitions / totalRepetitions) * 100).toFixed(1));
   const avgLatencyMs = Math.round(totalLatencyMs / Math.max(1, totalRepetitions));
+  const allLatencies = caseResults.flatMap((c) => c.repetitions.map((r) => r.latencyMs));
+  const medianLatencyMs = calculateMedian(allLatencies);
 
   const summary: RunResultSummary = {
     totalCasesRun: runnable.length,
@@ -421,6 +495,7 @@ export async function runBenchmark(
     successfulRepetitions,
     successRatePct,
     avgLatencyMs,
+    medianLatencyMs,
     jsonErrors,
     schemaErrors,
     truncatedCount: stage === "arguments" ? truncatedCount : 0,
@@ -454,6 +529,7 @@ export async function runBenchmark(
     casePromptHashes: Object.keys(casePromptHashes).length > 0 ? casePromptHashes : undefined,
     modelParameters: lastModelParams,
     repetitionsConfig: repetitions,
+    warmup: warmupResult,
     cases: caseResults,
     summary,
   };
@@ -469,7 +545,10 @@ export async function runBenchmark(
   console.log(`============================================================`);
   console.log(`RESUMEN DE CORRIDA:`);
   console.log(` - Tasa de éxito: ${successRatePct}% (${successfulRepetitions}/${totalRepetitions} repeticiones)`);
-  console.log(` - Latencia promedio: ${avgLatencyMs}ms`);
+  console.log(` - Latencia promedio: ${avgLatencyMs}ms (Mediana: ${medianLatencyMs}ms)`);
+  if (warmupResult) {
+    console.log(` - Warmup inicial: ${warmupResult.ok ? `${warmupResult.latencyMs}ms` : `falló (${warmupResult.error})`}`);
+  }
   console.log(` - Errores de JSON: ${jsonErrors}`);
   console.log(` - Errores de Schema / Validación: ${schemaErrors}`);
   if (stage === "arguments") {

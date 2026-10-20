@@ -1,0 +1,38 @@
+{
+  "id": "draft_args_example-task-fast-01_seq2",
+  "stage": "arguments",
+  "split": "dev",
+  "input": {
+    "toolName": "read_file",
+    "user": "ENV:\nhome=C:\\Users\\User\ndesktop=C:\\Users\\User\\Desktop\n\nTOOL: read_file: Read file contents.\n\nSCHEMA: {\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path to file\"}},\"required\":[\"path\"]}\n\nTASK: Lee el archivo notas.txt del escritorio",
+    "system": "Genera los argumentos de la herramienta indicada en estricta conformidad con SCHEMA.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to file"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  "expect": null,
+  "source": {
+    "taskId": "example-task-fast-01",
+    "seq": 2
+  },
+  "reference": {
+    "originalOutput": "{\"choices\":[{\"message\":{\"content\":\"{\\\"path\\\":\\\"C:\\\\\\\\Users\\\\\\\\User\\\\\\\\Desktop\\\\\\\\notas.txt\\\"}\"}}],\"usage\":{\"prompt_tokens\":85,\"completion_tokens\":18}}",
+    "retried": false,
+    "error": null,
+    "toolRun": {
+      "tool": "read_file",
+      "ok": true,
+      "error": null
+    }
+  },
+  "notes": "Borrador extraído de la tarea 'example-task-fast-01' (seq 2, herramienta: 'read_file', modo: FAST)."
+}

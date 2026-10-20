@@ -333,6 +333,17 @@ export const argumentsStage = {
       };
     }
 
+    // Paridad con producción (src/core/reasoner/qwen.ts:569):
+    // null en un parámetro opcional equivale a "no usado" y se elimina antes de validar.
+    const required = Array.isArray((schema as any)?.required)
+      ? ((schema as any).required as string[])
+      : [];
+    for (const k of Object.keys(parsedJson)) {
+      if (parsedJson[k] === null && !required.includes(k)) {
+        delete parsedJson[k];
+      }
+    }
+
     // validateArgs de src/core/reasoner/qwen.ts
     const schemaProblems = validateArgs(parsedJson, schema as any);
     return {

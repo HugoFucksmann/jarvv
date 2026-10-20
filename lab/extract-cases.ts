@@ -31,8 +31,11 @@ export interface ExtractOptions {
 }
 
 interface TraceCall {
-  seq: number;
+  seq?: number | string;
+  id?: string;
   step?: number | string;
+  stepId?: string;
+  stepSeq?: number;
   stage: string;
   rawInput: unknown;
   rawOutput?: string;
@@ -56,7 +59,7 @@ interface TraceTaskLine {
   taskId: string;
   startedAt?: string | number;
   endedAt?: string | number;
-  mode?: "fast" | "plan";
+  mode?: string;
   userMessage?: string;
   status?: string;
   finalResponse?: string;
@@ -233,9 +236,32 @@ export async function extractCases(options?: ExtractOptions): Promise<{
     processedTasksCount++;
 
     const calls = Array.isArray(task.calls) ? task.calls : [];
-    for (const call of calls) {
+    for (const [callIndex, call] of calls.entries()) {
       if (!call || typeof call !== "object") continue;
       const stage = String(call.stage || "").toUpperCase();
+
+      // Ajuste D / IMP-02: resolución tolerante de seq y step con avisos en consola
+      let seq: number | string;
+      if (call.seq !== undefined && call.seq !== null) {
+        seq = call.seq;
+      } else if (call.id !== undefined && call.id !== null) {
+        seq = String(call.id);
+        console.warn(`[extract-cases] Tarea '${task.taskId}': llamada en índice ${callIndex} no tiene 'seq'; usando id='${seq}' como respaldo.`);
+      } else {
+        seq = callIndex + 1;
+        console.warn(`[extract-cases] Tarea '${task.taskId}': llamada en índice ${callIndex} no tiene 'seq' ni 'id'; usando posición ${seq} como respaldo.`);
+      }
+
+      let step: number | string | undefined;
+      if (call.step !== undefined && call.step !== null) {
+        step = call.step;
+      } else if (call.stepId !== undefined && call.stepId !== null) {
+        step = call.stepId;
+        console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): llamada no tiene 'step'; usando stepId='${step}' como respaldo.`);
+      } else if (call.stepSeq !== undefined && call.stepSeq !== null) {
+        step = call.stepSeq;
+        console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): llamada no tiene 'step'; usando stepSeq='${step}' como respaldo.`);
+      }
 
       // 1. Etapa DECISION_ONE (Eos)
       if (stage === "DECISION_ONE") {
@@ -244,12 +270,12 @@ export async function extractCases(options?: ExtractOptions): Promise<{
         try {
           parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
         } catch {
-          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${call.seq}): no se pudo parsear rawInput.`);
+          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): no se pudo parsear rawInput.`);
           continue;
         }
 
         if (parsedInput && parsedInput.state && parsedInput.questions) {
-          const draftId = `draft_d1_${task.taskId}_seq${call.seq}`;
+          const draftId = `draft_d1_${task.taskId}_seq${seq}`;
           const filePath = path.join(d1Dir, `${draftId}.json`);
 
           if (fs.existsSync(filePath)) {
@@ -274,10 +300,10 @@ export async function extractCases(options?: ExtractOptions): Promise<{
             expect: null, // El usuario lo completa a mano
             source: {
               taskId: task.taskId,
-              seq: call.seq,
+              seq,
             },
             reference,
-            notes: `Borrador extraído de la tarea '${task.taskId}' (seq ${call.seq}, modo: ${task.mode || "desconocido"}).`,
+            notes: `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, modo: ${task.mode || "desconocido"}).`,
           };
 
           fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
@@ -292,7 +318,7 @@ export async function extractCases(options?: ExtractOptions): Promise<{
         try {
           parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
         } catch {
-          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${call.seq}): no se pudo parsear rawInput.`);
+          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): no se pudo parsear rawInput.`);
           continue;
         }
 
@@ -303,7 +329,7 @@ export async function extractCases(options?: ExtractOptions): Promise<{
         if (userMsg) {
           const schemaResult = extractSchemaFromUserPrompt(userMsg);
           const toolName = extractToolNameFromUserPrompt(userMsg);
-          const draftId = `draft_args_${task.taskId}_seq${call.seq}`;
+          const draftId = `draft_args_${task.taskId}_seq${seq}`;
           const filePath = path.join(argsDir, `${draftId}.json`);
 
           if (fs.existsSync(filePath)) {
@@ -312,8 +338,8 @@ export async function extractCases(options?: ExtractOptions): Promise<{
           }
 
           // Encontrar toolRun coincidente del mismo paso si existe
-          const matchingTool = Array.isArray(task.toolRuns)
-            ? task.toolRuns.find((tr) => String(tr.step) === String(call.step))
+          const matchingTool = Array.isArray(task.toolRuns) && step !== undefined
+            ? task.toolRuns.find((tr) => String(tr.step) === String(step))
             : undefined;
 
           const reference: CaseReference = {
@@ -329,7 +355,7 @@ export async function extractCases(options?: ExtractOptions): Promise<{
               : undefined,
           };
 
-          let notes = `Borrador extraído de la tarea '${task.taskId}' (seq ${call.seq}, herramienta: '${toolName || "desconocida"}', modo: ${task.mode || "desconocido"}).`;
+          let notes = `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, herramienta: '${toolName || "desconocida"}', modo: ${task.mode || "desconocido"}).`;
           if (!schemaResult.success || Object.keys(schemaResult.schema).length === 0) {
             console.warn(
               `[extract-cases] [ADVERTENCIA] No se pudo extraer SCHEMA para el borrador '${draftId}'. Requiere revisión manual.`
@@ -350,7 +376,7 @@ export async function extractCases(options?: ExtractOptions): Promise<{
             expect: null, // El usuario lo completa a mano
             source: {
               taskId: task.taskId,
-              seq: call.seq,
+              seq,
             },
             reference,
             notes,

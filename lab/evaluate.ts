@@ -111,6 +111,11 @@ export function compareRuns(pathA: string, pathB: string): void {
   console.log(`Etapa: ${resA.stage}`);
   console.log(`Corrida A: [${resA.promptType.toUpperCase()}${resA.variantId ? `: ${resA.variantId}` : ""}] (Split: ${resA.split ?? "todos"}) ${resA.id}`);
   console.log(`Corrida B: [${resB.promptType.toUpperCase()}${resB.variantId ? `: ${resB.variantId}` : ""}] (Split: ${resB.split ?? "todos"}) ${resB.id}`);
+  if (resA.warmup || resB.warmup) {
+    const wA = resA.warmup ? `${resA.warmup.latencyMs}ms (${resA.warmup.ok ? "ok" : "falló"})` : "N/D";
+    const wB = resB.warmup ? `${resB.warmup.latencyMs}ms (${resB.warmup.ok ? "ok" : "falló"})` : "N/D";
+    console.log(`Warmup inicial:  A=${wA}  vs  B=${wB}`);
+  }
   console.log(`============================================================\n`);
 
   // 2. Desglose caso por caso
@@ -142,7 +147,27 @@ export function compareRuns(pathA: string, pathB: string): void {
 
     console.log(`- ${caseId}:`);
     console.log(`    Aciertos: A=${rateA} vs B=${rateB}  -->  ${trend}`);
-    console.log(`    Latencia media: A=${cA.avgLatencyMs}ms vs B=${cB.avgLatencyMs}ms (${latSign}ms)`);
+
+    if (cA.medianLatencyMs !== undefined && cB.medianLatencyMs !== undefined) {
+      const medDelta = cB.medianLatencyMs - cA.medianLatencyMs;
+      const medSign = medDelta >= 0 ? `+${medDelta}` : `${medDelta}`;
+      console.log(`    Latencia media: A=${cA.avgLatencyMs}ms vs B=${cB.avgLatencyMs}ms (${latSign}ms) | Mediana: A=${cA.medianLatencyMs}ms vs B=${cB.medianLatencyMs}ms (${medSign}ms)`);
+    } else {
+      console.log(`    Latencia media: A=${cA.avgLatencyMs}ms vs B=${cB.avgLatencyMs}ms (${latSign}ms)`);
+    }
+
+    // Ajuste C: mostrar probabilidades de opción esperada para choice_equals (Eos)
+    if (cA.expectedChoiceProbability !== undefined || cB.expectedChoiceProbability !== undefined) {
+      const pA = cA.expectedChoiceProbability !== undefined ? `${(cA.expectedChoiceProbability * 100).toFixed(1)}%` : "N/D";
+      const pB = cB.expectedChoiceProbability !== undefined ? `${(cB.expectedChoiceProbability * 100).toFixed(1)}%` : "N/D";
+      let diffMsg = "";
+      if (cA.expectedChoiceProbability !== undefined && cB.expectedChoiceProbability !== undefined) {
+        const pDelta = Number(((cB.expectedChoiceProbability - cA.expectedChoiceProbability) * 100).toFixed(1));
+        const pSign = pDelta >= 0 ? `+${pDelta}` : `${pDelta}`;
+        diffMsg = ` (Diferencia: ${pSign}%)`;
+      }
+      console.log(`    Probabilidad opción esperada: A=${pA} vs B=${pB}${diffMsg}`);
+    }
   }
 
   // 3. Resumen Global
@@ -162,6 +187,13 @@ export function compareRuns(pathA: string, pathB: string): void {
   console.log(
     `Latencia promedio:             A=${resA.summary.avgLatencyMs}ms  vs  B=${resB.summary.avgLatencyMs}ms  (Diferencia: ${latGlobalSign}ms)`
   );
+  if (resA.summary.medianLatencyMs !== undefined && resB.summary.medianLatencyMs !== undefined) {
+    const medGlobalDelta = resB.summary.medianLatencyMs - resA.summary.medianLatencyMs;
+    const medGlobalSign = medGlobalDelta >= 0 ? `+${medGlobalDelta}` : `${medGlobalDelta}`;
+    console.log(
+      `Mediana de latencia:           A=${resA.summary.medianLatencyMs}ms  vs  B=${resB.summary.medianLatencyMs}ms  (Diferencia: ${medGlobalSign}ms)`
+    );
+  }
   console.log(
     `Errores sintácticos de JSON:   A=${resA.summary.jsonErrors}  vs  B=${resB.summary.jsonErrors}`
   );

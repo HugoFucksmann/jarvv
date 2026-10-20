@@ -100,7 +100,7 @@ export type CaseCheck =
 
 export interface CaseSource {
   taskId: string;
-  seq: number;
+  seq: number | string;
 }
 
 export interface CaseReferenceToolRun {
@@ -158,6 +158,7 @@ export interface RunRepetition {
   parsedOutput?: unknown;
   checks: CheckResult[];
   allPassed: boolean;
+  expectedChoiceProbability?: number;
   error?: string;
   finishReason?: string;
   usage?: { promptTokens?: number; completionTokens?: number };
@@ -170,6 +171,8 @@ export interface CaseRunResult {
   passedReps: number;
   totalReps: number;
   avgLatencyMs: number;
+  medianLatencyMs?: number;
+  expectedChoiceProbability?: number;
   repetitions: RunRepetition[];
 }
 
@@ -190,9 +193,16 @@ export interface RunResultSummary {
   successfulRepetitions: number;
   successRatePct: number;
   avgLatencyMs: number;
+  medianLatencyMs?: number;
   jsonErrors: number;
   schemaErrors: number;
   truncatedCount?: number;
+}
+
+export interface WarmupResult {
+  latencyMs: number;
+  ok: boolean;
+  error?: string;
 }
 
 export interface RunResult {
@@ -207,6 +217,7 @@ export interface RunResult {
   casePromptHashes?: Record<string, string>;
   modelParameters: ModelParametersRecord;
   repetitionsConfig: number;
+  warmup?: WarmupResult;
   cases: CaseRunResult[];
   summary: RunResultSummary;
 }

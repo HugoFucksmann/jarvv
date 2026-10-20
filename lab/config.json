@@ -1,7 +1,7 @@
 {
   "tracesFilePath": "./jarvis-traces.jsonl",
   "repetitions": {
-    "decision_one": 3,
+    "decision_one": 1,
     "arguments": 3,
     "default": 3
   }
