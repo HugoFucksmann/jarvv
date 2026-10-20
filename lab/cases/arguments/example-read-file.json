@@ -1,0 +1,39 @@
+{
+  "id": "example-read-file",
+  "stage": "arguments",
+  "split": "dev",
+  "input": {
+    "toolName": "read_file",
+    "user": "ENV:\nhome=C:\\Users\\User\ndesktop=C:\\Users\\User\\Desktop\ndocuments=C:\\Users\\User\\Documents\ndownloads=C:\\Users\\User\\Downloads\n\nTOOL: read_file: Read the contents of a file.\n\nSCHEMA: {\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\",\"description\":\"Absolute path to file\"}},\"required\":[\"path\"]}\n\nGOAL: Leer el archivo notas.txt en el escritorio\n\nTASK: Lee el archivo C:\\Users\\User\\Desktop\\notas.txt",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Absolute path to file"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  },
+  "expect": [
+    {
+      "type": "valid_json"
+    },
+    {
+      "type": "matches_schema"
+    },
+    {
+      "type": "field_equals",
+      "path": "path",
+      "expected": "C:\\Users\\User\\Desktop\\notas.txt"
+    }
+  ],
+  "source": {
+    "taskId": "task_example_args",
+    "iterationId": "iter_example_args"
+  },
+  "notes": "Caso de ejemplo de generación de argumentos para la herramienta read_file con schema conocido."
+}

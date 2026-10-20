@@ -1,0 +1,10 @@
+# Borradores generados por extract-cases.ts
+cases/**/_drafts/
+
+# Casos reales extraídos de tareas del usuario (conservar casos example-*)
+cases/**/*.json
+!cases/**/example-*.json
+
+# Resultados de ejecuciones de benchmarks
+results/*.json
+!results/.gitkeep

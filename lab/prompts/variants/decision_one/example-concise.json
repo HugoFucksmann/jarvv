@@ -1,0 +1,14 @@
+{
+  "questions": {
+    "route": {
+      "instructions": "Select the single best subsystem route for the next action.",
+      "criteria": {
+        "files": "Read, create, or list files and folders with known paths.",
+        "locate": "Search for files by name or text content when location is unknown.",
+        "terminal": "Execute shell commands or run background processes.",
+        "web": "Search online or retrieve web page contents.",
+        "fin": "Goal is fulfilled or direct conversation without tools."
+      }
+    }
+  }
+}

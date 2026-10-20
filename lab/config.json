@@ -1,0 +1,8 @@
+{
+  "tasksFilePath": "./jarvis-tasks.json",
+  "repetitions": {
+    "decision_one": 3,
+    "arguments": 3,
+    "default": 3
+  }
+}

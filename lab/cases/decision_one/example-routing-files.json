@@ -1,0 +1,36 @@
+{
+  "id": "example-routing-files",
+  "stage": "decision_one",
+  "split": "dev",
+  "input": {
+    "state": "Current message: Abre el archivo notas.txt y muéstrame qué contiene\nHistory: (ninguno)",
+    "questions": {
+      "route": {
+        "type": "choice",
+        "instructions": "Which route should handle the next action?",
+        "criteria": {
+          "files": "Read, create, save or move files and folders, and list a folder, when the path is already known.",
+          "locate": "Find files by name or by text inside files when the location is unknown.",
+          "terminal": "Run a command or program (including launching apps), and read its output or send it input while it runs. Not for reading or listing files.",
+          "web": "Look up information online and read the content of web pages, including known URLs.",
+          "fin": "Direct conversation, or the task is already complete and nothing remains to be done."
+        }
+      }
+    }
+  },
+  "expect": [
+    {
+      "type": "valid_json"
+    },
+    {
+      "type": "choice_equals",
+      "expected": "files",
+      "questionKey": "route"
+    }
+  ],
+  "source": {
+    "taskId": "task_example_d1",
+    "iterationId": "iter_example_d1"
+  },
+  "notes": "Caso de ejemplo de enrutamiento Decision #1 cuando el usuario pide leer un archivo específico."
+}
