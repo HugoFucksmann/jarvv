@@ -178,6 +178,7 @@ export function createIterationFromEvent(
         output: {
           veredictoOk: verification.ok ?? isStepSuccess,
           veredictoCumple: verification.cumple ?? isStepSuccess,
+          verificadoPor: data.verifiedBy,
           senalesFisicas: processed.signals || {},
           hallazgo: processed.finding || processed.summaryText || "",
           estadoVerificacion: processed.verification || (isStepSuccess ? "VERIFIED" : "UNVERIFIED"),

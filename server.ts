@@ -15,7 +15,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { DesktopCommanderMCPServer } from './src/core/mcp/desktopCommanderMcp.ts';
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
-import { IMCPServer } from './src/core/mcp/types.ts';
+import type { IMCPServer } from './src/core/mcp/types.ts';
 import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
 import { Decision20Engine } from './src/core/decision.ts';
 import { QwenEngine } from './src/core/reasoner/qwen.ts';
@@ -30,13 +30,20 @@ async function main() {
   const app = express();
   app.use(express.json());
 
-  // CORS para permitir desarrollo con frontend en puerto desacoplado
+  // CORS: el agente ejecuta comandos en esta PC, así que solo se acepta como origen cruzado a localhost
+  // (el frontend en otro puerto de localhost sigue funcionando).
+  const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    const origin = req.headers.origin;
+    const isLocal = !!origin && LOCAL_ORIGIN.test(origin);
+    if (isLocal) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    }
     if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
+      return res.sendStatus(!origin || isLocal ? 200 : 403);
     }
     next();
   });
@@ -66,7 +73,11 @@ async function main() {
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
-    jarvisCore.flushPersistence();
+    // Si algún servidor MCP no cierra, un segundo Ctrl+C no haría nada (isShuttingDown): salida forzada.
+    setTimeout(() => {
+      console.warn('[Host] El cierre excedió 5 s; saliendo de forma forzada.');
+      process.exit(1);
+    }, 5000).unref();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
 
     for (const [name, server] of Object.entries(servers)) {
@@ -111,9 +122,12 @@ async function main() {
 
   // 2. MIDDLEWARE DE VITE (DESARROLLO) / ESTÁTICOS (PRODUCCIÓN)
 
+  // Por segmento de ruta (no por prefijo de texto) y sobre originalUrl: dentro de app.use('*') req.path no es fiable.
   const API_PREFIXES = ['/api', '/mcp', '/jarvis'];
-  const isApiRequest = (url: string, pathName: string) =>
-    API_PREFIXES.some((prefix) => url.startsWith(prefix) || pathName.startsWith(prefix));
+  const isApiRequest = (url: string) => {
+    const pathName = url.split('?')[0];
+    return API_PREFIXES.some((prefix) => pathName === prefix || pathName.startsWith(`${prefix}/`));
+  };
 
   const isProduction = process.env.NODE_ENV === 'production';
   if (!isProduction) {
@@ -124,7 +138,7 @@ async function main() {
     });
 
     app.use((req, res, next) => {
-      if (isApiRequest(req.originalUrl, req.path)) {
+      if (isApiRequest(req.originalUrl)) {
         return next();
       }
       vite.middlewares(req, res, next);
@@ -134,7 +148,7 @@ async function main() {
     // 3. FALLBACK DEL FRONTEND (INDEX.HTML DE VITE)
 
     app.use('*', async (req, res, next) => {
-      if (isApiRequest(req.originalUrl, req.path)) {
+      if (isApiRequest(req.originalUrl)) {
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
       try {
@@ -149,18 +163,18 @@ async function main() {
   } else {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req, res) => {
-      if (isApiRequest(req.originalUrl, req.path)) {
+      if (isApiRequest(req.originalUrl)) {
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
     });
   }
 
+  // Solo loopback por defecto: sin autenticación, exponerlo a la red local daría control de la PC. HOST=0.0.0.0 lo abre.
   const PORT = Number(process.env.PORT) || 3000;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`JARVIS Core authoritative full-stack host running on:`);
-    console.log(`  - Local:    http://localhost:${PORT}`);
-    console.log(`  - Loopback: http://127.0.0.1:${PORT}`);
+  const HOST = process.env.HOST || '127.0.0.1';
+  app.listen(PORT, HOST, () => {
+    console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);
   });
 }
 

@@ -16,6 +16,17 @@ import type { Attempt } from "./reasoner/prompts.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
 import { RefStore } from "./processor/resultProcessor.ts";
 
+/** Observación de una lectura con datos (búsqueda, página, archivo…): lo que un paso posterior puede necesitar. */
+export interface DataObservation {
+    stepId: string;
+    /** Herramienta + destino ("search aves de Argentina"). */
+    label: string;
+    text: string;
+}
+
+/** Lecturas con datos que se conservan para los argumentos de Qwen, además de la última llamada. */
+const MAX_DATA_OBSERVATIONS = 3;
+
 export interface TaskExecutionContext {
     task: Task;
     abortController: AbortController;
@@ -34,12 +45,17 @@ export interface TaskExecutionContext {
     activeRouteOverride?: ExecutableRoute;
     excludedToolForNextCall?: string;
     lastCallCompactObs?: string;
+    /**
+     * Últimas lecturas con datos. `lastCallCompactObs` solo guarda la última llamada: cualquier llamada intermedia
+     * (otra lectura, un directorio, un intento fallido) hacía desaparecer los resultados que un paso posterior necesita.
+     */
+    dataObs: DataObservation[];
     /** Resumen sintético estructurado para Decision 2.0 ([SUCCESS]/[FAILURE]/…). */
     lastCallDecisionSummary?: string;
     /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
     lastCallTool?: string;
-    /** Número de paso (1-based) que produjo lastCallCompactObs: el label LAST debe nombrar a quien la generó, no al paso actual. */
-    lastCallStepNumber?: number;
+    /** Id del paso que produjo lastCallCompactObs: el label LAST debe nombrar a quien la generó, no al paso actual. */
+    lastCallStepId?: string;
     /** Handoff determinista del último paso completado. */
     lastHandoff?: StepHandoff;
 }
@@ -56,6 +72,11 @@ export function expandMemoryContext(context: TaskExecutionContext): ProgressiveM
         context.memoryRetrievalLimit = next;
     }
     return next;
+}
+
+/** Registra la observación de una lectura con datos (se conservan las últimas MAX_DATA_OBSERVATIONS). */
+export function recordDataObservation(context: TaskExecutionContext, obs: DataObservation): void {
+    context.dataObs = [...context.dataObs, obs].slice(-MAX_DATA_OBSERVATIONS);
 }
 
 /** Única fuente de la forma de la memoria de una tarea. */
@@ -97,7 +118,7 @@ export function addFailEntry(context: TaskExecutionContext, line: string): void 
     }
 }
 
-/** Historial compacto para Decision #1: últimas `limit` líneas de LOG y FAIL. */
+/** Historial compacto para Decision #1: últimas `limit` líneas de LOG y FAIL. Vacío mientras no haya memoria. */
 export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 2): string {
     const logLines = task.memory?.log || [];
     const failLines = task.memory?.fail || [];
@@ -109,7 +130,7 @@ export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 
     if (failLines.length > 0) {
         parts.push(`FAIL:\n${failLines.slice(-Math.min(limit, 5)).join("\n")}`);
     }
-    return parts.join("\n") || task.message;
+    return parts.join("\n");
 }
 
 export function buildScratchpadContextForDecision(task: Task): string {
@@ -136,18 +157,44 @@ export function buildAttempts(task: Task): Attempt[] {
     );
 }
 
+/** Ventana del plan que ve Qwen: lo anterior y lo siguiente se resume, el paso actual siempre entra completo. */
+const PLAN_WINDOW_PREV = 2;
+const PLAN_WINDOW_NEXT = 3;
+const PLAN_LINE_CHARS = 180;
+
+const clipLine = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+function planLine(s: Step): string {
+    switch (s.state) {
+        case "COMPLETED":
+            return clipLine(`[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || "ok"}`, PLAN_LINE_CHARS);
+        case "RUNNING":
+            // Instrucción y criterio se recortan por separado: el criterio de éxito no puede perderse.
+            return `[>] ${s.id} ${clipLine(s.instruction, 200)} | éxito: ${clipLine(s.expectedOutcome || "completado", 150)}`;
+        case "UNVERIFIED":
+            return clipLine(`[~] ${s.id} ${s.instruction} (sin verificar)`, PLAN_LINE_CHARS);
+        default:
+            return clipLine(`[ ] ${s.id} ${s.instruction}`, PLAN_LINE_CHARS);
+    }
+}
+
 export function buildPlanLines(task: Task): string[] {
-    return task.steps
-        .filter((s) => !s.superseded)
-        .map((s) => {
-            if (s.state === "COMPLETED") {
-                return `[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || 'ok'}`;
-            }
-            if (s.state === "RUNNING") {
-                return `[>] ${s.id} ${s.instruction} | éxito: ${s.expectedOutcome || 'completado'}`;
-            }
-            return `[ ] ${s.id} ${s.instruction}`;
-        });
+    const live = task.steps.filter((s) => !s.superseded);
+    let current = live.findIndex((s) => s.state === "RUNNING");
+    if (current < 0) current = live.findIndex((s) => s.state === "PENDING");
+    if (current < 0) current = live.length;
+
+    const before = live.slice(0, current);
+    const upcoming = live.slice(current);
+    const hiddenBefore = before.length - PLAN_WINDOW_PREV;
+    const hiddenAfter = upcoming.length - (1 + PLAN_WINDOW_NEXT);
+
+    return [
+        ...(hiddenBefore > 0 ? [`(+${hiddenBefore} pasos anteriores)`] : []),
+        ...before.slice(-PLAN_WINDOW_PREV).map(planLine),
+        ...upcoming.slice(0, 1 + PLAN_WINDOW_NEXT).map(planLine),
+        ...(hiddenAfter > 0 ? [`(+${hiddenAfter} pasos pendientes)`] : []),
+    ];
 }
 
 /** Entradas más recientes del log de efectos secundarios. */
@@ -194,31 +241,10 @@ const fmtChars = (n: number): string => (n >= 1024 ? `${(n / 1024).toFixed(1)}KB
 /**
  * Referencias disponibles ({{ref:rX}}) con su origen y tamaño. Es la única vía para que Qwen conozca referencias
  * anteriores a la última observación: el marcador de LAST solo describe la más reciente y puede recortarse.
- * Se construye del RefStore vivo, así que tras un reinicio (refs perdidas) no ofrece referencias inexistentes.
+ * Se construye del RefStore vivo, así que nunca ofrece referencias que ya no existen.
  */
-export function buildRefsContext(task: Task, limit = 5): string[] {
+export function buildRefsContext(task: Task, limit = 8): string[] {
     return RefStore.describe(task.id, limit).map(
         (r) => `ref:${r.key} ${r.label || "resultado"} (${fmtChars(r.chars)})`
     );
-}
-
-/**
- * Retira de la memoria los facts que un paso aportó cuando su verificación semántica lo bloqueó o la información
- * no alcanzó (no en una desviación recuperable), y el handoff que habría pasado al siguiente paso. Solo se retira lo que sigue valiendo lo que aportó el paso (no lo que otro
- * paso sobrescribió después). Los facts de una mutación (p. ej. el pid de un proceso lanzado) se conservan: describen
- * el entorno, no una hipótesis sobre el contenido observado.
- */
-export function retractStepFacts(context: TaskExecutionContext, step: Step): void {
-    if (context.lastHandoff?.fromStepId === step.id) {
-        context.lastHandoff = undefined;
-    }
-    const delta = step.handoff?.factsDelta;
-    if (!delta) return;
-    const last = step.calls?.[step.calls.length - 1];
-    if (last && getToolPolicy(last.mcp, last.tool).mutates) return;
-    const facts = context.task.memory?.facts;
-    if (!facts) return;
-    for (const [key, value] of Object.entries(delta)) {
-        if (facts[key] === value) delete facts[key];
-    }
 }

@@ -14,7 +14,6 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { Task } from "./types.ts";
 
 const DEFAULT_DEBOUNCE_MS = 250;
 const DEFAULT_MAX_WAIT_MS = 2000;
@@ -194,54 +193,6 @@ export class TaskStore {
         // su rama process.exit() nunca se activaba (listenerCount siempre > 1).
         process.on("exit", () => TaskStore.instances.forEach((s) => s.flushSync()));
     }
-}
-
-// ---------------------------------------------------------------------------
-// Migración de tareas persistidas antes de existir la fuente única de trazas
-// ---------------------------------------------------------------------------
-
-/**
- * Elimina de una tarea heredada las copias crudas redundantes (`step.rawInput/rawOutput`,
- * `calls[].rawInput/rawOutput`, `memory.rawInteractions`) cuando su texto existe idéntico en `modelIterations`.
- * Es una migración sin pérdida: lo que no coincide exactamente se conserva. Devuelve true si cambió algo.
- */
-export function compactLegacyDuplicates(task: Task): boolean {
-    const iterations = task.modelIterations;
-    if (!iterations || iterations.length === 0) return false;
-
-    const known = new Set<string>();
-    for (const it of iterations) {
-        if (it.rawInput) known.add(it.rawInput);
-        if (it.rawOutput) known.add(it.rawOutput);
-    }
-
-    let changed = false;
-    const dropDuplicated = (holder: { rawInput?: string; rawOutput?: string }) => {
-        if (typeof holder.rawInput === "string" && known.has(holder.rawInput)) {
-            delete holder.rawInput;
-            changed = true;
-        }
-        if (typeof holder.rawOutput === "string" && known.has(holder.rawOutput)) {
-            delete holder.rawOutput;
-            changed = true;
-        }
-    };
-
-    for (const step of task.steps ?? []) {
-        dropDuplicated(step);
-        for (const call of step.calls ?? []) dropDuplicated(call);
-    }
-
-    const interactions = task.memory?.rawInteractions;
-    if (interactions && task.memory) {
-        const kept = interactions.filter((r) => !(known.has(r.rawInput) && known.has(r.rawOutput)));
-        if (kept.length !== interactions.length) {
-            changed = true;
-            if (kept.length > 0) task.memory.rawInteractions = kept;
-            else delete task.memory.rawInteractions;
-        }
-    }
-    return changed;
 }
 
 // ---------------------------------------------------------------------------

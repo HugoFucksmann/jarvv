@@ -34,15 +34,7 @@ export interface RefDescriptor {
   chars: number;
 }
 
-/** Referencia completa, tal como se entrega al archivador al liberar una tarea. */
-export interface RefEntry {
-  key: string;
-  label: string;
-  content: string;
-}
-
 export class RefStore {
-  private static archiver?: (taskId: string, refs: RefEntry[]) => void;
   private static taskStores: Map<string, Map<string, string>> = new Map();
   private static taskCounters: Map<string, number> = new Map();
   private static taskMeta: Map<string, Map<string, { label: string; chars: number }>> = new Map();
@@ -95,44 +87,19 @@ export class RefStore {
     return store ? Array.from(store.keys()) : [];
   }
 
-  /** Registra quién archiva las referencias de una tarea al liberarlas (lo cablea el núcleo; evita acoplar este módulo a disco). */
-  static setArchiver(fn?: (taskId: string, refs: RefEntry[]) => void): void {
-    this.archiver = fn;
-  }
-
   /**
-   * Libera las referencias de una tarea en memoria, archivándolas antes si hay archivador: la evidencia de una tarea
-   * terminada debe seguir consultable desde el historial. Sin referencias no hace nada (no pisa un archivo existente).
+   * Libera las referencias de una tarea (o todas). Las refs de una tarea terminada se conservan en memoria, para que su
+   * evidencia siga consultable mientras la tarea esté en el historial; solo se liberan cuando la tarea se expulsa.
    */
   static clear(taskId?: string): void {
     if (taskId) {
-      this.archive(taskId);
-      this.discard(taskId);
+      this.taskStores.delete(taskId);
+      this.taskCounters.delete(taskId);
+      this.taskMeta.delete(taskId);
     } else {
       this.taskStores.clear();
       this.taskCounters.clear();
       this.taskMeta.clear();
-    }
-  }
-
-  /** Descarta las referencias de una tarea en memoria SIN archivarlas (tarea expulsada del historial). */
-  static discard(taskId: string): void {
-    this.taskStores.delete(taskId);
-    this.taskCounters.delete(taskId);
-    this.taskMeta.delete(taskId);
-  }
-
-  private static archive(taskId: string): void {
-    const store = this.taskStores.get(taskId);
-    if (!store || store.size === 0 || !this.archiver) return;
-    const meta = this.taskMeta.get(taskId);
-    try {
-      this.archiver(
-        taskId,
-        Array.from(store.entries()).map(([key, content]) => ({ key, label: meta?.get(key)?.label ?? "", content }))
-      );
-    } catch (err) {
-      console.warn(`[RefStore] No se pudieron archivar las referencias de '${taskId}':`, err);
     }
   }
 }
@@ -146,7 +113,7 @@ export function sanitizeForMemory(text: string, maxLen = 120): string {
     .replace(/[\r\n\t]+/g, " ")
     .replace(/[\x00-\x1F\x7F]/g, "")
     .replace(/<\/?obs>/gi, "[obs]")
-    .replace(/\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST):/gi, "$1_")
+    .replace(/\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST|DATA):/gi, "$1_")
     .trim();
   if (clean.length > maxLen) {
     clean = clean.substring(0, maxLen - 3) + "...";
@@ -157,7 +124,8 @@ export function sanitizeForMemory(text: string, maxLen = 120): string {
 /** Argumentos que mejor identifican de dónde viene un resultado (para describirlo en REFS). */
 const REF_LABEL_ARGS = ["path", "file_path", "url", "query", "command", "pattern", "name"] as const;
 
-function refLabel(tool: string, args: Record<string, unknown>): string {
+/** Etiqueta determinista de una llamada: herramienta + su destino (ruta, URL, consulta o comando). */
+export function refLabel(tool: string, args: Record<string, unknown>): string {
   for (const key of REF_LABEL_ARGS) {
     const value = args[key];
     if (typeof value === "string" && value.trim()) return `${tool} ${sanitizeForMemory(value, 60)}`;
@@ -165,8 +133,8 @@ function refLabel(tool: string, args: Record<string, unknown>): string {
   return tool;
 }
 
-/** Largo del snippet de cada resultado en la observación compacta de `search`. */
-const SEARCH_SNIPPET_CHARS = 40;
+/** Largos de snippet que intenta la observación compacta de `search`, de mayor a menor: gana el mayor que quepa. */
+const SEARCH_SNIPPET_LENGTHS = [240, 160, 100, 60, 40] as const;
 
 /** Línea con la que `search` informa un motor inexistente: `- <motor>: Unknown engine: '<x>'.` */
 const UNKNOWN_ENGINE_LINE = /^- [^:\n]+: Unknown engine: '([^']+)'\./gm;
@@ -179,15 +147,14 @@ interface SearchItem {
 
 /**
  * Observación compacta de `search` dentro de MAX_EVIDENCE_OBS_CHARS. Prioridad: título y URL de cada resultado
- * (siempre completos); después los snippets, solo si caben en todos; el lead, solo si cabe. Si ni los títulos y
+ * (siempre completos); después los snippets, del mayor largo que quepa en todos; el lead, solo si cabe. Si ni los títulos y
  * URLs entran, se conservan los resultados completos que caben y el resto queda en la referencia.
  */
 function buildSearchObs(items: readonly SearchItem[], leadText: string | undefined, refKey: string | undefined): string {
   const shown = items.slice(0, MAX_SCRATCHPAD_RESULTS);
   const bare = shown.map((it) => (it.url ? `${it.title}: ${it.url}` : it.title));
-  const withSnippet = shown.map((it, i) =>
-    it.snippet ? `${bare[i]} - ${it.snippet.slice(0, SEARCH_SNIPPET_CHARS)}` : bare[i]
-  );
+  const withSnippets = (n: number) =>
+    shown.map((it, i) => (it.snippet ? `${bare[i]} - ${it.snippet.slice(0, n)}` : bare[i]));
   const lead = leadText ? `Lead: ${leadText.slice(0, 300)}` : undefined;
 
   const compose = (lines: readonly string[], withLead: boolean): string => {
@@ -196,10 +163,16 @@ function buildSearchObs(items: readonly SearchItem[], leadText: string | undefin
     return [...(withLead && lead ? [lead] : []), ...lines].join("\n") + note;
   };
 
-  const fitting = [compose(withSnippet, true), compose(withSnippet, false), compose(bare, false)].find(
-    (obs) => obs.length <= MAX_EVIDENCE_OBS_CHARS
-  );
-  if (fitting) return fitting;
+  for (const n of SEARCH_SNIPPET_LENGTHS) {
+    const lines = withSnippets(n);
+    const plain = compose(lines, false);
+    if (plain.length <= MAX_EVIDENCE_OBS_CHARS) {
+      const withLead = compose(lines, true);
+      return withLead.length <= MAX_EVIDENCE_OBS_CHARS ? withLead : plain;
+    }
+  }
+  const bareObs = compose(bare, false);
+  if (bareObs.length <= MAX_EVIDENCE_OBS_CHARS) return bareObs;
 
   let kept = Math.max(bare.length - 1, 1);
   while (kept > 1 && compose(bare.slice(0, kept), false).length > MAX_EVIDENCE_OBS_CHARS) kept--;
@@ -434,7 +407,7 @@ export class ResultProcessor {
           factsDelta.cand = cands.join(", ");
         }
 
-        // El scratchpad es estado visible/persistido, no contexto de modelo: se acota para no crecer sin límite.
+        // El scratchpad es estado visible, no contexto de modelo: se acota para no crecer sin límite.
         scratchpadDelta.search_results = items.slice(0, MAX_SCRATCHPAD_RESULTS).map((r) => ({
           ...r,
           snippet: typeof r.snippet === "string" ? r.snippet.slice(0, 300) : r.snippet,

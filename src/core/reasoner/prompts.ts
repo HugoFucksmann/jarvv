@@ -28,6 +28,7 @@ import type { UserEnvironment } from "../environment.ts";
 
 // Presupuestos en caracteres por bloque (Qwen).
 const MAX_GOAL_CHARS = 1500;
+const MAX_ACTION_CHARS = 1200;
 const MAX_CHAT_CHARS = 2000;
 const MAX_LOG_CHARS = 2500;
 const MAX_PLAN_CHARS = 1500;
@@ -35,10 +36,12 @@ const MAX_FAIL_CHARS = 1200;
 const MAX_FACTS_CHARS = 2500;
 const MAX_FACT_VALUE_CHARS = 400;
 const MAX_EFFECTS_CHARS = 1200;
-const MAX_OBS_CHARS = 2000;
+// Igual que el tope de la observación compacta: un tope menor recortaba en silencio el medio de un resultado completo.
+const MAX_OBS_CHARS = MAX_EVIDENCE_OBS_CHARS;
+const MAX_DATA_CHARS = 6000;
 const MAX_EVID_CHARS = 6000;
 const MAX_STEP_RESULT_CHARS = 800;
-const MAX_REFS_CHARS = 800;
+const MAX_REFS_CHARS = 1200;
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
 // Presupuestos en caracteres (Decision).
@@ -114,6 +117,20 @@ const factsBlock = (facts: Record<string, string> | undefined, maxChars: number)
     ? linesBlock("FACTS", Object.entries(facts).map(([k, v]) => `${k}=${clip(v, MAX_FACT_VALUE_CHARS)}`), maxChars)
     : null;
 
+/** Bloques DATA: la lectura más reciente conserva su observación completa; las anteriores, lo que quede del presupuesto. */
+const dataObsBlocks = (items: ArgumentPromptData["dataObs"], budget: number): string[] => {
+  const list = items ?? [];
+  const blocks: string[] = [];
+  let left = budget;
+  for (let i = list.length - 1; i >= 0 && left >= 300; i--) {
+    const text = clipObs(list[i].obsText, Math.min(MAX_OBS_CHARS, left));
+    left -= text.length;
+    const block = dataBlock(`DATA (paso ${list[i].stepId}, ${safe(list[i].label)})`, text, MAX_OBS_CHARS);
+    if (block) blocks.unshift(block);
+  }
+  return blocks;
+};
+
 const orNone = (label: string, block: string | null): string => block ?? `${label}:\n(ninguno)`;
 
 const join = (parts: (string | null | undefined)[]): string =>
@@ -154,7 +171,9 @@ export interface ArgumentPromptData {
   environment: UserEnvironment;
   tool: MCPTool;
   cleanedSchema: Record<string, unknown>;
-  lastObs?: { stepIndex: number; toolName: string; obsText: string };
+  /** Lecturas anteriores con datos (la más antigua primero): lo que el paso puede necesitar y ya no es la última llamada. */
+  dataObs?: Array<{ stepId: string; label: string; obsText: string }>;
+  lastObs?: { stepId: string; toolName: string; obsText: string };
   taskInstruction: string;
 }
 
@@ -193,6 +212,8 @@ export const PROMPTS = {
     SYSTEM: `Genera los argumentos de la herramienta indicada. Responde solo con el objeto JSON, conforme al SCHEMA.
 Incluye solo los parámetros necesarios y omite los opcionales que no uses. No inventes filtros que el usuario no pidió.
 Si necesitas el contenido íntegro de un resultado previo guardado en memoria, usa {{ref:rX}} como valor del argumento. REFS lista las referencias disponibles: usa solo las que aparezcan allí.
+Los datos que escribas en archivos, scripts o textos deben salir de DATA, LAST, FACTS o de una referencia {{ref:rX}}; no los completes con tu propio conocimiento ni inventes valores. Si la tarea pide un campo que esas fuentes no traen, déjalo vacío o escribe N/D.
+DATA son lecturas anteriores (resultados de búsqueda, páginas, archivos) y LAST es la última llamada: úsalas tal cual y no omitas elementos que la tarea pida.
 ENV lista las rutas reales de esta PC (carpeta personal, escritorio, documentos, descargas). Toda ruta del usuario debe partir de ellas tal cual; nunca escribas marcadores como <user> ni variables de entorno.
 ${DATA_NOTICE}`,
 
@@ -202,7 +223,8 @@ ${DATA_NOTICE}`,
         linesBlock("ENV", Object.entries(data.environment).map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
         `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
         `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
-        `GOAL: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
+        // En FAST la instrucción del paso ya es el mensaje completo: repetirlo como GOAL solo duplica texto.
+        data.taskInstruction.startsWith(data.goal) ? null : `GOAL: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
         dataBlock("CHAT", data.chatContext, MAX_CHAT_CHARS),
         linesBlock("LOG", data.logLines, MAX_LOG_CHARS),
         linesBlock("PLAN", data.planLines, MAX_PLAN_CHARS),
@@ -210,8 +232,9 @@ ${DATA_NOTICE}`,
         factsBlock(data.facts, MAX_FACTS_CHARS),
         linesBlock("EFFECTS", data.effects, MAX_EFFECTS_CHARS),
         linesBlock("REFS", data.refs, MAX_REFS_CHARS),
+        ...dataObsBlocks(data.dataObs, MAX_DATA_CHARS),
         data.lastObs
-          ? dataBlock(`LAST (paso ${data.lastObs.stepIndex}, ${safe(data.lastObs.toolName)})`, clipObs(data.lastObs.obsText, MAX_OBS_CHARS), MAX_OBS_CHARS)
+          ? dataBlock(`LAST (paso ${data.lastObs.stepId}, ${safe(data.lastObs.toolName)})`, clipObs(data.lastObs.obsText, MAX_OBS_CHARS), MAX_OBS_CHARS)
           : null,
         `TASK: ${safe(clip(data.taskInstruction, MAX_GOAL_CHARS))}`,
       ]);
@@ -244,7 +267,7 @@ ${DATA_NOTICE}`,
 
   /** Modo PLAN: planificación inicial */
   PLAN: {
-    SYSTEM: `Descompón la solicitud en pasos ordenados.
+    SYSTEM: `Think briefly and avoid overthinking.  Descompón la solicitud en pasos ordenados.
 - Máximo ${MAX_STEPS} pasos.
 - Cada paso: {"goal":"...","suggested_mcp":"...","expected_outcome":"..."}.
 - suggested_mcp: una de ${ROUTE_LIST}; nunca una URL ni un nombre de herramienta. Usa el catálogo solo para elegir la ruta.
@@ -303,6 +326,7 @@ ${DATA_NOTICE}`,
     SYSTEM: `Eres el supervisor y verificador de etapas de JARVIS en modo PLAN.
 Evalúa, con base en evidencia observable, si el resultado de una etapa cumplió su objetivo y su criterio de éxito.
 Que una herramienta termine sin errores técnicos (código 0) NO implica que la etapa haya cumplido su objetivo: evalúa el cumplimiento sustantivo de la instrucción y los datos observados.
+Un mensaje de éxito impreso por el propio comando (p. ej. "Archivo creado") es una afirmación del comando, no evidencia de su contenido: contrasta ACCIÓN EJECUTADA con el criterio esperado y con lo observado.
 
 Clasifica el resultado en una de estas situaciones:
 1. "completed": la etapa cumplió su objetivo y su criterio de éxito observable. El plan continúa.
@@ -312,6 +336,7 @@ Clasifica el resultado en una de estas situaciones:
 
 Responde solo con JSON:
 {"status":"completed"|"recoverable_deviation"|"insufficient_info"|"unrecoverable_blocked","reason":"...","question_for_user":"..."}
+"question_for_user" siempre va: la pregunta concreta si status es "insufficient_info"; cadena vacía en los demás casos.
 ${DATA_NOTICE}`,
 
     buildUserPrompt(data: StageVerificationPromptData): string {
@@ -319,6 +344,7 @@ ${DATA_NOTICE}`,
         `OBJETIVO GENERAL: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
         `ETAPA EJECUTADA: ${safe(clip(data.stepInstruction, MAX_GOAL_CHARS))}`,
         `CRITERIO ESPERADO: ${safe(clip(data.expectedOutcome, MAX_GOAL_CHARS))}`,
+        dataBlock("ACCIÓN EJECUTADA", data.executedAction, MAX_ACTION_CHARS),
         dataBlock("EVIDENCIA OBSERVABLE", data.evidenceSummary, MAX_OBS_CHARS),
         dataBlock("OBSERVACIÓN COMPACTA", data.compactObs, MAX_OBS_CHARS),
         factsBlock(data.facts, MAX_FACTS_CHARS),

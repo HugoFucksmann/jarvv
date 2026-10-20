@@ -112,7 +112,7 @@ export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
     reason: { type: "string" },
     question_for_user: { type: "string" },
   },
-  required: ["status", "reason"],
+  required: ["status", "reason", "question_for_user"],
   additionalProperties: false,
 };
 
@@ -710,21 +710,20 @@ export class QwenEngine implements ILLMClient {
           maxTokens: ConfigManager.getConfig().qwenMaxTokens.verify,
           thinking: false,
           signal,
-          validate: (r) => {
+          validate: (r, isLast) => {
             if (r.truncated) return fail(TRUNCATED);
             const parsed = parseJsonObject(r.content);
             if (!parsed) return fail(NOT_JSON);
             if (!isStageStatus(parsed.status)) return fail(`'status' debe ser uno de ${STAGE_STATUSES.join(", ")}`);
             const status = parsed.status;
             const reason = nonEmptyString(parsed.reason) ?? "Sin detalle.";
+            if (status !== "insufficient_info") return ok({ status, reason });
+            // Una pregunta al usuario sin pregunta no sirve: se reintenta; en el último intento la razón hace de pregunta.
             const question = nonEmptyString(parsed.question_for_user);
-            if (status === "insufficient_info" && !question) {
-              return ok({
-                status: "recoverable_deviation" as const,
-                reason: `${reason} (se requería información del usuario, pero no se formuló la pregunta)`,
-              });
-            }
-            return ok({ status, reason, questionForUser: question });
+            if (question) return ok({ status, reason, questionForUser: question });
+            return isLast
+              ? ok({ status, reason, questionForUser: reason })
+              : fail('con status "insufficient_info", question_for_user debe contener la pregunta concreta');
           },
         });
         return { ...value, rawInput: res.rawInput, rawOutput: res.rawOutput };

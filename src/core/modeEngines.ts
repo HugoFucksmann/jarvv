@@ -17,7 +17,7 @@ import {
     type StepState,
     type TaskState,
 } from "./types.ts";
-import { RefStore } from "./processor/resultProcessor.ts";
+import { getToolPolicy } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
     addFailEntry,
@@ -26,7 +26,6 @@ import {
     buildHistoryContext,
     expandMemoryContext,
     hasUnresolvedUnverified,
-    retractStepFacts,
 } from "./context.ts";
 import { type EngineDependencies, recordFailedCall, runStep } from "./callExecutor.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
@@ -99,7 +98,6 @@ function resolveIncompleteState(task: TaskExecutionContext["task"]): TaskState {
  */
 export function failTask(context: TaskExecutionContext, deps: EngineDependencies, err: unknown): void {
     const { task } = context;
-    RefStore.clear(task.id);
     if (isCancellation(context, err) || isTerminalState(task.state)) return;
 
     const msg = err instanceof Error ? err.message : String(err);
@@ -110,7 +108,6 @@ export function failTask(context: TaskExecutionContext, deps: EngineDependencies
     task.waitingReason = undefined;
     task.pendingQuestion = undefined;
     task.finalResponse = task.finalResponse || `La tarea falló: ${msg}`;
-    deps.persistTasks();
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: msg, finalResponse: task.finalResponse });
 }
 
@@ -128,18 +125,22 @@ export async function concludeTask(
     // Invarianza de estados terminales: si la tarea ya fue cancelada, ningún resultado tardío la altera.
     if (context.isCancelled || task.state === "CANCELLED") {
         console.log(`[concludeTask] Tarea ${task.id} previamente cancelada. Ignorando conclusión tardía.`);
-        RefStore.clear(task.id);
         return;
     }
 
-    const evidenceSummaries = task.steps
+    // Evidencia: las lecturas con datos (p. ej. los resultados de una búsqueda anterior) y las últimas acciones que
+    // cambiaron algo. Antes eran solo las últimas 3 llamadas: los datos leídos al principio desaparecían de la respuesta.
+    const dataEvidence = context.dataObs.map((o) => `${o.label}: ${o.text}`);
+    const actionEvidence = task.steps
         .flatMap((s) => s.calls || [])
+        .filter((c) => getToolPolicy(c.mcp, c.tool).mutates)
         .slice(-3)
         .map((c) => {
             const obs = (c.evidence?.obs || c.evidence?.summary || "").trim().slice(0, MAX_EVIDENCE_OBS_CHARS);
             return obs ? `${c.tool}: ${obs}` : "";
         })
         .filter(Boolean);
+    const evidenceSummaries = [...dataEvidence, ...actionEvidence];
     if (evidenceSummaries.length === 0 && abortReason) {
         evidenceSummaries.push(`abort: ${abortReason.slice(0, 1500)}`);
     }
@@ -185,12 +186,10 @@ export async function concludeTask(
     // La generación fue asíncrona: la tarea pudo cancelarse mientras tanto.
     if (context.isCancelled || (task.state as TaskState) === "CANCELLED") {
         console.log(`[concludeTask] Tarea ${task.id} cancelada durante generación de respuesta final. Descartando resultado.`);
-        RefStore.clear(task.id);
         return;
     }
 
     task.state = state;
-    RefStore.clear(task.id);
     task.pendingQuestion = undefined;
     task.waitingReason = undefined;
     task.rawFinalInput = finalRawInput;
@@ -204,8 +203,6 @@ export async function concludeTask(
         rawOutput: finalRawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
-    // Persistir DESPUÉS de emitir: los eventos añaden la iteración final y la última interacción cruda al task.
-    deps.persistTasks();
 }
 
 
@@ -302,17 +299,16 @@ export async function handleReplan(
         return false;
     }
 
-    expandMemoryContext(context);
-
     task.replans = (task.replans || 0) + 1;
 
     const failedStep = task.steps[failedStepIndex];
     console.log(`[PLAN] Activando Replan autónomo (${task.replans}/${MAX_REPLAN}) para paso '${failedStep.id}'.`);
 
+    // Los pasos sin verificar también se informan ([~]): su trabajo está hecho aunque no se haya podido confirmar.
     const completedSummary = task.steps
         .slice(0, failedStepIndex)
-        .filter((s) => s.state === "COMPLETED")
-        .map((s) => `[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || 'ok'}`);
+        .filter((s) => !s.superseded && (s.state === "COMPLETED" || s.state === "UNVERIFIED"))
+        .map((s) => `${s.state === "COMPLETED" ? "[x]" : "[~]"} ${s.id} ${s.instruction} -> ${s.evidence?.summary || 'ok'}`);
 
     const remainingGoals = task.steps
         .slice(failedStepIndex + 1)
@@ -364,14 +360,13 @@ export async function handleReplan(
         rawInput: replanResult.rawInput,
         rawOutput: replanResult.rawOutput,
     });
-    deps.persistTasks();
     console.log(`[PLAN] Replan autónomo completado. Continuando ejecución directa de ${newSteps.length} pasos.`);
     return true;
 }
 
 /**
  * Registra un fallo no controlado durante runStep, marca el paso como FAILED,
- * registra la llamada fallida, persiste y emite STEP_COMPLETED.
+ * registra la llamada fallida y emite STEP_COMPLETED.
  */
 function recordStepCrash(
     context: TaskExecutionContext,
@@ -385,7 +380,6 @@ function recordStepCrash(
     step.state = "FAILED";
     step.error = err instanceof Error ? err.message : String(err);
     recordFailedCall(context, step, { error: step.error });
-    deps.persistTasks();
     deps.emitEvent(context.task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 }
 
@@ -498,7 +492,6 @@ export async function runFastLoop(
         };
 
         task.steps.push(step);
-        deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
         // Ejecución única con el motor unificado
@@ -523,17 +516,14 @@ export async function runFastLoop(
 
         if (execResult.status === "ok") {
             step.state = "COMPLETED";
-            deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
         } else if (execResult.status === "unverified") {
             step.state = "UNVERIFIED";
-            deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
             console.warn(`[FAST] Acción UNVERIFIED registrada. Requiere observación.`);
         } else if (execResult.status === "blocked_loop") {
             step.state = "BLOCKED";
             step.error = execResult.error || "Invocación bloqueada por anti-loop.";
-            deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
             if (context.consecutiveLoopBlocks >= 2) {
@@ -544,7 +534,6 @@ export async function runFastLoop(
         } else {
             step.state = "FAILED";
             step.error = execResult.error || "Fallo lógico en ejecución.";
-            deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 
             if (!await handleEscalation(context, step, execResult, deps)) {
@@ -591,7 +580,6 @@ export async function initiatePlanMode(
         plan = await deps.qwenEngine.generatePlan(task.message, undefined, signal);
     } catch (err) {
         if (isCancellation(context, err)) {
-            RefStore.clear(task.id);
             return;
         }
         console.error(`[PLAN] Plan inválido:`, err instanceof Error ? err.message : err);
@@ -600,7 +588,6 @@ export async function initiatePlanMode(
     }
 
     if (isStopped(context)) {
-        RefStore.clear(task.id);
         return;
     }
 
@@ -626,7 +613,6 @@ export async function initiatePlanMode(
         rawOutput: plan.rawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
-    deps.persistTasks();
     console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación inicial en WAITING_INPUT.`);
 }
 
@@ -635,7 +621,6 @@ export async function runPlanLoop(
     deps: EngineDependencies
 ): Promise<void> {
     const { task } = context;
-    const signal = context.abortController.signal;
 
     while (!isStopped(context) && (task.state as TaskState) !== "WAITING_INPUT") {
         const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
@@ -657,7 +642,6 @@ export async function runPlanLoop(
         const step = task.steps[stepIndex];
 
         step.state = "RUNNING";
-        deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
 
@@ -686,107 +670,56 @@ export async function runPlanLoop(
         }
 
         if (execResult.status === "ok") {
+            step.state = "COMPLETED";
+            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+            continue;
+        }
 
-            let stageVerif;
-            try {
-                stageVerif = await deps.qwenEngine.verifyStage({
-                    goal: task.message,
-                    stepInstruction: step.instruction,
-                    expectedOutcome: step.expectedOutcome || "Cumplimiento del objetivo de la etapa",
-                    evidenceSummary: execResult.call?.evidence?.summary || execResult.call?.evidence?.obs || "",
-                    compactObs: context.lastCallCompactObs || "",
-                    facts: task.memory?.facts || {},
-                    logLines: task.memory?.log || [],
-                    effects: buildEffectsContext(task),
-                    failLines: task.memory?.fail || [],
-                }, signal);
-            } catch (err) {
-                await concludeOnLLMError(context, deps, "Verificación de etapa", err);
-                return;
-            }
+        if (execResult.status === "unverified") {
+            step.state = "UNVERIFIED";
+            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
+            console.log(`[PLAN] Paso ${step.id} registrado como UNVERIFIED. Continuando hacia la siguiente etapa.`);
+            continue;
+        }
 
-            deps.emitEvent(task.id, "STAGE_VERIFIED", {
-                stepId: step.id,
-                stageVerification: stageVerif,
-                rawInput: stageVerif.rawInput,
-                rawOutput: stageVerif.rawOutput,
-            }, step.id);
+        // logical_error | blocked_loop. `semantic` es el veredicto de Qwen cuando Eos no aprobó el paso.
+        step.error = execResult.error || "Fallo en ejecución del paso.";
+        const semantic = execResult.semantic;
 
-            console.log(`[PLAN StageVerification] step=${step.id} status=${stageVerif.status} reason=${stageVerif.reason}`);
-
-            // Una misma etapa no pregunta indefinidamente: agotado el tope, la falta de información se trata como desviación.
-            let verdictStatus = stageVerif.status;
-            let verdictReason = stageVerif.reason;
-            if (verdictStatus === "insufficient_info" && (step.questionsAsked ?? 0) >= MAX_USER_QUESTIONS_PER_STEP) {
-                verdictStatus = "recoverable_deviation";
-                verdictReason = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario: ${stageVerif.reason}`;
-            }
-
-            // Un bloqueo irrecuperable o la falta de información no confirman lo que aportó el paso: sus facts y su
-            // handoff se retiran. Una desviación recuperable conserva lo observado, que el replan necesita.
-            if (verdictStatus === "unrecoverable_blocked" || verdictStatus === "insufficient_info") {
-                retractStepFacts(context, step);
-            }
-
-            if (verdictStatus === "completed") {
-                step.state = "COMPLETED";
-                deps.persistTasks();
-                deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
-                continue;
-            } else if (verdictStatus === "insufficient_info") {
-                // La pregunta se persiste en la tarea: sobrevive a recargas y reinicios. provideUserAnswer reabre este paso.
-                const question = stageVerif.questionForUser || stageVerif.reason;
+        if (semantic?.status === "insufficient_info") {
+            if ((step.questionsAsked ?? 0) < MAX_USER_QUESTIONS_PER_STEP) {
+                // La pregunta vive en la tarea (task.pendingQuestion). provideUserAnswer reabre este paso.
+                const question = semantic.questionForUser || semantic.reason;
                 step.questionsAsked = (step.questionsAsked ?? 0) + 1;
                 step.state = "UNVERIFIED";
-                step.error = stageVerif.reason;
-                task.pendingQuestion = { stepId: step.id, question, reason: stageVerif.reason, askedAt: Date.now() };
+                task.pendingQuestion = { stepId: step.id, question, reason: semantic.reason, askedAt: Date.now() };
                 task.state = "WAITING_INPUT";
                 task.waitingReason = "user_answer";
-                deps.persistTasks();
                 deps.emitEvent(task.id, "TASK_STATE_CHANGED", {
                     state: "WAITING_INPUT",
                     waitingReason: "user_answer",
                     question,
                     stepId: step.id,
-                });
-                console.log(`[PLAN] Información insuficiente en etapa '${step.id}' (pregunta ${step.questionsAsked}/${MAX_USER_QUESTIONS_PER_STEP}). Suspendido en WAITING_INPUT sin timers.`);
+                }, step.id);
+                console.log(`[PLAN] Información insuficiente en etapa '${step.id}' (pregunta ${step.questionsAsked}/${MAX_USER_QUESTIONS_PER_STEP}). Esperando respuesta del usuario.`);
                 return;
-            } else if (verdictStatus === "unrecoverable_blocked") {
-                step.state = "BLOCKED";
-                step.error = verdictReason;
-                deps.persistTasks();
-                deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
-                await concludeTask(context, resolveFailureState(task), deps, verdictReason);
-                return;
-            } else {
-                // recoverable_deviation
-                step.state = "FAILED";
-                step.error = verdictReason;
-                deps.persistTasks();
-                deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
-
-                if (!await handleReplan(context, stepIndex, deps)) {
-                    return;
-                }
-                continue;
             }
-        } else if (execResult.status === "unverified") {
-            step.state = "UNVERIFIED";
-            deps.persistTasks();
-            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex }, step.id);
-            console.log(`[PLAN] Paso ${step.id} registrado como UNVERIFIED. Continuando hacia la siguiente etapa.`);
-            continue;
-        } else {
-            // logical_error | blocked_loop
-            step.state = "FAILED";
-            step.error = execResult.error || "Fallo en ejecución del paso.";
-            deps.persistTasks();
+            // Tope de preguntas agotado: la falta de información se trata como desviación recuperable.
+            step.error = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario: ${semantic.reason}`;
+            addFailEntry(context, `${step.id} -> información insuficiente tras ${step.questionsAsked} preguntas`);
+        } else if (semantic?.status === "unrecoverable_blocked") {
+            step.state = "BLOCKED";
+            step.error = semantic.reason;
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+            await concludeTask(context, resolveFailureState(task), deps, semantic.reason);
+            return;
+        }
 
-            if (!await handleReplan(context, stepIndex, deps)) {
-                return;
-            }
-            continue;
+        step.state = "FAILED";
+        deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+
+        if (!await handleReplan(context, stepIndex, deps)) {
+            return;
         }
     }
 }

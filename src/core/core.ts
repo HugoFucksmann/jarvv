@@ -3,23 +3,19 @@
  * Modos FAST y PLAN sobre un único motor de ejecución.
  */
 
-import path from "node:path";
 import {
   MAX_RETAINED_TASKS,
   isTerminalState,
   type CoreEvent,
   type CoreEventType,
   type PendingApproval,
-  type Step,
   type Task,
-  type TaskState,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { type TaskExecutionContext, addLogEntry, createEmptyMemory, ensureMemory } from "./context.ts";
-import { TaskStore, compactLegacyDuplicates, refArchive } from "./persistence.ts";
+import { type TaskExecutionContext, createEmptyMemory, ensureMemory } from "./context.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
 import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
 import {
@@ -29,24 +25,10 @@ import {
   runPlanLoop,
   planStepsToSteps,
 } from "./modeEngines.ts";
-import {
-  createIterationFromEvent,
-  reconstructIterationsFromTask,
-} from "../utils/debugAccumulator.ts";
+import { createIterationFromEvent } from "../utils/debugAccumulator.ts";
 
 export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
-
-const TASKS_FILE_PATH = path.resolve(process.cwd(), "jarvis-tasks.json");
-
-function findLastActiveUnverifiedStep(steps: Step[]): Step | undefined {
-  for (let i = steps.length - 1; i >= 0; i--) {
-    if (!steps[i].superseded && steps[i].state === "UNVERIFIED") {
-      return steps[i];
-    }
-  }
-  return undefined;
-}
 
 export class JarvisCore {
   private decisionEngine: Decision20Engine;
@@ -54,7 +36,6 @@ export class JarvisCore {
   private qwenEngine: ILLMClient;
   private taskContexts: Map<string, TaskExecutionContext> = new Map();
   private listeners: Set<CoreEventListener> = new Set();
-  private store: TaskStore;
 
   constructor(
     decisionEngine?: Decision20Engine,
@@ -64,11 +45,6 @@ export class JarvisCore {
     this.decisionEngine = decisionEngine || new Decision20Engine();
     this.discoveryEngine = discoveryEngine || new DiscoveryEngine();
     this.qwenEngine = qwenEngine || new QwenEngine();
-    this.store = new TaskStore(TASKS_FILE_PATH, () => this.snapshotForDisk());
-    // Al liberar las referencias de una tarea (fin, cancelación, fallo) se archivan para el historial.
-    RefStore.setArchiver((taskId, refs) => refArchive.save(taskId, refs));
-    this.loadPersistedTasks();
-    refArchive.prune(new Set(this.taskContexts.keys()));
   }
 
   private getEngineDeps(): EngineDependencies {
@@ -77,7 +53,6 @@ export class JarvisCore {
       discoveryEngine: this.discoveryEngine,
       qwenEngine: this.qwenEngine,
       emitEvent: (taskId, type, data, stepId) => this.emitEvent(taskId, type, data, stepId),
-      persistTasks: () => this.persistTasks(),
     };
   }
 
@@ -95,6 +70,7 @@ export class JarvisCore {
       escalations: task.escalations ?? 0,
       startTime: Date.now(),
       memoryRetrievalLimit: 2,
+      dataObs: [],
     };
   }
 
@@ -137,14 +113,6 @@ export class JarvisCore {
         listener(event);
       } catch (err) {
         console.error("Event listener error:", err);
-      }
-    }
-
-    // Transiciones que no deben perderse ante un corte: espera del usuario y estados terminales.
-    if (type === "TASK_STATE_CHANGED") {
-      const state = data.state;
-      if (typeof state === "string" && (state === "WAITING_INPUT" || isTerminalState(state as TaskState))) {
-        this.store.saveNow();
       }
     }
   }
@@ -208,7 +176,6 @@ export class JarvisCore {
     console.log(`[Task] start id=${taskId} mode=${mode}`);
     this.taskContexts.set(taskId, context);
     this.pruneTasks(true);
-    this.persistTasks();
     this.emitEvent(taskId, "TASK_CREATED", { task });
 
     this.runDetached(context, () => this.runTaskPipeline(context));
@@ -235,8 +202,6 @@ export class JarvisCore {
       currentStep.error = "CANCELLED";
     }
 
-    RefStore.clear(taskId);
-    this.persistTasks();
     console.log(
       `[Task Summary] id=${taskId} state=CANCELLED reason="Cancelada por usuario" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
     );
@@ -250,7 +215,6 @@ export class JarvisCore {
     context.task.planConfirmed = true;
     context.task.state = "RUNNING";
     context.task.waitingReason = undefined;
-    this.persistTasks();
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", planConfirmed: true });
 
     this.runDetached(context, () => runPlanLoop(context, this.getEngineDeps()));
@@ -263,8 +227,6 @@ export class JarvisCore {
     context.isCancelled = true;
     context.task.state = "CANCELLED";
     context.task.waitingReason = undefined;
-    RefStore.clear(taskId);
-    this.persistTasks();
     this.emitEvent(taskId, "PLAN_REJECTED", { reason: reason || "Plan rechazado por el usuario." });
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
     console.log(`[JarvisCore] Plan rechazado por el usuario para tarea '${taskId}'.`);
@@ -322,43 +284,38 @@ export class JarvisCore {
       rawOutput: newPlan.rawOutput,
     });
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
-    // Persistir después de emitir: PLAN_GENERATED añade su iteración al task.
-    this.persistTasks();
   }
 
   /**
-   * Responde la pregunta abierta de una tarea en WAITING_INPUT/user_answer.
-   * La respuesta queda en la memoria (fact `answer_<paso>` + línea de LOG) y en `task.userAnswers`; el paso que
-   * originó la pregunta se reabre (PENDING) para ejecutarse de nuevo con esa información, y las firmas anti-loop
-   * previas dejan de aplicar porque el estado cambió.
+   * Responde la pregunta abierta de una tarea PLAN en WAITING_INPUT/user_answer. La respuesta se guarda como fact
+   * (`answer_<paso>`, para el resto de la tarea) y se anexa a la instrucción del paso, que se reabre (PENDING): así
+   * llega a Decision #2, a Eos y a Qwen sin tocar sus prompts. `nonReadCounter` invalida las firmas anti-loop previas.
+   * Devuelve false si la respuesta no se aplicó (tarea inexistente o que no espera respuesta, o respuesta vacía),
+   * para que el endpoint no confirme como hecho algo que se ignoró.
    */
-  provideUserAnswer(taskId: string, answer: string): void {
+  provideUserAnswer(taskId: string, answer: string): boolean {
     const context = this.taskContexts.get(taskId);
-    if (!context || context.isCancelled) return;
+    if (!context || context.isCancelled) return false;
     const { task } = context;
-    if (task.state !== "WAITING_INPUT" || task.waitingReason !== "user_answer") return;
+    const pending = task.pendingQuestion;
+    if (task.mode !== "PLAN" || task.state !== "WAITING_INPUT" || task.waitingReason !== "user_answer" || !pending) return false;
 
     const clean = answer.trim();
     if (!clean) {
       console.warn(`[JarvisCore] Respuesta vacía ignorada para tarea '${taskId}'; sigue esperando.`);
-      return;
+      return false;
     }
 
-    // Paso al que pertenece la pregunta. Tareas persistidas antes de `pendingQuestion`: último paso vigente UNVERIFIED.
-    const pending = task.pendingQuestion;
-    const step = pending ? task.steps.find((s) => s.id === pending.stepId) : findLastActiveUnverifiedStep(task.steps);
-
-    const memory = ensureMemory(context);
-    memory.facts[step ? `answer_${step.id}` : `user_input_${Date.now()}`] = sanitizeForMemory(clean, 400);
-    addLogEntry(
-      context,
-      `${step?.id ?? `s${task.stepSeq ?? 0}`}|user|ok|${sanitizeForMemory(`${pending?.question ?? "pregunta"} -> ${clean}`, 200)}`
-    );
-    task.userAnswers = task.userAnswers || [];
-    task.userAnswers.push({ stepId: step?.id, question: pending?.question, answer: clean, answeredAt: Date.now() });
+    ensureMemory(context).facts[`answer_${pending.stepId}`] = sanitizeForMemory(`${pending.question} -> ${clean}`, 400);
+    task.userAnswers = [
+      ...(task.userAnswers ?? []),
+      { stepId: pending.stepId, question: pending.question, answer: clean, answeredAt: Date.now() },
+    ];
     task.pendingQuestion = undefined;
 
-    if (step && task.mode === "PLAN") {
+    const step = task.steps.find((s) => s.id === pending.stepId);
+    if (step) {
+      step.instruction += ` | Respuesta del usuario a "${sanitizeForMemory(pending.question, 100)}": ${sanitizeForMemory(clean, 250)}`;
       step.state = "PENDING";
       step.error = undefined;
     }
@@ -366,13 +323,10 @@ export class JarvisCore {
 
     task.state = "RUNNING";
     task.waitingReason = undefined;
-    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", userAnswerProvided: true, stepId: step?.id });
-    this.persistTasks();
+    this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "RUNNING", userAnswerProvided: true, stepId: pending.stepId });
 
-    const deps = this.getEngineDeps();
-    this.runDetached(context, () =>
-      task.mode === "PLAN" ? runPlanLoop(context, deps) : runFastLoop(context, deps)
-    );
+    this.runDetached(context, () => runPlanLoop(context, this.getEngineDeps()));
+    return true;
   }
 
   // --- Pipeline Orchestration ---
@@ -386,24 +340,6 @@ export class JarvisCore {
       await runFastLoop(context, deps);
     }
   }
-
-  // --- Persistence ---
-
-  /** Solicita una escritura agrupada y atómica (ver TaskStore). */
-  private persistTasks(): void {
-    this.store.schedule();
-  }
-
-  /** Vuelca de inmediato lo pendiente. Para un cierre ordenado del servidor. */
-  flushPersistence(): void {
-    this.store.flushSync();
-  }
-
-  private snapshotForDisk(): Task[] {
-    this.pruneTasks();
-    return Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
-  }
-
 
   private pruneTasks(cancelAbandoned = false): void {
     this.evictTerminalTasks();
@@ -430,79 +366,8 @@ export class JarvisCore {
     for (const [id, ctx] of this.taskContexts) {
       if (this.taskContexts.size <= MAX_RETAINED_TASKS) break;
       if (!isTerminalState(ctx.task.state)) continue;
-      RefStore.discard(id);
-      refArchive.remove(id);
+      RefStore.clear(id);
       this.taskContexts.delete(id);
-    }
-  }
-
-  private loadPersistedTasks(): void {
-    try {
-      const tasks = this.store.load() as Task[];
-      let migrated = false;
-      for (const task of tasks) {
-        task.memory = task.memory || createEmptyMemory();
-        task.replans = task.replans ?? 0;
-        task.escalations = task.escalations ?? 0;
-        task.stepSeq = task.stepSeq ?? task.steps.length;
-        task.modelIterations = task.modelIterations || [];
-        if (task.modelIterations.length === 0 && task.steps.length > 0) {
-          task.modelIterations = reconstructIterationsFromTask(task);
-        }
-        // Migración sin pérdida: copias crudas heredadas que ya existen idénticas en modelIterations.
-        if (compactLegacyDuplicates(task)) migrated = true;
-
-
-        const interruptedRun = task.state === "RUNNING";
-        const orphanedApproval = task.state === "WAITING_INPUT" && task.waitingReason === "approval";
-        if (interruptedRun || orphanedApproval) {
-          migrated = true;
-          task.state = "CANCELLED";
-          task.waitingReason = undefined;
-          task.finalResponse = task.finalResponse || (orphanedApproval
-            ? "Tarea cancelada: el servidor se reinició con una aprobación pendiente."
-            : "Tarea interrumpida: servidor reiniciado durante la ejecución.");
-          for (const step of task.steps) {
-            if (step.state === "RUNNING" || step.state === "WAITING_APPROVAL") {
-              step.state = "BLOCKED";
-              step.error = "Interrumpido por reinicio del servidor.";
-            }
-          }
-        }
-        for (const step of task.steps) {
-          step.calls = step.calls || [];
-          step.rev = step.rev ?? 0;
-          step.superseded = step.superseded ?? false;
-        }
-        // Tareas terminadas antes de existir esta normalización conservan `planConfirmed: false`.
-        if (isTerminalState(task.state) && task.planConfirmed === false) {
-          task.planConfirmed = undefined;
-          migrated = true;
-        }
-        // La pregunta abierta solo tiene sentido mientras la tarea la espera.
-        if (task.state === "WAITING_INPUT" && task.waitingReason === "user_answer") {
-          if (!task.pendingQuestion) {
-            // Tarea persistida antes de existir `pendingQuestion`: lo único disponible es el motivo del paso UNVERIFIED.
-            const waiting = findLastActiveUnverifiedStep(task.steps);
-            if (waiting) {
-              task.pendingQuestion = {
-                stepId: waiting.id,
-                question: waiting.error || "Se requiere información adicional.",
-                reason: waiting.error || "",
-                askedAt: Date.now(),
-              };
-            }
-          }
-        } else {
-          task.pendingQuestion = undefined;
-        }
-        this.taskContexts.set(task.id, JarvisCore.createContext(task));
-      }
-      this.pruneTasks();
-      // Si la carga corrigió algo (migración, tareas interrumpidas), el archivo se actualiza.
-      if (migrated) this.persistTasks();
-    } catch (e) {
-      console.warn("[JarvisCore] Error al cargar tareas persistidas desde archivo local:", e);
     }
   }
 }

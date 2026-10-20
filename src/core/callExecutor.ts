@@ -10,6 +10,7 @@ import {
     type CoreEventType,
     type MCPTool,
     type Step,
+    type StageVerificationResult,
     type StepCall,
     type StepExecutionResult,
     type StepHandoff,
@@ -18,9 +19,9 @@ import {
 import type { Decision20Engine } from "./decision.ts";
 import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
-import { LLMValidationError, type ILLMClient } from "./reasoner/qwen.ts";
+import { LLMServiceUnavailableError, LLMValidationError, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { ResultProcessor, sanitizeForMemory, type ProcessedResult } from "./processor/resultProcessor.ts";
+import { ResultProcessor, refLabel, sanitizeForMemory, type ProcessedResult } from "./processor/resultProcessor.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
 import { applyDestination, getToolPolicy, serverOf } from "./tools/manifest.ts";
@@ -30,6 +31,7 @@ import {
     addFailEntry,
     addEffectEntry,
     ensureMemory,
+    recordDataObservation,
     buildEffectsContext,
     buildRefsContext,
     applyStepHandoff,
@@ -50,7 +52,6 @@ export interface EngineDependencies {
     discoveryEngine: DiscoveryEngine;
     qwenEngine: ILLMClient;
     emitEvent: EmitEventFn;
-    persistTasks: () => void;
 }
 
 export interface ApprovalRequest {
@@ -225,8 +226,10 @@ export async function runStep(
             environment: await getUserEnvironment(),
             tool: selectedTool,
             cleanedSchema,
-            lastObs: context.lastCallCompactObs ? {
-                stepIndex: context.lastCallStepNumber ?? task.currentStep + 1,
+            dataObs: context.dataObs.map((o) => ({ stepId: o.stepId, label: o.label, obsText: o.text })),
+            // La última llamada solo va aparte si no es ya la más reciente de DATA (evita enviarla dos veces).
+            lastObs: context.lastCallCompactObs && context.dataObs[context.dataObs.length - 1]?.text !== context.lastCallCompactObs ? {
+                stepId: context.lastCallStepId ?? step.id,
                 toolName: context.lastCallTool || selectedTool.name,
                 obsText: context.lastCallCompactObs,
             } : undefined,
@@ -301,7 +304,6 @@ export async function runStep(
         step.error = guardDecision.reason || "Operación rechazada por Guard (DENY).";
         addFailEntry(context, `${selectedTool.name} -> DENY: ${step.error}`);
         recordFailedCall(context, step, { tool: selectedTool.name, args, error: step.error });
-        deps.persistTasks();
         deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
         return { status: "logical_error", step, error: step.error, signals: { denied: true } };
     }
@@ -310,7 +312,6 @@ export async function runStep(
         task.state = "WAITING_INPUT";
         task.waitingReason = "approval";
         step.state = "WAITING_APPROVAL";
-        deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, state: "WAITING_APPROVAL" }, step.id);
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "approval" });
 
@@ -332,7 +333,6 @@ export async function runStep(
             step.error = "Operación rechazada por el usuario en Guard.";
             addFailEntry(context, `${selectedTool.name} -> RECHAZADO por usuario`);
             recordFailedCall(context, step, { tool: selectedTool.name, args, error: step.error });
-            deps.persistTasks();
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
             deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
             return { status: "logical_error", step, error: step.error, signals: { denied: true } };
@@ -340,7 +340,6 @@ export async function runStep(
         task.state = "RUNNING";
         task.waitingReason = undefined;
         step.state = "RUNNING";
-        deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, state: "RUNNING" }, step.id);
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
     }
@@ -375,13 +374,20 @@ export async function runStep(
     const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args, task.id);
     context.lastCallCompactObs = processed.compactObs;
     context.lastCallTool = selectedTool.name;
-    context.lastCallStepNumber = task.steps.indexOf(step) + 1;
+    context.lastCallStepId = step.id;
     context.lastCallDecisionSummary = processed.decisionSummary;
+
+    // Una lectura con datos se conserva aparte de la última llamada: un paso posterior (p. ej. crear un archivo con los
+    // resultados de una búsqueda) la necesita aunque entre medias haya habido otras llamadas.
+    if (!policy.mutates && processed.outcome.success && !processed.signals.empty_output && !processed.signals.not_found && processed.compactObs) {
+        recordDataObservation(context, { stepId: step.id, label: refLabel(selectedTool.name, args), text: processed.compactObs });
+    }
 
     // El scratchpad es solo estado visible ("lo último visto"); los facts se registran tras la verificación (más abajo).
     Object.assign(task.scratchpad, processed.scratchpadDelta);
 
-    // 10. Verificación factual con Eos, solo sobre señales limpias
+    // 10. Verificación. Eos decide sobre señales limpias. En modo PLAN, si Eos no aprueba (rechaza o no está
+    // disponible), Qwen actúa como segundo juez: el paso falla solo si fallan los dos. En FAST decide solo Eos.
     const { signals } = processed;
     const isCleanSignals =
         !processed.outcome.isError &&
@@ -391,6 +397,9 @@ export async function runStep(
         !signals.not_found &&
         !signals.empty_output &&
         (signals.exit_code === 0 || signals.exit_code === undefined);
+
+    // Etiqueta determinista de la acción ("read_file C:\x.txt"): su destino va al LOG y a Eos.
+    const callLabel = refLabel(selectedTool.name, args);
 
     let eosPassed = false;
     let eosUnavailable = false;
@@ -402,7 +411,7 @@ export async function runStep(
                 step.instruction,
                 selectedTool.name,
                 // Resultado neutro: la etiqueta [SUCCESS] de decisionSummary ya concluye por el verificador.
-                `${selectedTool.name}: ${processed.finding || processed.summaryText}`,
+                `${callLabel}: ${processed.finding || processed.summaryText}`,
                 processed.evidence.summary,
                 step.expectedOutcome,
                 // Fragmento real de lo observado. Es texto externo: se sanea y se quitan los marcadores de omisión.
@@ -412,40 +421,82 @@ export async function runStep(
             eosPassed = verificationDetail.ok && verificationDetail.cumple;
         } catch (verErr) {
             if (verErr instanceof RequestAbortedError) throw verErr;
-            // Sin verificador no se aprueba: el paso queda UNVERIFIED (nunca autoaprobado).
-            console.warn(`[runStep] Verificación Eos no disponible; el paso queda UNVERIFIED:`, verErr instanceof Error ? verErr.message : verErr);
+            console.warn(`[runStep] Verificación Eos no disponible:`, verErr instanceof Error ? verErr.message : verErr);
             eosUnavailable = true;
         }
     }
 
-    const isStepSuccess = isCleanSignals && eosPassed;
-    const verification: VerificationState = eosUnavailable
+    let semantic: StageVerificationResult | undefined;
+    if (isCleanSignals && !eosPassed && task.mode === "PLAN") {
+        try {
+            semantic = await deps.qwenEngine.verifyStage({
+                goal: task.message,
+                stepInstruction: step.instruction,
+                expectedOutcome: step.expectedOutcome || "Cumplimiento del objetivo de la etapa",
+                executedAction: `${selectedTool.name} ${JSON.stringify(args)}`,
+                evidenceSummary: processed.evidence.summary || processed.evidence.obs || "",
+                compactObs: processed.compactObs || "",
+                facts: task.memory?.facts || {},
+                logLines: task.memory?.log || [],
+                effects: buildEffectsContext(task),
+                failLines: task.memory?.fail || [],
+            }, signal);
+            deps.emitEvent(task.id, "STAGE_VERIFIED", {
+                stepId: step.id,
+                stageVerification: semantic,
+                rawInput: semantic.rawInput,
+                rawOutput: semantic.rawOutput,
+            }, step.id);
+            console.log(`[PLAN StageVerification] step=${step.id} status=${semantic.status} reason=${semantic.reason}`);
+        } catch (semErr) {
+            // Qwen caído: no hay segundo juez. Cualquier otro error (y la cancelación) se propaga.
+            if (!(semErr instanceof LLMServiceUnavailableError)) throw semErr;
+            console.warn(`[runStep] Verificación semántica (Qwen) no disponible:`, semErr.message);
+        }
+    }
+
+    const isStepSuccess = isCleanSignals && (eosPassed || semantic?.status === "completed");
+    // Sin ningún veredicto (Eos no disponible y sin segundo juez) no se aprueba ni se rechaza: queda UNVERIFIED.
+    const noVerdict = eosUnavailable && !semantic;
+    const verification: VerificationState = noVerdict
         ? "UNVERIFIED"
         : isStepSuccess
             ? processed.verification
             : "NOT_REQUIRED";
 
+    // Motivo del fallo: es lo que ven el FAIL, el replan y la UI (antes solo llevaba el hallazgo, sin el porqué).
+    let failReason: string | undefined;
+    if (!isStepSuccess && !noVerdict) {
+        const finding = processed.finding || processed.summaryText;
+        if (isCleanSignals) {
+            const eosNote = verificationDetail
+                ? `Eos ok=${verificationDetail.okProbability.toFixed(2)} cumple=${verificationDetail.cumpleProbability.toFixed(2)}`
+                : "Eos no disponible";
+            const qwenNote = semantic ? ` [Qwen ${semantic.status}: ${semantic.reason}]` : "";
+            failReason = sanitizeForMemory(`verificación: el resultado no cumple el paso (${finding}) [${eosNote}]${qwenNote}`, 400);
+        } else {
+            failReason = finding;
+        }
+    }
+
     // Los facts son "hechos confirmados": solo se registran si el paso pasó la verificación, o si no pudo verificarse
-    // por falta de verificador (la herramienta corrió limpia). Excepción: una mutación ejecutada (p. ej. el pid de un
+    // por falta de verificadores (la herramienta corrió limpia). Excepción: una mutación ejecutada (p. ej. el pid de un
     // proceso lanzado) describe el entorno, no una hipótesis sobre el contenido, y debe conservarse.
-    if (isStepSuccess || eosUnavailable || policy.mutates) {
+    if (isStepSuccess || noVerdict || policy.mutates) {
         Object.assign(ensureMemory(context).facts, processed.factsDelta);
     } else if (Object.keys(processed.factsDelta).length > 0) {
         console.log(`[runStep] Facts no confirmados descartados (${Object.keys(processed.factsDelta).join(", ")}): el paso no pasó la verificación.`);
     }
 
-    // LOG
-    // `verification === "UNVERIFIED"` ocurre cuando Eos no estuvo disponible (eosUnavailable=true)
-    // o cuando el resultado es no verificado. Ambos casos se registran como "unv".
+    // LOG: id del paso | acción con su destino | estado | hallazgo.
     const logStatus = signals.not_found || signals.empty_output
         ? "nf"
-        : eosUnavailable || verification === "UNVERIFIED"
+        : verification === "UNVERIFIED"
             ? "unv"
-            : !isStepSuccess || processed.outcome.isError
-                ? "err"
-                : "ok";
-    // El prefijo es el id real del paso: en PLAN `task.stepSeq` es el total de pasos y no identifica a quien produjo la línea.
-    addLogEntry(context, `${step.id}|${selectedTool.name}|${logStatus}|${processed.finding}`);
+            : isStepSuccess
+                ? "ok"
+                : "err";
+    addLogEntry(context, `${step.id}|${callLabel}|${logStatus}|${processed.finding}`);
 
     // Estado anti-loop
     if (processed.outcome.success || verification === "UNVERIFIED" || isStepSuccess) {
@@ -458,7 +509,7 @@ export async function runStep(
         context.consecutiveLoopBlocks = 0;
     }
 
-    // Registro de la llamada. `evidence.ok` alimenta los intentos que ven Decision #1/#2: con Eos caído la
+    // Registro de la llamada. `evidence.ok` alimenta los intentos que ven Decision #1/#2: sin veredicto la
     // herramienta corrió limpia, así que no se marca como fallida; `outcome.success` (compuerta de `fin`) sí queda en false.
     const callRecord: StepCall = {
         id: newCallId(step),
@@ -467,14 +518,12 @@ export async function runStep(
         args,
         evidence: {
             ...processed.evidence,
-            ok: eosUnavailable ? isCleanSignals : isStepSuccess,
+            ok: noVerdict ? isCleanSignals : isStepSuccess,
             obs: processed.compactObs ? processed.compactObs.slice(0, MAX_EVIDENCE_OBS_CHARS) : undefined,
         },
         verification,
         outcome: { ...processed.outcome, success: isStepSuccess },
-        error: eosUnavailable
-            ? "Verificación Eos no disponible"
-            : !isStepSuccess ? processed.summaryText : undefined,
+        error: noVerdict ? "Verificación no disponible" : failReason,
         timestamp: Date.now(),
     };
 
@@ -492,7 +541,6 @@ export async function runStep(
             finding: processed.finding || processed.summaryText || "Paso ejecutado con éxito",
             primaryFact: primaryFactKey ? { key: primaryFactKey, value: processed.factsDelta[primaryFactKey] } : undefined,
             refKey: processed.refKey,
-            factsDelta: processed.factsDelta,
             timestamp: Date.now(),
         };
         step.handoff = handoff;
@@ -515,21 +563,23 @@ export async function runStep(
         verification: verificationDetail,
         eosUnavailable,
         isStepSuccess,
+        verificationState: verification,
+        verifiedBy: eosPassed ? "eos" : semantic?.status === "completed" ? "qwen" : undefined,
         rawInput: verificationDetail?.rawInput,
         rawOutput: verificationDetail?.rawOutput,
     }, step.id);
 
-    if (verification === "UNVERIFIED") {
+    if (noVerdict) {
         return { status: "unverified", step, call: callRecord, signals };
     }
 
-    if (!isStepSuccess || processed.outcome.isError) {
-        const reason = isCleanSignals
-            ? `verificación Eos: el resultado no cumple el paso (${processed.finding || processed.summaryText})`
-            : processed.finding || processed.summaryText;
-        addFailEntry(context, `${selectedTool.name} -> ${reason}`);
-        return { status: "logical_error", step, call: callRecord, error: processed.summaryText, signals };
+    if (!isStepSuccess) {
+        // Con una pregunta pendiente al usuario el fallo no es una lección para el FAIL: lo gestiona el modo PLAN.
+        if (semantic?.status !== "insufficient_info") {
+            addFailEntry(context, `${selectedTool.name} -> ${failReason}`);
+        }
+        return { status: "logical_error", step, call: callRecord, error: failReason, signals, semantic };
     }
 
-    return { status: "ok", step, call: callRecord, signals };
+    return { status: "ok", step, call: callRecord, signals, semantic };
 }

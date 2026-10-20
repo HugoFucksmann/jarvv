@@ -101,7 +101,6 @@ export interface StepHandoff {
   finding: string;
   primaryFact?: { key: string; value: string };
   refKey?: string;
-  factsDelta?: Record<string, string>;
   timestamp: number;
 }
 
@@ -142,6 +141,8 @@ export interface StageVerificationPromptData {
   goal: string;
   stepInstruction: string;
   expectedOutcome: string;
+  /** Herramienta y argumentos que se ejecutaron (p. ej. el script completo): sin esto el verificador solo ve lo que el proceso imprimió. */
+  executedAction?: string;
   evidenceSummary?: string;
   compactObs?: string;
   facts?: Record<string, string>;
@@ -174,9 +175,7 @@ export interface TaskMemory {
   fail: string[];
   effects?: string[];
   /**
-   * @deprecated Ya no se escribe: la traza cruda vive solo en `Task.modelIterations`. Se mantiene el campo para leer
-   * tareas persistidas antes de este cambio (la migración de carga lo elimina cuando es redundante) y para que la
-   * vista del cliente lo derive de las iteraciones (deriveTaskView).
+   * @deprecated Ya no se escribe: la traza cruda vive solo en `Task.modelIterations`. Solo lo lee `deriveTaskView`.
    */
   rawInteractions?: Array<{
     timestamp: number;
@@ -187,7 +186,7 @@ export interface TaskMemory {
   }>;
 }
 
-/** Pregunta abierta al usuario (WAITING_INPUT/user_answer). Se persiste para sobrevivir a recargas y reinicios. */
+/** Pregunta abierta al usuario (WAITING_INPUT/user_answer). Vive en la tarea para sobrevivir a recargas de la UI. */
 export interface PendingQuestion {
   stepId: string;
   question: string;
@@ -304,6 +303,8 @@ export interface StepExecutionResult {
   call?: StepCall;
   error?: string;
   signals?: StepExecutionSignals;
+  /** Solo modo PLAN: veredicto de Qwen cuando Eos no aprobó el paso (segundo juez). */
+  semantic?: StageVerificationResult;
 }
 
 export const TERMINAL_TASK_STATES: readonly TaskState[] = [
@@ -324,7 +325,7 @@ export function isTerminalState(state: TaskState): boolean {
 export const MAX_STEPS = 15;
 export const MAX_ESCALATIONS = 2;
 export const MAX_REPLAN = 2;
-/** Tareas retenidas en memoria y en disco. Las terminales más antiguas se expulsan (junto con sus refs). */
+/** Tareas retenidas en memoria. Las terminales más antiguas se expulsan (junto con sus refs). */
 export const MAX_RETAINED_TASKS = 20;
 /** Resultados de búsqueda conservados en `scratchpad.search_results`. */
 export const MAX_SCRATCHPAD_RESULTS = 10;
