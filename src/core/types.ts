@@ -248,8 +248,6 @@ export type VerificationState =
 export interface ExecutionOutcome {
   success?: boolean;
   isError?: boolean;
-  actionDispatched?: boolean;
-  outcomeVerified?: boolean;
 }
 
 // ============================================================
@@ -411,8 +409,6 @@ export interface MCPCallResult {
   content: MCPContentItem[];
   isError?: boolean;
   success?: boolean;
-  actionDispatched?: boolean;
-  outcomeVerified?: boolean;
   search_incomplete?: boolean;
   truncated?: boolean;
   retrieved_at?: string;

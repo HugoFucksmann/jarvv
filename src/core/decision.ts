@@ -111,7 +111,7 @@ export class Decision20Engine {
   /** Decision #1: ruta de la siguiente acción. */
   async evaluateDecisionOne(
     taskMessage: string,
-    historyContext: string | string[] = [],
+    historyContext: string = "",
     options?: {
       allowFin?: boolean;
       /** Observación compacta del último resultado, para que Decision la vea. */
@@ -126,10 +126,9 @@ export class Decision20Engine {
     rawInput: string;
     rawOutput: string;
   }> {
-    const history = Array.isArray(historyContext) ? historyContext.slice(-3).join("\n") : historyContext;
     const { state, questions } = DECISION_PROMPTS.buildDecisionOne({
       taskMessage,
-      history,
+      history: historyContext,
       allowFin: options?.allowFin !== false,
       lastResult: options?.lastResult,
       attempts: options?.attempts,
@@ -137,8 +136,10 @@ export class Decision20Engine {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #1", state, questions, options?.signal);
-    // parseResponse garantiza que `choice` pertenece a `criteria` (rutas ejecutables, más `fin` si se permite).
-    const { choice, probabilities } = response.answers.route as { choice: string; probabilities: Record<string, number> };
+    // parseResponse garantiza la forma; el narrowing confirma el tipo en compilación.
+    const routeAnswer = response.answers.route;
+    if (!("choice" in routeAnswer)) throw new DecisionValidationError("Respuesta 'route' inesperada: se esperaba tipo 'choice'.");
+    const { choice, probabilities } = routeAnswer;
 
     console.log(`[Decision #1] route=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
     return { route: choice as StepRoute, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput };
@@ -157,9 +158,6 @@ export class Decision20Engine {
     rawInput: string;
     rawOutput: string;
   }> {
-    if (discoveredTools.length === 0) {
-      throw new DecisionValidationError("Decision #2 falló: no se proporcionaron herramientas descubiertas.");
-    }
 
     // Con una sola opción no hay decisión que tomar: se omite la llamada (sin simular una respuesta del modelo).
     if (discoveredTools.length === 1) {
@@ -183,7 +181,9 @@ export class Decision20Engine {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #2", state, questions, options?.signal);
-    const { choice, probabilities } = response.answers.selected_tool as { choice: string; probabilities: Record<string, number> };
+    const toolAnswer = response.answers.selected_tool;
+    if (!("choice" in toolAnswer)) throw new DecisionValidationError("Respuesta 'selected_tool' inesperada: se esperaba tipo 'choice'.");
+    const { choice, probabilities } = toolAnswer;
     // `criteria` se construyó con los nombres de discoveredTools y parseResponse validó la pertenencia.
     const selectedTool = discoveredTools.find((t) => t.name === choice)!;
 
@@ -222,8 +222,12 @@ export class Decision20Engine {
 
     const t0 = Date.now();
     const response = await this.ask("StepVerification", state, questions, signal);
-    const okProbability = (response.answers.ok as { noul: number }).noul;
-    const cumpleProbability = (response.answers.cumple as { noul: number }).noul;
+    const okAnswer = response.answers.ok;
+    const cumpleAnswer = response.answers.cumple;
+    if (!("noul" in okAnswer)) throw new DecisionValidationError("Respuesta 'ok' inesperada: se esperaba tipo 'noul'.");
+    if (!("noul" in cumpleAnswer)) throw new DecisionValidationError("Respuesta 'cumple' inesperada: se esperaba tipo 'noul'.");
+    const okProbability = okAnswer.noul;
+    const cumpleProbability = cumpleAnswer.noul;
     const ok = okProbability > NOUL_APPROVE;
     const cumple = cumpleProbability > NOUL_APPROVE;
 
@@ -240,11 +244,10 @@ export class Decision20Engine {
     questions: Record<string, DecisionQuestion>,
     signal?: AbortSignal
   ): Promise<DecisionResponse> {
-    const t0 = Date.now();
     try {
       return await this.systemOne(state, questions, { signal });
     } catch (err) {
-      console.error(`[${label}] error=${err instanceof Error ? err.message : String(err)} duration=${Date.now() - t0}ms`);
+      console.error(`[${label}] ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
   }

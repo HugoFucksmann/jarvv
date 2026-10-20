@@ -13,6 +13,7 @@ import {
     type StepCall,
     type StepExecutionResult,
     type StepHandoff,
+    type VerificationState,
 } from "./types.ts";
 import type { Decision20Engine } from "./decision.ts";
 import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
@@ -117,7 +118,7 @@ export function recordFailedCall(
         tool,
         args: failure.args,
         evidence: { ok: false, summary },
-        outcome: { success: false, isError: true, actionDispatched: false },
+        outcome: { success: false, isError: true },
         error: failure.error,
         timestamp: Date.now(),
     });
@@ -187,6 +188,7 @@ export async function runStep(
     let exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
     if (!exists) {
         await deps.discoveryEngine.getDiscoveredTools(serverName, true);
+        if (isStopped()) return cancelledResult(step);
         exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
         if (!exists) {
             step.state = "FAILED";
@@ -417,7 +419,11 @@ export async function runStep(
     }
 
     const isStepSuccess = isCleanSignals && eosPassed;
-    const verification = eosUnavailable ? "UNVERIFIED" : processed.verification;
+    const verification: VerificationState = eosUnavailable
+        ? "UNVERIFIED"
+        : isStepSuccess
+            ? processed.verification
+            : "NOT_REQUIRED";
 
     // Los facts son "hechos confirmados": solo se registran si el paso pasó la verificación, o si no pudo verificarse
     // por falta de verificador (la herramienta corrió limpia). Excepción: una mutación ejecutada (p. ej. el pid de un
@@ -429,15 +435,15 @@ export async function runStep(
     }
 
     // LOG
+    // `verification === "UNVERIFIED"` ocurre cuando Eos no estuvo disponible (eosUnavailable=true)
+    // o cuando el resultado es no verificado. Ambos casos se registran como "unv".
     const logStatus = signals.not_found || signals.empty_output
         ? "nf"
-        : eosUnavailable
+        : eosUnavailable || verification === "UNVERIFIED"
             ? "unv"
             : !isStepSuccess || processed.outcome.isError
                 ? "err"
-                : verification === "UNVERIFIED"
-                    ? "unv"
-                    : "ok";
+                : "ok";
     // El prefijo es el id real del paso: en PLAN `task.stepSeq` es el total de pasos y no identifica a quien produjo la línea.
     addLogEntry(context, `${step.id}|${selectedTool.name}|${logStatus}|${processed.finding}`);
 

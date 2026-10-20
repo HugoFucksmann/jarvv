@@ -188,15 +188,11 @@ export class TaskStore {
     private static installExitHooks(): void {
         if (TaskStore.hooksInstalled) return;
         TaskStore.hooksInstalled = true;
-        const flushAll = () => TaskStore.instances.forEach((s) => s.flushSync());
-        process.on("exit", flushAll);
-        for (const sig of ["SIGINT", "SIGTERM"] as const) {
-            process.on(sig, () => {
-                flushAll();
-                // Si nadie más gestiona la señal, se respeta su comportamiento por defecto (terminar).
-                if (process.listenerCount(sig) <= 1) process.exit(sig === "SIGINT" ? 130 : 143);
-            });
-        }
+        // El hook "exit" es suficiente: server.ts gestiona SIGINT/SIGTERM llamando a
+        // flushPersistence() + process.exit(0), que dispara "exit" antes de terminar.
+        // Registrar handlers propios para las señales era redundante en producción y
+        // su rama process.exit() nunca se activaba (listenerCount siempre > 1).
+        process.on("exit", () => TaskStore.instances.forEach((s) => s.flushSync()));
     }
 }
 

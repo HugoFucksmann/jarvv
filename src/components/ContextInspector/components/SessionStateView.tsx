@@ -16,7 +16,7 @@ function formatRouteLabel(route?: string): string {
   if (route === "global") return "Global";
   if (
     route === "files" ||
-    route === "search_local" ||
+    route === "locate" ||
     route === "terminal" ||
     route === "web"
   ) {

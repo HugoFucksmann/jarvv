@@ -59,7 +59,7 @@ export function planStepsToSteps(steps: readonly PlanStep[], rev: number): Step[
         route: s.route,
         instruction: s.instruction,
         expectedOutcome: s.expectedOutcome,
-        state: "PENDING" as StepState,
+        state: "PENDING",
         calls: [],
         rev,
         superseded: false,
@@ -114,9 +114,9 @@ export function failTask(context: TaskExecutionContext, deps: EngineDependencies
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: msg, finalResponse: task.finalResponse });
 }
 
-// ============================================================
+
 // CONCLUSION & FINAL RESPONSE
-// ============================================================
+
 export async function concludeTask(
     context: TaskExecutionContext,
     state: TaskState,
@@ -131,8 +131,6 @@ export async function concludeTask(
         RefStore.clear(task.id);
         return;
     }
-
-    task.state = state;
 
     const evidenceSummaries = task.steps
         .flatMap((s) => s.calls || [])
@@ -162,7 +160,9 @@ export async function concludeTask(
         finalRawInput = finalRes.rawInput;
         finalRawOutput = finalRes.rawOutput;
     } catch (err) {
-        console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err instanceof Error ? err.message : err);
+        if (!isCancellation(context, err)) {
+            console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err instanceof Error ? err.message : err);
+        }
         const factsEntries = Object.entries(task.memory?.facts || {});
         const logLines = task.memory?.log || [];
 
@@ -183,12 +183,13 @@ export async function concludeTask(
     }
 
     // La generación fue asíncrona: la tarea pudo cancelarse mientras tanto.
-    if (context.isCancelled || task.state === "CANCELLED") {
+    if (context.isCancelled || (task.state as TaskState) === "CANCELLED") {
         console.log(`[concludeTask] Tarea ${task.id} cancelada durante generación de respuesta final. Descartando resultado.`);
         RefStore.clear(task.id);
         return;
     }
 
+    task.state = state;
     RefStore.clear(task.id);
     task.pendingQuestion = undefined;
     task.waitingReason = undefined;
@@ -207,9 +208,9 @@ export async function concludeTask(
     deps.persistTasks();
 }
 
-// ============================================================
+
 // ESCALATION & REPLAN
-// ============================================================
+
 
 /**
  * Escalación FAST tras un fallo de paso. Devuelve true si el bucle debe continuar.
@@ -368,9 +369,29 @@ export async function handleReplan(
     return true;
 }
 
-// ============================================================
+/**
+ * Registra un fallo no controlado durante runStep, marca el paso como FAILED,
+ * registra la llamada fallida, persiste y emite STEP_COMPLETED.
+ */
+function recordStepCrash(
+    context: TaskExecutionContext,
+    step: Step,
+    stepIndex: number,
+    deps: EngineDependencies,
+    loopTag: "FAST" | "PLAN",
+    err: unknown
+): void {
+    console.error(`[${loopTag}] Excepción no controlada en runStep:`, err);
+    step.state = "FAILED";
+    step.error = err instanceof Error ? err.message : String(err);
+    recordFailedCall(context, step, { error: step.error });
+    deps.persistTasks();
+    deps.emitEvent(context.task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+}
+
+
 // FAST MODE ENGINE
-// ============================================================
+
 export async function runFastLoop(
     context: TaskExecutionContext,
     deps: EngineDependencies
@@ -437,13 +458,12 @@ export async function runFastLoop(
                     return;
                 }
 
-                // `fin` rechazado: se pide a Decision #1 la mejor ruta ejecutable (sin ruta por defecto).
                 console.warn(`[FAST] fin rechazado por validación de Core. Solicitando mejor ruta ejecutable.`);
                 addFailEntry(context, "fin rechazado: faltan acciones verificadas previas");
                 try {
                     const alt = await askRoute(false);
                     selectedRoute = toExecutableRoute(alt.route);
-                    // La reselección es una consulta más a Decision #1: su traza queda en modelIterations.
+
                     deps.emitEvent(task.id, "DECISION_ONE", {
                         route: alt.route,
                         probabilities: alt.probabilities,
@@ -487,12 +507,7 @@ export async function runFastLoop(
             execResult = await runStep(context, step, deps);
         } catch (err) {
             if (isCancellation(context, err)) return;
-            console.error(`[FAST] Excepción no controlada en runStep:`, err);
-            step.state = "FAILED";
-            step.error = err instanceof Error ? err.message : String(err);
-            recordFailedCall(context, step, { error: step.error });
-            deps.persistTasks();
-            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+            recordStepCrash(context, step, stepIndex, deps, "FAST", err);
 
             const syntheticResult: StepExecutionResult = {
                 status: "logical_error",
@@ -539,9 +554,9 @@ export async function runFastLoop(
     }
 }
 
-// ============================================================
+
 // PLAN MODE ENGINE
-// ============================================================
+
 export async function initiatePlanMode(
     context: TaskExecutionContext,
     deps: EngineDependencies
@@ -575,7 +590,7 @@ export async function initiatePlanMode(
     try {
         plan = await deps.qwenEngine.generatePlan(task.message, undefined, signal);
     } catch (err) {
-        if (isCancellation(context, err) || isTerminalState(task.state)) {
+        if (isCancellation(context, err)) {
             RefStore.clear(task.id);
             return;
         }
@@ -589,7 +604,7 @@ export async function initiatePlanMode(
         return;
     }
 
-    // Un plan sin pasos significa que la solicitud no requiere herramientas: respuesta directa.
+
     if (plan.steps.length === 0) {
         console.log(`[PLAN] El plan no requiere herramientas. Concluyendo con respuesta directa.`);
         task.rawPlanInput = plan.rawInput;
@@ -625,7 +640,7 @@ export async function runPlanLoop(
     while (!isStopped(context) && (task.state as TaskState) !== "WAITING_INPUT") {
         const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
         if (stepIndex === -1) {
-            // COMPLETED solo si todos los pasos vigentes están COMPLETED; un paso UNVERIFIED sin resolver no lo permite.
+
             const unresolved = task.steps.filter((s) => !s.superseded && s.state !== "COMPLETED");
             if (unresolved.length === 0) {
                 console.log(`[PLAN] Todos los pasos completados. Concluyendo tarea.`);
@@ -645,18 +660,13 @@ export async function runPlanLoop(
         deps.persistTasks();
         deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
 
-        // La etapa se ejecuta con el mismo motor unificado que FAST
+
         let execResult: StepExecutionResult;
         try {
             execResult = await runStep(context, step, deps);
         } catch (err) {
             if (isCancellation(context, err)) return;
-            console.error(`[PLAN] Excepción no controlada en runStep:`, err);
-            step.state = "FAILED";
-            step.error = err instanceof Error ? err.message : String(err);
-            recordFailedCall(context, step, { error: step.error });
-            deps.persistTasks();
-            deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
+            recordStepCrash(context, step, stepIndex, deps, "PLAN", err);
 
             if (!await handleReplan(context, stepIndex, deps)) {
                 return;
@@ -668,7 +678,7 @@ export async function runPlanLoop(
             return;
         }
 
-        // Si el paso fue denegado por Guard o por el usuario, PROHIBIDO replanificar para eludirlo
+
         if (execResult.signals?.denied || (step.state as StepState) === "BLOCKED") {
             console.warn(`[PLAN] Acción denegada por Guard o usuario. Prohibido replanificar para eludir denegación.`);
             await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
@@ -676,7 +686,7 @@ export async function runPlanLoop(
         }
 
         if (execResult.status === "ok") {
-            // Eos ya aprobó el paso (ok y cumple); Qwen emite el veredicto semántico.
+
             let stageVerif;
             try {
                 stageVerif = await deps.qwenEngine.verifyStage({

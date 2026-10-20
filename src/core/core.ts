@@ -10,6 +10,7 @@ import {
   type CoreEvent,
   type CoreEventType,
   type PendingApproval,
+  type Step,
   type Task,
   type TaskState,
 } from "./types.ts";
@@ -17,7 +18,7 @@ import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { type TaskExecutionContext, addLogEntry, createEmptyMemory } from "./context.ts";
+import { type TaskExecutionContext, addLogEntry, createEmptyMemory, ensureMemory } from "./context.ts";
 import { TaskStore, compactLegacyDuplicates, refArchive } from "./persistence.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
 import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
@@ -37,6 +38,15 @@ export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
 
 const TASKS_FILE_PATH = path.resolve(process.cwd(), "jarvis-tasks.json");
+
+function findLastActiveUnverifiedStep(steps: Step[]): Step | undefined {
+  for (let i = steps.length - 1; i >= 0; i--) {
+    if (!steps[i].superseded && steps[i].state === "UNVERIFIED") {
+      return steps[i];
+    }
+  }
+  return undefined;
+}
 
 export class JarvisCore {
   private decisionEngine: Decision20Engine;
@@ -250,9 +260,9 @@ export class JarvisCore {
     const context = this.taskContexts.get(taskId);
     if (!context || !this.isAwaitingPlanConfirmation(context)) return;
 
+    context.isCancelled = true;
     context.task.state = "CANCELLED";
     context.task.waitingReason = undefined;
-    context.task.planConfirmed = false;
     RefStore.clear(taskId);
     this.persistTasks();
     this.emitEvent(taskId, "PLAN_REJECTED", { reason: reason || "Plan rechazado por el usuario." });
@@ -336,18 +346,10 @@ export class JarvisCore {
 
     // Paso al que pertenece la pregunta. Tareas persistidas antes de `pendingQuestion`: último paso vigente UNVERIFIED.
     const pending = task.pendingQuestion;
-    let step = pending ? task.steps.find((s) => s.id === pending.stepId) : undefined;
-    if (!step) {
-      for (let i = task.steps.length - 1; i >= 0; i--) {
-        if (!task.steps[i].superseded && task.steps[i].state === "UNVERIFIED") {
-          step = task.steps[i];
-          break;
-        }
-      }
-    }
+    const step = pending ? task.steps.find((s) => s.id === pending.stepId) : findLastActiveUnverifiedStep(task.steps);
 
-    task.memory = task.memory || createEmptyMemory();
-    task.memory.facts[step ? `answer_${step.id}` : `user_input_${Date.now()}`] = sanitizeForMemory(clean, 400);
+    const memory = ensureMemory(context);
+    memory.facts[step ? `answer_${step.id}` : `user_input_${Date.now()}`] = sanitizeForMemory(clean, 400);
     addLogEntry(
       context,
       `${step?.id ?? `s${task.stepSeq ?? 0}`}|user|ok|${sanitizeForMemory(`${pending?.question ?? "pregunta"} -> ${clean}`, 200)}`
@@ -402,20 +404,20 @@ export class JarvisCore {
     return Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
   }
 
-  /**
-   * Conserva a lo sumo MAX_RETAINED_TASKS tareas, en memoria y en disco. Se expulsan primero las terminales más
-   * antiguas (con sus referencias archivadas); una tarea RUNNING nunca se expulsa. Con `cancelAbandoned` (al crear
-   * una tarea nueva), si aún se rebasa el tope, se cancelan y expulsan las tareas en espera del usuario más antiguas.
-   */
+
   private pruneTasks(cancelAbandoned = false): void {
     this.evictTerminalTasks();
     if (!cancelAbandoned) return;
 
-    // Las tareas en espera del usuario (aprobación, confirmación de plan, pregunta) no son terminales y, abandonadas,
-    // se acumularían sin límite. Rebasado el tope, las más antiguas se cancelan (liberando su promesa de aprobación y
-    // sus referencias) y se expulsan. Una tarea RUNNING nunca se toca.
+
     while (this.taskContexts.size > MAX_RETAINED_TASKS) {
-      const abandoned = Array.from(this.taskContexts.values()).find((c) => c.task.state === "WAITING_INPUT");
+      let abandoned: TaskExecutionContext | undefined;
+      for (const c of this.taskContexts.values()) {
+        if (c.task.state === "WAITING_INPUT") {
+          abandoned = c;
+          break;
+        }
+      }
       if (!abandoned) break;
       console.warn(`[JarvisCore] Tope de ${MAX_RETAINED_TASKS} tareas: se cancela la tarea en espera más antigua '${abandoned.task.id}'.`);
       this.cancelTask(abandoned.task.id);
@@ -450,8 +452,7 @@ export class JarvisCore {
         // Migración sin pérdida: copias crudas heredadas que ya existen idénticas en modelIterations.
         if (compactLegacyDuplicates(task)) migrated = true;
 
-        // Tras un reinicio no queda ninguna promesa que reanude una ejecución en curso ni una aprobación pendiente.
-        // plan_confirmation y user_answer sí son reanudables: dependen de una nueva acción del usuario.
+
         const interruptedRun = task.state === "RUNNING";
         const orphanedApproval = task.state === "WAITING_INPUT" && task.waitingReason === "approval";
         if (interruptedRun || orphanedApproval) {
@@ -482,7 +483,7 @@ export class JarvisCore {
         if (task.state === "WAITING_INPUT" && task.waitingReason === "user_answer") {
           if (!task.pendingQuestion) {
             // Tarea persistida antes de existir `pendingQuestion`: lo único disponible es el motivo del paso UNVERIFIED.
-            const waiting = [...task.steps].reverse().find((s) => !s.superseded && s.state === "UNVERIFIED");
+            const waiting = findLastActiveUnverifiedStep(task.steps);
             if (waiting) {
               task.pendingQuestion = {
                 stepId: waiting.id,

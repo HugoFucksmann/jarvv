@@ -102,6 +102,9 @@ const STAGE_STATUSES = [
   "unrecoverable_blocked",
 ] as const satisfies readonly StageVerificationStatus[];
 
+const isStageStatus = (s: unknown): s is StageVerificationStatus =>
+  typeof s === "string" && (STAGE_STATUSES as readonly string[]).includes(s);
+
 export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
@@ -130,7 +133,7 @@ export interface FinalResponseResult {
 }
 
 export interface ReplanResult {
-  action?: "abort";
+  action?: "abort" | "continue";
   reason?: string;
   plan?: Plan;
   rawInput?: string;
@@ -182,24 +185,41 @@ export function stripThink(raw: string): string {
   return s.replace(/<think>[\s\S]*$/i, "").trim();
 }
 
-/** Primer objeto JSON de llaves balanceadas, respetando strings y escapes. */
+/** Primer objeto JSON de llaves balanceadas parseable como objeto, respetando strings y escapes. */
 function extractJsonObject(s: string): string | null {
-  const start = s.indexOf("{");
-  if (start < 0) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let i = start; i < s.length; i++) {
-    const c = s[i];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (c === "\\") escaped = true;
-      else if (c === '"') inString = false;
-      continue;
+  let searchFrom = 0;
+  while (searchFrom < s.length) {
+    const start = s.indexOf("{", searchFrom);
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let matchEnd = -1;
+    for (let i = start; i < s.length; i++) {
+      const c = s[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (c === "\\") escaped = true;
+        else if (c === '"') inString = false;
+        continue;
+      }
+      if (c === '"') inString = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        matchEnd = i;
+        break;
+      }
     }
-    if (c === '"') inString = true;
-    else if (c === "{") depth++;
-    else if (c === "}" && --depth === 0) return s.slice(start, i + 1);
+    if (matchEnd >= 0) {
+      const candidate = s.slice(start, matchEnd + 1);
+      try {
+        const parsed = JSON.parse(candidate);
+        if (isRecord(parsed)) return candidate;
+      } catch {
+        // Llaves balanceadas pero no es JSON de objeto; continuar buscando desde la siguiente llave
+      }
+    }
+    searchFrom = start + 1;
   }
   return null;
 }
@@ -664,6 +684,7 @@ export class QwenEngine implements ILLMClient {
         return { action: "abort", reason: value.reason, rawInput: res.rawInput, rawOutput: res.rawOutput };
       }
       return {
+        action: "continue",
         plan: { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput },
         rawInput: res.rawInput,
         rawOutput: res.rawOutput,
@@ -693,10 +714,8 @@ export class QwenEngine implements ILLMClient {
             if (r.truncated) return fail(TRUNCATED);
             const parsed = parseJsonObject(r.content);
             if (!parsed) return fail(NOT_JSON);
-            const status = (STAGE_STATUSES as readonly unknown[]).includes(parsed.status)
-              ? (parsed.status as StageVerificationStatus)
-              : undefined;
-            if (!status) return fail(`'status' debe ser uno de ${STAGE_STATUSES.join(", ")}`);
+            if (!isStageStatus(parsed.status)) return fail(`'status' debe ser uno de ${STAGE_STATUSES.join(", ")}`);
+            const status = parsed.status;
             const reason = nonEmptyString(parsed.reason) ?? "Sin detalle.";
             const question = nonEmptyString(parsed.question_for_user);
             if (status === "insufficient_info" && !question) {

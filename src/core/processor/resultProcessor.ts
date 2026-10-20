@@ -219,14 +219,10 @@ export class ResultProcessor {
   ): ProcessedResult {
     const isError = Boolean(rawResult.isError);
     const success = Boolean(rawResult.success !== undefined ? rawResult.success : !isError);
-    const actionDispatched = Boolean(rawResult.actionDispatched);
-    const outcomeVerified = Boolean(rawResult.outcomeVerified);
 
     const outcome: ExecutionOutcome = {
       success,
       isError,
-      actionDispatched,
-      outcomeVerified,
     };
 
     const flags: string[] = [];
@@ -350,11 +346,16 @@ export class ResultProcessor {
       const processStatus = knownExit !== undefined ? `exit=${knownExit}` : finished ? "status=finished" : "status=running";
       finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, ${processStatus}`);
       const lines = fullText.split("\n");
-      const tail = lines.slice(-30).join("\n");
-      compactObs = tail || `Proceso ${pid} ejecutado.`;
-      if (lines.length > 30 && refKey) {
-        compactObs = `[... salida previa omitida, ref:${refKey}]\n` + compactObs;
+      const wasTruncatedLines = lines.length > 30;
+      let tail = lines.slice(-30).join("\n");
+      const note = (wasTruncatedLines || tail.length > MAX_EVIDENCE_OBS_CHARS) && refKey
+        ? `[... salida previa omitida, ref:${refKey}]\n`
+        : "";
+      const maxTailChars = MAX_EVIDENCE_OBS_CHARS - note.length;
+      if (tail.length > maxTailChars) {
+        tail = tail.slice(-maxTailChars);
       }
+      compactObs = tail ? `${note}${tail}` : `Proceso ${pid || 'desconocido'} ejecutado.`;
     } else if (!isError && mcp === "free_search" && tool === "search") {
       let jsonResults = Array.isArray(mergedData.results) ? mergedData.results : (Array.isArray(mergedData.documents) ? mergedData.documents : null);
 
@@ -465,16 +466,9 @@ export class ResultProcessor {
       }
     }
 
-    // 5. Determine VerificationState (§10, §25.5, §36)
+    // 5. Determine VerificationState
     let verification: VerificationState = "NOT_REQUIRED";
-    if (actionDispatched) {
-      if (outcomeVerified) {
-        verification = "VERIFIED";
-      } else {
-        verification = "UNVERIFIED";
-        flags.push("PENDING_OBSERVATION");
-      }
-    } else if (success && !isError) {
+    if (success && !isError && !signals.empty_output && !signals.not_found) {
       verification = "VERIFIED";
     }
 

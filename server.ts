@@ -20,13 +20,8 @@ import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
 import { Decision20Engine } from './src/core/decision.ts';
 import { QwenEngine } from './src/core/reasoner/qwen.ts';
 import { JarvisCore } from './src/core/core.ts';
-import { ConfigManager } from './src/core/config.ts';
-import { PendingApproval } from './src/core/types.ts';
-import { RefStore } from './src/core/processor/resultProcessor.ts';
-import { toWireTask } from './src/core/taskWire.ts';
-import { refArchive } from './src/core/persistence.ts';
-import { Guard } from './src/core/policy/guard.ts';
-import { getToolPolicy } from './src/core/tools/manifest.ts';
+import { createJarvisRouter } from './src/server/jarvisRouter.ts';
+import { createMcpRouter } from './src/server/mcpRouter.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -64,23 +59,6 @@ async function main() {
   // Primary authoritative JarvisCore instance in Node.js
   const jarvisCore = new JarvisCore(decisionEngine, discoveryEngine, qwenEngine);
 
-  function getServer(name: string): IMCPServer | undefined {
-    return discoveryEngine.getServer(name);
-  }
-
-  function serializePendingApproval(pending: PendingApproval | null) {
-    if (!pending) return null;
-    return {
-      id: pending.id,
-      stepId: pending.stepId,
-      mcp: pending.mcp,
-      tool: pending.tool,
-      capability: pending.capability,
-      args: pending.args,
-      reason: pending.reason,
-    };
-  }
-
 
   // CIERRE ORDENADO DE PROCESOS (CLEAN SHUTDOWN HOOKS)
 
@@ -93,13 +71,11 @@ async function main() {
 
     for (const [name, server] of Object.entries(servers)) {
       try {
-        if ('close' in server && typeof (server as any).close === 'function') {
-          await (server as any).close();
-        } else if ((server as any).transport && typeof (server as any).transport.close === 'function') {
-          await (server as any).transport.close();
+        if (typeof server.close === 'function') {
+          await server.close();
         }
       } catch (err) {
-        console.warn(`[Host] Error cerrando transporte para '${name}':`, err);
+        console.warn(`[Host] Error cerrando servidor '${name}':`, err);
       }
     }
 
@@ -111,388 +87,10 @@ async function main() {
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
 
 
-  // 1. SUB-ROUTERS API
+  // 1. MONTAJE DE RUTAS MODULARES
 
-
-  // 1.1 JARVIS CORE ORCHESTRATION ROUTER
-
-  const jarvisRouter = express.Router();
-
-  // Iniciar tarea
-  jarvisRouter.post(['/process', '/task'], async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    try {
-      const { message, mode } = req.body;
-      if (!message || typeof message !== 'string' || !message.trim()) {
-        return res.status(400).json({ error: 'Mensaje requerido.' });
-      }
-      const task = await jarvisCore.initiateTask(message.trim(), mode || 'NORMAL');
-      res.json({ task });
-    } catch (err: any) {
-      console.error('[JARVIS Task Initiation Error]', err);
-      res.status(500).json({ error: err.message || 'Error al iniciar tarea.' });
-    }
-  });
-
-  // Cancelar tarea
-  jarvisRouter.post('/cancel', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId } = req.body;
-    if (taskId) {
-      jarvisCore.cancelTask(taskId);
-    } else {
-      const allTasks = jarvisCore.getAllTasks();
-      const running = allTasks.find((t) => t.state === 'RUNNING');
-      if (running) jarvisCore.cancelTask(running.id);
-    }
-    res.json({ ok: true });
-  });
-
-  // Confirmar, rechazar o solicitar modificación de plan (modo PLAN §3.2.4)
-  jarvisRouter.post('/confirm-plan', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId, action, feedback, reason } = req.body;
-    const allTasks = jarvisCore.getAllTasks();
-    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
-
-    if (!targetId) {
-      return res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-    }
-
-    if (action === 'reject') {
-      jarvisCore.rejectPlan(targetId, reason);
-      return res.json({ ok: true, action: 'reject' });
-    }
-
-    if (action === 'modify') {
-      await jarvisCore.modifyPlan(targetId, feedback || reason || 'Ajustar plan.');
-      return res.json({ ok: true, action: 'modify' });
-    }
-
-    jarvisCore.confirmPlan(targetId);
-    res.json({ ok: true, action: 'confirm' });
-  });
-
-  // Rechazar plan formalmente
-  jarvisRouter.post('/reject-plan', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId, reason } = req.body;
-    const allTasks = jarvisCore.getAllTasks();
-    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
-    if (targetId) {
-      jarvisCore.rejectPlan(targetId, reason);
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-    }
-  });
-
-  // Solicitar modificación de plan
-  jarvisRouter.post('/modify-plan', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId, feedback } = req.body;
-    const allTasks = jarvisCore.getAllTasks();
-    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
-    if (targetId) {
-      await jarvisCore.modifyPlan(targetId, feedback || 'Ajustar pasos según solicitud.');
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-    }
-  });
-
-  // Responder a pregunta interactiva (WAITING_INPUT user_answer)
-  jarvisRouter.post('/user-answer', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId, answer } = req.body;
-    const allTasks = jarvisCore.getAllTasks();
-    const targetId = taskId || allTasks[allTasks.length - 1]?.id;
-    if (targetId && typeof answer === 'string') {
-      jarvisCore.provideUserAnswer(targetId, answer);
-      res.json({ ok: true });
-    } else {
-      res.status(400).json({ error: 'Se requiere taskId y respuesta válida.' });
-    }
-  });
-
-  // Aprobar operación con compuerta de seguridad Guard
-  jarvisRouter.post('/approve', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId } = req.body;
-    const pending = jarvisCore.getPendingApproval(taskId);
-    if (pending) {
-      pending.onApprove();
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna aprobación pendiente.' });
-    }
-  });
-
-  // Rechazar operación con compuerta de seguridad Guard
-  jarvisRouter.post('/deny', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { taskId, reason } = req.body;
-    const pending = jarvisCore.getPendingApproval(taskId);
-    if (pending) {
-      pending.onDeny(reason);
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna aprobación pendiente.' });
-    }
-  });
-
-  // Consultar estado actual / snapshot reactivo de JARVIS
-  jarvisRouter.get('/state', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    try {
-      const taskId = req.query.taskId as string | undefined;
-      const allTasks = jarvisCore.getAllTasks();
-      const task = taskId ? jarvisCore.getTask(taskId) : allTasks[allTasks.length - 1] || null;
-      const pending = jarvisCore.getPendingApproval(task?.id);
-      const tools = await discoveryEngine.discoverAll().catch(() => ({}));
-      const extra = await discoveryEngine.discoverExtraCapabilities().catch(() => ({
-        prompts: {},
-        resourceTemplates: {},
-      }));
-
-      res.json({
-        task,
-        pendingApproval: serializePendingApproval(pending),
-        allTasks: allTasks.map(toWireTask),
-        discoveredTools: tools,
-        extraCapabilities: extra,
-        unavailableServers: discoveryEngine.getUnavailableServers(),
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Stream Server-Sent Events (SSE) para eventos de Core en tiempo real
-  jarvisRouter.get('/events', (req, res) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders?.();
-
-    const unsubscribe = jarvisCore.addEventListener((event) => {
-      const currentTask = jarvisCore.getTask(event.taskId);
-      const pending = jarvisCore.getPendingApproval(event.taskId);
-      const payload = JSON.stringify({
-        event,
-        task: toWireTask(currentTask),
-        pendingApproval: serializePendingApproval(pending),
-      });
-      res.write(`data: ${payload}\n\n`);
-    });
-
-    const keepAlive = setInterval(() => {
-      res.write(': ping\n\n');
-    }, 15000);
-
-    req.on('close', () => {
-      clearInterval(keepAlive);
-      unsubscribe();
-    });
-  });
-
-  // Refrescar catálogo de Discovery dinámicamente
-  jarvisRouter.all(['/refresh-discovery', '/discovery'], async (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    try {
-      const tools = await discoveryEngine.discoverAll(true);
-      const extra = await discoveryEngine.discoverExtraCapabilities();
-      res.json({ tools, extraCapabilities: extra, unavailableServers: discoveryEngine.getUnavailableServers() });
-    } catch (err: any) {
-      res.json({ tools: {}, extraCapabilities: { prompts: {}, resourceTemplates: {} }, error: err.message });
-    }
-  });
-
-  // Recuperar contenido de una referencia en RefStore (Hallazgo #10)
-  jarvisRouter.get('/ref/:refKey', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const { refKey } = req.params;
-    const taskId = req.query.taskId as string | undefined;
-    // En memoria mientras la tarea está activa; archivado en disco cuando terminó (historial, reinicios).
-    let content = RefStore.get(refKey, taskId);
-    if (content === undefined && taskId) content = refArchive.get(taskId, refKey);
-    if (content !== undefined) {
-      res.json({ refKey, content, found: true });
-    } else {
-      res.status(404).json({ error: `Referencia '${refKey}' no encontrada.`, found: false });
-    }
-  });
-
-  // Configuración de endpoints externos
-  jarvisRouter.get('/config', (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    res.json(ConfigManager.getConfig());
-  });
-
-  jarvisRouter.post('/config', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const updated = ConfigManager.updateConfig(req.body);
-    res.json(updated);
-  });
-
-
-  // 1.2 MCP DIRECT ENDPOINTS ROUTER
-
-  const mcpRouter = express.Router();
-
-  // Descubrimiento de todas las herramientas
-  mcpRouter.get('/discover-all', async (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    try {
-      const tools = await discoveryEngine.discoverAll();
-      res.json(tools);
-    } catch (err: any) {
-      res.json({ desktop_commander: [], free_search: [], error: err.message });
-    }
-  });
-
-  // Capacidades extra (prompts y resource templates)
-  mcpRouter.get('/extra-capabilities', async (_req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    try {
-      const extra = await discoveryEngine.discoverExtraCapabilities();
-      res.json(extra);
-    } catch {
-      res.json({ prompts: {}, resourceTemplates: {} });
-    }
-  });
-
-  // Listar herramientas de un servidor específico
-  mcpRouter.get('/:server/tools', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    if (!server) {
-      return res.status(404).json({ error: `Servidor MCP '${req.params.server}' no encontrado.`, tools: [] });
-    }
-    try {
-      const tools = await server.listTools();
-      res.json({ tools });
-    } catch (err: any) {
-      res.json({ error: err.message, tools: [] });
-    }
-  });
-
-  // Ejecución de herramientas por stdio
-  mcpRouter.post('/:server/call', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    if (!server) {
-      return res.status(404).json({
-        isError: true,
-        success: false,
-        content: [{ type: 'text', text: `Servidor MCP '${req.params.server}' no encontrado.` }],
-      });
-    }
-    const { name, args } = req.body ?? {};
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({
-        isError: true,
-        success: false,
-        content: [{ type: 'text', text: 'Falta el nombre de la herramienta.' }],
-      });
-    }
-    const toolArgs: Record<string, unknown> = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
-
-
-    const policy = getToolPolicy(req.params.server, name);
-    const verdict = Guard.evaluate(req.params.server, name, toolArgs);
-    if (policy.kind !== 'READ' || verdict.decision !== 'ALLOW') {
-      console.warn(`[MCP /call] Rechazada '${req.params.server}/${name}' (kind=${policy.kind ?? 'desconocido'}, guard=${verdict.decision}).`);
-      return res.status(403).json({
-        isError: true,
-        success: false,
-        content: [{
-          type: 'text',
-          text: `Operación no permitida desde este endpoint (${verdict.decision}${verdict.reason ? `: ${verdict.reason}` : ''}). Las acciones que modifican el entorno solo se ejecutan dentro de una tarea, con la política de seguridad y la aprobación correspondientes.`,
-        }],
-      });
-    }
-    try {
-      const result = await server.callTool(name, toolArgs);
-      res.json(result);
-    } catch (err: any) {
-      res.json({
-        isError: true,
-        success: false,
-        content: [{ type: 'text', text: `[MCP Server Error] ${err.message}` }],
-      });
-    }
-  });
-
-
-  mcpRouter.get('/:server/prompts', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    if (!server || !server.listPrompts) {
-      return res.json({ prompts: [] });
-    }
-    try {
-      const prompts = await server.listPrompts();
-      res.json({ prompts });
-    } catch {
-      res.json({ prompts: [] });
-    }
-  });
-
-  // Plantillas de recursos
-  mcpRouter.get('/:server/resource-templates', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    if (!server || !server.listResourceTemplates) {
-      return res.json({ resourceTemplates: [] });
-    }
-    try {
-      const resourceTemplates = await server.listResourceTemplates();
-      res.json({ resourceTemplates });
-    } catch {
-      res.json({ resourceTemplates: [] });
-    }
-  });
-
-  // Lectura de recurso
-  mcpRouter.post('/:server/resources', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    if (!server || !server.readResource) {
-      return res.status(404).json({ error: 'readResource no soportado', text: '' });
-    }
-    try {
-      const text = await server.readResource(req.body.uri);
-      res.json({ text });
-    } catch (err: any) {
-      res.json({ error: err.message, text: '' });
-    }
-  });
-
-  // Reconexión de proceso stdio
-  mcpRouter.post('/:server/reconnect', async (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    if (!server) {
-      return res.status(404).json({ error: `Servidor MCP '${req.params.server}' no encontrado.`, ok: false });
-    }
-    try {
-      await server.reconnect();
-      res.json({ ok: true });
-    } catch (err: any) {
-      res.json({ error: err.message, ok: false });
-    }
-  });
-
-  // Estado de conexión
-  mcpRouter.get('/:server/status', (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
-    const server = getServer(req.params.server);
-    res.json({ connected: server ? server.isConnected() : false });
-  });
-
-
-  // MONTAJE UNIFICADO DE RUTAS
+  const jarvisRouter = createJarvisRouter(jarvisCore, discoveryEngine);
+  const mcpRouter = createMcpRouter(discoveryEngine);
 
   app.use('/api/jarvis', jarvisRouter);
   app.use('/jarvis', jarvisRouter);
@@ -501,27 +99,21 @@ async function main() {
 
   // Barrera estricta 404 para prefijos de API
   app.use(['/api', '/mcp', '/jarvis'], (req, res) => {
-    res.setHeader('Content-Type', 'application/json');
     res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
   });
 
   // Barrera estricta de errores para prefijos de API
   app.use(['/api', '/mcp', '/jarvis'], (err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error('[API Error]', err);
-    res.setHeader('Content-Type', 'application/json');
     res.status(500).json({ error: err?.message || 'Error interno en API' });
   });
 
 
   // 2. MIDDLEWARE DE VITE (DESARROLLO) / ESTÁTICOS (PRODUCCIÓN)
 
+  const API_PREFIXES = ['/api', '/mcp', '/jarvis'];
   const isApiRequest = (url: string, pathName: string) =>
-    url.startsWith('/api') ||
-    url.startsWith('/mcp') ||
-    url.startsWith('/jarvis') ||
-    pathName.startsWith('/api') ||
-    pathName.startsWith('/mcp') ||
-    pathName.startsWith('/jarvis');
+    API_PREFIXES.some((prefix) => url.startsWith(prefix) || pathName.startsWith(prefix));
 
   const isProduction = process.env.NODE_ENV === 'production';
   if (!isProduction) {
@@ -543,7 +135,6 @@ async function main() {
 
     app.use('*', async (req, res, next) => {
       if (isApiRequest(req.originalUrl, req.path)) {
-        res.setHeader('Content-Type', 'application/json');
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
       try {
@@ -559,7 +150,6 @@ async function main() {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req, res) => {
       if (isApiRequest(req.originalUrl, req.path)) {
-        res.setHeader('Content-Type', 'application/json');
         return res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
       }
       res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
