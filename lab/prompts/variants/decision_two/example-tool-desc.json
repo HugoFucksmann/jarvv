@@ -1,0 +1,10 @@
+{
+  "questions": {
+    "selected_tool": {
+      "instructions": "Which tool fulfills the instruction? Prioritize specialized search tools when looking for files.",
+      "criteria": {
+        "search_files": "Search files by name pattern or extension across directories"
+      }
+    }
+  }
+}

@@ -156,7 +156,7 @@ export function compareRuns(pathA: string, pathB: string): void {
       console.log(`    Latencia media: A=${cA.avgLatencyMs}ms vs B=${cB.avgLatencyMs}ms (${latSign}ms)`);
     }
 
-    // Ajuste C: mostrar probabilidades de opción esperada para choice_equals (Eos)
+    // Ajuste C: mostrar probabilidades de opción esperada para choice_equals (Eos: decision_one, decision_two)
     if (cA.expectedChoiceProbability !== undefined || cB.expectedChoiceProbability !== undefined) {
       const pA = cA.expectedChoiceProbability !== undefined ? `${(cA.expectedChoiceProbability * 100).toFixed(1)}%` : "N/D";
       const pB = cB.expectedChoiceProbability !== undefined ? `${(cB.expectedChoiceProbability * 100).toFixed(1)}%` : "N/D";
@@ -167,6 +167,27 @@ export function compareRuns(pathA: string, pathB: string): void {
         diffMsg = ` (Diferencia: ${pSign}%)`;
       }
       console.log(`    Probabilidad opción esperada: A=${pA} vs B=${pB}${diffMsg}`);
+    }
+
+    // Fase B: mostrar probabilidades de noul y veredicto de aprobación (Eos: step_verification)
+    if (cA.noulProbabilities || cB.noulProbabilities) {
+      const keys = ["ok", "cumple"];
+      for (const k of keys) {
+        const pAVal = cA.noulProbabilities?.[k];
+        const pBVal = cB.noulProbabilities?.[k];
+        const pAStr = pAVal !== undefined ? `${(pAVal * 100).toFixed(1)}%` : "N/D";
+        const pBStr = pBVal !== undefined ? `${(pBVal * 100).toFixed(1)}%` : "N/D";
+        let diffMsg = "";
+        if (pAVal !== undefined && pBVal !== undefined) {
+          const pDelta = Number(((pBVal - pAVal) * 100).toFixed(1));
+          const pSign = pDelta >= 0 ? `+${pDelta}` : `${pDelta}`;
+          diffMsg = ` (Diferencia: ${pSign}%)`;
+        }
+        console.log(`    Probabilidad '${k}': A=${pAStr} vs B=${pBStr}${diffMsg}`);
+      }
+      const appA = cA.noulApproved !== undefined ? (cA.noulApproved ? "APROBADO" : "RECHAZADO") : "N/D";
+      const appB = cB.noulApproved !== undefined ? (cB.noulApproved ? "APROBADO" : "RECHAZADO") : "N/D";
+      console.log(`    Veredicto Eos (ok y cumple > 0.5): A=${appA} vs B=${appB}`);
     }
   }
 
@@ -205,6 +226,18 @@ export function compareRuns(pathA: string, pathB: string): void {
   console.log(`Casos que mejoran:  ${improved.length} ${improved.length > 0 ? `[${improved.join(", ")}]` : ""}`);
   console.log(`Casos que empeoran: ${worsened.length} ${worsened.length > 0 ? `[${worsened.join(", ")}]` : ""}`);
   console.log(`Casos neutros:      ${neutral.length}`);
+
+  // Advertencias de fidelidad
+  const allWarnings = [
+    ...(resA.fidelityWarnings?.map((w) => `[Corrida A / Caso ${w.caseId}] ${w.parameter}: ${w.message}`) || []),
+    ...(resB.fidelityWarnings?.map((w) => `[Corrida B / Caso ${w.caseId}] ${w.parameter}: ${w.message}`) || []),
+  ];
+  if (allWarnings.length > 0) {
+    console.log(`\n--- ADVERTENCIAS DE FIDELIDAD ---`);
+    for (const w of allWarnings) {
+      console.log(`⚠ ${w}`);
+    }
+  }
 
   console.log(`\n* NOTA: Este informe es estrictamente cuantitativo y descriptivo.`);
   console.log(`  Con muestras pequeñas (N bajo) las diferencias observadas pueden corresponder a`);

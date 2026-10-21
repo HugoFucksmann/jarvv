@@ -30,12 +30,12 @@ En el núcleo de JARVIS (`src/types/debug.ts`), las etapas se identifican con id
 | :--- | :--- | :--- | :--- |
 | `decision_one` | `DECISION_ONE` | Eos-0.8B | **Implementada** |
 | `arguments` | `ARGUMENT_GENERATION` | Qwen 3.5 9B | **Implementada** |
-| `decision_two` | `DECISION_TWO` | Eos-0.8B | *Pendiente (registrada)* |
-| `step_verification` | `STEP_VERIFICATION` | Eos-0.8B | *Pendiente (registrada)* |
-| `plan` | `PLAN_GENERATION` | Qwen 3.5 9B | *Pendiente (registrada)* |
-| `replan` | `REPLAN` | Qwen 3.5 9B | *Pendiente (registrada)* |
-| `stage_verification` | `STAGE_VERIFICATION` | Qwen 3.5 9B | *Pendiente (registrada)* |
-| `final_response` | `FINAL_RESPONSE` | Qwen 3.5 9B | *Pendiente (registrada)* |
+| `decision_two` | `DECISION_TWO` | Eos-0.8B | **Implementada** (Fase B) |
+| `step_verification` | `STEP_VERIFICATION` | Eos-0.8B | **Implementada** (Fase B) |
+| `plan` | `PLAN_GENERATION` | Qwen 3.5 9B | *Pendiente (Fase C)* |
+| `replan` | `REPLAN` | Qwen 3.5 9B | *Pendiente (Fase C)* |
+| `stage_verification` | `STAGE_VERIFICATION` | Qwen 3.5 9B | *Pendiente (Fase C)* |
+| `final_response` | `FINAL_RESPONSE` | Qwen 3.5 9B | *Pendiente (Fase D)* |
 
 ---
 
@@ -45,7 +45,7 @@ En el núcleo de JARVIS (`src/types/debug.ts`), las etapas se identifican con id
 1. **Habilitar el registro**: Activar en JARVIS el registro continuo de trazas (escribirá en `jarvis-traces.jsonl`).
 2. **Generar trazas reales**: Ejecutar tareas reales en JARVIS que involucren navegación de archivos, búsqueda y herramientas.
 3. **Extraer borradores**: Correr `npx tsx lab/extract-cases.ts`.
-4. **Completar expectativas**: Inspeccionar los borradores en `lab/cases/<etapa>/_drafts/`, apoyándose en el bloque `reference` (salida original, `retried`, `error`, resultado de herramienta `toolRun`), y definir `expect: [...]` manualmente.
+4. **Completar expectativas**: Inspeccionar los borradores en `lab/cases/<etapa>/_drafts/`, apoyándose en el bloque `reference` (salida original, `error`, resultado de herramienta `toolRun`, `recordedParams`), y definir `expect: [...]` manualmente.
 5. **Promover casos**: Mover los casos validados fuera de `_drafts/` al directorio `lab/cases/<etapa>/`.
 6. **Ejecutar benchmarks**: Evaluar el prompt estable y variantes con `run.ts`.
 7. **Comparar cuantitativamente**: Contrastar corridas con `evaluate.ts`.
@@ -62,7 +62,10 @@ npx tsx lab/extract-cases.ts --file lab/fixtures/example-traces.jsonl
 npx tsx lab/extract-cases.ts --task example-task-fast-01
 ```
 Lee el registro JSONL en modo **solo lectura** y genera borradores en `cases/<etapa>/_drafts/` con la entrada exacta registrada, `expect: null`, `source: { taskId, seq }` y un bloque `reference`.
-- **Extractor tolerante (Ajuste D / IMP-02)**: Si la traza carece de `seq`, se utiliza `id` o la posición posicional en `calls`. Si carece de `step`, se utiliza `stepId` o `stepSeq`, advirtiendo en consola. Los casos preexistentes no se sobrescriben.
+- **Soporte de 8 etapas**: Mapea automáticamente todas las etapas a sus contratos de entrada base (`CaseInputEos` o `CaseInputQwen`).
+- **Saneamiento de reintentos**: Detecta `ERROR_PREVIO:`, separa la nota y reconstruye el user prompt de primera pasada, anotando en `notes`.
+- **Fallback de replan**: Identifica llamadas `REPLAN` explícitas y clasifica la segunda llamada `PLAN_GENERATION` de una tarea como `replan` en trazas históricas.
+- **Asociación de toolRuns**: Prioriza `callSeq` y preserva `resultPreview` en `reference`.
 
 ### B. Ejecutar un benchmark (Stable o Variante)
 ```bash
@@ -70,15 +73,24 @@ Lee el registro JSONL en modo **solo lectura** y genera borradores en `cases/<et
 npx tsx lab/run.ts decision_one stable
 npx tsx lab/run.ts decision_one example-concise --split dev
 
+# Eos: Decision #2 (selección de herramienta MCP)
+npx tsx lab/run.ts decision_two stable
+npx tsx lab/run.ts decision_two example-tool-desc --split dev
+
+# Eos: Step Verification (verificación factual ok / cumple)
+npx tsx lab/run.ts step_verification stable
+npx tsx lab/run.ts step_verification example-strict-instructions --split dev
+
 # Qwen: Arguments (repeticiones = 3 por defecto)
 npx tsx lab/run.ts arguments stable
 npx tsx lab/run.ts arguments example-strict-refs --split test
 ```
 - **Calentamiento (Warmup - Ajuste B)**: Ejecuta una llamada de calentamiento previa por etapa antes de medir; esta llamada se descarta de todas las métricas de latencia y se preserva en `RunResult.warmup`.
-- **Determinismo de Eos (Ajuste A)**: `lab/config.json` configura `decision_one: 1` repetición, ya que Eos es un clasificador determinista (3 repeticiones produjeron exactamente las mismas distribuciones y probabilidades). Qwen mantiene 3 repeticiones para capturar variación estocástica.
+- **Determinismo de Eos (Ajuste A)**: `lab/config.json` configura 1 repetición para etapas de Eos (`decision_one`, `decision_two`, `step_verification`). Qwen mantiene 3 repeticiones para capturar variación estocástica.
 - **Detección temprana de caídas**: Si el endpoint está desconectado (`ECONNREFUSED`), aborta de inmediato con código 1 sin guardar archivos corruptos en disco.
 - **Registro atómico**: Genera un archivo inmutable en `lab/results/<timestamp>-<etapa>-<variante>.json` (con flag `wx` para evitar sobreescrituras).
-- **Métricas y Probabilidades (Ajustes B y C)**: Calcula promedio y mediana de latencia, y guarda la probabilidad de la opción esperada cuando existe un check `choice_equals`.
+- **Métricas y Probabilidades**: Guarda la probabilidad de la opción esperada en `decision_one` y `decision_two` (`choice_equals`), y las probabilidades individuales de `ok` y `cumple` y el veredicto de aprobación en `step_verification` (`noul_approved`).
+- **Chequeo de fidelidad**: Para Qwen con prompt estable, advierte si el prompt SYSTEM vivo de `prompts.ts` o los parámetros del body difieren de los grabados en la traza.
 
 ### C. Comparar dos corridas
 ```bash
@@ -86,8 +98,9 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 ```
 - Valida la integridad de ambas corridas: rechaza corridas con errores de conexión o con 100% de errores en sus repeticiones.
 - Valida que ambas corridas cubran exactamente los mismos casos y repeticiones.
-- Informa split evaluado, tasa de acierto global, latencia promedio y **mediana de latencia** (Ajuste B).
-- Para Eos (`decision_one`), muestra por caso la probabilidad de la opción esperada en A y B y su diferencia porcentual ($p_B - p_A$, Ajuste C, estrictamente descriptivo).
+- Informa split evaluado, tasa de acierto global, latencia promedio y **mediana de latencia**.
+- Para Eos (`decision_one`, `decision_two`), muestra por caso la probabilidad de la opción esperada en A y B y su diferencia porcentual ($p_B - p_A$).
+- Para Eos (`step_verification`), muestra por caso las probabilidades de `ok` y `cumple`, sus diferencias y el veredicto de aprobación de Eos (`ok > 0.5 && cumple > 0.5`).
 
 ---
 
@@ -96,8 +109,8 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 ### Formato de Casos (`cases/<etapa>/<id>.json`)
 ```json
 {
-  "id": "draft_d1_task_123_seq1",
-  "stage": "decision_one",
+  "id": "example-select-tool",
+  "stage": "decision_two",
   "split": "dev",
   "input": {
     "state": "...",
@@ -105,17 +118,16 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
   },
   "expect": [
     { "type": "valid_json" },
-    { "type": "choice_equals", "expected": "files", "questionKey": "route" }
+    { "type": "choice_equals", "questionKey": "selected_tool", "expected": "search_files" }
   ],
   "source": {
     "taskId": "task_123",
-    "seq": 1
+    "seq": 2
   },
   "reference": {
-    "originalOutput": "{\"answers\":{\"route\":{\"choice\":\"files\"}}}",
-    "retried": false,
+    "originalOutput": "{\"answers\":{\"selected_tool\":{\"choice\":\"search_files\"}}}",
     "error": null,
-    "toolRun": { "tool": "read_file", "ok": true, "error": null }
+    "toolRun": { "callSeq": 2, "tool": "search_files", "ok": true, "resultPreview": "..." }
   },
   "notes": "Descripción del caso"
 }
@@ -124,19 +136,19 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 #### Tipos de Checks en `expect`:
 - `valid_json`: Valida que la respuesta sea un JSON sintácticamente correcto.
 - `choice_equals`: (Eos) Verifica que `answers[questionKey].choice === expected`.
-- `matches_schema`: (Qwen) Valida que los argumentos cumplan con el `SCHEMA` del caso usando `validateArgs`.
+- `noul_approved`: (Eos) Verifica si una pregunta noul (`ok` o `cumple`) aprueba (`p > 0.5`) según `expected: true|false`.
+- `matches_schema`: (Qwen) Valida que los argumentos cumplan con el `SCHEMA` del caso usando `validateArgs`. Falla explícitamente si el schema está ausente o vacío.
 - `field_equals`: Comprueba que un valor por ruta (ej. `path: "path"`) sea igual al esperado.
 
 ### Formato de Variantes (`prompts/variants/<etapa>/<id>.(md|json)`)
 
 #### Para Qwen (`arguments`): Archivo `.md`
 El contenido reemplaza exclusivamente el bloque `SYSTEM`. El `user` prompt del caso se mantiene idéntico.
-Ejemplo: `lab/prompts/variants/arguments/example-strict-refs.md`.
 
-#### Para Eos (`decision_one`): Archivo `.json`
-Sobrescribe las `instructions` y los textos descriptivos de `criteria` por pregunta.
-**Regla de integridad**: Una variante de Eos **no puede alterar las opciones permitidas del choice** ni agregar claves de preguntas. Si lo intenta, el adaptador rechaza la variante inmediatamente. Opciones omitidas en la variante conservan su criterio original.
-Ejemplo: `lab/prompts/variants/decision_one/example-concise.json`.
+#### Para Eos (`decision_one`, `decision_two`, `step_verification`): Archivo `.json`
+- **En `decision_one`**: Sobrescribe `instructions` y `criteria` por pregunta. Las opciones permitidas de choice son fijas.
+- **En `decision_two`**: Sobrescribe `instructions` y las descripciones en `criteria` referenciando el nombre de la herramienta. Herramientas de la variante que no existan en el caso se omiten para ese caso con aviso (nunca se agregan). Es error si una variante no coincide con ninguna herramienta de ningún caso evaluado.
+- **En `step_verification`**: Solo se pueden sobrescribir las `instructions` de `ok` y `cumple`. El tipo `noul` no cambia y no admite `criteria`.
 
 ---
 

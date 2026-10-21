@@ -16,24 +16,34 @@ import {
   argumentsStage,
   assertStageImplemented,
   decisionOneStage,
+  decisionTwoStage,
+  eosStage,
+  stepVerificationStage,
   LabConnectionError,
+  LabValidationError,
 } from "./adapter.ts";
-import type {
-  CaseCheck,
-  CaseInputArguments,
-  CaseInputDecisionOne,
-  CaseRunResult,
-  CheckChoiceEquals,
-  CheckResult,
-  LabCase,
-  ModelParametersRecord,
-  RunRepetition,
-  RunResult,
-  RunResultSummary,
-  Split,
-  Stage,
-  VariantDecisionOne,
-  WarmupResult,
+import {
+  NOUL_APPROVE,
+  type CaseCheck,
+  type CaseInputArguments,
+  type CaseInputDecisionOne,
+  type CaseInputEos,
+  type CaseInputQwen,
+  type CaseRunResult,
+  type CheckChoiceEquals,
+  type CheckNoulApproved,
+  type CheckResult,
+  type FidelityWarning,
+  type LabCase,
+  type ModelParametersRecord,
+  type RunRepetition,
+  type RunResult,
+  type RunResultSummary,
+  type Split,
+  type Stage,
+  type VariantDecisionEos,
+  type VariantStepVerification,
+  type WarmupResult,
 } from "./types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -61,7 +71,10 @@ function getRepetitions(stage: string): number {
     if (typeof cfg.repetitions[stage] === "number") return cfg.repetitions[stage];
     if (typeof cfg.repetitions.default === "number") return cfg.repetitions.default;
   }
-  return stage === "decision_one" ? 1 : 3;
+  if (stage === "decision_one" || stage === "decision_two" || stage === "step_verification") {
+    return 1;
+  }
+  return 3;
 }
 
 function calculateMedian(numbers: number[]): number {
@@ -125,6 +138,21 @@ function evaluateChecks(
       continue;
     }
 
+    if (check.type === "noul_approved") {
+      const qKey = check.questionKey;
+      const noulProb = parsedOutput?.answers?.[qKey]?.noul;
+      const isApproved = typeof noulProb === "number" && noulProb > NOUL_APPROVE;
+      const passed = isApproved === check.expected;
+      results.push({
+        check: `noul_approved(${qKey} === ${check.expected})`,
+        passed,
+        message: passed
+          ? undefined
+          : `Se esperaba ${qKey} aprobado=${check.expected}, pero p=${noulProb !== undefined ? noulProb : "indefinido"} (aprobado=${isApproved})`,
+      });
+      continue;
+    }
+
     if (check.type === "field_equals") {
       const actualVal = getByPath(parsedOutput, check.path);
       const passed = JSON.stringify(actualVal) === JSON.stringify(check.expected);
@@ -153,14 +181,19 @@ async function loadVariant(stage: Stage, variantId: string): Promise<{ content: 
     return { content: rawText, rawText };
   }
 
-  if (stage === "decision_one") {
+  if (stage === "decision_one" || stage === "decision_two" || stage === "step_verification") {
     const ext = variantId.endsWith(".json") ? "" : ".json";
-    const filePath = path.resolve(__dirname, "prompts", "variants", "decision_one", `${variantId}${ext}`);
+    const filePath = path.resolve(__dirname, "prompts", "variants", stage, `${variantId}${ext}`);
     if (!fs.existsSync(filePath)) {
       throw new Error(`No se encontró el archivo de variante en: ${filePath}`);
     }
     const rawText = fs.readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(rawText) as VariantDecisionOne;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      throw new Error(`El archivo de variante '${filePath}' no es un JSON legible.`);
+    }
     return { content: parsed, rawText };
   }
 
@@ -237,6 +270,28 @@ export async function runBenchmark(
     throw new Error(`Sin casos ejecutables para la etapa '${stage}'.`);
   }
 
+  // Validación previa para variantes de decision_two:
+  // Es error si una variante con criterios definidos no coincide con ninguna herramienta de ningún caso
+  if (!isStable && stage === "decision_two" && variantData?.content?.questions?.selected_tool?.criteria) {
+    const varToolNames = Object.keys(variantData.content.questions.selected_tool.criteria);
+    if (varToolNames.length > 0) {
+      let matchedAcrossAnyCase = false;
+      for (const c of runnable) {
+        const caseQuestions = (c.input as CaseInputEos)?.questions;
+        const caseCriteria = (caseQuestions?.selected_tool as any)?.criteria || {};
+        if (varToolNames.some((t) => Object.hasOwn(caseCriteria, t))) {
+          matchedAcrossAnyCase = true;
+          break;
+        }
+      }
+      if (!matchedAcrossAnyCase) {
+        throw new LabValidationError(
+          `La variante de decision_two no coincide con ninguna herramienta de ningún caso evaluado. Herramientas en variante: ${varToolNames.join(", ")}.`
+        );
+      }
+    }
+  }
+
   console.log(`\nIniciando corrida sobre ${runnable.length} caso(s) activos...\n`);
 
   // Calentamiento (Warmup) — Ajuste B: una llamada previa descartada de las métricas
@@ -251,12 +306,12 @@ export async function runBenchmark(
         variantData ? variantData.rawText : undefined
       );
       await argumentsStage.callModel(systemPrompt, userPrompt);
-    } else if (stage === "decision_one") {
-      const warmupInput = runnable[0].input as CaseInputDecisionOne;
-      const prompt = variantData
-        ? decisionOneStage.applyVariant(warmupInput, variantData.content)
-        : decisionOneStage.getStablePrompt(warmupInput);
-      await decisionOneStage.callModel(prompt.state, prompt.questions);
+    } else if (stage === "decision_one" || stage === "decision_two" || stage === "step_verification") {
+      const warmupInput = runnable[0].input as CaseInputEos;
+      const promptRes = variantData
+        ? eosStage.applyVariant(stage, warmupInput, variantData.content, runnable[0].id)
+        : { state: warmupInput.state, questions: warmupInput.questions };
+      await eosStage.callModel(promptRes.state, promptRes.questions);
     }
     const warmupLatencyMs = Date.now() - tWarmup0;
     warmupResult = { latencyMs: warmupLatencyMs, ok: true };
@@ -272,10 +327,10 @@ export async function runBenchmark(
     console.warn(`⚠ Warmup falló (${errMsg}), continuando con la medición...\n`);
   }
 
-  const initialModelParams =
-    stage === "arguments"
-      ? argumentsStage.getModelParameters()
-      : decisionOneStage.getModelParameters();
+  const isEos = stage === "decision_one" || stage === "decision_two" || stage === "step_verification";
+  const initialModelParams = isEos
+    ? eosStage.getModelParameters()
+    : argumentsStage.getModelParameters();
 
   const casePromptHashes: Record<string, string> = {};
   let stablePromptHash = "";
@@ -286,10 +341,10 @@ export async function runBenchmark(
       .update(argumentsStage.getStableSystemPrompt())
       .digest("hex")
       .slice(0, 16);
-  } else if (stage === "decision_one") {
+  } else if (isEos) {
     const sortedCases = [...runnable].sort((a, b) => a.id.localeCompare(b.id));
     for (const c of sortedCases) {
-      const stablePrompt = decisionOneStage.getStablePrompt(c.input as CaseInputDecisionOne);
+      const stablePrompt = eosStage.getStablePrompt(c.input as CaseInputEos);
       const cHash = crypto
         .createHash("sha256")
         .update(JSON.stringify(stablePrompt))
@@ -307,6 +362,7 @@ export async function runBenchmark(
 
   const effectivePromptsByCase: Record<string, unknown> = {};
   const caseResults: CaseRunResult[] = [];
+  const fidelityWarnings: FidelityWarning[] = [];
   let totalRepetitions = 0;
   let successfulRepetitions = 0;
   let totalLatencyMs = 0;
@@ -330,6 +386,8 @@ export async function runBenchmark(
       let checkResults: CheckResult[] = [];
       let allPassed = false;
       let expectedChoiceProb: number | undefined;
+      let repNoulProbs: Record<string, number> | undefined;
+      let repNoulApproved: boolean | undefined;
 
       try {
         if (stage === "arguments") {
@@ -339,14 +397,78 @@ export async function runBenchmark(
             variantData ? variantData.rawText : undefined
           );
 
+          // Chequeo de fidelidad para Qwen en prompt estable (primera repetición)
+          if (rep === 1 && isStable) {
+            const liveSystem = argumentsStage.getStableSystemPrompt();
+            if (input.system && input.system.trim() !== liveSystem.trim()) {
+              const msg = `El prompt SYSTEM vivo de prompts.ts difiere del grabado en la traza (el caso puede ser anterior a un cambio en prompts.ts).`;
+              console.warn(`⚠ [FIDELIDAD] Desviación en SYSTEM (caso ${caseItem.id}): ${msg}`);
+              fidelityWarnings.push({
+                caseId: caseItem.id,
+                parameter: "system",
+                recorded: input.system,
+                current: liveSystem,
+                message: msg,
+              });
+            }
+
+            const rec = caseItem.reference?.recordedParams;
+            if (rec) {
+              if (rec.temperature !== undefined && rec.temperature !== initialModelParams.temperature) {
+                const msg = `temperature grabado=${rec.temperature} vs adapter=${initialModelParams.temperature}`;
+                console.warn(`⚠ [FIDELIDAD] Desviación en parámetro (caso ${caseItem.id}): ${msg}`);
+                fidelityWarnings.push({
+                  caseId: caseItem.id,
+                  parameter: "temperature",
+                  recorded: rec.temperature,
+                  current: initialModelParams.temperature,
+                  message: msg,
+                });
+              }
+              if (rec.max_tokens !== undefined && rec.max_tokens !== initialModelParams.maxTokens) {
+                const msg = `max_tokens grabado=${rec.max_tokens} vs adapter=${initialModelParams.maxTokens}`;
+                console.warn(`⚠ [FIDELIDAD] Desviación en parámetro (caso ${caseItem.id}): ${msg}`);
+                fidelityWarnings.push({
+                  caseId: caseItem.id,
+                  parameter: "max_tokens",
+                  recorded: rec.max_tokens,
+                  current: initialModelParams.maxTokens,
+                  message: msg,
+                });
+              }
+              if (rec.reasoning_effort !== undefined && rec.reasoning_effort !== initialModelParams.reasoningEffort) {
+                const msg = `reasoning_effort grabado=${rec.reasoning_effort} vs adapter=${initialModelParams.reasoningEffort}`;
+                console.warn(`⚠ [FIDELIDAD] Desviación en parámetro (caso ${caseItem.id}): ${msg}`);
+                fidelityWarnings.push({
+                  caseId: caseItem.id,
+                  parameter: "reasoning_effort",
+                  recorded: rec.reasoning_effort,
+                  current: initialModelParams.reasoningEffort,
+                  message: msg,
+                });
+              }
+            }
+          }
+
           const callRes = await argumentsStage.callModel(systemPrompt, userPrompt);
           lastModelParams = callRes.params;
           repRawOutput = callRes.rawOutput;
           repLatency = callRes.latencyMs;
           if (callRes.truncated) truncatedCount++;
 
+          // Corregir verificación de schema:
+          // Si el caso requiere check 'matches_schema' y no tiene schema (o es {}), debe fallar explícitamente
+          const hasMatchesSchemaCheck = caseItem.expect?.some((c) => c.type === "matches_schema");
+          const isSchemaMissingOrEmpty = !input.schema || Object.keys(input.schema).length === 0;
+
           const valRes = argumentsStage.parseAndValidate(callRes.parsedContent, input.schema ?? {});
           if (!valRes.jsonValid) jsonErrors++;
+
+          if (hasMatchesSchemaCheck && isSchemaMissingOrEmpty) {
+            valRes.schemaValid = false;
+            valRes.schemaError = "El caso requiere check 'matches_schema' pero no tiene schema definido (o quedó vacío por fallo de extracción).";
+          }
+
           if (valRes.jsonValid && !valRes.schemaValid) schemaErrors++;
 
           repParsedOutput = valRes.parsedJson;
@@ -376,20 +498,20 @@ export async function runBenchmark(
             usage: callRes.usage,
             truncated: callRes.truncated,
           });
-        } else if (stage === "decision_one") {
-          const input = caseItem.input as CaseInputDecisionOne;
-          const prompt = variantData
-            ? decisionOneStage.applyVariant(input, variantData.content)
-            : decisionOneStage.getStablePrompt(input);
+        } else if (isEos) {
+          const input = caseItem.input as CaseInputEos;
+          const promptRes = variantData
+            ? eosStage.applyVariant(stage, input, variantData.content, caseItem.id)
+            : { state: input.state, questions: input.questions };
 
-          effectivePromptsByCase[caseItem.id] = prompt.questions;
+          effectivePromptsByCase[caseItem.id] = promptRes.questions;
 
-          const callRes = await decisionOneStage.callModel(prompt.state, prompt.questions);
+          const callRes = await eosStage.callModel(promptRes.state, promptRes.questions);
           lastModelParams = callRes.params;
           repRawOutput = callRes.rawOutput;
           repLatency = callRes.latencyMs;
 
-          const parseRes = decisionOneStage.parseOutput(callRes.rawOutput, prompt.questions);
+          const parseRes = eosStage.parseOutput(callRes.rawOutput, promptRes.questions);
           if (!parseRes.jsonValid) jsonErrors++;
           if (parseRes.jsonValid && !parseRes.schemaValid) schemaErrors++;
 
@@ -408,13 +530,25 @@ export async function runBenchmark(
             successfulRepetitions++;
           }
 
-          // Ajuste C: capturar probabilidad de la opción esperada
-          const choiceCheck = caseItem.expect?.find((c) => c.type === "choice_equals") as CheckChoiceEquals | undefined;
-          if (choiceCheck && repParsedOutput?.answers) {
-            const qKey = choiceCheck.questionKey || "route";
-            const probs = repParsedOutput.answers[qKey]?.probabilities;
-            if (probs && typeof probs[choiceCheck.expected] === "number") {
-              expectedChoiceProb = probs[choiceCheck.expected];
+          // Captura de métricas por etapa Eos:
+          if (stage === "decision_one" || stage === "decision_two") {
+            const choiceCheck = caseItem.expect?.find((c) => c.type === "choice_equals") as CheckChoiceEquals | undefined;
+            if (choiceCheck && repParsedOutput?.answers) {
+              const defaultKey = stage === "decision_two" ? "selected_tool" : "route";
+              const qKey = choiceCheck.questionKey || defaultKey;
+              const probs = repParsedOutput.answers[qKey]?.probabilities;
+              if (probs && typeof probs[choiceCheck.expected] === "number") {
+                expectedChoiceProb = probs[choiceCheck.expected];
+              }
+            }
+          } else if (stage === "step_verification") {
+            const okVal = repParsedOutput?.answers?.ok?.noul;
+            const cumpleVal = repParsedOutput?.answers?.cumple?.noul;
+            if (typeof okVal === "number" || typeof cumpleVal === "number") {
+              repNoulProbs = {};
+              if (typeof okVal === "number") repNoulProbs.ok = okVal;
+              if (typeof cumpleVal === "number") repNoulProbs.cumple = cumpleVal;
+              repNoulApproved = typeof okVal === "number" && okVal > NOUL_APPROVE && typeof cumpleVal === "number" && cumpleVal > NOUL_APPROVE;
             }
           }
 
@@ -426,6 +560,8 @@ export async function runBenchmark(
             checks: checkResults,
             allPassed,
             expectedChoiceProbability: expectedChoiceProb,
+            noulProbabilities: repNoulProbs,
+            noulApproved: repNoulApproved,
             error: repError,
           });
         }
@@ -452,14 +588,22 @@ export async function runBenchmark(
       totalLatencyMs += repLatency;
 
       const repStatus = allPassed ? "✓ Acierto" : "✗ Fallo";
-      const probInfo = expectedChoiceProb !== undefined ? ` [p=${(expectedChoiceProb * 100).toFixed(1)}%]` : "";
-      console.log(`   Rep ${rep}/${repetitions}: ${repStatus} (${repLatency}ms)${probInfo}`);
+      let extraInfo = "";
+      if (expectedChoiceProb !== undefined) {
+        extraInfo = ` [p=${(expectedChoiceProb * 100).toFixed(1)}%]`;
+      } else if (repNoulProbs) {
+        const okP = repNoulProbs.ok !== undefined ? `ok=${(repNoulProbs.ok * 100).toFixed(1)}%` : "";
+        const cP = repNoulProbs.cumple !== undefined ? `cumple=${(repNoulProbs.cumple * 100).toFixed(1)}%` : "";
+        extraInfo = ` [${[okP, cP].filter(Boolean).join(", ")} | ${repNoulApproved ? "APROBADO" : "RECHAZADO"}]`;
+      }
+      console.log(`   Rep ${rep}/${repetitions}: ${repStatus} (${repLatency}ms)${extraInfo}`);
     }
 
     const caseLatencies = reps.map((r) => r.latencyMs);
     const avgCaseLatency = Math.round(caseLatencySum / repetitions);
     const medianCaseLatency = calculateMedian(caseLatencies);
 
+    // Promedios por caso
     const probList = reps
       .map((r) => r.expectedChoiceProbability)
       .filter((p): p is number => typeof p === "number");
@@ -467,6 +611,25 @@ export async function runBenchmark(
       probList.length > 0
         ? Number((probList.reduce((acc, v) => acc + v, 0) / probList.length).toFixed(4))
         : undefined;
+
+    let caseNoulProbs: Record<string, number> | undefined;
+    let caseNoulApproved: boolean | undefined;
+
+    if (stage === "step_verification") {
+      const okList = reps.map((r) => r.noulProbabilities?.ok).filter((p): p is number => typeof p === "number");
+      const cumpleList = reps.map((r) => r.noulProbabilities?.cumple).filter((p): p is number => typeof p === "number");
+      if (okList.length > 0 || cumpleList.length > 0) {
+        caseNoulProbs = {};
+        if (okList.length > 0) {
+          caseNoulProbs.ok = Number((okList.reduce((acc, v) => acc + v, 0) / okList.length).toFixed(4));
+        }
+        if (cumpleList.length > 0) {
+          caseNoulProbs.cumple = Number((cumpleList.reduce((acc, v) => acc + v, 0) / cumpleList.length).toFixed(4));
+        }
+        caseNoulApproved =
+          (caseNoulProbs.ok ?? 0) > NOUL_APPROVE && (caseNoulProbs.cumple ?? 0) > NOUL_APPROVE;
+      }
+    }
 
     caseResults.push({
       caseId: caseItem.id,
@@ -476,11 +639,20 @@ export async function runBenchmark(
       avgLatencyMs: avgCaseLatency,
       medianLatencyMs: medianCaseLatency,
       expectedChoiceProbability: caseExpectedChoiceProb,
+      noulProbabilities: caseNoulProbs,
+      noulApproved: caseNoulApproved,
       repetitions: reps,
     });
 
-    const caseProbMsg = caseExpectedChoiceProb !== undefined ? ` (p_media: ${(caseExpectedChoiceProb * 100).toFixed(1)}%)` : "";
-    console.log(`   Resultado caso: ${passedReps}/${repetitions} aciertos (latencia media: ${avgCaseLatency}ms, mediana: ${medianCaseLatency}ms)${caseProbMsg}\n`);
+    let caseSummaryMsg = "";
+    if (caseExpectedChoiceProb !== undefined) {
+      caseSummaryMsg = ` (p_media: ${(caseExpectedChoiceProb * 100).toFixed(1)}%)`;
+    } else if (caseNoulProbs) {
+      const okStr = caseNoulProbs.ok !== undefined ? `ok: ${(caseNoulProbs.ok * 100).toFixed(1)}%` : "";
+      const cStr = caseNoulProbs.cumple !== undefined ? `cumple: ${(caseNoulProbs.cumple * 100).toFixed(1)}%` : "";
+      caseSummaryMsg = ` (${[okStr, cStr].filter(Boolean).join(", ")} | ${caseNoulApproved ? "APROBADO" : "RECHAZADO"})`;
+    }
+    console.log(`   Resultado caso: ${passedReps}/${repetitions} aciertos (latencia media: ${avgCaseLatency}ms, mediana: ${medianCaseLatency}ms)${caseSummaryMsg}\n`);
   }
 
   const successRatePct = Number(((successfulRepetitions / totalRepetitions) * 100).toFixed(1));
@@ -507,7 +679,7 @@ export async function runBenchmark(
   let promptUsedRecord: unknown;
   if (isStable) {
     promptUsedRecord = "stable";
-  } else if (stage === "decision_one") {
+  } else if (isEos) {
     promptUsedRecord = {
       variantId,
       effectivePromptsByCase,
@@ -532,6 +704,7 @@ export async function runBenchmark(
     warmup: warmupResult,
     cases: caseResults,
     summary,
+    fidelityWarnings: fidelityWarnings.length > 0 ? fidelityWarnings : undefined,
   };
 
   // Guardar resultado de forma atómica y sin sobrescribir (flag: wx)
@@ -553,6 +726,9 @@ export async function runBenchmark(
   console.log(` - Errores de Schema / Validación: ${schemaErrors}`);
   if (stage === "arguments") {
     console.log(` - Salidas truncadas (max_tokens): ${truncatedCount}`);
+  }
+  if (fidelityWarnings.length > 0) {
+    console.log(` - Advertencias de fidelidad: ${fidelityWarnings.length}`);
   }
   console.log(` - Archivo de resultado guardado en: ${resultFilePath}`);
   console.log(`============================================================\n`);

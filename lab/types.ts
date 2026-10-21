@@ -198,6 +198,8 @@ export interface CaseReference {
   retried?: boolean;
   error?: string | null;
   toolRun?: CaseReferenceToolRun;
+  /** Parámetros grabados en la llamada de traza (temperature, max_tokens, etc.) */
+  recordedParams?: Record<string, unknown>;
 }
 
 export interface LabCase<TInput = unknown> {
@@ -212,17 +214,28 @@ export interface LabCase<TInput = unknown> {
 }
 
 // ============================================================
-// Variantes de Prompt
+// Variantes de Prompt para Eos
 // ============================================================
 
-export interface VariantDecisionOne {
-  questions: Record<
+export interface VariantDecisionEos {
+  questions?: Record<
     string,
     {
       instructions?: string;
       criteria?: Record<string, string>;
     }
   >;
+}
+
+export type VariantDecisionOne = VariantDecisionEos;
+export type VariantDecisionTwo = VariantDecisionEos;
+
+export interface VariantStepVerification {
+  questions?: {
+    ok?: { instructions?: string };
+    cumple?: { instructions?: string };
+    [key: string]: { instructions?: string } | undefined;
+  };
 }
 
 // ============================================================
@@ -243,6 +256,10 @@ export interface RunRepetition {
   checks: CheckResult[];
   allPassed: boolean;
   expectedChoiceProbability?: number;
+  /** Probabilidades individuales de noul para step_verification ({ ok: number, cumple: number }) */
+  noulProbabilities?: Record<string, number>;
+  /** Si Eos aprueba el paso (ok > 0.5 && cumple > 0.5) */
+  noulApproved?: boolean;
   error?: string;
   finishReason?: string;
   usage?: { promptTokens?: number; completionTokens?: number };
@@ -257,6 +274,10 @@ export interface CaseRunResult {
   avgLatencyMs: number;
   medianLatencyMs?: number;
   expectedChoiceProbability?: number;
+  /** Probabilidades promedio de noul para step_verification */
+  noulProbabilities?: Record<string, number>;
+  /** Si Eos aprueba el paso en la mayoría o promedio de repeticiones */
+  noulApproved?: boolean;
   repetitions: RunRepetition[];
 }
 
@@ -289,6 +310,14 @@ export interface WarmupResult {
   error?: string;
 }
 
+export interface FidelityWarning {
+  caseId: string;
+  parameter: string;
+  recorded: unknown;
+  current: unknown;
+  message: string;
+}
+
 export interface RunResult {
   id: string;
   timestamp: string;
@@ -304,4 +333,6 @@ export interface RunResult {
   warmup?: WarmupResult;
   cases: CaseRunResult[];
   summary: RunResultSummary;
+  /** Advertencias de fidelidad respecto a los parámetros y prompt grabados en trazas */
+  fidelityWarnings?: FidelityWarning[];
 }

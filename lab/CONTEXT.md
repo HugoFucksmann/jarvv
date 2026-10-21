@@ -15,7 +15,9 @@ JARVIS es un agente personal y determinista para PC (entorno Windows local, ruta
 ### Estado de Implementación de Etapas en `lab/`:
 - `decision_one` (Eos; internamente `DECISION_ONE`): **Implementada**.
 - `arguments` (Qwen; internamente `ARGUMENT_GENERATION`): **Implementada**.
-- Las 6 etapas restantes (`decision_two`, `step_verification`, `plan`, `replan`, `stage_verification`, `final_response`): **Registradas en tipos y catálogo**, pero su ejecución lanza `LabStageNotImplementedError` hasta que sean implementadas en el adaptador.
+- `decision_two` (Eos; internamente `DECISION_TWO`): **Implementada** (Fase B).
+- `step_verification` (Eos; internamente `STEP_VERIFICATION`): **Implementada** (Fase B).
+- Las 4 etapas restantes (`plan`, `replan`, `stage_verification`, `final_response`): **Registradas en tipos y catálogo**, pero su ejecución lanza `LabStageNotImplementedError` hasta su implementación en las Fases C y D.
 
 ---
 
@@ -244,5 +246,5 @@ El archivo reside en la raíz del proyecto (`./jarvis-traces.jsonl`), con una l�
 - Aislamiento completo verificado: cero imports desde `src/` a `lab/`, escrituras acotadas estrictamente a `lab/results/` y `_drafts/`.
 
 ### Pendientes y Roadmap:
-1. **En `src/` (asignado a otro agente):** Implementar la escritura de trazas en `jarvis-traces.jsonl` en los puntos de cierre (`concludeTask`, `failTask`, `cancelTask`).
-2. **En `lab/` (siguientes fases):** A medida que surja la necesidad de optimizar otros prompts del sistema, incorporar progresivamente en `lab/adapter.ts` las 6 etapas restantes (`decision_two`, `step_verification`, `plan`, `replan`, `stage_verification`, `final_response`), recordando aplicar `config.qwenThinkingTimeoutMs` para las etapas de planificación y replanificación.
+1. **Fase C (Próxima):** Implementar en `lab/adapter.ts` y runner las etapas estructuradas de Qwen (`stage_verification`, `plan`, `replan`), integrando `parsePlanSteps`, validaciones inline de schemas y timeout de thinking prolongado (`qwenThinkingTimeoutMs`).
+2. **Fase D:** Implementar `final_response` (texto libre en español), checks de contenido y vista comparativa Side-by-Side en `evaluate.ts`.

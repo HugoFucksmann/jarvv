@@ -19,11 +19,16 @@ import { parseJsonObject, stripThink, validateArgs } from "../src/core/reasoner/
 import type {
   CaseInputArguments,
   CaseInputDecisionOne,
+  CaseInputEos,
+  CaseInputQwen,
   DecisionAnswer,
   DecisionQuestion,
   ModelParametersRecord,
   Stage,
+  VariantDecisionEos,
   VariantDecisionOne,
+  VariantDecisionTwo,
+  VariantStepVerification,
 } from "./types.ts";
 
 // ============================================================
@@ -359,14 +364,16 @@ export const argumentsStage = {
 // Etapa: decision_one (Eos 0.8B)
 // ============================================================
 
-export const decisionOneStage = {
+// ============================================================
+// Motor general para etapas Eos (Decision 2.0: decision_one, decision_two, step_verification)
+// ============================================================
+
+export const eosStage = {
   /**
-   * Aclaración arquitectónica:
-   * El prompt estable de Decision #1 en casos históricos es el par { state, questions }
-   * registrado en la traza original, ya que el estado se encuentra pre-renderizado.
-   * No se lee DECISION_PROMPTS en vivo para esta etapa.
+   * Prompt estable de Eos: es el par { state, questions } registrado en la traza original,
+   * ya que el estado del sistema se encuentra pre-renderizado.
    */
-  getStablePrompt(input: CaseInputDecisionOne): { state: string; questions: Record<string, DecisionQuestion> } {
+  getStablePrompt(input: CaseInputEos): { state: string; questions: Record<string, DecisionQuestion> } {
     return {
       state: input.state,
       questions: input.questions,
@@ -374,45 +381,126 @@ export const decisionOneStage = {
   },
 
   /**
-   * Aplica una variante a un caso de Eos.
-   * REGLA DE INTEGRIDAD:
-   * Una variante Eos NO puede alterar las opciones del choice (criteria keys)
-   * ni las claves de las preguntas del caso. Si lo intenta, falla de inmediato.
+   * Aplica una variante a un caso de Eos respetando las reglas de cada etapa.
+   *
+   * REGLAS DE INTEGRIDAD:
+   * 1. General: No se pueden agregar preguntas que no existan en el caso.
+   * 2. step_verification:
+   *    - Solo se pueden sobrescribir `instructions` de 'ok' y/o 'cumple'.
+   *    - El tipo 'noul' no cambia y no admite 'criteria'.
+   * 3. decision_one:
+   *    - Solo pregunta 'route'.
+   *    - No se pueden agregar opciones a criteria (deben coincidir con las del caso).
+   * 4. decision_two:
+   *    - Solo pregunta 'selected_tool'.
+   *    - Se pueden sobrescribir instructions y criteria (descripción de herramientas).
+   *    - Las herramientas que no existan en el caso se ignoran para ese caso con aviso.
+   *    - Nunca se agregan herramientas nuevas al prompt del caso.
    */
   applyVariant(
-    input: CaseInputDecisionOne,
-    variant: VariantDecisionOne
-  ): { state: string; questions: Record<string, DecisionQuestion> } {
+    stage: Stage,
+    input: CaseInputEos,
+    variant: VariantDecisionEos | VariantStepVerification,
+    caseId?: string
+  ): {
+    state: string;
+    questions: Record<string, DecisionQuestion>;
+    matchedToolKeys: string[];
+    unmatchedToolKeys: string[];
+  } {
     const overriddenQuestions: Record<string, DecisionQuestion> = {};
+    const matchedToolKeys: string[] = [];
+    const unmatchedToolKeys: string[] = [];
+
+    // Validar preguntas no permitidas por etapa
+    if (variant.questions) {
+      for (const varKey of Object.keys(variant.questions)) {
+        if (!Object.hasOwn(input.questions, varKey)) {
+          if (stage === "step_verification") {
+            throw new LabValidationError(
+              `La variante de step_verification solo puede modificar las preguntas 'ok' y/o 'cumple'. Pregunta no permitida: '${varKey}'.`
+            );
+          } else if (stage === "decision_two") {
+            throw new LabValidationError(
+              `La variante de decision_two solo puede modificar la pregunta 'selected_tool'. Pregunta no permitida: '${varKey}'.`
+            );
+          } else if (stage === "decision_one") {
+            throw new LabValidationError(
+              `La variante de decision_one solo puede modificar la pregunta 'route'. Pregunta no permitida: '${varKey}'.`
+            );
+          } else {
+            throw new LabValidationError(
+              `La variante Eos incluye la pregunta '${varKey}' que no existe en el caso actual (${Object.keys(input.questions).join(", ")}).`
+            );
+          }
+        }
+      }
+    }
 
     for (const [qKey, originalQ] of Object.entries(input.questions)) {
       const varQ = variant.questions?.[qKey];
       if (!varQ) {
-        // Sin cambios para esta pregunta
         overriddenQuestions[qKey] = originalQ;
         continue;
       }
 
+      // Reglas para step_verification (tipo noul)
+      if (stage === "step_verification") {
+        if ("criteria" in varQ && varQ.criteria) {
+          throw new LabValidationError(
+            `La variante de step_verification no admite 'criteria' en la pregunta '${qKey}' (debe ser tipo 'noul').`
+          );
+        }
+        if ("type" in varQ && (varQ as any).type !== "noul") {
+          throw new LabValidationError(
+            `La variante de step_verification no puede modificar el tipo de la pregunta '${qKey}' (debe ser 'noul').`
+          );
+        }
+
+        const newInstructions = varQ.instructions !== undefined ? varQ.instructions : originalQ.instructions;
+        overriddenQuestions[qKey] = {
+          type: "noul",
+          instructions: newInstructions || "",
+        };
+        continue;
+      }
+
+      // Reglas para decision_one y decision_two (tipo choice)
       if (originalQ.type === "choice") {
         const origChoice = originalQ as { type: "choice"; instructions: string; criteria: Record<string, string> };
         const newInstructions = varQ.instructions !== undefined ? varQ.instructions : origChoice.instructions;
         const newCriteria: Record<string, string> = { ...origChoice.criteria };
 
-        if (varQ.criteria) {
-          // Validar que las opciones no hayan cambiado
-          const origKeys = Object.keys(origChoice.criteria).sort();
-          const varKeys = Object.keys(varQ.criteria).sort();
-
-          for (const k of varKeys) {
-            if (!Object.hasOwn(origChoice.criteria, k)) {
-              throw new LabValidationError(
-                `La variante Eos intentó agregar una opción no permitida '${k}' a la pregunta '${qKey}'. Opciones originales: ${origKeys.join(", ")}.`
-              );
+        if ("criteria" in varQ && varQ.criteria) {
+          if (stage === "decision_one") {
+            // En decision_one no se permiten opciones desconocidas
+            const origKeys = Object.keys(origChoice.criteria).sort();
+            for (const k of Object.keys(varQ.criteria)) {
+              if (!Object.hasOwn(origChoice.criteria, k)) {
+                throw new LabValidationError(
+                  `La variante de decision_one intentó agregar una opción no permitida '${k}' a la pregunta '${qKey}'. Opciones permitidas: ${origKeys.join(", ")}.`
+                );
+              }
+              newCriteria[k] = varQ.criteria[k];
+              matchedToolKeys.push(k);
             }
-          }
-
-          for (const [optKey, optDesc] of Object.entries(varQ.criteria)) {
-            newCriteria[optKey] = optDesc;
+          } else if (stage === "decision_two") {
+            // En decision_two las herramientas varían por caso
+            for (const [toolKey, toolDesc] of Object.entries(varQ.criteria)) {
+              if (Object.hasOwn(origChoice.criteria, toolKey)) {
+                newCriteria[toolKey] = toolDesc;
+                matchedToolKeys.push(toolKey);
+              } else {
+                unmatchedToolKeys.push(toolKey);
+                console.log(
+                  `ℹ [decision_two] Caso '${caseId || "desconocido"}': la herramienta '${toolKey}' de la variante no existe en el caso; se ignora.`
+                );
+              }
+            }
+          } else {
+            for (const [k, v] of Object.entries(varQ.criteria)) {
+              newCriteria[k] = v;
+            }
           }
         }
 
@@ -430,20 +518,11 @@ export const decisionOneStage = {
       }
     }
 
-    // Verificar si la variante intentó definir preguntas que no existen en el caso
-    if (variant.questions) {
-      for (const varKey of Object.keys(variant.questions)) {
-        if (!Object.hasOwn(input.questions, varKey)) {
-          throw new LabValidationError(
-            `La variante Eos incluye la pregunta '${varKey}' que no existe en el caso actual (${Object.keys(input.questions).join(", ")}).`
-          );
-        }
-      }
-    }
-
     return {
       state: input.state,
       questions: overriddenQuestions,
+      matchedToolKeys,
+      unmatchedToolKeys,
     };
   },
 
@@ -521,7 +600,6 @@ export const decisionOneStage = {
 
   /**
    * Parsea y valida la salida de Decision 2.0 contra las preguntas.
-   * Distingue JSON inválido de fallo semántico/estructural de choices.
    */
   parseOutput(
     rawText: string,
@@ -561,6 +639,11 @@ export const decisionOneStage = {
   },
 };
 
+// Aliases para compatibilidad por nombre de etapa
+export const decisionOneStage = eosStage;
+export const decisionTwoStage = eosStage;
+export const stepVerificationStage = eosStage;
+
 // ============================================================
 // Catálogo general de etapas del laboratorio
 // ============================================================
@@ -568,8 +651,8 @@ export const decisionOneStage = {
 export const STAGES: Record<Stage, { name: string; model: "eos" | "qwen"; isImplemented: boolean }> = {
   decision_one: { name: "decision_one", model: "eos", isImplemented: true },
   arguments: { name: "arguments", model: "qwen", isImplemented: true },
-  decision_two: { name: "decision_two", model: "eos", isImplemented: false },
-  step_verification: { name: "step_verification", model: "eos", isImplemented: false },
+  decision_two: { name: "decision_two", model: "eos", isImplemented: true },
+  step_verification: { name: "step_verification", model: "eos", isImplemented: true },
   plan: { name: "plan", model: "qwen", isImplemented: false },
   replan: { name: "replan", model: "qwen", isImplemented: false },
   stage_verification: { name: "stage_verification", model: "qwen", isImplemented: false },
@@ -580,7 +663,9 @@ export const STAGES: Record<Stage, { name: string; model: "eos" | "qwen"; isImpl
  * Validador de etapa implementada. Si la etapa está registrada como pendiente,
  * lanza LabStageNotImplementedError con un mensaje claro.
  */
-export function assertStageImplemented(stage: string): asserts stage is "decision_one" | "arguments" {
+export function assertStageImplemented(
+  stage: string
+): asserts stage is "decision_one" | "decision_two" | "step_verification" | "arguments" {
   const norm = stage.toLowerCase() as Stage;
   if (!STAGES[norm]) {
     throw new LabValidationError(`Etapa desconocida '${stage}'. Etapas válidas: ${Object.keys(STAGES).join(", ")}`);

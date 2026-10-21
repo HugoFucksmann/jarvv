@@ -1,0 +1,50 @@
+{
+  "id": "example-verify-step",
+  "stage": "step_verification",
+  "split": "dev",
+  "input": {
+    "state": "Step instruction: Buscar informe de ventas\nTool: search_files\nResult: search_files: encontrado informe_ventas_2026.xlsx\nObservation: C:\\Users\\User\\Documents\\informe_ventas_2026.xlsx",
+    "questions": {
+      "ok": {
+        "type": "noul",
+        "instructions": "Does the result contain usable data (not empty and not an error message)?"
+      },
+      "cumple": {
+        "type": "noul",
+        "instructions": "Does the result accomplish the step instruction?"
+      }
+    }
+  },
+  "expect": [
+    {
+      "type": "valid_json"
+    },
+    {
+      "type": "noul_approved",
+      "questionKey": "ok",
+      "expected": true
+    },
+    {
+      "type": "noul_approved",
+      "questionKey": "cumple",
+      "expected": true
+    }
+  ],
+  "source": {
+    "taskId": "task_example_stepver",
+    "seq": 4
+  },
+  "reference": {
+    "originalOutput": "{\"answers\":{\"ok\":{\"noul\":0.95},\"cumple\":{\"noul\":0.91}}}",
+    "error": null,
+    "toolRun": {
+      "callSeq": 3,
+      "step": "s1",
+      "tool": "search_files",
+      "ok": true,
+      "error": null,
+      "resultPreview": "C:\\Users\\User\\Documents\\informe_ventas_2026.xlsx"
+    }
+  },
+  "notes": "Caso de ejemplo para la etapa step_verification (verificación factual con dos preguntas noul: ok y cumple)."
+}

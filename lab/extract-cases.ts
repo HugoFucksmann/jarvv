@@ -528,10 +528,21 @@ export async function extractCases(options?: ExtractOptions): Promise<ExtractSum
       }
 
       const matchingTool = findMatchingToolRun(task.toolRuns, seq, step);
+
+      // Extraer parámetros grabados del body (para chequeo de fidelidad en Qwen)
+      const recordedParams: Record<string, unknown> = {};
+      if (typeof parsedInput === "object" && parsedInput !== null) {
+        if (parsedInput.temperature !== undefined) recordedParams.temperature = parsedInput.temperature;
+        if (parsedInput.max_tokens !== undefined) recordedParams.max_tokens = parsedInput.max_tokens;
+        if (parsedInput.reasoning_effort !== undefined) recordedParams.reasoning_effort = parsedInput.reasoning_effort;
+        if (parsedInput.response_format !== undefined) recordedParams.response_format = parsedInput.response_format;
+      }
+
       const reference: CaseReference = {
         originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
         error: call.error ?? null,
         toolRun: matchingTool,
+        recordedParams: Object.keys(recordedParams).length > 0 ? recordedParams : undefined,
       };
 
       const caseInput: CaseInputQwen = {
