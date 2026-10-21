@@ -6,14 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
-jarvis-tasks.json
-jarvis-tasks.json.bak
-jarvis-refs/*.jsonjarvis-traces.jsonl
-
 
 # Trazas locales con datos de ejecución
 /jarvis-traces.jsonl
 jarvis-traces.jsonl
+jarvis-refs/*
+.jsonjarvis-traces.jsonl
 # Borradores y resultados generados por el laboratorio
 /lab/cases/*/_drafts/
 /lab/results/
