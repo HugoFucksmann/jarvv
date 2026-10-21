@@ -1,10 +1,11 @@
 import React from "react";
+import { History } from "lucide-react";
 import type { Task } from "../../core/types.ts";
 import { TaskOverview } from "./components/TaskOverview.tsx";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
 import { FinalResponseView } from "./components/FinalResponseView.tsx";
-import { History } from "lucide-react";
+import { Separator } from "../Shared/Separator.tsx";
 
 interface ProcessFlowProps {
   task: Task | null;
@@ -39,14 +40,22 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   const hasExecutedSteps = task.steps.some(
     (s) => s.state !== "PENDING" || (s.calls && s.calls.length > 0)
   );
+  const executedCount = task.steps.filter((s) => s.state !== "PENDING").length;
+
+  const timeline = (
+    <StepTimeline
+      steps={task.steps}
+      currentStepIndex={task.currentStep}
+      taskState={task.state}
+      mode={task.mode}
+    />
+  );
 
   return (
     <section className="flex flex-col gap-4 px-6 py-4">
-      {/* 1. Header Overview */}
       <TaskOverview task={task} onNewTask={onNewTask} />
 
-      {/* 2. Plan Confirmation Gate (if PLAN mode awaiting confirmation) */}
-      {isAwaitingPlanConfirmation && (
+      {isAwaitingPlanConfirmation ? (
         <div className="flex flex-col gap-3">
           <PlanReview
             steps={task.steps}
@@ -57,39 +66,27 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
             onCancel={onCancelTask}
           />
 
-          {/* Si ya hay pasos ejecutados o es una replanificación material, mantener visible el StepTimeline */}
+          {/* Con pasos ya ejecutados o tras una replanificación material, el timeline sigue visible */}
           {(hasExecutedSteps || isMaterialReplan) && (
             <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-800">
               <div className="flex items-center gap-2 text-xs font-mono text-slate-400 px-1">
                 <History className="w-3.5 h-3.5 text-sky-400" />
                 <span className="font-semibold text-slate-300">
-                  Pasos Previos Ejecutados y En Curso ({task.steps.filter((s) => s.state !== "PENDING").length} ejecutados)
+                  Pasos Previos Ejecutados y En Curso ({executedCount} ejecutados)
                 </span>
-                <span className="text-slate-500">·</span>
+                <Separator />
                 <span className="text-slate-500">
                   Consulte abajo las evidencias y llamadas MCP acumuladas
                 </span>
               </div>
-              <StepTimeline
-                steps={task.steps}
-                currentStepIndex={task.currentStep}
-                taskState={task.state}
-              />
+              {timeline}
             </div>
           )}
         </div>
+      ) : (
+        timeline
       )}
 
-      {/* 3. Steps Timeline (cuando no está en espera de confirmación de plan) */}
-      {!isAwaitingPlanConfirmation && (
-        <StepTimeline
-          steps={task.steps}
-          currentStepIndex={task.currentStep}
-          taskState={task.state}
-        />
-      )}
-
-      {/* 4. Final Synthesized Output */}
       {task.finalResponse && (
         <FinalResponseView response={task.finalResponse} rawOutput={task.rawFinalOutput} />
       )}

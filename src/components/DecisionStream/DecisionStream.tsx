@@ -43,8 +43,9 @@ function summarizeEvent(ev: CoreEvent): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = (ev.data ?? {}) as Record<string, any>;
   const pct = (v: unknown) => `${((Number(v) || 0) * 100).toFixed(0)}%`;
+  const type: string = ev.type;
 
-  switch (ev.type) {
+  switch (type) {
     case "ARGUMENTS_GENERATED":
       return `args: ${JSON.stringify(d.args || {})}`;
     case "GUARD_EVALUATION":

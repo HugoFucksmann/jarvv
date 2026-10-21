@@ -74,8 +74,8 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   setIsOpen(false);
                 }}
                 className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${isSelected
-                  ? "bg-slate-800 text-white font-medium"
-                  : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
+                    ? "bg-slate-800 text-white font-medium"
+                    : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
                   }`}
               >
                 <div className="mt-1">

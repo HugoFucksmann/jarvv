@@ -1,15 +1,14 @@
-
-
-import { useState, useRef, useEffect, lazy, Suspense } from "react";
+import { useState, useRef, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
+import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
 import { isTerminalState } from "./core/types.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
-import { CommandSection } from "./components/CommandSection/CommandSection.tsx";
+import { PromptInput } from "./components/PromptInput/PromptInput.tsx";
 import { GuardBanner } from "./components/GuardBanner/GuardBanner.tsx";
 import { DecisionStream } from "./components/DecisionStream/DecisionStream.tsx";
 import { ProcessFlow } from "./components/ProcessFlow/ProcessFlow.tsx";
-import { AlertCircle, X, Loader2 } from "lucide-react";
-
+import { NewTaskDialog } from "./components/NewTaskDialog/NewTaskDialog.tsx";
+import { ErrorBanner } from "./components/Shared/ErrorBanner.tsx";
 
 const SettingsModal = lazy(() =>
   import("./components/SettingsModal/SettingsModal.tsx").then((m) => ({
@@ -19,7 +18,10 @@ const SettingsModal = lazy(() =>
 
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useFocusShortcut(inputRef);
 
   const {
     task,
@@ -42,8 +44,6 @@ export default function App() {
     rejectPlan,
     modifyPlan,
     provideUserAnswer,
-    approvePending,
-    denyPending,
     refreshDiscovery,
     clearTaskView,
     selectHistoricalTask,
@@ -52,62 +52,41 @@ export default function App() {
   const isWaitingInput = task?.state === "WAITING_INPUT";
   const isTaskActive = Boolean(task && !isTerminalState(task.state));
 
-  const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
-  const [isCancellingForNew, setIsCancellingForNew] = useState(false);
+  // Una sola fuente para la pregunta interactiva: existe solo mientras la tarea espera una respuesta
+  const userAnswer =
+    isWaitingInput && task?.waitingReason === "user_answer"
+      ? { question: userQuestion, onSubmit: provideUserAnswer }
+      : null;
 
+  // El input está deshabilitado mientras hay una tarea activa: se enfoca cuando React lo rehabilita
+  const focusInput = () => {
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
 
-  useEffect(() => {
-    const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", handleGlobalKeyDown);
-    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, []);
+  const handleCancel = () => {
+    void cancelTask();
+  };
 
   const handleNewTask = () => {
-
-    if (task && task.state === "RUNNING") {
+    if (task?.state === "RUNNING") {
       setIsNewTaskConfirmOpen(true);
       return;
     }
-
-
     clearTaskView();
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 50);
+    focusInput();
   };
 
   const handleConfirmCancelAndNewTask = async () => {
-    setIsCancellingForNew(true);
-    try {
-      if (task?.id) {
-        await cancelTask(task.id);
-      }
-      clearTaskView();
-      setIsNewTaskConfirmOpen(false);
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-    } finally {
-      setIsCancellingForNew(false);
+    if (task?.id) {
+      await cancelTask(task.id);
     }
-  };
-
-  const handleDismissNewTaskConfirm = () => {
-    if (isCancellingForNew) return;
+    clearTaskView();
     setIsNewTaskConfirmOpen(false);
+    focusInput();
   };
-
-  const mcpServerCount = Object.keys(discoveredTools).length;
-  const unavailableCount = Object.keys(unavailableServers).length;
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 overflow-hidden">
-
       <TopBar
         mode={mode}
         onModeChange={setMode}
@@ -115,57 +94,28 @@ export default function App() {
         isExecuting={isExecuting}
         isWaitingInput={isWaitingInput}
         waitingReason={task?.waitingReason}
-        mcpCount={mcpServerCount}
-        unavailableCount={unavailableCount}
+        mcpCount={Object.keys(discoveredTools).length}
+        unavailableCount={Object.keys(unavailableServers).length}
         mcpInitStatus={mcpInitStatus}
         tasks={allTasks}
         activeTaskId={task?.id}
         onSelectTask={selectHistoricalTask}
       />
 
-
-      {error && (
-        <div className="mx-6 mt-3 p-3 bg-rose-950/70 border border-rose-900 rounded-lg text-rose-200 text-xs flex items-center justify-between shadow-md">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span className="font-mono">{error}</span>
-          </div>
-          <button
-            type="button"
-            onClick={clearError}
-            aria-label="Cerrar notificación de error"
-            className="text-rose-400 hover:text-rose-200 cursor-pointer p-0.5 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
+      {error && <ErrorBanner message={error} onClose={clearError} />}
 
       <main className="flex-1 flex flex-col overflow-y-auto max-w-5xl w-full mx-auto pb-4">
-
-        <CommandSection
+        <PromptInput
           inputRef={inputRef}
           onRun={runTask}
-          onCancel={() => {
-            void cancelTask();
-          }}
+          onCancel={handleCancel}
+          mode={mode}
+          isBusy={isTaskActive}
           isExecuting={isExecuting}
           isWaitingInput={isWaitingInput}
-          isTaskActive={isTaskActive}
-          mode={mode}
         />
 
-
-        <GuardBanner
-          pending={pendingApproval}
-          onApprove={approvePending}
-          onDeny={denyPending}
-          isWaitingUserAnswer={task?.state === "WAITING_INPUT" && task?.waitingReason === "user_answer"}
-          userQuestion={userQuestion}
-          onProvideUserAnswer={provideUserAnswer}
-        />
-
+        <GuardBanner pending={pendingApproval} userAnswer={userAnswer} />
 
         <DecisionStream
           events={events}
@@ -174,85 +124,29 @@ export default function App() {
           task={task}
         />
 
-
         <div className="flex-1">
           <ProcessFlow
             task={task}
             onConfirmPlan={confirmPlan}
             onRejectPlan={rejectPlan}
             onModifyPlan={modifyPlan}
-            onCancelTask={() => {
-              cancelTask();
-            }}
+            onCancelTask={handleCancel}
             onNewTask={handleNewTask}
           />
         </div>
       </main>
 
-
-
-
-
       {isSettingsOpen && (
         <Suspense fallback={null}>
-          <SettingsModal
-            isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
-            onConfigSaved={refreshDiscovery}
-          />
+          <SettingsModal onClose={() => setIsSettingsOpen(false)} onConfigSaved={refreshDiscovery} />
         </Suspense>
       )}
 
-
       {isNewTaskConfirmOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="new-task-dialog-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4"
-        >
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-5 text-slate-100 flex flex-col gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-amber-950/60 border border-amber-900/60 text-amber-400 shrink-0">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <h3 id="new-task-dialog-title" className="text-sm font-semibold text-slate-100">
-                  Tarea en ejecución activa
-                </h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Hay una tarea actualmente procesando llamadas y modelos en el servidor backend. Para iniciar una nueva tarea limpia, es necesario cancelar la ejecución en curso.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-800/80">
-              <button
-                type="button"
-                disabled={isCancellingForNew}
-                onClick={handleDismissNewTaskConfirm}
-                className="px-3 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-md transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Volver
-              </button>
-              <button
-                type="button"
-                disabled={isCancellingForNew}
-                onClick={handleConfirmCancelAndNewTask}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-500 rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                {isCancellingForNew ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Cancelando...</span>
-                  </>
-                ) : (
-                  <span>Cancelar tarea y empezar otra</span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <NewTaskDialog
+          onConfirm={handleConfirmCancelAndNewTask}
+          onDismiss={() => setIsNewTaskConfirmOpen(false)}
+        />
       )}
     </div>
   );

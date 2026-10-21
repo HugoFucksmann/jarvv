@@ -8,8 +8,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  Activity,
-  Layers,
   HelpCircle,
 } from "lucide-react";
 import type { ModelIteration } from "../../../types/debug.ts";

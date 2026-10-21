@@ -1,5 +1,5 @@
 import React from "react";
-import { PromptInput } from "./components/PromptInput.tsx";
+import { PromptInput } from "../PromptInput/PromptInput.tsx";
 
 interface CommandSectionProps {
   onRun: (prompt: string, mode?: "NORMAL" | "PLAN") => void;
@@ -27,7 +27,7 @@ export const CommandSection: React.FC<CommandSectionProps> = ({
         onRun={(p) => onRun(p, mode)}
         onCancel={onCancel}
         isExecuting={isExecuting}
-        isWaitingInput={isWaitingInput}
+        isWaitingInput={isWaitingInput ?? false}
         isTaskActive={isTaskActive}
         mode={mode}
       />

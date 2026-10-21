@@ -3,10 +3,9 @@ import { Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { StatusDot, type StatusDotStatus } from "../../Shared/StatusDot.tsx";
 import { Separator } from "../../Shared/Separator.tsx";
 import { getWaitingReasonLabel } from "../../../utils/taskStatus.ts";
+import type { McpInitStatus } from "../../../types/ui.ts";
 
-type McpInitStatus = "loading" | "ready" | "partial" | "error";
-
-interface SystemStatusProps {
+export interface SystemStatusProps {
   isExecuting: boolean;
   isWaitingInput?: boolean;
   waitingReason?: string | null;

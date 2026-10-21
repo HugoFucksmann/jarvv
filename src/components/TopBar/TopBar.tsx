@@ -1,77 +1,53 @@
 import React from "react";
 import { Settings } from "lucide-react";
+import type { Task } from "../../core/types.ts";
+import type { ExecutionMode } from "../../types/ui.ts";
 import { BrandWordmark } from "./components/BrandWordmark.tsx";
-import { SystemStatus } from "./components/SystemStatus.tsx";
+import { SystemStatus, type SystemStatusProps } from "./components/SystemStatus.tsx";
 import { ModeSelector } from "./components/ModeSelector.tsx";
 import { HistoryMenu } from "./components/HistoryMenu.tsx";
-import type { Task } from "../../core/types.ts";
 
-interface TopBarProps {
-  mode: "NORMAL" | "PLAN";
-  onModeChange: (mode: "NORMAL" | "PLAN") => void;
+/** Las props del estado del sistema se reenvían tal cual a SystemStatus: se heredan en lugar de redeclararse. */
+interface TopBarProps extends SystemStatusProps {
+  mode: ExecutionMode;
+  onModeChange: (mode: ExecutionMode) => void;
   onOpenSettings: () => void;
-  isExecuting: boolean;
-  isWaitingInput?: boolean;
-  waitingReason?: string | null;
-  mcpCount: number;
-  unavailableCount?: number;
-  mcpInitStatus?: "loading" | "ready" | "partial" | "error";
-  tasks?: Task[];
+  tasks: Task[];
   activeTaskId?: string | null;
-  onSelectTask?: (taskId: string) => void;
+  onSelectTask: (taskId: string) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
   mode,
   onModeChange,
   onOpenSettings,
-  isExecuting,
-  isWaitingInput = false,
-  waitingReason = null,
-  mcpCount,
-  unavailableCount = 0,
-  mcpInitStatus = "ready",
-  tasks = [],
+  tasks,
   activeTaskId,
   onSelectTask,
-}) => {
-  return (
-    <header className="relative z-30 flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
-      {/* Zone 1: Brand Wordmark & Session History */}
-      <div className="flex items-center gap-3">
-        <BrandWordmark />
-        {tasks.length > 0 && onSelectTask && (
-          <HistoryMenu
-            tasks={tasks}
-            activeTaskId={activeTaskId}
-            onSelectTask={onSelectTask}
-          />
-        )}
-      </div>
+  ...status
+}) => (
+  <header className="relative z-30 flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
+    {/* Zona 1: marca e historial de la sesión (el menú no se muestra sin tareas) */}
+    <div className="flex items-center gap-3">
+      <BrandWordmark />
+      <HistoryMenu tasks={tasks} activeTaskId={activeTaskId} onSelectTask={onSelectTask} />
+    </div>
 
-      {/* Zone 2: System Status */}
-      <SystemStatus
-        isExecuting={isExecuting}
-        isWaitingInput={isWaitingInput}
-        waitingReason={waitingReason}
-        mcpCount={mcpCount}
-        unavailableCount={unavailableCount}
-        mcpInitStatus={mcpInitStatus}
-      />
+    {/* Zona 2: estado del sistema */}
+    <SystemStatus {...status} />
 
-      {/* Zone 3: Mode Selector & Settings */}
-      <div className="flex items-center gap-3">
-        <ModeSelector mode={mode} onChange={onModeChange} disabled={isExecuting} />
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          title="Configuración de endpoints (Qwen 3.5 9B, Decision 2.0, MCPs)"
-          aria-label="Abrir configuración de servicios"
-          className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-md transition-colors cursor-pointer border border-transparent hover:border-slate-800"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-      </div>
-    </header>
-  );
-};
+    {/* Zona 3: modo de ejecución y configuración */}
+    <div className="flex items-center gap-3">
+      <ModeSelector mode={mode} onChange={onModeChange} disabled={status.isExecuting} />
+      <button
+        type="button"
+        onClick={onOpenSettings}
+        title="Configuración de endpoints (Qwen 3.5 9B, Decision 2.0, MCPs)"
+        aria-label="Abrir configuración de servicios"
+        className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-md transition-colors cursor-pointer border border-transparent hover:border-slate-800"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
+    </div>
+  </header>
+);

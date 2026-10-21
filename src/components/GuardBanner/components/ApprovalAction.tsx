@@ -1,12 +1,11 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import { ShieldAlert, Check, X, Loader2, Terminal } from "lucide-react";
 import type { PendingApproval } from "../../../core/types.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
 
 interface ApprovalActionProps {
+  /** Sus callbacks onApprove/onDeny ya están vinculados a la tarea por useJarvis (única fuente de verdad). */
   pending: PendingApproval;
-  onApprove: () => void | Promise<void>;
-  onDeny: (reason?: string) => void | Promise<void>;
 }
 
 /**
@@ -70,39 +69,21 @@ function formatArgValue(val: unknown): string {
   }
 }
 
-export const ApprovalAction: React.FC<ApprovalActionProps> = ({
-  pending,
-  onApprove,
-  onDeny,
-}) => {
+export const ApprovalAction: React.FC<ApprovalActionProps> = ({ pending }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const handleApprove = useCallback(async () => {
+  // Bloquea los botones hasta que el backend responde para evitar dobles envíos
+  const runAction = async (action?: () => void | Promise<void>) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      if (pending.onApprove) {
-        await pending.onApprove();
-      } else {
-        await onApprove();
-      }
+      await action?.();
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, pending, onApprove]);
+  };
 
-  const handleDeny = useCallback(async () => {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      if (pending.onDeny) {
-        await pending.onDeny("Rechazado manualmente por el usuario");
-      } else {
-        await onDeny("Rechazado manualmente por el usuario");
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [isSubmitting, pending, onDeny]);
+  const handleApprove = () => runAction(pending.onApprove);
+  const handleDeny = () => runAction(() => pending.onDeny?.("Rechazado manualmente por el usuario"));
 
   const rawArgs = pending.args || {};
   const isStartProcess = pending.tool === "start_process" || Boolean(rawArgs.command);
