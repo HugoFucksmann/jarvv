@@ -2,7 +2,13 @@
   "tracesFilePath": "./jarvis-traces.jsonl",
   "repetitions": {
     "decision_one": 1,
+    "decision_two": 1,
+    "step_verification": 1,
     "arguments": 3,
+    "stage_verification": 3,
+    "plan": 2,
+    "replan": 2,
+    "final_response": 3,
     "default": 3
   }
 }

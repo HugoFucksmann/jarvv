@@ -4,6 +4,10 @@
  * MODO SOLO LECTURA sobre el archivo de trazas (por defecto jarvis-traces.jsonl).
  * Únicamente escribe archivos nuevos en lab/cases/<etapa>/_drafts/.
  *
+ * Soporta las 8 etapas de JARVIS:
+ * - Eos: decision_one, decision_two, step_verification
+ * - Qwen: arguments, stage_verification, plan, replan, final_response
+ *
  * No importa de src/. No tiene efectos colaterales ni simula respuestas.
  */
 
@@ -12,10 +16,12 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import type {
-  CaseInputArguments,
-  CaseInputDecisionOne,
+  CaseInputEos,
+  CaseInputQwen,
   CaseReference,
+  CaseReferenceToolRun,
   LabCase,
+  Stage,
 } from "./types.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,7 +39,7 @@ export interface ExtractOptions {
 interface TraceCall {
   seq?: number | string;
   id?: string;
-  step?: number | string;
+  step?: number | string | null;
   stepId?: string;
   stepSeq?: number;
   stage: string;
@@ -42,16 +48,17 @@ interface TraceCall {
   latencyMs?: number;
   promptTokens?: number;
   completionTokens?: number;
-  retried?: boolean;
   error?: string | null;
 }
 
 interface TraceToolRun {
-  step?: number | string;
+  callSeq?: number | string;
+  step?: number | string | null;
   tool?: string;
   args?: Record<string, unknown>;
   ok?: boolean;
   error?: string | null;
+  resultPreview?: string;
 }
 
 interface TraceTaskLine {
@@ -69,6 +76,38 @@ interface TraceTaskLine {
   example?: boolean;
 }
 
+export interface ExtractSummary {
+  countsByStage: Record<Stage, number>;
+  skippedExistingCount: number;
+  reconstructedRetryCount: number;
+  omittedUnseparableRetryCount: number;
+  // Campos de compatibilidad histórica
+  decisionOneCount: number;
+  argumentsCount: number;
+}
+
+const ALL_STAGES: readonly Stage[] = [
+  "decision_one",
+  "decision_two",
+  "step_verification",
+  "arguments",
+  "stage_verification",
+  "plan",
+  "replan",
+  "final_response",
+] as const;
+
+const STAGE_PREFIXES: Record<Stage, string> = {
+  decision_one: "d1",
+  decision_two: "d2",
+  step_verification: "stepver",
+  arguments: "args",
+  stage_verification: "stagever",
+  plan: "plan",
+  replan: "replan",
+  final_response: "final",
+};
+
 function loadConfig(): LabConfig {
   const configPath = path.resolve(__dirname, "config.json");
   if (fs.existsSync(configPath)) {
@@ -84,7 +123,6 @@ function loadConfig(): LabConfig {
 /**
  * Extrae el primer objeto JSON balanceado a partir de una posición dada,
  * respetando llaves dentro de cadenas de texto y secuencias de escape.
- * Implementación propia de lab/ sin importar de src/.
  */
 function extractBalancedJsonObject(
   text: string,
@@ -157,16 +195,101 @@ function extractToolNameFromUserPrompt(userPrompt: string): string | undefined {
   return match ? match[1] : undefined;
 }
 
-export async function extractCases(options?: ExtractOptions): Promise<{
-  decisionOneCount: number;
-  argumentsCount: number;
-  skippedExistingCount: number;
-}> {
+/**
+ * Detecta y separa el bloque retryNote ("ERROR_PREVIO:...") del user prompt de Qwen.
+ * Retorna el user prompt limpio sin la nota y un booleano indicando si era separable.
+ */
+function processRetryNote(userMsg: string): {
+  cleanUserMsg: string;
+  hasRetryNote: boolean;
+  isSeparable: boolean;
+} {
+  const marker = "ERROR_PREVIO:";
+  const idx = userMsg.indexOf(marker);
+  if (idx < 0) {
+    return { cleanUserMsg: userMsg, hasRetryNote: false, isSeparable: true };
+  }
+
+  // En prompts.ts ~L151 retryNote se concatena como:
+  // \n\nERROR_PREVIO: tu respuesta anterior fue inválida (...)
+  let cutIdx = idx;
+  if (idx >= 2 && userMsg.slice(idx - 2, idx) === "\n\n") {
+    cutIdx = idx - 2;
+  } else if (idx >= 1 && userMsg.slice(idx - 1, idx) === "\n") {
+    cutIdx = idx - 1;
+  }
+
+  const clean = userMsg.slice(0, cutIdx).trimEnd();
+  if (clean.length > 0) {
+    return { cleanUserMsg: clean, hasRetryNote: true, isSeparable: true };
+  }
+
+  return { cleanUserMsg: userMsg, hasRetryNote: true, isSeparable: false };
+}
+
+/**
+ * Busca el toolRun coincidente para una llamada dada.
+ * Prioriza callSeq (agregado por instrumentación reciente) y recurre a step como fallback.
+ */
+function findMatchingToolRun(
+  toolRuns: TraceToolRun[] | undefined,
+  seq: number | string,
+  step: number | string | null | undefined
+): CaseReferenceToolRun | undefined {
+  if (!Array.isArray(toolRuns) || toolRuns.length === 0) return undefined;
+
+  // 1. Coincidencia directa por callSeq
+  const byCallSeq = toolRuns.find(
+    (tr) => tr.callSeq !== undefined && tr.callSeq !== null && String(tr.callSeq) === String(seq)
+  );
+  if (byCallSeq) {
+    return {
+      callSeq: byCallSeq.callSeq,
+      step: byCallSeq.step,
+      tool: byCallSeq.tool,
+      ok: byCallSeq.ok,
+      error: byCallSeq.error ?? null,
+      resultPreview: byCallSeq.resultPreview,
+    };
+  }
+
+  // 2. Coincidencia por step (cuando step no es nulo)
+  if (step !== undefined && step !== null) {
+    const byStep = toolRuns.find(
+      (tr) => tr.step !== undefined && tr.step !== null && String(tr.step) === String(step)
+    );
+    if (byStep) {
+      return {
+        callSeq: byStep.callSeq,
+        step: byStep.step,
+        tool: byStep.tool,
+        ok: byStep.ok,
+        error: byStep.error ?? null,
+        resultPreview: byStep.resultPreview,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+export async function extractCases(options?: ExtractOptions): Promise<ExtractSummary> {
   const config = loadConfig();
   const rawPath = options?.filePath || config.tracesFilePath || "./jarvis-traces.jsonl";
   const tracesPath = path.resolve(process.cwd(), rawPath);
 
   console.log(`[extract-cases] Leyendo registro de trazas desde: ${tracesPath}`);
+
+  const countsByStage: Record<Stage, number> = {
+    decision_one: 0,
+    decision_two: 0,
+    step_verification: 0,
+    arguments: 0,
+    stage_verification: 0,
+    plan: 0,
+    replan: 0,
+    final_response: 0,
+  };
 
   if (!fs.existsSync(tracesPath)) {
     console.warn(
@@ -174,13 +297,23 @@ export async function extractCases(options?: ExtractOptions): Promise<{
       `Para generar trazas, asegúrese de que el registro de tareas esté activo en JARVIS y ejecute tareas reales en el sistema.\n` +
       `No se simularán datos ni respuestas.\n`
     );
-    return { decisionOneCount: 0, argumentsCount: 0, skippedExistingCount: 0 };
+    return {
+      countsByStage,
+      skippedExistingCount: 0,
+      reconstructedRetryCount: 0,
+      omittedUnseparableRetryCount: 0,
+      decisionOneCount: 0,
+      argumentsCount: 0,
+    };
   }
 
-  const d1Dir = path.resolve(__dirname, "cases", "decision_one", "_drafts");
-  const argsDir = path.resolve(__dirname, "cases", "arguments", "_drafts");
-  fs.mkdirSync(d1Dir, { recursive: true });
-  fs.mkdirSync(argsDir, { recursive: true });
+  // Crear directorios _drafts para las 8 etapas
+  const stageDirs: Record<Stage, string> = {} as Record<Stage, string>;
+  for (const st of ALL_STAGES) {
+    const dir = path.resolve(__dirname, "cases", st, "_drafts");
+    fs.mkdirSync(dir, { recursive: true });
+    stageDirs[st] = dir;
+  }
 
   const fileStream = fs.createReadStream(tracesPath, { encoding: "utf-8" });
   const rl = readline.createInterface({
@@ -191,9 +324,9 @@ export async function extractCases(options?: ExtractOptions): Promise<{
   let lineIndex = 0;
   let invalidLinesCount = 0;
   let processedTasksCount = 0;
-  let d1Count = 0;
-  let argsCount = 0;
   let skippedExistingCount = 0;
+  let reconstructedRetryCount = 0;
+  let omittedUnseparableRetryCount = 0;
 
   for await (const line of rl) {
     lineIndex++;
@@ -236,172 +369,242 @@ export async function extractCases(options?: ExtractOptions): Promise<{
     processedTasksCount++;
 
     const calls = Array.isArray(task.calls) ? task.calls : [];
+    let planGenerationCallCount = 0;
+
     for (const [callIndex, call] of calls.entries()) {
       if (!call || typeof call !== "object") continue;
-      const stage = String(call.stage || "").toUpperCase();
+      const rawStage = String(call.stage || "").toUpperCase();
 
-      // Ajuste D / IMP-02: resolución tolerante de seq y step con avisos en consola
+      // Resolución tolerante de seq y step
       let seq: number | string;
       if (call.seq !== undefined && call.seq !== null) {
         seq = call.seq;
       } else if (call.id !== undefined && call.id !== null) {
         seq = String(call.id);
-        console.warn(`[extract-cases] Tarea '${task.taskId}': llamada en índice ${callIndex} no tiene 'seq'; usando id='${seq}' como respaldo.`);
+        console.warn(`[extract-cases] Tarea '${task.taskId}': llamada ${callIndex} no tiene 'seq'; usando id='${seq}'.`);
       } else {
         seq = callIndex + 1;
-        console.warn(`[extract-cases] Tarea '${task.taskId}': llamada en índice ${callIndex} no tiene 'seq' ni 'id'; usando posición ${seq} como respaldo.`);
+        console.warn(`[extract-cases] Tarea '${task.taskId}': llamada ${callIndex} sin 'seq' ni 'id'; usando posición ${seq}.`);
       }
 
-      let step: number | string | undefined;
+      let step: number | string | null = null;
       if (call.step !== undefined && call.step !== null) {
         step = call.step;
       } else if (call.stepId !== undefined && call.stepId !== null) {
         step = call.stepId;
-        console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): llamada no tiene 'step'; usando stepId='${step}' como respaldo.`);
       } else if (call.stepSeq !== undefined && call.stepSeq !== null) {
         step = call.stepSeq;
-        console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): llamada no tiene 'step'; usando stepSeq='${step}' como respaldo.`);
       }
 
-      // 1. Etapa DECISION_ONE (Eos)
-      if (stage === "DECISION_ONE") {
-        if (!call.rawInput) continue;
-        let parsedInput: any;
-        try {
-          parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
-        } catch {
-          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): no se pudo parsear rawInput.`);
+      // ------------------------------------------------------------
+      // 1. Mapeo de etapa de traza a etapa de laboratorio
+      // ------------------------------------------------------------
+      let targetStage: Stage | null = null;
+      let replanFallbackUsed = false;
+
+      if (rawStage === "DECISION_ONE") {
+        targetStage = "decision_one";
+      } else if (rawStage === "DECISION_TWO") {
+        targetStage = "decision_two";
+      } else if (rawStage === "STEP_VERIFICATION") {
+        targetStage = "step_verification";
+      } else if (rawStage === "ARGUMENT_GENERATION") {
+        targetStage = "arguments";
+      } else if (rawStage === "STAGE_VERIFICATION" || rawStage === "STAGE_VERIFIED") {
+        targetStage = "stage_verification";
+      } else if (rawStage === "REPLAN") {
+        targetStage = "replan";
+      } else if (rawStage === "PLAN_GENERATION") {
+        planGenerationCallCount++;
+        if (planGenerationCallCount === 1) {
+          targetStage = "plan";
+        } else {
+          targetStage = "replan";
+          replanFallbackUsed = true;
+        }
+      } else if (rawStage === "FINAL_RESPONSE") {
+        targetStage = "final_response";
+      } else {
+        // Etapa desconocida o no evaluable
+        continue;
+      }
+
+      if (!call.rawInput) continue;
+
+      let parsedInput: any;
+      try {
+        parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
+      } catch {
+        console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): no se pudo parsear rawInput.`);
+        continue;
+      }
+
+      // ------------------------------------------------------------
+      // 2. Extracción para etapas Eos (decision_one, decision_two, step_verification)
+      // ------------------------------------------------------------
+      if (targetStage === "decision_one" || targetStage === "decision_two" || targetStage === "step_verification") {
+        // Descartar atajo sintético de DECISION_TWO (herramienta única que no invocó modelo)
+        if (targetStage === "decision_two") {
+          const rawOutStr = typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput || "");
+          const rawInStr = typeof call.rawInput === "string" ? call.rawInput : JSON.stringify(call.rawInput || "");
+          if (rawOutStr.includes("single_tool_shortcut") || rawInStr.includes('"single_tool"')) {
+            continue;
+          }
+        }
+
+        if (!parsedInput || typeof parsedInput !== "object" || !parsedInput.state || !parsedInput.questions) {
           continue;
         }
 
-        if (parsedInput && parsedInput.state && parsedInput.questions) {
-          const draftId = `draft_d1_${task.taskId}_seq${seq}`;
-          const filePath = path.join(d1Dir, `${draftId}.json`);
+        const prefix = STAGE_PREFIXES[targetStage];
+        const draftId = `draft_${prefix}_${task.taskId}_seq${seq}`;
+        const filePath = path.join(stageDirs[targetStage], `${draftId}.json`);
 
-          if (fs.existsSync(filePath)) {
-            skippedExistingCount++;
-            continue;
-          }
-
-          const reference: CaseReference = {
-            originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
-            retried: Boolean(call.retried),
-            error: call.error ?? null,
-          };
-
-          const draftCase: LabCase<CaseInputDecisionOne> = {
-            id: draftId,
-            stage: "decision_one",
-            split: "dev",
-            input: {
-              state: String(parsedInput.state),
-              questions: parsedInput.questions,
-            },
-            expect: null, // El usuario lo completa a mano
-            source: {
-              taskId: task.taskId,
-              seq,
-            },
-            reference,
-            notes: `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, modo: ${task.mode || "desconocido"}).`,
-          };
-
-          fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
-          d1Count++;
-        }
-      }
-
-      // 2. Etapa ARGUMENT_GENERATION (Qwen)
-      if (stage === "ARGUMENT_GENERATION") {
-        if (!call.rawInput) continue;
-        let parsedInput: any;
-        try {
-          parsedInput = typeof call.rawInput === "string" ? JSON.parse(call.rawInput) : call.rawInput;
-        } catch {
-          console.warn(`[extract-cases] Tarea '${task.taskId}' (seq ${seq}): no se pudo parsear rawInput.`);
+        if (fs.existsSync(filePath)) {
+          skippedExistingCount++;
           continue;
         }
 
-        const messages = Array.isArray(parsedInput?.messages) ? parsedInput.messages : [];
-        const userMsg = messages.find((m: any) => m.role === "user")?.content || "";
-        const systemMsg = messages.find((m: any) => m.role === "system")?.content || "";
+        const matchingTool = findMatchingToolRun(task.toolRuns, seq, step);
+        const reference: CaseReference = {
+          originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
+          error: call.error ?? null,
+          toolRun: matchingTool,
+        };
 
-        if (userMsg) {
-          const schemaResult = extractSchemaFromUserPrompt(userMsg);
-          const toolName = extractToolNameFromUserPrompt(userMsg);
-          const draftId = `draft_args_${task.taskId}_seq${seq}`;
-          const filePath = path.join(argsDir, `${draftId}.json`);
+        const draftCase: LabCase<CaseInputEos> = {
+          id: draftId,
+          stage: targetStage,
+          split: "dev",
+          input: {
+            state: String(parsedInput.state),
+            questions: parsedInput.questions,
+          },
+          expect: null,
+          source: {
+            taskId: task.taskId,
+            seq,
+          },
+          reference,
+          notes: `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, etapa: ${targetStage}, modo: ${task.mode || "desconocido"}).`,
+        };
 
-          if (fs.existsSync(filePath)) {
-            skippedExistingCount++;
-            continue;
-          }
+        fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
+        countsByStage[targetStage]++;
+        continue;
+      }
 
-          // Encontrar toolRun coincidente del mismo paso si existe
-          const matchingTool = Array.isArray(task.toolRuns) && step !== undefined
-            ? task.toolRuns.find((tr) => String(tr.step) === String(step))
-            : undefined;
+      // ------------------------------------------------------------
+      // 3. Extracción para etapas Qwen (arguments, stage_verification, plan, replan, final_response)
+      // ------------------------------------------------------------
+      const messages = Array.isArray(parsedInput?.messages) ? parsedInput.messages : [];
+      const rawUserMsg = messages.find((m: any) => m.role === "user")?.content || "";
+      const systemMsg = messages.find((m: any) => m.role === "system")?.content || "";
 
-          const reference: CaseReference = {
-            originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
-            retried: Boolean(call.retried),
-            error: call.error ?? null,
-            toolRun: matchingTool
-              ? {
-                  tool: matchingTool.tool,
-                  ok: matchingTool.ok,
-                  error: matchingTool.error ?? null,
-                }
-              : undefined,
-          };
+      if (!rawUserMsg) continue;
 
-          let notes = `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, herramienta: '${toolName || "desconocida"}', modo: ${task.mode || "desconocido"}).`;
-          if (!schemaResult.success || Object.keys(schemaResult.schema).length === 0) {
-            console.warn(
-              `[extract-cases] [ADVERTENCIA] No se pudo extraer SCHEMA para el borrador '${draftId}'. Requiere revisión manual.`
-            );
-            notes += ` [ADVERTENCIA: SCHEMA no se pudo extraer automáticamente del prompt; requiere revisión manual].`;
-          }
+      // Detección y saneamiento de reintentos por ERROR_PREVIO
+      const retryResult = processRetryNote(rawUserMsg);
+      if (retryResult.hasRetryNote && !retryResult.isSeparable) {
+        omittedUnseparableRetryCount++;
+        console.warn(
+          `[extract-cases] Tarea '${task.taskId}' (seq ${seq}, ${targetStage}): reintento no separable (user prompt vacío sin retryNote). Omitido.`
+        );
+        continue;
+      }
 
-          const draftCase: LabCase<CaseInputArguments> = {
-            id: draftId,
-            stage: "arguments",
-            split: "dev",
-            input: {
-              toolName,
-              user: userMsg,
-              system: systemMsg || undefined,
-              schema: schemaResult.schema,
-            },
-            expect: null, // El usuario lo completa a mano
-            source: {
-              taskId: task.taskId,
-              seq,
-            },
-            reference,
-            notes,
-          };
+      const cleanUserMsg = retryResult.cleanUserMsg;
+      if (retryResult.hasRetryNote) {
+        reconstructedRetryCount++;
+      }
 
-          fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
-          argsCount++;
+      const prefix = STAGE_PREFIXES[targetStage];
+      const draftId = `draft_${prefix}_${task.taskId}_seq${seq}`;
+      const filePath = path.join(stageDirs[targetStage], `${draftId}.json`);
+
+      if (fs.existsSync(filePath)) {
+        skippedExistingCount++;
+        continue;
+      }
+
+      const matchingTool = findMatchingToolRun(task.toolRuns, seq, step);
+      const reference: CaseReference = {
+        originalOutput: typeof call.rawOutput === "string" ? call.rawOutput : JSON.stringify(call.rawOutput),
+        error: call.error ?? null,
+        toolRun: matchingTool,
+      };
+
+      const caseInput: CaseInputQwen = {
+        user: cleanUserMsg,
+        system: systemMsg || undefined,
+      };
+
+      let notes = `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, etapa: ${targetStage}, modo: ${task.mode || "desconocido"}).`;
+
+      if (replanFallbackUsed) {
+        notes += ` [Borrador asignado a 'replan' por fallback de orden histórico (PLAN_GENERATION subsiguiente en la tarea)].`;
+      }
+
+      if (retryResult.hasRetryNote) {
+        notes += ` [Reconstruido: se eliminó retryNote del user prompt; la salida en 'reference' pertenece al reintento tras el fallo previo].`;
+      }
+
+      // Caso especial de retrocompatibilidad en arguments: conservar schema y toolName
+      if (targetStage === "arguments") {
+        const schemaResult = extractSchemaFromUserPrompt(cleanUserMsg);
+        const toolName = extractToolNameFromUserPrompt(cleanUserMsg);
+        caseInput.schema = schemaResult.schema;
+        caseInput.toolName = toolName;
+        if (!schemaResult.success || Object.keys(schemaResult.schema).length === 0) {
+          notes += ` [ADVERTENCIA: SCHEMA no se pudo extraer automáticamente del prompt; requiere revisión manual].`;
         }
       }
+
+      const draftCase: LabCase<CaseInputQwen> = {
+        id: draftId,
+        stage: targetStage,
+        split: "dev",
+        input: caseInput,
+        expect: null,
+        source: {
+          taskId: task.taskId,
+          seq,
+        },
+        reference,
+        notes,
+      };
+
+      fs.writeFileSync(filePath, JSON.stringify(draftCase, null, 2), "utf-8");
+      countsByStage[targetStage]++;
     }
   }
 
   console.log(`\n============================================================`);
-  console.log(`[extract-cases] Resumen de Extracción:`);
-  console.log(` - Líneas leídas:             ${lineIndex}`);
-  console.log(` - Líneas inválidas/omitidas: ${invalidLinesCount}`);
-  console.log(` - Tareas procesadas:         ${processedTasksCount}`);
-  console.log(` - Borradores para decision_one creados: ${d1Count} en ${d1Dir}`);
-  console.log(` - Borradores para arguments creados:    ${argsCount} en ${argsDir}`);
+  console.log(`[extract-cases] Resumen de Extracción (8 etapas de JARVIS):`);
+  console.log(` - Líneas leídas:                   ${lineIndex}`);
+  console.log(` - Líneas inválidas/omitidas:       ${invalidLinesCount}`);
+  console.log(` - Tareas procesadas:               ${processedTasksCount}`);
+  console.log(` - Reintentos reconstruidos:        ${reconstructedRetryCount}`);
+  if (omittedUnseparableRetryCount > 0) {
+    console.log(` - Reintentos no separables omitidos: ${omittedUnseparableRetryCount}`);
+  }
   if (skippedExistingCount > 0) {
-    console.log(` - Borradores preexistentes omitidos:   ${skippedExistingCount}`);
+    console.log(` - Borradores preexistentes omitidos: ${skippedExistingCount}`);
+  }
+  console.log(` --- Desglose por Etapa ---`);
+  for (const st of ALL_STAGES) {
+    console.log(`   * ${st.padEnd(20)}: ${countsByStage[st]} borrador(es) en ${stageDirs[st]}`);
   }
   console.log(`============================================================\n`);
 
-  return { decisionOneCount: d1Count, argumentsCount: argsCount, skippedExistingCount };
+  return {
+    countsByStage,
+    skippedExistingCount,
+    reconstructedRetryCount,
+    omittedUnseparableRetryCount,
+    decisionOneCount: countsByStage.decision_one,
+    argumentsCount: countsByStage.arguments,
+  };
 }
 
 // Ejecución directa desde CLI

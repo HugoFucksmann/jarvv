@@ -345,7 +345,7 @@ export async function runBenchmark(
           repLatency = callRes.latencyMs;
           if (callRes.truncated) truncatedCount++;
 
-          const valRes = argumentsStage.parseAndValidate(callRes.parsedContent, input.schema);
+          const valRes = argumentsStage.parseAndValidate(callRes.parsedContent, input.schema ?? {});
           if (!valRes.jsonValid) jsonErrors++;
           if (valRes.jsonValid && !valRes.schemaValid) schemaErrors++;
 

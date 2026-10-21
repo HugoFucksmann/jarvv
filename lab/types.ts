@@ -48,21 +48,41 @@ export interface DecisionAnswerNoul {
 
 export type DecisionAnswer = DecisionAnswerChoice | DecisionAnswerNoul;
 
+/**
+ * Umbral canónico de aprobación para preguntas noul en Eos.
+ * En producción (src/core/decision.ts:39), se aprueba si probabilidad > 0.5 estricto.
+ */
+export const NOUL_APPROVE = 0.5;
+
 // ============================================================
-// Entradas específicas por etapa
+// Entradas específicas por modelo (solo dos contratos base)
 // ============================================================
 
-export interface CaseInputDecisionOne {
+/**
+ * Entrada estándar para etapas basadas en Eos (Decision 2.0).
+ * Aplica a: decision_one, decision_two, step_verification.
+ */
+export interface CaseInputEos {
   state: string;
   questions: Record<string, DecisionQuestion>;
 }
 
-export interface CaseInputArguments {
+/**
+ * Entrada estándar para etapas basadas en Qwen 3.5 9B.
+ * Aplica a: arguments, stage_verification, plan, replan, final_response.
+ */
+export interface CaseInputQwen {
   system?: string;
   user: string;
-  schema: Record<string, unknown>;
+  /** Schema del tool (conservado para retrocompatibilidad en arguments) */
+  schema?: Record<string, unknown>;
+  /** Nombre del tool si está presente en el user prompt */
   toolName?: string;
 }
+
+// Aliases para retrocompatibilidad
+export type CaseInputDecisionOne = CaseInputEos;
+export type CaseInputArguments = CaseInputQwen;
 
 // ============================================================
 // Checks para expectativas (expect)
@@ -78,6 +98,12 @@ export interface CheckChoiceEquals {
   questionKey?: string;
 }
 
+export interface CheckNoulApproved {
+  type: "noul_approved";
+  questionKey: string;
+  expected: boolean;
+}
+
 export interface CheckMatchesSchema {
   type: "matches_schema";
 }
@@ -88,11 +114,66 @@ export interface CheckFieldEquals {
   expected: unknown;
 }
 
+export interface CheckMinSteps {
+  type: "min_steps";
+  count: number;
+}
+
+export interface CheckMaxSteps {
+  type: "max_steps";
+  count: number;
+}
+
+export interface CheckRoutesAllowed {
+  type: "routes_allowed";
+  allowedRoutes?: string[];
+}
+
+export interface CheckActionEquals {
+  type: "action_equals";
+  expected: "continue" | "abort";
+}
+
+export interface CheckStatusEquals {
+  type: "status_equals";
+  expected: string;
+}
+
+export interface CheckHasQuestionForUser {
+  type: "has_question_for_user";
+  expected: boolean;
+}
+
+export interface CheckContainsText {
+  type: "contains_text";
+  keywords: string[];
+  caseSensitive?: boolean;
+}
+
+export interface CheckNotEmpty {
+  type: "not_empty";
+}
+
+export interface CheckMinLength {
+  type: "min_length";
+  minChars: number;
+}
+
 export type CaseCheck =
   | CheckValidJson
   | CheckChoiceEquals
+  | CheckNoulApproved
   | CheckMatchesSchema
-  | CheckFieldEquals;
+  | CheckFieldEquals
+  | CheckMinSteps
+  | CheckMaxSteps
+  | CheckRoutesAllowed
+  | CheckActionEquals
+  | CheckStatusEquals
+  | CheckHasQuestionForUser
+  | CheckContainsText
+  | CheckNotEmpty
+  | CheckMinLength;
 
 // ============================================================
 // Estructura de un Caso del Laboratorio
@@ -104,9 +185,12 @@ export interface CaseSource {
 }
 
 export interface CaseReferenceToolRun {
+  callSeq?: number | string;
+  step?: number | string | null;
   tool?: string;
   ok?: boolean;
   error?: string | null;
+  resultPreview?: string;
 }
 
 export interface CaseReference {
