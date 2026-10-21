@@ -47,6 +47,10 @@ export interface JarvisConfig {
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
+  /** Registro de trazas: una línea JSON por tarea terminada (lo consume el laboratorio; Jarvis nunca lo lee). */
+  traceEnabled: boolean;
+  /** Archivo del registro de trazas; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
+  tracePath: string;
 }
 
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
@@ -86,6 +90,8 @@ const DEFAULT_CONFIG: JarvisConfig = {
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
   mcpTimeoutMs: 30000,
+  traceEnabled: true,
+  tracePath: "jarvis-traces.jsonl",
 };
 
 // ------------------------------------------------------------
@@ -163,6 +169,8 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     desktopCommanderMcp: normalizeServer(r.desktopCommanderMcp, d.desktopCommanderMcp),
     freeSearchMcp: normalizeServer(r.freeSearchMcp, d.freeSearchMcp),
     mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
+    traceEnabled: typeof r.traceEnabled === "boolean" ? r.traceEnabled : d.traceEnabled,
+    tracePath: nonEmptyText(r.tracePath, d.tracePath),
   };
 }
 

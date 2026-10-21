@@ -18,6 +18,7 @@ import {
     type TaskState,
 } from "./types.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
+import { recordTaskTrace } from "./taskTrace.ts";
 import {
     type TaskExecutionContext,
     addFailEntry,
@@ -109,6 +110,7 @@ export function failTask(context: TaskExecutionContext, deps: EngineDependencies
     task.pendingQuestion = undefined;
     task.finalResponse = task.finalResponse || `La tarea falló: ${msg}`;
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: msg, finalResponse: task.finalResponse });
+    recordTaskTrace(context);
 }
 
 
@@ -203,6 +205,7 @@ export async function concludeTask(
         rawOutput: finalRawOutput,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
+    recordTaskTrace(context);
 }
 
 

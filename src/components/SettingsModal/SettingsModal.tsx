@@ -27,6 +27,8 @@ const INITIAL_CONFIG: JarvisConfig = {
     command: "npx",
     args: ["-y", "@wonderwhy-er/windows-mcp"],
   },
+  traceEnabled: true,
+  tracePath: "jarvis-traces.jsonl",
 };
 
 interface SettingsModalProps {

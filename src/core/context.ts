@@ -58,6 +58,8 @@ export interface TaskExecutionContext {
     lastCallStepId?: string;
     /** Handoff determinista del último paso completado. */
     lastHandoff?: StepHandoff;
+    /** La traza de la tarea ya se registró (recordTaskTrace): evita el doble registro. */
+    traced?: boolean;
 }
 
 /**

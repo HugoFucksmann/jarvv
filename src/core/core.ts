@@ -26,6 +26,7 @@ import {
   planStepsToSteps,
 } from "./modeEngines.ts";
 import { createIterationFromEvent } from "../utils/debugAccumulator.ts";
+import { recordTaskTrace } from "./taskTrace.ts";
 
 export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
@@ -206,6 +207,7 @@ export class JarvisCore {
       `[Task Summary] id=${taskId} state=CANCELLED reason="Cancelada por usuario" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
     );
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
+    recordTaskTrace(context);
   }
 
   confirmPlan(taskId: string): void {
@@ -229,6 +231,7 @@ export class JarvisCore {
     context.task.waitingReason = undefined;
     this.emitEvent(taskId, "PLAN_REJECTED", { reason: reason || "Plan rechazado por el usuario." });
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
+    recordTaskTrace(context);
     console.log(`[JarvisCore] Plan rechazado por el usuario para tarea '${taskId}'.`);
   }
 
