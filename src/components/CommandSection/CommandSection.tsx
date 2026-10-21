@@ -28,7 +28,7 @@ export const CommandSection: React.FC<CommandSectionProps> = ({
         onCancel={onCancel}
         isExecuting={isExecuting}
         isWaitingInput={isWaitingInput ?? false}
-        isTaskActive={isTaskActive}
+        isBusy={isTaskActive ?? false}
         mode={mode}
       />
     </section>
