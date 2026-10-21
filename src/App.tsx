@@ -8,10 +8,9 @@ import { CommandSection } from "./components/CommandSection/CommandSection.tsx";
 import { GuardBanner } from "./components/GuardBanner/GuardBanner.tsx";
 import { DecisionStream } from "./components/DecisionStream/DecisionStream.tsx";
 import { ProcessFlow } from "./components/ProcessFlow/ProcessFlow.tsx";
-import { ContextInspector } from "./components/ContextInspector/ContextInspector.tsx";
 import { AlertCircle, X, Loader2 } from "lucide-react";
 
-// Code-splitting heavy modal to optimize initial bundle size (PERF-01)
+
 const SettingsModal = lazy(() =>
   import("./components/SettingsModal/SettingsModal.tsx").then((m) => ({
     default: m.SettingsModal,
@@ -32,7 +31,6 @@ export default function App() {
     events,
     modelIterations,
     discoveredTools,
-    extraCapabilities,
     unavailableServers,
     mcpInitStatus,
     error,
@@ -57,7 +55,7 @@ export default function App() {
   const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
   const [isCancellingForNew, setIsCancellingForNew] = useState(false);
 
-  // Atajo global Ctrl+K / Cmd+K para enfocar el input de instrucción
+
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -70,13 +68,13 @@ export default function App() {
   }, []);
 
   const handleNewTask = () => {
-    // Si la tarea está en ejecución activa en el backend, pedir confirmación explícita
+
     if (task && task.state === "RUNNING") {
       setIsNewTaskConfirmOpen(true);
       return;
     }
 
-    // Si no está en ejecución, limpiar la vista directamente y enfocar el input
+
     clearTaskView();
     setTimeout(() => {
       inputRef.current?.focus();
@@ -109,7 +107,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-full bg-slate-950 text-slate-100 overflow-hidden">
-      {/* 1. Header — Top Bar Contract with Session History (P3-02) */}
+
       <TopBar
         mode={mode}
         onModeChange={setMode}
@@ -125,7 +123,7 @@ export default function App() {
         onSelectTask={selectHistoricalTask}
       />
 
-      {/* Error Banner (INT-05) */}
+
       {error && (
         <div className="mx-6 mt-3 p-3 bg-rose-950/70 border border-rose-900 rounded-lg text-rose-200 text-xs flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
@@ -143,9 +141,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Main scrollable body */}
+
       <main className="flex-1 flex flex-col overflow-y-auto max-w-5xl w-full mx-auto pb-4">
-        {/* 2. Command Section — Input with Ref & ⌘K shortcut */}
+
         <CommandSection
           inputRef={inputRef}
           onRun={runTask}
@@ -158,7 +156,7 @@ export default function App() {
           mode={mode}
         />
 
-        {/* 3. Guard Banner — Sticky high-visibility authorization gate */}
+
         <GuardBanner
           pending={pendingApproval}
           onApprove={approvePending}
@@ -168,7 +166,7 @@ export default function App() {
           onProvideUserAnswer={provideUserAnswer}
         />
 
-        {/* 4. Decision Stream — Live Decision #1, #2 & Model Iterations by Step with Progressive Disclosure */}
+
         <DecisionStream
           events={events}
           modelIterations={modelIterations}
@@ -176,7 +174,7 @@ export default function App() {
           task={task}
         />
 
-        {/* 5. Process Flow — Plan review, step timeline, verification, final output, new query action */}
+
         <div className="flex-1">
           <ProcessFlow
             task={task}
@@ -191,21 +189,10 @@ export default function App() {
         </div>
       </main>
 
-      {/* 6. Context Inspector — Estado Vivo, Scratchpad, Evidence, Memoria & Discovered Tools with compact indicators */}
-      <ContextInspector
-        task={task}
-        scratchpad={task?.scratchpad || {}}
-        steps={task?.steps || []}
-        memory={task?.memory}
-        taskId={task?.id}
-        discoveredTools={discoveredTools}
-        extraCapabilities={extraCapabilities}
-        unavailableServers={unavailableServers}
-        mcpInitStatus={mcpInitStatus}
-        onRefreshDiscovery={refreshDiscovery}
-      />
 
-      {/* 7. Settings Modal for configuring Qwen 3.5 9B, Decision 2.0 and MCP URLs (Lazy-loaded) */}
+
+
+
       {isSettingsOpen && (
         <Suspense fallback={null}>
           <SettingsModal
@@ -216,7 +203,7 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* 8. Modal de confirmación para cancelar tarea en ejecución al pulsar 'Nueva Tarea' (H-09) */}
+
       {isNewTaskConfirmOpen && (
         <div
           role="dialog"
