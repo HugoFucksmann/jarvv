@@ -1,26 +1,96 @@
 /**
  * React Hook for JARVIS Client
- * 
+ *
  * Communicates exclusively with the authoritative Node.js JARVIS backend via HTTP / SSE.
  * Does NOT instantiate or bundle JarvisCore, DiscoveryEngine, Decision20Engine,
  * QwenEngine, child_process, or any MCP transport inside the browser.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { Task, PendingApproval, CoreEvent, MCPTool } from "../core/types.ts";
-import type { MCPPrompt, MCPResourceTemplate } from "../core/mcp/types.ts";
 import type { ModelIteration } from "../types/debug.ts";
-import { jarvisApi } from "../services/jarvisApi.ts";
+import { jarvisApi, type SerializedPendingApproval } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
-import { createIterationFromEvent, deriveTaskView, reconstructIterationsFromTask } from "../utils/debugAccumulator.ts";
+import { createIterationFromEvent, reconstructIterationsFromTask } from "../utils/debugAccumulator.ts";
+
+export type ExecutionMode = "NORMAL" | "PLAN";
+export type McpInitStatus = "loading" | "ready" | "partial" | "error";
+type UnavailableServers = Record<string, { reason: string; since: number }>;
+
+const MAX_EVENTS = 500;
+const FALLBACK_POLL_MS = 5000;
+
+// ---------------------------------------------------------------------------
+// Helpers puros
+// ---------------------------------------------------------------------------
+
+function upsertById(list: Task[], task: Task): Task[] {
+  const idx = list.findIndex((t) => t.id === task.id);
+  if (idx < 0) return [...list, task];
+  const next = [...list];
+  next[idx] = task;
+  return next;
+}
+
+const countKeys = (obj?: object | null): number => (obj ? Object.keys(obj).length : 0);
+
+/** `whenEmpty` define qué significa "sin herramientas y sin errores": arranque (loading) o refresco fallido (error). */
+function resolveMcpStatus(discovered: number, unavailable: number, whenEmpty: McpInitStatus): McpInitStatus {
+  if (discovered === 0 && unavailable === 0) return whenEmpty;
+  if (unavailable === 0) return "ready";
+  return discovered > 0 ? "partial" : "error";
+}
+
+function isAwaitingUserAnswer(t: Task | null | undefined): boolean {
+  return t?.state === "WAITING_INPUT" && t.waitingReason === "user_answer";
+}
+
+function extractUserQuestion(t: Task | null): string | null {
+  if (!t || !isAwaitingUserAnswer(t)) return null;
+  // La pregunta persistida por el núcleo es la fuente de verdad; lo siguiente solo cubre tareas antiguas.
+  if (t.pendingQuestion?.question) return t.pendingQuestion.question;
+  for (let i = t.steps.length - 1; i >= 0; i--) {
+    const s = t.steps[i];
+    if (s.calls) {
+      for (let j = s.calls.length - 1; j >= 0; j--) {
+        const c = s.calls[j];
+        if (c.tool === "ask_user" && c.args) {
+          const q = (c.args.question as string) || (c.args.prompt as string);
+          if (q) return q;
+        }
+      }
+    }
+    if (s.tool === "ask_user" && s.args) {
+      const q = (s.args.question as string) || (s.args.prompt as string);
+      if (q) return q;
+    }
+    if (s.error && (s.state === "UNVERIFIED" || s.state === "RUNNING")) {
+      return s.error;
+    }
+  }
+  return null;
+}
+
+/** Iteraciones de una tarea: las persistidas en ella, si no las ya conocidas, si no se reconstruyen del snapshot. */
+function resolveIterations(task: Task, known: ModelIteration[] | undefined): ModelIteration[] {
+  if (task.modelIterations && task.modelIterations.length > 0) return task.modelIterations;
+  if (known && known.length > 0) return known;
+  return reconstructIterationsFromTask(task);
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
 
 export function useJarvis() {
   const activeTaskIdRef = useRef<string | null>(null);
   const taskRef = useRef<Task | null>(null);
+  const allTasksRef = useRef<Task[]>([]);
   const eventsByTaskRef = useRef<Record<string, CoreEvent[]>>({});
   const iterationsByTaskRef = useRef<Record<string, ModelIteration[]>>({});
-  const isInitialSnapshotLoaded = useRef<boolean>(false);
-  const userClearedViewRef = useRef<boolean>(false);
+  const isInitialSnapshotLoaded = useRef(false);
+  const userClearedViewRef = useRef(false);
+  const mcpInitDoneRef = useRef(false);
 
   const [task, setTask] = useState<Task | null>(null);
   const [allTasks, setAllTasks] = useState<Task[]>([]);
@@ -28,24 +98,17 @@ export function useJarvis() {
   const [events, setEvents] = useState<CoreEvent[]>([]);
   const [modelIterations, setModelIterations] = useState<ModelIteration[]>([]);
   const [discoveredTools, setDiscoveredTools] = useState<Record<string, MCPTool[]>>({});
-  const [extraCapabilities, setExtraCapabilities] = useState<{
-    prompts: Record<string, MCPPrompt[]>;
-    resourceTemplates: Record<string, MCPResourceTemplate[]>;
-  }>({ prompts: {}, resourceTemplates: {} });
-  const [unavailableServers, setUnavailableServers] = useState<Record<string, { reason: string; since: number }>>({});
-  const [mode, setMode] = useState<"NORMAL" | "PLAN">("NORMAL");
+  const [unavailableServers, setUnavailableServers] = useState<UnavailableServers>({});
+  const [mode, setMode] = useState<ExecutionMode>("NORMAL");
   const [error, setError] = useState<string | null>(null);
   const [userQuestion, setUserQuestion] = useState<string | null>(null);
-  const [mcpInitStatus, setMcpInitStatus] = useState<"loading" | "ready" | "partial" | "error">("loading");
-  const mcpInitDoneRef = useRef<boolean>(false);
+  const [mcpInitStatus, setMcpInitStatus] = useState<McpInitStatus>("loading");
 
-  // Refs para estabilizar callbacks dentro de EventSource y evitar reconexiones cíclicas (FRONT-02)
-  const allTasksRef = useRef<Task[]>([]);
+  // Refs sincronizadas con el estado para que los callbacks (EventSource, etc.) no dependan de él (FRONT-02)
   useEffect(() => {
     allTasksRef.current = allTasks;
   }, [allTasks]);
 
-  // Sincronizar referencia síncrona del task actual
   useEffect(() => {
     taskRef.current = task;
     if (task?.id) {
@@ -53,35 +116,83 @@ export function useJarvis() {
     }
   }, [task]);
 
-  // Approve action (resolves taskId safely without sending null)
-  const approvePending = useCallback(async (explicitTaskId?: string) => {
-    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
-    try {
-      setError(null);
-      await jarvisApi.approvePending(tid);
-      setPendingApproval(null);
-    } catch (err: any) {
-      console.error("Error approving pending step:", err);
-      setError(err.message || "Error al aprobar la operación pendiente.");
-    }
+  // -------------------------------------------------------------------------
+  // Utilidades internas (todas estables: solo tocan refs y setters)
+  // -------------------------------------------------------------------------
+
+  /** taskId explícito válido, o el de la tarea activa. Nunca envía null. */
+  const resolveTaskId = useCallback(
+    (explicit?: string): string | undefined =>
+      explicit?.trim() ? explicit : activeTaskIdRef.current || taskRef.current?.id || undefined,
+    []
+  );
+
+  /** Ejecuta una acción contra el backend limpiando y reportando el error de forma uniforme. */
+  const runAction = useCallback(
+    async <T>(action: () => Promise<T>, fallbackMessage: string): Promise<T | undefined> => {
+      try {
+        setError(null);
+        return await action();
+      } catch (err) {
+        console.error(fallbackMessage, err);
+        setError(err instanceof Error && err.message ? err.message : fallbackMessage);
+        return undefined;
+      }
+    },
+    []
+  );
+
+  const upsertTask = useCallback((t: Task) => {
+    setAllTasks((prev) => {
+      const next = upsertById(prev, t);
+      allTasksRef.current = next;
+      return next;
+    });
   }, []);
 
-  // Deny action (resolves taskId safely without sending null)
-  const denyPending = useCallback(async (reason?: string, explicitTaskId?: string) => {
-    const tid = explicitTaskId || activeTaskIdRef.current || taskRef.current?.id || undefined;
-    try {
-      setError(null);
-      await jarvisApi.denyPending(tid, reason);
-      setPendingApproval(null);
-    } catch (err: any) {
-      console.error("Error denying pending step:", err);
-      setError(err.message || "Error al denegar la operación pendiente.");
-    }
+  /** Muestra una tarea como la activa de la vista. */
+  const showTask = useCallback((t: Task) => {
+    activeTaskIdRef.current = t.id;
+    taskRef.current = t;
+    setTask({ ...t });
   }, []);
 
-  // Hydrate PendingApproval object with interactive handlers for UI
+  const commitIterations = useCallback((taskId: string, iterations: ModelIteration[]) => {
+    iterationsByTaskRef.current[taskId] = iterations;
+    setModelIterations(iterations);
+  }, []);
+
+  const syncUserQuestion = useCallback((t: Task) => {
+    setUserQuestion((prev) => (isAwaitingUserAnswer(t) ? prev || extractUserQuestion(t) : null));
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Aprobaciones Guard
+  // -------------------------------------------------------------------------
+
+  const approvePending = useCallback(
+    async (explicitTaskId?: string) => {
+      await runAction(async () => {
+        await jarvisApi.approvePending(resolveTaskId(explicitTaskId));
+        setPendingApproval(null);
+      }, "Error al aprobar la operación pendiente.");
+    },
+    [runAction, resolveTaskId]
+  );
+
+  const denyPending = useCallback(
+    async (reason?: string, explicitTaskId?: string) => {
+      await runAction(async () => {
+        await jarvisApi.denyPending(resolveTaskId(explicitTaskId), reason);
+        setPendingApproval(null);
+      }, "Error al denegar la operación pendiente.");
+    },
+    [runAction, resolveTaskId]
+  );
+
+  /** Convierte el pendiente serializado del backend en el objeto que usa la UI, con sus callbacks ya vinculados. */
   const hydratePendingApproval = useCallback(
-    (raw: any, fallbackTaskId?: string): PendingApproval | null => {
+    (raw: SerializedPendingApproval | null | undefined, fallbackTaskId?: string): PendingApproval | null => {
       if (!raw) return null;
       const associatedTaskId = raw.taskId || fallbackTaskId || activeTaskIdRef.current || taskRef.current?.id;
       return {
@@ -92,12 +203,9 @@ export function useJarvis() {
         capability: raw.capability,
         args: raw.args || {},
         reason: raw.reason || "",
-        onApprove: () => {
-          approvePending(associatedTaskId);
-        },
-        onDeny: (denyReason?: string) => {
-          denyPending(denyReason, associatedTaskId);
-        },
+        // Se devuelve la promesa para que la UI mantenga el botón bloqueado hasta que el backend responda.
+        onApprove: () => approvePending(associatedTaskId),
+        onDeny: (denyReason?: string) => denyPending(denyReason, associatedTaskId),
       };
     },
     [approvePending, denyPending]
@@ -108,233 +216,156 @@ export function useJarvis() {
     hydratePendingApprovalRef.current = hydratePendingApproval;
   }, [hydratePendingApproval]);
 
-  function extractUserQuestion(t: Task | null): string | null {
-    if (!t || t.state !== "WAITING_INPUT" || t.waitingReason !== "user_answer") return null;
-    // La pregunta persistida por el núcleo es la fuente de verdad; lo siguiente solo cubre tareas antiguas.
-    if (t.pendingQuestion?.question) return t.pendingQuestion.question;
-    for (let i = t.steps.length - 1; i >= 0; i--) {
-      const s = t.steps[i];
-      if (s.calls) {
-        for (let j = s.calls.length - 1; j >= 0; j--) {
-          const c = s.calls[j];
-          if (c.tool === "ask_user" && c.args) {
-            const q = (c.args.question as string) || (c.args.prompt as string);
-            if (q) return q;
-          }
-        }
-      }
-      if (s.tool === "ask_user" && s.args) {
-        const q = (s.args.question as string) || (s.args.prompt as string);
-        if (q) return q;
-      }
-      if (s.error && (s.state === "UNVERIFIED" || s.state === "RUNNING")) {
-        return s.error;
-      }
-    }
-    return null;
-  }
+  // -------------------------------------------------------------------------
+  // Snapshot de estado
+  // -------------------------------------------------------------------------
 
-  // Fetch full state snapshot from backend
   const fetchState = useCallback(async () => {
     try {
       const data = await jarvisApi.getState(activeTaskIdRef.current || undefined);
+
       if (data.allTasks) {
         setAllTasks(data.allTasks);
         allTasksRef.current = data.allTasks;
       }
+
       if (data.task) {
-        const taskId = data.task.id;
-        const taskIters = (data.task.modelIterations && data.task.modelIterations.length > 0)
-          ? data.task.modelIterations
-          : iterationsByTaskRef.current[taskId];
-        if (!taskIters || taskIters.length === 0) {
-          const reconstructed = reconstructIterationsFromTask(data.task);
-          iterationsByTaskRef.current[taskId] = reconstructed;
-        } else {
-          iterationsByTaskRef.current[taskId] = taskIters;
-        }
+        const fetched = data.task;
+        const iterations = resolveIterations(fetched, iterationsByTaskRef.current[fetched.id]);
+        iterationsByTaskRef.current[fetched.id] = iterations;
 
-        if (!isInitialSnapshotLoaded.current) {
+        // No se pisa la vista si el usuario la limpió, salvo que haya una tarea corriendo
+        const shouldShow =
+          !isInitialSnapshotLoaded.current || !userClearedViewRef.current || fetched.state === "RUNNING";
+        if (shouldShow) {
           isInitialSnapshotLoaded.current = true;
-          activeTaskIdRef.current = taskId;
-          taskRef.current = data.task;
-          setTask(data.task);
-          setModelIterations(iterationsByTaskRef.current[taskId] || []);
-        } else if (!userClearedViewRef.current || data.task.state === "RUNNING") {
-          activeTaskIdRef.current = taskId;
-          taskRef.current = data.task;
-          setTask(data.task);
-          setModelIterations(iterationsByTaskRef.current[taskId] || []);
+          showTask(fetched);
+          setModelIterations(iterations);
         }
+        syncUserQuestion(fetched);
+      }
 
-        if (data.task.state === "WAITING_INPUT" && data.task.waitingReason === "user_answer") {
-          setUserQuestion((prev) => prev || extractUserQuestion(data.task));
-        } else {
-          setUserQuestion(null);
-        }
-      }
-      if (data.pendingApproval) {
-        setPendingApproval(hydratePendingApproval(data.pendingApproval, data.task?.id));
-      } else {
-        setPendingApproval(null);
-      }
-      if (data.discoveredTools && Object.keys(data.discoveredTools).length > 0) {
+      setPendingApproval(hydratePendingApproval(data.pendingApproval, data.task?.id));
+
+      if (countKeys(data.discoveredTools) > 0) {
         setDiscoveredTools(data.discoveredTools);
-      }
-      if (data.extraCapabilities) {
-        setExtraCapabilities(data.extraCapabilities);
       }
       if (data.unavailableServers) {
         setUnavailableServers(data.unavailableServers);
       }
 
-      // Resolve MCP initialization status after the first successful fetch
+      // El estado de inicialización de MCP se resuelve con el primer snapshot exitoso
       if (!mcpInitDoneRef.current) {
         mcpInitDoneRef.current = true;
-        const unavailable = data.unavailableServers ? Object.keys(data.unavailableServers).length : 0;
-        const discovered = data.discoveredTools ? Object.keys(data.discoveredTools).length : 0;
-        if (discovered === 0 && unavailable === 0) {
-          // No tools and no errors: still initializing or no servers configured
-          setMcpInitStatus("loading");
-        } else if (unavailable === 0) {
-          setMcpInitStatus("ready");
-        } else if (discovered > 0) {
-          setMcpInitStatus("partial");
-        } else {
-          setMcpInitStatus("error");
-        }
+        setMcpInitStatus(
+          resolveMcpStatus(countKeys(data.discoveredTools), countKeys(data.unavailableServers), "loading")
+        );
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn("Failed to fetch JARVIS state from backend:", err);
       if (!mcpInitDoneRef.current) {
         mcpInitDoneRef.current = true;
         setMcpInitStatus("error");
       }
     }
-  }, [hydratePendingApproval]);
+  }, [hydratePendingApproval, showTask, syncUserQuestion]);
 
   const fetchStateRef = useRef(fetchState);
   useEffect(() => {
     fetchStateRef.current = fetchState;
   }, [fetchState]);
 
-  // Subscribe to real-time events via Server-Sent Events (SSE)
-  // Montaje único y conexión persistente sin cierres por cambios de dependencias (FRONT-02)
+  // -------------------------------------------------------------------------
+  // Eventos en tiempo real (SSE)
+  // -------------------------------------------------------------------------
+
+  /** Registra el evento en el buffer de su tarea y captura la iteración de modelo (Eos / Qwen) que genere. */
+  const recordEvent = useCallback((event: CoreEvent, updatedTask?: Task | null) => {
+    const isActive = !activeTaskIdRef.current || event.taskId === activeTaskIdRef.current;
+
+    // Buffer circular de MAX_EVENTS eventos, indexado por taskId
+    const taskEvents = eventsByTaskRef.current[event.taskId] || [];
+    eventsByTaskRef.current[event.taskId] = [...taskEvents.slice(-(MAX_EVENTS - 1)), event];
+    if (isActive) {
+      setEvents((prev) => [...prev.slice(-(MAX_EVENTS - 1)), event]);
+    }
+
+    // Pregunta interactiva que requiere respuesta del usuario (FRONT-03)
+    if (event.type === "TASK_STATE_CHANGED") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const evtData = (event.data || {}) as Record<string, any>;
+      if (evtData.state === "WAITING_INPUT" && evtData.waitingReason === "user_answer") {
+        setUserQuestion(evtData.question || null);
+      } else if (evtData.state && evtData.state !== "WAITING_INPUT") {
+        setUserQuestion(null);
+      }
+    }
+
+    const contextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
+    const iteration = createIterationFromEvent(event, contextTask);
+    if (!iteration) return;
+
+    const known = iterationsByTaskRef.current[event.taskId] || [];
+    if (known.some((it) => it.id === iteration.id)) return;
+
+    const next = [...known, iteration];
+    iterationsByTaskRef.current[event.taskId] = next;
+    if (isActive) {
+      setModelIterations(next);
+    }
+  }, []);
+
+  /** Aplica la tarea actualizada que acompaña a cada mensaje SSE. */
+  const applyTaskUpdate = useCallback(
+    (updatedTask: Task) => {
+      taskRef.current = updatedTask;
+      upsertTask(updatedTask);
+      syncUserQuestion(updatedTask);
+
+      // Evita que el SSE restaure una tarea si el usuario limpió la vista
+      const matchesActive = Boolean(activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current);
+      const isFreshRunningTask =
+        !activeTaskIdRef.current && !userClearedViewRef.current && updatedTask.state === "RUNNING";
+      if (!matchesActive && !isFreshRunningTask) return;
+
+      userClearedViewRef.current = false;
+      showTask(updatedTask);
+      commitIterations(updatedTask.id, resolveIterations(updatedTask, iterationsByTaskRef.current[updatedTask.id]));
+    },
+    [upsertTask, syncUserQuestion, showTask, commitIterations]
+  );
+
+  // Montaje único y conexión persistente: todas las dependencias son estables (FRONT-02)
   useEffect(() => {
-    fetchStateRef.current();
+    void fetchStateRef.current();
 
     let eventSource: EventSource | null = null;
-    let fallbackPollInterval: NodeJS.Timeout | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const startFallbackPolling = () => {
-      if (!fallbackPollInterval) {
-        fallbackPollInterval = setInterval(() => {
-          fetchStateRef.current();
-        }, 5000);
+      if (!pollTimer) {
+        pollTimer = setInterval(() => void fetchStateRef.current(), FALLBACK_POLL_MS);
       }
     };
 
     const stopFallbackPolling = () => {
-      if (fallbackPollInterval) {
-        clearInterval(fallbackPollInterval);
-        fallbackPollInterval = null;
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
     };
 
     try {
       eventSource = new EventSource(getApiUrl("/api/jarvis/events"));
 
-      eventSource.onopen = () => {
-        stopFallbackPolling();
-      };
+      eventSource.onopen = stopFallbackPolling;
 
       eventSource.onmessage = (messageEvent) => {
         try {
-          const payload = JSON.parse(messageEvent.data);
-          const { event, task: updatedTask, pendingApproval: rawPending } = payload;
+          const { event, task: updatedTask, pendingApproval: rawPending } = JSON.parse(messageEvent.data);
 
-          if (event) {
-            // Buffer expandido a 500 eventos e indexado por taskId
-            const taskEvents = eventsByTaskRef.current[event.taskId] || [];
-            const updatedTaskEvents = [...taskEvents.slice(-499), event];
-            eventsByTaskRef.current[event.taskId] = updatedTaskEvents;
-
-            if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
-              setEvents((prev) => [...prev.slice(-499), event]);
-            }
-
-            // Capturar pregunta interactiva del evento si requiere respuesta del usuario (FRONT-03)
-            if (event.type === "TASK_STATE_CHANGED") {
-              const evtData = (event.data || {}) as any;
-              if (evtData.state === "WAITING_INPUT" && evtData.waitingReason === "user_answer") {
-                setUserQuestion(evtData.question || null);
-              } else if (evtData.state && evtData.state !== "WAITING_INPUT") {
-                setUserQuestion(null);
-              }
-            }
-
-            // Captura reactiva de iteración de modelo (Eos / Qwen)
-            const currentContextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
-            const newIteration = createIterationFromEvent(event, currentContextTask);
-            if (newIteration) {
-              const taskIterList = iterationsByTaskRef.current[event.taskId] || [];
-              if (!taskIterList.some((it) => it.id === newIteration.id)) {
-                const nextList = [...taskIterList, newIteration];
-                iterationsByTaskRef.current[event.taskId] = nextList;
-                if (!activeTaskIdRef.current || event.taskId === activeTaskIdRef.current) {
-                  setModelIterations(nextList);
-                }
-              }
-            }
-          }
-
-          if (updatedTask) {
-            taskRef.current = updatedTask;
-            // Sincronizar allTasks inmutablemente en tiempo real (FRONT-01)
-            setAllTasks((prev) => {
-              const idx = prev.findIndex((t) => t.id === updatedTask.id);
-              if (idx >= 0) {
-                const next = [...prev];
-                next[idx] = updatedTask;
-                allTasksRef.current = next;
-                return next;
-              }
-              const next = [...prev, updatedTask];
-              allTasksRef.current = next;
-              return next;
-            });
-
-            // Sincronizar pregunta de usuario si la tarea está en espera de respuesta
-            if (updatedTask.state === "WAITING_INPUT" && updatedTask.waitingReason === "user_answer") {
-              setUserQuestion((prev) => prev || extractUserQuestion(updatedTask));
-            } else if (updatedTask.state !== "WAITING_INPUT") {
-              setUserQuestion(null);
-            }
-
-            // Prevenir que SSE restaure inesperadamente una tarea si el usuario limpió la vista
-            const matchesActive = Boolean(activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current);
-            const isFreshRunningTask = !activeTaskIdRef.current && !userClearedViewRef.current && updatedTask.state === "RUNNING";
-
-            if (matchesActive || isFreshRunningTask) {
-              userClearedViewRef.current = false;
-              activeTaskIdRef.current = updatedTask.id;
-              setTask({ ...updatedTask });
-
-              // Sincronizar iteraciones de modelo priorizando las persistidas en el task
-              const currentIters = (updatedTask.modelIterations && updatedTask.modelIterations.length > 0)
-                ? updatedTask.modelIterations
-                : (iterationsByTaskRef.current[updatedTask.id] || []);
-              if (currentIters.length === 0 && updatedTask.steps && updatedTask.steps.length > 0) {
-                const reconstructed = reconstructIterationsFromTask(updatedTask);
-                iterationsByTaskRef.current[updatedTask.id] = reconstructed;
-                setModelIterations(reconstructed);
-              } else {
-                iterationsByTaskRef.current[updatedTask.id] = currentIters;
-                setModelIterations(currentIters);
-              }
-            }
-          }
-
+          if (event) recordEvent(event, updatedTask);
+          if (updatedTask) applyTaskUpdate(updatedTask);
           if (rawPending !== undefined) {
             setPendingApproval(hydratePendingApprovalRef.current(rawPending, updatedTask?.id));
           }
@@ -345,7 +376,7 @@ export function useJarvis() {
 
       eventSource.onerror = () => {
         startFallbackPolling();
-        fetchStateRef.current();
+        void fetchStateRef.current();
       };
     } catch (err) {
       console.warn("EventSource not supported or failed to connect:", err);
@@ -353,154 +384,105 @@ export function useJarvis() {
     }
 
     return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
+      eventSource?.close();
       stopFallbackPolling();
     };
-  }, []);
+  }, [recordEvent, applyTaskUpdate]);
 
-  // Initiate a new task on the backend
+  // -------------------------------------------------------------------------
+  // Acciones
+  // -------------------------------------------------------------------------
+
   const runTask = useCallback(
-    async (message: string, executionMode?: "NORMAL" | "PLAN") => {
+    async (message: string, executionMode?: ExecutionMode) => {
       if (!message.trim()) return;
       userClearedViewRef.current = false;
       setEvents([]);
       setModelIterations([]);
-      setError(null);
-      const effectiveMode = executionMode || mode;
 
+      const effectiveMode = executionMode || mode;
       if (executionMode && executionMode !== mode) {
         setMode(executionMode);
       }
 
-      try {
+      await runAction(async () => {
         const data = await jarvisApi.initiateTask(message, effectiveMode);
         if (data.task) {
-          activeTaskIdRef.current = data.task.id;
-          taskRef.current = data.task;
-          setTask(data.task);
+          showTask(data.task);
           setPendingApproval(null);
-          // Sincronizar allTasks inmediatamente al iniciar la tarea (FRONT-01)
-          setAllTasks((prev) => {
-            const idx = prev.findIndex((t) => t.id === data.task.id);
-            if (idx >= 0) {
-              const next = [...prev];
-              next[idx] = data.task;
-              allTasksRef.current = next;
-              return next;
-            }
-            const next = [...prev, data.task];
-            allTasksRef.current = next;
-            return next;
-          });
+          upsertTask(data.task); // Sincroniza allTasks al instante (FRONT-01)
         }
-      } catch (err: any) {
-        console.error("Failed to initiate task on backend:", err);
-        setError(err.message || "Error al iniciar la tarea.");
-      }
+      }, "Error al iniciar la tarea.");
     },
-    [mode]
+    [mode, runAction, showTask, upsertTask]
   );
 
-  // Cancel task
-  const cancelTask = useCallback(async (explicitTaskId?: string): Promise<boolean> => {
-    const validExplicitId = typeof explicitTaskId === "string" && explicitTaskId.trim().length > 0 ? explicitTaskId : undefined;
-    const tid = validExplicitId || activeTaskIdRef.current || taskRef.current?.id || undefined;
-    try {
-      setError(null);
-      const res = await jarvisApi.cancelTask(tid);
-      await fetchState();
-      return Boolean(res && res.ok);
-    } catch (err: any) {
-      console.error("Failed to cancel task on backend:", err);
-      setError(err.message || "Error al cancelar la tarea.");
-      return false;
-    }
-  }, [fetchState]);
+  const cancelTask = useCallback(
+    async (explicitTaskId?: string): Promise<boolean> => {
+      const res = await runAction(async () => {
+        const result = await jarvisApi.cancelTask(resolveTaskId(explicitTaskId));
+        await fetchState();
+        return result;
+      }, "Error al cancelar la tarea.");
+      return Boolean(res?.ok);
+    },
+    [runAction, resolveTaskId, fetchState]
+  );
 
-  // Confirm plan
   const confirmPlan = useCallback(async () => {
-    const tid = activeTaskIdRef.current || task?.id || undefined;
-    try {
-      setError(null);
-      await jarvisApi.confirmPlan(tid);
+    await runAction(async () => {
+      await jarvisApi.confirmPlan(resolveTaskId());
       await fetchState();
-    } catch (err: any) {
-      console.error("Failed to confirm plan on backend:", err);
-      setError(err.message || "Error al confirmar el plan.");
-    }
-  }, [fetchState, task?.id]);
+    }, "Error al confirmar el plan.");
+  }, [runAction, resolveTaskId, fetchState]);
 
-  // Reject plan
-  const rejectPlan = useCallback(async (reason?: string) => {
-    const tid = activeTaskIdRef.current || task?.id || undefined;
-    try {
-      setError(null);
-      await jarvisApi.rejectPlan(tid, reason);
-      await fetchState();
-    } catch (err: any) {
-      console.error("Failed to reject plan on backend:", err);
-      setError(err.message || "Error al rechazar el plan.");
-    }
-  }, [fetchState, task?.id]);
+  const rejectPlan = useCallback(
+    async (reason?: string) => {
+      await runAction(async () => {
+        await jarvisApi.rejectPlan(resolveTaskId(), reason);
+        await fetchState();
+      }, "Error al rechazar el plan.");
+    },
+    [runAction, resolveTaskId, fetchState]
+  );
 
-  // Modify plan
-  const modifyPlan = useCallback(async (feedback?: string) => {
-    const tid = activeTaskIdRef.current || task?.id || undefined;
-    try {
-      setError(null);
-      await jarvisApi.modifyPlan(tid, feedback);
-      await fetchState();
-    } catch (err: any) {
-      console.error("Failed to request plan modification on backend:", err);
-      setError(err.message || "Error al solicitar modificación del plan.");
-    }
-  }, [fetchState, task?.id]);
+  const modifyPlan = useCallback(
+    async (feedback?: string) => {
+      await runAction(async () => {
+        await jarvisApi.modifyPlan(resolveTaskId(), feedback);
+        await fetchState();
+      }, "Error al solicitar modificación del plan.");
+    },
+    [runAction, resolveTaskId, fetchState]
+  );
 
-  // Provide user answer to interactive question
-  const provideUserAnswer = useCallback(async (answer: string) => {
-    const tid = activeTaskIdRef.current || task?.id || undefined;
-    try {
-      setError(null);
-      setUserQuestion(null);
-      await jarvisApi.provideUserAnswer(tid, answer);
-      await fetchState();
-    } catch (err: any) {
-      console.error("Failed to submit interactive user answer:", err);
-      setError(err.message || "Error al enviar respuesta interactiva.");
-    }
-  }, [fetchState, task?.id]);
+  const provideUserAnswer = useCallback(
+    async (answer: string) => {
+      await runAction(async () => {
+        setUserQuestion(null);
+        await jarvisApi.provideUserAnswer(resolveTaskId(), answer);
+        await fetchState();
+      }, "Error al enviar respuesta interactiva.");
+    },
+    [runAction, resolveTaskId, fetchState]
+  );
 
-  // Refresh discovery catalog
   const refreshDiscovery = useCallback(async () => {
-    try {
-      setError(null);
-      setMcpInitStatus("loading");
-      const data = await jarvisApi.refreshDiscovery();
-      if (data.tools) setDiscoveredTools(data.tools);
-      if (data.extraCapabilities) setExtraCapabilities(data.extraCapabilities);
-      if (data.unavailableServers) setUnavailableServers(data.unavailableServers);
-      // Update init status after refresh
-      const unavailable = data.unavailableServers ? Object.keys(data.unavailableServers).length : 0;
-      const discovered = data.tools ? Object.keys(data.tools).length : 0;
-      if (discovered === 0 && unavailable === 0) {
-        setMcpInitStatus("error");
-      } else if (unavailable === 0) {
-        setMcpInitStatus("ready");
-      } else if (discovered > 0) {
-        setMcpInitStatus("partial");
-      } else {
-        setMcpInitStatus("error");
-      }
-    } catch (err: any) {
-      console.warn("Failed to refresh discovery catalog:", err);
+    setMcpInitStatus("loading");
+    const data = await runAction(
+      () => jarvisApi.refreshDiscovery(),
+      "Error al refrescar el catálogo de herramientas."
+    );
+    if (!data) {
       setMcpInitStatus("error");
-      setError(err.message || "Error al refrescar el catálogo de herramientas.");
+      return;
     }
-  }, []);
+    if (data.tools) setDiscoveredTools(data.tools);
+    if (data.unavailableServers) setUnavailableServers(data.unavailableServers);
+    setMcpInitStatus(resolveMcpStatus(countKeys(data.tools), countKeys(data.unavailableServers), "error"));
+  }, [runAction]);
 
-  // Limpiar vista local para iniciar una nueva consulta sin alterar el historial del backend
+  /** Limpia la vista local para iniciar una nueva consulta sin alterar el historial del backend. */
   const clearTaskView = useCallback(() => {
     userClearedViewRef.current = true;
     activeTaskIdRef.current = null;
@@ -513,72 +495,43 @@ export function useJarvis() {
     setError(null);
   }, []);
 
-  // Seleccionar tarea previa del historial para visualización de solo lectura
+  /** Selecciona una tarea previa del historial para visualización de solo lectura. */
   const selectHistoricalTask = useCallback(
     async (taskId: string) => {
-      let found = allTasks.find((t) => t.id === taskId) || allTasksRef.current.find((t) => t.id === taskId);
+      let found = allTasksRef.current.find((t) => t.id === taskId);
+
       // Los listados y el SSE no transportan `modelIterations`: si no hay traza conocida, se pide la tarea completa.
-      const knownIterations = iterationsByTaskRef.current[taskId];
-      const needsFullTask = !found
-        || (!(found.modelIterations && found.modelIterations.length > 0) && !(knownIterations && knownIterations.length > 0));
-      if (needsFullTask) {
+      const hasKnownTrace =
+        Boolean(found?.modelIterations?.length) || Boolean(iterationsByTaskRef.current[taskId]?.length);
+      if (!found || !hasKnownTrace) {
         try {
           const data = await jarvisApi.getState(taskId);
           if (data.task && data.task.id === taskId) {
-            const fetchedTask: Task = data.task;
-            found = fetchedTask;
-            setAllTasks((prev) => {
-              const idx = prev.findIndex((t) => t.id === taskId);
-              if (idx >= 0) {
-                const next = [...prev];
-                next[idx] = fetchedTask;
-                allTasksRef.current = next;
-                return next;
-              }
-              const next = [...prev, fetchedTask];
-              allTasksRef.current = next;
-              return next;
-            });
+            found = data.task;
+            upsertTask(data.task);
           }
         } catch (e) {
           console.warn("Failed to retrieve historical task:", e);
         }
       }
 
-      if (found) {
-        userClearedViewRef.current = false;
-        activeTaskIdRef.current = found.id;
-        taskRef.current = found;
-        setTask({ ...found });
-        setPendingApproval(null);
-        setError(null);
+      if (!found) return;
 
-        if (found.state === "WAITING_INPUT" && found.waitingReason === "user_answer") {
-          setUserQuestion(extractUserQuestion(found));
-        } else {
-          setUserQuestion(null);
-        }
-
-        // Restaurar eventos registrados para esta tarea
-        setEvents(eventsByTaskRef.current[found.id] || []);
-
-        // Restaurar iteraciones o reconstruirlas a partir del snapshot del task
-        const existingIter = iterationsByTaskRef.current[found.id] || [];
-        const finalIter = (found.modelIterations && found.modelIterations.length > 0)
-          ? found.modelIterations
-          : (existingIter.length > 0 ? existingIter : reconstructIterationsFromTask(found));
-        iterationsByTaskRef.current[found.id] = finalIter;
-        setModelIterations(finalIter);
-      }
+      userClearedViewRef.current = false;
+      showTask(found);
+      setPendingApproval(null);
+      setError(null);
+      setUserQuestion(extractUserQuestion(found));
+      setEvents(eventsByTaskRef.current[found.id] || []);
+      commitIterations(found.id, resolveIterations(found, iterationsByTaskRef.current[found.id]));
     },
-    [allTasks]
+    [upsertTask, showTask, commitIterations]
   );
 
-  // Los campos crudos que antes duplicaban la traza (rawInteractions, step/call rawInput) se derivan de modelIterations.
-  const taskView = useMemo(() => (task ? deriveTaskView(task, modelIterations) : task), [task, modelIterations]);
+  const clearError = useCallback(() => setError(null), []);
 
   return {
-    task: taskView,
+    task,
     allTasks,
     mode,
     setMode,
@@ -587,11 +540,10 @@ export function useJarvis() {
     events,
     modelIterations,
     discoveredTools,
-    extraCapabilities,
     unavailableServers,
     mcpInitStatus,
     error,
-    clearError: () => setError(null),
+    clearError,
     isExecuting: task?.state === "RUNNING",
     runTask,
     cancelTask,

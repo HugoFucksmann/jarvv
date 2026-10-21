@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
-import { ShieldAlert, Check, X, Loader2, Terminal, Copy } from "lucide-react";
+import { ShieldAlert, Check, X, Loader2, Terminal } from "lucide-react";
 import type { PendingApproval } from "../../../core/types.ts";
+import { CopyButton } from "../../Shared/CopyButton.tsx";
 
 interface ApprovalActionProps {
   pending: PendingApproval;
@@ -75,14 +76,6 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
   onDeny,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  const handleCopy = (key: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 1500);
-  };
-
   const handleApprove = useCallback(async () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -211,15 +204,12 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => handleCopy("primary", primaryContent!)}
-              className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 hover:bg-amber-900/80 border border-amber-800/80 text-amber-300 hover:text-white transition-colors cursor-pointer"
+            <CopyButton
+              text={primaryContent}
               title="Copiar contenido exacto al portapapeles"
-            >
-              {copiedKey === "primary" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-              <span>{copiedKey === "primary" ? "Copiado!" : "Copiar"}</span>
-            </button>
+              copiedLabel="Copiado!"
+              className="gap-1 text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950 hover:bg-amber-900/80 border border-amber-800/80 text-amber-300 hover:text-white"
+            />
           </div>
           <pre className="p-2 rounded bg-black/60 border border-amber-950 text-amber-100 font-mono text-xs whitespace-pre-wrap break-all leading-relaxed max-h-56 overflow-y-auto selection:bg-amber-900/60">
             {renderWithVisibleControlChars(primaryContent)}
@@ -244,14 +234,11 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
                   <div key={k} className="flex flex-col gap-1 p-2 rounded bg-slate-950/60 border border-amber-900/50">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-amber-400 font-semibold">{k}:</span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(k, strVal)}
-                        className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded hover:bg-amber-900/60 text-amber-400 hover:text-white transition-colors cursor-pointer"
-                      >
-                        {copiedKey === k ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        <span>{copiedKey === k ? "Copiado!" : "Copiar"}</span>
-                      </button>
+                      <CopyButton
+                        text={strVal}
+                        copiedLabel="Copiado!"
+                        className="gap-1 text-[10px] px-1.5 py-0.2 rounded hover:bg-amber-900/60 text-amber-400 hover:text-white"
+                      />
                     </div>
                     <pre className="p-1.5 rounded bg-black/50 text-amber-100 whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-[11px] leading-relaxed">
                       {renderWithVisibleControlChars(strVal)}

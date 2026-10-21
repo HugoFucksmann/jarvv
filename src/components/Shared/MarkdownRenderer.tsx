@@ -1,5 +1,6 @@
-import React, { useState } from "react";
-import { Copy, Check, Terminal } from "lucide-react";
+import React, { useMemo } from "react";
+import { Terminal } from "lucide-react";
+import { CopyButton } from "./CopyButton.tsx";
 
 interface MarkdownRendererProps {
   content: string;
@@ -73,7 +74,7 @@ function renderInline(text: string): React.ReactNode[] {
       );
     } else if (token.startsWith("[") && token.includes("](") && token.endsWith(")")) {
       const linkMatch = token.match(/^\[(.*?)\]\((.*?)\)$/);
-      if (linkMatch) {
+      if (linkMatch && /^(https?:|mailto:)/i.test(linkMatch[2].trim())) {
         nodes.push(
           <a
             key={key}
@@ -249,26 +250,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   content,
   className = "",
 }) => {
-  const [copiedCodeIndex, setCopiedCodeIndex] = useState<number | null>(null);
-
-  const handleCopyCode = async (code: string, idx: number) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedCodeIndex(idx);
-      setTimeout(() => setCopiedCodeIndex(null), 2000);
-    } catch (err) {
-      console.error("Error al copiar código:", err);
-    }
-  };
-
-  const blocks = parseBlocks(content);
+  const blocks = useMemo(() => parseBlocks(content), [content]);
 
   return (
     <div className={`flex flex-col gap-3 text-slate-200 text-sm leading-relaxed ${className}`}>
       {blocks.map((block, idx) => {
         switch (block.type) {
           case "code": {
-            const isCopied = copiedCodeIndex === idx;
             return (
               <div
                 key={idx}
@@ -279,24 +267,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     <Terminal className="w-3.5 h-3.5 text-sky-400" />
                     <span className="font-semibold text-slate-300 uppercase">{block.language}</span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyCode(block.code, idx)}
-                    aria-label={`Copiar fragmento de código ${block.language}`}
-                    className="flex items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-                  >
-                    {isCopied ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        <span className="text-emerald-400">Copiado</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        <span>Copiar</span>
-                      </>
-                    )}
-                  </button>
+                  <CopyButton
+                    text={block.code}
+                    ariaLabel={`Copiar fragmento de código ${block.language}`}
+                    className="gap-1 text-slate-400 hover:text-slate-200"
+                  />
                 </div>
                 <pre className="p-3 overflow-x-auto text-slate-200 text-xs leading-relaxed font-mono whitespace-pre">
                   <code>{block.code}</code>

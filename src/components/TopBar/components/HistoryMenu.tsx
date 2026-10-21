@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { History, ChevronDown, Check } from "lucide-react";
 import type { Task } from "../../../core/types.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
+import { getTaskStatusType } from "../../../utils/taskStatus.ts";
 
 interface HistoryMenuProps {
   tasks: Task[];
@@ -17,44 +18,38 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Cierra el menú al hacer click fuera o presionar Escape.
   useEffect(() => {
+    if (!isOpen) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
     };
   }, [isOpen]);
 
   if (tasks.length === 0) return null;
 
-  const getStatusType = (state: Task["state"]) => {
-    switch (state) {
-      case "RUNNING":
-        return "running";
-      case "COMPLETED":
-        return "completed";
-      case "FAILED":
-        return "failed";
-      case "PARTIAL":
-        return "unverified";
-      default:
-        return "idle";
-    }
-  };
-
   return (
     <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen((open) => !open)}
         title="Historial de tareas de la sesión"
         aria-label="Abrir historial de tareas"
+        aria-haspopup="true"
+        aria-expanded={isOpen}
         className="flex items-center gap-1.5 px-2 py-1 text-xs font-mono text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded transition-colors cursor-pointer"
       >
         <History className="w-3.5 h-3.5 text-sky-400" />
@@ -78,19 +73,16 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   onSelectTask(t.id);
                   setIsOpen(false);
                 }}
-                className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${
-                  isSelected
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
-                }`}
+                className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${isSelected
+                  ? "bg-slate-800 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
+                  }`}
               >
                 <div className="mt-1">
-                  <StatusDot status={getStatusType(t.state)} />
+                  <StatusDot status={getTaskStatusType(t.state)} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="truncate text-xs font-sans text-slate-200">
-                    {t.message}
-                  </span>
+                  <span className="truncate text-xs font-sans text-slate-200">{t.message}</span>
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
                     <span>{t.mode}</span>
                     <span aria-hidden="true">·</span>

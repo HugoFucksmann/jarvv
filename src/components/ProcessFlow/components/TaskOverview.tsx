@@ -1,125 +1,80 @@
 import React from "react";
+import { Plus } from "lucide-react";
 import type { Task } from "../../../core/types.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
-import { Plus } from "lucide-react";
+import { Separator } from "../../Shared/Separator.tsx";
+import { getTaskStatusType, getTaskStateLabel } from "../../../utils/taskStatus.ts";
 
 interface TaskOverviewProps {
   task: Task;
   onNewTask?: () => void;
 }
 
-export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) => {
-  const getStatusText = () => {
-    switch (task.state) {
-      case "RUNNING":
-        return "En ejecución";
-      case "WAITING_INPUT":
-        if (task.waitingReason === "approval") return "Esperando aprobación Guard";
-        if (task.waitingReason === "plan_confirmation") return "Esperando confirmación de plan";
-        if (task.waitingReason === "user_answer") return "Esperando respuesta del usuario";
-        return "Esperando interacción";
-      case "COMPLETED":
-        return "Completada";
-      case "PARTIAL":
-        return "Parcialmente Completada";
-      case "FAILED":
-        return "Fallida";
-      case "CANCELLED":
-        return "Cancelada";
-      default:
-        return task.state;
-    }
-  };
-
-  const getStatusType = () => {
-    switch (task.state) {
-      case "RUNNING":
-        return "running";
-      case "WAITING_INPUT":
-        return "approval";
-      case "COMPLETED":
-        return "completed";
-      case "PARTIAL":
-        return "unverified";
-      case "FAILED":
-        return "failed";
-      case "CANCELLED":
-        return "idle";
-      default:
-        return "idle";
-    }
-  };
-
+function getProgressText(task: Task): string {
   const activeSteps = task.steps.filter((s) => !s.superseded);
   const totalSteps = activeSteps.length;
+
+  if (totalSteps === 0) return "Respuesta directa";
+
   const completedSteps = activeSteps.filter((s) => s.state === "COMPLETED").length;
   const activeStepProgress = task.steps
     .slice(0, task.currentStep + 1)
     .filter((s) => !s.superseded).length;
 
-  const getProgressText = () => {
-    if (totalSteps === 0) {
-      return "Respuesta directa";
-    }
-
-    if (task.state === "COMPLETED") {
+  switch (task.state) {
+    case "COMPLETED":
       return `${completedSteps} de ${totalSteps} ${totalSteps === 1 ? "paso completado" : "pasos completados"}`;
-    }
-
-    if (task.state === "FAILED") {
+    case "FAILED":
       return `Falló en paso ${Math.max(1, activeStepProgress)} (${completedSteps} completados)`;
-    }
-
-    if (task.state === "CANCELLED") {
+    case "CANCELLED":
       return `Cancelada (${completedSteps} de ${totalSteps} completados)`;
-    }
-
-    if (task.state === "PARTIAL") {
+    case "PARTIAL":
       return `Parcial (${completedSteps} de ${totalSteps} completados)`;
-    }
+  }
 
-    if (task.mode === "PLAN") {
-      const current = Math.min(Math.max(1, activeStepProgress), totalSteps);
-      return `Paso ${current} de ${totalSteps}`;
-    }
+  if (task.mode === "PLAN") {
+    const current = Math.min(Math.max(1, activeStepProgress), totalSteps);
+    return `Paso ${current} de ${totalSteps}`;
+  }
 
-    const currentSeq = Math.max(1, task.currentStep + 1);
-    return totalSteps > currentSeq
-      ? `Paso ${currentSeq} de ${totalSteps}`
-      : `Paso ${currentSeq}`;
-  };
+  const currentSeq = Math.max(1, task.currentStep + 1);
+  return totalSteps > currentSeq ? `Paso ${currentSeq} de ${totalSteps}` : `Paso ${currentSeq}`;
+}
+
+export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) => {
+  const replans = task.replans ?? 0;
+  const escalations = task.escalations ?? 0;
 
   return (
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
       <div className="flex items-center gap-2.5">
-        <StatusDot status={getStatusType()} />
-        <span className="text-sm font-semibold text-slate-100">
-          {task.message}
-        </span>
+        <StatusDot status={getTaskStatusType(task.state)} />
+        <span className="text-sm font-semibold text-slate-100">{task.message}</span>
       </div>
 
       <div className="flex items-center gap-2.5 text-xs font-mono text-slate-400 shrink-0">
-        <span className="text-slate-300 font-medium">{getStatusText()}</span>
-        <span aria-hidden="true" className="text-slate-600">·</span>
-        <span>Modo {task.mode === "NORMAL" ? "NORMAL (FAST)" : task.mode}</span>
-        <span aria-hidden="true" className="text-slate-600">·</span>
-        <span className="tabular-nums">
-          {getProgressText()}
+        <span className="text-slate-300 font-medium">
+          {getTaskStateLabel(task.state, task.waitingReason)}
         </span>
-        {task.replans && task.replans > 0 ? (
-          <>
-            <span aria-hidden="true" className="text-slate-600">·</span>
-            <span className="text-amber-400 font-semibold">Replans: {task.replans}</span>
-          </>
-        ) : null}
-        {task.escalations && task.escalations > 0 ? (
-          <>
-            <span aria-hidden="true" className="text-slate-600">·</span>
-            <span className="text-orange-400 font-semibold">Escalaciones: {task.escalations}</span>
-          </>
-        ) : null}
+        <Separator />
+        <span>Modo {task.mode === "NORMAL" ? "NORMAL (FAST)" : task.mode}</span>
+        <Separator />
+        <span className="tabular-nums">{getProgressText(task)}</span>
 
-        {/* Acción para iniciar nueva consulta cuando la tarea no esté en ejecución */}
+        {replans > 0 && (
+          <>
+            <Separator />
+            <span className="text-amber-400 font-semibold">Replans: {replans}</span>
+          </>
+        )}
+        {escalations > 0 && (
+          <>
+            <Separator />
+            <span className="text-orange-400 font-semibold">Escalaciones: {escalations}</span>
+          </>
+        )}
+
+        {/* Nueva consulta: disponible cuando la tarea no está en ejecución */}
         {task.state !== "RUNNING" && onNewTask && (
           <button
             type="button"

@@ -1,15 +1,79 @@
 import React, { useState, useMemo } from "react";
+import { ChevronDown, ChevronRight, Cpu, Layers, Activity } from "lucide-react";
 import type { CoreEvent, Task } from "../../core/types.ts";
 import type { ModelIteration } from "../../types/debug.ts";
 import { groupIterationsByStep } from "../../utils/debugAccumulator.ts";
 import { StepIterationGroup } from "./components/StepIterationGroup.tsx";
-import { ChevronDown, ChevronRight, Cpu, Copy, Check, Layers, Activity } from "lucide-react";
+import { CopyButton } from "../Shared/CopyButton.tsx";
+import { Separator } from "../Shared/Separator.tsx";
 
 interface DecisionStreamProps {
   events: CoreEvent[];
   modelIterations?: ModelIteration[];
   isExecuting?: boolean;
   task?: Task | null;
+}
+
+/** Eventos que se muestran en la traza operativa. */
+const TRACE_EVENT_TYPES = new Set<string>([
+  "DECISION_ONE",
+  "DECISION_TWO",
+  "ARGUMENTS_GENERATED",
+  "GUARD_EVALUATION",
+  "APPROVAL_REQUESTED",
+  "APPROVAL_RESOLVED",
+  "MCP_DISPATCHED",
+  "MCP_RESULT",
+  "RESULT_PROCESSED",
+  "STEP_STATE_CHANGED",
+  "STEP_COMPLETED",
+  "STAGE_VERIFIED",
+  "FINAL_RESPONSE",
+]);
+
+function getEventColorClass(type: string): string {
+  if (type.startsWith("DECISION")) return "text-sky-300";
+  if (type.startsWith("GUARD") || type.startsWith("APPROVAL")) return "text-amber-300";
+  if (type.startsWith("MCP")) return "text-emerald-300";
+  return "text-slate-300";
+}
+
+/** Resumen de una línea para cada tipo de evento de la traza. */
+function summarizeEvent(ev: CoreEvent): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = (ev.data ?? {}) as Record<string, any>;
+  const pct = (v: unknown) => `${((Number(v) || 0) * 100).toFixed(0)}%`;
+
+  switch (ev.type) {
+    case "ARGUMENTS_GENERATED":
+      return `args: ${JSON.stringify(d.args || {})}`;
+    case "GUARD_EVALUATION":
+      return `decisión: ${d.guardDecision?.decision || "ALLOW"}`;
+    case "MCP_DISPATCHED":
+      return `${d.mcp}:${d.tool}`;
+    case "DECISION_ONE":
+      return `ruta: ${d.route} (conf: ${pct(d.confidence)})`;
+    case "DECISION_TWO":
+      return `tool: ${d.tool} (conf: ${pct(d.confidence)})`;
+    case "RESULT_PROCESSED":
+      return `ok=${d.verification?.ok ?? d.isStepSuccess} cumple=${d.verification?.cumple ?? d.isStepSuccess} | ${(d.processed?.finding || "procesado").slice(0, 80)}`;
+    case "STAGE_VERIFIED":
+      return `etapa ${d.stageId || ""}: ${d.situation || "verificada"} (conf=${pct(d.confidence)})`;
+    case "PLAN_GENERATED":
+      return `Plan generado (${(d.steps || []).length} etapas)`;
+    case "PLAN_MODIFIED":
+      return `Plan modificado: ${d.feedback || "ajuste solicitado"}`;
+    case "PLAN_REJECTED":
+      return `Plan rechazado: ${d.reason || "cancelado por usuario"}`;
+    case "FINAL_RESPONSE":
+      return "Respuesta sintetizada";
+    case "STEP_STATE_CHANGED":
+      return `paso ${ev.stepId || ""}: estado -> ${d.state || d.step?.state}`;
+    case "STEP_COMPLETED":
+      return `paso ${ev.stepId || ""}: concluido (${d.step?.state || "COMPLETED"})${d.error ? ` [error: ${d.error}]` : ""}`;
+    default:
+      return JSON.stringify(ev.data || {});
+  }
 }
 
 export const DecisionStream: React.FC<DecisionStreamProps> = ({
@@ -19,86 +83,59 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
   task = null,
 }) => {
   const [showFullTrace, setShowFullTrace] = useState(false);
-  const [expandAllGroups, setExpandAllGroups] = useState<boolean | null>(false);
-  const [copiedAudit, setCopiedAudit] = useState(false);
+  const [expandAllGroups, setExpandAllGroups] = useState(false);
 
   // Agrupamiento estructurado por paso de ejecución
-  const stepGroups = useMemo(() => {
-    return groupIterationsByStep(modelIterations, task);
-  }, [modelIterations, task]);
+  const stepGroups = useMemo(
+    () => groupIterationsByStep(modelIterations, task),
+    [modelIterations, task],
+  );
 
-  // Si no hay eventos ni iteraciones, no renderizar nada
+  // Sin eventos ni iteraciones no hay nada que mostrar
   if (events.length === 0 && modelIterations.length === 0) return null;
 
   const totalEos = modelIterations.filter((m) => m.model === "EOS_0_8B").length;
   const totalQwen = modelIterations.filter((m) => m.model === "QWEN_3_5_9B").length;
+  const traceEvents = events.filter((e) => TRACE_EVENT_TYPES.has(e.type));
 
-  const relevantTraceEvents = events.filter((e) =>
-    [
-      "DECISION_ONE",
-      "DECISION_TWO",
-      "ARGUMENTS_GENERATED",
-      "GUARD_EVALUATION",
-      "APPROVAL_REQUESTED",
-      "APPROVAL_RESOLVED",
-      "MCP_DISPATCHED",
-      "MCP_RESULT",
-      "RESULT_PROCESSED",
-      "STEP_STATE_CHANGED",
-      "STEP_COMPLETED",
-      "STAGE_VERIFIED",
-      "FINAL_RESPONSE",
-    ].includes(e.type)
-  );
-
-  const handleCopyFullAudit = async () => {
-    try {
-      const payload = {
+  const buildAuditJson = () =>
+    JSON.stringify(
+      {
         taskId: task?.id || "current",
         exportedAt: new Date().toISOString(),
         totalIterations: modelIterations.length,
-        modelsSummary: {
-          eos_0_8b: totalEos,
-          qwen_3_5_9b: totalQwen,
-        },
+        modelsSummary: { eos_0_8b: totalEos, qwen_3_5_9b: totalQwen },
         iterations: modelIterations,
-      };
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-      setCopiedAudit(true);
-      setTimeout(() => setCopiedAudit(false), 2000);
-    } catch (err) {
-      console.error("Error al exportar auditoría de modelos:", err);
-    }
-  };
+      },
+      null,
+      2,
+    );
 
   return (
     <div className="flex flex-col gap-3 px-6 py-2">
-      {/* 1. Header de Observabilidad de Modelos con Controles Globales */}
+      {/* 1. Cabecera de observabilidad con controles globales */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2 flex-wrap text-slate-300 font-mono text-xs">
           <Cpu className="w-4 h-4 text-sky-400 shrink-0" />
-          <span className="font-semibold text-slate-200">
-            Historial de Iteraciones de Modelos
-          </span>
-          <span className="text-slate-600" aria-hidden="true">·</span>
+          <span className="font-semibold text-slate-200">Historial de Iteraciones de Modelos</span>
+          <Separator />
           <span className="text-slate-400 tabular-nums">
             {modelIterations.length} iteraciones registradas
           </span>
           {totalEos > 0 && (
             <>
-              <span className="text-slate-600" aria-hidden="true">·</span>
+              <Separator />
               <span className="text-sky-300 tabular-nums">{totalEos} Eos-0.8B</span>
             </>
           )}
           {totalQwen > 0 && (
             <>
-              <span className="text-slate-600" aria-hidden="true">·</span>
+              <Separator />
               <span className="text-indigo-300 tabular-nums">{totalQwen} Qwen 3.5 9B</span>
             </>
           )}
         </div>
 
-        {/* Acciones Globales */}
         <div className="flex items-center gap-2">
           {stepGroups.length > 0 && (
             <button
@@ -112,36 +149,26 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
           )}
 
           {modelIterations.length > 0 && (
-            <button
-              type="button"
-              onClick={handleCopyFullAudit}
+            <CopyButton
+              text={buildAuditJson}
+              label="Copiar Auditoría"
+              copiedLabel="Auditoría Copiada"
               title="Copiar auditoría completa de modelos en formato JSON"
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded transition-colors cursor-pointer"
-            >
-              {copiedAudit ? (
-                <>
-                  <Check className="w-3 h-3 text-emerald-400" />
-                  <span className="text-emerald-400 font-medium">Auditoría Copiada</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3 h-3 text-slate-400" />
-                  <span>Copiar Auditoría</span>
-                </>
-              )}
-            </button>
+              iconColor="text-slate-400"
+              className="gap-1 px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded"
+            />
           )}
         </div>
       </div>
 
-      {/* 2. Lista de Grupos de Iteraciones Agrupados por Paso */}
+      {/* 2. Iteraciones agrupadas por paso */}
       {stepGroups.length > 0 ? (
         <div className="flex flex-col gap-2.5">
           {stepGroups.map((group) => (
             <StepIterationGroup
               key={group.stepId}
               group={group}
-              isInitiallyExpanded={Boolean(expandAllGroups)}
+              isInitiallyExpanded={expandAllGroups}
             />
           ))}
         </div>
@@ -152,71 +179,41 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
         </div>
       ) : null}
 
-      {/* 3. Traza de Eventos Operativos en Vivo (Colapsable con recuento exacto) */}
-      {relevantTraceEvents.length > 0 && (
+      {/* 3. Traza de eventos operativos (colapsable) */}
+      {traceEvents.length > 0 && (
         <div className="flex flex-col border border-slate-800/80 rounded-lg bg-slate-900/30 overflow-hidden text-xs mt-1">
           <button
             type="button"
-            onClick={() => setShowFullTrace(!showFullTrace)}
+            onClick={() => setShowFullTrace((v) => !v)}
+            aria-expanded={showFullTrace}
             className="flex items-center justify-between px-3.5 py-2 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer bg-slate-950/40"
           >
             <div className="flex items-center gap-2 font-mono text-[11px]">
               <Activity className="w-3.5 h-3.5 text-sky-400" />
               <span className="font-medium text-slate-300">Traza de Eventos Operativos en Vivo</span>
-              <span className="text-slate-500">({relevantTraceEvents.length} eventos registrados)</span>
+              <span className="text-slate-500">({traceEvents.length} eventos registrados)</span>
             </div>
             {showFullTrace ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
 
           {showFullTrace && (
             <div className="flex flex-col divide-y divide-slate-800/50 max-h-52 overflow-y-auto font-mono text-[11px] p-1 bg-slate-950/30">
-              {[...relevantTraceEvents].reverse().map((ev, idx) => (
-                <div key={`trace-${ev.taskId}-${ev.timestamp}-${idx}`} className="flex items-start gap-2.5 py-1.5 px-2 hover:bg-slate-900/50 rounded">
+              {[...traceEvents].reverse().map((ev, idx) => (
+                <div
+                  key={`trace-${ev.taskId}-${ev.timestamp}-${idx}`}
+                  className="flex items-start gap-2.5 py-1.5 px-2 hover:bg-slate-900/50 rounded"
+                >
                   <span className="text-slate-500 shrink-0 tabular-nums">
-                    {new Date(ev.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    {new Date(ev.timestamp).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
                   </span>
-                  <span
-                    className={`font-semibold shrink-0 ${
-                      ev.type.startsWith("DECISION")
-                        ? "text-sky-300"
-                        : ev.type.startsWith("GUARD") || ev.type.startsWith("APPROVAL")
-                        ? "text-amber-300"
-                        : ev.type.startsWith("MCP")
-                        ? "text-emerald-300"
-                        : "text-slate-300"
-                    }`}
-                  >
+                  <span className={`font-semibold shrink-0 ${getEventColorClass(ev.type)}`}>
                     [{ev.type}]
                   </span>
-                  <span className="text-slate-400 truncate flex-1">
-                    {ev.type === "ARGUMENTS_GENERATED"
-                      ? `args: ${JSON.stringify(ev.data?.args || {})}`
-                      : ev.type === "GUARD_EVALUATION"
-                      ? `decisión: ${(ev.data?.guardDecision as any)?.decision || "ALLOW"}`
-                      : ev.type === "MCP_DISPATCHED"
-                      ? `${ev.data?.mcp}:${ev.data?.tool}`
-                      : ev.type === "DECISION_ONE"
-                      ? `ruta: ${ev.data?.route} (conf: ${((Number(ev.data?.confidence) || 0) * 100).toFixed(0)}%)`
-                      : ev.type === "DECISION_TWO"
-                      ? `tool: ${ev.data?.tool} (conf: ${((Number(ev.data?.confidence) || 0) * 100).toFixed(0)}%)`
-                      : ev.type === "RESULT_PROCESSED"
-                      ? `ok=${(ev.data as any)?.verification?.ok ?? (ev.data as any)?.isStepSuccess} cumple=${(ev.data as any)?.verification?.cumple ?? (ev.data as any)?.isStepSuccess} | ${((ev.data as any)?.processed?.finding || "procesado").slice(0, 80)}`
-                      : ev.type === "STAGE_VERIFIED"
-                      ? `etapa ${(ev.data as any)?.stageId || ""}: ${(ev.data as any)?.situation || "verificada"} (conf=${(((ev.data as any)?.confidence || 0) * 100).toFixed(0)}%)`
-                      : ev.type === "PLAN_GENERATED"
-                      ? `Plan generado (${((ev.data as any)?.steps || []).length} etapas)`
-                      : ev.type === "PLAN_MODIFIED"
-                      ? `Plan modificado: ${(ev.data as any)?.feedback || "ajuste solicitado"}`
-                      : ev.type === "PLAN_REJECTED"
-                      ? `Plan rechazado: ${(ev.data as any)?.reason || "cancelado por usuario"}`
-                      : ev.type === "FINAL_RESPONSE"
-                      ? "Respuesta sintetizada"
-                      : ev.type === "STEP_STATE_CHANGED"
-                      ? `paso ${ev.stepId || ""}: estado -> ${(ev.data as any)?.state || (ev.data as any)?.step?.state}`
-                      : ev.type === "STEP_COMPLETED"
-                      ? `paso ${ev.stepId || ""}: concluido (${(ev.data as any)?.step?.state || "COMPLETED"})${(ev.data as any)?.error ? ` [error: ${(ev.data as any).error}]` : ""}`
-                      : JSON.stringify(ev.data || {})}
-                  </span>
+                  <span className="text-slate-400 truncate flex-1">{summarizeEvent(ev)}</span>
                 </div>
               ))}
             </div>

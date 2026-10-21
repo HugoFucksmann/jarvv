@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, Layers, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type { StepIterationGroupData } from "../../../types/debug.ts";
 import type { ExecutableRoute } from "../../../core/types.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { ModelIterationCard } from "./ModelIterationCard.tsx";
+import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
+import { Separator } from "../../Shared/Separator.tsx";
 
 interface StepIterationGroupProps {
   group: StepIterationGroupData;
@@ -16,56 +18,44 @@ export const StepIterationGroup: React.FC<StepIterationGroupProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(isInitiallyExpanded);
 
+  // El control global "Expandir/Colapsar todos" sobrescribe el estado local del grupo
   useEffect(() => {
-    if (isInitiallyExpanded !== undefined) {
-      setIsExpanded(isInitiallyExpanded);
-    }
+    setIsExpanded(isInitiallyExpanded);
   }, [isInitiallyExpanded]);
 
   const eosCount = group.iterations.filter((it) => it.model === "EOS_0_8B").length;
   const qwenCount = group.iterations.filter((it) => it.model === "QWEN_3_5_9B").length;
-
-  const renderStatusIcon = () => {
-    switch (group.state) {
-      case "COMPLETED":
-        return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
-      case "RUNNING":
-        return <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />;
-      case "FAILED":
-        return <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />;
-      default:
-        return <Layers className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
-    }
-  };
+  const breakdown = [eosCount > 0 && `${eosCount} Eos`, qwenCount > 0 && `${qwenCount} Qwen`]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="flex flex-col rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden text-xs">
-      {/* Group Header */}
+      {/* Cabecera del grupo */}
       <button
         type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={() => setIsExpanded((v) => !v)}
+        aria-expanded={isExpanded}
         className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950/70 hover:bg-slate-900/80 transition-colors text-left cursor-pointer border-b border-slate-800/60"
       >
         <div className="flex items-center gap-2 flex-wrap text-slate-300 font-mono text-[11px]">
-          {renderStatusIcon()}
-          <span className="font-semibold text-slate-200">
-            {group.stepTitle}
-          </span>
+          <StepStatusIcon state={group.state} size="sm" />
+          <span className="font-semibold text-slate-200">{group.stepTitle}</span>
           {group.route && (
             <>
-              <span className="text-slate-600" aria-hidden="true">·</span>
+              <Separator />
               <span className="text-sky-300">{getRouteLabel(group.route as ExecutableRoute)}</span>
             </>
           )}
           {group.tool && (
             <>
-              <span className="text-slate-600" aria-hidden="true">·</span>
+              <Separator />
               <span className="text-emerald-300 font-medium">{group.tool}</span>
             </>
           )}
-          <span className="text-slate-600" aria-hidden="true">·</span>
+          <Separator />
           <span className="text-slate-400">
-            {group.iterations.length} iteraciones ({eosCount > 0 ? `${eosCount} Eos` : ""}{eosCount > 0 && qwenCount > 0 ? " · " : ""}{qwenCount > 0 ? `${qwenCount} Qwen` : ""})
+            {group.iterations.length} iteraciones{breakdown && ` (${breakdown})`}
           </span>
         </div>
 
@@ -75,15 +65,11 @@ export const StepIterationGroup: React.FC<StepIterationGroupProps> = ({
         </div>
       </button>
 
-      {/* Group Content — Model cards are minimized/collapsed by default */}
+      {/* Contenido: las tarjetas de modelo arrancan minimizadas */}
       {isExpanded && (
         <div className="flex flex-col gap-2 p-3 bg-slate-950/20">
           {group.iterations.map((iteration) => (
-            <ModelIterationCard
-              key={iteration.id}
-              iteration={iteration}
-              isInitiallyExpanded={false}
-            />
+            <ModelIterationCard key={iteration.id} iteration={iteration} isInitiallyExpanded={false} />
           ))}
         </div>
       )}

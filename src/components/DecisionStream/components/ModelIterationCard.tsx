@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react";
 import {
-  Copy,
-  Check,
   ChevronDown,
   ChevronRight,
   Cpu,
@@ -15,6 +13,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import type { ModelIteration } from "../../../types/debug.ts";
+import { CopyButton } from "../../Shared/CopyButton.tsx";
 
 interface ModelIterationCardProps {
   iteration: ModelIteration;
@@ -27,7 +26,6 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(isInitiallyExpanded);
   const [activeTab, setActiveTab] = useState<"detail" | "input" | "output">("detail");
-  const [isCopied, setIsCopied] = useState(false);
 
   useEffect(() => {
     if (isInitiallyExpanded !== undefined) {
@@ -63,50 +61,15 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
     }
   };
 
-  const [isCopiedInput, setIsCopiedInput] = useState(false);
-  const [isCopiedOutput, setIsCopiedOutput] = useState(false);
-
   const displayInput = iteration.rawInput || (typeof iteration.input === "string" ? iteration.input : JSON.stringify(iteration.input, null, 2));
   const displayOutput = iteration.rawOutput || (typeof iteration.output === "string" ? iteration.output : JSON.stringify(iteration.output, null, 2));
 
-  const handleCopyInput = async (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(displayInput);
-      setIsCopiedInput(true);
-      setTimeout(() => setIsCopiedInput(false), 2000);
-    } catch (err) {
-      console.error("Error al copiar entrada:", err);
-    }
-  };
-
-  const handleCopyOutput = async (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(displayOutput);
-      setIsCopiedOutput(true);
-      setTimeout(() => setIsCopiedOutput(false), 2000);
-    } catch (err) {
-      console.error("Error al copiar salida:", err);
-    }
-  };
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      if (activeTab === "input") {
-        await handleCopyInput(e);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000);
-        return;
-      }
-      if (activeTab === "output") {
-        await handleCopyOutput(e);
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000);
-        return;
-      }
-      const payload = {
+  // Lo que copia el botón del encabezado depende de la pestaña activa
+  const getHeaderCopyText = () => {
+    if (activeTab === "input") return displayInput;
+    if (activeTab === "output") return displayOutput;
+    return JSON.stringify(
+      {
         id: iteration.id,
         timestamp: new Date(iteration.timestamp).toISOString(),
         model: iteration.model,
@@ -118,13 +81,10 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
         rawOutput: displayOutput,
         input: iteration.input,
         output: iteration.output,
-      };
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2000);
-    } catch (err) {
-      console.error("Error al copiar iteración:", err);
-    }
+      },
+      null,
+      2,
+    );
   };
 
   const formattedTime = new Date(iteration.timestamp).toLocaleTimeString([], {
@@ -135,7 +95,6 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
   // Extracción de datos específicos según etapa
   const outputData = (typeof iteration.output === "object" && iteration.output !== null ? iteration.output : {}) as any;
-  const inputData = (typeof iteration.input === "object" && iteration.input !== null ? iteration.input : {}) as any;
 
   // Decision One (Routing)
   const d1Route = outputData.rutaSeleccionada || outputData.route;
@@ -258,10 +217,10 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                 stageStatus === "completed"
                   ? "text-emerald-400 font-semibold"
                   : stageStatus === "recoverable_deviation"
-                  ? "text-amber-400 font-semibold"
-                  : stageStatus === "insufficient_info"
-                  ? "text-sky-300 font-semibold"
-                  : "text-rose-400 font-semibold"
+                    ? "text-amber-400 font-semibold"
+                    : stageStatus === "insufficient_info"
+                      ? "text-sky-300 font-semibold"
+                      : "text-rose-400 font-semibold"
               }>
                 {stageStatus === "completed" ? "✓ Etapa Completada" : stageStatus}
               </span>
@@ -280,9 +239,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
           {iteration.metrics?.verdict && (
             <>
               <span className="text-slate-600" aria-hidden="true">·</span>
-              <span className={`font-semibold flex items-center gap-1 ${
-                iteration.metrics.isStepSuccess !== false ? "text-emerald-400" : "text-rose-400"
-              }`}>
+              <span className={`font-semibold flex items-center gap-1 ${iteration.metrics.isStepSuccess !== false ? "text-emerald-400" : "text-rose-400"
+                }`}>
                 {iteration.metrics.isStepSuccess !== false ? (
                   <ShieldCheck className="w-3 h-3 inline" />
                 ) : (
@@ -296,24 +254,14 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
         {/* Acciones del encabezado */}
         <div className="flex items-center gap-1 shrink-0 ml-2">
-          <button
-            type="button"
-            onClick={handleCopy}
-            title={activeTab === "input" ? "Copiar entrada cruda al portapapeles" : (activeTab === "output" ? "Copiar salida cruda al portapapeles" : "Copiar datos completos de la iteración en JSON")}
-            className="flex items-center gap-1 px-2 py-0.5 text-[11px] font-mono rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors cursor-pointer"
-          >
-            {isCopied ? (
-              <>
-                <Check className="w-3 h-3 text-emerald-400" />
-                <span className="text-emerald-400 font-medium">Copiado</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3 text-slate-400" />
-                <span>{activeTab === "input" ? "Copiar Entrada" : (activeTab === "output" ? "Copiar Salida" : "Copiar")}</span>
-              </>
-            )}
-          </button>
+          <CopyButton
+            text={getHeaderCopyText}
+            label={activeTab === "input" ? "Copiar Entrada" : activeTab === "output" ? "Copiar Salida" : "Copiar"}
+            title={activeTab === "input" ? "Copiar entrada cruda al portapapeles" : activeTab === "output" ? "Copiar salida cruda al portapapeles" : "Copiar datos completos de la iteración en JSON"}
+            iconColor="text-slate-400"
+            stopPropagation
+            className="gap-1 px-2 py-0.5 text-[11px] font-mono rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+          />
         </div>
       </div>
 
@@ -329,9 +277,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   e.stopPropagation();
                   setActiveTab("detail");
                 }}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                  activeTab === "detail" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
-                }`}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === "detail" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
+                  }`}
               >
                 Panel Estructurado
               </button>
@@ -341,9 +288,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   e.stopPropagation();
                   setActiveTab("input");
                 }}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                  activeTab === "input" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
-                }`}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === "input" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
+                  }`}
               >
                 Entrada (Prompt)
               </button>
@@ -353,9 +299,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   e.stopPropagation();
                   setActiveTab("output");
                 }}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                  activeTab === "output" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
-                }`}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === "output" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
+                  }`}
               >
                 Salida (JSON)
               </button>
@@ -407,11 +352,10 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                           return (
                             <div
                               key={key}
-                              className={`p-1.5 rounded border text-[11px] ${
-                                isSelected
+                              className={`p-1.5 rounded border text-[11px] ${isSelected
                                   ? "bg-sky-950/60 border-sky-800 text-sky-200 font-semibold"
                                   : "bg-slate-900/50 border-slate-800 text-slate-400"
-                              }`}
+                                }`}
                             >
                               <div className="flex justify-between items-center">
                                 <span>{key}</span>
@@ -466,11 +410,10 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                             return (
                               <div
                                 key={key}
-                                className={`flex items-center justify-between p-1.5 rounded border text-[11px] ${
-                                  isSelected
+                                className={`flex items-center justify-between p-1.5 rounded border text-[11px] ${isSelected
                                     ? "bg-emerald-950/60 border-emerald-800 text-emerald-200 font-semibold"
                                     : "bg-slate-900/50 border-slate-800 text-slate-400"
-                                }`}
+                                  }`}
                               >
                                 <span className="truncate mr-2">{key}</span>
                                 <span className={isSelected ? "text-emerald-300" : "text-slate-500"}>{pct}%</span>
@@ -542,15 +485,14 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 text-slate-300">
                     <div className="flex items-center gap-2">
                       <span className="text-slate-500 font-medium">Veredicto Semántico:</span>
-                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${
-                        stageStatus === "completed"
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${stageStatus === "completed"
                           ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
                           : stageStatus === "recoverable_deviation"
-                          ? "bg-amber-950/80 text-amber-300 border-amber-800"
-                          : stageStatus === "insufficient_info"
-                          ? "bg-sky-950/80 text-sky-300 border-sky-800"
-                          : "bg-rose-950/80 text-rose-300 border-rose-800"
-                      }`}>
+                            ? "bg-amber-950/80 text-amber-300 border-amber-800"
+                            : stageStatus === "insufficient_info"
+                              ? "bg-sky-950/80 text-sky-300 border-sky-800"
+                              : "bg-rose-950/80 text-rose-300 border-rose-800"
+                        }`}>
                         {stageStatus === "completed" && "COMPLETED (Objetivo Cumplido)"}
                         {stageStatus === "recoverable_deviation" && "RECOVERABLE_DEVIATION (Desviación)"}
                         {stageStatus === "insufficient_info" && "INSUFFICIENT_INFO (Requiere Respuesta)"}
@@ -614,24 +556,14 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                 <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
                   Entrada Cruda ({isEos ? "Payload { state, questions } enviado a Eos" : "Payload JSON completo enviado a Qwen"})
                 </span>
-                <button
-                  type="button"
-                  onClick={handleCopyInput}
+                <CopyButton
+                  text={displayInput}
+                  label="Copiar entrada cruda"
                   title="Copiar string crudo completo de entrada"
-                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
-                >
-                  {isCopiedInput ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-400" />
-                      <span className="text-emerald-400 font-medium">Copiado</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 text-slate-400" />
-                      <span>Copiar entrada cruda</span>
-                    </>
-                  )}
-                </button>
+                  iconColor="text-slate-400"
+                  stopPropagation
+                  className="gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
+                />
               </div>
               <pre className="text-slate-200 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed text-[11px] font-mono select-text p-1 bg-slate-950/40 rounded">
                 {displayInput}
@@ -645,24 +577,14 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                 <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
                   Salida Cruda ({isEos ? "Respuesta original devuelta por Eos" : "Respuesta original devuelta por Qwen"})
                 </span>
-                <button
-                  type="button"
-                  onClick={handleCopyOutput}
+                <CopyButton
+                  text={displayOutput}
+                  label="Copiar salida cruda"
                   title="Copiar string crudo completo de salida"
-                  className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer"
-                >
-                  {isCopiedOutput ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-400" />
-                      <span className="text-emerald-400 font-medium">Copiado</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 text-slate-400" />
-                      <span>Copiar salida cruda</span>
-                    </>
-                  )}
-                </button>
+                  iconColor="text-slate-400"
+                  stopPropagation
+                  className="gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
+                />
               </div>
               <pre className="text-slate-200 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed text-[11px] font-mono select-text p-1 bg-slate-950/40 rounded">
                 {displayOutput}
