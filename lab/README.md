@@ -32,9 +32,9 @@ En el núcleo de JARVIS (`src/types/debug.ts`), las etapas se identifican con id
 | `arguments` | `ARGUMENT_GENERATION` | Qwen 3.5 9B | **Implementada** |
 | `decision_two` | `DECISION_TWO` | Eos-0.8B | **Implementada** (Fase B) |
 | `step_verification` | `STEP_VERIFICATION` | Eos-0.8B | **Implementada** (Fase B) |
-| `plan` | `PLAN_GENERATION` | Qwen 3.5 9B | *Pendiente (Fase C)* |
-| `replan` | `REPLAN` | Qwen 3.5 9B | *Pendiente (Fase C)* |
-| `stage_verification` | `STAGE_VERIFICATION` | Qwen 3.5 9B | *Pendiente (Fase C)* |
+| `stage_verification` | `STAGE_VERIFICATION` | Qwen 3.5 9B | **Implementada** (Fase C) |
+| `plan` | `PLAN_GENERATION` | Qwen 3.5 9B | **Implementada** (Fase C) |
+| `replan` | `REPLAN` | Qwen 3.5 9B | **Implementada** (Fase C) |
 | `final_response` | `FINAL_RESPONSE` | Qwen 3.5 9B | *Pendiente (Fase D)* |
 
 ---
@@ -84,13 +84,29 @@ npx tsx lab/run.ts step_verification example-strict-instructions --split dev
 # Qwen: Arguments (repeticiones = 3 por defecto)
 npx tsx lab/run.ts arguments stable
 npx tsx lab/run.ts arguments example-strict-refs --split test
+
+# Qwen: Stage Verification (supervisión semántica de etapa)
+npx tsx lab/run.ts stage_verification stable
+npx tsx lab/run.ts stage_verification example-strict-evidence --split dev
+
+# Qwen: Plan (plan inicial con thinking)
+npx tsx lab/run.ts plan stable
+npx tsx lab/run.ts plan example-concise-plan --split dev
+
+# Qwen: Replan (replanificación localizada con thinking)
+npx tsx lab/run.ts replan stable
+npx tsx lab/run.ts replan example-conservative-replan --split dev
+
+# Correr un único caso específico con --case
+npx tsx lab/run.ts plan stable --case example-create-plan
 ```
-- **Calentamiento (Warmup - Ajuste B)**: Ejecuta una llamada de calentamiento previa por etapa antes de medir; esta llamada se descarta de todas las métricas de latencia y se preserva en `RunResult.warmup`.
-- **Determinismo de Eos (Ajuste A)**: `lab/config.json` configura 1 repetición para etapas de Eos (`decision_one`, `decision_two`, `step_verification`). Qwen mantiene 3 repeticiones para capturar variación estocástica.
+- **Calentamiento (Warmup)**: Ejecuta una llamada de calentamiento mínima previa por modelo antes de medir (para Qwen: prompt mínimo de 16 tokens sin thinking; para Eos: decide mínimo). Se descarta de las métricas. Nunca se ejecuta una llamada real de plan o replan en el warmup.
+- **Determinismo de Eos**: `lab/config.json` configura 1 repetición para etapas de Eos (`decision_one`, `decision_two`, `step_verification`). Qwen configura 3 para `arguments` y `stage_verification`, y 2 para `plan` y `replan`.
 - **Detección temprana de caídas**: Si el endpoint está desconectado (`ECONNREFUSED`), aborta de inmediato con código 1 sin guardar archivos corruptos en disco.
 - **Registro atómico**: Genera un archivo inmutable en `lab/results/<timestamp>-<etapa>-<variante>.json` (con flag `wx` para evitar sobreescrituras).
-- **Métricas y Probabilidades**: Guarda la probabilidad de la opción esperada en `decision_one` y `decision_two` (`choice_equals`), y las probabilidades individuales de `ok` y `cumple` y el veredicto de aprobación en `step_verification` (`noul_approved`).
-- **Chequeo de fidelidad**: Para Qwen con prompt estable, advierte si el prompt SYSTEM vivo de `prompts.ts` o los parámetros del body difieren de los grabados en la traza.
+- **Métricas y Probabilidades**: Guarda probabilidades para Eos y veredictos descriptivos para plan/replan (pasos, rutas y acción) y stage_verification (status y pregunta al usuario).
+- **Chequeo de fidelidad (B2)**: Para etapas de Qwen con prompt estable, advierte si el prompt SYSTEM vivo de `prompts.ts` o los parámetros del body difieren de los grabados. Si un caso no incluye `reference.recordedParams`, emite advertencia explícita y la guarda en el resultado.
+- **Sufijo en Decision #2 (B1)**: Si una herramienta en el caso termina con `[last attempt failed]`, una variante que sobrescribe su descripción reemplaza la parte base y conserva el sufijo.
 
 ### C. Comparar dos corridas
 ```bash
@@ -99,8 +115,11 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 - Valida la integridad de ambas corridas: rechaza corridas con errores de conexión o con 100% de errores en sus repeticiones.
 - Valida que ambas corridas cubran exactamente los mismos casos y repeticiones.
 - Informa split evaluado, tasa de acierto global, latencia promedio y **mediana de latencia**.
+- Desglosa checks individuales por caso para A y B.
 - Para Eos (`decision_one`, `decision_two`), muestra por caso la probabilidad de la opción esperada en A y B y su diferencia porcentual ($p_B - p_A$).
 - Para Eos (`step_verification`), muestra por caso las probabilidades de `ok` y `cumple`, sus diferencias y el veredicto de aprobación de Eos (`ok > 0.5 && cumple > 0.5`).
+- Para `plan` y `replan`, muestra descriptivamente la cantidad de pasos planificados, las rutas sugeridas y la acción (`continue` / `abort`).
+- Para `stage_verification`, muestra el status obtenido y si se formuló pregunta al usuario.
 
 ---
 

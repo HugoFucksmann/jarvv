@@ -18,7 +18,11 @@ import {
   decisionOneStage,
   decisionTwoStage,
   eosStage,
+  planStage,
+  replanStage,
+  stageVerificationStage,
   stepVerificationStage,
+  warmupQwen,
   LabConnectionError,
   LabValidationError,
 } from "./adapter.ts";
@@ -165,19 +169,150 @@ function evaluateChecks(
       });
       continue;
     }
+
+    if (check.type === "status_equals") {
+      const actualStatus = parsedOutput?.status;
+      const passed = actualStatus === check.expected;
+      results.push({
+        check: `status_equals("${check.expected}")`,
+        passed,
+        message: passed
+          ? undefined
+          : `Status esperado: "${check.expected}", recibido: "${actualStatus ?? "indefinido"}"`,
+      });
+      continue;
+    }
+
+    if (check.type === "has_question_for_user") {
+      const q = parsedOutput?.question_for_user;
+      const hasQ = typeof q === "string" && q.trim().length > 0;
+      const passed = hasQ === check.expected;
+      results.push({
+        check: `has_question_for_user(${check.expected})`,
+        passed,
+        message: passed
+          ? undefined
+          : `Se esperaba pregunta al usuario=${check.expected}, recibido question_for_user=${JSON.stringify(q ?? "")}`,
+      });
+      continue;
+    }
+
+    if (check.type === "action_equals") {
+      const actualAction = parsedOutput?.action;
+      const passed = actualAction === check.expected;
+      results.push({
+        check: `action_equals("${check.expected}")`,
+        passed,
+        message: passed
+          ? undefined
+          : `Acción esperada: "${check.expected}", recibida: "${actualAction ?? "indefinida"}"`,
+      });
+      continue;
+    }
+
+    if (check.type === "min_steps") {
+      const steps = Array.isArray(parsedOutput?.steps) ? parsedOutput.steps : [];
+      const passed = steps.length >= check.count;
+      results.push({
+        check: `min_steps(>= ${check.count})`,
+        passed,
+        message: passed ? undefined : `Pasos mínimos requeridos: ${check.count}, pasos generados: ${steps.length}`,
+      });
+      continue;
+    }
+
+    if (check.type === "max_steps") {
+      const steps = Array.isArray(parsedOutput?.steps) ? parsedOutput.steps : [];
+      const passed = steps.length <= check.count;
+      results.push({
+        check: `max_steps(<= ${check.count})`,
+        passed,
+        message: passed ? undefined : `Pasos máximos permitidos: ${check.count}, pasos generados: ${steps.length}`,
+      });
+      continue;
+    }
+
+    if (check.type === "routes_allowed") {
+      const allowed = check.allowedRoutes || ["files", "locate", "terminal", "web"];
+      const steps = Array.isArray(parsedOutput?.steps) ? parsedOutput.steps : [];
+      const routes = steps.map((s: any) => s.route || s.suggested_mcp);
+      const invalidRoutes = routes.filter((r: any) => typeof r !== "string" || !allowed.includes(r));
+      const passed = steps.length === 0 || invalidRoutes.length === 0;
+      results.push({
+        check: `routes_allowed([${allowed.join(", ")}])`,
+        passed,
+        message: passed
+          ? undefined
+          : `Rutas no permitidas detectadas: [${invalidRoutes.join(", ")}]. Rutas en plan: [${routes.join(", ")}]`,
+      });
+      continue;
+    }
+
+    if (check.type === "contains_text") {
+      const text = typeof parsedOutput === "string" ? parsedOutput : JSON.stringify(parsedOutput ?? "");
+      const missing = check.keywords.filter((kw) =>
+        check.caseSensitive ? !text.includes(kw) : !text.toLowerCase().includes(kw.toLowerCase())
+      );
+      const passed = missing.length === 0;
+      results.push({
+        check: `contains_text([${check.keywords.join(", ")}])`,
+        passed,
+        message: passed ? undefined : `Faltan las siguientes palabras en la salida: [${missing.join(", ")}]`,
+      });
+      continue;
+    }
+
+    if (check.type === "not_empty") {
+      const passed =
+        parsedOutput !== null &&
+        parsedOutput !== undefined &&
+        (typeof parsedOutput === "string"
+          ? parsedOutput.trim().length > 0
+          : Object.keys(parsedOutput).length > 0);
+      results.push({
+        check: "not_empty",
+        passed,
+        message: passed ? undefined : "La salida está vacía.",
+      });
+      continue;
+    }
+
+    if (check.type === "min_length") {
+      const str =
+        typeof parsedOutput === "string"
+          ? parsedOutput
+          : typeof parsedOutput?.response === "string"
+          ? parsedOutput.response
+          : JSON.stringify(parsedOutput ?? "");
+      const passed = str.length >= check.minChars;
+      results.push({
+        check: `min_length(>= ${check.minChars})`,
+        passed,
+        message: passed ? undefined : `Longitud mínima esperada: ${check.minChars}, caracteres actuales: ${str.length}`,
+      });
+      continue;
+    }
   }
 
   return results;
 }
 
 async function loadVariant(stage: Stage, variantId: string): Promise<{ content: any; rawText: string }> {
-  if (stage === "arguments") {
+  if (
+    stage === "arguments" ||
+    stage === "stage_verification" ||
+    stage === "plan" ||
+    stage === "replan"
+  ) {
     const ext = variantId.endsWith(".md") ? "" : ".md";
-    const filePath = path.resolve(__dirname, "prompts", "variants", "arguments", `${variantId}${ext}`);
+    const filePath = path.resolve(__dirname, "prompts", "variants", stage, `${variantId}${ext}`);
     if (!fs.existsSync(filePath)) {
       throw new Error(`No se encontró el archivo de variante en: ${filePath}`);
     }
     const rawText = fs.readFileSync(filePath, "utf-8");
+    if (!rawText.trim()) {
+      throw new Error(`El archivo de variante '${filePath}' está vacío.`);
+    }
     return { content: rawText, rawText };
   }
 
@@ -234,7 +369,8 @@ function findCases(stage: Stage, targetSplit?: Split): { runnable: LabCase[]; pe
 export async function runBenchmark(
   stageInput: string,
   targetPrompt: string,
-  targetSplit?: Split
+  targetSplit?: Split,
+  targetCaseId?: string
 ): Promise<RunResult> {
   assertStageImplemented(stageInput);
   const stage = stageInput.toLowerCase() as Stage;
@@ -245,7 +381,7 @@ export async function runBenchmark(
 
   console.log(`\n============================================================`);
   console.log(`JARVIS Lab Benchmark: ${stage} [${isStable ? "STABLE" : `VARIANTE: ${variantId}`}]`);
-  console.log(`Split filtrado: ${targetSplit ?? "todos"} | Repeticiones por caso: ${repetitions}`);
+  console.log(`Split filtrado: ${targetSplit ?? "todos"}${targetCaseId ? ` | Caso: ${targetCaseId}` : ""} | Repeticiones por caso: ${repetitions}`);
   console.log(`============================================================\n`);
 
   // Cargar variante si aplica
@@ -256,9 +392,22 @@ export async function runBenchmark(
   }
 
   // Buscar casos
-  const { runnable, pending } = findCases(stage, targetSplit);
+  let { runnable, pending } = findCases(stage, targetSplit);
 
-  if (pending.length > 0) {
+  if (targetCaseId) {
+    const matched = runnable.filter((c) => c.id === targetCaseId);
+    if (matched.length > 0) {
+      runnable = matched;
+    } else {
+      const isPending = pending.some((c) => c.id === targetCaseId);
+      if (isPending) {
+        throw new Error(`El caso '${targetCaseId}' está en estado pendiente ('expect: null') y no puede ejecutarse.`);
+      }
+      throw new Error(`No se encontró el caso '${targetCaseId}' en la etapa '${stage}'.`);
+    }
+  }
+
+  if (pending.length > 0 && !targetCaseId) {
     console.log(`ℹ Casos con 'expect: null' (omitidos/pendientes de verificación):`);
     for (const p of pending) {
       console.log(`  - [PENDIENTE] ${p.id} (split: ${p.split || "dev"})`);
@@ -294,28 +443,36 @@ export async function runBenchmark(
 
   console.log(`\nIniciando corrida sobre ${runnable.length} caso(s) activos...\n`);
 
-  // Calentamiento (Warmup) — Ajuste B: una llamada previa descartada de las métricas
+  const isEos = stage === "decision_one" || stage === "decision_two" || stage === "step_verification";
+  const isQwen = stage === "arguments" || stage === "stage_verification" || stage === "plan" || stage === "replan";
+
+  const qwenStageHandlers = {
+    arguments: argumentsStage,
+    stage_verification: stageVerificationStage,
+    plan: planStage,
+    replan: replanStage,
+  };
+  const qwenHandler = isQwen ? qwenStageHandlers[stage as keyof typeof qwenStageHandlers] : undefined;
+
+  // Calentamiento (Warmup) — llamada mínima sin pensamiento descartada de las métricas
   console.log(`Ejecutando llamada de calentamiento (warmup) para '${stage}'...`);
   let warmupResult: WarmupResult | undefined;
   try {
     const tWarmup0 = Date.now();
-    if (stage === "arguments") {
-      const warmupInput = runnable[0].input as CaseInputArguments;
-      const { systemPrompt, userPrompt } = argumentsStage.preparePrompt(
-        warmupInput,
-        variantData ? variantData.rawText : undefined
-      );
-      await argumentsStage.callModel(systemPrompt, userPrompt);
-    } else if (stage === "decision_one" || stage === "decision_two" || stage === "step_verification") {
+    if (isQwen) {
+      const warmupRes = await warmupQwen();
+      warmupResult = { latencyMs: warmupRes.latencyMs, ok: true };
+      console.log(`✓ Warmup Qwen completado en ${warmupRes.latencyMs}ms (descartado de las métricas).\n`);
+    } else if (isEos) {
       const warmupInput = runnable[0].input as CaseInputEos;
       const promptRes = variantData
         ? eosStage.applyVariant(stage, warmupInput, variantData.content, runnable[0].id)
         : { state: warmupInput.state, questions: warmupInput.questions };
       await eosStage.callModel(promptRes.state, promptRes.questions);
+      const warmupLatencyMs = Date.now() - tWarmup0;
+      warmupResult = { latencyMs: warmupLatencyMs, ok: true };
+      console.log(`✓ Warmup Eos completado en ${warmupLatencyMs}ms (descartado de las métricas).\n`);
     }
-    const warmupLatencyMs = Date.now() - tWarmup0;
-    warmupResult = { latencyMs: warmupLatencyMs, ok: true };
-    console.log(`✓ Warmup completado en ${warmupLatencyMs}ms (descartado de las métricas).\n`);
   } catch (err: any) {
     if (err instanceof LabConnectionError && err.isNetwork) {
       console.error(`\n[FATAL] Error de conexión irrecuperable en warmup con el endpoint de ${stage}: ${err.message}`);
@@ -327,18 +484,17 @@ export async function runBenchmark(
     console.warn(`⚠ Warmup falló (${errMsg}), continuando con la medición...\n`);
   }
 
-  const isEos = stage === "decision_one" || stage === "decision_two" || stage === "step_verification";
   const initialModelParams = isEos
     ? eosStage.getModelParameters()
-    : argumentsStage.getModelParameters();
+    : qwenHandler!.getModelParameters();
 
   const casePromptHashes: Record<string, string> = {};
   let stablePromptHash = "";
 
-  if (stage === "arguments") {
+  if (isQwen && qwenHandler) {
     stablePromptHash = crypto
       .createHash("sha256")
-      .update(argumentsStage.getStableSystemPrompt())
+      .update(qwenHandler.getStableSystemPrompt())
       .digest("hex")
       .slice(0, 16);
   } else if (isEos) {
@@ -388,18 +544,22 @@ export async function runBenchmark(
       let expectedChoiceProb: number | undefined;
       let repNoulProbs: Record<string, number> | undefined;
       let repNoulApproved: boolean | undefined;
+      let repPlanStepCount: number | undefined;
+      let repPlanRoutes: string[] | undefined;
+      let repReplanAction: "continue" | "abort" | undefined;
+      let repStageVerificationStatus: string | undefined;
 
       try {
-        if (stage === "arguments") {
-          const input = caseItem.input as CaseInputArguments;
-          const { systemPrompt, userPrompt } = argumentsStage.preparePrompt(
+        if (isQwen && qwenHandler) {
+          const input = caseItem.input as CaseInputQwen;
+          const { systemPrompt, userPrompt } = qwenHandler.preparePrompt(
             input,
             variantData ? variantData.rawText : undefined
           );
 
-          // Chequeo de fidelidad para Qwen en prompt estable (primera repetición)
+          // Chequeo de fidelidad para Qwen en prompt estable (primera repetición) con soporte B2
           if (rep === 1 && isStable) {
-            const liveSystem = argumentsStage.getStableSystemPrompt();
+            const liveSystem = qwenHandler.getStableSystemPrompt();
             if (input.system && input.system.trim() !== liveSystem.trim()) {
               const msg = `El prompt SYSTEM vivo de prompts.ts difiere del grabado en la traza (el caso puede ser anterior a un cambio en prompts.ts).`;
               console.warn(`⚠ [FIDELIDAD] Desviación en SYSTEM (caso ${caseItem.id}): ${msg}`);
@@ -413,7 +573,17 @@ export async function runBenchmark(
             }
 
             const rec = caseItem.reference?.recordedParams;
-            if (rec) {
+            if (!rec || Object.keys(rec).length === 0) {
+              const msg = "sin recordedParams: no se pudo verificar la fidelidad";
+              console.warn(`⚠ [FIDELIDAD] Caso ${caseItem.id}: ${msg}`);
+              fidelityWarnings.push({
+                caseId: caseItem.id,
+                parameter: "recordedParams",
+                recorded: null,
+                current: initialModelParams,
+                message: msg,
+              });
+            } else {
               if (rec.temperature !== undefined && rec.temperature !== initialModelParams.temperature) {
                 const msg = `temperature grabado=${rec.temperature} vs adapter=${initialModelParams.temperature}`;
                 console.warn(`⚠ [FIDELIDAD] Desviación en parámetro (caso ${caseItem.id}): ${msg}`);
@@ -450,23 +620,35 @@ export async function runBenchmark(
             }
           }
 
-          const callRes = await argumentsStage.callModel(systemPrompt, userPrompt);
+          console.log(`   Rep ${rep}/${repetitions}: ejecutando llamada al modelo...`);
+          const callRes = await qwenHandler.callModel(systemPrompt, userPrompt);
           lastModelParams = callRes.params;
           repRawOutput = callRes.rawOutput;
           repLatency = callRes.latencyMs;
           if (callRes.truncated) truncatedCount++;
 
-          // Corregir verificación de schema:
-          // Si el caso requiere check 'matches_schema' y no tiene schema (o es {}), debe fallar explícitamente
-          const hasMatchesSchemaCheck = caseItem.expect?.some((c) => c.type === "matches_schema");
-          const isSchemaMissingOrEmpty = !input.schema || Object.keys(input.schema).length === 0;
+          let valRes: {
+            parsedJson: Record<string, unknown> | null;
+            jsonValid: boolean;
+            schemaValid: boolean;
+            schemaError?: string;
+          };
 
-          const valRes = argumentsStage.parseAndValidate(callRes.parsedContent, input.schema ?? {});
-          if (!valRes.jsonValid) jsonErrors++;
+          if (stage === "arguments") {
+            const hasMatchesSchemaCheck = caseItem.expect?.some((c) => c.type === "matches_schema");
+            const isSchemaMissingOrEmpty = !input.schema || Object.keys(input.schema).length === 0;
 
-          if (hasMatchesSchemaCheck && isSchemaMissingOrEmpty) {
-            valRes.schemaValid = false;
-            valRes.schemaError = "El caso requiere check 'matches_schema' pero no tiene schema definido (o quedó vacío por fallo de extracción).";
+            valRes = argumentsStage.parseAndValidate(callRes.parsedContent, input.schema ?? {});
+            if (!valRes.jsonValid) jsonErrors++;
+
+            if (hasMatchesSchemaCheck && isSchemaMissingOrEmpty) {
+              valRes.schemaValid = false;
+              valRes.schemaError =
+                "El caso requiere check 'matches_schema' pero no tiene schema definido (o quedó vacío por fallo de extracción).";
+            }
+          } else {
+            valRes = (qwenHandler as any).parseAndValidate(callRes.parsedContent);
+            if (!valRes.jsonValid) jsonErrors++;
           }
 
           if (valRes.jsonValid && !valRes.schemaValid) schemaErrors++;
@@ -486,6 +668,18 @@ export async function runBenchmark(
             successfulRepetitions++;
           }
 
+          if (stage === "plan" || stage === "replan") {
+            if (Array.isArray(valRes.parsedJson?.steps)) {
+              repPlanStepCount = valRes.parsedJson.steps.length;
+              repPlanRoutes = valRes.parsedJson.steps.map((s: any) => s.route || s.suggested_mcp);
+            }
+            if (stage === "replan") {
+              repReplanAction = valRes.parsedJson?.action as any;
+            }
+          } else if (stage === "stage_verification") {
+            repStageVerificationStatus = typeof valRes.parsedJson?.status === "string" ? valRes.parsedJson.status : undefined;
+          }
+
           reps.push({
             rep,
             latencyMs: repLatency,
@@ -493,6 +687,10 @@ export async function runBenchmark(
             parsedOutput: repParsedOutput,
             checks: checkResults,
             allPassed,
+            planStepCount: repPlanStepCount,
+            planRoutes: repPlanRoutes,
+            replanAction: repReplanAction,
+            stageVerificationStatus: repStageVerificationStatus,
             error: repError,
             finishReason: callRes.finishReason,
             usage: callRes.usage,
@@ -506,6 +704,7 @@ export async function runBenchmark(
 
           effectivePromptsByCase[caseItem.id] = promptRes.questions;
 
+          console.log(`   Rep ${rep}/${repetitions}: ejecutando llamada a Eos...`);
           const callRes = await eosStage.callModel(promptRes.state, promptRes.questions);
           lastModelParams = callRes.params;
           repRawOutput = callRes.rawOutput;
@@ -595,6 +794,11 @@ export async function runBenchmark(
         const okP = repNoulProbs.ok !== undefined ? `ok=${(repNoulProbs.ok * 100).toFixed(1)}%` : "";
         const cP = repNoulProbs.cumple !== undefined ? `cumple=${(repNoulProbs.cumple * 100).toFixed(1)}%` : "";
         extraInfo = ` [${[okP, cP].filter(Boolean).join(", ")} | ${repNoulApproved ? "APROBADO" : "RECHAZADO"}]`;
+      } else if (repPlanStepCount !== undefined) {
+        const routesStr = repPlanRoutes ? ` -> [${repPlanRoutes.join(", ")}]` : "";
+        extraInfo = ` [pasos=${repPlanStepCount}${routesStr}${repReplanAction ? ` | action=${repReplanAction}` : ""}]`;
+      } else if (repStageVerificationStatus !== undefined) {
+        extraInfo = ` [status=${repStageVerificationStatus}]`;
       }
       console.log(`   Rep ${rep}/${repetitions}: ${repStatus} (${repLatency}ms)${extraInfo}`);
     }
@@ -631,6 +835,7 @@ export async function runBenchmark(
       }
     }
 
+    const lastRep = reps[reps.length - 1];
     caseResults.push({
       caseId: caseItem.id,
       split: caseItem.split,
@@ -641,6 +846,10 @@ export async function runBenchmark(
       expectedChoiceProbability: caseExpectedChoiceProb,
       noulProbabilities: caseNoulProbs,
       noulApproved: caseNoulApproved,
+      planStepCount: lastRep?.planStepCount,
+      planRoutes: lastRep?.planRoutes,
+      replanAction: lastRep?.replanAction,
+      stageVerificationStatus: lastRep?.stageVerificationStatus,
       repetitions: reps,
     });
 
@@ -651,6 +860,10 @@ export async function runBenchmark(
       const okStr = caseNoulProbs.ok !== undefined ? `ok: ${(caseNoulProbs.ok * 100).toFixed(1)}%` : "";
       const cStr = caseNoulProbs.cumple !== undefined ? `cumple: ${(caseNoulProbs.cumple * 100).toFixed(1)}%` : "";
       caseSummaryMsg = ` (${[okStr, cStr].filter(Boolean).join(", ")} | ${caseNoulApproved ? "APROBADO" : "RECHAZADO"})`;
+    } else if (lastRep?.planStepCount !== undefined) {
+      caseSummaryMsg = ` (pasos: ${lastRep.planStepCount}${lastRep.replanAction ? `, action: ${lastRep.replanAction}` : ""})`;
+    } else if (lastRep?.stageVerificationStatus !== undefined) {
+      caseSummaryMsg = ` (status: ${lastRep.stageVerificationStatus})`;
     }
     console.log(`   Resultado caso: ${passedReps}/${repetitions} aciertos (latencia media: ${avgCaseLatency}ms, mediana: ${medianCaseLatency}ms)${caseSummaryMsg}\n`);
   }
@@ -670,7 +883,7 @@ export async function runBenchmark(
     medianLatencyMs,
     jsonErrors,
     schemaErrors,
-    truncatedCount: stage === "arguments" ? truncatedCount : 0,
+    truncatedCount: isQwen ? truncatedCount : 0,
   };
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -724,7 +937,7 @@ export async function runBenchmark(
   }
   console.log(` - Errores de JSON: ${jsonErrors}`);
   console.log(` - Errores de Schema / Validación: ${schemaErrors}`);
-  if (stage === "arguments") {
+  if (isQwen) {
     console.log(` - Salidas truncadas (max_tokens): ${truncatedCount}`);
   }
   if (fidelityWarnings.length > 0) {
@@ -740,7 +953,7 @@ export async function runBenchmark(
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const args = process.argv.slice(2);
   if (args.length < 2) {
-    console.error("Uso: npx tsx lab/run.ts <etapa> <stable|variantId> [--split dev|test]");
+    console.error("Uso: npx tsx lab/run.ts <etapa> <stable|variantId> [--split dev|test] [--case <id>]");
     process.exit(1);
   }
 
@@ -759,7 +972,13 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     }
   }
 
-  runBenchmark(stageArg, targetPromptArg, splitArg).catch((err) => {
+  let caseArg: string | undefined;
+  const caseIndex = args.indexOf("--case");
+  if (caseIndex >= 0 && args[caseIndex + 1]) {
+    caseArg = args[caseIndex + 1];
+  }
+
+  runBenchmark(stageArg, targetPromptArg, splitArg, caseArg).catch((err) => {
     console.error(`\n[FATAL] Error en la ejecución del benchmark: ${err.message}`);
     process.exit(1);
   });

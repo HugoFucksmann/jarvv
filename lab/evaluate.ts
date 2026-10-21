@@ -148,12 +148,60 @@ export function compareRuns(pathA: string, pathB: string): void {
     console.log(`- ${caseId}:`);
     console.log(`    Aciertos: A=${rateA} vs B=${rateB}  -->  ${trend}`);
 
+    // Mostrar detalle de checks
+    const checksA = cA.repetitions[0]?.checks || [];
+    const checksB = cB.repetitions[0]?.checks || [];
+    if (checksA.length > 0 || checksB.length > 0) {
+      const checkItems: string[] = [];
+      const maxLen = Math.max(checksA.length, checksB.length);
+      for (let i = 0; i < maxLen; i++) {
+        const chkA = checksA[i];
+        const chkB = checksB[i];
+        const name = chkA?.check || chkB?.check || `check_${i + 1}`;
+        const passA = chkA ? (chkA.passed ? "✓" : "✗") : "—";
+        const passB = chkB ? (chkB.passed ? "✓" : "✗") : "—";
+        const note = chkB && !chkB.passed && chkB.message ? ` [${chkB.message}]` : "";
+        checkItems.push(`${name}: A=${passA} vs B=${passB}${note}`);
+      }
+      console.log(`    Checks: ${checkItems.join(" | ")}`);
+    }
+
     if (cA.medianLatencyMs !== undefined && cB.medianLatencyMs !== undefined) {
       const medDelta = cB.medianLatencyMs - cA.medianLatencyMs;
       const medSign = medDelta >= 0 ? `+${medDelta}` : `${medDelta}`;
       console.log(`    Latencia media: A=${cA.avgLatencyMs}ms vs B=${cB.avgLatencyMs}ms (${latSign}ms) | Mediana: A=${cA.medianLatencyMs}ms vs B=${cB.medianLatencyMs}ms (${medSign}ms)`);
     } else {
       console.log(`    Latencia media: A=${cA.avgLatencyMs}ms vs B=${cB.avgLatencyMs}ms (${latSign}ms)`);
+    }
+
+    // Descriptivo para plan y replan (cantidad de pasos y rutas de A y B)
+    if (resA.stage === "plan" || resA.stage === "replan") {
+      const stepsA = cA.planStepCount ?? (Array.isArray((cA.repetitions[0]?.parsedOutput as any)?.steps) ? (cA.repetitions[0]?.parsedOutput as any).steps.length : undefined);
+      const stepsB = cB.planStepCount ?? (Array.isArray((cB.repetitions[0]?.parsedOutput as any)?.steps) ? (cB.repetitions[0]?.parsedOutput as any).steps.length : undefined);
+      const routesA = cA.planRoutes ?? (Array.isArray((cA.repetitions[0]?.parsedOutput as any)?.steps) ? (cA.repetitions[0]?.parsedOutput as any).steps.map((s: any) => s.route || s.suggested_mcp) : []);
+      const routesB = cB.planRoutes ?? (Array.isArray((cB.repetitions[0]?.parsedOutput as any)?.steps) ? (cB.repetitions[0]?.parsedOutput as any).steps.map((s: any) => s.route || s.suggested_mcp) : []);
+
+      const sAStr = stepsA !== undefined ? `${stepsA}` : "N/D";
+      const sBStr = stepsB !== undefined ? `${stepsB}` : "N/D";
+      const rAStr = routesA.length > 0 ? `[${routesA.join(", ")}]` : "[]";
+      const rBStr = routesB.length > 0 ? `[${routesB.join(", ")}]` : "[]";
+
+      console.log(`    Pasos y rutas: A=${sAStr} ${rAStr} vs B=${sBStr} ${rBStr}`);
+
+      if (resA.stage === "replan") {
+        const actA = cA.replanAction ?? (cA.repetitions[0]?.parsedOutput as any)?.action ?? "N/D";
+        const actB = cB.replanAction ?? (cB.repetitions[0]?.parsedOutput as any)?.action ?? "N/D";
+        console.log(`    Acción replan: A=${actA} vs B=${actB}`);
+      }
+    }
+
+    // Descriptivo para stage_verification (status y pregunta al usuario)
+    if (resA.stage === "stage_verification") {
+      const stA = cA.stageVerificationStatus ?? (cA.repetitions[0]?.parsedOutput as any)?.status ?? "N/D";
+      const stB = cB.stageVerificationStatus ?? (cB.repetitions[0]?.parsedOutput as any)?.status ?? "N/D";
+      const qA = (cA.repetitions[0]?.parsedOutput as any)?.question_for_user ? "sí" : "no";
+      const qB = (cB.repetitions[0]?.parsedOutput as any)?.question_for_user ? "sí" : "no";
+      console.log(`    Estado de etapa: A=${stA} (pregunta: ${qA}) vs B=${stB} (pregunta: ${qB})`);
     }
 
     // Ajuste C: mostrar probabilidades de opción esperada para choice_equals (Eos: decision_one, decision_two)

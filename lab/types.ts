@@ -260,6 +260,14 @@ export interface RunRepetition {
   noulProbabilities?: Record<string, number>;
   /** Si Eos aprueba el paso (ok > 0.5 && cumple > 0.5) */
   noulApproved?: boolean;
+  /** Cantidad de pasos planificados (plan / replan) */
+  planStepCount?: number;
+  /** Rutas sugeridas en los pasos (plan / replan) */
+  planRoutes?: string[];
+  /** Acción de replan ("continue" | "abort") */
+  replanAction?: "continue" | "abort";
+  /** Estado de stage_verification */
+  stageVerificationStatus?: string;
   error?: string;
   finishReason?: string;
   usage?: { promptTokens?: number; completionTokens?: number };
@@ -278,6 +286,14 @@ export interface CaseRunResult {
   noulProbabilities?: Record<string, number>;
   /** Si Eos aprueba el paso en la mayoría o promedio de repeticiones */
   noulApproved?: boolean;
+  /** Cantidad de pasos planificados (plan / replan) */
+  planStepCount?: number;
+  /** Rutas sugeridas en los pasos (plan / replan) */
+  planRoutes?: string[];
+  /** Acción de replan ("continue" | "abort") */
+  replanAction?: "continue" | "abort";
+  /** Estado promedio o veredicto de stage_verification */
+  stageVerificationStatus?: string;
   repetitions: RunRepetition[];
 }
 

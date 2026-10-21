@@ -17,7 +17,10 @@ JARVIS es un agente personal y determinista para PC (entorno Windows local, ruta
 - `arguments` (Qwen; internamente `ARGUMENT_GENERATION`): **Implementada**.
 - `decision_two` (Eos; internamente `DECISION_TWO`): **Implementada** (Fase B).
 - `step_verification` (Eos; internamente `STEP_VERIFICATION`): **Implementada** (Fase B).
-- Las 4 etapas restantes (`plan`, `replan`, `stage_verification`, `final_response`): **Registradas en tipos y catálogo**, pero su ejecución lanza `LabStageNotImplementedError` hasta su implementación en las Fases C y D.
+- `stage_verification` (Qwen; internamente `STAGE_VERIFICATION`): **Implementada** (Fase C).
+- `plan` (Qwen; internamente `PLAN_GENERATION`): **Implementada** (Fase C).
+- `replan` (Qwen; internamente `REPLAN`): **Implementada** (Fase C).
+- `final_response` (Qwen; internamente `FINAL_RESPONSE`): **Registrada en catálogo**, pendiente para Fase D.
 
 ---
 
@@ -236,15 +239,68 @@ El archivo reside en la raíz del proyecto (`./jarvis-traces.jsonl`), con una l�
 
 ## 9. Estado Actual del Laboratorio y Próximos Pasos
 
-### Funcionalidades Completadas y Verificadas:
-- Contratos de tipos exhaustivos en `lab/types.ts`.
-- Adaptador de producción `lab/adapter.ts` con paridad total de tokens, parámetros y eliminación de `null` en opcionales.
-- Extractor de casos `lab/extract-cases.ts` con extractor balanceado de `SCHEMA` y resolución tolerante de respaldos para `seq` y `step`.
-- Runner de benchmarks `lab/run.ts` con llamada de warmup previa, mediana de latencia, captura de probabilidades esperadas en Eos y guardado atómico con `"wx"`.
-- Evaluador comparativo `lab/evaluate.ts` con validación de integridad (rechazo de errores de red o 100% de fallos) y desglose cuantitativo caso a caso.
-- Casos de prueba representativos (`example-routing-files.json`, `example-read-file.json`) y variantes de ejemplo (`example-concise.json`, `example-strict-refs.md`).
-- Aislamiento completo verificado: cero imports desde `src/` a `lab/`, escrituras acotadas estrictamente a `lab/results/` y `_drafts/`.
+### Funcionalidades Completadas y Verificadas (Fases A, B y C):
+- Contratos de tipos exhaustivos en `lab/types.ts`, incluyendo soporte para las 8 etapas y checks unitarios (`status_equals`, `has_question_for_user`, `action_equals`, `min_steps`, `max_steps`, `routes_allowed`, `contains_text`, `not_empty`, `min_length`).
+- Adaptador de producción `lab/adapter.ts`:
+  - Eos: `decision_one`, `decision_two` (con preservación de sufijo `[last attempt failed]` según B1), `step_verification`.
+  - Qwen: despacho común `callQwenGeneric`, warmup liviano `warmupQwen` (sin pensamiento), `arguments`, `stage_verification` (`STAGE_VERIFICATION_JSON_SCHEMA`, `STAGE_STATUSES`), `plan` (`PLAN_JSON_SCHEMA`, `parsePlanSteps`, thinking con `qwenThinkingTimeoutMs`), `replan` (`REPLAN_JSON_SCHEMA`, validación equivalente inline, thinking con `qwenThinkingTimeoutMs`).
+- Runner de benchmarks `lab/run.ts`:
+  - Soporte para argumento `--case <id>`.
+  - Calentamiento previo mínimo sin pensamiento para Qwen y decide liviano para Eos.
+  - Comprobación de fidelidad de Qwen (B2): verificación de prompt SYSTEM vivo contra traza, y aviso explícito obligatorio `"sin recordedParams: no se pudo verificar la fidelidad"` cuando no esté registrado.
+  - Evaluación exhaustiva de checks sintácticos y semánticos.
+  - Registro de metadatos descriptivos en `RunRepetition` y `CaseRunResult` (`planStepCount`, `planRoutes`, `replanAction`, `stageVerificationStatus`).
+- Evaluador comparativo `lab/evaluate.ts`:
+  - Comparación de aciertos y latencias (promedio y mediana).
+  - Desglose de checks individuales por caso.
+  - Métricas específicas: probabilidades Eos, veredicto `ok` y `cumple`, pasos y rutas de `plan` y `replan`, estado y pregunta al usuario en `stage_verification`.
+- Casos de prueba y variantes representativos (`example-*`) para las etapas activas.
+- Extractor de casos `lab/extract-cases.ts` con mapeo de 8 etapas, saneamiento de reintentos con `ERROR_PREVIO:` y fallback de `replan`.
 
-### Pendientes y Roadmap:
-1. **Fase C (Próxima):** Implementar en `lab/adapter.ts` y runner las etapas estructuradas de Qwen (`stage_verification`, `plan`, `replan`), integrando `parsePlanSteps`, validaciones inline de schemas y timeout de thinking prolongado (`qwenThinkingTimeoutMs`).
-2. **Fase D:** Implementar `final_response` (texto libre en español), checks de contenido y vista comparativa Side-by-Side en `evaluate.ts`.
+---
+
+### Notas de Estado por Bloque (Fase C):
+- **Bloque 1 (types.ts):** Incorporación de campos descriptivos opcionales en `RunRepetition` y `CaseRunResult` (`planStepCount`, `planRoutes`, `replanAction`, `stageVerificationStatus`).
+- **Bloque 2 (adapter.ts):** Implementación de B1 (preservación de `[last attempt failed]` en criteria de `decision_two`). Implementación del despacho unificado `callQwenGeneric` y `warmupQwen`. Implementación de `stageVerificationStage`, `planStage` y `replanStage` con schemas JSON de producción, reutilización de `parsePlanSteps` y validación inline equivalente para replan. Actualización del catálogo `STAGES` y `assertStageImplemented`.
+- **Bloque 3 (run.ts y evaluate.ts):** Soporte de `--case <id>`, implementación de B2 (fidelidad de Qwen con aviso explícito ante ausencia de `recordedParams`), warmup no invasivo, logging de progreso por repetición, evaluación de los 14 tipos de checks y despliegue descriptivo de pasos y rutas en `evaluate.ts`.
+- **Bloque 4 (Casos y Variantes de Ejemplo):** Creación de casos representativos (`example-verify-stage.json`, `example-create-plan.json`, `example-replan-step.json`) y variantes `.md` correspondientes.
+
+---
+
+### Documentación de Equivalencia en Replan:
+En producción (`src/core/reasoner/qwen.ts:666-681`), la validación de `replan` es inline dentro de `dispatchValidated`:
+1. Comprueba truncamiento (`truncated`) y validez de JSON (`parseJsonObject`).
+2. Si `action === "abort"`: retorna éxito con `reason: nonEmptyString(parsed.reason) ?? "Replan decidió abortar."`.
+3. Si `action !== "continue"`: falla con error de acción inválida.
+4. Si `action === "continue"`: llama a `parsePlanSteps(parsed.steps, nextStepNumber, false)` (prohíbe lista de pasos vacía y valida rutas contra `EXECUTABLE_ROUTES` y cantidad contra `MAX_STEPS`).
+5. Asigna `objective: nonEmptyString(parsed.objective) ?? data.goal`.
+
+En `lab/adapter.ts`, `replanStage.parseAndValidate` replica exactamente este comportamiento:
+- Exige que `parsed.action` sea `"abort"` o `"continue"`.
+- Si `action === "abort"`, valida que `steps` no contenga pasos (debe ser arreglo vacío o no existir).
+- Si `action === "continue"`, exige `objective` no vacío y valida `steps` con `parsePlanSteps(parsed.steps, 1, false)`.
+- Si cualquiera de estas condiciones no se cumple, `schemaValid` resulta `false` con el mensaje exacto correspondiente.
+
+---
+
+### Especificación y Diseño para Fase D (final_response):
+> **Documentación de diseño previo — NO IMPLEMENTADA EN FASE C**.
+
+- **Propósito:** Evaluar y contrastar la generación de la respuesta final al usuario en texto libre en español, cerrando la tarea con los hallazgos y datos de ejecución.
+- **Ubicación en `src/`:**
+  - Prompt: `PROMPTS.FINAL_RESPONSE` (`src/core/reasoner/prompts.ts` ~L246):
+    - `SYSTEM`: `Eres JARVIS. Responde al usuario en español, de forma directa y completa a su solicitud original, con los datos y hallazgos concretos registrados en LOG, FACTS y EVID...`
+    - `buildUserPrompt(data: FinalResponsePromptData)`: ensambla `GOAL`, `LOG`, `FACTS`, `EFFECTS`, `FAIL`, `EVID` y `MOTIVO DE DETENCIÓN`.
+  - Método en `src/`: `generateFinalResponse` (`src/core/reasoner/qwen.ts` ~L582).
+- **Parámetros del Modelo:**
+  - Formato: texto libre (sin `response_format: json_object` ni `json_schema`).
+  - Pensamiento: gobernado por `config.thinking` (por defecto `false` en Jarvis).
+  - Timeout: `config.qwenTimeoutMs` (o `qwenThinkingTimeoutMs` si `config.thinking === true`).
+  - Max tokens: `config.qwenMaxTokens.final`.
+  - Temperatura base: 0.1.
+- **Checks aplicables en `expect`:**
+  - `not_empty`: verifica que la respuesta contenga texto sustantivo.
+  - `contains_text`: verifica presencia de palabras clave o datos esenciales esperados (e.g. nombres de archivos, datos hallados, confirmación).
+  - `min_length`: verifica longitud mínima en caracteres para evitar respuestas telegráficas o incompletas.
+- **Visualización en `evaluate.ts`:**
+  - Vista comparativa Side-by-Side (o bloques delimitados) que muestre en consola el texto generado por la Corrida A y la Corrida B para que el evaluador humano pueda juzgar tono, completitud, estilo y precisión sin depender exclusivamente de checks automatizados.
