@@ -204,6 +204,31 @@ export function compareRuns(pathA: string, pathB: string): void {
       console.log(`    Estado de etapa: A=${stA} (pregunta: ${qA}) vs B=${stB} (pregunta: ${qB})`);
     }
 
+    // Descriptivo para final_response (longitud y vista comparativa del texto generado)
+    if (resA.stage === "final_response") {
+      const textA =
+        cA.finalResponseText ??
+        cA.repetitions[0]?.finalResponseText ??
+        (cA.repetitions[0]?.parsedOutput as any)?.response ??
+        "";
+      const textB =
+        cB.finalResponseText ??
+        cB.repetitions[0]?.finalResponseText ??
+        (cB.repetitions[0]?.parsedOutput as any)?.response ??
+        "";
+
+      const lenA = textA.length;
+      const lenB = textB.length;
+      const lenDelta = lenB - lenA;
+      const lenSign = lenDelta >= 0 ? `+${lenDelta}` : `${lenDelta}`;
+
+      console.log(`    Longitud de respuesta: A=${lenA} chars vs B=${lenB} chars (${lenSign} chars)`);
+      console.log(`    --- Texto Respuesta A [${resA.promptType.toUpperCase()}] ---`);
+      console.log(textA ? textA.split("\n").map((l: string) => `      | ${l}`).join("\n") : "      (vacía)");
+      console.log(`    --- Texto Respuesta B [${resB.promptType.toUpperCase()}${resB.variantId ? `: ${resB.variantId}` : ""}] ---`);
+      console.log(textB ? textB.split("\n").map((l: string) => `      | ${l}`).join("\n") : "      (vacía)");
+    }
+
     // Ajuste C: mostrar probabilidades de opción esperada para choice_equals (Eos: decision_one, decision_two)
     if (cA.expectedChoiceProbability !== undefined || cB.expectedChoiceProbability !== undefined) {
       const pA = cA.expectedChoiceProbability !== undefined ? `${(cA.expectedChoiceProbability * 100).toFixed(1)}%` : "N/D";

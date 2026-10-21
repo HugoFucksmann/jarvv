@@ -18,6 +18,7 @@ import {
   decisionOneStage,
   decisionTwoStage,
   eosStage,
+  finalResponseStage,
   planStage,
   replanStage,
   stageVerificationStage,
@@ -302,7 +303,8 @@ async function loadVariant(stage: Stage, variantId: string): Promise<{ content: 
     stage === "arguments" ||
     stage === "stage_verification" ||
     stage === "plan" ||
-    stage === "replan"
+    stage === "replan" ||
+    stage === "final_response"
   ) {
     const ext = variantId.endsWith(".md") ? "" : ".md";
     const filePath = path.resolve(__dirname, "prompts", "variants", stage, `${variantId}${ext}`);
@@ -444,13 +446,19 @@ export async function runBenchmark(
   console.log(`\nIniciando corrida sobre ${runnable.length} caso(s) activos...\n`);
 
   const isEos = stage === "decision_one" || stage === "decision_two" || stage === "step_verification";
-  const isQwen = stage === "arguments" || stage === "stage_verification" || stage === "plan" || stage === "replan";
+  const isQwen =
+    stage === "arguments" ||
+    stage === "stage_verification" ||
+    stage === "plan" ||
+    stage === "replan" ||
+    stage === "final_response";
 
   const qwenStageHandlers = {
     arguments: argumentsStage,
     stage_verification: stageVerificationStage,
     plan: planStage,
     replan: replanStage,
+    final_response: finalResponseStage,
   };
   const qwenHandler = isQwen ? qwenStageHandlers[stage as keyof typeof qwenStageHandlers] : undefined;
 
@@ -548,6 +556,7 @@ export async function runBenchmark(
       let repPlanRoutes: string[] | undefined;
       let repReplanAction: "continue" | "abort" | undefined;
       let repStageVerificationStatus: string | undefined;
+      let repFinalResponseText: string | undefined;
 
       try {
         if (isQwen && qwenHandler) {
@@ -646,6 +655,15 @@ export async function runBenchmark(
               valRes.schemaError =
                 "El caso requiere check 'matches_schema' pero no tiene schema definido (o quedó vacío por fallo de extracción).";
             }
+          } else if (stage === "final_response") {
+            const finalRes = finalResponseStage.parseAndValidate(callRes.parsedContent, callRes.truncated);
+            valRes = {
+              parsedJson: finalRes.parsedJson,
+              jsonValid: finalRes.jsonValid,
+              schemaValid: finalRes.schemaValid,
+              schemaError: finalRes.schemaError,
+            };
+            repFinalResponseText = finalRes.text;
           } else {
             valRes = (qwenHandler as any).parseAndValidate(callRes.parsedContent);
             if (!valRes.jsonValid) jsonErrors++;
@@ -691,6 +709,7 @@ export async function runBenchmark(
             planRoutes: repPlanRoutes,
             replanAction: repReplanAction,
             stageVerificationStatus: repStageVerificationStatus,
+            finalResponseText: repFinalResponseText,
             error: repError,
             finishReason: callRes.finishReason,
             usage: callRes.usage,
@@ -850,6 +869,7 @@ export async function runBenchmark(
       planRoutes: lastRep?.planRoutes,
       replanAction: lastRep?.replanAction,
       stageVerificationStatus: lastRep?.stageVerificationStatus,
+      finalResponseText: reps[0]?.finalResponseText,
       repetitions: reps,
     });
 
@@ -864,6 +884,8 @@ export async function runBenchmark(
       caseSummaryMsg = ` (pasos: ${lastRep.planStepCount}${lastRep.replanAction ? `, action: ${lastRep.replanAction}` : ""})`;
     } else if (lastRep?.stageVerificationStatus !== undefined) {
       caseSummaryMsg = ` (status: ${lastRep.stageVerificationStatus})`;
+    } else if (lastRep?.finalResponseText !== undefined) {
+      caseSummaryMsg = ` (${lastRep.finalResponseText.length} caracteres)`;
     }
     console.log(`   Resultado caso: ${passedReps}/${repetitions} aciertos (latencia media: ${avgCaseLatency}ms, mediana: ${medianCaseLatency}ms)${caseSummaryMsg}\n`);
   }

@@ -35,7 +35,7 @@ En el núcleo de JARVIS (`src/types/debug.ts`), las etapas se identifican con id
 | `stage_verification` | `STAGE_VERIFICATION` | Qwen 3.5 9B | **Implementada** (Fase C) |
 | `plan` | `PLAN_GENERATION` | Qwen 3.5 9B | **Implementada** (Fase C) |
 | `replan` | `REPLAN` | Qwen 3.5 9B | **Implementada** (Fase C) |
-| `final_response` | `FINAL_RESPONSE` | Qwen 3.5 9B | *Pendiente (Fase D)* |
+| `final_response` | `FINAL_RESPONSE` | Qwen 3.5 9B | **Implementada** (Fase D) |
 
 ---
 
@@ -97,14 +97,19 @@ npx tsx lab/run.ts plan example-concise-plan --split dev
 npx tsx lab/run.ts replan stable
 npx tsx lab/run.ts replan example-conservative-replan --split dev
 
+# Qwen: Final Response (respuesta final en texto libre al usuario)
+npx tsx lab/run.ts final_response stable
+npx tsx lab/run.ts final_response example-concise-summary --split dev
+
 # Correr un único caso específico con --case
 npx tsx lab/run.ts plan stable --case example-create-plan
+npx tsx lab/run.ts final_response stable --case example-final-response
 ```
 - **Calentamiento (Warmup)**: Ejecuta una llamada de calentamiento mínima previa por modelo antes de medir (para Qwen: prompt mínimo de 16 tokens sin thinking; para Eos: decide mínimo). Se descarta de las métricas. Nunca se ejecuta una llamada real de plan o replan en el warmup.
-- **Determinismo de Eos**: `lab/config.json` configura 1 repetición para etapas de Eos (`decision_one`, `decision_two`, `step_verification`). Qwen configura 3 para `arguments` y `stage_verification`, y 2 para `plan` y `replan`.
+- **Determinismo de Eos**: `lab/config.json` configura 1 repetición para etapas de Eos (`decision_one`, `decision_two`, `step_verification`). Qwen configura 3 para `arguments`, `stage_verification` y `final_response`, y 2 para `plan` y `replan`.
 - **Detección temprana de caídas**: Si el endpoint está desconectado (`ECONNREFUSED`), aborta de inmediato con código 1 sin guardar archivos corruptos en disco.
 - **Registro atómico**: Genera un archivo inmutable en `lab/results/<timestamp>-<etapa>-<variante>.json` (con flag `wx` para evitar sobreescrituras).
-- **Métricas y Probabilidades**: Guarda probabilidades para Eos y veredictos descriptivos para plan/replan (pasos, rutas y acción) y stage_verification (status y pregunta al usuario).
+- **Métricas y Probabilidades**: Guarda probabilidades para Eos y veredictos descriptivos para plan/replan (pasos, rutas y acción), stage_verification (status y pregunta al usuario) y final_response (longitud y texto generado).
 - **Chequeo de fidelidad (B2)**: Para etapas de Qwen con prompt estable, advierte si el prompt SYSTEM vivo de `prompts.ts` o los parámetros del body difieren de los grabados. Si un caso no incluye `reference.recordedParams`, emite advertencia explícita y la guarda en el resultado.
 - **Sufijo en Decision #2 (B1)**: Si una herramienta en el caso termina con `[last attempt failed]`, una variante que sobrescribe su descripción reemplaza la parte base y conserva el sufijo.
 
@@ -120,6 +125,7 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 - Para Eos (`step_verification`), muestra por caso las probabilidades de `ok` y `cumple`, sus diferencias y el veredicto de aprobación de Eos (`ok > 0.5 && cumple > 0.5`).
 - Para `plan` y `replan`, muestra descriptivamente la cantidad de pasos planificados, las rutas sugeridas y la acción (`continue` / `abort`).
 - Para `stage_verification`, muestra el status obtenido y si se formuló pregunta al usuario.
+- Para `final_response`, presenta una vista comparativa delimitada en consola que contrasta directamente el texto completo de la respuesta de la Corrida A vs la Corrida B junto con la diferencia de caracteres generados ($len_B - len_A$), facilitando al evaluador juzgar tono, completitud y estilo.
 
 ---
 
@@ -158,10 +164,18 @@ npx tsx lab/evaluate.ts lab/results/<run-stable>.json lab/results/<run-variant>.
 - `noul_approved`: (Eos) Verifica si una pregunta noul (`ok` o `cumple`) aprueba (`p > 0.5`) según `expected: true|false`.
 - `matches_schema`: (Qwen) Valida que los argumentos cumplan con el `SCHEMA` del caso usando `validateArgs`. Falla explícitamente si el schema está ausente o vacío.
 - `field_equals`: Comprueba que un valor por ruta (ej. `path: "path"`) sea igual al esperado.
+- `status_equals`: (stage_verification) Comprueba el valor de `status` ("completed" | "recoverable_deviation" | "insufficient_info" | "unrecoverable_blocked").
+- `has_question_for_user`: (stage_verification) Valida si hay pregunta formulada al usuario (`expected: true|false`).
+- `action_equals`: (replan) Comprueba si la acción es `"continue"` o `"abort"`.
+- `min_steps` / `max_steps`: (plan / replan) Valida cantidad mínima o máxima de pasos generados.
+- `routes_allowed`: (plan / replan) Valida que las rutas sugeridas pertenezcan a la lista permitida (`files`, `locate`, `terminal`, `web`).
+- `not_empty`: (final_response) Comprueba que la salida contenga texto no vacío.
+- `contains_text`: (final_response) Comprueba la presencia de palabras clave requeridas.
+- `min_length`: (final_response) Comprueba una longitud mínima en caracteres para evitar respuestas incompletas.
 
 ### Formato de Variantes (`prompts/variants/<etapa>/<id>.(md|json)`)
 
-#### Para Qwen (`arguments`): Archivo `.md`
+#### Para Qwen (`arguments`, `stage_verification`, `plan`, `replan`, `final_response`): Archivo `.md`
 El contenido reemplaza exclusivamente el bloque `SYSTEM`. El `user` prompt del caso se mantiene idéntico.
 
 #### Para Eos (`decision_one`, `decision_two`, `step_verification`): Archivo `.json`

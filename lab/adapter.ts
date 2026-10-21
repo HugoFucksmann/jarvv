@@ -182,6 +182,7 @@ export interface QwenDispatchParams {
   maxTokens: number;
   thinking: boolean;
   schema?: Record<string, unknown>;
+  json?: boolean;
   timeoutMs: number;
 }
 
@@ -228,7 +229,7 @@ export async function callQwenGeneric(o: QwenDispatchParams): Promise<{
       type: "json_schema",
       json_schema: { name: o.stageName, strict: false, schema: o.schema },
     };
-  } else {
+  } else if (o.json !== false) {
     body.response_format = { type: "json_object" };
   }
 
@@ -741,6 +742,93 @@ export const replanStage = {
 };
 
 // ============================================================
+// Etapa: final_response (Qwen 3.5 9B)
+// ============================================================
+
+export const finalResponseStage = {
+  getStableSystemPrompt(): string {
+    return PROMPTS.FINAL_RESPONSE.SYSTEM;
+  },
+
+  preparePrompt(
+    input: CaseInputQwen,
+    variantContent?: string
+  ): { systemPrompt: string; userPrompt: string } {
+    const systemPrompt = variantContent !== undefined ? variantContent.trim() : this.getStableSystemPrompt();
+    return {
+      systemPrompt,
+      userPrompt: input.user,
+    };
+  },
+
+  getModelParameters(): ModelParametersRecord {
+    const config = ConfigManager.getConfig();
+    const url = resolveQwenUrl(config.qwenUrl);
+    const thinking = Boolean(config.thinking);
+    const timeoutMs = thinking ? config.qwenThinkingTimeoutMs : config.qwenTimeoutMs;
+    return {
+      url,
+      model: config.qwenModel,
+      temperature: BASE_TEMPERATURE,
+      maxTokens: config.qwenMaxTokens.final,
+      numCtx: config.qwenNumCtx,
+      reasoningEffort: thinking ? "low" : "none",
+      timeoutMs,
+    };
+  },
+
+  async callModel(systemPrompt: string, userPrompt: string) {
+    const config = ConfigManager.getConfig();
+    const thinking = Boolean(config.thinking);
+    const timeoutMs = thinking ? config.qwenThinkingTimeoutMs : config.qwenTimeoutMs;
+    return callQwenGeneric({
+      stageName: "final_response",
+      systemPrompt,
+      userPrompt,
+      maxTokens: config.qwenMaxTokens.final,
+      thinking,
+      json: false,
+      timeoutMs,
+    });
+  },
+
+  /**
+   * Parsea y valida la respuesta final en texto libre.
+   * Réplica mínima de generateFinalResponse (src/core/reasoner/qwen.ts:~596-601).
+   */
+  parseAndValidate(
+    content: string,
+    truncated?: boolean
+  ): {
+    parsedJson: { response: string } | null;
+    jsonValid: boolean;
+    schemaValid: boolean;
+    schemaError?: string;
+    text: string;
+  } {
+    const text = stripThink(content).trim();
+    if (!text) {
+      return {
+        parsedJson: null,
+        jsonValid: false,
+        schemaValid: false,
+        schemaError: "salida vacía",
+        text: "",
+      };
+    }
+
+    const finalText = truncated ? `${text}\n\n[Respuesta truncada por el límite de tokens]` : text;
+
+    return {
+      parsedJson: { response: finalText },
+      jsonValid: true,
+      schemaValid: true,
+      text: finalText,
+    };
+  },
+};
+
+// ============================================================
 // Etapa: decision_one (Eos 0.8B)
 // ============================================================
 
@@ -1045,7 +1133,7 @@ export const STAGES: Record<Stage, { name: string; model: "eos" | "qwen"; isImpl
   stage_verification: { name: "stage_verification", model: "qwen", isImplemented: true },
   plan: { name: "plan", model: "qwen", isImplemented: true },
   replan: { name: "replan", model: "qwen", isImplemented: true },
-  final_response: { name: "final_response", model: "qwen", isImplemented: false },
+  final_response: { name: "final_response", model: "qwen", isImplemented: true },
 };
 
 /**
@@ -1054,14 +1142,7 @@ export const STAGES: Record<Stage, { name: string; model: "eos" | "qwen"; isImpl
  */
 export function assertStageImplemented(
   stage: string
-): asserts stage is
-  | "decision_one"
-  | "decision_two"
-  | "step_verification"
-  | "arguments"
-  | "stage_verification"
-  | "plan"
-  | "replan" {
+): asserts stage is Stage {
   const norm = stage.toLowerCase() as Stage;
   if (!STAGES[norm]) {
     throw new LabValidationError(`Etapa desconocida '${stage}'. Etapas válidas: ${Object.keys(STAGES).join(", ")}`);

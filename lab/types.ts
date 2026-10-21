@@ -268,6 +268,8 @@ export interface RunRepetition {
   replanAction?: "continue" | "abort";
   /** Estado de stage_verification */
   stageVerificationStatus?: string;
+  /** Texto de respuesta final generada (final_response) */
+  finalResponseText?: string;
   error?: string;
   finishReason?: string;
   usage?: { promptTokens?: number; completionTokens?: number };
@@ -294,6 +296,8 @@ export interface CaseRunResult {
   replanAction?: "continue" | "abort";
   /** Estado promedio o veredicto de stage_verification */
   stageVerificationStatus?: string;
+  /** Texto representativo o de primera repetición de final_response */
+  finalResponseText?: string;
   repetitions: RunRepetition[];
 }
 
