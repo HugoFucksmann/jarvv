@@ -3,7 +3,7 @@
  * Contract Reference: sweetcornna/free-search-mcp (v0.13.1)
  */
 
-import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
+import { IMCPServer } from "./types.ts";
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { ConfigManager } from "../config.ts";
@@ -36,26 +36,7 @@ export class FreeSearchMCPServer implements IMCPServer {
     }
   }
 
-  async listPrompts(): Promise<MCPPrompt[]> {
-    if (this.transport.listPrompts) {
-      return await this.transport.listPrompts();
-    }
-    return [];
-  }
 
-  async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
-    if (this.transport.listResourceTemplates) {
-      return await this.transport.listResourceTemplates();
-    }
-    return [];
-  }
-
-  async readResource(uri: string): Promise<string> {
-    if (this.transport.readResource) {
-      return await this.transport.readResource(uri);
-    }
-    return "";
-  }
 
   async listTools(): Promise<MCPTool[]> {
     return await this.transport.listTools();

@@ -87,7 +87,6 @@ npm run build
 src/
 ├── components/          # Interfaz React modular y reactiva
 │   ├── CommandSection/  # Entrada de instrucciones y selector de modo
-│   ├── ContextInspector/# Inspección de Scratchpad, Memory, Evidence y Catálogo
 │   ├── DecisionStream/  # Trazabilidad en vivo de Decision 1, Decision 2 y Verificación Eos
 │   ├── GuardBanner/     # Compuerta visual para autorización humana interactiva
 │   ├── ProcessFlow/     # Línea de tiempo, revisión de planes y respuesta final

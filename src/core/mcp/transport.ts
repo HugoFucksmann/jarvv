@@ -16,7 +16,6 @@
  */
 
 import { MCPTool, MCPCallResult } from "../types.ts";
-import { MCPPrompt, MCPResourceTemplate } from "./types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ConfigManager } from "../config.ts";
 
@@ -39,9 +38,6 @@ export interface IMCPTransport {
   readonly config: StdioConfig;
   listTools(): Promise<MCPTool[]>;
   callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult>;
-  listPrompts?(): Promise<MCPPrompt[]>;
-  listResourceTemplates?(): Promise<MCPResourceTemplate[]>;
-  readResource?(uri: string): Promise<string>;
   isConnected(): boolean;
   reconnect(): Promise<void>;
   close?(): Promise<void>;
@@ -417,28 +413,6 @@ export class StdioMcpTransport implements IMCPTransport {
     return result;
   }
 
-  async listPrompts(): Promise<MCPPrompt[]> {
-    try {
-      const result = await this.rpcCall<{ prompts: MCPPrompt[] }>("prompts/list");
-      return result?.prompts || [];
-    } catch {
-      return [];
-    }
-  }
-
-  async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
-    try {
-      const result = await this.rpcCall<{ resourceTemplates: MCPResourceTemplate[] }>("resources/templates/list");
-      return result?.resourceTemplates || [];
-    } catch {
-      return [];
-    }
-  }
-
-  async readResource(uri: string): Promise<string> {
-    const result = await this.rpcCall<{ contents: Array<{ text?: string }> }>("resources/read", { uri });
-    return result?.contents?.[0]?.text || "";
-  }
 
   async reconnect(): Promise<void> {
     this.permanentFailure = null;

@@ -21,15 +21,7 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
     }
   });
 
-  // Capacidades extra (prompts y resource templates)
-  router.get('/extra-capabilities', async (_req, res) => {
-    try {
-      const extra = await discoveryEngine.discoverExtraCapabilities();
-      res.json(extra);
-    } catch {
-      res.json({ prompts: {}, resourceTemplates: {} });
-    }
-  });
+
 
   // Listar herramientas de un servidor específico
   router.get('/:server/tools', async (req, res) => {
@@ -90,47 +82,6 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
     }
   });
 
-  // Prompts del servidor
-  router.get('/:server/prompts', async (req, res) => {
-    const server = getServer(req.params.server);
-    if (!server || !server.listPrompts) {
-      return res.json({ prompts: [] });
-    }
-    try {
-      const prompts = await server.listPrompts();
-      res.json({ prompts });
-    } catch {
-      res.json({ prompts: [] });
-    }
-  });
-
-  // Plantillas de recursos
-  router.get('/:server/resource-templates', async (req, res) => {
-    const server = getServer(req.params.server);
-    if (!server || !server.listResourceTemplates) {
-      return res.json({ resourceTemplates: [] });
-    }
-    try {
-      const resourceTemplates = await server.listResourceTemplates();
-      res.json({ resourceTemplates });
-    } catch {
-      res.json({ resourceTemplates: [] });
-    }
-  });
-
-  // Lectura de recurso
-  router.post('/:server/resources', async (req, res) => {
-    const server = getServer(req.params.server);
-    if (!server || !server.readResource) {
-      return res.status(404).json({ error: 'readResource no soportado', text: '' });
-    }
-    try {
-      const text = await server.readResource(req.body.uri);
-      res.json({ text });
-    } catch (err: any) {
-      res.json({ error: err.message, text: '' });
-    }
-  });
 
   // Reconexión de proceso stdio
   router.post('/:server/reconnect', async (req, res) => {

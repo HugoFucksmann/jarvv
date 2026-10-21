@@ -78,14 +78,7 @@ export class RefStore {
     return undefined;
   }
 
-  static has(key: string, taskId?: string): boolean {
-    return this.get(key, taskId) !== undefined;
-  }
 
-  static list(taskId: string): string[] {
-    const store = this.taskStores.get(taskId);
-    return store ? Array.from(store.keys()) : [];
-  }
 
   /**
    * Libera las referencias de una tarea (o todas). Las refs de una tarea terminada se conservan en memoria, para que su

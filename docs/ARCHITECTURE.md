@@ -45,7 +45,7 @@ flowchart TB
         ResultProcessor["resultProcessor.ts & RefStore"]
         GuardGate["policy/guard.ts"]
         ManifestRegistry["tools/manifest.ts"]
-        TaskStorage["persistence.ts (TaskStore / RefArchive)"]
+        TaskStorage["persistence.ts (TaskStore)"]
     end
 
     subgraph AI ["Modelos Locales de Inferencia"]
@@ -98,7 +98,7 @@ flowchart TB
 | **`llmTransport.ts`** | `src/core/llmTransport.ts` | Transporte HTTP de bajo nivel compartido por Qwen y Decision. Gestiona el presupuesto total de timeout mediante `AbortSignal.timeout`, propaga cancelaciones de usuario (`RequestAbortedError`) sin reclasificarlas, y reintenta errores de red o HTTP 503 una sola vez con backoff. |
 | **`manifest.ts`** | `src/core/tools/manifest.ts` | Fuente única de verdad del catálogo de herramientas autorizadas. Asigna cada herramienta a una de las 4 rutas ejecutables (`files`, `locate`, `terminal`, `web`), define sus capabilities, requerimientos de aprobación y si la herramienta muta el entorno. |
 | **`guard.ts`** | `src/core/policy/guard.ts` | Evaluador determinista de seguridad. Examina la política de la herramienta y los argumentos para emitir una decisión: `ALLOW` (ejecución directa), `APPROVAL` (suspende en espera de autorización humana en UI) o `DENY` (bloqueo terminal). |
-| **`persistence.ts`** | `src/core/persistence.ts` | Motor de almacenamiento persistente en disco: `TaskStore` (guarda `.jarvis/tasks.json` con debounce de 500 ms, escritura atómica vía `.tmp` y cuarentena `.corrupt` ante corrupciones) y `RefArchive` (archiva las referencias de tareas terminadas en `.jarvis/archive/<taskId>.refs.json`). |
+| **`persistence.ts`** | `src/core/persistence.ts` | Motor de almacenamiento persistente en disco: `TaskStore` (guarda `.jarvis/tasks.json` con debounce de 500 ms, escritura atómica vía `.tmp` y cuarentena `.corrupt` ante corrupciones). |
 | **`context.ts`** | `src/core/context.ts` | Ensambla bloques de contexto para los prompts: historial de acciones recientes, hechos (`facts`), efectos acumulados en el entorno (`effects`), fallos previos (`fail`) y descriptores de referencias activas. |
 | **`environment.ts`** | `src/core/environment.ts` | Detecta las rutas del sistema del usuario (carpeta personal, escritorio, documentos, descargas) y el shell predeterminado para anclar los prompts a rutas reales de la máquina. |
 | **`config.ts`** | `src/core/config.ts` | Carga, valida y persiste la configuración operativa (`jarvis-config.json`): URLs de modelos, límites de tokens, timeouts y comandos de inicio de servidores MCP. |

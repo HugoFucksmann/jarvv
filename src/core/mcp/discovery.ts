@@ -4,15 +4,13 @@
  * 
  * Rules:
  * - Obtains tools dynamically via tools/list.
- * - Obtains resource templates via resources/templates/list.
- * - Obtains prompts via prompts/list.
  * - Does not rely on static catalogs.
  * - Invalidates cache upon MCP reconnection.
  * - Serves tools directly to Decision #2 for selection.
  */
 
 import { MCPTool } from "../types.ts";
-import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
+import { IMCPServer } from "./types.ts";
 
 /**
  * Removes $schema, title, additionalProperties, and examples from inputSchema (§10.3)
@@ -138,35 +136,7 @@ export class DiscoveryEngine {
     return out;
   }
 
-  /**
-   * Discovers extra capabilities (prompts & resource templates) where available
-   */
-  async discoverExtraCapabilities(): Promise<{
-    prompts: Record<string, MCPPrompt[]>;
-    resourceTemplates: Record<string, MCPResourceTemplate[]>;
-  }> {
-    const prompts: Record<string, MCPPrompt[]> = {};
-    const resourceTemplates: Record<string, MCPResourceTemplate[]> = {};
 
-    for (const [name, server] of this.servers.entries()) {
-      if (server.listPrompts) {
-        try {
-          prompts[name] = await server.listPrompts();
-        } catch {
-          prompts[name] = [];
-        }
-      }
-      if (server.listResourceTemplates) {
-        try {
-          resourceTemplates[name] = await server.listResourceTemplates();
-        } catch {
-          resourceTemplates[name] = [];
-        }
-      }
-    }
-
-    return { prompts, resourceTemplates };
-  }
 
   /**
    * Validates if a tool exists in the active discovery cache

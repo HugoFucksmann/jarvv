@@ -4,7 +4,7 @@
  */
 
 import path from "node:path";
-import { IMCPServer, MCPPrompt, MCPResourceTemplate } from "./types.ts";
+import { IMCPServer } from "./types.ts";
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { ConfigManager } from "../config.ts";
@@ -98,26 +98,5 @@ export class DesktopCommanderMCPServer implements IMCPServer {
     }
 
     return await this.transport.callTool(name, args);
-  }
-
-  async listPrompts(): Promise<MCPPrompt[]> {
-    if (this.transport.listPrompts) {
-      return await this.transport.listPrompts();
-    }
-    return [];
-  }
-
-  async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
-    if (this.transport.listResourceTemplates) {
-      return await this.transport.listResourceTemplates();
-    }
-    return [];
-  }
-
-  async readResource(uri: string): Promise<string> {
-    if (this.transport.readResource) {
-      return await this.transport.readResource(uri);
-    }
-    return "";
   }
 }

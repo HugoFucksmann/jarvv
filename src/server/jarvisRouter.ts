@@ -3,8 +3,6 @@ import { JarvisCore } from '../core/core.ts';
 import { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { PendingApproval } from '../core/types.ts';
 import { toWireTask } from '../core/taskWire.ts';
-import { RefStore } from '../core/processor/resultProcessor.ts';
-import { refArchive } from '../core/persistence.ts';
 import { ConfigManager } from '../core/config.ts';
 
 function serializePendingApproval(pending: PendingApproval | null) {
@@ -156,17 +154,12 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
       const task = taskId ? jarvisCore.getTask(taskId) : allTasks[allTasks.length - 1] || null;
       const pending = jarvisCore.getPendingApproval(task?.id);
       const tools = await discoveryEngine.discoverAll().catch(() => ({}));
-      const extra = await discoveryEngine.discoverExtraCapabilities().catch(() => ({
-        prompts: {},
-        resourceTemplates: {},
-      }));
 
       res.json({
         task,
         pendingApproval: serializePendingApproval(pending),
         allTasks: allTasks.map(toWireTask),
         discoveredTools: tools,
-        extraCapabilities: extra,
         unavailableServers: discoveryEngine.getUnavailableServers(),
       });
     } catch (err: any) {
@@ -206,25 +199,13 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
   router.all(['/refresh-discovery', '/discovery'], async (_req, res) => {
     try {
       const tools = await discoveryEngine.discoverAll(true);
-      const extra = await discoveryEngine.discoverExtraCapabilities();
-      res.json({ tools, extraCapabilities: extra, unavailableServers: discoveryEngine.getUnavailableServers() });
+      res.json({ tools, unavailableServers: discoveryEngine.getUnavailableServers() });
     } catch (err: any) {
-      res.json({ tools: {}, extraCapabilities: { prompts: {}, resourceTemplates: {} }, error: err.message });
+      res.json({ tools: {}, error: err.message });
     }
   });
 
-  // Recuperar contenido de una referencia en RefStore (Hallazgo #10)
-  router.get('/ref/:refKey', (req, res) => {
-    const { refKey } = req.params;
-    const taskId = req.query.taskId as string | undefined;
-    let content = RefStore.get(refKey, taskId);
-    if (content === undefined && taskId) content = refArchive.get(taskId, refKey);
-    if (content !== undefined) {
-      res.json({ refKey, content, found: true });
-    } else {
-      res.status(404).json({ error: `Referencia '${refKey}' no encontrada.`, found: false });
-    }
-  });
+
 
   // Configuración de endpoints externos
   router.get('/config', (_req, res) => {
