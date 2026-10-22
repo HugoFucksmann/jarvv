@@ -1,183 +1,69 @@
 # Flujo de Ejecución y Orquestación
 
-JARVIS Core implementa un modelo de ejecución determinista y resiliente para la resolución autónoma de tareas. Su arquitectura se fundamenta en un **motor atómico de ejecución de herramientas** sobre el cual operan dos estrategias de orquestación complementarias: una **reactiva (FAST)** para navegación directa y exploración continua, y una **deliberativa (PLAN)** para descomposición en etapas supervisadas y replanteamiento autónomo.
+## 1. Ciclo de Vida
+1. **Recepción e inicio**: La instrucción del usuario ingresa al sistema y se registra una tarea activa en memoria.
+2. **Selección de estrategia**: Según la modalidad seleccionada, el sistema activa la orquestación reactiva directa o la orquestación deliberativa por etapas.
+3. **Planificación previa (solo modalidad deliberativa)**: El razonador formula una secuencia de etapas con criterios observables de éxito y la tarea se suspende a la espera de confirmación, ajuste o rechazo humano.
+4. **Ejecución iterativa de pasos**: Cada acción individual atraviesa el pipeline indivisible del ejecutor atómico de herramientas.
+5. **Evaluación de resultados**: Se contrasta el resultado técnico observable mediante el clasificador factual y, en modalidad deliberativa, mediante el supervisor semántico.
+6. **Resolución de contingencias**: Los fallos recuperables activan escalación con cambio de ruta o replanificación autónoma; las dudas sobre información esencial suspenden la tarea para consultar al usuario.
+7. **Conclusión y síntesis**: Al completarse los objetivos o alcanzarse un límite operativo, el sistema sintetiza una respuesta final con la evidencia acumulada y asienta la traza de la tarea.
 
----
+## 2. Bucle Principal
+En cada ciclo de ejecución, el sistema realiza la siguiente secuencia:
+1. **Determinación de acción**: En modo reactivo, el clasificador evalúa el historial para elegir el destino operativo o declarar el fin. En modo deliberativo, se toma la etapa pendiente del plan vigente.
+2. **Validación de fin**: La finalización reactiva requiere que exista al menos una acción productiva previa comprobada y que no existan pasos no verificados sin observar. De no cumplirse, la finalización se deniega y se fuerza a continuar con la ruta más adecuada.
+3. **Pipeline atómico del paso**:
+   - Selección de herramienta dentro del destino asignado.
+   - Generación de argumentos estructurados conforme al esquema.
+   - Sustitución determinista de tokens por contenidos del almacén de referencias.
+   - Control anti-bucle: bloqueo de lecturas idénticas o acciones repetidas sin lecturas intermedias de confirmación.
+   - Evaluación en la compuerta de seguridad: denegación terminal ante comandos destructivos o suspensión interactiva ante mutaciones sensibles.
+   - Despacho hacia el servidor de herramientas bajo control de cancelación cooperativa.
+   - Procesamiento de la salida cruda, extracción de hechos y aislamiento de cargas masivas.
+4. **Verificación y memoria**: Verificación factual del resultado observable. Consolidación de hechos si la acción fue validada, si no hubo veredicto o si produjo una mutación física en el entorno.
+5. **Corte o continuación**: El bucle prosigue mientras existan etapas pendientes o alternativas viables, y se detiene ante objetivo cumplido, cancelación del usuario, agotamiento de cotas operativas de pasos o bloqueos de seguridad.
 
-## 1. Propósito y Principios
+## 3. Rol del Plan en el Flujo
+- **Generación**: El razonador descompone la solicitud en etapas secuenciales con ruta asignada y criterio observable de éxito.
+- **Intervención humana previa**: La tarea suspende su ejecución hasta que el usuario confirma el plan, solicita ajustes o lo cancela.
+- **Ejecución y doble juez**: Cada etapa del plan se envía al ejecutor atómico. La verificación técnica factual es evaluada primero por el clasificador; si este no aprueba o no está disponible, el razonador evalúa semánticamente si la evidencia satisface el objetivo de la etapa.
+- **Clarificación interactiva**: Si el razonador dictamina falta de información esencial del usuario, la tarea se suspende formulando una pregunta puntual. Al recibir la respuesta, esta se asienta como hecho, se incorpora a la instrucción de la etapa y la ejecución se reanuda. Si se alcanza el límite de preguntas permitidas, la situación se procesa como desviación y se activa replanificación.
+- **Replanificación autónoma**: Ante una desviación técnica o semántica, el razonador reestructura exclusivamente las etapas pendientes. Las etapas completadas jamás se repiten y las mutaciones físicas consolidadas en el entorno se transmiten intactas para no duplicar acciones destructivas. El plan ajustado prosigue de manera autónoma sin requerir confirmación interactiva.
 
-El flujo de orquestación y ejecución persigue cuatro principios arquitectónicos:
+## 4. Estados y Transiciones
 
-1. **Motor de ejecución único e indivisible:** Toda interacción física con herramientas y servidores MCP se canaliza a través de un único pipeline determinista de ejecución, garantizando que las políticas de seguridad, anti-bucle, resolución de referencias y verificación factual se apliquen de forma homogénea sin importar la estrategia de orquestación utilizada.
-2. **Determinismo y progresividad:** Las decisiones de alto nivel se apoyan en heurísticas y modelos especializados que delimitan el alcance de cada paso antes de emitir acciones sobre el entorno.
-3. **Supervisión por capas:** Distinción explícita entre la verificación factual de una herramienta (si la invocación técnica cumplió su objetivo observable) y la verificación semántica de una etapa (si el resultado global acerca al sistema a la resolución de la tarea).
-4. **Resiliencia y degradación no destructiva:** Las anomalías, ausencias temporales de modelos de verificación o bloqueos lógicos no provocan fallos catastróficos; el sistema degrada a estados no verificados o conclusiones parciales controladas, protegiendo las mutaciones ya consolidadas.
+| Estado Inicial | Transición | Estado Destino | Condición |
+|---|---|---|---|
+| Ninguno | Inicialización | En ejecución | Se crea la tarea y comienza la orquestación. |
+| En ejecución | Suspensión interactiva | En espera de intervención | El plan inicial requiere aprobación, una herramienta sensible exige confirmación de seguridad, o se requiere una respuesta aclaratoria del usuario. |
+| En espera de intervención | Reanudación interactiva | En ejecución | El usuario autoriza la mutación, confirma el plan, remite ajustes o provee la aclaración requerida. |
+| En ejecución | Conclusión exitosa | Completada | Se cumplen los criterios observables de la tarea con todas las etapas vigentes verificadas. |
+| En ejecución | Conclusión parcial | Parcial | Se alcanza la cota máxima de pasos permitidos, persisten bloqueos reiterados de bucle, o el plan concluye con etapas no verificadas. |
+| En ejecución | Fallo terminal | Fallida | Acción denegada por patrón prohibido, rechazo expreso del usuario en la compuerta de seguridad, agotamiento de intentos de replanificación o error no recuperable. |
+| En ejecución o En espera | Cancelación | Cancelada | El usuario interrumpe la tarea explícitamente en cualquier momento. |
 
----
+## 5. Errores y Límites
+- **Transporte hacia modelos**: Los fallos transitorios de red o saturación temporal se reintentan una vez con espera progresiva antes de catalogar el servicio como no disponible. El agotamiento de tiempo de espera y la cancelación nunca se reintentan.
+- **Salidas inválidas de modelos**: Si la respuesta de un modelo no respeta el esquema esperado o se corta, se efectúa un reintento correctivo inyectando el motivo del desvío en la siguiente invocación.
+- **Escalación reactiva**: Ante un fallo de herramienta en modo reactivo, la herramienta fallida se excluye de la siguiente iteración, se amplía el contexto recuperado y el clasificador arbitra una ruta alternativa. Si el clasificador determina fin de alternativas o se agotan las cotas de escalación, la tarea concluye.
+- **Tratamiento de incertidumbre**:
+  - En modo reactivo, una acción sin veredicto no permite concluir la tarea de forma exitosa a menos que una acción posterior de lectura confirme el estado del entorno.
+  - En modo deliberativo, una acción sin veredicto permite continuar con las etapas siguientes, pero si al finalizar persisten acciones sin verificar, la tarea concluye como parcial y no como completada.
+- **Seguridad**: Toda denegación por política prohibida o rechazo humano en la compuerta de seguridad detiene la tarea de inmediato; está prohibido escalar o replanificar para evadir un bloqueo de seguridad.
+- **Cancelación cooperativa**: La cancelación del usuario propaga una señal de aborto a todas las capas, descarta respuestas en vuelo y concluye la tarea inmediatamente sin catalogarse como error.
 
-## 2. Ciclo de Vida y Estados Canónicos de la Tarea
+## 6. Invariantes del Flujo
+1. **Unicidad de ejecución**: Todo comando o acceso a herramientas opera exclusivamente a través del ejecutor atómico (ver principio en `ARCHITECTURE.md`).
+2. **Invarianza de etapas completadas**: Las etapas concluidas y verificadas nunca se vuelven a ejecutar durante una replanificación.
+3. **Permanencia de efectos**: Las alteraciones físicas consolidadas no se revierten ante desvíos posteriores (ver detalle en `CONTEXT_AND_MEMORY.md`).
+4. **Cierre de estados terminales**: Una vez alcanzado un estado terminal (completada, parcial, fallida o cancelada), ninguna respuesta demorada ni evento tardío puede modificar dicho estado.
 
-Toda tarea procesada por el núcleo transita por una máquina de estados finita con garantías de persistencia y trazabilidad.
-
-```mermaid
-stateDiagram-v2
-    [*] --> RUNNING: Inicialización de la tarea
-    
-    state RUNNING {
-        state "Orquestación Reactiva (FAST)" as FAST
-        state "Orquestación Deliberativa (PLAN)" as PLAN
-    }
-
-    RUNNING --> WAITING_INPUT: Suspensión interactiva
-    WAITING_INPUT --> RUNNING: Confirmación / Aprobación / Respuesta
-    
-    RUNNING --> COMPLETED: Objetivo cumplido con verificación
-    RUNNING --> PARTIAL: Parada controlada por límite operativo
-    RUNNING --> FAILED: Error irrecuperable o violación de seguridad
-    
-    RUNNING --> CANCELLED: Cancelación explícita del usuario
-    WAITING_INPUT --> CANCELLED: Cancelación explícita del usuario
-
-    COMPLETED --> [*]
-    PARTIAL --> [*]
-    FAILED --> [*]
-    CANCELLED --> [*]
-```
-
-### Estados y Semántica Operativa
-
-* **`RUNNING`:** Ejecución activa de una de las estrategias de orquestación.
-* **`WAITING_INPUT`:** Ejecución suspendida temporalmente en espera de intervención humana. Existen exactamente tres causas canónicas de suspensión:
-  1. `plan_confirmation`: El plan estructurado inicial requiere validación, ajuste o rechazo por parte del usuario antes de iniciar la ejecución de herramientas.
-  2. `approval`: Una herramienta clasificada como mutación sensible o restringida por las políticas de seguridad requiere autorización explícita para ejecutarse.
-  3. `user_answer`: El supervisor semántico determinó que falta información esencial del usuario que no puede obtenerse mediante herramientas autónomas.
-* **`COMPLETED`:** La tarea alcanzó su objetivo satisfactoriamente con evidencia contrastada. El sistema genera una síntesis de cierre a partir de las observaciones acumuladas.
-* **`PARTIAL`:** Conclusión controlada cuando se alcanza la cota operativa máxima de pasos o ante bloqueos repetidos de anti-bucle. Si se produjo trabajo útil previo, la tarea concluye como parcial en lugar de fallida, preservando los hallazgos y efectos generados.
-* **`FAILED`:** Tarea abortada por un fallo terminal: denegación irremediable de políticas de seguridad, errores críticos e irrecuperables de infraestructura, o agotamiento de los intentos de replanificación sin resolución.
-* **`CANCELLED`:** Interrupción inmediata provocada por el usuario. El sistema suspende el trabajo, descarta resultados en tránsito y libera los recursos en memoria.
-
----
-
-## 3. Dualidad de Orquestación sobre Motor Unificado
-
-La arquitectura no duplica la lógica de ejecución: **FAST** y **PLAN** son dos modos de orquestación que comparten y alimentan al mismo motor indivisible de paso (`runStep`).
-
-```
-                ┌──────────────────────────────────────────────┐
-                │             JarvisCore (Entrada)             │
-                └──────────────────────┬───────────────────────┘
-                                       │
-                 ┌─────────────────────┴─────────────────────┐
-                 ▼                                           ▼
-       ┌──────────────────┐                        ┌──────────────────┐
-       │ Modo FAST        │                        │ Modo PLAN        │
-       │ (Reactivo)       │                        │ (Deliberativo)   │
-       │                  │                        │                  │
-       │ • Arbitraje D1/D2│                        │ • Plan previo    │
-       │ • Paso a paso    │                        │ • Supervisión Qwen│
-       │ • Salida directa │                        │ • Replan local   │
-       └─────────┬────────┘                        └─────────┬────────┘
-                 │                                           │
-                 └─────────────────────┬─────────────────────┘
-                                       ▼
-                 ┌───────────────────────────────────────────┐
-                 │       runStep() — Motor Atómico           │
-                 │                                           │
-                 │ 1. Descubrimiento y anti-bucle            │
-                 │ 2. Argumentos y resolución de referencias │
-                 │ 3. Evaluación de seguridad (Guard)        │
-                 │ 4. Despacho MCP y procesamiento           │
-                 │ 5. Verificación factual (Eos)             │
-                 │ 6. Consolidación de memoria y handoff     │
-                 └───────────────────────────────────────────┘
-```
-
-### A. Modo FAST (Orquestación Reactiva)
-* **Filosofía:** Orientado a exploración rápida, consultas informativas y tareas directas sin dependencias complejas entre etapas.
-* **Mecánica:**
-  * En cada iteración, un selector de ruta evalúa el historial acumulado y decide si continuar explorando una ruta temática o concluir (`fin`).
-  * La compuerta de conclusión exige que haya existido al menos una acción útil previa o que la solicitud sea conversacional pura.
-  * Si la herramienta produce errores lógicos recurrentes, el modo escala suspendiendo en espera de confirmación humana antes de insistir a ciegas.
-
-### B. Modo PLAN (Orquestación Deliberativa y Supervisada)
-* **Filosofía:** Orientado a metas complejas que requieren orden predecible, validación previa y supervisión de hitos.
-* **Mecánica:**
-  * **Planificación inicial:** Un modelo razonador descompone la solicitud en una secuencia estructurada de etapas con criterios observables de éxito. Si la configuración lo exige, el plan se suspende en `WAITING_INPUT` para confirmación o modificación humana.
-  * **Ejecución secuencial:** Cada etapa se envía al motor unificado `runStep`.
-  * **Doble verificación:** Tras la verificación factual técnica del motor (`runStep`), un supervisor semántico evalúa si la evidencia obtenida realmente cumple el objetivo global de la etapa.
-  * **Veredictos semánticos:**
-    - *Completado:* La etapa alcanzó su criterio observable y se avanza a la siguiente.
-    - *Desviación recuperable:* La herramienta corrió limpiamente pero no alcanzó el objetivo; se activa la replanificación autónoma.
-    - *Información insuficiente:* Falta información que solo el usuario posee; el sistema suspende en `WAITING_INPUT` y reanuda tras recibir la respuesta.
-    - *Bloqueo irrecuperable:* La meta es inviable o contradictoria; la tarea concluye como fallida.
-  * **Invariante de replanificación (`replan`):** Las etapas ya completadas **jamás se repiten**, y las mutaciones físicas consolidadas en el entorno se transmiten intactas al nuevo plan para formular alternativas sin re-ejecutar acciones destructivas. Solo se reestructuran las etapas pendientes.
-
----
-
-## 4. Pipeline Atómico de Ejecución de un Paso (`runStep`)
-
-Cada acción sobre el entorno atraviesa un pipeline riguroso y secuencial de cinco fases:
-
-```mermaid
-sequenceDiagram
-    participant Engine as Orquestador (FAST / PLAN)
-    participant Exec as Motor de Paso (runStep)
-    participant Guard as Política de Seguridad (Guard)
-    participant MCP as Servidor MCP
-    participant Proc as Procesador de Resultados
-    participant Verif as Verificador Factual (Eos)
-
-    Engine->>Exec: Iniciar paso con instrucción y ruta
-    
-    Note over Exec: Fase 1: Preparación, Anti-bucle y Resolución de Refs
-    
-    Exec->>Guard: Fase 2: Evaluar seguridad con argumentos reales
-    alt Decisión: DENY
-        Guard-->>Exec: Denegación de política
-        Exec-->>Engine: Error lógico (bloqueado por seguridad)
-    else Decisión: APPROVAL
-        Guard-->>Exec: Mutación sensible
-        Exec-->>Engine: Suspender en WAITING_INPUT (Aprobación humana)
-    else Decisión: ALLOW
-        Exec->>MCP: Fase 3: Despacho de la herramienta
-        MCP-->>Exec: Salida cruda de la ejecución
-        
-        Exec->>Proc: Fase 4: Procesamiento, aislamiento de refs y deltas
-        Proc-->>Exec: Evidencia sintetizada y señales operativas
-        
-        opt Señales limpias de error
-            Exec->>Verif: Fase 5: Validación factual observable
-            Verif-->>Exec: Dictamen (ok / no cumple)
-        end
-        
-        Note over Exec: Consolidación de memoria (facts/effects) y cálculo de handoff
-        Exec-->>Engine: Resultado del paso (ok / unverified / logical_error)
-    end
-```
-
-### Fases del Pipeline:
-1. **Preparación y Anti-bucle:** Se descubren y validan las herramientas de la ruta. Se calcula una firma contextual que impide invocar herramientas idénticas con los mismos parámetros a menos que medien lecturas intermedias. Los tokens de referencia se resuelven deterministamente sustituyéndolos por sus datos íntegros antes del control de seguridad.
-2. **Evaluación de Seguridad (Guard):** Se analizan los argumentos ya resueltos. Si la acción infringe una política estricta, se deniega (`DENY`); si implica una mutación sensible, la tarea se suspende en `WAITING_INPUT` solicitando aprobación; si está permitida (`ALLOW`), prosigue al despacho.
-3. **Despacho y Aislamiento:** Invocación en el servidor MCP correspondiente bajo control de cancelación. Si la tarea fue cancelada mientras la herramienta ejecutaba, la respuesta tardía se descarta sin contaminar el estado.
-4. **Procesamiento de Resultados:** El procesador segrega salidas masivas hacia el almacén de referencias, genera una observación compacta y extrae los deltas de estado.
-5. **Verificación Factual y Consolidación:**
-   * Las señales limpias se someten al modelo verificador.
-   * **Garantía ante caída del verificador:** Si el modelo de verificación no responde, el paso **jamás se auto-aprueba**; se cataloga estrictamente como `UNVERIFIED`.
-   * Los hechos (`facts`) solo se integran si el paso fue verificado o si describe una mutación física confirmada.
-   * Se genera un descriptor determinista de enlace (*handoff*) para alimentar el contexto directo del siguiente paso.
-
----
-
-## 5. Políticas de Resiliencia, Cancelación y Recuperación
-
-### A. Cancelación Cooperativa Unificada (`AbortSignal`)
-* Cada tarea cuenta con un único controlador de aborto que viaja por todas las capas: transporte HTTP hacia los modelos, esperas de autorización y llamadas a herramientas MCP.
-* **Invariante de cancelación:** Una cancelación solicitada por el usuario nunca se interpreta ni se registra como error de red, fallo de infraestructura o error lógico. El sistema aborta silenciosamente las operaciones pendientes, descarta respuestas en vuelo y libera los recursos asociados.
-
-### B. Degradación Controlada ante Incertidumbre (`UNVERIFIED`)
-* Los pasos que no pudieron ser verificados por ausencia temporal del modelo verificador o por naturaleza no contrastable no bloquean inmediatamente la tarea ni se consideran fallos.
-* Sin embargo, el sistema impone una compuerta: una tarea no puede declararse exitosamente concluida si persisten pasos no verificados que no hayan sido observados o consolidados por una lectura posterior.
-
-### C. Recuperación ante Fallos de Inferencia
-* **Nivel Transporte:** Respuestas transitorias de sobrecarga o fallos de conexión temporales aplican reintentos inmediatos con espera exponencial antes de reportar un fallo de infraestructura.
-* **Nivel Validación de Salida:** Si la respuesta de un modelo de razonamiento no satisface el esquema estructurado esperado o sufre truncamiento por ventana de contexto, el sistema efectúa un reintento correctivo inyectando el motivo del fallo en el prompt para guiar la autocorrección del modelo.
+## 7. Archivos Base
+- `src/core/core.ts`
+- `src/core/modeEngines.ts`
+- `src/core/callExecutor.ts`
+- `src/core/decision.ts`
+- `src/core/reasoner/qwen.ts`
+- `src/core/policy/guard.ts`
+- `src/core/types.ts`

@@ -1,140 +1,53 @@
-# Arquitectura de JARVIS Core
+# Arquitectura del Sistema
 
-JARVIS es un sistema de asistencia y automatización determinista que orquesta la ejecución supervisada de tareas en el entorno local (sistema de archivos, terminal, procesos) y la web. Su diseño desacopla la **planificación y generación de argumentos** (a cargo de un LLM de razonamiento: Qwen 3.5), la **clasificación y verificación factual** (a cargo de un modelo discriminativo estructurado: Decision 2.0 / Eos-0.8B), y la **ejecución segura de acciones** (mediante servidores MCP locales bajo una compuerta estricta de políticas: Guard).
+## 1. Propósito
+El backend es un sistema determinista de asistencia y automatización local. Orquesta la ejecución supervisada de herramientas en el entorno operativo y la web mediante la separación estricta entre planificación, clasificación de decisiones y ejecución segura.
 
----
+## 2. Principios Invariantes
+1. **Núcleo único de ejecución**: Todo comando o acceso a herramientas se procesa a través de un único canal determinista. La planificación no ejecuta herramientas; solo secuencia etapas sobre el núcleo.
+2. **Desacoplamiento estricto de modelos**: El modelo de razonamiento descompone objetivos, formula parámetros estructurados y valida etapas; el clasificador factual selecciona rutas, herramientas y evalúa el cumplimiento técnico inmediato. Ningún modelo tiene acceso directo al sistema operativo.
+3. **Seguridad con cierre por defecto**: Toda acción potencialmente mutante requiere autorización explícita previa. Cualquier herramienta no registrada en el catálogo oficial queda excluida de la ejecución.
+4. **Aislamiento ontológico de datos**: Las salidas voluminosas de herramientas se segregan bajo referencias deterministas. Los modelos razonan sobre observaciones acotadas y direccionan contenidos mediante identificadores indirectos.
+5. **Volatilidad controlada del estado**: El estado operativo reside exclusivamente en memoria volátil acotada; la trazabilidad externa opera en modo de solo adición para auditoría (ver detalle en `CONTEXT_AND_MEMORY.md`).
 
-## 1. Principios de Diseño
+## 3. Componentes
 
-1. **Determinismo y separación de modelos:**
-   - Ningún modelo LLM ejecuta herramientas directamente.
-   - El clasificador **Decision 2.0 (Eos-0.8B)** se encarga de la navegación estructural (Decision #1: destino) y de la selección precisa de herramientas (Decision #2).
-   - El razonador **Qwen 3.5 9B** se encarga de descomponer objetivos en etapas, formular argumentos conformes a esquemas JSON, sintetizar respuestas finales y actuar como supervisor semántico de etapa en modo PLAN.
-   - Eos actúa como verificador factual inmediato de cada paso ejecutado antes de darlo por bueno.
-2. **Seguridad fail-closed (Guard):**
-   - Toda herramienta que muta el sistema (`policy.mutates === true`, como escritura de archivos o ejecución de comandos) requiere aprobación explícita del usuario o una política preautorizada. Si una herramienta no está catalogada en el manifest, la acción se bloquea por defecto.
-3. **Aislamiento de contexto y referencias deterministas (`RefStore`):**
-   - Las salidas extensas de herramientas (archivos leídos, salidas de consola, listados web) se almacenan aisladas en memoria por tarea bajo tokens deterministas (`ref:r1`, `ref:r2`).
-   - Los modelos de razonamiento y clasificación reciben observaciones compactas (`compactObs`) acotadas en caracteres. Si un paso posterior necesita el contenido completo, Qwen inyecta el token de referencia en los argumentos y `RefResolver` lo sustituye deterministamente antes del despacho.
-4. **Resiliencia y trazabilidad sin inferencias en silencio:**
-   - La infraestructura HTTP no realiza inferencias automáticas ni asume datos inexistentes. Salidas inválidas, rutas desconocidas o discrepancias de tipos invalidan el paso y disparan reintentos estructurados o replanificación autónoma.
-
----
-
-## 2. Fronteras del Sistema y Servicios Externos
-
-El sistema se compone de tres capas principales y dos backends de inteligencia artificial locales:
-
-```mermaid
-flowchart TB
-    subgraph UI ["Frontend (React 19 + Vite + Tailwind CSS)"]
-        BrowserUI["UI Web / Consola interactiva"]
-        EventSourceClient["Cliente SSE (EventSource)"]
-    end
-
-    subgraph Host ["Host HTTP (Express 4)"]
-        Server["server.ts"]
-        JarvisRouter["jarvisRouter.ts (/api/jarvis/*)"]
-        McpRouter["mcpRouter.ts (/api/mcp/*)"]
-    end
-
-    subgraph Core ["JARVIS Core (TypeScript / ES2022)"]
-        JarvisCore["JarvisCore (core.ts)"]
-        ModeEngines["modeEngines.ts (FAST / PLAN)"]
-        CallExecutor["callExecutor.ts"]
-        ResultProcessor["resultProcessor.ts & RefStore"]
-        GuardGate["policy/guard.ts"]
-        ManifestRegistry["tools/manifest.ts"]
-        TaskStorage["persistence.ts (TaskStore)"]
-    end
-
-    subgraph AI ["Modelos Locales de Inferencia"]
-        QwenServer["Qwen 3.5 9B (Ollama/vLLM HTTP)<br/>POST /v1/chat/completions"]
-        DecisionServer["Decision 2.0 Eos-0.8B (Python HTTP)<br/>POST /evaluate"]
-    end
-
-    subgraph MCP ["Servidores de Herramientas (stdio JSON-RPC)"]
-        DesktopCommander["desktop_commander<br/>(archivos, terminal, procesos)"]
-        FreeSearch["free_search<br/>(búsqueda web, fetch)"]
-    end
-
-    BrowserUI -->|REST API| JarvisRouter
-    BrowserUI -->|REST API| McpRouter
-    JarvisRouter --> JarvisCore
-    McpRouter --> JarvisCore
-    JarvisCore -->|SSE Events| EventSourceClient
-
-    JarvisCore --> ModeEngines
-    ModeEngines --> CallExecutor
-    CallExecutor --> GuardGate
-    CallExecutor --> ResultProcessor
-    CallExecutor --> ManifestRegistry
-
-    CallExecutor -->|JSON-RPC stdio| DesktopCommander
-    CallExecutor -->|JSON-RPC stdio| FreeSearch
-
-    ModeEngines -->|HTTP| QwenServer
-    CallExecutor -->|HTTP| QwenServer
-    ModeEngines -->|HTTP| DecisionServer
-    CallExecutor -->|HTTP| DecisionServer
-
-    JarvisCore --> TaskStorage
-```
-
----
-
-## 3. Módulos del Núcleo y Responsabilidades
-
-| Módulo | Ruta | Responsabilidad Principal |
+| Componente | Responsabilidad | Qué NO hace |
 |---|---|---|
-| **`core.ts`** | `src/core/core.ts` | Fachada principal del orquestador. Gestiona el ciclo de vida de tareas en memoria (`activeTasks`), despacho de eventos SSE (`emitEvent`), confirmación/rechazo de planes, aprobación humana de Guard (`provideApproval`), reanudación ante preguntas al usuario (`provideUserAnswer`) y coordinación con la persistencia. |
-| **`modeEngines.ts`** | `src/core/modeEngines.ts` | Implementa los dos motores de ejecución: el loop reactivo directo (**FAST**) y el pipeline por etapas supervisado (**PLAN**), gestionando transiciones de estado, replanificación localizada y cierre de tareas. |
-| **`callExecutor.ts`** | `src/core/callExecutor.ts` | Ejecutor atómico de herramientas: redescubrimiento dinámico de esquemas, generación de argumentos con Qwen, sustitución determinista de referencias (`RefResolver`), evaluación de Guard, despacho MCP, procesamiento de resultados con `ResultProcessor`, verificación factual con Eos y cálculo de hand-off para el siguiente paso. |
-| **`resultProcessor.ts`** | `src/core/processor/resultProcessor.ts` | Parsea resultados MCP crudos. Aplica extractores específicos por herramienta (`read_file`, `list_directory`, `process`, `search`, `fetch`, genérico), calcula señales de ejecución (`exit_code`, `timeout`, `not_found`, `empty_output`), genera la observación compacta acotada (`compactObs`), los hechos de memoria (`factsDelta`) y gestiona el almacén de referencias en memoria (`RefStore`). |
-| **`refResolver.ts`** | `src/core/processor/refResolver.ts` | Sustituye tokens de referencia `{{ref:rX}}` o `ref:rX` por los contenidos reales almacenados en `RefStore` dentro del payload de argumentos antes de que la llamada pase por Guard y se envíe al servidor MCP. |
-| **`decision.ts`** | `src/core/decision.ts` | Cliente HTTP del servicio Decision 2.0 (Eos-0.8B). Expone `evaluateDecisionOne` (enrutamiento de destino o finalización), `evaluateDecisionTwo` (selección de herramienta dentro del destino) y `evaluateStepVerification` (juicio factual `ok` y `cumple`). |
-| **`qwen.ts`** | `src/core/reasoner/qwen.ts` | Cliente HTTP OpenAI-compatible para Qwen. Implementa generación de argumentos, planes iniciales, replanificaciones, respuestas finales y verificación semántica de etapas (`verifyStage`), con políticas estrictas de timeouts, cancelación y reintento único ante salida inválida o truncada. |
-| **`prompts.ts`** | `src/core/reasoner/prompts.ts` | Biblioteca centralizada de plantillas de prompts: prompts de sistema estables (optimizados para prefix-cache), presupuestos estrictos de caracteres por sección, sanitización de delimitadores `<obs>` y notas de corrección para reintentos. |
-| **`llmTransport.ts`** | `src/core/llmTransport.ts` | Transporte HTTP de bajo nivel compartido por Qwen y Decision. Gestiona el presupuesto total de timeout mediante `AbortSignal.timeout`, propaga cancelaciones de usuario (`RequestAbortedError`) sin reclasificarlas, y reintenta errores de red o HTTP 503 una sola vez con backoff. |
-| **`manifest.ts`** | `src/core/tools/manifest.ts` | Fuente única de verdad del catálogo de herramientas autorizadas. Asigna cada herramienta a una de las 4 rutas ejecutables (`files`, `locate`, `terminal`, `web`), define sus capabilities, requerimientos de aprobación y si la herramienta muta el entorno. |
-| **`guard.ts`** | `src/core/policy/guard.ts` | Evaluador determinista de seguridad. Examina la política de la herramienta y los argumentos para emitir una decisión: `ALLOW` (ejecución directa), `APPROVAL` (suspende en espera de autorización humana en UI) o `DENY` (bloqueo terminal). |
-| **`persistence.ts`** | `src/core/persistence.ts` | Motor de almacenamiento persistente en disco: `TaskStore` (guarda `.jarvis/tasks.json` con debounce de 500 ms, escritura atómica vía `.tmp` y cuarentena `.corrupt` ante corrupciones). |
-| **`context.ts`** | `src/core/context.ts` | Ensambla bloques de contexto para los prompts: historial de acciones recientes, hechos (`facts`), efectos acumulados en el entorno (`effects`), fallos previos (`fail`) y descriptores de referencias activas. |
-| **`environment.ts`** | `src/core/environment.ts` | Detecta las rutas del sistema del usuario (carpeta personal, escritorio, documentos, descargas) y el shell predeterminado para anclar los prompts a rutas reales de la máquina. |
-| **`config.ts`** | `src/core/config.ts` | Carga, valida y persiste la configuración operativa (`jarvis-config.json`): URLs de modelos, límites de tokens, timeouts y comandos de inicio de servidores MCP. |
-| **`types.ts`** | `src/core/types.ts` | Definiciones canónicas de interfaces (`Task`, `Step`, `StepCall`, `Plan`, `Evidence`), estados (`TaskState`, `StepState`, `VerificationState`), rutas y constantes globales. |
+| **Host del Servidor** | Inicializa el entorno, gestiona señales del sistema operativo para el apagado ordenado de subprocesos y expone los canales de comunicación y eventos. | No toma decisiones de ejecución ni gestiona el estado interno de las tareas. |
+| **Núcleo Orquestador** | Centraliza el ciclo de vida de las tareas en memoria, emite eventos de observabilidad y coordina las solicitudes de intervención del usuario. | No dialoga directamente con los servidores de herramientas ni contiene la lógica de los bucles de ejecución. |
+| **Motores de Modo** | Implementan las estrategias reactiva y deliberativa, regulan cotas operativas, gestionan la escalación ante desvíos y ejecutan la replanificación autónoma. | No generan argumentos estructurados ni evalúan políticas de seguridad. |
+| **Ejecutor Atómico de Pasos** | Conduce el pipeline secuencial de cada acción: validación de ruta, selección de herramienta, formulación de argumentos, resolución de referencias, control anti-bucle, compuerta de seguridad, despacho, procesamiento y verificación. | No decide la estrategia global de la tarea ni define secuencias de pasos. |
+| **Clasificador Factual** | Discrimina entre rutas operativas o fin de tarea, selecciona la herramienta correspondiente al destino y emite el dictamen técnico inmediato sobre los resultados observables. | No genera texto libre, planes complejos ni argumentos estructurados. |
+| **Razonador** | Descompone objetivos en etapas estructuradas, genera argumentos validados contra esquema, evalúa semánticamente el progreso de las etapas y sintetiza la respuesta final. | No despacha comandos ni accede al entorno local. |
+| **Compuerta de Seguridad** | Evalúa argumentos normalizados contra patrones destructivos prohibidos y políticas de mutación para autorizar, solicitar intervención humana o denegar la acción. | No modifica argumentos ni negocia alternativas con los modelos. |
+| **Catálogo de Herramientas** | Define formalmente las herramientas autorizadas, sus rutas funcionales, capacidades asociadas y requisitos de autorización. | No ejecuta llamadas ni mantiene estado dinámico. |
+| **Procesador de Resultados** | Parsea salidas de herramientas, sintetiza observaciones acotadas, calcula señales de fallo y aísla cargas pesadas en el almacén de referencias. | No evalúa la veracidad semántica de los datos ni interactúa con disco. |
+| **Resolutor de Referencias** | Sustituye tokens de referencia por sus contenidos reales en los argumentos antes de la evaluación de seguridad y el despacho. | No genera nuevas referencias ni invoca herramientas. |
+| **Gestor de Contexto y Memoria** | Construye bloques contextuales estructurados aplicando orden estricto para optimizar caché y delimita datos externos para prevenir inyecciones. | No persiste información ni realiza llamadas a servicios. |
+| **Registro de Trazabilidad** | Emite un registro secuencial en disco al término de cada tarea para análisis y evaluación externa. | No actúa como base de datos ni restaura estado al reiniciar el servidor. |
 
----
+## 4. Dependencias entre Capas
+- **Dirección permitida**: Jerárquica y descendente. Las capas superiores de orquestación dependen de los componentes subordinados de ejecución, seguridad e inferencia, nunca a la inversa.
+- **Dirección prohibida**: Ningún componente de inferencia, seguridad o procesamiento de herramientas conoce ni depende de las capas de orquestación o del host. El backend no posee dependencias hacia capas de presentación ni de laboratorio.
 
-## 4. Servidores MCP y Rutas Funcionales
+## 5. Puntos de Extensión
+- **Nuevas herramientas**: Se registran exclusivamente en el catálogo de herramientas asociando su identificador, destino, capacidad, esquema de parámetros y política de mutación.
+- **Nuevos destinos funcionales**: Se definen en las rutas del catálogo asociándolos al servidor correspondiente e incorporando sus descripciones operativas.
+- **Nuevos servidores de herramientas**: Se conectan implementando el protocolo estándar de comunicación y registrándose en el gestor de descubrimiento del servidor.
 
-El manifest (`manifest.ts`) agrupa las herramientas del sistema en **4 rutas ejecutables cerradas** (`ExecutableRoute`), cada una asignada a un único servidor MCP:
-
-```
-Rutas Ejecutables (Decision #1)
-├── "files"    ──► desktop_commander (read_file, write_file, list_directory, move_file...)
-├── "locate"   ──► desktop_commander (start_search, get_more_search_results)
-├── "terminal" ──► desktop_commander (start_process, read_process_output, interact_with_process)
-└── "web"      ──► free_search       (search, fetch, fetch_batch)
-```
-
-Cualquier herramienta devuelta por un servidor MCP que no figure explícitamente en el manifest es filtrada por `applyDestination` y no se expone a los modelos ni a la ejecución.
-
----
-
-## 5. Eventos y Flujo de Comunicación (SSE)
-
-`JarvisCore` extiende un patrón de observabilidad en tiempo real. Cuando cambia el estado interno de una tarea, se emite un `CoreEvent` que `jarvisRouter.ts` retransmite a la UI a través de un canal Server-Sent Events (`/api/jarvis/events`):
-
-- `TASK_CREATED`: Tarea inicializada y registrada en memoria.
-- `TASK_STATE_CHANGED`: Cambio de estado (`RUNNING`, `WAITING_INPUT`, `COMPLETED`, `FAILED`, `CANCELLED`).
-- `PLAN_GENERATED`: Plan inicial generado o plan reformulado por replanificación.
-- `STEP_STATE_CHANGED`: Un paso cambia de estado (`RUNNING`, `COMPLETED`, `FAILED`, `BLOCKED`, `UNVERIFIED`).
-- `APPROVAL_REQUESTED`: La ejecución se suspendió porque Guard exige confirmación del usuario para una acción mutante.
-- `APPROVAL_RESOLVED`: El usuario autorizó o denegó la acción pendiente.
-- `MCP_DISPATCHED`: Llamada a herramienta enviada al servidor MCP.
-- `MCP_RESULT`: Salida cruda recibida del servidor MCP.
-- `RESULT_PROCESSED`: Extracción determinista finalizada y lista para verificación.
-- `STAGE_VERIFIED`: Juicio semántico emitido por Qwen en modo PLAN.
-- `STEP_COMPLETED`: Paso concluido con su registro de llamadas (`StepCall`).
-- `FINAL_RESPONSE`: Generación de la síntesis final terminada.
+## 6. Archivos Base
+- `server.ts`
+- `src/server/jarvisRouter.ts`
+- `src/core/core.ts`
+- `src/core/modeEngines.ts`
+- `src/core/callExecutor.ts`
+- `src/core/decision.ts`
+- `src/core/reasoner/qwen.ts`
+- `src/core/policy/guard.ts`
+- `src/core/tools/manifest.ts`
+- `src/core/processor/resultProcessor.ts`
+- `src/core/processor/refResolver.ts`
+- `src/core/context.ts`
+- `src/core/taskTrace.ts`
+- `src/core/types.ts`
