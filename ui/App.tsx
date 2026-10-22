@@ -52,13 +52,13 @@ export default function App() {
   const isWaitingInput = task?.state === "WAITING_INPUT";
   const isTaskActive = Boolean(task && !isTerminalState(task.state));
 
-  // Una sola fuente para la pregunta interactiva: existe solo mientras la tarea espera una respuesta
+  // Una sola fuente para la pregunta interactiva: existe solo mientras la tarea espera una respuesta.
   const userAnswer =
     isWaitingInput && task?.waitingReason === "user_answer"
       ? { question: userQuestion, onSubmit: provideUserAnswer }
       : null;
 
-  // El input está deshabilitado mientras hay una tarea activa: se enfoca cuando React lo rehabilita
+  // El input está deshabilitado mientras hay una tarea activa: se enfoca cuando React lo rehabilita.
   const focusInput = () => {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
@@ -72,6 +72,7 @@ export default function App() {
       setIsNewTaskConfirmOpen(true);
       return;
     }
+
     clearTaskView();
     focusInput();
   };
@@ -80,6 +81,7 @@ export default function App() {
     if (task?.id) {
       await cancelTask(task.id);
     }
+
     clearTaskView();
     setIsNewTaskConfirmOpen(false);
     focusInput();
@@ -115,6 +117,13 @@ export default function App() {
           isWaitingInput={isWaitingInput}
         />
 
+        <DecisionStream
+          events={events}
+          modelIterations={modelIterations}
+          isExecuting={isExecuting}
+          task={task}
+        />
+
         <GuardBanner pending={pendingApproval} userAnswer={userAnswer} />
 
         <div className="flex-1">
@@ -129,18 +138,14 @@ export default function App() {
             onNewTask={handleNewTask}
           />
         </div>
-
-        <DecisionStream
-          events={events}
-          modelIterations={modelIterations}
-          isExecuting={isExecuting}
-          task={task}
-        />
       </main>
 
       {isSettingsOpen && (
         <Suspense fallback={null}>
-          <SettingsModal onClose={() => setIsSettingsOpen(false)} onConfigSaved={refreshDiscovery} />
+          <SettingsModal
+            onClose={() => setIsSettingsOpen(false)}
+            onConfigSaved={refreshDiscovery}
+          />
         </Suspense>
       )}
 
