@@ -43,7 +43,6 @@ export interface JarvisConfig {
   /** Ventana de contexto de Decision 2.0 según su contrato. */
   decisionMaxContext: number;
   decisionTimeoutMs: number;
-  windowsMcp: StdioServerConfig;
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
@@ -55,9 +54,8 @@ export interface JarvisConfig {
 
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
 export type ConfigPatch = Partial<
-  Omit<JarvisConfig, "windowsMcp" | "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
+  Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
 > & {
-  windowsMcp?: Partial<StdioServerConfig>;
   desktopCommanderMcp?: Partial<StdioServerConfig>;
   freeSearchMcp?: Partial<StdioServerConfig>;
   qwenMaxTokens?: Partial<QwenMaxTokens>;
@@ -76,10 +74,6 @@ const DEFAULT_CONFIG: JarvisConfig = {
   decisionUrl: "http://127.0.0.1:8765",
   decisionMaxContext: 16384,
   decisionTimeoutMs: 30000,
-  windowsMcp: {
-    command: "uvx",
-    args: ["windows-mcp", "serve"],
-  },
   desktopCommanderMcp: {
     command: "npx",
     args: ["-y", "@wonderwhy-er/desktop-commander"],
@@ -140,7 +134,7 @@ function normalizeServer(raw: unknown, base: StdioServerConfig): StdioServerConf
 
 /**
  * Construye la configuración a partir de campos conocidos únicamente:
- * claves legadas o desconocidas (p. ej. `timeoutMs`, `windowsMcpUrl`) se descartan.
+ * claves legadas o desconocidas (p. ej. `timeoutMs`, `windowsMcp`) se descartan.
  * Un valor ausente o inválido toma el de `base` (defaults al cargar; configuración vigente al actualizar).
  */
 function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisConfig {
@@ -165,7 +159,6 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     decisionUrl: text(r.decisionUrl, d.decisionUrl),
     decisionMaxContext: positiveInt(r.decisionMaxContext, d.decisionMaxContext),
     decisionTimeoutMs: positiveInt(r.decisionTimeoutMs, d.decisionTimeoutMs),
-    windowsMcp: normalizeServer(r.windowsMcp, d.windowsMcp),
     desktopCommanderMcp: normalizeServer(r.desktopCommanderMcp, d.desktopCommanderMcp),
     freeSearchMcp: normalizeServer(r.freeSearchMcp, d.freeSearchMcp),
     mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
@@ -191,7 +184,6 @@ export class ConfigManager {
     this.currentConfig = normalize({
       ...cur,
       ...patch,
-      windowsMcp: { ...cur.windowsMcp, ...patch.windowsMcp },
       desktopCommanderMcp: { ...cur.desktopCommanderMcp, ...patch.desktopCommanderMcp },
       freeSearchMcp: { ...cur.freeSearchMcp, ...patch.freeSearchMcp },
       qwenMaxTokens: { ...cur.qwenMaxTokens, ...patch.qwenMaxTokens },
@@ -200,15 +192,13 @@ export class ConfigManager {
     return this.getConfig();
   }
 
-  static isConfigured(service: "qwen" | "decision" | "windows" | "desktop" | "search"): boolean {
+  static isConfigured(service: "qwen" | "decision" | "desktop" | "search"): boolean {
     const c = this.currentConfig;
     switch (service) {
       case "qwen":
         return Boolean(c.qwenUrl);
       case "decision":
         return Boolean(c.decisionUrl);
-      case "windows":
-        return Boolean(c.windowsMcp.command);
       case "desktop":
         return Boolean(c.desktopCommanderMcp.command);
       case "search":

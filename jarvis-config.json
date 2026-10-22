@@ -3,13 +3,6 @@
   "qwenModel": "qwen3.5:9b",
   "thinking": false,
   "decisionUrl": "http://127.0.0.1:8765",
-  "windowsMcp": {
-    "command": "uvx",
-    "args": [
-      "windows-mcp",
-      "serve"
-    ]
-  },
   "desktopCommanderMcp": {
     "command": "npx",
     "args": [

@@ -15,7 +15,7 @@ JARVIS permite a usuarios y operadores ejecutar flujos de trabajo sobre el siste
   - Enruta y selecciona herramientas mediante el modelo clasificador **Decision 2.0 (Eos-0.8B)**.
   - Resuelve referencias entre pasos con **RefResolver** (`${stepId.ref}`) y aísla salidas completas en **RefStore**.
   - Genera argumentos conforme a esquemas JSON estrictos con **Qwen 3.5 9B**.
-  - Ejecuta herramientas locales vía transporte stdio en **Windows MCP**, **Desktop Commander MCP** y **Free Search MCP**.
+  - Ejecuta herramientas locales vía transporte stdio en **Desktop Commander MCP** y **Free Search MCP**.
   - Somete cada acción a la compuerta determinista **Guard**, exigiendo confirmación humana interactiva en **GuardBanner** ante cualquier mutación del sistema.
   - Verifica el cumplimiento de criterios mediante juicios **Eos** (`ok` y `cumple`).
   - Sincroniza el estado de ejecución en tiempo real mediante **Server-Sent Events (SSE)** hacia una interfaz web reactiva en **React 19** y **Tailwind CSS**.
@@ -36,7 +36,7 @@ JARVIS permite a usuarios y operadores ejecutar flujos de trabajo sobre el siste
 | **Modelo Razonador LLM** | Qwen 3.5 9B (vía Ollama/vLLM) | `qwen3.5:9b` |
 | **Modelo Clasificador** | Decision 2.0 (Eos-0.8B) | `Decision-2.0-Eos-0.8B` |
 | **Protocolo de Herramientas** | Model Context Protocol (MCP) | JSON-RPC 2.0 sobre stdio |
-| **Servidores MCP** | Windows MCP, Desktop Commander, Free Search | 1.3.27 / 2.1.0 / 0.13.1 |
+| **Servidores MCP** | Desktop Commander, Free Search | 2.1.0 / 0.13.1 |
 | **Sincronización en Tiempo Real**| Server-Sent Events (SSE) | EventSource nativo |
 | **Persistencia de Tareas** | JSON local persistido | `jarvis-tasks.json` |
 
@@ -52,7 +52,6 @@ Las conexiones y comportamientos se configuran en `jarvis-config.json`:
 | `qwenUrl` | URL del servicio Ollama/vLLM para Qwen 3.5 9B | `http://127.0.0.1:11434` |
 | `qwenModel` | Nombre del modelo LLM de razonamiento | `qwen3.5:9b` |
 | `decisionUrl` | URL del servicio Decision 2.0 | `http://127.0.0.1:8765` |
-| `windowsMcp` | Comando y argumentos para Windows MCP | `uvx windows-mcp serve` |
 | `desktopCommanderMcp`| Comando para Desktop Commander MCP | `npx -y @wonderwhy-er/desktop-commander` |
 | `freeSearchMcp` | Comando para Free Search MCP | `uvx --from free-search-mcp==0.13.1 --with selectolax==0.3.34 free-search-mcp` |
 | `timeoutMs` | Timeout general para operaciones | `30000` (30 s) |

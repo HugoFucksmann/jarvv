@@ -83,7 +83,7 @@ export type StepState =
 export const EXECUTABLE_ROUTES = ["files", "locate", "terminal", "web"] as const;
 export type ExecutableRoute = (typeof EXECUTABLE_ROUTES)[number];
 
-/** Servidores MCP activos. Windows MCP queda fuera de la configuración activa. */
+/** Servidores MCP activos. */
 export const MCP_SERVERS = ["desktop_commander", "free_search"] as const;
 export type McpServerName = (typeof MCP_SERVERS)[number];
 
@@ -205,8 +205,6 @@ export interface Scratchpad {
   path?: string;
   process_id?: string;
   text?: string;
-  window_handle?: string;
-  element_id?: string;
   /** Total de resultados de la última búsqueda; `search_results` solo conserva los primeros MAX_SCRATCHPAD_RESULTS. */
   search_results_total?: number;
 }
