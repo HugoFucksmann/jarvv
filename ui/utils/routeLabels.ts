@@ -1,4 +1,4 @@
-import type { ExecutableRoute } from "../core/types.ts";
+import type { ExecutableRoute } from "../../src/core/types.ts";
 
 /**
  * Obtiene la etiqueta amigable para la interfaz de usuario a partir del destino funcional.

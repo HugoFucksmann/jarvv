@@ -1,4 +1,4 @@
-import type { Task } from "../core/types.ts";
+import type { Task } from "../../src/core/types.ts";
 import type { StatusDotStatus } from "../components/Shared/StatusDot.tsx";
 
 /**

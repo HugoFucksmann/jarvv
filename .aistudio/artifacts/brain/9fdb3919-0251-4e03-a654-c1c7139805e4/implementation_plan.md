@@ -1,151 +1,161 @@
-# Plan de Alineación Documental — JARVIS Core (Backend)
+# Plan de Separación Arquitectónica: Frontend a `ui/` y Backend en `src/`
 
-Confirmación de alcance: El análisis se limitó estrictamente a `src/` (backend) y a los entry points del host. No se leyó ni analizó `lab/` ni el código del frontend.
+**Verificación de docs:** `grep` confirma 0 identificadores de estado en mayúsculas y 0 constantes o valores numéricos operativos en `docs/ARCHITECTURE.md`, `docs/CORE_FLOW.md` y `docs/CONTEXT_AND_MEMORY.md`.
 
 ---
 
-## 1. Mapa del Sistema
+## 1. Inventario de Archivos en `src/`
 
-### Componentes Reales y Responsabilidades
+### A. Archivos y Carpetas de Frontend (a mover a `ui/`)
 
-| Componente | Responsabilidad | Qué NO hace |
+| Archivo / Carpeta | Tipo | Evidencia de Clasificación |
 |---|---|---|
-| **Host HTTP & Rutas** (`server.ts`, `src/server/jarvisRouter.ts`, `src/server/mcpRouter.ts`) | Expone endpoints REST y stream SSE (`/events`). Serializa estado y gestiona señales del sistema operativo (`SIGINT`/`SIGTERM`) para cierre ordenado de procesos MCP. | No implementa lógica de inferencia, no arbitra herramientas ni manipula memoria interna. |
-| **Núcleo Orquestador** (`src/core/core.ts`) | Fachada de control del ciclo de vida de tareas en memoria (`taskContexts`), retención (`MAX_RETAINED_TASKS = 20`), emisión de eventos (`CoreEvent`), despacho asíncrono seguro (`runDetached`) y coordinación de interacción humana (confirmación/rechazo/modificación de plan, respuestas a preguntas). | No ejecuta llamadas de red a herramientas MCP directamente ni implementa los algoritmos de bucle paso a paso. |
-| **Motores de Ejecución** (`src/core/modeEngines.ts`) | Implementa las dos estrategias sobre el motor unificado: bucle reactivo (**FAST**) con escalación y compuerta de fin; y ciclo supervisado (**PLAN**) con generación, doble verificación, preguntas al usuario y replanificación autónoma. Concluye tareas (`concludeTask`, `failTask`). | No genera argumentos de herramientas ni evalúa políticas de seguridad de bajo nivel. |
-| **Ejecutor Atómico de Pasos** (`src/core/callExecutor.ts`) | Pipeline de ejecución indivisible (`runStep`): descubrimiento acotado a la ruta, selección D2, generación de argumentos con Qwen, sustitución determinista de referencias, anti-bucle, compuerta Guard, despacho MCP, procesamiento de resultados, verificación factual Eos y consolidación de memoria/handoff. | No decide la estrategia de la tarea global ni planifica secuencias de pasos. |
-| **Motor de Decisión 2.0** (`src/core/decision.ts`) | Cliente HTTP del modelo clasificador Eos-0.8B (`/v1/decide`). Resuelve Decision #1 (ruta ejecutable o fin), Decision #2 (herramienta del destino) y verificación factual (`ok`, `cumple` con umbral > 0.5). | No genera texto libre, planes ni argumentos JSON complejos. |
-| **Motor de Razonamiento Qwen** (`src/core/reasoner/qwen.ts`) | Cliente HTTP OpenAI-compatible (`/v1/chat/completions`). Genera argumentos estructurados de herramientas, planes iniciales, replanificaciones, síntesis de respuestas finales y verificación semántica de etapa (`verifyStage`). | No ejecuta comandos en el sistema ni tiene acceso directo a los servidores MCP. |
-| **Compuerta de Seguridad** (`src/core/policy/guard.ts`) | Validador determinista fail-closed basado en las políticas del manifest. Examina argumentos normalizados contra patrones destructivos (`DENY`), permisos sensibles (`APPROVAL`) o lecturas seguras (`ALLOW`). | No altera argumentos ni dialoga con modelos de lenguaje. |
-| **Catálogo de Herramientas** (`src/core/tools/manifest.ts`) | Fuente única de verdad de herramientas autorizadas (11 en `desktop_commander` divididas en `files`, `locate`, `terminal`; 3 en `free_search` bajo `web`), sus capacidades, destinos y requisitos de aprobación. | No ejecuta herramientas ni mantiene estado mutable. |
-| **Procesador de Resultados y Almacén de Referencias** (`src/core/processor/resultProcessor.ts`) | Parsea resultados MCP crudos, genera observaciones compactas (`compactObs` <= 2500 chars), extrae deltas para scratchpad y facts, y aisla salidas masivas en memoria por tarea (`RefStore`). | No evalúa la veracidad de los datos ni interactúa con el sistema de archivos para persistencia. |
-| **Resolutor de Referencias** (`src/core/processor/refResolver.ts`) | Sustituye deterministamente tokens `{{ref:rX}}` o `ref:rX` por los contenidos reales almacenados en `RefStore` dentro del payload de argumentos antes de Guard y el despacho MCP. | No genera nuevas referencias ni ejecuta llamadas a herramientas. |
-| **Gestor de Contexto y Memoria** (`src/core/context.ts`) | Ensambla bloques contextuales deterministas (`log`, `facts`, `effects`, `fail`, `dataObs`, `handoff`, `attempts`) con orden optimizado para prefix-caching y poda por antigüedad. | No almacena datos en disco ni interactúa con la red. |
-| **Trazabilidad** (`src/core/taskTrace.ts`) | Escribe una línea JSONL al finalizar una tarea si `traceEnabled` está activo para auditoría y evaluación externa. | No constituye un mecanismo de base de datos ni persistencia de estado para reanudación. |
+| `src/App.tsx` | Componente raíz | Importa React (`useState`, `useEffect`), JSX y componentes visuales de interfaz. |
+| `src/main.tsx` | Punto de entrada DOM | Importa `createRoot` de `react-dom/client`, monta en `#root` y carga `index.css`. |
+| `src/index.css` | Hoja de estilos global | Directiva `@import "tailwindcss";` y estilos tipográficos de navegador. |
+| `src/components/` (25 archivos) | Componentes React | Todos son componentes visuales con JSX, Tailwind CSS y eventos de usuario (DOM). |
+| `src/hooks/useClipboardCopy.ts` | React Hook | Usa `useState`, `useCallback` y la API de navegador `navigator.clipboard`. |
+| `src/hooks/useFocusShortcut.ts` | React Hook | Usa `useEffect` y escucha eventos de teclado en `window.addEventListener`. |
+| `src/hooks/useJarvis.ts` | React Hook | Gestiona estado cliente con `useState`/`useEffect` y conexión `EventSource` a SSE. |
+| `src/services/jarvisApi.ts` | Cliente HTTP cliente | Cliente del navegador que utiliza `fetch` global para interactuar con `/api/jarvis/*`. |
+| `src/types/ui.ts` | Tipos de interfaz | Define `ExecutionMode` y `McpInitStatus`, consumidos únicamente por componentes UI. |
+| `src/utils/apiUrl.ts` | Utilidad web | Resuelve URLs relativas o absolutas mediante `import.meta.env.VITE_API_URL`. |
+| `src/utils/platform.ts` | Utilidad web | Detecta entorno macOS mediante `navigator.userAgent` para renderizar atajos (⌘K / Ctrl+K). |
+| `src/utils/routeLabels.ts` | Utilidad visual | Traduce identificadores de ruta a etiquetas legibles en español para la UI. |
+| `src/utils/taskStatus.ts` | Utilidad visual | Traduce estados de tarea a variantes visuales para el componente `StatusDot` y textos de interfaz. |
 
-### Dirección de Dependencias
-- **Permitida:**
-  `Host / Router` ──► `JarvisCore` ──► `ModeEngines` ──► `CallExecutor` ──► `[Guard, ResultProcessor, RefResolver, Decision20Engine, QwenEngine, DiscoveryEngine]`
-  `CallExecutor` y `ModeEngines` consultan libremente `Manifest`, `Context` y `Types`.
-- **Prohibida:**
-  Ningún módulo de bajo nivel (`Guard`, `ResultProcessor`, `RefResolver`, `Decision`, `Qwen`, `Manifest`) conoce ni importa a `JarvisCore`, `ModeEngines` ni `CallExecutor`.
-  Ningún módulo del backend importa ni interactúa con `lab/` ni componentes de la interfaz de usuario.
+### B. Archivos y Carpetas de Backend (permanecen en `src/`)
 
----
+| Archivo / Carpeta | Responsabilidad | Evidencia de Clasificación |
+|---|---|---|
+| `src/core/core.ts` | Orquestador principal | Instancia motores, almacena tareas en memoria y gestiona ciclo de vida. |
+| `src/core/modeEngines.ts` | Motores FAST y PLAN | Bucles de ejecución de pasos, escalación y replanificación. |
+| `src/core/callExecutor.ts` | Ejecutor atómico | Pipeline indivisible de herramientas, Guard y verificación. |
+| `src/core/decision.ts` | Cliente HTTP Decision 2.0 | Conexión con modelo discriminativo Eos-0.8B. |
+| `src/core/reasoner/qwen.ts` | Cliente HTTP Qwen | Inferencia OpenAI-compatible para planes y argumentos. |
+| `src/core/reasoner/prompts.ts` | Plantillas de prompts | Construcción y sanitización de prompts para LLM. |
+| `src/core/policy/guard.ts` | Seguridad | Evaluación determinista de permisos y patrones prohibidos. |
+| `src/core/tools/manifest.ts` | Catálogo de herramientas | Definiciones inmutables de herramientas y capacidades. |
+| `src/core/processor/resultProcessor.ts` | Procesamiento y RefStore | Extracción de resultados y aislamiento de referencias en RAM. |
+| `src/core/processor/refResolver.ts` | Resolutor | Sustitución de tokens de referencias en argumentos. |
+| `src/core/context.ts` | Contexto de tareas | Ensamblado de bloques históricos y de memoria. |
+| `src/core/taskTrace.ts` | Trazabilidad | Volcado append-only en JSONL al finalizar tareas. |
+| `src/core/taskWire.ts` | Serialización | Adaptador de tarea para envío por SSE sin cargas pesadas. |
+| `src/core/types.ts` | Contratos del núcleo | Interfaces de tarea, pasos, eventos y estados. |
+| `src/core/config.ts` | Configuración operativa | Lectura y validación de `jarvis-config.json`. |
+| `src/core/environment.ts` | Entorno del sistema | Lectura de paths del usuario y shell mediante Node.js. |
+| `src/core/llmTransport.ts` | Transporte HTTP | Cliente con reintentos y control de aborto para inferencia. |
+| `src/core/persistence.ts` | Persistencia inactiva | Archivo huérfano sin uso activo (fuera de alcance). |
+| `src/core/mcp/*` (6 archivos) | Servidores MCP y transporte | Conexión stdio con procesos de herramientas y descubrimiento. |
+| `src/server/jarvisRouter.ts` | Router Express | Rutas de API `/api/jarvis/*` y emisión SSE. |
+| `src/server/mcpRouter.ts` | Router Express | Rutas de API `/api/mcp/*`. |
 
-## 2. Inconsistencias Doc vs. Código
+### C. Archivos Ambiguos / Compartidos
 
-### 1. Inexistencia de Persistencia de Tareas en Disco (`TaskStore`)
-- **Archivos y líneas:** `src/core/persistence.ts` (líneas 1–195), `src/core/core.ts` (líneas 38, 122, 178, 347–375), `server.ts` (líneas 1–184).
-- **Qué dice la doc:** `ARCHITECTURE.md` (líneas 48, 81, 90, 101) y `CONTEXT_AND_MEMORY.md` (líneas 119–142) describen `TaskStore` como el sistema de persistencia activo que almacena tareas en `.jarvis/tasks.json` con debounce, escritura atómica en `.tmp`, copias de respaldo `.bak` y cuarentena `.corrupt`.
-- **Qué hace el código:** `TaskStore` está huérfano: ninguna clase del núcleo ni del host importa o instancia `persistence.ts`. `JarvisCore` almacena todas las tareas activas y terminadas en memoria volátil (`private taskContexts: Map<string, TaskExecutionContext>`) y las expulsa al superar `MAX_RETAINED_TASKS = 20`. Al reiniciar el proceso, el estado no se recupera de disco.
-- **Por qué es una inconsistencia:** La documentación describe una arquitectura de base de datos persistente en disco inexistente en el runtime.
-- **Alcance:** Afecta a `ARCHITECTURE.md` (§2 diagrama, §3 tabla) y `CONTEXT_AND_MEMORY.md` (§1 tabla, §5 persistencia).
-
-### 2. Ciclo de Vida y Almacenamiento de `RefStore`
-- **Archivos y líneas:** `src/core/processor/resultProcessor.ts` (líneas 37–98), `src/core/core.ts` (líneas 367–375).
-- **Qué dice la doc:** `CONTEXT_AND_MEMORY.md` (líneas 112–115) afirma que las referencias se descargan a un archivo de almacenamiento secundario en disco al concluir la tarea y se purgan al borrarla.
-- **Qué hace el código:** `RefStore` es 100% en memoria RAM (`Map<string, Map<string, string>>`). No hay código de volcado a disco secundario. Las referencias se liberan exclusivamente en memoria mediante `RefStore.clear(taskId)` cuando la tarea se expulsa del `Map` de `JarvisCore`.
-- **Por qué es una inconsistencia:** Se inventa un mecanismo de swap o persistencia secundaria en disco que el código no implementa.
-- **Alcance:** Afecta a `CONTEXT_AND_MEMORY.md` (§4 gestión de referencias).
-
-### 3. Método Inexistente `provideApproval` y Coordinación con Persistencia en `core.ts`
-- **Archivos y líneas:** `src/core/core.ts` (líneas 34–376), `src/server/jarvisRouter.ts` (líneas 126–147).
-- **Qué dice la doc:** `ARCHITECTURE.md` (línea 90) lista en las responsabilidades de `core.ts` la "aprobación humana de Guard (provideApproval)... y coordinación con la persistencia".
-- **Qué hace el código:** `provideApproval` no existe en `core.ts`. El router obtiene la aprobación pendiente vía `getPendingApproval` y llama directamente a los callbacks `onApprove()` o `onDeny(reason)` provistos en el objeto `PendingApproval`. Tampoco hay código de persistencia en `core.ts`.
-- **Por qué es una inconsistencia:** Atribuye firmas y contratos falsos a la fachada principal del núcleo.
-- **Alcance:** Afecta a `ARCHITECTURE.md` (§3 tabla de componentes).
-
-### 4. Política ante Herramientas No Catalogadas en `Guard`
-- **Archivos y líneas:** `src/core/policy/guard.ts` (líneas 9, 43–49), `src/core/tools/manifest.ts` (líneas 13–14), `src/core/callExecutor.ts` (líneas 161–167).
-- **Qué dice la doc:** `ARCHITECTURE.md` (líneas 15, 100) declara que si una herramienta no está catalogada en el manifest se bloquea por defecto (`DENY`).
-- **Qué hace el código:** `Guard.evaluate` retorna `APPROVAL` (pide confirmación humana), no `DENY`. Sin embargo, en el pipeline real (`callExecutor.ts`), las herramientas devueltas por los servidores MCP son filtradas previamente por `applyDestination`; cualquier herramienta no catalogada en el manifest es descartada antes de llegar a la selección o a Guard.
-- **Por qué es una inconsistencia:** Se confunde el veredicto de fallback de `Guard` (`APPROVAL`) con un bloqueo terminal, ignorando el filtrado determinista previo en `applyDestination`.
-- **Alcance:** Afecta a `ARCHITECTURE.md` (§1 principios) y `CORE_FLOW.md` (§4 pipeline).
-
-### 5. Parámetros Numéricos Desalineados (Observaciones y Persistencia)
-- **Archivos y líneas:** `src/core/types.ts` (línea 328), `src/core/persistence.ts` (línea 17).
-- **Qué dice la doc:** Se mencionan límites de 1.500 caracteres para `compactObs` y debounce de 500 ms en persistencia.
-- **Qué hace el código:** `MAX_EVIDENCE_OBS_CHARS = 2500` en `types.ts`; el debounce por defecto en `persistence.ts` es de 250 ms.
-- **Por qué es una inconsistencia:** Desfase de constantes operativas entre la especificación y el código.
-- **Alcance:** Afecta a `ARCHITECTURE.md` y `CONTEXT_AND_MEMORY.md`.
-
-### 6. Resolución de Pasos `UNVERIFIED` y Cierre de Tarea
-- **Archivos y líneas:** `src/core/modeEngines.ts` (líneas 87–94, 450–456, 632–642), `src/core/context.ts` (líneas 227–239).
-- **Qué dice la doc:** `CORE_FLOW.md` (línea 179) señala genéricamente que la tarea no concluye si persisten pasos no verificados que no hayan sido observados por una lectura posterior.
-- **Qué hace el código:** La regla difiere formalmente por modo:
-  - En **FAST**: `hasUnresolvedUnverified` comprueba si existe una llamada exitosa posterior de tipo `READ` (`kind === "READ"`). Si no existe, `fin` es rechazado y se obliga a continuar la exploración.
-  - En **PLAN**: Si el plan se queda sin pasos pendientes y existen pasos vigentes en estado `UNVERIFIED`, la tarea concluye controladamente como `PARTIAL`, nunca como `COMPLETED`.
-- **Por qué es una inconsistencia:** Falta precisión sobre cómo cada modo gestiona la incertidumbre para determinar el cierre.
-- **Alcance:** Afecta a `CORE_FLOW.md` (§2 estados, §3 dualidad).
+| Archivo | Uso en Backend | Uso en Frontend |
+|---|---|---|
+| `src/types/debug.ts` | `src/core/types.ts:6` importa `ModelIteration` para el campo `Task.modelIterations`. Utilizado por `taskTrace.ts` y `core.ts`. | Importado por `useJarvis.ts`, `DecisionStream.tsx`, `ModelIterationCard.tsx` y `StepIterationGroup.tsx`. Define además `StepIterationGroupData` (exclusivo de UI). |
+| `src/utils/debugAccumulator.ts` | `src/core/core.ts:28` importa `createIterationFromEvent` para construir y almacenar iteraciones de modelos al emitir eventos de núcleo. | `src/hooks/useJarvis.ts` importa `createIterationFromEvent` y `reconstructIterationsFromTask`; `DecisionStream.tsx` importa `groupIterationsByStep`. |
 
 ---
 
-## 3. Faltantes (Invariantes y Flujos No Documentados)
+## 2. Dependencias Cruzadas
 
-1. **Suspensión Interactiva por Preguntas al Usuario en Modo PLAN (`user_answer`):**
-   - Cuando la verificación semántica de Qwen dictamina `insufficient_info`, si no se superó el límite (`MAX_USER_QUESTIONS_PER_STEP = 2`), la tarea se suspende en `WAITING_INPUT` con motivo `user_answer`. Al recibir la respuesta (`provideUserAnswer`), esta se almacena en `facts` (`answer_<stepId>`), se concatena a la instrucción del paso, el paso regresa a `PENDING` y se invalida el anti-bucle (`nonReadCounter++`).
-2. **Atajo Determinista de Herramienta Única en Decision #2:**
-   - Si un destino MCP contiene una sola herramienta catalogada (o si tras una exclusión queda una sola opción), se omite la llamada HTTP al modelo discriminativo y se despacha directamente con latencia 0 y marcador `single_tool_shortcut`.
-3. **Mecanismo de Doble Juez en Modo PLAN:**
-   - Eos actúa como primer juez sobre señales limpias. Si Eos rechaza o no está disponible, Qwen interviene como segundo juez semántico (`verifyStage`). El paso solo fracasa si ambos jueces fallan. En modo FAST solo juzga Eos.
-4. **Almacenamiento Temporal de Observaciones de Lectura (`dataObs`):**
-   - Se retienen hasta 3 observaciones de lecturas con datos útiles (`search`, `fetch`, `read_file`) en `context.dataObs`. Esto garantiza que llamadas intermedias posteriores (crear un directorio, ejecutar un proceso) no destruyan la información que un paso posterior necesita.
-5. **Invariante de Mutaciones Consolidadas (`effects`):**
-   - Toda mutación física confirmada en el entorno se registra en `effects` y nunca se descarta durante una replanificación, y sus hechos asociados en `facts` no sufren retracción.
-6. **Compuerta de Validación de Fin en FAST:**
-   - Decision #1 no puede cerrar una tarea arbitrariamente; `fin` solo se acepta si es la primera acción (consulta conversacional pura) o si existe al menos una llamada a herramienta exitosa previa y ninguna llamada `UNVERIFIED` pendiente.
+### A. Dependencias Indebidas: Backend hacia Frontend
+1. **`src/core/types.ts` (Línea 6)**:
+   - Código: `import type { ModelIteration } from "../types/debug.ts";`
+   - Causa: El tipo `Task` del backend incluye `modelIterations?: ModelIteration[]`.
+2. **`src/core/core.ts` (Línea 28)**:
+   - Código: `import { createIterationFromEvent } from "../utils/debugAccumulator.ts";`
+   - Causa: Al emitir cada evento interno, `JarvisCore` invoca `createIterationFromEvent` para mantener la lista viva en la tarea.
 
----
+**Propuesta de resolución:**
+- Trasladar las definiciones de datos de auditoría de modelos (`ModelType`, `ModelStage`, `ModelIterationMetrics`, `ModelIteration`) al backend dentro de `src/core/types.ts` o `src/core/debug.ts`.
+- Trasladar la función pura `createIterationFromEvent` a `src/core/debugAccumulator.ts` (backend).
+- Las funciones y tipos puramente de interfaz (`StepIterationGroupData`, `groupIterationsByStep`, `reconstructIterationsFromTask`) se ubican en `ui/utils/debugAccumulator.ts` y consumen los tipos del backend.
+- Con esto, **el backend tiene 0 imports hacia `ui/`**.
 
-## 4. Sobrantes (A Eliminar)
-
-1. **Capas y Tecnologías de Frontend:** Eliminar del diagrama y del texto cualquier referencia a React 19, Tailwind CSS, Vite, componentes de UI y EventSource de navegador. La doc describe con exclusividad el backend.
-2. **Persistencia Activa en Disco de Tareas:** Eliminar la afirmación de que el sistema guarda y recupera tareas desde `.jarvis/tasks.json` en tiempo de ejecución.
-3. **Descarga a Disco de Referencias:** Eliminar la descripción de volcado de referencias a almacenamiento secundario y su purga en disco.
-4. **Snippets de Código y Números de Línea:** Eliminar código embebido, firmas detalladas de funciones y justificaciones históricas.
+### B. Dependencias: Frontend hacia Backend
+El frontend consume legítimamente los contratos canónicos exportados por el backend:
+- `ui/components/**`, `ui/hooks/useJarvis.ts`, `ui/services/jarvisApi.ts` importan `Task`, `Step`, `PendingApproval`, `CoreEvent`, `MCPTool`, `ExecutableRoute`, `isTerminalState` desde `src/core/types.ts` y `JarvisConfig` desde `src/core/config.ts`.
+- **Propuesta de resolución:** Se actualizan las rutas de importación en el frontend hacia `@/src/core/types.ts` y `@/src/core/config.ts`.
 
 ---
 
-## 5. Archivos Base Propuestos
+## 3. Configuración Afectada
 
-Solo archivos estables y centrales del backend que actúan como contratos:
-- `ARCHITECTURE.md`: `src/core/core.ts`, `src/core/modeEngines.ts`, `src/core/callExecutor.ts`, `src/core/decision.ts`, `src/core/reasoner/qwen.ts`, `src/core/tools/manifest.ts`, `src/core/policy/guard.ts`, `src/core/processor/resultProcessor.ts`, `src/core/processor/refResolver.ts`, `src/core/types.ts`, `src/server/jarvisRouter.ts`, `server.ts`.
-- `CORE_FLOW.md`: `src/core/core.ts`, `src/core/modeEngines.ts`, `src/core/callExecutor.ts`, `src/core/decision.ts`, `src/core/reasoner/qwen.ts`, `src/core/policy/guard.ts`, `src/core/types.ts`.
-- `CONTEXT_AND_MEMORY.md`: `src/core/context.ts`, `src/core/processor/resultProcessor.ts`, `src/core/processor/refResolver.ts`, `src/core/reasoner/prompts.ts`, `src/core/taskTrace.ts`, `src/core/types.ts`.
-
----
-
-## 6. Cambios Propuestos por Documento
-
-### `docs/ARCHITECTURE.md`
-- **§1 Propósito:** Redactar en 2-3 líneas el rol del backend: sistema de asistencia y automatización local desacoplado, determinista y supervisado.
-- **§2 Principios Invariantes:** Un solo núcleo de ejecución; plan como orquestador; desacoplamiento estricto entre clasificación factual (Eos), razonamiento (Qwen) y ejecución; seguridad fail-closed; aislamiento determinista de datos.
-- **§3 Componentes:** Tabla completa `Componente | Responsabilidad | Qué NO hace` con los 12 módulos reales del backend.
-- **§4 Dependencias entre Capas:** Definición formal de direcciones permitidas y prohibidas.
-- **§5 Puntos de Extensión:** Protocolo para incorporar nuevas herramientas al manifest, nuevos destinos y adaptadores MCP respetando las invariantes.
-- **§6 Archivos Base:** Lista canónica de rutas en `src/`.
-
-### `docs/CORE_FLOW.md`
-- **§1 Ciclo de Vida:** Secuencia numerada de pasos desde la llegada del HTTP POST al host hasta la emisión de eventos y cierre.
-- **§2 Bucle Principal:** Mecánica iterativa, compuerta de `fin` en FAST, y condiciones de corte (`MAX_STEPS = 15`, bloqueos repetidos de bucle).
-- **§3 Rol del Plan en el Flujo:** Generación inicial, suspensión para confirmación (`plan_confirmation`), ejecución paso a paso, doble verificación (Eos/Qwen), suspensión por información insuficiente (`user_answer`) y replanificación autónoma localizada.
-- **§4 Estados y Transiciones:** Tabla canónica `Estado | Transición | Condición` cubriendo `RUNNING`, `WAITING_INPUT` (con sus 3 razones), `COMPLETED`, `PARTIAL`, `FAILED` y `CANCELLED`.
-- **§5 Errores y Límites:** Políticas de reintento (transporte y schema), escalación en FAST con exclusión de herramientas, replanificación en PLAN y cotas numéricas.
-- **§6 Invariantes del Flujo:** Invarianza de pasos completados, efectos acumulativos y degradación ante incertidumbre.
-- **§7 Archivos Base:** Rutas estables correspondientes.
-
-### `docs/CONTEXT_AND_MEMORY.md`
-- **§1 Tipos de Contexto y Memoria:** Tabla `Tipo | Contenido | Alcance | Vida útil` detallando `Scratchpad`, `TaskMemory` (`log`, `facts`, `effects`, `fail`), `DataObservations`, `StepHandoff` y `RefStore`.
-- **§2 Construcción del Contexto:** Orden determinista optimizado para prefix-caching, barrera de sanitización de etiquetas `<obs>` y selección de información activa.
-- **§3 Límites y Política de Recorte:** Límites de caracteres (`MAX_EVIDENCE_OBS_CHARS = 2500`), política de preservación de cola (*tail preservation*), ventana de plan y expansión progresiva de memoria (tiers 2, 5, 10).
-- **§4 Persistencia:** Especificación rigurosa de la realidad técnica: gestión de estado en memoria volátil acotada a 20 tareas en RAM; trazabilidad append-only en JSONL para auditoría externa sin reanudación de estado.
-- **§5 Relación con el Núcleo y el Plan:** Matriz de lectura y escritura entre `JarvisCore`, `ModeEngines`, `CallExecutor` y los modelos.
-- **§6 Invariantes:** Aislamiento ontológico, no re-ejecución destructiva, referencias deterministas e inmunidad de inyecciones.
-- **§7 Archivos Base:** Rutas estables de memoria y contexto.
+1. **`index.html`**:
+   - Línea 18: Cambiar `<script type="module" src="/src/main.tsx"></script>` por `<script type="module" src="/ui/main.tsx"></script>`.
+2. **`vite.config.ts`**:
+   - El alias `@` apunta a la raíz `path.resolve(__dirname, '.')`, lo que permite importar tanto `@/src/...` como `@/ui/...`.
+   - Se mantiene la raíz en el directorio principal para preservar la compatibilidad con `server.ts` y las herramientas de empaquetado.
+3. **`tsconfig.json`**:
+   - Mantiene `"paths": { "@/*": ["./*"] }`, permitiendo resolución limpia de módulos en ambas carpetas.
+   - Preserva `DOM` y `DOM.Iterable` en `lib` para soportar tanto backend Node.js como frontend React sin requerir tsconfigs fragmentados en este paso.
+4. **`server.ts`**:
+   - No requiere cambios en la lógica de proxy de Vite ni en estáticos: en desarrollo sigue sirviendo `index.html` de la raíz (que apuntará a `/ui/main.tsx`) y en producción sirve `dist/`.
+   - Ningún endpoint del backend importa componentes del frontend.
+5. **`package.json`**:
+   - Scripts (`dev`, `build`, `lint`) se mantienen idénticos (`tsx server.ts`, `vite build`, `tsc --noEmit`).
 
 ---
 
-## 7. Preguntas Abiertas
+## 4. Plan de Movimiento
 
-Ninguna. La totalidad del comportamiento, contratos e invariantes del sistema quedó resuelta mediante el análisis exhaustivo del código fuente en `src/`.
+### Paso 1: Resolver archivos compartidos en el backend
+1. Crear `src/core/debugTypes.ts` (o incorporar en `src/core/types.ts`) las interfaces `ModelType`, `ModelStage`, `ModelIterationMetrics` y `ModelIteration`.
+2. Crear `src/core/debugAccumulator.ts` que contenga `createIterationFromEvent`, consumiendo `src/core/types.ts`.
+3. Actualizar `src/core/core.ts` para importar `createIterationFromEvent` desde `./debugAccumulator.ts`.
+4. Eliminar `src/types/debug.ts` y `src/utils/debugAccumulator.ts` de `src/`.
+
+### Paso 2: Crear estructura `ui/` y mover archivos de frontend
+1. Crear carpetas: `ui/components/`, `ui/hooks/`, `ui/services/`, `ui/types/`, `ui/utils/`.
+2. Mover archivos:
+   - `src/App.tsx` ──► `ui/App.tsx`
+   - `src/main.tsx` ──► `ui/main.tsx`
+   - `src/index.css` ──► `ui/index.css`
+   - `src/components/*` ──► `ui/components/*`
+   - `src/hooks/*` ──► `ui/hooks/*`
+   - `src/services/*` ──► `ui/services/*`
+   - `src/types/ui.ts` ──► `ui/types/ui.ts`
+   - `src/utils/apiUrl.ts` ──► `ui/utils/apiUrl.ts`
+   - `src/utils/platform.ts` ──► `ui/utils/platform.ts`
+   - `src/utils/routeLabels.ts` ──► `ui/utils/routeLabels.ts`
+   - `src/utils/taskStatus.ts` ──► `ui/utils/taskStatus.ts`
+3. Crear `ui/utils/debugAccumulator.ts` y `ui/types/debug.ts` con las utilidades y tipos exclusivos de presentación (`StepIterationGroupData`, `groupIterationsByStep`, `reconstructIterationsFromTask`), importando los contratos base desde `@/src/core/types.ts` o `@/src/core/debugAccumulator.ts`.
+
+### Paso 3: Actualizar imports del frontend
+- Actualizar imports relativos dentro de `ui/` (ej. `import App from './App.tsx'`, `import './index.css'`).
+- Actualizar imports de contratos de backend a `@/src/core/types.ts` y `@/src/core/config.ts`.
+
+### Paso 4: Actualizar `index.html`
+- Actualizar la referencia del script de `/src/main.tsx` a `/ui/main.tsx`.
+
+### Paso 5: Limpieza de directorios vacíos en `src/`
+- Remover carpetas vacías en `src/`: `src/components/`, `src/hooks/`, `src/services/`, `src/types/`, `src/utils/`.
+- `src/` contendrá exclusivamente: `src/core/` y `src/server/`.
+
+---
+
+## 5. Impacto en Documentación (`docs/`)
+- **Impacto nulo:** Las secciones "Archivos Base" de `docs/ARCHITECTURE.md`, `docs/CORE_FLOW.md` y `docs/CONTEXT_AND_MEMORY.md` referencian exclusivamente rutas de `server.ts`, `src/core/*` y `src/server/*`.
+- Ningún archivo base documentado cambia de ruta ni se ve afectado por la extracción del frontend.
+
+---
+
+## 6. Verificación
+1. **Compilación estricta de TypeScript**: Ejecutar `./node_modules/.bin/tsc --noEmit` confirmando 0 errores en backend y frontend.
+2. **Build de producción de Vite**: Ejecutar `npm run build` para asegurar que Rollup empaquete correctamente `ui/main.tsx` y sus componentes hacia `dist/`.
+3. **Verificación de aislamiento de backend**: Ejecutar un escaneo `grep` comprobando que ningún archivo en `src/` contenga imports con `"ui/"` o dependencias de React/DOM.
+4. **Verificación de directorios**: Confirmar que en `src/` solo existan archivos y carpetas del backend.
+
+---
+
+## 7. Riesgos y Preguntas Abiertas
+
+1. **Ubicación de `createIterationFromEvent`**:
+   - Actualmente alimenta tanto el almacenamiento de trazas del backend (`JarvisCore.emitEvent`) como la reactividad del cliente (`useJarvis`).
+   - Propuesta del plan: Dejar la función generadora en el backend (`src/core/debugAccumulator.ts`) y consumirla desde el hook de la UI para mantener una única fuente de verdad lógica.
+   - Alternativa: Duplicar la función en `ui/` para aislamiento total a nivel de código si se prefiere cero imports entre `ui/` y utilidades de backend.
+2. **Ubicación de `index.html`**:
+   - El plan mantiene `index.html` en la raíz del repositorio cambiando el entry point a `/ui/main.tsx`, lo que evita tocar la configuración de Express en `server.ts`.

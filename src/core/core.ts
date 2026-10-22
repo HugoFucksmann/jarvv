@@ -25,7 +25,7 @@ import {
   runPlanLoop,
   planStepsToSteps,
 } from "./modeEngines.ts";
-import { createIterationFromEvent } from "../utils/debugAccumulator.ts";
+import { createIterationFromEvent } from "./debugAccumulator.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 
 export type { TaskExecutionContext } from "./context.ts";

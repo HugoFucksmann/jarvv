@@ -1,7 +1,7 @@
 import { useState, useRef, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
-import { isTerminalState } from "./core/types.ts";
+import { isTerminalState } from "../src/core/types.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
 import { PromptInput } from "./components/PromptInput/PromptInput.tsx";
 import { GuardBanner } from "./components/GuardBanner/GuardBanner.tsx";
