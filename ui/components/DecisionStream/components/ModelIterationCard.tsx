@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -124,10 +124,35 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
   const planStepsCount = outputData.cantidadEtapas || (Array.isArray(outputData.steps) ? outputData.steps.length : null);
 
   // Stage Verification (Qwen Semantics)
-  const stageStatus = outputData.estado || outputData.status || iteration.metrics?.verdict;
+  const stageStatus = outputData.estado || outputData.status || (outputData.stageVerification ? outputData.stageVerification.status : undefined) || iteration.metrics?.verdict;
   const stageReason = outputData.motivo || outputData.reason || "";
   const stageQuestion = outputData.preguntaUsuario || outputData.questionForUser || outputData.question_for_user || "";
-  const stageConfidence = outputData.confianza ?? iteration.metrics?.confidence;
+
+  const resolvedConfidence = useMemo(() => {
+    if (typeof iteration.metrics?.confidence === "number") {
+      return iteration.metrics.confidence;
+    }
+    if (typeof outputData.confianza === "number") {
+      return outputData.confianza;
+    }
+    if (iteration.stage === "DECISION_ONE") {
+      const route = outputData.rutaSeleccionada || outputData.route;
+      const probs = outputData.probabilidades || outputData.probabilities;
+      if (route && probs && typeof probs[route] === "number") {
+        return probs[route];
+      }
+    }
+    if (iteration.stage === "DECISION_TWO") {
+      const tool = outputData.herramientaSeleccionada || outputData.tool;
+      const probs = outputData.distribucionProbabilidades || outputData.probabilities;
+      if (tool && probs && typeof probs[tool] === "number") {
+        return probs[tool];
+      }
+    }
+    return undefined;
+  }, [iteration, outputData]);
+
+  const stageConfidence = typeof resolvedConfidence === "number" ? resolvedConfidence : undefined;
 
   return (
     <div className={`flex flex-col rounded-md border ${modelBgClass} overflow-hidden text-xs transition-all`}>
@@ -225,11 +250,11 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
             </>
           )}
 
-          {typeof iteration.metrics?.confidence === "number" && (
+          {isEos && (
             <>
               <span className="text-slate-600" aria-hidden="true">·</span>
-              <span className="text-emerald-400 tabular-nums">
-                Conf: {(iteration.metrics.confidence * 100).toFixed(0)}%
+              <span className={typeof resolvedConfidence === "number" ? "text-emerald-400 tabular-nums" : "text-slate-500 tabular-nums"}>
+                Conf: {typeof resolvedConfidence === "number" ? `${(resolvedConfidence * 100).toFixed(0)}%` : "N/D"}
               </span>
             </>
           )}
@@ -324,9 +349,9 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                     <div>
                       <span className="text-slate-500">Confianza Argmax: </span>
                       <span className="text-emerald-400 font-semibold">
-                        {typeof iteration.metrics?.confidence === "number"
-                          ? `${(iteration.metrics.confidence * 100).toFixed(1)}%`
-                          : "N/A"}
+                        {typeof resolvedConfidence === "number"
+                          ? `${(resolvedConfidence * 100).toFixed(1)}%`
+                          : "N/D"}
                       </span>
                     </div>
                     <div>
@@ -382,14 +407,14 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                       <span className="text-slate-500">Herramienta Seleccionada: </span>
                       <span className="text-emerald-300 font-semibold font-sans">{d2Tool}</span>
                     </div>
-                    {typeof iteration.metrics?.confidence === "number" && (
-                      <div>
-                        <span className="text-slate-500">Confianza: </span>
-                        <span className="text-emerald-400 font-semibold">
-                          {(iteration.metrics.confidence * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    )}
+                    <div>
+                      <span className="text-slate-500">Confianza: </span>
+                      <span className="text-emerald-400 font-semibold">
+                        {typeof resolvedConfidence === "number"
+                          ? `${(resolvedConfidence * 100).toFixed(1)}%`
+                          : "N/D"}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Ranking de Herramientas Evaluadas */}

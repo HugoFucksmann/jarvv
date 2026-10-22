@@ -117,16 +117,11 @@ export default function App() {
 
         <GuardBanner pending={pendingApproval} userAnswer={userAnswer} />
 
-        <DecisionStream
-          events={events}
-          modelIterations={modelIterations}
-          isExecuting={isExecuting}
-          task={task}
-        />
-
         <div className="flex-1">
           <ProcessFlow
             task={task}
+            events={events}
+            isExecuting={isExecuting}
             onConfirmPlan={confirmPlan}
             onRejectPlan={rejectPlan}
             onModifyPlan={modifyPlan}
@@ -134,6 +129,13 @@ export default function App() {
             onNewTask={handleNewTask}
           />
         </div>
+
+        <DecisionStream
+          events={events}
+          modelIterations={modelIterations}
+          isExecuting={isExecuting}
+          task={task}
+        />
       </main>
 
       {isSettingsOpen && (

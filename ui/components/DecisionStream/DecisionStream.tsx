@@ -42,7 +42,12 @@ function getEventColorClass(type: string): string {
 function summarizeEvent(ev: CoreEvent): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d = (ev.data ?? {}) as Record<string, any>;
-  const pct = (v: unknown) => `${((Number(v) || 0) * 100).toFixed(0)}%`;
+  const formatConf = (v: unknown): string => {
+    if (typeof v === "number" && !Number.isNaN(v)) {
+      return `${(v * 100).toFixed(0)}%`;
+    }
+    return "N/D";
+  };
   const type: string = ev.type;
 
   switch (type) {
@@ -52,14 +57,28 @@ function summarizeEvent(ev: CoreEvent): string {
       return `decisión: ${d.guardDecision?.decision || "ALLOW"}`;
     case "MCP_DISPATCHED":
       return `${d.mcp}:${d.tool}`;
-    case "DECISION_ONE":
-      return `ruta: ${d.route} (conf: ${pct(d.confidence)})`;
-    case "DECISION_TWO":
-      return `tool: ${d.tool} (conf: ${pct(d.confidence)})`;
+    case "DECISION_ONE": {
+      const conf = typeof d.confidence === "number"
+        ? d.confidence
+        : (d.route && d.probabilities ? d.probabilities[d.route] : undefined);
+      return `ruta: ${d.route} (conf: ${formatConf(conf)})`;
+    }
+    case "DECISION_TWO": {
+      const conf = typeof d.confidence === "number"
+        ? d.confidence
+        : (d.tool && d.probabilities ? d.probabilities[d.tool] : undefined);
+      return `tool: ${d.tool} (conf: ${formatConf(conf)})`;
+    }
     case "RESULT_PROCESSED":
       return `ok=${d.verification?.ok ?? d.isStepSuccess} cumple=${d.verification?.cumple ?? d.isStepSuccess} | ${(d.processed?.finding || "procesado").slice(0, 80)}`;
-    case "STAGE_VERIFIED":
-      return `etapa ${d.stageId || ""}: ${d.situation || "verificada"} (conf=${pct(d.confidence)})`;
+    case "STAGE_VERIFIED": {
+      const status = d.stageVerification?.status || d.status || d.situation || "verificada";
+      const conf = typeof d.confidence === "number"
+        ? d.confidence
+        : (typeof d.stageVerification?.confidence === "number" ? d.stageVerification.confidence : undefined);
+      const confStr = typeof conf === "number" ? ` (conf=${formatConf(conf)})` : "";
+      return `etapa ${ev.stepId || d.stepId || d.stageId || ""}: ${status}${confStr}`;
+    }
     case "PLAN_GENERATED":
       return `Plan generado (${(d.steps || []).length} etapas)`;
     case "PLAN_MODIFIED":
@@ -99,18 +118,29 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
   const totalQwen = modelIterations.filter((m) => m.model === "QWEN_3_5_9B").length;
   const traceEvents = events.filter((e) => TRACE_EVENT_TYPES.has(e.type));
 
-  const buildAuditJson = () =>
-    JSON.stringify(
-      {
-        taskId: task?.id || "current",
-        exportedAt: new Date().toISOString(),
-        totalIterations: modelIterations.length,
-        modelsSummary: { eos_0_8b: totalEos, qwen_3_5_9b: totalQwen },
-        iterations: modelIterations,
-      },
-      null,
-      2,
-    );
+  const buildAuditJson = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rootData: Record<string, any> = {
+      taskId: task?.id || "current",
+      exportedAt: new Date().toISOString(),
+      taskState: task?.state || "UNKNOWN",
+      mode: task?.mode || "NORMAL",
+      isPartialExport: Boolean(isExecuting || task?.state === "RUNNING"),
+      totalIterations: modelIterations.length,
+      modelsSummary: { eos_0_8b: totalEos, qwen_3_5_9b: totalQwen },
+    };
+
+    if (typeof task?.replans === "number") {
+      rootData.replans = task.replans;
+    }
+    if (typeof task?.escalations === "number") {
+      rootData.escalations = task.escalations;
+    }
+
+    rootData.iterations = modelIterations;
+
+    return JSON.stringify(rootData, null, 2);
+  };
 
   return (
     <div className="flex flex-col gap-3 px-6 py-2">
@@ -137,7 +167,14 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="text-[10px] text-slate-500 font-mono"
+            title="La exportación JSON incluye rutas de archivos locales y fragmentos de texto leídos durante la ejecución para fidelidad de auditoría."
+          >
+            Aviso: la copia incluye rutas locales y contenido leído
+          </span>
+
           {stepGroups.length > 0 && (
             <button
               type="button"
@@ -154,7 +191,7 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
               text={buildAuditJson}
               label="Copiar Auditoría"
               copiedLabel="Auditoría Copiada"
-              title="Copiar auditoría completa de modelos en formato JSON"
+              title="Copiar auditoría completa de modelos en formato JSON (incluye rutas locales y contenido leído)"
               iconColor="text-slate-400"
               className="gap-1 px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded"
             />
