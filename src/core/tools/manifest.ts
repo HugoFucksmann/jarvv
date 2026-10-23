@@ -19,6 +19,7 @@
 
 import {
   EXECUTABLE_ROUTES,
+  MAX_TOOL_DESC_CHARS,
   type Capability,
   type ExecutableRoute,
   type McpServerName,
@@ -35,9 +36,6 @@ export interface ToolDefinition {
   readonly params?: readonly string[];
   readonly policy: Readonly<ToolPolicy>;
 }
-
-/** Decision recorta a 80 caracteres; una descripción más larga se rechaza al arrancar. */
-const MAX_DESCRIPTION_CHARS = 80;
 
 const NO_MUTATION = new Set<Capability>(["READ", "FILE_READ"]);
 const NEEDS_APPROVAL = new Set<Capability>([
@@ -90,8 +88,8 @@ function def(
   description: string,
   opts: ToolOptions = {}
 ): ToolDefinition {
-  if (description.length > MAX_DESCRIPTION_CHARS) {
-    throw new Error(`[Manifest] descripción de '${route}:${name}' excede ${MAX_DESCRIPTION_CHARS} caracteres.`);
+  if (description.length > MAX_TOOL_DESC_CHARS) {
+    throw new Error(`[Manifest] descripción de '${route}:${name}' excede ${MAX_TOOL_DESC_CHARS} caracteres.`);
   }
   const mutates = !NO_MUTATION.has(capability);
   return Object.freeze({

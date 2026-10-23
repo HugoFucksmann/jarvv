@@ -3,7 +3,7 @@
 ## 1. Ciclo de Vida
 1. **Recepción e inicio**: La instrucción del usuario ingresa al sistema y se registra una tarea activa en memoria.
 2. **Selección de estrategia**: Según la modalidad seleccionada, el sistema activa la orquestación reactiva directa o la orquestación deliberativa por etapas.
-3. **Planificación previa (solo modalidad deliberativa)**: El razonador formula una secuencia de etapas con criterios observables de éxito y la tarea se suspende a la espera de confirmación, ajuste o rechazo humano.
+3. **Planificación previa (solo modalidad deliberativa)**: El clasificador evalúa una vez el objetivo; si lo declara conversación directa, la tarea se completa sin plan. En caso contrario, el razonador formula una secuencia de etapas con criterios observables de éxito y la tarea se suspende a la espera de confirmación, ajuste o rechazo humano.
 4. **Ejecución iterativa de pasos**: Cada acción individual atraviesa el pipeline indivisible del ejecutor atómico de herramientas.
 5. **Evaluación de resultados**: Se contrasta el resultado técnico observable mediante el clasificador factual y, en modalidad deliberativa, mediante el supervisor semántico.
 6. **Resolución de contingencias**: Los fallos recuperables activan escalación con cambio de ruta o replanificación autónoma; las dudas sobre información esencial suspenden la tarea para consultar al usuario.
@@ -11,7 +11,7 @@
 
 ## 2. Bucle Principal
 En cada ciclo de ejecución, el sistema realiza la siguiente secuencia:
-1. **Determinación de acción**: En modo reactivo, el clasificador evalúa el historial para elegir el destino operativo o declarar el fin. En modo deliberativo, se toma la etapa pendiente del plan vigente.
+1. **Determinación de acción**: En modo reactivo, el clasificador evalúa el historial para elegir el destino operativo o declarar el fin. En modo deliberativo, antes de planificar el clasificador evalúa una vez el objetivo (si lo declara conversación directa, la tarea se completa sin plan); luego se toma la etapa pendiente del plan vigente.
 2. **Validación de fin**: La finalización reactiva requiere que exista al menos una acción productiva previa comprobada y que no existan pasos no verificados sin observar. De no cumplirse, la finalización se deniega y se fuerza a continuar con la ruta más adecuada.
 3. **Pipeline atómico del paso**:
    - Selección de herramienta dentro del destino asignado.
@@ -28,8 +28,8 @@ En cada ciclo de ejecución, el sistema realiza la siguiente secuencia:
 - **Generación**: El razonador descompone la solicitud en etapas secuenciales con ruta asignada y criterio observable de éxito.
 - **Intervención humana previa**: La tarea suspende su ejecución hasta que el usuario confirma el plan, solicita ajustes o lo cancela.
 - **Ejecución y doble juez**: Cada etapa del plan se envía al ejecutor atómico. La verificación técnica factual es evaluada primero por el clasificador; si este no aprueba o no está disponible, el razonador evalúa semánticamente si la evidencia satisface el objetivo de la etapa.
-- **Clarificación interactiva**: Si el razonador dictamina falta de información esencial del usuario, la tarea se suspende formulando una pregunta puntual. Al recibir la respuesta, esta se asienta como hecho, se incorpora a la instrucción de la etapa y la ejecución se reanuda. Si se alcanza el límite de preguntas permitidas, la situación se procesa como desviación y se activa replanificación.
-- **Replanificación autónoma**: Ante una desviación técnica o semántica, el razonador reestructura exclusivamente las etapas pendientes. Las etapas completadas jamás se repiten y las mutaciones físicas consolidadas en el entorno se transmiten intactas para no duplicar acciones destructivas. El plan ajustado prosigue de manera autónoma sin requerir confirmación interactiva.
+- **Clarificación interactiva**: Si el razonador dictamina falta de información esencial del usuario, la tarea se suspende formulando una pregunta puntual. Al recibir la respuesta, esta se asienta íntegra como hecho, se incorpora a la instrucción de la etapa y la ejecución se reanuda. Si se alcanza el límite de preguntas permitidas, la situación se procesa como desviación y se activa replanificación.
+- **Replanificación autónoma**: Ante una desviación técnica o semántica, el razonador reestructura exclusivamente las etapas pendientes. Las etapas completadas jamás se repiten y el registro completo de mutaciones consolidadas se transmite sin recorte para no duplicar acciones destructivas. El plan ajustado prosigue de manera autónoma sin requerir confirmación interactiva.
 
 ## 4. Estados y Transiciones
 
@@ -51,6 +51,7 @@ En cada ciclo de ejecución, el sistema realiza la siguiente secuencia:
   - En modo reactivo, una acción sin veredicto no permite concluir la tarea de forma exitosa a menos que una acción posterior de lectura confirme el estado del entorno.
   - En modo deliberativo, una acción sin veredicto permite continuar con las etapas siguientes, pero si al finalizar persisten acciones sin verificar, la tarea concluye como parcial y no como completada.
 - **Seguridad**: Toda denegación por política prohibida o rechazo humano en la compuerta de seguridad detiene la tarea de inmediato; está prohibido escalar o replanificar para evadir un bloqueo de seguridad.
+- **Cupo de tareas**: Al crear una tarea por encima del cupo se expulsan las terminales más antiguas y, si aún se supera, se cancela la tarea en espera más antigua.
 - **Cancelación cooperativa**: La cancelación del usuario propaga una señal de aborto a todas las capas, descarta respuestas en vuelo y concluye la tarea inmediatamente sin catalogarse como error.
 
 ## 6. Invariantes del Flujo

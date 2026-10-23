@@ -8,7 +8,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 2. **Desacoplamiento estricto de modelos**: El modelo de razonamiento descompone objetivos, formula parámetros estructurados y valida etapas; el clasificador factual selecciona rutas, herramientas y evalúa el cumplimiento técnico inmediato. Ningún modelo tiene acceso directo al sistema operativo.
 3. **Seguridad con cierre por defecto**: Toda acción potencialmente mutante requiere autorización explícita previa. Cualquier herramienta no registrada en el catálogo oficial queda excluida de la ejecución.
 4. **Aislamiento ontológico de datos**: Las salidas voluminosas de herramientas se segregan bajo referencias deterministas. Los modelos razonan sobre observaciones acotadas y direccionan contenidos mediante identificadores indirectos.
-5. **Volatilidad controlada del estado**: El estado operativo reside exclusivamente en memoria volátil acotada; la trazabilidad externa opera en modo de solo adición para auditoría (ver detalle en `CONTEXT_AND_MEMORY.md`).
+5. **Volatilidad controlada del estado**: El estado operativo reside exclusivamente en memoria volátil, con un cupo de tareas retenidas; la trazabilidad externa opera en modo de solo adición para auditoría (ver detalle en `CONTEXT_AND_MEMORY.md`).
 
 ## 3. Componentes
 
@@ -24,7 +24,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Catálogo de Herramientas** | Define formalmente las herramientas autorizadas, sus rutas funcionales, capacidades asociadas y requisitos de autorización. | No ejecuta llamadas ni mantiene estado dinámico. |
 | **Procesador de Resultados** | Parsea salidas de herramientas, sintetiza observaciones acotadas, calcula señales de fallo y aísla cargas pesadas en el almacén de referencias. | No evalúa la veracidad semántica de los datos ni interactúa con disco. |
 | **Resolutor de Referencias** | Sustituye tokens de referencia por sus contenidos reales en los argumentos antes de la evaluación de seguridad y el despacho. | No genera nuevas referencias ni invoca herramientas. |
-| **Gestor de Contexto y Memoria** | Construye bloques contextuales estructurados aplicando orden estricto para optimizar caché y delimita datos externos para prevenir inyecciones. | No persiste información ni realiza llamadas a servicios. |
+| **Gestor de Contexto y Memoria** | Recupera la memoria de la tarea para cada llamada a un modelo y la expone en bloques acotados y delimitados que previenen inyecciones. | No persiste información ni realiza llamadas a servicios. |
 | **Registro de Trazabilidad** | Emite un registro secuencial en disco al término de cada tarea para análisis y evaluación externa. | No actúa como base de datos ni restaura estado al reiniciar el servidor. |
 
 ## 4. Dependencias entre Capas

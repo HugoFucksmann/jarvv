@@ -105,6 +105,8 @@ export function recordFailedCall(
     step: Step,
     failure: { tool?: string; args?: Record<string, unknown>; error: string }
 ): void {
+    // Un paso fallido invalida el handoff del anterior: el siguiente intento no lo recibe (D-1).
+    context.lastHandoff = undefined;
     const mcp = serverOf(step.route);
     const tool = failure.tool ?? step.tool;
     const summary = sanitizeForMemory(failure.error, 120);
@@ -532,7 +534,7 @@ export async function runStep(
         addEffectEntry(context, `${step.id}|${selectedTool.name}: ${processed.finding || processed.summaryText || 'mutación aplicada'}`);
     }
 
-    // Handoff determinista hacia el siguiente paso (solo tras un paso exitoso)
+    // Handoff determinista hacia el siguiente paso: solo sobrevive el de un paso exitoso; ante fallo o sin veredicto se descarta (D-1).
     if (isStepSuccess) {
         const primaryFactKey = Object.keys(processed.factsDelta)[0];
         const handoff: StepHandoff = {
@@ -545,6 +547,8 @@ export async function runStep(
         };
         step.handoff = handoff;
         context.lastHandoff = handoff;
+    } else {
+        context.lastHandoff = undefined;
     }
 
     step.calls = step.calls || [];

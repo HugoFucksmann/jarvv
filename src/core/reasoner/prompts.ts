@@ -1,19 +1,10 @@
-/**
- * JARVIS Core — Prompts centralizados
- * Qwen (español neutro) + Decision-2.0-Eos-0.8B (inglés).
- *
- * Convenciones:
- * - Orden de bloques: estable primero, variable después (prefix cache); la instrucción de la tarea va al final.
- * - Todo dato externo (resultados de herramientas, memoria, historial) entra por dataBlock():
- *   se neutralizan los delimitadores, se delimita con <obs>…</obs> y se acota su tamaño.
- * - Una sola advertencia (DATA_NOTICE) en todos los SYSTEM de Qwen; no enumera bloques, así no puede desfasarse.
- * - Rutas y descripciones salen de EXECUTABLE_ROUTES y del manifest: este archivo no las repite.
- */
+
 
 import {
   EXECUTABLE_ROUTES,
   MAX_EVIDENCE_OBS_CHARS,
   MAX_STEPS,
+  MAX_TOOL_DESC_CHARS,
   type DecisionQuestion,
   type ExecutableRoute,
   type MCPTool,
@@ -44,13 +35,14 @@ const MAX_STEP_RESULT_CHARS = 800;
 const MAX_REFS_CHARS = 1200;
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
+// Sin tope: el bloque conserva todo lo registrado (la cota máxima de contexto se define aparte, D-8).
+const NO_LIMIT = Number.POSITIVE_INFINITY;
 // Presupuestos en caracteres (Decision).
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_HISTORY_CHARS = 4000;
 const MAX_SCRATCHPAD_CHARS = 2000;
 const MAX_RESULT_CHARS = 400;
 const MAX_OBSERVATION_CHARS = 500;
-const MAX_TOOL_DESC_CHARS = 80;
 const MAX_ATTEMPTS = 8;
 const MAX_NOTE_CHARS = 60;
 
@@ -236,7 +228,7 @@ ${DATA_NOTICE}`,
         data.lastObs
           ? dataBlock(`LAST (paso ${data.lastObs.stepId}, ${safe(data.lastObs.toolName)})`, clipObs(data.lastObs.obsText, MAX_OBS_CHARS), MAX_OBS_CHARS)
           : null,
-        `TASK: ${safe(clip(data.taskInstruction, MAX_GOAL_CHARS))}`,
+        `TASK: ${safe(data.taskInstruction)}`,
       ]);
     },
   },
@@ -312,7 +304,7 @@ ${DATA_NOTICE}`,
         orNone("COMPLETADOS", linesBlock("COMPLETADOS", data.completedStepsSummary, MAX_PLAN_CHARS)),
         orNone("FACTS", factsBlock(data.facts, MAX_FACTS_CHARS)),
         linesBlock("LOG", data.logLines, MAX_LOG_CHARS),
-        linesBlock("EFFECTS", data.effects, MAX_EFFECTS_CHARS),
+        linesBlock("EFFECTS", data.effects, NO_LIMIT),
         linesBlock("FAIL", data.failLines, MAX_FAIL_CHARS),
         `PASO FALLIDO:\nmeta: ${safe(clip(data.failedStepGoal, MAX_GOAL_CHARS))}`,
         dataBlock("RESULTADO DEL PASO FALLIDO", data.failedStepResult, MAX_STEP_RESULT_CHARS),

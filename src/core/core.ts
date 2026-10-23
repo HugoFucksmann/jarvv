@@ -309,7 +309,7 @@ export class JarvisCore {
       return false;
     }
 
-    ensureMemory(context).facts[`answer_${pending.stepId}`] = sanitizeForMemory(`${pending.question} -> ${clean}`, 400);
+    ensureMemory(context).facts[`answer_${pending.stepId}`] = sanitizeForMemory(`${pending.question} -> ${clean}`, Number.POSITIVE_INFINITY);
     task.userAnswers = [
       ...(task.userAnswers ?? []),
       { stepId: pending.stepId, question: pending.question, answer: clean, answeredAt: Date.now() },
@@ -318,7 +318,7 @@ export class JarvisCore {
 
     const step = task.steps.find((s) => s.id === pending.stepId);
     if (step) {
-      step.instruction += ` | Respuesta del usuario a "${sanitizeForMemory(pending.question, 100)}": ${sanitizeForMemory(clean, 250)}`;
+      step.instruction += ` | Respuesta del usuario a "${sanitizeForMemory(pending.question, 100)}": ${sanitizeForMemory(clean, Number.POSITIVE_INFINITY)}`;
       step.state = "PENDING";
       step.error = undefined;
     }

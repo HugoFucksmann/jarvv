@@ -23,7 +23,6 @@ import {
     type TaskExecutionContext,
     addFailEntry,
     buildAttempts,
-    buildEffectsContext,
     buildHistoryContext,
     expandMemoryContext,
     hasUnresolvedUnverified,
@@ -328,7 +327,7 @@ export async function handleReplan(
             failLines: task.memory?.fail || [],
             logLines: task.memory?.log || [],
             // Las mutaciones ya aplicadas no se deshacen con la verificación: el replan debe conocerlas.
-            effects: buildEffectsContext(task, 10),
+            effects: task.memory?.effects || [],
             failedStepGoal: failedStep.instruction,
             failedStepResult: failedStep.error || "error",
             remainingPlanGoals: remainingGoals,

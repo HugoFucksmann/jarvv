@@ -14,7 +14,7 @@ import {
 } from "./types.ts";
 import type { Attempt } from "./reasoner/prompts.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
-import { RefStore } from "./processor/resultProcessor.ts";
+import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
 
 /** Observación de una lectura con datos (búsqueda, página, archivo…): lo que un paso posterior puede necesitar. */
 export interface DataObservation {
@@ -102,14 +102,11 @@ export function addLogEntry(context: TaskExecutionContext, line: string): void {
     }
 }
 
-/** Registra efectos secundarios en el entorno (hasta 25). */
+/** Registra efectos secundarios en el entorno (sin tope: se conservan todos durante la tarea). */
 export function addEffectEntry(context: TaskExecutionContext, effect: string): void {
     const memory = ensureMemory(context);
     memory.effects = memory.effects || [];
     memory.effects.push(effect);
-    if (memory.effects.length > 25) {
-        memory.effects = memory.effects.slice(-25);
-    }
 }
 
 export function addFailEntry(context: TaskExecutionContext, line: string): void {
@@ -215,7 +212,7 @@ export function applyStepHandoff(step: Step, context: TaskExecutionContext): str
         return step.instruction;
     }
     const refNote = handoff.refKey ? ` [ref:${handoff.refKey}]` : "";
-    const factNote = handoff.primaryFact ? ` | ${handoff.primaryFact.key}=${handoff.primaryFact.value}` : "";
+    const factNote = handoff.primaryFact ? ` | ${handoff.primaryFact.key}=${sanitizeForMemory(handoff.primaryFact.value, 400)}` : "";
     return `${step.instruction}\n[HANDOFF ${handoff.fromStepId} (${handoff.tool})]: ${handoff.finding}${refNote}${factNote}`;
 }
 

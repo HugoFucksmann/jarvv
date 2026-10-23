@@ -1,11 +1,4 @@
-/**
- * JARVIS Core — Architecture & Core Contracts
- * Fuente única de tipos del núcleo.
- */
 
-// ============================================================
-// Tipos de iteraciones y auditoría de modelos
-// ============================================================
 
 export type ModelType = "EOS_0_8B" | "QWEN_3_5_9B";
 
@@ -200,11 +193,9 @@ export interface StageVerificationPromptData {
 
 export interface Scratchpad {
   search_results?: unknown[];
-  selected_result?: unknown;
   url?: string;
   path?: string;
   process_id?: string;
-  text?: string;
   /** Total de resultados de la última búsqueda; `search_results` solo conserva los primeros MAX_SCRATCHPAD_RESULTS. */
   search_results_total?: number;
 }
@@ -366,6 +357,8 @@ export const MAX_RETAINED_TASKS = 20;
 export const MAX_SCRATCHPAD_RESULTS = 10;
 /** Tope (caracteres) de la observación compacta de una llamada en todo su recorrido: procesamiento, registro de la llamada y respuesta final. */
 export const MAX_EVIDENCE_OBS_CHARS = 2500;
+/** Tope (caracteres) de la descripción de una herramienta: el manifest rechaza al arrancar una más larga y Decision recorta a este valor. */
+export const MAX_TOOL_DESC_CHARS = 80;
 /** Máximo de preguntas al usuario por paso antes de tratar la falta de información como desviación recuperable. */
 export const MAX_USER_QUESTIONS_PER_STEP = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;

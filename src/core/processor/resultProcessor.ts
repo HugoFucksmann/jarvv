@@ -39,7 +39,7 @@ export class RefStore {
   private static taskCounters: Map<string, number> = new Map();
   private static taskMeta: Map<string, Map<string, { label: string; chars: number }>> = new Map();
 
-  static put(content: string, taskId: string = "default", label?: string): string {
+  static put(content: string, taskId: string, label?: string): string {
     let store = this.taskStores.get(taskId);
     if (!store) {
       store = new Map<string, string>();
@@ -67,15 +67,8 @@ export class RefStore {
       .map(([key, m]) => ({ key, label: m.label, chars: m.chars }));
   }
 
-  static get(key: string, taskId?: string): string | undefined {
-    if (taskId) {
-      return this.taskStores.get(taskId)?.get(key);
-    }
-    for (const store of this.taskStores.values()) {
-      const val = store.get(key);
-      if (val !== undefined) return val;
-    }
-    return undefined;
+  static get(key: string, taskId: string): string | undefined {
+    return this.taskStores.get(taskId)?.get(key);
   }
 
 
@@ -181,7 +174,7 @@ export class ResultProcessor {
     tool: string,
     rawResult: MCPCallResult,
     args: Record<string, unknown> = {},
-    taskId?: string
+    taskId: string
   ): ProcessedResult {
     const isError = Boolean(rawResult.isError);
     const success = Boolean(rawResult.success !== undefined ? rawResult.success : !isError);
