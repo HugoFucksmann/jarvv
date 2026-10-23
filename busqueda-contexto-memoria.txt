@@ -1,0 +1,1 @@
+﻿E:\colo\jarvv\lab\CONTEXT.md:223: - `toolRuns`: Lista compacta de ejecuciones de herramientas durante la tarea (herramienta, argumentos, éxito `ok` y error). No incluye el cuerpo completo de la salida ni scratchpad.
