@@ -1,232 +1,511 @@
-# Investigación Complementaria de la Auditoría de JARVIS
+# Plan de Implementación de la Arquitectura Unificada JARVIS: FAST y PLAN
 
-**Documento Técnico Independiente y Verificación de Código Fuente**  
+**Documento Técnico Integral, Verificación Empírica y Especificación de Migración**  
 **Fecha de Actualización:** 23 de octubre de 2026  
-**Referencia:** Código fuente del repositorio y Documento de Plan de Arquitectura Objetivo (`FAST y PLAN`)  
-**Estado:** Verificado contra la implementación actual (Solo Lectura)
+**Referencia:** Código fuente del repositorio (`src/`, `server.ts`, `ui/`) y Especificación de Arquitectura Objetivo (`FAST y PLAN`)  
+**Estado:** Verificado, consolidado y completado para ejecución
 
 ---
 
-## 1. Objetivo y Alcance
+## 1. Objetivo, Alcance y Reglas Metodológicas
 
-### 1.1. Propósito
-Documentar de forma exhaustiva los hallazgos técnicos derivados de la auditoría independiente del código fuente de JARVIS, incorporar las correcciones de inconsistencias documentales y contrastar el comportamiento actual del sistema frente al plan de arquitectura unificado para los modos `FAST` y `PLAN`.
+### 1.1. Objetivo
+El objetivo de este documento es formalizar la especificación técnica y el plan de migración paso a paso para unificar los modos de ejecución `FAST` y `PLAN` bajo un **único motor reactivo común** en JARVIS.
 
-Este informe delimita con precisión empírica los hechos comprobados en el código, las inconsistencias confirmadas frente al diseño objetivo y las decisiones de arquitectura pendientes de resolución por parte del usuario.
+En la arquitectura objetivo:
+- **Motor reactivo común (FAST):** Ejecuta dinámicamente cualquier objetivo asignado (sea la instrucción global del usuario o una etapa específica de un plan) mediante la secuencia: selección dinámica de ruta (Decision #1), selección de herramienta (Decision #2), generación de argumentos (Qwen), evaluación de compuerta de seguridad (Guard), despacho MCP, normalización de resultados (Result Processor), verificación y clasificación estructurada del fallo (Decision #3 / Eos) y recuperación local de fallos acotados.
+- **Capa deliberativa (PLAN):** No duplica ni mantiene un motor de ejecución paralelo. Su responsabilidad es orquestar el trabajo en etapas secuenciales orientadas a objetivos, solicitar la aprobación humana inicial, activar una etapa por vez sobre el motor reactivo común, y gatillar la replanificación global con Qwen (en modo pensamiento) cuando la recuperación local de la etapa se agote o el fallo sea irrecuperable.
 
-### 1.2. Reglas Metodológicas Aplicadas
-- **Fuente de verdad empírica:** El código fuente en `src/`, `server.ts` y configuraciones es la única referencia del comportamiento real del sistema.
-- **Referencia de arquitectura objetivo:** El plan acordado para la unificación de `FAST` y `PLAN` actúa como especificación de diseño deseado.
-- **Trazabilidad estricta:** Toda conclusión técnica se respalda con la ruta de archivo, identificador de símbolo y rango exacto de líneas verificado.
-- **Separación categórica:** Se diferencian taxativamente los hechos comprobados y las inconsistencias de código respecto de las decisiones de diseño pendientes.
+### 1.2. Alcance
+- **Componentes incluidos:**
+  - Orquestación central y ciclo de vida de tareas en [core.ts](file:///home/hugo/jarvv/src/core/core.ts).
+  - Bucles de ejecución de modo y escalaciones en [modeEngines.ts](file:///home/hugo/jarvv/src/core/modeEngines.ts).
+  - Pipeline de ejecución de herramientas en [callExecutor.ts](file:///home/hugo/jarvv/src/core/callExecutor.ts).
+  - Adaptador e inferencias de Decision 2.0 (Eos) en [decision.ts](file:///home/hugo/jarvv/src/core/decision.ts) y [prompts.ts](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts).
+  - Razonador Qwen (planificación, argumentos y replanificación) en [qwen.ts](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts).
+  - Definición de tipos y contratos de datos en [types.ts](file:///home/hugo/jarvv/src/core/types.ts).
+  - Trazabilidad y telemetría en [taskTrace.ts](file:///home/hugo/jarvv/src/core/taskTrace.ts) y [debugAccumulator.ts](file:///home/hugo/jarvv/src/core/debugAccumulator.ts).
+  - Endpoints de backend y eventos en [jarvisRouter.ts](file:///home/hugo/jarvv/src/server/jarvisRouter.ts) y consumidores en [ui/](file:///home/hugo/jarvv/ui).
+- **Límites de alcance (exclusiones):**
+  - No se agregan nuevas herramientas ni servidores MCP ajenos a los existentes.
+  - No se modifica la compuerta de seguridad Guard para eludir o flexibilizar políticas de seguridad.
+  - No se altera la persistencia externa ni se crea base de datos en disco (la traza JSONL permanece append-only).
 
----
-
-## 2. Hallazgos Detallados por Tema
-
-### 2.1. Verificación y Clasificación de Fallos en Eos (Decision #3)
-
-#### Aclaración de Diseño Objetivo
-En la arquitectura objetivo, Decision #3 (Eos) asume en una **única inferencia combinada** la doble responsabilidad de evaluar si el paso cumplió su instrucción y, en caso negativo, clasificar la tipología del fallo. El runtime debe consumir directamente el tipo de fallo de la respuesta de Eos, evitando latencias redundantes y prescindiendo de un segundo modelo clasificador en el camino crítico.
-
-#### Comportamiento Existente Comprobado en el Código
-1. **Construcción de preguntas en Eos (`src/core/reasoner/prompts.ts`, líneas 494–522):**  
-   El método `DECISION_PROMPTS.buildStepVerification` genera únicamente **dos preguntas binarias de tipo `noul`**:
-   ```typescript
-   questions: {
-     ok: {
-       type: "noul",
-       instructions: "Does the result contain usable data (not empty and not an error message)?",
-     },
-     cumple: {
-       type: "noul",
-       instructions: "Does the result accomplish the step instruction?",
-     },
-   }
-   ```
-   **Hecho comprobado:** En el código actual **no existe ninguna pregunta de clasificación de fallos** (`failure_type` o similar) dirigida a Eos en ningún módulo del sistema.
-2. **Evaluación de la respuesta en el cliente HTTP (`src/core/decision.ts`, líneas 198–238):**  
-   `Decision20Engine.evaluateStepVerification` solo extrae y valida probabilísticamente las respuestas asociadas a las claves `ok` y `cumple` frente al umbral `NOUL_APPROVE = 0.5`:
-   ```typescript
-   const ok = okProbability > NOUL_APPROVE;
-   const cumple = cumpleProbability > NOUL_APPROVE;
-   return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput };
-   ```
-3. **Resolución de fallos y segundo juez (`src/core/callExecutor.ts`, líneas 406–460):**  
-   - La condición de éxito técnico es: `eosPassed = verificationDetail.ok && verificationDetail.cumple` (línea 423).
-   - Si `eosPassed` es falso en modo `PLAN`, el código actual delega la verificación semántica y la clasificación en Qwen 3.5 mediante `deps.qwenEngine.verifyStage` (línea 434).
-   - `verifyStage` (`src/core/reasoner/qwen.ts`, líneas 699–740; `prompts.ts`, líneas 317–332) clasifica la etapa en una de 4 categorías textuales:
-     `"completed" | "recoverable_deviation" | "insufficient_info" | "unrecoverable_blocked"`.
-   - En modo `FAST`, si Eos rechaza el paso, no se realiza ninguna clasificación estructurada: el sistema compone una cadena informativa `failReason` y devuelve `status: "logical_error"` (`callExecutor.ts`, líneas 470–482 y 585).
-
-#### Inconsistencia Confirmada
-Existe una discrepancia directa entre el código actual y el diseño objetivo:
-- **En el código:** Eos solo evalúa si el resultado es usable y cumplió la instrucción (`ok`, `cumple`). La clasificación estructurada del fallo recae en Qwen (`verifyStage`) exclusivamente en modo `PLAN`, mientras que FAST carece de tipificación estructurada.
-- **En el diseño objetivo:** La clasificación de fallos se centraliza en Decision #3 (Eos) para ambos modos (`FAST` y `PLAN`), incorporando la pregunta estructurada de tipo `choice` (`failure_type`) enviada en la misma inferencia. Si `cumple` resulta falso, el runtime adopta directamente el tipo de fallo clasificado por Eos.
+### 1.3. Reglas Metodológicas
+1. **Verificación empírica estricta:** Todo comportamiento actual se contrasta contra el código fuente real. No se dan por válidas afirmaciones previas sin comprobación directa de líneas y archivos.
+2. **Respeto a decisiones no resueltas:** Las decisiones de diseño pendientes no se asumen unilateralmente; se explicitan sus alternativas técnicas y sus consecuencias.
+3. **No regresión funcional ni rotura de tipos:** Toda modificación respeta el sistema de tipos comprobado mediante `tsc --noEmit` y el empaquetado de producción `npm run build`.
 
 ---
 
-### 2.2. Rechazos de Guard, Replanificación y Garantía del Límite `MAX_REPLAN`
+## 2. Arquitectura Actual Comprobada
 
-#### Aclaración de Diseño Objetivo
-Un rechazo de la compuerta de seguridad Guard o la denegación expresa del usuario en modo PLAN no debe clausurar la tarea de forma irreversible si la necesidad puede resolverse mediante una ruta alternativa autorizada. El diseño autoriza la replanificación controlada ante rechazos, garantizando que ninguna acción eluda los controles de autorización y que el ciclo de replanificaciones esté acotado por un límite estricto (`MAX_REPLAN = 2`).
+### 2.1. Desacoplamiento Existente y Duplicidad de Orquestación
+Actualmente, el repositorio implementa dos bucles completamente separados en [modeEngines.ts](file:///home/hugo/jarvv/src/core/modeEngines.ts):
 
-#### Comportamiento Existente Comprobado en el Código
-1. **Generación de la señal `denied` (`src/core/callExecutor.ts`, líneas 301–347):**  
-   - **Caso DENY automático:** Si los argumentos coinciden con patrones destructivos del SO (`Guard.evaluate` retorna `"DENY"`, líneas 304–311), el paso pasa a `step.state = "BLOCKED"`, se registra en memoria negativa (`addFailEntry`) y en `calls`, y `runStep` retorna `{ status: "logical_error", step, error: step.error, signals: { denied: true } }`.
-   - **Caso Denegación Interactiva:** Si la herramienta requiere aprobación (`"APPROVAL"`) y el usuario la deniega (`!approved`, líneas 331–341), el paso pasa a `step.state = "BLOCKED"` y se retorna el mismo resultado con `signals: { denied: true }`.
-2. **Tratamiento en el bucle FAST (`src/core/modeEngines.ts`, líneas 228–233 y 537–544):**  
-   Cuando `runFastLoop` recibe un error con `signals.denied`, invoca `handleEscalation`. Esta función verifica explícitamente:
-   ```typescript
-   if (execResult.signals?.denied) {
-     console.warn(`[Escalation] Acción denegada por Guard o usuario (denied). Prohibido reintentar o conmutar para eludir seguridad.`);
-     await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
-     return false;
-   }
-   ```
-   **Hecho comprobado:** En FAST, la denegación concluye inmediatamente la tarea como `FAILED` o `PARTIAL`.
-3. **Tratamiento en el bucle PLAN (`src/core/modeEngines.ts`, líneas 668–672):**  
-   En `runPlanLoop`, tras ejecutar `runStep`, el código aplica la siguiente compuerta terminal:
-   ```typescript
-   if (execResult.signals?.denied || (step.state as StepState) === "BLOCKED") {
-     console.warn(`[PLAN] Acción denegada por Guard o usuario. Prohibido replanificar para eludir denegación.`);
-     await concludeTask(context, resolveFailureState(task), deps, "Operación denegada por política de seguridad (Guard).");
-     return;
-   }
-   ```
-   **Inconsistencia confirmada:** El código actual en `modeEngines.ts` (líneas 668–672) **aborta tajantemente la tarea ante cualquier denegación de Guard o del usuario**, impidiendo que se invoque `handleReplan`.
+1. **Bucle `FAST` (`runFastLoop`, líneas 395–546):**
+   - Evalúa Decision #1 dinámicamente en cada ciclo (`evaluateDecisionOne`, línea 406).
+   - Valida si corresponde terminar (`route === "fin"`, líneas 441–476).
+   - Instancia un paso sintético (`s1`, `s2`, ...) con `instruction: task.message` y le asigna la ruta elegida por Decision #1 (`step.route = selectedRoute`, líneas 486–495).
+   - Invoca [runStep](file:///home/hugo/jarvv/src/core/callExecutor.ts#L149-L589).
+   - Ante errores lógicos, invoca [handleEscalation](file:///home/hugo/jarvv/src/core/modeEngines.ts#L218-L287) (línea 541), la cual incrementa `context.escalations` (límite `MAX_ESCALATIONS = 2`) y consulta a Decision #1 para conmutar de ruta o concluir.
 
-#### Análisis de Seguridad y Control de Bucles
-1. **¿Permitir la replanificación tras un rechazo elude la autorización?**  
-   - **Hecho comprobado: No.** Ninguna herramienta MCP puede ejecutarse sin atravesar `runStep` (`src/core/callExecutor.ts`, línea 301).
-   - `Guard.evaluate` (`src/core/policy/guard.ts`, líneas 29–56) es un evaluador estático, determinista y **estrictamente sin estado**. No posee caché de aprobaciones, listas blancas dinámicas ni autorizaciones heredadas.
-   - Cualquier acción propuesta en una etapa replanificada se evaluará desde cero en `Guard.evaluate` antes del despacho (`callTool`). Si requiere confirmación, volverá a solicitarla al usuario de forma obligatoria.
-2. **Mecanismo real de prevención de repetición (Aclaración sobre Anti-loop):**  
-   - En `src/core/callExecutor.ts` (líneas 282–284 y 352), la firma `loopSignature` **solo se registra en `context.executedSignatures` en el paso 7, justo antes del despacho al servidor MCP**.
-   - Como las acciones denegadas por Guard o rechazadas por el usuario se interrumpen en el paso 6 (líneas 310 y 340), **dichas llamadas no ingresan a `executedSignatures`**.
-   - Por tanto, la protección contra la insistencia en acciones no autorizadas **no depende del filtro anti-loop**, sino de la combinación de la **evaluación stateless de `Guard`** y la cota estricta del contador **`MAX_REPLAN = 2`**.
+2. **Bucle `PLAN` (`runPlanLoop`, líneas 621–727):**
+   - No ejecuta Decision #1 para seleccionar rutas.
+   - Las etapas (`task.steps`) son creadas en [initiatePlanMode](file:///home/hugo/jarvv/src/core/modeEngines.ts#L551-L619) a partir de la salida de `qwenEngine.generatePlan`.
+   - Qwen asigna estáticamente a cada etapa una ruta obligatoria a través del campo `suggested_mcp` ([qwen.ts:331-334](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L331-L334)), que la función [planStepsToSteps](file:///home/hugo/jarvv/src/core/modeEngines.ts#L55-L66) copia directamente a `step.route`.
+   - `runPlanLoop` toma la etapa en `PENDING` y despacha directamente a [runStep](file:///home/hugo/jarvv/src/core/callExecutor.ts#L149) asumiendo la ruta fija prefijada por Qwen.
+   - **Ausencia total de reintentos locales:** Si [runStep](file:///home/hugo/jarvv/src/core/callExecutor.ts#L149) devuelve `logical_error` o excepción (y no es `insufficient_info` ni veto de Guard), `runPlanLoop` salta directamente a [handleReplan](file:///home/hugo/jarvv/src/core/modeEngines.ts#L657-L723), invocando una costosa replanificación global con Qwen sin intentar corregir argumentos ni cambiar de herramienta dentro de la etapa.
 
-#### Verificación Integral del Ciclo de Vida de `MAX_REPLAN`
-Se rastreó exhaustivamente la definición, inicialización y consumo del contador:
-- **Definición:** `export const MAX_REPLAN = 2;` (`src/core/types.ts`, línea 353).
-- **Inicialización:** `replans: 0` al crear la tarea en `src/core/core.ts` (línea 170).
-- **Validación e incremento:** En `handleReplan` (`src/core/modeEngines.ts`, líneas 298–304):
-  ```typescript
-  if ((task.replans || 0) >= MAX_REPLAN) {
-    console.warn(`[PLAN] MAX_REPLAN (${MAX_REPLAN}) alcanzado.`);
-    await concludeTask(context, resolveFailureState(task), deps, "Límite de replanificaciones alcanzado.");
-    return false;
+### 2.2. Flujo de Ejecución en `runStep` ([callExecutor.ts](file:///home/hugo/jarvv/src/core/callExecutor.ts))
+El pipeline de ejecución de cada paso individual se ejecuta en el siguiente orden:
+1. **Descubrimiento y catálogo:** Obtiene herramientas del destino prefijado en `step.route` (líneas 155–170). Si existe `context.excludedToolForNextCall`, filtra la herramienta fallida anterior (líneas 172–179).
+2. **Decision #2 (Eos):** Selecciona la herramienta concreta mediante inferencia estructurada de tipo `choice` (líneas 182–190).
+3. **Generación de argumentos (Qwen):** Genera los argumentos de la herramienta validándolos contra el esquema JSON (líneas 213–242).
+4. **Anti-bucle:** Comprueba si la firma `servidor:herramienta:hash(args):m<counter>` ya fue ejecutada (líneas 285–298).
+5. **Compuerta de seguridad Guard:** Evalúa `Guard.evaluate(server, tool, args)` (líneas 301–347):
+   - Si es `"DENY"`: asigna `step.state = "BLOCKED"`, emite `signals: { denied: true }` y aborta el despacho.
+   - Si es `"APPROVAL"`: suspende en `WAITING_INPUT/approval`. Si el usuario deniega, asigna `step.state = "BLOCKED"`, emite `signals: { denied: true }` y aborta.
+6. **Despacho MCP:** Ejecuta la herramienta física en el servidor MCP (líneas 355–365).
+7. **Procesamiento de resultados:** [ResultProcessor](file:///home/hugo/jarvv/src/core/processor/resultProcessor.ts) extrae observaciones compactas, aísla cargas voluminosas en `RefStore` y calcula señales (`exit_code`, `empty_output`, etc., líneas 367–402).
+8. **Verificación y doble juez (Discrepancia principal):**
+   - **Eos (Decision #3):** Si las señales son limpias, evalúa `evaluateStepVerification` (líneas 412–423). Solo pregunta `ok` y `cumple` (`noul`). **No clasifica fallos**.
+   - **Qwen (Segundo juez):** Si `eosPassed` es falso y `task.mode === "PLAN"`, invoca [qwenEngine.verifyStage](file:///home/hugo/jarvv/src/core/callExecutor.ts#L432-L458) y emite el evento `STAGE_VERIFIED`.
+   - Si `task.mode === "NORMAL"` (FAST), no hay segundo juez y el fallo se devuelve genérico (`failReason`, líneas 470–482).
+
+---
+
+## 3. Arquitectura Objetivo Acordada
+
+```
+                                SOLICITUD DE USUARIO
+                                         │
+                   ┌─────────────────────┴─────────────────────┐
+                   ▼                                           ▼
+             [ Modo FAST ]                               [ Modo PLAN ]
+                   │                                           │
+                   │                             Qwen genera plan en etapas
+                   │                             (objetivos, criterios, sin ruta fija)
+                   │                                           │
+                   │                             Usuario aprueba plan inicial
+                   │                                           │
+                   │                               Activa etapa vigente
+                   │                                           │
+                   └─────────────────────┬─────────────────────┘
+                                         ▼
+                     ┌───────────────────────────────────────┐
+                     │       MOTOR REACTIVO COMÚN (FAST)     │
+                     │                                       │
+                     │ 1. Decision #1: selecciona ruta       │
+                     │ 2. Decision #2: selecciona tool       │
+                     │ 3. Qwen: genera argumentos            │
+                     │ 4. Guard: autorización obligatoria    │
+                     │ 5. MCP: ejecuta herramienta           │
+                     │ 6. Result Processor: procesa y aísla  │
+                     │ 7. Decision #3 (Eos): verificación    │
+                     │    + clasificación (1 inferencia)     │
+                     └───────────────────┬───────────────────┘
+                                         │
+                          ¿Cumplió el objetivo del paso?
+                                         │
+                         ┌───────────────┴───────────────┐
+                         ▼                               ▼
+                      [ SÍ ]                           [ NO ]
+                         │                               │
+        ¿Modo PLAN con etapas pendientes?        Recuperación local acotada
+                 │             │                 (args, tool o ruta alternativa)
+               [ SÍ ]        [ NO ]                      │
+                 │             │                   ¿Se resolvió?
+                 │             ▼                         │
+                 │      Concluir tarea             ┌─────┴─────┐
+                 │       (COMPLETED)               ▼           ▼
+                 │                               [ SÍ ]      [ NO ]
+                 │                                 │           │
+                 └───────────────┐                 │     ¿Modo PLAN o FAST?
+                                 │                 │           │
+                                 ▼                 │     ┌─────┴─────────────┐
+                        Activar siguiente etapa ───┘     ▼                   ▼
+                        en motor reactivo común       [ PLAN ]            [ FAST ]
+                                                         │                   │
+                                                  Qwen replanifica    Escalación FAST
+                                                  etapas pendientes   o concluir
+                                                         │            (PARTIAL/FAILED)
+                                                  Continúa PLAN       
+```
+
+### 3.1. Principios Invariantes de la Arquitectura Objetivo
+1. **Un solo motor reactivo:** No existen dos mecanismos distintos para ejecutar herramientas. PLAN no ejecuta herramientas directamente; activa secuencialmente sus etapas sobre el motor reactivo FAST.
+2. **Selección dinámica de rutas:** El plan aprobado describe qué objetivos y criterios de cumplimiento deben lograrse. Decision #1 selecciona dinámicamente la ruta en tiempo de ejecución.
+3. **Decisión 3 (Eos) unificada:** Eos evalúa en una **única inferencia estructurada** si la etapa se cumplió (`ok`, `cumple`) y, en caso negativo, la tipología estructurada del fallo (`failure_type`). Qwen se retira del flujo de verificación caliente (`verifyStage` se elimina del pipeline de ejecución).
+4. **Recuperación local escalonada:** Los fallos subsanables (argumentos inválidos, herramienta errónea) se reintentan localmente dentro de la etapa mediante un contador acotado (`localRetries`), antes de gatillar una replanificación completa.
+5. **Veto terminal de seguridad:** Una denegación de Guard o el rechazo interactivo del usuario detiene la tarea de forma inmediata y definitiva (`FAILED` o `PARTIAL`). Queda terminantemente prohibido reintentar o replanificar para eludir una restricción de seguridad.
+6. **Replanificación autónoma orientada al remanente:** Cuando la recuperación local se agota en PLAN, Qwen (en modo pensamiento) reorganiza exclusivamente las etapas pendientes. Las etapas verificadas como completadas nunca se vuelven a ejecutar.
+
+---
+
+## 4. Hallazgos Verificados y Discrepancias Confirmadas
+
+| ID | Componente / Asunto | Estado Actual Comprobado en Código | Comportamiento Objetivo Acordado | Discrepancia Confirmada |
+|---|---|---|---|---|
+| **H-01** | Verificación Eos (Decision #3) | [prompts.ts:494–522](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts#L494-L522) y [decision.ts:198–238](file:///home/hugo/jarvv/src/core/decision.ts#L198-L238): solo formula y valida `ok` y `cumple` (`noul`). | Eos evalúa en una única llamada combinada: `ok`, `cumple` y `failure_type` (`choice`). | **Inconsistencia crítica:** Eos carece de clasificación de fallos en el código actual. |
+| **H-02** | Segundo juez en PLAN (`verifyStage`) | [callExecutor.ts:432–458](file:///home/hugo/jarvv/src/core/callExecutor.ts#L432-L458) y [qwen.ts:699–740](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L699-L740): Qwen clasifica como segundo juez si Eos rechaza en PLAN. | Eos es el único verificador en el flujo caliente. `verifyStage` se retira de [callExecutor.ts](file:///home/hugo/jarvv/src/core/callExecutor.ts). | **Inconsistencia crítica:** Duplicidad de inferencia y asimetría entre FAST y PLAN. |
+| **H-03** | Veto absoluto de Guard ante `DENY` | [callExecutor.ts:304–341](file:///home/hugo/jarvv/src/core/callExecutor.ts#L304-L341) genera `signals.denied`. [modeEngines.ts:228–233](file:///home/hugo/jarvv/src/core/modeEngines.ts#L228-L233) y [668–672](file:///home/hugo/jarvv/src/core/modeEngines.ts#L668-L672) concluyen la tarea sin reintentos ni replan. | Ratificado. Un rechazo de Guard jamás se reintenta ni replanifica; clausura inmediatamente la tarea. | **Comportamiento confirmado y ratificado como regla de seguridad.** |
+| **H-04** | Rutas prefijadas en PLAN vs Decision #1 | [qwen.ts:331–334](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L331-L334) exige `suggested_mcp`. [modeEngines.ts:55–65](file:///home/hugo/jarvv/src/core/modeEngines.ts#L55-L65) fija la ruta. `runPlanLoop` no evalúa Decision #1. | El plan organiza etapas por objetivos; Decision #1 evalúa la ruta dinámicamente en tiempo de ejecución. | **Discrepancia arquitectónica mayor:** El plan actual acopla rutas fijas y elude Decision #1 en PLAN. |
+| **H-05** | Reintentos locales en PLAN | [modeEngines.ts:650–726](file:///home/hugo/jarvv/src/core/modeEngines.ts#L650-L726): ante cualquier fallo de [runStep](file:///home/hugo/jarvv/src/core/callExecutor.ts#L149), escala inmediatamente a `handleReplan`. | Reintentos locales acotados por etapa (`localRetries`) antes de gatillar la replanificación global. | **Omisión funcional:** Falta la mecánica de recuperación local en la etapa de PLAN. |
+| **H-06** | Contadores y límites | `MAX_STEPS = 15`, `MAX_ESCALATIONS = 2`, `MAX_REPLAN = 2` en [types.ts:351–353](file:///home/hugo/jarvv/src/core/types.ts#L351-L353). `step.questionsAsked` acotado a 2 en [modeEngines.ts:692](file:///home/hugo/jarvv/src/core/modeEngines.ts#L692). | Se preservan todos los límites existentes y se introduce el límite acotado de reintentos locales de etapa. | **Confirmado:** No hay colisiones de contadores. |
+| **H-07** | Consolidación de hechos (`facts`) | [core.ts:312](file:///home/hugo/jarvv/src/core/core.ts#L312) (`user_answer`) y [callExecutor.ts:488](file:///home/hugo/jarvv/src/core/callExecutor.ts#L488) (`factsDelta` si `isStepSuccess`, `noVerdict` o `mutates`). | Los hechos confirmados y mutaciones físicas se conservan. | **Confirmado:** Implementación coherente en dos puntos. |
+
+---
+
+## 5. Inventario Completo de Archivos y Símbolos Afectados
+
+### 5.1. Backend (`src/core/` y `src/server/`)
+1. **[src/core/types.ts](file:///home/hugo/jarvv/src/core/types.ts):**
+   - `Step`: añadir `localRetries?: number`, `criterioCumplimiento?: string`, `restricciones?: string[]`.
+   - `PlanStep`: modificar propiedades según resolución de `suggested_mcp` (hacerlo opcional o removerlo).
+   - `StepExecutionResult`: actualizar `failureType?: StageFailureType`, tipificar nuevo veredicto unificado; retirar dependencia hacia `StageVerificationResult`.
+   - `StepExecutionSignals`: incorporar señal determinista de error de infraestructura si aplica.
+   - Constantes de límites: declarar `MAX_LOCAL_RETRIES`.
+   - `TaskEventType`: evaluar obsolescencia o mantenimiento del evento `STAGE_VERIFIED`.
+2. **[src/core/reasoner/prompts.ts](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts):**
+   - `DECISION_PROMPTS.buildStepVerification`: incorporar la pregunta de tipo `choice` (`failure_type`) con su `criteria`.
+   - `PROMPTS.PLAN.SYSTEM` y `buildUserPrompt`: ajustar directivas sobre etapas (eliminar obligatoriedad de `suggested_mcp`).
+   - `PROMPTS.REPLAN.SYSTEM`: sincronizar estructura con la del plan inicial.
+   - `PROMPTS.STAGE_VERIFICATION`: desincorporar del camino caliente de ejecución.
+3. **[src/core/decision.ts](file:///home/hugo/jarvv/src/core/decision.ts):**
+   - `Decision20Engine.evaluateStepVerification`: actualizar para recibir y parsear `failure_type` (`choice`) y su distribución de probabilidades.
+4. **[src/core/callExecutor.ts](file:///home/hugo/jarvv/src/core/callExecutor.ts):**
+   - `runStep`:
+     - Integrar la selección dinámica de Decision #1 si la etapa no tiene ruta fijada.
+     - Consumir el `failure_type` de Eos.
+     - Asignar deterministamente `transient_technical` ante excepciones de transporte o salida de MCP sin llamar a Eos.
+     - Retirar la llamada a `deps.qwenEngine.verifyStage`.
+     - Preservar la emisión de `RESULT_PROCESSED` enriquecida con la tipificación del fallo.
+5. **[src/core/modeEngines.ts](file:///home/hugo/jarvv/src/core/modeEngines.ts):**
+   - `planStepsToSteps`: adaptar a la nueva estructura de `PlanStep`.
+   - `runFastLoop`: sincronizar con el motor común unificado.
+   - `runPlanLoop`:
+     - Delegar la ejecución de cada etapa al motor reactivo común.
+     - Implementar el ciclo de reintento local acotado por `MAX_LOCAL_RETRIES` ante fallos recuperables.
+     - Invocar `handleReplan` únicamente cuando los reintentos locales se agoten o el fallo sea irrecuperable.
+   - `handleEscalation`: conservar el bloqueo absoluto ante `signals.denied`.
+   - `handleReplan`: asegurar que el prompt de replanificación reciba el estado consolidado de la etapa fallida y sus efectos físicos intactos.
+6. **[src/core/reasoner/qwen.ts](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts):**
+   - `parsePlanSteps`: adaptar validación según la decisión sobre `suggested_mcp`.
+   - `verifyStage`: marcar en desuso o reorientar si se utiliza para clarificación de preguntas al usuario.
+7. **[src/core/taskTrace.ts](file:///home/hugo/jarvv/src/core/taskTrace.ts):**
+   - Asegurar que la serialización de `plan.steps` soporte etapas con ruta dinámica asignada.
+8. **[src/core/debugAccumulator.ts](file:///home/hugo/jarvv/src/core/debugAccumulator.ts):**
+   - Adaptar acumuladores de eventos a la verificación unificada de Eos.
+
+### 5.2. Capa de Presentación e Integración (`ui/`)
+1. **[ui/components/DecisionStream/DecisionStream.tsx](file:///home/hugo/jarvv/ui/components/DecisionStream/DecisionStream.tsx):**
+   - Líneas 72–81: soportar la visualización del resultado de verificación y tipología de fallo provisto en `RESULT_PROCESSED`.
+2. **[ui/utils/taskStatus.ts](file:///home/hugo/jarvv/ui/utils/taskStatus.ts):**
+   - Sincronizar el cálculo de estado de la etapa con la verificación provista por Eos.
+3. **[ui/types/ui.ts](file:///home/hugo/jarvv/ui/types/ui.ts) y [ui/services/jarvisApi.ts](file:///home/hugo/jarvv/ui/services/jarvisApi.ts):**
+   - Mantener compatibilidad estricta con el modo de ejecución (`"NORMAL" | "PLAN"`).
+
+---
+
+## 6. Plan de Migración Ordenado por Fases y Dependencias
+
+La implementación debe realizarse en un orden secuencial estricto, donde cada fase deja el repositorio en estado compilable (`tsc --noEmit`) y funcionalmente coherente.
+
+```
+┌────────────────────────────────────────────────────────┐
+│ Fase 1: Contratos de Datos, Esquemas y Tipos           │
+│         (types.ts, config, esquemas Eos/Qwen)          │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ Fase 2: Verificación Unificada en Decision #3 (Eos)    │
+│         (prompts.ts, decision.ts, desacoplar verify)   │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ Fase 3: Motor Reactivo Común y Selección Dinámica      │
+│         (callExecutor.ts, Decision #1 en etapa)        │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ Fase 4: Orquestación PLAN: Reintentos y Replan         │
+│         (runPlanLoop, localRetries, handleReplan)      │
+└──────────────────────────┬─────────────────────────────┘
+                           ▼
+┌────────────────────────────────────────────────────────┐
+│ Fase 5: Trazabilidad, Observabilidad y UI              │
+│         (taskTrace.ts, debugAccumulator, UI stream)    │
+└────────────────────────────────────────────────────────┘
+```
+
+### Fase 1: Contratos de Datos, Esquemas y Tipos
+- **Dependencias:** Ninguna (base tipológica).
+- **Acciones:**
+  1. En [types.ts](file:///home/hugo/jarvv/src/core/types.ts), definir el tipo `StageFailureType`:
+     ```typescript
+     export type StageFailureType =
+       | "transient_technical"
+       | "invalid_arguments"
+       | "inadequate_strategy"
+       | "uncertain_side_effect"
+       | "insufficient_info"
+       | "unrecoverable";
+     ```
+  2. Agregar `localRetries: number` en la interfaz `Step`.
+  3. Declarar la constante `MAX_LOCAL_RETRIES = 2` (o el valor acordado en la decisión D-2).
+  4. Ajustar `PlanStep` según la resolución adoptada para `suggested_mcp` (D-1).
+  5. Extender `StepExecutionResult` con `failureType?: StageFailureType`.
+- **Criterio de aceptación:** `tsc --noEmit` compila sin errores.
+
+### Fase 2: Verificación y Clasificación Unificada en Decision #3 (Eos)
+- **Dependencias:** Fase 1 completada.
+- **Acciones:**
+  1. En [prompts.ts:494](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts#L494), actualizar `DECISION_PROMPTS.buildStepVerification` para incorporar la pregunta `failure_type` de tipo `choice`:
+     ```typescript
+     questions: {
+       ok: { type: "noul", instructions: "Does the result contain usable data (not empty and not an error message)?" },
+       cumple: { type: "noul", instructions: "Does the result accomplish the step instruction?" },
+       failure_type: {
+         type: "choice",
+         instructions: "If the instruction was not accomplished, classify the primary reason:",
+         criteria: {
+           invalid_arguments: "Missing parameters, wrong syntax or bad arguments for the tool",
+           inadequate_strategy: "Wrong tool chosen or route inadequate; need a different approach",
+           uncertain_side_effect: "The action may have mutated state but result is ambiguous",
+           insufficient_info: "Crucial information from the user is missing to proceed",
+           unrecoverable: "The goal cannot be accomplished due to external or permanent barriers"
+         }
+       }
+     }
+     ```
+  2. En [decision.ts:198](file:///home/hugo/jarvv/src/core/decision.ts#L198), actualizar `evaluateStepVerification` para parsear la respuesta `failure_type` validada por `parseResponse`.
+  3. En [callExecutor.ts:406](file:///home/hugo/jarvv/src/core/callExecutor.ts#L406):
+     - Asignar `transient_technical` de forma determinista ante fallos de infraestructura sin invocar inferencias innecesarias.
+     - Retirar la invocación a `deps.qwenEngine.verifyStage` del flujo caliente.
+     - Normalizar `StepExecutionResult` con el veredicto y `failureType`.
+- **Criterio de aceptación:** Las verificaciones de paso en FAST y PLAN devuelven tipificación estructurada en una única llamada HTTP a Eos. `tsc --noEmit` pasa limpio.
+
+### Fase 3: Motor Reactivo Común y Selección Dinámica de Ruta
+- **Dependencias:** Fases 1 y 2 completadas.
+- **Acciones:**
+  1. En [prompts.ts:260](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts#L260) y [qwen.ts:316](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L316), actualizar la generación de planes para que las etapas especifiquen qué lograr (objetivo y criterios) sin imponer obligatoriamente rutas cerradas.
+  2. En [callExecutor.ts:154](file:///home/hugo/jarvv/src/core/callExecutor.ts#L154), permitir que si la etapa no tiene una ruta prefijada (o si entra al motor común), Decision #1 evalúe dinámicamente la ruta antes de Decision #2.
+  3. En [modeEngines.ts](file:///home/hugo/jarvv/src/core/modeEngines.ts), unificar el flujo para que [runStep](file:///home/hugo/jarvv/src/core/callExecutor.ts#L149) represente la ejecución canónica e invariable de cualquier etapa/paso.
+- **Criterio de aceptación:** Una etapa de PLAN selecciona su ruta en tiempo de ejecución a través de Decision #1. `tsc --noEmit` y `npm run build` pasan sin errores.
+
+### Fase 4: Orquestación en Modo PLAN: Reintentos Locales y Replanificación
+- **Dependencias:** Fases 1 a 3 completadas.
+- **Acciones:**
+  1. En [modeEngines.ts:621](file:///home/hugo/jarvv/src/core/modeEngines.ts#L621) (`runPlanLoop`):
+     - Implementar la evaluación de fallos devueltos por el motor común:
+       - Si `signals.denied`: concluir la tarea inmediatamente (`FAILED`/`PARTIAL`). Prohibido reintentar o replanificar.
+       - Si `isStepSuccess`: marcar `COMPLETED`, resetear contadores locales y avanzar a la siguiente etapa.
+       - Si fallo recuperable (`invalid_arguments`, `inadequate_strategy`, `transient_technical`):
+         - Si `step.localRetries < MAX_LOCAL_RETRIES`: incrementar `step.localRetries`, alimentar el contexto de reintento (excluir tool en `inadequate_strategy`, inyectar error en argumentos si `invalid_arguments`) y reejecutar la etapa localmente.
+         - Si `step.localRetries >= MAX_LOCAL_RETRIES`: escalar a `handleReplan`.
+       - Si fallo irrecuperable (`unrecoverable` o `uncertain_side_effect`): saltar los reintentos locales y escalar directamente a `handleReplan`.
+       - Si `insufficient_info`: suspender en `WAITING_INPUT/user_answer` conforme al límite `MAX_USER_QUESTIONS_PER_STEP`.
+  2. En [modeEngines.ts:289](file:///home/hugo/jarvv/src/core/modeEngines.ts#L289) (`handleReplan`):
+     - Preservar las etapas completadas como hechos consolidados inmutables.
+     - Transmitir la lista completa de `effects` acumulados para evitar duplicar acciones destructivas.
+- **Criterio de aceptación:** Errores transitorios o de argumentos se corrigen localmente en la etapa sin replanificar. El agotamiento de reintentos activa la replanificación acotada por `MAX_REPLAN = 2`.
+
+### Fase 5: Trazabilidad, Observabilidad y Capa UI
+- **Dependencias:** Fases 1 a 4 completadas.
+- **Acciones:**
+  1. En [taskTrace.ts:52](file:///home/hugo/jarvv/src/core/taskTrace.ts#L52), actualizar la serialización del plan para reflejar fielmente la ruta ejecutada por etapa.
+  2. En [debugAccumulator.ts:188](file:///home/hugo/jarvv/src/core/debugAccumulator.ts#L188), asegurar que la telemetría capture la verificación unificada de Eos y la tipología de fallo.
+  3. En [ui/components/DecisionStream/DecisionStream.tsx](file:///home/hugo/jarvv/ui/components/DecisionStream/DecisionStream.tsx), verificar que los eventos `RESULT_PROCESSED` muestren adecuadamente la tipificación de fallo y el veredicto en tiempo real.
+- **Criterio de aceptación:** Las trazas y la interfaz web reflejan las etapas, los reintentos locales y las replanificaciones sin errores de renderizado ni discrepancias de tipos.
+
+---
+
+## 7. Contratos y Flujos que Deben Modificarse
+
+### 7.1. Contrato de Inferencia de Decision #3 (Eos)
+- **Endpoint:** `POST /v1/decide`
+- **Payload anterior:**
+  ```json
+  {
+    "state": "Step instruction: ...\nResult: ...",
+    "questions": {
+      "ok": { "type": "noul", "instructions": "Does the result contain usable data...?" },
+      "cumple": { "type": "noul", "instructions": "Does the result accomplish the step instruction?" }
+    }
   }
-  task.replans = (task.replans || 0) + 1;
   ```
-- **Monotonía e invarianza:** `task.replans` **únicamente se incrementa** en la línea 304 de `modeEngines.ts`. No existe ningún método, endpoint (`jarvisRouter.ts`) o condición en todo el código base que lo decremente, lo reinicie o lo elimine.
-- **Comportamiento ante sucesivos fallos:**
-  - **1ª Replanificación:** `task.replans` pasa de `0` a `1`. Se genera el nuevo plan para etapas pendientes y la ejecución continúa.
-  - **2ª Replanificación:** `task.replans` pasa de `1` a `2`. Se genera la segunda reformulación y la ejecución continúa.
-  - **3er Intento de Replanificación:** La condición `(task.replans >= MAX_REPLAN)` evalúa `2 >= 2` (**TRUE**). Se emite advertencia, se concluye la tarea con `concludeTask` en estado terminal (`PARTIAL` o `FAILED`) y se retorna `false`, cerrando de forma definitiva el bucle de `runPlanLoop`.
-- **Diferenciación con `modifyPlan` (`src/core/core.ts`, líneas 239–290):**  
-  `modifyPlan` permite ajustar el borrador inicial a partir del feedback del usuario sin alterar `task.replans`. Esta función solo opera en el estado previo a la ejecución (`isAwaitingPlanConfirmation`: `state === "WAITING_INPUT"` y `waitingReason === "plan_confirmation"`). Una vez confirmado el plan (`confirmPlan`), pasa a `RUNNING` y la única vía de reformulación es `handleReplan`, sujeta a `MAX_REPLAN = 2`.
+- **Payload propuesto:**
+  ```json
+  {
+    "state": "Step instruction: ...\nExpected outcome: ...\nTool: ...\nResult: ...",
+    "questions": {
+      "ok": { "type": "noul", "instructions": "Does the result contain usable data (not empty and not an error message)?" },
+      "cumple": { "type": "noul", "instructions": "Does the result accomplish the step instruction?" },
+      "failure_type": {
+        "type": "choice",
+        "instructions": "If not accomplished, classify the failure:",
+        "criteria": {
+          "invalid_arguments": "Wrong parameters or format",
+          "inadequate_strategy": "Inadequate tool or route",
+          "uncertain_side_effect": "State mutated but outcome unclear",
+          "insufficient_info": "User clarification needed",
+          "unrecoverable": "Permanent roadblock"
+        }
+      }
+    }
+  }
+  ```
+
+### 7.2. Contrato de Etapas del Plan (`PlanStep`)
+- **Contrato actual:**
+  ```typescript
+  export interface PlanStep {
+    id: string;
+    instruction: string;
+    route: ExecutableRoute; // Fijado obligatoriamente por Qwen
+    expectedOutcome: string;
+  }
+  ```
+- **Contrato propuesto:**
+  ```typescript
+  export interface PlanStep {
+    id: string;
+    instruction: string;
+    expectedOutcome: string;
+    suggestedRoute?: ExecutableRoute; // Opcional / sugerencia no vinculante
+    criterioCumplimiento?: string;
+    restricciones?: string[];
+  }
+  ```
 
 ---
 
-### 2.3. Diferenciación de Contadores del Sistema
+## 8. Manejo de Errores, Recuperación, Seguridad, Contadores y Estados Terminales
 
-Para evitar confusiones conceptuales durante la implementación, se delimitan los distintos contadores y límites del núcleo:
+### 8.1. Matriz Taxonómica de Fallos y Acciones de Recuperación
 
-| Concepto | Variable / Símbolo | Límite Máximo | Ámbito de Aplicación | Estado Actual en el Código |
-|---|---|---|---|---|
-| **Replanificación Global** | `task.replans` | `MAX_REPLAN = 2` (`types.ts:353`) | Reformulación de etapas pendientes con Qwen en modo PLAN. | **Implementado y verificado en `modeEngines.ts:298`.** |
-| **Escalación de Ruta FAST** | `context.escalations` | `MAX_ESCALATIONS = 2` (`types.ts:352`) | Reselección de ruta o herramienta con Decision #1 tras un fallo en FAST. | **Implementado y verificado en `modeEngines.ts:237`.** Independiente de `task.replans`. |
-| **Preguntas al Usuario** | `step.questionsAsked` | `MAX_USER_QUESTIONS_PER_STEP = 2` (`types.ts:363`) | Aclaraciones interactivas por falta de datos en una etapa (`insufficient_info`). | **Implementado y verificado en `modeEngines.ts:692`.** Si se agota, escala a `handleReplan`. |
-| **Tope Global de Pasos (FAST)** | `task.stepSeq` | `MAX_STEPS = 15` (`types.ts:351`) | Cota de iteraciones reactivas en FAST. | **Implementado y verificado en `modeEngines.ts:412`.** |
-| **Reintentos Locales de Etapa** | *No implementado aún* | `MAX_LOCAL_RETRIES` *(propuesto)* | Reintentos acotados dentro del motor común reactivo antes de escalar a Replan. | **Pendiente de diseño.** El código actual en PLAN salta directo a replanificar ante cualquier fallo. |
+| Tipología de Fallo | Origen del Dictamen | Acción en Modo FAST | Acción en Modo PLAN | Reintenta Guard | Efecto en Contadores |
+|---|---|---|---|---|---|
+| **Veto de Seguridad (`Guard DENY` / Rechazo interactivo)** | Guard / Usuario | Bloqueo terminal inmediato (`FAILED`/`PARTIAL`). | Bloqueo terminal inmediato (`FAILED`/`PARTIAL`). Prohibido replanificar. | **NO**. Bloqueo definitivo. | Concluye la tarea. |
+| **Fallo Técnico Transitorio (`transient_technical`)** | Runtime (Timeout MCP, error proceso) | Escalación FAST (Decision #1). | Reintento local idéntico con backoff si no muta el entorno. | Sí, reevalúa Guard. | Incrementa `step.localRetries`. |
+| **Argumentos Inválidos (`invalid_arguments`)** | Decision #3 (Eos) | Reintento de generación de argumentos con Qwen inyectando error. | Reintento local: Qwen regenera argumentos con contexto de error. | Sí, reevalúa Guard con nuevos args. | Incrementa `step.localRetries`. |
+| **Herramienta / Ruta Inadecuada (`inadequate_strategy`)** | Decision #3 (Eos) | Escalación FAST: excluye tool y Decision #1 conmuta ruta. | Reintento local: excluye tool en la etapa; Decision #1/2 selecciona alternativa. | Sí, reevalúa Guard con nueva tool. | Incrementa `step.localRetries`. |
+| **Resultado Incierto con Mutación (`uncertain_side_effect`)** | Decision #3 (Eos) | No reintentar la acción a ciegas; forzar lectura de observación. | Salta reintentos locales; escala a `handleReplan` informando efecto en `effects`. | Sí, ante cualquier acción nueva. | Preserva `effects`. Si reintento agotado, `replans++`. |
+| **Falta de Información del Usuario (`insufficient_info`)** | Decision #3 (Eos) | Solicitar aclaración o concluir parcial si no es interactivo. | Suspende en `WAITING_INPUT/user_answer`. | Sí, al reanudar. | Incrementa `step.questionsAsked` (máx 2). |
+| **Fallo Irrecuperable (`unrecoverable`)** | Decision #3 (Eos) | Escalación a Decision #1 o conclusión si no hay alternativas. | Salta reintentos locales; escala directamente a `handleReplan` con Qwen. | Sí, en nuevo plan. | Incrementa `task.replans` (máx 2). |
 
----
+### 8.2. Contadores del Sistema y Garantías Anti-Bucle
 
-### 2.4. Alcance y Evidencia de la Auditoría
-
-#### Revisión Crítica de la Cobertura del Repositorio
-La inspección detallada del código base establece la siguiente categorización de los componentes:
-
-1. **Módulos con cobertura exhaustiva demostrada:**
-   - Orquestación central y ciclo de vida de tareas (`src/core/core.ts`).
-   - Motores de ejecución y bucles FAST / PLAN (`src/core/modeEngines.ts`).
-   - Ejecutor atómico de herramientas MCP (`src/core/callExecutor.ts`).
-   - Cliente HTTP y validación de Decision 2.0 (`src/core/decision.ts`).
-   - Cliente OpenAI-compatible y prompts de Qwen 3.5 (`src/core/reasoner/qwen.ts`, `prompts.ts`).
-   - Transporte HTTP, reintentos y backoff de LLMs (`src/core/llmTransport.ts`).
-   - Catálogo formal de herramientas y políticas (`src/core/tools/manifest.ts`).
-   - Compuerta de autorización y seguridad (`src/core/policy/guard.ts`).
-   - Procesamiento de resultados y resolución de referencias (`src/core/processor/resultProcessor.ts`, `refResolver.ts`).
-   - Gestión de contexto episódico y memoria (`src/core/context.ts`).
-   - Contratos estructurales y tipos del sistema (`src/core/types.ts`).
-   - Gestor de configuración persistente (`src/core/config.ts`).
-   - Enrutadores HTTP y canal SSE (`src/server/jarvisRouter.ts`, `src/server/mcpRouter.ts`, `server.ts`).
-   - Registro de trazas y serialización para transporte (`src/core/taskTrace.ts`, `src/core/taskWire.ts`).
-   - Hook reactivo y componente central de visualización (`ui/hooks/useJarvis.ts`, `ui/components/ProcessFlow/ProcessFlow.tsx`).
-2. **Módulos no cubiertos por la auditoría (Límites Metodológicos):**
-   - Transición de procesos stdio en `src/core/mcp/transport.ts`.
-   - Adaptador específico de servidor `src/core/mcp/freeSearchMcp.ts` y `src/core/mcp/desktopCommanderMcp.ts`.
-   - Tipos de bajo nivel de servidores MCP en `src/core/mcp/types.ts` y discovery detallado en `src/core/mcp/discovery.ts`.
-   - Utilidades de detección de entorno de usuario en `src/core/environment.ts`.
-   - Acumulación de métricas de depuración en `src/core/debugAccumulator.ts`.
-   - Componentes UI periféricos (`ui/components/DecisionStream/*`, `ui/components/GuardBanner/*`, `ui/components/SettingsModal/*`, `ui/components/TopBar/*`, `ui/components/PromptInput/*`).
-   - Módulo de laboratorio y benchmarking en `lab/*` (`evaluate.ts`, `run.ts`, `extract-cases.ts`, etc.).
-3. **Alcance real de la comprobación de compilación TypeScript (`compile_applet`):**
-   - **Lo que valida de manera concluyente:** Integridad tipológica y sintáctica estricta bajo `tsconfig.json` y coherencia de importaciones/exportaciones entre módulos.
-   - **Lo que NO puede validar:** Disponibilidad de red de los endpoints locales (`127.0.0.1:8765`, `127.0.0.1:11434`), respuesta probabilística en tiempo real de los modelos ni ejecución de los procesos binarios de MCP sobre el sistema operativo.
+| Contador / Límite | Valor Máximo | Nivel | Comportamiento al Alcanzar el Límite |
+|---|---|---|---|
+| `MAX_LOCAL_RETRIES` | 2 (propuesta D-2) | Por etapa | Agotados los 2 reintentos locales, PLAN escala a `handleReplan`. En FAST, escala a Decision #1. |
+| `MAX_REPLAN` | 2 | Por tarea | Si se agotan 2 replanificaciones globales con Qwen, la tarea concluye como `PARTIAL` o `FAILED`. |
+| `MAX_ESCALATIONS` | 2 | Por tarea (FAST) | Si se agotan 2 escalaciones en FAST, la tarea concluye como `PARTIAL` o `FAILED`. |
+| `MAX_USER_QUESTIONS_PER_STEP` | 2 | Por etapa | Si se formulan 2 preguntas sin resolver la duda, se trata como desviación recuperable y escala a replan. |
+| `MAX_STEPS` | 15 | Global | Límite infranqueable de iteraciones para impedir bucles infinitos. |
+| `consecutiveLoopBlocks` | 2 | Contexto | 2 bloqueos idénticos consecutivos por anti-loop cierran la tarea como `PARTIAL`. |
 
 ---
 
-## 3. Matriz de Estado de Hallazgos e Inconsistencias
+## 9. Criterios de Aceptación por Fase
 
-| Identificador | Elemento Investigado | Estado Actual | Ubicación en Código | Impacto en la Migración |
-|---|---|---|---|---|
-| **H-01** | Eos no clasifica fallos | **Inconsistencia confirmada** | `src/core/reasoner/prompts.ts:494`<br>`src/core/decision.ts:198` | Incorporar la pregunta estructurada `failure_type` (`choice`) al payload de `buildStepVerification`. |
-| **H-02** | Qwen actúa como clasificador redundante en PLAN | **Inconsistencia confirmada** | `src/core/callExecutor.ts:432`<br>`src/core/reasoner/qwen.ts:699` | Retirar `verifyStage` del flujo caliente; Eos asume la clasificación unificada del fallo. |
-| **H-03** | Bloqueo absoluto de replanificación ante rechazo de Guard | **Inconsistencia confirmada** | `src/core/modeEngines.ts:668–672` | Modificar la condición terminal para permitir la llamada a `handleReplan` respetando `MAX_REPLAN`. |
-| **H-04** | Invarianza del límite `MAX_REPLAN = 2` | **Confirmado** | `src/core/types.ts:353`<br>`src/core/modeEngines.ts:298` | El contador `task.replans` es monótono creciente y no puede eludirse; garantiza que tras 2 replanificaciones la tarea concluya. |
-| **H-05** | Imposibilidad de eludir Guard mediante replanificación | **Confirmado** | `src/core/callExecutor.ts:301`<br>`src/core/policy/guard.ts:29` | Toda acción replanificada vuelve a evaluarse por Guard antes de despacharse; no existe elusión de seguridad. |
-| **H-06** | Ausencia de reintentos locales de etapa en PLAN | **Confirmado** | `src/core/modeEngines.ts:650–726` | En el código actual, PLAN no tiene reintentos locales; cualquier fallo escala de inmediato a `handleReplan`. |
-| **H-07** | Distinción anti-loop vs Guard en acciones denegadas | **Confirmado (Aclaración técnica)** | `src/core/callExecutor.ts:282, 352` | Las acciones bloqueadas no entran a `executedSignatures`; la seguridad se apoya en `Guard` stateless + `MAX_REPLAN`. |
-| **H-08** | Errata documental en cita de adición de `facts` | **Corregido** | `src/core/core.ts:312`<br>`src/core/callExecutor.ts:488` | `context.ts` tiene solo 249 líneas. La persistencia ocurre en `core.ts:312` (respuestas) y `callExecutor.ts:488` (delta). |
-| **H-09** | Validación estática vs. runtime de `compile_applet` | **Confirmado (Aclaración metodológica)** | `package.json:13`<br>`tsconfig.json` | La compilación valida contratos de tipos y sintaxis, no el comportamiento dinámico de los procesos locales. |
-
----
-
-## 4. Correcciones Metodológicas Incorporadas
-
-1. **Estructura de inferencia de Decision #3:**  
-   Queda ratificado por especificación de diseño que la consulta a Eos es **única y combinada** (`ok` + `cumple` + `failure_type`). No constituye una decisión pendiente.
-2. **Tratamiento de rechazos de Guard en modo PLAN:**  
-   El diseño autoriza la **replanificación controlada** ante denegaciones de Guard o rechazos de usuario. Dado que Guard carece de estado y `MAX_REPLAN = 2` detiene de forma determinista cualquier repetición, la replanificación no vulnera las políticas de seguridad.
-3. **Mecanismo de corte de repeticiones:**  
-   Se subsana la imprecisión sobre el anti-loop: las llamadas bloqueadas antes del despacho no generan firma de ejecución; la detención de bucles descansa exclusivamente en `Guard.evaluate` y `MAX_REPLAN`.
-4. **Referencia de adición de hechos (`facts`):**  
-   Se corrige la errata que citaba la línea inexistente `context.ts:312`, precisando que la inserción se realiza en `src/core/core.ts` (línea 312) y `src/core/callExecutor.ts` (línea 488).
-5. **Inventario exhaustivo del backend:**  
-   Se completa el catálogo de módulos analizados incorporando los 7 archivos centrales del backend omitidos en el informe preliminar.
+- **Fase 1 (Contratos):**
+  - Todas las interfaces en [types.ts](file:///home/hugo/jarvv/src/core/types.ts) compilan limpiamente sin advertencias.
+  - La suite de compilación estática (`tsc --noEmit` y `npm run build`) finaliza con código de salida 0.
+- **Fase 2 (Eos Unificado):**
+  - Decision #3 envía una única solicitud HTTP para `ok`, `cumple` y `failure_type`.
+  - [callExecutor.ts](file:///home/hugo/jarvv/src/core/callExecutor.ts) ya no realiza llamadas a `qwenEngine.verifyStage`.
+  - La latencia por paso ejecutado se reduce al eliminar el clasificador redundante.
+- **Fase 3 (Motor Común y Ruta Dinámica):**
+  - Las etapas de PLAN ejecutan Decision #1 al activarse, seleccionando la ruta correspondiente a la etapa.
+  - El código de ejecución de pasos es idéntico entre FAST y PLAN.
+- **Fase 4 (Recuperación y Replan):**
+  - Fallos simulados de sintaxis de argumentos o herramienta errónea se resuelven en el reintento local sin modificar el plan.
+  - Ante fallos irrecuperables o reintentos locales agotados, se ejecuta la replanificación automática con Qwen.
+  - Un rechazo de Guard concluye la tarea inmediatamente sin ejecutar replanificaciones.
+- **Fase 5 (Observabilidad y UI):**
+  - Las trazas en disco registran con precisión los intentos locales y las replanificaciones.
+  - La interfaz de usuario refleja los estados de las etapas y las transiciones a `WAITING_INPUT`.
 
 ---
 
-## 5. Decisiones de Arquitectura Pendientes de Definición del Usuario
+## 10. Riesgos, Aspectos no Verificados y Decisiones Pendientes
 
-Para abordar la fase de implementación sin ambigüedades, se delimitan las **3 decisiones técnicas pendientes** que no están especificadas en el plan original ni pueden derivarse automáticamente del código existente:
+### 10.1. Riesgos Identificados y Mitigaciones
+1. **Riesgo de formulación de preguntas al usuario sin Qwen en el camino crítico:**
+   - *Riesgo:* Eos (0.8B) es un clasificador categórico; no genera lenguaje natural. Si clasifica `insufficient_info`, no puede redactar la pregunta para el usuario.
+   - *Mitigación:* Definir una invocación puntual y ligera a Qwen únicamente para redactar la pregunta cuando Eos dictamine `insufficient_info`, o estructurar la pregunta a partir de plantillas deterministas con la instrucción y observación.
+2. **Riesgo de saturación de contexto en reintentos locales:**
+   - *Riesgo:* Acumular intentos fallidos en el prompt de argumentos puede acercar la ventana al límite de tokens.
+   - *Mitigación:* Limitar los intentos inyectados a los últimos 2 (`MAX_LOCAL_RETRIES = 2`) y aplicar truncamiento determinista (`clip`).
+3. **Riesgo de elusión inadvertida de Guard:**
+   - *Riesgo:* Que un reintento local repita una llamada rechazada.
+   - *Mitigación:* Ratificación del veto absoluto: si `Guard.evaluate === "DENY"` o el usuario rechaza, la tarea muere inmediatamente; no hay retorno a los bucles de reintento.
 
-### Decisión 1: Esquema formal de etapas en Qwen (`suggested_mcp`)
-- **Situación en el código:** `STEP_ITEM_SCHEMA` (`src/core/reasoner/qwen.ts`, líneas 69 y 72) exige obligatoriamente `suggested_mcp: { enum: [...EXECUTABLE_ROUTES] }`, y `runPlanLoop` le asigna directamente la ruta a la etapa sin consultar a Decision #1.
-- **Situación en el plan:** El plan objetivo (§3 y §8) establece que el plan no fija grupos de herramientas obligatorios y que Decision #1 elige la ruta dinámicamente en tiempo de ejecución.
-- **Definición requerida:**  
-  ¿Se retira por completo la propiedad `suggested_mcp` del esquema JSON que genera Qwen en `PLAN` y `REPLAN`, o se preserva como una sugerencia opcional no vinculante para enriquecer el contexto del prompt de Decision #1?
+### 10.2. Decisiones Pendientes que Requieren Intervención del Usuario
 
-### Decisión 2: Número máximo de reintentos locales por etapa (`MAX_LOCAL_RETRIES`)
-- **Situación en el código:** FAST utiliza `MAX_ESCALATIONS = 2` (`modeEngines.ts:237`), mientras que PLAN salta inmediatamente a `handleReplan` ante cualquier fallo (0 reintentos locales).
-- **Situación en el plan:** El plan objetivo (§5 y §9) indica que la recuperación local debe resolver fallos acotados antes de replanificar, dejando el límite exacto sujeto a definición técnica.
-- **Definición requerida:**  
-  ¿Se ratifica la incorporación de un contador desacoplado de **2 reintentos locales** dentro del motor común reactivo (para fallos de argumentos o técnicos transitorios) antes de escalar a la replanificación global con Qwen?
+#### Decisión Pendiente 1: Tratamiento de `suggested_mcp` en el plan generado por Qwen
+- **Contexto:** Actualmente Qwen asigna una ruta fija (`suggested_mcp`) por etapa. La arquitectura acordada establece que el plan define qué lograr y Decision #1 selecciona la ruta dinámicamente.
+- **Alternativas:**
+  - **Alternativa 1A (Eliminación completa):** Se remueve `suggested_mcp` del esquema JSON y de los prompts de Qwen. Cada etapa solo contiene `goal` y `expected_outcome`. Decision #1 elige la ruta al 100% en tiempo de ejecución.
+    - *Ventaja:* Desacoplamiento total; el plan no asume herramientas y Decision #1 opera libremente.
+    - *Desventaja:* Requiere actualizar los prompts de `PLAN` y `REPLAN` y los esquemas de validación de Qwen.
+  - **Alternativa 1B (Conservación como sugerencia opcional no vinculante):** Qwen puede incluir `suggested_route` como orientación opcional. Decision #1 recibe esa sugerencia en su contexto, pero conserva plena autonomía para elegir otra ruta.
+    - *Ventaja:* Mayor compatibilidad hacia atrás con trazas históricas y ejemplos del laboratorio.
+    - *Desventaja:* Qwen podría sesgar innecesariamente a Decision #1.
 
-### Decisión 3: Política de hechos (`facts`) en la replanificación
-- **Situación en el código:** Los `facts` son de adición acumulativa estricta (*append-only*, `core.ts:312`, `callExecutor.ts:488`) y persisten intactos en memoria a lo largo de toda la tarea, incluso a través de sucesivos replanes (`modeEngines.ts:326`).
-- **Situación en el plan:** El plan objetivo (§9) marca como pendiente definir las reglas para conservar o invalidar resultados tras una replanificación.
-- **Definición requerida:**  
-  ¿Se mantiene la política acumulativa *append-only* permanente, o se introduce un mecanismo en el contrato de replanificación para que Qwen o el runtime puedan purgar o invalidar hechos refutados por un fallo previo?
+#### Decisión Pendiente 2: Número máximo de reintentos locales por etapa (`MAX_LOCAL_RETRIES`)
+- **Contexto:** Define cuántas veces puede el motor común intentar resolver una etapa fallida antes de declarar la etapa irrecuperable y replanificar todo el trabajo restante.
+- **Alternativas:**
+  - **Alternativa 2A: `MAX_LOCAL_RETRIES = 2` (Recomendado):** Permite un reintento para corregir argumentos y un segundo reintento para conmutar de herramienta si la primera falló (hasta 3 ejecuciones en total de la etapa).
+  - **Alternativa 2B: `MAX_LOCAL_RETRIES = 1`:** Permite un único reintento correctivo rápido. Si falla, replanifica de inmediato con Qwen. Reduce el tiempo de espera pero aumenta la frecuencia de replanificaciones globales.
+
+#### Decisión Pendiente 3: Política de hechos (`facts`) en la replanificación
+- **Contexto:** Cuando una etapa falla y se gatilla `handleReplan`, ¿qué ocurre con los datos almacenados en `task.memory.facts`?
+- **Alternativas:**
+  - **Alternativa 3A: Append-only físico con sobreescritura semántica (Recomendado):** Los hechos nunca se eliminan físicamente. La corrección se logra inyectando el resultado del paso fallido (`failedStepResult`) en el prompt del replan para que Qwen descarte hipótesis refutadas.
+  - **Alternativa 3B: Reversión o purga de hechos de la etapa fallida:** Al fallar la etapa, se revocan o eliminan las claves agregadas por esa etapa específica en `processed.factsDelta`, impidiendo que datos potencialmente erróneos lleguen al replanificador.
+
+#### Decisión Pendiente 4: Formulación de la pregunta interactiva ante `insufficient_info`
+- **Contexto:** Al retirar `verifyStage` de Qwen del camino crítico, Eos clasifica `insufficient_info` pero no redacta texto libre.
+- **Alternativas:**
+  - **Alternativa 4A:** Si Eos dictamina `insufficient_info`, invocar una llamada puntual a Qwen (`buildUserQuestionPrompt`) exclusivamente para redactar la pregunta concreta dirigida al usuario.
+  - **Alternativa 4B:** Pausar en `WAITING_INPUT/user_answer` utilizando una plantilla estructurada predefinida que expone la instrucción de la etapa y solicita aclaración directa.
+
+---
+
+## 11. Referencias Precisas al Código Fuente Comprobado
+
+1. **Inferencia y preguntas de Decision #3 en Eos:**
+   - [src/core/reasoner/prompts.ts:494–522](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts#L494-L522) (`buildStepVerification`).
+   - [src/core/decision.ts:198–238](file:///home/hugo/jarvv/src/core/decision.ts#L198-L238) (`evaluateStepVerification`).
+2. **Segundo juez redundante en PLAN:**
+   - [src/core/callExecutor.ts:432–458](file:///home/hugo/jarvv/src/core/callExecutor.ts#L432-L458) (llamada a `deps.qwenEngine.verifyStage`).
+   - [src/core/reasoner/qwen.ts:699–740](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L699-L740) (`verifyStage`).
+   - [src/core/reasoner/prompts.ts:317–348](file:///home/hugo/jarvv/src/core/reasoner/prompts.ts#L317-L348) (`STAGE_VERIFICATION`).
+3. **Veto absoluto de Guard:**
+   - [src/core/callExecutor.ts:304–311](file:///home/hugo/jarvv/src/core/callExecutor.ts#L304-L311) (caso `Guard.evaluate === "DENY"`).
+   - [src/core/callExecutor.ts:331–341](file:///home/hugo/jarvv/src/core/callExecutor.ts#L331-L341) (caso denegación interactiva del usuario).
+   - [src/core/modeEngines.ts:228–233](file:///home/hugo/jarvv/src/core/modeEngines.ts#L228-L233) (bloqueo terminal en `handleEscalation`).
+   - [src/core/modeEngines.ts:668–672](file:///home/hugo/jarvv/src/core/modeEngines.ts#L668-L672) (bloqueo terminal en `runPlanLoop`).
+4. **Contadores y cotas operativas:**
+   - [src/core/types.ts:351–353](file:///home/hugo/jarvv/src/core/types.ts#L351-L353) (`MAX_STEPS = 15`, `MAX_ESCALATIONS = 2`, `MAX_REPLAN = 2`).
+   - [src/core/types.ts:363](file:///home/hugo/jarvv/src/core/types.ts#L363) (`MAX_USER_QUESTIONS_PER_STEP = 2`).
+   - [src/core/modeEngines.ts:298–305](file:///home/hugo/jarvv/src/core/modeEngines.ts#L298-L305) (límite monótono de `task.replans`).
+5. **Bucles de modo y orquestación:**
+   - [src/core/modeEngines.ts:395–546](file:///home/hugo/jarvv/src/core/modeEngines.ts#L395-L546) (`runFastLoop`).
+   - [src/core/modeEngines.ts:551–619](file:///home/hugo/jarvv/src/core/modeEngines.ts#L551-L619) (`initiatePlanMode`).
+   - [src/core/modeEngines.ts:621–727](file:///home/hugo/jarvv/src/core/modeEngines.ts#L621-L727) (`runPlanLoop`).
+   - [src/core/core.ts:336–345](file:///home/hugo/jarvv/src/core/core.ts#L336-L345) (`runTaskPipeline`).
+6. **Esquema de etapas y rutas:**
+   - [src/core/reasoner/qwen.ts:68–73](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L68-L73) (`STEP_ITEM_SCHEMA`).
+   - [src/core/reasoner/qwen.ts:316–341](file:///home/hugo/jarvv/src/core/reasoner/qwen.ts#L316-L341) (`parsePlanSteps`).
+   - [src/core/modeEngines.ts:55–66](file:///home/hugo/jarvv/src/core/modeEngines.ts#L55-L66) (`planStepsToSteps`).
+7. **Anti-bucle y registro de firmas:**
+   - [src/core/callExecutor.ts:285–298](file:///home/hugo/jarvv/src/core/callExecutor.ts#L285-L298) (detección anti-loop).
+   - [src/core/callExecutor.ts:352](file:///home/hugo/jarvv/src/core/callExecutor.ts#L352) (adición de firma previa al despacho).
+8. **Almacén de hechos y mutaciones físicas:**
+   - [src/core/callExecutor.ts:488](file:///home/hugo/jarvv/src/core/callExecutor.ts#L488) (asignación de `factsDelta`).
+   - [src/core/callExecutor.ts:533–535](file:///home/hugo/jarvv/src/core/callExecutor.ts#L533-L535) (registro de `effects`).
+   - [src/core/core.ts:312](file:///home/hugo/jarvv/src/core/core.ts#L312) (registro de hechos tras respuesta del usuario).
