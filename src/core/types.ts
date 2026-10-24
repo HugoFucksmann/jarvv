@@ -1,4 +1,11 @@
+/**
+ * JARVIS Core — Architecture & Core Contracts
+ * Fuente única de tipos del núcleo.
+ */
 
+// ============================================================
+// Tipos de iteraciones y auditoría de modelos
+// ============================================================
 
 export type ModelType = "EOS_0_8B" | "QWEN_3_5_9B";
 
@@ -38,6 +45,7 @@ export interface ModelIteration {
   rawInput?: string;
   rawOutput?: string;
   metrics?: ModelIterationMetrics;
+  error?: string;
 }
 
 // ============================================================

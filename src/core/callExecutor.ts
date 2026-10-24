@@ -19,12 +19,12 @@ import {
 import type { Decision20Engine } from "./decision.ts";
 import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
-import { LLMServiceUnavailableError, LLMValidationError, type ILLMClient } from "./reasoner/qwen.ts";
+import { LLMServiceUnavailableError, LLMValidationError, type FailedAttempt, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { ResultProcessor, refLabel, sanitizeForMemory, type ProcessedResult } from "./processor/resultProcessor.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
-import { applyDestination, getToolPolicy, serverOf } from "./tools/manifest.ts";
+import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
     addLogEntry,
@@ -35,9 +35,11 @@ import {
     buildEffectsContext,
     buildRefsContext,
     applyStepHandoff,
-    buildScratchpadContextForDecision,
+    buildDecisionMemory,
     buildAttempts,
     buildPlanLines,
+    effectTarget,
+    mergeCandidates,
 } from "./context.ts";
 
 export type EmitEventFn = (
@@ -105,7 +107,6 @@ export function recordFailedCall(
     step: Step,
     failure: { tool?: string; args?: Record<string, unknown>; error: string }
 ): void {
-    // Un paso fallido invalida el handoff del anterior: el siguiente intento no lo recibe (D-1).
     context.lastHandoff = undefined;
     const mcp = serverOf(step.route);
     const tool = failure.tool ?? step.tool;
@@ -178,11 +179,24 @@ export async function runStep(
         }
     }
 
+    const active = {
+        process: Boolean(task.scratchpad.process_id),
+        search: task.steps.some((s) => s.calls?.some((c) => c.tool === "start_search" && c.outcome?.success === true)),
+    };
+    discoveredTools = discoveredTools.filter((t) => {
+        const required = requirementOf(serverName, t.name);
+        return !required || active[required];
+    });
+    if (discoveredTools.length === 0) {
+        throw new Error(`No hay herramientas utilizables en el destino '${route}': requieren un proceso o una búsqueda activos.`);
+    }
+
     // 3. Decision #2: selección de tool
+    const decisionMemory = buildDecisionMemory(task);
     const d2 = await deps.decisionEngine.evaluateDecisionTwo(
         step.instruction,
         discoveredTools,
-        buildScratchpadContextForDecision(task),
+        decisionMemory,
         buildAttempts(task),
         { mcp: serverName, signal }
     );
@@ -205,6 +219,8 @@ export async function runStep(
 
     deps.emitEvent(task.id, "DECISION_TWO", {
         tool: selectedTool.name,
+        candidates: discoveredTools.map((t) => t.name),
+        memory: decisionMemory,
         probabilities: d2.probabilities,
         rawInput: d2.rawInput,
         rawOutput: d2.rawOutput,
@@ -215,6 +231,14 @@ export async function runStep(
     let args: Record<string, unknown>;
     let argRawInput: string;
     let argRawOutput: string;
+
+    const emitFailedArguments = (attempts: readonly FailedAttempt[]) =>
+        attempts.forEach((a, i) => deps.emitEvent(task.id, "ARGUMENTS_GENERATED", {
+            error: a.error,
+            rawInput: a.rawInput,
+            rawOutput: a.rawOutput,
+            attempt: i + 1,
+        }, step.id));
 
     try {
         const argGenRes = await deps.qwenEngine.generateArguments({
@@ -240,10 +264,15 @@ export async function runStep(
         args = argGenRes.args;
         argRawInput = argGenRes.rawInput;
         argRawOutput = argGenRes.rawOutput;
+        emitFailedArguments(argGenRes.failedAttempts ?? []);
     } catch (argErr) {
+        if (argErr instanceof LLMServiceUnavailableError && argErr.raw) {
+            deps.emitEvent(task.id, "ARGUMENTS_GENERATED", { error: argErr.message, rawInput: argErr.raw.rawInput }, step.id);
+        }
         // Solo una salida inválida del modelo es un fallo lógico del paso; Qwen caído o la cancelación se propagan.
         if (!(argErr instanceof LLMValidationError)) throw argErr;
         console.error(`[Qwen Args Error]`, argErr.message);
+        emitFailedArguments(argErr.attempts ?? (argErr.raw ? [{ ...argErr.raw, error: argErr.message }] : []));
         addFailEntry(context, `${selectedTool.name} -> argumentos inválidos tras reintentos`);
         const argsError = `Argumentos inválidos: ${argErr.message}`;
         recordFailedCall(context, step, { tool: selectedTool.name, error: argsError });
@@ -485,7 +514,10 @@ export async function runStep(
     // por falta de verificadores (la herramienta corrió limpia). Excepción: una mutación ejecutada (p. ej. el pid de un
     // proceso lanzado) describe el entorno, no una hipótesis sobre el contenido, y debe conservarse.
     if (isStepSuccess || noVerdict || policy.mutates) {
-        Object.assign(ensureMemory(context).facts, processed.factsDelta);
+        const facts = ensureMemory(context).facts;
+        const { cand } = processed.factsDelta;
+        if (cand && facts.cand) processed.factsDelta.cand = mergeCandidates(cand, facts.cand);
+        Object.assign(facts, processed.factsDelta);
     } else if (Object.keys(processed.factsDelta).length > 0) {
         console.log(`[runStep] Facts no confirmados descartados (${Object.keys(processed.factsDelta).join(", ")}): el paso no pasó la verificación.`);
     }
@@ -531,10 +563,16 @@ export async function runStep(
 
     // Efectos: toda mutación ejecutada limpiamente ocurrió en el entorno, aunque la verificación semántica falle.
     if (isCleanSignals && policy.mutates) {
-        addEffectEntry(context, `${step.id}|${selectedTool.name}: ${processed.finding || processed.summaryText || 'mutación aplicada'}`);
+        const target = effectTarget(args);
+        addEffectEntry(
+            context,
+            step.id,
+            target ? `${selectedTool.name} ${target}` : selectedTool.name,
+            processed.finding || processed.summaryText || 'mutación aplicada'
+        );
     }
 
-    // Handoff determinista hacia el siguiente paso: solo sobrevive el de un paso exitoso; ante fallo o sin veredicto se descarta (D-1).
+    // Handoff determinista hacia el siguiente paso
     if (isStepSuccess) {
         const primaryFactKey = Object.keys(processed.factsDelta)[0];
         const handoff: StepHandoff = {

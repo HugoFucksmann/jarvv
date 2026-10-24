@@ -11,10 +11,9 @@ const snapLog = (t?: Task | null): string[] => [...(t?.memory?.log ?? [])];
 const snapFail = (t?: Task | null): string[] => [...(t?.memory?.fail ?? [])];
 const snapEffects = (t?: Task | null): string[] => [...(t?.memory?.effects ?? [])];
 const snapFacts = (t?: Task | null): Record<string, string> => ({ ...(t?.memory?.facts ?? {}) });
-const snapScratchpad = (t?: Task | null): Record<string, unknown> => {
-  const copy: Record<string, unknown> = { ...(t?.scratchpad ?? {}) };
-  if (Array.isArray(copy.search_results)) copy.search_results = [...copy.search_results];
-  return copy;
+const topMargin = (p?: Record<string, number>): number | undefined => {
+  const v = Object.values(p ?? {}).sort((a, b) => b - a);
+  return v.length >= 2 ? Number((v[0] - v[1]).toFixed(4)) : undefined;
 };
 
 /**
@@ -76,6 +75,7 @@ export function createIterationFromEvent(
           rutaSeleccionada: data.route,
           confianza: data.confidence,
           probabilidades: data.probabilities || (data.answers?.route?.probabilities ?? {}),
+          margen: topMargin(data.probabilities),
           necesitaContextoAdicional: Boolean(data.needsContext),
         },
         metrics: {
@@ -101,13 +101,14 @@ export function createIterationFromEvent(
         input: {
           instruccionEtapa: currentStep?.instruction || "Acción inmediata",
           servidorMCP: currentStep?.mcp,
-          herramientasCandidatas: currentStep?.candidate_tools || [],
-          variablesScratchpad: snapScratchpad(task),
+          herramientasCandidatas: data.candidates || [],
+          memoriaEnviada: data.memory || "",
         },
         output: {
           herramientaSeleccionada: data.tool,
           confianza: data.confidence,
           distribucionProbabilidades: data.probabilities || {},
+          margen: topMargin(data.probabilities),
         },
         metrics: {
           confidence: typeof data.confidence === "number" ? data.confidence : undefined,
@@ -117,8 +118,9 @@ export function createIterationFromEvent(
 
     case "ARGUMENTS_GENERATED": {
       const data = event.data as any;
+      const failed = typeof data.error === "string";
       return {
-        id: `iter_${ts}_qwen_args_${stepId || "step"}`,
+        id: `iter_${ts}_qwen_args_${stepId || "step"}${data.attempt ? `_a${data.attempt}` : ""}`,
         taskId,
         model: "QWEN_3_5_9B",
         stage: "ARGUMENT_GENERATION",
@@ -135,14 +137,17 @@ export function createIterationFromEvent(
           hechosFactuales: snapFacts(task),
           fallosPrevios: snapFail(task),
         },
-        output: {
-          argumentos: data.args || {},
-          referenciasResueltas: data.resolvedRefs || [],
-          conteoReemplazos: data.replacedCount || 0,
-        },
+        output: failed
+          ? { error: data.error }
+          : {
+            argumentos: data.args || {},
+            referenciasResueltas: data.resolvedRefs || [],
+            conteoReemplazos: data.replacedCount || 0,
+          },
         metrics: {
-          verdict: "Argumentos estructurados",
+          verdict: failed ? "Argumentos inválidos" : "Argumentos estructurados",
         },
+        error: failed ? data.error : undefined,
       };
     }
 
@@ -224,14 +229,15 @@ export function createIterationFromEvent(
 
     case "PLAN_GENERATED": {
       const data = event.data as any;
-      const steps = data.steps || task?.steps || [];
+      const isReplan = data.replan === true;
+      const steps = (data.steps || task?.steps || []).filter((s: any) => !s.superseded);
       return {
-        id: `iter_${ts}_qwen_plan`,
+        id: `iter_${ts}_qwen_${isReplan ? "replan" : "plan"}`,
         taskId,
         model: "QWEN_3_5_9B",
-        stage: "PLAN_GENERATION",
+        stage: isReplan ? "REPLAN" : "PLAN_GENERATION",
         stepId: "plan_global",
-        stepTitle: "Planificación Estratégica Global",
+        stepTitle: isReplan ? "Replanificación Autónoma" : "Planificación Estratégica Global",
         timestamp: ts,
         rawInput: data.rawInput,
         rawOutput: data.rawOutput,
@@ -250,7 +256,7 @@ export function createIterationFromEvent(
           })),
         },
         metrics: {
-          verdict: `Plan con ${steps.length} etapas estructuradas`,
+          verdict: `${isReplan ? "Replan" : "Plan"} con ${steps.length} etapas estructuradas`,
         },
       };
     }

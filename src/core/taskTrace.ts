@@ -12,6 +12,7 @@ import { ConfigManager } from "./config.ts";
 import type { TaskExecutionContext } from "./context.ts";
 
 const MAX_TOOL_ERROR_CHARS = 300;
+const MAX_TOOL_PREVIEW_CHARS = 300;
 
 /** Decision #2 con una sola herramienta no llama al modelo: su "salida" sintética lleva esta marca. */
 const SINGLE_TOOL_SHORTCUT = "single_tool_shortcut";
@@ -37,6 +38,7 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
                 stage: it.stage,
                 rawInput: it.rawInput,
                 rawOutput: it.rawOutput,
+                error: it.error ?? null,
             }));
 
         const toolRuns = task.steps.flatMap((s) =>
@@ -46,6 +48,7 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
                 args: c.args ?? null,
                 ok: c.outcome?.isError !== true,
                 error: c.outcome?.isError === true ? (c.error ?? "").slice(0, MAX_TOOL_ERROR_CHARS) || null : null,
+                resultPreview: (c.evidence?.obs ?? "").slice(0, MAX_TOOL_PREVIEW_CHARS) || undefined,
             }))
         );
 

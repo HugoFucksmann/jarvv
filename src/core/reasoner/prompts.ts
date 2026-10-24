@@ -1,5 +1,3 @@
-
-
 import {
   EXECUTABLE_ROUTES,
   MAX_EVIDENCE_OBS_CHARS,
@@ -35,12 +33,13 @@ const MAX_STEP_RESULT_CHARS = 800;
 const MAX_REFS_CHARS = 1200;
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
-// Sin tope: el bloque conserva todo lo registrado (la cota máxima de contexto se define aparte, D-8).
+// Acota la instrucción del paso (incluye la respuesta del usuario) para no agotar el contexto de Qwen.
+const MAX_TASK_CHARS = 12000;
 const NO_LIMIT = Number.POSITIVE_INFINITY;
 // Presupuestos en caracteres (Decision).
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_HISTORY_CHARS = 4000;
-const MAX_SCRATCHPAD_CHARS = 2000;
+const MAX_DECISION_MEMORY_CHARS = 2000;
 const MAX_RESULT_CHARS = 400;
 const MAX_OBSERVATION_CHARS = 500;
 const MAX_ATTEMPTS = 8;
@@ -228,7 +227,7 @@ ${DATA_NOTICE}`,
         data.lastObs
           ? dataBlock(`LAST (paso ${data.lastObs.stepId}, ${safe(data.lastObs.toolName)})`, clipObs(data.lastObs.obsText, MAX_OBS_CHARS), MAX_OBS_CHARS)
           : null,
-        `TASK: ${safe(data.taskInstruction)}`,
+        `TASK: ${safe(clip(data.taskInstruction, MAX_TASK_CHARS))}`,
       ]);
     },
   },
@@ -237,7 +236,8 @@ ${DATA_NOTICE}`,
   FINAL_RESPONSE: {
     SYSTEM: `Eres JARVIS. Responde al usuario en español, de forma directa y completa a su solicitud original, con los datos y hallazgos concretos registrados en LOG, FACTS y EVID.
 No te limites a confirmar que la tarea terminó: entrega la información que el usuario pidió.
-Si la tarea se detuvo o quedó incompleta, explica qué ocurrió, qué se logró y qué falta.
+Si la tarea se detuvo o quedó incompleta, explica qué ocurrió, qué se logró y qué falta, e informa de los cambios de EFFECTS que permanecen en el entorno.
+Afirma solo lo que consta en LOG, FACTS y EVID; marca como no confirmado lo demás.
 ${DATA_NOTICE}`,
 
     buildUserPrompt(data: FinalResponsePromptData): string {
@@ -259,13 +259,19 @@ ${DATA_NOTICE}`,
 
   /** Modo PLAN: planificación inicial */
   PLAN: {
-    SYSTEM: `Think briefly and avoid overthinking.  Descompón la solicitud en pasos ordenados.
+    SYSTEM: `Think briefly and avoid overthinking.
+Use the minimum reasoning necessary to solve the task.
+Avoid exploring multiple alternatives unless necessary.
+Do not repeat or revisit conclusions already reached.
+Stop reasoning once you have a sufficient answer.
+Prefer direct solutions over exhaustive analysis.  Descompón la solicitud en pasos ordenados.
 - Máximo ${MAX_STEPS} pasos.
 - Cada paso: {"goal":"...","suggested_mcp":"...","expected_outcome":"..."}.
 - suggested_mcp: una de ${ROUTE_LIST}; nunca una URL ni un nombre de herramienta. Usa el catálogo solo para elegir la ruta.
 - goal: una acción concreta.
 - expected_outcome: criterio de éxito observable.
 - Si la solicitud no requiere herramientas (conversación o respuesta directa), devuelve "steps": [].
+- Entrega el formato que pidió el usuario; no lo sustituyas por otro. Un paso de terminal puede ejecutar scripts para producir formatos que ninguna herramienta escribe directamente.
 Responde solo con JSON: {"objective":"...","steps":[...]}
 ${DATA_NOTICE}`,
 
@@ -372,7 +378,7 @@ export interface DecisionOnePromptData {
 
 export interface DecisionTwoPromptData {
   instruction: string;
-  scratchpadContext: string;
+  memory: string;
   tools: MCPTool[];
   attempts?: Attempt[];
   /** MCP activo: el estado "falló" de una tool solo se toma de intentos de este MCP. */
@@ -473,11 +479,11 @@ export const DECISION_PROMPTS = {
       criteria[t.name] = toolStatus.get(t.name) === false ? `${base} [last attempt failed]` : base;
     }
 
-    const context = clipTail(data.scratchpadContext, MAX_SCRATCHPAD_CHARS);
+    const memory = clipTail(data.memory, MAX_DECISION_MEMORY_CHARS);
     const state = [
       `Instruction: ${clip(data.instruction, MAX_MESSAGE_CHARS)}`,
       fmtAttempts(attempts),
-      context.trim() ? `Context: ${context}` : null,
+      memory.trim() ? `Context: ${memory}` : null,
     ].filter(Boolean).join("\n");
 
     const instructions = attempts.length > 0

@@ -40,19 +40,30 @@ import { estimateTokens, postJson, RequestAbortedError, TransportError } from ".
 
 /** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
-  constructor(message: string, cause?: unknown) {
+  readonly raw?: { rawInput: string };
+  constructor(message: string, cause?: unknown, raw?: { rawInput: string }) {
     super(`[Qwen Unavailable] ${message}`, { cause });
     this.name = "LLMServiceUnavailableError";
+    this.raw = raw;
   }
+}
+
+/** Intercambio cuya salida no se pudo usar. */
+export interface FailedAttempt {
+  rawInput: string;
+  rawOutput: string;
+  error: string;
 }
 
 /** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
 export class LLMValidationError extends Error {
   readonly raw?: { rawInput: string; rawOutput: string };
-  constructor(message: string, raw?: { rawInput: string; rawOutput: string }) {
+  readonly attempts?: FailedAttempt[];
+  constructor(message: string, raw?: { rawInput: string; rawOutput: string }, attempts?: FailedAttempt[]) {
     super(`[Qwen Validation] ${message}`);
     this.name = "LLMValidationError";
     this.raw = raw;
+    this.attempts = attempts;
   }
 }
 
@@ -124,6 +135,7 @@ export interface ArgumentsGenerationResult {
   args: Record<string, unknown>;
   rawInput: string;
   rawOutput: string;
+  failedAttempts?: FailedAttempt[];
 }
 
 export interface FinalResponseResult {
@@ -472,14 +484,15 @@ export class QwenEngine implements ILLMClient {
           err.kind === "timeout"
             ? `Timeout (${timeoutMs}ms) esperando a Qwen en ${url}`
             : `No fue posible conectar con Qwen en ${url}. Verifique que el servidor esté activo. ${err.message}`,
-          err
+          err,
+          { rawInput }
         );
       }
       throw err; // RequestAbortedError
     }
 
     if (!result.ok) {
-      throw new LLMServiceUnavailableError(`HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`);
+      throw new LLMServiceUnavailableError(`HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`, undefined, { rawInput });
     }
 
     let data: unknown;
@@ -513,9 +526,10 @@ export class QwenEngine implements ILLMClient {
    * Petición + validación con la política unificada de salida inválida: un reintento con el error
    * previo en el prompt, 1.5x tokens y temperatura 0.3. Si vuelve a fallar, LLMValidationError con el crudo.
    */
-  private async dispatchValidated<T>(o: ValidatedDispatch<T>): Promise<{ value: T; res: QwenDispatchResult }> {
+  private async dispatchValidated<T>(o: ValidatedDispatch<T>): Promise<{ value: T; res: QwenDispatchResult; failed: FailedAttempt[] }> {
     let previousError: string | undefined;
     let last: QwenDispatchResult | undefined;
+    const failed: FailedAttempt[] = [];
 
     for (let attempt = 0; attempt <= LLM_INVALID_OUTPUT_RETRIES; attempt++) {
       const retry = attempt > 0;
@@ -533,16 +547,18 @@ export class QwenEngine implements ILLMClient {
       last = res;
 
       const v = o.validate(res, attempt === LLM_INVALID_OUTPUT_RETRIES);
-      if (v.ok) return { value: v.value, res };
+      if (v.ok) return { value: v.value, res, failed };
       else {
         previousError = v.error;
+        failed.push({ rawInput: res.rawInput, rawOutput: res.rawOutput, error: v.error });
         console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
       }
     }
 
     throw new LLMValidationError(
       `${o.stage}: ${previousError}`,
-      last ? { rawInput: last.rawInput, rawOutput: last.rawOutput } : undefined
+      last ? { rawInput: last.rawInput, rawOutput: last.rawOutput } : undefined,
+      failed
     );
   }
 
@@ -553,7 +569,7 @@ export class QwenEngine implements ILLMClient {
       const required = inputSchema.required ?? [];
       const userPrompt = PROMPTS.ARGUMENTS.buildUserPrompt(data);
 
-      const { value, res } = await this.dispatchValidated<Record<string, unknown>>({
+      const { value, res, failed } = await this.dispatchValidated<Record<string, unknown>>({
         stage: "arguments",
         system: PROMPTS.ARGUMENTS.SYSTEM,
         user: (prev) => userPrompt + retryNote(prev),
@@ -574,7 +590,7 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { args: value, rawInput: res.rawInput, rawOutput: res.rawOutput };
+      return { args: value, rawInput: res.rawInput, rawOutput: res.rawOutput, failedAttempts: failed };
     });
   }
 

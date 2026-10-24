@@ -34,6 +34,7 @@ export interface ToolDefinition {
   readonly description: string;
   /** Parámetros que se ofrecen al modelo; sin esta lista se ofrecen todos los del schema del servidor. */
   readonly params?: readonly string[];
+  readonly requires?: "process" | "search";
   readonly policy: Readonly<ToolPolicy>;
 }
 
@@ -79,6 +80,8 @@ interface ToolOptions {
   loopExempt?: boolean;
   /** Parámetros permitidos: el resto no se muestra ni se acepta (ver `applyDestination`). */
   params?: readonly string[];
+  /** Estado que la tarea debe tener para ofrecer la herramienta: un proceso en ejecución o una búsqueda iniciada. */
+  requires?: "process" | "search";
 }
 
 function def(
@@ -98,6 +101,7 @@ function def(
     server: DESTINATIONS[route].server,
     description,
     params: opts.params,
+    requires: opts.requires,
     policy: Object.freeze({
       capability,
       requiresApproval: NEEDS_APPROVAL.has(capability),
@@ -120,12 +124,12 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
 
   // ---- locate (desktop_commander, 2) ----
   def("locate", "start_search", "FILE_READ", "Start a streaming file search."),
-  def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true }),
+  def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true, requires: "search" }),
 
   // ---- terminal (desktop_commander, 3) ----
   def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command."),
-  def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", { loopExempt: true }),
-  def("terminal", "interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL."),
+  def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", { loopExempt: true, requires: "process" }),
+  def("terminal", "interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL.", { requires: "process" }),
 
   // ---- web (free_search, 3) ----
   def("web", "search", "READ", "Deduplicated multi-engine web search with clean snippets.", {
@@ -164,6 +168,10 @@ export function isKnownTool(server: string, tool: string): boolean {
 
 export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy> {
   return INDEX.get(keyOf(server, tool))?.policy ?? UNKNOWN_TOOL_POLICY;
+}
+
+export function requirementOf(server: string, tool: string): "process" | "search" | undefined {
+  return INDEX.get(keyOf(server, tool))?.requires;
 }
 
 /** Servidor MCP que ejecuta un destino. */

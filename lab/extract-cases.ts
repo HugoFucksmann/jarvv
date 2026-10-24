@@ -210,7 +210,7 @@ function processRetryNote(userMsg: string): {
     return { cleanUserMsg: userMsg, hasRetryNote: false, isSeparable: true };
   }
 
-  // En prompts.ts ~L151 retryNote se concatena como:
+  // retryNote se concatena en prompts.ts como:
   // \n\nERROR_PREVIO: tu respuesta anterior fue inválida (...)
   let cutIdx = idx;
   if (idx >= 2 && userMsg.slice(idx - 2, idx) === "\n\n") {
@@ -369,7 +369,6 @@ export async function extractCases(options?: ExtractOptions): Promise<ExtractSum
     processedTasksCount++;
 
     const calls = Array.isArray(task.calls) ? task.calls : [];
-    let planGenerationCallCount = 0;
 
     for (const [callIndex, call] of calls.entries()) {
       if (!call || typeof call !== "object") continue;
@@ -400,7 +399,6 @@ export async function extractCases(options?: ExtractOptions): Promise<ExtractSum
       // 1. Mapeo de etapa de traza a etapa de laboratorio
       // ------------------------------------------------------------
       let targetStage: Stage | null = null;
-      let replanFallbackUsed = false;
 
       if (rawStage === "DECISION_ONE") {
         targetStage = "decision_one";
@@ -415,13 +413,7 @@ export async function extractCases(options?: ExtractOptions): Promise<ExtractSum
       } else if (rawStage === "REPLAN") {
         targetStage = "replan";
       } else if (rawStage === "PLAN_GENERATION") {
-        planGenerationCallCount++;
-        if (planGenerationCallCount === 1) {
-          targetStage = "plan";
-        } else {
-          targetStage = "replan";
-          replanFallbackUsed = true;
-        }
+        targetStage = "plan";
       } else if (rawStage === "FINAL_RESPONSE") {
         targetStage = "final_response";
       } else {
@@ -551,10 +543,6 @@ export async function extractCases(options?: ExtractOptions): Promise<ExtractSum
       };
 
       let notes = `Borrador extraído de la tarea '${task.taskId}' (seq ${seq}, etapa: ${targetStage}, modo: ${task.mode || "desconocido"}).`;
-
-      if (replanFallbackUsed) {
-        notes += ` [Borrador asignado a 'replan' por fallback de orden histórico (PLAN_GENERATION subsiguiente en la tarea)].`;
-      }
 
       if (retryResult.hasRetryNote) {
         notes += ` [Reconstruido: se eliminó retryNote del user prompt; la salida en 'reference' pertenece al reintento tras el fallo previo].`;

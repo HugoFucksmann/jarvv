@@ -45,15 +45,18 @@ export class RefStore {
       store = new Map<string, string>();
       this.taskStores.set(taskId, store);
     }
-    const currentCounter = (this.taskCounters.get(taskId) || 0) + 1;
-    this.taskCounters.set(taskId, currentCounter);
-    const key = `r${currentCounter}`;
-    store.set(key, content);
     let meta = this.taskMeta.get(taskId);
     if (!meta) {
       meta = new Map();
       this.taskMeta.set(taskId, meta);
     }
+    for (const [existing, stored] of store) {
+      if (stored === content && meta.get(existing)?.label === (label ?? "")) return existing;
+    }
+    const currentCounter = (this.taskCounters.get(taskId) || 0) + 1;
+    this.taskCounters.set(taskId, currentCounter);
+    const key = `r${currentCounter}`;
+    store.set(key, content);
     meta.set(key, { label: label ?? "", chars: content.length });
     return key;
   }
@@ -131,6 +134,12 @@ interface SearchItem {
   snippet?: string;
 }
 
+function clipAtWord(text: string, n: number): string {
+  if (text.length <= n) return text;
+  const cut = text.lastIndexOf(" ", n);
+  return `${text.slice(0, cut > n * 0.6 ? cut : n).trimEnd()}…`;
+}
+
 /**
  * Observación compacta de `search` dentro de MAX_EVIDENCE_OBS_CHARS. Prioridad: título y URL de cada resultado
  * (siempre completos); después los snippets, del mayor largo que quepa en todos; el lead, solo si cabe. Si ni los títulos y
@@ -140,7 +149,7 @@ function buildSearchObs(items: readonly SearchItem[], leadText: string | undefin
   const shown = items.slice(0, MAX_SCRATCHPAD_RESULTS);
   const bare = shown.map((it) => (it.url ? `${it.title}: ${it.url}` : it.title));
   const withSnippets = (n: number) =>
-    shown.map((it, i) => (it.snippet ? `${bare[i]} - ${it.snippet.slice(0, n)}` : bare[i]));
+    shown.map((it, i) => (it.snippet ? `${bare[i]} - ${clipAtWord(it.snippet, n)}` : bare[i]));
   const lead = leadText ? `Lead: ${leadText.slice(0, 300)}` : undefined;
 
   const compose = (lines: readonly string[], withLead: boolean): string => {
@@ -233,7 +242,7 @@ export class ResultProcessor {
     const emptyOutput = policy.emptyIsError === true && fullText.length === 0;
 
     const signals: StepExecutionSignals = {
-      exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : 0),
+      exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : undefined),
       exception: isError && !isNotFound && !isDenied,
       timeout: Boolean(mergedData.timed_out || (isError && /timeout/i.test(fullText))),
       not_found: isNotFound,
@@ -288,12 +297,17 @@ export class ResultProcessor {
       const textPid = /^Process started with PID (\d+)\b/.exec(firstTextLine)?.[1];
       const textExit = /Process completed with exit code (-?\d+)\b/.exec(lastTextLine)?.[1];
       const finished = /Process \d+ has finished execution$/.test(lastTextLine);
+      const isWrapperLine = (l: string) =>
+        /^Process started with PID \d+\b/.test(l) || /Process \d+ has finished execution$/.test(l) || /Process completed with exit code -?\d+\b/.test(l);
+      const body = textLines.filter((l) => !isWrapperLine(l));
+      const outputNote = body.length === 0
+        ? "sin salida"
+        : body.length === 1
+          ? body[0].slice(0, 90)
+          : `${body[0].slice(0, 60)} … ${body[body.length - 1].slice(0, 60)}`;
 
       const pid = mergedData.process_id || mergedData.pid || args.pid || args.process_id || textPid;
-      if (pid) {
-        factsDelta.pid = String(pid);
-        scratchpadDelta.process_id = String(pid);
-      }
+      if (pid) factsDelta.pid = String(pid);
 
       let knownExit: number | undefined;
       if (typeof mergedData.exit_code === "number") {
@@ -303,7 +317,8 @@ export class ResultProcessor {
         signals.exit_code = knownExit;
       }
       const processStatus = knownExit !== undefined ? `exit=${knownExit}` : finished ? "status=finished" : "status=running";
-      finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, ${processStatus}`);
+      scratchpadDelta.process_id = pid && knownExit === undefined && !finished ? String(pid) : undefined;
+      finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, ${processStatus} | ${outputNote}`, 200);
       const lines = fullText.split("\n");
       const wasTruncatedLines = lines.length > 30;
       let tail = lines.slice(-30).join("\n");
@@ -365,7 +380,7 @@ export class ResultProcessor {
       const longWithoutMarker = reportedCount === undefined && fullText.length > 500;
       if (items.length === 0 && (reportedPositive || longWithoutMarker)) {
         const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
-        finding = sanitizeForMemory(`${isError ? 'err' : 'ok'}: ${firstLine}`);
+        finding = sanitizeForMemory(isError ? `err: ${firstLine}` : firstLine);
         if (fullText.length > 1500) {
           compactObs = `${fullText.substring(0, 750)}\n[... omitidos, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
         } else {
@@ -417,7 +432,7 @@ export class ResultProcessor {
       }
     } else {
       const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
-      finding = sanitizeForMemory(`${isError ? 'err' : 'ok'}: ${firstLine}`);
+      finding = sanitizeForMemory(isError ? `err: ${firstLine}` : firstLine);
       if (fullText.length > 1500) {
         compactObs = `${fullText.substring(0, 750)}\n[... omitidos, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
       } else {
@@ -446,7 +461,7 @@ export class ResultProcessor {
       decisionSummary = `[NOT FOUND] ${tool}: ${finding}. Resource not found.`;
     } else if (signals.empty_output) {
       decisionSummary = `[EMPTY] ${tool}: ${finding}. The output contains no useful data.`;
-    } else if (isError || signals.exit_code !== 0 || signals.denied) {
+    } else if (isError || (signals.exit_code !== undefined && signals.exit_code !== 0) || signals.denied) {
       decisionSummary = `[FAILURE] ${tool}: ${finding || 'Execution error'}.`;
     } else if (success) {
       decisionSummary = `[SUCCESS] ${tool}: ${finding}. Information obtained and stored in memory.`;

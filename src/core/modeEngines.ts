@@ -29,6 +29,9 @@ import {
 } from "./context.ts";
 import { type EngineDependencies, recordFailedCall, runStep } from "./callExecutor.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
+import { LLMServiceUnavailableError } from "./reasoner/qwen.ts";
+import { DecisionServiceUnavailableError } from "./decision.ts";
+import { sanitizeForMemory } from "./processor/resultProcessor.ts";
 
 /** ¿Hay que abandonar el trabajo en curso? (cancelación o estado terminal) */
 const isStopped = (context: TaskExecutionContext): boolean =>
@@ -358,6 +361,7 @@ export async function handleReplan(
     // Ejecución autónoma: sin suspensión en WAITING_INPUT tras la confirmación inicial
     deps.emitEvent(task.id, "PLAN_GENERATED", {
         steps: task.steps,
+        replan: true,
         isMaterialReplan: false,
         rawInput: replanResult.rawInput,
         rawOutput: replanResult.rawOutput,
@@ -381,7 +385,15 @@ function recordStepCrash(
     console.error(`[${loopTag}] Excepción no controlada en runStep:`, err);
     step.state = "FAILED";
     step.error = err instanceof Error ? err.message : String(err);
-    recordFailedCall(context, step, { error: step.error });
+    const unavailable = err instanceof LLMServiceUnavailableError || err instanceof DecisionServiceUnavailableError;
+    const subject = step.tool ?? step.route;
+    addFailEntry(context, `${subject} -> ${unavailable ? "servicio no disponible" : "excepción"}: ${sanitizeForMemory(step.error, 100)}`);
+    if (unavailable) {
+        context.lastHandoff = undefined;
+        context.lastCallDecisionSummary = `[FAILURE] ${subject}: ${sanitizeForMemory(step.error, 120)}.`;
+    } else {
+        recordFailedCall(context, step, { error: step.error });
+    }
     deps.emitEvent(context.task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 }
 
@@ -556,26 +568,6 @@ export async function initiatePlanMode(
     const signal = context.abortController.signal;
 
     if (isStopped(context)) return;
-
-    let d1Initial;
-    try {
-        d1Initial = await deps.decisionEngine.evaluateDecisionOne(
-            task.message,
-            buildHistoryContext(task, context.memoryRetrievalLimit),
-            { allowFin: true, signal }
-        );
-    } catch (err) {
-        await concludeOnLLMError(context, deps, "Decision #1 (inicio de plan)", err);
-        return;
-    }
-
-    if (isStopped(context)) return;
-
-    if (d1Initial.route === "fin") {
-        console.log(`[PLAN] Objetivo clasificado como conversación directa. Concluyendo directo.`);
-        await concludeTask(context, "COMPLETED", deps);
-        return;
-    }
 
     let plan;
     try {

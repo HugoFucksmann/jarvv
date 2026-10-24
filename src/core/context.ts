@@ -102,11 +102,34 @@ export function addLogEntry(context: TaskExecutionContext, line: string): void {
     }
 }
 
-/** Registra efectos secundarios en el entorno (sin tope: se conservan todos durante la tarea). */
-export function addEffectEntry(context: TaskExecutionContext, effect: string): void {
+/** Registra efectos secundarios en el entorno (sin tope). Una misma acción sobre el mismo objetivo conserva solo su registro más reciente. */
+export function addEffectEntry(context: TaskExecutionContext, stepId: string, action: string, finding: string): void {
     const memory = ensureMemory(context);
-    memory.effects = memory.effects || [];
-    memory.effects.push(effect);
+    const marker = `|${action}:`;
+    memory.effects = (memory.effects || []).filter((e) => !e.slice(e.indexOf("|")).startsWith(marker));
+    memory.effects.push(`${stepId}${marker} ${finding}`);
+}
+
+const PATH_IN_COMMAND = /[A-Za-z]:\\[^\s"'`|<>*?;,)]+|\/(?:[\w.-]+\/)+[\w.-]+\.\w+/g;
+
+/** Objetivo de una mutación: ruta, origen y destino, o las rutas que aparecen en el comando. */
+export function effectTarget(args: Record<string, unknown>): string {
+    const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+    if (text(args.path)) return sanitizeForMemory(text(args.path), 120);
+    if (text(args.source) || text(args.destination)) {
+        return sanitizeForMemory(`${text(args.source)} -> ${text(args.destination)}`, 160);
+    }
+    const command = text(args.command) || text(args.input);
+    if (!command) return "";
+    const paths = [...new Set(command.match(PATH_IN_COMMAND) ?? [])].slice(0, 2);
+    return sanitizeForMemory(paths.length > 0 ? paths.join(", ") : command, 120);
+}
+
+const MAX_CANDIDATE_URLS = 10;
+
+/** Candidatos de búsqueda acumulados: los nuevos primero, sin repetidos. */
+export function mergeCandidates(latest: string, previous: string): string {
+    return [...new Set([...latest.split(", "), ...previous.split(", ")])].slice(0, MAX_CANDIDATE_URLS).join(", ");
 }
 
 export function addFailEntry(context: TaskExecutionContext, line: string): void {
@@ -132,7 +155,7 @@ export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 
     return parts.join("\n");
 }
 
-export function buildScratchpadContextForDecision(task: Task): string {
+export function buildDecisionMemory(task: Task): string {
     const facts = task.memory?.facts || {};
     const factsStr = Object.entries(facts).map(([k, v]) => `${k}=${v}`).join(" ");
     const logLines = (task.memory?.log || []).slice(-2).join("; ");

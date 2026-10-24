@@ -149,7 +149,7 @@ export class Decision20Engine {
   async evaluateDecisionTwo(
     instruction: string,
     discoveredTools: MCPTool[],
-    scratchpadSummary?: string,
+    memory?: string,
     attempts?: Attempt[],
     options?: { mcp?: string; signal?: AbortSignal }
   ): Promise<{
@@ -173,7 +173,7 @@ export class Decision20Engine {
 
     const { state, questions } = DECISION_PROMPTS.buildDecisionTwo({
       instruction,
-      scratchpadContext: scratchpadSummary ?? "",
+      memory: memory ?? "",
       tools: discoveredTools,
       attempts,
       mcp: options?.mcp,

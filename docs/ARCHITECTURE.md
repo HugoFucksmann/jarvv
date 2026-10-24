@@ -12,20 +12,20 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 
 ## 3. Componentes
 
-| Componente | Responsabilidad | Qué NO hace |
-|---|---|---|
-| **Host del Servidor** | Inicializa el entorno, gestiona señales del sistema operativo para el apagado ordenado de subprocesos y expone los canales de comunicación y eventos. | No toma decisiones de ejecución ni gestiona el estado interno de las tareas. |
-| **Núcleo Orquestador** | Centraliza el ciclo de vida de las tareas en memoria, emite eventos de observabilidad y coordina las solicitudes de intervención del usuario. | No dialoga directamente con los servidores de herramientas ni contiene la lógica de los bucles de ejecución. |
-| **Motores de Modo** | Implementan las estrategias reactiva y deliberativa, regulan cotas operativas, gestionan la escalación ante desvíos y ejecutan la replanificación autónoma. | No generan argumentos estructurados ni evalúan políticas de seguridad. |
-| **Ejecutor Atómico de Pasos** | Conduce el pipeline secuencial de cada acción: validación de ruta, selección de herramienta, formulación de argumentos, resolución de referencias, control anti-bucle, compuerta de seguridad, despacho, procesamiento y verificación. | No decide la estrategia global de la tarea ni define secuencias de pasos. |
-| **Clasificador Factual** | Discrimina entre rutas operativas o fin de tarea, selecciona la herramienta correspondiente al destino y emite el dictamen técnico inmediato sobre los resultados observables. | No genera texto libre, planes complejos ni argumentos estructurados. |
-| **Razonador** | Descompone objetivos en etapas estructuradas, genera argumentos validados contra esquema, evalúa semánticamente el progreso de las etapas y sintetiza la respuesta final. | No despacha comandos ni accede al entorno local. |
-| **Compuerta de Seguridad** | Evalúa argumentos normalizados contra patrones destructivos prohibidos y políticas de mutación para autorizar, solicitar intervención humana o denegar la acción. | No modifica argumentos ni negocia alternativas con los modelos. |
-| **Catálogo de Herramientas** | Define formalmente las herramientas autorizadas, sus rutas funcionales, capacidades asociadas y requisitos de autorización. | No ejecuta llamadas ni mantiene estado dinámico. |
-| **Procesador de Resultados** | Parsea salidas de herramientas, sintetiza observaciones acotadas, calcula señales de fallo y aísla cargas pesadas en el almacén de referencias. | No evalúa la veracidad semántica de los datos ni interactúa con disco. |
-| **Resolutor de Referencias** | Sustituye tokens de referencia por sus contenidos reales en los argumentos antes de la evaluación de seguridad y el despacho. | No genera nuevas referencias ni invoca herramientas. |
-| **Gestor de Contexto y Memoria** | Recupera la memoria de la tarea para cada llamada a un modelo y la expone en bloques acotados y delimitados que previenen inyecciones. | No persiste información ni realiza llamadas a servicios. |
-| **Registro de Trazabilidad** | Emite un registro secuencial en disco al término de cada tarea para análisis y evaluación externa. | No actúa como base de datos ni restaura estado al reiniciar el servidor. |
+| Componente | Responsabilidad | Qué NO hace | Implementación (en `src/core/`, salvo el host) |
+|---|---|---|---|
+| **Host del Servidor** | Inicializa el entorno, gestiona señales del sistema operativo para el apagado ordenado de subprocesos y expone los canales de comunicación y eventos. | No toma decisiones de ejecución ni gestiona el estado interno de las tareas. | `server.ts`, `src/server/jarvisRouter.ts` |
+| **Núcleo Orquestador** | Centraliza el ciclo de vida de las tareas en memoria, emite eventos de observabilidad y coordina las solicitudes de intervención del usuario. | No dialoga directamente con los servidores de herramientas ni contiene la lógica de los bucles de ejecución. | `core.ts` |
+| **Motores de Modo** | Implementan las estrategias reactiva y deliberativa, regulan cotas operativas, gestionan la escalación ante desvíos y ejecutan la replanificación autónoma. | No generan argumentos estructurados ni evalúan políticas de seguridad. | `modeEngines.ts` |
+| **Ejecutor Atómico de Pasos** | Conduce el pipeline secuencial de cada acción: validación de ruta, selección de herramienta, formulación de argumentos, resolución de referencias, control anti-bucle, compuerta de seguridad, despacho, procesamiento y verificación. | No decide la estrategia global de la tarea ni define secuencias de pasos. | `callExecutor.ts` |
+| **Clasificador Factual** | Discrimina entre rutas operativas o fin de tarea, selecciona la herramienta correspondiente al destino y emite el dictamen técnico inmediato sobre los resultados observables. | No genera texto libre, planes complejos ni argumentos estructurados. | `decision.ts` |
+| **Razonador** | Descompone objetivos en etapas estructuradas, genera argumentos validados contra esquema, evalúa semánticamente el progreso de las etapas y sintetiza la respuesta final. | No despacha comandos ni accede al entorno local. | `reasoner/qwen.ts` |
+| **Compuerta de Seguridad** | Evalúa argumentos normalizados contra patrones destructivos prohibidos y políticas de mutación para autorizar, solicitar intervención humana o denegar la acción. | No modifica argumentos ni negocia alternativas con los modelos. | `policy/guard.ts` |
+| **Catálogo de Herramientas** | Define formalmente las herramientas autorizadas, sus rutas funcionales, capacidades asociadas, requisitos de autorización y precondiciones de uso. | No ejecuta llamadas ni mantiene estado dinámico. | `tools/manifest.ts` |
+| **Procesador de Resultados** | Parsea salidas de herramientas, sintetiza observaciones acotadas, calcula señales de fallo y aísla cargas pesadas en el almacén de referencias. | No evalúa la veracidad semántica de los datos ni interactúa con disco. | `processor/resultProcessor.ts` |
+| **Resolutor de Referencias** | Sustituye tokens de referencia por sus contenidos reales en los argumentos antes de la evaluación de seguridad y el despacho. | No genera nuevas referencias ni invoca herramientas. | `processor/refResolver.ts` |
+| **Gestor de Contexto y Memoria** | Recupera la memoria de la tarea para cada llamada a un modelo y la expone en bloques acotados y delimitados que previenen inyecciones. | No persiste información ni realiza llamadas a servicios. | `context.ts`, `reasoner/prompts.ts` |
+| **Registro de Trazabilidad** | Emite un registro secuencial en disco al término de cada tarea para análisis y evaluación externa. | No actúa como base de datos ni restaura estado al reiniciar el servidor. | `taskTrace.ts` |
 
 ## 4. Dependencias entre Capas
 - **Dirección permitida**: Jerárquica y descendente. Las capas superiores de orquestación dependen de los componentes subordinados de ejecución, seguridad e inferencia, nunca a la inversa.
@@ -36,7 +36,34 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 - **Nuevos destinos funcionales**: Se definen en las rutas del catálogo asociándolos al servidor correspondiente e incorporando sus descripciones operativas.
 - **Nuevos servidores de herramientas**: Se conectan implementando el protocolo estándar de comunicación y registrándose en el gestor de descubrimiento del servidor.
 
-## 6. Archivos Base
+## 6. Modelos y Servicios
+
+| Servicio | Rol | Conexión |
+|---|---|---|
+| Decision 2.0 (Eos 0.8B) | Clasificador factual: rutas, herramienta y verificación de paso mediante preguntas `choice` y `noul` | HTTP `POST /v1/decide` sobre `decisionUrl` |
+| Qwen 3.5 9B | Razonador: plan, replan, argumentos, verificación semántica y respuesta final | Ollama en `qwenUrl` (modelo `qwenModel`) |
+| desktop_commander | Herramientas de archivos, búsqueda local y terminal | MCP por stdio (`desktopCommanderMcp`) |
+| free_search | Búsqueda y lectura web | MCP por stdio (`freeSearchMcp`) |
+
+- La configuración se guarda en `jarvis-config.json` con escritura atómica y toda lectura pasa por una normalización que descarta claves desconocidas y valores inválidos.
+- Define endpoints, tiempos de espera, tope de tokens de salida por etapa, servidores MCP y el registro de trazas. `qwenNumCtx` y `decisionMaxContext` deben coincidir con el contexto real de cada servicio.
+
+## 7. Interfaz Externa
+Rutas relativas al punto de montaje del router (`server.ts`):
+
+| Ruta | Método | Función |
+|---|---|---|
+| `/process`, `/task` | POST | Inicia una tarea (`message`, `mode`: `NORMAL` o `PLAN`) |
+| `/cancel` | POST | Cancela una tarea |
+| `/confirm-plan` | POST | Confirma el plan, o lo rechaza o modifica según `action`; `/reject-plan` y `/modify-plan` son equivalentes |
+| `/user-answer` | POST | Responde la pregunta abierta de una tarea deliberativa; devuelve 409 si no se aplicó |
+| `/approve`, `/deny` | POST | Resuelve la aprobación de seguridad pendiente |
+| `/state` | GET | Tarea actual, aprobación pendiente, tareas retenidas y herramientas descubiertas |
+| `/events` | GET | Flujo SSE: cada evento del núcleo con la tarea y la aprobación pendiente |
+| `/refresh-discovery`, `/discovery` | Cualquiera | Refresca el catálogo de herramientas de los servidores MCP |
+| `/config` | GET, POST | Lee o actualiza la configuración |
+
+## 8. Archivos Base
 - `server.ts`
 - `src/server/jarvisRouter.ts`
 - `src/core/core.ts`
@@ -49,5 +76,11 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 - `src/core/processor/resultProcessor.ts`
 - `src/core/processor/refResolver.ts`
 - `src/core/context.ts`
+- `src/core/config.ts`
+- `src/core/llmTransport.ts`
+- `src/core/debugAccumulator.ts`
+- `src/core/taskWire.ts`
+- `src/core/reasoner/prompts.ts`
+- `src/core/mcp/discovery.ts`
 - `src/core/taskTrace.ts`
 - `src/core/types.ts`

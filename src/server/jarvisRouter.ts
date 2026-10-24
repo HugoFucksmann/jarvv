@@ -115,8 +115,11 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
     const { taskId, answer } = req.body;
     const targetId = resolveTargetTaskId(jarvisCore, taskId);
     if (targetId && typeof answer === 'string') {
-      jarvisCore.provideUserAnswer(targetId, answer);
-      res.json({ ok: true });
+      if (jarvisCore.provideUserAnswer(targetId, answer)) {
+        res.json({ ok: true });
+      } else {
+        res.status(409).json({ error: 'La tarea no espera una respuesta o la respuesta está vacía.' });
+      }
     } else {
       res.status(400).json({ error: 'Se requiere taskId y respuesta válida.' });
     }
