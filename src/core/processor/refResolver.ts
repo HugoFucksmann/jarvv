@@ -10,7 +10,7 @@
  * El contenido sustituido nunca se vuelve a escanear (sin referencias anidadas).
  */
 
-import { RefStore } from "./resultProcessor.ts";
+import { RefStore } from "./refStore.ts";
 
 export interface ReferenceResolutionResult {
   resolvedArgs: Record<string, unknown>;

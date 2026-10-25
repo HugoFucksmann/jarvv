@@ -19,17 +19,18 @@ import type { UserEnvironment } from "../environment.ts";
 const MAX_GOAL_CHARS = 1500;
 const MAX_ACTION_CHARS = 1200;
 const MAX_CHAT_CHARS = 2000;
-const MAX_LOG_CHARS = 2500;
+const MAX_LOG_CHARS = 3500;
 const MAX_PLAN_CHARS = 1500;
 const MAX_FAIL_CHARS = 1200;
 const MAX_FACTS_CHARS = 2500;
 const MAX_FACT_VALUE_CHARS = 400;
-const MAX_EFFECTS_CHARS = 1200;
+const MAX_EFFECTS_CHARS = 2000;
 // Igual que el tope de la observación compacta: un tope menor recortaba en silencio el medio de un resultado completo.
 const MAX_OBS_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_DATA_CHARS = 6000;
-const MAX_EVID_CHARS = 6000;
-const MAX_STEP_RESULT_CHARS = 800;
+const MAX_EVID_CHARS = 9000;
+// Igual que el motivo de fallo que arma callExecutor (step.error): un solo valor evita que vuelvan a descalzarse.
+const MAX_STEP_RESULT_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_REFS_CHARS = 1200;
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
@@ -41,7 +42,9 @@ const MAX_MESSAGE_CHARS = 1000;
 const MAX_HISTORY_CHARS = 4000;
 const MAX_DECISION_MEMORY_CHARS = 2000;
 const MAX_RESULT_CHARS = 400;
-const MAX_OBSERVATION_CHARS = 500;
+// Verificación de paso con Eos (contexto de 16k tokens): ve el hallazgo y la observación compacta completos.
+const MAX_VERIFY_RESULT_CHARS = MAX_EVIDENCE_OBS_CHARS;
+const MAX_OBSERVATION_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_ATTEMPTS = 8;
 const MAX_NOTE_CHARS = 60;
 
@@ -94,6 +97,27 @@ const tailLines = (lines: readonly string[], maxChars: number): string[] => {
     used += cost;
   }
   return out;
+};
+
+/**
+ * Reparte `budget` entre las entradas de evidencia. Las cortas ceden lo que no usan a las largas, y cada entrada que
+ * no cabe se recorta con `clipObs` (cabeza, cola y marcadores `ref:rX`). Antes el bloque entero se cortaba por el
+ * principio y las lecturas más viejas desaparecían sin dejar rastro.
+ */
+const fitEvidence = (entries: readonly string[], budget: number, perEntry: number): string => {
+  const sep = "\n---\n";
+  const items = entries.filter((e) => e.trim());
+  if (items.length === 0) return "";
+  const room = budget - sep.length * (items.length - 1);
+  const caps = items.map((e) => Math.min(e.length, perEntry));
+  const order = caps.map((_, i) => i).sort((a, b) => caps[a] - caps[b]);
+  const alloc: number[] = new Array(items.length).fill(0);
+  let left = room;
+  order.forEach((idx, k) => {
+    alloc[idx] = Math.min(caps[idx], Math.floor(left / (items.length - k)));
+    left -= alloc[idx];
+  });
+  return items.map((e, i) => (e.length <= alloc[i] ? e : clipObs(e, alloc[i]))).join(sep);
 };
 
 /** Bloque de datos externos: etiquetado, delimitado y acotado. Vacío => null. */
@@ -241,7 +265,7 @@ Afirma solo lo que consta en LOG, FACTS y EVID; marca como no confirmado lo dem�
 ${DATA_NOTICE}`,
 
     buildUserPrompt(data: FinalResponsePromptData): string {
-      const evid = data.evidenceSummaries.map((e) => clip(e, MAX_EVIDENCE_OBS_CHARS)).join("\n---\n");
+      const evid = fitEvidence(data.evidenceSummaries, MAX_EVID_CHARS, MAX_EVIDENCE_OBS_CHARS);
       return join([
         `GOAL: ${safe(clip(data.goal, MAX_GOAL_CHARS))}`,
         linesBlock("LOG", data.logLines, MAX_LOG_CHARS),
@@ -500,14 +524,14 @@ export const DECISION_PROMPTS = {
   buildStepVerification(data: StepVerificationPromptData): DecisionInput {
     // La evidencia resumida suele ser el mismo hallazgo que `Result`: no se repite.
     const evidence = data.evidenceSummary && !data.resultSummary.includes(data.evidenceSummary)
-      ? clip(data.evidenceSummary, MAX_RESULT_CHARS)
+      ? clip(data.evidenceSummary, MAX_VERIFY_RESULT_CHARS)
       : null;
 
     const state = [
       `Step instruction: ${clip(data.instruction, MAX_MESSAGE_CHARS)}`,
       data.expectedOutcome ? `Expected outcome: ${clip(data.expectedOutcome, MAX_MESSAGE_CHARS)}` : null,
       `Tool: ${data.toolName}`,
-      `Result: ${clip(data.resultSummary, MAX_RESULT_CHARS)}`,
+      `Result: ${clip(data.resultSummary, MAX_VERIFY_RESULT_CHARS)}`,
       evidence ? `Observable evidence: ${evidence}` : null,
       data.observation ? `Observation: ${clip(data.observation, MAX_OBSERVATION_CHARS)}` : null,
     ].filter(Boolean).join("\n");

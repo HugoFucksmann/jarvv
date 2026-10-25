@@ -17,7 +17,9 @@ import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { type TaskExecutionContext, createEmptyMemory, ensureMemory } from "./context.ts";
 import type { EngineDependencies } from "./callExecutor.ts";
-import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
+import { RefStore } from "./processor/refStore.ts";
+import { sanitizeForMemory } from "./processor/text.ts";
+
 import {
   failTask,
   runFastLoop,

@@ -10,9 +10,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { ConfigManager } from "./config.ts";
 import type { TaskExecutionContext } from "./context.ts";
+import { RefStore, refKeyOf } from "./processor/refStore.ts";
+import type { StepCall } from "./types.ts";
 
 const MAX_TOOL_ERROR_CHARS = 300;
 const MAX_TOOL_PREVIEW_CHARS = 300;
+/** Tope del resultado crudo por llamada; `resultChars` conserva el tamaño original para detectar el recorte. */
+const MAX_TOOL_RESULT_CHARS = 20_000;
+
+/**
+ * Texto crudo de una llamada. Solo existe en RefStore (memoria volátil): se copia aquí al cerrar la tarea, sin duplicarlo
+ * en su estado. Lo derivado (hallazgo, observación compacta, hechos, líneas de memoria) no se registra: se recalcula
+ * desde este texto y los args, y ya figura en los prompts de las llamadas siguientes.
+ */
+function rawResultOf(taskId: string, call: StepCall): string | undefined {
+    const key = refKeyOf(call.evidence?.ref);
+    return key ? RefStore.get(key, taskId) : undefined;
+}
 
 export function recordTaskTrace(context: TaskExecutionContext): void {
     if (context.traced) return;
@@ -43,17 +57,22 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
             }));
 
         const toolRuns = task.steps.flatMap((s) =>
-            (s.calls ?? []).map((c) => ({
-                step: s.id,
-                tool: c.tool,
-                args: c.args ?? null,
-                status: c.status ?? null,
-                startedAt: c.execution?.startedAt ?? null,
-                durationMs: c.execution?.durationMs ?? null,
-                ok: c.outcome?.isError !== true,
-                error: c.outcome?.isError === true ? (c.error ?? "").slice(0, MAX_TOOL_ERROR_CHARS) || null : null,
-                resultPreview: (c.evidence?.obs ?? "").slice(0, MAX_TOOL_PREVIEW_CHARS) || undefined,
-            }))
+            (s.calls ?? []).map((c) => {
+                const raw = rawResultOf(task.id, c);
+                return {
+                    step: s.id,
+                    tool: c.tool,
+                    args: c.args ?? null,
+                    status: c.status ?? null,
+                    startedAt: c.execution?.startedAt ?? null,
+                    durationMs: c.execution?.durationMs ?? null,
+                    ok: c.outcome?.isError !== true,
+                    error: c.outcome?.isError === true ? (c.error ?? "").slice(0, MAX_TOOL_ERROR_CHARS) || null : null,
+                    resultPreview: (c.evidence?.obs ?? "").slice(0, MAX_TOOL_PREVIEW_CHARS) || undefined,
+                    result: raw?.slice(0, MAX_TOOL_RESULT_CHARS),
+                    resultChars: raw?.length,
+                };
+            })
         );
 
         const plan = task.mode === "PLAN"

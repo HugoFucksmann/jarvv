@@ -15,7 +15,8 @@ import {
 } from "./types.ts";
 import type { Attempt } from "./reasoner/prompts.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
-import { RefStore, refLabel, sanitizeForMemory } from "./processor/resultProcessor.ts";
+import { RefStore } from "./processor/refStore.ts";
+import { sanitizeForMemory } from "./processor/text.ts";
 
 /** Observación de una lectura con datos (búsqueda, página, archivo…): lo que un paso posterior puede necesitar. */
 export interface DataObservation {
@@ -235,14 +236,38 @@ export function buildPlanLines(task: Task): string[] {
 const EFFECT_STATUSES: ReadonlySet<CallStatus> = new Set<CallStatus>(["ok", "unverified", "rejected"]);
 
 /**
+ * Tope por valor de argumento en una línea de efectos. Un valor más largo se corta de forma explícita: termina en `…`
+ * e indica su tamaño original. Un comando de 615 caracteres (un Excel de dos filas) debe entrar entero.
+ */
+const MAX_EFFECT_ARG_CHARS = 1000;
+
+/** Argumentos de una llamada como `clave=valor` (objetos y arreglos serializados), saneados como el resto de la memoria. */
+function describeArgs(args: Record<string, unknown>): string {
+    return Object.entries(args)
+        .map(([key, value]) => {
+            const raw = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
+            const flat = sanitizeForMemory(raw, Number.MAX_SAFE_INTEGER).replace(/\s{2,}/g, " ");
+            return flat.length > MAX_EFFECT_ARG_CHARS
+                ? `${key}=${flat.slice(0, MAX_EFFECT_ARG_CHARS - 1).trimEnd()}…(${raw.length} caracteres)`
+                : `${key}=${flat}`;
+        })
+        .join(" ");
+}
+
+/**
  * Efectos derivados de task.steps[].calls: una línea por llamada que mutó, incluidos los pasos reemplazados por un
- * replan (sus llamadas no se borran). `limit` conserva las más recientes; Infinity devuelve todas.
+ * replan (sus llamadas no se borran). Cada línea lleva los argumentos de la llamada. `limit` conserva las más recientes;
+ * Infinity devuelve todas.
  */
 export function buildEffectsContext(task: Task, limit = 5): string[] {
     const lines = task.steps.flatMap((s) =>
         (s.calls ?? [])
             .filter((c) => c.status !== undefined && EFFECT_STATUSES.has(c.status) && getToolPolicy(c.mcp, c.tool).mutates)
-            .map((c) => `${s.id}|${refLabel(c.tool, c.args ?? {})}: ${c.evidence?.summary || "mutación aplicada"}`)
+            .map((c) => {
+                // Qué se pidió (los argumentos: qué se escribió, qué comando corrió), no solo qué respondió la herramienta.
+                const args = describeArgs(c.args ?? {});
+                return `${s.id}|${c.tool}${args ? ` ${args}` : ""}: ${c.evidence?.summary || "mutación aplicada"}`;
+            })
     );
     return lines.slice(-limit);
 }
@@ -256,7 +281,8 @@ export function applyStepHandoff(step: Step, context: TaskExecutionContext): str
     if (!handoff || !handoff.finding) {
         return step.instruction;
     }
-    const refNote = handoff.refKey ? ` [ref:${handoff.refKey}]` : "";
+    // El hallazgo recortado ya puede llevar su propia clave `[ref:rN]`: no se repite.
+    const refNote = handoff.refKey && !handoff.finding.includes(`ref:${handoff.refKey}`) ? ` [ref:${handoff.refKey}]` : "";
     const factNote = handoff.primaryFact ? ` | ${handoff.primaryFact.key}=${sanitizeForMemory(handoff.primaryFact.value, 400)}` : "";
     return `${step.instruction}\n[HANDOFF ${handoff.fromStepId} (${handoff.tool})]: ${handoff.finding}${refNote}${factNote}`;
 }

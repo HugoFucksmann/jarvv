@@ -6,8 +6,14 @@ import type {
   Scratchpad,
   StepExecutionSignals,
 } from "../types.ts";
-import { MAX_EVIDENCE_OBS_CHARS, MAX_SCRATCHPAD_RESULTS } from "../types.ts";
+import { MAX_EVIDENCE_OBS_CHARS } from "../types.ts";
 import { getToolPolicy } from "../tools/manifest.ts";
+import { RefStore, refLabel, evidenceRef } from "./refStore.ts";
+import type { ExtractorInput, ExtractorOutput } from "./extractors/types.ts";
+import { extractListDirectory, extractReadFile } from "./extractors/files.ts";
+import { extractProcess } from "./extractors/process.ts";
+import { extractSearch, extractFetch } from "./extractors/freeSearch.ts";
+import { extractGeneric } from "./extractors/generic.ts";
 
 export interface ProcessedResult {
   outcome: ExecutionOutcome;
@@ -21,162 +27,6 @@ export interface ProcessedResult {
   signals: StepExecutionSignals;
   refKey?: string;
   decisionSummary: string;
-}
-
-/**
- * Task-isolated reference store for complete tool outputs (§10.4, §10.11).
- * Isolates data per taskId to prevent cross-task clearing and memory leaks.
- */
-/** Descripción de una referencia guardada: origen legible y tamaño (para el bloque REFS del prompt de argumentos). */
-export interface RefDescriptor {
-  key: string;
-  label: string;
-  chars: number;
-}
-
-export class RefStore {
-  private static taskStores: Map<string, Map<string, string>> = new Map();
-  private static taskCounters: Map<string, number> = new Map();
-  private static taskMeta: Map<string, Map<string, { label: string; chars: number }>> = new Map();
-
-  static put(content: string, taskId: string, label?: string): string {
-    let store = this.taskStores.get(taskId);
-    if (!store) {
-      store = new Map<string, string>();
-      this.taskStores.set(taskId, store);
-    }
-    let meta = this.taskMeta.get(taskId);
-    if (!meta) {
-      meta = new Map();
-      this.taskMeta.set(taskId, meta);
-    }
-    for (const [existing, stored] of store) {
-      if (stored === content && meta.get(existing)?.label === (label ?? "")) return existing;
-    }
-    const currentCounter = (this.taskCounters.get(taskId) || 0) + 1;
-    this.taskCounters.set(taskId, currentCounter);
-    const key = `r${currentCounter}`;
-    store.set(key, content);
-    meta.set(key, { label: label ?? "", chars: content.length });
-    return key;
-  }
-
-  /** Las últimas `limit` referencias de la tarea, de la más antigua a la más reciente. */
-  static describe(taskId: string, limit = 5): RefDescriptor[] {
-    const meta = this.taskMeta.get(taskId);
-    if (!meta) return [];
-    return Array.from(meta.entries())
-      .slice(-limit)
-      .map(([key, m]) => ({ key, label: m.label, chars: m.chars }));
-  }
-
-  static get(key: string, taskId: string): string | undefined {
-    return this.taskStores.get(taskId)?.get(key);
-  }
-
-
-
-  /**
-   * Libera las referencias de una tarea (o todas). Las refs de una tarea terminada se conservan en memoria, para que su
-   * evidencia siga consultable mientras la tarea esté en el historial; solo se liberan cuando la tarea se expulsa.
-   */
-  static clear(taskId?: string): void {
-    if (taskId) {
-      this.taskStores.delete(taskId);
-      this.taskCounters.delete(taskId);
-      this.taskMeta.delete(taskId);
-    } else {
-      this.taskStores.clear();
-      this.taskCounters.clear();
-      this.taskMeta.clear();
-    }
-  }
-}
-
-/**
- * Sanitizes external text to a single line, stripping control chars and escaping delimiters (§10.7)
- */
-export function sanitizeForMemory(text: string, maxLen = 120): string {
-  if (!text) return "";
-  let clean = text
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/[\x00-\x1F\x7F]/g, "")
-    .replace(/<\/?obs>/gi, "[obs]")
-    .replace(/\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST|DATA):/gi, "$1_")
-    .trim();
-  if (clean.length > maxLen) {
-    clean = clean.substring(0, maxLen - 3) + "...";
-  }
-  return clean;
-}
-
-/** Argumentos que mejor identifican de dónde viene un resultado (para describirlo en REFS). */
-const REF_LABEL_ARGS = ["path", "file_path", "url", "query", "command", "pattern", "name"] as const;
-
-/** Etiqueta determinista de una llamada: herramienta + su destino (ruta, URL, consulta o comando). */
-export function refLabel(tool: string, args: Record<string, unknown>): string {
-  const src = args.source;
-  const dst = args.destination;
-  if (typeof src === "string" && src.trim() && typeof dst === "string" && dst.trim()) {
-    return `${tool} ${sanitizeForMemory(src, 60)} -> ${sanitizeForMemory(dst, 60)}`;
-  }
-  for (const key of REF_LABEL_ARGS) {
-    const value = args[key];
-    if (typeof value === "string" && value.trim()) return `${tool} ${sanitizeForMemory(value, 60)}`;
-  }
-  return tool;
-}
-
-/** Largos de snippet que intenta la observación compacta de `search`, de mayor a menor: gana el mayor que quepa. */
-const SEARCH_SNIPPET_LENGTHS = [240, 160, 100, 60, 40] as const;
-
-/** Línea con la que `search` informa un motor inexistente: `- <motor>: Unknown engine: '<x>'.` */
-const UNKNOWN_ENGINE_LINE = /^- [^:\n]+: Unknown engine: '([^']+)'\./gm;
-
-interface SearchItem {
-  title: string;
-  url?: string;
-  snippet?: string;
-}
-
-function clipAtWord(text: string, n: number): string {
-  if (text.length <= n) return text;
-  const cut = text.lastIndexOf(" ", n);
-  return `${text.slice(0, cut > n * 0.6 ? cut : n).trimEnd()}…`;
-}
-
-/**
- * Observación compacta de `search` dentro de MAX_EVIDENCE_OBS_CHARS. Prioridad: título y URL de cada resultado
- * (siempre completos); después los snippets, del mayor largo que quepa en todos; el lead, solo si cabe. Si ni los títulos y
- * URLs entran, se conservan los resultados completos que caben y el resto queda en la referencia.
- */
-function buildSearchObs(items: readonly SearchItem[], leadText: string | undefined, refKey: string | undefined): string {
-  const shown = items.slice(0, MAX_SCRATCHPAD_RESULTS);
-  const bare = shown.map((it) => (it.url ? `${it.title}: ${it.url}` : it.title));
-  const withSnippets = (n: number) =>
-    shown.map((it, i) => (it.snippet ? `${bare[i]} - ${clipAtWord(it.snippet, n)}` : bare[i]));
-  const lead = leadText ? `Lead: ${leadText.slice(0, 300)}` : undefined;
-
-  const compose = (lines: readonly string[], withLead: boolean): string => {
-    const omitted = items.length - lines.length;
-    const note = omitted > 0 && refKey ? `\n[... omitidos ${omitted} resultados, ref:${refKey}]` : "";
-    return [...(withLead && lead ? [lead] : []), ...lines].join("\n") + note;
-  };
-
-  for (const n of SEARCH_SNIPPET_LENGTHS) {
-    const lines = withSnippets(n);
-    const plain = compose(lines, false);
-    if (plain.length <= MAX_EVIDENCE_OBS_CHARS) {
-      const withLead = compose(lines, true);
-      return withLead.length <= MAX_EVIDENCE_OBS_CHARS ? withLead : plain;
-    }
-  }
-  const bareObs = compose(bare, false);
-  if (bareObs.length <= MAX_EVIDENCE_OBS_CHARS) return bareObs;
-
-  let kept = Math.max(bare.length - 1, 1);
-  while (kept > 1 && compose(bare.slice(0, kept), false).length > MAX_EVIDENCE_OBS_CHARS) kept--;
-  return compose(bare.slice(0, kept), false);
 }
 
 export class ResultProcessor {
@@ -265,188 +115,25 @@ export class ResultProcessor {
     // 4. Deterministic Extractors per Tool (§10.5)
     // Un resultado de error no pasa por los extractores específicos (producirían un resumen de éxito y facts
     // de una ruta, URL o PID que no se obtuvo): usa el extractor genérico, cuyo resumen es la primera línea del error.
-    let finding = "";
-    let compactObs = "";
-
+    const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData, refKey };
+    let extracted: ExtractorOutput;
     if (!isError && tool === "list_directory") {
-      const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
-      const names = lines.slice(0, 8).map((l) => l.replace(/^\[(FILE|DIR)\]\s*/, "").trim()).join(", ");
-      finding = sanitizeForMemory(
-        `${lines.length} entradas en directorio${names ? `: ${names}${lines.length > 8 ? ", …" : ""}` : ""}`,
-        200
-      );
-      const top40 = lines.slice(0, 40).join("\n");
-      compactObs = top40 || "Directorio vacío.";
-      if (lines.length > 40 && refKey) {
-        compactObs += `\n[... ${lines.length - 40} entradas omitidas, ref:${refKey}]`;
-      }
+      extracted = extractListDirectory(input);
     } else if (!isError && tool === "read_file") {
-      // Formato real: "[Reading N lines from start (total: T lines, R remaining)]" + línea en blanco + contenido.
-      // La cabecera no es contenido del archivo: se separa para contar líneas y se informa lo que queda sin leer.
-      const banner = /^\[Reading (\d+) lines?\b[^\]]*?\(total: (\d+) lines?, (\d+) remaining\)\]\s*/.exec(fullText);
-      const content = banner ? fullText.slice(banner[0].length) : fullText;
-      const remaining = banner ? parseInt(banner[3], 10) : 0;
-      const lines = content.length > 0 ? content.split("\n") : [];
-      const sizeKb = (Buffer.byteLength(content, "utf-8") / 1024).toFixed(1);
-      if (args.path) {
-        factsDelta.path = String(args.path);
-        scratchpadDelta.path = String(args.path);
-      }
-      if (banner && parseInt(banner[2], 10) === 0) {
-        // Archivo vacío (0 líneas en total): el servidor no lo marca como error, lo decide el Core.
-        signals.empty_output = true;
-        finding = "archivo vacío";
-        compactObs = "Archivo vacío.";
-      } else {
-        finding = sanitizeForMemory(`${lines.length} líneas, ${sizeKb}KB${remaining > 0 ? `, quedan ${remaining} sin leer` : ""}`);
-        if (lines.length > 30) {
-          const head = lines.slice(0, 15).join("\n");
-          const tail = lines.slice(-15).join("\n");
-          compactObs = `${head}\n[... ${lines.length - 30} líneas omitidas, ref:${refKey}]\n${tail}`;
-        } else {
-          compactObs = content;
-        }
-        if (remaining > 0) compactObs += `\n[... quedan ${remaining} líneas sin leer en el archivo]`;
-      }
+      extracted = extractReadFile(input);
     } else if (!isError && tool.includes("process")) {
-      // Desktop Commander no devuelve pid ni exit code estructurados. Formatos reales (MCP_REAL_OUTPUTS):
-      //   start_process       primera línea: "Process started with PID <n> (shell: ...)"; última: "✅ Process <n> has finished execution" (si terminó)
-      //   read_process_output última línea:   "✅ Process completed with exit code <n> (runtime: ...)" (si terminó)
-      // Solo se leen la primera y la última línea: el cuerpo es salida del proceso y no es fiable.
-      const textLines = fullText.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-      const firstTextLine = textLines[0] ?? "";
-      const lastTextLine = textLines[textLines.length - 1] ?? "";
-      const textPid = /^Process started with PID (\d+)\b/.exec(firstTextLine)?.[1];
-      const textExit = /Process completed with exit code (-?\d+)\b/.exec(lastTextLine)?.[1];
-      const finished = /Process \d+ has finished execution$/.test(lastTextLine);
-      // Cabeceras de Desktop Commander ("Initial output:", "⏳ Process is running…"): no son salida del proceso.
-      const isWrapperLine = (l: string) =>
-        /^Process started with PID \d+\b/.test(l) || /Process \d+ has finished execution$/.test(l) ||
-        /Process completed with exit code -?\d+\b/.test(l) ||
-        /^Initial output:?$/i.test(l) || /^⏳ Process is running/.test(l) ||
-        /^\[Reading \d+ new lines\b/.test(l) || /^🔄 Process \d+ is waiting for input\b/.test(l) ||
-        /^✅ Input executed in process \d+:?$/.test(l) || /^📤 Output:?$/.test(l);
-      const body = textLines.filter((l) => !isWrapperLine(l));
-      // `…` aparece solo si clipAtWord recortó algo.
-      const outputNote = body.length === 0
-        ? "sin salida"
-        : body.length === 1
-          ? clipAtWord(body[0], 90)
-          : body.length === 2
-            ? `${clipAtWord(body[0], 60)} | ${clipAtWord(body[1], 60)}`
-            : `${clipAtWord(body[0], 60)} | (+${body.length - 2} líneas) | ${clipAtWord(body[body.length - 1], 60)}`;
-
-      const pid = mergedData.process_id || mergedData.pid || args.pid || args.process_id || textPid;
-      if (pid) factsDelta.pid = String(pid);
-
-      let knownExit: number | undefined;
-      if (typeof mergedData.exit_code === "number") {
-        knownExit = mergedData.exit_code;
-      } else if (textExit !== undefined) {
-        knownExit = parseInt(textExit, 10);
-        signals.exit_code = knownExit;
-      }
-      const processStatus = knownExit !== undefined ? `exit=${knownExit}` : finished ? "status=finished" : "status=running";
-      scratchpadDelta.process_id = pid && knownExit === undefined && !finished ? String(pid) : undefined;
-      finding = sanitizeForMemory(`pid=${pid || 'desconocido'}, ${processStatus} | ${outputNote}`, 200);
-      const lines = fullText.split("\n");
-      const wasTruncatedLines = lines.length > 30;
-      let tail = lines.slice(-30).join("\n");
-      const note = (wasTruncatedLines || tail.length > MAX_EVIDENCE_OBS_CHARS) && refKey
-        ? `[... salida previa omitida, ref:${refKey}]\n`
-        : "";
-      const maxTailChars = MAX_EVIDENCE_OBS_CHARS - note.length;
-      if (tail.length > maxTailChars) {
-        tail = tail.slice(-maxTailChars);
-      }
-      compactObs = tail ? `${note}${tail}` : `Proceso ${pid || 'desconocido'} ejecutado.`;
+      extracted = extractProcess(input);
     } else if (!isError && mcp === "free_search" && tool === "search") {
-      // Jarvis nunca pide `format: "json"` (el manifest limita `search` a query y max_results): el servidor responde
-      // Markdown (MCP_REAL_OUTPUTS §2.1). Cabecera con `_results: N_`, lead opcional y una sección "## n. título" por resultado.
-      const items: SearchItem[] = [];
-      let leadText: string | undefined;
-
-      const resultsMatch = fullText.match(/_results:\s*(\d+)_/i);
-      const reportedCount = resultsMatch ? parseInt(resultsMatch[1], 10) : undefined;
-
-      const leadMatch = fullText.match(/>\s*\*\*Lead:\*\*\s*([^\n]+(?:\n>[^\n]+)*)/i);
-      if (leadMatch) {
-        leadText = leadMatch[1].replace(/\n>\s*/g, " ").trim();
-      }
-
-      const sections = fullText.split(/\n(?=##\s*\d+\.\s*)/);
-      for (const sec of sections) {
-        const headerMatch = sec.match(/^##\s*\d+\.\s*([^\n]+)/);
-        if (!headerMatch) continue;
-        const title = headerMatch[1].trim();
-
-        const urlMatch = sec.match(/<([^>]+)>/) || sec.match(/\n(https?:\/\/[^\s\n]+)/);
-        const url = urlMatch ? urlMatch[1].trim() : undefined;
-
-        const snippetMatch = sec.match(/(?:^|\n)>\s*(?!\*\*Lead:\*\*)([^\n]+(?:\n>[^\n]+)*)/);
-        const snippet = snippetMatch ? snippetMatch[1].replace(/\n>\s*/g, " ").trim() : undefined;
-
-        items.push({ title, url, snippet });
-      }
-
-      // Sin resultados leídos: `_results: 0_`, o un texto corto sin ese marcador, es una búsqueda vacía. Un recuento
-      // positivo, o un texto largo sin marcador, es un formato que no se supo leer.
-      const reportedPositive = reportedCount !== undefined && reportedCount > 0;
-      const longWithoutMarker = reportedCount === undefined && fullText.length > 500;
-      if (items.length === 0 && (reportedPositive || longWithoutMarker)) {
-        const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
-        finding = sanitizeForMemory(isError ? `err: ${firstLine}` : firstLine);
-        if (fullText.length > 1500) {
-          compactObs = `${fullText.substring(0, 750)}\n[... omitidos, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
-        } else {
-          compactObs = fullText || "Búsqueda web completada.";
-        }
-      } else if (items.length === 0) {
-        signals.empty_output = true;
-        const unknownEngines = [...fullText.matchAll(UNKNOWN_ENGINE_LINE)].map((m) => m[1]);
-        finding = sanitizeForMemory(
-          unknownEngines.length > 0 ? `0 resultados web (motor desconocido: ${unknownEngines.join(", ")})` : "0 resultados web"
-        );
-        compactObs = "0 resultados encontrados.";
-      } else {
-        const count = reportedCount !== undefined ? reportedCount : items.length;
-        const firstTitle = items[0]?.title || "";
-        finding = sanitizeForMemory(`${count} resultados web, primero: ${firstTitle}`);
-
-        // Estado visible de la UI. Ya no es un "hecho": las URLs completas viajan en DATA/LAST.
-        if (items[0]?.url) scratchpadDelta.url = items[0].url;
-
-        // El scratchpad es estado visible, no contexto de modelo: se acota para no crecer sin límite.
-        scratchpadDelta.search_results = items.slice(0, MAX_SCRATCHPAD_RESULTS).map((r) => ({
-          ...r,
-          snippet: typeof r.snippet === "string" ? r.snippet.slice(0, 300) : r.snippet,
-        }));
-        scratchpadDelta.search_results_total = items.length;
-
-        compactObs = buildSearchObs(items, leadText, refKey);
-      }
+      extracted = extractSearch(input);
     } else if (!isError && mcp === "free_search" && tool === "fetch") {
-      const urlStr = String(mergedData.url || args.url || "");
-      if (urlStr) {
-        factsDelta.url = urlStr;
-        scratchpadDelta.url = urlStr;
-      }
-      const firstLine = fullText.split("\n")[0] || "Página web";
-      finding = sanitizeForMemory(`página: ${firstLine}`);
-      if (fullText.length > 1500) {
-        compactObs = `${fullText.substring(0, 750)}\n[... contenido omitido, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
-      } else {
-        compactObs = fullText || "Página web leída.";
-      }
+      extracted = extractFetch(input);
     } else {
-      const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
-      finding = sanitizeForMemory(isError ? `err: ${firstLine}` : firstLine);
-      if (fullText.length > 1500) {
-        compactObs = `${fullText.substring(0, 750)}\n[... omitidos, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
-      } else {
-        compactObs = fullText || (success ? "Operación completada sin salida." : "Error de ejecución.");
-      }
+      extracted = extractGeneric(input);
     }
+    const { finding, compactObs } = extracted;
+    Object.assign(factsDelta, extracted.factsDelta);
+    Object.assign(scratchpadDelta, extracted.scratchpadDelta);
+    Object.assign(signals, extracted.signals);
 
     // 5. Determine VerificationState
     let verification: VerificationState = "NOT_REQUIRED";
@@ -460,7 +147,7 @@ export class ResultProcessor {
       summary: finding,
       obs: compactObs ? compactObs.slice(0, MAX_EVIDENCE_OBS_CHARS) : undefined,
       flags: flags.length > 0 ? flags : undefined,
-      ref: refKey ? `${mcp}:${tool}:${refKey}` : `${mcp}:${tool}`,
+      ref: evidenceRef(mcp, tool, refKey),
     };
 
     // 7. Resumen estructurado para modelos clasificadores (Decision 2.0)

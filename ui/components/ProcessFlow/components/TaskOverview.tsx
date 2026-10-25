@@ -43,7 +43,6 @@ function getProgressText(task: Task): string {
 
 export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) => {
   const replans = task.replans ?? 0;
-  const escalations = task.escalations ?? 0;
 
   return (
     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
@@ -65,12 +64,6 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
           <>
             <Separator />
             <span className="text-amber-400 font-semibold">Replans: {replans}</span>
-          </>
-        )}
-        {escalations > 0 && (
-          <>
-            <Separator />
-            <span className="text-orange-400 font-semibold">Escalaciones: {escalations}</span>
           </>
         )}
 

@@ -4,7 +4,6 @@ import type { CoreEvent, Task } from "../../../src/core/types.ts";
 import type { ModelIteration } from "../../types/debug.ts";
 import { groupIterationsByStep } from "../../utils/debugAccumulator.ts";
 import { StepIterationGroup } from "./components/StepIterationGroup.tsx";
-import { CopyButton } from "../Shared/CopyButton.tsx";
 import { Separator } from "../Shared/Separator.tsx";
 
 interface DecisionStreamProps {
@@ -118,30 +117,6 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
   const totalQwen = modelIterations.filter((m) => m.model === "QWEN_3_5_9B" && m.invoked === true).length;
   const traceEvents = events.filter((e) => TRACE_EVENT_TYPES.has(e.type));
 
-  const buildAuditJson = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rootData: Record<string, any> = {
-      taskId: task?.id || "current",
-      exportedAt: new Date().toISOString(),
-      taskState: task?.state || "UNKNOWN",
-      mode: task?.mode || "NORMAL",
-      isPartialExport: Boolean(isExecuting || task?.state === "RUNNING"),
-      totalIterations: modelIterations.length,
-      modelsSummary: { eos_0_8b: totalEos, qwen_3_5_9b: totalQwen },
-    };
-
-    if (typeof task?.replans === "number") {
-      rootData.replans = task.replans;
-    }
-    if (typeof task?.escalations === "number") {
-      rootData.escalations = task.escalations;
-    }
-
-    rootData.iterations = modelIterations;
-
-    return JSON.stringify(rootData, null, 2);
-  };
-
   return (
     <div className="flex flex-col gap-3 px-6 py-2">
       {/* 1. Cabecera de observabilidad con controles globales */}
@@ -167,15 +142,8 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          <span
-            className="text-[10px] text-slate-500 font-mono"
-            title="La exportación JSON incluye rutas de archivos locales y fragmentos de texto leídos durante la ejecución para fidelidad de auditoría."
-          >
-            Aviso: la copia incluye rutas locales y contenido leído
-          </span>
-
-          {stepGroups.length > 0 && (
+        {stepGroups.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => setExpandAllGroups((prev) => !prev)}
@@ -184,19 +152,8 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
               <Layers className="w-3 h-3" />
               <span>{expandAllGroups ? "Colapsar todos" : "Expandir todos"}</span>
             </button>
-          )}
-
-          {modelIterations.length > 0 && (
-            <CopyButton
-              text={buildAuditJson}
-              label="Copiar Auditoría"
-              copiedLabel="Auditoría Copiada"
-              title="Copiar auditoría completa de modelos en formato JSON (incluye rutas locales y contenido leído)"
-              iconColor="text-slate-400"
-              className="gap-1 px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded"
-            />
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* 2. Iteraciones agrupadas por paso */}

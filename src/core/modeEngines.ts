@@ -33,8 +33,7 @@ import { type EngineDependencies, recordFailedCall, runStep } from "./callExecut
 import { RequestAbortedError, TransportError } from "./llmTransport.ts";
 import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.ts";
 import { DecisionServiceUnavailableError } from "./decision.ts";
-import { sanitizeForMemory } from "./processor/resultProcessor.ts";
-
+import { sanitizeForMemory } from "./processor/text.ts";
 /** ¿Hay que abandonar el trabajo en curso? (cancelación o estado terminal) */
 const isStopped = (context: TaskExecutionContext): boolean =>
     context.isCancelled || isTerminalState(context.task.state);

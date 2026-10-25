@@ -25,7 +25,9 @@ import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
 import { LLMServiceUnavailableError, LLMValidationError, type FailedAttempt, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { ResultProcessor, refLabel, sanitizeForMemory, type ProcessedResult } from "./processor/resultProcessor.ts";
+import { ResultProcessor, type ProcessedResult } from "./processor/resultProcessor.ts";
+import { refLabel } from "./processor/refStore.ts";
+import { sanitizeForMemory } from "./processor/text.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tools/manifest.ts";
@@ -474,7 +476,7 @@ export async function runStep(
                 processed.evidence.summary,
                 step.expectedOutcome,
                 // Fragmento real de lo observado. Es texto externo: se sanea y se quitan los marcadores de omisión.
-                sanitizeForMemory((processed.compactObs || "").replace(/\[\.\.\.[^\]]*\]/g, "[…]"), 500),
+                sanitizeForMemory((processed.compactObs || "").replace(/\[\.\.\.[^\]]*\]/g, "[…]"), MAX_EVIDENCE_OBS_CHARS),
                 signal
             );
             eosPassed = verificationDetail.ok && verificationDetail.cumple;
@@ -530,7 +532,7 @@ export async function runStep(
     // Motivo del fallo (lo ven step.error, el replan y la UI): causa fija + hallazgo determinista de la herramienta.
     // Nunca prosa de Eos ni de Qwen: sus probabilidades y su `reason` viajan solo en los eventos y la traza.
     const failReason = status === "tool_error" || status === "not_found" || status === "no_data" || status === "rejected"
-        ? sanitizeForMemory(describeFailure(status, processed.finding || processed.summaryText), 400)
+        ? sanitizeForMemory(describeFailure(status, processed.finding || processed.summaryText), MAX_EVIDENCE_OBS_CHARS)
         : undefined;
 
     // Los facts son "hechos confirmados": solo se registran si el paso pasó la verificación, o si no pudo verificarse
