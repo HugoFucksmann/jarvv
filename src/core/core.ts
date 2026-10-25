@@ -25,7 +25,7 @@ import {
   runPlanLoop,
   planStepsToSteps,
 } from "./modeEngines.ts";
-import { createIterationFromEvent } from "./debugAccumulator.ts";
+import { createIterationFromEvent } from "./modelIterations.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 
 export type { TaskExecutionContext } from "./context.ts";
@@ -285,6 +285,7 @@ export class JarvisCore {
       steps: task.steps,
       rawInput: newPlan.rawInput,
       rawOutput: newPlan.rawOutput,
+      timing: newPlan.timing,
     });
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
   }

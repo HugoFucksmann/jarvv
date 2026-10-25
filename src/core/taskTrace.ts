@@ -14,9 +14,6 @@ import type { TaskExecutionContext } from "./context.ts";
 const MAX_TOOL_ERROR_CHARS = 300;
 const MAX_TOOL_PREVIEW_CHARS = 300;
 
-/** Decision #2 con una sola herramienta no llama al modelo: su "salida" sintética lleva esta marca. */
-const SINGLE_TOOL_SHORTCUT = "single_tool_shortcut";
-
 export function recordTaskTrace(context: TaskExecutionContext): void {
     if (context.traced) return;
     context.traced = true;
@@ -28,14 +25,18 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
         const { task } = context;
         const stepIds = new Set(task.steps.map((s) => s.id));
 
-        // Una entrada por intercambio real con un modelo: las iteraciones sin rawInput (p. ej. una verificación que
-        // no llegó a ejecutarse) y el atajo de Decision #2 no lo son. `step` solo si es un paso real del plan.
+        // Una entrada por intercambio real con un modelo (`invoked`, definido al construir la iteración: sin atajos
+        // deterministas ni verificaciones que no llegaron a ejecutarse). Se ordenan por el inicio real de cada llamada.
+        // `step` solo si es un paso real del plan.
         const calls = (task.modelIterations ?? [])
-            .filter((it) => it.rawInput !== undefined && !(it.stage === "DECISION_TWO" && it.rawOutput?.includes(SINGLE_TOOL_SHORTCUT)))
+            .filter((it) => it.invoked === true)
+            .sort((a, b) => a.timestamp - b.timestamp)
             .map((it, i) => ({
                 seq: i + 1,
                 step: it.stepId && stepIds.has(it.stepId) ? it.stepId : null,
                 stage: it.stage,
+                startedAt: it.timestamp,
+                durationMs: it.metrics?.latencyMs ?? null,
                 rawInput: it.rawInput,
                 rawOutput: it.rawOutput,
                 error: it.error ?? null,
@@ -46,6 +47,9 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
                 step: s.id,
                 tool: c.tool,
                 args: c.args ?? null,
+                status: c.status ?? null,
+                startedAt: c.execution?.startedAt ?? null,
+                durationMs: c.execution?.durationMs ?? null,
                 ok: c.outcome?.isError !== true,
                 error: c.outcome?.isError === true ? (c.error ?? "").slice(0, MAX_TOOL_ERROR_CHARS) || null : null,
                 resultPreview: (c.evidence?.obs ?? "").slice(0, MAX_TOOL_PREVIEW_CHARS) || undefined,
@@ -73,6 +77,7 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
             userMessage: task.message,
             status: task.state,
             finalResponse: task.finalResponse ?? null,
+            finalResponseSource: task.finalResponseSource ?? null,
             plan,
             calls,
             toolRuns,

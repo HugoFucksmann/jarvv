@@ -1,17 +1,24 @@
 /**
- * UI Utilities for capturing, reconstructing, and grouping Model Iterations
- * Consumed by DecisionStream, hooks, and inspectors.
+ * Utilidades de la UI para reconstruir, agrupar y derivar vistas de las iteraciones de modelo.
+ * Consumido por DecisionStream, hooks e inspectores.
+ *
+ * Las iteraciones nuevas las construye `src/core/modelIterations.ts` (el mismo módulo que usa el servidor, para que
+ * ambos lados describan igual cada intercambio). Aquí solo viven las vistas propias de la UI: reconstrucción desde una
+ * instantánea de la tarea, agrupación por paso y derivación de los crudos.
  */
 
 import type { Task, Step, StepCall } from "../../src/core/types.ts";
 import { EXECUTABLE_ROUTES, type ModelIteration } from "../../src/core/types.ts";
+import { buildEffectsContext } from "../../src/core/context.ts";
+import { callVerdict, finalResponseVerdict } from "../../src/core/modelIterations.ts";
 import type { StepIterationGroupData } from "../types/debug.ts";
 
-export { createIterationFromEvent } from "../../src/core/debugAccumulator.ts";
+export { createIterationFromEvent } from "../../src/core/modelIterations.ts";
 
 // Instantáneas para reconstrucción de estado
 const snapFacts = (t?: Task | null): Record<string, string> => ({ ...(t?.memory?.facts ?? {}) });
-const snapEffects = (t?: Task | null): string[] => [...(t?.memory?.effects ?? [])];
+// Los efectos se derivan de las llamadas registradas (no hay almacén propio).
+const snapEffects = (t?: Task | null): string[] => (t ? buildEffectsContext(t, Number.POSITIVE_INFINITY) : []);
 
 /**
  * Reconstructs missing model iterations from a Task snapshot (steps, calls, finalResponse).
@@ -151,7 +158,10 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
       }
 
       if (call.verification || call.evidence || call.outcome) {
-        const isOk = Boolean(call.outcome?.success ?? call.evidence?.ok ?? (step.state === "COMPLETED"));
+        // `call.status` es la fuente única; las tareas anteriores a ese campo conservan la inferencia previa.
+        const isOk = call.status !== undefined
+          ? call.status === "ok"
+          : Boolean(call.outcome?.success ?? call.evidence?.ok ?? (step.state === "COMPLETED"));
         iterations.push({
           id: `iter_reconstructed_verify_${step.id}_${call.id || callIndex}`,
           taskId: task.id,
@@ -171,13 +181,15 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
           output: {
             veredictoOk: isOk,
             veredictoCumple: isOk,
-            estadoVerificacion: call.verification || (isOk ? "VERIFIED" : "UNVERIFIED"),
+            estadoLlamada: call.status,
+            estadoVerificacion: call.verification || (isOk ? "VERIFIED" : "NOT_REQUIRED"),
+            duracionHerramientaMs: call.execution?.durationMs,
             resultado: call.outcome,
             error: call.error,
           },
           metrics: {
             isStepSuccess: isOk,
-            verdict: isOk ? "PASO VERIFICADO" : "DESVIACIÓN / ERROR",
+            verdict: call.status ? callVerdict(call.status) : isOk ? "PASO VERIFICADO" : "DESVIACIÓN / ERROR",
           },
         });
       }
@@ -202,11 +214,17 @@ export function reconstructIterationsFromTask(task: Task): ModelIteration[] {
       },
       output: {
         respuestaSintetizada: task.finalResponse,
+        origen: task.finalResponseSource === "fallback" ? "plantilla de respaldo" : "modelo",
       },
       metrics: {
-        verdict: "Respuesta al usuario completada",
+        verdict: finalResponseVerdict(task.finalResponseSource, task.state),
       },
     });
+  }
+
+  // Una iteración reconstruida corresponde a un intercambio real solo si conserva su entrada cruda.
+  for (const it of iterations) {
+    if (it.invoked === undefined) it.invoked = it.rawInput !== undefined;
   }
 
   return iterations;

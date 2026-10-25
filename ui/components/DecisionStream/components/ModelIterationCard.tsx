@@ -129,12 +129,6 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
   const stageQuestion = outputData.preguntaUsuario || outputData.questionForUser || outputData.question_for_user || "";
 
   const resolvedConfidence = useMemo(() => {
-    if (typeof iteration.metrics?.confidence === "number") {
-      return iteration.metrics.confidence;
-    }
-    if (typeof outputData.confianza === "number") {
-      return outputData.confianza;
-    }
     if (iteration.stage === "DECISION_ONE") {
       const route = outputData.rutaSeleccionada || outputData.route;
       const probs = outputData.probabilidades || outputData.probabilities;

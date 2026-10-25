@@ -21,6 +21,7 @@ import {
   type StageVerificationPromptData,
   type StageVerificationResult,
   type StageVerificationStatus,
+  type TimeSpan,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
 import {
@@ -40,8 +41,8 @@ import { estimateTokens, postJson, RequestAbortedError, TransportError } from ".
 
 /** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
-  readonly raw?: { rawInput: string };
-  constructor(message: string, cause?: unknown, raw?: { rawInput: string }) {
+  readonly raw?: { rawInput: string; timing?: TimeSpan };
+  constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }) {
     super(`[Qwen Unavailable] ${message}`, { cause });
     this.name = "LLMServiceUnavailableError";
     this.raw = raw;
@@ -53,13 +54,14 @@ export interface FailedAttempt {
   rawInput: string;
   rawOutput: string;
   error: string;
+  timing?: TimeSpan;
 }
 
 /** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
 export class LLMValidationError extends Error {
-  readonly raw?: { rawInput: string; rawOutput: string };
+  readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
   readonly attempts?: FailedAttempt[];
-  constructor(message: string, raw?: { rawInput: string; rawOutput: string }, attempts?: FailedAttempt[]) {
+  constructor(message: string, raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan }, attempts?: FailedAttempt[]) {
     super(`[Qwen Validation] ${message}`);
     this.name = "LLMValidationError";
     this.raw = raw;
@@ -135,6 +137,7 @@ export interface ArgumentsGenerationResult {
   args: Record<string, unknown>;
   rawInput: string;
   rawOutput: string;
+  timing: TimeSpan;
   failedAttempts?: FailedAttempt[];
 }
 
@@ -142,6 +145,7 @@ export interface FinalResponseResult {
   response: string;
   rawInput: string;
   rawOutput: string;
+  timing: TimeSpan;
 }
 
 export interface ReplanResult {
@@ -150,6 +154,7 @@ export interface ReplanResult {
   plan?: Plan;
   rawInput?: string;
   rawOutput?: string;
+  timing?: TimeSpan;
 }
 
 export interface ILLMClient {
@@ -177,6 +182,8 @@ interface QwenDispatchResult {
   truncated: boolean;
   rawInput: string;
   rawOutput: string;
+  /** Inicio y duración de la petición HTTP (incluye el reintento de transporte). */
+  timing: TimeSpan;
 }
 
 // ============================================================
@@ -195,6 +202,26 @@ export function stripThink(raw: string): string {
   const orphanClose = s.toLowerCase().lastIndexOf("</think>");
   if (orphanClose >= 0) s = s.slice(orphanClose + "</think>".length);
   return s.replace(/<think>[\s\S]*$/i, "").trim();
+}
+
+/**
+ * Respuesta del servidor sin el pensamiento del modelo, apta para registros, eventos y trazas. Es una lista blanca:
+ * solo salen campos conocidos y `content` sin bloques <think>, así que ningún campo de razonamiento del servidor
+ * (`reasoning`, `reasoning_content`, etc.) llega a un registro, sea cual sea su nombre.
+ */
+function sanitizedRawOutput(data: unknown, content: string): string {
+  const d = isRecord(data) ? data : {};
+  const choice = Array.isArray(d.choices) && isRecord(d.choices[0]) ? d.choices[0] : {};
+  return JSON.stringify({
+    id: d.id,
+    model: d.model,
+    choices: [{
+      index: choice.index,
+      finish_reason: choice.finish_reason,
+      message: { role: "assistant", content: stripThink(content) },
+    }],
+    usage: d.usage,
+  }, null, 2);
 }
 
 /** Primer objeto JSON de llaves balanceadas parseable como objeto, respetando strings y escapes. */
@@ -485,21 +512,22 @@ export class QwenEngine implements ILLMClient {
             ? `Timeout (${timeoutMs}ms) esperando a Qwen en ${url}`
             : `No fue posible conectar con Qwen en ${url}. Verifique que el servidor esté activo. ${err.message}`,
           err,
-          { rawInput }
+          { rawInput, timing: { startedAt: t0, durationMs: Date.now() - t0 } }
         );
       }
       throw err; // RequestAbortedError
     }
 
     if (!result.ok) {
-      throw new LLMServiceUnavailableError(`HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`, undefined, { rawInput });
+      throw new LLMServiceUnavailableError(`HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`, undefined, { rawInput, timing: { startedAt: t0, durationMs: Date.now() - t0 } });
     }
 
     let data: unknown;
     try {
       data = JSON.parse(result.text);
     } catch {
-      throw new LLMValidationError("La respuesta de Qwen no es un JSON legible.", { rawInput, rawOutput: result.text });
+      // No se puede garantizar que un cuerpo ilegible no traiga pensamiento: solo se registra su tamaño.
+      throw new LLMValidationError("La respuesta de Qwen no es un JSON legible.", { rawInput, rawOutput: `[respuesta no legible: ${result.text.length} caracteres]` });
     }
 
     const choice = isRecord(data) && Array.isArray(data.choices) ? data.choices[0] : undefined;
@@ -510,8 +538,10 @@ export class QwenEngine implements ILLMClient {
     const promptTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
     const completionTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
     const truncated = finishReason === "length";
+    // Único punto por el que la respuesta cruda llega a memoria, eventos y trazas: sin pensamiento del modelo.
+    const rawOutput = sanitizedRawOutput(data, content);
 
-    console.log(`[Qwen ← RECV] stage=${o.stage} raw=${result.text.slice(0, 400)}`);
+    console.log(`[Qwen ← RECV] stage=${o.stage} raw=${rawOutput.slice(0, 400)}`);
     console.log(
       `[Qwen] stage=${o.stage} tokens=(in=${promptTokens}, out=${completionTokens}, max=${maxTokens}) finish_reason=${finishReason}${truncated ? " [LENGTH_EXCEEDED]" : ""} thinking=${o.thinking ? "yes" : "no"} duration=${Date.now() - t0}ms`
     );
@@ -519,7 +549,7 @@ export class QwenEngine implements ILLMClient {
       console.warn(`[Qwen] stage=${o.stage} agotó el contexto (${promptTokens + completionTokens}/${config.qwenNumCtx}); el servidor pudo recortar el prompt.`);
     }
 
-    return { content, truncated, rawInput, rawOutput: result.text };
+    return { content, truncated, rawInput, rawOutput, timing: { startedAt: t0, durationMs: Date.now() - t0 } };
   }
 
   /**
@@ -550,14 +580,14 @@ export class QwenEngine implements ILLMClient {
       if (v.ok) return { value: v.value, res, failed };
       else {
         previousError = v.error;
-        failed.push({ rawInput: res.rawInput, rawOutput: res.rawOutput, error: v.error });
+        failed.push({ rawInput: res.rawInput, rawOutput: res.rawOutput, error: v.error, timing: res.timing });
         console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
       }
     }
 
     throw new LLMValidationError(
       `${o.stage}: ${previousError}`,
-      last ? { rawInput: last.rawInput, rawOutput: last.rawOutput } : undefined,
+      last ? { rawInput: last.rawInput, rawOutput: last.rawOutput, timing: last.timing } : undefined,
       failed
     );
   }
@@ -590,7 +620,7 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { args: value, rawInput: res.rawInput, rawOutput: res.rawOutput, failedAttempts: failed };
+      return { args: value, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing, failedAttempts: failed };
     });
   }
 
@@ -617,7 +647,7 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { response: value, rawInput: res.rawInput, rawOutput: res.rawOutput };
+      return { response: value, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
     });
   }
 
@@ -658,7 +688,7 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput };
+      return { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
     });
   }
 
@@ -697,13 +727,14 @@ export class QwenEngine implements ILLMClient {
       });
 
       if (value.action === "abort") {
-        return { action: "abort", reason: value.reason, rawInput: res.rawInput, rawOutput: res.rawOutput };
+        return { action: "abort", reason: value.reason, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
       }
       return {
         action: "continue",
-        plan: { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput },
+        plan: { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing },
         rawInput: res.rawInput,
         rawOutput: res.rawOutput,
+        timing: res.timing,
       };
     });
   }
@@ -717,7 +748,7 @@ export class QwenEngine implements ILLMClient {
       const userPrompt = PROMPTS.STAGE_VERIFICATION.buildUserPrompt(data);
 
       try {
-        const { value, res } = await this.dispatchValidated<Omit<StageVerificationResult, "rawInput" | "rawOutput">>({
+        const { value, res } = await this.dispatchValidated<Omit<StageVerificationResult, "rawInput" | "rawOutput" | "timing">>({
           stage: "verify_stage",
           system: PROMPTS.STAGE_VERIFICATION.SYSTEM,
           user: (prev) => userPrompt + retryNote(prev),
@@ -742,7 +773,7 @@ export class QwenEngine implements ILLMClient {
               : fail('con status "insufficient_info", question_for_user debe contener la pregunta concreta');
           },
         });
-        return { ...value, rawInput: res.rawInput, rawOutput: res.rawOutput };
+        return { ...value, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
       } catch (err) {
         if (!(err instanceof LLMValidationError)) throw err;
         return {
@@ -750,6 +781,7 @@ export class QwenEngine implements ILLMClient {
           reason: `La verificación semántica no produjo un veredicto válido: ${err.message}`,
           rawInput: err.raw?.rawInput,
           rawOutput: err.raw?.rawOutput,
+          timing: err.raw?.timing,
         };
       }
     });

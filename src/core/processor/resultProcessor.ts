@@ -115,6 +115,11 @@ const REF_LABEL_ARGS = ["path", "file_path", "url", "query", "command", "pattern
 
 /** Etiqueta determinista de una llamada: herramienta + su destino (ruta, URL, consulta o comando). */
 export function refLabel(tool: string, args: Record<string, unknown>): string {
+  const src = args.source;
+  const dst = args.destination;
+  if (typeof src === "string" && src.trim() && typeof dst === "string" && dst.trim()) {
+    return `${tool} ${sanitizeForMemory(src, 60)} -> ${sanitizeForMemory(dst, 60)}`;
+  }
   for (const key of REF_LABEL_ARGS) {
     const value = args[key];
     if (typeof value === "string" && value.trim()) return `${tool} ${sanitizeForMemory(value, 60)}`;
@@ -234,7 +239,8 @@ export class ResultProcessor {
     const lowerText = fullText.toLowerCase();
     const leadsWith = (marker: string) => fullText.startsWith(marker);
     const isNotFound =
-      leadsWith("[NOT_FOUND]") || (isError && (fullText.includes("[NOT_FOUND]") || lowerText.includes("not found")));
+      leadsWith("[NOT_FOUND]") ||
+      (isError && (fullText.includes("[NOT_FOUND]") || lowerText.includes("not found") || /\benoent\b|no such file or directory/.test(lowerText)));
     const isDenied =
       leadsWith("[DENIED]") || (isError && (fullText.includes("[DENIED]") || lowerText.includes("access denied")));
 
@@ -264,27 +270,43 @@ export class ResultProcessor {
 
     if (!isError && tool === "list_directory") {
       const lines = fullText.split("\n").filter((l) => l.trim().length > 0);
-      finding = sanitizeForMemory(`${lines.length} entradas en directorio`);
+      const names = lines.slice(0, 8).map((l) => l.replace(/^\[(FILE|DIR)\]\s*/, "").trim()).join(", ");
+      finding = sanitizeForMemory(
+        `${lines.length} entradas en directorio${names ? `: ${names}${lines.length > 8 ? ", …" : ""}` : ""}`,
+        200
+      );
       const top40 = lines.slice(0, 40).join("\n");
       compactObs = top40 || "Directorio vacío.";
       if (lines.length > 40 && refKey) {
         compactObs += `\n[... ${lines.length - 40} entradas omitidas, ref:${refKey}]`;
       }
     } else if (!isError && tool === "read_file") {
-      const lines = fullText.split("\n");
-      const sizeBytes = Buffer.byteLength(fullText, "utf-8");
-      const sizeKb = (sizeBytes / 1024).toFixed(1);
-      finding = sanitizeForMemory(`${lines.length} líneas, ${sizeKb}KB`);
+      // Formato real: "[Reading N lines from start (total: T lines, R remaining)]" + línea en blanco + contenido.
+      // La cabecera no es contenido del archivo: se separa para contar líneas y se informa lo que queda sin leer.
+      const banner = /^\[Reading (\d+) lines?\b[^\]]*?\(total: (\d+) lines?, (\d+) remaining\)\]\s*/.exec(fullText);
+      const content = banner ? fullText.slice(banner[0].length) : fullText;
+      const remaining = banner ? parseInt(banner[3], 10) : 0;
+      const lines = content.length > 0 ? content.split("\n") : [];
+      const sizeKb = (Buffer.byteLength(content, "utf-8") / 1024).toFixed(1);
       if (args.path) {
         factsDelta.path = String(args.path);
         scratchpadDelta.path = String(args.path);
       }
-      if (lines.length > 30) {
-        const head = lines.slice(0, 15).join("\n");
-        const tail = lines.slice(-15).join("\n");
-        compactObs = `${head}\n[... ${lines.length - 30} líneas omitidas, ref:${refKey}]\n${tail}`;
+      if (banner && parseInt(banner[2], 10) === 0) {
+        // Archivo vacío (0 líneas en total): el servidor no lo marca como error, lo decide el Core.
+        signals.empty_output = true;
+        finding = "archivo vacío";
+        compactObs = "Archivo vacío.";
       } else {
-        compactObs = fullText || "Archivo leído (vacío).";
+        finding = sanitizeForMemory(`${lines.length} líneas, ${sizeKb}KB${remaining > 0 ? `, quedan ${remaining} sin leer` : ""}`);
+        if (lines.length > 30) {
+          const head = lines.slice(0, 15).join("\n");
+          const tail = lines.slice(-15).join("\n");
+          compactObs = `${head}\n[... ${lines.length - 30} líneas omitidas, ref:${refKey}]\n${tail}`;
+        } else {
+          compactObs = content;
+        }
+        if (remaining > 0) compactObs += `\n[... quedan ${remaining} líneas sin leer en el archivo]`;
       }
     } else if (!isError && tool.includes("process")) {
       // Desktop Commander no devuelve pid ni exit code estructurados. Formatos reales (MCP_REAL_OUTPUTS):
@@ -297,14 +319,22 @@ export class ResultProcessor {
       const textPid = /^Process started with PID (\d+)\b/.exec(firstTextLine)?.[1];
       const textExit = /Process completed with exit code (-?\d+)\b/.exec(lastTextLine)?.[1];
       const finished = /Process \d+ has finished execution$/.test(lastTextLine);
+      // Cabeceras de Desktop Commander ("Initial output:", "⏳ Process is running…"): no son salida del proceso.
       const isWrapperLine = (l: string) =>
-        /^Process started with PID \d+\b/.test(l) || /Process \d+ has finished execution$/.test(l) || /Process completed with exit code -?\d+\b/.test(l);
+        /^Process started with PID \d+\b/.test(l) || /Process \d+ has finished execution$/.test(l) ||
+        /Process completed with exit code -?\d+\b/.test(l) ||
+        /^Initial output:?$/i.test(l) || /^⏳ Process is running/.test(l) ||
+        /^\[Reading \d+ new lines\b/.test(l) || /^🔄 Process \d+ is waiting for input\b/.test(l) ||
+        /^✅ Input executed in process \d+:?$/.test(l) || /^📤 Output:?$/.test(l);
       const body = textLines.filter((l) => !isWrapperLine(l));
+      // `…` aparece solo si clipAtWord recortó algo.
       const outputNote = body.length === 0
         ? "sin salida"
         : body.length === 1
-          ? body[0].slice(0, 90)
-          : `${body[0].slice(0, 60)} … ${body[body.length - 1].slice(0, 60)}`;
+          ? clipAtWord(body[0], 90)
+          : body.length === 2
+            ? `${clipAtWord(body[0], 60)} | ${clipAtWord(body[1], 60)}`
+            : `${clipAtWord(body[0], 60)} | (+${body.length - 2} líneas) | ${clipAtWord(body[body.length - 1], 60)}`;
 
       const pid = mergedData.process_id || mergedData.pid || args.pid || args.process_id || textPid;
       if (pid) factsDelta.pid = String(pid);
@@ -331,47 +361,32 @@ export class ResultProcessor {
       }
       compactObs = tail ? `${note}${tail}` : `Proceso ${pid || 'desconocido'} ejecutado.`;
     } else if (!isError && mcp === "free_search" && tool === "search") {
-      let jsonResults = Array.isArray(mergedData.results) ? mergedData.results : (Array.isArray(mergedData.documents) ? mergedData.documents : null);
-
-      let items: SearchItem[] = [];
-      let reportedCount: number | undefined;
+      // Jarvis nunca pide `format: "json"` (el manifest limita `search` a query y max_results): el servidor responde
+      // Markdown (MCP_REAL_OUTPUTS §2.1). Cabecera con `_results: N_`, lead opcional y una sección "## n. título" por resultado.
+      const items: SearchItem[] = [];
       let leadText: string | undefined;
 
-      if (jsonResults && jsonResults.length > 0) {
-        items = jsonResults.map((r: any) => ({
-          title: r.title || "Resultado",
-          url: r.url,
-          snippet: r.snippet || r.description,
-        }));
-        reportedCount = items.length;
-      } else {
-        const resultsMatch = fullText.match(/_results:\s*(\d+)_/i);
-        if (resultsMatch) {
-          reportedCount = parseInt(resultsMatch[1], 10);
-        }
+      const resultsMatch = fullText.match(/_results:\s*(\d+)_/i);
+      const reportedCount = resultsMatch ? parseInt(resultsMatch[1], 10) : undefined;
 
-        const leadMatch = fullText.match(/>\s*\*\*Lead:\*\*\s*([^\n]+(?:\n>[^\n]+)*)/i);
-        if (leadMatch) {
-          leadText = leadMatch[1].replace(/\n>\s*/g, " ").trim();
-        }
+      const leadMatch = fullText.match(/>\s*\*\*Lead:\*\*\s*([^\n]+(?:\n>[^\n]+)*)/i);
+      if (leadMatch) {
+        leadText = leadMatch[1].replace(/\n>\s*/g, " ").trim();
+      }
 
-        const sections = fullText.split(/\n(?=##\s*\d+\.\s*)/);
-        for (const sec of sections) {
-          const headerMatch = sec.match(/^##\s*\d+\.\s*([^\n]+)/);
-          if (!headerMatch) continue;
-          const title = headerMatch[1].trim();
+      const sections = fullText.split(/\n(?=##\s*\d+\.\s*)/);
+      for (const sec of sections) {
+        const headerMatch = sec.match(/^##\s*\d+\.\s*([^\n]+)/);
+        if (!headerMatch) continue;
+        const title = headerMatch[1].trim();
 
-          const urlMatch = sec.match(/<([^>]+)>/) || sec.match(/\n(https?:\/\/[^\s\n]+)/);
-          const url = urlMatch ? urlMatch[1].trim() : undefined;
+        const urlMatch = sec.match(/<([^>]+)>/) || sec.match(/\n(https?:\/\/[^\s\n]+)/);
+        const url = urlMatch ? urlMatch[1].trim() : undefined;
 
-          const snippetMatch = sec.match(/(?:^|\n)>\s*(?!\*\*Lead:\*\*)([^\n]+(?:\n>[^\n]+)*)/);
-          let snippet: string | undefined;
-          if (snippetMatch) {
-            snippet = snippetMatch[1].replace(/\n>\s*/g, " ").trim();
-          }
+        const snippetMatch = sec.match(/(?:^|\n)>\s*(?!\*\*Lead:\*\*)([^\n]+(?:\n>[^\n]+)*)/);
+        const snippet = snippetMatch ? snippetMatch[1].replace(/\n>\s*/g, " ").trim() : undefined;
 
-          items.push({ title, url, snippet });
-        }
+        items.push({ title, url, snippet });
       }
 
       // Sin resultados leídos: `_results: 0_`, o un texto corto sin ese marcador, es una búsqueda vacía. Un recuento
@@ -398,15 +413,8 @@ export class ResultProcessor {
         const firstTitle = items[0]?.title || "";
         finding = sanitizeForMemory(`${count} resultados web, primero: ${firstTitle}`);
 
-        if (items[0]?.url) {
-          factsDelta.url = items[0].url;
-          scratchpadDelta.url = items[0].url;
-        }
-
-        const cands = items.slice(0, 5).map((r) => r.url).filter(Boolean);
-        if (cands.length > 0) {
-          factsDelta.cand = cands.join(", ");
-        }
+        // Estado visible de la UI. Ya no es un "hecho": las URLs completas viajan en DATA/LAST.
+        if (items[0]?.url) scratchpadDelta.url = items[0].url;
 
         // El scratchpad es estado visible, no contexto de modelo: se acota para no crecer sin límite.
         scratchpadDelta.search_results = items.slice(0, MAX_SCRATCHPAD_RESULTS).map((r) => ({

@@ -6,13 +6,17 @@ import { createHash } from "node:crypto";
 import {
     MAX_EVIDENCE_OBS_CHARS,
     isTerminalState,
+    type CallFailureStatus,
     type Capability,
     type CoreEventType,
+    type ExecutedCallStatus,
     type MCPTool,
     type Step,
     type StageVerificationResult,
     type StepCall,
     type StepExecutionResult,
+    type StepExecutionSignals,
+    type TimeSpan,
     type StepHandoff,
     type VerificationState,
 } from "./types.ts";
@@ -28,18 +32,16 @@ import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tool
 import {
     type TaskExecutionContext,
     addLogEntry,
-    addFailEntry,
-    addEffectEntry,
+    describeFailure,
     ensureMemory,
     recordDataObservation,
+    recordFailure,
     buildEffectsContext,
     buildRefsContext,
     applyStepHandoff,
     buildDecisionMemory,
     buildAttempts,
     buildPlanLines,
-    effectTarget,
-    mergeCandidates,
 } from "./context.ts";
 
 export type EmitEventFn = (
@@ -96,16 +98,36 @@ const cancelledResult = (step: Step): StepExecutionResult => ({ status: "logical
 
 const newCallId = (step: Step): string => `call_${step.id}_${(step.calls?.length ?? 0) + 1}_${Date.now()}`;
 
+/** Única derivación del resultado de una llamada ejecutada. */
+function classifyCall(c: { clean: boolean; passed: boolean; noVerdict: boolean; signals: StepExecutionSignals }): ExecutedCallStatus {
+    if (c.passed) return "ok";
+    if (c.noVerdict) return "unverified";   // corrió limpia y no hubo ningún veredicto
+    if (c.clean) return "rejected";         // corrió limpia y ningún verificador la aprobó
+    if (c.signals.not_found) return "not_found";   // el recurso no existe (ENOENT, [NOT_FOUND]…)
+    if (c.signals.empty_output) return "no_data";  // existe, pero no hay datos (archivo vacío, búsqueda sin resultados)
+    return "tool_error";
+}
+
+/** Token del estado en el LOG (`paso|acción|estado|hallazgo`). */
+const LOG_TOKEN: Record<ExecutedCallStatus, string> = {
+    ok: "ok",
+    unverified: "unv",
+    rejected: "rej",
+    tool_error: "err",
+    not_found: "nf",
+    no_data: "nd",
+};
+
 /**
  * Registra un intento que falló sin llegar a producir resultado (argumentos inválidos, referencias sin resolver,
- * anti-loop, Guard, excepción de infraestructura). Así Decision #1/#2 lo ven en `attempts`, `step.tool` queda
- * definido para que la escalación pueda excluir la herramienta, y `lastResult` deja de ser el de una llamada anterior.
- * Sin tool conocida solo se actualiza el resumen para Decision.
+ * anti-loop, Guard, excepción de infraestructura) y escribe su línea de FAIL. Así Decision #1/#2 lo ven en
+ * `attempts`, `step.tool` queda definido para que la escalación pueda excluir la herramienta, y `lastResult` deja de
+ * ser el de una llamada anterior. Sin tool conocida solo se actualiza el resumen para Decision y el FAIL.
  */
 export function recordFailedCall(
     context: TaskExecutionContext,
     step: Step,
-    failure: { tool?: string; args?: Record<string, unknown>; error: string }
+    failure: { status: CallFailureStatus; tool?: string; args?: Record<string, unknown>; error: string }
 ): void {
     context.lastHandoff = undefined;
     const mcp = serverOf(step.route);
@@ -113,6 +135,7 @@ export function recordFailedCall(
     const summary = sanitizeForMemory(failure.error, 120);
     // Decision #1 solo ve herramientas y destinos: el nombre del servidor no forma parte de su vocabulario.
     context.lastCallDecisionSummary = `[FAILURE] ${tool ?? step.route}: ${summary}.`;
+    recordFailure(context, failure.status, { stepId: step.id, subject: tool ?? step.route });
     if (!tool) return;
 
     step.calls = step.calls || [];
@@ -121,6 +144,7 @@ export function recordFailedCall(
         mcp,
         tool,
         args: failure.args,
+        status: failure.status,
         evidence: { ok: false, summary },
         outcome: { success: false, isError: true },
         error: failure.error,
@@ -224,6 +248,8 @@ export async function runStep(
         probabilities: d2.probabilities,
         rawInput: d2.rawInput,
         rawOutput: d2.rawOutput,
+        shortcut: d2.shortcut === true,
+        timing: d2.timing,
     }, step.id);
 
     // 4. Qwen etapa 3: argumentos
@@ -231,6 +257,7 @@ export async function runStep(
     let args: Record<string, unknown>;
     let argRawInput: string;
     let argRawOutput: string;
+    let argTiming: TimeSpan | undefined;
 
     const emitFailedArguments = (attempts: readonly FailedAttempt[]) =>
         attempts.forEach((a, i) => deps.emitEvent(task.id, "ARGUMENTS_GENERATED", {
@@ -238,6 +265,7 @@ export async function runStep(
             rawInput: a.rawInput,
             rawOutput: a.rawOutput,
             attempt: i + 1,
+            timing: a.timing,
         }, step.id));
 
     try {
@@ -264,18 +292,18 @@ export async function runStep(
         args = argGenRes.args;
         argRawInput = argGenRes.rawInput;
         argRawOutput = argGenRes.rawOutput;
+        argTiming = argGenRes.timing;
         emitFailedArguments(argGenRes.failedAttempts ?? []);
     } catch (argErr) {
         if (argErr instanceof LLMServiceUnavailableError && argErr.raw) {
-            deps.emitEvent(task.id, "ARGUMENTS_GENERATED", { error: argErr.message, rawInput: argErr.raw.rawInput }, step.id);
+            deps.emitEvent(task.id, "ARGUMENTS_GENERATED", { error: argErr.message, rawInput: argErr.raw.rawInput, timing: argErr.raw.timing }, step.id);
         }
         // Solo una salida inválida del modelo es un fallo lógico del paso; Qwen caído o la cancelación se propagan.
         if (!(argErr instanceof LLMValidationError)) throw argErr;
         console.error(`[Qwen Args Error]`, argErr.message);
         emitFailedArguments(argErr.attempts ?? (argErr.raw ? [{ ...argErr.raw, error: argErr.message }] : []));
-        addFailEntry(context, `${selectedTool.name} -> argumentos inválidos tras reintentos`);
         const argsError = `Argumentos inválidos: ${argErr.message}`;
-        recordFailedCall(context, step, { tool: selectedTool.name, error: argsError });
+        recordFailedCall(context, step, { status: "args_invalid", tool: selectedTool.name, error: argsError });
         return { status: "logical_error", step, error: argsError };
     }
 
@@ -293,14 +321,14 @@ export async function runStep(
         replacedCount: refResolution.replacedCount,
         rawInput: argRawInput,
         rawOutput: argRawOutput,
+        timing: argTiming,
     }, step.id);
 
     // Una referencia inexistente nunca se envía literal a la herramienta.
     if (refResolution.unresolvedRefs.length > 0) {
         const unresolved = refResolution.unresolvedRefs.join(", ");
-        addFailEntry(context, `${selectedTool.name} -> referencias sin resolver: ${unresolved}`);
         const refError = `Referencias sin resolver: ${unresolved}`;
-        recordFailedCall(context, step, { tool: selectedTool.name, args, error: refError });
+        recordFailedCall(context, step, { status: "refs_unresolved", tool: selectedTool.name, args, error: refError });
         return { status: "logical_error", step, error: refError };
     }
 
@@ -316,11 +344,10 @@ export async function runStep(
         // Lectura idéntica: siempre bloqueada. Acción idéntica: bloqueada si no hubo una lectura intermedia.
         if (context.executedSignatures.has(sig) && (isRead || !context.lastActionWasRead)) {
             context.consecutiveLoopBlocks++;
-            addFailEntry(context, `${selectedTool.name} -> ya ejecutado (anti-loop${isRead ? " lectura" : ""})`);
             const loopError = isRead
                 ? "Lectura idéntica bloqueada por anti-loop."
                 : "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).";
-            recordFailedCall(context, step, { tool: selectedTool.name, args, error: loopError });
+            recordFailedCall(context, step, { status: "loop_blocked", tool: selectedTool.name, args, error: loopError });
             return { status: "blocked_loop", step, error: loopError };
         }
         loopSignature = sig;
@@ -333,8 +360,7 @@ export async function runStep(
     if (guardDecision.decision === "DENY") {
         step.state = "BLOCKED";
         step.error = guardDecision.reason || "Operación rechazada por Guard (DENY).";
-        addFailEntry(context, `${selectedTool.name} -> DENY: ${step.error}`);
-        recordFailedCall(context, step, { tool: selectedTool.name, args, error: step.error });
+        recordFailedCall(context, step, { status: "denied", tool: selectedTool.name, args, error: step.error });
         deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
         return { status: "logical_error", step, error: step.error, signals: { denied: true } };
     }
@@ -362,8 +388,7 @@ export async function runStep(
             task.waitingReason = undefined;
             step.state = "BLOCKED";
             step.error = "Operación rechazada por el usuario en Guard.";
-            addFailEntry(context, `${selectedTool.name} -> RECHAZADO por usuario`);
-            recordFailedCall(context, step, { tool: selectedTool.name, args, error: step.error });
+            recordFailedCall(context, step, { status: "user_rejected", tool: selectedTool.name, args, error: step.error });
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, error: step.error }, step.id);
             deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
             return { status: "logical_error", step, error: step.error, signals: { denied: true } };
@@ -384,6 +409,7 @@ export async function runStep(
     deps.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: selectedTool.name, args }, step.id);
     console.log(`[MCP → SEND] server=${serverName} tool=${selectedTool.name} args=${JSON.stringify(args).slice(0, 300)}`);
     let rawResult: Awaited<ReturnType<typeof server.callTool>>;
+    const executionStart = Date.now();
     try {
         rawResult = await server.callTool(selectedTool.name, args);
     } catch (callErr) {
@@ -391,7 +417,9 @@ export async function runStep(
         if (loopSignature) context.executedSignatures.delete(loopSignature);
         throw callErr;
     }
-    console.log(`[MCP ← RECV] server=${serverName} tool=${selectedTool.name} result=${JSON.stringify(rawResult).slice(0, 400)}`);
+    // Tiempo de ejecución de la herramienta (sin la verificación posterior): permite distinguir un comando lento de un modelo lento.
+    const execution: TimeSpan = { startedAt: executionStart, durationMs: Date.now() - executionStart };
+    console.log(`[MCP ← RECV] server=${serverName} tool=${selectedTool.name} duration=${execution.durationMs}ms result=${JSON.stringify(rawResult).slice(0, 400)}`);
 
     // La tarea pudo cancelarse durante la llamada: un resultado tardío no toca memoria, refs ni eventos.
     if (isStopped()) {
@@ -399,7 +427,7 @@ export async function runStep(
         return cancelledResult(step);
     }
 
-    deps.emitEvent(task.id, "MCP_RESULT", { rawResult }, step.id);
+    deps.emitEvent(task.id, "MCP_RESULT", { rawResult, execution }, step.id);
 
     // 9. Procesamiento del resultado
     const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args, task.id);
@@ -477,6 +505,7 @@ export async function runStep(
                 stageVerification: semantic,
                 rawInput: semantic.rawInput,
                 rawOutput: semantic.rawOutput,
+                timing: semantic.timing,
             }, step.id);
             console.log(`[PLAN StageVerification] step=${step.id} status=${semantic.status} reason=${semantic.reason}`);
         } catch (semErr) {
@@ -489,51 +518,43 @@ export async function runStep(
     const isStepSuccess = isCleanSignals && (eosPassed || semantic?.status === "completed");
     // Sin ningún veredicto (Eos no disponible y sin segundo juez) no se aprueba ni se rechaza: queda UNVERIFIED.
     const noVerdict = eosUnavailable && !semantic;
-    const verification: VerificationState = noVerdict
-        ? "UNVERIFIED"
-        : isStepSuccess
-            ? processed.verification
-            : "NOT_REQUIRED";
+    // Estado único de la llamada: de él se derivan token del LOG, FAIL, evidence.ok, outcome.success, facts y efectos.
+    const status = classifyCall({ clean: isCleanSignals, passed: isStepSuccess, noVerdict, signals });
+    const verification: VerificationState =
+        status === "unverified"
+            ? "UNVERIFIED"
+            : status === "ok"
+                ? processed.verification
+                : "NOT_REQUIRED";
 
-    // Motivo del fallo: es lo que ven el FAIL, el replan y la UI (antes solo llevaba el hallazgo, sin el porqué).
-    let failReason: string | undefined;
-    if (!isStepSuccess && !noVerdict) {
-        const finding = processed.finding || processed.summaryText;
-        if (isCleanSignals) {
-            const eosNote = verificationDetail
-                ? `Eos ok=${verificationDetail.okProbability.toFixed(2)} cumple=${verificationDetail.cumpleProbability.toFixed(2)}`
-                : "Eos no disponible";
-            const qwenNote = semantic ? ` [Qwen ${semantic.status}: ${semantic.reason}]` : "";
-            failReason = sanitizeForMemory(`verificación: el resultado no cumple el paso (${finding}) [${eosNote}]${qwenNote}`, 400);
-        } else {
-            failReason = finding;
-        }
-    }
+    // Motivo del fallo (lo ven step.error, el replan y la UI): causa fija + hallazgo determinista de la herramienta.
+    // Nunca prosa de Eos ni de Qwen: sus probabilidades y su `reason` viajan solo en los eventos y la traza.
+    const failReason = status === "tool_error" || status === "not_found" || status === "no_data" || status === "rejected"
+        ? sanitizeForMemory(describeFailure(status, processed.finding || processed.summaryText), 400)
+        : undefined;
 
     // Los facts son "hechos confirmados": solo se registran si el paso pasó la verificación, o si no pudo verificarse
     // por falta de verificadores (la herramienta corrió limpia). Excepción: una mutación ejecutada (p. ej. el pid de un
     // proceso lanzado) describe el entorno, no una hipótesis sobre el contenido, y debe conservarse.
-    if (isStepSuccess || noVerdict || policy.mutates) {
-        const facts = ensureMemory(context).facts;
-        const { cand } = processed.factsDelta;
-        if (cand && facts.cand) processed.factsDelta.cand = mergeCandidates(cand, facts.cand);
-        Object.assign(facts, processed.factsDelta);
+    if (status === "ok" || status === "unverified" || policy.mutates) {
+        Object.assign(ensureMemory(context).facts, processed.factsDelta);
     } else if (Object.keys(processed.factsDelta).length > 0) {
         console.log(`[runStep] Facts no confirmados descartados (${Object.keys(processed.factsDelta).join(", ")}): el paso no pasó la verificación.`);
     }
 
+    // El resumen que ven Decision #1/#2 debe coincidir con el estado final: la etiqueta [SUCCESS] del extractor es
+    // previa al veredicto, así que si el verificador rechazó la llamada se reemplaza (sin prosa de modelos).
+    if (status === "rejected") {
+        context.lastCallDecisionSummary = `[FAILURE] ${selectedTool.name}: ${processed.finding || processed.summaryText}. Result not approved.`;
+    } else if (status === "unverified") {
+        context.lastCallDecisionSummary = `[INFO] ${selectedTool.name}: ${processed.finding || processed.summaryText}. Not verified.`;
+    }
+
     // LOG: id del paso | acción con su destino | estado | hallazgo.
-    const logStatus = signals.not_found || signals.empty_output
-        ? "nf"
-        : verification === "UNVERIFIED"
-            ? "unv"
-            : isStepSuccess
-                ? "ok"
-                : "err";
-    addLogEntry(context, `${step.id}|${callLabel}|${logStatus}|${processed.finding}`);
+    addLogEntry(context, `${step.id}|${callLabel}|${LOG_TOKEN[status]}|${processed.finding}`);
 
     // Estado anti-loop
-    if (processed.outcome.success || verification === "UNVERIFIED" || isStepSuccess) {
+    if (processed.outcome.success || status === "ok" || status === "unverified") {
         if (!isRead) {
             context.nonReadCounter++;
             context.lastActionWasRead = false;
@@ -545,35 +566,27 @@ export async function runStep(
 
     // Registro de la llamada. `evidence.ok` alimenta los intentos que ven Decision #1/#2: sin veredicto la
     // herramienta corrió limpia, así que no se marca como fallida; `outcome.success` (compuerta de `fin`) sí queda en false.
+    // Los efectos en el entorno se derivan de estos registros (buildEffectsContext): no hay otro almacén.
     const callRecord: StepCall = {
         id: newCallId(step),
         mcp: serverName,
         tool: selectedTool.name,
         args,
+        status,
         evidence: {
             ...processed.evidence,
-            ok: noVerdict ? isCleanSignals : isStepSuccess,
+            ok: status === "ok" || status === "unverified",
             obs: processed.compactObs ? processed.compactObs.slice(0, MAX_EVIDENCE_OBS_CHARS) : undefined,
         },
         verification,
-        outcome: { ...processed.outcome, success: isStepSuccess },
-        error: noVerdict ? "Verificación no disponible" : failReason,
+        outcome: { ...processed.outcome, success: status === "ok" },
+        error: status === "unverified" ? "Verificación no disponible" : failReason,
         timestamp: Date.now(),
+        execution,
     };
 
-    // Efectos: toda mutación ejecutada limpiamente ocurrió en el entorno, aunque la verificación semántica falle.
-    if (isCleanSignals && policy.mutates) {
-        const target = effectTarget(args);
-        addEffectEntry(
-            context,
-            step.id,
-            target ? `${selectedTool.name} ${target}` : selectedTool.name,
-            processed.finding || processed.summaryText || 'mutación aplicada'
-        );
-    }
-
     // Handoff determinista hacia el siguiente paso
-    if (isStepSuccess) {
+    if (status === "ok") {
         const primaryFactKey = Object.keys(processed.factsDelta)[0];
         const handoff: StepHandoff = {
             fromStepId: step.id,
@@ -602,6 +615,8 @@ export async function runStep(
 
     deps.emitEvent(task.id, "RESULT_PROCESSED", {
         processed,
+        callStatus: status,
+        execution,
         verification: verificationDetail,
         eosUnavailable,
         isStepSuccess,
@@ -611,14 +626,14 @@ export async function runStep(
         rawOutput: verificationDetail?.rawOutput,
     }, step.id);
 
-    if (noVerdict) {
+    if (status === "unverified") {
         return { status: "unverified", step, call: callRecord, signals };
     }
 
-    if (!isStepSuccess) {
+    if (status !== "ok") {
         // Con una pregunta pendiente al usuario el fallo no es una lección para el FAIL: lo gestiona el modo PLAN.
         if (semantic?.status !== "insufficient_info") {
-            addFailEntry(context, `${selectedTool.name} -> ${failReason}`);
+            recordFailure(context, status, { stepId: step.id, subject: selectedTool.name });
         }
         return { status: "logical_error", step, call: callRecord, error: failReason, signals, semantic };
     }

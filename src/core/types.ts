@@ -19,13 +19,21 @@ export type ModelStage =
   | "REPLAN"
   | "FINAL_RESPONSE";
 
+/** Intervalo medido: cuándo empezó una llamada (a un modelo o a una herramienta) y cuánto tardó, incluido el reintento de transporte. */
+export interface TimeSpan {
+  startedAt: number;
+  durationMs: number;
+}
+
 export interface ModelIterationMetrics {
+  /** Duración del intercambio con el modelo (TimeSpan.durationMs). */
   latencyMs?: number;
   tokens?: {
     input?: number;
     output?: number;
   };
-  confidence?: number;
+  /** Diferencia entre las dos probabilidades más altas de una decisión de Eos (la señal real de decisión). */
+  margin?: number;
   signals?: Record<string, unknown>;
   verdict?: string;
   isStepSuccess?: boolean;
@@ -44,6 +52,12 @@ export interface ModelIteration {
   output: Record<string, unknown> | string;
   rawInput?: string;
   rawOutput?: string;
+  /**
+   * `true` si hubo un intercambio real con el modelo (aunque su salida no se usara); `false` si la iteración la
+   * produjo un atajo determinista (p. ej. Decision #2 con una sola herramienta) o no llegó a ejecutarse. Único criterio
+   * para contar llamadas a modelos: lo usan la traza y los resúmenes.
+   */
+  invoked?: boolean;
   metrics?: ModelIterationMetrics;
   error?: string;
 }
@@ -99,16 +113,29 @@ export function isExecutableRoute(route: unknown): route is ExecutableRoute {
 // Pasos, llamadas y planes
 // ============================================================
 
+/**
+ * Resultado de una llamada que llegó a ejecutarse. Se calcula una sola vez (classifyCall en callExecutor.ts) y de él
+ * se derivan el token del LOG, la línea de FAIL, evidence.ok, outcome.success y los efectos.
+ */
+export type ExecutedCallStatus = "ok" | "unverified" | "rejected" | "tool_error" | "not_found" | "no_data";
+/** Llamada que no produjo un resultado utilizable (falló antes de ejecutarse o por una excepción). */
+export type CallFailureStatus = "args_invalid" | "refs_unresolved" | "loop_blocked" | "denied" | "user_rejected" | "exception";
+export type CallStatus = ExecutedCallStatus | CallFailureStatus;
+
 export interface StepCall {
   id: string;
   mcp: string;
   tool: string;
   args?: Record<string, unknown>;
+  status?: CallStatus;
   evidence?: Evidence;
   verification?: VerificationState;
   outcome?: ExecutionOutcome;
   error?: string;
+  /** Momento en que se registró la llamada (tras la verificación). */
   timestamp?: number;
+  /** Ejecución de la herramienta en el servidor MCP: inicio y duración. No incluye la verificación posterior. */
+  execution?: TimeSpan;
   rawInput?: string;
   rawOutput?: string;
 }
@@ -160,6 +187,7 @@ export interface Plan {
   steps: PlanStep[];
   rawInput?: string;
   rawOutput?: string;
+  timing?: TimeSpan;
 }
 
 // ============================================================
@@ -178,6 +206,7 @@ export interface StageVerificationResult {
   questionForUser?: string;
   rawInput?: string;
   rawOutput?: string;
+  timing?: TimeSpan;
 }
 
 export interface StageVerificationPromptData {
@@ -212,7 +241,6 @@ export interface TaskMemory {
   log: string[];
   facts: Record<string, string>;
   fail: string[];
-  effects?: string[];
   /**
    * @deprecated Ya no se escribe: la traza cruda vive solo en `Task.modelIterations`. Solo lo lee `deriveTaskView`.
    */
@@ -253,6 +281,8 @@ export interface Task {
   pendingQuestion?: PendingQuestion;
   userAnswers?: UserAnswer[];
   finalResponse?: string;
+  /** Origen de la respuesta final: redactada por el modelo o plantilla determinista de respaldo. */
+  finalResponseSource?: "model" | "fallback";
   planConfirmed?: boolean;
   memory?: TaskMemory;
   replans?: number;
@@ -367,6 +397,8 @@ export const MAX_SCRATCHPAD_RESULTS = 10;
 export const MAX_EVIDENCE_OBS_CHARS = 2500;
 /** Tope (caracteres) de la descripción de una herramienta: el manifest rechaza al arrancar una más larga y Decision recorta a este valor. */
 export const MAX_TOOL_DESC_CHARS = 80;
+/** Tope (caracteres) de la nota de un parámetro (formato que el esquema del servidor no expresa): el manifest rechaza al arrancar una más larga. */
+export const MAX_PARAM_NOTE_CHARS = 240;
 /** Máximo de preguntas al usuario por paso antes de tratar la falta de información como desviación recuperable. */
 export const MAX_USER_QUESTIONS_PER_STEP = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;
@@ -418,6 +450,7 @@ export interface DecisionResponse {
   answers: Record<string, DecisionAnswer>;
   rawInput: string;
   rawOutput: string;
+  timing: TimeSpan;
 }
 
 // ============================================================

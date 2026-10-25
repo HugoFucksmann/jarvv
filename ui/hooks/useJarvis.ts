@@ -305,23 +305,6 @@ export function useJarvis() {
     const iteration = createIterationFromEvent(event, contextTask);
     if (!iteration) return;
 
-    // Tarea 1: Enriquecer confianza calculada desde probabilidades del evento para Eos
-    if (iteration.model === "EOS_0_8B" && typeof iteration.metrics?.confidence !== "number") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const evtData = (event.data || {}) as Record<string, any>;
-      let conf: number | undefined;
-      if (event.type === "DECISION_ONE" && evtData.route && evtData.probabilities) {
-        conf = evtData.probabilities[evtData.route];
-      } else if (event.type === "DECISION_TWO" && evtData.tool && evtData.probabilities) {
-        conf = evtData.probabilities[evtData.tool];
-      }
-      if (typeof conf === "number") {
-        iteration.metrics = { ...iteration.metrics, confidence: conf };
-        if (iteration.output && typeof iteration.output === "object" && !Array.isArray(iteration.output)) {
-          (iteration.output as Record<string, unknown>).confianza = conf;
-        }
-      }
-    }
 
     const known = iterationsByTaskRef.current[event.taskId] || [];
     if (known.some((it) => it.id === iteration.id)) return;

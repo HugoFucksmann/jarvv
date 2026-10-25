@@ -6,6 +6,7 @@ import {
     PROGRESSIVE_MEMORY_TIERS,
     type ExecutableRoute,
     type PendingApproval,
+    type CallStatus,
     type ProgressiveMemoryLimit,
     type Step,
     type StepCall,
@@ -14,7 +15,7 @@ import {
 } from "./types.ts";
 import type { Attempt } from "./reasoner/prompts.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
-import { RefStore, sanitizeForMemory } from "./processor/resultProcessor.ts";
+import { RefStore, refLabel, sanitizeForMemory } from "./processor/resultProcessor.ts";
 
 /** Observación de una lectura con datos (búsqueda, página, archivo…): lo que un paso posterior puede necesitar. */
 export interface DataObservation {
@@ -83,7 +84,7 @@ export function recordDataObservation(context: TaskExecutionContext, obs: DataOb
 
 /** Única fuente de la forma de la memoria de una tarea. */
 export function createEmptyMemory(): NonNullable<Task["memory"]> {
-    return { log: [], facts: {}, fail: [], effects: [] };
+    return { log: [], facts: {}, fail: [] };
 }
 
 export function ensureMemory(context: TaskExecutionContext): NonNullable<Task["memory"]> {
@@ -102,42 +103,53 @@ export function addLogEntry(context: TaskExecutionContext, line: string): void {
     }
 }
 
-/** Registra efectos secundarios en el entorno (sin tope). Una misma acción sobre el mismo objetivo conserva solo su registro más reciente. */
-export function addEffectEntry(context: TaskExecutionContext, stepId: string, action: string, finding: string): void {
-    const memory = ensureMemory(context);
-    const marker = `|${action}:`;
-    memory.effects = (memory.effects || []).filter((e) => !e.slice(e.indexOf("|")).startsWith(marker));
-    memory.effects.push(`${stepId}${marker} ${finding}`);
-}
-
-const PATH_IN_COMMAND = /[A-Za-z]:\\[^\s"'`|<>*?;,)]+|\/(?:[\w.-]+\/)+[\w.-]+\.\w+/g;
-
-/** Objetivo de una mutación: ruta, origen y destino, o las rutas que aparecen en el comando. */
-export function effectTarget(args: Record<string, unknown>): string {
-    const text = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
-    if (text(args.path)) return sanitizeForMemory(text(args.path), 120);
-    if (text(args.source) || text(args.destination)) {
-        return sanitizeForMemory(`${text(args.source)} -> ${text(args.destination)}`, 160);
-    }
-    const command = text(args.command) || text(args.input);
-    if (!command) return "";
-    const paths = [...new Set(command.match(PATH_IN_COMMAND) ?? [])].slice(0, 2);
-    return sanitizeForMemory(paths.length > 0 ? paths.join(", ") : command, 120);
-}
-
-const MAX_CANDIDATE_URLS = 10;
-
-/** Candidatos de búsqueda acumulados: los nuevos primero, sin repetidos. */
-export function mergeCandidates(latest: string, previous: string): string {
-    return [...new Set([...latest.split(", "), ...previous.split(", ")])].slice(0, MAX_CANDIDATE_URLS).join(", ");
-}
-
-export function addFailEntry(context: TaskExecutionContext, line: string): void {
+function addFailEntry(context: TaskExecutionContext, line: string): void {
     const memory = ensureMemory(context);
     memory.fail.push(line);
     if (memory.fail.length > 5) {
         memory.fail = memory.fail.slice(-5);
     }
+}
+
+/**
+ * Causas de FAIL. Texto fijo por causa: la memoria nunca recibe prosa de modelos. El detalle vive en LOG
+ * (hallazgo de la herramienta) y en los eventos.
+ */
+export type FailKind =
+    | Exclude<CallStatus, "ok" | "unverified">
+    | "service_unavailable"
+    | "fin_rejected"
+    | "insufficient_info";
+
+const FAIL_TEXT: Record<FailKind, string> = {
+    args_invalid: "argumentos inválidos",
+    refs_unresolved: "referencias sin resolver",
+    loop_blocked: "bloqueada por anti-loop",
+    denied: "denegada por política de seguridad",
+    user_rejected: "rechazada por el usuario",
+    exception: "excepción",
+    service_unavailable: "servicio no disponible",
+    tool_error: "ejecución fallida",
+    not_found: "no encontrado",
+    no_data: "sin resultados",
+    rejected: "ejecutada; resultado no aprobado",
+    fin_rejected: "fin rechazado: faltan acciones verificadas",
+    insufficient_info: "información insuficiente",
+};
+
+/** Causa fija, más un detalle determinista opcional (hallazgo de la herramienta). Alimenta step.error y call.error. */
+export function describeFailure(kind: FailKind, detail?: string): string {
+    return detail ? `${FAIL_TEXT[kind]}: ${detail}` : FAIL_TEXT[kind];
+}
+
+/** Único punto de escritura de FAIL. Formato: `paso|herramienta|causa` (`-` si no hay paso). */
+export function recordFailure(
+    context: TaskExecutionContext,
+    kind: FailKind,
+    where: { stepId?: string; subject: string; note?: string }
+): void {
+    const note = where.note ? ` (${sanitizeForMemory(where.note, 60)})` : "";
+    addFailEntry(context, `${where.stepId ?? "-"}|${sanitizeForMemory(where.subject, 60)}|${FAIL_TEXT[kind]}${note}`);
 }
 
 /** Historial compacto para Decision #1: últimas `limit` líneas de LOG y FAIL. Vacío mientras no haya memoria. */
@@ -219,10 +231,20 @@ export function buildPlanLines(task: Task): string[] {
     ];
 }
 
-/** Entradas más recientes del log de efectos secundarios. */
+/** Llamadas que ya modificaron (o pudieron modificar) el entorno: la herramienta corrió limpia, aunque la verificación no la aprobara. */
+const EFFECT_STATUSES: ReadonlySet<CallStatus> = new Set<CallStatus>(["ok", "unverified", "rejected"]);
+
+/**
+ * Efectos derivados de task.steps[].calls: una línea por llamada que mutó, incluidos los pasos reemplazados por un
+ * replan (sus llamadas no se borran). `limit` conserva las más recientes; Infinity devuelve todas.
+ */
 export function buildEffectsContext(task: Task, limit = 5): string[] {
-    const effects = task.memory?.effects || [];
-    return effects.slice(-limit);
+    const lines = task.steps.flatMap((s) =>
+        (s.calls ?? [])
+            .filter((c) => c.status !== undefined && EFFECT_STATUSES.has(c.status) && getToolPolicy(c.mcp, c.tool).mutates)
+            .map((c) => `${s.id}|${refLabel(c.tool, c.args ?? {})}: ${c.evidence?.summary || "mutación aplicada"}`)
+    );
+    return lines.slice(-limit);
 }
 
 /**

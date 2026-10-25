@@ -16,20 +16,22 @@ import {
     type StepRoute,
     type StepState,
     type TaskState,
+    type TimeSpan,
 } from "./types.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 import {
     type TaskExecutionContext,
-    addFailEntry,
     buildAttempts,
+    buildEffectsContext,
     buildHistoryContext,
     expandMemoryContext,
     hasUnresolvedUnverified,
+    recordFailure,
 } from "./context.ts";
 import { type EngineDependencies, recordFailedCall, runStep } from "./callExecutor.ts";
-import { RequestAbortedError } from "./llmTransport.ts";
-import { LLMServiceUnavailableError } from "./reasoner/qwen.ts";
+import { RequestAbortedError, TransportError } from "./llmTransport.ts";
+import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.ts";
 import { DecisionServiceUnavailableError } from "./decision.ts";
 import { sanitizeForMemory } from "./processor/resultProcessor.ts";
 
@@ -111,12 +113,66 @@ export function failTask(context: TaskExecutionContext, deps: EngineDependencies
     task.waitingReason = undefined;
     task.pendingQuestion = undefined;
     task.finalResponse = task.finalResponse || `La tarea falló: ${msg}`;
+    task.finalResponseSource = task.finalResponseSource ?? "fallback";
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "FAILED", error: msg, finalResponse: task.finalResponse });
     recordTaskTrace(context);
 }
 
 
 // CONCLUSION & FINAL RESPONSE
+
+/** Motivo fijo de detención cuando la verificación semántica declara un paso irrecuperable (nunca el `reason` del modelo). */
+const UNRECOVERABLE_BLOCKED_REASON = "La verificación semántica determinó que la etapa no puede completarse.";
+
+const STATE_LABEL: Partial<Record<TaskState, string>> = { COMPLETED: "Completada", PARTIAL: "Parcial", FAILED: "Fallida" };
+
+/** Por qué no se pudo redactar la respuesta final con el modelo (texto fijo, sin prosa del modelo). */
+function describeSynthesisFailure(err: unknown): string {
+    if (err instanceof LLMServiceUnavailableError) {
+        return err.cause instanceof TransportError && err.cause.kind === "timeout"
+            ? "el modelo no respondió a tiempo"
+            : "el modelo no estuvo disponible";
+    }
+    if (err instanceof LLMValidationError) return "el modelo devolvió una respuesta inutilizable";
+    return "error inesperado al redactar la respuesta";
+}
+
+/**
+ * Respuesta final de respaldo cuando el modelo no pudo redactarla. Contrato fijo y determinista:
+ * estado terminal, motivo de detención, fallos registrados, cambios que permanecen en el entorno, datos registrados y
+ * últimas acciones. Solo usa datos ya validados de la memoria; la evidencia cruda se limita a la última lectura y va
+ * rotulada como tal.
+ */
+export function buildFallbackResponse(
+    task: TaskExecutionContext["task"],
+    state: TaskState,
+    abortReason: string | undefined,
+    synthesisFailure: string,
+    effects: string[],
+    lastReads: string[]
+): string {
+    const memory = task.memory;
+    const facts = Object.entries(memory?.facts || {});
+    const fail = memory?.fail || [];
+    const log = memory?.log || [];
+    const bullets = (lines: string[]): string => lines.map((l) => `• ${l}`).join("\n");
+
+    const sections: string[] = [
+        `Resumen automático: no se pudo redactar la respuesta final (${synthesisFailure}).`,
+        `Estado de la tarea: ${STATE_LABEL[state] ?? state}.`,
+    ];
+    if (abortReason) sections.push(`Motivo de detención: ${abortReason}`);
+    if (fail.length > 0) sections.push(`Fallos registrados (${fail.length}):\n${bullets(fail)}`);
+    sections.push(
+        effects.length > 0
+            ? `Cambios aplicados en el entorno (permanecen aunque su paso no se haya aprobado):\n${bullets(effects)}`
+            : "Cambios aplicados en el entorno: ninguno registrado."
+    );
+    if (facts.length > 0) sections.push(`Datos registrados:\n${bullets(facts.map(([k, v]) => `${k}: ${sanitizeForMemory(v, 200)}`))}`);
+    if (log.length > 0) sections.push(`Últimas acciones (paso|acción|estado|hallazgo):\n${bullets(log.slice(-5))}`);
+    if (lastReads.length > 0) sections.push(`Última lectura (texto sin procesar):\n${lastReads.map((r) => sanitizeForMemory(r, 600)).join("\n---\n")}`);
+    return sections.join("\n\n");
+}
 
 export async function concludeTask(
     context: TaskExecutionContext,
@@ -151,40 +207,46 @@ export async function concludeTask(
 
     let finalRawInput: string | undefined;
     let finalRawOutput: string | undefined;
+    let finalTiming: TimeSpan | undefined;
+    let synthesisError: string | undefined;
     try {
         const finalRes = await deps.qwenEngine.generateFinalResponse({
             goal: task.message,
             logLines: task.memory?.log || [],
             facts: task.memory?.facts || {},
             failLines: task.memory?.fail || [],
-            effects: task.memory?.effects || [],
+            effects: buildEffectsContext(task, Number.POSITIVE_INFINITY),
             evidenceSummaries,
             abortReason,
         }, context.abortController.signal);
         task.finalResponse = finalRes.response;
+        task.finalResponseSource = "model";
         finalRawInput = finalRes.rawInput;
         finalRawOutput = finalRes.rawOutput;
+        finalTiming = finalRes.timing;
     } catch (err) {
         if (!isCancellation(context, err)) {
             console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err instanceof Error ? err.message : err);
         }
-        const factsEntries = Object.entries(task.memory?.facts || {});
-        const logLines = task.memory?.log || [];
-
-        if (factsEntries.length > 0 || evidenceSummaries.length > 0 || logLines.length > 0) {
-            const parts: string[] = [];
-            if (factsEntries.length > 0) {
-                parts.push(`Hallazgos:\n${factsEntries.map(([k, v]) => `• ${k}: ${v}`).join("\n")}`);
-            }
-            if (evidenceSummaries.length > 0) {
-                parts.push(`Evidencias:\n${evidenceSummaries.map((e) => `• ${e}`).join("\n")}`);
-            } else if (logLines.length > 0) {
-                parts.push(`Acciones realizadas:\n${logLines.slice(-3).map((l) => `• ${l}`).join("\n")}`);
-            }
-            task.finalResponse = `Información recopilada para su solicitud:\n\n${parts.join("\n\n")}`;
-        } else {
-            task.finalResponse = `Tarea concluida con estado ${state}.${abortReason ? ` Motivo: ${abortReason}` : ""}`;
+        // Se conserva lo que ya se envió al modelo para poder auditar el fallo (nunca pensamiento del modelo).
+        if (err instanceof LLMServiceUnavailableError) {
+            finalRawInput = err.raw?.rawInput;
+            finalTiming = err.raw?.timing;
+        } else if (err instanceof LLMValidationError) {
+            finalRawInput = err.raw?.rawInput;
+            finalRawOutput = err.raw?.rawOutput;
+            finalTiming = err.raw?.timing;
         }
+        synthesisError = describeSynthesisFailure(err);
+        task.finalResponse = buildFallbackResponse(
+            task,
+            state,
+            abortReason,
+            synthesisError,
+            buildEffectsContext(task, Number.POSITIVE_INFINITY),
+            dataEvidence.slice(-2)
+        );
+        task.finalResponseSource = "fallback";
     }
 
     // La generación fue asíncrona: la tarea pudo cancelarse mientras tanto.
@@ -203,8 +265,12 @@ export async function concludeTask(
     );
     deps.emitEvent(task.id, "FINAL_RESPONSE", {
         response: task.finalResponse,
+        state,
+        source: task.finalResponseSource,
+        synthesisError,
         rawInput: finalRawInput,
         rawOutput: finalRawOutput,
+        timing: finalTiming,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state, finalResponse: task.finalResponse });
     recordTaskTrace(context);
@@ -273,6 +339,7 @@ export async function handleEscalation(
         probabilities: arbitration.probabilities,
         rawInput: arbitration.rawInput,
         rawOutput: arbitration.rawOutput,
+        timing: arbitration.timing,
         purpose: "escalation",
     });
 
@@ -330,7 +397,7 @@ export async function handleReplan(
             failLines: task.memory?.fail || [],
             logLines: task.memory?.log || [],
             // Las mutaciones ya aplicadas no se deshacen con la verificación: el replan debe conocerlas.
-            effects: task.memory?.effects || [],
+            effects: buildEffectsContext(task, Number.POSITIVE_INFINITY),
             failedStepGoal: failedStep.instruction,
             failedStepResult: failedStep.error || "error",
             remainingPlanGoals: remainingGoals,
@@ -365,6 +432,7 @@ export async function handleReplan(
         isMaterialReplan: false,
         rawInput: replanResult.rawInput,
         rawOutput: replanResult.rawOutput,
+        timing: replanResult.timing,
     });
     console.log(`[PLAN] Replan autónomo completado. Continuando ejecución directa de ${newSteps.length} pasos.`);
     return true;
@@ -387,12 +455,12 @@ function recordStepCrash(
     step.error = err instanceof Error ? err.message : String(err);
     const unavailable = err instanceof LLMServiceUnavailableError || err instanceof DecisionServiceUnavailableError;
     const subject = step.tool ?? step.route;
-    addFailEntry(context, `${subject} -> ${unavailable ? "servicio no disponible" : "excepción"}: ${sanitizeForMemory(step.error, 100)}`);
     if (unavailable) {
+        recordFailure(context, "service_unavailable", { stepId: step.id, subject });
         context.lastHandoff = undefined;
         context.lastCallDecisionSummary = `[FAILURE] ${subject}: ${sanitizeForMemory(step.error, 120)}.`;
     } else {
-        recordFailedCall(context, step, { error: step.error });
+        recordFailedCall(context, step, { status: "exception", error: step.error });
     }
     deps.emitEvent(context.task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 }
@@ -448,6 +516,7 @@ export async function runFastLoop(
                 probabilities: d1.probabilities,
                 rawInput: d1.rawInput,
                 rawOutput: d1.rawOutput,
+                timing: d1.timing,
             });
 
             if (d1.route === "fin") {
@@ -467,7 +536,7 @@ export async function runFastLoop(
                 }
 
                 console.warn(`[FAST] fin rechazado por validación de Core. Solicitando mejor ruta ejecutable.`);
-                addFailEntry(context, "fin rechazado: faltan acciones verificadas previas");
+                recordFailure(context, "fin_rejected", { subject: "fin" });
                 try {
                     const alt = await askRoute(false);
                     selectedRoute = toExecutableRoute(alt.route);
@@ -477,6 +546,7 @@ export async function runFastLoop(
                         probabilities: alt.probabilities,
                         rawInput: alt.rawInput,
                         rawOutput: alt.rawOutput,
+                        timing: alt.timing,
                         purpose: "reselection",
                     });
                 } catch (err) {
@@ -605,6 +675,7 @@ export async function initiatePlanMode(
         steps: task.steps,
         rawInput: plan.rawInput,
         rawOutput: plan.rawOutput,
+        timing: plan.timing,
     });
     deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation" });
     console.log(`[PLAN] Plan generado con ${task.steps.length} pasos. Esperando confirmación inicial en WAITING_INPUT.`);
@@ -699,13 +770,14 @@ export async function runPlanLoop(
                 return;
             }
             // Tope de preguntas agotado: la falta de información se trata como desviación recuperable.
-            step.error = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario: ${semantic.reason}`;
-            addFailEntry(context, `${step.id} -> información insuficiente tras ${step.questionsAsked} preguntas`);
+            step.error = `Información insuficiente tras ${step.questionsAsked} preguntas al usuario.`;
+            recordFailure(context, "insufficient_info", { stepId: step.id, subject: step.tool ?? step.route, note: `${step.questionsAsked} preguntas` });
         } else if (semantic?.status === "unrecoverable_blocked") {
             step.state = "BLOCKED";
-            step.error = semantic.reason;
+            // Sin prosa del modelo: el `reason` de Qwen viaja solo en el evento STAGE_VERIFIED y en la traza.
+            step.error = UNRECOVERABLE_BLOCKED_REASON;
             deps.emitEvent(task.id, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
-            await concludeTask(context, resolveFailureState(task), deps, semantic.reason);
+            await concludeTask(context, resolveFailureState(task), deps, UNRECOVERABLE_BLOCKED_REASON);
             return;
         }
 

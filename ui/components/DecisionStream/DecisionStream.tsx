@@ -114,8 +114,8 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
   // Sin eventos ni iteraciones no hay nada que mostrar
   if (events.length === 0 && modelIterations.length === 0) return null;
 
-  const totalEos = modelIterations.filter((m) => m.model === "EOS_0_8B").length;
-  const totalQwen = modelIterations.filter((m) => m.model === "QWEN_3_5_9B").length;
+  const totalEos = modelIterations.filter((m) => m.model === "EOS_0_8B" && m.invoked === true).length;
+  const totalQwen = modelIterations.filter((m) => m.model === "QWEN_3_5_9B" && m.invoked === true).length;
   const traceEvents = events.filter((e) => TRACE_EVENT_TYPES.has(e.type));
 
   const buildAuditJson = () => {

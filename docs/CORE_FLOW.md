@@ -7,7 +7,7 @@
 4. **Ejecución iterativa de pasos**: Cada acción individual atraviesa el pipeline indivisible del ejecutor atómico de herramientas.
 5. **Evaluación de resultados**: Se contrasta el resultado técnico observable mediante el clasificador factual y, en modalidad deliberativa, mediante el supervisor semántico.
 6. **Resolución de contingencias**: Los fallos recuperables activan escalación con cambio de ruta o replanificación autónoma; las dudas sobre información esencial suspenden la tarea para consultar al usuario.
-7. **Conclusión y síntesis**: Al completarse los objetivos o alcanzarse un límite operativo, el sistema sintetiza una respuesta final con la evidencia acumulada y asienta la traza de la tarea.
+7. **Conclusión y síntesis**: Al completarse los objetivos o alcanzarse un límite operativo, el sistema sintetiza una respuesta final con la evidencia acumulada y asienta la traza de la tarea. Si el razonador no puede redactarla (sin respuesta a tiempo, no disponible o salida inutilizable), se entrega una respuesta de respaldo determinista con contenido fijo (estado de la tarea, motivo de detención, fallos registrados, cambios aplicados al entorno, datos registrados y últimas acciones) y la traza marca su origen. El estado terminal no depende de cómo se redactó la respuesta.
 
 ## 2. Bucle Principal
 En cada ciclo de ejecución, el sistema realiza la siguiente secuencia:

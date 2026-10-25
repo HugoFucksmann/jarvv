@@ -78,7 +78,7 @@ Rutas relativas al punto de montaje del router (`server.ts`):
 - `src/core/context.ts`
 - `src/core/config.ts`
 - `src/core/llmTransport.ts`
-- `src/core/debugAccumulator.ts`
+- `src/core/modelIterations.ts`
 - `src/core/taskWire.ts`
 - `src/core/reasoner/prompts.ts`
 - `src/core/mcp/discovery.ts`

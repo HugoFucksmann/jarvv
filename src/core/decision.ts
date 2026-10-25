@@ -15,6 +15,7 @@ import {
   type DecisionQuestion,
   type DecisionResponse,
   type MCPTool,
+  type TimeSpan,
   type StepRoute,
 } from "./types.ts";
 import { ConfigManager } from "./config.ts";
@@ -80,6 +81,7 @@ export class Decision20Engine {
     console.log(`[Decision → SEND] state=${JSON.stringify(state).slice(0, 300)} questions=${JSON.stringify(questions).slice(0, 300)}`);
 
     let result;
+    const startedAt = Date.now();
     try {
       result = await postJson({ url, body, timeoutMs: config.decisionTimeoutMs, signal: options?.signal });
     } catch (err) {
@@ -105,6 +107,7 @@ export class Decision20Engine {
       answers: this.parseResponse(result.text, questions),
       rawInput: JSON.stringify(payload, null, 2), // el mismo payload, legible
       rawOutput: result.text,
+      timing: { startedAt, durationMs: Date.now() - startedAt },
     };
   }
 
@@ -125,6 +128,7 @@ export class Decision20Engine {
     probabilities: Record<string, number>;
     rawInput: string;
     rawOutput: string;
+    timing: TimeSpan;
   }> {
     const { state, questions } = DECISION_PROMPTS.buildDecisionOne({
       taskMessage,
@@ -142,7 +146,7 @@ export class Decision20Engine {
     const { choice, probabilities } = routeAnswer;
 
     console.log(`[Decision #1] route=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
-    return { route: choice as StepRoute, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput };
+    return { route: choice as StepRoute, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /** Decision #2: tool dentro de las herramientas descubiertas del MCP activo. */
@@ -157,6 +161,9 @@ export class Decision20Engine {
     probabilities: Record<string, number>;
     rawInput: string;
     rawOutput: string;
+    /** `true`: no hubo llamada al modelo (una sola herramienta posible); `rawInput`/`rawOutput` son sintéticos y no hay `timing`. */
+    shortcut?: boolean;
+    timing?: TimeSpan;
   }> {
 
     // Con una sola opción no hay decisión que tomar: se omite la llamada (sin simular una respuesta del modelo).
@@ -168,6 +175,7 @@ export class Decision20Engine {
         probabilities: { [tool.name]: 1 },
         rawInput: JSON.stringify({ state: instruction, single_tool: tool.name }, null, 2),
         rawOutput: JSON.stringify({ choice: tool.name, source: "single_tool_shortcut" }, null, 2),
+        shortcut: true,
       };
     }
 
@@ -188,7 +196,7 @@ export class Decision20Engine {
     const selectedTool = discoveredTools.find((t) => t.name === choice)!;
 
     console.log(`[Decision] tool=${selectedTool.name} duration=${Date.now() - t0}ms`);
-    return { selectedTool, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput };
+    return { selectedTool, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /**
@@ -210,6 +218,7 @@ export class Decision20Engine {
     cumpleProbability: number;
     rawInput: string;
     rawOutput: string;
+    timing: TimeSpan;
   }> {
     const { state, questions } = DECISION_PROMPTS.buildStepVerification({
       instruction,
@@ -234,7 +243,7 @@ export class Decision20Engine {
     console.log(
       `[StepVerification Eos] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
     );
-    return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput };
+    return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /** `systemOne` con el registro de error común a todas las evaluaciones. */
