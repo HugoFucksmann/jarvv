@@ -4,10 +4,6 @@
 
 import { sanitizeForMemory } from "./text.ts";
 
-/**
- * Task-isolated reference store for complete tool outputs (§10.4, §10.11).
- * Isolates data per taskId to prevent cross-task clearing and memory leaks.
- */
 /** Descripción de una referencia guardada: origen legible y tamaño (para el bloque REFS del prompt de argumentos). */
 export interface RefDescriptor {
     key: string;
@@ -15,47 +11,51 @@ export interface RefDescriptor {
     chars: number;
 }
 
-export class RefStore {
-    private static taskStores: Map<string, Map<string, string>> = new Map();
-    private static taskCounters: Map<string, number> = new Map();
-    private static taskMeta: Map<string, Map<string, { label: string; chars: number }>> = new Map();
+interface RefEntry {
+    content: string;
+    label: string;
+}
 
-    static put(content: string, taskId: string, label?: string): string {
-        let store = this.taskStores.get(taskId);
-        if (!store) {
-            store = new Map<string, string>();
-            this.taskStores.set(taskId, store);
+/** Referencias de una tarea: contador de claves (`r1`, `r2`…) y contenidos con su etiqueta. */
+interface TaskRefs {
+    counter: number;
+    entries: Map<string, RefEntry>;
+}
+
+/**
+ * Almacén de resultados completos de herramientas (§10.4, §10.11), aislado por `taskId` para que limpiar o consultar
+ * una tarea nunca afecte a otra.
+ */
+export class RefStore {
+    private static readonly tasks = new Map<string, TaskRefs>();
+
+    /** Guarda `content` y devuelve su clave; el mismo contenido con la misma etiqueta reutiliza la clave existente. */
+    static put(content: string, taskId: string, label = ""): string {
+        let refs = RefStore.tasks.get(taskId);
+        if (!refs) {
+            refs = { counter: 0, entries: new Map() };
+            RefStore.tasks.set(taskId, refs);
         }
-        let meta = this.taskMeta.get(taskId);
-        if (!meta) {
-            meta = new Map();
-            this.taskMeta.set(taskId, meta);
+        for (const [existing, entry] of refs.entries) {
+            if (entry.content === content && entry.label === label) return existing;
         }
-        for (const [existing, stored] of store) {
-            if (stored === content && meta.get(existing)?.label === (label ?? "")) return existing;
-        }
-        const currentCounter = (this.taskCounters.get(taskId) || 0) + 1;
-        this.taskCounters.set(taskId, currentCounter);
-        const key = `r${currentCounter}`;
-        store.set(key, content);
-        meta.set(key, { label: label ?? "", chars: content.length });
+        const key = `r${++refs.counter}`;
+        refs.entries.set(key, { content, label });
         return key;
     }
 
     /** Las últimas `limit` referencias de la tarea, de la más antigua a la más reciente. */
     static describe(taskId: string, limit = 5): RefDescriptor[] {
-        const meta = this.taskMeta.get(taskId);
-        if (!meta) return [];
-        return Array.from(meta.entries())
+        const refs = RefStore.tasks.get(taskId);
+        if (!refs) return [];
+        return Array.from(refs.entries)
             .slice(-limit)
-            .map(([key, m]) => ({ key, label: m.label, chars: m.chars }));
+            .map(([key, entry]) => ({ key, label: entry.label, chars: entry.content.length }));
     }
 
     static get(key: string, taskId: string): string | undefined {
-        return this.taskStores.get(taskId)?.get(key);
+        return RefStore.tasks.get(taskId)?.entries.get(key)?.content;
     }
-
-
 
     /**
      * Libera las referencias de una tarea (o todas). Las refs de una tarea terminada se conservan en memoria, para que su
@@ -63,13 +63,9 @@ export class RefStore {
      */
     static clear(taskId?: string): void {
         if (taskId) {
-            this.taskStores.delete(taskId);
-            this.taskCounters.delete(taskId);
-            this.taskMeta.delete(taskId);
+            RefStore.tasks.delete(taskId);
         } else {
-            this.taskStores.clear();
-            this.taskCounters.clear();
-            this.taskMeta.clear();
+            RefStore.tasks.clear();
         }
     }
 }

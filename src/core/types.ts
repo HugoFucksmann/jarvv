@@ -74,6 +74,9 @@ export type TaskState =
   | "PARTIAL"
   | "CANCELLED";
 
+/** NORMAL = bucle reactivo (FAST); PLAN = plan confirmado por el usuario antes de ejecutarse. */
+export type TaskMode = "NORMAL" | "PLAN";
+
 export type WaitingReason = "approval" | "plan_confirmation" | "user_answer";
 
 export type StepState =
@@ -121,6 +124,17 @@ export type ExecutedCallStatus = "ok" | "unverified" | "rejected" | "tool_error"
 /** Llamada que no produjo un resultado utilizable (falló antes de ejecutarse o por una excepción). */
 export type CallFailureStatus = "args_invalid" | "refs_unresolved" | "loop_blocked" | "denied" | "user_rejected" | "exception";
 export type CallStatus = ExecutedCallStatus | CallFailureStatus;
+
+/** Acción ya ejecutada, tal como la ven Decision #1 y #2 para marcar rutas y herramientas cuyo último intento falló. */
+export interface Attempt {
+  /** Destino bajo el que se ejecutó la herramienta: es el vocabulario de Decision #1. */
+  route: ExecutableRoute;
+  /** Servidor MCP real: acota el estado "falló" de Decision #2. */
+  mcp?: string;
+  tool: string;
+  ok: boolean;
+  note?: string;
+}
 
 export interface StepCall {
   id: string;
@@ -272,7 +286,7 @@ export interface UserAnswer {
 export interface Task {
   id: string;
   message: string;
-  mode: "NORMAL" | "PLAN";
+  mode: TaskMode;
   steps: Step[];
   currentStep: number;
   scratchpad: Scratchpad;
@@ -371,15 +385,10 @@ export interface StepExecutionResult {
   semantic?: StageVerificationResult;
 }
 
-export const TERMINAL_TASK_STATES: readonly TaskState[] = [
-  "COMPLETED",
-  "PARTIAL",
-  "FAILED",
-  "CANCELLED",
-] as const;
+export const TERMINAL_TASK_STATES: readonly TaskState[] = ["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"];
 
 export function isTerminalState(state: TaskState): boolean {
-  return (TERMINAL_TASK_STATES as readonly string[]).includes(state);
+  return TERMINAL_TASK_STATES.includes(state);
 }
 
 // ============================================================

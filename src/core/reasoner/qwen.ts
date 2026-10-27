@@ -33,6 +33,7 @@ import {
 import { buildCompactCatalog } from "../tools/manifest.ts";
 import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
 import { estimateTokens, postJson, RequestAbortedError, TransportError } from "../llmTransport.ts";
+import { errorMessage, isRecord } from "../utils.ts";
 
 /** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
@@ -178,9 +179,6 @@ interface QwenDispatchResult {
 }
 
 const rawOf = ({ rawInput, rawOutput, timing }: QwenDispatchResult) => ({ rawInput, rawOutput, timing });
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 const nonEmptyString = (v: unknown): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim() : undefined;
@@ -361,6 +359,13 @@ const fail = (error: string): Validation<never> => ({ ok: false, error });
 const TRUNCATED = "la salida se truncó por el límite de tokens";
 const NOT_JSON = "la respuesta no es un objeto JSON válido";
 
+/** Primer filtro de toda salida JSON: sin truncar y con un objeto parseable. */
+const parseObjectOutput = (r: QwenDispatchResult): Validation<Record<string, unknown>> => {
+  if (r.truncated) return fail(TRUNCATED);
+  const parsed = parseJsonObject(r.content);
+  return parsed ? ok(parsed) : fail(NOT_JSON);
+};
+
 const BASE_TEMPERATURE = 0.1;
 const RETRY_TEMPERATURE = 0.3;
 const RETRY_TOKEN_FACTOR = 1.5;
@@ -386,6 +391,31 @@ interface ValidatedDispatch<T> extends Omit<DispatchOptions, "temperature"> {
   validate: (res: QwenDispatchResult, isLastAttempt: boolean) => Validation<T>;
 }
 
+/** Campos de una respuesta /v1/chat/completions; lo ausente o mal tipado toma un valor neutro. */
+interface Completion {
+  content: string;
+  finishReason: string;
+  promptTokens: number;
+  completionTokens: number;
+  /** Único punto por el que la respuesta cruda llega a memoria, eventos y trazas: sin pensamiento del modelo. */
+  rawOutput: string;
+}
+
+function readCompletion(data: unknown): Completion {
+  const root: Record<string, unknown> = isRecord(data) ? data : {};
+  const choice: Record<string, unknown> = Array.isArray(root.choices) && isRecord(root.choices[0]) ? root.choices[0] : {};
+  const message: Record<string, unknown> = isRecord(choice.message) ? choice.message : {};
+  const usage: Record<string, unknown> = isRecord(root.usage) ? root.usage : {};
+  const content = typeof message.content === "string" ? message.content : "";
+  return {
+    content,
+    finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown",
+    promptTokens: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0,
+    completionTokens: typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0,
+    rawOutput: sanitizedRawOutput(root, choice, content),
+  };
+}
+
 export class QwenEngine implements ILLMClient {
   /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
@@ -400,7 +430,7 @@ export class QwenEngine implements ILLMClient {
       if (err instanceof RequestAbortedError) {
         console.log(`[Qwen] ${stage} cancelled duration=${duration}ms`);
       } else {
-        const msg = (err instanceof Error ? err.message : String(err)).replace(/\r?\n/g, " ").slice(0, 160);
+        const msg = errorMessage(err).replace(/\r?\n/g, " ").slice(0, 160);
         console.error(`[Qwen] ${stage} error=${msg} duration=${duration}ms`);
       }
       throw err;
@@ -421,26 +451,28 @@ export class QwenEngine implements ILLMClient {
     return base.endsWith("/v1") ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
   }
 
-  /** Una petición de inferencia. No valida el contenido. */
-  private async dispatchPrompt(o: DispatchOptions): Promise<QwenDispatchResult> {
-    const config = ConfigManager.getConfig();
-    const url = this.resolveUrl(config.qwenUrl);
-
-    // Ollama recorta en silencio el prompt que no cabe y puede perder el SYSTEM.
+  /**
+   * Tokens de salida que se pueden pedir sin desbordar el contexto. Ollama recorta en silencio el prompt que no cabe y
+   * puede perder el SYSTEM, así que un prompt sin margen de salida se rechaza antes de enviarlo.
+   */
+  private reserveCompletionTokens(o: DispatchOptions, numCtx: number): number {
     const promptEstimate = estimateTokens(o.system) + estimateTokens(o.user);
-    const available = config.qwenNumCtx - promptEstimate;
+    const available = numCtx - promptEstimate;
     if (available < MIN_COMPLETION_TOKENS) {
       throw new LLMValidationError(
-        `El prompt de '${o.stage}' (~${promptEstimate} tokens) no deja espacio de salida en el contexto de ${config.qwenNumCtx} tokens.`
+        `El prompt de '${o.stage}' (~${promptEstimate} tokens) no deja espacio de salida en el contexto de ${numCtx} tokens.`
       );
     }
     const maxTokens = Math.min(o.maxTokens, available);
     if (maxTokens < o.maxTokens) {
-      console.warn(`[Qwen] stage=${o.stage} max_tokens reducido ${o.maxTokens} -> ${maxTokens} por límite de contexto (${config.qwenNumCtx}).`);
+      console.warn(`[Qwen] stage=${o.stage} max_tokens reducido ${o.maxTokens} -> ${maxTokens} por límite de contexto (${numCtx}).`);
     }
+    return maxTokens;
+  }
 
+  private buildRequestBody(o: DispatchOptions, model: string, maxTokens: number): Record<string, unknown> {
     const body: Record<string, unknown> = {
-      model: config.qwenModel,
+      model,
       messages: [
         { role: "system", content: o.system },
         { role: "user", content: o.user },
@@ -458,6 +490,16 @@ export class QwenEngine implements ILLMClient {
     } else if (o.json) {
       body.response_format = { type: "json_object" };
     }
+    return body;
+  }
+
+  /** Una petición de inferencia. No valida el contenido. */
+  private async dispatchPrompt(o: DispatchOptions): Promise<QwenDispatchResult> {
+    const config = ConfigManager.getConfig();
+    const url = this.resolveUrl(config.qwenUrl);
+    const maxTokens = this.reserveCompletionTokens(o, config.qwenNumCtx);
+
+    const body = this.buildRequestBody(o, config.qwenModel, maxTokens);
     const rawInput = JSON.stringify(body, null, 2);
 
     console.log(`[Qwen → SEND] stage=${o.stage} system=${JSON.stringify(o.system).slice(0, 200)} user=${JSON.stringify(o.user).slice(0, 300)}`);
@@ -497,17 +539,8 @@ export class QwenEngine implements ILLMClient {
       throw new LLMValidationError("La respuesta de Qwen no es un JSON legible.", { rawInput, rawOutput: `[respuesta no legible: ${result.text.length} caracteres]` });
     }
 
-    const root: Record<string, unknown> = isRecord(data) ? data : {};
-    const choice: Record<string, unknown> = Array.isArray(root.choices) && isRecord(root.choices[0]) ? root.choices[0] : {};
-    const message: Record<string, unknown> = isRecord(choice.message) ? choice.message : {};
-    const usage: Record<string, unknown> = isRecord(root.usage) ? root.usage : {};
-    const content = typeof message.content === "string" ? message.content : "";
-    const finishReason = typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown";
-    const promptTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
-    const completionTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
+    const { content, finishReason, promptTokens, completionTokens, rawOutput } = readCompletion(data);
     const truncated = finishReason === "length";
-    // Único punto por el que la respuesta cruda llega a memoria, eventos y trazas: sin pensamiento del modelo.
-    const rawOutput = sanitizedRawOutput(root, choice, content);
 
     console.log(`[Qwen ← RECV] stage=${o.stage} raw=${rawOutput.slice(0, 400)}`);
     console.log(
@@ -574,9 +607,9 @@ export class QwenEngine implements ILLMClient {
         thinking: false,
         signal,
         validate: (r) => {
-          if (r.truncated) return fail(TRUNCATED);
-          const parsed = parseJsonObject(r.content);
-          if (!parsed) return fail(NOT_JSON);
+          const out = parseObjectOutput(r);
+          if (!out.ok) return out;
+          const parsed = out.value;
           // null en un parámetro opcional equivale a "no usado".
           for (const k of Object.keys(parsed)) {
             if (parsed[k] === null && !required.includes(k)) delete parsed[k];
@@ -644,9 +677,9 @@ export class QwenEngine implements ILLMClient {
         thinking: true,
         signal,
         validate: (r) => {
-          if (r.truncated) return fail(TRUNCATED);
-          const parsed = parseJsonObject(r.content);
-          if (!parsed) return fail(NOT_JSON);
+          const out = parseObjectOutput(r);
+          if (!out.ok) return out;
+          const parsed = out.value;
           const parsedSteps = parsePlanSteps(parsed.steps, 1, true);
           if ("error" in parsedSteps) return fail(parsedSteps.error);
           return ok({ objective: nonEmptyString(parsed.objective) ?? userMessage, steps: parsedSteps.steps });
@@ -674,9 +707,9 @@ export class QwenEngine implements ILLMClient {
         thinking: true,
         signal,
         validate: (r) => {
-          if (r.truncated) return fail(TRUNCATED);
-          const parsed = parseJsonObject(r.content);
-          if (!parsed) return fail(NOT_JSON);
+          const out = parseObjectOutput(r);
+          if (!out.ok) return out;
+          const parsed = out.value;
           if (parsed.action === "abort") {
             return ok({ action: "abort" as const, reason: nonEmptyString(parsed.reason) ?? "Replan decidió abortar." });
           }
@@ -716,9 +749,9 @@ export class QwenEngine implements ILLMClient {
           thinking: false,
           signal,
           validate: (r, isLast) => {
-            if (r.truncated) return fail(TRUNCATED);
-            const parsed = parseJsonObject(r.content);
-            if (!parsed) return fail(NOT_JSON);
+            const out = parseObjectOutput(r);
+            if (!out.ok) return out;
+            const parsed = out.value;
             if (!isStageStatus(parsed.status)) return fail(`'status' debe ser uno de ${STAGE_STATUSES.join(", ")}`);
             const status = parsed.status;
             const reason = nonEmptyString(parsed.reason) ?? "Sin detalle.";

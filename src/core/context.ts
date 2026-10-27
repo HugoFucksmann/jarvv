@@ -4,19 +4,20 @@
 
 import {
     PROGRESSIVE_MEMORY_TIERS,
+    isTerminalState,
+    type Attempt,
     type ExecutableRoute,
     type PendingApproval,
     type CallStatus,
     type ProgressiveMemoryLimit,
     type Step,
-    type StepCall,
     type StepHandoff,
     type Task,
+    type TaskMemory,
 } from "./types.ts";
-import type { Attempt } from "./reasoner/prompts.ts";
 import { getToolPolicy } from "./tools/manifest.ts";
 import { RefStore } from "./processor/refStore.ts";
-import { sanitizeForMemory } from "./processor/text.ts";
+import { flatten, sanitizeForMemory } from "./processor/text.ts";
 
 /** Observación de una lectura con datos (búsqueda, página, archivo…): lo que un paso posterior puede necesitar. */
 export interface DataObservation {
@@ -64,6 +65,30 @@ export interface TaskExecutionContext {
     traced?: boolean;
 }
 
+/** Contexto de ejecución de una tarea recién creada. */
+export function createTaskContext(task: Task): TaskExecutionContext {
+    return {
+        task,
+        abortController: new AbortController(),
+        isCancelled: task.state === "CANCELLED",
+        pendingApproval: null,
+        executedSignatures: new Set(),
+        nonReadCounter: 0,
+        lastActionWasRead: false,
+        consecutiveLoopBlocks: 0,
+        totalToolCalls: 0,
+        escalations: task.escalations ?? 0,
+        startTime: Date.now(),
+        memoryRetrievalLimit: PROGRESSIVE_MEMORY_TIERS[0],
+        dataObs: [],
+    };
+}
+
+/** La tarea ya no debe avanzar: el usuario la canceló o llegó a un estado terminal. */
+export function isStopped(context: TaskExecutionContext): boolean {
+    return context.isCancelled || isTerminalState(context.task.state);
+}
+
 /**
  * Expande progresivamente el límite de recuperación de memoria contextual al siguiente
  * escalón de PROGRESSIVE_MEMORY_TIERS (el último es el máximo).
@@ -84,31 +109,37 @@ export function recordDataObservation(context: TaskExecutionContext, obs: DataOb
 }
 
 /** Única fuente de la forma de la memoria de una tarea. */
-export function createEmptyMemory(): NonNullable<Task["memory"]> {
+export function createEmptyMemory(): TaskMemory {
     return { log: [], facts: {}, fail: [] };
 }
 
-export function ensureMemory(context: TaskExecutionContext): NonNullable<Task["memory"]> {
+export function ensureMemory(context: TaskExecutionContext): TaskMemory {
     if (!context.task.memory) {
         context.task.memory = createEmptyMemory();
     }
     return context.task.memory;
 }
 
-/** Agrega una entrada a LOG (hasta 30 entradas completas). */
+/** Entradas que conservan LOG y FAIL en la memoria de una tarea (las más recientes). */
+const MAX_LOG_ENTRIES = 30;
+const MAX_FAIL_ENTRIES = 5;
+/** Líneas de LOG y FAIL que ve Decision #2 en su bloque de memoria. */
+const DECISION_MEMORY_LINES = 2;
+
+/** Agrega una entrada a LOG (se conservan las últimas MAX_LOG_ENTRIES). */
 export function addLogEntry(context: TaskExecutionContext, line: string): void {
     const memory = ensureMemory(context);
     memory.log.push(line);
-    if (memory.log.length > 30) {
-        memory.log = memory.log.slice(-30);
+    if (memory.log.length > MAX_LOG_ENTRIES) {
+        memory.log = memory.log.slice(-MAX_LOG_ENTRIES);
     }
 }
 
 function addFailEntry(context: TaskExecutionContext, line: string): void {
     const memory = ensureMemory(context);
     memory.fail.push(line);
-    if (memory.fail.length > 5) {
-        memory.fail = memory.fail.slice(-5);
+    if (memory.fail.length > MAX_FAIL_ENTRIES) {
+        memory.fail = memory.fail.slice(-MAX_FAIL_ENTRIES);
     }
 }
 
@@ -163,7 +194,7 @@ export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 
         parts.push(logLines.slice(-limit).join("\n"));
     }
     if (failLines.length > 0) {
-        parts.push(`FAIL:\n${failLines.slice(-Math.min(limit, 5)).join("\n")}`);
+        parts.push(`FAIL:\n${failLines.slice(-Math.min(limit, MAX_FAIL_ENTRIES)).join("\n")}`);
     }
     return parts.join("\n");
 }
@@ -171,8 +202,8 @@ export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 
 export function buildDecisionMemory(task: Task): string {
     const facts = task.memory?.facts || {};
     const factsStr = Object.entries(facts).map(([k, v]) => `${k}=${v}`).join(" ");
-    const logLines = (task.memory?.log || []).slice(-2).join("; ");
-    const failLines = (task.memory?.fail || []).slice(-2).join("; ");
+    const logLines = (task.memory?.log || []).slice(-DECISION_MEMORY_LINES).join("; ");
+    const failLines = (task.memory?.fail || []).slice(-DECISION_MEMORY_LINES).join("; ");
     return `FACTS: ${factsStr} | LOG: ${logLines} | FAIL: ${failLines}`;
 }
 
@@ -182,7 +213,7 @@ export function buildDecisionMemory(task: Task): string {
  */
 export function buildAttempts(task: Task): Attempt[] {
     return task.steps.flatMap((s) =>
-        ((s.calls || []) as StepCall[]).map((c) => ({
+        (s.calls ?? []).map((c) => ({
             route: s.route,
             mcp: c.mcp,
             tool: c.tool,
@@ -246,7 +277,7 @@ function describeArgs(args: Record<string, unknown>): string {
     return Object.entries(args)
         .map(([key, value]) => {
             const raw = typeof value === "string" ? value : (JSON.stringify(value) ?? String(value));
-            const flat = sanitizeForMemory(raw, Number.MAX_SAFE_INTEGER).replace(/\s{2,}/g, " ");
+            const flat = flatten(raw);
             return flat.length > MAX_EFFECT_ARG_CHARS
                 ? `${key}=${flat.slice(0, MAX_EFFECT_ARG_CHARS - 1).trimEnd()}…(${raw.length} caracteres)`
                 : `${key}=${flat}`;
@@ -293,7 +324,7 @@ export function applyStepHandoff(step: Step, context: TaskExecutionContext): str
  * Sin esta regla, una sola llamada sin verificar bloquearía `fin` durante el resto de la tarea.
  */
 export function hasUnresolvedUnverified(task: Task): boolean {
-    const calls = task.steps.flatMap((s) => (s.calls || []) as StepCall[]);
+    const calls = task.steps.flatMap((s) => s.calls ?? []);
     let lastUnverified = -1;
     for (let i = 0; i < calls.length; i++) {
         if (calls[i].verification === "UNVERIFIED") lastUnverified = i;

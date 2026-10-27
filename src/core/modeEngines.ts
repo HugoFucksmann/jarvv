@@ -7,14 +7,13 @@ import {
     MAX_REPLAN,
     MAX_STEPS,
     MAX_USER_QUESTIONS_PER_STEP,
-    isTerminalState,
     type ExecutableRoute,
+    type Plan,
     type PlanStep,
     type StageVerificationResult,
     type Step,
     type StepExecutionResult,
     type StepRoute,
-    type StepState,
     type Task,
     type TaskState,
 } from "./types.ts";
@@ -24,29 +23,35 @@ import {
     buildHistoryContext,
     expandMemoryContext,
     hasUnresolvedUnverified,
+    isStopped,
     recordFailure,
 } from "./context.ts";
-import { type EngineDependencies, recordFailedCall, runStep } from "./callExecutor.ts";
-import { LLMServiceUnavailableError } from "./reasoner/qwen.ts";
-import { DecisionServiceUnavailableError } from "./decision.ts";
+import type { EngineDependencies } from "./engineDeps.ts";
+import { recordFailedCall, runStep } from "./callExecutor.ts";
+import { LLMServiceUnavailableError, type ReplanResult } from "./reasoner/qwen.ts";
+import { DecisionServiceUnavailableError, type DecisionOneResult } from "./decision.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
+import { emitStepCompleted, emitStepError, emitStepRunning } from "./stepEvents.ts";
 import {
     buildAllEffects,
     concludeAsFailure,
     concludeOnLLMError,
     concludeTask,
-    errorMessage,
     failTask,
     isCancellation,
 } from "./taskConclusion.ts";
+import { errorMessage } from "./utils.ts";
 
 const MAX_CONSECUTIVE_LOOP_BLOCKS = 2;
 const GUARD_DENIED_REASON = "Operación denegada por política de seguridad (Guard).";
 /** Motivo fijo de detención cuando la verificación semántica declara un paso irrecuperable (nunca el `reason` del modelo). */
 const UNRECOVERABLE_BLOCKED_REASON = "La verificación semántica determinó que la etapa no puede completarse.";
 
-const isStopped = (context: TaskExecutionContext): boolean =>
-    context.isCancelled || isTerminalState(context.task.state);
+/**
+ * Compara el estado leyéndolo de nuevo en cada llamada. Tras asignar `step.state = "RUNNING"`, TypeScript asume ese
+ * valor aunque `runStep` (que corre en medio de un `await`) lo cambie; una comparación directa daría un falso error.
+ */
+const hasState = <S extends string>(entity: { state: S }, state: S): boolean => entity.state === state;
 
 /** Decision #1 con allowFin=false solo puede devolver rutas ejecutables. */
 function toExecutableRoute(route: StepRoute): ExecutableRoute {
@@ -97,7 +102,7 @@ function askDecisionOne(context: TaskExecutionContext, deps: EngineDependencies,
 function emitDecisionOne(
     deps: EngineDependencies,
     taskId: string,
-    decision: { route: unknown; probabilities: unknown; rawInput: unknown; rawOutput: unknown; timing: unknown },
+    decision: DecisionOneResult,
     purpose?: "escalation" | "reselection"
 ): void {
     deps.emitEvent(taskId, "DECISION_ONE", {
@@ -108,19 +113,6 @@ function emitDecisionOne(
         timing: decision.timing,
         ...(purpose ? { purpose } : {}),
     });
-}
-
-function emitStepRunning(deps: EngineDependencies, taskId: string, step: Step, stepIndex: number): void {
-    deps.emitEvent(taskId, "STEP_STATE_CHANGED", { step, stepIndex, state: "RUNNING" }, step.id);
-}
-
-function emitStepCompleted(deps: EngineDependencies, taskId: string, step: Step, stepIndex: number): void {
-    deps.emitEvent(taskId, "STEP_COMPLETED", { step, stepIndex }, step.id);
-}
-
-/** STEP_COMPLETED de un paso que terminó con `step.error`. */
-function emitStepError(deps: EngineDependencies, taskId: string, step: Step, stepIndex: number): void {
-    deps.emitEvent(taskId, "STEP_COMPLETED", { step, stepIndex, error: step.error }, step.id);
 }
 
 /** Fallo no controlado de runStep: marca el paso FAILED, registra la llamada fallida y emite STEP_COMPLETED. */
@@ -145,6 +137,33 @@ function recordStepCrash(
         recordFailedCall(context, step, { status: "exception", error: step.error });
     }
     emitStepError(deps, context.task.id, step, stepIndex);
+}
+
+
+/** Resultado de ejecutar un paso: su resultado, una excepción ya registrada en el paso, o la cancelación de la tarea. */
+type GuardedRun =
+    | { kind: "result"; result: StepExecutionResult }
+    | { kind: "crashed" }
+    | { kind: "cancelled" };
+
+/**
+ * `runStep` para un paso de FAST o PLAN. La cancelación termina el bucle; cualquier otra excepción se registra en el
+ * paso (recordStepCrash) y cada modo decide cómo recuperarse (escalación en FAST, replan en PLAN).
+ */
+async function runStepGuarded(
+    context: TaskExecutionContext,
+    step: Step,
+    stepIndex: number,
+    deps: EngineDependencies,
+    loopTag: "FAST" | "PLAN"
+): Promise<GuardedRun> {
+    try {
+        return { kind: "result", result: await runStep(context, step, deps) };
+    } catch (err) {
+        if (isCancellation(context, err)) return { kind: "cancelled" };
+        recordStepCrash(context, step, stepIndex, deps, loopTag, err);
+        return { kind: "crashed" };
+    }
 }
 
 
@@ -188,7 +207,7 @@ export async function handleEscalation(
         context.excludedToolForNextCall = step.tool;
     }
 
-    let arbitration;
+    let arbitration: DecisionOneResult;
     try {
         arbitration = await askDecisionOne(context, deps, true);
     } catch (err) {
@@ -240,7 +259,7 @@ export async function handleReplan(
         .slice(failedStepIndex + 1)
         .map((s) => `[ ] ${s.id} ${s.instruction}`);
 
-    let replanResult;
+    let replanResult: ReplanResult;
     try {
         replanResult = await deps.qwenEngine.replan({
             goal: task.message,
@@ -306,7 +325,7 @@ async function selectRoute(context: TaskExecutionContext, deps: EngineDependenci
     }
 
     const isFirst = task.stepSeq === 0;
-    let d1;
+    let d1: DecisionOneResult;
     try {
         d1 = await askDecisionOne(context, deps, true);
     } catch (err) {
@@ -344,6 +363,50 @@ async function selectRoute(context: TaskExecutionContext, deps: EngineDependenci
     }
 }
 
+/**
+ * Aplica el resultado de `runStep` al paso FAST. Devuelve false si la tarea quedó concluida y el bucle debe terminar.
+ */
+async function settleFastStep(
+    context: TaskExecutionContext,
+    step: Step,
+    stepIndex: number,
+    execResult: StepExecutionResult,
+    deps: EngineDependencies
+): Promise<boolean> {
+    const taskId = context.task.id;
+
+    switch (execResult.status) {
+        case "ok":
+            step.state = "COMPLETED";
+            emitStepCompleted(deps, taskId, step, stepIndex);
+            return true;
+
+        case "unverified":
+            step.state = "UNVERIFIED";
+            emitStepCompleted(deps, taskId, step, stepIndex);
+            console.warn(`[FAST] Acción UNVERIFIED registrada. Requiere observación.`);
+            return true;
+
+        case "blocked_loop":
+            step.state = "BLOCKED";
+            step.error = execResult.error || "Invocación bloqueada por anti-loop.";
+            emitStepError(deps, taskId, step, stepIndex);
+
+            if (context.consecutiveLoopBlocks >= MAX_CONSECUTIVE_LOOP_BLOCKS) {
+                console.warn(`[FAST] ${MAX_CONSECUTIVE_LOOP_BLOCKS} bloqueos seguidos de anti-loop. Cerrando PARTIAL.`);
+                await concludeTask(context, "PARTIAL", deps, `Detenido por anti-loop (${MAX_CONSECUTIVE_LOOP_BLOCKS} bloqueos seguidos).`);
+                return false;
+            }
+            return true;
+
+        case "logical_error":
+            step.state = "FAILED";
+            step.error = execResult.error || "Fallo lógico en ejecución.";
+            emitStepError(deps, taskId, step, stepIndex);
+            return handleEscalation(context, step, execResult, deps);
+    }
+}
+
 export async function runFastLoop(
     context: TaskExecutionContext,
     deps: EngineDependencies
@@ -377,13 +440,10 @@ export async function runFastLoop(
         task.steps.push(step);
         emitStepRunning(deps, task.id, step, stepIndex);
 
-        let execResult: StepExecutionResult;
-        try {
-            execResult = await runStep(context, step, deps);
-        } catch (err) {
-            if (isCancellation(context, err)) return;
-            recordStepCrash(context, step, stepIndex, deps, "FAST", err);
+        const run = await runStepGuarded(context, step, stepIndex, deps, "FAST");
+        if (run.kind === "cancelled") return;
 
+        if (run.kind === "crashed") {
             const crashResult: StepExecutionResult = { status: "logical_error", step, error: step.error };
             if (!await handleEscalation(context, step, crashResult, deps)) {
                 return;
@@ -391,31 +451,8 @@ export async function runFastLoop(
             continue;
         }
 
-        if (execResult.status === "ok") {
-            step.state = "COMPLETED";
-            emitStepCompleted(deps, task.id, step, stepIndex);
-        } else if (execResult.status === "unverified") {
-            step.state = "UNVERIFIED";
-            emitStepCompleted(deps, task.id, step, stepIndex);
-            console.warn(`[FAST] Acción UNVERIFIED registrada. Requiere observación.`);
-        } else if (execResult.status === "blocked_loop") {
-            step.state = "BLOCKED";
-            step.error = execResult.error || "Invocación bloqueada por anti-loop.";
-            emitStepError(deps, task.id, step, stepIndex);
-
-            if (context.consecutiveLoopBlocks >= MAX_CONSECUTIVE_LOOP_BLOCKS) {
-                console.warn(`[FAST] ${MAX_CONSECUTIVE_LOOP_BLOCKS} bloqueos seguidos de anti-loop. Cerrando PARTIAL.`);
-                await concludeTask(context, "PARTIAL", deps, `Detenido por anti-loop (${MAX_CONSECUTIVE_LOOP_BLOCKS} bloqueos seguidos).`);
-                return;
-            }
-        } else {
-            step.state = "FAILED";
-            step.error = execResult.error || "Fallo lógico en ejecución.";
-            emitStepError(deps, task.id, step, stepIndex);
-
-            if (!await handleEscalation(context, step, execResult, deps)) {
-                return;
-            }
+        if (!await settleFastStep(context, step, stepIndex, run.result, deps)) {
+            return;
         }
     }
 }
@@ -431,7 +468,7 @@ export async function initiatePlanMode(
 
     if (isStopped(context)) return;
 
-    let plan;
+    let plan: Plan;
     try {
         plan = await deps.qwenEngine.generatePlan(task.message, undefined, context.abortController.signal);
     } catch (err) {
@@ -510,7 +547,7 @@ export async function runPlanLoop(
 ): Promise<void> {
     const { task } = context;
 
-    while (!isStopped(context) && (task.state as TaskState) !== "WAITING_INPUT") {
+    while (!isStopped(context) && !hasState(task, "WAITING_INPUT")) {
         const stepIndex = task.steps.findIndex((s) => !s.superseded && (s.state === "PENDING" || s.state === "RUNNING"));
         if (stepIndex === -1) {
             await concludeExhaustedPlan(context, deps);
@@ -523,24 +560,22 @@ export async function runPlanLoop(
         step.state = "RUNNING";
         emitStepRunning(deps, task.id, step, stepIndex);
 
-        let execResult: StepExecutionResult;
-        try {
-            execResult = await runStep(context, step, deps);
-        } catch (err) {
-            if (isCancellation(context, err)) return;
-            recordStepCrash(context, step, stepIndex, deps, "PLAN", err);
+        const run = await runStepGuarded(context, step, stepIndex, deps, "PLAN");
+        if (run.kind === "cancelled") return;
 
+        if (run.kind === "crashed") {
             if (!await handleReplan(context, stepIndex, deps)) {
                 return;
             }
             continue;
         }
+        const execResult = run.result;
 
-        if (isStopped(context) || (task.state as TaskState) === "WAITING_INPUT") {
+        if (isStopped(context) || hasState(task, "WAITING_INPUT")) {
             return;
         }
 
-        if (execResult.signals?.denied || (step.state as StepState) === "BLOCKED") {
+        if (execResult.signals?.denied || hasState(step, "BLOCKED")) {
             console.warn(`[PLAN] Acción denegada por Guard o usuario. Prohibido replanificar para eludir denegación.`);
             await concludeAsFailure(context, deps, GUARD_DENIED_REASON);
             return;

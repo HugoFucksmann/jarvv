@@ -6,22 +6,42 @@ import { MAX_EVIDENCE_OBS_CHARS, isTerminalState, type Task, type TaskState, typ
 import { getToolPolicy } from "./tools/manifest.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 import { type TaskExecutionContext, buildEffectsContext } from "./context.ts";
-import type { EngineDependencies } from "./callExecutor.ts";
+import type { EngineDependencies } from "./engineDeps.ts";
 import { RequestAbortedError, TransportError } from "./llmTransport.ts";
 import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
+import { errorMessage } from "./utils.ts";
+
+// Se mantiene aquí por compatibilidad: otros módulos la importaban desde el cierre de tareas.
+export { errorMessage };
 
 /** Una cancelación del usuario nunca es un error que reportar. */
 export const isCancellation = (context: TaskExecutionContext, err: unknown): boolean =>
     context.isCancelled || err instanceof RequestAbortedError;
 
-export const errorMessage = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+/**
+ * ¿La tarea fue cancelada? Se lee de nuevo en cada llamada: tras un `await` la tarea pudo cancelarse, y una comparación
+ * directa de `task.state` conserva el estrechamiento de tipos previo al `await`.
+ */
+const wasCancelled = (context: TaskExecutionContext): boolean =>
+    context.isCancelled || context.task.state === "CANCELLED";
 
 export const buildAllEffects = (task: Task): string[] => buildEffectsContext(task, Number.POSITIVE_INFINITY);
 
+/** Mutaciones recientes que se aportan como evidencia a la respuesta final. */
+const MAX_ACTION_EVIDENCE = 3;
+/** Tope del motivo de detención cuando es la única evidencia disponible. */
+const MAX_ABORT_EVIDENCE_CHARS = 1500;
+/** Respuesta de respaldo: últimas acciones del LOG, lecturas incluidas y tope de cada dato/lectura. */
+const FALLBACK_LOG_LINES = 5;
+const FALLBACK_READS = 2;
+const FALLBACK_FACT_CHARS = 200;
+const FALLBACK_READ_CHARS = 600;
+
 const STATE_LABEL: Partial<Record<TaskState, string>> = { COMPLETED: "Completada", PARTIAL: "Parcial", FAILED: "Fallida" };
 
-const formatTaskSummary = (context: TaskExecutionContext, state: TaskState, reason: string): string =>
+/** Línea de resumen que se registra al cerrar (o cancelar) una tarea. */
+export const formatTaskSummary = (context: TaskExecutionContext, state: TaskState, reason: string): string =>
     `[Task Summary] id=${context.task.id} state=${state} reason="${reason}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`;
 
 /** PARTIAL si se completó al menos un paso productivo; FAILED si no. */
@@ -110,24 +130,25 @@ export function buildFallbackResponse(
             ? `Cambios aplicados en el entorno (permanecen aunque su paso no se haya aprobado):\n${bullets(effects)}`
             : "Cambios aplicados en el entorno: ninguno registrado."
     );
-    if (facts.length > 0) sections.push(`Datos registrados:\n${bullets(facts.map(([k, v]) => `${k}: ${sanitizeForMemory(v, 200)}`))}`);
-    if (log.length > 0) sections.push(`Últimas acciones (paso|acción|estado|hallazgo):\n${bullets(log.slice(-5))}`);
-    if (lastReads.length > 0) sections.push(`Última lectura (texto sin procesar):\n${lastReads.map((r) => sanitizeForMemory(r, 600)).join("\n---\n")}`);
+    if (facts.length > 0) sections.push(`Datos registrados:\n${bullets(facts.map(([k, v]) => `${k}: ${sanitizeForMemory(v, FALLBACK_FACT_CHARS)}`))}`);
+    if (log.length > 0) sections.push(`Últimas acciones (paso|acción|estado|hallazgo):\n${bullets(log.slice(-FALLBACK_LOG_LINES))}`);
+    if (lastReads.length > 0) sections.push(`Última lectura (texto sin procesar):\n${lastReads.map((r) => sanitizeForMemory(r, FALLBACK_READ_CHARS)).join("\n---\n")}`);
     return sections.join("\n\n");
 }
 
-interface Evidence {
+/** Evidencia que se entrega al modelo (y a la plantilla de respaldo) al redactar la respuesta final. */
+interface ConclusionEvidence {
     /** Lecturas con datos (p. ej. resultados de una búsqueda anterior): no deben perderse aunque haya llamadas posteriores. */
     dataEvidence: string[];
     evidenceSummaries: string[];
 }
 
-function collectEvidence(context: TaskExecutionContext, abortReason: string | undefined): Evidence {
+function collectEvidence(context: TaskExecutionContext, abortReason: string | undefined): ConclusionEvidence {
     const dataEvidence = context.dataObs.map((o) => `${o.label}: ${o.text}`);
     const actionEvidence = context.task.steps
         .flatMap((s) => s.calls || [])
         .filter((c) => getToolPolicy(c.mcp, c.tool).mutates)
-        .slice(-3)
+        .slice(-MAX_ACTION_EVIDENCE)
         .map((c) => {
             const obs = (c.evidence?.obs || c.evidence?.summary || "").trim().slice(0, MAX_EVIDENCE_OBS_CHARS);
             return obs ? `${c.tool}: ${obs}` : "";
@@ -135,7 +156,7 @@ function collectEvidence(context: TaskExecutionContext, abortReason: string | un
         .filter(Boolean);
     const evidenceSummaries = [...dataEvidence, ...actionEvidence];
     if (evidenceSummaries.length === 0 && abortReason) {
-        evidenceSummaries.push(`abort: ${abortReason.slice(0, 1500)}`);
+        evidenceSummaries.push(`abort: ${abortReason.slice(0, MAX_ABORT_EVIDENCE_CHARS)}`);
     }
     return { dataEvidence, evidenceSummaries };
 }
@@ -153,7 +174,7 @@ async function synthesizeFinalResponse(
     deps: EngineDependencies,
     state: TaskState,
     abortReason: string | undefined,
-    evidence: Evidence
+    evidence: ConclusionEvidence
 ): Promise<SynthesisRaw> {
     const { task } = context;
     try {
@@ -171,7 +192,7 @@ async function synthesizeFinalResponse(
         return { rawInput: finalRes.rawInput, rawOutput: finalRes.rawOutput, timing: finalRes.timing };
     } catch (err) {
         if (!isCancellation(context, err)) {
-            console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, err instanceof Error ? err.message : err);
+            console.error(`[concludeTask] Error al generar respuesta final con Qwen:`, errorMessage(err));
         }
         // Se conserva lo que ya se envió al modelo para poder auditar el fallo (nunca pensamiento del modelo).
         const raw: SynthesisRaw = {};
@@ -190,7 +211,7 @@ async function synthesizeFinalResponse(
             abortReason,
             raw.synthesisError,
             buildAllEffects(task),
-            evidence.dataEvidence.slice(-2)
+            evidence.dataEvidence.slice(-FALLBACK_READS)
         );
         task.finalResponseSource = "fallback";
         return raw;
@@ -206,7 +227,7 @@ export async function concludeTask(
     const { task } = context;
 
     // Invarianza de estados terminales: si la tarea ya fue cancelada, ningún resultado tardío la altera.
-    if (context.isCancelled || task.state === "CANCELLED") {
+    if (wasCancelled(context)) {
         console.log(`[concludeTask] Tarea ${task.id} previamente cancelada. Ignorando conclusión tardía.`);
         return;
     }
@@ -215,7 +236,7 @@ export async function concludeTask(
     const synthesis = await synthesizeFinalResponse(context, deps, state, abortReason, evidence);
 
     // La generación fue asíncrona: la tarea pudo cancelarse mientras tanto.
-    if (context.isCancelled || (task.state as TaskState) === "CANCELLED") {
+    if (wasCancelled(context)) {
         console.log(`[concludeTask] Tarea ${task.id} cancelada durante generación de respuesta final. Descartando resultado.`);
         return;
     }

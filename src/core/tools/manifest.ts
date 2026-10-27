@@ -203,16 +203,18 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   loopExempt: false,
 });
 
+const lookup = (server: string, tool: string): ToolDefinition | undefined => INDEX.get(toolKey(server, tool));
+
 export function isKnownTool(server: string, tool: string): boolean {
-  return INDEX.has(toolKey(server, tool));
+  return lookup(server, tool) !== undefined;
 }
 
 export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy> {
-  return INDEX.get(toolKey(server, tool))?.policy ?? UNKNOWN_TOOL_POLICY;
+  return lookup(server, tool)?.policy ?? UNKNOWN_TOOL_POLICY;
 }
 
 export function requirementOf(server: string, tool: string): "process" | "search" | undefined {
-  return INDEX.get(toolKey(server, tool))?.requires;
+  return lookup(server, tool)?.requires;
 }
 
 /** Servidor MCP que ejecuta un destino. */
@@ -246,9 +248,9 @@ function annotateParams(schema: MCPTool["inputSchema"], tool: string, notes: Rea
       }
       continue;
     }
-    properties[param] = { ...(prop as Record<string, unknown>), description: note };
+    properties[param] = { ...prop, description: note };
   }
-  return { ...schema, properties } as MCPTool["inputSchema"];
+  return { ...schema, properties };
 }
 
 /**
@@ -261,7 +263,7 @@ export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool
   const server = serverOf(route);
   const allowed: MCPTool[] = [];
   for (const t of tools) {
-    const d = INDEX.get(toolKey(server, t.name));
+    const d = lookup(server, t.name);
     if (d?.route !== route) continue;
     let inputSchema = d.params ? restrictParams(t.inputSchema, d.params) : t.inputSchema;
     if (d.notes) inputSchema = annotateParams(inputSchema, t.name, d.notes);

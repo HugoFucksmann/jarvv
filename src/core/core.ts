@@ -9,14 +9,17 @@ import {
   type CoreEvent,
   type CoreEventType,
   type PendingApproval,
+  type Plan,
+  type StepState,
   type Task,
+  type TaskMode,
 } from "./types.ts";
 import { Decision20Engine } from "./decision.ts";
 import { DiscoveryEngine } from "./mcp/discovery.ts";
 import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
-import { type TaskExecutionContext, createEmptyMemory, ensureMemory } from "./context.ts";
-import type { EngineDependencies } from "./callExecutor.ts";
+import { type TaskExecutionContext, createEmptyMemory, createTaskContext, ensureMemory } from "./context.ts";
+import type { EngineDependencies } from "./engineDeps.ts";
 import { RefStore } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 
@@ -26,12 +29,16 @@ import {
   runPlanLoop,
   planStepsToSteps,
 } from "./modeEngines.ts";
-import { errorMessage, failTask } from "./taskConclusion.ts";
+import { failTask, formatTaskSummary } from "./taskConclusion.ts";
+import { errorMessage } from "./utils.ts";
 import { createIterationFromEvent } from "./modelIterations.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 
 export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
+
+/** Estados de paso que una cancelación deja como fallidos (el paso ya no llegará a completarse). */
+const CANCELLABLE_STEP_STATES: readonly StepState[] = ["PENDING", "RUNNING", "WAITING_APPROVAL"];
 
 export class JarvisCore {
   private decisionEngine: Decision20Engine;
@@ -59,28 +66,29 @@ export class JarvisCore {
     };
   }
 
-  private static createContext(task: Task): TaskExecutionContext {
-    return {
-      task,
-      abortController: new AbortController(),
-      isCancelled: task.state === "CANCELLED",
-      pendingApproval: null,
-      executedSignatures: new Set(),
-      nonReadCounter: 0,
-      lastActionWasRead: false,
-      consecutiveLoopBlocks: 0,
-      totalToolCalls: 0,
-      escalations: task.escalations ?? 0,
-      startTime: Date.now(),
-      memoryRetrievalLimit: 2,
-      dataObs: [],
-    };
-  }
-
   // --- Event Subscription ---
   addEventListener(listener: CoreEventListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Refleja un evento en la tarea: limpia banderas obsoletas y guarda (o actualiza) la iteración de modelo. */
+  private applyEventToTask(task: Task, event: CoreEvent): void {
+    // `planConfirmed === false` significa "esperando confirmación del plan": al terminar la tarea ya no aplica.
+    if (task.planConfirmed === false && isTerminalState(task.state)) {
+      task.planConfirmed = undefined;
+    }
+
+    const iteration = createIterationFromEvent(event, task);
+    if (!iteration) return;
+
+    task.modelIterations = task.modelIterations || [];
+    const existingIdx = task.modelIterations.findIndex((it) => it.id === iteration.id);
+    if (existingIdx >= 0) {
+      task.modelIterations[existingIdx] = iteration;
+    } else {
+      task.modelIterations.push(iteration);
+    }
   }
 
   private emitEvent(taskId: string, type: CoreEventType, data: Record<string, unknown> = {}, stepId?: string) {
@@ -93,23 +101,8 @@ export class JarvisCore {
     };
 
     // Almacenamiento determinista en memoria/contexto de la iteración de modelo
-    const ctx = this.taskContexts.get(taskId);
-    if (ctx?.task) {
-      // `planConfirmed === false` significa "esperando confirmación del plan": al terminar la tarea ya no aplica.
-      if (ctx.task.planConfirmed === false && isTerminalState(ctx.task.state)) {
-        ctx.task.planConfirmed = undefined;
-      }
-      const iteration = createIterationFromEvent(event, ctx.task);
-      if (iteration) {
-        ctx.task.modelIterations = ctx.task.modelIterations || [];
-        const existingIdx = ctx.task.modelIterations.findIndex((it) => it.id === iteration.id);
-        if (existingIdx >= 0) {
-          ctx.task.modelIterations[existingIdx] = iteration;
-        } else {
-          ctx.task.modelIterations.push(iteration);
-        }
-      }
-    }
+    const task = this.taskContexts.get(taskId)?.task;
+    if (task) this.applyEventToTask(task, event);
 
     for (const listener of this.listeners) {
       try {
@@ -158,7 +151,7 @@ export class JarvisCore {
   }
 
   // --- Task Initiation ---
-  async initiateTask(message: string, mode: "NORMAL" | "PLAN" = "NORMAL"): Promise<Task> {
+  async initiateTask(message: string, mode: TaskMode = "NORMAL"): Promise<Task> {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     const task: Task = {
       id: taskId,
@@ -174,11 +167,11 @@ export class JarvisCore {
       stepSeq: 0,
     };
 
-    const context = JarvisCore.createContext(task);
+    const context = createTaskContext(task);
 
     console.log(`[Task] start id=${taskId} mode=${mode}`);
     this.taskContexts.set(taskId, context);
-    this.pruneTasks(true);
+    this.pruneTasks();
     this.emitEvent(taskId, "TASK_CREATED", { task });
 
     this.runDetached(context, () => this.runTaskPipeline(context));
@@ -200,14 +193,12 @@ export class JarvisCore {
     }
 
     const currentStep = context.task.steps[context.task.currentStep];
-    if (currentStep && (currentStep.state === "RUNNING" || currentStep.state === "WAITING_APPROVAL" || currentStep.state === "PENDING")) {
+    if (currentStep && CANCELLABLE_STEP_STATES.includes(currentStep.state)) {
       currentStep.state = "FAILED";
       currentStep.error = "CANCELLED";
     }
 
-    console.log(
-      `[Task Summary] id=${taskId} state=CANCELLED reason="Cancelada por usuario" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`
-    );
+    console.log(formatTaskSummary(context, "CANCELLED", "Cancelada por usuario"));
     this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "CANCELLED" });
     recordTaskTrace(context);
   }
@@ -253,7 +244,7 @@ export class JarvisCore {
       this.emitEvent(taskId, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "plan_confirmation", error });
     };
 
-    let newPlan;
+    let newPlan: Plan;
     try {
       newPlan = await this.qwenEngine.generatePlan(
         task.message,
@@ -347,23 +338,27 @@ export class JarvisCore {
     }
   }
 
-  private pruneTasks(cancelAbandoned = false): void {
+  /**
+   * Mantiene el tope de tareas retenidas: expulsa las terminales y, si aun así se excede, cancela la tarea en espera
+   * de entrada más antigua (abandonada) hasta cumplirlo.
+   */
+  private pruneTasks(): void {
     this.evictTerminalTasks();
-    if (!cancelAbandoned) return;
 
     while (this.taskContexts.size > MAX_RETAINED_TASKS) {
-      let abandoned: TaskExecutionContext | undefined;
-      for (const c of this.taskContexts.values()) {
-        if (c.task.state === "WAITING_INPUT") {
-          abandoned = c;
-          break;
-        }
-      }
+      const abandoned = this.findOldestWaitingTask();
       if (!abandoned) break;
       console.warn(`[JarvisCore] Tope de ${MAX_RETAINED_TASKS} tareas: se cancela la tarea en espera más antigua '${abandoned.task.id}'.`);
       this.cancelTask(abandoned.task.id);
       this.evictTerminalTasks();
     }
+  }
+
+  private findOldestWaitingTask(): TaskExecutionContext | undefined {
+    for (const ctx of this.taskContexts.values()) {
+      if (ctx.task.state === "WAITING_INPUT") return ctx;
+    }
+    return undefined;
   }
 
   private evictTerminalTasks(): void {

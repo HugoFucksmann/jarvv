@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { isRecord } from "./utils.ts";
 
 export interface StdioServerConfig {
   command: string;
@@ -91,9 +92,6 @@ const DEFAULT_CONFIG: JarvisConfig = {
 // ------------------------------------------------------------
 // Normalización
 // ------------------------------------------------------------
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
 const text = (v: unknown, fallback: string): string =>

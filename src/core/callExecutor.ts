@@ -5,11 +5,10 @@
 import { createHash } from "node:crypto";
 import {
     MAX_EVIDENCE_OBS_CHARS,
-    isTerminalState,
     type CallFailureStatus,
     type Capability,
-    type CoreEventType,
     type ExecutedCallStatus,
+    type McpServerName,
     type MCPTool,
     type Step,
     type StageVerificationResult,
@@ -18,9 +17,12 @@ import {
     type StepExecutionSignals,
     type TimeSpan,
     type StepHandoff,
+    type ToolPolicy,
     type VerificationState,
 } from "./types.ts";
-import type { Decision20Engine } from "./decision.ts";
+import type { StepVerificationResult } from "./decision.ts";
+import type { EmitEventFn, EngineDependencies } from "./engineDeps.ts";
+import { emitStepError, emitStepStateChanged } from "./stepEvents.ts";
 import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
 import {
@@ -28,7 +30,6 @@ import {
     LLMValidationError,
     type ArgumentsGenerationResult,
     type FailedAttempt,
-    type ILLMClient,
 } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { ResultProcessor, type ProcessedResult } from "./processor/resultProcessor.ts";
@@ -36,12 +37,14 @@ import { refLabel } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
+import { errorMessage } from "./utils.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
     addLogEntry,
     describeFailure,
     ensureMemory,
+    isStopped,
     recordDataObservation,
     recordFailure,
     buildEffectsContext,
@@ -52,19 +55,8 @@ import {
     buildPlanLines,
 } from "./context.ts";
 
-export type EmitEventFn = (
-    taskId: string,
-    type: CoreEventType,
-    data?: Record<string, unknown>,
-    stepId?: string
-) => void;
-
-export interface EngineDependencies {
-    decisionEngine: Decision20Engine;
-    discoveryEngine: DiscoveryEngine;
-    qwenEngine: ILLMClient;
-    emitEvent: EmitEventFn;
-}
+// Los contratos viven en engineDeps.ts; se reexportan para no romper a quien los importa desde el ejecutor.
+export type { EmitEventFn, EngineDependencies } from "./engineDeps.ts";
 
 interface ApprovalRequest {
     mcp: string;
@@ -75,7 +67,7 @@ interface ApprovalRequest {
 }
 
 /** Pide aprobación al usuario con los datos reales de la llamada (no los del Step, que aún no se han copiado). */
-async function requestUserApproval(
+function requestUserApproval(
     context: TaskExecutionContext,
     step: Step,
     request: ApprovalRequest,
@@ -167,24 +159,41 @@ export function recordFailedCall(
 const argsHash = (args: Record<string, unknown>): string =>
     createHash("sha1").update(JSON.stringify(args)).digest("hex");
 
+/** Datos de la ejecución en curso que comparten todas las fases de `runStep`. */
+interface StepRun {
+    readonly context: TaskExecutionContext;
+    readonly step: Step;
+    readonly deps: EngineDependencies;
+    readonly signal: AbortSignal;
+}
+
+/** Resultado de una fase: continuar con un valor, o detener `runStep` con un resultado ya construido. */
+type Phase<T> =
+    | { readonly proceed: true; readonly value: T }
+    | { readonly proceed: false; readonly result: StepExecutionResult };
+
+const proceed = <T>(value: T): Phase<T> => ({ proceed: true, value });
+const halt = (result: StepExecutionResult): Phase<never> => ({ proceed: false, result });
+
+type McpServer = NonNullable<ReturnType<DiscoveryEngine["getServer"]>>;
+type McpCallOutput = Awaited<ReturnType<McpServer["callTool"]>>;
+
+// ---------------------------------------------------------------
+// Fase 1-2: herramientas candidatas y selección (Decision #2)
+// ---------------------------------------------------------------
+
+interface CandidateTools {
+    serverName: McpServerName;
+    server: McpServer;
+    tools: MCPTool[];
+}
+
 /**
- * Motor unificado de ejecución atómica de pasos.
- * Contrato de errores: los fallos de dominio (argumentos inválidos, anti-loop, Guard, resultado inválido) se
- * devuelven como StepExecutionResult; los fallos de infraestructura (Qwen/Decision caídos, MCP no disponible,
- * cancelación) se propagan como excepción y los decide el motor de modo.
+ * Servidor MCP del destino y sus herramientas utilizables. Discovery con lista cerrada: solo las catalogadas en el
+ * manifest bajo este destino, sin la excluida por la escalación y solo las que el estado de la tarea permite.
  */
-export async function runStep(
-    context: TaskExecutionContext,
-    step: Step,
-    deps: EngineDependencies
-): Promise<StepExecutionResult> {
+async function discoverCandidateTools({ context, step, deps }: StepRun): Promise<CandidateTools> {
     const { task } = context;
-    const signal = context.abortController.signal;
-    const isStopped = () => context.isCancelled || isTerminalState(task.state);
-
-    if (isStopped()) return cancelledResult(step);
-
-    // 1. Servidor MCP del destino
     const route = step.route;
     const serverName = serverOf(route);
     const server = deps.discoveryEngine.getServer(serverName);
@@ -192,9 +201,8 @@ export async function runStep(
         throw new Error(`Servidor MCP '${serverName}' no disponible.`);
     }
 
-    // 2. Discovery con lista cerrada: solo herramientas catalogadas en el manifest que pertenecen al destino
-    let discoveredTools: MCPTool[] = applyDestination(route, await deps.discoveryEngine.getDiscoveredTools(serverName));
-    if (discoveredTools.length === 0) {
+    let tools: MCPTool[] = applyDestination(route, await deps.discoveryEngine.getDiscoveredTools(serverName));
+    if (tools.length === 0) {
         const unavailable = deps.discoveryEngine.getUnavailableServers()[serverName];
         throw new Error(
             `Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${serverName}'` +
@@ -205,8 +213,8 @@ export async function runStep(
     if (context.excludedToolForNextCall) {
         const excluded = context.excludedToolForNextCall;
         context.excludedToolForNextCall = undefined;
-        discoveredTools = discoveredTools.filter((t) => t.name !== excluded);
-        if (discoveredTools.length === 0) {
+        tools = tools.filter((t) => t.name !== excluded);
+        if (tools.length === 0) {
             throw new Error(`No hay herramientas alternativas en el destino '${route}' tras excluir '${excluded}'.`);
         }
     }
@@ -215,19 +223,29 @@ export async function runStep(
         process: Boolean(task.scratchpad.process_id),
         search: task.steps.some((s) => s.calls?.some((c) => c.tool === "start_search" && c.outcome?.success === true)),
     };
-    discoveredTools = discoveredTools.filter((t) => {
+    tools = tools.filter((t) => {
         const required = requirementOf(serverName, t.name);
         return !required || active[required];
     });
-    if (discoveredTools.length === 0) {
+    if (tools.length === 0) {
         throw new Error(`No hay herramientas utilizables en el destino '${route}': requieren un proceso o una búsqueda activos.`);
     }
 
-    // 3. Decision #2: selección de tool
+    return { serverName, server, tools };
+}
+
+/**
+ * Decision #2 elige la herramienta y se confirma que el servidor la sigue exponiendo. Devuelve null si la tarea se
+ * detuvo durante esa validación.
+ */
+async function selectTool(run: StepRun, serverName: McpServerName, tools: MCPTool[]): Promise<MCPTool | null> {
+    const { context, step, deps, signal } = run;
+    const { task } = context;
+
     const decisionMemory = buildDecisionMemory(task);
     const d2 = await deps.decisionEngine.evaluateDecisionTwo(
         step.instruction,
-        discoveredTools,
+        tools,
         decisionMemory,
         buildAttempts(task),
         { mcp: serverName, signal }
@@ -237,7 +255,7 @@ export async function runStep(
     let exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
     if (!exists) {
         await deps.discoveryEngine.getDiscoveredTools(serverName, true);
-        if (isStopped()) return cancelledResult(step);
+        if (isStopped(context)) return null;
         exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
         if (!exists) {
             step.state = "FAILED";
@@ -251,7 +269,7 @@ export async function runStep(
 
     deps.emitEvent(task.id, "DECISION_TWO", {
         tool: selectedTool.name,
-        candidates: discoveredTools.map((t) => t.name),
+        candidates: tools.map((t) => t.name),
         memory: decisionMemory,
         probabilities: d2.probabilities,
         rawInput: d2.rawInput,
@@ -260,17 +278,42 @@ export async function runStep(
         timing: d2.timing,
     }, step.id);
 
-    // 4. Argumentos
-    const cleanedSchema = cleanInputSchema(selectedTool.inputSchema);
+    return selectedTool;
+}
 
-    const emitFailedArguments = (attempts: readonly FailedAttempt[]) =>
-        attempts.forEach((a, i) => deps.emitEvent(task.id, "ARGUMENTS_GENERATED", {
-            error: a.error,
-            rawInput: a.rawInput,
-            rawOutput: a.rawOutput,
-            attempt: i + 1,
-            timing: a.timing,
-        }, step.id));
+// ---------------------------------------------------------------
+// Fase 3: argumentos (Qwen) y referencias
+// ---------------------------------------------------------------
+
+function emitFailedArguments({ context, step, deps }: StepRun, attempts: readonly FailedAttempt[]): void {
+    attempts.forEach((a, i) => deps.emitEvent(context.task.id, "ARGUMENTS_GENERATED", {
+        error: a.error,
+        rawInput: a.rawInput,
+        rawOutput: a.rawOutput,
+        attempt: i + 1,
+        timing: a.timing,
+    }, step.id));
+}
+
+/** La última llamada solo va aparte si no es ya la más reciente de DATA (evita enviarla dos veces). */
+function lastObservationFor(context: TaskExecutionContext, step: Step, tool: MCPTool) {
+    const lastObs = context.lastCallCompactObs;
+    if (!lastObs || context.dataObs[context.dataObs.length - 1]?.text === lastObs) return undefined;
+    return {
+        stepId: context.lastCallStepId ?? step.id,
+        toolName: context.lastCallTool || tool.name,
+        obsText: lastObs,
+    };
+}
+
+/**
+ * Qwen genera los argumentos y las referencias `{{ref:rX}}` se sustituyen de forma determinista antes de Guard.
+ * Solo una salida inválida del modelo es un fallo lógico del paso; Qwen caído o la cancelación se propagan.
+ */
+async function generateStepArguments(run: StepRun, selectedTool: MCPTool): Promise<Phase<Record<string, unknown>>> {
+    const { context, step, deps, signal } = run;
+    const { task } = context;
+    const cleanedSchema = cleanInputSchema(selectedTool.inputSchema);
 
     let generated: ArgumentsGenerationResult;
     try {
@@ -286,29 +329,23 @@ export async function runStep(
             tool: selectedTool,
             cleanedSchema,
             dataObs: context.dataObs.map((o) => ({ stepId: o.stepId, label: o.label, obsText: o.text })),
-            // La última llamada solo va aparte si no es ya la más reciente de DATA (evita enviarla dos veces).
-            lastObs: context.lastCallCompactObs && context.dataObs[context.dataObs.length - 1]?.text !== context.lastCallCompactObs ? {
-                stepId: context.lastCallStepId ?? step.id,
-                toolName: context.lastCallTool || selectedTool.name,
-                obsText: context.lastCallCompactObs,
-            } : undefined,
+            lastObs: lastObservationFor(context, step, selectedTool),
             taskInstruction: applyStepHandoff(step, context),
         }, signal);
     } catch (argErr) {
         if (argErr instanceof LLMServiceUnavailableError && argErr.raw) {
             deps.emitEvent(task.id, "ARGUMENTS_GENERATED", { error: argErr.message, rawInput: argErr.raw.rawInput, timing: argErr.raw.timing }, step.id);
         }
-        // Solo una salida inválida del modelo es un fallo lógico del paso; Qwen caído o la cancelación se propagan.
         if (!(argErr instanceof LLMValidationError)) throw argErr;
         console.error("[Qwen Args Error]", argErr.message);
-        emitFailedArguments(argErr.attempts ?? (argErr.raw ? [{ ...argErr.raw, error: argErr.message }] : []));
+        emitFailedArguments(run, argErr.attempts ?? (argErr.raw ? [{ ...argErr.raw, error: argErr.message }] : []));
         const argsError = `Argumentos inválidos: ${argErr.message}`;
         recordFailedCall(context, step, { status: "args_invalid", tool: selectedTool.name, error: argsError });
-        return { status: "logical_error", step, error: argsError };
+        return halt({ status: "logical_error", step, error: argsError });
     }
-    emitFailedArguments(generated.failedAttempts ?? []);
+    emitFailedArguments(run, generated.failedAttempts ?? []);
 
-    // 4.1. Sustitución determinista de referencias {{ref:rX}} antes de Guard
+    // Sustitución determinista de referencias {{ref:rX}} antes de Guard
     const refResolution = resolveReferences(generated.args, task.id, selectedTool.inputSchema);
     const args = refResolution.resolvedArgs;
     if (refResolution.replacedCount > 0) {
@@ -327,127 +364,220 @@ export async function runStep(
 
     // Una referencia inexistente nunca se envía literal a la herramienta.
     if (refResolution.unresolvedRefs.length > 0) {
-        const unresolved = refResolution.unresolvedRefs.join(", ");
-        const refError = `Referencias sin resolver: ${unresolved}`;
+        const refError = `Referencias sin resolver: ${refResolution.unresolvedRefs.join(", ")}`;
         recordFailedCall(context, step, { status: "refs_unresolved", tool: selectedTool.name, args, error: refError });
-        return { status: "logical_error", step, error: refError };
+        return halt({ status: "logical_error", step, error: refError });
     }
 
-    // 5. Anti-loop
-    const policy = getToolPolicy(serverName, selectedTool.name);
+    return proceed(args);
+}
+
+// ---------------------------------------------------------------
+// Fase 4: anti-loop
+// ---------------------------------------------------------------
+
+/**
+ * Devuelve la firma que debe registrarse justo antes del despacho (undefined si la herramienta está exenta). La firma no
+ * se registra aquí: una llamada que nunca llegó a ejecutarse (Guard, rechazo del usuario, excepción de MCP) no puede
+ * bloquear su propio reintento.
+ */
+function checkAntiLoop(
+    { context, step }: StepRun,
+    serverName: McpServerName,
+    toolName: string,
+    args: Record<string, unknown>,
+    policy: Readonly<ToolPolicy>
+): Phase<string | undefined> {
+    if (policy.loopExempt) return proceed(undefined);
+
     const isRead = policy.kind === "READ";
-
-    // La firma se registra justo antes del despacho: una llamada que nunca llegó a ejecutarse (Guard, rechazo del
-    // usuario, excepción de MCP) no puede bloquear su propio reintento.
-    let loopSignature: string | undefined;
-    if (!policy.loopExempt) {
-        const sig = `${serverName}:${selectedTool.name}:${argsHash(args)}:m${context.nonReadCounter}`;
-        // Lectura idéntica: siempre bloqueada. Acción idéntica: bloqueada si no hubo una lectura intermedia.
-        if (context.executedSignatures.has(sig) && (isRead || !context.lastActionWasRead)) {
-            context.consecutiveLoopBlocks++;
-            const loopError = isRead
-                ? "Lectura idéntica bloqueada por anti-loop."
-                : "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).";
-            recordFailedCall(context, step, { status: "loop_blocked", tool: selectedTool.name, args, error: loopError });
-            return { status: "blocked_loop", step, error: loopError };
-        }
-        loopSignature = sig;
+    const sig = `${serverName}:${toolName}:${argsHash(args)}:m${context.nonReadCounter}`;
+    // Lectura idéntica: siempre bloqueada. Acción idéntica: bloqueada si no hubo una lectura intermedia.
+    if (context.executedSignatures.has(sig) && (isRead || !context.lastActionWasRead)) {
+        context.consecutiveLoopBlocks++;
+        const loopError = isRead
+            ? "Lectura idéntica bloqueada por anti-loop."
+            : "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).";
+        recordFailedCall(context, step, { status: "loop_blocked", tool: toolName, args, error: loopError });
+        return halt({ status: "blocked_loop", step, error: loopError });
     }
+    return proceed(sig);
+}
 
-    // 6. Guard y aprobación
-    const guardDecision = Guard.evaluate(serverName, selectedTool.name, args);
+// ---------------------------------------------------------------
+// Fase 5: Guard y aprobación del usuario
+// ---------------------------------------------------------------
+
+/** Cierra el paso como BLOCKED por una denegación (Guard) o un rechazo del usuario. */
+function blockStep(
+    { context, step, deps }: StepRun,
+    tool: MCPTool,
+    args: Record<string, unknown>,
+    status: "denied" | "user_rejected",
+    error: string
+): StepExecutionResult {
+    step.state = "BLOCKED";
+    step.error = error;
+    recordFailedCall(context, step, { status, tool: tool.name, args, error });
+    emitStepError(deps, context.task.id, step);
+    return { status: "logical_error", step, error, signals: { denied: true } };
+}
+
+async function authorizeCall(
+    run: StepRun,
+    serverName: McpServerName,
+    tool: MCPTool,
+    args: Record<string, unknown>
+): Promise<Phase<void>> {
+    const { context, step, deps } = run;
+    const { task } = context;
+
+    const guardDecision = Guard.evaluate(serverName, tool.name, args);
     deps.emitEvent(task.id, "GUARD_EVALUATION", { guardDecision }, step.id);
 
-    const blockStep = (status: "denied" | "user_rejected", error: string): StepExecutionResult => {
-        step.state = "BLOCKED";
-        step.error = error;
-        recordFailedCall(context, step, { status, tool: selectedTool.name, args, error });
-        deps.emitEvent(task.id, "STEP_COMPLETED", { step, error }, step.id);
-        return { status: "logical_error", step, error, signals: { denied: true } };
-    };
-
     if (guardDecision.decision === "DENY") {
-        return blockStep("denied", guardDecision.reason || "Operación rechazada por Guard (DENY).");
+        return halt(blockStep(run, tool, args, "denied", guardDecision.reason || "Operación rechazada por Guard (DENY)."));
     }
+    if (guardDecision.decision !== "APPROVAL") return proceed(undefined);
 
-    if (guardDecision.decision === "APPROVAL") {
-        task.state = "WAITING_INPUT";
-        task.waitingReason = "approval";
-        step.state = "WAITING_APPROVAL";
-        deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, state: "WAITING_APPROVAL" }, step.id);
-        deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "approval" });
+    task.state = "WAITING_INPUT";
+    task.waitingReason = "approval";
+    step.state = "WAITING_APPROVAL";
+    emitStepStateChanged(deps, task.id, step, "WAITING_APPROVAL");
+    deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "WAITING_INPUT", waitingReason: "approval" });
 
-        const approved = await requestUserApproval(context, step, {
-            mcp: serverName,
-            tool: selectedTool.name,
-            args,
-            capability: guardDecision.capability,
-            reason: guardDecision.reason || "Operación sensible",
-        }, deps.emitEvent);
+    const approved = await requestUserApproval(context, step, {
+        mcp: serverName,
+        tool: tool.name,
+        args,
+        capability: guardDecision.capability,
+        reason: guardDecision.reason || "Operación sensible",
+    }, deps.emitEvent);
 
-        // La cancelación resuelve la aprobación como rechazo: no se debe revivir una tarea ya CANCELLED.
-        if (isStopped()) return cancelledResult(step);
+    // La cancelación resuelve la aprobación como rechazo: no se debe revivir una tarea ya CANCELLED.
+    if (isStopped(context)) return halt(cancelledResult(step));
 
-        task.state = "RUNNING";
-        task.waitingReason = undefined;
+    task.state = "RUNNING";
+    task.waitingReason = undefined;
 
-        if (!approved) {
-            const blocked = blockStep("user_rejected", "Operación rechazada por el usuario en Guard.");
-            deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
-            return blocked;
-        }
-        step.state = "RUNNING";
-        deps.emitEvent(task.id, "STEP_STATE_CHANGED", { step, state: "RUNNING" }, step.id);
+    if (!approved) {
+        const blocked = blockStep(run, tool, args, "user_rejected", "Operación rechazada por el usuario en Guard.");
         deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
+        return halt(blocked);
     }
+    step.state = "RUNNING";
+    emitStepStateChanged(deps, task.id, step, "RUNNING");
+    deps.emitEvent(task.id, "TASK_STATE_CHANGED", { state: "RUNNING" });
+    return proceed(undefined);
+}
 
-    // 7. Registro de invocación
+// ---------------------------------------------------------------
+// Fase 6: despacho al servidor MCP
+// ---------------------------------------------------------------
+
+interface DispatchOutput {
+    rawResult: McpCallOutput;
+    /** Solo la herramienta, sin la verificación posterior: distingue un comando lento de un modelo lento. */
+    execution: TimeSpan;
+}
+
+async function dispatchTool(
+    { context, step, deps }: StepRun,
+    serverName: McpServerName,
+    server: McpServer,
+    tool: MCPTool,
+    args: Record<string, unknown>,
+    loopSignature: string | undefined
+): Promise<Phase<DispatchOutput>> {
+    const { task } = context;
+
+    // Registro de invocación
     context.totalToolCalls++;
-    if (isStopped()) return cancelledResult(step);
+    if (isStopped(context)) return halt(cancelledResult(step));
     if (loopSignature) context.executedSignatures.add(loopSignature);
 
-    // 8. Ejecución en el servidor MCP
-    deps.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: selectedTool.name, args }, step.id);
-    console.log(`[MCP → SEND] server=${serverName} tool=${selectedTool.name} args=${JSON.stringify(args).slice(0, 300)}`);
-    let rawResult: Awaited<ReturnType<typeof server.callTool>>;
+    deps.emitEvent(task.id, "MCP_DISPATCHED", { mcp: serverName, tool: tool.name, args }, step.id);
+    console.log(`[MCP → SEND] server=${serverName} tool=${tool.name} args=${JSON.stringify(args).slice(0, 300)}`);
+    let rawResult: McpCallOutput;
     const executionStart = Date.now();
     try {
-        rawResult = await server.callTool(selectedTool.name, args);
+        rawResult = await server.callTool(tool.name, args);
     } catch (callErr) {
         // Fallo de infraestructura: la herramienta no produjo resultado, el reintento idéntico debe poder ejecutarse.
         if (loopSignature) context.executedSignatures.delete(loopSignature);
         throw callErr;
     }
-    // Solo la herramienta, sin la verificación posterior: distingue un comando lento de un modelo lento.
     const execution: TimeSpan = { startedAt: executionStart, durationMs: Date.now() - executionStart };
-    console.log(`[MCP ← RECV] server=${serverName} tool=${selectedTool.name} duration=${execution.durationMs}ms result=${JSON.stringify(rawResult).slice(0, 400)}`);
+    console.log(`[MCP ← RECV] server=${serverName} tool=${tool.name} duration=${execution.durationMs}ms result=${JSON.stringify(rawResult).slice(0, 400)}`);
 
     // La tarea pudo cancelarse durante la llamada: un resultado tardío no toca memoria, refs ni eventos.
-    if (isStopped()) {
-        console.warn(`[runStep] Resultado tardío de '${selectedTool.name}' descartado: la tarea ${task.id} ya no está activa.`);
-        return cancelledResult(step);
+    if (isStopped(context)) {
+        console.warn(`[runStep] Resultado tardío de '${tool.name}' descartado: la tarea ${task.id} ya no está activa.`);
+        return halt(cancelledResult(step));
     }
 
     deps.emitEvent(task.id, "MCP_RESULT", { rawResult, execution }, step.id);
+    return proceed({ rawResult, execution });
+}
 
-    // 9. Procesamiento del resultado
-    const processed: ProcessedResult = ResultProcessor.process(serverName, selectedTool.name, rawResult, args, task.id);
+// ---------------------------------------------------------------
+// Fase 7: procesamiento del resultado
+// ---------------------------------------------------------------
+
+function absorbResult(
+    { context, step }: StepRun,
+    serverName: McpServerName,
+    tool: MCPTool,
+    args: Record<string, unknown>,
+    rawResult: McpCallOutput,
+    policy: Readonly<ToolPolicy>
+): ProcessedResult {
+    const { task } = context;
+    const processed: ProcessedResult = ResultProcessor.process(serverName, tool.name, rawResult, args, task.id);
     context.lastCallCompactObs = processed.compactObs;
-    context.lastCallTool = selectedTool.name;
+    context.lastCallTool = tool.name;
     context.lastCallStepId = step.id;
     context.lastCallDecisionSummary = processed.decisionSummary;
 
     // Una lectura con datos se conserva aparte de la última llamada: un paso posterior (p. ej. crear un archivo con los
     // resultados de una búsqueda) la necesita aunque entre medias haya habido otras llamadas.
     if (!policy.mutates && processed.outcome.success && !processed.signals.empty_output && !processed.signals.not_found && processed.compactObs) {
-        recordDataObservation(context, { stepId: step.id, label: refLabel(selectedTool.name, args), text: processed.compactObs });
+        recordDataObservation(context, { stepId: step.id, label: refLabel(tool.name, args), text: processed.compactObs });
     }
 
-    // El scratchpad es solo estado visible ("lo último visto"); los facts se registran tras la verificación (más abajo).
+    // El scratchpad es solo estado visible ("lo último visto"); los facts se registran tras la verificación.
     Object.assign(task.scratchpad, processed.scratchpadDelta);
+    return processed;
+}
 
-    // 10. Verificación. Eos decide sobre señales limpias. En modo PLAN, si Eos no aprueba (rechaza o no está
-    // disponible), Qwen actúa como segundo juez: el paso falla solo si fallan los dos. En FAST decide solo Eos.
+// ---------------------------------------------------------------
+// Fase 8: verificación (Eos y, en modo PLAN, Qwen como segundo juez)
+// ---------------------------------------------------------------
+
+interface Verdict {
+    /** La herramienta corrió sin error, sin timeout, sin denegación y con datos. */
+    isCleanSignals: boolean;
+    eosPassed: boolean;
+    eosUnavailable: boolean;
+    /** Respuesta completa de Eos (null si no se consultó o no estuvo disponible). */
+    eos: StepVerificationResult | null;
+    /** Veredicto de Qwen como segundo juez (solo modo PLAN, cuando Eos no aprobó). */
+    semantic?: StageVerificationResult;
+    /** Etiqueta determinista de la acción ("read_file C:\x.txt"): su destino va al LOG y a Eos. */
+    callLabel: string;
+}
+
+/**
+ * Eos decide sobre señales limpias. En modo PLAN, si Eos no aprueba (rechaza o no está disponible), Qwen actúa como
+ * segundo juez: el paso falla solo si fallan los dos. En FAST decide solo Eos.
+ */
+async function verifyResult(
+    { context, step, deps, signal }: StepRun,
+    tool: MCPTool,
+    args: Record<string, unknown>,
+    processed: ProcessedResult
+): Promise<Verdict> {
+    const { task } = context;
     const { signals } = processed;
     const isCleanSignals =
         !processed.outcome.isError &&
@@ -458,18 +588,17 @@ export async function runStep(
         !signals.empty_output &&
         (signals.exit_code === 0 || signals.exit_code === undefined);
 
-    // Etiqueta determinista de la acción ("read_file C:\x.txt"): su destino va al LOG y a Eos.
-    const callLabel = refLabel(selectedTool.name, args);
+    const callLabel = refLabel(tool.name, args);
 
     let eosPassed = false;
     let eosUnavailable = false;
-    let verificationDetail: Awaited<ReturnType<Decision20Engine["evaluateStepVerification"]>> | null = null;
+    let eos: StepVerificationResult | null = null;
 
     if (isCleanSignals) {
         try {
-            verificationDetail = await deps.decisionEngine.evaluateStepVerification(
+            eos = await deps.decisionEngine.evaluateStepVerification(
                 step.instruction,
-                selectedTool.name,
+                tool.name,
                 // Resultado neutro: la etiqueta [SUCCESS] de decisionSummary ya concluye por el verificador.
                 `${callLabel}: ${processed.finding}`,
                 processed.evidence.summary,
@@ -478,10 +607,10 @@ export async function runStep(
                 sanitizeForMemory((processed.compactObs || "").replace(/\[\.\.\.[^\]]*\]/g, "[…]"), MAX_EVIDENCE_OBS_CHARS),
                 signal
             );
-            eosPassed = verificationDetail.ok && verificationDetail.cumple;
+            eosPassed = eos.ok && eos.cumple;
         } catch (verErr) {
             if (verErr instanceof RequestAbortedError) throw verErr;
-            console.warn("[runStep] Verificación Eos no disponible:", verErr instanceof Error ? verErr.message : verErr);
+            console.warn("[runStep] Verificación Eos no disponible:", errorMessage(verErr));
             eosUnavailable = true;
         }
     }
@@ -493,7 +622,7 @@ export async function runStep(
                 goal: task.message,
                 stepInstruction: step.instruction,
                 expectedOutcome: step.expectedOutcome || "Cumplimiento del objetivo de la etapa",
-                executedAction: `${selectedTool.name} ${JSON.stringify(args)}`,
+                executedAction: `${tool.name} ${JSON.stringify(args)}`,
                 evidenceSummary: processed.evidence.summary || processed.evidence.obs || "",
                 compactObs: processed.compactObs || "",
                 facts: task.memory?.facts || {},
@@ -515,6 +644,45 @@ export async function runStep(
             console.warn("[runStep] Verificación semántica (Qwen) no disponible:", semErr.message);
         }
     }
+
+    return { isCleanSignals, eosPassed, eosUnavailable, eos, semantic, callLabel };
+}
+
+// ---------------------------------------------------------------
+// Fase 9: registro del resultado en el paso, la memoria y los eventos
+// ---------------------------------------------------------------
+
+/** Handoff determinista hacia el paso siguiente: hallazgo, referencia y hecho clave. */
+function buildHandoff(step: Step, tool: MCPTool, processed: ProcessedResult): StepHandoff {
+    const primaryFactKey = Object.keys(processed.factsDelta)[0];
+    return {
+        fromStepId: step.id,
+        tool: tool.name,
+        finding: processed.finding || "Paso ejecutado con éxito",
+        primaryFact: primaryFactKey ? { key: primaryFactKey, value: processed.factsDelta[primaryFactKey] } : undefined,
+        refKey: processed.refKey,
+        timestamp: Date.now(),
+    };
+}
+
+interface SettleInput {
+    run: StepRun;
+    serverName: McpServerName;
+    tool: MCPTool;
+    args: Record<string, unknown>;
+    policy: Readonly<ToolPolicy>;
+    processed: ProcessedResult;
+    execution: TimeSpan;
+    verdict: Verdict;
+}
+
+function settleCall(input: SettleInput): StepExecutionResult {
+    const { run, serverName, tool, args, policy, processed, execution, verdict } = input;
+    const { context, step, deps } = run;
+    const { task } = context;
+    const { signals } = processed;
+    const { isCleanSignals, eosPassed, eosUnavailable, semantic, callLabel } = verdict;
+    const isRead = policy.kind === "READ";
 
     const isStepSuccess = isCleanSignals && (eosPassed || semantic?.status === "completed");
     // Sin ningún veredicto (Eos no disponible y sin segundo juez) no se aprueba ni se rechaza: queda UNVERIFIED.
@@ -547,9 +715,9 @@ export async function runStep(
     // El resumen que ven Decision #1/#2 debe coincidir con el estado final: la etiqueta [SUCCESS] del extractor es
     // previa al veredicto, así que si el verificador rechazó la llamada se reemplaza (sin prosa de modelos).
     if (status === "rejected") {
-        context.lastCallDecisionSummary = `[FAILURE] ${selectedTool.name}: ${processed.finding}. Result not approved.`;
+        context.lastCallDecisionSummary = `[FAILURE] ${tool.name}: ${processed.finding}. Result not approved.`;
     } else if (status === "unverified") {
-        context.lastCallDecisionSummary = `[INFO] ${selectedTool.name}: ${processed.finding}. Not verified.`;
+        context.lastCallDecisionSummary = `[INFO] ${tool.name}: ${processed.finding}. Not verified.`;
     }
 
     addLogEntry(context, `${step.id}|${callLabel}|${LOG_TOKEN[status]}|${processed.finding}`);
@@ -566,7 +734,7 @@ export async function runStep(
     const callRecord: StepCall = {
         id: newCallId(step),
         mcp: serverName,
-        tool: selectedTool.name,
+        tool: tool.name,
         args,
         status,
         evidence: {
@@ -582,15 +750,7 @@ export async function runStep(
     };
 
     if (status === "ok") {
-        const primaryFactKey = Object.keys(processed.factsDelta)[0];
-        const handoff: StepHandoff = {
-            fromStepId: step.id,
-            tool: selectedTool.name,
-            finding: processed.finding || "Paso ejecutado con éxito",
-            primaryFact: primaryFactKey ? { key: primaryFactKey, value: processed.factsDelta[primaryFactKey] } : undefined,
-            refKey: processed.refKey,
-            timestamp: Date.now(),
-        };
+        const handoff = buildHandoff(step, tool, processed);
         step.handoff = handoff;
         context.lastHandoff = handoff;
     } else {
@@ -610,13 +770,13 @@ export async function runStep(
         processed,
         callStatus: status,
         execution,
-        verification: verificationDetail,
+        verification: verdict.eos,
         eosUnavailable,
         isStepSuccess,
         verificationState: verification,
         verifiedBy: eosPassed ? "eos" : semantic?.status === "completed" ? "qwen" : undefined,
-        rawInput: verificationDetail?.rawInput,
-        rawOutput: verificationDetail?.rawOutput,
+        rawInput: verdict.eos?.rawInput,
+        rawOutput: verdict.eos?.rawOutput,
     }, step.id);
 
     if (status === "unverified") {
@@ -626,10 +786,53 @@ export async function runStep(
     if (status !== "ok") {
         // Con una pregunta pendiente al usuario el fallo no es una lección para el FAIL: lo gestiona el modo PLAN.
         if (semantic?.status !== "insufficient_info") {
-            recordFailure(context, status, { stepId: step.id, subject: selectedTool.name });
+            recordFailure(context, status, { stepId: step.id, subject: tool.name });
         }
         return { status: "logical_error", step, call: callRecord, error: failReason, signals, semantic };
     }
 
     return { status: "ok", step, call: callRecord, signals, semantic };
+}
+
+/**
+ * Motor unificado de ejecución atómica de pasos. Cada fase es una función con una responsabilidad; las que pueden
+ * terminar el paso antes de tiempo devuelven un `Phase` con el resultado ya construido.
+ * Contrato de errores: los fallos de dominio (argumentos inválidos, anti-loop, Guard, resultado inválido) se
+ * devuelven como StepExecutionResult; los fallos de infraestructura (Qwen/Decision caídos, MCP no disponible,
+ * cancelación) se propagan como excepción y los decide el motor de modo.
+ */
+export async function runStep(
+    context: TaskExecutionContext,
+    step: Step,
+    deps: EngineDependencies
+): Promise<StepExecutionResult> {
+    const run: StepRun = { context, step, deps, signal: context.abortController.signal };
+
+    if (isStopped(context)) return cancelledResult(step);
+
+    const { serverName, server, tools } = await discoverCandidateTools(run);
+
+    const selectedTool = await selectTool(run, serverName, tools);
+    if (!selectedTool) return cancelledResult(step);
+
+    const generated = await generateStepArguments(run, selectedTool);
+    if (!generated.proceed) return generated.result;
+    const args = generated.value;
+
+    const policy = getToolPolicy(serverName, selectedTool.name);
+
+    const loopCheck = checkAntiLoop(run, serverName, selectedTool.name, args, policy);
+    if (!loopCheck.proceed) return loopCheck.result;
+
+    const authorized = await authorizeCall(run, serverName, selectedTool, args);
+    if (!authorized.proceed) return authorized.result;
+
+    const dispatched = await dispatchTool(run, serverName, server, selectedTool, args, loopCheck.value);
+    if (!dispatched.proceed) return dispatched.result;
+    const { rawResult, execution } = dispatched.value;
+
+    const processed = absorbResult(run, serverName, selectedTool, args, rawResult, policy);
+    const verdict = await verifyResult(run, selectedTool, args, processed);
+
+    return settleCall({ run, serverName, tool: selectedTool, args, policy, processed, execution, verdict });
 }

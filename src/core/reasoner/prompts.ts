@@ -1,10 +1,15 @@
+/**
+ * JARVIS Core — Constructores de prompts: Qwen (argumentos, respuesta final, plan, replan, verificación de etapa) y
+ * Decision 2.0 (ruta, herramienta, verificación de paso). Todo texto externo va delimitado por <obs> y acotado.
+ */
+
 import {
   EXECUTABLE_ROUTES,
   MAX_EVIDENCE_OBS_CHARS,
   MAX_STEPS,
   MAX_TOOL_DESC_CHARS,
+  type Attempt,
   type DecisionQuestion,
-  type ExecutableRoute,
   type MCPTool,
   type StageVerificationPromptData,
 } from "../types.ts";
@@ -111,7 +116,7 @@ const fitEvidence = (entries: readonly string[], budget: number, perEntry: numbe
   const room = budget - sep.length * (items.length - 1);
   const caps = items.map((e) => Math.min(e.length, perEntry));
   const order = caps.map((_, i) => i).sort((a, b) => caps[a] - caps[b]);
-  const alloc: number[] = new Array(items.length).fill(0);
+  const alloc = items.map(() => 0);
   let left = room;
   order.forEach((idx, k) => {
     alloc[idx] = Math.min(caps[idx], Math.floor(left / (items.length - k)));
@@ -382,15 +387,8 @@ ${DATA_NOTICE}`,
 // Interfaces Decision 2.0
 // ============================================================
 
-export interface Attempt {
-  /** Destino bajo el que se ejecutó la herramienta: es el vocabulario de Decision #1. */
-  route: ExecutableRoute;
-  /** Servidor MCP real: acota el estado "falló" de Decision #2. */
-  mcp?: string;
-  tool: string;
-  ok: boolean;
-  note?: string;
-}
+// `Attempt` es un tipo de dominio (types.ts); se reexporta aquí para no romper a quien lo importa desde este módulo.
+export type { Attempt };
 
 export interface DecisionOnePromptData {
   taskMessage: string;

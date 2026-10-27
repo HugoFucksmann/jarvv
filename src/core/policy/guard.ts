@@ -31,8 +31,8 @@ export class Guard {
     const policy = getToolPolicy(mcp, tool);
     const capability = policy.capability;
 
-    const scannable = this.denyScanArgs(mcp, tool, args);
-    if (scannable && this.matchesDenyPattern(scannable)) {
+    const scannable = Guard.denyScanArgs(mcp, tool, args);
+    if (scannable && Guard.matchesDenyPattern(scannable)) {
       return {
         decision: "DENY",
         reason: "Operación rechazada (DENY): patrón destructivo prohibido sobre el sistema operativo.",
@@ -49,7 +49,7 @@ export class Guard {
     }
 
     if (policy.requiresApproval) {
-      return { decision: "APPROVAL", reason: this.approvalReason(capability, tool, args), capability };
+      return { decision: "APPROVAL", reason: Guard.approvalReason(capability, tool, args), capability };
     }
 
     return { decision: "ALLOW", capability };
@@ -82,9 +82,9 @@ export class Guard {
       case "PROCESS_CONTROL":
         return `Control de proceso o ciclo de vida de aplicación (${tool}).`;
       case "DOWNLOAD":
-        return `Descarga de documento o archivo binario externo hacia el almacenamiento local.`;
+        return "Descarga de documento o archivo binario externo hacia el almacenamiento local.";
       case "CONFIGURATION":
-        return `Modificación de ajustes de entorno o configuración del sistema.`;
+        return "Modificación de ajustes de entorno o configuración del sistema.";
       default:
         return `Acción con impacto potencial sobre el sistema (${tool}).`;
     }

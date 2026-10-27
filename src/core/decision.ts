@@ -11,7 +11,10 @@
  */
 
 import {
+  type Attempt,
   type DecisionAnswer,
+  type DecisionAnswerChoice,
+  type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
   type MCPTool,
@@ -19,8 +22,9 @@ import {
   type StepRoute,
 } from "./types.ts";
 import { ConfigManager } from "./config.ts";
-import { DECISION_PROMPTS, type Attempt } from "./reasoner/prompts.ts";
+import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
 import { estimateTokens, postJson, TransportError } from "./llmTransport.ts";
+import { errorMessage, isRecord } from "./utils.ts";
 
 export class DecisionServiceUnavailableError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -39,14 +43,57 @@ export class DecisionValidationError extends Error {
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
 const NOUL_APPROVE = 0.5;
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-
 const pct = (probabilities: Record<string, number>): string =>
   Object.entries(probabilities)
     .sort(([, a], [, b]) => b - a)
     .map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`)
     .join(", ");
+
+/** Resultado de Decision #1: la ruta elegida y su distribución de probabilidades. */
+export interface DecisionOneResult {
+  route: StepRoute;
+  probabilities: Record<string, number>;
+  rawInput: string;
+  rawOutput: string;
+  timing: TimeSpan;
+}
+
+/** Resultado de Decision #2: la herramienta elegida entre las descubiertas. */
+export interface DecisionTwoResult {
+  selectedTool: MCPTool;
+  probabilities: Record<string, number>;
+  rawInput: string;
+  rawOutput: string;
+  /** `true`: no hubo llamada al modelo (una sola herramienta posible); `rawInput`/`rawOutput` son sintéticos y no hay `timing`. */
+  shortcut?: boolean;
+  timing?: TimeSpan;
+}
+
+/** Resultado de la verificación factual de un paso con Eos. */
+export interface StepVerificationResult {
+  ok: boolean;
+  cumple: boolean;
+  okProbability: number;
+  cumpleProbability: number;
+  rawInput: string;
+  rawOutput: string;
+  timing: TimeSpan;
+}
+
+/**
+ * Respuesta `choice` o `noul` de `key`. `parseResponse` ya garantizó la forma; el narrowing la confirma en compilación.
+ */
+function choiceAnswer(response: DecisionResponse, key: string): DecisionAnswerChoice {
+  const answer = response.answers[key];
+  if (!("choice" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'choice'.`);
+  return answer;
+}
+
+function noulAnswer(response: DecisionResponse, key: string): DecisionAnswerNoul {
+  const answer = response.answers[key];
+  if (!("noul" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'noul'.`);
+  return answer;
+}
 
 export class Decision20Engine {
   /**
@@ -123,13 +170,7 @@ export class Decision20Engine {
       attempts?: Attempt[];
       signal?: AbortSignal;
     }
-  ): Promise<{
-    route: StepRoute;
-    probabilities: Record<string, number>;
-    rawInput: string;
-    rawOutput: string;
-    timing: TimeSpan;
-  }> {
+  ): Promise<DecisionOneResult> {
     const { state, questions } = DECISION_PROMPTS.buildDecisionOne({
       taskMessage,
       history: historyContext,
@@ -140,10 +181,7 @@ export class Decision20Engine {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #1", state, questions, options?.signal);
-    // parseResponse garantiza la forma; el narrowing confirma el tipo en compilación.
-    const routeAnswer = response.answers.route;
-    if (!("choice" in routeAnswer)) throw new DecisionValidationError("Respuesta 'route' inesperada: se esperaba tipo 'choice'.");
-    const { choice, probabilities } = routeAnswer;
+    const { choice, probabilities } = choiceAnswer(response, "route");
 
     console.log(`[Decision #1] route=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
     return { route: choice as StepRoute, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
@@ -156,16 +194,7 @@ export class Decision20Engine {
     memory?: string,
     attempts?: Attempt[],
     options?: { mcp?: string; signal?: AbortSignal }
-  ): Promise<{
-    selectedTool: MCPTool;
-    probabilities: Record<string, number>;
-    rawInput: string;
-    rawOutput: string;
-    /** `true`: no hubo llamada al modelo (una sola herramienta posible); `rawInput`/`rawOutput` son sintéticos y no hay `timing`. */
-    shortcut?: boolean;
-    timing?: TimeSpan;
-  }> {
-
+  ): Promise<DecisionTwoResult> {
     // Con una sola opción no hay decisión que tomar: se omite la llamada (sin simular una respuesta del modelo).
     if (discoveredTools.length === 1) {
       const tool = discoveredTools[0];
@@ -189,9 +218,7 @@ export class Decision20Engine {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #2", state, questions, options?.signal);
-    const toolAnswer = response.answers.selected_tool;
-    if (!("choice" in toolAnswer)) throw new DecisionValidationError("Respuesta 'selected_tool' inesperada: se esperaba tipo 'choice'.");
-    const { choice, probabilities } = toolAnswer;
+    const { choice, probabilities } = choiceAnswer(response, "selected_tool");
     // `criteria` se construyó con los nombres de discoveredTools y parseResponse validó la pertenencia.
     const selectedTool = discoveredTools.find((t) => t.name === choice)!;
 
@@ -211,15 +238,7 @@ export class Decision20Engine {
     expectedOutcome?: string,
     observation?: string,
     signal?: AbortSignal
-  ): Promise<{
-    ok: boolean;
-    cumple: boolean;
-    okProbability: number;
-    cumpleProbability: number;
-    rawInput: string;
-    rawOutput: string;
-    timing: TimeSpan;
-  }> {
+  ): Promise<StepVerificationResult> {
     const { state, questions } = DECISION_PROMPTS.buildStepVerification({
       instruction,
       toolName,
@@ -231,12 +250,8 @@ export class Decision20Engine {
 
     const t0 = Date.now();
     const response = await this.ask("StepVerification", state, questions, signal);
-    const okAnswer = response.answers.ok;
-    const cumpleAnswer = response.answers.cumple;
-    if (!("noul" in okAnswer)) throw new DecisionValidationError("Respuesta 'ok' inesperada: se esperaba tipo 'noul'.");
-    if (!("noul" in cumpleAnswer)) throw new DecisionValidationError("Respuesta 'cumple' inesperada: se esperaba tipo 'noul'.");
-    const okProbability = okAnswer.noul;
-    const cumpleProbability = cumpleAnswer.noul;
+    const okProbability = noulAnswer(response, "ok").noul;
+    const cumpleProbability = noulAnswer(response, "cumple").noul;
     const ok = okProbability > NOUL_APPROVE;
     const cumple = cumpleProbability > NOUL_APPROVE;
 
@@ -256,7 +271,7 @@ export class Decision20Engine {
     try {
       return await this.systemOne(state, questions, { signal });
     } catch (err) {
-      console.error(`[${label}] ${err instanceof Error ? err.message : String(err)}`);
+      console.error(`[${label}] ${errorMessage(err)}`);
       throw err;
     }
   }

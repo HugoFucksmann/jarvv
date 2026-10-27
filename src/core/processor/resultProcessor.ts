@@ -1,5 +1,6 @@
 import type {
   MCPCallResult,
+  MCPContentItem,
   Evidence,
   VerificationState,
   ExecutionOutcome,
@@ -8,6 +9,7 @@ import type {
 } from "../types.ts";
 import { MAX_EVIDENCE_OBS_CHARS } from "../types.ts";
 import { getToolPolicy } from "../tools/manifest.ts";
+import { isRecord } from "../utils.ts";
 import { RefStore, refLabel, evidenceRef } from "./refStore.ts";
 import type { ExtractorInput, ExtractorOutput } from "./extractors/types.ts";
 import { selectExtractor } from "./extractors/index.ts";
@@ -25,6 +27,99 @@ export interface ProcessedResult {
   decisionSummary: string;
 }
 
+interface CollectedContent {
+  /** Texto de todos los elementos `text`, unido y recortado. */
+  text: string;
+  /** Campos de los elementos `text` que son JSON (un arreglo se expone como `results`). */
+  embeddedPayload: Record<string, unknown>;
+  flags: string[];
+}
+
+const looksLikeJson = (s: string): boolean =>
+  (s.startsWith("{") && s.endsWith("}")) || (s.startsWith("[") && s.endsWith("]"));
+
+function tryParseJson(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return undefined; // Texto con forma de JSON que no lo es: se trata solo como texto.
+  }
+}
+
+/** Texto, payload JSON embebido y banderas de los elementos de contenido de un resultado MCP. */
+function collectContent(items: readonly MCPContentItem[]): CollectedContent {
+  const textPieces: string[] = [];
+  const flags: string[] = [];
+  let embeddedPayload: Record<string, unknown> = {};
+
+  for (const item of items) {
+    if (item.type === "text" && typeof item.text === "string") {
+      textPieces.push(item.text);
+      const trimmed = item.text.trim();
+      if (!looksLikeJson(trimmed)) continue;
+      const parsed = tryParseJson(trimmed);
+      if (Array.isArray(parsed)) {
+        embeddedPayload.results = parsed;
+      } else if (isRecord(parsed)) {
+        embeddedPayload = { ...embeddedPayload, ...parsed };
+      }
+    } else if (item.type === "image") {
+      flags.push("IMAGE_CONTENT_ATTACHED");
+    } else if (item.type === "resource" && item.uri) {
+      flags.push(`RESOURCE_REF:${item.uri}`);
+    }
+  }
+  return { text: textPieces.join("\n").trim(), embeddedPayload, flags };
+}
+
+/**
+ * Señales de ejecución (§4, §5, §10.5). Una señal textual solo es fiable en un resultado de error o cuando el texto
+ * EMPIEZA con el marcador explícito (así los emiten los adaptadores). En un resultado exitoso el texto es dato
+ * (archivos, páginas, búsquedas): que contenga "not found", "access denied" o "timeout" no describe cómo terminó la
+ * herramienta.
+ */
+function deriveSignals(
+  fullText: string,
+  isError: boolean,
+  emptyIsError: boolean,
+  mergedData: Record<string, unknown>
+): StepExecutionSignals {
+  const lowerText = fullText.toLowerCase();
+  const leadsWith = (marker: string) => fullText.startsWith(marker);
+  const isNotFound =
+    leadsWith("[NOT_FOUND]") ||
+    (isError && (fullText.includes("[NOT_FOUND]") || lowerText.includes("not found") || /\benoent\b|no such file or directory/.test(lowerText)));
+  const isDenied =
+    leadsWith("[DENIED]") || (isError && (fullText.includes("[DENIED]") || lowerText.includes("access denied")));
+
+  return {
+    exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : undefined),
+    exception: isError && !isNotFound && !isDenied,
+    timeout: Boolean(mergedData.timed_out || (isError && /timeout/i.test(fullText))),
+    not_found: isNotFound,
+    denied: isDenied,
+    // La vacuidad de `free_search:search` se decide en su rama (necesita el recuento y los resultados leídos).
+    empty_output: emptyIsError && fullText.length === 0,
+  };
+}
+
+/** Resumen estructurado para modelos clasificadores (Decision 2.0). */
+function buildDecisionSummary(
+  tool: string,
+  finding: string,
+  signals: StepExecutionSignals,
+  isError: boolean,
+  success: boolean
+): string {
+  if (signals.not_found) return `[NOT FOUND] ${tool}: ${finding}. Resource not found.`;
+  if (signals.empty_output) return `[EMPTY] ${tool}: ${finding}. The output contains no useful data.`;
+  if (isError || (signals.exit_code !== undefined && signals.exit_code !== 0) || signals.denied) {
+    return `[FAILURE] ${tool}: ${finding || "Execution error"}.`;
+  }
+  if (success) return `[SUCCESS] ${tool}: ${finding}. Information obtained and stored in memory.`;
+  return `[INFO] ${tool}: ${finding}.`;
+}
+
 export class ResultProcessor {
   /**
    * Processes a raw MCP ToolResult into structured Core state and memory tokens.
@@ -37,93 +132,35 @@ export class ResultProcessor {
     taskId: string
   ): ProcessedResult {
     const isError = Boolean(rawResult.isError);
-    const success = Boolean(rawResult.success !== undefined ? rawResult.success : !isError);
+    const success = rawResult.success !== undefined ? Boolean(rawResult.success) : !isError;
+    const outcome: ExecutionOutcome = { success, isError };
 
-    const outcome: ExecutionOutcome = {
-      success,
-      isError,
-    };
-
-    const flags: string[] = [];
-    const scratchpadDelta: Partial<Scratchpad> = {};
-    const factsDelta: Record<string, string> = {};
-
-    // 1. Extract raw text and embedded payloads from content items
-    const contentItems = rawResult.content || [];
-    const textPieces: string[] = [];
-    let embeddedPayload: Record<string, any> = {};
-
-    for (const item of contentItems) {
-      if (item.type === "text" && typeof item.text === "string") {
-        textPieces.push(item.text);
-        const trimmed = item.text.trim();
-        if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              embeddedPayload = { ...embeddedPayload, ...parsed };
-            } else if (Array.isArray(parsed)) {
-              embeddedPayload.results = parsed;
-            }
-          } catch { }
-        }
-      } else if (item.type === "image") {
-        flags.push("IMAGE_CONTENT_ATTACHED");
-      } else if (item.type === "resource" && item.uri) {
-        flags.push(`RESOURCE_REF:${item.uri}`);
-      }
-    }
-
+    // 1. Texto y payloads embebidos de los elementos de contenido
+    const { text: fullText, embeddedPayload, flags } = collectContent(rawResult.content || []);
+    // Forma libre: los extractores leen los campos propios de cada servidor (exit_code, timed_out…).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mergedData: Record<string, any> = { ...rawResult, ...embeddedPayload };
-    const fullText = textPieces.join("\n").trim();
     const policy = getToolPolicy(mcp, tool);
 
-    // 2. Compute signals (§4, §5, §10.5)
-    // Una señal textual solo es fiable en un resultado de error o cuando el texto EMPIEZA con el marcador explícito
-    // (así los emiten los adaptadores). En un resultado exitoso el texto es dato (archivos, páginas, búsquedas):
-    // que contenga "not found", "access denied" o "timeout" no describe cómo terminó la herramienta.
-    const lowerText = fullText.toLowerCase();
-    const leadsWith = (marker: string) => fullText.startsWith(marker);
-    const isNotFound =
-      leadsWith("[NOT_FOUND]") ||
-      (isError && (fullText.includes("[NOT_FOUND]") || lowerText.includes("not found") || /\benoent\b|no such file or directory/.test(lowerText)));
-    const isDenied =
-      leadsWith("[DENIED]") || (isError && (fullText.includes("[DENIED]") || lowerText.includes("access denied")));
+    // 2. Señales
+    const signals = deriveSignals(fullText, isError, policy.emptyIsError === true, mergedData);
 
-    // La vacuidad de `free_search:search` se decide en su rama (necesita el recuento y los resultados leídos).
-    const emptyOutput = policy.emptyIsError === true && fullText.length === 0;
-
-    const signals: StepExecutionSignals = {
-      exit_code: typeof mergedData.exit_code === "number" ? mergedData.exit_code : (isError ? 1 : undefined),
-      exception: isError && !isNotFound && !isDenied,
-      timeout: Boolean(mergedData.timed_out || (isError && /timeout/i.test(fullText))),
-      not_found: isNotFound,
-      denied: isDenied,
-      empty_output: emptyOutput,
-    };
-
-    // 3. Store full result in task-isolated RefStore (§10.4)
-    let refKey: string | undefined;
-    if (fullText.length > 0) {
-      refKey = RefStore.put(fullText, taskId, refLabel(tool, args));
-    }
+    // 3. Resultado completo en el RefStore aislado por tarea (§10.4)
+    const refKey = fullText.length > 0 ? RefStore.put(fullText, taskId, refLabel(tool, args)) : undefined;
 
     // 4. Extractor determinista por herramienta (§10.5): registro en extractors/index.ts; el genérico es el respaldo.
     const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData, refKey };
     const extracted: ExtractorOutput = selectExtractor(mcp, tool, isError)(input);
     const { finding, compactObs } = extracted;
-    Object.assign(factsDelta, extracted.factsDelta);
-    Object.assign(scratchpadDelta, extracted.scratchpadDelta);
+    const factsDelta: Record<string, string> = { ...extracted.factsDelta };
+    const scratchpadDelta: Partial<Scratchpad> = { ...extracted.scratchpadDelta };
     Object.assign(signals, extracted.signals);
 
-    // 5. Determine VerificationState
-    let verification: VerificationState = "NOT_REQUIRED";
+    // 5. VerificationState
     const ok = success && !isError && !signals.empty_output && !signals.not_found;
-    if (ok) {
-      verification = "VERIFIED";
-    }
+    const verification: VerificationState = ok ? "VERIFIED" : "NOT_REQUIRED";
 
-    // 6. Evidence object
+    // 6. Evidencia
     const evidence: Evidence = {
       ok,
       summary: finding,
@@ -131,20 +168,6 @@ export class ResultProcessor {
       flags: flags.length > 0 ? flags : undefined,
       ref: evidenceRef(mcp, tool, refKey),
     };
-
-    // 7. Resumen estructurado para modelos clasificadores (Decision 2.0)
-    let decisionSummary: string;
-    if (signals.not_found) {
-      decisionSummary = `[NOT FOUND] ${tool}: ${finding}. Resource not found.`;
-    } else if (signals.empty_output) {
-      decisionSummary = `[EMPTY] ${tool}: ${finding}. The output contains no useful data.`;
-    } else if (isError || (signals.exit_code !== undefined && signals.exit_code !== 0) || signals.denied) {
-      decisionSummary = `[FAILURE] ${tool}: ${finding || 'Execution error'}.`;
-    } else if (success) {
-      decisionSummary = `[SUCCESS] ${tool}: ${finding}. Information obtained and stored in memory.`;
-    } else {
-      decisionSummary = `[INFO] ${tool}: ${finding}.`;
-    }
 
     return {
       outcome,
@@ -156,7 +179,7 @@ export class ResultProcessor {
       factsDelta,
       signals,
       refKey,
-      decisionSummary,
+      decisionSummary: buildDecisionSummary(tool, finding, signals, isError, success),
     };
   }
 }

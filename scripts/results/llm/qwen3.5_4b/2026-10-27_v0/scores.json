@@ -1,0 +1,121 @@
+{
+  "total": 18,
+  "passed": 13,
+  "failed": 5,
+  "errors": 0,
+  "pass_rate": 0.722,
+  "avg_latency_ms": 701,
+  "finish_reasons": {
+    "stop": 18
+  },
+  "settings": {
+    "model": "qwen3.5:4b",
+    "url": "http://127.0.0.1:11434",
+    "num_ctx": 16384,
+    "timeout_ms": 120000,
+    "thinking_timeout_ms": 180000,
+    "max_tokens": {
+      "plan": 4096,
+      "replan": 4096,
+      "arguments": 2048,
+      "final_response": 2048
+    },
+    "final_thinking": "both",
+    "prompts": "prod"
+  },
+  "by_stage": {
+    "arguments": {
+      "total": 18,
+      "passed": 13,
+      "pass_rate": 0.722,
+      "avg_latency_ms": 701,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 18,
+          "total": 18
+        },
+        "schema_valid": {
+          "pass": 18,
+          "total": 18
+        },
+        "required_fields_present": {
+          "pass": 18,
+          "total": 18
+        },
+        "no_invented_fields": {
+          "pass": 18,
+          "total": 18
+        },
+        "field_path_match": {
+          "pass": 10,
+          "total": 11
+        },
+        "field_max_results_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_command_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_timeout_ms_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_content_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "valid_refs": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_source_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_destination_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_pattern_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_pid_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_depth_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_content_json": {
+          "pass": 4,
+          "total": 5
+        },
+        "field_content_array2d": {
+          "pass": 1,
+          "total": 3
+        },
+        "field_content_includes": {
+          "pass": 3,
+          "total": 3
+        },
+        "field_content_sheets": {
+          "pass": 1,
+          "total": 1
+        },
+        "no_forbidden_values": {
+          "pass": 1,
+          "total": 3
+        },
+        "field_urls_match": {
+          "pass": 1,
+          "total": 1
+        }
+      }
+    }
+  },
+  "thinking_comparison": {}
+}

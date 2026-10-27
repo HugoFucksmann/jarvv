@@ -9,8 +9,8 @@
  * - Serves tools directly to Decision #2 for selection.
  */
 
-import { MCPTool } from "../types.ts";
-import { IMCPServer } from "./types.ts";
+import type { MCPTool } from "../types.ts";
+import type { IMCPServer } from "./types.ts";
 
 /**
  * Removes $schema, title, additionalProperties, and examples from inputSchema (§10.3)

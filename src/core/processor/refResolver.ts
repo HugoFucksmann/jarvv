@@ -10,6 +10,7 @@
  * El contenido sustituido nunca se vuelve a escanear (sin referencias anidadas).
  */
 
+import { isRecord } from "../utils.ts";
 import { RefStore } from "./refStore.ts";
 
 export interface ReferenceResolutionResult {
@@ -33,9 +34,6 @@ interface ResolutionState {
   unresolved: Set<string>;
   replaced: number;
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** Tipos JSON-Schema que admite un nodo, incluyendo ramas anyOf/oneOf. */
 export function schemaTypes(schema: unknown, out = new Set<string>()): Set<string> {
