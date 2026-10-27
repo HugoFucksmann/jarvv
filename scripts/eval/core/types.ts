@@ -27,7 +27,10 @@ export type TestCategory =
   | "bilingual"
   | "relative_alias"
   | "read_control"
-  | "empty_cases";
+  | "empty_cases"
+  | "search_results_partial"
+  | "chained_step_context"
+  | "code_edit_verification";
 
 export interface TestCase {
   id: string;
@@ -75,9 +78,22 @@ export interface DecisionModelResponse {
   };
 }
 
+/** Respuesta guardada por pregunta en runs de tipo multi (runMulti). */
+export interface MultiAnswer {
+  type: "choice" | "noul" | "score";
+  choice?: string;
+  probabilities?: Record<string, number>;
+  noul?: number;
+  score?: number;
+  /** Sólo choice: si la opción elegida está en acceptedChoices de esa pregunta. */
+  approved?: boolean;
+}
+
 export interface RunRecord {
   case_id: string;
   variant: string;
+  model?: string;
+  dataset?: string;
   perm?: string;
   options?: number;
   request: {
@@ -89,9 +105,16 @@ export interface RunRecord {
     choice?: string;
     probabilities?: Record<string, number>;
     noul?: Record<string, number>;
-    score?: Record<string, number>;
+    score?: {
+      level?: number;
+      probabilities?: Record<string, number>;
+      legend?: Record<string, string>;
+    } | Record<string, number>;
+    /** Requests con varias preguntas (runMulti): mapa completo pregunta -> respuesta de D3. */
+    answers?: Record<string, MultiAnswer>;
   };
   approved: boolean;
+  score?: boolean;
   latency_ms: number;
   tokens_est: number;
   error?: string | null;

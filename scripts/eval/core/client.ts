@@ -5,6 +5,7 @@ export interface ClientConfig {
   backend: "d3" | "eos";
   url?: string;
   model?: string;
+  apiKey?: string;
   timeoutMs?: number;
   options?: Record<string, any>;
 }
@@ -39,6 +40,45 @@ export async function callDecisionModel(
       state: payload.state,
       questions: payload.questions,
     };
+  }
+
+  // Si es HTTPS o tiene API Key (vía remota), usamos fetch nativo
+  if (urlStr.startsWith("https://") || config.apiKey) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (config.apiKey) {
+        headers["Authorization"] = `Bearer ${config.apiKey}`;
+      }
+
+      const res = await fetch(urlStr, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bodyData),
+        signal: controller.signal,
+      });
+
+      const body = await res.text();
+      const latencyMs = Date.now() - startedAt;
+
+      if (res.ok) {
+        const parsed = JSON.parse(body) as DecisionModelResponse;
+        return { rawOutput: body, parsed, latencyMs };
+      } else {
+        throw new Error(`HTTP ${res.status} from ${backend}: ${body.slice(0, 200)}`);
+      }
+    } catch (e: any) {
+      if (e.name === "AbortError") {
+        throw new Error(`Timeout (${timeoutMs}ms) calling ${backend} at ${urlStr}`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const data = JSON.stringify(bodyData);

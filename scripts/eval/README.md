@@ -1,4 +1,4 @@
-﻿# Guía del Framework de Evaluación (`scripts/eval`)
+# Guía del Framework de Evaluación (`scripts/eval`)
 
 Este directorio contiene la arquitectura modular para evaluar modelos de decisión (**D3** y **Eos**) contra diferentes datasets y variantes de prompts, con exportación automática de métricas y análisis de señales.
 
@@ -48,7 +48,7 @@ npx tsx scripts/eval/runner.ts --model=d3 --device=gpu --dataset=v2 --prompts=v3
 
 ### Parámetros CLI disponibles:
 - `--model`: `d3` (default) o `eos`
-- `--device`: `gpu` (default) o `cpu`
+- `--device`: `gpu` (default), `cpu` o `remote` (usa API cloud con vllm-sr/d3-turbo)
 - `--dataset`: `v1`, `v2` o ruta a cualquier `.jsonl`
 - `--prompts`: `v1`, `v2`, `v3` o ruta a cualquier `.ts`
 - `--tag`: etiqueta opcional para diferenciar corridas (ej: `--tag=exp1`)
@@ -95,3 +95,30 @@ npx tsx scripts/eval/runner.ts --model=d3 --dataset=v1 --prompts=v4
 npx tsx scripts/eval/runner.ts --model=d3 --dataset=v2 --prompts=v4
 python scripts/eval/analyze.py scripts/results/d3_gpu/dataset_v1/v4/scores.json scripts/results/d3_gpu/dataset_v2/v4/scores.json > scripts/results/d3_gpu/v4_analysis.txt
 ```
+
+---
+
+## 5. Evaluación de Qwen (`runner_qwen.ts`)
+
+Evalúa las 4 etapas de razonamiento y generación de Qwen en Ollama:
+- **`plan`**: estructuración de pasos, rutas válidas (`files`, `locate`, `terminal`, `web`) y detección de casos sin tools (`steps: []`).
+- **`replan`**: decisiones de `continue` o `abort`, no duplicar pasos ya completados y respeto estricto de `EFFECTS`.
+- **`arguments`**: cumplimiento de `tool_schemas.json`, tipado, campos obligatorios y uso de tokens `{{ref:rX}}`.
+- **`final_response`**: adherencia estricta a hechos (`FACTS`, `LOG`, `EVID`), explicación de abortos y ausencia de alucinaciones.
+
+### Comandos de ejecución:
+
+```bash
+# Evaluar todas las etapas (default: Ollama en http://127.0.0.1:11434 con qwen2.5:7b)
+npx tsx scripts/eval/runner_qwen.ts
+
+# Filtrar por etapa específica:
+npx tsx scripts/eval/runner_qwen.ts --stage=plan
+npx tsx scripts/eval/runner_qwen.ts --stage=replan
+npx tsx scripts/eval/runner_qwen.ts --stage=arguments
+npx tsx scripts/eval/runner_qwen.ts --stage=final_response
+
+# Cambiar modelo, URL o tag:
+npx tsx scripts/eval/runner_qwen.ts --model=qwen2.5:14b --url=http://127.0.0.1:11434 --tag=exp1
+```
+

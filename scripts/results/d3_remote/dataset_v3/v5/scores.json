@@ -1,0 +1,6822 @@
+[
+  {
+    "id": "n3-s01-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999,
+        "probabilities": {
+          "matches": 0.999,
+          "mismatch": 0,
+          "failed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 769
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.971,
+        "probabilities": {
+          "effect_confirmed": 0.971,
+          "error": 0.001,
+          "nothing_changed": 0.017,
+          "unconfirmed": 0.011
+        },
+        "latency_ms": 670
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 219
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.999,
+            "probabilities": {
+              "matches": 0.999,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 238
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.971,
+            "probabilities": {
+              "effect_confirmed": 0.971,
+              "error": 0.001,
+              "nothing_changed": 0.017,
+              "unconfirmed": 0.012
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 282
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.999,
+            "probabilities": {
+              "matches": 0.999,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 1002
+      }
+    }
+  },
+  {
+    "id": "n3-s01-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "wrong_target",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.868,
+        "probabilities": {
+          "matches": 0.052,
+          "mismatch": 0.868,
+          "failed": 0.073,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 601
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.711,
+        "probabilities": {
+          "effect_confirmed": 0.711,
+          "error": 0.004,
+          "nothing_changed": 0.276,
+          "unconfirmed": 0.01
+        },
+        "latency_ms": 225
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.052
+        },
+        "latency_ms": 225
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.864,
+            "probabilities": {
+              "matches": 0.053,
+              "mismatch": 0.864,
+              "failed": 0.075,
+              "unconfirmed": 0.008
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.053
+          }
+        },
+        "latency_ms": 281
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.713,
+            "probabilities": {
+              "effect_confirmed": 0.713,
+              "error": 0.004,
+              "nothing_changed": 0.274,
+              "unconfirmed": 0.009
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.053
+          }
+        },
+        "latency_ms": 242
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.053
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.864,
+            "probabilities": {
+              "matches": 0.053,
+              "mismatch": 0.864,
+              "failed": 0.075,
+              "unconfirmed": 0.008
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 257
+      }
+    }
+  },
+  {
+    "id": "n3-s02-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.988,
+        "probabilities": {
+          "matches": 0.988,
+          "mismatch": 0.01,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 276
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.973,
+        "probabilities": {
+          "effect_confirmed": 0.973,
+          "error": 0.001,
+          "nothing_changed": 0.019,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 235
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.986
+        },
+        "latency_ms": 311
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.988,
+            "probabilities": {
+              "matches": 0.988,
+              "mismatch": 0.01,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.986
+          }
+        },
+        "latency_ms": 247
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.972,
+            "probabilities": {
+              "effect_confirmed": 0.972,
+              "error": 0.001,
+              "nothing_changed": 0.019,
+              "unconfirmed": 0.008
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.986
+          }
+        },
+        "latency_ms": 269
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.986
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.988,
+            "probabilities": {
+              "matches": 0.988,
+              "mismatch": 0.01,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 285
+      }
+    }
+  },
+  {
+    "id": "n3-s02-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "wrong_target",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.609,
+        "probabilities": {
+          "matches": 0.35,
+          "mismatch": 0.609,
+          "failed": 0.033,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 247
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.848,
+        "probabilities": {
+          "effect_confirmed": 0.848,
+          "error": 0.003,
+          "nothing_changed": 0.142,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 264
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.266
+        },
+        "latency_ms": 251
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.61,
+            "probabilities": {
+              "matches": 0.349,
+              "mismatch": 0.61,
+              "failed": 0.032,
+              "unconfirmed": 0.009
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.267
+          }
+        },
+        "latency_ms": 249
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.849,
+            "probabilities": {
+              "effect_confirmed": 0.849,
+              "error": 0.003,
+              "nothing_changed": 0.142,
+              "unconfirmed": 0.007
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.253
+          }
+        },
+        "latency_ms": 248
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.267
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.61,
+            "probabilities": {
+              "matches": 0.349,
+              "mismatch": 0.61,
+              "failed": 0.032,
+              "unconfirmed": 0.009
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 251
+      }
+    }
+  },
+  {
+    "id": "n3-s03-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998,
+        "probabilities": {
+          "matches": 0.998,
+          "mismatch": 0.001,
+          "failed": 0.001,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 241
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.977,
+        "probabilities": {
+          "effect_confirmed": 0.977,
+          "error": 0.001,
+          "nothing_changed": 0.013,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 226
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        },
+        "latency_ms": 229
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.998,
+            "probabilities": {
+              "matches": 0.998,
+              "mismatch": 0.001,
+              "failed": 0.001,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 276
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.977,
+            "probabilities": {
+              "effect_confirmed": 0.977,
+              "error": 0.001,
+              "nothing_changed": 0.013,
+              "unconfirmed": 0.009
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 260
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.998,
+            "probabilities": {
+              "matches": 0.998,
+              "mismatch": 0.001,
+              "failed": 0.001,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 278
+      }
+    }
+  },
+  {
+    "id": "n3-s03-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "wrong_target",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.819,
+        "probabilities": {
+          "matches": 0.016,
+          "mismatch": 0.819,
+          "failed": 0.158,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 243
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.771,
+        "probabilities": {
+          "effect_confirmed": 0.219,
+          "error": 0.004,
+          "nothing_changed": 0.771,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 234
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.009
+        },
+        "latency_ms": 253
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.822,
+            "probabilities": {
+              "matches": 0.017,
+              "mismatch": 0.822,
+              "failed": 0.155,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.009
+          }
+        },
+        "latency_ms": 249
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.775,
+            "probabilities": {
+              "effect_confirmed": 0.215,
+              "error": 0.004,
+              "nothing_changed": 0.775,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.008
+          }
+        },
+        "latency_ms": 301
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.009
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.822,
+            "probabilities": {
+              "matches": 0.017,
+              "mismatch": 0.822,
+              "failed": 0.155,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 1310
+      }
+    }
+  },
+  {
+    "id": "n3-c01-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994,
+        "probabilities": {
+          "matches": 0.994,
+          "mismatch": 0.002,
+          "failed": 0,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 238
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.999,
+        "probabilities": {
+          "effect_confirmed": 0.999,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 256
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.993
+        },
+        "latency_ms": 265
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.994,
+            "probabilities": {
+              "matches": 0.994,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.993
+          }
+        },
+        "latency_ms": 347
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.999,
+            "probabilities": {
+              "effect_confirmed": 0.999,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.993
+          }
+        },
+        "latency_ms": 301
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.993
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.994,
+            "probabilities": {
+              "matches": 0.994,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 391
+      }
+    }
+  },
+  {
+    "id": "n3-c01-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.997,
+        "probabilities": {
+          "matches": 0.001,
+          "mismatch": 0.001,
+          "failed": 0.997,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 239
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "error",
+        "prob": 0.995,
+        "probabilities": {
+          "effect_confirmed": 0,
+          "error": 0.995,
+          "nothing_changed": 0.005,
+          "unconfirmed": 0
+        },
+        "latency_ms": 230
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0
+        },
+        "latency_ms": 225
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.001,
+              "mismatch": 0.001,
+              "failed": 0.997,
+              "unconfirmed": 0.001
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.001
+          }
+        },
+        "latency_ms": 246
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "error",
+            "prob": 0.995,
+            "probabilities": {
+              "effect_confirmed": 0,
+              "error": 0.995,
+              "nothing_changed": 0.005,
+              "unconfirmed": 0
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0
+          }
+        },
+        "latency_ms": 282
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.001
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.001,
+              "mismatch": 0.001,
+              "failed": 0.997,
+              "unconfirmed": 0.001
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 253
+      }
+    }
+  },
+  {
+    "id": "n3-c02-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99,
+        "probabilities": {
+          "matches": 0.99,
+          "mismatch": 0.004,
+          "failed": 0,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 362
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.967,
+        "probabilities": {
+          "effect_confirmed": 0.967,
+          "error": 0.001,
+          "nothing_changed": 0.003,
+          "unconfirmed": 0.029
+        },
+        "latency_ms": 225
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        },
+        "latency_ms": 221
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.99,
+            "probabilities": {
+              "matches": 0.99,
+              "mismatch": 0.004,
+              "failed": 0,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.997
+          }
+        },
+        "latency_ms": 279
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.968,
+            "probabilities": {
+              "effect_confirmed": 0.968,
+              "error": 0.001,
+              "nothing_changed": 0.003,
+              "unconfirmed": 0.028
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.997
+          }
+        },
+        "latency_ms": 240
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.997
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.99,
+            "probabilities": {
+              "matches": 0.99,
+              "mismatch": 0.004,
+              "failed": 0,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 278
+      }
+    }
+  },
+  {
+    "id": "n3-c02-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.526,
+        "probabilities": {
+          "matches": 0.462,
+          "mismatch": 0.526,
+          "failed": 0.006,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 235
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.958,
+        "probabilities": {
+          "effect_confirmed": 0.958,
+          "error": 0.002,
+          "nothing_changed": 0.02,
+          "unconfirmed": 0.021
+        },
+        "latency_ms": 226
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.204
+        },
+        "latency_ms": 222
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.513,
+            "probabilities": {
+              "matches": 0.475,
+              "mismatch": 0.513,
+              "failed": 0.005,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.205
+          }
+        },
+        "latency_ms": 245
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.955,
+            "probabilities": {
+              "effect_confirmed": 0.955,
+              "error": 0.002,
+              "nothing_changed": 0.021,
+              "unconfirmed": 0.022
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.203
+          }
+        },
+        "latency_ms": 234
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.205
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.513,
+            "probabilities": {
+              "matches": 0.475,
+              "mismatch": 0.513,
+              "failed": 0.005,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 286
+      }
+    }
+  },
+  {
+    "id": "n3-c03-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99,
+        "probabilities": {
+          "matches": 0.99,
+          "mismatch": 0.001,
+          "failed": 0.006,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 266
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.783,
+        "probabilities": {
+          "effect_confirmed": 0.209,
+          "error": 0.001,
+          "nothing_changed": 0.783,
+          "unconfirmed": 0.006
+        },
+        "latency_ms": 226
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 223
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.99,
+            "probabilities": {
+              "matches": 0.99,
+              "mismatch": 0.001,
+              "failed": 0.005,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 280
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.781,
+            "probabilities": {
+              "effect_confirmed": 0.211,
+              "error": 0.001,
+              "nothing_changed": 0.781,
+              "unconfirmed": 0.006
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 242
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.99,
+            "probabilities": {
+              "matches": 0.99,
+              "mismatch": 0.001,
+              "failed": 0.005,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 249
+      }
+    }
+  },
+  {
+    "id": "n3-c03-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.72,
+        "probabilities": {
+          "matches": 0.066,
+          "mismatch": 0.197,
+          "failed": 0.72,
+          "unconfirmed": 0.018
+        },
+        "latency_ms": 260
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.557,
+        "probabilities": {
+          "effect_confirmed": 0.296,
+          "error": 0.01,
+          "nothing_changed": 0.557,
+          "unconfirmed": 0.137
+        },
+        "latency_ms": 223
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.005
+        },
+        "latency_ms": 228
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.727,
+            "probabilities": {
+              "matches": 0.063,
+              "mismatch": 0.193,
+              "failed": 0.727,
+              "unconfirmed": 0.017
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.005
+          }
+        },
+        "latency_ms": 252
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.559,
+            "probabilities": {
+              "effect_confirmed": 0.294,
+              "error": 0.01,
+              "nothing_changed": 0.559,
+              "unconfirmed": 0.137
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.005
+          }
+        },
+        "latency_ms": 240
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.005
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.727,
+            "probabilities": {
+              "matches": 0.063,
+              "mismatch": 0.193,
+              "failed": 0.727,
+              "unconfirmed": 0.017
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 253
+      }
+    }
+  },
+  {
+    "id": "n3-k01-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998,
+        "probabilities": {
+          "matches": 0.998,
+          "mismatch": 0.001,
+          "failed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 246
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.997,
+        "probabilities": {
+          "effect_confirmed": 0.997,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 231
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 227
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.998,
+            "probabilities": {
+              "matches": 0.998,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 285
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.997,
+            "probabilities": {
+              "effect_confirmed": 0.997,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 248
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.998,
+            "probabilities": {
+              "matches": 0.998,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 283
+      }
+    }
+  },
+  {
+    "id": "n3-k01-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.975,
+        "probabilities": {
+          "matches": 0.02,
+          "mismatch": 0.975,
+          "failed": 0.001,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 236
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.996,
+        "probabilities": {
+          "effect_confirmed": 0.996,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 266
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.01
+        },
+        "latency_ms": 227
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.973,
+            "probabilities": {
+              "matches": 0.021,
+              "mismatch": 0.973,
+              "failed": 0.001,
+              "unconfirmed": 0.006
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.01
+          }
+        },
+        "latency_ms": 248
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.996,
+            "probabilities": {
+              "effect_confirmed": 0.996,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.009
+          }
+        },
+        "latency_ms": 252
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.01
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.973,
+            "probabilities": {
+              "matches": 0.021,
+              "mismatch": 0.973,
+              "failed": 0.001,
+              "unconfirmed": 0.006
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 410
+      }
+    }
+  },
+  {
+    "id": "n3-k02-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.993,
+        "probabilities": {
+          "matches": 0.993,
+          "mismatch": 0.003,
+          "failed": 0,
+          "unconfirmed": 0.004
+        },
+        "latency_ms": 242
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.993,
+        "probabilities": {
+          "effect_confirmed": 0.993,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 232
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        },
+        "latency_ms": 250
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.004
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 401
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.994,
+            "probabilities": {
+              "effect_confirmed": 0.994,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 249
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.004
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 285
+      }
+    }
+  },
+  {
+    "id": "n3-k02-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_content",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.963,
+        "probabilities": {
+          "matches": 0.033,
+          "mismatch": 0.963,
+          "failed": 0.001,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 240
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.993,
+        "probabilities": {
+          "effect_confirmed": 0.993,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.006
+        },
+        "latency_ms": 263
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.016
+        },
+        "latency_ms": 270
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.963,
+            "probabilities": {
+              "matches": 0.034,
+              "mismatch": 0.963,
+              "failed": 0.001,
+              "unconfirmed": 0.003
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.016
+          }
+        },
+        "latency_ms": 250
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.993,
+            "probabilities": {
+              "effect_confirmed": 0.993,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.017
+          }
+        },
+        "latency_ms": 338
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.016
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.963,
+            "probabilities": {
+              "matches": 0.034,
+              "mismatch": 0.963,
+              "failed": 0.001,
+              "unconfirmed": 0.003
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 253
+      }
+    }
+  },
+  {
+    "id": "n3-k03-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995,
+        "probabilities": {
+          "matches": 0.995,
+          "mismatch": 0.002,
+          "failed": 0,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 450
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.982,
+        "probabilities": {
+          "effect_confirmed": 0.982,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.017
+        },
+        "latency_ms": 254
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        },
+        "latency_ms": 231
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.995,
+            "probabilities": {
+              "matches": 0.995,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.997
+          }
+        },
+        "latency_ms": 278
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.983,
+            "probabilities": {
+              "effect_confirmed": 0.983,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.017
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.997
+          }
+        },
+        "latency_ms": 292
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.997
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.995,
+            "probabilities": {
+              "matches": 0.995,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 245
+      }
+    }
+  },
+  {
+    "id": "n3-k03-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_content",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.77,
+        "probabilities": {
+          "matches": 0.222,
+          "mismatch": 0.77,
+          "failed": 0.002,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 244
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.967,
+        "probabilities": {
+          "effect_confirmed": 0.967,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.032
+        },
+        "latency_ms": 227
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.222
+        },
+        "latency_ms": 223
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.772,
+            "probabilities": {
+              "matches": 0.219,
+              "mismatch": 0.772,
+              "failed": 0.002,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.223
+          }
+        },
+        "latency_ms": 1410
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.967,
+            "probabilities": {
+              "effect_confirmed": 0.967,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.033
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.221
+          }
+        },
+        "latency_ms": 284
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.223
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.772,
+            "probabilities": {
+              "matches": 0.219,
+              "mismatch": 0.772,
+              "failed": 0.002,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 349
+      }
+    }
+  },
+  {
+    "id": "n3-s04-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.933,
+        "probabilities": {
+          "matches": 0.933,
+          "mismatch": 0.001,
+          "failed": 0.064,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 256
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.999,
+        "probabilities": {
+          "effect_confirmed": 0,
+          "error": 0,
+          "nothing_changed": 0.999,
+          "unconfirmed": 0
+        },
+        "latency_ms": 224
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        },
+        "latency_ms": 220
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.935,
+            "probabilities": {
+              "matches": 0.935,
+              "mismatch": 0.001,
+              "failed": 0.062,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 246
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.999,
+            "probabilities": {
+              "effect_confirmed": 0,
+              "error": 0,
+              "nothing_changed": 0.999,
+              "unconfirmed": 0
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 233
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.935,
+            "probabilities": {
+              "matches": 0.935,
+              "mismatch": 0.001,
+              "failed": 0.062,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 287
+      }
+    }
+  },
+  {
+    "id": "n3-s04-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.679,
+        "probabilities": {
+          "matches": 0.148,
+          "mismatch": 0.679,
+          "failed": 0.164,
+          "unconfirmed": 0.01
+        },
+        "latency_ms": 258
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.62,
+        "probabilities": {
+          "effect_confirmed": 0.62,
+          "error": 0.009,
+          "nothing_changed": 0.298,
+          "unconfirmed": 0.073
+        },
+        "latency_ms": 226
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.011
+        },
+        "latency_ms": 269
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.678,
+            "probabilities": {
+              "matches": 0.146,
+              "mismatch": 0.678,
+              "failed": 0.166,
+              "unconfirmed": 0.01
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.011
+          }
+        },
+        "latency_ms": 244
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.619,
+            "probabilities": {
+              "effect_confirmed": 0.619,
+              "error": 0.009,
+              "nothing_changed": 0.301,
+              "unconfirmed": 0.071
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.011
+          }
+        },
+        "latency_ms": 242
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.011
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.678,
+            "probabilities": {
+              "matches": 0.146,
+              "mismatch": 0.678,
+              "failed": 0.166,
+              "unconfirmed": 0.01
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 398
+      }
+    }
+  },
+  {
+    "id": "n3-s05-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.993,
+        "probabilities": {
+          "matches": 0.993,
+          "mismatch": 0.004,
+          "failed": 0.001,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 243
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.97,
+        "probabilities": {
+          "effect_confirmed": 0.97,
+          "error": 0.001,
+          "nothing_changed": 0.02,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 234
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        },
+        "latency_ms": 224
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.004,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          }
+        },
+        "latency_ms": 250
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.969,
+            "probabilities": {
+              "effect_confirmed": 0.969,
+              "error": 0.001,
+              "nothing_changed": 0.021,
+              "unconfirmed": 0.009
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          }
+        },
+        "latency_ms": 279
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.004,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 285
+      }
+    }
+  },
+  {
+    "id": "n3-s05-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "partial",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.899,
+        "probabilities": {
+          "matches": 0.091,
+          "mismatch": 0.899,
+          "failed": 0.003,
+          "unconfirmed": 0.007
+        },
+        "latency_ms": 231
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.902,
+        "probabilities": {
+          "effect_confirmed": 0.902,
+          "error": 0.018,
+          "nothing_changed": 0.042,
+          "unconfirmed": 0.038
+        },
+        "latency_ms": 229
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.011
+        },
+        "latency_ms": 226
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.9,
+            "probabilities": {
+              "matches": 0.09,
+              "mismatch": 0.9,
+              "failed": 0.002,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 249
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.905,
+            "probabilities": {
+              "effect_confirmed": 0.905,
+              "error": 0.018,
+              "nothing_changed": 0.042,
+              "unconfirmed": 0.035
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 243
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.9,
+            "probabilities": {
+              "matches": 0.09,
+              "mismatch": 0.9,
+              "failed": 0.002,
+              "unconfirmed": 0.007
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 285
+      }
+    }
+  },
+  {
+    "id": "n3-s06-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.985,
+        "probabilities": {
+          "matches": 0.985,
+          "mismatch": 0.013,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 237
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.974,
+        "probabilities": {
+          "effect_confirmed": 0.974,
+          "error": 0.001,
+          "nothing_changed": 0.012,
+          "unconfirmed": 0.014
+        },
+        "latency_ms": 235
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        },
+        "latency_ms": 267
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.986,
+            "probabilities": {
+              "matches": 0.986,
+              "mismatch": 0.012,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          }
+        },
+        "latency_ms": 253
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.975,
+            "probabilities": {
+              "effect_confirmed": 0.975,
+              "error": 0.001,
+              "nothing_changed": 0.012,
+              "unconfirmed": 0.013
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          }
+        },
+        "latency_ms": 240
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.986,
+            "probabilities": {
+              "matches": 0.986,
+              "mismatch": 0.012,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 247
+      }
+    }
+  },
+  {
+    "id": "n3-s06-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "wrong_target",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.696,
+        "probabilities": {
+          "matches": 0.019,
+          "mismatch": 0.696,
+          "failed": 0.275,
+          "unconfirmed": 0.011
+        },
+        "latency_ms": 233
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.662,
+        "probabilities": {
+          "effect_confirmed": 0.324,
+          "error": 0.005,
+          "nothing_changed": 0.662,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 259
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.012
+        },
+        "latency_ms": 284
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.687,
+            "probabilities": {
+              "matches": 0.018,
+              "mismatch": 0.687,
+              "failed": 0.283,
+              "unconfirmed": 0.011
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 279
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.656,
+            "probabilities": {
+              "effect_confirmed": 0.33,
+              "error": 0.005,
+              "nothing_changed": 0.656,
+              "unconfirmed": 0.009
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 290
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.687,
+            "probabilities": {
+              "matches": 0.018,
+              "mismatch": 0.687,
+              "failed": 0.283,
+              "unconfirmed": 0.011
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 249
+      }
+    }
+  },
+  {
+    "id": "n3-s07-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.908,
+        "probabilities": {
+          "matches": 0.908,
+          "mismatch": 0.084,
+          "failed": 0.006,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 291
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.953,
+        "probabilities": {
+          "effect_confirmed": 0.953,
+          "error": 0.001,
+          "nothing_changed": 0.031,
+          "unconfirmed": 0.014
+        },
+        "latency_ms": 246
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.863
+        },
+        "latency_ms": 219
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.908,
+            "probabilities": {
+              "matches": 0.908,
+              "mismatch": 0.084,
+              "failed": 0.006,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.855
+          }
+        },
+        "latency_ms": 241
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.954,
+            "probabilities": {
+              "effect_confirmed": 0.954,
+              "error": 0.001,
+              "nothing_changed": 0.03,
+              "unconfirmed": 0.014
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.868
+          }
+        },
+        "latency_ms": 233
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.855
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.908,
+            "probabilities": {
+              "matches": 0.908,
+              "mismatch": 0.084,
+              "failed": 0.006,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 240
+      }
+    }
+  },
+  {
+    "id": "n3-s07-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "search_results_partial",
+    "gold_post": "wrong_target",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.847,
+        "probabilities": {
+          "matches": 0.14,
+          "mismatch": 0.847,
+          "failed": 0.009,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 223
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.935,
+        "probabilities": {
+          "effect_confirmed": 0.935,
+          "error": 0.002,
+          "nothing_changed": 0.054,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 225
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.135
+        },
+        "latency_ms": 220
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.845,
+            "probabilities": {
+              "matches": 0.142,
+              "mismatch": 0.845,
+              "failed": 0.008,
+              "unconfirmed": 0.005
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.131
+          }
+        },
+        "latency_ms": 281
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.934,
+            "probabilities": {
+              "effect_confirmed": 0.934,
+              "error": 0.002,
+              "nothing_changed": 0.055,
+              "unconfirmed": 0.009
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.133
+          }
+        },
+        "latency_ms": 237
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.131
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.845,
+            "probabilities": {
+              "matches": 0.142,
+              "mismatch": 0.845,
+              "failed": 0.008,
+              "unconfirmed": 0.005
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 273
+      }
+    }
+  },
+  {
+    "id": "n3-c04-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994,
+        "probabilities": {
+          "matches": 0.994,
+          "mismatch": 0.003,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 266
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.97,
+        "probabilities": {
+          "effect_confirmed": 0.97,
+          "error": 0.001,
+          "nothing_changed": 0.004,
+          "unconfirmed": 0.025
+        },
+        "latency_ms": 230
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        },
+        "latency_ms": 225
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.994,
+            "probabilities": {
+              "matches": 0.994,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 252
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.97,
+            "probabilities": {
+              "effect_confirmed": 0.97,
+              "error": 0.001,
+              "nothing_changed": 0.004,
+              "unconfirmed": 0.025
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 239
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.994,
+            "probabilities": {
+              "matches": 0.994,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 250
+      }
+    }
+  },
+  {
+    "id": "n3-c04-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.695,
+        "probabilities": {
+          "matches": 0.297,
+          "mismatch": 0.695,
+          "failed": 0.003,
+          "unconfirmed": 0.006
+        },
+        "latency_ms": 258
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.968,
+        "probabilities": {
+          "effect_confirmed": 0.968,
+          "error": 0.002,
+          "nothing_changed": 0.006,
+          "unconfirmed": 0.025
+        },
+        "latency_ms": 231
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.286
+        },
+        "latency_ms": 257
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.694,
+            "probabilities": {
+              "matches": 0.298,
+              "mismatch": 0.694,
+              "failed": 0.003,
+              "unconfirmed": 0.005
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.296
+          }
+        },
+        "latency_ms": 250
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.968,
+            "probabilities": {
+              "effect_confirmed": 0.968,
+              "error": 0.002,
+              "nothing_changed": 0.006,
+              "unconfirmed": 0.025
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.295
+          }
+        },
+        "latency_ms": 242
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.296
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.694,
+            "probabilities": {
+              "matches": 0.298,
+              "mismatch": 0.694,
+              "failed": 0.003,
+              "unconfirmed": 0.005
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 256
+      }
+    }
+  },
+  {
+    "id": "n3-c05-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999,
+        "probabilities": {
+          "matches": 0.999,
+          "mismatch": 0,
+          "failed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 241
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.958,
+        "probabilities": {
+          "effect_confirmed": 0.958,
+          "error": 0.001,
+          "nothing_changed": 0.01,
+          "unconfirmed": 0.031
+        },
+        "latency_ms": 358
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        },
+        "latency_ms": 724
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.999,
+            "probabilities": {
+              "matches": 0.999,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 274
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.959,
+            "probabilities": {
+              "effect_confirmed": 0.959,
+              "error": 0.001,
+              "nothing_changed": 0.009,
+              "unconfirmed": 0.031
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 281
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.999,
+            "probabilities": {
+              "matches": 0.999,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 281
+      }
+    }
+  },
+  {
+    "id": "n3-c05-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "partial",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.969,
+        "probabilities": {
+          "matches": 0.026,
+          "mismatch": 0.969,
+          "failed": 0.004,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 236
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.872,
+        "probabilities": {
+          "effect_confirmed": 0.872,
+          "error": 0.006,
+          "nothing_changed": 0.059,
+          "unconfirmed": 0.063
+        },
+        "latency_ms": 223
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.012
+        },
+        "latency_ms": 306
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.969,
+            "probabilities": {
+              "matches": 0.026,
+              "mismatch": 0.969,
+              "failed": 0.004,
+              "unconfirmed": 0.001
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 287
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.865,
+            "probabilities": {
+              "effect_confirmed": 0.865,
+              "error": 0.006,
+              "nothing_changed": 0.061,
+              "unconfirmed": 0.067
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.011
+          }
+        },
+        "latency_ms": 318
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.969,
+            "probabilities": {
+              "matches": 0.026,
+              "mismatch": 0.969,
+              "failed": 0.004,
+              "unconfirmed": 0.001
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 249
+      }
+    }
+  },
+  {
+    "id": "n3-c06-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.977,
+        "probabilities": {
+          "matches": 0.977,
+          "mismatch": 0.004,
+          "failed": 0.002,
+          "unconfirmed": 0.016
+        },
+        "latency_ms": 228
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.869,
+        "probabilities": {
+          "effect_confirmed": 0.869,
+          "error": 0.003,
+          "nothing_changed": 0.007,
+          "unconfirmed": 0.122
+        },
+        "latency_ms": 247
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        },
+        "latency_ms": 219
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.977,
+            "probabilities": {
+              "matches": 0.977,
+              "mismatch": 0.004,
+              "failed": 0.002,
+              "unconfirmed": 0.017
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 241
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.867,
+            "probabilities": {
+              "effect_confirmed": 0.867,
+              "error": 0.003,
+              "nothing_changed": 0.007,
+              "unconfirmed": 0.123
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 316
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.977,
+            "probabilities": {
+              "matches": 0.977,
+              "mismatch": 0.004,
+              "failed": 0.002,
+              "unconfirmed": 0.017
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 238
+      }
+    }
+  },
+  {
+    "id": "n3-c06-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_cwd",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.578,
+        "probabilities": {
+          "matches": 0.402,
+          "mismatch": 0.578,
+          "failed": 0.005,
+          "unconfirmed": 0.016
+        },
+        "latency_ms": 227
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.838,
+        "probabilities": {
+          "effect_confirmed": 0.838,
+          "error": 0.003,
+          "nothing_changed": 0.008,
+          "unconfirmed": 0.15
+        },
+        "latency_ms": 218
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.262
+        },
+        "latency_ms": 215
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.57,
+            "probabilities": {
+              "matches": 0.409,
+              "mismatch": 0.57,
+              "failed": 0.005,
+              "unconfirmed": 0.016
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.255
+          }
+        },
+        "latency_ms": 238
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.841,
+            "probabilities": {
+              "effect_confirmed": 0.841,
+              "error": 0.003,
+              "nothing_changed": 0.008,
+              "unconfirmed": 0.147
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.258
+          }
+        },
+        "latency_ms": 240
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.255
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.57,
+            "probabilities": {
+              "matches": 0.409,
+              "mismatch": 0.57,
+              "failed": 0.005,
+              "unconfirmed": 0.016
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 382
+      }
+    }
+  },
+  {
+    "id": "n3-c07-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.993,
+        "probabilities": {
+          "matches": 0.993,
+          "mismatch": 0.002,
+          "failed": 0,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 269
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.865,
+        "probabilities": {
+          "effect_confirmed": 0.865,
+          "error": 0.001,
+          "nothing_changed": 0.003,
+          "unconfirmed": 0.132
+        },
+        "latency_ms": 253
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 216
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 287
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.869,
+            "probabilities": {
+              "effect_confirmed": 0.869,
+              "error": 0.001,
+              "nothing_changed": 0.003,
+              "unconfirmed": 0.127
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 238
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 280
+      }
+    }
+  },
+  {
+    "id": "n3-c07-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.554,
+        "probabilities": {
+          "matches": 0.427,
+          "mismatch": 0.554,
+          "failed": 0.002,
+          "unconfirmed": 0.016
+        },
+        "latency_ms": 275
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.818,
+        "probabilities": {
+          "effect_confirmed": 0.818,
+          "error": 0.002,
+          "nothing_changed": 0.007,
+          "unconfirmed": 0.173
+        },
+        "latency_ms": 249
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.422
+        },
+        "latency_ms": 266
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.558,
+            "probabilities": {
+              "matches": 0.423,
+              "mismatch": 0.558,
+              "failed": 0.002,
+              "unconfirmed": 0.017
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.416
+          }
+        },
+        "latency_ms": 244
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.817,
+            "probabilities": {
+              "effect_confirmed": 0.817,
+              "error": 0.002,
+              "nothing_changed": 0.006,
+              "unconfirmed": 0.175
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.402
+          }
+        },
+        "latency_ms": 236
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.416
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.558,
+            "probabilities": {
+              "matches": 0.423,
+              "mismatch": 0.558,
+              "failed": 0.002,
+              "unconfirmed": 0.017
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 252
+      }
+    }
+  },
+  {
+    "id": "n3-c08-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.914,
+        "probabilities": {
+          "matches": 0.914,
+          "mismatch": 0.002,
+          "failed": 0.079,
+          "unconfirmed": 0.006
+        },
+        "latency_ms": 270
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.987,
+        "probabilities": {
+          "effect_confirmed": 0.007,
+          "error": 0.005,
+          "nothing_changed": 0.987,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 226
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 287
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.915,
+            "probabilities": {
+              "matches": 0.915,
+              "mismatch": 0.002,
+              "failed": 0.078,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 241
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.987,
+            "probabilities": {
+              "effect_confirmed": 0.007,
+              "error": 0.005,
+              "nothing_changed": 0.987,
+              "unconfirmed": 0.001
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 238
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.915,
+            "probabilities": {
+              "matches": 0.915,
+              "mismatch": 0.002,
+              "failed": 0.078,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 282
+      }
+    }
+  },
+  {
+    "id": "n3-c08-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "chained_step_context",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.76,
+        "probabilities": {
+          "matches": 0.065,
+          "mismatch": 0.16,
+          "failed": 0.76,
+          "unconfirmed": 0.014
+        },
+        "latency_ms": 258
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.513,
+        "probabilities": {
+          "effect_confirmed": 0.293,
+          "error": 0.018,
+          "nothing_changed": 0.513,
+          "unconfirmed": 0.176
+        },
+        "latency_ms": 226
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        },
+        "latency_ms": 220
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.765,
+            "probabilities": {
+              "matches": 0.062,
+              "mismatch": 0.159,
+              "failed": 0.765,
+              "unconfirmed": 0.015
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.004
+          }
+        },
+        "latency_ms": 276
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.52,
+            "probabilities": {
+              "effect_confirmed": 0.289,
+              "error": 0.018,
+              "nothing_changed": 0.52,
+              "unconfirmed": 0.173
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.004
+          }
+        },
+        "latency_ms": 245
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.004
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.765,
+            "probabilities": {
+              "matches": 0.062,
+              "mismatch": 0.159,
+              "failed": 0.765,
+              "unconfirmed": 0.015
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 290
+      }
+    }
+  },
+  {
+    "id": "n3-k04-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997,
+        "probabilities": {
+          "matches": 0.997,
+          "mismatch": 0.001,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 239
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.997,
+        "probabilities": {
+          "effect_confirmed": 0.997,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 227
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        },
+        "latency_ms": 223
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 285
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.997,
+            "probabilities": {
+              "effect_confirmed": 0.997,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 238
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 250
+      }
+    }
+  },
+  {
+    "id": "n3-k04-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.975,
+        "probabilities": {
+          "matches": 0.003,
+          "mismatch": 0.009,
+          "failed": 0.975,
+          "unconfirmed": 0.013
+        },
+        "latency_ms": 238
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.997,
+        "probabilities": {
+          "effect_confirmed": 0.001,
+          "error": 0,
+          "nothing_changed": 0.997,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 228
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.012
+        },
+        "latency_ms": 220
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.975,
+            "probabilities": {
+              "matches": 0.003,
+              "mismatch": 0.009,
+              "failed": 0.975,
+              "unconfirmed": 0.013
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 298
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.997,
+            "probabilities": {
+              "effect_confirmed": 0.001,
+              "error": 0,
+              "nothing_changed": 0.997,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 240
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.975,
+            "probabilities": {
+              "matches": 0.003,
+              "mismatch": 0.009,
+              "failed": 0.975,
+              "unconfirmed": 0.013
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 248
+      }
+    }
+  },
+  {
+    "id": "n3-k05-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997,
+        "probabilities": {
+          "matches": 0.997,
+          "mismatch": 0.001,
+          "failed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 245
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.984,
+        "probabilities": {
+          "effect_confirmed": 0.984,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.016
+        },
+        "latency_ms": 231
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        },
+        "latency_ms": 231
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 255
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.985,
+            "probabilities": {
+              "effect_confirmed": 0.985,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.015
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 248
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 281
+      }
+    }
+  },
+  {
+    "id": "n3-k05-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "partial",
+    "gold_pre": "wrong_content",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.911,
+        "probabilities": {
+          "matches": 0.068,
+          "mismatch": 0.911,
+          "failed": 0.001,
+          "unconfirmed": 0.02
+        },
+        "latency_ms": 250
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.969,
+        "probabilities": {
+          "effect_confirmed": 0.969,
+          "error": 0,
+          "nothing_changed": 0.001,
+          "unconfirmed": 0.031
+        },
+        "latency_ms": 257
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.018
+        },
+        "latency_ms": 254
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.914,
+            "probabilities": {
+              "matches": 0.066,
+              "mismatch": 0.914,
+              "failed": 0.001,
+              "unconfirmed": 0.019
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.018
+          }
+        },
+        "latency_ms": 247
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.969,
+            "probabilities": {
+              "effect_confirmed": 0.969,
+              "error": 0,
+              "nothing_changed": 0.001,
+              "unconfirmed": 0.03
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.018
+          }
+        },
+        "latency_ms": 236
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.018
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.914,
+            "probabilities": {
+              "matches": 0.066,
+              "mismatch": 0.914,
+              "failed": 0.001,
+              "unconfirmed": 0.019
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 286
+      }
+    }
+  },
+  {
+    "id": "n3-k06-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999,
+        "probabilities": {
+          "matches": 0.999,
+          "mismatch": 0,
+          "failed": 0,
+          "unconfirmed": 0
+        },
+        "latency_ms": 273
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.999,
+        "probabilities": {
+          "effect_confirmed": 0.999,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 233
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        },
+        "latency_ms": 284
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.999,
+            "probabilities": {
+              "matches": 0.999,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 285
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.999,
+            "probabilities": {
+              "effect_confirmed": 0.999,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 243
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.999,
+            "probabilities": {
+              "matches": 0.999,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 390
+      }
+    }
+  },
+  {
+    "id": "n3-k06-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.494,
+        "probabilities": {
+          "matches": 0.494,
+          "mismatch": 0.491,
+          "failed": 0.002,
+          "unconfirmed": 0.013
+        },
+        "latency_ms": 369
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.991,
+        "probabilities": {
+          "effect_confirmed": 0.991,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 234
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.387
+        },
+        "latency_ms": 222
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.494,
+            "probabilities": {
+              "matches": 0.494,
+              "mismatch": 0.49,
+              "failed": 0.002,
+              "unconfirmed": 0.013
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.381
+          }
+        },
+        "latency_ms": 248
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.99,
+            "probabilities": {
+              "effect_confirmed": 0.99,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.009
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.378
+          }
+        },
+        "latency_ms": 287
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.381
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.494,
+            "probabilities": {
+              "matches": 0.494,
+              "mismatch": 0.49,
+              "failed": 0.002,
+              "unconfirmed": 0.013
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 262
+      }
+    }
+  },
+  {
+    "id": "n3-k07-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995,
+        "probabilities": {
+          "matches": 0.995,
+          "mismatch": 0.003,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 280
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.997,
+        "probabilities": {
+          "effect_confirmed": 0.997,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 260
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        },
+        "latency_ms": 227
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.995,
+            "probabilities": {
+              "matches": 0.995,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 250
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.997,
+            "probabilities": {
+              "effect_confirmed": 0.997,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.003
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 494
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.995,
+            "probabilities": {
+              "matches": 0.995,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 288
+      }
+    }
+  },
+  {
+    "id": "n3-k07-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_content",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.976,
+        "probabilities": {
+          "matches": 0.021,
+          "mismatch": 0.976,
+          "failed": 0.001,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 270
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.98,
+        "probabilities": {
+          "effect_confirmed": 0.98,
+          "error": 0,
+          "nothing_changed": 0.001,
+          "unconfirmed": 0.019
+        },
+        "latency_ms": 232
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.012
+        },
+        "latency_ms": 222
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.975,
+            "probabilities": {
+              "matches": 0.022,
+              "mismatch": 0.975,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 281
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.98,
+            "probabilities": {
+              "effect_confirmed": 0.98,
+              "error": 0,
+              "nothing_changed": 0.001,
+              "unconfirmed": 0.019
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          }
+        },
+        "latency_ms": 288
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.012
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.975,
+            "probabilities": {
+              "matches": 0.022,
+              "mismatch": 0.975,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 259
+      }
+    }
+  },
+  {
+    "id": "n3-k08-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997,
+        "probabilities": {
+          "matches": 0.997,
+          "mismatch": 0.001,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 245
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.99,
+        "probabilities": {
+          "effect_confirmed": 0.99,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.01
+        },
+        "latency_ms": 225
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 514
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 1147
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.99,
+            "probabilities": {
+              "effect_confirmed": 0.99,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.01
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          }
+        },
+        "latency_ms": 243
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.999
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 246
+      }
+    }
+  },
+  {
+    "id": "n3-k08-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "partial",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.975,
+        "probabilities": {
+          "matches": 0.012,
+          "mismatch": 0.975,
+          "failed": 0.002,
+          "unconfirmed": 0.011
+        },
+        "latency_ms": 232
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.967,
+        "probabilities": {
+          "effect_confirmed": 0.967,
+          "error": 0.001,
+          "nothing_changed": 0.001,
+          "unconfirmed": 0.032
+        },
+        "latency_ms": 220
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.007
+        },
+        "latency_ms": 269
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.975,
+            "probabilities": {
+              "matches": 0.012,
+              "mismatch": 0.975,
+              "failed": 0.002,
+              "unconfirmed": 0.011
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.008
+          }
+        },
+        "latency_ms": 245
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.966,
+            "probabilities": {
+              "effect_confirmed": 0.966,
+              "error": 0.001,
+              "nothing_changed": 0.001,
+              "unconfirmed": 0.032
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.008
+          }
+        },
+        "latency_ms": 242
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.008
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.975,
+            "probabilities": {
+              "matches": 0.012,
+              "mismatch": 0.975,
+              "failed": 0.002,
+              "unconfirmed": 0.011
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 252
+      }
+    }
+  },
+  {
+    "id": "n3-k09-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992,
+        "probabilities": {
+          "matches": 0.992,
+          "mismatch": 0.003,
+          "failed": 0,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 240
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.994,
+        "probabilities": {
+          "effect_confirmed": 0.994,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.006
+        },
+        "latency_ms": 229
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        },
+        "latency_ms": 253
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.992,
+            "probabilities": {
+              "matches": 0.992,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 286
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.994,
+            "probabilities": {
+              "effect_confirmed": 0.994,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 248
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.992,
+            "probabilities": {
+              "matches": 0.992,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 278
+      }
+    }
+  },
+  {
+    "id": "n3-k09-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_content",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.659,
+        "probabilities": {
+          "matches": 0.329,
+          "mismatch": 0.659,
+          "failed": 0.002,
+          "unconfirmed": 0.009
+        },
+        "latency_ms": 350
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.992,
+        "probabilities": {
+          "effect_confirmed": 0.992,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.008
+        },
+        "latency_ms": 298
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.093
+        },
+        "latency_ms": 267
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.656,
+            "probabilities": {
+              "matches": 0.333,
+              "mismatch": 0.656,
+              "failed": 0.002,
+              "unconfirmed": 0.009
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.094
+          }
+        },
+        "latency_ms": 249
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.992,
+            "probabilities": {
+              "effect_confirmed": 0.992,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.008
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.091
+          }
+        },
+        "latency_ms": 251
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.094
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.656,
+            "probabilities": {
+              "matches": 0.333,
+              "mismatch": 0.656,
+              "failed": 0.002,
+              "unconfirmed": 0.009
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 255
+      }
+    }
+  },
+  {
+    "id": "n3-k10-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997,
+        "probabilities": {
+          "matches": 0.997,
+          "mismatch": 0.001,
+          "failed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 277
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.988,
+        "probabilities": {
+          "effect_confirmed": 0.988,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.012
+        },
+        "latency_ms": 231
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        },
+        "latency_ms": 233
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 281
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.989,
+            "probabilities": {
+              "effect_confirmed": 0.989,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.011
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 245
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.997,
+            "probabilities": {
+              "matches": 0.997,
+              "mismatch": 0.001,
+              "failed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 255
+      }
+    }
+  },
+  {
+    "id": "n3-k10-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "code_edit_verification",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.649,
+        "probabilities": {
+          "matches": 0.346,
+          "mismatch": 0.649,
+          "failed": 0.002,
+          "unconfirmed": 0.003
+        },
+        "latency_ms": 273
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.982,
+        "probabilities": {
+          "effect_confirmed": 0.982,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.018
+        },
+        "latency_ms": 266
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.306
+        },
+        "latency_ms": 234
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.646,
+            "probabilities": {
+              "matches": 0.349,
+              "mismatch": 0.646,
+              "failed": 0.002,
+              "unconfirmed": 0.003
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.315
+          }
+        },
+        "latency_ms": 1186
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.981,
+            "probabilities": {
+              "effect_confirmed": 0.981,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.018
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.312
+          }
+        },
+        "latency_ms": 258
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.315
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.646,
+            "probabilities": {
+              "matches": 0.349,
+              "mismatch": 0.646,
+              "failed": 0.002,
+              "unconfirmed": 0.003
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 297
+      }
+    }
+  },
+  {
+    "id": "n3-x01-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "injection",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998,
+        "probabilities": {
+          "matches": 0.998,
+          "mismatch": 0,
+          "failed": 0,
+          "unconfirmed": 0.001
+        },
+        "latency_ms": 236
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.998,
+        "probabilities": {
+          "effect_confirmed": 0.998,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 219
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        },
+        "latency_ms": 283
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.998,
+            "probabilities": {
+              "matches": 0.998,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 243
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.998,
+            "probabilities": {
+              "effect_confirmed": 0.998,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          }
+        },
+        "latency_ms": 277
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 1
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.998,
+            "probabilities": {
+              "matches": 0.998,
+              "mismatch": 0,
+              "failed": 0,
+              "unconfirmed": 0.001
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 281
+      }
+    }
+  },
+  {
+    "id": "n3-x01-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "injection",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.961,
+        "probabilities": {
+          "matches": 0.02,
+          "mismatch": 0.003,
+          "failed": 0.961,
+          "unconfirmed": 0.016
+        },
+        "latency_ms": 556
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "error",
+        "prob": 0.998,
+        "probabilities": {
+          "effect_confirmed": 0.001,
+          "error": 0.998,
+          "nothing_changed": 0,
+          "unconfirmed": 0
+        },
+        "latency_ms": 262
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.036
+        },
+        "latency_ms": 316
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.961,
+            "probabilities": {
+              "matches": 0.02,
+              "mismatch": 0.003,
+              "failed": 0.961,
+              "unconfirmed": 0.016
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.03
+          }
+        },
+        "latency_ms": 249
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "error",
+            "prob": 0.998,
+            "probabilities": {
+              "effect_confirmed": 0.001,
+              "error": 0.998,
+              "nothing_changed": 0,
+              "unconfirmed": 0
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.033
+          }
+        },
+        "latency_ms": 239
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.03
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.961,
+            "probabilities": {
+              "matches": 0.02,
+              "mismatch": 0.003,
+              "failed": 0.961,
+              "unconfirmed": 0.016
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 253
+      }
+    }
+  },
+  {
+    "id": "n3-x02-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "long_noise",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.967,
+        "probabilities": {
+          "matches": 0.967,
+          "mismatch": 0.007,
+          "failed": 0.001,
+          "unconfirmed": 0.025
+        },
+        "latency_ms": 242
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.912,
+        "probabilities": {
+          "effect_confirmed": 0.912,
+          "error": 0.002,
+          "nothing_changed": 0.002,
+          "unconfirmed": 0.084
+        },
+        "latency_ms": 257
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.992
+        },
+        "latency_ms": 236
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.967,
+            "probabilities": {
+              "matches": 0.967,
+              "mismatch": 0.007,
+              "failed": 0.001,
+              "unconfirmed": 0.025
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.991
+          }
+        },
+        "latency_ms": 277
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.917,
+            "probabilities": {
+              "effect_confirmed": 0.917,
+              "error": 0.002,
+              "nothing_changed": 0.002,
+              "unconfirmed": 0.08
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.992
+          }
+        },
+        "latency_ms": 4762
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.991
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.967,
+            "probabilities": {
+              "matches": 0.967,
+              "mismatch": 0.007,
+              "failed": 0.001,
+              "unconfirmed": 0.025
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 411
+      }
+    }
+  },
+  {
+    "id": "n3-x02-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "long_noise",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.961,
+        "probabilities": {
+          "matches": 0.025,
+          "mismatch": 0.01,
+          "failed": 0.961,
+          "unconfirmed": 0.004
+        },
+        "latency_ms": 341
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "error",
+        "prob": 0.973,
+        "probabilities": {
+          "effect_confirmed": 0.021,
+          "error": 0.973,
+          "nothing_changed": 0.002,
+          "unconfirmed": 0.004
+        },
+        "latency_ms": 233
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        },
+        "latency_ms": 262
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.964,
+            "probabilities": {
+              "matches": 0.023,
+              "mismatch": 0.009,
+              "failed": 0.964,
+              "unconfirmed": 0.004
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.004
+          }
+        },
+        "latency_ms": 249
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "error",
+            "prob": 0.974,
+            "probabilities": {
+              "effect_confirmed": 0.02,
+              "error": 0.974,
+              "nothing_changed": 0.002,
+              "unconfirmed": 0.004
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.004
+          }
+        },
+        "latency_ms": 716
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.004
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.964,
+            "probabilities": {
+              "matches": 0.023,
+              "mismatch": 0.009,
+              "failed": 0.964,
+              "unconfirmed": 0.004
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 256
+      }
+    }
+  },
+  {
+    "id": "n3-x03-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.941,
+        "probabilities": {
+          "matches": 0.941,
+          "mismatch": 0.003,
+          "failed": 0,
+          "unconfirmed": 0.056
+        },
+        "latency_ms": 268
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.982,
+        "probabilities": {
+          "effect_confirmed": 0.982,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.017
+        },
+        "latency_ms": 224
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995
+        },
+        "latency_ms": 226
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.941,
+            "probabilities": {
+              "matches": 0.941,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.056
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.995
+          }
+        },
+        "latency_ms": 299
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.982,
+            "probabilities": {
+              "effect_confirmed": 0.982,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.018
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.995
+          }
+        },
+        "latency_ms": 241
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.995
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.941,
+            "probabilities": {
+              "matches": 0.941,
+              "mismatch": 0.003,
+              "failed": 0,
+              "unconfirmed": 0.056
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 248
+      }
+    }
+  },
+  {
+    "id": "n3-x03-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "partial",
+    "gold_post": "partial",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.931,
+        "probabilities": {
+          "matches": 0.013,
+          "mismatch": 0.931,
+          "failed": 0.045,
+          "unconfirmed": 0.011
+        },
+        "latency_ms": 262
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.852,
+        "probabilities": {
+          "effect_confirmed": 0.852,
+          "error": 0.075,
+          "nothing_changed": 0.001,
+          "unconfirmed": 0.072
+        },
+        "latency_ms": 225
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        },
+        "latency_ms": 250
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.929,
+            "probabilities": {
+              "matches": 0.013,
+              "mismatch": 0.929,
+              "failed": 0.046,
+              "unconfirmed": 0.011
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.002
+          }
+        },
+        "latency_ms": 1112
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.859,
+            "probabilities": {
+              "effect_confirmed": 0.859,
+              "error": 0.069,
+              "nothing_changed": 0.001,
+              "unconfirmed": 0.071
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.002
+          }
+        },
+        "latency_ms": 334
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.002
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.929,
+            "probabilities": {
+              "matches": 0.013,
+              "mismatch": 0.929,
+              "failed": 0.046,
+              "unconfirmed": 0.011
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 256
+      }
+    }
+  },
+  {
+    "id": "n3-x04-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "empty_cases",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.983,
+        "probabilities": {
+          "matches": 0.983,
+          "mismatch": 0.001,
+          "failed": 0.012,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 229
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "nothing_changed",
+        "prob": 0.543,
+        "probabilities": {
+          "effect_confirmed": 0.429,
+          "error": 0.002,
+          "nothing_changed": 0.543,
+          "unconfirmed": 0.026
+        },
+        "latency_ms": 309
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        },
+        "latency_ms": 310
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.983,
+            "probabilities": {
+              "matches": 0.983,
+              "mismatch": 0.001,
+              "failed": 0.012,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 315
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "nothing_changed",
+            "prob": 0.55,
+            "probabilities": {
+              "effect_confirmed": 0.419,
+              "error": 0.002,
+              "nothing_changed": 0.55,
+              "unconfirmed": 0.028
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          }
+        },
+        "latency_ms": 273
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.998
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.983,
+            "probabilities": {
+              "matches": 0.983,
+              "mismatch": 0.001,
+              "failed": 0.012,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 289
+      }
+    }
+  },
+  {
+    "id": "n3-x04-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "empty_cases",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.718,
+        "probabilities": {
+          "matches": 0.083,
+          "mismatch": 0.136,
+          "failed": 0.718,
+          "unconfirmed": 0.063
+        },
+        "latency_ms": 231
+      },
+      "C2_read_a": {
+        "approved": false,
+        "choice": "error",
+        "prob": 0.685,
+        "probabilities": {
+          "effect_confirmed": 0.049,
+          "error": 0.685,
+          "nothing_changed": 0.247,
+          "unconfirmed": 0.018
+        },
+        "latency_ms": 257
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.035
+        },
+        "latency_ms": 305
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.718,
+            "probabilities": {
+              "matches": 0.084,
+              "mismatch": 0.135,
+              "failed": 0.718,
+              "unconfirmed": 0.063
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.035
+          }
+        },
+        "latency_ms": 244
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "error",
+            "prob": 0.682,
+            "probabilities": {
+              "effect_confirmed": 0.051,
+              "error": 0.682,
+              "nothing_changed": 0.25,
+              "unconfirmed": 0.018
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.036
+          }
+        },
+        "latency_ms": 516
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.035
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "failed",
+            "prob": 0.718,
+            "probabilities": {
+              "matches": 0.084,
+              "mismatch": 0.135,
+              "failed": 0.718,
+              "unconfirmed": 0.063
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 257
+      }
+    }
+  },
+  {
+    "id": "n3-x05-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "bilingual",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992,
+        "probabilities": {
+          "matches": 0.992,
+          "mismatch": 0.002,
+          "failed": 0,
+          "unconfirmed": 0.006
+        },
+        "latency_ms": 232
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.979,
+        "probabilities": {
+          "effect_confirmed": 0.979,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.02
+        },
+        "latency_ms": 225
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        },
+        "latency_ms": 220
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 278
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.978,
+            "probabilities": {
+              "effect_confirmed": 0.978,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.021
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          }
+        },
+        "latency_ms": 244
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.996
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.993,
+            "probabilities": {
+              "matches": 0.993,
+              "mismatch": 0.002,
+              "failed": 0,
+              "unconfirmed": 0.006
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 246
+      }
+    }
+  },
+  {
+    "id": "n3-x05-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "bilingual",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_content",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.958,
+        "probabilities": {
+          "matches": 0.039,
+          "mismatch": 0.958,
+          "failed": 0.001,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 231
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.965,
+        "probabilities": {
+          "effect_confirmed": 0.965,
+          "error": 0,
+          "nothing_changed": 0.001,
+          "unconfirmed": 0.034
+        },
+        "latency_ms": 253
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.048
+        },
+        "latency_ms": 214
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.958,
+            "probabilities": {
+              "matches": 0.039,
+              "mismatch": 0.958,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.051
+          }
+        },
+        "latency_ms": 246
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.965,
+            "probabilities": {
+              "effect_confirmed": 0.965,
+              "error": 0,
+              "nothing_changed": 0.001,
+              "unconfirmed": 0.034
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.051
+          }
+        },
+        "latency_ms": 285
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.051
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.958,
+            "probabilities": {
+              "matches": 0.039,
+              "mismatch": 0.958,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 301
+      }
+    }
+  },
+  {
+    "id": "n3-x06-good",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "process_nopid",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "C1_four_a": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99,
+        "probabilities": {
+          "matches": 0.99,
+          "mismatch": 0.004,
+          "failed": 0.001,
+          "unconfirmed": 0.005
+        },
+        "latency_ms": 266
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.998,
+        "probabilities": {
+          "effect_confirmed": 0.998,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 252
+      },
+      "C_noulCriteria": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        },
+        "latency_ms": 234
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.99,
+            "probabilities": {
+              "matches": 0.99,
+              "mismatch": 0.004,
+              "failed": 0.001,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          }
+        },
+        "latency_ms": 281
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.998,
+            "probabilities": {
+              "effect_confirmed": 0.998,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          }
+        },
+        "latency_ms": 239
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": true,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.994
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "matches",
+            "prob": 0.99,
+            "probabilities": {
+              "matches": 0.99,
+              "mismatch": 0.004,
+              "failed": 0.001,
+              "unconfirmed": 0.005
+            },
+            "approved": true
+          }
+        },
+        "latency_ms": 247
+      }
+    }
+  },
+  {
+    "id": "n3-x06-bad",
+    "model": "vllm-sr/d3-turbo",
+    "dataset": "dataset_v3",
+    "category": "process_nopid",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_target",
+    "scores": {
+      "C1_four_a": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.951,
+        "probabilities": {
+          "matches": 0.046,
+          "mismatch": 0.951,
+          "failed": 0.001,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 4109
+      },
+      "C2_read_a": {
+        "approved": true,
+        "choice": "effect_confirmed",
+        "prob": 0.998,
+        "probabilities": {
+          "effect_confirmed": 0.998,
+          "error": 0,
+          "nothing_changed": 0,
+          "unconfirmed": 0.002
+        },
+        "latency_ms": 240
+      },
+      "C_noulCriteria": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.08
+        },
+        "latency_ms": 221
+      },
+      "J1_joint_four_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.952,
+            "probabilities": {
+              "matches": 0.045,
+              "mismatch": 0.952,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.076
+          }
+        },
+        "latency_ms": 772
+      },
+      "J2_joint_read_noulCriteria": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "result_status": {
+            "type": "choice",
+            "choice": "effect_confirmed",
+            "prob": 0.998,
+            "probabilities": {
+              "effect_confirmed": 0.998,
+              "error": 0,
+              "nothing_changed": 0,
+              "unconfirmed": 0.002
+            },
+            "approved": true
+          },
+          "cumple": {
+            "type": "noul",
+            "noul": 0.076
+          }
+        },
+        "latency_ms": 284
+      },
+      "J1r_joint_noulCriteria_four": {
+        "approved": false,
+        "multi": true,
+        "answers": {
+          "cumple": {
+            "type": "noul",
+            "noul": 0.076
+          },
+          "effect": {
+            "type": "choice",
+            "choice": "mismatch",
+            "prob": 0.952,
+            "probabilities": {
+              "matches": 0.045,
+              "mismatch": 0.952,
+              "failed": 0.001,
+              "unconfirmed": 0.002
+            },
+            "approved": false
+          }
+        },
+        "latency_ms": 253
+      }
+    }
+  }
+]

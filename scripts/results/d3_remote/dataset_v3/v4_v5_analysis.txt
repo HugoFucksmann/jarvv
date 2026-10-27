@@ -1,0 +1,178 @@
+== AUC por señal (combinado [por dataset]) ==
+1.000  [1.000 nan]  N5_json_state::P(matches)~
+1.000  [1.000 nan]  N4_score::score
+1.000  [1.000 nan]  N3_cumple::cumple
+1.000  [1.000 nan]  N2_noul_criteria::cumple
+1.000  [1.000 nan]  N2_N1_combined::AND(noul,four)
+1.000  [1.000 nan]  N1_four_way::P(matches)~
+1.000  [1.000 nan]  N0_control_b::P(matches)~
+1.000  [1.000 nan]  N0_control_a::P(matches)~
+1.000  [nan 1.000]  J2_joint_read_noulCriteria::cumple
+1.000  [nan 1.000]  J1r_joint_noulCriteria_four::effect
+1.000  [nan 1.000]  J1r_joint_noulCriteria_four::cumple
+1.000  [nan 1.000]  J1r_joint_noulCriteria_four::AND_all
+1.000  [nan 1.000]  J1_joint_four_noulCriteria::effect
+1.000  [nan 1.000]  J1_joint_four_noulCriteria::cumple
+1.000  [nan 1.000]  J1_joint_four_noulCriteria::AND_all
+1.000  [nan 1.000]  C_noulCriteria::cumple
+1.000  [nan 1.000]  C1_four_a::P(matches)~
+1.000  [nan 1.000]  C1_dual::AND(four,noulCriteria)
+0.937  [nan 0.937]  C2_dual::AND(read,noulCriteria)
+0.936  [nan 0.936]  J2_joint_read_noulCriteria::AND_all
+0.930  [0.930 nan]  N3_combined::AND(read,cumple)
+0.723  [nan 0.723]  J2_joint_read_noulCriteria::result_status
+0.717  [0.717 nan]  N3_read_status::P(matches)~
+0.717  [nan 0.717]  C2_read_a::P(matches)~
+
+== Exactitud por umbral, formato umbral:exactitud(FP/FN) ==
+N5_json_state::P(matches)~
+      dataset_v3/v4 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:0.98(0/1) 0.80:0.98(0/1) 0.85:0.95(0/3) 0.90:0.95(0/3) 0.95:0.90(0/6)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N4_score::score
+      dataset_v3/v4 0.50:0.87(8/0) 0.60:0.90(6/0) 0.70:0.94(4/0) 0.75:0.94(4/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:1.00(0/0) 0.95:0.95(0/3)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N3_cumple::cumple
+      dataset_v3/v4 0.50:0.94(4/0) 0.60:0.95(3/0) 0.70:0.98(1/0) 0.75:0.98(1/0) 0.80:0.98(1/0) 0.85:1.00(0/0) 0.90:1.00(0/0) 0.95:0.98(0/1)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N2_noul_criteria::cumple
+      dataset_v3/v4 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.98(0/1)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N2_N1_combined::AND(noul,four)
+      dataset_v3/v4 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.94(0/4)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N1_four_way::P(matches)~
+      dataset_v3/v4 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:1.00(0/0) 0.95:0.94(0/4)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N0_control_b::P(matches)~
+      dataset_v3/v4 0.50:0.98(1/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.94(0/4) 0.95:0.90(0/6)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+N0_control_a::P(matches)~
+      dataset_v3/v4 0.50:0.98(1/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.94(0/4) 0.95:0.90(0/6)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+J2_joint_read_noulCriteria::cumple
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.98(0/1)
+J1r_joint_noulCriteria_four::effect
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:1.00(0/0) 0.95:0.94(0/4)
+J1r_joint_noulCriteria_four::cumple
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.98(0/1)
+J1r_joint_noulCriteria_four::AND_all
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.94(0/4)
+J1_joint_four_noulCriteria::effect
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:1.00(0/0) 0.95:0.94(0/4)
+J1_joint_four_noulCriteria::cumple
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.98(0/1)
+J1_joint_four_noulCriteria::AND_all
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.94(0/4)
+C_noulCriteria::cumple
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.98(0/1)
+C1_four_a::P(matches)~
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:1.00(0/0) 0.95:0.94(0/4)
+C1_dual::AND(four,noulCriteria)
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:1.00(0/0) 0.60:1.00(0/0) 0.70:1.00(0/0) 0.75:1.00(0/0) 0.80:1.00(0/0) 0.85:1.00(0/0) 0.90:0.98(0/1) 0.95:0.94(0/4)
+C2_dual::AND(read,noulCriteria)
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:0.94(0/4) 0.60:0.94(0/4) 0.70:0.94(0/4) 0.75:0.94(0/4) 0.80:0.94(0/4) 0.85:0.94(0/4) 0.90:0.89(0/7) 0.95:0.87(0/8)
+J2_joint_read_noulCriteria::AND_all
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:0.94(0/4) 0.60:0.94(0/4) 0.70:0.94(0/4) 0.75:0.94(0/4) 0.80:0.94(0/4) 0.85:0.94(0/4) 0.90:0.89(0/7) 0.95:0.87(0/8)
+N3_combined::AND(read,cumple)
+      dataset_v3/v4 0.50:0.87(4/4) 0.60:0.89(3/4) 0.70:0.92(1/4) 0.75:0.92(1/4) 0.80:0.92(1/4) 0.85:0.94(0/4) 0.90:0.90(0/6) 0.95:0.87(0/8)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+J2_joint_read_noulCriteria::result_status
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:0.58(22/4) 0.60:0.58(22/4) 0.70:0.60(21/4) 0.75:0.61(20/4) 0.80:0.61(20/4) 0.85:0.66(17/4) 0.90:0.66(15/6) 0.95:0.68(13/7)
+N3_read_status::P(matches)~
+      dataset_v3/v4 0.50:0.58(22/4) 0.60:0.58(22/4) 0.70:0.60(21/4) 0.75:0.61(20/4) 0.80:0.61(20/4) 0.85:0.66(17/4) 0.90:0.66(15/6) 0.95:0.68(13/7)
+      dataset_v3/v5 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+C2_read_a::P(matches)~
+      dataset_v3/v4 0.50:nan(0/0) 0.60:nan(0/0) 0.70:nan(0/0) 0.75:nan(0/0) 0.80:nan(0/0) 0.85:nan(0/0) 0.90:nan(0/0) 0.95:nan(0/0)
+      dataset_v3/v5 0.50:0.58(22/4) 0.60:0.58(22/4) 0.70:0.60(21/4) 0.75:0.61(20/4) 0.80:0.61(20/4) 0.85:0.66(17/4) 0.90:0.66(15/6) 0.95:0.68(13/7)
+
+== Umbral mínimo con 0 malos aprobados (en todos los datasets) y buenos aprobados ==
+   (optimista: umbral calculado sobre los mismos datos)
+N5_json_state::P(matches)~                 peor malo=0.466 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N4_score::score                            peor malo=0.792 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N3_cumple::cumple                          peor malo=0.830 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N2_noul_criteria::cumple                   peor malo=0.422 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N2_N1_combined::AND(noul,four)             peor malo=0.422 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N1_four_way::P(matches)~                   peor malo=0.494 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N0_control_b::P(matches)~                  peor malo=0.511 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+N0_control_a::P(matches)~                  peor malo=0.511 (umbral > eso) | buenos auto: dataset_v3/v4: 31/31 | dataset_v3/v5: 0/0
+J2_joint_read_noulCriteria::cumple         peor malo=0.402 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+J1r_joint_noulCriteria_four::effect        peor malo=0.494 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+J1r_joint_noulCriteria_four::cumple        peor malo=0.416 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+J1r_joint_noulCriteria_four::AND_all       peor malo=0.416 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+J1_joint_four_noulCriteria::effect         peor malo=0.494 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+J1_joint_four_noulCriteria::cumple         peor malo=0.416 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+J1_joint_four_noulCriteria::AND_all        peor malo=0.416 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+C_noulCriteria::cumple                     peor malo=0.422 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+C1_four_a::P(matches)~                     peor malo=0.494 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+C1_dual::AND(four,noulCriteria)            peor malo=0.422 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 31/31
+C2_dual::AND(read,noulCriteria)            peor malo=0.422 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 28/31
+J2_joint_read_noulCriteria::AND_all        peor malo=0.402 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 28/31
+N3_combined::AND(read,cumple)              peor malo=0.818 (umbral > eso) | buenos auto: dataset_v3/v4: 27/31 | dataset_v3/v5: 0/0
+J2_joint_read_noulCriteria::result_status  peor malo=0.998 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 2/31
+N3_read_status::P(matches)~                peor malo=0.998 (umbral > eso) | buenos auto: dataset_v3/v4: 2/31 | dataset_v3/v5: 0/0
+C2_read_a::P(matches)~                     peor malo=0.998 (umbral > eso) | buenos auto: dataset_v3/v4: 0/0 | dataset_v3/v5: 2/31
+
+== Validación cruzada (umbral elegido en A, evaluado en B) ==
+N5_json_state::P(matches)~                 t=0.50 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N5_json_state::P(matches)~                 t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 1.00
+N4_score::score                            t=0.80 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N4_score::score                            t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 0.87
+N3_cumple::cumple                          t=0.85 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N3_cumple::cumple                          t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 0.94
+N2_noul_criteria::cumple                   t=0.50 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N2_noul_criteria::cumple                   t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 1.00
+N2_N1_combined::AND(noul,four)             t=0.50 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N2_N1_combined::AND(noul,four)             t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 1.00
+N1_four_way::P(matches)~                   t=0.50 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N1_four_way::P(matches)~                   t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 1.00
+N0_control_b::P(matches)~                  t=0.60 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N0_control_b::P(matches)~                  t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 0.98
+N0_control_a::P(matches)~                  t=0.60 elegido en    dataset_v3/v4: 1.00 -> prueba en    dataset_v3/v5: nan
+N0_control_a::P(matches)~                  t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 0.98
+J2_joint_read_noulCriteria::cumple         t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J2_joint_read_noulCriteria::cumple         t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+J1r_joint_noulCriteria_four::effect        t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J1r_joint_noulCriteria_four::effect        t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+J1r_joint_noulCriteria_four::cumple        t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J1r_joint_noulCriteria_four::cumple        t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+J1r_joint_noulCriteria_four::AND_all       t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J1r_joint_noulCriteria_four::AND_all       t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+J1_joint_four_noulCriteria::effect         t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J1_joint_four_noulCriteria::effect         t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+J1_joint_four_noulCriteria::cumple         t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J1_joint_four_noulCriteria::cumple         t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+J1_joint_four_noulCriteria::AND_all        t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+J1_joint_four_noulCriteria::AND_all        t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+C_noulCriteria::cumple                     t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+C_noulCriteria::cumple                     t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+C1_four_a::P(matches)~                     t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+C1_four_a::P(matches)~                     t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+C1_dual::AND(four,noulCriteria)            t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 1.00
+C1_dual::AND(four,noulCriteria)            t=0.50 elegido en    dataset_v3/v5: 1.00 -> prueba en    dataset_v3/v4: nan
+C2_dual::AND(read,noulCriteria)            t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 0.94
+C2_dual::AND(read,noulCriteria)            t=0.50 elegido en    dataset_v3/v5: 0.94 -> prueba en    dataset_v3/v4: nan
+J2_joint_read_noulCriteria::AND_all        t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 0.94
+J2_joint_read_noulCriteria::AND_all        t=0.50 elegido en    dataset_v3/v5: 0.94 -> prueba en    dataset_v3/v4: nan
+N3_combined::AND(read,cumple)              t=0.85 elegido en    dataset_v3/v4: 0.94 -> prueba en    dataset_v3/v5: nan
+N3_combined::AND(read,cumple)              t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 0.87
+J2_joint_read_noulCriteria::result_status  t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 0.58
+J2_joint_read_noulCriteria::result_status  t=0.95 elegido en    dataset_v3/v5: 0.68 -> prueba en    dataset_v3/v4: nan
+N3_read_status::P(matches)~                t=0.95 elegido en    dataset_v3/v4: 0.68 -> prueba en    dataset_v3/v5: nan
+N3_read_status::P(matches)~                t=0.50 elegido en    dataset_v3/v5: nan -> prueba en    dataset_v3/v4: 0.58
+C2_read_a::P(matches)~                     t=0.50 elegido en    dataset_v3/v4: nan -> prueba en    dataset_v3/v5: 0.58
+C2_read_a::P(matches)~                     t=0.95 elegido en    dataset_v3/v5: 0.68 -> prueba en    dataset_v3/v4: nan
+
+[OK] Reporte guardado en: scripts/results/d3_remote/v4_analysis.txt
