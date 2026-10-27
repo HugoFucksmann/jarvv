@@ -10,17 +10,13 @@ import { MAX_EVIDENCE_OBS_CHARS } from "../types.ts";
 import { getToolPolicy } from "../tools/manifest.ts";
 import { RefStore, refLabel, evidenceRef } from "./refStore.ts";
 import type { ExtractorInput, ExtractorOutput } from "./extractors/types.ts";
-import { extractListDirectory, extractReadFile } from "./extractors/files.ts";
-import { extractProcess } from "./extractors/process.ts";
-import { extractSearch, extractFetch } from "./extractors/freeSearch.ts";
-import { extractGeneric } from "./extractors/generic.ts";
+import { selectExtractor } from "./extractors/index.ts";
 
 export interface ProcessedResult {
   outcome: ExecutionOutcome;
   evidence: Evidence;
   verification: VerificationState;
   scratchpadDelta: Partial<Scratchpad>;
-  summaryText: string;
   finding: string;
   compactObs: string;
   factsDelta: Record<string, string>;
@@ -112,24 +108,9 @@ export class ResultProcessor {
       refKey = RefStore.put(fullText, taskId, refLabel(tool, args));
     }
 
-    // 4. Deterministic Extractors per Tool (§10.5)
-    // Un resultado de error no pasa por los extractores específicos (producirían un resumen de éxito y facts
-    // de una ruta, URL o PID que no se obtuvo): usa el extractor genérico, cuyo resumen es la primera línea del error.
+    // 4. Extractor determinista por herramienta (§10.5): registro en extractors/index.ts; el genérico es el respaldo.
     const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData, refKey };
-    let extracted: ExtractorOutput;
-    if (!isError && tool === "list_directory") {
-      extracted = extractListDirectory(input);
-    } else if (!isError && tool === "read_file") {
-      extracted = extractReadFile(input);
-    } else if (!isError && tool.includes("process")) {
-      extracted = extractProcess(input);
-    } else if (!isError && mcp === "free_search" && tool === "search") {
-      extracted = extractSearch(input);
-    } else if (!isError && mcp === "free_search" && tool === "fetch") {
-      extracted = extractFetch(input);
-    } else {
-      extracted = extractGeneric(input);
-    }
+    const extracted: ExtractorOutput = selectExtractor(mcp, tool, isError)(input);
     const { finding, compactObs } = extracted;
     Object.assign(factsDelta, extracted.factsDelta);
     Object.assign(scratchpadDelta, extracted.scratchpadDelta);
@@ -137,13 +118,14 @@ export class ResultProcessor {
 
     // 5. Determine VerificationState
     let verification: VerificationState = "NOT_REQUIRED";
-    if (success && !isError && !signals.empty_output && !signals.not_found) {
+    const ok = success && !isError && !signals.empty_output && !signals.not_found;
+    if (ok) {
       verification = "VERIFIED";
     }
 
     // 6. Evidence object
     const evidence: Evidence = {
-      ok: success && !isError && !signals.empty_output && !signals.not_found,
+      ok,
       summary: finding,
       obs: compactObs ? compactObs.slice(0, MAX_EVIDENCE_OBS_CHARS) : undefined,
       flags: flags.length > 0 ? flags : undefined,
@@ -169,7 +151,6 @@ export class ResultProcessor {
       evidence,
       verification,
       scratchpadDelta,
-      summaryText: finding,
       finding,
       compactObs,
       factsDelta,

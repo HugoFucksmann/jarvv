@@ -2,8 +2,8 @@
  * JARVIS Core — Tool Manifest (fuente única de herramientas, políticas y descripciones)
  * Catálogo reducido por ahora: 11 herramientas de desktop_commander y 3 de free_search, repartidas en 4 destinos
  * (grupos funcionales que elige Decision #1); el resto de ambos servidores queda fuera (para ofrecer otra
- * herramienta se añade su línea con su destino y, si su resultado necesita un tratamiento propio, su rama en
- * ResultProcessor). Los nombres de argumento salen de sus inputSchema.
+ * herramienta se añade su línea con su destino; solo si el formato de su resultado lo justifica se registra además
+ * su extractor en processor/extractors/index.ts: sin él, el resultado lo trata el extractor genérico). Los nombres de argumento salen de sus inputSchema.
  *
  * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas
  *   (policyRegistry.ts fue eliminado).
@@ -183,11 +183,12 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
 // ---------------------------------------------------------------
 // Índice y API de consulta
 // ---------------------------------------------------------------
-const keyOf = (server: string, tool: string) => `${server}:${tool}`.toLowerCase();
+/** Clave canónica de una herramienta (servidor + nombre, sin distinguir mayúsculas); la usan el catálogo y el registro de extractores. */
+export const toolKey = (server: string, tool: string) => `${server}:${tool}`.toLowerCase();
 
 const INDEX = new Map<string, ToolDefinition>();
 for (const t of SYSTEM_TOOL_MANIFEST) {
-  const k = keyOf(t.server, t.name);
+  const k = toolKey(t.server, t.name);
   if (INDEX.has(k)) throw new Error(`[Manifest] herramienta duplicada: ${k}`);
   INDEX.set(k, t);
 }
@@ -203,15 +204,15 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
 });
 
 export function isKnownTool(server: string, tool: string): boolean {
-  return INDEX.has(keyOf(server, tool));
+  return INDEX.has(toolKey(server, tool));
 }
 
 export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy> {
-  return INDEX.get(keyOf(server, tool))?.policy ?? UNKNOWN_TOOL_POLICY;
+  return INDEX.get(toolKey(server, tool))?.policy ?? UNKNOWN_TOOL_POLICY;
 }
 
 export function requirementOf(server: string, tool: string): "process" | "search" | undefined {
-  return INDEX.get(keyOf(server, tool))?.requires;
+  return INDEX.get(toolKey(server, tool))?.requires;
 }
 
 /** Servidor MCP que ejecuta un destino. */
@@ -260,7 +261,7 @@ export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool
   const server = serverOf(route);
   const allowed: MCPTool[] = [];
   for (const t of tools) {
-    const d = INDEX.get(keyOf(server, t.name));
+    const d = INDEX.get(toolKey(server, t.name));
     if (d?.route !== route) continue;
     let inputSchema = d.params ? restrictParams(t.inputSchema, d.params) : t.inputSchema;
     if (d.notes) inputSchema = annotateParams(inputSchema, t.name, d.notes);

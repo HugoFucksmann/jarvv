@@ -21,12 +21,12 @@ import { RefStore } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 
 import {
-  failTask,
   runFastLoop,
   initiatePlanMode,
   runPlanLoop,
   planStepsToSteps,
 } from "./modeEngines.ts";
+import { errorMessage, failTask } from "./taskConclusion.ts";
 import { createIterationFromEvent } from "./modelIterations.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 
@@ -265,7 +265,7 @@ export class JarvisCore {
       );
     } catch (err) {
       if (err instanceof RequestAbortedError) return;
-      reportFailure(err instanceof Error ? err.message : String(err));
+      reportFailure(errorMessage(err));
       return;
     }
 
@@ -350,7 +350,6 @@ export class JarvisCore {
   private pruneTasks(cancelAbandoned = false): void {
     this.evictTerminalTasks();
     if (!cancelAbandoned) return;
-
 
     while (this.taskContexts.size > MAX_RETAINED_TASKS) {
       let abandoned: TaskExecutionContext | undefined;

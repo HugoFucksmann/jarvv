@@ -5,7 +5,7 @@
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
 import type { Scratchpad, StepExecutionSignals } from "../../types.ts";
 import { MAX_EVIDENCE_OBS_CHARS, MAX_SCRATCHPAD_RESULTS } from "../../types.ts";
-import { sanitizeForMemory, clipAtWord } from "../text.ts";
+import { sanitizeForMemory, clipAtWord, headTail, LONG_OBS_CHARS } from "../text.ts";
 
 /** Largos de snippet que intenta la observación compacta de `search`, de mayor a menor: gana el mayor que quepa. */
 const SEARCH_SNIPPET_LENGTHS = [240, 160, 100, 60, 40] as const;
@@ -103,8 +103,8 @@ export function extractSearch({ isError, success, fullText, refKey }: ExtractorI
     if (items.length === 0 && (reportedPositive || longWithoutMarker)) {
         const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
         finding = sanitizeForMemory(isError ? `err: ${firstLine}` : firstLine);
-        if (fullText.length > 1500) {
-            compactObs = `${fullText.substring(0, 750)}\n[... omitidos, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
+        if (fullText.length > LONG_OBS_CHARS) {
+            compactObs = headTail(fullText, refKey);
         } else {
             compactObs = fullText || "Búsqueda web completada.";
         }
@@ -155,8 +155,8 @@ export function extractFetch({ args, fullText, mergedData, refKey }: ExtractorIn
     }
     const firstLine = fullText.split("\n")[0] || "Página web";
     finding = sanitizeForMemory(`página: ${firstLine}`);
-    if (fullText.length > 1500) {
-        compactObs = `${fullText.substring(0, 750)}\n[... contenido omitido, ref:${refKey}]\n${fullText.substring(fullText.length - 750)}`;
+    if (fullText.length > LONG_OBS_CHARS) {
+        compactObs = headTail(fullText, refKey, "contenido omitido");
     } else {
         compactObs = fullText || "Página web leída.";
     }

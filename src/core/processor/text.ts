@@ -20,6 +20,11 @@ export function sanitizeForMemory(text: string, maxLen = 120): string {
     return clean;
 }
 
+/** Texto en una sola línea, sin saltos ni espacios repetidos y saneado como el resto de la memoria; sin tope de largo. */
+export function flatten(text: string): string {
+    return sanitizeForMemory(text, Number.MAX_SAFE_INTEGER).replace(/\s{2,}/g, " ");
+}
+
 /** Tope del hallazgo (`finding`): la línea de un resultado que viaja a LOG, FAIL, efectos y replan. */
 export const MAX_FINDING_CHARS = 300;
 
@@ -29,7 +34,7 @@ export const MAX_FINDING_CHARS = 300;
  * lleva la clave `[ref:rN]` para recuperar el texto íntegro.
  */
 export function fitFinding(text: string, prefix = "", refKey?: string, maxLen = MAX_FINDING_CHARS): string {
-    const flat = sanitizeForMemory(`${prefix}${text}`, Number.MAX_SAFE_INTEGER).replace(/\s{2,}/g, " ");
+    const flat = flatten(`${prefix}${text}`);
     if (flat.length <= maxLen) return flat;
     const marker = refKey ? ` [ref:${refKey}]` : "";
     return `${flat.slice(0, maxLen - marker.length - 1).trimEnd()}…${marker}`;
@@ -40,4 +45,16 @@ export function clipAtWord(text: string, n: number): string {
     if (text.length <= n) return text;
     const cut = text.lastIndexOf(" ", n);
     return `${text.slice(0, cut > n * 0.6 ? cut : n).trimEnd()}…`;
+}
+
+/** Caracteres que `headTail` conserva en cada extremo, y largo a partir del cual una salida se recorta. */
+export const HEAD_TAIL_CHARS = 750;
+export const LONG_OBS_CHARS = 2 * HEAD_TAIL_CHARS;
+
+/**
+ * Observación de un texto largo: su inicio y su final con un marcador en medio (`[... omitidos, ref:rN]`) que lleva la
+ * clave de RefStore para recuperar el texto íntegro. `omitted` es la leyenda del marcador.
+ */
+export function headTail(text: string, refKey: string | undefined, omitted = "omitidos"): string {
+    return `${text.slice(0, HEAD_TAIL_CHARS)}\n[... ${omitted}, ref:${refKey}]\n${text.slice(-HEAD_TAIL_CHARS)}`;
 }

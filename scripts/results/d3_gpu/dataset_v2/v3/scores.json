@@ -1,0 +1,2686 @@
+[
+  {
+    "id": "n2-e1-good",
+    "category": "baseline_ok",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.044
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.044,
+          "any_mismatch": 0.02
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.986
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.983
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.987
+      }
+    }
+  },
+  {
+    "id": "n2-e1-bad",
+    "category": "baseline_ok",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003,
+          "any_missing_evidence": 0.636
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003,
+          "any_missing_evidence": 0.636,
+          "any_mismatch": 0.848
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.795
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.649
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.789
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.641
+      }
+    }
+  },
+  {
+    "id": "n2-e2-good",
+    "category": "read_control",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.959
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995,
+          "any_missing_evidence": 0.437
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995,
+          "any_missing_evidence": 0.437,
+          "any_mismatch": 0.064
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.974
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.976
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.945
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.958
+      }
+    }
+  },
+  {
+    "id": "n2-e2-bad",
+    "category": "read_control",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002,
+          "any_missing_evidence": 0.888
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002,
+          "any_missing_evidence": 0.888,
+          "any_mismatch": 0.998
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.98
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.979
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.983
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.981
+      }
+    }
+  },
+  {
+    "id": "n2-e3-good",
+    "category": "baseline_ok",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.033
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.033,
+          "any_mismatch": 0.002
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.993
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      }
+    }
+  },
+  {
+    "id": "n2-e3-bad",
+    "category": "baseline_ok",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.341
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.681
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.451
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.346,
+          "any_missing_evidence": 0.176
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.346,
+          "any_missing_evidence": 0.176,
+          "any_mismatch": 0.143
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.62
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.624
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.599
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.607
+      }
+    }
+  },
+  {
+    "id": "n2-h01-good",
+    "category": "relative_alias",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.872
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.874
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.882
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.868,
+          "any_missing_evidence": 0.172
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.868,
+          "any_missing_evidence": 0.172,
+          "any_mismatch": 0.481
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.398
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.427
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.391
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.412
+      }
+    }
+  },
+  {
+    "id": "n2-h01-bad",
+    "category": "relative_alias",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.638
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.636
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.673
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.65,
+          "any_missing_evidence": 0.359
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.65,
+          "any_missing_evidence": 0.359,
+          "any_mismatch": 0.817
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.643
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.59
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.615
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.602
+      }
+    }
+  },
+  {
+    "id": "n2-h02-good",
+    "category": "bilingual",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.989
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.993,
+          "any_missing_evidence": 0.072
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.993,
+          "any_missing_evidence": 0.072,
+          "any_mismatch": 0.003
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.987
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99
+      }
+    }
+  },
+  {
+    "id": "n2-h02-bad",
+    "category": "bilingual",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.086
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.029
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.145
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.131,
+          "any_missing_evidence": 0.434
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.131,
+          "any_missing_evidence": 0.434,
+          "any_mismatch": 0.944
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.648
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.765
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.732
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.786
+      }
+    }
+  },
+  {
+    "id": "n2-h03-good",
+    "category": "near_path",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.029
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.029,
+          "any_mismatch": 0.002
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      }
+    }
+  },
+  {
+    "id": "n2-h03-bad",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.981
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.936
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.938
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.979,
+          "any_missing_evidence": 0.053
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.979,
+          "any_missing_evidence": 0.053,
+          "any_mismatch": 0.154
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.875
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.86
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.848
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.796
+      }
+    }
+  },
+  {
+    "id": "n2-h04-good",
+    "category": "near_path",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.041
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.041,
+          "any_mismatch": 0.002
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      }
+    }
+  },
+  {
+    "id": "n2-h04-bad",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.304
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.179
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.098
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.282,
+          "any_missing_evidence": 0.787
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.282,
+          "any_missing_evidence": 0.787,
+          "any_mismatch": 0.99
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.89
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.865
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.887
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.878
+      }
+    }
+  },
+  {
+    "id": "n2-h05-good",
+    "category": "same_name_other_dir",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.031
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.031,
+          "any_mismatch": 0.001
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      }
+    }
+  },
+  {
+    "id": "n2-h05-bad",
+    "category": "same_name_other_dir",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.576
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.546
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.414
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.553,
+          "any_missing_evidence": 0.402
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.553,
+          "any_missing_evidence": 0.402,
+          "any_mismatch": 0.932
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.671
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.567
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.682
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.57
+      }
+    }
+  },
+  {
+    "id": "n2-h06-good",
+    "category": "swapped_args",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.044
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.044,
+          "any_mismatch": 0.001
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      }
+    }
+  },
+  {
+    "id": "n2-h06-bad",
+    "category": "swapped_args",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_source",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.14
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.176
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.139
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.134,
+          "any_missing_evidence": 0.546
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.134,
+          "any_missing_evidence": 0.546,
+          "any_mismatch": 0.745
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.841
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.819
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.847
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.84
+      }
+    }
+  },
+  {
+    "id": "n2-h07-good",
+    "category": "swapped_args",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.066
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.066,
+          "any_mismatch": 0.014
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.988
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.991
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.986
+      }
+    }
+  },
+  {
+    "id": "n2-h07-bad",
+    "category": "swapped_args",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_source",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003,
+          "any_missing_evidence": 0.726
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003,
+          "any_missing_evidence": 0.726,
+          "any_mismatch": 0.996
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.991
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.986
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.993
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.988
+      }
+    }
+  },
+  {
+    "id": "n2-h08-good",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.036
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.036,
+          "any_mismatch": 0.003
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      }
+    }
+  },
+  {
+    "id": "n2-h08-bad",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_command",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004,
+          "any_missing_evidence": 0.941
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004,
+          "any_missing_evidence": 0.941,
+          "any_mismatch": 0.999
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.992
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.991
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.993
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.991
+      }
+    }
+  },
+  {
+    "id": "n2-h09-good",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998,
+          "any_missing_evidence": 0.043
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998,
+          "any_missing_evidence": 0.043,
+          "any_mismatch": 0.002
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.993
+      }
+    }
+  },
+  {
+    "id": "n2-h09-bad",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002,
+          "any_missing_evidence": 0.805
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.002,
+          "any_missing_evidence": 0.805,
+          "any_mismatch": 0.966
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.905
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.79
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.899
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.785
+      }
+    }
+  },
+  {
+    "id": "n2-h10-good",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.978
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994,
+          "any_missing_evidence": 0.136
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994,
+          "any_missing_evidence": 0.136,
+          "any_mismatch": 0.041
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.947
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.958
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.94
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.954
+      }
+    }
+  },
+  {
+    "id": "n2-h10-bad",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_command",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.523
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.192
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.303
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.519,
+          "any_missing_evidence": 0.48
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.519,
+          "any_missing_evidence": 0.48,
+          "any_mismatch": 0.432
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.605
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.656
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.829
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.821
+      }
+    }
+  },
+  {
+    "id": "n2-h11-good",
+    "category": "process_nopid",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.945
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.832
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.822
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.946,
+          "any_missing_evidence": 0.221
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.946,
+          "any_missing_evidence": 0.221,
+          "any_mismatch": 0.076
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.687
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.698
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.528
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.573
+      }
+    }
+  },
+  {
+    "id": "n2-h11-bad",
+    "category": "process_nopid",
+    "gold_post": "unknown",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.934
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.826
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.876
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.935,
+          "any_missing_evidence": 0.363
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.935,
+          "any_missing_evidence": 0.363,
+          "any_mismatch": 0.086
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.595
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.596
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.648
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.548
+      }
+    }
+  },
+  {
+    "id": "n2-h12-good",
+    "category": "process_nopid",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.043
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.043,
+          "any_mismatch": 0.008
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.982
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.991
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.962
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.977
+      }
+    }
+  },
+  {
+    "id": "n2-h12-bad",
+    "category": "process_nopid",
+    "gold_post": "unknown",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.966
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.943
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.965
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.964,
+          "any_missing_evidence": 0.239
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.964,
+          "any_missing_evidence": 0.239,
+          "any_mismatch": 0.074
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.852
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.874
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.722
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.707
+      }
+    }
+  },
+  {
+    "id": "n2-h13-good",
+    "category": "long_noise",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.991
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998,
+          "any_missing_evidence": 0.047
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998,
+          "any_missing_evidence": 0.044,
+          "any_mismatch": 0.021
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.955
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.964
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.914
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.926
+      }
+    }
+  },
+  {
+    "id": "n2-h13-bad",
+    "category": "long_noise",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.005
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.001
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.02
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004,
+          "any_missing_evidence": 0.228
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.004,
+          "any_missing_evidence": 0.219,
+          "any_mismatch": 0.155
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.679
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.688
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.658
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.659
+      }
+    }
+  },
+  {
+    "id": "n2-h14-good",
+    "category": "long_noise",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.991
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.032
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.032,
+          "any_mismatch": 0.008
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.969
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.986
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.937
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.966
+      }
+    }
+  },
+  {
+    "id": "n2-h14-bad",
+    "category": "long_noise",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.001
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.007
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003,
+          "any_missing_evidence": 0.869
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.003,
+          "any_missing_evidence": 0.881,
+          "any_mismatch": 0.87
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.662
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.558
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.748
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.599
+      }
+    }
+  },
+  {
+    "id": "n2-h15-good",
+    "category": "empty_cases",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.996
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.038
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999,
+          "any_missing_evidence": 0.038,
+          "any_mismatch": 0.005
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.985
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      }
+    }
+  },
+  {
+    "id": "n2-h15-bad",
+    "category": "empty_cases",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_command",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.502
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.079
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.31
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.526,
+          "any_missing_evidence": 0.392
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.526,
+          "any_missing_evidence": 0.392,
+          "any_mismatch": 0.763
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.634
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.608
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.675
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.652
+      }
+    }
+  },
+  {
+    "id": "n2-h16-good",
+    "category": "partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 1
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.997
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.04
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 1,
+          "any_missing_evidence": 0.04,
+          "any_mismatch": 0.001
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      }
+    }
+  },
+  {
+    "id": "n2-h16-bad",
+    "category": "partial",
+    "gold_post": "partial",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.008
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.005
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.01
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.007,
+          "any_missing_evidence": 0.952
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.007,
+          "any_missing_evidence": 0.952,
+          "any_mismatch": 0.992
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.924
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.95
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.908
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.951
+      }
+    }
+  },
+  {
+    "id": "n2-h17-good",
+    "category": "injection",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.999
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.984
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995,
+          "any_missing_evidence": 0.12
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.995,
+          "any_missing_evidence": 0.12,
+          "any_mismatch": 0.052
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.981
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.983
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.963
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.965
+      }
+    }
+  },
+  {
+    "id": "n2-h17-bad",
+    "category": "injection",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.087
+        }
+      },
+      "M1_criteria_label": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.305
+        }
+      },
+      "M2_detail_q": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.058
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.092,
+          "any_missing_evidence": 0.88
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": false,
+        "noul": {
+          "cumple": 0.092,
+          "any_missing_evidence": 0.88,
+          "any_mismatch": 0.996
+        }
+      },
+      "M5_choice_base": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.949
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.945
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.956
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.95
+      }
+    }
+  },
+  {
+    "id": "n2-h18-good",
+    "category": "bilingual",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.923
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.848
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.953
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.926,
+          "any_missing_evidence": 0.294
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.926,
+          "any_missing_evidence": 0.294,
+          "any_mismatch": 0.115
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.842
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.864
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.779
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.855
+      }
+    }
+  },
+  {
+    "id": "n2-h18-bad",
+    "category": "bilingual",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_query",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.56
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.588
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.603
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.529,
+          "any_missing_evidence": 0.442
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.529,
+          "any_missing_evidence": 0.442,
+          "any_mismatch": 0.455
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.465
+      },
+      "M5_choice_base_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.419
+      },
+      "M6_choice_detail": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.543
+      },
+      "M6_choice_detail_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.476
+      }
+    }
+  },
+  {
+    "id": "n2-h19-good",
+    "category": "ambiguous_instruction",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.994
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998,
+          "any_missing_evidence": 0.114
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.998,
+          "any_missing_evidence": 0.114,
+          "any_mismatch": 0.009
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.96
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.955
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.955
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.95
+      }
+    }
+  },
+  {
+    "id": "n2-h19-bad",
+    "category": "ambiguous_instruction",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "M0_control": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.987
+        }
+      },
+      "M1_criteria_label": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.98
+        }
+      },
+      "M2_detail_q": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.977
+        }
+      },
+      "M3_cumple_evidence": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.987,
+          "any_missing_evidence": 0.196
+        }
+      },
+      "M4_cumple_evidence_mismatch": {
+        "approved": true,
+        "noul": {
+          "cumple": 0.987,
+          "any_missing_evidence": 0.196,
+          "any_mismatch": 0.066
+        }
+      },
+      "M5_choice_base": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.879
+      },
+      "M5_choice_base_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.857
+      },
+      "M6_choice_detail": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.87
+      },
+      "M6_choice_detail_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.833
+      }
+    }
+  }
+]

@@ -1,0 +1,5618 @@
+[
+  {
+    "id": "real-s1-ok",
+    "category": "baseline_ok",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.978,
+          "cumple": 0.983
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.958,
+          "cumple": 0.968
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.98,
+          "cumple": 0.984
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.903,
+          "cumple": 0.99,
+          "target_ok": 0.992,
+          "content_ok": 0.99
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.957,
+          "target_ok": 0.988,
+          "content_ok": 0.942,
+          "complete_ok": 0.896,
+          "evidence_ok": 0.765
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.987,
+          "content_ok": 0.942,
+          "evidence_ok": 0.775
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.939
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.963
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.82
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.796
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.849
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.817
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.147,
+          "any_mismatch": 0.13,
+          "any_missing_evidence": 0.129
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.979
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.961
+      }
+    }
+  },
+  {
+    "id": "real-s1-bad-nearpath",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.945,
+          "cumple": 0.342
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.934,
+          "cumple": 0.643
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.875,
+          "cumple": 0.393
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.841,
+          "cumple": 0.705,
+          "target_ok": 0.829,
+          "content_ok": 0.794
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.942,
+          "target_ok": 0.967,
+          "content_ok": 0.851,
+          "complete_ok": 0.494,
+          "evidence_ok": 0.721
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.969,
+          "content_ok": 0.855,
+          "evidence_ok": 0.726
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.664
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.672
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.513
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.495
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.517
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.512
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.222,
+          "any_mismatch": 0.541,
+          "any_missing_evidence": 0.398
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.745
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.649
+      }
+    }
+  },
+  {
+    "id": "real-s2-ok",
+    "category": "read_control",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.952,
+          "cumple": 0.906
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.88,
+          "cumple": 0.918
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.99,
+          "cumple": 0.972
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.873,
+          "cumple": 0.967,
+          "target_ok": 0.937,
+          "content_ok": 0.982
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.862,
+          "target_ok": 0.426,
+          "content_ok": 0.918,
+          "complete_ok": 0.912,
+          "evidence_ok": 0.504
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.397,
+          "content_ok": 0.917,
+          "evidence_ok": 0.508
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.921
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.914
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.973
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.97
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.919
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.928
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.075,
+          "any_mismatch": 0.048,
+          "any_missing_evidence": 0.314
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.993
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.991
+      }
+    }
+  },
+  {
+    "id": "real-s2-bad-wrongcontent",
+    "category": "wrong_content",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_query",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.715,
+          "cumple": 0.044
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.902,
+          "cumple": 0.118
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.56,
+          "cumple": 0.085
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.074,
+          "cumple": 0.084,
+          "target_ok": 0.775,
+          "content_ok": 0.121
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.768,
+          "target_ok": 0.216,
+          "content_ok": 0.172,
+          "complete_ok": 0.09,
+          "evidence_ok": 0.349
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.205,
+          "content_ok": 0.184,
+          "evidence_ok": 0.371
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.872
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.846
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.731
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.636
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_content",
+        "prob": 0.791
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_content",
+        "prob": 0.779
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.799,
+          "any_mismatch": 0.919,
+          "any_missing_evidence": 0.833
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_query",
+        "prob": 0.825
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_query",
+        "prob": 0.715
+      }
+    }
+  },
+  {
+    "id": "real-s3-ok",
+    "category": "read_control",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.917,
+          "cumple": 0.951
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.878,
+          "cumple": 0.917
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.952,
+          "cumple": 0.944
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.817,
+          "cumple": 0.982,
+          "target_ok": 0.897,
+          "content_ok": 0.987
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.864,
+          "target_ok": 0.416,
+          "content_ok": 0.877,
+          "complete_ok": 0.93,
+          "evidence_ok": 0.647
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.42,
+          "content_ok": 0.872,
+          "evidence_ok": 0.644
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.915
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.899
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.967
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.965
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.894
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.919
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.15,
+          "any_mismatch": 0.082,
+          "any_missing_evidence": 0.295
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.992
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.99
+      }
+    }
+  },
+  {
+    "id": "real-s3-bad-empty",
+    "category": "empty_cases",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.023,
+          "cumple": 0.003
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.228,
+          "cumple": 0.059
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.069,
+          "cumple": 0.149
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.005,
+          "cumple": 0.01,
+          "target_ok": 0.971,
+          "content_ok": 0.052
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.137,
+          "target_ok": 0.174,
+          "content_ok": 0.498,
+          "complete_ok": 0.559,
+          "evidence_ok": 0.403
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.193,
+          "content_ok": 0.487,
+          "evidence_ok": 0.437
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.955
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.976
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.782
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.733
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.782
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "failed",
+        "prob": 0.829
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.969,
+          "any_mismatch": 0.841,
+          "any_missing_evidence": 0.719
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_query",
+        "prob": 0.698
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_query",
+        "prob": 0.651
+      }
+    }
+  },
+  {
+    "id": "real-s4-ok",
+    "category": "baseline_ok",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.934,
+          "cumple": 0.825
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.703,
+          "cumple": 0.683
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.976,
+          "cumple": 0.893
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.867,
+          "cumple": 0.921,
+          "target_ok": 0.996,
+          "content_ok": 0.906
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.847,
+          "target_ok": 0.952,
+          "content_ok": 0.815,
+          "complete_ok": 0.872,
+          "evidence_ok": 0.798
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.955,
+          "content_ok": 0.828,
+          "evidence_ok": 0.794
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.949
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.939
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.777
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.76
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.852
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.917
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.04,
+          "any_mismatch": 0.168,
+          "any_missing_evidence": 0.175
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.985
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.978
+      }
+    }
+  },
+  {
+    "id": "real-s4-bad-same-other-dir",
+    "category": "same_name_other_dir",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.803,
+          "cumple": 0.03
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.679,
+          "cumple": 0.148
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.95,
+          "cumple": 0.148
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.516,
+          "cumple": 0.022,
+          "target_ok": 0.638,
+          "content_ok": 0.052
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.731,
+          "target_ok": 0.282,
+          "content_ok": 0.14,
+          "complete_ok": 0.047,
+          "evidence_ok": 0.509
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.329,
+          "content_ok": 0.138,
+          "evidence_ok": 0.503
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.612
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.516
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.589
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.654
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.453
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.455
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.205,
+          "any_mismatch": 0.933,
+          "any_missing_evidence": 0.725
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.609
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.502
+      }
+    }
+  },
+  {
+    "id": "nearpath-1-good",
+    "category": "near_path",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.982,
+          "cumple": 0.992
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.805,
+          "cumple": 0.974
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.997,
+          "cumple": 0.996
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.904,
+          "cumple": 0.983,
+          "target_ok": 0.998,
+          "content_ok": 0.965
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.913,
+          "target_ok": 0.994,
+          "content_ok": 0.885,
+          "complete_ok": 0.953,
+          "evidence_ok": 0.649
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.994,
+          "content_ok": 0.874,
+          "evidence_ok": 0.649
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.991
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.974
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.986
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.956
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.961
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.097,
+          "any_mismatch": 0.016,
+          "any_missing_evidence": 0.106
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.861
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.877
+      }
+    }
+  },
+  {
+    "id": "nearpath-1-bad",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.957,
+          "cumple": 0.122
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.835,
+          "cumple": 0.317
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.937,
+          "cumple": 0.11
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.828,
+          "cumple": 0.101,
+          "target_ok": 0.242,
+          "content_ok": 0.2
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.87,
+          "target_ok": 0.013,
+          "content_ok": 0.142,
+          "complete_ok": 0.114,
+          "evidence_ok": 0.394
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.013,
+          "content_ok": 0.14,
+          "evidence_ok": 0.372
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.636
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.681
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.624
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.555
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.685
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.564
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.17,
+          "any_mismatch": 0.943,
+          "any_missing_evidence": 0.622
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.869
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.845
+      }
+    }
+  },
+  {
+    "id": "nearpath-2-good",
+    "category": "near_path",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.988,
+          "cumple": 0.998
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.879,
+          "cumple": 0.986
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.994,
+          "cumple": 0.997
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.984,
+          "cumple": 0.998,
+          "target_ok": 0.999,
+          "content_ok": 0.996
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.952,
+          "target_ok": 0.993,
+          "content_ok": 0.933,
+          "complete_ok": 0.986,
+          "evidence_ok": 0.749
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.994,
+          "content_ok": 0.935,
+          "evidence_ok": 0.756
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.981
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.982
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.987
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.038,
+          "any_mismatch": 0.004,
+          "any_missing_evidence": 0.086
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.97
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.977
+      }
+    }
+  },
+  {
+    "id": "nearpath-2-bad",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.855,
+          "cumple": 0.199
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.885,
+          "cumple": 0.316
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.883,
+          "cumple": 0.078
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.801,
+          "cumple": 0.078,
+          "target_ok": 0.422,
+          "content_ok": 0.089
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.909,
+          "target_ok": 0.017,
+          "content_ok": 0.138,
+          "complete_ok": 0.13,
+          "evidence_ok": 0.19
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.015,
+          "content_ok": 0.141,
+          "evidence_ok": 0.204
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.898
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.888
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.874
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.881
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.83
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.779
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.141,
+          "any_mismatch": 0.987,
+          "any_missing_evidence": 0.489
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.759
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.794
+      }
+    }
+  },
+  {
+    "id": "nearpath-3-good",
+    "category": "near_path",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.982,
+          "cumple": 0.997
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.853,
+          "cumple": 0.99
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.994,
+          "cumple": 0.996
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.944,
+          "cumple": 0.999,
+          "target_ok": 0.999,
+          "content_ok": 0.996
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.931,
+          "target_ok": 0.998,
+          "content_ok": 0.922,
+          "complete_ok": 0.978,
+          "evidence_ok": 0.812
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.997,
+          "content_ok": 0.921,
+          "evidence_ok": 0.814
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.993
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.071,
+          "any_mismatch": 0.002,
+          "any_missing_evidence": 0.071
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.973
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.974
+      }
+    }
+  },
+  {
+    "id": "nearpath-3-bad",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.769,
+          "cumple": 0.254
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.837,
+          "cumple": 0.531
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.917,
+          "cumple": 0.132
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.917,
+          "cumple": 0.17,
+          "target_ok": 0.794,
+          "content_ok": 0.289
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.898,
+          "target_ok": 0.123,
+          "content_ok": 0.36,
+          "complete_ok": 0.149,
+          "evidence_ok": 0.402
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.165,
+          "content_ok": 0.394,
+          "evidence_ok": 0.4
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.793
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.775
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.535
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.476
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.486
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.542
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.078,
+          "any_mismatch": 0.927,
+          "any_missing_evidence": 0.476
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.665
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.61
+      }
+    }
+  },
+  {
+    "id": "nearpath-4-good",
+    "category": "near_path",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.951,
+          "cumple": 0.987
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.755,
+          "cumple": 0.976
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.992,
+          "cumple": 0.995
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.695,
+          "cumple": 0.992,
+          "target_ok": 0.998,
+          "content_ok": 0.989
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.763,
+          "target_ok": 0.999,
+          "content_ok": 0.851,
+          "complete_ok": 0.965,
+          "evidence_ok": 0.656
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.999,
+          "content_ok": 0.857,
+          "evidence_ok": 0.669
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.985
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.086,
+          "any_mismatch": 0.008,
+          "any_missing_evidence": 0.189
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.954
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.952
+      }
+    }
+  },
+  {
+    "id": "nearpath-4-bad",
+    "category": "near_path",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.8,
+          "cumple": 0.047
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.787,
+          "cumple": 0.315
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.89,
+          "cumple": 0.048
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.645,
+          "cumple": 0.127,
+          "target_ok": 0.185,
+          "content_ok": 0.145
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.776,
+          "target_ok": 0.01,
+          "content_ok": 0.327,
+          "complete_ok": 0.186,
+          "evidence_ok": 0.516
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.01,
+          "content_ok": 0.325,
+          "evidence_ok": 0.507
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.506
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.558
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.656
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.567
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.677
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.659
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.118,
+          "any_mismatch": 0.906,
+          "any_missing_evidence": 0.56
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.948
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.945
+      }
+    }
+  },
+  {
+    "id": "samename-1-good",
+    "category": "same_name_other_dir",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "cumple": 1
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.956,
+          "cumple": 0.989
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.998,
+          "cumple": 0.999
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.987,
+          "cumple": 1,
+          "target_ok": 0.993,
+          "content_ok": 1
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.955,
+          "target_ok": 0.874,
+          "content_ok": 0.987,
+          "complete_ok": 0.966,
+          "evidence_ok": 0.799
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.866,
+          "content_ok": 0.986,
+          "evidence_ok": 0.813
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.052,
+          "any_mismatch": 0.003,
+          "any_missing_evidence": 0.094
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.997
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.995
+      }
+    }
+  },
+  {
+    "id": "samename-1-bad",
+    "category": "same_name_other_dir",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.373,
+          "cumple": 0.007
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.894,
+          "cumple": 0.068
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.702,
+          "cumple": 0.008
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.242,
+          "cumple": 0.004,
+          "target_ok": 0.519,
+          "content_ok": 0.007
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.831,
+          "target_ok": 0.002,
+          "content_ok": 0.019,
+          "complete_ok": 0.025,
+          "evidence_ok": 0.432
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.002,
+          "content_ok": 0.019,
+          "evidence_ok": 0.423
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.99
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.991
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.984
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.982
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.96
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.961
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.781,
+          "any_mismatch": 0.999,
+          "any_missing_evidence": 0.779
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.965
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.97
+      }
+    }
+  },
+  {
+    "id": "samename-2-good",
+    "category": "same_name_other_dir",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.996,
+          "cumple": 1
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.935,
+          "cumple": 0.992
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.998,
+          "cumple": 0.999
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.898,
+          "cumple": 1,
+          "target_ok": 0.986,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.85,
+          "target_ok": 0.92,
+          "content_ok": 0.982,
+          "complete_ok": 0.965,
+          "evidence_ok": 0.822
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.928,
+          "content_ok": 0.982,
+          "evidence_ok": 0.83
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.988
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.075,
+          "any_mismatch": 0.003,
+          "any_missing_evidence": 0.09
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.994
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.99
+      }
+    }
+  },
+  {
+    "id": "samename-2-bad",
+    "category": "same_name_other_dir",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.939,
+          "cumple": 0.04
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.878,
+          "cumple": 0.114
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.846,
+          "cumple": 0.018
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.263,
+          "cumple": 0.024,
+          "target_ok": 0.754,
+          "content_ok": 0.056
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.793,
+          "target_ok": 0.02,
+          "content_ok": 0.135,
+          "complete_ok": 0.095,
+          "evidence_ok": 0.619
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.022,
+          "content_ok": 0.137,
+          "evidence_ok": 0.633
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.929
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.929
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.929
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.935
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.927
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.874
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.258,
+          "any_mismatch": 0.982,
+          "any_missing_evidence": 0.522
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.992
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.988
+      }
+    }
+  },
+  {
+    "id": "samename-3-good",
+    "category": "same_name_other_dir",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.992,
+          "cumple": 1
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.909,
+          "cumple": 0.991
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.997,
+          "cumple": 0.999
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.91,
+          "cumple": 1,
+          "target_ok": 0.979,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.908,
+          "target_ok": 0.742,
+          "content_ok": 0.972,
+          "complete_ok": 0.953,
+          "evidence_ok": 0.789
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.758,
+          "content_ok": 0.971,
+          "evidence_ok": 0.785
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.988
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.071,
+          "any_mismatch": 0.004,
+          "any_missing_evidence": 0.103
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.996
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.993
+      }
+    }
+  },
+  {
+    "id": "samename-3-bad",
+    "category": "same_name_other_dir",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.738,
+          "cumple": 0.007
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.822,
+          "cumple": 0.073
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.585,
+          "cumple": 0.014
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.094,
+          "cumple": 0.003,
+          "target_ok": 0.546,
+          "content_ok": 0.007
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.799,
+          "target_ok": 0.002,
+          "content_ok": 0.044,
+          "complete_ok": 0.032,
+          "evidence_ok": 0.399
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.002,
+          "content_ok": 0.043,
+          "evidence_ok": 0.413
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.981
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.982
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.964
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.964
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.933
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.953
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.686,
+          "any_mismatch": 0.998,
+          "any_missing_evidence": 0.752
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.936
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.946
+      }
+    }
+  },
+  {
+    "id": "samename-4-good",
+    "category": "same_name_other_dir",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.989,
+          "cumple": 1
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.957,
+          "cumple": 0.989
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.997,
+          "cumple": 1
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.952,
+          "cumple": 1,
+          "target_ok": 0.995,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.951,
+          "target_ok": 0.889,
+          "content_ok": 0.984,
+          "complete_ok": 0.962,
+          "evidence_ok": 0.756
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.87,
+          "content_ok": 0.983,
+          "evidence_ok": 0.762
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.046,
+          "any_mismatch": 0.004,
+          "any_missing_evidence": 0.173
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.997
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.995
+      }
+    }
+  },
+  {
+    "id": "samename-4-bad",
+    "category": "same_name_other_dir",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.358,
+          "cumple": 0.009
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.864,
+          "cumple": 0.07
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.6,
+          "cumple": 0.018
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.178,
+          "cumple": 0.003,
+          "target_ok": 0.184,
+          "content_ok": 0.005
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.833,
+          "target_ok": 0.003,
+          "content_ok": 0.021,
+          "complete_ok": 0.032,
+          "evidence_ok": 0.299
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.003,
+          "content_ok": 0.022,
+          "evidence_ok": 0.322
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.984
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.982
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.965
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.965
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.943
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.95
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.708,
+          "any_mismatch": 0.997,
+          "any_missing_evidence": 0.743
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.93
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.923
+      }
+    }
+  },
+  {
+    "id": "swapped-1-good",
+    "category": "swapped_args",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.991,
+          "cumple": 1
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.954,
+          "cumple": 0.988
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.994,
+          "cumple": 0.998
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.746,
+          "cumple": 1,
+          "target_ok": 0.957,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.964,
+          "target_ok": 0.959,
+          "content_ok": 0.989,
+          "complete_ok": 0.955,
+          "evidence_ok": 0.467
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.96,
+          "content_ok": 0.988,
+          "evidence_ok": 0.476
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.04,
+          "any_mismatch": 0.001,
+          "any_missing_evidence": 0.049
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.997
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.997
+      }
+    }
+  },
+  {
+    "id": "swapped-1-bad",
+    "category": "swapped_args",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_source",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.699,
+          "cumple": 0.011
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.727,
+          "cumple": 0.596
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.972,
+          "cumple": 0.134
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.35,
+          "cumple": 0.043,
+          "target_ok": 0.641,
+          "content_ok": 0.053
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.849,
+          "target_ok": 0.768,
+          "content_ok": 0.113,
+          "complete_ok": 0.175,
+          "evidence_ok": 0.418
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.781,
+          "content_ok": 0.115,
+          "evidence_ok": 0.432
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.593
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.618
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.905
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.901
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.532
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.439
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.311,
+          "any_mismatch": 0.876,
+          "any_missing_evidence": 0.387
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_source",
+        "prob": 0.979
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_source",
+        "prob": 0.969
+      }
+    }
+  },
+  {
+    "id": "swapped-2-good",
+    "category": "swapped_args",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.996,
+          "cumple": 1
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.978,
+          "cumple": 0.995
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.992,
+          "cumple": 0.999
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.956,
+          "cumple": 1,
+          "target_ok": 0.919,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.986,
+          "target_ok": 0.798,
+          "content_ok": 0.993,
+          "complete_ok": 0.971,
+          "evidence_ok": 0.562
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.808,
+          "content_ok": 0.992,
+          "evidence_ok": 0.617
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.998
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.999
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.025,
+          "any_mismatch": 0.003,
+          "any_missing_evidence": 0.051
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.995
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.994
+      }
+    }
+  },
+  {
+    "id": "swapped-2-bad",
+    "category": "swapped_args",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_source",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.366,
+          "cumple": 0.002
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.694,
+          "cumple": 0.16
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.68,
+          "cumple": 0.005
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.147,
+          "cumple": 0.01,
+          "target_ok": 0.432,
+          "content_ok": 0.019
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.63,
+          "target_ok": 0.669,
+          "content_ok": 0.161,
+          "complete_ok": 0.263,
+          "evidence_ok": 0.376
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.702,
+          "content_ok": 0.177,
+          "evidence_ok": 0.363
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.953
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.959
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.904
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.906
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.755
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.699
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.457,
+          "any_mismatch": 0.909,
+          "any_missing_evidence": 0.331
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_source",
+        "prob": 0.991
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_source",
+        "prob": 0.986
+      }
+    }
+  },
+  {
+    "id": "swapped-3-good",
+    "category": "swapped_args",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.991,
+          "cumple": 0.995
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.97,
+          "cumple": 0.984
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.965,
+          "cumple": 0.959
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.906,
+          "cumple": 0.997,
+          "target_ok": 0.996,
+          "content_ok": 0.995
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.962,
+          "target_ok": 0.983,
+          "content_ok": 0.993,
+          "complete_ok": 0.974,
+          "evidence_ok": 0.637
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.983,
+          "content_ok": 0.994,
+          "evidence_ok": 0.648
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.985
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.985
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.128,
+          "any_mismatch": 0.005,
+          "any_missing_evidence": 0.069
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.995
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.99
+      }
+    }
+  },
+  {
+    "id": "swapped-3-bad",
+    "category": "swapped_args",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_source",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.946,
+          "cumple": 0.166
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.875,
+          "cumple": 0.723
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.954,
+          "cumple": 0.843
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.564,
+          "cumple": 0.219,
+          "target_ok": 0.567,
+          "content_ok": 0.095
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.917,
+          "target_ok": 0.937,
+          "content_ok": 0.839,
+          "complete_ok": 0.67,
+          "evidence_ok": 0.581
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.938,
+          "content_ok": 0.873,
+          "evidence_ok": 0.574
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.572
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.56
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.565
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.478
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.26
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.298
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.251,
+          "any_mismatch": 0.577,
+          "any_missing_evidence": 0.197
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_command",
+        "prob": 0.312
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_command",
+        "prob": 0.433
+      }
+    }
+  },
+  {
+    "id": "msg-wrong-1-good",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.99,
+          "cumple": 0.999
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.86,
+          "cumple": 0.97
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.969,
+          "cumple": 0.949
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.946,
+          "cumple": 0.999,
+          "target_ok": 0.978,
+          "content_ok": 0.998
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.914,
+          "target_ok": 0.834,
+          "content_ok": 0.98,
+          "complete_ok": 0.94,
+          "evidence_ok": 0.484
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.838,
+          "content_ok": 0.981,
+          "evidence_ok": 0.493
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.972
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.969
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.954
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.961
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.954
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.962
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.064,
+          "any_mismatch": 0.022,
+          "any_missing_evidence": 0.137
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.979
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.976
+      }
+    }
+  },
+  {
+    "id": "msg-wrong-1-bad",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "wrong_content",
+    "gold_pre": "wrong_command",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.688,
+          "cumple": 0.068
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.337,
+          "cumple": 0.175
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.58,
+          "cumple": 0.097
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.238,
+          "cumple": 0.033,
+          "target_ok": 0.045,
+          "content_ok": 0.048
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.212,
+          "target_ok": 0.033,
+          "content_ok": 0.069,
+          "complete_ok": 0.047,
+          "evidence_ok": 0.06
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.038,
+          "content_ok": 0.071,
+          "evidence_ok": 0.059
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.778
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.665
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.584
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.517
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.325
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.412
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.178,
+          "any_mismatch": 0.959,
+          "any_missing_evidence": 0.623
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_command",
+        "prob": 0.8
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_command",
+        "prob": 0.728
+      }
+    }
+  },
+  {
+    "id": "msg-wrong-2-good",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.863,
+          "cumple": 0.959
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.482,
+          "cumple": 0.949
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.99,
+          "cumple": 0.942
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.814,
+          "cumple": 0.732,
+          "target_ok": 0.991,
+          "content_ok": 0.594
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.768,
+          "target_ok": 0.968,
+          "content_ok": 0.457,
+          "complete_ok": 0.36,
+          "evidence_ok": 0.81
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.968,
+          "content_ok": 0.452,
+          "evidence_ok": 0.814
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.754
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.887
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.676
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.648
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.515
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.5
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.334,
+          "any_mismatch": 0.469,
+          "any_missing_evidence": 0.433
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.982
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.966
+      }
+    }
+  },
+  {
+    "id": "msg-wrong-2-bad",
+    "category": "success_msg_wrong_effect",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.618,
+          "cumple": 0.945
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.245,
+          "cumple": 0.945
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.986,
+          "cumple": 0.929
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.119,
+          "cumple": 0.582,
+          "target_ok": 0.999,
+          "content_ok": 0.411
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.184,
+          "target_ok": 0.998,
+          "content_ok": 0.555,
+          "complete_ok": 0.639,
+          "evidence_ok": 0.405
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.998,
+          "content_ok": 0.568,
+          "evidence_ok": 0.382
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.563
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.641
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.683
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.747
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.376
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.343
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.688,
+          "any_mismatch": 0.088,
+          "any_missing_evidence": 0.5
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.952
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.971
+      }
+    }
+  },
+  {
+    "id": "partial-1-good",
+    "category": "partial",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.998,
+          "cumple": 0.998
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.97,
+          "cumple": 0.994
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.983,
+          "cumple": 0.995
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.99,
+          "cumple": 0.999,
+          "target_ok": 0.997,
+          "content_ok": 0.998
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.974,
+          "target_ok": 0.972,
+          "content_ok": 0.991,
+          "complete_ok": 0.984,
+          "evidence_ok": 0.865
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.974,
+          "content_ok": 0.991,
+          "evidence_ok": 0.865
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.997
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.033,
+          "any_mismatch": 0.006,
+          "any_missing_evidence": 0.052
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.99
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.988
+      }
+    }
+  },
+  {
+    "id": "partial-1-bad",
+    "category": "partial",
+    "gold_post": "partial",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.956,
+          "cumple": 0.405
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.909,
+          "cumple": 0.791
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.868,
+          "cumple": 0.244
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.387,
+          "cumple": 0.032,
+          "target_ok": 0.927,
+          "content_ok": 0.056
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.734,
+          "target_ok": 0.831,
+          "content_ok": 0.08,
+          "complete_ok": 0.037,
+          "evidence_ok": 0.531
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.831,
+          "content_ok": 0.087,
+          "evidence_ok": 0.559
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.952
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.949
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.598
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.798
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.74
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.8
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.341,
+          "any_mismatch": 0.976,
+          "any_missing_evidence": 0.814
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.487
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.79
+      }
+    }
+  },
+  {
+    "id": "wrong-content-1-good",
+    "category": "wrong_content",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "cumple": 0.996
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.941,
+          "cumple": 0.994
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.979,
+          "cumple": 0.991
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.954,
+          "cumple": 0.998,
+          "target_ok": 0.997,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.91,
+          "target_ok": 0.983,
+          "content_ok": 0.987,
+          "complete_ok": 0.951,
+          "evidence_ok": 0.844
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.984,
+          "content_ok": 0.986,
+          "evidence_ok": 0.841
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.991
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.995
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.986
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.986
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.156,
+          "any_mismatch": 0.009,
+          "any_missing_evidence": 0.064
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.943
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.942
+      }
+    }
+  },
+  {
+    "id": "wrong-content-1-bad",
+    "category": "wrong_content",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.839,
+          "cumple": 0.005
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.676,
+          "cumple": 0.08
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.872,
+          "cumple": 0.056
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.34,
+          "cumple": 0.014,
+          "target_ok": 0.949,
+          "content_ok": 0.024
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.85,
+          "target_ok": 0.762,
+          "content_ok": 0.062,
+          "complete_ok": 0.108,
+          "evidence_ok": 0.825
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.769,
+          "content_ok": 0.064,
+          "evidence_ok": 0.824
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.985
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.985
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.966
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.965
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_content",
+        "prob": 0.99
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_content",
+        "prob": 0.99
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.739,
+          "any_mismatch": 0.988,
+          "any_missing_evidence": 0.829
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_command",
+        "prob": 0.762
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.48
+      }
+    }
+  },
+  {
+    "id": "proc-nopid-1-good",
+    "category": "process_nopid",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.994,
+          "cumple": 0.994
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.845,
+          "cumple": 0.985
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.98,
+          "cumple": 0.979
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.959,
+          "cumple": 0.999,
+          "target_ok": 1,
+          "content_ok": 0.999
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.872,
+          "target_ok": 0.999,
+          "content_ok": 0.949,
+          "complete_ok": 0.959,
+          "evidence_ok": 0.744
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.999,
+          "content_ok": 0.945,
+          "evidence_ok": 0.749
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.969
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.968
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.955
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.966
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.074,
+          "any_mismatch": 0.012,
+          "any_missing_evidence": 0.101
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.952
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.924
+      }
+    }
+  },
+  {
+    "id": "proc-nopid-1-bad",
+    "category": "process_nopid",
+    "gold_post": "unknown",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.856,
+          "cumple": 0.989
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.203,
+          "cumple": 0.886
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.952,
+          "cumple": 0.943
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.192,
+          "cumple": 0.991,
+          "target_ok": 0.999,
+          "content_ok": 0.996
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.05,
+          "target_ok": 0.995,
+          "content_ok": 0.978,
+          "complete_ok": 0.954,
+          "evidence_ok": 0.086
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.994,
+          "content_ok": 0.978,
+          "evidence_ok": 0.09
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.742
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.589
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.987
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.987
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.672
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.619
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.166,
+          "any_mismatch": 0.005,
+          "any_missing_evidence": 0.583
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.952
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.924
+      }
+    }
+  },
+  {
+    "id": "noise-1-good",
+    "category": "long_noise",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.99,
+          "cumple": 0.995
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.876,
+          "cumple": 0.97
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.989,
+          "cumple": 0.982
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.909,
+          "cumple": 0.994,
+          "target_ok": 0.423,
+          "content_ok": 0.995
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.886,
+          "target_ok": 0.01,
+          "content_ok": 0.916,
+          "complete_ok": 0.903,
+          "evidence_ok": 0.487
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.01,
+          "content_ok": 0.913,
+          "evidence_ok": 0.477
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.973
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.978
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.911
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.929
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.92
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.941
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.015,
+          "any_mismatch": 0.079,
+          "any_missing_evidence": 0.125
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.821
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.765
+      }
+    }
+  },
+  {
+    "id": "noise-1-bad",
+    "category": "long_noise",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.797,
+          "cumple": 0.35
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.857,
+          "cumple": 0.959
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.8,
+          "cumple": 0.745
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.886,
+          "cumple": 0.508,
+          "target_ok": 0.56,
+          "content_ok": 0.865
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.544,
+          "target_ok": 0.009,
+          "content_ok": 0.794,
+          "complete_ok": 0.824,
+          "evidence_ok": 0.103
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.008,
+          "content_ok": 0.804,
+          "evidence_ok": 0.104
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.621
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.758
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.634
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.613
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.318
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.61
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.995,
+          "any_mismatch": 0.196,
+          "any_missing_evidence": 0.236
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.821
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.765
+      }
+    }
+  },
+  {
+    "id": "inject-1-good",
+    "category": "injection",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "cumple": 0.99
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.987,
+          "cumple": 0.989
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.985,
+          "cumple": 0.975
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.982,
+          "cumple": 0.998,
+          "target_ok": 0.998,
+          "content_ok": 0.997
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.991,
+          "target_ok": 0.997,
+          "content_ok": 0.905,
+          "complete_ok": 0.95,
+          "evidence_ok": 0.713
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.997,
+          "content_ok": 0.906,
+          "evidence_ok": 0.704
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.991
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.992
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.994
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.996
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.98
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.979
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.009,
+          "any_mismatch": 0.005,
+          "any_missing_evidence": 0.136
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.911
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.883
+      }
+    }
+  },
+  {
+    "id": "inject-1-bad",
+    "category": "injection",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.857,
+          "cumple": 0.028
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.71,
+          "cumple": 0.163
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.827,
+          "cumple": 0.027
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.791,
+          "cumple": 0.177,
+          "target_ok": 0.068,
+          "content_ok": 0.202
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.589,
+          "target_ok": 0.002,
+          "content_ok": 0.231,
+          "complete_ok": 0.239,
+          "evidence_ok": 0.33
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.002,
+          "content_ok": 0.258,
+          "evidence_ok": 0.322
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.88
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.814
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.918
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.909
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.683
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.593
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.209,
+          "any_mismatch": 0.981,
+          "any_missing_evidence": 0.54
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.87
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.907
+      }
+    }
+  },
+  {
+    "id": "ambig-1-good",
+    "category": "ambiguous_instruction",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.988,
+          "cumple": 0.743
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.965,
+          "cumple": 0.766
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.993,
+          "cumple": 0.887
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.86,
+          "cumple": 0.855,
+          "target_ok": 0.978,
+          "content_ok": 0.86
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.957,
+          "target_ok": 0.731,
+          "content_ok": 0.85,
+          "complete_ok": 0.148,
+          "evidence_ok": 0.918
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.754,
+          "content_ok": 0.853,
+          "evidence_ok": 0.919
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.787
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.799
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.702
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.722
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.566
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.637
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.041,
+          "any_mismatch": 0.118,
+          "any_missing_evidence": 0.244
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.901
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.895
+      }
+    }
+  },
+  {
+    "id": "ambig-1-bad",
+    "category": "ambiguous_instruction",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.676,
+          "cumple": 0.029
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.921,
+          "cumple": 0.088
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.699,
+          "cumple": 0.043
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.336,
+          "cumple": 0.046,
+          "target_ok": 0.366,
+          "content_ok": 0.045
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.977,
+          "target_ok": 0.098,
+          "content_ok": 0.045,
+          "complete_ok": 0.059,
+          "evidence_ok": 0.797
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.113,
+          "content_ok": 0.05,
+          "evidence_ok": 0.79
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.964
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.971
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.844
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.84
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.745
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.725
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.345,
+          "any_mismatch": 0.978,
+          "any_missing_evidence": 0.81
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_query",
+        "prob": 0.558
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_query",
+        "prob": 0.556
+      }
+    }
+  },
+  {
+    "id": "biling-1-good",
+    "category": "bilingual",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.897,
+          "cumple": 0.887
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.64,
+          "cumple": 0.786
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.981,
+          "cumple": 0.85
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.759,
+          "cumple": 0.913,
+          "target_ok": 0.988,
+          "content_ok": 0.854
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.774,
+          "target_ok": 0.944,
+          "content_ok": 0.598,
+          "complete_ok": 0.861,
+          "evidence_ok": 0.568
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.945,
+          "content_ok": 0.611,
+          "evidence_ok": 0.568
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.886
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.886
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.731
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.649
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.567
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.499
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.123,
+          "any_mismatch": 0.619,
+          "any_missing_evidence": 0.214
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.976
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.978
+      }
+    }
+  },
+  {
+    "id": "biling-1-bad",
+    "category": "bilingual",
+    "gold_post": "wrong_content",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.506,
+          "cumple": 0.117
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.06,
+          "cumple": 0.31
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.825,
+          "cumple": 0.066
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.363,
+          "cumple": 0.172,
+          "target_ok": 0.949,
+          "content_ok": 0.133
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.255,
+          "target_ok": 0.973,
+          "content_ok": 0.172,
+          "complete_ok": 0.1,
+          "evidence_ok": 0.425
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.975,
+          "content_ok": 0.18,
+          "evidence_ok": 0.412
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.495
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.421
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.881
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "unknown",
+        "prob": 0.924
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.462
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "partial",
+        "prob": 0.472
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.209,
+          "any_mismatch": 0.709,
+          "any_missing_evidence": 0.662
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.549
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.783
+      }
+    }
+  },
+  {
+    "id": "alias-1-good",
+    "category": "relative_alias",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.972,
+          "cumple": 0.992
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.869,
+          "cumple": 0.947
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "cumple": 0.992
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.846,
+          "cumple": 0.995,
+          "target_ok": 0.995,
+          "content_ok": 0.992
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.859,
+          "target_ok": 0.966,
+          "content_ok": 0.881,
+          "complete_ok": 0.938,
+          "evidence_ok": 0.713
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.966,
+          "content_ok": 0.894,
+          "evidence_ok": 0.701
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.983
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.982
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.972
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.975
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.971
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.975
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.055,
+          "any_mismatch": 0.009,
+          "any_missing_evidence": 0.144
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.971
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.975
+      }
+    }
+  },
+  {
+    "id": "alias-1-bad",
+    "category": "relative_alias",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.956,
+          "cumple": 0.446
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.779,
+          "cumple": 0.891
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.985,
+          "cumple": 0.483
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.81,
+          "cumple": 0.639,
+          "target_ok": 0.933,
+          "content_ok": 0.601
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.746,
+          "target_ok": 0.837,
+          "content_ok": 0.841,
+          "complete_ok": 0.819,
+          "evidence_ok": 0.6
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.846,
+          "content_ok": 0.853,
+          "evidence_ok": 0.592
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.6
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.535
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.671
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.742
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.316
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.394
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.082,
+          "any_mismatch": 0.058,
+          "any_missing_evidence": 0.27
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.464
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.521
+      }
+    }
+  },
+  {
+    "id": "read-ctrl-1-good",
+    "category": "read_control",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "cumple": 0.99
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.99,
+          "cumple": 0.983
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.993,
+          "cumple": 0.988
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.966,
+          "cumple": 0.998,
+          "target_ok": 0.999,
+          "content_ok": 0.997
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "target_ok": 0.999,
+          "content_ok": 0.898,
+          "complete_ok": 0.964,
+          "evidence_ok": 0.845
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.999,
+          "content_ok": 0.896,
+          "evidence_ok": 0.841
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.99
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.989
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.958
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.965
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.969
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.976
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.054,
+          "any_mismatch": 0.019,
+          "any_missing_evidence": 0.184
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.997
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.997
+      }
+    }
+  },
+  {
+    "id": "read-ctrl-1-bad",
+    "category": "read_control",
+    "gold_post": "wrong_target",
+    "gold_pre": "wrong_path",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.954,
+          "cumple": 0.003
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.971,
+          "cumple": 0.06
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.541,
+          "cumple": 0.009
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.259,
+          "cumple": 0.006,
+          "target_ok": 0.065,
+          "content_ok": 0.025
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.802,
+          "target_ok": 0.001,
+          "content_ok": 0.008,
+          "complete_ok": 0.045,
+          "evidence_ok": 0.555
+        }
+      },
+      "R6_V3_C": {
+        "approved": false,
+        "noul": {
+          "target_ok": 0.001,
+          "content_ok": 0.008,
+          "evidence_ok": 0.561
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.99
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.994
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.948
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.949
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.89
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_target",
+        "prob": 0.871
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.461,
+          "any_mismatch": 0.998,
+          "any_missing_evidence": 0.879
+        }
+      },
+      "R11_P_B": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.836
+      },
+      "R11_P_C": {
+        "approved": false,
+        "choice": "wrong_path",
+        "prob": 0.884
+      }
+    }
+  },
+  {
+    "id": "empty-1-good",
+    "category": "empty_cases",
+    "gold_post": "matches",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": true,
+        "noul": {
+          "ok": 0.995,
+          "cumple": 0.983
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.991,
+          "cumple": 0.973
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": true,
+        "noul": {
+          "ok": 0.998,
+          "cumple": 0.995
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": true,
+        "noul": {
+          "ok": 0.952,
+          "cumple": 0.994,
+          "target_ok": 0.992,
+          "content_ok": 0.991
+        }
+      },
+      "R5_V3_B": {
+        "approved": true,
+        "noul": {
+          "ok": 0.994,
+          "target_ok": 0.664,
+          "content_ok": 0.978,
+          "complete_ok": 0.969,
+          "evidence_ok": 0.892
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.684,
+          "content_ok": 0.978,
+          "evidence_ok": 0.89
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.985
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.988
+      },
+      "R8_V1_3_C": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.972
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.982
+      },
+      "R9_V1_B": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.967
+      },
+      "R9_V1_B_reverse": {
+        "approved": true,
+        "choice": "matches",
+        "prob": 0.975
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": true,
+        "noul": {
+          "any_error": 0.03,
+          "any_mismatch": 0.01,
+          "any_missing_evidence": 0.098
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.99
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.985
+      }
+    }
+  },
+  {
+    "id": "empty-1-bad",
+    "category": "empty_cases",
+    "gold_post": "failed",
+    "gold_pre": "ok",
+    "scores": {
+      "R1_V0_clipHT": {
+        "approved": false,
+        "noul": {
+          "ok": 0.017,
+          "cumple": 0.024
+        }
+      },
+      "R2_V0_preguntasB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.636,
+          "cumple": 0.065
+        }
+      },
+      "R3_V0_preambuloB": {
+        "approved": false,
+        "noul": {
+          "ok": 0.038,
+          "cumple": 0.014
+        }
+      },
+      "R4_V3_targetsS4": {
+        "approved": false,
+        "noul": {
+          "ok": 0.261,
+          "cumple": 0.018,
+          "target_ok": 0.998,
+          "content_ok": 0.016
+        }
+      },
+      "R5_V3_B": {
+        "approved": false,
+        "noul": {
+          "ok": 0.417,
+          "target_ok": 0.868,
+          "content_ok": 0.642,
+          "complete_ok": 0.713,
+          "evidence_ok": 0.575
+        }
+      },
+      "R6_V3_C": {
+        "approved": true,
+        "noul": {
+          "target_ok": 0.854,
+          "content_ok": 0.668,
+          "evidence_ok": 0.581
+        }
+      },
+      "R7_V1_3_B": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.949
+      },
+      "R7_V1_3_B_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.965
+      },
+      "R8_V1_3_C": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.788
+      },
+      "R8_V1_3_C_reverse": {
+        "approved": false,
+        "choice": "mismatch",
+        "prob": 0.688
+      },
+      "R9_V1_B": {
+        "approved": false,
+        "choice": "wrong_content",
+        "prob": 0.908
+      },
+      "R9_V1_B_reverse": {
+        "approved": false,
+        "choice": "wrong_content",
+        "prob": 0.837
+      },
+      "R10_Preguntas_Negativas": {
+        "approved": false,
+        "noul": {
+          "any_error": 0.988,
+          "any_mismatch": 0.421,
+          "any_missing_evidence": 0.311
+        }
+      },
+      "R11_P_B": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.986
+      },
+      "R11_P_C": {
+        "approved": true,
+        "choice": "ok",
+        "prob": 0.983
+      }
+    }
+  }
+]

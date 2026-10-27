@@ -1,9 +1,8 @@
 /**
  * JARVIS Core — Cliente del motor de razonamiento (Qwen, API OpenAI-compatible)
  *
- * - Un solo dialecto: POST {qwenUrl}/v1/chat/completions.
- * - Structured outputs (json_schema) + parser tolerante como red de seguridad.
- *   Los argumentos de tools MCP usan json_object: sus schemas son dinámicos y no se fuerzan como strict.
+ * - POST {qwenUrl}/v1/chat/completions con structured outputs (json_schema) y parser tolerante como red de
+ *   seguridad. Los argumentos de tools MCP usan json_object: sus schemas son dinámicos.
  * - Thinking por etapa: plan y replan = true; arguments y verify_stage = false; final_response = config.thinking.
  * - Reintentos: red y HTTP 503 en llmTransport; salida inválida o truncada: 1 reintento aquí, con el error
  *   previo en el prompt, más presupuesto de tokens y temperatura 0.3. Timeout y cancelación nunca se reintentan.
@@ -35,10 +34,6 @@ import { buildCompactCatalog } from "../tools/manifest.ts";
 import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
 import { estimateTokens, postJson, RequestAbortedError, TransportError } from "../llmTransport.ts";
 
-// ============================================================
-// Errores
-// ============================================================
-
 /** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
   readonly raw?: { rawInput: string; timing?: TimeSpan };
@@ -69,28 +64,28 @@ export class LLMValidationError extends Error {
   }
 }
 
-// ============================================================
-// Schemas JSON (derivados de EXECUTABLE_ROUTES y MAX_STEPS)
-// ============================================================
-
 type JsonSchema = Record<string, unknown>;
 
-const STEP_ITEM_SCHEMA: JsonSchema = {
-  type: "object",
-  properties: {
-    goal: { type: "string" },
-    suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
-    expected_outcome: { type: "string" },
+const STEPS_SCHEMA: JsonSchema = {
+  type: "array",
+  items: {
+    type: "object",
+    properties: {
+      goal: { type: "string" },
+      suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
+      expected_outcome: { type: "string" },
+    },
+    required: ["goal", "suggested_mcp", "expected_outcome"],
+    additionalProperties: false,
   },
-  required: ["goal", "suggested_mcp", "expected_outcome"],
-  additionalProperties: false,
+  maxItems: MAX_STEPS,
 };
 
 export const PLAN_JSON_SCHEMA: JsonSchema = {
   type: "object",
   properties: {
     objective: { type: "string" },
-    steps: { type: "array", items: STEP_ITEM_SCHEMA, maxItems: MAX_STEPS },
+    steps: STEPS_SCHEMA,
   },
   required: ["objective", "steps"],
   additionalProperties: false,
@@ -102,7 +97,7 @@ export const REPLAN_JSON_SCHEMA: JsonSchema = {
     action: { type: "string", enum: ["continue", "abort"] },
     reason: { type: "string" },
     objective: { type: "string" },
-    steps: { type: "array", items: STEP_ITEM_SCHEMA, maxItems: MAX_STEPS },
+    steps: STEPS_SCHEMA,
   },
   required: ["action", "steps"],
   additionalProperties: false,
@@ -128,10 +123,6 @@ export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
   required: ["status", "reason", "question_for_user"],
   additionalProperties: false,
 };
-
-// ============================================================
-// Contratos públicos
-// ============================================================
 
 export interface ArgumentsGenerationResult {
   args: Record<string, unknown>;
@@ -186,9 +177,7 @@ interface QwenDispatchResult {
   timing: TimeSpan;
 }
 
-// ============================================================
-// Parsing y validación (puros)
-// ============================================================
+const rawOf = ({ rawInput, rawOutput, timing }: QwenDispatchResult) => ({ rawInput, rawOutput, timing });
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -205,70 +194,61 @@ export function stripThink(raw: string): string {
 }
 
 /**
- * Respuesta del servidor sin el pensamiento del modelo, apta para registros, eventos y trazas. Es una lista blanca:
- * solo salen campos conocidos y `content` sin bloques <think>, así que ningún campo de razonamiento del servidor
+ * Respuesta del servidor apta para registros, eventos y trazas. Es una lista blanca: solo salen campos
+ * conocidos y `content` sin bloques <think>, así que ningún campo de razonamiento del servidor
  * (`reasoning`, `reasoning_content`, etc.) llega a un registro, sea cual sea su nombre.
  */
-function sanitizedRawOutput(data: unknown, content: string): string {
-  const d = isRecord(data) ? data : {};
-  const choice = Array.isArray(d.choices) && isRecord(d.choices[0]) ? d.choices[0] : {};
+function sanitizedRawOutput(root: Record<string, unknown>, choice: Record<string, unknown>, content: string): string {
   return JSON.stringify({
-    id: d.id,
-    model: d.model,
+    id: root.id,
+    model: root.model,
     choices: [{
       index: choice.index,
       finish_reason: choice.finish_reason,
       message: { role: "assistant", content: stripThink(content) },
     }],
-    usage: d.usage,
+    usage: root.usage,
   }, null, 2);
 }
 
-/** Primer objeto JSON de llaves balanceadas parseable como objeto, respetando strings y escapes. */
-function extractJsonObject(s: string): string | null {
-  let searchFrom = 0;
-  while (searchFrom < s.length) {
-    const start = s.indexOf("{", searchFrom);
-    if (start < 0) return null;
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    let matchEnd = -1;
-    for (let i = start; i < s.length; i++) {
-      const c = s[i];
-      if (inString) {
-        if (escaped) escaped = false;
-        else if (c === "\\") escaped = true;
-        else if (c === '"') inString = false;
-        continue;
-      }
-      if (c === '"') inString = true;
-      else if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) {
-        matchEnd = i;
-        break;
-      }
+/** Índice de la llave que cierra la abierta en `start`, respetando strings y escapes; -1 si no cierra. */
+function closingBraceIndex(s: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === "{") depth++;
+    else if (c === "}" && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Primer objeto JSON de llaves balanceadas que se pueda parsear como objeto. */
+function extractJsonObject(s: string): Record<string, unknown> | null {
+  for (let start = s.indexOf("{"); start >= 0; start = s.indexOf("{", start + 1)) {
+    const end = closingBraceIndex(s, start);
+    if (end < 0) continue;
+    try {
+      const parsed: unknown = JSON.parse(s.slice(start, end + 1));
+      if (isRecord(parsed)) return parsed;
+    } catch {
+      // Llaves balanceadas que no son JSON: seguir con la siguiente llave.
     }
-    if (matchEnd >= 0) {
-      const candidate = s.slice(start, matchEnd + 1);
-      try {
-        const parsed = JSON.parse(candidate);
-        if (isRecord(parsed)) return candidate;
-      } catch {
-        // Llaves balanceadas pero no es JSON de objeto; continuar buscando desde la siguiente llave
-      }
-    }
-    searchFrom = start + 1;
   }
   return null;
 }
 
 /**
- * think-strip y, en este orden: JSON directo del texto completo, JSON directo del bloque ```json y extracción
- * por llaves balanceadas (primero sobre el bloque, luego sobre el texto completo).
- * El JSON directo va antes que el bloque ``` porque sus propios strings pueden contener fences (p. ej. el
- * `content` de write_file con markdown): buscar el fence primero cortaría el JSON a mitad de un string.
- * Un JSON válido que no sea objeto (p. ej. un arreglo) devuelve null, sin extraer nada en silencio.
+ * Objeto JSON de la salida del modelo, sin bloques <think>. Orden: JSON directo del texto completo, JSON
+ * directo del bloque ```json y objeto de llaves balanceadas (primero en el bloque, luego en el texto).
+ * El JSON directo va antes que el fence porque sus propios strings pueden contener fences (p. ej. el
+ * `content` de write_file con markdown). Un JSON válido que no sea objeto (p. ej. un arreglo) devuelve null.
  */
 export function parseJsonObject(raw: string): Record<string, unknown> | null {
   const cleaned = stripThink(raw);
@@ -276,23 +256,18 @@ export function parseJsonObject(raw: string): Record<string, unknown> | null {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(cleaned);
   const fencedBody = fenced ? fenced[1].trim() : "";
 
-  const parseStrict = (text: string): { value: unknown } | null => {
+  for (const candidate of [cleaned, fencedBody].filter(Boolean)) {
     try {
-      return { value: JSON.parse(text) };
+      const value: unknown = JSON.parse(candidate);
+      return isRecord(value) ? value : null;
     } catch {
-      return null;
+      // No es JSON directo: probar el siguiente candidato.
     }
-  };
-
-  for (const candidate of fencedBody ? [cleaned, fencedBody] : [cleaned]) {
-    const direct = parseStrict(candidate);
-    if (direct) return isRecord(direct.value) ? direct.value : null;
   }
 
-  for (const candidate of fencedBody ? [fencedBody, cleaned] : [cleaned]) {
-    const extracted = extractJsonObject(candidate);
-    const parsed = extracted ? parseStrict(extracted) : null;
-    if (parsed && isRecord(parsed.value)) return parsed.value;
+  for (const candidate of [fencedBody, cleaned].filter(Boolean)) {
+    const found = extractJsonObject(candidate);
+    if (found) return found;
   }
   return null;
 }
@@ -386,10 +361,6 @@ const fail = (error: string): Validation<never> => ({ ok: false, error });
 const TRUNCATED = "la salida se truncó por el límite de tokens";
 const NOT_JSON = "la respuesta no es un objeto JSON válido";
 
-// ============================================================
-// Motor
-// ============================================================
-
 const BASE_TEMPERATURE = 0.1;
 const RETRY_TEMPERATURE = 0.3;
 const RETRY_TOKEN_FACTOR = 1.5;
@@ -409,18 +380,9 @@ interface DispatchOptions {
   signal?: AbortSignal;
 }
 
-interface ValidatedDispatch<T> {
-  stage: string;
-  system: string;
-  /** Recibe el error del intento anterior (undefined en el primero). */
-  user: (previousError?: string) => string;
-  json: boolean;
-  schema?: JsonSchema;
-  maxTokens: number;
-  thinking: boolean;
+interface ValidatedDispatch<T> extends Omit<DispatchOptions, "temperature"> {
   /** Thinking en el reintento; por defecto el mismo. */
   retryThinking?: boolean;
-  signal?: AbortSignal;
   validate: (res: QwenDispatchResult, isLastAttempt: boolean) => Validation<T>;
 }
 
@@ -464,7 +426,7 @@ export class QwenEngine implements ILLMClient {
     const config = ConfigManager.getConfig();
     const url = this.resolveUrl(config.qwenUrl);
 
-    // Guarda de contexto: Ollama recorta en silencio el prompt que no cabe y puede perder el SYSTEM.
+    // Ollama recorta en silencio el prompt que no cabe y puede perder el SYSTEM.
     const promptEstimate = estimateTokens(o.system) + estimateTokens(o.user);
     const available = config.qwenNumCtx - promptEstimate;
     if (available < MIN_COMPLETION_TOKENS) {
@@ -501,6 +463,7 @@ export class QwenEngine implements ILLMClient {
     console.log(`[Qwen → SEND] stage=${o.stage} system=${JSON.stringify(o.system).slice(0, 200)} user=${JSON.stringify(o.user).slice(0, 300)}`);
 
     const t0 = Date.now();
+    const elapsed = (): TimeSpan => ({ startedAt: t0, durationMs: Date.now() - t0 });
     const timeoutMs = o.thinking ? config.qwenThinkingTimeoutMs : config.qwenTimeoutMs;
     let result;
     try {
@@ -512,14 +475,18 @@ export class QwenEngine implements ILLMClient {
             ? `Timeout (${timeoutMs}ms) esperando a Qwen en ${url}`
             : `No fue posible conectar con Qwen en ${url}. Verifique que el servidor esté activo. ${err.message}`,
           err,
-          { rawInput, timing: { startedAt: t0, durationMs: Date.now() - t0 } }
+          { rawInput, timing: elapsed() }
         );
       }
-      throw err; // RequestAbortedError
+      throw err;
     }
 
     if (!result.ok) {
-      throw new LLMServiceUnavailableError(`HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`, undefined, { rawInput, timing: { startedAt: t0, durationMs: Date.now() - t0 } });
+      throw new LLMServiceUnavailableError(
+        `HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`,
+        undefined,
+        { rawInput, timing: elapsed() }
+      );
     }
 
     let data: unknown;
@@ -530,16 +497,17 @@ export class QwenEngine implements ILLMClient {
       throw new LLMValidationError("La respuesta de Qwen no es un JSON legible.", { rawInput, rawOutput: `[respuesta no legible: ${result.text.length} caracteres]` });
     }
 
-    const choice = isRecord(data) && Array.isArray(data.choices) ? data.choices[0] : undefined;
-    const message = isRecord(choice) && isRecord(choice.message) ? choice.message : undefined;
-    const content = typeof message?.content === "string" ? message.content : "";
-    const finishReason = isRecord(choice) && typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown";
-    const usage = isRecord(data) && isRecord(data.usage) ? data.usage : {};
+    const root: Record<string, unknown> = isRecord(data) ? data : {};
+    const choice: Record<string, unknown> = Array.isArray(root.choices) && isRecord(root.choices[0]) ? root.choices[0] : {};
+    const message: Record<string, unknown> = isRecord(choice.message) ? choice.message : {};
+    const usage: Record<string, unknown> = isRecord(root.usage) ? root.usage : {};
+    const content = typeof message.content === "string" ? message.content : "";
+    const finishReason = typeof choice.finish_reason === "string" ? choice.finish_reason : "unknown";
     const promptTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
     const completionTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0;
     const truncated = finishReason === "length";
     // Único punto por el que la respuesta cruda llega a memoria, eventos y trazas: sin pensamiento del modelo.
-    const rawOutput = sanitizedRawOutput(data, content);
+    const rawOutput = sanitizedRawOutput(root, choice, content);
 
     console.log(`[Qwen ← RECV] stage=${o.stage} raw=${rawOutput.slice(0, 400)}`);
     console.log(
@@ -549,7 +517,7 @@ export class QwenEngine implements ILLMClient {
       console.warn(`[Qwen] stage=${o.stage} agotó el contexto (${promptTokens + completionTokens}/${config.qwenNumCtx}); el servidor pudo recortar el prompt.`);
     }
 
-    return { content, truncated, rawInput, rawOutput, timing: { startedAt: t0, durationMs: Date.now() - t0 } };
+    return { content, truncated, rawInput, rawOutput, timing: elapsed() };
   }
 
   /**
@@ -566,7 +534,7 @@ export class QwenEngine implements ILLMClient {
       const res = await this.dispatchPrompt({
         stage: o.stage,
         system: o.system,
-        user: o.user(previousError),
+        user: o.user + retryNote(previousError),
         json: o.json,
         schema: o.schema,
         maxTokens: retry ? Math.ceil(o.maxTokens * RETRY_TOKEN_FACTOR) : o.maxTokens,
@@ -578,11 +546,10 @@ export class QwenEngine implements ILLMClient {
 
       const v = o.validate(res, attempt === LLM_INVALID_OUTPUT_RETRIES);
       if (v.ok) return { value: v.value, res, failed };
-      else {
-        previousError = v.error;
-        failed.push({ rawInput: res.rawInput, rawOutput: res.rawOutput, error: v.error, timing: res.timing });
-        console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
-      }
+
+      previousError = v.error;
+      failed.push({ rawInput: res.rawInput, rawOutput: res.rawOutput, error: v.error, timing: res.timing });
+      console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
     }
 
     throw new LLMValidationError(
@@ -592,7 +559,6 @@ export class QwenEngine implements ILLMClient {
     );
   }
 
-  /** Etapa 3: argumentos de tool, validados contra el inputSchema real. */
   async generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArguments", async () => {
       const inputSchema = data.tool.inputSchema;
@@ -602,7 +568,7 @@ export class QwenEngine implements ILLMClient {
       const { value, res, failed } = await this.dispatchValidated<Record<string, unknown>>({
         stage: "arguments",
         system: PROMPTS.ARGUMENTS.SYSTEM,
-        user: (prev) => userPrompt + retryNote(prev),
+        user: userPrompt,
         json: true,
         maxTokens: ConfigManager.getConfig().qwenMaxTokens.arguments,
         thinking: false,
@@ -620,11 +586,10 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { args: value, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing, failedAttempts: failed };
+      return { args: value, ...rawOf(res), failedAttempts: failed };
     });
   }
 
-  /** Etapa 6: respuesta final en texto libre. */
   async generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult> {
     return this.executeStage("generateFinalResponse", async () => {
       const config = ConfigManager.getConfig();
@@ -633,7 +598,7 @@ export class QwenEngine implements ILLMClient {
       const { value, res } = await this.dispatchValidated<string>({
         stage: "final_response",
         system: PROMPTS.FINAL_RESPONSE.SYSTEM,
-        user: (prev) => userPrompt + retryNote(prev),
+        user: userPrompt,
         json: false,
         maxTokens: config.qwenMaxTokens.final,
         thinking: config.thinking,
@@ -647,11 +612,11 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { response: value, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
+      return { response: value, ...rawOf(res) };
     });
   }
 
-  /** Modo PLAN: plan inicial. `steps: []` es válido (la solicitud no requiere herramientas). */
+  /** Plan inicial. `steps: []` es válido (la solicitud no requiere herramientas). */
   async generatePlan(
     userMessage: string,
     chatContext?: string,
@@ -672,7 +637,7 @@ export class QwenEngine implements ILLMClient {
       const { value, res } = await this.dispatchValidated<{ objective: string; steps: PlanStep[] }>({
         stage: "plan",
         system: PROMPTS.PLAN.SYSTEM,
-        user: (prev) => userPrompt + retryNote(prev),
+        user: userPrompt,
         json: true,
         schema: PLAN_JSON_SCHEMA,
         maxTokens: ConfigManager.getConfig().qwenMaxTokens.plan,
@@ -688,11 +653,11 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      return { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
+      return { objective: value.objective, steps: value.steps, ...rawOf(res) };
     });
   }
 
-  /** Modo PLAN: replan localizado. Exige `action`; "continue" exige pasos válidos. */
+  /** Replan localizado. Exige `action`; "continue" exige pasos válidos. */
   async replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult> {
     return this.executeStage("replan", async () => {
       const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
@@ -702,7 +667,7 @@ export class QwenEngine implements ILLMClient {
       >({
         stage: "replan",
         system: PROMPTS.REPLAN.SYSTEM,
-        user: (prev) => userPrompt + retryNote(prev),
+        user: userPrompt,
         json: true,
         schema: REPLAN_JSON_SCHEMA,
         maxTokens: ConfigManager.getConfig().qwenMaxTokens.replan,
@@ -726,16 +691,9 @@ export class QwenEngine implements ILLMClient {
         },
       });
 
-      if (value.action === "abort") {
-        return { action: "abort", reason: value.reason, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
-      }
-      return {
-        action: "continue",
-        plan: { objective: value.objective, steps: value.steps, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing },
-        rawInput: res.rawInput,
-        rawOutput: res.rawOutput,
-        timing: res.timing,
-      };
+      const raw = rawOf(res);
+      if (value.action === "abort") return { action: "abort", reason: value.reason, ...raw };
+      return { action: "continue", plan: { objective: value.objective, steps: value.steps }, ...raw };
     });
   }
 
@@ -751,7 +709,7 @@ export class QwenEngine implements ILLMClient {
         const { value, res } = await this.dispatchValidated<Omit<StageVerificationResult, "rawInput" | "rawOutput" | "timing">>({
           stage: "verify_stage",
           system: PROMPTS.STAGE_VERIFICATION.SYSTEM,
-          user: (prev) => userPrompt + retryNote(prev),
+          user: userPrompt,
           json: true,
           schema: STAGE_VERIFICATION_JSON_SCHEMA,
           maxTokens: ConfigManager.getConfig().qwenMaxTokens.verify,
@@ -773,7 +731,7 @@ export class QwenEngine implements ILLMClient {
               : fail('con status "insufficient_info", question_for_user debe contener la pregunta concreta');
           },
         });
-        return { ...value, rawInput: res.rawInput, rawOutput: res.rawOutput, timing: res.timing };
+        return { ...value, ...rawOf(res) };
       } catch (err) {
         if (!(err instanceof LLMValidationError)) throw err;
         return {
