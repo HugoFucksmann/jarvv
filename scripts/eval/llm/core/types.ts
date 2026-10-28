@@ -1,8 +1,8 @@
-import type {
-  ArgumentPromptData,
-  FinalResponsePromptData,
-  ReplanPromptData,
-} from "../../../../src/core/reasoner/prompts.ts";
+import type { PROMPTS } from "../../../../src/core/reasoner/prompts.ts";
+
+type ArgumentPromptData = Parameters<typeof PROMPTS.ARGUMENTS.buildUserPrompt>[0];
+type FinalResponsePromptData = Parameters<typeof PROMPTS.FINAL_RESPONSE.buildUserPrompt>[0];
+type ReplanPromptData = Parameters<typeof PROMPTS.REPLAN.buildUserPrompt>[0];
 
 export type LlmEvalStage = "plan" | "replan" | "arguments" | "final_response";
 

@@ -28,8 +28,7 @@ import {
 } from "./context.ts";
 import type { EngineDependencies } from "./engineDeps.ts";
 import { recordFailedCall, runStep } from "./callExecutor.ts";
-import { LLMServiceUnavailableError } from "./reasoner/qwen.ts";
-import { DecisionServiceUnavailableError } from "./decision.ts";
+import { DecisionServiceUnavailableError, LLMServiceUnavailableError } from "./llmTransport.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { emitStepCompleted, emitStepError, emitStepRunning } from "./stepEvents.ts";
 import {

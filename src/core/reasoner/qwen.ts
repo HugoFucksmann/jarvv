@@ -36,30 +36,15 @@ import { PROMPTS, retryNote } from "./prompts.ts";
 import type { ILLMClient } from "../engineDeps.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
 import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
-import { estimateTokens, postJson, RequestAbortedError, TransportError } from "../llmTransport.ts";
+import {
+  estimateTokens,
+  postJson,
+  LLMServiceUnavailableError,
+  LLMValidationError,
+  RequestAbortedError,
+  TransportError,
+} from "../llmTransport.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-
-/** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
-export class LLMServiceUnavailableError extends Error {
-  readonly raw?: { rawInput: string; timing?: TimeSpan };
-  constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }) {
-    super(`[Qwen Unavailable] ${message}`, { cause });
-    this.name = "LLMServiceUnavailableError";
-    this.raw = raw;
-  }
-}
-
-/** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
-export class LLMValidationError extends Error {
-  readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
-  readonly attempts?: FailedAttempt[];
-  constructor(message: string, raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan }, attempts?: FailedAttempt[]) {
-    super(`[Qwen Validation] ${message}`);
-    this.name = "LLMValidationError";
-    this.raw = raw;
-    this.attempts = attempts;
-  }
-}
 
 type JsonSchema = Record<string, unknown>;
 

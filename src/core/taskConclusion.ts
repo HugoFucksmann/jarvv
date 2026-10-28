@@ -7,8 +7,7 @@ import { getToolPolicy } from "./tools/manifest.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 import { type TaskExecutionContext, buildEffectsContext } from "./context.ts";
 import type { EngineDependencies } from "./engineDeps.ts";
-import { RequestAbortedError, TransportError } from "./llmTransport.ts";
-import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.ts";
+import { LLMServiceUnavailableError, LLMValidationError, RequestAbortedError, TransportError } from "./llmTransport.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { errorMessage } from "./utils.ts";
 

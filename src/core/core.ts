@@ -17,7 +17,7 @@ import {
 } from "./types.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { type TaskExecutionContext, createEmptyMemory, createTaskContext, ensureMemory } from "./context.ts";
-import type { EngineDependencies, IDiscoveryEngine } from "./engineDeps.ts";
+import type { EngineDependencies } from "./engineDeps.ts";
 import { RefStore } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 
@@ -124,10 +124,6 @@ export class JarvisCore {
       if (ctx.pendingApproval) return ctx.pendingApproval;
     }
     return null;
-  }
-
-  getDiscoveryEngine(): IDiscoveryEngine {
-    return this.discoveryEngine;
   }
 
   getAllTasks(): Task[] {

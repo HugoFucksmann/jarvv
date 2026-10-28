@@ -1,44 +1,20 @@
 /**
  * JARVIS Core — Discovery Engine
- * Single Source of Truth for available MCP capabilities.
- * 
- * Rules:
- * - Obtains tools dynamically via tools/list.
- * - Does not rely on static catalogs.
- * - Invalidates cache upon MCP reconnection.
- * - Serves tools directly to Decision #2 for selection.
+ * Fuente única de verdad de las capacidades MCP disponibles.
+ *
+ * Reglas:
+ * - Obtiene las herramientas dinámicamente con tools/list.
+ * - No depende de catálogos estáticos.
+ * - Invalida la caché al reconectar un servidor MCP.
+ * - Entrega las herramientas directamente a Decision #2 para que elija.
  */
 
 import type { MCPTool } from "../types.ts";
 import type { IMCPServer } from "./types.ts";
 import { errorMessage } from "../utils.ts";
 
-/**
- * Removes $schema, title, additionalProperties, and examples from inputSchema
- */
-export function cleanInputSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  if (!schema || typeof schema !== "object") return {};
-  const cleaned: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(schema)) {
-    if (key === "$schema" || key === "title" || key === "additionalProperties" || key === "examples") {
-      continue;
-    }
-    if (key === "properties" && value && typeof value === "object" && !Array.isArray(value)) {
-      const cleanedProps: Record<string, unknown> = {};
-      for (const [propName, propDef] of Object.entries(value as Record<string, unknown>)) {
-        if (propDef && typeof propDef === "object" && !Array.isArray(propDef)) {
-          cleanedProps[propName] = cleanInputSchema(propDef as Record<string, unknown>);
-        } else {
-          cleanedProps[propName] = propDef;
-        }
-      }
-      cleaned[key] = cleanedProps;
-    } else {
-      cleaned[key] = value;
-    }
-  }
-  return cleaned;
-}
+/** Vigencia de la caché de herramientas por servidor. */
+const TOOLS_CACHE_TTL_MS = 30000;
 
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();
@@ -49,7 +25,7 @@ export class DiscoveryEngine {
       lastFetched: number;
     }
   > = new Map();
-  /** Servers that failed to start and should not be retried automatically. */
+  /** Servidores que fallaron al listar herramientas: no se reintentan solos, solo con un refresco forzado. */
   private unavailableServers: Map<string, { reason: string; since: number }> = new Map();
 
   constructor(customServers?: Record<string, IMCPServer> | IMCPServer[]) {
@@ -68,26 +44,17 @@ export class DiscoveryEngine {
   }
 
   getServer(name: string): IMCPServer | undefined {
-    const serverName = this.normalizeServerName(name);
-    return serverName ? this.servers.get(serverName) : this.servers.get(name);
+    return this.servers.get(name);
   }
 
   getAllServers(): IMCPServer[] {
     return Array.from(this.servers.values());
   }
 
-  /**
-   * Refreshes and returns the discovered tools for a given MCP server
-   */
-  async getDiscoveredTools(serverOrAlias: string, forceRefresh = false): Promise<MCPTool[]> {
-    const serverName = this.normalizeServerName(serverOrAlias);
-    if (!serverName) return [];
-
+  /** Herramientas descubiertas de un servidor MCP; `forceRefresh` ignora la caché y el estado "no disponible". */
+  async getDiscoveredTools(serverName: string, forceRefresh = false): Promise<MCPTool[]> {
     const server = this.servers.get(serverName);
-    if (!server) {
-      console.warn(`No server registered for ${serverName}`);
-      return [];
-    }
+    if (!server) return [];
 
     if (!forceRefresh && this.unavailableServers.has(serverName)) {
       const cached = this.toolsCache.get(serverName);
@@ -97,7 +64,7 @@ export class DiscoveryEngine {
     const cached = this.toolsCache.get(serverName);
     const now = Date.now();
 
-    if (!forceRefresh && cached && now - cached.lastFetched < 30000) {
+    if (!forceRefresh && cached && now - cached.lastFetched < TOOLS_CACHE_TTL_MS) {
       return cached.tools;
     }
 
@@ -118,18 +85,15 @@ export class DiscoveryEngine {
     }
   }
 
-  /**
-   * Returns a snapshot of all discovered tools across all servers.
-   */
+  /** Instantánea de las herramientas descubiertas en todos los servidores, consultados en paralelo. */
   async discoverAll(forceRefresh = false): Promise<Record<string, MCPTool[]>> {
-    const result: Record<string, MCPTool[]> = {};
-    for (const server of this.servers.values()) {
-      result[server.name] = await this.getDiscoveredTools(server.name, forceRefresh);
-    }
-    return result;
+    const entries = await Promise.all(
+      Array.from(this.servers.values(), async (server) => [server.name, await this.getDiscoveredTools(server.name, forceRefresh)] as const)
+    );
+    return Object.fromEntries(entries);
   }
 
-  /** Returns which servers are currently marked as unavailable and why. */
+  /** Servidores marcados hoy como no disponibles y el motivo. */
   getUnavailableServers(): Record<string, { reason: string; since: number }> {
     const out: Record<string, { reason: string; since: number }> = {};
     for (const [name, info] of this.unavailableServers.entries()) {
@@ -138,22 +102,11 @@ export class DiscoveryEngine {
     return out;
   }
 
-
-
-  /**
-   * Validates if a tool exists in the active discovery cache
-   */
-  async validateToolExists(serverOrAlias: string, toolName: string): Promise<boolean> {
-    const tools = await this.getDiscoveredTools(serverOrAlias);
-    const found = tools.some((t) => t.name === toolName);
-    if (!found) {
-      const refreshed = await this.getDiscoveredTools(serverOrAlias, true);
-      return refreshed.some((t) => t.name === toolName);
-    }
-    return true;
-  }
-
-  private normalizeServerName(name: string): string | null {
-    return this.servers.has(name) ? name : null;
+  /** ¿Existe la herramienta? Si no está en la caché, refresca el catálogo una vez antes de darla por inexistente. */
+  async validateToolExists(serverName: string, toolName: string): Promise<boolean> {
+    const tools = await this.getDiscoveredTools(serverName);
+    if (tools.some((t) => t.name === toolName)) return true;
+    const refreshed = await this.getDiscoveredTools(serverName, true);
+    return refreshed.some((t) => t.name === toolName);
   }
 }

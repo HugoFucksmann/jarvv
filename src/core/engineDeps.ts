@@ -72,9 +72,9 @@ export interface IDecisionEngine {
 
 export interface IDiscoveryEngine {
     getServer(name: string): IMCPServer | undefined;
-    getDiscoveredTools(serverOrAlias: string, forceRefresh?: boolean): Promise<MCPTool[]>;
+    getDiscoveredTools(serverName: string, forceRefresh?: boolean): Promise<MCPTool[]>;
     getUnavailableServers(): Record<string, { reason: string; since: number }>;
-    validateToolExists(serverOrAlias: string, toolName: string): Promise<boolean>;
+    validateToolExists(serverName: string, toolName: string): Promise<boolean>;
 }
 
 export interface EngineDependencies {

@@ -28,23 +28,15 @@ import {
 import type { IDecisionEngine } from "./engineDeps.ts";
 import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
-import { estimateTokens, postJson, TransportError } from "./llmTransport.ts";
+import {
+  estimateTokens,
+  postJson,
+  DecisionServiceUnavailableError,
+  DecisionValidationError,
+  TransportError,
+} from "./llmTransport.ts";
 import { errorMessage, isRecord } from "./utils.ts";
 import { MODELS } from "./models.ts";
-
-export class DecisionServiceUnavailableError extends Error {
-  constructor(message: string, cause?: unknown) {
-    super(`[Decision 2.0 Unavailable] ${message}`, { cause });
-    this.name = "DecisionServiceUnavailableError";
-  }
-}
-
-export class DecisionValidationError extends Error {
-  constructor(message: string) {
-    super(`[Decision 2.0 Validation] ${message}`);
-    this.name = "DecisionValidationError";
-  }
-}
 
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
 const NOUL_APPROVE = 0.5;

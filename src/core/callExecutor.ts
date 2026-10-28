@@ -25,16 +25,14 @@ import {
 } from "./types.ts";
 import type { EmitEventFn, EngineDependencies, IDiscoveryEngine } from "./engineDeps.ts";
 import { emitStepError, emitStepStateChanged } from "./stepEvents.ts";
-import { cleanInputSchema } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
-import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.ts";
-import { RequestAbortedError } from "./llmTransport.ts";
+import { LLMServiceUnavailableError, LLMValidationError, RequestAbortedError } from "./llmTransport.ts";
 import { ResultProcessor, type ProcessedResult } from "./processor/resultProcessor.ts";
 import { refLabel } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
-import { errorMessage, newId } from "./utils.ts";
+import { cleanInputSchema, errorMessage, newId } from "./utils.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
