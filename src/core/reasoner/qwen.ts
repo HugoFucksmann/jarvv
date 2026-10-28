@@ -312,7 +312,6 @@ const parseObjectOutput = (r: QwenDispatchResult): Validation<Record<string, unk
 const BASE_TEMPERATURE = 0.1;
 const RETRY_TEMPERATURE = 0.3;
 const RETRY_TOKEN_FACTOR = 1.5;
-/** Mínimo de tokens de salida que debe quedar libre en el contexto. */
 const MIN_COMPLETION_TOKENS = 256;
 
 interface DispatchOptions {
@@ -597,7 +596,7 @@ export class QwenEngine implements ILLMClient {
     return this.executeStage("generatePlan", async () => {
       const userPrompt = PROMPTS.PLAN.buildUserPrompt(
         userMessage,
-        undefined, // chatContext: ningún llamador lo usaba
+        undefined, // chatContext (no se usa)
         buildCompactCatalog(),
         revision?.feedback,
         revision?.existingPlanSummary

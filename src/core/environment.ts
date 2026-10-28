@@ -28,7 +28,6 @@ const FOLDER_KEYS = ["desktop", "documents", "downloads"] as const;
 type FolderKey = (typeof FOLDER_KEYS)[number];
 
 export interface UserEnvironment {
-    /** Carpeta personal del usuario (`C:\Users\<usuario>`). */
     home: string;
     desktop?: string;
     documents?: string;

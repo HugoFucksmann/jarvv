@@ -36,7 +36,6 @@ const FALLBACK_READ_CHARS = 600;
 
 const STATE_LABEL: Partial<Record<TaskState, string>> = { COMPLETED: "Completada", PARTIAL: "Parcial", FAILED: "Fallida" };
 
-/** Línea de resumen que se registra al cerrar (o cancelar) una tarea. */
 export const formatTaskSummary = (context: TaskExecutionContext, state: TaskState, reason: string): string =>
     `[Task Summary] id=${context.task.id} state=${state} reason="${reason}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`;
 
@@ -46,7 +45,6 @@ export function resolveIncompleteState(task: Task): TaskState {
     return live.some((s) => s.state === "COMPLETED" || s.state === "UNVERIFIED") ? "PARTIAL" : "FAILED";
 }
 
-/** Cierra la tarea como PARTIAL o FAILED según lo logrado. */
 export function concludeAsFailure(context: TaskExecutionContext, deps: EngineDependencies, reason: string): Promise<void> {
     return concludeTask(context, resolveIncompleteState(context.task), deps, reason);
 }

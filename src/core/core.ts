@@ -1,6 +1,6 @@
 /**
- * JARVIS Core — Unified Reactive Engine & Deterministic Authority
- * Modos FAST y PLAN sobre un único motor de ejecución.
+ * JARVIS Core — Orquestador de tareas: ciclo de vida, cancelación, confirmación de planes y retención.
+ * Los modos FAST y PLAN comparten un único motor de ejecución (modeEngines.ts).
  */
 
 import {
@@ -63,7 +63,6 @@ export class JarvisCore {
     };
   }
 
-  // --- Event Subscription ---
   addEventListener(listener: CoreEventListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -98,7 +97,7 @@ export class JarvisCore {
       data,
     } as CoreEvent;
 
-    // Almacenamiento determinista en memoria/contexto de la iteración de modelo
+    // Se aplica a la tarea antes de notificar: los listeners ven el estado ya actualizado.
     const task = this.taskContexts.get(taskId)?.task;
     if (task) this.applyEventToTask(task, event);
 
@@ -111,7 +110,6 @@ export class JarvisCore {
     }
   }
 
-  // --- Getters with Task Isolation ---
   getTask(taskId: string): Task | null {
     return this.taskContexts.get(taskId)?.task || null;
   }
@@ -130,8 +128,6 @@ export class JarvisCore {
     return Array.from(this.taskContexts.values()).map((ctx) => ctx.task);
   }
 
-  // --- Fallos de pipeline ---
-
   /** Lanza trabajo en segundo plano; cualquier excepción cierra la tarea por el único punto de cierre (failTask). */
   private runDetached(context: TaskExecutionContext, work: () => Promise<void>): void {
     work().catch((err) => failTask(context, this.getEngineDeps(), err));
@@ -144,7 +140,6 @@ export class JarvisCore {
       && context.task.waitingReason === "plan_confirmation";
   }
 
-  // --- Task Initiation ---
   async initiateTask(message: string, mode: TaskMode = "NORMAL"): Promise<Task> {
     const taskId = newId("task");
     const task: Task = {
@@ -319,7 +314,6 @@ export class JarvisCore {
     return true;
   }
 
-  // --- Pipeline Orchestration ---
   private async runTaskPipeline(context: TaskExecutionContext): Promise<void> {
     if (context.isCancelled) return;
 

@@ -55,7 +55,6 @@ async function main() {
     next();
   });
 
-  // Instancias del runtime (singletons)
   const desktopServer = new DesktopCommanderMCPServer();
   const freeSearchServer = new FreeSearchMCPServer();
 
@@ -70,7 +69,6 @@ async function main() {
 
   const jarvisCore = new JarvisCore({ decisionEngine, discoveryEngine, llm });
 
-  // Cierre ordenado de procesos
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
@@ -97,7 +95,6 @@ async function main() {
   process.on('SIGINT', () => cleanShutdown('SIGINT'));
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
 
-  // 1. Rutas de la API
   app.use('/api/jarvis', createJarvisRouter(jarvisCore, discoveryEngine));
   app.use(['/api/mcp', '/mcp'], createMcpRouter(discoveryEngine));
 
@@ -111,7 +108,6 @@ async function main() {
     res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Error interno en API' });
   });
 
-  // 2. Frontend: Vite en desarrollo, archivos estáticos en producción
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

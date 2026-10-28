@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Deterministic MCP Tool Call Executor
+ * JARVIS Core — Ejecutor determinista de llamadas a herramientas MCP.
  */
 
 import { createHash } from "node:crypto";
@@ -173,10 +173,6 @@ const halt = (result: StepExecutionResult): Phase<never> => ({ proceed: false, r
 type McpServer = NonNullable<ReturnType<IDiscoveryEngine["getServer"]>>;
 type McpCallOutput = Awaited<ReturnType<McpServer["callTool"]>>;
 
-// ---------------------------------------------------------------
-// Fase 1-2: herramientas candidatas y selección (Decision #2)
-// ---------------------------------------------------------------
-
 interface CandidateTools {
     serverName: McpServerName;
     server: McpServer;
@@ -273,10 +269,6 @@ async function selectTool(run: StepRun, serverName: McpServerName, tools: MCPToo
     return selectedTool;
 }
 
-// ---------------------------------------------------------------
-// Fase 3: argumentos (Qwen) y referencias
-// ---------------------------------------------------------------
-
 function emitFailedArguments({ context, step, deps }: StepRun, attempts: readonly FailedAttempt[]): void {
     attempts.forEach((a, i) => deps.emitEvent(context.task.id, "ARGUMENTS_GENERATED", {
         error: a.error,
@@ -337,7 +329,6 @@ async function generateStepArguments(run: StepRun, selectedTool: MCPTool): Promi
     }
     emitFailedArguments(run, generated.failedAttempts ?? []);
 
-    // Sustitución determinista de referencias {{ref:rX}} antes de Guard
     const refResolution = resolveReferences(generated.args, task.id, selectedTool.inputSchema);
     const args = refResolution.resolvedArgs;
     if (refResolution.replacedCount > 0) {
@@ -363,10 +354,6 @@ async function generateStepArguments(run: StepRun, selectedTool: MCPTool): Promi
 
     return proceed(args);
 }
-
-// ---------------------------------------------------------------
-// Fase 4: anti-loop
-// ---------------------------------------------------------------
 
 /**
  * Devuelve la firma que debe registrarse justo antes del despacho (undefined si la herramienta está exenta). La firma no
@@ -395,10 +382,6 @@ function checkAntiLoop(
     }
     return proceed(sig);
 }
-
-// ---------------------------------------------------------------
-// Fase 5: Guard y aprobación del usuario
-// ---------------------------------------------------------------
 
 /** Cierra el paso como BLOCKED por una denegación (Guard) o un rechazo del usuario. */
 function blockStep(
@@ -463,10 +446,6 @@ async function authorizeCall(
     return proceed(undefined);
 }
 
-// ---------------------------------------------------------------
-// Fase 6: despacho al servidor MCP
-// ---------------------------------------------------------------
-
 interface DispatchOutput {
     rawResult: McpCallOutput;
     /** Solo la herramienta, sin la verificación posterior: distingue un comando lento de un modelo lento. */
@@ -483,7 +462,6 @@ async function dispatchTool(
 ): Promise<Phase<DispatchOutput>> {
     const { task } = context;
 
-    // Registro de invocación
     context.totalToolCalls++;
     if (isStopped(context)) return halt(cancelledResult(step));
     if (loopSignature) context.executedSignatures.add(loopSignature);
@@ -512,10 +490,6 @@ async function dispatchTool(
     return proceed({ rawResult, execution });
 }
 
-// ---------------------------------------------------------------
-// Fase 7: procesamiento del resultado
-// ---------------------------------------------------------------
-
 function absorbResult(
     { context, step }: StepRun,
     serverName: McpServerName,
@@ -541,10 +515,6 @@ function absorbResult(
     Object.assign(task.scratchpad, processed.scratchpadDelta);
     return processed;
 }
-
-// ---------------------------------------------------------------
-// Fase 8: verificación (Eos y, en modo PLAN, Qwen como segundo juez)
-// ---------------------------------------------------------------
 
 interface Verdict {
     /** La herramienta corrió sin error, sin timeout, sin denegación y con datos. */
@@ -639,10 +609,6 @@ async function verifyResult(
 
     return { isCleanSignals, eosPassed, eosUnavailable, eos, semantic, callLabel };
 }
-
-// ---------------------------------------------------------------
-// Fase 9: registro del resultado en el paso, la memoria y los eventos
-// ---------------------------------------------------------------
 
 /** Handoff determinista hacia el paso siguiente: hallazgo, referencia y hecho clave. */
 function buildHandoff(step: Step, tool: MCPTool, processed: ProcessedResult): StepHandoff {

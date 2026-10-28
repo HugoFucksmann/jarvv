@@ -69,7 +69,7 @@ const pct = (probabilities: Record<string, number>): string =>
     .join(", ");
 
 /**
- * Respuesta `choice` o `noul` de `key`. `parseResponse` ya garantizó la forma; el narrowing la confirma en compilación.
+ * Respuesta de `key` con el tipo esperado. `parseResponse` ya garantizó la forma: el chequeo solo estrecha el tipo.
  */
 function choiceAnswer(response: DecisionResponse, key: string): DecisionAnswerChoice {
   const answer = response.answers[key];

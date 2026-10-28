@@ -1,19 +1,13 @@
 /**
- * JARVIS Core — Discovery Engine
- * Fuente única de verdad de las capacidades MCP disponibles.
- *
- * Reglas:
- * - Obtiene las herramientas dinámicamente con tools/list.
- * - No depende de catálogos estáticos.
- * - Invalida la caché al reconectar un servidor MCP.
- * - Entrega las herramientas directamente a Decision #2 para que elija.
+ * JARVIS Core — Discovery Engine: fuente única de las herramientas MCP disponibles.
+ * Las obtiene dinámicamente con tools/list (sin catálogos estáticos) y las cachea por servidor; un servidor que
+ * falla queda "no disponible" hasta un refresco forzado.
  */
 
 import type { MCPTool } from "../types.ts";
 import type { IMCPServer } from "./types.ts";
 import { errorMessage } from "../utils.ts";
 
-/** Vigencia de la caché de herramientas por servidor. */
 const TOOLS_CACHE_TTL_MS = 30000;
 
 export class DiscoveryEngine {
@@ -85,7 +79,6 @@ export class DiscoveryEngine {
     }
   }
 
-  /** Instantánea de las herramientas descubiertas en todos los servidores, consultados en paralelo. */
   async discoverAll(forceRefresh = false): Promise<Record<string, MCPTool[]>> {
     const entries = await Promise.all(
       Array.from(this.servers.values(), async (server) => [server.name, await this.getDiscoveredTools(server.name, forceRefresh)] as const)
@@ -93,7 +86,6 @@ export class DiscoveryEngine {
     return Object.fromEntries(entries);
   }
 
-  /** Servidores marcados hoy como no disponibles y el motivo. */
   getUnavailableServers(): Record<string, { reason: string; since: number }> {
     const out: Record<string, { reason: string; since: number }> = {};
     for (const [name, info] of this.unavailableServers.entries()) {

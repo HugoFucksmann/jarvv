@@ -28,11 +28,6 @@ export class TransportError extends Error {
     }
 }
 
-// ============================================================
-// Errores de los motores de razonamiento (Qwen y Decision 2.0)
-// Viven aquí, junto al transporte, para que quien los captura no dependa de las implementaciones.
-// ============================================================
-
 /** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
     readonly raw?: { rawInput: string; timing?: TimeSpan };
