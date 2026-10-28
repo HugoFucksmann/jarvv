@@ -1,6 +1,8 @@
 /**
  * Decision 2.0 — Adaptador HTTP real
- * Modelo: vllm-sr/Decision-2.0-Eos-0.8B (contrato: state + questions -> answers)
+ * Motores soportados por JARVIS:
+ *   - eos : FastAPI local (payload: state + questions → answers)
+ *   - d3  : Ollama local (payload: model + state + questions → answers)
  *
  * - Integración HTTP real contra la URL configurada; sin simulaciones. Si el servicio no está configurado o no
  *   responde, lanza DecisionServiceUnavailableError.
@@ -43,6 +45,27 @@ export class DecisionValidationError extends Error {
 
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
 const NOUL_APPROVE = 0.5;
+
+/**
+ * Construye la URL y el body serializado según el backend configurado.
+ * eos  → /v1/decide,     payload sin model
+ * d3   → /v1/systemone,  payload con model (Ollama)
+ */
+function buildDecisionRequest(
+  config: ReturnType<typeof import("./config.ts").ConfigManager.getConfig>,
+  payload: { state: string; questions: Record<string, unknown> }
+): { url: string; body: string } {
+  const base = config.decisionUrl.replace(/\/+$/, "");
+
+  if (config.decisionBackend === "d3") {
+    const url = base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
+    return { url, body: JSON.stringify({ model: config.decisionModel, ...payload }) };
+  }
+
+  // eos (default)
+  const url = base.endsWith("/v1/decide") ? base : `${base}/v1/decide`;
+  return { url, body: JSON.stringify(payload) };
+}
 
 const pct = (probabilities: Record<string, number>): string =>
   Object.entries(probabilities)
@@ -107,27 +130,24 @@ export class Decision20Engine {
     options?: { signal?: AbortSignal }
   ): Promise<DecisionResponse> {
     const config = ConfigManager.getConfig();
-    const endpoint = config.decisionUrl;
-    if (!endpoint) {
+    if (!config.decisionUrl) {
       throw new DecisionServiceUnavailableError(
         "La URL de Decision 2.0 no está configurada. Configure la URL HTTP en la barra de configuración."
       );
     }
 
     const payload = { state, questions };
-    const body = JSON.stringify(payload);
 
     // Guarda de contexto sobre el payload completo (los `criteria` viajan dentro de `questions`).
-    const estimated = estimateTokens(body);
+    const estimated = estimateTokens(JSON.stringify(payload));
     if (estimated > config.decisionMaxContext) {
       throw new DecisionValidationError(
         `Desbordamiento de contexto: ~${estimated} tokens superan el límite de ${config.decisionMaxContext}.`
       );
     }
 
-    const base = endpoint.replace(/\/+$/, "");
-    const url = base.endsWith("/v1/decide") ? base : `${base}/v1/decide`;
-    console.log(`[Decision → SEND] state=${JSON.stringify(state).slice(0, 300)} questions=${JSON.stringify(questions).slice(0, 300)}`);
+    const { url, body } = buildDecisionRequest(config, payload);
+    console.log(`[Decision → SEND] backend=${config.decisionBackend} url=${url} state=${JSON.stringify(state).slice(0, 200)} questions=${JSON.stringify(questions).slice(0, 200)}`);
 
     let result;
     const startedAt = Date.now();

@@ -36,6 +36,8 @@ export interface PostJsonOptions {
     body: string;
     timeoutMs: number;
     signal?: AbortSignal;
+    /** Headers adicionales que se fusionan sobre los base (Content-Type, Accept). */
+    headers?: Record<string, string>;
 }
 
 export interface PostJsonResult {
@@ -70,7 +72,7 @@ export async function postJson(o: PostJsonOptions): Promise<PostJsonResult> {
     for (let attempt = 0; ; attempt++) {
         let reason: string;
         try {
-            const response = await fetch(o.url, { method: "POST", headers: REQUEST_HEADERS, body: o.body, signal });
+            const response = await fetch(o.url, { method: "POST", headers: { ...REQUEST_HEADERS, ...o.headers }, body: o.body, signal });
             const text = await response.text();
             if (response.status !== 503 || attempt >= LLM_TRANSPORT_RETRIES) {
                 return { ok: response.ok, status: response.status, statusText: response.statusText, text };

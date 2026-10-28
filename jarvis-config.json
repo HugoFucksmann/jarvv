@@ -1,14 +1,29 @@
 {
   "qwenUrl": "http://127.0.0.1:11434",
-  "qwenModel": "qwen3.5:9b",
+  "qwenModel": "qwen3.5:4b",
   "thinking": false,
-  "decisionUrl": "http://127.0.0.1:8765",
+  "qwenNumCtx": 16384,
+  "qwenMaxTokens": {
+    "arguments": 2048,
+    "plan": 4096,
+    "replan": 4096,
+    "verify": 1024,
+    "final": 2048
+  },
+  "qwenTimeoutMs": 120000,
+  "qwenThinkingTimeoutMs": 180000,
+  "decisionUrl": "http://127.0.0.1:11434",
+  "decisionBackend": "d3",
+  "decisionModel": "d3:2b",
+  "decisionMaxContext": 16384,
+  "decisionTimeoutMs": 30000,
   "desktopCommanderMcp": {
     "command": "npx",
     "args": [
       "-y",
       "@wonderwhy-er/desktop-commander"
-    ]
+    ],
+    "allowedDirectories": []
   },
   "freeSearchMcp": {
     "command": "uvx",
@@ -20,8 +35,7 @@
       "free-search-mcp"
     ]
   },
-  "timeoutMs": 30000,
-  "decisionTimeoutMs": 30000,
-  "qwenTimeoutMs": 120000,
-  "mcpTimeoutMs": 30000
+  "mcpTimeoutMs": 30000,
+  "traceEnabled": true,
+  "tracePath": "jarvis-traces.jsonl"
 }
