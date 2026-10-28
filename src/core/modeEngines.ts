@@ -14,8 +14,6 @@ import {
     type Step,
     type StepExecutionResult,
     type StepRoute,
-    type Task,
-    type TaskState,
 } from "./types.ts";
 import {
     type TaskExecutionContext,
@@ -39,6 +37,7 @@ import {
     concludeTask,
     failTask,
     isCancellation,
+    resolveIncompleteState,
 } from "./taskConclusion.ts";
 import { errorMessage } from "./utils.ts";
 
@@ -59,12 +58,6 @@ function toExecutableRoute(route: StepRoute): ExecutableRoute {
         throw new Error("Decision #1 devolvió 'fin' con allowFin=false.");
     }
     return route;
-}
-
-/** PARTIAL si hubo trabajo hecho (completado o sin verificar); FAILED si no. */
-function resolveIncompleteState(task: Task): TaskState {
-    const live = task.steps.filter((s) => !s.superseded);
-    return live.some((s) => s.state === "COMPLETED" || s.state === "UNVERIFIED") ? "PARTIAL" : "FAILED";
 }
 
 /** Sin valores por defecto: ruta y criterio de éxito ya vienen validados de qwen.ts. */

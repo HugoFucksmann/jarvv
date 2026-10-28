@@ -128,7 +128,7 @@ export class ResultProcessor {
     mcp: string,
     tool: string,
     rawResult: MCPCallResult,
-    args: Record<string, unknown> = {},
+    args: Record<string, unknown>,
     taskId: string
   ): ProcessedResult {
     const isError = Boolean(rawResult.isError);

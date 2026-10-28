@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { StepIterationGroupData } from "../../../types/debug.ts";
 import type { ExecutableRoute } from "../../../../src/core/types.ts";
+import { MODELS } from "../../../../src/core/models.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { ModelIterationCard } from "./ModelIterationCard.tsx";
 import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
@@ -25,7 +26,7 @@ export const StepIterationGroup: React.FC<StepIterationGroupProps> = ({
 
   const eosCount = group.iterations.filter((it) => it.model === "EOS_0_8B").length;
   const qwenCount = group.iterations.filter((it) => it.model === "QWEN_3_5_9B").length;
-  const breakdown = [eosCount > 0 && `${eosCount} Eos`, qwenCount > 0 && `${qwenCount} Qwen`]
+  const breakdown = [eosCount > 0 && `${eosCount} ${MODELS.EOS_0_8B.short}`, qwenCount > 0 && `${qwenCount} ${MODELS.QWEN_3_5_9B.short}`]
     .filter(Boolean)
     .join(" · ");
 

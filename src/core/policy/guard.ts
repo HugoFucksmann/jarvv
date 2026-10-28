@@ -73,12 +73,17 @@ export class Guard {
     return DENY_PATTERNS.some((p) => p.test(normalized));
   }
 
+  /** Valor de un argumento si es texto no vacío; evita que un valor que no es texto se imprima como "[object Object]". */
+  private static text(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim() ? value : undefined;
+  }
+
   private static approvalReason(cap: Capability, tool: string, args: Record<string, unknown>): string {
     switch (cap) {
       case "COMMAND_EXECUTION":
-        return `Ejecución de comando en terminal: "${args.command || args.cmd || tool}". Requiere confirmación de seguridad.`;
+        return `Ejecución de comando en terminal: "${Guard.text(args.command) ?? Guard.text(args.cmd) ?? tool}". Requiere confirmación de seguridad.`;
       case "FILE_WRITE":
-        return `Modificación o creación de archivo en la ruta "${args.path || args.filename || "sistema"}".`;
+        return `Modificación o creación de archivo en la ruta "${Guard.text(args.path) ?? Guard.text(args.filename) ?? "sistema"}".`;
       case "PROCESS_CONTROL":
         return `Control de proceso o ciclo de vida de aplicación (${tool}).`;
       case "DOWNLOAD":

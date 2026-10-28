@@ -11,6 +11,7 @@
 
 import type { MCPTool } from "../types.ts";
 import type { IMCPServer } from "./types.ts";
+import { errorMessage } from "../utils.ts";
 
 /**
  * Removes $schema, title, additionalProperties, and examples from inputSchema (§10.3)
@@ -109,9 +110,10 @@ export class DiscoveryEngine {
       this.toolsCache.set(serverName, { tools, lastFetched: now });
       this.unavailableServers.delete(serverName);
       return tools;
-    } catch (err: any) {
-      this.unavailableServers.set(serverName, { reason: err?.message || String(err), since: Date.now() });
-      console.error(`[Discovery] ${serverName} error=${err?.message || err}`);
+    } catch (err) {
+      const reason = errorMessage(err);
+      this.unavailableServers.set(serverName, { reason, since: Date.now() });
+      console.error(`[Discovery] ${serverName} error=${reason}`);
       return cached ? cached.tools : [];
     }
   }

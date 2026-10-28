@@ -48,8 +48,6 @@ export interface PostJsonResult {
 const REQUEST_HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json",
-    "ngrok-skip-browser-warning": "true",
-    "bypass-tunnel-reminder": "true",
 };
 
 function describe(err: unknown): string {

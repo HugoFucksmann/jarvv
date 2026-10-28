@@ -10,7 +10,7 @@
 import type { Task, Step, StepCall } from "../../src/core/types.ts";
 import { EXECUTABLE_ROUTES, type ModelIteration } from "../../src/core/types.ts";
 import { buildEffectsContext } from "../../src/core/context.ts";
-import { callVerdict, finalResponseVerdict } from "../../src/core/modelIterations.ts";
+import { callVerdict, finalResponseVerdict, FIN_DECISION_TITLE } from "../../src/core/modelIterations.ts";
 import type { StepIterationGroupData } from "../types/debug.ts";
 
 export { createIterationFromEvent } from "../../src/core/modelIterations.ts";
@@ -266,7 +266,7 @@ export function groupIterationsByStep(
       } else if (key === "final_response") {
         title = "Respuesta Final y Cierre";
       } else if (key === "routing_fin") {
-        title = "Decisión de Finalización (Eos-0.8B)";
+        title = FIN_DECISION_TITLE;
       } else if (iter.stepSeq) {
         title = `Paso #${iter.stepSeq}: ${iter.stepTitle || ""}`;
       }

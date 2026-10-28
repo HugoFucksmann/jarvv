@@ -44,14 +44,15 @@ const STATE_LABEL: Partial<Record<TaskState, string>> = { COMPLETED: "Completada
 export const formatTaskSummary = (context: TaskExecutionContext, state: TaskState, reason: string): string =>
     `[Task Summary] id=${context.task.id} state=${state} reason="${reason}" calls=${context.totalToolCalls} escalations=${context.escalations} duration=${Date.now() - context.startTime}ms`;
 
-/** PARTIAL si se completó al menos un paso productivo; FAILED si no. */
-function resolveFailureState(task: Task): TaskState {
-    return task.steps.some((s) => s.state === "COMPLETED") ? "PARTIAL" : "FAILED";
+/** Única regla de cierre incompleto: PARTIAL si hubo trabajo hecho (algún paso vigente COMPLETED o UNVERIFIED); FAILED si no. */
+export function resolveIncompleteState(task: Task): TaskState {
+    const live = task.steps.filter((s) => !s.superseded);
+    return live.some((s) => s.state === "COMPLETED" || s.state === "UNVERIFIED") ? "PARTIAL" : "FAILED";
 }
 
 /** Cierra la tarea como PARTIAL o FAILED según lo logrado. */
 export function concludeAsFailure(context: TaskExecutionContext, deps: EngineDependencies, reason: string): Promise<void> {
-    return concludeTask(context, resolveFailureState(context.task), deps, reason);
+    return concludeTask(context, resolveIncompleteState(context.task), deps, reason);
 }
 
 /**

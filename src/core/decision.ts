@@ -25,6 +25,7 @@ import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
 import { estimateTokens, postJson, TransportError } from "./llmTransport.ts";
 import { errorMessage, isRecord } from "./utils.ts";
+import { MODELS } from "./models.ts";
 
 export class DecisionServiceUnavailableError extends Error {
   constructor(message: string, cause?: unknown) {
@@ -124,7 +125,8 @@ export class Decision20Engine {
       );
     }
 
-    const url = endpoint.endsWith("/v1/decide") ? endpoint : `${endpoint.replace(/\/+$/, "")}/v1/decide`;
+    const base = endpoint.replace(/\/+$/, "");
+    const url = base.endsWith("/v1/decide") ? base : `${base}/v1/decide`;
     console.log(`[Decision → SEND] state=${JSON.stringify(state).slice(0, 300)} questions=${JSON.stringify(questions).slice(0, 300)}`);
 
     let result;
@@ -256,7 +258,7 @@ export class Decision20Engine {
     const cumple = cumpleProbability > NOUL_APPROVE;
 
     console.log(
-      `[StepVerification Eos] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
+      `[StepVerification ${MODELS.EOS_0_8B.short}] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
     );
     return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }

@@ -58,15 +58,11 @@ export class RefStore {
     }
 
     /**
-     * Libera las referencias de una tarea (o todas). Las refs de una tarea terminada se conservan en memoria, para que su
+     * Libera las referencias de una tarea. Las refs de una tarea terminada se conservan en memoria, para que su
      * evidencia siga consultable mientras la tarea esté en el historial; solo se liberan cuando la tarea se expulsa.
      */
-    static clear(taskId?: string): void {
-        if (taskId) {
-            RefStore.tasks.delete(taskId);
-        } else {
-            RefStore.tasks.clear();
-        }
+    static clear(taskId: string): void {
+        RefStore.tasks.delete(taskId);
     }
 }
 

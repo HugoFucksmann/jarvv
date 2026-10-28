@@ -5,6 +5,7 @@ import type { ModelIteration } from "../../types/debug.ts";
 import { groupIterationsByStep } from "../../utils/debugAccumulator.ts";
 import { StepIterationGroup } from "./components/StepIterationGroup.tsx";
 import { Separator } from "../Shared/Separator.tsx";
+import { MODELS } from "../../../src/core/models.ts";
 
 interface DecisionStreamProps {
   events: CoreEvent[];
@@ -131,13 +132,13 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
           {totalEos > 0 && (
             <>
               <Separator />
-              <span className="text-sky-300 tabular-nums">{totalEos} Eos-0.8B</span>
+              <span className="text-sky-300 tabular-nums">{totalEos} {MODELS.EOS_0_8B.name}</span>
             </>
           )}
           {totalQwen > 0 && (
             <>
               <Separator />
-              <span className="text-indigo-300 tabular-nums">{totalQwen} Qwen 3.5 9B</span>
+              <span className="text-indigo-300 tabular-nums">{totalQwen} {MODELS.QWEN_3_5_9B.name}</span>
             </>
           )}
         </div>

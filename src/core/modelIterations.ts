@@ -10,6 +10,9 @@
 import type { CallStatus, CoreEvent, ExecutedCallStatus, Step, Task, TaskState, TimeSpan } from "./types.ts";
 import { EXECUTABLE_ROUTES, type ModelIteration } from "./types.ts";
 import { buildEffectsContext } from "./context.ts";
+import { MODELS } from "./models.ts";
+
+export const FIN_DECISION_TITLE = `Decisión de Finalización (${MODELS.EOS_0_8B.name})`;
 
 // Instantáneas: captura el estado en el instante exacto del evento
 const snapLog = (t?: Task | null): string[] => [...(t?.memory?.log ?? [])];
@@ -191,7 +194,7 @@ function fromDecisionOne({ event, task, taskId, ts, stepId }: EventContext): Mod
     : (isFin ? undefined : targetStepSeq);
 
   const stepTitle = isFin
-    ? "Decisión de Finalización (Eos-0.8B)"
+    ? FIN_DECISION_TITLE
     : (matchingStep
       ? `Paso #${resolvedStepSeq}: Enrutamiento (${matchingStep.instruction.slice(0, 35)})`
       : `Paso #${resolvedStepSeq || 1}: Enrutamiento de Subsistema`);

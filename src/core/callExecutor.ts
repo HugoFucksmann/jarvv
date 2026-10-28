@@ -816,19 +816,19 @@ export async function runStep(
     if (!selectedTool) return cancelledResult(step);
 
     const generated = await generateStepArguments(run, selectedTool);
-    if (!generated.proceed) return generated.result;
+    if (generated.proceed === false) return generated.result;
     const args = generated.value;
 
     const policy = getToolPolicy(serverName, selectedTool.name);
 
     const loopCheck = checkAntiLoop(run, serverName, selectedTool.name, args, policy);
-    if (!loopCheck.proceed) return loopCheck.result;
+    if (loopCheck.proceed === false) return loopCheck.result;
 
     const authorized = await authorizeCall(run, serverName, selectedTool, args);
-    if (!authorized.proceed) return authorized.result;
+    if (authorized.proceed === false) return authorized.result;
 
     const dispatched = await dispatchTool(run, serverName, server, selectedTool, args, loopCheck.value);
-    if (!dispatched.proceed) return dispatched.result;
+    if (dispatched.proceed === false) return dispatched.result;
     const { rawResult, execution } = dispatched.value;
 
     const processed = absorbResult(run, serverName, selectedTool, args, rawResult, policy);

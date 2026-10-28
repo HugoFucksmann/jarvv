@@ -1,4 +1,4 @@
-import { MCPTool, MCPCallResult } from "../types.ts";
+import type { MCPTool, MCPCallResult } from "../types.ts";
 
 export interface IMCPServer {
   readonly name: string;

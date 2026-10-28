@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ModelIteration } from "../../../types/debug.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
+import { MODELS } from "../../../../src/core/models.ts";
 
 interface ModelIterationCardProps {
   iteration: ModelIteration;
@@ -34,7 +35,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
   const isEos = iteration.model === "EOS_0_8B";
   const modelColorClass = isEos ? "text-sky-400" : "text-indigo-400";
   const modelBgClass = isEos ? "bg-sky-950/20 border-sky-900/50" : "bg-indigo-950/20 border-indigo-900/50";
-  const modelBadgeName = isEos ? "Eos-0.8B" : "Qwen 3.5 9B";
+  const modelBadgeName = MODELS[iteration.model].name;
 
   const getStageTitle = (stage: ModelIteration["stage"]) => {
     switch (stage) {
@@ -360,7 +361,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   {Object.keys(d1Probabilities).length > 0 && (
                     <div className="flex flex-col gap-1.5 pt-1">
                       <span className="text-slate-400 font-medium text-[10px]">
-                        Distribución de Probabilidades Eos-0.8B:
+                        Distribución de Probabilidades {MODELS.EOS_0_8B.name}:
                       </span>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {Object.entries(d1Probabilities).map(([key, val]) => {
@@ -415,7 +416,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   {Object.keys(d2Probabilities).length > 0 && (
                     <div className="flex flex-col gap-1.5 pt-1">
                       <span className="text-slate-400 font-medium text-[10px]">
-                        Herramientas Evaluadas por Eos-0.8B:
+                        Herramientas Evaluadas por {MODELS.EOS_0_8B.name}:
                       </span>
                       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
                         {Object.entries(d2Probabilities)
@@ -571,7 +572,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
             <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
               <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
                 <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
-                  Entrada Cruda ({isEos ? "Payload { state, questions } enviado a Eos" : "Payload JSON completo enviado a Qwen"})
+                  Entrada Cruda ({isEos ? `Payload { state, questions } enviado a ${MODELS.EOS_0_8B.short}` : `Payload JSON completo enviado a ${MODELS.QWEN_3_5_9B.short}`})
                 </span>
                 <CopyButton
                   text={displayInput}
@@ -592,7 +593,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
             <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
               <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
                 <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
-                  Salida Cruda ({isEos ? "Respuesta original devuelta por Eos" : "Respuesta original devuelta por Qwen"})
+                  Salida Cruda ({isEos ? `Respuesta original devuelta por ${MODELS.EOS_0_8B.short}` : `Respuesta original devuelta por ${MODELS.QWEN_3_5_9B.short}`})
                 </span>
                 <CopyButton
                   text={displayOutput}

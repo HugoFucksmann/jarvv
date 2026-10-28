@@ -256,6 +256,8 @@ export class JarvisCore {
       );
     } catch (err) {
       if (err instanceof RequestAbortedError) return;
+      // Igual que tras el éxito: si durante la generación el usuario confirmó, rechazó o canceló, el fallo ya no aplica.
+      if (!this.isAwaitingPlanConfirmation(context)) return;
       reportFailure(errorMessage(err));
       return;
     }

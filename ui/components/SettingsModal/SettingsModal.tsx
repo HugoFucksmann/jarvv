@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Settings, X, Check, Terminal, Loader2, AlertCircle, Cpu, Timer } from "lucide-react";
 import type { JarvisConfig } from "../../../src/core/config.ts";
 import { jarvisApi } from "../../services/jarvisApi.ts";
+import { MODELS } from "../../../src/core/models.ts";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -316,7 +317,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
               <div className="pl-1 pt-2">
                 <UrlField
                   id="cfg-decision-url"
-                  label="Decision 2.0 URL (Eos-0.8B / HTTP):"
+                  label={`Decision 2.0 URL (${MODELS.EOS_0_8B.name} / HTTP):`}
                   value={config.decisionUrl}
                   placeholder="http://127.0.0.1:8765"
                   onChange={(decisionUrl) => update({ decisionUrl })}
