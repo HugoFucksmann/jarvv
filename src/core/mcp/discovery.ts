@@ -14,7 +14,7 @@ import type { IMCPServer } from "./types.ts";
 import { errorMessage } from "../utils.ts";
 
 /**
- * Removes $schema, title, additionalProperties, and examples from inputSchema (§10.3)
+ * Removes $schema, title, additionalProperties, and examples from inputSchema
  */
 export function cleanInputSchema(schema: Record<string, unknown>): Record<string, unknown> {
   if (!schema || typeof schema !== "object") return {};
@@ -154,8 +154,6 @@ export class DiscoveryEngine {
   }
 
   private normalizeServerName(name: string): string | null {
-    if (name === "desktop_commander" || name === "desktop" || name === "commander") return "desktop_commander";
-    if (name === "free_search" || name === "search" || name === "web") return "free_search";
     return this.servers.has(name) ? name : null;
   }
 }

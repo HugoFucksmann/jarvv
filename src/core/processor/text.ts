@@ -4,7 +4,7 @@
  */
 
 /**
- * Sanitizes external text to a single line, stripping control chars and escaping delimiters (§10.7)
+ * Sanitizes external text to a single line, stripping control chars and escaping delimiters
  */
 export function sanitizeForMemory(text: string, maxLen = 120): string {
     if (!text) return "";

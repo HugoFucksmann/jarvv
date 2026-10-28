@@ -463,10 +463,10 @@ export async function initiatePlanMode(
 
     let plan: Plan;
     try {
-        plan = await deps.qwenEngine.generatePlan(task.message, undefined, context.abortController.signal);
+        plan = await deps.qwenEngine.generatePlan(task.message, context.abortController.signal);
     } catch (err) {
         if (isCancellation(context, err)) return;
-        console.error(`[PLAN] Plan inválido:`, err instanceof Error ? err.message : err);
+        console.error(`[PLAN] Plan inválido:`, errorMessage(err));
         failTask(context, deps, new Error(`Plan inválido: ${errorMessage(err)}`));
         return;
     }

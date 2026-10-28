@@ -37,7 +37,7 @@ import { refLabel } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
-import { errorMessage } from "./utils.ts";
+import { errorMessage, newId } from "./utils.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
@@ -75,7 +75,7 @@ function requestUserApproval(
 ): Promise<boolean> {
     return new Promise((resolve) => {
         context.pendingApproval = {
-            id: `approval_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            id: newId("approval"),
             stepId: step.id,
             ...request,
             onApprove: () => {

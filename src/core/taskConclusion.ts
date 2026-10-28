@@ -12,9 +12,6 @@ import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.
 import { sanitizeForMemory } from "./processor/text.ts";
 import { errorMessage } from "./utils.ts";
 
-// Se mantiene aquí por compatibilidad: otros módulos la importaban desde el cierre de tareas.
-export { errorMessage };
-
 /** Una cancelación del usuario nunca es un error que reportar. */
 export const isCancellation = (context: TaskExecutionContext, err: unknown): boolean =>
     context.isCancelled || err instanceof RequestAbortedError;

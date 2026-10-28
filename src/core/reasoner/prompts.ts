@@ -15,6 +15,7 @@ import {
 } from "../types.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
 import type { UserEnvironment } from "../environment.ts";
+import { clip, clipTail } from "../utils.ts";
 
 // ============================================================
 // Helpers
@@ -52,13 +53,6 @@ const MAX_VERIFY_RESULT_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_OBSERVATION_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_ATTEMPTS = 8;
 const MAX_NOTE_CHARS = 60;
-
-const clip = (s: string, n: number): string =>
-  s.length > n ? s.slice(0, n - 1) + "…" : s;
-
-/** Conserva el final (lo más reciente). */
-const clipTail = (s: string, n: number): string =>
-  s.length > n ? "…" + s.slice(-(n - 1)) : s;
 
 const REF_MARKER = /\bref:r\d+\b/i;
 const REF_KEY = /ref:r\d+/i;

@@ -16,6 +16,7 @@ import {
   isExecutableRoute,
   type MCPTool,
   type Plan,
+  type PlanRevision,
   type PlanStep,
   type StageVerificationPromptData,
   type StageVerificationResult,
@@ -154,14 +155,7 @@ export interface ILLMClient {
 
   generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult>;
 
-  generatePlan(
-    userMessage: string,
-    chatContext?: string,
-    signal?: AbortSignal,
-    compactCatalog?: string,
-    modificationFeedback?: string,
-    existingPlanSummary?: string
-  ): Promise<Plan>;
+  generatePlan(userMessage: string, signal?: AbortSignal, revision?: PlanRevision): Promise<Plan>;
 
   replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult>;
 
@@ -650,21 +644,14 @@ export class QwenEngine implements ILLMClient {
   }
 
   /** Plan inicial. `steps: []` es válido (la solicitud no requiere herramientas). */
-  async generatePlan(
-    userMessage: string,
-    chatContext?: string,
-    signal?: AbortSignal,
-    compactCatalog?: string,
-    modificationFeedback?: string,
-    existingPlanSummary?: string
-  ): Promise<Plan> {
+  async generatePlan(userMessage: string, signal?: AbortSignal, revision?: PlanRevision): Promise<Plan> {
     return this.executeStage("generatePlan", async () => {
       const userPrompt = PROMPTS.PLAN.buildUserPrompt(
         userMessage,
-        chatContext,
-        compactCatalog || buildCompactCatalog(),
-        modificationFeedback,
-        existingPlanSummary
+        undefined, // chatContext: ningún llamador lo usaba
+        buildCompactCatalog(),
+        revision?.feedback,
+        revision?.existingPlanSummary
       );
 
       const { value, res } = await this.dispatchValidated<{ objective: string; steps: PlanStep[] }>({

@@ -7,6 +7,7 @@ import {
   MAX_RETAINED_TASKS,
   isTerminalState,
   type CoreEvent,
+  type CoreEventDataMap,
   type CoreEventType,
   type PendingApproval,
   type Plan,
@@ -30,7 +31,7 @@ import {
   planStepsToSteps,
 } from "./modeEngines.ts";
 import { failTask, formatTaskSummary } from "./taskConclusion.ts";
-import { errorMessage } from "./utils.ts";
+import { errorMessage, newId } from "./utils.ts";
 import { createIterationFromEvent } from "./modelIterations.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 
@@ -91,14 +92,15 @@ export class JarvisCore {
     }
   }
 
-  private emitEvent(taskId: string, type: CoreEventType, data: Record<string, unknown> = {}, stepId?: string) {
-    const event: CoreEvent = {
+  private emitEvent<T extends CoreEventType>(taskId: string, type: T, data: CoreEventDataMap[T], stepId?: string) {
+    // Cast a CoreEvent necesario debido a la unión correlacionada (T y CoreEventDataMap[T] varían juntos)
+    const event = {
       type,
       timestamp: Date.now(),
       taskId,
       stepId,
       data,
-    };
+    } as CoreEvent;
 
     // Almacenamiento determinista en memoria/contexto de la iteración de modelo
     const task = this.taskContexts.get(taskId)?.task;
@@ -152,7 +154,7 @@ export class JarvisCore {
 
   // --- Task Initiation ---
   async initiateTask(message: string, mode: TaskMode = "NORMAL"): Promise<Task> {
-    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const taskId = newId("task");
     const task: Task = {
       id: taskId,
       message,
@@ -248,11 +250,8 @@ export class JarvisCore {
     try {
       newPlan = await this.qwenEngine.generatePlan(
         task.message,
-        undefined,
         context.abortController.signal,
-        undefined,
-        feedback,
-        existingPlanSummary
+        { feedback, existingPlanSummary }
       );
     } catch (err) {
       if (err instanceof RequestAbortedError) return;
