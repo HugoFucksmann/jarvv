@@ -25,6 +25,8 @@ Cada ítem del informe original se constató contra el código; lo que sigue abi
 | Errores de tipo en `qwen.ts` (`Validation`) | Corregidos; `tsc` limpio confirma el narrowing sin necesidad de `=== true` / `=== false` |
 | `scratchpadDelta.process_id = undefined` | Validado: `executeMcpCall` (`callExecutor.ts`, `Object.assign`) y `ResultProcessor.process` (spread) lo preservan deliberadamente |
 | D8-d (fase back) | Aplicado: `src/core/events.ts` con `CoreEventDataMap` (18 eventos vivos tipados), `DISCOVERY_REFRESH` eliminado y `emitEvent` genérico |
+| D8-f (`types.ts` modularizado) | Aplicado: dividido en 9 submódulos en `src/core/types/` (`audit`, `decision`, `execution`, `limits`, `mcp`, `plan`, `policy`, `routes`, `task`) re-exportados por barrel en `types.ts` sin alterar imports externos |
+| D8-g (Forma del plan y contrato Qwen) | Aplicado: `PlanStepWire` en `types/plan.ts`, validación compile-time con `STEP_WIRE_PROPERTIES satisfies Record<keyof PlanStepWire, JsonSchema>`, traducción única en `parsePlanSteps`, y `modelIterations.ts` tipado con `Step[]` (eliminados `PlanStepData` y alias) |
 | Re-export `errorMessage` en `taskConclusion.ts` | Eliminado (código muerto: todos los módulos lo importan de `utils.ts`) |
 | Alias de servidores en `DiscoveryEngine` (A4b) | Aplicado: eliminados alias informales (`desktop`, `commander`, `search`, `web`) de `normalizeServerName` en `discovery.ts` |
 | C1, A4a, B3 | Sin cambios, ya resueltos como "se mantiene" |
@@ -33,17 +35,19 @@ Cada ítem del informe original se constató contra el código; lo que sigue abi
 
 ## Validaciones realizadas y estado
 
-1. **`npm run lint` (`tsc --noEmit`).** El script `"lint"` de `package.json` ejecuta `tsc --noEmit`. Se corrió reiteradas veces en todo el proyecto; compila en limpio con código de salida 0 (sin errores en backend, scripts ni ui). Adicionalmente, `npm run build` (`vite build`) completó en 614ms con código 0.
+1. **`npm run lint` (`tsc --noEmit`).** El script `"lint"` de `package.json` ejecuta `tsc --noEmit`. Se corrió reiteradas veces en todo el proyecto; compila en limpio con código de salida 0 (sin errores en backend, scripts ni ui). Adicionalmente, `npm run build` (`vite build`) completó con código 0.
 2. **Llamadores de `generatePlan`.** Constatados y actualizados en `modifyPlan` (`core.ts`) e `initiatePlanMode` (`modeEngines.ts`).
 3. **Limpieza UI de dependencias/herramientas candidatas.** Eliminados los bloques condicionales en `PlanReview.tsx` y `StepItem.tsx`.
 4. **`deriveTaskView` y `rawInteractions`.** Eliminados por completo de `ui/utils/debugAccumulator.ts` y `src/core/types.ts`.
 5. **`clip` y `clipTail` + constantes de `planLine`.** Unificados en `src/core/utils.ts` y constantes nombradas en `src/core/context.ts`.
 6. **IDs unificados y trazas.** `newId` en `utils.ts` y creación recursiva de directorio en `recordTaskTrace`.
 7. **Limpieza de citas huérfanas en comentarios.** Comprobado grep en 0 ocurrencias de `§` y `MCP_REAL_OUTPUTS` en `src`, `scripts` y `ui`.
+8. **Modularización de `types.ts` (D8-f).** Separado en 9 archivos de dominio en `src/core/types/`. El barrel raíz `src/core/types.ts` mantiene intacto el contrato para todos los consumidores del repositorio.
+9. **Contrato de paso Qwen vs Dominio (D8-g).** Formalizado contrato de red en `PlanStepWire` y validado contra el schema JSON con `satisfies`. `parsePlanSteps` actúa como frontera única hacia `PlanStep`. Todos los emisores (`core.ts:278`, `modeEngines.ts:292, 490`) emiten `Step[]`, permitiendo sanear `modelIterations.ts` eliminando `PlanStepData` y los fallbacks de alias.
 
 ## Estructural
 
-Ocho puntos abiertos que tocan infraestructura, flujo o core, y requieren decisión/aprobación. (D8-d fase back ya fue resuelta y movida a la tabla de Estado).
+Seis puntos abiertos que tocan infraestructura, flujo o core, y requieren decisión/aprobación. (D8-d, D8-f y D8-g ya fueron resueltos y movidos a la tabla de Estado).
 
 | Punto | Evidencia en el código | Qué implica cambiarlo | Recomendación |
 | --- | --- | --- | --- |
@@ -53,8 +57,6 @@ Ocho puntos abiertos que tocan infraestructura, flujo o core, y requieren decisi
 | D8-b. Dependencias concretas | `JarvisCore` recibe `Decision20Engine` y `DiscoveryEngine` (constructor); `callExecutor.ts` deriva tipos de `DiscoveryEngine`; solo `ILLMClient` es interfaz | Interfaces nuevas y ajustes en `engineDeps.ts` | Dejar, salvo que necesites mocks |
 | D8-c. Singletons estáticos | `RefStore` (`context.ts`, `core.ts`) y `ConfigManager` (`qwen.ts`) se usan directo | Hacerlos inyectables toca cada módulo que los usa | Dejar |
 | D8-e. Dos vocabularios de estado de llamada | `CallStatus` y `StepExecutionStatus` en `types.ts`; `classifyCall` y `settleCall` en `callExecutor.ts` traducen | Unificar cambia el resultado que consume `modeEngines` | Dejar |
-| D8-f. `types.ts` concentra 74 exports | Verificado: incluye funciones auxiliares (`isExecutableRoute`, `isTerminalState`) y constantes | Dividir el archivo cambia imports en todo el proyecto | Dejar |
-| D8-g. Forma del plan repartida | `qwen.ts`, `prompts.ts`, `modeEngines.ts` y `modelIterations.ts`; este último acepta ambos nombres (`goal`/`instruction`, `suggested_mcp`/`route`). D1 ya redujo la firma de `generatePlan` | Un tipo único de paso afecta a los cuatro archivos y a la UI | Dejar |
 
 ## Duplicaciones y estilo
 

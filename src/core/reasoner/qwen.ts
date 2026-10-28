@@ -14,23 +14,26 @@ import {
   LLM_INVALID_OUTPUT_RETRIES,
   MAX_STEPS,
   isExecutableRoute,
+  type ArgumentPromptData,
+  type ArgumentsGenerationResult,
+  type FailedAttempt,
+  type FinalResponsePromptData,
+  type FinalResponseResult,
   type MCPTool,
   type Plan,
   type PlanRevision,
   type PlanStep,
+  type PlanStepWire,
+  type ReplanPromptData,
+  type ReplanResult,
   type StageVerificationPromptData,
   type StageVerificationResult,
   type StageVerificationStatus,
   type TimeSpan,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
-import {
-  PROMPTS,
-  retryNote,
-  type ArgumentPromptData,
-  type FinalResponsePromptData,
-  type ReplanPromptData,
-} from "./prompts.ts";
+import { PROMPTS, retryNote } from "./prompts.ts";
+import type { ILLMClient } from "../engineDeps.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
 import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
 import { estimateTokens, postJson, RequestAbortedError, TransportError } from "../llmTransport.ts";
@@ -44,14 +47,6 @@ export class LLMServiceUnavailableError extends Error {
     this.name = "LLMServiceUnavailableError";
     this.raw = raw;
   }
-}
-
-/** Intercambio cuya salida no se pudo usar. */
-export interface FailedAttempt {
-  rawInput: string;
-  rawOutput: string;
-  error: string;
-  timing?: TimeSpan;
 }
 
 /** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
@@ -68,16 +63,19 @@ export class LLMValidationError extends Error {
 
 type JsonSchema = Record<string, unknown>;
 
+/** Claves del paso en el contrato con Qwen (PlanStepWire): `satisfies` obliga a que schema y tipo coincidan. */
+const STEP_WIRE_PROPERTIES = {
+  goal: { type: "string" },
+  suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
+  expected_outcome: { type: "string" },
+} satisfies Record<keyof PlanStepWire, JsonSchema>;
+
 const STEPS_SCHEMA: JsonSchema = {
   type: "array",
   items: {
     type: "object",
-    properties: {
-      goal: { type: "string" },
-      suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
-      expected_outcome: { type: "string" },
-    },
-    required: ["goal", "suggested_mcp", "expected_outcome"],
+    properties: STEP_WIRE_PROPERTIES,
+    required: Object.keys(STEP_WIRE_PROPERTIES),
     additionalProperties: false,
   },
   maxItems: MAX_STEPS,
@@ -125,42 +123,6 @@ export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
   required: ["status", "reason", "question_for_user"],
   additionalProperties: false,
 };
-
-export interface ArgumentsGenerationResult {
-  args: Record<string, unknown>;
-  rawInput: string;
-  rawOutput: string;
-  timing: TimeSpan;
-  failedAttempts?: FailedAttempt[];
-}
-
-export interface FinalResponseResult {
-  response: string;
-  rawInput: string;
-  rawOutput: string;
-  timing: TimeSpan;
-}
-
-export interface ReplanResult {
-  action?: "abort" | "continue";
-  reason?: string;
-  plan?: Plan;
-  rawInput?: string;
-  rawOutput?: string;
-  timing?: TimeSpan;
-}
-
-export interface ILLMClient {
-  generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult>;
-
-  generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult>;
-
-  generatePlan(userMessage: string, signal?: AbortSignal, revision?: PlanRevision): Promise<Plan>;
-
-  replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult>;
-
-  verifyStage(data: StageVerificationPromptData, signal?: AbortSignal): Promise<StageVerificationResult>;
-}
 
 interface QwenDispatchResult {
   content: string;
@@ -318,6 +280,7 @@ export function validateArgs(args: Record<string, unknown>, schema: MCPTool["inp
 /**
  * Valida y normaliza pasos de plan. No corrige nada en silencio: ruta inválida, texto vacío o exceso de
  * pasos devuelven un error que se inyecta en el reintento. Los id los asigna el código (s<firstNumber>…).
+ * Único punto donde PlanStepWire (formato de Qwen) se traduce a PlanStep (dominio).
  */
 export function parsePlanSteps(
   raw: unknown,
@@ -332,13 +295,14 @@ export function parsePlanSteps(
   for (const [i, s] of raw.entries()) {
     const n = i + 1;
     if (!isRecord(s)) return { error: `paso ${n}: no es un objeto` };
-    const goal = nonEmptyString(s.goal);
+    const wire: Partial<Record<keyof PlanStepWire, unknown>> = s;
+    const goal = nonEmptyString(wire.goal);
     if (!goal) return { error: `paso ${n}: 'goal' vacío` };
-    const route = s.suggested_mcp;
+    const route = wire.suggested_mcp;
     if (!isExecutableRoute(route)) {
       return { error: `paso ${n}: suggested_mcp ${JSON.stringify(route)} inválido; debe ser uno de ${EXECUTABLE_ROUTES.join(", ")}` };
     }
-    const expected = nonEmptyString(s.expected_outcome);
+    const expected = nonEmptyString(wire.expected_outcome);
     if (!expected) return { error: `paso ${n}: 'expected_outcome' vacío` };
 
     steps.push({ id: `s${firstNumber + i}`, instruction: goal, route, expectedOutcome: expected });

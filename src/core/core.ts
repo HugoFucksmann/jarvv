@@ -15,12 +15,9 @@ import {
   type Task,
   type TaskMode,
 } from "./types.ts";
-import { Decision20Engine } from "./decision.ts";
-import { DiscoveryEngine } from "./mcp/discovery.ts";
-import { QwenEngine, type ILLMClient } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { type TaskExecutionContext, createEmptyMemory, createTaskContext, ensureMemory } from "./context.ts";
-import type { EngineDependencies } from "./engineDeps.ts";
+import type { EngineDependencies, IDiscoveryEngine } from "./engineDeps.ts";
 import { RefStore } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 
@@ -41,28 +38,27 @@ export type CoreEventListener = (event: CoreEvent) => void;
 /** Estados de paso que una cancelación deja como fallidos (el paso ya no llegará a completarse). */
 const CANCELLABLE_STEP_STATES: readonly StepState[] = ["PENDING", "RUNNING", "WAITING_APPROVAL"];
 
+/** Motores que recibe JarvisCore; los construye la raíz de composición (server.ts). */
+export type JarvisCoreDeps = Omit<EngineDependencies, "emitEvent">;
+
 export class JarvisCore {
-  private decisionEngine: Decision20Engine;
-  private discoveryEngine: DiscoveryEngine;
-  private qwenEngine: ILLMClient;
+  private decisionEngine: EngineDependencies["decisionEngine"];
+  private discoveryEngine: EngineDependencies["discoveryEngine"];
+  private llm: EngineDependencies["llm"];
   private taskContexts: Map<string, TaskExecutionContext> = new Map();
   private listeners: Set<CoreEventListener> = new Set();
 
-  constructor(
-    decisionEngine?: Decision20Engine,
-    discoveryEngine?: DiscoveryEngine,
-    qwenEngine?: ILLMClient
-  ) {
-    this.decisionEngine = decisionEngine || new Decision20Engine();
-    this.discoveryEngine = discoveryEngine || new DiscoveryEngine();
-    this.qwenEngine = qwenEngine || new QwenEngine();
+  constructor({ decisionEngine, discoveryEngine, llm }: JarvisCoreDeps) {
+    this.decisionEngine = decisionEngine;
+    this.discoveryEngine = discoveryEngine;
+    this.llm = llm;
   }
 
   private getEngineDeps(): EngineDependencies {
     return {
       decisionEngine: this.decisionEngine,
       discoveryEngine: this.discoveryEngine,
-      qwenEngine: this.qwenEngine,
+      llm: this.llm,
       emitEvent: (taskId, type, data, stepId) => this.emitEvent(taskId, type, data, stepId),
     };
   }
@@ -130,7 +126,7 @@ export class JarvisCore {
     return null;
   }
 
-  getDiscoveryEngine(): DiscoveryEngine {
+  getDiscoveryEngine(): IDiscoveryEngine {
     return this.discoveryEngine;
   }
 
@@ -248,7 +244,7 @@ export class JarvisCore {
 
     let newPlan: Plan;
     try {
-      newPlan = await this.qwenEngine.generatePlan(
+      newPlan = await this.llm.generatePlan(
         task.message,
         context.abortController.signal,
         { feedback, existingPlanSummary }

@@ -8,13 +8,15 @@ import {
   MAX_EVIDENCE_OBS_CHARS,
   MAX_STEPS,
   MAX_TOOL_DESC_CHARS,
+  type ArgumentPromptData,
   type Attempt,
   type DecisionQuestion,
+  type FinalResponsePromptData,
   type MCPTool,
+  type ReplanPromptData,
   type StageVerificationPromptData,
 } from "../types.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
-import type { UserEnvironment } from "../environment.ts";
 import { clip, clipTail } from "../utils.ts";
 
 // ============================================================
@@ -166,55 +168,6 @@ export const retryNote = (previousError?: string): string =>
   previousError
     ? `\n\nERROR_PREVIO: tu respuesta anterior fue inválida (${safe(clip(previousError, MAX_ERROR_NOTE_CHARS))}). Corrígela y responde de nuevo.`
     : "";
-
-// ============================================================
-// Interfaces
-// ============================================================
-
-export interface ArgumentPromptData {
-  goal: string;
-  chatContext?: string;
-  logLines?: string[];
-  planLines?: string[];
-  failLines?: string[];
-  facts?: Record<string, string>;
-  effects?: string[];
-  /** Referencias disponibles (`ref:rX origen (tamaño)`), las más recientes. */
-  refs?: string[];
-  /** Rutas reales de esta PC (carpeta personal, escritorio, documentos, descargas). */
-  environment: UserEnvironment;
-  tool: MCPTool;
-  cleanedSchema: Record<string, unknown>;
-  /** Lecturas anteriores con datos (la más antigua primero): lo que el paso puede necesitar y ya no es la última llamada. */
-  dataObs?: Array<{ stepId: string; label: string; obsText: string }>;
-  lastObs?: { stepId: string; toolName: string; obsText: string };
-  taskInstruction: string;
-}
-
-export interface FinalResponsePromptData {
-  goal: string;
-  logLines: string[];
-  facts: Record<string, string>;
-  failLines: string[];
-  effects?: string[];
-  evidenceSummaries: string[];
-  abortReason?: string;
-}
-
-export interface ReplanPromptData {
-  goal: string;
-  completedStepsSummary: string[];
-  facts: Record<string, string>;
-  failLines: string[];
-  /** Cambios ya aplicados al entorno (incluidos los de pasos cuya verificación falló). */
-  effects?: string[];
-  logLines?: string[];
-  failedStepGoal: string;
-  failedStepResult: string;
-  remainingPlanGoals: string[];
-  /** Numeración del primer paso nuevo; la asigna el código, el prompt no la menciona. */
-  nextStepNumber: number;
-}
 
 // ============================================================
 // Prompts para Qwen

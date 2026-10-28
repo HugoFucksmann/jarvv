@@ -176,7 +176,7 @@ async function synthesizeFinalResponse(
 ): Promise<SynthesisRaw> {
     const { task } = context;
     try {
-        const finalRes = await deps.qwenEngine.generateFinalResponse({
+        const finalRes = await deps.llm.generateFinalResponse({
             goal: task.message,
             logLines: task.memory?.log || [],
             facts: task.memory?.facts || {},

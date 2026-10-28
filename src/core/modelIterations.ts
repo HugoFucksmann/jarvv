@@ -130,20 +130,10 @@ interface StageVerifiedData extends StageFields {
   situation?: unknown;
 }
 
-interface PlanStepData {
-  id?: string;
-  instruction?: string;
-  goal?: string;
-  route?: string;
-  suggested_mcp?: string;
-  expectedOutcome?: string;
-  expected_outcome?: string;
-  superseded?: boolean;
-}
-
 interface PlanGeneratedData extends ModelExchange {
   replan?: boolean;
-  steps?: PlanStepData[];
+  /** PLAN_GENERATED emite los pasos de la tarea (forma de dominio); no el formato JSON de Qwen. */
+  steps?: Step[];
 }
 
 interface FinalResponseData extends ModelExchange {
@@ -406,7 +396,7 @@ function fromPlanGenerated({ event, task, taskId, ts }: EventContext): ModelIter
   const data = event.data as PlanGeneratedData;
   const isReplan = data.replan === true;
   const timing = timingOf(data.timing);
-  const steps: PlanStepData[] = (data.steps || task?.steps || []).filter((s: PlanStepData) => !s.superseded);
+  const steps: Step[] = (data.steps || task?.steps || []).filter((s) => !s.superseded);
   return {
     id: `iter_${ts}_qwen_${isReplan ? "replan" : "plan"}`,
     taskId,
@@ -427,9 +417,9 @@ function fromPlanGenerated({ event, task, taskId, ts }: EventContext): ModelIter
       etapasPropuestas: steps.map((s, idx) => ({
         indice: idx + 1,
         id: s.id,
-        instruccion: s.instruction || s.goal,
-        servidorSugerido: s.suggested_mcp || s.route,
-        resultadoEsperado: s.expectedOutcome || s.expected_outcome,
+        instruccion: s.instruction,
+        servidorSugerido: s.route,
+        resultadoEsperado: s.expectedOutcome,
       })),
     },
     metrics: {

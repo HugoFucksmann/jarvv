@@ -7,18 +7,20 @@
 
 import type {
   CallStatus,
+  DecisionOneResult,
+  DecisionTwoResult,
   GuardDecision,
   McpServerName,
   PendingApproval,
   StageVerificationResult,
   Step,
   StepState,
+  StepVerificationResult,
   Task,
   TaskState,
   TimeSpan,
   VerificationState,
 } from "./types.ts";
-import type { DecisionOneResult, DecisionTwoResult, StepVerificationResult } from "./decision.ts";
 import type { ProcessedResult } from "./processor/resultProcessor.ts";
 
 export interface CoreEventDataMap {
@@ -32,22 +34,22 @@ export interface CoreEventDataMap {
     memory: string;
   };
   ARGUMENTS_GENERATED:
-    | {
-        error: string;
-        attempt?: number;
-        rawInput?: string;
-        rawOutput?: string;
-        timing?: TimeSpan;
-      }
-    | {
-        args: Record<string, unknown>;
-        resolvedRefs: string[];
-        unresolvedRefs: string[];
-        replacedCount: number;
-        rawInput?: string;
-        rawOutput?: string;
-        timing?: TimeSpan;
-      };
+  | {
+    error: string;
+    attempt?: number;
+    rawInput?: string;
+    rawOutput?: string;
+    timing?: TimeSpan;
+  }
+  | {
+    args: Record<string, unknown>;
+    resolvedRefs: string[];
+    unresolvedRefs: string[];
+    replacedCount: number;
+    rawInput?: string;
+    rawOutput?: string;
+    timing?: TimeSpan;
+  };
   GUARD_EVALUATION: { guardDecision: GuardDecision };
   /** Lleva callbacks (onApprove/onDeny); JSON.stringify los descarta automáticamente en el SSE. */
   APPROVAL_REQUESTED: { pendingApproval: PendingApproval };
