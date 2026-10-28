@@ -7,9 +7,11 @@ import {
     MAX_REPLAN,
     MAX_STEPS,
     MAX_USER_QUESTIONS_PER_STEP,
+    type DecisionOneResult,
     type ExecutableRoute,
     type Plan,
     type PlanStep,
+    type ReplanResult,
     type StageVerificationResult,
     type Step,
     type StepExecutionResult,
@@ -26,8 +28,8 @@ import {
 } from "./context.ts";
 import type { EngineDependencies } from "./engineDeps.ts";
 import { recordFailedCall, runStep } from "./callExecutor.ts";
-import { LLMServiceUnavailableError, type ReplanResult } from "./reasoner/qwen.ts";
-import { DecisionServiceUnavailableError, type DecisionOneResult } from "./decision.ts";
+import { LLMServiceUnavailableError } from "./reasoner/qwen.ts";
+import { DecisionServiceUnavailableError } from "./decision.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { emitStepCompleted, emitStepError, emitStepRunning } from "./stepEvents.ts";
 import {
@@ -254,7 +256,7 @@ export async function handleReplan(
 
     let replanResult: ReplanResult;
     try {
-        replanResult = await deps.qwenEngine.replan({
+        replanResult = await deps.llm.replan({
             goal: task.message,
             completedStepsSummary: completedSummary,
             facts: task.memory?.facts || {},
@@ -463,10 +465,10 @@ export async function initiatePlanMode(
 
     let plan: Plan;
     try {
-        plan = await deps.qwenEngine.generatePlan(task.message, undefined, context.abortController.signal);
+        plan = await deps.llm.generatePlan(task.message, context.abortController.signal);
     } catch (err) {
         if (isCancellation(context, err)) return;
-        console.error(`[PLAN] Plan inválido:`, err instanceof Error ? err.message : err);
+        console.error(`[PLAN] Plan inválido:`, errorMessage(err));
         failTask(context, deps, new Error(`Plan inválido: ${errorMessage(err)}`));
         return;
     }

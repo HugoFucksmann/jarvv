@@ -115,7 +115,9 @@ export function recordTaskTrace(context: TaskExecutionContext): void {
         const config = ConfigManager.getConfig();
         if (!config.traceEnabled) return;
 
-        fs.appendFileSync(path.resolve(process.cwd(), config.tracePath), `${buildTraceLine(context)}\n`, "utf-8");
+        const file = path.resolve(process.cwd(), config.tracePath);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.appendFileSync(file, `${buildTraceLine(context)}\n`, "utf-8");
     } catch (err) {
         console.warn("[TaskTrace] No se pudo registrar la traza:", errorMessage(err));
     }

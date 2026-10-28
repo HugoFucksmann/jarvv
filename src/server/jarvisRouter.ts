@@ -55,7 +55,7 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
     res.json({ ok: true });
   });
 
-  // Confirmar, rechazar o solicitar modificación de plan (modo PLAN §3.2.4)
+  // Confirmar, rechazar o solicitar modificación de plan (modo PLAN)
   router.post('/confirm-plan', async (req, res) => {
     try {
       const { taskId, action, feedback, reason } = req.body;

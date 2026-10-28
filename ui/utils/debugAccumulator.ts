@@ -7,7 +7,7 @@
  * instantánea de la tarea, agrupación por paso y derivación de los crudos.
  */
 
-import type { Task, Step, StepCall } from "../../src/core/types.ts";
+import type { Task, StepCall } from "../../src/core/types.ts";
 import { EXECUTABLE_ROUTES, type ModelIteration } from "../../src/core/types.ts";
 import { buildEffectsContext } from "../../src/core/context.ts";
 import { callVerdict, finalResponseVerdict, FIN_DECISION_TITLE } from "../../src/core/modelIterations.ts";
@@ -303,77 +303,4 @@ export function groupIterationsByStep(
   });
 
   return result;
-}
-
-const MAX_DERIVED_INTERACTIONS = 50;
-const hasRaw = (it: ModelIteration): boolean => it.rawInput !== undefined || it.rawOutput !== undefined;
-
-export function deriveTaskView(task: Task, iterations: ModelIteration[]): Task {
-  if (!task || iterations.length === 0) return task;
-
-  const withRaw = iterations.filter(hasRaw);
-  if (withRaw.length === 0) return task;
-
-  let changed = false;
-
-  let memory = task.memory;
-  if (memory && !(memory.rawInteractions && memory.rawInteractions.length > 0)) {
-    const derived = withRaw
-      .filter((it) => it.rawInput !== undefined && it.rawOutput !== undefined)
-      .slice(-MAX_DERIVED_INTERACTIONS)
-      .map((it) => ({
-        timestamp: it.timestamp,
-        model: it.model,
-        stage: it.stage,
-        rawInput: it.rawInput as string,
-        rawOutput: it.rawOutput as string,
-      }));
-    if (derived.length > 0) {
-      memory = { ...memory, rawInteractions: derived };
-      changed = true;
-    }
-  }
-
-  const steps = (task.steps ?? []).map((step) => {
-    const stepIters = withRaw.filter((it) => it.stepId === step.id);
-    if (stepIters.length === 0) return step;
-
-    let nextStep: Step = step;
-
-    if (step.rawInput === undefined && step.rawOutput === undefined) {
-      const last = stepIters[stepIters.length - 1];
-      nextStep = { ...nextStep, rawInput: last.rawInput, rawOutput: last.rawOutput };
-    }
-
-    const calls = step.calls ?? [];
-    if (calls.some((c) => c.rawInput === undefined && c.rawOutput === undefined)) {
-      const argIters = stepIters
-        .filter((it) => it.stage === "ARGUMENT_GENERATION")
-        .sort((a, b) => a.timestamp - b.timestamp);
-      const assigned = new Set<number>();
-      const byCall = new Map<number, ModelIteration>();
-      for (const it of argIters) {
-        const j = calls.findIndex(
-          (c, idx) => !assigned.has(idx) && typeof c.timestamp === "number" && c.timestamp >= it.timestamp
-        );
-        if (j >= 0) {
-          assigned.add(j);
-          byCall.set(j, it);
-        }
-      }
-      if (byCall.size > 0) {
-        const derivedCalls = calls.map((c, idx) => {
-          const it = byCall.get(idx);
-          if (!it || c.rawInput !== undefined || c.rawOutput !== undefined) return c;
-          return { ...c, rawInput: it.rawInput, rawOutput: it.rawOutput } as StepCall;
-        });
-        nextStep = { ...nextStep, calls: derivedCalls };
-      }
-    }
-
-    if (nextStep !== step) changed = true;
-    return nextStep;
-  });
-
-  return changed ? { ...task, memory, steps } : task;
 }

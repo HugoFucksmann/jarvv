@@ -14,7 +14,7 @@ export function extractProcess({ args, fullText, mergedData, refKey }: Extractor
     const signals: Partial<StepExecutionSignals> = {};
     let finding = "";
     let compactObs = "";
-    // Desktop Commander no devuelve pid ni exit code estructurados. Formatos reales (MCP_REAL_OUTPUTS):
+    // Desktop Commander no devuelve pid ni exit code estructurados. Formatos reales (formato observado de la herramienta):
     //   start_process       primera línea: "Process started with PID <n> (shell: ...)"; última: "✅ Process <n> has finished execution" (si terminó)
     //   read_process_output última línea:   "✅ Process completed with exit code <n> (runtime: ...)" (si terminó)
     // Solo se leen la primera y la última línea: el cuerpo es salida del proceso y no es fiable.

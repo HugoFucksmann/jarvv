@@ -82,11 +82,6 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                   SUPERSEDED {step.rev ? `(rev ${step.rev})` : ""}
                 </span>
               )}
-              {step.dependencies && step.dependencies.length > 0 && (
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-950/50 text-amber-300 border border-amber-900/50">
-                  deps: [{step.dependencies.join(", ")}]
-                </span>
-              )}
             </div>
             <p className={`text-sm ${step.superseded ? "line-through text-slate-500" : "text-slate-200"}`}>
               {step.instruction}

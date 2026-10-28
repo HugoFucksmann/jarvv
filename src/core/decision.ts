@@ -19,10 +19,13 @@ import {
   type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
+  type DecisionOneResult,
+  type DecisionTwoResult,
   type MCPTool,
-  type TimeSpan,
   type StepRoute,
+  type StepVerificationResult,
 } from "./types.ts";
+import type { IDecisionEngine } from "./engineDeps.ts";
 import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
 import { estimateTokens, postJson, TransportError } from "./llmTransport.ts";
@@ -73,37 +76,6 @@ const pct = (probabilities: Record<string, number>): string =>
     .map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`)
     .join(", ");
 
-/** Resultado de Decision #1: la ruta elegida y su distribución de probabilidades. */
-export interface DecisionOneResult {
-  route: StepRoute;
-  probabilities: Record<string, number>;
-  rawInput: string;
-  rawOutput: string;
-  timing: TimeSpan;
-}
-
-/** Resultado de Decision #2: la herramienta elegida entre las descubiertas. */
-export interface DecisionTwoResult {
-  selectedTool: MCPTool;
-  probabilities: Record<string, number>;
-  rawInput: string;
-  rawOutput: string;
-  /** `true`: no hubo llamada al modelo (una sola herramienta posible); `rawInput`/`rawOutput` son sintéticos y no hay `timing`. */
-  shortcut?: boolean;
-  timing?: TimeSpan;
-}
-
-/** Resultado de la verificación factual de un paso con Eos. */
-export interface StepVerificationResult {
-  ok: boolean;
-  cumple: boolean;
-  okProbability: number;
-  cumpleProbability: number;
-  rawInput: string;
-  rawOutput: string;
-  timing: TimeSpan;
-}
-
 /**
  * Respuesta `choice` o `noul` de `key`. `parseResponse` ya garantizó la forma; el narrowing la confirma en compilación.
  */
@@ -119,7 +91,7 @@ function noulAnswer(response: DecisionResponse, key: string): DecisionAnswerNoul
   return answer;
 }
 
-export class Decision20Engine {
+export class Decision20Engine implements IDecisionEngine {
   /**
    * Invoca `system_one` sobre el endpoint real. Devuelve las respuestas ya validadas contra `questions`
    * y los crudos de entrada/salida para depuración.

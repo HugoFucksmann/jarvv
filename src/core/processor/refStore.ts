@@ -23,7 +23,7 @@ interface TaskRefs {
 }
 
 /**
- * Almacén de resultados completos de herramientas (§10.4, §10.11), aislado por `taskId` para que limpiar o consultar
+ * Almacén de resultados completos de herramientas, aislado por `taskId` para que limpiar o consultar
  * una tarea nunca afecte a otra.
  */
 export class RefStore {

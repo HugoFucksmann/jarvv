@@ -73,7 +73,7 @@ function collectContent(items: readonly MCPContentItem[]): CollectedContent {
 }
 
 /**
- * Señales de ejecución (§4, §5, §10.5). Una señal textual solo es fiable en un resultado de error o cuando el texto
+ * Señales de ejecución. Una señal textual solo es fiable en un resultado de error o cuando el texto
  * EMPIEZA con el marcador explícito (así los emiten los adaptadores). En un resultado exitoso el texto es dato
  * (archivos, páginas, búsquedas): que contenga "not found", "access denied" o "timeout" no describe cómo terminó la
  * herramienta.
@@ -145,10 +145,10 @@ export class ResultProcessor {
     // 2. Señales
     const signals = deriveSignals(fullText, isError, policy.emptyIsError === true, mergedData);
 
-    // 3. Resultado completo en el RefStore aislado por tarea (§10.4)
+    // 3. Resultado completo en el RefStore aislado por tarea
     const refKey = fullText.length > 0 ? RefStore.put(fullText, taskId, refLabel(tool, args)) : undefined;
 
-    // 4. Extractor determinista por herramienta (§10.5): registro en extractors/index.ts; el genérico es el respaldo.
+    // 4. Extractor determinista por herramienta: registro en extractors/index.ts; el genérico es el respaldo.
     const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData, refKey };
     const extracted: ExtractorOutput = selectExtractor(mcp, tool, isError)(input);
     const { finding, compactObs } = extracted;

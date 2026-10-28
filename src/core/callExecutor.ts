@@ -5,9 +5,11 @@
 import { createHash } from "node:crypto";
 import {
     MAX_EVIDENCE_OBS_CHARS,
+    type ArgumentsGenerationResult,
     type CallFailureStatus,
     type Capability,
     type ExecutedCallStatus,
+    type FailedAttempt,
     type McpServerName,
     type MCPTool,
     type Step,
@@ -15,29 +17,24 @@ import {
     type StepCall,
     type StepExecutionResult,
     type StepExecutionSignals,
+    type StepVerificationResult,
     type TimeSpan,
     type StepHandoff,
     type ToolPolicy,
     type VerificationState,
 } from "./types.ts";
-import type { StepVerificationResult } from "./decision.ts";
-import type { EmitEventFn, EngineDependencies } from "./engineDeps.ts";
+import type { EmitEventFn, EngineDependencies, IDiscoveryEngine } from "./engineDeps.ts";
 import { emitStepError, emitStepStateChanged } from "./stepEvents.ts";
-import { cleanInputSchema, type DiscoveryEngine } from "./mcp/discovery.ts";
+import { cleanInputSchema } from "./mcp/discovery.ts";
 import { Guard } from "./policy/guard.ts";
-import {
-    LLMServiceUnavailableError,
-    LLMValidationError,
-    type ArgumentsGenerationResult,
-    type FailedAttempt,
-} from "./reasoner/qwen.ts";
+import { LLMServiceUnavailableError, LLMValidationError } from "./reasoner/qwen.ts";
 import { RequestAbortedError } from "./llmTransport.ts";
 import { ResultProcessor, type ProcessedResult } from "./processor/resultProcessor.ts";
 import { refLabel } from "./processor/refStore.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { resolveReferences } from "./processor/refResolver.ts";
 import { getUserEnvironment } from "./environment.ts";
-import { errorMessage } from "./utils.ts";
+import { errorMessage, newId } from "./utils.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "./tools/manifest.ts";
 import {
     type TaskExecutionContext,
@@ -75,7 +72,7 @@ function requestUserApproval(
 ): Promise<boolean> {
     return new Promise((resolve) => {
         context.pendingApproval = {
-            id: `approval_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            id: newId("approval"),
             stepId: step.id,
             ...request,
             onApprove: () => {
@@ -175,7 +172,7 @@ type Phase<T> =
 const proceed = <T>(value: T): Phase<T> => ({ proceed: true, value });
 const halt = (result: StepExecutionResult): Phase<never> => ({ proceed: false, result });
 
-type McpServer = NonNullable<ReturnType<DiscoveryEngine["getServer"]>>;
+type McpServer = NonNullable<ReturnType<IDiscoveryEngine["getServer"]>>;
 type McpCallOutput = Awaited<ReturnType<McpServer["callTool"]>>;
 
 // ---------------------------------------------------------------
@@ -252,15 +249,12 @@ async function selectTool(run: StepRun, serverName: McpServerName, tools: MCPToo
     );
     const selectedTool = d2.selectedTool;
 
-    let exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
+    // validateToolExists ya fuerza un refresco del catálogo antes de dar la herramienta por inexistente.
+    const exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
     if (!exists) {
-        await deps.discoveryEngine.getDiscoveredTools(serverName, true);
         if (isStopped(context)) return null;
-        exists = await deps.discoveryEngine.validateToolExists(serverName, selectedTool.name);
-        if (!exists) {
-            step.state = "FAILED";
-            throw new Error(`Herramienta desconocida '${selectedTool.name}': NO EXECUTE.`);
-        }
+        step.state = "FAILED";
+        throw new Error(`Herramienta desconocida '${selectedTool.name}': NO EXECUTE.`);
     }
 
     // La herramienta elegida se refleja de inmediato: si el paso falla antes de ejecutarse, la escalación sabe cuál excluir.
@@ -317,7 +311,7 @@ async function generateStepArguments(run: StepRun, selectedTool: MCPTool): Promi
 
     let generated: ArgumentsGenerationResult;
     try {
-        generated = await deps.qwenEngine.generateArguments({
+        generated = await deps.llm.generateArguments({
             goal: task.message,
             logLines: task.memory?.log || [],
             planLines: task.mode === "PLAN" ? buildPlanLines(task) : undefined,
@@ -618,7 +612,7 @@ async function verifyResult(
     let semantic: StageVerificationResult | undefined;
     if (isCleanSignals && !eosPassed && task.mode === "PLAN") {
         try {
-            semantic = await deps.qwenEngine.verifyStage({
+            semantic = await deps.llm.verifyStage({
                 goal: task.message,
                 stepInstruction: step.instruction,
                 expectedOutcome: step.expectedOutcome || "Cumplimiento del objetivo de la etapa",

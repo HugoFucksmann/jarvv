@@ -18,6 +18,7 @@ import {
 import { getToolPolicy } from "./tools/manifest.ts";
 import { RefStore } from "./processor/refStore.ts";
 import { flatten, sanitizeForMemory } from "./processor/text.ts";
+import { clip } from "./utils.ts";
 
 /** Observación de una lectura con datos (búsqueda, página, archivo…): lo que un paso posterior puede necesitar. */
 export interface DataObservation {
@@ -227,20 +228,20 @@ export function buildAttempts(task: Task): Attempt[] {
 const PLAN_WINDOW_PREV = 2;
 const PLAN_WINDOW_NEXT = 3;
 const PLAN_LINE_CHARS = 180;
-
-const clipLine = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const PLAN_RUNNING_INSTRUCTION_CHARS = 200;
+const PLAN_RUNNING_OUTCOME_CHARS = 150;
 
 function planLine(s: Step): string {
     switch (s.state) {
         case "COMPLETED":
-            return clipLine(`[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || "ok"}`, PLAN_LINE_CHARS);
+            return clip(`[x] ${s.id} ${s.instruction} -> ${s.evidence?.summary || "ok"}`, PLAN_LINE_CHARS);
         case "RUNNING":
             // Instrucción y criterio se recortan por separado: el criterio de éxito no puede perderse.
-            return `[>] ${s.id} ${clipLine(s.instruction, 200)} | éxito: ${clipLine(s.expectedOutcome || "completado", 150)}`;
+            return `[>] ${s.id} ${clip(s.instruction, PLAN_RUNNING_INSTRUCTION_CHARS)} | éxito: ${clip(s.expectedOutcome || "completado", PLAN_RUNNING_OUTCOME_CHARS)}`;
         case "UNVERIFIED":
-            return clipLine(`[~] ${s.id} ${s.instruction} (sin verificar)`, PLAN_LINE_CHARS);
+            return clip(`[~] ${s.id} ${s.instruction} (sin verificar)`, PLAN_LINE_CHARS);
         default:
-            return clipLine(`[ ] ${s.id} ${s.instruction}`, PLAN_LINE_CHARS);
+            return clip(`[ ] ${s.id} ${s.instruction}`, PLAN_LINE_CHARS);
     }
 }
 

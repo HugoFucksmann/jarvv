@@ -1,11 +1,256 @@
 # Mapa del Código Fuente de JARVIS Core
 
 ## 1. Árbol de Archivos del Proyecto
-
+.
+├── docs
+│   ├── ARCHITECTURE.md
+│   ├── CODEBASE_MAP.md
+│   ├── CONTEXT_AND_MEMORY.md
+│   ├── CORE_FLOW.md
+│   ├── Correcciones_revision.md
+│   ├── JARVIS back — notas de revisión (inconsistencias y fricciones).md
+│   ├── JARVIS back — pendientes de revisión.md
+│   ├── plan_simple.md
+│   └── salidas_tools_MCP.md
+├── src
+│   ├── core
+│   │   ├── mcp
+│   │   │   ├── desktopCommanderMcp.ts
+│   │   │   ├── discovery.ts
+│   │   │   ├── freeSearchMcp.ts
+│   │   │   ├── transport.ts
+│   │   │   └── types.ts
+│   │   ├── policy
+│   │   │   └── guard.ts
+│   │   ├── processor
+│   │   │   ├── extractors
+│   │   │   │   ├── files.ts
+│   │   │   │   ├── freeSearch.ts
+│   │   │   │   ├── generic.ts
+│   │   │   │   ├── index.ts
+│   │   │   │   ├── process.ts
+│   │   │   │   └── types.ts
+│   │   │   ├── refResolver.ts
+│   │   │   ├── refStore.ts
+│   │   │   ├── resultProcessor.ts
+│   │   │   └── text.ts
+│   │   ├── reasoner
+│   │   │   ├── prompts.ts
+│   │   │   └── qwen.ts
+│   │   ├── tools
+│   │   │   └── manifest.ts
+│   │   ├── callExecutor.ts
+│   │   ├── config.ts
+│   │   ├── context.ts
+│   │   ├── core.ts
+│   │   ├── decision.ts
+│   │   ├── engineDeps.ts
+│   │   ├── environment.ts
+│   │   ├── llmTransport.ts
+│   │   ├── modeEngines.ts
+│   │   ├── modelIterations.ts
+│   │   ├── models.ts
+│   │   ├── stepEvents.ts
+│   │   ├── taskConclusion.ts
+│   │   ├── taskTrace.ts
+│   │   ├── taskWire.ts
+│   │   ├── types.ts
+│   │   └── utils.ts
+│   └── server
+│       ├── jarvisRouter.ts
+│       └── mcpRouter.ts
+├── eval_scan.txt
+├── index.html
+├── jarvis-config.json
+├── metadata.json
+├── package.json
+├── readme.md
+├── server.ts
+├── tsconfig.json
+└── vite.config.ts
 
 ---
 
 ## 2. Mapa de Dependencias por Importaciones
+
+core/callExecutor.ts
+  core/context.ts
+  core/decision.ts
+  core/engineDeps.ts
+  core/environment.ts
+  core/llmTransport.ts
+  core/mcp/discovery.ts
+  core/policy/guard.ts
+  core/processor/refResolver.ts
+  core/processor/refStore.ts
+  core/processor/resultProcessor.ts
+  core/processor/text.ts
+  core/reasoner/qwen.ts
+  core/stepEvents.ts
+  core/tools/manifest.ts
+  core/types.ts
+  core/utils.ts
+core/config.ts
+  core/utils.ts
+core/context.ts
+  core/processor/refStore.ts
+  core/processor/text.ts
+  core/tools/manifest.ts
+  core/types.ts
+core/core.ts
+  core/context.ts
+  core/decision.ts
+  core/engineDeps.ts
+  core/llmTransport.ts
+  core/mcp/discovery.ts
+  core/modeEngines.ts
+  core/modelIterations.ts
+  core/processor/refStore.ts
+  core/processor/text.ts
+  core/reasoner/qwen.ts
+  core/taskConclusion.ts
+  core/taskTrace.ts
+  core/types.ts
+  core/utils.ts
+core/decision.ts
+  core/config.ts
+  core/llmTransport.ts
+  core/models.ts
+  core/reasoner/prompts.ts
+  core/types.ts
+  core/utils.ts
+core/engineDeps.ts
+  core/decision.ts
+  core/mcp/discovery.ts
+  core/reasoner/qwen.ts
+  core/types.ts
+core/environment.ts
+core/llmTransport.ts
+  core/types.ts
+core/mcp/desktopCommanderMcp.ts
+  core/config.ts
+  core/mcp/transport.ts
+  core/mcp/types.ts
+  core/types.ts
+core/mcp/discovery.ts
+  core/mcp/types.ts
+  core/types.ts
+  core/utils.ts
+core/mcp/freeSearchMcp.ts
+  core/config.ts
+  core/mcp/transport.ts
+  core/mcp/types.ts
+  core/types.ts
+core/mcp/transport.ts
+  core/config.ts
+  core/types.ts
+core/mcp/types.ts
+  core/types.ts
+core/modeEngines.ts
+  core/callExecutor.ts
+  core/context.ts
+  core/decision.ts
+  core/engineDeps.ts
+  core/processor/text.ts
+  core/reasoner/qwen.ts
+  core/stepEvents.ts
+  core/taskConclusion.ts
+  core/types.ts
+  core/utils.ts
+core/modelIterations.ts
+  core/context.ts
+  core/models.ts
+  core/types.ts
+core/models.ts
+  core/types.ts
+core/policy/guard.ts
+  core/tools/manifest.ts
+  core/types.ts
+core/processor/extractors/files.ts
+  core/processor/extractors/types.ts
+  core/processor/text.ts
+  core/types.ts
+core/processor/extractors/freeSearch.ts
+  core/processor/extractors/types.ts
+  core/processor/text.ts
+  core/types.ts
+core/processor/extractors/generic.ts
+  core/processor/extractors/types.ts
+  core/processor/text.ts
+core/processor/extractors/index.ts
+  core/processor/extractors/files.ts
+  core/processor/extractors/freeSearch.ts
+  core/processor/extractors/generic.ts
+  core/processor/extractors/process.ts
+  core/processor/extractors/types.ts
+  core/tools/manifest.ts
+core/processor/extractors/process.ts
+  core/processor/extractors/types.ts
+  core/processor/text.ts
+  core/types.ts
+core/processor/extractors/types.ts
+  core/types.ts
+core/processor/refResolver.ts
+  core/processor/refStore.ts
+  core/utils.ts
+core/processor/refStore.ts
+  core/processor/text.ts
+core/processor/resultProcessor.ts
+  core/processor/extractors/index.ts
+  core/processor/extractors/types.ts
+  core/processor/refStore.ts
+  core/tools/manifest.ts
+  core/types.ts
+  core/utils.ts
+core/processor/text.ts
+core/reasoner/prompts.ts
+  core/environment.ts
+  core/tools/manifest.ts
+  core/types.ts
+core/reasoner/qwen.ts
+  core/config.ts
+  core/llmTransport.ts
+  core/processor/refResolver.ts
+  core/reasoner/prompts.ts
+  core/tools/manifest.ts
+  core/types.ts
+  core/utils.ts
+core/stepEvents.ts
+  core/engineDeps.ts
+  core/types.ts
+core/taskConclusion.ts
+  core/context.ts
+  core/engineDeps.ts
+  core/llmTransport.ts
+  core/processor/text.ts
+  core/reasoner/qwen.ts
+  core/taskTrace.ts
+  core/tools/manifest.ts
+  core/types.ts
+  core/utils.ts
+core/taskTrace.ts
+  core/config.ts
+  core/context.ts
+  core/processor/refStore.ts
+  core/types.ts
+  core/utils.ts
+core/taskWire.ts
+  core/types.ts
+core/tools/manifest.ts
+  core/types.ts
+core/types.ts
+core/utils.ts
+server/jarvisRouter.ts
+  core/config.ts
+  core/core.ts
+  core/mcp/discovery.ts
+  core/taskWire.ts
+  core/types.ts
+server/mcpRouter.ts
+  core/mcp/discovery.ts
+  core/mcp/types.ts
+  core/policy/guard.ts
+  core/tools/manifest.ts
 
 
 

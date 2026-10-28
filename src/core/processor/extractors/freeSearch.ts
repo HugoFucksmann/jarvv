@@ -67,7 +67,7 @@ export function extractSearch({ isError, success, fullText, refKey }: ExtractorI
     let finding = "";
     let compactObs = "";
     // Jarvis nunca pide `format: "json"` (el manifest limita `search` a query y max_results): el servidor responde
-    // Markdown (MCP_REAL_OUTPUTS §2.1). Cabecera con `_results: N_`, lead opcional y una sección "## n. título" por resultado.
+    // Markdown (formato observado de la herramienta). Cabecera con `_results: N_`, lead opcional y una sección "## n. título" por resultado.
     const items: SearchItem[] = [];
     let leadText: string | undefined;
 
@@ -118,7 +118,7 @@ export function extractSearch({ isError, success, fullText, refKey }: ExtractorI
     } else {
         const count = reportedCount !== undefined ? reportedCount : items.length;
         // Hallazgo neutral: no nombra ningún resultado (el orden es por relevancia, no por fecha). `_dated: n/m_` es el
-        // recuento que informa la herramienta (MCP_REAL_OUTPUTS §2.1); si falta, no se inventa.
+        // recuento que informa la herramienta (formato observado de la herramienta); si falta, no se inventa.
         const datedMatch = fullText.match(/_dated:\s*(\d+)\/(\d+)_/i);
         finding = sanitizeForMemory(`${count} resultados web${datedMatch ? ` (${datedMatch[1]} con fecha)` : ""}`);
 

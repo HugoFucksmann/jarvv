@@ -253,16 +253,6 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
             <div className="flex flex-col gap-1 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-mono text-sky-400 font-medium">[{getRouteLabel(step.route)}]</span>
-                {step.candidate_tools && step.candidate_tools.length > 0 && (
-                  <span className="text-[11px] font-mono text-slate-400 bg-slate-950 px-1.5 py-0.2 rounded border border-slate-800">
-                    tools: {step.candidate_tools.join(", ")}
-                  </span>
-                )}
-                {step.dependencies && step.dependencies.length > 0 && (
-                  <span className="text-[11px] font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-900/60">
-                    deps: [{step.dependencies.join(", ")}]
-                  </span>
-                )}
               </div>
               <span className="text-slate-200">{step.instruction}</span>
               {step.expectedOutcome && (

@@ -164,7 +164,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     qwenTimeoutMs: positiveInt(r.qwenTimeoutMs, d.qwenTimeoutMs),
     qwenThinkingTimeoutMs: positiveInt(r.qwenThinkingTimeoutMs, d.qwenThinkingTimeoutMs),
     decisionUrl: text(r.decisionUrl, d.decisionUrl),
-    decisionBackend: r.decisionBackend === "d3" ? "d3" : d.decisionBackend,
+    decisionBackend: r.decisionBackend === "d3" || r.decisionBackend === "eos" ? r.decisionBackend : d.decisionBackend,
     decisionModel: nonEmptyText(r.decisionModel, d.decisionModel),
     decisionMaxContext: positiveInt(r.decisionMaxContext, d.decisionMaxContext),
     decisionTimeoutMs: positiveInt(r.decisionTimeoutMs, d.decisionTimeoutMs),

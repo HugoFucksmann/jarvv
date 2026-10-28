@@ -1,23 +1,85 @@
 /**
  * JARVIS Core — Dependencias que reciben los motores de ejecución (ejecutor de pasos, modos FAST/PLAN, cierre de tareas).
- * Viven aquí, y no en el ejecutor, para que ningún módulo dependa de otro solo por este contrato.
+ * Este módulo solo declara contratos mínimos (interfaces) y depende únicamente de tipos: las implementaciones
+ * (Decision20Engine, DiscoveryEngine, QwenEngine) las conoce solo la raíz de composición (server.ts).
  */
 
-import type { CoreEventType } from "./types.ts";
-import type { Decision20Engine } from "./decision.ts";
-import type { DiscoveryEngine } from "./mcp/discovery.ts";
-import type { ILLMClient } from "./reasoner/qwen.ts";
+import type {
+    ArgumentPromptData,
+    ArgumentsGenerationResult,
+    Attempt,
+    CoreEventDataMap,
+    CoreEventType,
+    DecisionOneResult,
+    DecisionTwoResult,
+    FinalResponsePromptData,
+    FinalResponseResult,
+    MCPTool,
+    Plan,
+    PlanRevision,
+    ReplanPromptData,
+    ReplanResult,
+    StageVerificationPromptData,
+    StageVerificationResult,
+    StepVerificationResult,
+} from "./types.ts";
+import type { IMCPServer } from "./mcp/types.ts";
 
-export type EmitEventFn = (
+export type EmitEventFn = <T extends CoreEventType>(
     taskId: string,
-    type: CoreEventType,
-    data?: Record<string, unknown>,
+    type: T,
+    data: CoreEventDataMap[T],
     stepId?: string
 ) => void;
 
+export interface ILLMClient {
+    generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult>;
+
+    generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult>;
+
+    generatePlan(userMessage: string, signal?: AbortSignal, revision?: PlanRevision): Promise<Plan>;
+
+    replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult>;
+
+    verifyStage(data: StageVerificationPromptData, signal?: AbortSignal): Promise<StageVerificationResult>;
+}
+
+export interface IDecisionEngine {
+    evaluateDecisionOne(
+        taskMessage: string,
+        historyContext?: string,
+        options?: { allowFin?: boolean; lastResult?: string; attempts?: Attempt[]; signal?: AbortSignal }
+    ): Promise<DecisionOneResult>;
+
+    evaluateDecisionTwo(
+        instruction: string,
+        discoveredTools: MCPTool[],
+        memory?: string,
+        attempts?: Attempt[],
+        options?: { mcp?: string; signal?: AbortSignal }
+    ): Promise<DecisionTwoResult>;
+
+    evaluateStepVerification(
+        instruction: string,
+        toolName: string,
+        resultSummary: string,
+        evidenceSummary?: string,
+        expectedOutcome?: string,
+        observation?: string,
+        signal?: AbortSignal
+    ): Promise<StepVerificationResult>;
+}
+
+export interface IDiscoveryEngine {
+    getServer(name: string): IMCPServer | undefined;
+    getDiscoveredTools(serverOrAlias: string, forceRefresh?: boolean): Promise<MCPTool[]>;
+    getUnavailableServers(): Record<string, { reason: string; since: number }>;
+    validateToolExists(serverOrAlias: string, toolName: string): Promise<boolean>;
+}
+
 export interface EngineDependencies {
-    decisionEngine: Decision20Engine;
-    discoveryEngine: DiscoveryEngine;
-    qwenEngine: ILLMClient;
+    decisionEngine: IDecisionEngine;
+    discoveryEngine: IDiscoveryEngine;
+    llm: ILLMClient;
     emitEvent: EmitEventFn;
 }
