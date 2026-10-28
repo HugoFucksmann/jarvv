@@ -7,7 +7,6 @@ export interface LlmClientOptions {
   thinkingTimeoutMs?: number;
   defaultTimeoutMs?: number;
 }
-export type QwenClientOptions = LlmClientOptions;
 
 export interface LlmInferencePayload {
   stage: string;
@@ -19,7 +18,6 @@ export interface LlmInferencePayload {
   temperature?: number;
   thinking?: boolean;
 }
-export type QwenInferencePayload = LlmInferencePayload;
 
 export interface LlmInferenceResult {
   content: string;
@@ -33,7 +31,6 @@ export interface LlmInferenceResult {
   finishReason: string;
   durationMs: number;
 }
-export type QwenInferenceResult = LlmInferenceResult;
 
 const REASONING_EFFORT_THINKING = "low";
 const REASONING_EFFORT_OFF = "none";
@@ -52,7 +49,8 @@ export class LlmEvalClient {
     const rawUrl = opts?.url || process.env.LLM_URL || process.env.QWEN_URL || "http://127.0.0.1:11434";
     this.url = this.formatUrl(rawUrl);
     this.model = opts?.model || process.env.LLM_MODEL || process.env.QWEN_MODEL || "qwen2.5:7b";
-    this.numCtx = opts?.numCtx || (process.env.LLM_NUM_CTX || process.env.QWEN_NUM_CTX ? Number(process.env.LLM_NUM_CTX || process.env.QWEN_NUM_CTX) : 16384);
+    const envNumCtx = Number(process.env.LLM_NUM_CTX || process.env.QWEN_NUM_CTX);
+    this.numCtx = opts?.numCtx || (envNumCtx > 0 ? envNumCtx : 16384);
     this.thinkingTimeoutMs = opts?.thinkingTimeoutMs || 180000;
     this.defaultTimeoutMs = opts?.defaultTimeoutMs || 120000;
   }
@@ -61,13 +59,22 @@ export class LlmEvalClient {
     return this.numCtx;
   }
 
+  /** Endpoint final (ya con /v1/chat/completions), tras resolver opciones, variables de entorno y defaults. */
+  public get endpoint(): string {
+    return this.url;
+  }
+
+  public get modelName(): string {
+    return this.model;
+  }
+
   private formatUrl(raw: string): string {
     const base = raw.trim().replace(/\/+$/, "");
     if (base.endsWith("/v1/chat/completions")) return base;
     return base.endsWith("/v1") ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
   }
 
-  public async infer(payload: QwenInferencePayload): Promise<QwenInferenceResult> {
+  public async infer(payload: LlmInferencePayload): Promise<LlmInferenceResult> {
     const thinking = payload.thinking ?? false;
     const timeoutMs = thinking ? this.thinkingTimeoutMs : this.defaultTimeoutMs;
 
@@ -101,13 +108,13 @@ export class LlmEvalClient {
       body.response_format = { type: "json_object" };
     }
 
-    const rawInput = JSON.stringify(body, null, 2);
+    const rawInput = JSON.stringify(body);
     const t0 = Date.now();
 
     try {
       const res = await postJson({
         url: this.url,
-        body: JSON.stringify(body),
+        body: rawInput,
         timeoutMs,
       });
 
@@ -153,6 +160,3 @@ export class LlmEvalClient {
     }
   }
 }
-
-export const QwenEvalClient = LlmEvalClient;
-export type QwenEvalClient = LlmEvalClient;

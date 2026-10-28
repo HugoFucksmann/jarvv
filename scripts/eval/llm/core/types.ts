@@ -5,7 +5,6 @@ import type {
 } from "../../../../src/core/reasoner/prompts.ts";
 
 export type LlmEvalStage = "plan" | "replan" | "arguments" | "final_response";
-export type QwenEvalStage = LlmEvalStage;
 
 /** Datos con los que producción arma el prompt de cada etapa (los mismos constructores de prompts.ts). */
 export type LlmPromptInput =
@@ -20,7 +19,6 @@ export type LlmPromptInput =
   | { stage: "replan"; data: ReplanPromptData }
   | { stage: "arguments"; data: ArgumentPromptData }
   | { stage: "final_response"; data: FinalResponsePromptData };
-export type QwenPromptInput = LlmPromptInput;
 
 export interface PlanEvaluationExpectation {
   minSteps?: number;
@@ -94,14 +92,7 @@ export interface LlmTestCase {
   };
   notes?: string;
 }
-export type QwenTestCase = LlmTestCase;
 
-export interface LlmRunStepMetric {
-  ok: boolean;
-  error?: string;
-  details?: Record<string, unknown>;
-}
-export type QwenRunStepMetric = LlmRunStepMetric;
 
 export interface LlmRunRecord {
   case_id: string;
@@ -126,26 +117,31 @@ export interface LlmRunRecord {
   parsed_output?: unknown;
   /** Checks pass/fail (solo booleanos). */
   metrics: Record<string, boolean>;
+  /** Claves de `metrics` que son soft: se registran pero no afectan `status`. */
+  soft_metrics?: string[];
   /** Valores medidos que no son pass/fail (conteos, acción elegida, largo). */
   measurements: Record<string, number | string>;
   errors: string[];
   warnings: string[];
 }
-export type QwenRunRecord = LlmRunRecord;
 
 export interface LlmStageSummary {
   total: number;
   passed: number;
   pass_rate: number;
+  /** Ejecuciones que fallaron por excepción (timeout, HTTP, prompt demasiado largo); cuentan en `total`. */
+  errors: number;
+  /** Ejecuciones con finish_reason=length. */
+  truncated: number;
+  /** Promedio sobre las ejecuciones sin error. */
   avg_latency_ms: number;
+  /** Por check: aprobadas y evaluadas. Las claves soft llevan el sufijo " (soft)". */
   metrics_breakdown: Record<string, { pass: number; total: number }>;
 }
-export type QwenStageSummary = LlmStageSummary;
 
 export interface LlmThinkingSummary extends LlmStageSummary {
   avg_completion_tokens: number;
 }
-export type QwenThinkingSummary = LlmThinkingSummary;
 
 export interface LlmRunSettings {
   model: string;
@@ -155,9 +151,13 @@ export interface LlmRunSettings {
   thinking_timeout_ms: number;
   max_tokens: Record<LlmEvalStage, number>;
   final_thinking: "both" | "on" | "off" | "config";
+  /** Nombre corto del dataset (ej. "v2"); lo escribe runner.ts. */
+  dataset?: string;
+  /** Versión de prompts: "Q0" = producción, o el nombre del archivo en prompts/. */
   prompts?: string;
+  /** Etiqueta libre de la corrida (--tag). */
+  tag?: string;
 }
-export type QwenRunSettings = LlmRunSettings;
 
 export interface LlmScoresSummary {
   total: number;
@@ -172,4 +172,3 @@ export interface LlmScoresSummary {
   /** Solo etapas que corrieron con y sin thinking. */
   thinking_comparison: Partial<Record<LlmEvalStage, { off: LlmThinkingSummary; on: LlmThinkingSummary }>>;
 }
-export type QwenScoresSummary = LlmScoresSummary;

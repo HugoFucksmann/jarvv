@@ -26,6 +26,8 @@ export interface EvaluationOutcome {
   errors: string[];
   /** Desvíos del formato pedido por el prompt que producción tolera (no afectan `passed`). */
   warnings: string[];
+  /** Claves de `metrics` que son soft (no afectan `passed`). */
+  softMetrics?: string[];
 }
 
 type StepLike = { id: unknown; route: string; instruction: string };
@@ -73,6 +75,7 @@ function createCollector() {
   const measurements: Record<string, number | string> = {};
   const errors: string[] = [];
   const warnings: string[] = [];
+  const softKeys: string[] = [];
   return {
     metrics,
     measurements,
@@ -80,6 +83,7 @@ function createCollector() {
     warnings,
     soft(key: string, ok: boolean, warningMessage: string): boolean {
       metrics[key] = ok;
+      if (!softKeys.includes(key)) softKeys.push(key);
       if (!ok) warnings.push(warningMessage);
       return ok;
     },
@@ -88,8 +92,12 @@ function createCollector() {
       if (!ok) errors.push(errorMessage);
       return ok;
     },
+    /** Registra un check que se cumplió, sin mensaje de error. */
+    ok(key: string): void {
+      metrics[key] = true;
+    },
     finish(parsedOutput?: unknown): EvaluationOutcome {
-      return { passed: errors.length === 0, parsedOutput, metrics, measurements, errors, warnings };
+      return { passed: errors.length === 0, parsedOutput, metrics, measurements, errors, warnings, softMetrics: [...softKeys] };
     },
   };
 }
@@ -112,16 +120,21 @@ function describeParseFailure(rawOutput: string, ctx?: EvaluationContext): strin
 
 function parseFailure(rawOutput: string, ctx?: EvaluationContext): EvaluationOutcome {
   const c = createCollector();
-  c.metrics.valid_json = false;
-  c.errors.push(describeParseFailure(rawOutput, ctx));
+  c.check("valid_json", false, describeParseFailure(rawOutput, ctx));
   if (ctx?.finishReason) c.measurements.finish_reason = ctx.finishReason;
   return c.finish();
 }
 
+/** Registra `not_truncated` (y finish_reason si hubo truncado). Un único lugar para el check y su error. */
+function checkNotTruncated(c: Collector, ctx: EvaluationContext | undefined, errorMessage: string): boolean {
+  const truncated = ctx?.finishReason === "length";
+  if (truncated) c.measurements.finish_reason = "length";
+  return c.check("not_truncated", !truncated, errorMessage);
+}
+
 function truncatedFailure(rawOutput: string, ctx: EvaluationContext): EvaluationOutcome {
   const c = createCollector();
-  c.check("not_truncated", false, describeParseFailure(rawOutput, ctx));
-  c.measurements.finish_reason = "length";
+  checkNotTruncated(c, ctx, describeParseFailure(rawOutput, ctx));
   return c.finish();
 }
 
@@ -164,7 +177,7 @@ export function evaluatePlan(
   if (!parsed) return parseFailure(rawOutput, ctx);
 
   const c = createCollector();
-  c.metrics.valid_json = true;
+  c.ok("valid_json");
 
   c.soft(
     "has_objective",
@@ -177,7 +190,7 @@ export function evaluatePlan(
     c.check("valid_steps_structure", false, `Error al validar pasos del plan: ${stepsRes.error}`);
     return c.finish(parsed);
   }
-  c.metrics.valid_steps_structure = true;
+  c.ok("valid_steps_structure");
 
   const steps = stepsRes.steps;
   checkSteps(c, steps, expect, "");
@@ -228,7 +241,7 @@ export function evaluateReplan(
   if (!parsed) return parseFailure(rawOutput, ctx);
 
   const c = createCollector();
-  c.metrics.valid_json = true;
+  c.ok("valid_json");
 
   const action = parsed.action;
   c.measurements.action = typeof action === "string" ? action : "unknown";
@@ -237,7 +250,7 @@ export function evaluateReplan(
     c.check("valid_action", false, `Acción inválida '${action}'; debe ser 'continue' o 'abort'.`);
     return c.finish(parsed);
   }
-  c.metrics.valid_action = true;
+  c.ok("valid_action");
 
   if (expect.expectedAction) {
     c.check(
@@ -272,7 +285,7 @@ export function evaluateReplan(
     c.check("valid_steps_structure", false, `Error en los pasos del replan: ${stepsRes.error}`);
     return c.finish(parsed);
   }
-  c.metrics.valid_steps_structure = true;
+  c.ok("valid_steps_structure");
 
   const steps = stepsRes.steps;
   checkSteps(c, steps, expect, " de replan");
@@ -310,7 +323,7 @@ export function evaluateArguments(
   if (!parsedRaw) return parseFailure(rawOutput, ctx);
 
   const c = createCollector();
-  c.metrics.valid_json = true;
+  c.ok("valid_json");
 
   // Igual que producción: null en un parámetro opcional equivale a "no usado".
   const required: string[] = Array.isArray(schema?.required) ? (schema?.required as string[]) : [];
@@ -428,15 +441,12 @@ export function evaluateFinalResponse(
   const text = stripThink(rawOutput).trim();
   c.measurements.length_chars = text.length;
 
+  // Se registra antes de non_empty para que quede aun si la respuesta vino vacía.
+  checkNotTruncated(c, ctx, "Respuesta final truncada por límite de tokens (finish_reason=length).");
+
   if (!c.check("non_empty", text.length > 0, `Respuesta final vacía (finish_reason=${ctx?.finishReason ?? "desconocido"}).`)) {
     return c.finish(text);
   }
-
-  c.check(
-    "not_truncated",
-    ctx?.finishReason !== "length",
-    "Respuesta final truncada por límite de tokens (finish_reason=length)."
-  );
 
   if (expect.minChars !== undefined) {
     c.check(
@@ -476,7 +486,26 @@ export function evaluateFinalResponse(
   return c.finish(text);
 }
 
+/**
+ * Garantiza `not_truncated` en TODA ejecución, de modo que su denominador sea siempre el total.
+ * Las salidas truncadas ya lo registraron en false (truncatedFailure y evaluateFinalResponse),
+ * así que aquí solo se completa el caso true. No cambia `passed`.
+ */
+function withTruncationMetric(out: EvaluationOutcome, ctx?: EvaluationContext): EvaluationOutcome {
+  if (!ctx?.finishReason || "not_truncated" in out.metrics) return out;
+  out.metrics.not_truncated = ctx.finishReason !== "length";
+  return out;
+}
+
 export function evaluateTestCase(
+  testCase: LlmTestCase,
+  rawOutput: string,
+  ctx?: EvaluationContext
+): EvaluationOutcome {
+  return withTruncationMetric(evaluateByStage(testCase, rawOutput, ctx), ctx);
+}
+
+function evaluateByStage(
   testCase: LlmTestCase,
   rawOutput: string,
   ctx?: EvaluationContext
