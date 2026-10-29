@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { ChevronDown, ChevronRight, Cpu, Layers, Activity } from "lucide-react";
-import type { CoreEvent, Task } from "../../../src/core/types.ts";
+import type { CoreEvent, CoreEventType, Task } from "../../../src/core/types.ts";
 import type { ModelIteration } from "../../types/debug.ts";
 import { groupIterationsByStep } from "../../utils/debugAccumulator.ts";
 import { StepIterationGroup } from "./components/StepIterationGroup.tsx";
@@ -15,7 +15,7 @@ interface DecisionStreamProps {
 }
 
 /** Eventos que se muestran en la traza operativa. */
-const TRACE_EVENT_TYPES = new Set<string>([
+const TRACE_EVENT_TYPES = new Set<CoreEventType>([
   "DECISION_ONE",
   "DECISION_TWO",
   "ARGUMENTS_GENERATED",
@@ -28,71 +28,64 @@ const TRACE_EVENT_TYPES = new Set<string>([
   "STEP_STATE_CHANGED",
   "STEP_COMPLETED",
   "STAGE_VERIFIED",
+  "PLAN_GENERATED",
+  "PLAN_MODIFIED",
+  "PLAN_REJECTED",
   "FINAL_RESPONSE",
 ]);
 
-function getEventColorClass(type: string): string {
+function getEventColorClass(type: CoreEventType): string {
   if (type.startsWith("DECISION")) return "text-sky-300";
   if (type.startsWith("GUARD") || type.startsWith("APPROVAL")) return "text-amber-300";
   if (type.startsWith("MCP")) return "text-emerald-300";
   return "text-slate-300";
 }
 
-/** Resumen de una línea para cada tipo de evento de la traza. */
-function summarizeEvent(ev: CoreEvent): string {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d = (ev.data ?? {}) as Record<string, any>;
-  const formatConf = (v: unknown): string => {
-    if (typeof v === "number" && !Number.isNaN(v)) {
-      return `${(v * 100).toFixed(0)}%`;
-    }
-    return "N/D";
-  };
-  const type: string = ev.type;
+const formatConf = (v: unknown): string =>
+  typeof v === "number" && !Number.isNaN(v) ? `${(v * 100).toFixed(0)}%` : "N/D";
 
-  switch (type) {
-    case "ARGUMENTS_GENERATED":
-      return `args: ${JSON.stringify(d.args || {})}`;
+/**
+ * Resumen de una línea para cada tipo de evento de la traza.
+ * `ev` es una unión discriminada: cada `case` estrecha `ev.data` al tipo que el core declara en `CoreEventDataMap`.
+ */
+function summarizeEvent(ev: CoreEvent): string {
+  switch (ev.type) {
+    case "ARGUMENTS_GENERATED": {
+      const d = ev.data;
+      return "error" in d ? `error: ${d.error}` : `args: ${JSON.stringify(d.args)}`;
+    }
     case "GUARD_EVALUATION":
-      return `decisión: ${d.guardDecision?.decision || "ALLOW"}`;
+      return `decisión: ${ev.data.guardDecision.decision}`;
+    case "APPROVAL_REQUESTED":
+      return `${ev.data.pendingApproval.mcp}:${ev.data.pendingApproval.tool}`;
+    case "APPROVAL_RESOLVED":
+      return `${ev.data.approved ? "aprobada" : "denegada"}${ev.data.reason ? ` (${ev.data.reason})` : ""}`;
     case "MCP_DISPATCHED":
-      return `${d.mcp}:${d.tool}`;
-    case "DECISION_ONE": {
-      const conf = typeof d.confidence === "number"
-        ? d.confidence
-        : (d.route && d.probabilities ? d.probabilities[d.route] : undefined);
-      return `ruta: ${d.route} (conf: ${formatConf(conf)})`;
+      return `${ev.data.mcp}:${ev.data.tool}`;
+    case "DECISION_ONE":
+      return `ruta: ${ev.data.route} (conf: ${formatConf(ev.data.probabilities?.[ev.data.route])})`;
+    case "DECISION_TWO":
+      return `tool: ${ev.data.tool} (conf: ${formatConf(ev.data.probabilities?.[ev.data.tool])})`;
+    case "RESULT_PROCESSED": {
+      const d = ev.data;
+      return `estado=${d.callStatus} verificación=${d.verificationState} | ${(d.processed.finding || "procesado").slice(0, 80)}`;
     }
-    case "DECISION_TWO": {
-      const conf = typeof d.confidence === "number"
-        ? d.confidence
-        : (d.tool && d.probabilities ? d.probabilities[d.tool] : undefined);
-      return `tool: ${d.tool} (conf: ${formatConf(conf)})`;
-    }
-    case "RESULT_PROCESSED":
-      return `ok=${d.verification?.ok ?? d.isStepSuccess} cumple=${d.verification?.cumple ?? d.isStepSuccess} | ${(d.processed?.finding || "procesado").slice(0, 80)}`;
-    case "STAGE_VERIFIED": {
-      const status = d.stageVerification?.status || d.status || d.situation || "verificada";
-      const conf = typeof d.confidence === "number"
-        ? d.confidence
-        : (typeof d.stageVerification?.confidence === "number" ? d.stageVerification.confidence : undefined);
-      const confStr = typeof conf === "number" ? ` (conf=${formatConf(conf)})` : "";
-      return `etapa ${ev.stepId || d.stepId || d.stageId || ""}: ${status}${confStr}`;
-    }
+    case "STAGE_VERIFIED":
+      return `etapa ${ev.data.stepId}: ${ev.data.stageVerification.status}`;
     case "PLAN_GENERATED":
-      return `Plan generado (${(d.steps || []).length} etapas)`;
+      return `Plan generado (${ev.data.steps.length} etapas)`;
     case "PLAN_MODIFIED":
-      return `Plan modificado: ${d.feedback || "ajuste solicitado"}`;
+      return `Plan modificado: ${ev.data.feedback}`;
     case "PLAN_REJECTED":
-      return `Plan rechazado: ${d.reason || "cancelado por usuario"}`;
+      return `Plan rechazado: ${ev.data.reason}`;
     case "FINAL_RESPONSE":
       return "Respuesta sintetizada";
     case "STEP_STATE_CHANGED":
-      return `paso ${ev.stepId || ""}: estado -> ${d.state || d.step?.state}`;
+      return `paso ${ev.stepId || ev.data.step.id}: estado -> ${ev.data.state}`;
     case "STEP_COMPLETED":
-      return `paso ${ev.stepId || ""}: concluido (${d.step?.state || "COMPLETED"})${d.error ? ` [error: ${d.error}]` : ""}`;
+      return `paso ${ev.stepId || ev.data.step.id}: concluido (${ev.data.step.state})${ev.data.error ? ` [error: ${ev.data.error}]` : ""}`;
     default:
-      return JSON.stringify(ev.data || {});
+      return JSON.stringify(ev.data);
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Planes y verificación semántica de etapas (modo PLAN).
+ * JARVIS Core — Planes, verificación semántica de etapas (modo PLAN) y contrato de entradas/salidas de ILLMClient.
  */
 
 import type { ExecutableRoute } from "./routes.ts";
@@ -39,10 +39,6 @@ export interface Plan {
   timing?: TimeSpan;
 }
 
-// ============================================================
-// Verificación semántica de etapas (modo PLAN)
-// ============================================================
-
 export type StageVerificationStatus =
   | "completed"
   | "recoverable_deviation"
@@ -73,10 +69,6 @@ export interface StageVerificationPromptData {
   failLines?: string[];
 }
 
-// ============================================================
-// Contrato con el cliente LLM (entradas y salidas de ILLMClient)
-// ============================================================
-
 /** Intercambio cuya salida no se pudo usar. */
 export interface FailedAttempt {
   rawInput: string;
@@ -95,7 +87,6 @@ export interface ArgumentPromptData {
   effects?: string[];
   /** Referencias disponibles (`ref:rX origen (tamaño)`), las más recientes. */
   refs?: string[];
-  /** Rutas reales de esta PC (carpeta personal, escritorio, documentos, descargas). */
   environment: UserEnvironment;
   tool: MCPTool;
   cleanedSchema: Record<string, unknown>;

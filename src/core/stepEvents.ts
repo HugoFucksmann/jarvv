@@ -24,7 +24,6 @@ export function emitStepStateChanged(
     deps.emitEvent(taskId, "STEP_STATE_CHANGED", { step, ...withIndex(stepIndex), state }, step.id);
 }
 
-/** El paso empezó a ejecutarse. */
 export function emitStepRunning(deps: StepEventEmitter, taskId: string, step: Step, stepIndex: number): void {
     emitStepStateChanged(deps, taskId, step, "RUNNING", stepIndex);
 }

@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Execution Mode Engines (FAST, PLAN, Replan, Escalation)
+ * JARVIS Core — Motores de modo: bucles FAST y PLAN, replan y escalación.
  */
 
 import {
@@ -28,8 +28,7 @@ import {
 } from "./context.ts";
 import type { EngineDependencies } from "./engineDeps.ts";
 import { recordFailedCall, runStep } from "./callExecutor.ts";
-import { LLMServiceUnavailableError } from "./reasoner/qwen.ts";
-import { DecisionServiceUnavailableError } from "./decision.ts";
+import { DecisionServiceUnavailableError, LLMServiceUnavailableError } from "./llmTransport.ts";
 import { sanitizeForMemory } from "./processor/text.ts";
 import { emitStepCompleted, emitStepError, emitStepRunning } from "./stepEvents.ts";
 import {
@@ -76,10 +75,6 @@ export function planStepsToSteps(steps: readonly PlanStep[], rev: number): Step[
     }));
 }
 
-
-// DECISION & STEP EVENTS
-
-/** Decision #1 sobre el estado actual de la tarea. */
 function askDecisionOne(context: TaskExecutionContext, deps: EngineDependencies, allowFin: boolean) {
     const { task } = context;
     return deps.decisionEngine.evaluateDecisionOne(
@@ -134,7 +129,6 @@ function recordStepCrash(
     emitStepError(deps, context.task.id, step, stepIndex);
 }
 
-
 /** Resultado de ejecutar un paso: su resultado, una excepción ya registrada en el paso, o la cancelación de la tarea. */
 type GuardedRun =
     | { kind: "result"; result: StepExecutionResult }
@@ -160,9 +154,6 @@ async function runStepGuarded(
         return { kind: "crashed" };
     }
 }
-
-
-// ESCALATION & REPLAN
 
 /**
  * Escalación FAST tras un fallo de paso. Devuelve true si el bucle debe continuar.
@@ -302,9 +293,6 @@ export async function handleReplan(
     console.log(`[PLAN] Replan autónomo completado. Continuando ejecución directa de ${newSteps.length} pasos.`);
     return true;
 }
-
-
-// FAST MODE ENGINE
 
 /**
  * Ruta de la siguiente iteración: la impuesta por la escalación o la que elige Decision #1.
@@ -451,9 +439,6 @@ export async function runFastLoop(
         }
     }
 }
-
-
-// PLAN MODE ENGINE
 
 export async function initiatePlanMode(
     context: TaskExecutionContext,

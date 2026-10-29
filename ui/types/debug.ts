@@ -10,14 +10,14 @@ export type {
   ModelIteration,
 } from "../../src/core/types.ts";
 
-import type { ModelIteration } from "../../src/core/types.ts";
+import type { ExecutableRoute, ModelIteration, StepState } from "../../src/core/types.ts";
 
 export interface StepIterationGroupData {
   stepId: string;
   stepSeq?: number;
   stepTitle: string;
-  route?: string;
+  route?: ExecutableRoute;
   tool?: string;
-  state?: string;
+  state?: StepState;
   iterations: ModelIteration[];
 }

@@ -19,10 +19,6 @@ import {
 import { DESTINATIONS } from "../tools/manifest.ts";
 import { clip, clipTail } from "../utils.ts";
 
-// ============================================================
-// Helpers
-// ============================================================
-
 // Presupuestos en caracteres por bloque (Qwen).
 const MAX_GOAL_CHARS = 1500;
 const MAX_ACTION_CHARS = 1200;
@@ -102,8 +98,7 @@ const tailLines = (lines: readonly string[], maxChars: number): string[] => {
 
 /**
  * Reparte `budget` entre las entradas de evidencia. Las cortas ceden lo que no usan a las largas, y cada entrada que
- * no cabe se recorta con `clipObs` (cabeza, cola y marcadores `ref:rX`). Antes el bloque entero se cortaba por el
- * principio y las lecturas más viejas desaparecían sin dejar rastro.
+ * no cabe se recorta con `clipObs` (cabeza, cola y marcadores `ref:rX`).
  */
 const fitEvidence = (entries: readonly string[], budget: number, perEntry: number): string => {
   const sep = "\n---\n";
@@ -152,7 +147,6 @@ const orNone = (label: string, block: string | null): string => block ?? `${labe
 const join = (parts: (string | null | undefined)[]): string =>
   parts.filter((p): p is string => !!p).join("\n\n");
 
-/** Primera oración de la descripción, truncada. */
 const shortDesc = (d: string | undefined, fallback: string): string => {
   if (!d) return fallback;
   const first = d.trim().split(/(?<=[.!?])\s/)[0];
@@ -169,12 +163,7 @@ export const retryNote = (previousError?: string): string =>
     ? `\n\nERROR_PREVIO: tu respuesta anterior fue inválida (${safe(clip(previousError, MAX_ERROR_NOTE_CHARS))}). Corrígela y responde de nuevo.`
     : "";
 
-// ============================================================
-// Prompts para Qwen
-// ============================================================
-
 export const PROMPTS = {
-  /** Etapa 3: argumentos de tools MCP */
   ARGUMENTS: {
     SYSTEM: `Genera los argumentos de la herramienta indicada. Responde solo con el objeto JSON, conforme al SCHEMA.
 Incluye solo los parámetros necesarios y omite los opcionales que no uses. No inventes filtros que el usuario no pidió.
@@ -208,7 +197,6 @@ ${DATA_NOTICE}`,
     },
   },
 
-  /** Etapa 6: respuesta final al usuario */
   FINAL_RESPONSE: {
     SYSTEM: `Eres JARVIS. Responde al usuario en español, de forma directa y completa a su solicitud original, con los datos y hallazgos concretos registrados en LOG, FACTS y EVID.
 No te limites a confirmar que la tarea terminó: entrega la información que el usuario pidió.
@@ -330,10 +318,6 @@ ${DATA_NOTICE}`,
   },
 } as const;
 
-// ============================================================
-// Interfaces Decision 2.0
-// ============================================================
-
 // `Attempt` es un tipo de dominio (types.ts); se reexporta aquí para no romper a quien lo importa desde este módulo.
 export type { Attempt };
 
@@ -369,10 +353,6 @@ export interface DecisionInput {
   questions: Record<string, DecisionQuestion>;
 }
 
-// ------------------------------------------------------------
-// Helpers de historial de acciones
-// ------------------------------------------------------------
-
 const recentAttempts = (attempts?: readonly Attempt[]): Attempt[] =>
   (attempts ?? []).slice(-MAX_ATTEMPTS);
 
@@ -386,7 +366,6 @@ const fmtAttempts = (attempts: readonly Attempt[]): string | null => {
   return `Actions already taken:\n${lines.join("\n")}`;
 };
 
-/** Resultado del último intento por clave. */
 const lastStatusBy = (
   attempts: readonly Attempt[],
   key: (a: Attempt) => string | undefined,
@@ -399,12 +378,7 @@ const lastStatusBy = (
   return m;
 };
 
-// ============================================================
-// Builders para Decision-2.0-Eos-0.8B
-// ============================================================
-
 export const DECISION_PROMPTS = {
-  /** Decision #1: routing estructural */
   buildDecisionOne(data: DecisionOnePromptData): DecisionInput {
     const attempts = recentAttempts(data.attempts);
     const hasAttempts = attempts.length > 0;
@@ -436,7 +410,6 @@ export const DECISION_PROMPTS = {
     return { state, questions: { route: { type: "choice", instructions, criteria } } };
   },
 
-  /** Decision #2: selección de tool dentro del MCP activo */
   buildDecisionTwo(data: DecisionTwoPromptData): DecisionInput {
     const attempts = recentAttempts(data.attempts);
     const scoped = data.mcp ? attempts.filter((a) => !a.mcp || a.mcp === data.mcp) : attempts;

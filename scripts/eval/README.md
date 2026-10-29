@@ -1,183 +1,135 @@
 # Framework de Evaluación (`scripts/eval`)
 
-Dos suites de benchmarking independientes y desacopladas:
+Dos suites independientes. Patrón común: **dataset → prompt → runner → resultados → análisis**.
 
-- **Decisión (`scripts/eval/decision/`):** evalúa modelos clasificadores y de scoring (**D3**, **Eos**) contra datasets etiquetados y variantes de prompts. Analiza métricas estadísticas de discriminación (AUC, umbrales óptimos, política de 3 bandas, validación cruzada).
-- **Lenguaje / LLM (`scripts/eval/llm/`):** evalúa modelos de razonamiento y generación (**Qwen**, Llama, Mistral, etc.) en las 4 etapas de ejecución del agente (`plan`, `replan`, `arguments`, `final_response`) y compara estadísticamente versiones de prompts.
+- **`decision/`**: evalúa modelos de decisión (**D3**, **Eos**) con datasets etiquetados. Mide AUC, umbrales óptimos, política de 3 bandas y validación cruzada.
+- **`llm/`**: evalúa modelos de lenguaje (Qwen, etc.) en las 4 etapas del agente (`plan`, `replan`, `arguments`, `final_response`) y compara versiones de prompts.
 
-Patrón común: **dataset → prompt → runner → resultados → análisis**. Cada corrida registra trazas completas (`runs.jsonl`) y resúmenes compactos (`scores.json`).
+Cada corrida guarda `runs.jsonl` (trazas completas) y `scores.json` (resumen).
 
 ---
 
-## 1. Estructura
+## Estructura
 
 ```text
 scripts/
 ├── eval/
-│   ├── README.md
-│   │
-│   ├── decision/                      # ── Benchmark de Modelos de Decisión (D3 / Eos) ──
-│   │   ├── datasets/
-│   │   │   ├── dataset_v1.jsonl       # Base (54 casos)
-│   │   │   ├── dataset_v2.jsonl       # Trampas sutiles (44 casos)
-│   │   │   └── dataset_v3.jsonl       # Validación ampliada (62 casos)
-│   │   ├── prompts/                   # Variantes de prompts de decisión
-│   │   │   ├── v0.ts … v2.ts          # Rondas históricas
-│   │   │   ├── v3.ts                  # Ronda M0–M6
-│   │   │   ├── v4.ts                  # Variantes aisladas
-│   │   │   └── v5.ts                  # Dual Check con veto estricto AND
-│   │   ├── core/
-│   │   │   ├── client.ts              # Cliente HTTP (endpoints /predict, /score_choices)
-│   │   │   ├── types.ts               # Tipos TestCase, RunRecord, GoldPostLabel
-│   │   │   └── utils.ts               # Carga de datasets, permutaciones y export
-│   │   ├── runner.ts                  # Runner CLI para modelos de decisión
-│   │   ├── analyze.py                 # Análisis estadístico (AUC, umbrales, validación cruzada)
-│   │   ├── CONCLUSIONES.md            # Histórico de reglas y hallazgos
-│   │   └── connect_d3.md              # Credenciales y endpoints de D3
-│   │
-│   └── llm/                           # ── Benchmark de Modelos de Lenguaje (Qwen, etc.) ──
-│       ├── datasets/
-│       │   ├── cases_v1.ts            # Casos de prueba tipados v1
-│       │   ├── cases_v2.ts            # Casos de prueba tipados v2 (dificultades easy/med/hard)
-│       │   └── tool_schemas.json      # Schemas de herramientas MCP (usados por etapa arguments)
-│       ├── prompts/
-│       │   └── Q1.ts                  # Variantes experimentales de prompts
-│       ├── core/
-│       │   ├── client.ts              # Cliente agnóstico OpenAI-compatible (Ollama, vLLM, etc.)
-│       │   ├── evaluator.ts           # Evaluador de 4 etapas (schemas, validación, métricas)
-│       │   ├── types.ts               # Tipos agnósticos LlmTestCase, LlmEvalStage, etc.
-│       │   └── promptBuilder.ts       # Ensamblador de prompts desde producción (prompts.ts)
-│       ├── runner.ts                  # Runner CLI para etapas del LLM
-│       └── compare.py                 # Comparador estadístico de versiones de prompts
-│
+│   ├── decision/
+│   │   ├── datasets/      # dataset_v1..v3.jsonl
+│   │   ├── prompts/       # v0.ts … v5.ts
+│   │   ├── core/          # client, types, utils
+│   │   ├── runner.ts
+│   │   ├── analyze.py
+│   │   ├── CONCLUSIONES.md
+│   │   └── connect_d3.md  # credenciales y endpoints
+│   └── llm/
+│       ├── datasets/      # cases_v1.ts, cases_v2.ts, tool_schemas.json
+│       ├── prompts/       # Q1.ts, ...
+│       ├── core/          # client, evaluator, types, promptBuilder
+│       ├── runner.ts
+│       └── compare.py
 └── results/
-    ├── decision/
-    │   └── <modelo>/                  # ej: d3, d3_remote
-    │       ├── <fecha>_<dataset>_<prompts>[_<tag>]/
-    │       │   ├── runs.jsonl
-    │       │   ├── scores.json
-    │       │   └── analysis.txt       # análisis individual de la corrida
-    │       └── comparisons/           # análisis cruzados / validación cruzada
-    │           └── <fecha>_<nombre>_analysis.txt
-    │
-    └── llm/
-        └── <modelo>/                  # ej: qwen3.5_4b, qwen3.5_9b
-            ├── <fecha>[_<tag>]/
-            │   ├── runs.jsonl
-            │   └── scores.json
-            └── comparisons/           # comparaciones entre corridas (compare.py)
-                └── <fecha>_<tags>_compare.md
+    ├── decision/<modelo>/<fecha>_<dataset>_<prompts>[_<tag>]/   # runs.jsonl, scores.json, analysis.txt
+    └── llm/<modelo>/<dataset>_<prompt>[_<tag>]/                 # runs.jsonl, scores.json, summary.md
+        (ambos con comparisons/ para análisis cruzados)
 ```
 
 ---
 
-## 2. Guía Rápida de Comandos
+## Comandos
 
 ```bash
-# ── Decisión (D3 / Eos) ──────────────────────────────────────────────
-# Ejecutar benchmark sobre un dataset con una variante de prompts
+# LLM
+npx tsx scripts/eval/llm/runner.ts --model=qwen3.5:4b --dataset=v2 --prompts=prod --stage=all
+
+# Comparar prompts
+python scripts/eval/llm/compare.py Q0=qwen3.5_4b/v2_Q0 Q1=qwen3.5_4b/v2_Q1 --out=reporte.md
+
+# Decisión
 npx tsx scripts/eval/decision/runner.ts --model=d3 --dataset=v2 --prompts=v5
 
-# Analizar una corrida individual (guarda analysis.txt dentro de esa carpeta)
-python scripts/eval/decision/analyze.py scripts/results/decision/d3/2026-10-26_dataset_v2_v3/scores.json
-
-# Analizar dos datasets (validación cruzada) y guardar en comparisons/
-python scripts/eval/decision/analyze.py \
-  scripts/results/decision/d3/2026-10-26_dataset_v1_v3/scores.json \
-  scripts/results/decision/d3/2026-10-26_dataset_v2_v3/scores.json
-
-# Filtrar variantes específicas
-python scripts/eval/decision/analyze.py scores.json --runs=M0_control,M3_cumple_evidence
-
-# ── Lenguaje / LLM (Qwen, etc.) ──────────────────────────────────────
-# Ejecutar todas las etapas con prompts de producción (dataset v2 por defecto)
-npx tsx scripts/eval/llm/runner.ts --model=qwen3.5:4b
-
-# Ejecutar con una versión experimental de prompts (ej. Q1.ts en scripts/eval/llm/prompts/)
-npx tsx scripts/eval/llm/runner.ts --model=qwen3.5:4b --prompts=Q1
-
-# Ejecutar una etapa particular con prompts Q1 y dataset específico
-npx tsx scripts/eval/llm/runner.ts --model=qwen3.5:4b --prompts=Q1 --stage=plan
-
-# Comparar dos versiones de prompt (guarda automáticamente en llm/<modelo>/comparisons/)
-python scripts/eval/llm/compare.py qwen3.5_4b/2026-10-27_prod qwen3.5_4b/2026-10-27_Q1
-
-# Comparar con repeticiones (múltiples corridas agrupadas bajo el mismo LABEL)
-python scripts/eval/llm/compare.py \
-  v0=qwen3.5_4b/2026-10-27_v0 \
-  Q1=qwen3.5_4b/2026-10-27_Q1
+# Analizar (1 archivo = métricas; 2 archivos = validación cruzada)
+python scripts/eval/decision/analyze.py <scores_a.json> [<scores_b.json>]
 ```
 
 ---
 
-## 3. Benchmark de Decisión (D3 / Eos)
+## Decisión (D3 / Eos)
 
-| Parámetro | Valores | Default | Descripción |
-|---|---|---|---|
-| `--model` | `d3`, `eos` | `d3` | Backend de decisión a invocar. |
-| `--device` | `gpu`, `cpu`, `remote` | `gpu` | Entorno de ejecución (`remote` usa API cloud). |
-| `--dataset` | `v1`, `v2`, `v3` o ruta `.jsonl` | `v2` | Dataset etiquetado a evaluar. |
-| `--prompts` | `v0` … `v5` o ruta `.ts` | `v2` | Módulo de variantes de prompts a correr. |
-| `--tag` | texto libre | vacío | Etiqueta adicional para la carpeta de resultados. |
+| Flag | Valores | Default |
+|---|---|---|
+| `--model` | `d3`, `eos` | `d3` |
+| `--device` | `gpu`, `cpu`, `remote` | `gpu` |
+| `--dataset` | `v1`, `v2`, `v3` o ruta `.jsonl` | `v2` |
+| `--prompts` | `v0`…`v5` o ruta `.ts` | `v2` |
+| `--tag` | texto libre | vacío |
 
-- El runner lee automáticamente las credenciales remotas desde `decision/connect_d3.md` (o `process.env.D3_API_KEY`).
-- El análisis con un `scores.json` reporta AUC, precisión por umbrales y política de 3 bandas; con dos archivos realiza validación cruzada.
+Las credenciales remotas se leen de `decision/connect_d3.md` o `D3_API_KEY`.
 
-### Agregar una nueva versión de prompts de decisión
-
-1. Crear `scripts/eval/decision/prompts/vN.ts` exportando la función `runEvaluation`.
-2. Registrar cada variante utilizando los ayudantes del runner (`runNoul` para scoring continuo, `runChoice` para clasificación).
-3. Correr `runner.ts --prompts=vN` sobre los datasets deseados y analizar con `analyze.py`.
+**Nueva versión de prompts:** crear `prompts/vN.ts` exportando `runEvaluation`, registrar variantes con `runNoul` (scoring continuo) o `runChoice` (clasificación), correr con `--prompts=vN` y analizar con `analyze.py`.
 
 ---
 
-## 4. Benchmark de Lenguaje / LLM
+## LLM
 
-### Etapas evaluadas
+### Etapas
 
-| Etapa | Qué se verifica |
+| Etapa | Verifica |
 |---|---|
-| `plan` | Descomposición en pasos válidos, rutas del manifiesto (`files`, `locate`, `terminal`, `web`), casos sin tools (`steps: []`). |
-| `replan` | Decisión `continue`/`abort`, no duplicar pasos completados, respeto de efectos previos. |
-| `arguments` | Cumplimiento estricto de `tool_schemas.json`, tipado, campos obligatorios, tokens `{{ref:rX}}`. |
-| `final_response` | Apego a `FACTS`, `LOG` y `EVID`, justificación de abortos, ausencia de alucinaciones. |
+| `plan` | Pasos válidos, rutas permitidas, casos sin tools (`steps: []`). |
+| `replan` | `continue`/`abort` correcto, sin repetir pasos ni efectos. |
+| `arguments` | Cumplimiento de `tool_schemas.json`, campos obligatorios, tokens `{{ref:rX}}`. |
+| `final_response` | Apego a `FACTS`/`LOG`/`EVID`, sin alucinaciones. |
+
+### Evaluador (`core/evaluator.ts`)
+
+- Limpia `<think>…</think>` y falla si la salida se trunca (`finish_reason === "length"`).
+- **`check`** (afecta `passed`): errores de esquema, rutas prohibidas, alucinaciones, datos faltantes.
+- **`soft`** (solo `warnings`): desvíos que producción tolera.
+- Cada caso define sus criterios en `expect.<etapa>` (ej. `minSteps`, `allowedRoutes`, `expectedAction`, `requiredFields`, `mustContainFacts`, `forbiddenHallucinations`).
 
 ### Fidelidad con producción
 
-- **Prompts vivos:** `promptBuilder.ts` utiliza los constructores reales de `src/core/reasoner/prompts.ts` por defecto (`--prompts=prod`), o carga variantes desde `scripts/eval/llm/prompts/<nombre>.ts` (`--prompts=Q1`).
-- **Schemas y validación:** Reutiliza las funciones de producción (`PLAN_JSON_SCHEMA`, `REPLAN_JSON_SCHEMA`, `parseJsonObject`, `validateArgs`, etc.).
-- **Thinking:** Activado en `plan` y `replan`, desactivado en `arguments`, y en `final_response` se evalúa comparativamente (con y sin thinking).
-- **Límites y contexto:** Derivados de `src/core/config.ts` (`jarvis-config.json`), salvo override explícito por CLI.
-- **Sin reintentos:** Se evalúa la primera respuesta; el pass rate representa el piso real de fiabilidad.
+- Usa los prompts, schemas y validadores reales (`src/core/reasoner/prompts.ts`).
+- Thinking: activo en `plan`/`replan`, apagado en `arguments`, comparado on/off en `final_response`.
+- Sin reintentos: el pass rate es el piso real de fiabilidad.
 
-### Parámetros del Runner
+### Dataset propio
 
-| Parámetro | Default | Descripción |
-|---|---|---|
-| `--model` | `qwen2.5:7b` | Modelo en el servidor (ej. `qwen3.5:4b`, `qwen3.5:9b`). |
-| `--dataset` | `v2` | `v2` o ruta a archivo `.ts` de casos. |
-| `--prompts` | `prod` | `prod` (usa `prompts.ts`), `Q1` (en `scripts/eval/llm/prompts/Q1.ts`) o ruta `.ts`. Si no se pasa `--tag`, usa el nombre del prompt. |
-| `--url` | `http://127.0.0.1:11434` | Endpoint compatible con OpenAI / Ollama. |
-| `--stage` | `all` | `plan`, `replan`, `arguments`, `final_response` o `all`. |
-| `--tag` | vacío (o valor de `--prompts`) | Etiqueta / versión (sufijo en la carpeta de resultados). |
-| `--finalThinking` | `both` | Modo para `final_response`: `both`, `on`, `off`, `config`. |
-| `--timeout`, `--thinkingTimeout` | de config | Timeouts en milisegundos. |
-| `--numCtx` | de config | Tamaño de ventana de contexto en tokens. |
+Crear `datasets/mi_dataset.ts` exportando `testCases: LlmTestCase[]`. Con `input.prompt` se usan los constructores de producción; con `input.system` + `input.user` se usan textos crudos.
 
-### Salidas (`scripts/results/llm/<modelo>/<fecha>[_<tag>]/`)
-
-- **`runs.jsonl`:** traza completa de cada ejecución con hashes de prompts y casos, latencias, recuento de tokens, finish reasons, respuestas crudas y métricas booleanas.
-- **`scores.json`:** resumen consolidado con pass rates macro/micro por etapa, configuración efectiva y comparativa thinking on/off.
-
----
-
-## 5. Comparador Estadístico (`compare.py`)
-
-Compara dos o más versiones de prompts evaluadas sobre el mismo dataset:
-
-```bash
-python scripts/eval/llm/compare.py v1=qwen3.5_4b/2026-10-27_v1 v2=qwen3.5_4b/2026-10-27_v2 --out reporte.md
+```typescript
+export const testCases: LlmTestCase[] = [
+  {
+    id: "mi-plan-01",
+    stage: "plan",
+    category: "general",
+    description: "Crear una nota en el escritorio",
+    input: { prompt: { stage: "plan", goal: "crea una nota con un resumen del mercado" } },
+    expect: { plan: { minSteps: 1, maxSteps: 3, requiredRoutes: ["files"] } },
+  },
+];
 ```
 
-- Busca automáticamente en `scripts/results/llm_eval/` y mantiene compatibilidad con corridas previas en `scripts/results/qwen_eval/`.
-- Aplica pruebas estadísticas (prueba de signos exacta) para determinar si la diferencia entre versiones es estadísticamente significativa frente a la variabilidad estocástica del modelo.
+Los casos de `arguments`, `replan` y `final_response` siguen la misma forma; solo cambia `input.prompt.data` y `expect.<etapa>`.
+
+```bash
+npx tsx scripts/eval/llm/runner.ts --model=qwen3.5:9b --dataset=mi_dataset --stage=plan
+```
+
+### Flags del runner
+
+| Flag | Default | Descripción |
+|---|---|---|
+| `--model` | `qwen2.5:7b` | Modelo en el servidor. |
+| `--dataset` | `v2` | Nombre corto o ruta `.ts`. |
+| `--prompts` | `prod` | `prod`, `Q1` o ruta `.ts`. |
+| `--url` | `http://127.0.0.1:11434` | Endpoint OpenAI-compatible. |
+| `--stage` | `all` | `plan`, `replan`, `arguments`, `final_response`, `all`. |
+| `--tag` | valor de `--prompts` | Sufijo de la carpeta de resultados. |
+| `--finalThinking` | `both` | `both`, `on`, `off`, `config`. |
+| `--timeout`, `--thinkingTimeout`, `--numCtx` | de config | Overrides en ms / tokens. |
+
+### Comparador (`compare.py`)
+
+Compara dos o más corridas sobre el mismo dataset con prueba de signos exacta, para distinguir diferencias reales de la variabilidad del modelo.

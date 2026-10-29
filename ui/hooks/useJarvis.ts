@@ -4,18 +4,21 @@
  * Communicates exclusively with the authoritative Node.js JARVIS backend via HTTP / SSE.
  * Does NOT instantiate or bundle JarvisCore, DiscoveryEngine, Decision20Engine,
  * QwenEngine, child_process, or any MCP transport inside the browser.
+ *
+ * El back es la fuente de verdad: la pregunta interactiva sale de `task.pendingQuestion`, las iteraciones de
+ * `task.modelIterations` (en `/state`) o de los eventos SSE (`createIterationFromEvent`, módulo del core).
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { Task, PendingApproval, CoreEvent, MCPTool } from "../../src/core/types.ts";
 import type { ModelIteration } from "../types/debug.ts";
-import { jarvisApi, type SerializedPendingApproval } from "../services/jarvisApi.ts";
+import type { ExecutionMode, McpInitStatus } from "../types/ui.ts";
+import type { SerializedPendingApproval, SseMessage, UnavailableServers, WireTask } from "../types/api.ts";
+import { jarvisApi } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
-import { createIterationFromEvent, reconstructIterationsFromTask } from "../utils/debugAccumulator.ts";
+import { createIterationFromEvent } from "../utils/debugAccumulator.ts";
 
-export type ExecutionMode = "NORMAL" | "PLAN";
-export type McpInitStatus = "loading" | "ready" | "partial" | "error";
-type UnavailableServers = Record<string, { reason: string; since: number }>;
+export type { ExecutionMode, McpInitStatus } from "../types/ui.ts";
 
 const MAX_EVENTS = 500;
 const FALLBACK_POLL_MS = 5000;
@@ -24,7 +27,7 @@ const FALLBACK_POLL_MS = 5000;
 // Helpers puros
 // ---------------------------------------------------------------------------
 
-function upsertById(list: Task[], task: Task): Task[] {
+function upsertById(list: WireTask[], task: WireTask): WireTask[] {
   const idx = list.findIndex((t) => t.id === task.id);
   if (idx < 0) return [...list, task];
   const next = [...list];
@@ -41,41 +44,16 @@ function resolveMcpStatus(discovered: number, unavailable: number, whenEmpty: Mc
   return discovered > 0 ? "partial" : "error";
 }
 
-function isAwaitingUserAnswer(t: Task | null | undefined): boolean {
-  return t?.state === "WAITING_INPUT" && t.waitingReason === "user_answer";
+/** La pregunta abierta la persiste el núcleo en `pendingQuestion`; no se infiere de los pasos ni de los eventos. */
+function userQuestionOf(t: WireTask | null | undefined): string | null {
+  return t?.state === "WAITING_INPUT" && t.waitingReason === "user_answer"
+    ? t.pendingQuestion?.question ?? null
+    : null;
 }
 
-function extractUserQuestion(t: Task | null): string | null {
-  if (!t || !isAwaitingUserAnswer(t)) return null;
-  // La pregunta persistida por el núcleo es la fuente de verdad; lo siguiente solo cubre tareas antiguas.
-  if (t.pendingQuestion?.question) return t.pendingQuestion.question;
-  for (let i = t.steps.length - 1; i >= 0; i--) {
-    const s = t.steps[i];
-    if (s.calls) {
-      for (let j = s.calls.length - 1; j >= 0; j--) {
-        const c = s.calls[j];
-        if (c.tool === "ask_user" && c.args) {
-          const q = (c.args.question as string) || (c.args.prompt as string);
-          if (q) return q;
-        }
-      }
-    }
-    if (s.tool === "ask_user" && s.args) {
-      const q = (s.args.question as string) || (s.args.prompt as string);
-      if (q) return q;
-    }
-    if (s.error && (s.state === "UNVERIFIED" || s.state === "RUNNING")) {
-      return s.error;
-    }
-  }
-  return null;
-}
-
-/** Iteraciones de una tarea: las persistidas en ella, si no las ya conocidas, si no se reconstruyen del snapshot. */
+/** Iteraciones de una tarea completa (`/state`): las que trae el back; si no, las ya acumuladas por SSE. */
 function resolveIterations(task: Task, known: ModelIteration[] | undefined): ModelIteration[] {
-  if (task.modelIterations && task.modelIterations.length > 0) return task.modelIterations;
-  if (known && known.length > 0) return known;
-  return reconstructIterationsFromTask(task);
+  return task.modelIterations && task.modelIterations.length > 0 ? task.modelIterations : known ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +63,7 @@ function resolveIterations(task: Task, known: ModelIteration[] | undefined): Mod
 export function useJarvis() {
   const activeTaskIdRef = useRef<string | null>(null);
   const taskRef = useRef<Task | null>(null);
-  const allTasksRef = useRef<Task[]>([]);
+  const allTasksRef = useRef<WireTask[]>([]);
   const eventsByTaskRef = useRef<Record<string, CoreEvent[]>>({});
   const iterationsByTaskRef = useRef<Record<string, ModelIteration[]>>({});
   const isInitialSnapshotLoaded = useRef(false);
@@ -93,7 +71,7 @@ export function useJarvis() {
   const mcpInitDoneRef = useRef(false);
 
   const [task, setTask] = useState<Task | null>(null);
-  const [allTasks, setAllTasks] = useState<Task[]>([]);
+  const [allTasks, setAllTasks] = useState<WireTask[]>([]);
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const [events, setEvents] = useState<CoreEvent[]>([]);
   const [modelIterations, setModelIterations] = useState<ModelIteration[]>([]);
@@ -101,8 +79,10 @@ export function useJarvis() {
   const [unavailableServers, setUnavailableServers] = useState<UnavailableServers>({});
   const [mode, setMode] = useState<ExecutionMode>("NORMAL");
   const [error, setError] = useState<string | null>(null);
-  const [userQuestion, setUserQuestion] = useState<string | null>(null);
   const [mcpInitStatus, setMcpInitStatus] = useState<McpInitStatus>("loading");
+
+  // Derivada de la tarea: el back la mantiene en `pendingQuestion`, así que no hay estado propio que sincronizar.
+  const userQuestion = useMemo(() => userQuestionOf(task), [task]);
 
   // Refs sincronizadas con el estado para que los callbacks (EventSource, etc.) no dependan de él (FRONT-02)
   useEffect(() => {
@@ -142,7 +122,17 @@ export function useJarvis() {
     []
   );
 
-  const upsertTask = useCallback((t: Task) => {
+  /** Como `runAction` para acciones sin resultado: informa si el back la aceptó, para que el formulario sepa si cerrarse. */
+  const runAccepted = useCallback(
+    async (action: () => Promise<unknown>, fallbackMessage: string): Promise<boolean> =>
+      (await runAction(async () => {
+        await action();
+        return true;
+      }, fallbackMessage)) === true,
+    [runAction]
+  );
+
+  const upsertTask = useCallback((t: WireTask) => {
     setAllTasks((prev) => {
       const next = upsertById(prev, t);
       allTasksRef.current = next;
@@ -151,7 +141,7 @@ export function useJarvis() {
   }, []);
 
   /** Muestra una tarea como la activa de la vista. */
-  const showTask = useCallback((t: Task) => {
+  const showTask = useCallback((t: WireTask) => {
     activeTaskIdRef.current = t.id;
     taskRef.current = t;
     setTask({ ...t });
@@ -160,10 +150,6 @@ export function useJarvis() {
   const commitIterations = useCallback((taskId: string, iterations: ModelIteration[]) => {
     iterationsByTaskRef.current[taskId] = iterations;
     setModelIterations(iterations);
-  }, []);
-
-  const syncUserQuestion = useCallback((t: Task) => {
-    setUserQuestion((prev) => (isAwaitingUserAnswer(t) ? prev || extractUserQuestion(t) : null));
   }, []);
 
   // -------------------------------------------------------------------------
@@ -190,19 +176,16 @@ export function useJarvis() {
     [runAction, resolveTaskId]
   );
 
-  /** Convierte el pendiente serializado del backend en el objeto que usa la UI, con sus callbacks ya vinculados. */
+  /**
+   * Convierte el pendiente serializado del backend en el objeto que usa la UI, con sus callbacks ya vinculados.
+   * El back no envía el taskId dentro del pendiente: lo aporta quien conoce la tarea (evento o snapshot).
+   */
   const hydratePendingApproval = useCallback(
-    (raw: SerializedPendingApproval | null | undefined, fallbackTaskId?: string): PendingApproval | null => {
+    (raw: SerializedPendingApproval | null | undefined, taskId?: string): PendingApproval | null => {
       if (!raw) return null;
-      const associatedTaskId = raw.taskId || fallbackTaskId || activeTaskIdRef.current || taskRef.current?.id;
+      const associatedTaskId = taskId || activeTaskIdRef.current || taskRef.current?.id;
       return {
-        id: raw.id,
-        stepId: raw.stepId,
-        mcp: raw.mcp,
-        tool: raw.tool,
-        capability: raw.capability,
-        args: raw.args || {},
-        reason: raw.reason || "",
+        ...raw,
         // Se devuelve la promesa para que la UI mantenga el botón bloqueado hasta que el backend responda.
         onApprove: () => approvePending(associatedTaskId),
         onDeny: (denyReason?: string) => denyPending(denyReason, associatedTaskId),
@@ -242,7 +225,6 @@ export function useJarvis() {
           showTask(fetched);
           setModelIterations(iterations);
         }
-        syncUserQuestion(fetched);
       }
 
       setPendingApproval(hydratePendingApproval(data.pendingApproval, data.task?.id));
@@ -268,7 +250,7 @@ export function useJarvis() {
         setMcpInitStatus("error");
       }
     }
-  }, [hydratePendingApproval, showTask, syncUserQuestion]);
+  }, [hydratePendingApproval, showTask]);
 
   const fetchStateRef = useRef(fetchState);
   useEffect(() => {
@@ -280,7 +262,7 @@ export function useJarvis() {
   // -------------------------------------------------------------------------
 
   /** Registra el evento en el buffer de su tarea y captura la iteración de modelo (Eos / Qwen) que genere. */
-  const recordEvent = useCallback((event: CoreEvent, updatedTask?: Task | null) => {
+  const recordEvent = useCallback((event: CoreEvent, updatedTask?: WireTask | null) => {
     const isActive = !activeTaskIdRef.current || event.taskId === activeTaskIdRef.current;
 
     // Buffer circular de MAX_EVENTS eventos, indexado por taskId
@@ -290,21 +272,9 @@ export function useJarvis() {
       setEvents((prev) => [...prev.slice(-(MAX_EVENTS - 1)), event]);
     }
 
-    // Pregunta interactiva que requiere respuesta del usuario (FRONT-03)
-    if (event.type === "TASK_STATE_CHANGED") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const evtData = (event.data || {}) as Record<string, any>;
-      if (evtData.state === "WAITING_INPUT" && evtData.waitingReason === "user_answer") {
-        setUserQuestion(evtData.question || null);
-      } else if (evtData.state && evtData.state !== "WAITING_INPUT") {
-        setUserQuestion(null);
-      }
-    }
-
     const contextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
     const iteration = createIterationFromEvent(event, contextTask);
     if (!iteration) return;
-
 
     const known = iterationsByTaskRef.current[event.taskId] || [];
     if (known.some((it) => it.id === iteration.id)) return;
@@ -316,12 +286,10 @@ export function useJarvis() {
     }
   }, []);
 
-  /** Aplica la tarea actualizada que acompaña a cada mensaje SSE. */
+  /** Aplica la tarea actualizada que acompaña a cada mensaje SSE (sin `modelIterations`: se acumulan por evento). */
   const applyTaskUpdate = useCallback(
-    (updatedTask: Task) => {
-      taskRef.current = updatedTask;
+    (updatedTask: WireTask) => {
       upsertTask(updatedTask);
-      syncUserQuestion(updatedTask);
 
       // Evita que el SSE restaure una tarea si el usuario limpió la vista
       const matchesActive = Boolean(activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current);
@@ -331,9 +299,9 @@ export function useJarvis() {
 
       userClearedViewRef.current = false;
       showTask(updatedTask);
-      commitIterations(updatedTask.id, resolveIterations(updatedTask, iterationsByTaskRef.current[updatedTask.id]));
+      commitIterations(updatedTask.id, iterationsByTaskRef.current[updatedTask.id] ?? []);
     },
-    [upsertTask, syncUserQuestion, showTask, commitIterations]
+    [upsertTask, showTask, commitIterations]
   );
 
   // Montaje único y conexión persistente: todas las dependencias son estables (FRONT-02)
@@ -363,12 +331,14 @@ export function useJarvis() {
 
       eventSource.onmessage = (messageEvent) => {
         try {
-          const { event, task: updatedTask, pendingApproval: rawPending } = JSON.parse(messageEvent.data);
+          const { event, task: updatedTask, pendingApproval: rawPending } = JSON.parse(messageEvent.data) as SseMessage;
 
-          if (event) recordEvent(event, updatedTask);
+          recordEvent(event, updatedTask);
           if (updatedTask) applyTaskUpdate(updatedTask);
-          if (rawPending !== undefined) {
-            setPendingApproval(hydratePendingApprovalRef.current(rawPending, updatedTask?.id));
+
+          // El pendiente de cada mensaje es el de SU tarea: solo se aplica si es la que se está viendo.
+          if (event.taskId === activeTaskIdRef.current) {
+            setPendingApproval(hydratePendingApprovalRef.current(rawPending, event.taskId));
           }
         } catch (e) {
           console.error("Failed to parse JARVIS SSE message:", e);
@@ -430,42 +400,42 @@ export function useJarvis() {
     [runAction, resolveTaskId, fetchState]
   );
 
-  const confirmPlan = useCallback(async () => {
-    await runAction(async () => {
-      await jarvisApi.confirmPlan(resolveTaskId());
-      await fetchState();
-    }, "Error al confirmar el plan.");
-  }, [runAction, resolveTaskId, fetchState]);
+  // Las acciones sobre el plan y la pregunta devuelven si el back las aceptó: el formulario solo se cierra si fue así.
+  const confirmPlan = useCallback(
+    (): Promise<boolean> =>
+      runAccepted(async () => {
+        await jarvisApi.confirmPlan(resolveTaskId());
+        await fetchState();
+      }, "Error al confirmar el plan."),
+    [runAccepted, resolveTaskId, fetchState]
+  );
 
   const rejectPlan = useCallback(
-    async (reason?: string) => {
-      await runAction(async () => {
+    (reason?: string): Promise<boolean> =>
+      runAccepted(async () => {
         await jarvisApi.rejectPlan(resolveTaskId(), reason);
         await fetchState();
-      }, "Error al rechazar el plan.");
-    },
-    [runAction, resolveTaskId, fetchState]
+      }, "Error al rechazar el plan."),
+    [runAccepted, resolveTaskId, fetchState]
   );
 
   const modifyPlan = useCallback(
-    async (feedback?: string) => {
-      await runAction(async () => {
+    (feedback?: string): Promise<boolean> =>
+      runAccepted(async () => {
         await jarvisApi.modifyPlan(resolveTaskId(), feedback);
         await fetchState();
-      }, "Error al solicitar modificación del plan.");
-    },
-    [runAction, resolveTaskId, fetchState]
+      }, "Error al solicitar modificación del plan."),
+    [runAccepted, resolveTaskId, fetchState]
   );
 
+  /** La pregunta no se limpia aquí: desaparece cuando el back acepta la respuesta y cambia el estado de la tarea. */
   const provideUserAnswer = useCallback(
-    async (answer: string) => {
-      await runAction(async () => {
-        setUserQuestion(null);
+    (answer: string): Promise<boolean> =>
+      runAccepted(async () => {
         await jarvisApi.provideUserAnswer(resolveTaskId(), answer);
         await fetchState();
-      }, "Error al enviar respuesta interactiva.");
-    },
-    [runAction, resolveTaskId, fetchState]
+      }, "Error al enviar respuesta interactiva."),
+    [runAccepted, resolveTaskId, fetchState]
   );
 
   const refreshDiscovery = useCallback(async () => {
@@ -478,7 +448,7 @@ export function useJarvis() {
       setMcpInitStatus("error");
       return;
     }
-    if (data.tools) setDiscoveredTools(data.tools);
+    setDiscoveredTools(data.tools);
     if (data.unavailableServers) setUnavailableServers(data.unavailableServers);
     setMcpInitStatus(resolveMcpStatus(countKeys(data.tools), countKeys(data.unavailableServers), "error"));
   }, [runAction]);
@@ -492,41 +462,42 @@ export function useJarvis() {
     setEvents([]);
     setModelIterations([]);
     setPendingApproval(null);
-    setUserQuestion(null);
     setError(null);
   }, []);
 
-  /** Selecciona una tarea previa del historial para visualización de solo lectura. */
+  /** Selecciona una tarea del historial. El listado no trae la traza: la tarea completa se pide siempre al back. */
   const selectHistoricalTask = useCallback(
     async (taskId: string) => {
-      let found = allTasksRef.current.find((t) => t.id === taskId);
+      let fetched: Task | undefined;
+      let rawPending: SerializedPendingApproval | null = null;
 
-      // Los listados y el SSE no transportan `modelIterations`: si no hay traza conocida, se pide la tarea completa.
-      const hasKnownTrace =
-        Boolean(found?.modelIterations?.length) || Boolean(iterationsByTaskRef.current[taskId]?.length);
-      if (!found || !hasKnownTrace) {
-        try {
-          const data = await jarvisApi.getState(taskId);
-          if (data.task && data.task.id === taskId) {
-            found = data.task;
-            upsertTask(data.task);
-          }
-        } catch (e) {
-          console.warn("Failed to retrieve historical task:", e);
+      try {
+        const data = await jarvisApi.getState(taskId);
+        if (data.task?.id === taskId) {
+          fetched = data.task;
+          rawPending = data.pendingApproval;
+          upsertTask(data.task);
         }
+      } catch (e) {
+        console.warn("Failed to retrieve historical task:", e);
       }
 
+      const found: WireTask | undefined = fetched ?? allTasksRef.current.find((t) => t.id === taskId);
       if (!found) return;
 
       userClearedViewRef.current = false;
       showTask(found);
-      setPendingApproval(null);
+      setPendingApproval(hydratePendingApproval(rawPending, taskId));
       setError(null);
-      setUserQuestion(extractUserQuestion(found));
       setEvents(eventsByTaskRef.current[found.id] || []);
-      commitIterations(found.id, resolveIterations(found, iterationsByTaskRef.current[found.id]));
+      commitIterations(
+        found.id,
+        fetched
+          ? resolveIterations(fetched, iterationsByTaskRef.current[found.id])
+          : iterationsByTaskRef.current[found.id] ?? []
+      );
     },
-    [upsertTask, showTask, commitIterations]
+    [upsertTask, showTask, commitIterations, hydratePendingApproval]
   );
 
   const clearError = useCallback(() => setError(null), []);

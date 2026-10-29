@@ -2,12 +2,14 @@ import React, { useState } from "react";
 import { HelpCircle, Send, Loader2 } from "lucide-react";
 import type { PendingApproval } from "../../../src/core/types.ts";
 import { ApprovalAction } from "./components/ApprovalAction.tsx";
+import type { ActionResult } from "../../types/ui.ts";
 
 /** Pregunta del modelo que espera respuesta del usuario (WAITING_INPUT / user_answer). */
 export interface UserAnswerRequest {
   /** Texto de la pregunta; si aún no se conoce se muestra un mensaje genérico. */
   question: string | null;
-  onSubmit: (answer: string) => void | Promise<void>;
+  /** Devuelve `false` si el back rechazó la respuesta (409/400): el campo conserva lo escrito. */
+  onSubmit: (answer: string) => ActionResult;
 }
 
 interface GuardBannerProps {
@@ -26,8 +28,7 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
     if (!trimmed || isSending) return;
     setIsSending(true);
     try {
-      await request.onSubmit(trimmed);
-      setAnswer("");
+      if ((await request.onSubmit(trimmed)) !== false) setAnswer("");
     } finally {
       setIsSending(false);
     }

@@ -22,7 +22,7 @@ import math
 import re
 import statistics
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +32,9 @@ FALLBACK_ROOT = Path("scripts/results/qwen_eval")
 STAGE_ORDER = ["plan", "replan", "arguments", "final_response"]
 SETTING_KEYS = ["model", "num_ctx", "timeout_ms", "thinking_timeout_ms", "max_tokens", "final_thinking"]
 ALPHA = 0.05
+MAX_ERROR_GROUPS = 15
+# Checks que se registran pero no afectan pass/fail (runs viejos no traen `soft_metrics`).
+SOFT_METRICS = {"has_objective", "has_abort_reason", "abort_steps_empty"}
 
 Key = tuple  # (case_id, thinking)
 LEVEL_ORDER = ["easy", "med", "hard"]
@@ -139,15 +142,40 @@ def summarize(recs: list[dict]) -> dict:
 def metric_counts(recs: list[dict]) -> dict[str, list[int]]:
     counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     for r in recs:
-        for name, value in (r.get("metrics") or {}).items():
+        soft = set(r.get("soft_metrics") or []) | SOFT_METRICS
+        metrics = dict(r.get("metrics") or {})
+        if r.get("finish_reason"):  # corridas viejas solo guardaban not_truncated al fallar: se deriva del finish_reason
+            metrics["not_truncated"] = r["finish_reason"] != "length"
+        for name, value in metrics.items():
             if isinstance(value, bool):
-                counts[name][1] += 1
-                counts[name][0] += int(value)
+                key = f"{name} (soft)" if name in soft else name
+                counts[key][1] += 1
+                counts[key][0] += int(value)
     return counts
 
 
 def normalize_error(msg: str) -> str:
-    return re.sub(r"\d+", "N", str(msg)).strip()[:160]
+    """Clave para agrupar errores que difieren solo en números (conteos, ids). No recorta el mensaje."""
+    return re.sub(r"\d+", "N", str(msg)).strip()
+
+
+def clip(text: str, limit: int = 220) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def group_errors(recs: list[dict]) -> dict[str, dict]:
+    """Agrupa los errores de las ejecuciones no aprobadas; conserva un ejemplo real y los casos afectados."""
+    groups: dict[str, dict] = {}
+    for x in recs:
+        if x["status"] == "pass":
+            continue
+        for err in x.get("errors") or []:
+            g = groups.setdefault(normalize_error(err), {"n": 0, "example": " ".join(str(err).split()), "cases": []})
+            g["n"] += 1
+            if x["case_id"] not in g["cases"]:
+                g["cases"].append(x["case_id"])
+    return groups
 
 
 # ------------------------------------------------------------
@@ -263,13 +291,31 @@ def case_rate(s: dict | None) -> float | None:
     return None if not s or not s["total"] else s["passes"] / s["total"]
 
 
+def collapse_by_case(scores: dict[Key, dict], keys: set[Key]) -> dict[str, dict]:
+    """Une las filas (caso, thinking) de un mismo caso: la unidad de la prueba de signos es el caso."""
+    out: dict[str, dict] = {}
+    for (cid, thinking), s in scores.items():
+        if (cid, thinking) not in keys:
+            continue
+        o = out.setdefault(cid, {"passes": 0, "total": 0})
+        o["passes"] += s["passes"]
+        o["total"] += s["total"]
+    return out
+
+
 def pair_compare(a_scores: dict[Key, dict], b_scores: dict[Key, dict], keys: set[Key]) -> dict:
-    """b contra a (a = base). Gana b si su tasa de acierto por caso es mayor."""
+    """b contra a (a = base). Gana b si su tasa de acierto por caso es mayor.
+
+    La unidad es el caso (case_id), no la fila caso×thinking: final_response corre cada caso con thinking
+    on y off, y esas dos filas no son independientes. Cada caso aporta una sola observación.
+    """
+    ca, cb = collapse_by_case(a_scores, keys), collapse_by_case(b_scores, keys)
     wins, losses, ties = [], [], []
-    for k in keys:
-        ra, rb = case_rate(a_scores.get(k)), case_rate(b_scores.get(k))
+    for cid in set(ca) & set(cb):
+        ra, rb = case_rate(ca[cid]), case_rate(cb[cid])
         if ra is None or rb is None:
             continue
+        k = (cid, None)
         (wins if rb > ra else losses if rb < ra else ties).append(k)
     return {
         "wins": sorted(wins),
@@ -309,11 +355,12 @@ def verdict(a: str, b: str, cmp: dict) -> str:
 # Reporte
 # ------------------------------------------------------------
 
-def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Key], warnings: list[str], all_rows: bool):
+def build_report(runs: list[Run], baseline: str, keys: set[Key], warnings: list[str], all_rows: bool):
     labels = [r.label for r in runs]
     base = next(r for r in runs if r.label == baseline)
-    recs_by = {r.label: [x for x in r.records if rec_key(x) in keys and x["stage"] in stages] for r in runs}
+    recs_by = {r.label: [x for x in r.records if rec_key(x) in keys] for r in runs}
     scores_by = {lbl: case_scores(recs) for lbl, recs in recs_by.items()}
+    stage_of: dict[Key, str] = {k: s["stage"] for sc in scores_by.values() for k, s in sc.items()}
     present_stages = [s for s in STAGE_ORDER + sorted({x["stage"] for x in recs_by[base.label]} - set(STAGE_ORDER))
                       if any(x["stage"] == s for recs in recs_by.values() for x in recs)]
 
@@ -333,8 +380,8 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
 
     ranking = sorted(labels, key=lambda l: (-(overall[l]["macro"] or 0), -(overall[l]["rate"] or 0), overall[l]["lat_median"] or math.inf))
 
-    L.append("# Comparación de prompts — Qwen eval")
-    L.append(f"Generado: {summary['generated']} | Base: **{baseline}** | Casos comparados: {len(keys)}")
+    L.append("# Comparación de prompts — LLM eval")
+    L.append(f"Generado: {summary['generated']} | Base: **{baseline}** | Casos: {len({k[0] for k in keys})} | Filas caso×thinking: {len(keys)} (ejecuciones por versión en la tabla 1)")
     L.append("")
     L.append("## 1. Corridas")
     L.append(md_table(
@@ -428,8 +475,10 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
 
     # ---- Métricas
     L.append("## 4. Checks por etapa (solo los que no están al 100% en alguna versión)")
+    dagger_used = False
     for stage in present_stages:
         counts = {lbl: metric_counts([x for x in recs_by[lbl] if x["stage"] == stage]) for lbl in labels}
+        n_stage = {lbl: sum(1 for x in recs_by[lbl] if x["stage"] == stage) for lbl in labels}
         names = sorted({m for c in counts.values() for m in c})
         rows, hidden = [], 0
         for m in names:
@@ -446,7 +495,21 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
                     row.append("-")
                     continue
                 r = v[0] / v[1]
-                row.append(f"{v[0]}/{v[1]} ({pct(r)})" + (delta_pp(r, b_rate) if lbl != baseline else ""))
+                # Comparable si cubre la misma fracción de ejecuciones que la base (así 2 repeticiones vs 1 no dan falso †).
+                comparable = (
+                    b is not None
+                    and n_stage[baseline]
+                    and n_stage[lbl]
+                    and abs(b[1] / n_stage[baseline] - v[1] / n_stage[lbl]) < 1e-9
+                )
+                mark = ""
+                if lbl != baseline:
+                    if comparable:
+                        mark = delta_pp(r, b_rate)
+                    elif b is not None:
+                        mark = " †"
+                        dagger_used = True
+                row.append(f"{v[0]}/{v[1]} ({pct(r)})" + mark)
             rows.append(row)
         if rows:
             L.append(f"### {stage}")
@@ -454,12 +517,14 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
             if hidden:
                 L.append(f"\n({hidden} checks al 100% en todas las versiones, omitidos)")
             L.append("")
+    L.append("(soft) = se registra pero no afecta pass/fail.")
+    if dagger_used:
+        L.append("† cobertura distinta a la de la base (el check se evaluó en otra fracción de ejecuciones): no se calcula diferencia. Pasa cuando una salida se trunca o viene vacía y el evaluador corta antes de registrar los demás checks, o cuando el check depende de la acción elegida (ej. has_objective en replan).")
     L.append("")
 
     # ---- Matriz por caso
     L.append("## 5. Casos")
-    sorted_keys = sorted(keys, key=lambda k: (stage_rank(next((s["stage"] for sc in scores_by.values() for kk, s in sc.items() if kk == k), "")), k[0], str(k[1])))
-    sorted_keys = [k for k in sorted_keys if any(k in scores_by[l] for l in labels)]
+    sorted_keys = sorted((k for k in keys if k in stage_of), key=lambda k: (stage_rank(stage_of[k]), k[0], str(k[1])))
     rows, same = [], 0
     for k in sorted_keys:
         cells = [case_cell(scores_by[l].get(k)) for l in labels]
@@ -475,8 +540,7 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
         if len(set(rates)) == 1 and not all_rows:
             same += 1
             continue
-        stage = next(s["stage"] for l in labels for kk, s in scores_by[l].items() if kk == k)
-        rows.append([k[0], stage, thinking_label(k[1])] + cells + ["; ".join(changes)])
+        rows.append([k[0], stage_of[k], thinking_label(k[1])] + cells + ["; ".join(changes)])
     if rows:
         L.append(md_table(["caso", "etapa", "thinking"] + labels + ["vs base"], rows))
     if same:
@@ -499,7 +563,7 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
             pair_rows[-1][5] += f" | regresa en: {fmt_keys(cmp['losses'])}"
     L.append(md_table(["versión", "mejoras", "regresiones", "empates", "p (signos)", "lectura"], pair_rows) if pair_rows else "Solo hay una versión.")
     L.append("")
-    L.append("La prueba de signos solo cuenta casos que cambian de resultado: con pocos casos casi nunca alcanza significancia. Repetir corridas del mismo prompt (`LABEL=rutaA,rutaB`) aporta más evidencia que agregar casos idénticos.")
+    L.append("La prueba de signos cuenta casos (no filas): para final_response se unen thinking on y off de cada caso, así que cada caso aporta una sola observación. Con pocos casos casi nunca alcanza significancia. Repetir corridas del mismo prompt (`LABEL=rutaA,rutaB`) aporta más evidencia que agregar casos idénticos.")
     L.append("")
 
     # ---- Thinking
@@ -518,16 +582,21 @@ def build_report(runs: list[Run], baseline: str, stages: list[str], keys: set[Ke
         L.append("")
 
     # ---- Errores frecuentes
-    L.append("## 8. Errores más frecuentes (ejecuciones fallidas)")
+    L.append("## 8. Errores (ejecuciones no aprobadas)")
+    L.append("Los errores que difieren solo en números (conteos, ids) se agrupan; se muestra un ejemplo real y los casos afectados.")
+    L.append("")
     for lbl in labels:
-        c: Counter[str] = Counter()
-        for x in recs_by[lbl]:
-            if x["status"] != "pass":
-                for e in x.get("errors") or []:
-                    c[normalize_error(e)] += 1
-        L.append(f"**{lbl}**" + ("" if c else ": sin errores"))
-        for msg, n in c.most_common(5):
-            L.append(f"- ({n}x) {msg}")
+        groups = group_errors(recs_by[lbl])
+        ordered = sorted(groups.values(), key=lambda g: -g["n"])
+        not_pass = sum(1 for x in recs_by[lbl] if x["status"] != "pass")
+        total_errors = sum(g["n"] for g in ordered)
+        L.append(f"**{lbl}**: {not_pass} ejecuciones no aprobadas, {total_errors} errores registrados" + ("" if ordered else " (sin errores)"))
+        for g in ordered[:MAX_ERROR_GROUPS]:
+            shown = ", ".join(g["cases"][:3]) + (f" (+{len(g['cases']) - 3})" if len(g["cases"]) > 3 else "")
+            L.append(f"- ({g['n']}x) {clip(g['example'])} — casos: {shown}")
+        if len(ordered) > MAX_ERROR_GROUPS:
+            rest = ordered[MAX_ERROR_GROUPS:]
+            L.append(f"- (+{len(rest)} tipos más, {sum(g['n'] for g in rest)} ocurrencias)")
         L.append("")
 
     # ---- Avisos
@@ -550,7 +619,7 @@ def main() -> None:
     except Exception:
         pass
 
-    ap = argparse.ArgumentParser(description="Compara versiones de prompts a partir de corridas del eval de Qwen.")
+    ap = argparse.ArgumentParser(description="Compara versiones de prompts a partir de corridas del eval de LLM.")
     ap.add_argument("runs", nargs="+", help="LABEL=RUTA[,RUTA...] o RUTA")
     ap.add_argument("--root", default=str(DEFAULT_ROOT), help=f"Raíz de resultados (default: {DEFAULT_ROOT})")
     ap.add_argument("--baseline", help="Label de la versión base (default: la primera)")
@@ -580,7 +649,7 @@ def main() -> None:
     if not keys:
         sys.exit("No hay casos en común entre las corridas.")
 
-    report, summary = build_report(runs, baseline, stages, keys, warnings, args.all_rows)
+    report, summary = build_report(runs, baseline, keys, warnings, args.all_rows)
     print(report)
 
     # Determinar carpeta de comparaciones (<root>/<modelo>/comparisons/)

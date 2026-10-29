@@ -1,0 +1,376 @@
+{
+  "total": 59,
+  "passed": 53,
+  "failed": 6,
+  "errors": 0,
+  "pass_rate": 0.898,
+  "avg_latency_ms": 7092,
+  "finish_reasons": {
+    "stop": 58,
+    "length": 1
+  },
+  "settings": {
+    "model": "qwen3.5:4b",
+    "dataset": "v3",
+    "prompts": "Q0",
+    "url": "http://127.0.0.1:11434/v1/chat/completions",
+    "num_ctx": 16384,
+    "timeout_ms": 120000,
+    "thinking_timeout_ms": 180000,
+    "max_tokens": {
+      "plan": 4096,
+      "replan": 4096,
+      "arguments": 2048,
+      "final_response": 2048
+    },
+    "final_thinking": "both"
+  },
+  "by_stage": {
+    "plan": {
+      "total": 14,
+      "passed": 12,
+      "pass_rate": 0.857,
+      "errors": 0,
+      "truncated": 0,
+      "avg_latency_ms": 5606,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 14,
+          "total": 14
+        },
+        "has_objective (soft)": {
+          "pass": 14,
+          "total": 14
+        },
+        "valid_steps_structure": {
+          "pass": 14,
+          "total": 14
+        },
+        "min_steps_met": {
+          "pass": 12,
+          "total": 13
+        },
+        "max_steps_met": {
+          "pass": 14,
+          "total": 14
+        },
+        "routes_allowed": {
+          "pass": 12,
+          "total": 12
+        },
+        "first_route_matches": {
+          "pass": 10,
+          "total": 11
+        },
+        "required_routes_used": {
+          "pass": 10,
+          "total": 11
+        },
+        "required_keywords_met": {
+          "pass": 6,
+          "total": 6
+        },
+        "no_forbidden_keywords": {
+          "pass": 4,
+          "total": 4
+        },
+        "not_truncated": {
+          "pass": 14,
+          "total": 14
+        }
+      }
+    },
+    "replan": {
+      "total": 8,
+      "passed": 7,
+      "pass_rate": 0.875,
+      "errors": 0,
+      "truncated": 1,
+      "avg_latency_ms": 24092,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 7,
+          "total": 7
+        },
+        "valid_action": {
+          "pass": 7,
+          "total": 7
+        },
+        "action_matches_expected": {
+          "pass": 7,
+          "total": 7
+        },
+        "has_objective (soft)": {
+          "pass": 1,
+          "total": 6
+        },
+        "valid_steps_structure": {
+          "pass": 6,
+          "total": 6
+        },
+        "min_steps_met": {
+          "pass": 6,
+          "total": 6
+        },
+        "max_steps_met": {
+          "pass": 6,
+          "total": 6
+        },
+        "routes_allowed": {
+          "pass": 6,
+          "total": 6
+        },
+        "respects_effects": {
+          "pass": 3,
+          "total": 3
+        },
+        "respects_completed": {
+          "pass": 4,
+          "total": 4
+        },
+        "not_truncated": {
+          "pass": 7,
+          "total": 8
+        },
+        "has_abort_reason (soft)": {
+          "pass": 1,
+          "total": 1
+        },
+        "abort_steps_empty (soft)": {
+          "pass": 1,
+          "total": 1
+        }
+      }
+    },
+    "arguments": {
+      "total": 21,
+      "passed": 19,
+      "pass_rate": 0.905,
+      "errors": 0,
+      "truncated": 0,
+      "avg_latency_ms": 700,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 21,
+          "total": 21
+        },
+        "schema_valid": {
+          "pass": 21,
+          "total": 21
+        },
+        "required_fields_present": {
+          "pass": 21,
+          "total": 21
+        },
+        "no_invented_fields": {
+          "pass": 20,
+          "total": 20
+        },
+        "no_forbidden_values": {
+          "pass": 5,
+          "total": 6
+        },
+        "not_truncated": {
+          "pass": 21,
+          "total": 21
+        },
+        "field_path_match": {
+          "pass": 11,
+          "total": 11
+        },
+        "field_content_json": {
+          "pass": 2,
+          "total": 2
+        },
+        "field_content_sheets": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_content_includes": {
+          "pass": 2,
+          "total": 2
+        },
+        "field_content_array2d": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_content_match": {
+          "pass": 0,
+          "total": 1
+        },
+        "valid_refs": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_depth_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_source_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_destination_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_pattern_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_searchType_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_sessionId_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_offset_match": {
+          "pass": 2,
+          "total": 2
+        },
+        "field_pid_match": {
+          "pass": 2,
+          "total": 2
+        },
+        "field_url_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_urls_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_mode_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_sheet_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_range_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_isUrl_match": {
+          "pass": 1,
+          "total": 1
+        },
+        "field_paths_match": {
+          "pass": 1,
+          "total": 1
+        }
+      }
+    },
+    "final_response": {
+      "total": 16,
+      "passed": 15,
+      "pass_rate": 0.938,
+      "errors": 0,
+      "truncated": 0,
+      "avg_latency_ms": 8283,
+      "metrics_breakdown": {
+        "not_truncated": {
+          "pass": 16,
+          "total": 16
+        },
+        "non_empty": {
+          "pass": 16,
+          "total": 16
+        },
+        "min_chars_met": {
+          "pass": 16,
+          "total": 16
+        },
+        "facts_retained": {
+          "pass": 15,
+          "total": 16
+        },
+        "no_hallucinations": {
+          "pass": 12,
+          "total": 12
+        },
+        "effects_mentioned": {
+          "pass": 4,
+          "total": 4
+        }
+      }
+    }
+  },
+  "thinking_comparison": {
+    "final_response": {
+      "off": {
+        "total": 8,
+        "passed": 7,
+        "pass_rate": 0.875,
+        "errors": 0,
+        "truncated": 0,
+        "avg_latency_ms": 1919,
+        "metrics_breakdown": {
+          "not_truncated": {
+            "pass": 8,
+            "total": 8
+          },
+          "non_empty": {
+            "pass": 8,
+            "total": 8
+          },
+          "min_chars_met": {
+            "pass": 8,
+            "total": 8
+          },
+          "facts_retained": {
+            "pass": 7,
+            "total": 8
+          },
+          "no_hallucinations": {
+            "pass": 6,
+            "total": 6
+          },
+          "effects_mentioned": {
+            "pass": 2,
+            "total": 2
+          }
+        },
+        "avg_completion_tokens": 192
+      },
+      "on": {
+        "total": 8,
+        "passed": 8,
+        "pass_rate": 1,
+        "errors": 0,
+        "truncated": 0,
+        "avg_latency_ms": 14648,
+        "metrics_breakdown": {
+          "not_truncated": {
+            "pass": 8,
+            "total": 8
+          },
+          "non_empty": {
+            "pass": 8,
+            "total": 8
+          },
+          "min_chars_met": {
+            "pass": 8,
+            "total": 8
+          },
+          "facts_retained": {
+            "pass": 8,
+            "total": 8
+          },
+          "no_hallucinations": {
+            "pass": 6,
+            "total": 6
+          },
+          "effects_mentioned": {
+            "pass": 2,
+            "total": 2
+          }
+        },
+        "avg_completion_tokens": 1634
+      }
+    }
+  }
+}

@@ -89,7 +89,7 @@ export function getActivityPhrase(
         if (task.waitingReason === "user_answer") {
             return { stateGroup: "waiting", label: "Esperando respuesta a pregunta interactiva" };
         }
-        if (task.mode === "PLAN" && task.planConfirmed === false) {
+        if (task.waitingReason === "plan_confirmation") {
             return { stateGroup: "waiting", label: "Esperando revisión y confirmación del plan" };
         }
         return { stateGroup: "waiting", label: "Esperando interacción del usuario" };
@@ -111,24 +111,26 @@ export function getActivityPhrase(
         }
     }
 
-    // 3. Trabajando: derivar frase del último evento o del paso en curso
+    // 3. Trabajando: derivar frase del último evento o del paso en curso.
+    // `lastEvent` es una unión discriminada: cada `case` estrecha `lastEvent.data` al tipo de ese evento.
     if (lastEvent) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const d = (lastEvent.data ?? {}) as Record<string, any>;
         switch (lastEvent.type) {
             case "DECISION_ONE":
                 return { stateGroup: "working", label: "Clasificador evaluando ruta de ejecución…" };
-            case "DECISION_TWO":
+            case "DECISION_TWO": {
+                const { tool } = lastEvent.data;
                 return {
                     stateGroup: "working",
-                    label: d.tool ? `Clasificador seleccionando herramienta (${d.tool})…` : "Clasificador seleccionando herramienta…",
+                    label: tool ? `Clasificador seleccionando herramienta (${tool})…` : "Clasificador seleccionando herramienta…",
                 };
+            }
             case "ARGUMENTS_GENERATED":
                 return { stateGroup: "working", label: "Razonador preparando argumentos de llamada…" };
             case "GUARD_EVALUATION":
                 return { stateGroup: "working", label: "Evaluando políticas de seguridad en Guard…" };
             case "MCP_DISPATCHED": {
-                const toolName = d.tool ? `${d.mcp ? `${d.mcp}:` : ""}${d.tool}` : "herramienta";
+                const { mcp, tool } = lastEvent.data;
+                const toolName = tool ? `${mcp ? `${mcp}:` : ""}${tool}` : "herramienta";
                 return { stateGroup: "working", label: `Ejecutando herramienta ${toolName}…` };
             }
             case "MCP_RESULT":
@@ -145,7 +147,7 @@ export function getActivityPhrase(
         }
     }
 
-    // Si no hay evento reciente o se está inicializando el paso:
+    // Sin evento reciente o con uno que no aporta frase: se usa el estado de la tarea.
     if (task.mode === "PLAN" && task.planConfirmed === false) {
         return { stateGroup: "working", label: "Razonador elaborando plan de etapas…" };
     }

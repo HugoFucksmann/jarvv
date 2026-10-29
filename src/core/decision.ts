@@ -28,23 +28,15 @@ import {
 import type { IDecisionEngine } from "./engineDeps.ts";
 import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
-import { estimateTokens, postJson, TransportError } from "./llmTransport.ts";
+import {
+  estimateTokens,
+  postJson,
+  DecisionServiceUnavailableError,
+  DecisionValidationError,
+  TransportError,
+} from "./llmTransport.ts";
 import { errorMessage, isRecord } from "./utils.ts";
 import { MODELS } from "./models.ts";
-
-export class DecisionServiceUnavailableError extends Error {
-  constructor(message: string, cause?: unknown) {
-    super(`[Decision 2.0 Unavailable] ${message}`, { cause });
-    this.name = "DecisionServiceUnavailableError";
-  }
-}
-
-export class DecisionValidationError extends Error {
-  constructor(message: string) {
-    super(`[Decision 2.0 Validation] ${message}`);
-    this.name = "DecisionValidationError";
-  }
-}
 
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
 const NOUL_APPROVE = 0.5;
@@ -77,7 +69,7 @@ const pct = (probabilities: Record<string, number>): string =>
     .join(", ");
 
 /**
- * Respuesta `choice` o `noul` de `key`. `parseResponse` ya garantizó la forma; el narrowing la confirma en compilación.
+ * Respuesta de `key` con el tipo esperado. `parseResponse` ya garantizó la forma: el chequeo solo estrecha el tipo.
  */
 function choiceAnswer(response: DecisionResponse, key: string): DecisionAnswerChoice {
   const answer = response.answers[key];

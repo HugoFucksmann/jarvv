@@ -1,8 +1,6 @@
 /**
  * JARVIS Core — Mapa de tipos de eventos y unión discriminada de CoreEvent.
- *
- * NOTA: Este archivo contiene ÚNICAMENTE `import type` para evitar arrastrar módulos de Node
- * cuando la UI importa `CoreEvent` o `CoreEventType`.
+ * Solo `import type`: así la UI puede importar CoreEvent sin arrastrar módulos de Node.
  */
 
 import type {

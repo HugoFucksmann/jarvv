@@ -36,30 +36,15 @@ import { PROMPTS, retryNote } from "./prompts.ts";
 import type { ILLMClient } from "../engineDeps.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
 import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
-import { estimateTokens, postJson, RequestAbortedError, TransportError } from "../llmTransport.ts";
+import {
+  estimateTokens,
+  postJson,
+  LLMServiceUnavailableError,
+  LLMValidationError,
+  RequestAbortedError,
+  TransportError,
+} from "../llmTransport.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-
-/** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
-export class LLMServiceUnavailableError extends Error {
-  readonly raw?: { rawInput: string; timing?: TimeSpan };
-  constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }) {
-    super(`[Qwen Unavailable] ${message}`, { cause });
-    this.name = "LLMServiceUnavailableError";
-    this.raw = raw;
-  }
-}
-
-/** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
-export class LLMValidationError extends Error {
-  readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
-  readonly attempts?: FailedAttempt[];
-  constructor(message: string, raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan }, attempts?: FailedAttempt[]) {
-    super(`[Qwen Validation] ${message}`);
-    this.name = "LLMValidationError";
-    this.raw = raw;
-    this.attempts = attempts;
-  }
-}
 
 type JsonSchema = Record<string, unknown>;
 
@@ -327,7 +312,6 @@ const parseObjectOutput = (r: QwenDispatchResult): Validation<Record<string, unk
 const BASE_TEMPERATURE = 0.1;
 const RETRY_TEMPERATURE = 0.3;
 const RETRY_TOKEN_FACTOR = 1.5;
-/** Mínimo de tokens de salida que debe quedar libre en el contexto. */
 const MIN_COMPLETION_TOKENS = 256;
 
 interface DispatchOptions {
@@ -612,7 +596,7 @@ export class QwenEngine implements ILLMClient {
     return this.executeStage("generatePlan", async () => {
       const userPrompt = PROMPTS.PLAN.buildUserPrompt(
         userMessage,
-        undefined, // chatContext: ningún llamador lo usaba
+        undefined, // chatContext (no se usa)
         buildCompactCatalog(),
         revision?.feedback,
         revision?.existingPlanSummary

@@ -1,15 +1,17 @@
 import React, { useState } from "react";
 import { Check, X, Edit3, ArrowRight, Loader2, Sparkles, AlertCircle } from "lucide-react";
 import type { Step } from "../../../../src/core/types.ts";
+import { MODELS } from "../../../../src/core/models.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
+import type { ActionResult } from "../../../types/ui.ts";
 
 interface PlanReviewProps {
   steps: Step[];
   replans?: number;
-  onConfirm: () => void | Promise<void>;
-  onReject?: (reason?: string) => void | Promise<void>;
-  onModify?: (feedback: string) => void | Promise<void>;
-  onCancel: () => void | Promise<void>;
+  onConfirm: () => ActionResult;
+  onReject?: (reason?: string) => ActionResult;
+  onModify?: (feedback: string) => ActionResult;
+  onCancel: () => ActionResult;
 }
 
 /** Solo uno de los dos paneles de entrada puede estar abierto a la vez. */
@@ -115,7 +117,7 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
   const togglePanel = (target: Panel) => setPanel((current) => (current === target ? null : target));
 
   // Bloquea los botones mientras el backend procesa la acción
-  const submit = async (action: () => void | Promise<void>) => {
+  const submit = async (action: () => ActionResult) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
@@ -131,7 +133,8 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
     const feedback = feedbackText.trim();
     if (!feedback || !onModify) return;
     void submit(async () => {
-      await onModify(feedback);
+      // Si el back rechaza la acción, el panel conserva el texto para reintentar.
+      if ((await onModify(feedback)) === false) return;
       setPanel(null);
       setFeedbackText("");
     });
@@ -140,7 +143,7 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
   const handleSendReject = () => {
     if (!onReject) return;
     void submit(async () => {
-      await onReject(rejectReason.trim() || undefined);
+      if ((await onReject(rejectReason.trim() || undefined)) === false) return;
       setPanel(null);
       setRejectReason("");
     });
@@ -153,7 +156,9 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <Sparkles className="w-4 h-4 text-sky-400" />
           <span className="text-xs font-mono font-semibold tracking-wider text-sky-300">
-            {replans > 0 ? `REPLANIFICACIÓN #${replans} POR QWEN 3.5 9B` : "PLAN ESTRUCTURADO POR QWEN 3.5 9B"}
+            {replans > 0
+              ? `REPLANIFICACIÓN #${replans} POR ${MODELS.QWEN_3_5_9B.name.toUpperCase()}`
+              : `PLAN ESTRUCTURADO POR ${MODELS.QWEN_3_5_9B.name.toUpperCase()}`}
           </span>
           <span className="text-xs text-slate-500 font-mono">({steps.length} etapas)</span>
           <span className="text-[11px] font-sans px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80">
@@ -211,7 +216,7 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
       {panel === "modify" && (
         <FeedbackPanel
           tone="modify"
-          title={<span>Indica los cambios o instrucciones correctivas para Qwen:</span>}
+          title={<span>Indica los cambios o instrucciones correctivas para {MODELS.QWEN_3_5_9B.short}:</span>}
           placeholder="Ej: Omitir la búsqueda web y usar Desktop Commander directamente..."
           value={feedbackText}
           onChange={setFeedbackText}

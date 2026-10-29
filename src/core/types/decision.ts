@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Decision 2.0.
- */
-
 import type { TimeSpan } from "./audit.ts";
 import type { StepRoute } from "./routes.ts";
 import type { MCPTool } from "./mcp.ts";
@@ -23,7 +19,6 @@ export type DecisionQuestion =
   | DecisionQuestionChoice
   | DecisionQuestionNoul;
 
-/** Respuesta de una pregunta `choice`: opción elegida y distribución de probabilidades. */
 export interface DecisionAnswerChoice {
   choice: string;
   probabilities: Record<string, number>;
@@ -45,7 +40,6 @@ export interface DecisionResponse {
   timing: TimeSpan;
 }
 
-/** Resultado de Decision #1: la ruta elegida y su distribución de probabilidades. */
 export interface DecisionOneResult {
   route: StepRoute;
   probabilities: Record<string, number>;
@@ -54,7 +48,6 @@ export interface DecisionOneResult {
   timing: TimeSpan;
 }
 
-/** Resultado de Decision #2: la herramienta elegida entre las descubiertas. */
 export interface DecisionTwoResult {
   selectedTool: MCPTool;
   probabilities: Record<string, number>;
