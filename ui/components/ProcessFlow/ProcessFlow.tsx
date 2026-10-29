@@ -7,15 +7,16 @@ import { StepTimeline } from "./components/StepTimeline.tsx";
 import { FinalResponseView } from "./components/FinalResponseView.tsx";
 import { Separator } from "../Shared/Separator.tsx";
 import { getActivityPhrase } from "../../utils/taskStatus.ts";
+import type { ActionResult } from "../../types/ui.ts";
 
 interface ProcessFlowProps {
   task: Task | null;
   events?: CoreEvent[];
   isExecuting?: boolean;
-  onConfirmPlan: () => void | Promise<void>;
-  onRejectPlan?: (reason?: string) => void | Promise<void>;
-  onModifyPlan?: (feedback: string) => void | Promise<void>;
-  onCancelTask: () => void | Promise<void>;
+  onConfirmPlan: () => ActionResult;
+  onRejectPlan?: (reason?: string) => ActionResult;
+  onModifyPlan?: (feedback: string) => ActionResult;
+  onCancelTask: () => ActionResult;
   onNewTask?: () => void;
 }
 
@@ -46,7 +47,8 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
     );
   }
 
-  const isAwaitingPlanConfirmation = task.mode === "PLAN" && task.planConfirmed === false;
+  // El back declara la espera con `waitingReason`; con `planConfirmed === false` también aparecía durante la generación del plan.
+  const isAwaitingPlanConfirmation = task.state === "WAITING_INPUT" && task.waitingReason === "plan_confirmation";
   const isMaterialReplan = (task.replans ?? 0) > 0;
   const hasExecutedSteps = task.steps.some(
     (s) => s.state !== "PENDING" || (s.calls && s.calls.length > 0)
@@ -70,13 +72,12 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       <div
         role="status"
         aria-live="polite"
-        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-xs font-mono transition-colors ${
-          activity.stateGroup === "working"
+        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-xs font-mono transition-colors ${activity.stateGroup === "working"
             ? "bg-sky-950/40 border-sky-800/60 text-sky-200"
             : activity.stateGroup === "waiting"
-            ? "bg-amber-950/40 border-amber-800/60 text-amber-200"
-            : "bg-slate-900/50 border-slate-800 text-slate-300"
-        }`}
+              ? "bg-amber-950/40 border-amber-800/60 text-amber-200"
+              : "bg-slate-900/50 border-slate-800 text-slate-300"
+          }`}
       >
         {activity.stateGroup === "working" && (
           <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />
@@ -98,8 +99,8 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
             {activity.stateGroup === "working"
               ? "Trabajando"
               : activity.stateGroup === "waiting"
-              ? "Esperando al usuario"
-              : "Terminada"}
+                ? "Esperando al usuario"
+                : "Terminada"}
           </span>
           <span className="font-medium">{activity.label}</span>
         </div>

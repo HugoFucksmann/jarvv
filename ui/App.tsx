@@ -78,9 +78,8 @@ export default function App() {
   };
 
   const handleConfirmCancelAndNewTask = async () => {
-    if (task?.id) {
-      await cancelTask(task.id);
-    }
+    // Si el back no confirma la cancelación, la vista no se limpia: el motivo ya se muestra en el banner de error.
+    if (task?.id && !(await cancelTask(task.id))) return;
 
     clearTaskView();
     setIsNewTaskConfirmOpen(false);

@@ -1,0 +1,260 @@
+{
+  "total": 8,
+  "passed": 5,
+  "failed": 3,
+  "errors": 0,
+  "pass_rate": 0.625,
+  "avg_latency_ms": 5882,
+  "finish_reasons": {
+    "stop": 7,
+    "length": 1
+  },
+  "settings": {
+    "model": "qwen3.5:4b",
+    "dataset": "v1",
+    "prompts": "Q2_reglas",
+    "url": "http://127.0.0.1:11434/v1/chat/completions",
+    "num_ctx": 16384,
+    "timeout_ms": 120000,
+    "thinking_timeout_ms": 180000,
+    "max_tokens": {
+      "plan": 4096,
+      "replan": 4096,
+      "arguments": 2048,
+      "final_response": 2048
+    },
+    "final_thinking": "both"
+  },
+  "by_stage": {
+    "plan": {
+      "total": 2,
+      "passed": 1,
+      "pass_rate": 0.5,
+      "errors": 0,
+      "truncated": 0,
+      "avg_latency_ms": 4342,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 2,
+          "total": 2
+        },
+        "has_objective (soft)": {
+          "pass": 2,
+          "total": 2
+        },
+        "valid_steps_structure": {
+          "pass": 2,
+          "total": 2
+        },
+        "min_steps_met": {
+          "pass": 1,
+          "total": 1
+        },
+        "max_steps_met": {
+          "pass": 2,
+          "total": 2
+        },
+        "routes_allowed": {
+          "pass": 1,
+          "total": 1
+        },
+        "first_route_matches": {
+          "pass": 0,
+          "total": 1
+        },
+        "required_routes_used": {
+          "pass": 1,
+          "total": 1
+        },
+        "required_keywords_met": {
+          "pass": 1,
+          "total": 1
+        },
+        "no_forbidden_keywords": {
+          "pass": 1,
+          "total": 1
+        },
+        "not_truncated": {
+          "pass": 2,
+          "total": 2
+        }
+      }
+    },
+    "replan": {
+      "total": 1,
+      "passed": 1,
+      "pass_rate": 1,
+      "errors": 0,
+      "truncated": 0,
+      "avg_latency_ms": 9641,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 1,
+          "total": 1
+        },
+        "valid_action": {
+          "pass": 1,
+          "total": 1
+        },
+        "action_matches_expected": {
+          "pass": 1,
+          "total": 1
+        },
+        "has_objective (soft)": {
+          "pass": 0,
+          "total": 1
+        },
+        "valid_steps_structure": {
+          "pass": 1,
+          "total": 1
+        },
+        "min_steps_met": {
+          "pass": 1,
+          "total": 1
+        },
+        "max_steps_met": {
+          "pass": 1,
+          "total": 1
+        },
+        "routes_allowed": {
+          "pass": 1,
+          "total": 1
+        },
+        "respects_effects": {
+          "pass": 1,
+          "total": 1
+        },
+        "respects_completed": {
+          "pass": 1,
+          "total": 1
+        },
+        "not_truncated": {
+          "pass": 1,
+          "total": 1
+        }
+      }
+    },
+    "arguments": {
+      "total": 3,
+      "passed": 2,
+      "pass_rate": 0.667,
+      "errors": 0,
+      "truncated": 0,
+      "avg_latency_ms": 1379,
+      "metrics_breakdown": {
+        "valid_json": {
+          "pass": 3,
+          "total": 3
+        },
+        "schema_valid": {
+          "pass": 3,
+          "total": 3
+        },
+        "required_fields_present": {
+          "pass": 3,
+          "total": 3
+        },
+        "no_invented_fields": {
+          "pass": 3,
+          "total": 3
+        },
+        "not_truncated": {
+          "pass": 3,
+          "total": 3
+        },
+        "no_forbidden_values": {
+          "pass": 1,
+          "total": 2
+        },
+        "field_content_json": {
+          "pass": 0,
+          "total": 1
+        }
+      }
+    },
+    "final_response": {
+      "total": 2,
+      "passed": 1,
+      "pass_rate": 0.5,
+      "errors": 0,
+      "truncated": 1,
+      "avg_latency_ms": 12298,
+      "metrics_breakdown": {
+        "not_truncated": {
+          "pass": 1,
+          "total": 2
+        },
+        "non_empty": {
+          "pass": 1,
+          "total": 2
+        },
+        "min_chars_met": {
+          "pass": 1,
+          "total": 1
+        },
+        "facts_retained": {
+          "pass": 1,
+          "total": 1
+        },
+        "effects_mentioned": {
+          "pass": 1,
+          "total": 1
+        }
+      }
+    }
+  },
+  "thinking_comparison": {
+    "final_response": {
+      "off": {
+        "total": 1,
+        "passed": 1,
+        "pass_rate": 1,
+        "errors": 0,
+        "truncated": 0,
+        "avg_latency_ms": 5359,
+        "metrics_breakdown": {
+          "not_truncated": {
+            "pass": 1,
+            "total": 1
+          },
+          "non_empty": {
+            "pass": 1,
+            "total": 1
+          },
+          "min_chars_met": {
+            "pass": 1,
+            "total": 1
+          },
+          "facts_retained": {
+            "pass": 1,
+            "total": 1
+          },
+          "effects_mentioned": {
+            "pass": 1,
+            "total": 1
+          }
+        },
+        "avg_completion_tokens": 514
+      },
+      "on": {
+        "total": 1,
+        "passed": 0,
+        "pass_rate": 0,
+        "errors": 0,
+        "truncated": 1,
+        "avg_latency_ms": 19237,
+        "metrics_breakdown": {
+          "not_truncated": {
+            "pass": 0,
+            "total": 1
+          },
+          "non_empty": {
+            "pass": 0,
+            "total": 1
+          }
+        },
+        "avg_completion_tokens": 2048
+      }
+    }
+  }
+}

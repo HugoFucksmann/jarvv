@@ -1,42 +1,28 @@
 /**
  * Client API Service for JARVIS Backend
  * Centralizes all HTTP communications with /api/jarvis/*
+ * Los tipos del cable viven en ../types/api.ts; los modelos, en el core.
  */
 
 import { getApiUrl } from "../utils/apiUrl.ts";
-import type { Task, MCPTool, PendingApproval } from "../../src/core/types.ts";
-import type { JarvisConfig } from "../../src/core/config.ts";
+import type { JarvisConfig, ConfigPatch } from "../../src/core/config.ts";
+import type { ExecutionMode } from "../types/ui.ts";
+import type {
+  DiscoveryResponse,
+  InitiateTaskResponse,
+  OkResponse,
+  StateResponse,
+} from "../types/api.ts";
 
-type UnavailableServers = Record<string, { reason: string; since: number }>;
-
-export interface OkResponse {
-  ok: boolean;
-}
-
-export interface SerializedPendingApproval {
-  id: string;
-  taskId?: string;
-  stepId: string;
-  mcp: string;
-  tool: string;
-  capability: PendingApproval["capability"];
-  args: Record<string, unknown>;
-  reason: string;
-}
-
-export interface StateResponse {
-  task: Task | null;
-  pendingApproval: SerializedPendingApproval | null;
-  allTasks: Task[];
-  discoveredTools: Record<string, MCPTool[]>;
-  unavailableServers: UnavailableServers;
-}
-
-export interface DiscoveryResponse {
-  tools: Record<string, MCPTool[]>;
-  unavailableServers?: UnavailableServers;
-  error?: string;
-}
+export type {
+  DiscoveryResponse,
+  InitiateTaskResponse,
+  OkResponse,
+  SerializedPendingApproval,
+  StateResponse,
+  UnavailableServers,
+  WireTask,
+} from "../types/api.ts";
 
 async function handleResponse<T>(res: Response, defaultErrorMsg: string): Promise<T> {
   if (!res.ok) {
@@ -80,7 +66,7 @@ export const jarvisApi = {
   },
 
   /** Inicia una nueva tarea en el backend. */
-  initiateTask(message: string, mode: "NORMAL" | "PLAN"): Promise<{ task: Task }> {
+  initiateTask(message: string, mode: ExecutionMode): Promise<InitiateTaskResponse> {
     return post("/api/jarvis/process", { message: message.trim(), mode }, "Error al iniciar la tarea");
   },
 
@@ -127,13 +113,19 @@ export const jarvisApi = {
     return post("/api/jarvis/deny", taskBody(taskId, { reason }), "Error al denegar la operación");
   },
 
-  /** Refresca el catálogo de Discovery forzando relectura de servidores stdio. */
-  refreshDiscovery(): Promise<DiscoveryResponse> {
-    return request<DiscoveryResponse>(
+  /**
+   * Refresca el catálogo de Discovery forzando relectura de servidores stdio.
+   * El back responde 200 con `{ tools: {}, error }` cuando falla: aquí se convierte en excepción
+   * para que el llamador no confunda un fallo con un catálogo vacío.
+   */
+  async refreshDiscovery(): Promise<DiscoveryResponse> {
+    const data = await request<DiscoveryResponse>(
       "/api/jarvis/refresh-discovery",
       "Error al refrescar el catálogo de herramientas",
       { method: "POST" }
     );
+    if (data.error) throw new Error(data.error);
+    return data;
   },
 
   /** Obtiene la configuración actual de servicios externos. */
@@ -141,8 +133,8 @@ export const jarvisApi = {
     return request<JarvisConfig>("/api/jarvis/config", "Error al obtener la configuración");
   },
 
-  /** Actualiza la configuración en el backend. */
-  updateConfig(config: Partial<JarvisConfig>): Promise<JarvisConfig> {
-    return post<JarvisConfig>("/api/jarvis/config", config, "Error al guardar la configuración");
+  /** Actualiza la configuración en el backend (parche parcial: el back fusiona y normaliza). */
+  updateConfig(patch: ConfigPatch): Promise<JarvisConfig> {
+    return post<JarvisConfig>("/api/jarvis/config", patch, "Error al guardar la configuración");
   },
 };

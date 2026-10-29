@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight, Terminal } from "lucide-react";
-import type { Step } from "../../../../src/core/types.ts";
+import type { CallStatus, Step } from "../../../../src/core/types.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
 import { Separator } from "../../Shared/Separator.tsx";
@@ -10,6 +10,13 @@ interface StepItemProps {
   step: Step;
   index: number;
   isCurrent: boolean;
+}
+
+/** `status` lo calcula el core una sola vez por llamada (classifyCall): la UI solo lo traduce a color. */
+function callStatusTone(status?: CallStatus): string {
+  if (status === "ok") return "text-emerald-400";
+  if (status === "unverified") return "text-amber-400";
+  return status ? "text-rose-400" : "text-slate-400";
 }
 
 /** Salida completa de una herramienta o evidencia: expandible y copiable. */
@@ -56,10 +63,10 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
   return (
     <div
       className={`flex flex-col gap-2 py-3 px-3.5 rounded-lg transition-colors ${step.superseded
-          ? "opacity-50 bg-slate-950/60 border border-slate-900"
-          : isCurrent
-            ? "bg-slate-900/90 border border-slate-700/60"
-            : "hover:bg-slate-900/40 border border-transparent"
+        ? "opacity-50 bg-slate-950/60 border border-slate-900"
+        : isCurrent
+          ? "bg-slate-900/90 border border-slate-700/60"
+          : "hover:bg-slate-900/40 border border-transparent"
         }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -134,8 +141,7 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
           {showCalls && (
             <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-slate-800 pl-3 py-1">
               {calls.map((c, cIdx) => {
-                const isError = Boolean(c.error);
-                const isVerified = c.verification === "VERIFIED";
+                const tone = callStatusTone(c.status);
                 return (
                   <div
                     key={`call-${c.id || "item"}-${cIdx}`}
@@ -147,10 +153,10 @@ export const StepItem: React.FC<StepItemProps> = ({ step, index, isCurrent }) =>
                         {c.mcp}:{c.tool}
                       </span>
                       <span
-                        className={`text-[11px] ${isError ? "text-rose-400" : isVerified ? "text-emerald-400" : "text-slate-400"
+                        className={`text-[11px] ${tone}
                           }`}
                       >
-                        [{isError ? "error" : c.verification || "ok"}]
+                        [{c.status ?? c.verification ?? "ok"}]
                       </span>
                     </div>
 
