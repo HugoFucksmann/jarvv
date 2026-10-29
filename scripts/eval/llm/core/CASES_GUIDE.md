@@ -5,7 +5,7 @@ Un dataset solo importa `core/cases.ts`.
 
 > **Snapshot.** Las formas de datos (§3) vienen de `src/core/reasoner/prompts.ts` y las expectativas (§4) de
 > `core/evaluator.ts`. Si cambian, actualiza este archivo. `MCPTool` y `UserEnvironment` están en
-> `src/core/types.ts` y `src/core/environment.ts` y no están copiados aquí.
+> `src/core/types.ts` (`types/mcp.ts` y `types/execution.ts`) y no están copiados aquí.
 
 ## 1. Estructura
 
@@ -173,7 +173,7 @@ Una métrica *soft* se registra pero no afecta pass/fail.
 | `mustMentionAbortReason` | **No implementado**: el campo existe en `types.ts` pero el evaluador lo ignora |
 
 Global: `finish_reason=length` en plan, replan y arguments falla de inmediato; en final_response se registra
-`not_truncated`. Para el resto, `status` es `fail` si algún check no soft falla, y `error` si hubo excepción
+`not_truncated` (y la métrica `not_truncated` se completa en todas las etapas para métricas consistentes). Para el resto, `status` es `fail` si algún check no soft falla, y `error` si hubo excepción
 (timeout, HTTP, prompt que no cabe en el contexto).
 
 ### Lo que hoy no se puede expresar
@@ -196,9 +196,9 @@ Global: `finish_reason=length` en plan, replan y arguments falla de inmediato; e
 ## 6. Ejecutar
 
 ```
-node scripts/eval/llm/runner.ts --dataset=v1                      # ajusta al ejecutor que uses (tsx, bun...)
+node scripts/eval/llm/runner.ts                                  # por defecto usa --dataset=v2
 node scripts/eval/llm/runner.ts --dataset=v1 --stage=arguments
-node scripts/eval/llm/runner.ts --dataset=v1 --prompts=<variante> --tag=<etiqueta>
+node scripts/eval/llm/runner.ts --dataset=v2 --prompts=<variante> --tag=<etiqueta>
 ```
 
 Opciones: `url`, `model`, `stage`, `dataset`, `prompts`, `tag`, `timeout`, `thinkingTimeout`, `maxTokens`, `numCtx`,
