@@ -1,7 +1,8 @@
 import React from "react";
 import { Settings } from "lucide-react";
-import type { Task } from "../../../src/core/types.ts";
+import { MODELS } from "../../../src/core/models.ts";
 import type { ExecutionMode } from "../../types/ui.ts";
+import type { WireTask } from "../../types/api.ts";
 import { BrandWordmark } from "./components/BrandWordmark.tsx";
 import { SystemStatus, type SystemStatusProps } from "./components/SystemStatus.tsx";
 import { ModeSelector } from "./components/ModeSelector.tsx";
@@ -12,7 +13,7 @@ interface TopBarProps extends SystemStatusProps {
   mode: ExecutionMode;
   onModeChange: (mode: ExecutionMode) => void;
   onOpenSettings: () => void;
-  tasks: Task[];
+  tasks: WireTask[];
   activeTaskId?: string | null;
   onSelectTask: (taskId: string) => void;
 }
@@ -42,7 +43,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       <button
         type="button"
         onClick={onOpenSettings}
-        title="Configuración de endpoints (Qwen 3.5 9B, Decision 2.0, MCPs)"
+        title={`Configuración de endpoints (${MODELS.QWEN_3_5_9B.name}, Decision 2.0, MCPs)`}
         aria-label="Abrir configuración de servicios"
         className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-md transition-colors cursor-pointer border border-transparent hover:border-slate-800"
       >

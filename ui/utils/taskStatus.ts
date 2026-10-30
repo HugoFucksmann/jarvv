@@ -61,6 +61,12 @@ export function getTaskStateLabel(state: TaskState, waitingReason?: string | nul
     }
 }
 
+/** Etiqueta de cada modo de ejecución. Exhaustivo sobre `TaskMode` del core: un modo nuevo rompe la compilación. */
+export const MODE_LABELS: Record<Task["mode"], string> = {
+    NORMAL: "NORMAL (FAST)",
+    PLAN: "PLAN",
+};
+
 export type ActivityStateGroup = "working" | "waiting" | "finished";
 
 export interface ActivityPhrase {

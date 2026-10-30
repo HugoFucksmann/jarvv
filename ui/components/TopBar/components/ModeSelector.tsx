@@ -1,5 +1,6 @@
 import React from "react";
 import type { ExecutionMode } from "../../../types/ui.ts";
+import { MODE_LABELS } from "../../../utils/taskStatus.ts";
 
 interface ModeSelectorProps {
   mode: ExecutionMode;
@@ -7,10 +8,8 @@ interface ModeSelectorProps {
   disabled?: boolean;
 }
 
-const MODE_OPTIONS: ReadonlyArray<{ value: ExecutionMode; label: string }> = [
-  { value: "NORMAL", label: "NORMAL (FAST)" },
-  { value: "PLAN", label: "PLAN" },
-];
+/** Los modos disponibles son las claves de `MODE_LABELS`, que es exhaustivo sobre los modos del core. */
+const MODES = Object.keys(MODE_LABELS) as ExecutionMode[];
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, disabled = false }) => (
   <div
@@ -18,7 +17,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, disa
     role="group"
     aria-label="Selector de modo de ejecución"
   >
-    {MODE_OPTIONS.map(({ value, label }) => (
+    {MODES.map((value) => (
       <button
         key={value}
         type="button"
@@ -28,7 +27,7 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({ mode, onChange, disa
         className={`px-2.5 py-1 text-xs font-medium rounded transition-colors whitespace-nowrap ${mode === value ? "bg-slate-800 text-white shadow-xs" : "text-slate-400 hover:text-slate-200"
           } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
       >
-        {label}
+        {MODE_LABELS[value]}
       </button>
     ))}
   </div>

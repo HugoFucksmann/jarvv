@@ -14,7 +14,15 @@ type McpPatch = { command?: string; args?: string[] };
 
 const SAVED_FEEDBACK_MS = 600;
 
-const parseArgs = (text: string): string[] => text.split(" ").filter(Boolean);
+/**
+ * Argumentos ↔ texto. Los argumentos con espacios (rutas de Windows, p. ej.) se escriben entre comillas dobles:
+ * con un simple `split(" ")` se partían en dos al editar el campo. Una comilla doble literal dentro de un argumento no se soporta.
+ */
+const parseArgs = (text: string): string[] =>
+  (text.match(/(?:[^\s"]+|"[^"]*")+/g) ?? []).map((token) => token.replace(/"/g, ""));
+
+const formatArgs = (args: string[]): string =>
+  args.map((arg) => (arg === "" || /\s/.test(arg) ? `"${arg}"` : arg)).join(" ");
 
 // ---------------------------------------------------------------------------
 // Campos reutilizables
@@ -59,25 +67,45 @@ const UrlField: React.FC<UrlFieldProps> = ({ id, label, value, placeholder, onCh
 interface NumberFieldProps {
   id: string;
   label: string;
-  value?: number;
-  fallback: number;
+  value: number;
   onChange: (value: number) => void;
 }
 
-const NumberField: React.FC<NumberFieldProps> = ({ id, label, value, fallback, onChange }) => (
-  <div>
-    <label htmlFor={id} className="block text-[10px] font-mono text-slate-400 mb-1">
-      {label}
-    </label>
-    <input
-      id={id}
-      type="number"
-      value={value || fallback}
-      onChange={(e) => onChange(Number(e.target.value) || fallback)}
-      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px]"
-    />
-  </div>
-);
+/**
+ * Entero positivo, como lo exige el back (`positiveInt`: otro valor se descarta en silencio y se conserva el anterior).
+ * Mantiene el texto tal como se escribe y solo propaga valores válidos; el formulario no se envía mientras sea inválido.
+ */
+const NumberField: React.FC<NumberFieldProps> = ({ id, label, value, onChange }) => {
+  const [text, setText] = useState(String(value));
+
+  // Re-sincroniza solo cuando el valor externo cambia por otra vía (p. ej. tras guardar)
+  useEffect(() => {
+    setText((current) => (Number(current) === value ? current : String(value)));
+  }, [value]);
+
+  return (
+    <div>
+      <label htmlFor={id} className="block text-[10px] font-mono text-slate-400 mb-1">
+        {label}
+      </label>
+      <input
+        id={id}
+        type="number"
+        required
+        min={1}
+        step={1}
+        inputMode="numeric"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          const n = Number(e.target.value);
+          if (Number.isInteger(n) && n >= 1) onChange(n);
+        }}
+        className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px] invalid:border-rose-700"
+      />
+    </div>
+  );
+};
 
 /**
  * Argumentos separados por espacios. Mantiene el texto tal como se escribe: si se derivara directamente del
@@ -89,12 +117,12 @@ const ArgsInput: React.FC<{
   ariaLabel: string;
   onChange: (args: string[]) => void;
 }> = ({ args, placeholder, ariaLabel, onChange }) => {
-  const external = (args || []).join(" ");
+  const external = formatArgs(args || []);
   const [text, setText] = useState(external);
 
   // Re-sincroniza solo cuando el valor externo cambia por otra vía (p. ej. tras guardar)
   useEffect(() => {
-    setText((current) => (parseArgs(current).join(" ") === external ? current : external));
+    setText((current) => (formatArgs(parseArgs(current)) === external ? current : external));
   }, [external]);
 
   return (
@@ -274,7 +302,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
               <div className="flex flex-col gap-2 pl-1">
                 <UrlField
                   id="cfg-qwen-url"
-                  label="Qwen 3.5 9B URL (Ollama / ngrok / v1):"
+                  label={`${MODELS.QWEN_3_5_9B.name} URL (Ollama / ngrok / v1):`}
                   value={config.qwenUrl}
                   placeholder="http://127.0.0.1:11434"
                   onChange={(qwenUrl) => update({ qwenUrl })}
@@ -297,10 +325,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
                 <div className="flex items-center justify-between pt-1">
                   <div className="flex flex-col">
                     <span className="font-mono text-xs text-slate-300 font-medium">
-                      Modo Thinking (razonamiento largo):
+                      Thinking en la respuesta final:
                     </span>
                     <span className="font-mono text-[10px] text-slate-500">
                       {config.thinking ? "Habilitado (think: true)" : "Deshabilitado (modo directo rápido)"}
+                      {" · "}el plan y la replanificación siempre usan thinking
                     </span>
                   </div>
                   <input
@@ -397,26 +426,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
                 3. Límites Operativos y Timeouts (ms)
               </SectionTitle>
 
-              <div className="grid grid-cols-3 gap-2.5 pl-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pl-1">
                 <NumberField
                   id="cfg-decision-timeout"
                   label="Decision 2.0:"
                   value={config.decisionTimeoutMs}
-                  fallback={30000}
                   onChange={(decisionTimeoutMs) => update({ decisionTimeoutMs })}
                 />
                 <NumberField
                   id="cfg-qwen-timeout"
-                  label="Qwen 3.5 9B:"
+                  label={`${MODELS.QWEN_3_5_9B.short} (sin thinking):`}
                   value={config.qwenTimeoutMs}
-                  fallback={120000}
                   onChange={(qwenTimeoutMs) => update({ qwenTimeoutMs })}
+                />
+                <NumberField
+                  id="cfg-qwen-thinking-timeout"
+                  label={`${MODELS.QWEN_3_5_9B.short} (con thinking):`}
+                  value={config.qwenThinkingTimeoutMs}
+                  onChange={(qwenThinkingTimeoutMs) => update({ qwenThinkingTimeoutMs })}
                 />
                 <NumberField
                   id="cfg-mcp-timeout"
                   label="MCPs (stdio):"
                   value={config.mcpTimeoutMs}
-                  fallback={30000}
                   onChange={(mcpTimeoutMs) => update({ mcpTimeoutMs })}
                 />
               </div>

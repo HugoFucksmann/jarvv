@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { History, ChevronDown, Check } from "lucide-react";
-import type { Task } from "../../../../src/core/types.ts";
+import type { WireTask } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
 import { getTaskStatusType } from "../../../utils/taskStatus.ts";
 
 interface HistoryMenuProps {
-  tasks: Task[];
+  tasks: WireTask[];
   activeTaskId?: string | null;
   onSelectTask: (taskId: string) => void;
 }
@@ -74,8 +74,8 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   setIsOpen(false);
                 }}
                 className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${isSelected
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
+                  ? "bg-slate-800 text-white font-medium"
+                  : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
                   }`}
               >
                 <div className="mt-1">
@@ -86,7 +86,8 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
                     <span>{t.mode}</span>
                     <span aria-hidden="true">·</span>
-                    <span>{t.steps.length} pasos</span>
+                    {/* Los pasos reemplazados por una replanificación siguen en `steps`, marcados `superseded` */}
+                    <span>{t.steps.filter((s) => !s.superseded).length} pasos</span>
                     {t.state === "RUNNING" && (
                       <span className="text-sky-400 font-semibold animate-pulse">[En curso]</span>
                     )}

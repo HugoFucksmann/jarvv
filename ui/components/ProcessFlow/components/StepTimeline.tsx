@@ -1,6 +1,7 @@
 import React from "react";
 import { isTerminalState } from "../../../../src/core/types.ts";
 import type { Step, Task, TaskState } from "../../../../src/core/types.ts";
+import { MODELS } from "../../../../src/core/models.ts";
 import { StepItem } from "./StepItem.tsx";
 
 interface StepTimelineProps {
@@ -24,7 +25,7 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
         return (
             <div className="py-8 text-center text-xs font-mono text-slate-500">
                 {mode === "PLAN"
-                    ? "Generando plan estratégico con Qwen..."
+                    ? `Generando plan estratégico con ${MODELS.QWEN_3_5_9B.short}...`
                     : "Iniciando pipeline y solicitando Decision #1..."}
             </div>
         );

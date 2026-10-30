@@ -1,6 +1,0 @@
-{
-  "summary":  "Plan de separación física de frontend hacia ui/ y backend en src/ con inventario, dependencias cruzadas y configuración afectada.",
-  "updatedAt":  "2026-10-22T01:12:50.034672208Z",
-  "requestFeedback":  true,
-  "userFacing":  true
-}

@@ -364,28 +364,29 @@ export function useJarvis() {
   // Acciones
   // -------------------------------------------------------------------------
 
+  /** Devuelve si el back aceptó la tarea: la entrada de texto devuelve lo escrito al usuario si no. */
   const runTask = useCallback(
-    async (message: string, executionMode?: ExecutionMode) => {
-      if (!message.trim()) return;
-      userClearedViewRef.current = false;
-      setEvents([]);
-      setModelIterations([]);
+    async (message: string, executionMode?: ExecutionMode): Promise<boolean> => {
+      if (!message.trim()) return false;
 
       const effectiveMode = executionMode || mode;
       if (executionMode && executionMode !== mode) {
         setMode(executionMode);
       }
 
-      await runAction(async () => {
+      // La vista actual solo se reemplaza cuando el back acepta la tarea: un rechazo no deja la pantalla vacía.
+      return runAccepted(async () => {
         const data = await jarvisApi.initiateTask(message, effectiveMode);
-        if (data.task) {
-          showTask(data.task);
-          setPendingApproval(null);
-          upsertTask(data.task); // Sincroniza allTasks al instante (FRONT-01)
-        }
+        userClearedViewRef.current = false;
+        showTask(data.task);
+        setPendingApproval(null);
+        upsertTask(data.task); // Sincroniza allTasks al instante (FRONT-01)
+        // Lo que ya llegó por SSE de esta tarea antes de la respuesta HTTP queda en los buffers: se muestra desde ahí.
+        setEvents(eventsByTaskRef.current[data.task.id] ?? []);
+        setModelIterations(iterationsByTaskRef.current[data.task.id] ?? []);
       }, "Error al iniciar la tarea.");
     },
-    [mode, runAction, showTask, upsertTask]
+    [mode, runAccepted, showTask, upsertTask]
   );
 
   const cancelTask = useCallback(

@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { CornerDownLeft, XCircle } from "lucide-react";
-import type { ExecutionMode } from "../../types/ui.ts";
+import type { ActionResult, ExecutionMode } from "../../types/ui.ts";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
 
 interface PromptInputProps {
-  onRun: (prompt: string, mode: ExecutionMode) => void;
+  /** Devuelve `false` si el back rechazó la tarea: el texto vuelve al campo para reintentar. */
+  onRun: (prompt: string, mode: ExecutionMode) => ActionResult;
   onCancel: () => void;
   mode: ExecutionMode;
   /** Hay una tarea activa (ejecutando o esperando): el input se bloquea y se ofrece Cancelar. */
@@ -38,12 +39,13 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   const [value, setValue] = useState("");
 
   // Enter dentro del input dispara este submit de forma nativa
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = value.trim();
     if (!trimmed || isBusy) return;
     setValue("");
-    onRun(trimmed, mode);
+    // Si el back rechaza la tarea (400/500) se devuelve el texto, salvo que ya se haya escrito otra cosa.
+    if ((await onRun(trimmed, mode)) === false) setValue((current) => current || trimmed);
   };
 
   return (
