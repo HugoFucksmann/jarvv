@@ -1,7 +1,7 @@
 /**
  * JARVIS Core — Entorno del usuario (rutas reales de esta PC)
  *
- * Qwen no conoce el nombre de usuario de Windows ni dónde están sus carpetas: sin este dato inventa rutas como
+ * El LLM no conoce el nombre de usuario de Windows ni dónde están sus carpetas: sin este dato inventa rutas como
  * `C:\Users\<user>\Desktop`. Las carpetas conocidas se consultan al sistema (el escritorio y los documentos pueden
  * estar redirigidos, p. ej. a OneDrive) y el resultado se conserva durante todo el proceso.
  */

@@ -1,6 +1,6 @@
 /**
  * JARVIS Core — Configuración y persistencia.
- * Endpoints y límites de Qwen, Decision 2.0 y servidores MCP locales.
+ * Endpoints y límites del LLM, Decision 2.0 y servidores MCP locales.
  * Persiste en jarvis-config.json; toda lectura o escritura pasa por `normalize`,
  * de modo que el objeto en memoria siempre cumple la forma de `JarvisConfig`.
  */
@@ -17,7 +17,7 @@ export interface StdioServerConfig {
   allowedDirectories?: string[];
 }
 
-/** Tope de tokens de salida por etapa de Qwen. */
+/** Tope de tokens de salida por etapa del LLM. */
 export interface QwenMaxTokens {
   arguments: number;
   plan: number;

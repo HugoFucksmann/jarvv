@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Transporte HTTP compartido por Qwen y Decision 2.0, y los errores de ambos motores
+ * JARVIS Core — Transporte HTTP compartido por el LLM y Decision 2.0, y los errores de ambos motores
  * (viven aquí para que quien los captura no dependa de las implementaciones).
  *
  * Política única:
@@ -28,7 +28,7 @@ export class TransportError extends Error {
     }
 }
 
-/** Qwen no responde: red, HTTP no-OK, timeout o configuración ausente. */
+/** El LLM no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
     readonly raw?: { rawInput: string; timing?: TimeSpan };
     constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }) {
@@ -38,7 +38,7 @@ export class LLMServiceUnavailableError extends Error {
     }
 }
 
-/** Qwen respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
+/** El LLM respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
 export class LLMValidationError extends Error {
     readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
     readonly attempts?: FailedAttempt[];

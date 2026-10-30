@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Cliente del motor de razonamiento (Qwen, API OpenAI-compatible)
+ * JARVIS Core — Cliente del motor de razonamiento (LLM, API OpenAI-compatible)
  *
  * - POST {qwenUrl}/v1/chat/completions con structured outputs (json_schema) y parser tolerante como red de
  *   seguridad. Los argumentos de tools MCP usan json_object: sus schemas son dinámicos.
@@ -48,7 +48,7 @@ import { errorMessage, isRecord } from "../utils.ts";
 
 type JsonSchema = Record<string, unknown>;
 
-/** Claves del paso en el contrato con Qwen (PlanStepWire): `satisfies` obliga a que schema y tipo coincidan. */
+/** Claves del paso en el contrato con el LLM (PlanStepWire): `satisfies` obliga a que schema y tipo coincidan. */
 const STEP_WIRE_PROPERTIES = {
   goal: { type: "string" },
   suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
@@ -109,7 +109,7 @@ export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
   additionalProperties: false,
 };
 
-interface QwenDispatchResult {
+interface LlmDispatchResult {
   content: string;
   /** finish_reason === "length": la salida se cortó por el tope de tokens. */
   truncated: boolean;
@@ -119,7 +119,7 @@ interface QwenDispatchResult {
   timing: TimeSpan;
 }
 
-const rawOf = ({ rawInput, rawOutput, timing }: QwenDispatchResult) => ({ rawInput, rawOutput, timing });
+const rawOf = ({ rawInput, rawOutput, timing }: LlmDispatchResult) => ({ rawInput, rawOutput, timing });
 
 const nonEmptyString = (v: unknown): string | undefined =>
   typeof v === "string" && v.trim() ? v.trim() : undefined;
@@ -265,7 +265,7 @@ export function validateArgs(args: Record<string, unknown>, schema: MCPTool["inp
 /**
  * Valida y normaliza pasos de plan. No corrige nada en silencio: ruta inválida, texto vacío o exceso de
  * pasos devuelven un error que se inyecta en el reintento. Los id los asigna el código (s<firstNumber>…).
- * Único punto donde PlanStepWire (formato de Qwen) se traduce a PlanStep (dominio).
+ * Único punto donde PlanStepWire (formato del LLM) se traduce a PlanStep (dominio).
  */
 export function parsePlanSteps(
   raw: unknown,
@@ -303,7 +303,7 @@ const TRUNCATED = "la salida se truncó por el límite de tokens";
 const NOT_JSON = "la respuesta no es un objeto JSON válido";
 
 /** Primer filtro de toda salida JSON: sin truncar y con un objeto parseable. */
-const parseObjectOutput = (r: QwenDispatchResult): Validation<Record<string, unknown>> => {
+const parseObjectOutput = (r: LlmDispatchResult): Validation<Record<string, unknown>> => {
   if (r.truncated) return fail(TRUNCATED);
   const parsed = parseJsonObject(r.content);
   return parsed ? ok(parsed) : fail(NOT_JSON);
@@ -330,7 +330,7 @@ interface DispatchOptions {
 interface ValidatedDispatch<T> extends Omit<DispatchOptions, "temperature"> {
   /** Thinking en el reintento; por defecto el mismo. */
   retryThinking?: boolean;
-  validate: (res: QwenDispatchResult, isLastAttempt: boolean) => Validation<T>;
+  validate: (res: LlmDispatchResult, isLastAttempt: boolean) => Validation<T>;
 }
 
 /** Campos de una respuesta /v1/chat/completions; lo ausente o mal tipado toma un valor neutro. */
@@ -436,7 +436,7 @@ export class QwenEngine implements ILLMClient {
   }
 
   /** Una petición de inferencia. No valida el contenido. */
-  private async dispatchPrompt(o: DispatchOptions): Promise<QwenDispatchResult> {
+  private async dispatchPrompt(o: DispatchOptions): Promise<LlmDispatchResult> {
     const config = ConfigManager.getConfig();
     const url = this.resolveUrl(config.qwenUrl);
     const maxTokens = this.reserveCompletionTokens(o, config.qwenNumCtx);
@@ -499,9 +499,9 @@ export class QwenEngine implements ILLMClient {
    * Petición + validación con la política unificada de salida inválida: un reintento con el error
    * previo en el prompt, 1.5x tokens y temperatura 0.3. Si vuelve a fallar, LLMValidationError con el crudo.
    */
-  private async dispatchValidated<T>(o: ValidatedDispatch<T>): Promise<{ value: T; res: QwenDispatchResult; failed: FailedAttempt[] }> {
+  private async dispatchValidated<T>(o: ValidatedDispatch<T>): Promise<{ value: T; res: LlmDispatchResult; failed: FailedAttempt[] }> {
     let previousError: string | undefined;
-    let last: QwenDispatchResult | undefined;
+    let last: LlmDispatchResult | undefined;
     const failed: FailedAttempt[] = [];
 
     for (let attempt = 0; attempt <= LLM_INVALID_OUTPUT_RETRIES; attempt++) {
@@ -666,8 +666,8 @@ export class QwenEngine implements ILLMClient {
   }
 
   /**
-   * Verificación semántica de etapa. Si Qwen no produce un veredicto válido tras el reintento, el resultado es
-   * `recoverable_deviation`: la señal de Eos nunca sustituye al juez semántico.
+   * Verificación semántica de etapa. Si el LLM no produce un veredicto válido tras el reintento, el resultado es
+   * `recoverable_deviation`: la señal de Decision nunca sustituye al juez semántico.
    */
   async verifyStage(data: StageVerificationPromptData, signal?: AbortSignal): Promise<StageVerificationResult> {
     return this.executeStage("verifyStage", async () => {

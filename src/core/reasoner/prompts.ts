@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Constructores de prompts: Qwen (argumentos, respuesta final, plan, replan, verificación de etapa) y
+ * JARVIS Core — Constructores de prompts: LLM (argumentos, respuesta final, plan, replan, verificación de etapa) y
  * Decision 2.0 (ruta, herramienta, verificación de paso). Todo texto externo va delimitado por <obs> y acotado.
  */
 
@@ -19,7 +19,7 @@ import {
 import { DESTINATIONS } from "../tools/manifest.ts";
 import { clip, clipTail } from "../utils.ts";
 
-// Presupuestos en caracteres por bloque (Qwen).
+// Presupuestos en caracteres por bloque (LLM).
 const MAX_GOAL_CHARS = 1500;
 const MAX_ACTION_CHARS = 1200;
 const MAX_CHAT_CHARS = 2000;
@@ -38,7 +38,7 @@ const MAX_STEP_RESULT_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_REFS_CHARS = 1200;
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
-// Acota la instrucción del paso (incluye la respuesta del usuario) para no agotar el contexto de Qwen.
+// Acota la instrucción del paso (incluye la respuesta del usuario) para no agotar el contexto del LLM.
 const MAX_TASK_CHARS = 12000;
 const NO_LIMIT = Number.POSITIVE_INFINITY;
 // Presupuestos en caracteres (Decision).
@@ -46,7 +46,7 @@ const MAX_MESSAGE_CHARS = 1000;
 const MAX_HISTORY_CHARS = 4000;
 const MAX_DECISION_MEMORY_CHARS = 2000;
 const MAX_RESULT_CHARS = 400;
-// Verificación de paso con Eos (contexto de 16k tokens): ve el hallazgo y la observación compacta completos.
+// Verificación de paso con Decision (contexto de 16k tokens): ve el hallazgo y la observación compacta completos.
 const MAX_VERIFY_RESULT_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_OBSERVATION_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_ATTEMPTS = 8;
@@ -436,8 +436,8 @@ export const DECISION_PROMPTS = {
   },
 
   /**
-   * Verificación factual de paso con Eos: dos preguntas binarias simples
-   * (un modelo de 0.8B responde mejor a un criterio por pregunta).
+   * Verificación factual de paso con Decision: dos preguntas binarias simples
+   * (un modelo pequeño responde mejor a un criterio por pregunta).
    */
   buildStepVerification(data: StepVerificationPromptData): DecisionInput {
     // La evidencia resumida suele ser el mismo hallazgo que `Result`: no se repite.

@@ -50,7 +50,7 @@ export function concludeAsFailure(context: TaskExecutionContext, deps: EngineDep
 }
 
 /**
- * Cierra la tarea ante un fallo de infraestructura LLM (Qwen o Decision no disponibles, salida inválida
+ * Cierra la tarea ante un fallo de infraestructura LLM (LLM o Decision no disponibles, salida inválida
  * persistente). La cancelación se ignora. Devuelve siempre false.
  */
 export async function concludeOnLLMError(
@@ -68,7 +68,7 @@ export async function concludeOnLLMError(
 
 /**
  * Cierra como FAILED una tarea cuyo pipeline lanzó una excepción. Único punto de cierre por excepción.
- * La cancelación y los estados terminales no se pisan. Deja siempre una respuesta final legible, sin depender de Qwen.
+ * La cancelación y los estados terminales no se pisan. Deja siempre una respuesta final legible, sin depender del LLM.
  */
 export function failTask(context: TaskExecutionContext, deps: EngineDependencies, err: unknown): void {
     const { task } = context;
@@ -163,7 +163,7 @@ interface SynthesisRaw {
     synthesisError?: string;
 }
 
-/** Redacta la respuesta final con Qwen; si falla, usa la plantilla determinista. Deja `finalResponse` y su origen en la tarea. */
+/** Redacta la respuesta final con el LLM; si falla, usa la plantilla determinista. Deja `finalResponse` y su origen en la tarea. */
 async function synthesizeFinalResponse(
     context: TaskExecutionContext,
     deps: EngineDependencies,

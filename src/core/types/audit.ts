@@ -19,7 +19,7 @@ export interface TimeSpan {
 export interface ModelIterationMetrics {
   /** Duración del intercambio con el modelo (TimeSpan.durationMs). */
   latencyMs?: number;
-  /** Diferencia entre las dos probabilidades más altas de una decisión de Eos (la señal real de decisión). */
+  /** Diferencia entre las dos probabilidades más altas de una decisión (la señal real de decisión). */
   margin?: number;
   signals?: Record<string, unknown>;
   verdict?: string;

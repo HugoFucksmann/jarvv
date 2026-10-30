@@ -213,7 +213,7 @@ export class Decision20Engine implements IDecisionEngine {
   }
 
   /**
-   * Verificación factual de paso con Eos: dos preguntas `noul` (`ok`, `cumple`).
+   * Verificación factual de paso con Decision: dos preguntas `noul` (`ok`, `cumple`).
    * Aprueba solo con probabilidad estrictamente mayor que NOUL_APPROVE.
    */
   async evaluateStepVerification(

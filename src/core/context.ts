@@ -28,7 +28,7 @@ export interface DataObservation {
     text: string;
 }
 
-/** Lecturas con datos que se conservan para los argumentos de Qwen, además de la última llamada. */
+/** Lecturas con datos que se conservan para los argumentos del LLM, además de la última llamada. */
 const MAX_DATA_OBSERVATIONS = 3;
 
 export interface TaskExecutionContext {
@@ -56,7 +56,7 @@ export interface TaskExecutionContext {
     dataObs: DataObservation[];
     /** Resumen sintético estructurado para Decision 2.0 ([SUCCESS]/[FAILURE]/…). */
     lastCallDecisionSummary?: string;
-    /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST de Qwen). */
+    /** Nombre de la tool que produjo lastCallCompactObs (para el label LAST del LLM). */
     lastCallTool?: string;
     /** Id del paso que produjo lastCallCompactObs: el label LAST debe nombrar a quien la generó, no al paso actual. */
     lastCallStepId?: string;
@@ -221,7 +221,7 @@ export function buildAttempts(task: Task): Attempt[] {
     );
 }
 
-/** Ventana del plan que ve Qwen: lo anterior y lo siguiente se resume, el paso actual siempre entra completo. */
+/** Ventana del plan que ve el LLM: lo anterior y lo siguiente se resume, el paso actual siempre entra completo. */
 const PLAN_WINDOW_PREV = 2;
 const PLAN_WINDOW_NEXT = 3;
 const PLAN_LINE_CHARS = 180;
@@ -338,7 +338,7 @@ export function hasUnresolvedUnverified(task: Task): boolean {
 const fmtChars = (n: number): string => (n >= 1024 ? `${(n / 1024).toFixed(1)}KB` : `${n}B`);
 
 /**
- * Referencias disponibles ({{ref:rX}}) con su origen y tamaño. Es la única vía para que Qwen conozca referencias
+ * Referencias disponibles ({{ref:rX}}) con su origen y tamaño. Es la única vía para que el LLM conozca referencias
  * anteriores a la última observación: el marcador de LAST solo describe la más reciente y puede recortarse.
  * Se construye del RefStore vivo, así que nunca ofrece referencias que ya no existen.
  */

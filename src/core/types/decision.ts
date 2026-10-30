@@ -58,7 +58,7 @@ export interface DecisionTwoResult {
   timing?: TimeSpan;
 }
 
-/** Resultado de la verificación factual de un paso con Eos. */
+/** Resultado de la verificación factual de un paso con Decision. */
 export interface StepVerificationResult {
   ok: boolean;
   cumple: boolean;

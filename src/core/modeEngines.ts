@@ -574,7 +574,7 @@ export async function runPlanLoop(
             continue;
         }
 
-        // logical_error | loop_blocked. `semantic` es el veredicto de Qwen cuando Eos no aprobó el paso.
+        // logical_error | loop_blocked. `semantic` es el veredicto del LLM cuando Decision no aprobó el paso.
         step.error = execResult.error || "Fallo en ejecución del paso.";
         const semantic = execResult.semantic;
 
@@ -588,7 +588,7 @@ export async function runPlanLoop(
             recordFailure(context, "insufficient_info", { stepId: step.id, subject: step.tool ?? step.route, note: `${step.questionsAsked} preguntas` });
         } else if (semantic?.status === "unrecoverable_blocked") {
             step.state = "BLOCKED";
-            // Sin prosa del modelo: el `reason` de Qwen viaja solo en el evento STAGE_VERIFIED y en la traza.
+            // Sin prosa del modelo: el `reason` del LLM viaja solo en el evento STAGE_VERIFIED y en la traza.
             step.error = UNRECOVERABLE_BLOCKED_REASON;
             emitStepError(deps, task.id, step, stepIndex);
             await concludeAsFailure(context, deps, UNRECOVERABLE_BLOCKED_REASON);

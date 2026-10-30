@@ -16,7 +16,7 @@ export const MAX_USER_QUESTIONS_PER_STEP = 2;
 export const PROGRESSIVE_MEMORY_TIERS = [2, 5, 10] as const;
 export type ProgressiveMemoryLimit = (typeof PROGRESSIVE_MEMORY_TIERS)[number];
 
-/** Política unificada de reintentos hacia Qwen y Decision. Reintentos ante fallo de red o HTTP 503 (nunca ante timeout ni abort). */
+/** Política unificada de reintentos hacia el LLM y Decision. Reintentos ante fallo de red o HTTP 503 (nunca ante timeout ni abort). */
 export const LLM_TRANSPORT_RETRIES = 1;
 export const LLM_TRANSPORT_BACKOFF_MS = 1000;
 /** Reintentos ante salida inválida o truncada del modelo. */

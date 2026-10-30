@@ -290,8 +290,8 @@ function lastObservationFor(context: TaskExecutionContext, step: Step, tool: MCP
 }
 
 /**
- * Qwen genera los argumentos y las referencias `{{ref:rX}}` se sustituyen de forma determinista antes de Guard.
- * Solo una salida inválida del modelo es un fallo lógico del paso; Qwen caído o la cancelación se propagan.
+ * El LLM genera los argumentos y las referencias `{{ref:rX}}` se sustituyen de forma determinista antes de Guard.
+ * Solo una salida inválida del modelo es un fallo lógico del paso; LLM caído o la cancelación se propagan.
  */
 async function generateStepArguments(run: StepRun, selectedTool: MCPTool): Promise<Phase<Record<string, unknown>>> {
     const { context, step, deps, signal } = run;
@@ -520,17 +520,17 @@ interface Verdict {
     isCleanSignals: boolean;
     eosPassed: boolean;
     eosUnavailable: boolean;
-    /** Respuesta completa de Eos (null si no se consultó o no estuvo disponible). */
+    /** Respuesta completa de Decision (null si no se consultó o no estuvo disponible). */
     eos: StepVerificationResult | null;
-    /** Veredicto de Qwen como segundo juez (solo modo PLAN, cuando Eos no aprobó). */
+    /** Veredicto del LLM como segundo juez (solo modo PLAN, cuando Decision no aprobó). */
     semantic?: StageVerificationResult;
-    /** Etiqueta determinista de la acción ("read_file C:\x.txt"): su destino va al LOG y a Eos. */
+    /** Etiqueta determinista de la acción ("read_file C:\x.txt"): su destino va al LOG y a Decision. */
     callLabel: string;
 }
 
 /**
- * Eos decide sobre señales limpias. En modo PLAN, si Eos no aprueba (rechaza o no está disponible), Qwen actúa como
- * segundo juez: el paso falla solo si fallan los dos. En FAST decide solo Eos.
+ * Decision decide sobre señales limpias. En modo PLAN, si no aprueba (rechaza o no está disponible), el LLM actúa como
+ * segundo juez: el paso falla solo si fallan los dos. En FAST decide solo Decision.
  */
 async function verifyResult(
     { context, step, deps, signal }: StepRun,
@@ -600,7 +600,7 @@ async function verifyResult(
             }, step.id);
             console.log(`[PLAN StageVerification] step=${step.id} status=${semantic.status} reason=${semantic.reason}`);
         } catch (semErr) {
-            // Qwen caído: no hay segundo juez. Cualquier otro error (y la cancelación) se propaga.
+            // LLM caído: no hay segundo juez. Cualquier otro error (y la cancelación) se propaga.
             if (!(semErr instanceof LLMServiceUnavailableError)) throw semErr;
             console.warn("[runStep] Verificación semántica (Qwen) no disponible:", semErr.message);
         }
@@ -642,7 +642,7 @@ function settleCall(input: SettleInput): StepExecutionResult {
     const isRead = !policy.mutates;
 
     const isStepSuccess = isCleanSignals && (eosPassed || semantic?.status === "completed");
-    // Sin ningún veredicto (Eos no disponible y sin segundo juez) no se aprueba ni se rechaza: queda UNVERIFIED.
+    // Sin ningún veredicto (Decision no disponible y sin segundo juez) no se aprueba ni se rechaza: queda UNVERIFIED.
     const noVerdict = eosUnavailable && !semantic;
     // Estado único de la llamada: de él se derivan token del LOG, FAIL, evidence.ok, outcome.success, facts y efectos.
     const status = classifyCall({ clean: isCleanSignals, passed: isStepSuccess, noVerdict, signals });
@@ -655,7 +655,7 @@ function settleCall(input: SettleInput): StepExecutionResult {
                 : "NOT_REQUIRED";
 
     // Motivo del fallo (lo ven step.error, el replan y la UI): causa fija + hallazgo determinista de la herramienta.
-    // Nunca prosa de Eos ni de Qwen: sus probabilidades y su `reason` viajan solo en los eventos y la traza.
+    // Nunca prosa de modelos: sus probabilidades y su `reason` viajan solo en los eventos y la traza.
     const failReason = notFailed
         ? undefined
         : sanitizeForMemory(describeFailure(status, processed.finding), MAX_EVIDENCE_OBS_CHARS);
@@ -755,7 +755,7 @@ function settleCall(input: SettleInput): StepExecutionResult {
  * Motor unificado de ejecución atómica de pasos. Cada fase es una función con una responsabilidad; las que pueden
  * terminar el paso antes de tiempo devuelven un `Phase` con el resultado ya construido.
  * Contrato de errores: los fallos de dominio (argumentos inválidos, anti-loop, Guard, resultado inválido) se
- * devuelven como StepExecutionResult; los fallos de infraestructura (Qwen/Decision caídos, MCP no disponible,
+ * devuelven como StepExecutionResult; los fallos de infraestructura (LLM/Decision caídos, MCP no disponible,
  * cancelación) se propagan como excepción y los decide el motor de modo.
  */
 export async function runStep(

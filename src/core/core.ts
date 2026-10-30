@@ -273,7 +273,7 @@ export class JarvisCore {
   /**
    * Responde la pregunta abierta de una tarea PLAN en WAITING_INPUT/user_answer. La respuesta se guarda como fact
    * (`answer_<paso>`, para el resto de la tarea) y se anexa a la instrucción del paso, que se reabre (PENDING): así
-   * llega a Decision #2, a Eos y a Qwen sin tocar sus prompts. `nonReadCounter` invalida las firmas anti-loop previas.
+   * llega a Decision #2, a la verificación de Decision y al LLM sin tocar sus prompts. `nonReadCounter` invalida las firmas anti-loop previas.
    * Devuelve false si la respuesta no se aplicó (tarea inexistente o que no espera respuesta, o respuesta vacía),
    * para que el endpoint no confirme como hecho algo que se ignoró.
    */

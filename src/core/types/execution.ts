@@ -76,6 +76,6 @@ export interface StepExecutionResult {
   call?: StepCall;
   error?: string;
   signals?: StepExecutionSignals;
-  /** Solo modo PLAN: veredicto de Qwen cuando Eos no aprobó el paso (segundo juez). */
+  /** Solo modo PLAN: veredicto del LLM cuando Decision no aprobó el paso (segundo juez). */
   semantic?: StageVerificationResult;
 }

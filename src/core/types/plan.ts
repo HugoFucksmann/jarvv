@@ -16,7 +16,7 @@ export interface PlanStep {
 }
 
 /**
- * Paso tal como lo escribe Qwen (contrato JSON: schema y parser en qwen.ts, texto en prompts.ts).
+ * Paso tal como lo escribe el LLM (contrato JSON: schema y parser en qwen.ts, texto en prompts.ts).
  * Solo parsePlanSteps (qwen.ts) lo traduce a PlanStep: goal → instruction, suggested_mcp → route,
  * expected_outcome → expectedOutcome. Renombrar una clave aquí rompe la compilación en ese punto.
  */

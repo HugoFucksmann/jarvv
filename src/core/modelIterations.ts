@@ -1,13 +1,13 @@
 /**
  * JARVIS Core — Construcción de ModelIteration (auditoría de los modelos)
  *
- * Convierte cada CoreEvent del orquestador en un registro de lo que Eos (Decision 2.0) o Qwen recibieron y devolvieron.
+ * Convierte cada CoreEvent del orquestador en un registro de lo que Decision o el LLM recibieron y devolvieron.
  * El servidor lo usa en cada evento (core.ts) y el cliente lo reutiliza para reconstruir las iteraciones desde el SSE;
  * por eso no puede depender de módulos de Node. Los ayudantes de veredicto se comparten con la UI para que ambos lados
  * describan igual el resultado de una llamada.
  */
 
-import type { CallStatus, CoreEvent, CoreEventDataMap, ExecutedCallStatus, Step, Task, TaskState, TimeSpan } from "./types.ts";
+import type { CallStatus, CoreEvent, CoreEventType, ExecutedCallStatus, Step, Task, TaskState, TimeSpan } from "./types.ts";
 import { EXECUTABLE_ROUTES, type ModelIteration } from "./types.ts";
 import { buildEffectsContext } from "./context.ts";
 import { MODELS } from "./models.ts";
@@ -54,80 +54,11 @@ const timingOf = (v: unknown): TimeSpan | undefined => {
   return t && typeof t.startedAt === "number" && typeof t.durationMs === "number" ? (t as TimeSpan) : undefined;
 };
 
-// Payload de cada evento (lo que emiten callExecutor, modeEngines y taskConclusion)
-// Todo es opcional: la UI también reconstruye iteraciones desde eventos parciales del SSE.
-
-interface ModelExchange {
-  rawInput?: string;
-  rawOutput?: string;
-  timing?: unknown;
-}
-
-interface DecisionOneData extends ModelExchange {
-  route?: string;
-  probabilities?: Record<string, number>;
-  answers?: { route?: { probabilities?: Record<string, number> } };
-  needsContext?: unknown;
-}
-
-interface DecisionTwoData extends ModelExchange {
-  tool?: string;
-  candidates?: string[];
-  memory?: string;
-  probabilities?: Record<string, number>;
-  shortcut?: boolean;
-}
-
-interface ArgumentsData extends ModelExchange {
-  error?: string;
-  attempt?: number;
-  args?: Record<string, unknown>;
-  resolvedRefs?: string[];
-  replacedCount?: number;
-}
-
-interface EosVerification extends ModelExchange {
-  ok?: boolean;
-  cumple?: boolean;
-  okProbability?: number;
-  cumpleProbability?: number;
-}
-
-interface ProcessedSummary {
-  summaryText?: string;
-  decisionSummary?: string;
-  compactObs?: string;
-  finding?: string;
-  signals?: Record<string, unknown>;
-  verification?: string;
-}
-
-interface ResultProcessedData extends ModelExchange {
-  processed?: ProcessedSummary;
-  verification?: EosVerification | null;
-  isStepSuccess?: boolean;
-  callStatus?: CallStatus;
-  verifiedBy?: string;
-  verificationState?: string;
-  execution?: unknown;
-}
-
-interface PlanGeneratedData extends ModelExchange {
-  replan?: boolean;
-  /** PLAN_GENERATED emite los pasos de la tarea (forma de dominio); no el formato JSON de Qwen. */
-  steps?: Step[];
-}
-
-interface FinalResponseData extends ModelExchange {
-  response?: string;
-  source?: "model" | "fallback";
-  state?: TaskState;
-  synthesisError?: string;
-}
+/** Evento de un tipo concreto: su `data` sale de `CoreEventDataMap`, así que el compilador avisa si `events.ts` cambia. */
+type EventOf<T extends CoreEventType> = Extract<CoreEvent, { type: T }>;
 
 /** Lo que cada constructor necesita saber del evento y de la tarea en el instante en que se emitió. */
 interface EventContext {
-  event: CoreEvent;
   task: Task | null;
   taskId: string;
   ts: number;
@@ -143,8 +74,7 @@ const positionOf = (task: Task | null, step: Step): number => (task?.steps?.inde
 /** Marca de tiempo de la iteración: el inicio real de la llamada al modelo, o el instante del evento. */
 const startOf = (timing: TimeSpan | undefined, ts: number): number => timing?.startedAt ?? ts;
 
-function fromDecisionOne({ event, task, taskId, ts, stepId }: EventContext): ModelIteration | null {
-  const data = event.data as DecisionOneData;
+function fromDecisionOne({ data }: EventOf<"DECISION_ONE">, { task, taskId, ts, stepId }: EventContext): ModelIteration | null {
   if (task?.mode === "PLAN") {
     return null;
   }
@@ -187,9 +117,8 @@ function fromDecisionOne({ event, task, taskId, ts, stepId }: EventContext): Mod
     },
     output: {
       rutaSeleccionada: data.route,
-      probabilidades: data.probabilities || (data.answers?.route?.probabilities ?? {}),
+      probabilidades: data.probabilities,
       margen: topMargin(data.probabilities),
-      necesitaContextoAdicional: Boolean(data.needsContext),
     },
     metrics: {
       latencyMs: timing?.durationMs,
@@ -198,8 +127,7 @@ function fromDecisionOne({ event, task, taskId, ts, stepId }: EventContext): Mod
   };
 }
 
-function fromDecisionTwo({ event, taskId, ts, stepId, currentStep, stepSeq }: EventContext): ModelIteration {
-  const data = event.data as DecisionTwoData;
+function fromDecisionTwo({ data }: EventOf<"DECISION_TWO">, { taskId, ts, stepId, currentStep, stepSeq }: EventContext): ModelIteration {
   const timing = timingOf(data.timing);
   // Con una sola herramienta posible no hay llamada al modelo: lo que se registra es la decisión determinista,
   // sin la memoria (no se envió), sin una "confianza" de 1 y sin margen (no hay alternativa que comparar).
@@ -242,12 +170,12 @@ function fromDecisionTwo({ event, taskId, ts, stepId, currentStep, stepSeq }: Ev
   };
 }
 
-function fromArgumentsGenerated({ event, task, taskId, ts, stepId, currentStep, stepSeq }: EventContext): ModelIteration {
-  const data = event.data as ArgumentsData;
-  const failed = typeof data.error === "string";
+function fromArgumentsGenerated({ data }: EventOf<"ARGUMENTS_GENERATED">, { task, taskId, ts, stepId, currentStep, stepSeq }: EventContext): ModelIteration {
+  const failed = "error" in data;
+  const attempt = "attempt" in data ? data.attempt : undefined;
   const timing = timingOf(data.timing);
   return {
-    id: `iter_${ts}_qwen_args_${stepId || "step"}${data.attempt ? `_a${data.attempt}` : ""}`,
+    id: `iter_${ts}_qwen_args_${stepId || "step"}${attempt ? `_a${attempt}` : ""}`,
     taskId,
     model: "QWEN_3_5_9B",
     stage: "ARGUMENT_GENERATION",
@@ -265,7 +193,7 @@ function fromArgumentsGenerated({ event, task, taskId, ts, stepId, currentStep, 
       hechosFactuales: snapFacts(task),
       fallosPrevios: snapFail(task),
     },
-    output: failed
+    output: "error" in data
       ? { error: data.error }
       : {
         argumentos: data.args || {},
@@ -276,16 +204,13 @@ function fromArgumentsGenerated({ event, task, taskId, ts, stepId, currentStep, 
       latencyMs: timing?.durationMs,
       verdict: failed ? "Argumentos inválidos" : "Argumentos estructurados",
     },
-    error: failed ? data.error : undefined,
+    error: "error" in data ? data.error : undefined,
   };
 }
 
-function fromResultProcessed({ event, taskId, ts, stepId, currentStep, stepSeq }: EventContext): ModelIteration {
-  const data = event.data as ResultProcessedData;
-  const processed = data.processed || {};
-  const verification = data.verification || null;
-  const isStepSuccess = Boolean(data.isStepSuccess);
-  // Eos solo verifica cuando las señales físicas son limpias: sin su intercambio no hay veredicto de Eos que mostrar.
+function fromResultProcessed({ data }: EventOf<"RESULT_PROCESSED">, { taskId, ts, stepId, currentStep, stepSeq }: EventContext): ModelIteration {
+  const { processed, verification, isStepSuccess } = data;
+  // Decision solo verifica cuando las señales físicas son limpias: sin su intercambio no hay veredicto que mostrar.
   const eosRan = isExchange(verification?.rawInput);
   const timing = timingOf(verification?.timing);
 
@@ -297,7 +222,7 @@ function fromResultProcessed({ event, taskId, ts, stepId, currentStep, stepSeq }
     stepId,
     stepSeq,
     stepTitle: currentStep ? `Paso #${stepSeq || 1}: Verificación Factual` : "Verificación de Resultado",
-    // Eos corre antes que el segundo juez y antes de que se emita este evento: se ubica donde empezó de verdad.
+    // Decision corre antes que el segundo juez y antes de que se emita este evento: se ubica donde empezó de verdad.
     timestamp: startOf(timing, ts),
     rawInput: data.rawInput || verification?.rawInput,
     rawOutput: data.rawOutput || verification?.rawOutput,
@@ -305,7 +230,7 @@ function fromResultProcessed({ event, taskId, ts, stepId, currentStep, stepSeq }
     input: {
       instruccionEtapa: currentStep?.instruction || "",
       herramientaEjecutada: currentStep?.tool || currentStep?.calls?.slice(-1)[0]?.tool || "MCP",
-      resumenObservacion: processed.summaryText || processed.decisionSummary || processed.compactObs || "",
+      resumenObservacion: processed.decisionSummary || processed.compactObs || "",
       resultadoEsperado: currentStep?.expectedOutcome || "Ejecución exitosa y consistente",
     },
     output: {
@@ -316,23 +241,22 @@ function fromResultProcessed({ event, taskId, ts, stepId, currentStep, stepSeq }
       probabilidadCumple: eosRan ? verification?.cumpleProbability : null,
       // Quién aprobó el paso; "ninguno" cuando nadie lo aprobó (rechazado, sin veredicto o con error de herramienta).
       verificadoPor: data.verifiedBy ?? "ninguno",
-      senalesFisicas: processed.signals || {},
-      hallazgo: processed.finding || processed.summaryText || "",
+      senalesFisicas: processed.signals,
+      hallazgo: processed.finding,
       // Estado real tras verificar (no el que fija el procesador antes de verificar).
-      estadoVerificacion: data.verificationState ?? processed.verification,
+      estadoVerificacion: data.verificationState,
       duracionHerramientaMs: timingOf(data.execution)?.durationMs,
     },
     metrics: {
       latencyMs: timing?.durationMs,
       isStepSuccess,
       verdict: callVerdict(data.callStatus),
-      signals: processed.signals,
+      signals: { ...processed.signals },
     },
   };
 }
 
-function fromStageVerified({ event, task, taskId, ts, stepId, stepSeq }: EventContext): ModelIteration {
-  const data = event.data as CoreEventDataMap["STAGE_VERIFIED"];
+function fromStageVerified({ data }: EventOf<"STAGE_VERIFIED">, { task, taskId, ts, stepId, stepSeq }: EventContext): ModelIteration {
   const sv = data.stageVerification;
   const stageStatus = sv.status;
   const stageReason = sv.reason;
@@ -367,8 +291,7 @@ function fromStageVerified({ event, task, taskId, ts, stepId, stepSeq }: EventCo
   };
 }
 
-function fromPlanGenerated({ event, task, taskId, ts }: EventContext): ModelIteration {
-  const data = event.data as PlanGeneratedData;
+function fromPlanGenerated({ data }: EventOf<"PLAN_GENERATED">, { task, taskId, ts }: EventContext): ModelIteration {
   const isReplan = data.replan === true;
   const timing = timingOf(data.timing);
   const steps: Step[] = (data.steps || task?.steps || []).filter((s) => !s.superseded);
@@ -404,8 +327,7 @@ function fromPlanGenerated({ event, task, taskId, ts }: EventContext): ModelIter
   };
 }
 
-function fromFinalResponse({ event, task, taskId, ts }: EventContext): ModelIteration {
-  const data = event.data as FinalResponseData;
+function fromFinalResponse({ data }: EventOf<"FINAL_RESPONSE">, { task, taskId, ts }: EventContext): ModelIteration {
   const timing = timingOf(data.timing);
   return {
     id: `iter_${ts}_qwen_final`,
@@ -450,7 +372,6 @@ export function createIterationFromEvent(
 
   const currentStep = task?.steps?.find((s) => s.id === stepId) || task?.steps?.[task?.currentStep ?? 0];
   const context: EventContext = {
-    event,
     task,
     taskId: event.taskId,
     ts,
@@ -460,13 +381,13 @@ export function createIterationFromEvent(
   };
 
   switch (event.type) {
-    case "DECISION_ONE": return fromDecisionOne(context);
-    case "DECISION_TWO": return fromDecisionTwo(context);
-    case "ARGUMENTS_GENERATED": return fromArgumentsGenerated(context);
-    case "RESULT_PROCESSED": return fromResultProcessed(context);
-    case "STAGE_VERIFIED": return fromStageVerified(context);
-    case "PLAN_GENERATED": return fromPlanGenerated(context);
-    case "FINAL_RESPONSE": return fromFinalResponse(context);
+    case "DECISION_ONE": return fromDecisionOne(event, context);
+    case "DECISION_TWO": return fromDecisionTwo(event, context);
+    case "ARGUMENTS_GENERATED": return fromArgumentsGenerated(event, context);
+    case "RESULT_PROCESSED": return fromResultProcessed(event, context);
+    case "STAGE_VERIFIED": return fromStageVerified(event, context);
+    case "PLAN_GENERATED": return fromPlanGenerated(event, context);
+    case "FINAL_RESPONSE": return fromFinalResponse(event, context);
     default: return null;
   }
 }
