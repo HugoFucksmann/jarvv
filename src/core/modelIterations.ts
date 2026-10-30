@@ -1,13 +1,13 @@
 /**
  * JARVIS Core — Construcción de ModelIteration (auditoría de los modelos)
  *
- * Convierte cada CoreEvent del orquestador en un registro de lo que Decision-2.0-Eos-0.8B o Qwen 3.5 9B recibieron y
- * devolvieron. El servidor lo usa en cada evento (core.ts) y el cliente lo reutiliza para reconstruir las iteraciones
- * desde el SSE; por eso no puede depender de módulos de Node. Los ayudantes de veredicto se comparten con la UI para
- * que ambos lados describan igual el resultado de una llamada.
+ * Convierte cada CoreEvent del orquestador en un registro de lo que Eos (Decision 2.0) o Qwen recibieron y devolvieron.
+ * El servidor lo usa en cada evento (core.ts) y el cliente lo reutiliza para reconstruir las iteraciones desde el SSE;
+ * por eso no puede depender de módulos de Node. Los ayudantes de veredicto se comparten con la UI para que ambos lados
+ * describan igual el resultado de una llamada.
  */
 
-import type { CallStatus, CoreEvent, ExecutedCallStatus, Step, Task, TaskState, TimeSpan } from "./types.ts";
+import type { CallStatus, CoreEvent, CoreEventDataMap, ExecutedCallStatus, Step, Task, TaskState, TimeSpan } from "./types.ts";
 import { EXECUTABLE_ROUTES, type ModelIteration } from "./types.ts";
 import { buildEffectsContext } from "./context.ts";
 import { MODELS } from "./models.ts";
@@ -54,10 +54,8 @@ const timingOf = (v: unknown): TimeSpan | undefined => {
   return t && typeof t.startedAt === "number" && typeof t.durationMs === "number" ? (t as TimeSpan) : undefined;
 };
 
-// ---------------------------------------------------------------
 // Payload de cada evento (lo que emiten callExecutor, modeEngines y taskConclusion)
 // Todo es opcional: la UI también reconstruye iteraciones desde eventos parciales del SSE.
-// ---------------------------------------------------------------
 
 interface ModelExchange {
   rawInput?: string;
@@ -70,7 +68,6 @@ interface DecisionOneData extends ModelExchange {
   probabilities?: Record<string, number>;
   answers?: { route?: { probabilities?: Record<string, number> } };
   needsContext?: unknown;
-  usage?: { input_tokens?: number; output_tokens?: number };
 }
 
 interface DecisionTwoData extends ModelExchange {
@@ -115,21 +112,6 @@ interface ResultProcessedData extends ModelExchange {
   execution?: unknown;
 }
 
-/** Veredicto de etapa; los eventos antiguos lo traen en la raíz del payload y los actuales en `stageVerification`. */
-interface StageFields extends ModelExchange {
-  status?: string;
-  reason?: string;
-  questionForUser?: string;
-  question_for_user?: string;
-}
-
-interface StageVerifiedData extends StageFields {
-  stageVerification?: StageFields;
-  stepId?: string;
-  stageId?: string;
-  situation?: unknown;
-}
-
 interface PlanGeneratedData extends ModelExchange {
   replan?: boolean;
   /** PLAN_GENERATED emite los pasos de la tarea (forma de dominio); no el formato JSON de Qwen. */
@@ -156,15 +138,10 @@ interface EventContext {
   stepSeq: number | undefined;
 }
 
-/** Posición (desde 1) de un paso en el plan de la tarea. */
 const positionOf = (task: Task | null, step: Step): number => (task?.steps?.indexOf(step) ?? -1) + 1;
 
 /** Marca de tiempo de la iteración: el inicio real de la llamada al modelo, o el instante del evento. */
 const startOf = (timing: TimeSpan | undefined, ts: number): number => timing?.startedAt ?? ts;
-
-// ---------------------------------------------------------------
-// Un constructor por evento
-// ---------------------------------------------------------------
 
 function fromDecisionOne({ event, task, taskId, ts, stepId }: EventContext): ModelIteration | null {
   const data = event.data as DecisionOneData;
@@ -217,7 +194,6 @@ function fromDecisionOne({ event, task, taskId, ts, stepId }: EventContext): Mod
     metrics: {
       latencyMs: timing?.durationMs,
       margin: topMargin(data.probabilities),
-      tokens: data.usage ? { input: data.usage.input_tokens, output: data.usage.output_tokens } : undefined,
     },
   };
 }
@@ -356,12 +332,12 @@ function fromResultProcessed({ event, taskId, ts, stepId, currentStep, stepSeq }
 }
 
 function fromStageVerified({ event, task, taskId, ts, stepId, stepSeq }: EventContext): ModelIteration {
-  const data = event.data as StageVerifiedData;
-  const sv: StageFields = data.stageVerification || data;
-  const stageStatus = sv.status || data.status;
-  const stageReason = sv.reason || data.reason;
-  const stageQuestion = sv.questionForUser || data.questionForUser || sv.question_for_user || data.question_for_user;
-  const targetStepId = stepId || data.stepId || data.stageId;
+  const data = event.data as CoreEventDataMap["STAGE_VERIFIED"];
+  const sv = data.stageVerification;
+  const stageStatus = sv.status;
+  const stageReason = sv.reason;
+  const stageQuestion = sv.questionForUser;
+  const targetStepId = stepId || data.stepId;
   const timing = timingOf(data.timing ?? sv.timing);
   return {
     id: `iter_${ts}_qwen_stage_${targetStepId || "stage"}`,
@@ -378,7 +354,6 @@ function fromStageVerified({ event, task, taskId, ts, stepId, stepSeq }: EventCo
     input: {
       meta: task?.message || "",
       etapaId: targetStepId,
-      situacionObservada: data.situation,
     },
     output: {
       estado: stageStatus,

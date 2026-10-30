@@ -28,7 +28,7 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
   const router = express.Router();
 
   // Iniciar tarea
-  router.post(['/process', '/task'], async (req, res) => {
+  router.post('/process', async (req, res) => {
     try {
       const { message, mode } = req.body;
       if (!message || typeof message !== 'string' || !message.trim()) {
@@ -55,24 +55,14 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
     res.json({ ok: true });
   });
 
-  // Confirmar, rechazar o solicitar modificación de plan (modo PLAN)
+  // Confirmar el plan (modo PLAN). Rechazarlo y modificarlo tienen sus propios endpoints.
   router.post('/confirm-plan', async (req, res) => {
     try {
-      const { taskId, action, feedback, reason } = req.body;
+      const { taskId } = req.body;
       const targetId = resolveTargetTaskId(jarvisCore, taskId);
 
       if (!targetId) {
         return res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-      }
-
-      if (action === 'reject') {
-        jarvisCore.rejectPlan(targetId, reason);
-        return res.json({ ok: true, action: 'reject' });
-      }
-
-      if (action === 'modify') {
-        await jarvisCore.modifyPlan(targetId, feedback || reason || 'Ajustar plan.');
-        return res.json({ ok: true, action: 'modify' });
       }
 
       jarvisCore.confirmPlan(targetId);
@@ -199,7 +189,7 @@ export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: Disc
   });
 
   // Refrescar catálogo de Discovery dinámicamente
-  router.all(['/refresh-discovery', '/discovery'], async (_req, res) => {
+  router.all('/refresh-discovery', async (_req, res) => {
     try {
       const tools = await discoveryEngine.discoverAll(true);
       res.json({ tools, unavailableServers: discoveryEngine.getUnavailableServers() });

@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Llamadas, evidencia y resultado de ejecución de pasos.
- */
-
 import type { ExecutableRoute } from "./routes.ts";
 import type { TimeSpan } from "./audit.ts";
 import type { Step } from "./task.ts";
@@ -63,7 +59,7 @@ export interface ExecutionOutcome {
   isError?: boolean;
 }
 
-export type StepExecutionStatus = "ok" | "logical_error" | "unverified" | "blocked_loop";
+export type StepExecutionStatus = "ok" | "logical_error" | "unverified" | "loop_blocked";
 
 export interface StepExecutionSignals {
   exit_code?: number;

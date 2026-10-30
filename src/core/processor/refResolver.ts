@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Deterministic Reference Resolver
+ * JARVIS Core — Resolvedor determinista de referencias.
  * Sustituye referencias temporales del RefStore antes de Guard y del despacho MCP.
  *
  * Formas aceptadas (el prefijo `ref:` es obligatorio):

@@ -1,23 +1,23 @@
 /**
- * JARVIS Core — Tool Manifest (fuente única de herramientas, políticas y descripciones)
- * Catálogo reducido por ahora: 11 herramientas de desktop_commander y 3 de free_search, repartidas en 4 destinos
- * (grupos funcionales que elige Decision #1); el resto de ambos servidores queda fuera (para ofrecer otra
- * herramienta se añade su línea con su destino; solo si el formato de su resultado lo justifica se registra además
- * su extractor en processor/extractors/index.ts: sin él, el resultado lo trata el extractor genérico). Los nombres de argumento salen de sus inputSchema.
+ * JARVIS Core — Tool Manifest: fuente única de herramientas, políticas y descripciones.
  *
- * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas
- *   (policyRegistry.ts fue eliminado).
- * - Cada herramienta declara su destino (`route`): pertenece a uno solo y su servidor se deriva de DESTINATIONS.
- *   Guard y las políticas siguen siendo por (server, name), nunca por destino.
+ * Catálogo reducido a propósito: de cada servidor MCP solo figuran las herramientas listadas abajo, repartidas en 4
+ * destinos (grupos funcionales que elige Decision #1). Para ofrecer otra herramienta se añade su línea con su destino;
+ * solo si el formato de su resultado lo justifica se registra además su extractor en processor/extractors/index.ts
+ * (sin él, lo trata el extractor genérico). Los nombres de argumento salen de sus inputSchema.
+ *
+ * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas.
+ * - Cada herramienta declara su destino (`route`) y su servidor se deriva de DESTINATIONS. Guard y las políticas son por
+ *   (server, name), nunca por destino.
  * - Lookup insensible a mayúsculas, políticas inmutables, claves duplicadas = error al arrancar.
- * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al
- *   planificador (ver `applyDestination`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
- * - No hay herramientas de interfaz gráfica (clic, teclado, portapapeles, capturas, esperas de UI…) ni
- *   herramientas meta (feedback, prompts, estadísticas): decisión de diseño vigente.
- * - Las descripciones están en inglés: son la fuente única para Decision (criterios) y para el catálogo del planificador.
- * - La descripción de una herramienta se compacta (≤80 caracteres) y sustituye a la del servidor, que a veces es el único
- *   lugar donde se explica el formato de un parámetro (el esquema solo dice `string`). Ese formato se conserva como
- *   nota del parámetro (`notes`): se inyecta en el esquema que ve el modelo que genera los argumentos.
+ * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al planificador (ver
+ *   `applyDestination`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
+ * - Sin herramientas de interfaz gráfica (clic, teclado, portapapeles, capturas, esperas de UI) ni meta (feedback,
+ *   prompts, estadísticas): decisión de diseño vigente.
+ * - Las descripciones están en inglés: son la fuente única para Decision (criterios) y para el catálogo del
+ *   planificador. Se compactan (MAX_TOOL_DESC_CHARS) y sustituyen a las del servidor, que a veces es el único lugar donde
+ *   se explica el formato de un parámetro (el esquema solo dice `string`). Ese formato se conserva como nota
+ *   (`notes`), que se inyecta en el esquema que ve el modelo que genera los argumentos.
  */
 
 import {
@@ -84,9 +84,7 @@ interface ToolOptions {
   emptyIsError?: boolean;
   /** Exenta del anti-loop. */
   loopExempt?: boolean;
-  /** Parámetros permitidos: el resto no se muestra ni se acepta (ver `applyDestination`). */
   params?: readonly string[];
-  /** Formato de parámetros que el esquema del servidor no expresa (parámetro -> nota). Ver `applyDestination`. */
   notes?: Readonly<Record<string, string>>;
   /** Estado que la tarea debe tener para ofrecer la herramienta: un proceso en ejecución o una búsqueda iniciada. */
   requires?: "process" | "search";
@@ -123,7 +121,6 @@ function def(
       capability,
       requiresApproval: NEEDS_APPROVAL.has(capability),
       mutates,
-      kind: mutates ? ("no-READ" as const) : ("READ" as const),
       emptyIsError: opts.emptyIsError ?? false,
       loopExempt: opts.loopExempt ?? false,
     }),
@@ -131,7 +128,6 @@ function def(
 }
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
-  // ---- files (desktop_commander, 6) ----
   def("files", "read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", { emptyIsError: true }),
   def("files", "read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
   def("files", "write_file", "FILE_WRITE", "Create or overwrite a file on disk.", {
@@ -145,13 +141,11 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path.", { params: ["path", "depth"] }),
   def("files", "move_file", "FILE_WRITE", "Move or rename files or directories."),
 
-  // ---- locate (desktop_commander, 2) ----
   def("locate", "start_search", "FILE_READ", "Start a streaming file search.", {
     params: ["path", "pattern", "searchType", "filePattern", "ignoreCase", "maxResults"],
   }),
   def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true, requires: "search" }),
 
-  // ---- terminal (desktop_commander, 3) ----
   // Sin `verbose_timing`: con él la última línea de la salida pasa a ser un bloque de tiempos y el extractor pierde el fin del proceso y su exit code.
   def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command.", {
     params: ["command", "timeout_ms", "shell"],
@@ -166,7 +160,6 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     params: ["pid", "input", "timeout_ms", "wait_for_prompt"],
   }),
 
-  // ---- web (free_search, 3) ----
   def("web", "search", "READ", "Deduplicated multi-engine web search with clean snippets.", {
     emptyIsError: true,
     params: ["query", "max_results"],
@@ -180,9 +173,6 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   }),
 ];
 
-// ---------------------------------------------------------------
-// Índice y API de consulta
-// ---------------------------------------------------------------
 /** Clave canónica de una herramienta (servidor + nombre, sin distinguir mayúsculas); la usan el catálogo y el registro de extractores. */
 export const toolKey = (server: string, tool: string) => `${server}:${tool}`.toLowerCase();
 
@@ -198,7 +188,6 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   capability: "COMMAND_EXECUTION",
   requiresApproval: true,
   mutates: true,
-  kind: "no-READ" as const,
   emptyIsError: false,
   loopExempt: false,
 });
@@ -217,7 +206,6 @@ export function requirementOf(server: string, tool: string): "process" | "search
   return lookup(server, tool)?.requires;
 }
 
-/** Servidor MCP que ejecuta un destino. */
 export function serverOf(route: ExecutableRoute): McpServerName {
   return DESTINATIONS[route].server;
 }
@@ -255,9 +243,9 @@ function annotateParams(schema: MCPTool["inputSchema"], tool: string, notes: Rea
 
 /**
  * Lista cerrada: de las herramientas que expone el servidor del destino, conserva solo las que el manifest
- * cataloga bajo ese destino, sustituye la descripción por la del manifest (inglés, ≤80 caracteres), añade las notas de
- * formato de sus parámetros y, si la herramienta declara `params`, restringe su schema a esos parámetros. Conserva el
- * `name` real del servidor.
+ * cataloga bajo ese destino, sustituye la descripción por la del manifest (inglés, MAX_TOOL_DESC_CHARS), añade las
+ * notas de formato de sus parámetros y, si la herramienta declara `params`, restringe su schema a esos parámetros.
+ * Conserva el `name` real del servidor.
  */
 export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool[]): MCPTool[] {
   const server = serverOf(route);
@@ -272,11 +260,6 @@ export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool
   return allowed;
 }
 
-// ---------------------------------------------------------------
-// Catálogo compacto para el planificador
-// ---------------------------------------------------------------
-
-/** Lista el manifest completo, un bloque por destino. */
 export function buildCompactCatalog(): string {
   const sections: string[] = [];
   for (const route of EXECUTABLE_ROUTES) {

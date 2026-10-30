@@ -1,6 +1,5 @@
 /**
- * JARVIS Core — Architecture & Core Contracts
- * Fuente única de tipos del núcleo (barrel). Las definiciones viven por dominio en ./types/.
+ * JARVIS Core — Contratos del núcleo: fuente única de tipos (barril). Las definiciones viven por dominio en ./types/.
  */
 
 export * from "./types/routes.ts";

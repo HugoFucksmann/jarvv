@@ -241,8 +241,10 @@ export class Decision20Engine implements IDecisionEngine {
     const ok = okProbability > NOUL_APPROVE;
     const cumple = cumpleProbability > NOUL_APPROVE;
 
+    const { decisionBackend, decisionModel } = ConfigManager.getConfig();
+    const modelLabel = decisionBackend === "d3" ? decisionModel : MODELS.EOS_0_8B.short;
     console.log(
-      `[StepVerification ${MODELS.EOS_0_8B.short}] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
+      `[StepVerification ${modelLabel}] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
     );
     return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }

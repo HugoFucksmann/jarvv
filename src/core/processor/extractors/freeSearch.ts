@@ -1,11 +1,7 @@
-/**
- * JARVIS Core — Extractores de free_search (búsqueda web y páginas)
- */
-
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
 import type { Scratchpad, StepExecutionSignals } from "../../types.ts";
 import { MAX_EVIDENCE_OBS_CHARS, MAX_SCRATCHPAD_RESULTS } from "../../types.ts";
-import { sanitizeForMemory, clipAtWord, headTail, LONG_OBS_CHARS } from "../text.ts";
+import { sanitizeForMemory, clipAtWord, compactObservation } from "../text.ts";
 
 /** Largos de snippet que intenta la observación compacta de `search`, de mayor a menor: gana el mayor que quepa. */
 const SEARCH_SNIPPET_LENGTHS = [240, 160, 100, 60, 40] as const;
@@ -67,7 +63,7 @@ export function extractSearch({ isError, success, fullText, refKey }: ExtractorI
     let finding = "";
     let compactObs = "";
     // Jarvis nunca pide `format: "json"` (el manifest limita `search` a query y max_results): el servidor responde
-    // Markdown (formato observado de la herramienta). Cabecera con `_results: N_`, lead opcional y una sección "## n. título" por resultado.
+    // Markdown, con cabecera `_results: N_`, un lead opcional y una sección "## n. título" por resultado.
     const items: SearchItem[] = [];
     let leadText: string | undefined;
 
@@ -103,11 +99,7 @@ export function extractSearch({ isError, success, fullText, refKey }: ExtractorI
     if (items.length === 0 && (reportedPositive || longWithoutMarker)) {
         const firstLine = fullText.split("\n")[0] || (success ? "Operación exitosa" : "Fallo en tool");
         finding = sanitizeForMemory(isError ? `err: ${firstLine}` : firstLine);
-        if (fullText.length > LONG_OBS_CHARS) {
-            compactObs = headTail(fullText, refKey);
-        } else {
-            compactObs = fullText || "Búsqueda web completada.";
-        }
+        compactObs = compactObservation(fullText, refKey, "Búsqueda web completada.");
     } else if (items.length === 0) {
         signals.empty_output = true;
         const unknownEngines = [...fullText.matchAll(UNKNOWN_ENGINE_LINE)].map((m) => m[1]);
@@ -118,11 +110,11 @@ export function extractSearch({ isError, success, fullText, refKey }: ExtractorI
     } else {
         const count = reportedCount !== undefined ? reportedCount : items.length;
         // Hallazgo neutral: no nombra ningún resultado (el orden es por relevancia, no por fecha). `_dated: n/m_` es el
-        // recuento que informa la herramienta (formato observado de la herramienta); si falta, no se inventa.
+        // recuento que informa la herramienta; si falta, no se inventa.
         const datedMatch = fullText.match(/_dated:\s*(\d+)\/(\d+)_/i);
         finding = sanitizeForMemory(`${count} resultados web${datedMatch ? ` (${datedMatch[1]} con fecha)` : ""}`);
 
-        // Estado visible de la UI. Ya no es un "hecho": las URLs completas viajan en DATA/LAST.
+        // Estado visible de la UI (las URLs completas viajan en DATA/LAST, no como hecho).
         if (items[0]?.url) scratchpadDelta.url = items[0].url;
 
         // El scratchpad es estado visible, no contexto de modelo: se acota para no crecer sin límite.
@@ -155,10 +147,6 @@ export function extractFetch({ args, fullText, mergedData, refKey }: ExtractorIn
     }
     const firstLine = fullText.split("\n")[0] || "Página web";
     finding = sanitizeForMemory(`página: ${firstLine}`);
-    if (fullText.length > LONG_OBS_CHARS) {
-        compactObs = headTail(fullText, refKey, "contenido omitido");
-    } else {
-        compactObs = fullText || "Página web leída.";
-    }
+    compactObs = compactObservation(fullText, refKey, "Página web leída.", "contenido omitido");
     return { finding, compactObs, factsDelta, scratchpadDelta };
 }

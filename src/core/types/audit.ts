@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Iteraciones y auditoría de modelos.
- */
-
 export type ModelType = "EOS_0_8B" | "QWEN_3_5_9B";
 
 export type ModelStage =
@@ -23,10 +19,6 @@ export interface TimeSpan {
 export interface ModelIterationMetrics {
   /** Duración del intercambio con el modelo (TimeSpan.durationMs). */
   latencyMs?: number;
-  tokens?: {
-    input?: number;
-    output?: number;
-  };
   /** Diferencia entre las dos probabilidades más altas de una decisión de Eos (la señal real de decisión). */
   margin?: number;
   signals?: Record<string, unknown>;

@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Estados, pasos, memoria y tarea.
- */
-
 import type { ExecutableRoute } from "./routes.ts";
 import type { ModelIteration } from "./audit.ts";
 import type { StepCall, Evidence, VerificationState, ExecutionOutcome } from "./execution.ts";

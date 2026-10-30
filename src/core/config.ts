@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Configuration & Persistence Manager
+ * JARVIS Core — Configuración y persistencia.
  * Endpoints y límites de Qwen, Decision 2.0 y servidores MCP locales.
  * Persiste en jarvis-config.json; toda lectura o escritura pasa por `normalize`,
  * de modo que el objeto en memoria siempre cumple la forma de `JarvisConfig`.
@@ -38,7 +38,6 @@ export interface JarvisConfig {
   qwenNumCtx: number;
   qwenMaxTokens: QwenMaxTokens;
   qwenTimeoutMs: number;
-  /** Timeout de Qwen cuando la etapa usa thinking. */
   qwenThinkingTimeoutMs: number;
   decisionUrl: string;
   /** Motor de decisión activo:
@@ -97,10 +96,6 @@ const DEFAULT_CONFIG: JarvisConfig = {
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
 };
-
-// ------------------------------------------------------------
-// Normalización
-// ------------------------------------------------------------
 
 /** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
 const text = (v: unknown, fallback: string): string =>
@@ -176,10 +171,6 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
   };
 }
 
-// ------------------------------------------------------------
-// Gestor
-// ------------------------------------------------------------
-
 export class ConfigManager {
   private static currentConfig: JarvisConfig = ConfigManager.loadConfig();
 
@@ -199,20 +190,6 @@ export class ConfigManager {
     }, cur);
     this.saveConfig(this.currentConfig);
     return this.getConfig();
-  }
-
-  static isConfigured(service: "qwen" | "decision" | "desktop" | "search"): boolean {
-    const c = this.currentConfig;
-    switch (service) {
-      case "qwen":
-        return Boolean(c.qwenUrl);
-      case "decision":
-        return Boolean(c.decisionUrl);
-      case "desktop":
-        return Boolean(c.desktopCommanderMcp.command);
-      case "search":
-        return Boolean(c.freeSearchMcp.command);
-    }
   }
 
   private static loadConfig(): JarvisConfig {

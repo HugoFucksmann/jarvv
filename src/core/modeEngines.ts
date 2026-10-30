@@ -370,7 +370,7 @@ async function settleFastStep(
             console.warn(`[FAST] Acción UNVERIFIED registrada. Requiere observación.`);
             return true;
 
-        case "blocked_loop":
+        case "loop_blocked":
             step.state = "BLOCKED";
             step.error = execResult.error || "Invocación bloqueada por anti-loop.";
             emitStepError(deps, taskId, step, stepIndex);
@@ -574,7 +574,7 @@ export async function runPlanLoop(
             continue;
         }
 
-        // logical_error | blocked_loop. `semantic` es el veredicto de Qwen cuando Eos no aprobó el paso.
+        // logical_error | loop_blocked. `semantic` es el veredicto de Qwen cuando Eos no aprobó el paso.
         step.error = execResult.error || "Fallo en ejecución del paso.";
         const semantic = execResult.semantic;
 

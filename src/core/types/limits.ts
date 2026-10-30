@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Límites globales del núcleo.
- */
-
 export const MAX_STEPS = 15;
 export const MAX_ESCALATIONS = 2;
 export const MAX_REPLAN = 2;

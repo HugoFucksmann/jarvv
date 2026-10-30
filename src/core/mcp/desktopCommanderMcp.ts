@@ -1,54 +1,23 @@
 /**
- * Desktop Commander MCP — Real Client Adapter
- * Contract Reference: Desktop Commander MCP Contract
+ * Adaptador del servidor MCP Desktop Commander. Antes de delegar en el transporte, rechaza con `[DENIED]` (prefijo que
+ * reconoce ResultProcessor) los argumentos de ruta fuera de `allowedDirectories`; con la lista vacía no restringe nada.
  */
 
 import path from "node:path";
-import { IMCPServer } from "./types.ts";
-import { MCPTool, MCPCallResult } from "../types.ts";
+import { MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
+import { StdioMcpServer } from "./stdioServer.ts";
 import { ConfigManager } from "../config.ts";
 
-export class DesktopCommanderMCPServer implements IMCPServer {
+export class DesktopCommanderMCPServer extends StdioMcpServer {
   readonly name = "desktop_commander";
   readonly version = "2.1.0";
-  private transport: IMCPTransport;
-  private allowedDirectories: string[] = [];
+  private readonly allowedDirectories: string[];
 
   constructor(transport?: IMCPTransport, allowedDirs?: string[]) {
-    const config = ConfigManager.getConfig();
-    this.transport = transport || new StdioMcpTransport(
-      "desktop_commander",
-      config.desktopCommanderMcp,
-      config.mcpTimeoutMs ?? 30000
-    );
-    this.allowedDirectories = allowedDirs || config.desktopCommanderMcp?.allowedDirectories || [];
-  }
-
-  setAllowedDirectories(dirs: string[]): void {
-    this.allowedDirectories = [...dirs];
-  }
-
-  getAllowedDirectories(): string[] {
-    return [...this.allowedDirectories];
-  }
-
-  isConnected(): boolean {
-    return this.transport.isConnected();
-  }
-
-  async reconnect(): Promise<void> {
-    await this.transport.reconnect();
-  }
-
-  async close(): Promise<void> {
-    if (this.transport.close) {
-      await this.transport.close();
-    }
-  }
-
-  async listTools(): Promise<MCPTool[]> {
-    return await this.transport.listTools();
+    const config = ConfigManager.getConfig().desktopCommanderMcp;
+    super(transport ?? new StdioMcpTransport("desktop_commander", config));
+    this.allowedDirectories = allowedDirs ?? config.allowedDirectories ?? [];
   }
 
   /**
@@ -97,6 +66,6 @@ export class DesktopCommanderMCPServer implements IMCPServer {
       }
     }
 
-    return await this.transport.callTool(name, args);
+    return super.callTool(name, args);
   }
 }

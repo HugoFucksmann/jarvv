@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Task Execution Context & Memory Helpers
+ * JARVIS Core — Contexto de ejecución de una tarea y ayudas de memoria (LOG, FACTS, FAIL).
  */
 
 import {
@@ -66,7 +66,6 @@ export interface TaskExecutionContext {
     traced?: boolean;
 }
 
-/** Contexto de ejecución de una tarea recién creada. */
 export function createTaskContext(task: Task): TaskExecutionContext {
     return {
         task,
@@ -104,7 +103,6 @@ export function expandMemoryContext(context: TaskExecutionContext): ProgressiveM
     return next;
 }
 
-/** Registra la observación de una lectura con datos (se conservan las últimas MAX_DATA_OBSERVATIONS). */
 export function recordDataObservation(context: TaskExecutionContext, obs: DataObservation): void {
     context.dataObs = [...context.dataObs, obs].slice(-MAX_DATA_OBSERVATIONS);
 }
@@ -127,7 +125,6 @@ const MAX_FAIL_ENTRIES = 5;
 /** Líneas de LOG y FAIL que ve Decision #2 en su bloque de memoria. */
 const DECISION_MEMORY_LINES = 2;
 
-/** Agrega una entrada a LOG (se conservan las últimas MAX_LOG_ENTRIES). */
 export function addLogEntry(context: TaskExecutionContext, line: string): void {
     const memory = ensureMemory(context);
     memory.log.push(line);
@@ -186,7 +183,7 @@ export function recordFailure(
 }
 
 /** Historial compacto para Decision #1: últimas `limit` líneas de LOG y FAIL. Vacío mientras no haya memoria. */
-export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = 2): string {
+export function buildHistoryContext(task: Task, limit: ProgressiveMemoryLimit = PROGRESSIVE_MEMORY_TIERS[0]): string {
     const logLines = task.memory?.log || [];
     const failLines = task.memory?.fail || [];
     const parts: string[] = [];
@@ -333,7 +330,7 @@ export function hasUnresolvedUnverified(task: Task): boolean {
     if (lastUnverified < 0) return false;
     for (let j = lastUnverified + 1; j < calls.length; j++) {
         const c = calls[j];
-        if (c.outcome?.success === true && getToolPolicy(c.mcp, c.tool).kind === "READ") return false;
+        if (c.outcome?.success === true && !getToolPolicy(c.mcp, c.tool).mutates) return false;
     }
     return true;
 }

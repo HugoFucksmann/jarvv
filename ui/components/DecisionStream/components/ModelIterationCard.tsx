@@ -12,7 +12,11 @@ import {
 } from "lucide-react";
 import type { ModelIteration, ModelStage } from "../../../types/debug.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
+import { JsonViewer } from "../../Shared/JsonViewer.tsx";
+import { MarkdownRenderer } from "../../Shared/MarkdownRenderer.tsx";
 import { MODELS } from "../../../../src/core/models.ts";
+import { EXECUTABLE_ROUTES, type ExecutableRoute } from "../../../../src/core/types.ts";
+import { getRouteLabel } from "../../../utils/routeLabels.ts";
 
 interface ModelIterationCardProps {
   iteration: ModelIteration;
@@ -39,6 +43,27 @@ const asRecord = (v: unknown): Record<string, unknown> =>
 const asProbabilities = (v: unknown): Record<string, number> => asRecord(v) as Record<string, number>;
 
 const pct = (v: number, digits = 0): string => `${(v * 100).toFixed(digits)}%`;
+
+/**
+ * Etapas con panel estructurado propio. Exhaustivo: una etapa nueva en el core obliga a decidir aquí;
+ * mientras valga `false`, el panel muestra su salida con el visor JSON.
+ */
+const STRUCTURED_STAGES: Record<ModelStage, boolean> = {
+  DECISION_ONE: true,
+  DECISION_TWO: true,
+  STEP_VERIFICATION: true,
+  STAGE_VERIFICATION: true,
+  ARGUMENT_GENERATION: true,
+  PLAN_GENERATION: true,
+  REPLAN: true,
+  FINAL_RESPONSE: true,
+};
+
+/** `servidorSugerido` es la ruta del paso: se valida contra la lista del core antes de traducirla a su etiqueta. */
+const routeLabel = (route?: string): string =>
+  route && (EXECUTABLE_ROUTES as readonly string[]).includes(route)
+    ? getRouteLabel(route as ExecutableRoute)
+    : route ?? "—";
 
 export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
   iteration,
@@ -144,6 +169,17 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
   const stageStatus = asString(out.estado);
   const stageReason = asString(out.motivo);
   const stageQuestion = asString(out.preguntaUsuario);
+
+  // Qwen: argumentos, plan y respuesta final (claves fijadas por `modelIterations.ts`)
+  const inp = asRecord(iteration.input);
+  const argsTool = asString(inp.herramienta);
+  const argsInstruction = asString(inp.instruccion);
+  const argsValue = out.argumentos;
+  const argsRefs = Array.isArray(out.referenciasResueltas) ? out.referenciasResueltas.map(String) : [];
+  const argsReplaced = typeof out.conteoReemplazos === "number" ? out.conteoReemplazos : 0;
+  const planSteps = Array.isArray(out.etapasPropuestas) ? out.etapasPropuestas.map(asRecord) : [];
+  const finalText = asString(out.respuestaSintetizada);
+  const finalOrigin = asString(out.origen);
 
   const sep = <span className="text-slate-600" aria-hidden="true">·</span>;
 
@@ -598,19 +634,116 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                 </div>
               )}
 
-              {/* Qwen / Other Stages: Structured Overview */}
-              {iteration.stage !== "DECISION_ONE" &&
-                iteration.stage !== "DECISION_TWO" &&
-                iteration.stage !== "STEP_VERIFICATION" &&
-                iteration.stage !== "STAGE_VERIFICATION" && (
-                  <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
-                    <pre className="text-slate-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto leading-relaxed text-[11px]">
-                      {typeof iteration.output === "string"
-                        ? iteration.output
-                        : JSON.stringify(iteration.output, null, 2)}
-                    </pre>
+              {/* Qwen Argument Generation */}
+              {iteration.stage === "ARGUMENT_GENERATION" && (
+                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
+                    <div>
+                      <span className="text-slate-500">Herramienta: </span>
+                      <span className="text-emerald-300 font-semibold font-sans">{argsTool ?? "N/D"}</span>
+                    </div>
+                    {argsCount !== null && (
+                      <span className="text-slate-400">
+                        {argsCount} parámetros · {argsReplaced} referencias reemplazadas
+                      </span>
+                    )}
                   </div>
-                )}
+
+                  {argsInstruction && (
+                    <div className="text-[11px] text-slate-300">
+                      <span className="text-slate-500 font-medium">Instrucción: </span>
+                      <span className="font-sans">{argsInstruction}</span>
+                    </div>
+                  )}
+
+                  {argsValue !== undefined ? (
+                    <JsonViewer data={argsValue} defaultExpandDepth={2} maxHeightClass="max-h-64" />
+                  ) : (
+                    <span className="text-[11px] text-slate-500">No se generaron argumentos válidos.</span>
+                  )}
+
+                  {argsRefs.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] pt-1">
+                      <span className="text-slate-500">Referencias resueltas:</span>
+                      {argsRefs.map((ref) => (
+                        <span key={ref} className="px-1.5 py-0.5 rounded bg-sky-950/60 border border-sky-900/60 text-sky-300">
+                          {ref}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Qwen Plan / Replan */}
+              {(iteration.stage === "PLAN_GENERATION" || iteration.stage === "REPLAN") && (
+                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                  <div className="pb-2 border-b border-slate-800/60 text-slate-300">
+                    <span className="text-slate-500">{iteration.stage === "REPLAN" ? "Replanificación: " : "Plan: "}</span>
+                    <span className="text-indigo-300 font-semibold">
+                      {planStepsCount ?? planSteps.length} etapas propuestas
+                    </span>
+                  </div>
+
+                  {planSteps.length > 0 ? (
+                    <ol className="flex flex-col divide-y divide-slate-800/60">
+                      {planSteps.map((s, idx) => {
+                        const id = asString(s.id);
+                        const expected = asString(s.resultadoEsperado);
+                        return (
+                          <li key={id ?? idx} className="flex items-start gap-2.5 py-2">
+                            <span className="text-slate-500 tabular-nums w-5 shrink-0">
+                              {typeof s.indice === "number" ? s.indice : idx + 1}.
+                            </span>
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sky-300 font-medium">[{routeLabel(asString(s.servidorSugerido))}]</span>
+                                {id && <span className="text-slate-600 text-[10px]">{id}</span>}
+                              </div>
+                              <span className="text-slate-200 font-sans">{asString(s.instruccion)}</span>
+                              {expected && <span className="text-emerald-400/90 text-[11px]">Esperado: {expected}</span>}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">El plan no trae etapas.</span>
+                  )}
+                </div>
+              )}
+
+              {/* Qwen Final Response */}
+              {iteration.stage === "FINAL_RESPONSE" && (
+                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                  <div className="flex items-center gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
+                    <span className="text-slate-500 font-medium">Origen:</span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${finalOrigin === "modelo"
+                        ? "bg-indigo-950/80 text-indigo-300 border-indigo-800"
+                        : "bg-amber-950/80 text-amber-300 border-amber-800"
+                        }`}
+                    >
+                      {finalOrigin ?? "N/D"}
+                    </span>
+                  </div>
+
+                  {finalText ? (
+                    <div className="max-h-80 overflow-y-auto p-2 rounded bg-slate-950/60 border border-slate-800/60 font-sans">
+                      <MarkdownRenderer content={finalText} />
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">Sin respuesta sintetizada.</span>
+                  )}
+                </div>
+              )}
+
+              {/* Etapa sin panel propio (una etapa nueva del core): su salida en el visor JSON */}
+              {!STRUCTURED_STAGES[iteration.stage] && (
+                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                  <JsonViewer data={iteration.output} defaultExpandDepth={2} maxHeightClass="max-h-64" />
+                </div>
+              )}
             </div>
           )}
 
@@ -629,9 +762,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   className="gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
                 />
               </div>
-              <pre className="text-slate-200 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed text-[11px] font-mono select-text p-1 bg-slate-950/40 rounded">
-                {displayInput}
-              </pre>
+              <JsonViewer data={iteration.rawInput || iteration.input} defaultExpandDepth={1} maxHeightClass="max-h-96" />
             </div>
           )}
 
@@ -650,9 +781,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   className="gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
                 />
               </div>
-              <pre className="text-slate-200 whitespace-pre-wrap break-all max-h-80 overflow-y-auto leading-relaxed text-[11px] font-mono select-text p-1 bg-slate-950/40 rounded">
-                {displayOutput}
-              </pre>
+              <JsonViewer data={iteration.rawOutput || iteration.output} defaultExpandDepth={1} maxHeightClass="max-h-96" />
             </div>
           )}
         </div>

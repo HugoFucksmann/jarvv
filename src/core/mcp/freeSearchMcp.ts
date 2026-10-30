@@ -1,48 +1,17 @@
 /**
- * free-search-mcp — Real Client Adapter
- * Contract Reference: sweetcornna/free-search-mcp (v0.13.1)
+ * Adaptador del servidor MCP free-search (0.13.1, la versión fijada en config.ts). Sin lógica propia: delega en el
+ * transporte.
  */
 
-import { IMCPServer } from "./types.ts";
-import { MCPTool, MCPCallResult } from "../types.ts";
-import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { ConfigManager } from "../config.ts";
+import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
+import { StdioMcpServer } from "./stdioServer.ts";
 
-export class FreeSearchMCPServer implements IMCPServer {
+export class FreeSearchMCPServer extends StdioMcpServer {
   readonly name = "free_search";
   readonly version = "0.13.1";
-  private transport: IMCPTransport;
 
   constructor(transport?: IMCPTransport) {
-    const config = ConfigManager.getConfig();
-    this.transport = transport || new StdioMcpTransport(
-      "free_search",
-      config.freeSearchMcp,
-      config.mcpTimeoutMs ?? 30000
-    );
-  }
-
-  isConnected(): boolean {
-    return this.transport.isConnected();
-  }
-
-  async reconnect(): Promise<void> {
-    await this.transport.reconnect();
-  }
-
-  async close(): Promise<void> {
-    if (this.transport.close) {
-      await this.transport.close();
-    }
-  }
-
-
-
-  async listTools(): Promise<MCPTool[]> {
-    return await this.transport.listTools();
-  }
-
-  async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
-    return await this.transport.callTool(name, args);
+    super(transport ?? new StdioMcpTransport("free_search", ConfigManager.getConfig().freeSearchMcp));
   }
 }

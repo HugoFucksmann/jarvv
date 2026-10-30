@@ -4,7 +4,8 @@
  */
 
 /**
- * Sanitizes external text to a single line, stripping control chars and escaping delimiters
+ * Reduce un texto externo a una sola línea y neutraliza lo que podría confundirse con la estructura del prompt:
+ * `<obs>` y las etiquetas de bloque (`LOG:`, `FACTS:`…). Recorta a `maxLen` terminando en `...`.
  */
 export function sanitizeForMemory(text: string, maxLen = 120): string {
     if (!text) return "";
@@ -57,4 +58,9 @@ export const LONG_OBS_CHARS = 2 * HEAD_TAIL_CHARS;
  */
 export function headTail(text: string, refKey: string | undefined, omitted = "omitidos"): string {
     return `${text.slice(0, HEAD_TAIL_CHARS)}\n[... ${omitted}, ref:${refKey}]\n${text.slice(-HEAD_TAIL_CHARS)}`;
+}
+
+/** Observación de un texto: íntegro si es corto, `headTail` si es largo y `empty` si no hay texto. */
+export function compactObservation(text: string, refKey: string | undefined, empty: string, omitted?: string): string {
+    return text.length > LONG_OBS_CHARS ? headTail(text, refKey, omitted) : text || empty;
 }

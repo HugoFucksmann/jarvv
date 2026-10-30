@@ -1,30 +1,19 @@
 /**
- * MCP Protocol Transport — Real Stdio / JSON-RPC Transport Client
- * Connects to local MCP servers running on the user's system via stdio.
- * 
- * Implements:
- * - JSON-RPC 2.0 protocol over stdio (newline-delimited messages).
- * - Persistent child process per MCP server across requests.
- * - Atomic initialization promise to eliminate race conditions on concurrent starts.
- * - Request correlation via JSON-RPC IDs.
- * - Chunk buffering and line framing on stdout (decodificación UTF-8 en streaming).
- * - Stderr logging without corrupting JSON-RPC stream.
- * - Process tree termination (taskkill on Windows) to prevent zombie processes.
- * - Reconnection, session persistence, and clean process termination.
- * - Aislamiento por proceso: los eventos de un proceso cerrado o reemplazado se ignoran y
- *   nunca afectan a peticiones ni al estado del proceso vigente.
+ * JARVIS Core — Transporte MCP por stdio (JSON-RPC 2.0, mensajes delimitados por saltos de línea).
+ *
+ * - Un proceso hijo persistente por servidor; la inicialización es una única promesa, para evitar carreras en arranques
+ *   concurrentes.
+ * - Las respuestas se correlacionan por id; stdout se decodifica en streaming (UTF-8) y stderr solo se registra, sin
+ *   tocar el flujo JSON-RPC.
+ * - Los eventos de un proceso cerrado o reemplazado se ignoran: nunca afectan a las peticiones ni al estado del proceso
+ *   vigente.
+ * - Al cerrar, Windows termina el árbol de procesos (`taskkill /T /F`); en otras plataformas solo se envía SIGTERM al hijo
+ *   directo.
  */
 
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
-import { ConfigManager } from "../config.ts";
-
-export interface StdioConfig {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-  cwd?: string;
-}
+import { ConfigManager, type StdioServerConfig } from "../config.ts";
 
 export class MCPTransportError extends Error {
   constructor(public readonly serverName: string, message: string, public readonly cause?: unknown) {
@@ -35,7 +24,7 @@ export class MCPTransportError extends Error {
 
 export interface IMCPTransport {
   readonly serverName: string;
-  readonly config: StdioConfig;
+  readonly config: StdioServerConfig;
   listTools(): Promise<MCPTool[]>;
   callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult>;
   isConnected(): boolean;
@@ -60,13 +49,12 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   >();
   private stderrLines: string[] = [];
-  /** Set when the process exits fatally before initialization completes. */
+  /** Fallo fatal antes de completar la inicialización: mientras exista no se reintenta el arranque (`reconnect()` lo limpia). */
   private permanentFailure: MCPTransportError | null = null;
 
   constructor(
     public readonly serverName: string,
-    public readonly config: StdioConfig,
-    private readonly timeoutMs: number = 30000
+    public readonly config: StdioServerConfig
   ) { }
 
   isConnected(): boolean {
@@ -80,12 +68,7 @@ export class StdioMcpTransport implements IMCPTransport {
   }
 
   private getTimeoutMs(): number {
-    try {
-      const config = ConfigManager.getConfig();
-      return config.mcpTimeoutMs ?? this.timeoutMs ?? 30000;
-    } catch {
-      return this.timeoutMs ?? 30000;
-    }
+    return ConfigManager.getConfig().mcpTimeoutMs;
   }
 
   getPermanentFailure(): MCPTransportError | null {
@@ -202,7 +185,7 @@ export class StdioMcpTransport implements IMCPTransport {
           this.rejectAllPending(transportErr);
         });
 
-        // Handshake obligatorio antes de permitir tráfico externo
+        // Handshake MCP: initialize y notificación initialized.
         try {
           await this.rawRpcCall("initialize", {
             protocolVersion: "2024-11-05",
@@ -337,7 +320,7 @@ export class StdioMcpTransport implements IMCPTransport {
     try {
       this.childProcess.stdin.write(JSON.stringify(payload) + "\n", "utf8");
     } catch {
-      // Ignore notification write error
+      // Una notificación no espera respuesta: un fallo de escritura se ignora.
     }
   }
 
@@ -447,7 +430,7 @@ export class StdioMcpTransport implements IMCPTransport {
         try {
           this.childProcess.kill("SIGTERM");
         } catch {
-          // Ignore kill errors
+          // El fallo al terminar el proceso se ignora.
         }
       }
       this.childProcess = null;

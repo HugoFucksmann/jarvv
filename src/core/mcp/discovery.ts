@@ -41,10 +41,6 @@ export class DiscoveryEngine {
     return this.servers.get(name);
   }
 
-  getAllServers(): IMCPServer[] {
-    return Array.from(this.servers.values());
-  }
-
   /** Herramientas descubiertas de un servidor MCP; `forceRefresh` ignora la caché y el estado "no disponible". */
   async getDiscoveredTools(serverName: string, forceRefresh = false): Promise<MCPTool[]> {
     const server = this.servers.get(serverName);

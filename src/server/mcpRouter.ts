@@ -59,8 +59,8 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
 
     const policy = getToolPolicy(req.params.server, name);
     const verdict = Guard.evaluate(req.params.server, name, toolArgs);
-    if (policy.kind !== 'READ' || verdict.decision !== 'ALLOW') {
-      console.warn(`[MCP /call] Rechazada '${req.params.server}/${name}' (kind=${policy.kind ?? 'desconocido'}, guard=${verdict.decision}).`);
+    if (policy.mutates || verdict.decision !== 'ALLOW') {
+      console.warn(`[MCP /call] Rechazada '${req.params.server}/${name}' (mutates=${policy.mutates}, guard=${verdict.decision}).`);
       return res.status(403).json({
         isError: true,
         success: false,

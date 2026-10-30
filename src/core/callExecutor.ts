@@ -51,7 +51,6 @@ import {
 } from "./context.ts";
 
 // Los contratos viven en engineDeps.ts; se reexportan para no romper a quien los importa desde el ejecutor.
-export type { EmitEventFn, EngineDependencies } from "./engineDeps.ts";
 
 interface ApprovalRequest {
     mcp: string;
@@ -369,7 +368,7 @@ function checkAntiLoop(
 ): Phase<string | undefined> {
     if (policy.loopExempt) return proceed(undefined);
 
-    const isRead = policy.kind === "READ";
+    const isRead = !policy.mutates;
     const sig = `${serverName}:${toolName}:${argsHash(args)}:m${context.nonReadCounter}`;
     // Lectura idéntica: siempre bloqueada. Acción idéntica: bloqueada si no hubo una lectura intermedia.
     if (context.executedSignatures.has(sig) && (isRead || !context.lastActionWasRead)) {
@@ -378,7 +377,7 @@ function checkAntiLoop(
             ? "Lectura idéntica bloqueada por anti-loop."
             : "Invocación bloqueada por anti-loop (acción idéntica repetida sin lectura intermedia).";
         recordFailedCall(context, step, { status: "loop_blocked", tool: toolName, args, error: loopError });
-        return halt({ status: "blocked_loop", step, error: loopError });
+        return halt({ status: "loop_blocked", step, error: loopError });
     }
     return proceed(sig);
 }
@@ -640,7 +639,7 @@ function settleCall(input: SettleInput): StepExecutionResult {
     const { task } = context;
     const { signals } = processed;
     const { isCleanSignals, eosPassed, eosUnavailable, semantic, callLabel } = verdict;
-    const isRead = policy.kind === "READ";
+    const isRead = !policy.mutates;
 
     const isStepSuccess = isCleanSignals && (eosPassed || semantic?.status === "completed");
     // Sin ningún veredicto (Eos no disponible y sin segundo juez) no se aprueba ni se rechaza: queda UNVERIFIED.

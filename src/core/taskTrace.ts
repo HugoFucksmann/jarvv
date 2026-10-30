@@ -88,7 +88,6 @@ function buildPlanTrace(task: Task) {
     };
 }
 
-/** Línea JSON de la traza de una tarea. */
 function buildTraceLine(context: TaskExecutionContext): string {
     const { task } = context;
     return JSON.stringify({

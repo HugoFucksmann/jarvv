@@ -1,21 +1,12 @@
-/**
- * JARVIS Core — Extractor genérico (respaldo)
- */
-
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
-import { fitFinding, headTail, LONG_OBS_CHARS } from "../text.ts";
+import { compactObservation, fitFinding } from "../text.ts";
 
 /** Sin extractor propio (o con error): el hallazgo es el contenido aplanado hasta MAX_FINDING_CHARS. */
 export function extractGeneric({ isError, success, fullText, refKey }: ExtractorInput): ExtractorOutput {
     let finding = "";
     let compactObs = "";
-    // Sin extractor propio: el hallazgo es el contenido aplanado hasta MAX_FINDING_CHARS, no la primera línea
-    // (en una búsqueda sin resultados la primera línea es la cabecera de sesión y el recuento viene después).
+    // Aplanado completo y no la primera línea: en una búsqueda sin resultados la primera línea es la cabecera de sesión y el recuento viene después.
     finding = fitFinding(fullText || (success ? "Operación exitosa" : "Fallo en tool"), isError ? "err: " : "", refKey);
-    if (fullText.length > LONG_OBS_CHARS) {
-        compactObs = headTail(fullText, refKey);
-    } else {
-        compactObs = fullText || (success ? "Operación completada sin salida." : "Error de ejecución.");
-    }
+    compactObs = compactObservation(fullText, refKey, success ? "Operación completada sin salida." : "Error de ejecución.");
     return { finding, compactObs };
 }

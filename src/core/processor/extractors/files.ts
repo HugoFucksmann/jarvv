@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Extractores de herramientas de archivos
- */
-
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
 import type { Scratchpad, StepExecutionSignals } from "../../types.ts";
 import { sanitizeForMemory } from "../text.ts";

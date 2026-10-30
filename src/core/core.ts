@@ -32,7 +32,6 @@ import { errorMessage, newId } from "./utils.ts";
 import { createIterationFromEvent } from "./modelIterations.ts";
 import { recordTaskTrace } from "./taskTrace.ts";
 
-export type { TaskExecutionContext } from "./context.ts";
 export type CoreEventListener = (event: CoreEvent) => void;
 
 /** Estados de paso que una cancelación deja como fallidos (el paso ya no llegará a completarse). */

@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Almacén de referencias de resultados completos y sus etiquetas.
- */
-
 import { sanitizeForMemory } from "./text.ts";
 
 /** Descripción de una referencia guardada: origen legible y tamaño (para el bloque REFS del prompt de argumentos). */

@@ -28,7 +28,7 @@ export interface ProcessedResult {
 }
 
 interface CollectedContent {
-  /** Texto de todos los elementos `text`, unido y recortado. */
+  /** Texto de todos los elementos `text`, unido y sin espacios en los extremos. */
   text: string;
   /** Campos de los elementos `text` que son JSON (un arreglo se expone como `results`). */
   embeddedPayload: Record<string, unknown>;
@@ -46,7 +46,6 @@ function tryParseJson(s: string): unknown {
   }
 }
 
-/** Texto, payload JSON embebido y banderas de los elementos de contenido de un resultado MCP. */
 function collectContent(items: readonly MCPContentItem[]): CollectedContent {
   const textPieces: string[] = [];
   const flags: string[] = [];
@@ -122,8 +121,8 @@ function buildDecisionSummary(
 
 export class ResultProcessor {
   /**
-   * Processes a raw MCP ToolResult into structured Core state and memory tokens.
-   */
+     * Convierte un resultado MCP crudo en estado del Core: evidencia, señales, hechos, scratchpad y referencia al texto completo.
+     */
   static process(
     mcp: string,
     tool: string,
@@ -135,20 +134,18 @@ export class ResultProcessor {
     const success = rawResult.success !== undefined ? Boolean(rawResult.success) : !isError;
     const outcome: ExecutionOutcome = { success, isError };
 
-    // 1. Texto y payloads embebidos de los elementos de contenido
     const { text: fullText, embeddedPayload, flags } = collectContent(rawResult.content || []);
     // Forma libre: los extractores leen los campos propios de cada servidor (exit_code, timed_out…).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mergedData: Record<string, any> = { ...rawResult, ...embeddedPayload };
     const policy = getToolPolicy(mcp, tool);
 
-    // 2. Señales
     const signals = deriveSignals(fullText, isError, policy.emptyIsError === true, mergedData);
 
-    // 3. Resultado completo en el RefStore aislado por tarea
+    // Resultado completo en el RefStore (aislado por tarea).
     const refKey = fullText.length > 0 ? RefStore.put(fullText, taskId, refLabel(tool, args)) : undefined;
 
-    // 4. Extractor determinista por herramienta: registro en extractors/index.ts; el genérico es el respaldo.
+    // Extractor determinista por herramienta (registro en extractors/index.ts); el genérico es el respaldo.
     const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData, refKey };
     const extracted: ExtractorOutput = selectExtractor(mcp, tool, isError)(input);
     const { finding, compactObs } = extracted;
@@ -156,11 +153,9 @@ export class ResultProcessor {
     const scratchpadDelta: Partial<Scratchpad> = { ...extracted.scratchpadDelta };
     Object.assign(signals, extracted.signals);
 
-    // 5. VerificationState
     const ok = success && !isError && !signals.empty_output && !signals.not_found;
     const verification: VerificationState = ok ? "VERIFIED" : "NOT_REQUIRED";
 
-    // 6. Evidencia
     const evidence: Evidence = {
       ok,
       summary: finding,

@@ -1,7 +1,3 @@
-/**
- * JARVIS Core — Contratos MCP.
- */
-
 export interface MCPTool {
   name: string;
   description: string;
@@ -24,11 +20,6 @@ export interface MCPCallResult {
   content: MCPContentItem[];
   isError?: boolean;
   success?: boolean;
-  search_incomplete?: boolean;
   truncated?: boolean;
-  retrieved_at?: string;
-  cache_age_seconds?: number;
-  trimmed?: Record<string, unknown>;
-  benched_engines?: string[];
   [key: string]: unknown;
 }
