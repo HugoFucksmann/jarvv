@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { memo, useState } from "react";
 import { CornerDownLeft, XCircle } from "lucide-react";
 import type { ActionResult, ExecutionMode } from "../../types/ui.ts";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
@@ -17,7 +17,7 @@ interface PromptInputProps {
 
 function getPlaceholder(mode: ExecutionMode, isExecuting: boolean, isWaitingInput: boolean): string {
   if (isWaitingInput) {
-    return "Tarea en espera de interacción (revisa el panel de aprobación o responde la pregunta arriba)...";
+    return "Tarea en espera de tu decisión: revisa la aprobación, la pregunta o el plan en pantalla...";
   }
   if (isExecuting) {
     return "Ejecutando pipeline y despachando herramientas MCP...";
@@ -27,7 +27,7 @@ function getPlaceholder(mode: ExecutionMode, isExecuting: boolean, isWaitingInpu
     : `Instrucción u objetivo para JARVIS (${FOCUS_SHORTCUT_LABEL} para enfocar)...`;
 }
 
-export const PromptInput: React.FC<PromptInputProps> = ({
+const PromptInputBase: React.FC<PromptInputProps> = ({
   onRun,
   onCancel,
   mode,
@@ -49,7 +49,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   };
 
   return (
-    <section className="px-6 pt-5 pb-3">
+    <section>
       <form
         onSubmit={handleSubmit}
         className="relative flex items-center w-full"
@@ -64,7 +64,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           placeholder={getPlaceholder(mode, isExecuting, isWaitingInput)}
           aria-label="Instrucción u objetivo para JARVIS"
           disabled={isBusy}
-          className="w-full pl-4 pr-32 py-3 bg-slate-900 border border-slate-800 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-slate-700 transition-colors disabled:opacity-60"
+          className="w-full pl-5 pr-36 py-3 bg-slate-900/80 border border-slate-800 rounded-xl text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-600/60 focus:ring-2 focus:ring-sky-500/20 transition-colors disabled:opacity-60"
         />
 
         <div className="absolute right-2 flex items-center gap-1.5">
@@ -100,3 +100,6 @@ export const PromptInput: React.FC<PromptInputProps> = ({
     </section>
   );
 };
+
+/** Sus props son primitivas o callbacks estables: no se re-renderiza con cada evento SSE (y no pierde lo que se escribe). */
+export const PromptInput = memo(PromptInputBase);

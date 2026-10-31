@@ -1,4 +1,4 @@
-import type { Task, CoreEvent } from "../../src/core/types.ts";
+import type { Task, Step, CoreEvent } from "../../src/core/types.ts";
 import type { StatusDotStatus } from "../components/Shared/StatusDot.tsx";
 
 /**
@@ -9,6 +9,7 @@ import type { StatusDotStatus } from "../components/Shared/StatusDot.tsx";
  * y para que un estado nuevo sea detectado por el compilador.
  */
 type TaskState = Task["state"];
+type StepState = Step["state"];
 
 export function getTaskStatusType(state: TaskState): StatusDotStatus {
     switch (state) {
@@ -67,6 +68,30 @@ export const MODE_LABELS: Record<Task["mode"], string> = {
     PLAN: "PLAN",
 };
 
+/** Estado de un paso en español. Exhaustivo sobre `StepState` del core: un estado nuevo rompe la compilación. */
+export const STEP_STATE_LABELS: Record<StepState, string> = {
+    PENDING: "Pendiente",
+    RUNNING: "En curso",
+    WAITING_APPROVAL: "Esperando aprobación",
+    COMPLETED: "Completado",
+    FAILED: "Fallido",
+    UNVERIFIED: "Sin verificar",
+    BLOCKED: "Bloqueado",
+};
+
+type StepLike = Pick<Step, "state" | "tool" | "mcp">;
+
+/** El paso todavía no terminó: la herramienta se ejecuta, se espera una aprobación o no empezó. */
+const isActiveStep = (step: StepLike): boolean =>
+    step.state === "RUNNING" || step.state === "WAITING_APPROVAL" || step.state === "PENDING";
+
+/** Frase para un paso que ya terminó mientras la tarea sigue en marcha (el core decide el siguiente movimiento). */
+function settledStepPhrase(step: StepLike): string {
+    if (step.state === "COMPLETED") return "Paso completado: decidiendo el siguiente…";
+    const name = step.tool ? ` de ${step.tool}` : "";
+    return `Resultado${name} sin éxito: decidiendo si reintentar o replanificar…`;
+}
+
 export type ActivityStateGroup = "working" | "waiting" | "finished";
 
 export interface ActivityPhrase {
@@ -80,8 +105,7 @@ export interface ActivityPhrase {
  */
 export function getActivityPhrase(
     task: Task | null | undefined,
-    lastEvent?: CoreEvent | null,
-    isExecuting?: boolean
+    lastEvent?: CoreEvent | null
 ): ActivityPhrase {
     if (!task) {
         return { stateGroup: "finished", label: "Sin tarea activa" };
@@ -102,7 +126,7 @@ export function getActivityPhrase(
     }
 
     // 2. Terminada
-    if (task.state !== "RUNNING" && !isExecuting) {
+    if (task.state !== "RUNNING") {
         switch (task.state) {
             case "COMPLETED":
                 return { stateGroup: "finished", label: "Tarea completada con éxito" };
@@ -143,6 +167,22 @@ export function getActivityPhrase(
                 return { stateGroup: "working", label: "Procesando resultado de herramienta…" };
             case "RESULT_PROCESSED":
                 return { stateGroup: "working", label: "Verificando resultado con clasificador…" };
+            // Tras un paso ya no hay herramienta en ejecución: la frase describe lo que sigue, no el paso que terminó.
+            case "STEP_STATE_CHANGED":
+            case "STEP_COMPLETED": {
+                const { step } = lastEvent.data;
+                if (step.state === "RUNNING" || step.state === "WAITING_APPROVAL") break;
+                return { stateGroup: "working", label: settledStepPhrase(step) };
+            }
+            case "PLAN_REJECTED":
+                return { stateGroup: "working", label: "Plan rechazado: razonador replanificando…" };
+            case "APPROVAL_RESOLVED":
+                return {
+                    stateGroup: "working",
+                    label: lastEvent.data.approved
+                        ? "Autorización concedida: reanudando ejecución…"
+                        : "Autorización denegada: reevaluando cómo continuar…",
+                };
             case "STAGE_VERIFIED":
                 return { stateGroup: "working", label: "Razonador verificando cumplimiento de etapa…" };
             case "PLAN_GENERATED":
@@ -159,6 +199,10 @@ export function getActivityPhrase(
     }
 
     const currentStep = task.steps?.[task.currentStep];
+    if (currentStep && !isActiveStep(currentStep)) {
+        // Con el paso ya resuelto (p. ej. falló) la herramienta no se está ejecutando: se espera la siguiente decisión.
+        return { stateGroup: "working", label: settledStepPhrase(currentStep) };
+    }
     if (currentStep?.tool) {
         return { stateGroup: "working", label: `Ejecutando herramienta ${currentStep.mcp ? `${currentStep.mcp}:` : ""}${currentStep.tool}…` };
     }

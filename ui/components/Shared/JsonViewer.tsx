@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { memo, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Brain } from "lucide-react";
 import { CopyButton } from "./CopyButton.tsx";
 import { isContainer, parseJsonLoose, stringifyJson, tryParseJson, type JsonContainer } from "../../utils/parseJson.ts";
@@ -63,9 +63,8 @@ const StringRow: React.FC<{ name?: string | number; value: string }> = ({ name, 
       <NodeName name={name} />
       <div className="min-w-0 flex-1">
         <span
-          className={`text-emerald-300 break-words ${multiline || full ? "whitespace-pre-wrap" : ""} ${
-            full && long ? "block max-h-64 overflow-y-auto" : ""
-          }`}
+          className={`text-emerald-300 break-words ${multiline || full ? "whitespace-pre-wrap" : ""} ${full && long ? "block max-h-64 overflow-y-auto" : ""
+            }`}
         >
           &quot;{shown}&quot;
         </span>
@@ -90,18 +89,20 @@ interface NodeProps {
   openDepth: number;
 }
 
-const ContainerNode: React.FC<NodeProps & { value: JsonContainer; tag?: string }> = ({
+const ContainerNode = memo(function ContainerNode({
   name,
   value,
   depth,
   openDepth,
   tag,
-}) => {
+}: NodeProps & { value: JsonContainer; tag?: string }) {
   const isArray = Array.isArray(value);
   const keys = isArray ? [] : Object.keys(value);
   const count = isArray ? value.length : keys.length;
   const [open, setOpen] = useState(depth < openDepth);
   const [shown, setShown] = useState(PAGE_SIZE);
+  // El botón de copiar de cada nodo se monta al apuntarlo: "Expandir todo" no crea cientos de botones con estado.
+  const [hovered, setHovered] = useState(false);
 
   if (count === 0) {
     return (
@@ -122,7 +123,11 @@ const ContainerNode: React.FC<NodeProps & { value: JsonContainer; tag?: string }
 
   return (
     <div className="flex flex-col">
-      <div className="group flex items-start gap-1 leading-5">
+      <div
+        className="group flex items-start gap-1 leading-5"
+        onMouseEnter={() => setHovered(true)}
+        onFocus={() => setHovered(true)}
+      >
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -138,18 +143,20 @@ const ContainerNode: React.FC<NodeProps & { value: JsonContainer; tag?: string }
           <span className="text-slate-400 shrink-0">{isArray ? `Array(${count})` : `{${count}}`}</span>
           {tag && <span className="self-center text-[9px] px-1 rounded bg-slate-800 text-slate-400">{tag}</span>}
           {!open && !isArray && (
-            <span className="text-slate-600 truncate">{keys.slice(0, 4).join(", ")}{keys.length > 4 ? ", …" : ""}</span>
+            <span className="text-slate-500 truncate">{keys.slice(0, 4).join(", ")}{keys.length > 4 ? ", …" : ""}</span>
           )}
         </button>
-        <CopyButton
-          text={() => stringifyJson(value)}
-          title="Copiar este nodo como JSON"
-          ariaLabel="Copiar nodo JSON"
-          iconSize="w-3 h-3"
-          iconColor="text-slate-500"
-          stopPropagation
-          className="p-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-800 transition-opacity"
-        />
+        {hovered && (
+          <CopyButton
+            text={() => stringifyJson(value)}
+            title="Copiar este nodo como JSON"
+            ariaLabel="Copiar nodo JSON"
+            iconSize="w-3 h-3"
+            iconColor="text-slate-500"
+            stopPropagation
+            className="p-0.5 rounded opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-slate-800 transition-opacity"
+          />
+        )}
       </div>
 
       {open && (
@@ -170,9 +177,9 @@ const ContainerNode: React.FC<NodeProps & { value: JsonContainer; tag?: string }
       )}
     </div>
   );
-};
+});
 
-const JsonNode: React.FC<NodeProps> = ({ name, value, depth, openDepth }) => {
+const JsonNode = memo(function JsonNode({ name, value, depth, openDepth }: NodeProps) {
   // Un texto que es, completo, un objeto o arreglo JSON se muestra como árbol (p. ej. payloads serializados dentro de otro).
   const nested = useMemo(() => (typeof value === "string" ? tryParseJson(value) : undefined), [value]);
 
@@ -186,7 +193,7 @@ const JsonNode: React.FC<NodeProps> = ({ name, value, depth, openDepth }) => {
       <ScalarValue value={value} />
     </div>
   );
-};
+});
 
 // ---------------------------------------------------------------------------
 // Visor
@@ -273,7 +280,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       )}
 
       {parsed.reasoning && (
-        <details className="rounded border border-slate-800/80 bg-slate-900/40 text-[11px]">
+        <details className="text-[11px]">
           <summary className="flex items-center gap-1.5 px-2 py-1 cursor-pointer text-slate-400 hover:text-slate-200 select-none">
             <Brain className="w-3 h-3 text-indigo-400" />
             <span>Razonamiento del modelo ({parsed.reasoning.length} caracteres)</span>
@@ -284,7 +291,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
         </details>
       )}
 
-      <div className={`font-mono text-[11px] p-2 bg-slate-950/40 border border-slate-800/60 rounded overflow-auto ${maxHeightClass}`}>
+      <div className={`font-mono text-[11px] p-2.5 bg-slate-950/50 rounded-md overflow-auto ${maxHeightClass}`}>
         {showTree && parsed.value !== undefined ? (
           <div className="flex flex-col gap-1">
             {parsed.before && <TextBlock text={parsed.before} muted />}

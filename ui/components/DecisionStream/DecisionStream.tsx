@@ -99,20 +99,30 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
   const [expandAllGroups, setExpandAllGroups] = useState(false);
 
   // Agrupamiento estructurado por paso de ejecución
+  // Depende de `steps` (que conserva su identidad si no cambiaron), no de la tarea: esta es un objeto nuevo en cada evento.
+  const steps = task?.steps;
   const stepGroups = useMemo(
-    () => groupIterationsByStep(modelIterations, task),
-    [modelIterations, task],
+    () => groupIterationsByStep(modelIterations, steps ? { steps } : null),
+    [modelIterations, steps],
   );
+
+  const { totalEos, totalQwen } = useMemo(() => {
+    let eos = 0;
+    let qwen = 0;
+    for (const m of modelIterations) {
+      if (m.invoked !== true) continue;
+      if (m.model === "EOS_0_8B") eos++;
+      else if (m.model === "QWEN_3_5_9B") qwen++;
+    }
+    return { totalEos: eos, totalQwen: qwen };
+  }, [modelIterations]);
+  const traceEvents = useMemo(() => events.filter((e) => TRACE_EVENT_TYPES.has(e.type)), [events]);
 
   // Sin eventos ni iteraciones no hay nada que mostrar
   if (events.length === 0 && modelIterations.length === 0) return null;
 
-  const totalEos = modelIterations.filter((m) => m.model === "EOS_0_8B" && m.invoked === true).length;
-  const totalQwen = modelIterations.filter((m) => m.model === "QWEN_3_5_9B" && m.invoked === true).length;
-  const traceEvents = events.filter((e) => TRACE_EVENT_TYPES.has(e.type));
-
   return (
-    <div className="flex flex-col gap-3 px-6 py-2">
+    <div className="flex flex-col gap-3 py-4">
       {/* 1. Cabecera de observabilidad con controles globales */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2 flex-wrap text-slate-300 font-mono text-xs">
@@ -162,7 +172,7 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
           ))}
         </div>
       ) : isExecuting ? (
-        <div className="flex items-center gap-2 p-3 rounded-lg border border-slate-800 bg-slate-900/30 text-xs text-slate-400 font-mono">
+        <div className="flex items-center gap-2 px-2 py-2 text-xs text-slate-400">
           <Cpu className="w-3.5 h-3.5 text-sky-400 animate-pulse shrink-0" />
           <span>Esperando iteraciones de inferencia de modelos...</span>
         </div>
@@ -170,12 +180,12 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
 
       {/* 3. Traza de eventos operativos (colapsable) */}
       {traceEvents.length > 0 && (
-        <div className="flex flex-col border border-slate-800/80 rounded-lg bg-slate-900/30 overflow-hidden text-xs mt-1">
+        <div className="flex flex-col text-xs mt-1 pt-2 border-t border-slate-800/70">
           <button
             type="button"
             onClick={() => setShowFullTrace((v) => !v)}
             aria-expanded={showFullTrace}
-            className="flex items-center justify-between px-3.5 py-2 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer bg-slate-950/40"
+            className="flex items-center justify-between px-2 py-2 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 transition-colors cursor-pointer"
           >
             <div className="flex items-center gap-2 font-mono text-[11px]">
               <Activity className="w-3.5 h-3.5 text-sky-400" />
@@ -186,25 +196,29 @@ export const DecisionStream: React.FC<DecisionStreamProps> = ({
           </button>
 
           {showFullTrace && (
-            <div className="flex flex-col divide-y divide-slate-800/50 max-h-52 overflow-y-auto font-mono text-[11px] p-1 bg-slate-950/30">
-              {[...traceEvents].reverse().map((ev, idx) => (
-                <div
-                  key={`trace-${ev.taskId}-${ev.timestamp}-${idx}`}
-                  className="flex items-start gap-2.5 py-1.5 px-2 hover:bg-slate-900/50 rounded"
-                >
-                  <span className="text-slate-500 shrink-0 tabular-nums">
-                    {new Date(ev.timestamp).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      second: "2-digit",
-                    })}
-                  </span>
-                  <span className={`font-semibold shrink-0 ${getEventColorClass(ev.type)}`}>
-                    [{ev.type}]
-                  </span>
-                  <span className="text-slate-400 truncate flex-1">{summarizeEvent(ev)}</span>
-                </div>
-              ))}
+            <div className="flex flex-col divide-y divide-slate-800/50 max-h-52 overflow-y-auto font-mono text-[11px]">
+              {/* Lo más reciente primero. La clave es la posición en el orden cronológico: no cambia al llegar eventos nuevos. */}
+              {traceEvents.map((_, i) => traceEvents.length - 1 - i).map((pos) => {
+                const ev = traceEvents[pos];
+                return (
+                  <div
+                    key={`trace-${pos}`}
+                    className="flex items-start gap-2.5 py-1.5 px-2 hover:bg-slate-900/50 rounded"
+                  >
+                    <span className="text-slate-500 shrink-0 tabular-nums">
+                      {new Date(ev.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
+                    </span>
+                    <span className={`font-semibold shrink-0 ${getEventColorClass(ev.type)}`}>
+                      [{ev.type}]
+                    </span>
+                    <span className="text-slate-400 truncate flex-1">{summarizeEvent(ev)}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

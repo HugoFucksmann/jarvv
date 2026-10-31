@@ -1,12 +1,39 @@
 import React from "react";
-import { Plus } from "lucide-react";
-import type { Task } from "../../../../src/core/types.ts";
+import { AlertCircle, CheckCircle2, Loader2, Plus, XCircle } from "lucide-react";
+import type { CoreEvent, Step, Task } from "../../../../src/core/types.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
-import { Separator } from "../../Shared/Separator.tsx";
-import { getTaskStatusType, getTaskStateLabel } from "../../../utils/taskStatus.ts";
+import { getActivityPhrase, getTaskStatusType, MODE_LABELS, type ActivityStateGroup } from "../../../utils/taskStatus.ts";
+
+/** Color de cada tramo de la barra de progreso. Exhaustivo sobre `StepState`: un estado nuevo rompe la compilación. */
+const SEGMENT_TONE: Record<Step["state"], string> = {
+  PENDING: "bg-slate-800",
+  RUNNING: "bg-sky-400 animate-pulse",
+  WAITING_APPROVAL: "bg-amber-400 animate-pulse",
+  COMPLETED: "bg-emerald-500",
+  FAILED: "bg-rose-500",
+  UNVERIFIED: "bg-amber-500/70",
+  BLOCKED: "bg-rose-500/60",
+};
+
+/** Color del texto de la actividad según su grupo. */
+const ACTIVITY_TONE: Record<ActivityStateGroup, string> = {
+  working: "text-sky-200",
+  waiting: "text-amber-200",
+  finished: "text-slate-300",
+};
+
+const ActivityIcon: React.FC<{ group: ActivityStateGroup; state: Task["state"] }> = ({ group, state }) => {
+  if (group === "working") return <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />;
+  if (group === "waiting") return <AlertCircle className="w-3.5 h-3.5 text-amber-400 animate-pulse shrink-0" />;
+  if (state === "COMPLETED") return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
+  // Cancelada, parcial o fallida: nunca se muestra el visto de éxito.
+  if (state === "PARTIAL") return <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />;
+  return <XCircle className={`w-3.5 h-3.5 shrink-0 ${state === "FAILED" ? "text-rose-400" : "text-slate-400"}`} />;
+};
 
 interface TaskOverviewProps {
   task: Task;
+  events: CoreEvent[];
   onNewTask?: () => void;
 }
 
@@ -41,31 +68,28 @@ function getProgressText(task: Task): string {
   return totalSteps > currentSeq ? `Paso ${currentSeq} de ${totalSteps}` : `Paso ${currentSeq}`;
 }
 
-export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) => {
+/** Cabezal compacto de la tarea: instrucción, avance por pasos y qué está haciendo ahora, en dos líneas. */
+export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, events, onNewTask }) => {
   const replans = task.replans ?? 0;
+  const activeSteps = task.steps.filter((s) => !s.superseded);
+  const progress = getProgressText(task);
+  const activity = getActivityPhrase(task, events[events.length - 1]);
 
   return (
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-800">
-      <div className="flex items-center gap-2.5">
+    <header className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3 min-w-0">
         <StatusDot status={getTaskStatusType(task.state)} />
-        <span className="text-sm font-semibold text-slate-100">{task.message}</span>
-      </div>
-
-      <div className="flex items-center gap-2.5 text-xs font-mono text-slate-400 shrink-0">
-        <span className="text-slate-300 font-medium">
-          {getTaskStateLabel(task.state, task.waitingReason)}
+        <h2 title={task.message} className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-50">
+          {task.message}
+        </h2>
+        <span className="hidden md:inline shrink-0 text-xs text-slate-400 tabular-nums">
+          {MODE_LABELS[task.mode]} · {progress}
+          {replans > 0 && (
+            <span className="text-amber-300">
+              {" "}· {replans} {replans === 1 ? "replanificación" : "replanificaciones"}
+            </span>
+          )}
         </span>
-        <Separator />
-        <span>Modo {task.mode === "NORMAL" ? "NORMAL (FAST)" : task.mode}</span>
-        <Separator />
-        <span className="tabular-nums">{getProgressText(task)}</span>
-
-        {replans > 0 && (
-          <>
-            <Separator />
-            <span className="text-amber-400 font-semibold">Replans: {replans}</span>
-          </>
-        )}
 
         {/* Nueva consulta: disponible cuando la tarea no está en ejecución */}
         {task.state !== "RUNNING" && onNewTask && (
@@ -74,13 +98,37 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
             onClick={onNewTask}
             title="Iniciar nueva consulta (limpiar vista activa)"
             aria-label="Iniciar nueva consulta"
-            className="ml-2 flex items-center gap-1 px-2 py-0.5 text-[11px] font-sans font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded transition-colors cursor-pointer"
+            className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
           >
-            <Plus className="w-3 h-3 text-sky-400" />
-            <span>Nueva consulta</span>
+            <Plus className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden sm:inline">Nueva</span>
           </button>
         )}
       </div>
-    </div>
+
+      <div className="flex items-center gap-3 min-w-0">
+        {/* Un tramo por paso vigente: el estado de toda la tarea de un vistazo */}
+        {activeSteps.length > 0 && (
+          <div role="img" aria-label={progress} className="flex gap-1 w-28 sm:w-44 shrink-0">
+            {activeSteps.map((s, i) => (
+              <span
+                key={`${s.id}-${i}`}
+                title={`${i + 1}. ${s.instruction}`}
+                className={`h-1 flex-1 rounded-full ${SEGMENT_TONE[s.state]}`}
+              />
+            ))}
+          </div>
+        )}
+        <p
+          role="status"
+          aria-live="polite"
+          title={activity.label}
+          className={`flex items-center gap-2 min-w-0 text-xs ${ACTIVITY_TONE[activity.stateGroup]}`}
+        >
+          <ActivityIcon group={activity.stateGroup} state={task.state} />
+          <span className="truncate">{activity.label}</span>
+        </p>
+      </div>
+    </header>
   );
 };

@@ -30,13 +30,13 @@ export const StepIterationGroup: React.FC<StepIterationGroupProps> = ({
     .join(" · ");
 
   return (
-    <div className="flex flex-col rounded-lg border border-slate-800 bg-slate-900/30 overflow-hidden text-xs">
+    <div className="flex flex-col text-xs">
       {/* Cabecera del grupo */}
       <button
         type="button"
         onClick={() => setIsExpanded((v) => !v)}
         aria-expanded={isExpanded}
-        className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950/70 hover:bg-slate-900/80 transition-colors text-left cursor-pointer border-b border-slate-800/60"
+        className="flex items-center justify-between px-2 py-2 rounded-md hover:bg-slate-900/50 transition-colors text-left cursor-pointer"
       >
         <div className="flex items-center gap-2 flex-wrap text-slate-300 font-mono text-[11px]">
           <StepStatusIcon state={group.state} size="sm" />
@@ -67,9 +67,9 @@ export const StepIterationGroup: React.FC<StepIterationGroupProps> = ({
 
       {/* Contenido: las tarjetas de modelo arrancan minimizadas */}
       {isExpanded && (
-        <div className="flex flex-col gap-2 p-3 bg-slate-950/20">
+        <div className="flex flex-col gap-2 ml-3 pl-3 py-1.5 border-l border-slate-800">
           {group.iterations.map((iteration) => (
-            <ModelIterationCard key={iteration.id} iteration={iteration} isInitiallyExpanded={false} />
+            <ModelIterationCard key={iteration.id} iteration={iteration} />
           ))}
         </div>
       )}

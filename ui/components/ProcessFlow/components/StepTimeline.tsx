@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { isTerminalState } from "../../../../src/core/types.ts";
 import type { Step, Task, TaskState } from "../../../../src/core/types.ts";
 import { MODELS } from "../../../../src/core/models.ts";
@@ -11,7 +11,7 @@ interface StepTimelineProps {
     mode?: Task["mode"];
 }
 
-export const StepTimeline: React.FC<StepTimelineProps> = ({
+const StepTimelineBase: React.FC<StepTimelineProps> = ({
     steps,
     currentStepIndex,
     taskState,
@@ -32,15 +32,18 @@ export const StepTimeline: React.FC<StepTimelineProps> = ({
     }
 
     return (
-        <div className="flex flex-col divide-y divide-slate-800/60">
+        <div className="flex flex-col gap-1">
             {steps.map((step, idx) => (
                 <StepItem
                     key={`step-${step.id || "item"}-${step.rev ?? 0}-${idx}`}
                     step={step}
                     index={idx}
                     isCurrent={isTaskActive && idx === currentStepIndex}
+                    isLast={idx === steps.length - 1}
                 />
             ))}
         </div>
     );
 };
+
+export const StepTimeline = memo(StepTimelineBase);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { memo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -20,7 +20,6 @@ import { getRouteLabel } from "../../../utils/routeLabels.ts";
 
 interface ModelIterationCardProps {
   iteration: ModelIteration;
-  isInitiallyExpanded?: boolean;
 }
 
 /** Exhaustivo: una etapa nueva en el core se detecta al compilar. */
@@ -59,37 +58,65 @@ const STRUCTURED_STAGES: Record<ModelStage, boolean> = {
   FINAL_RESPONSE: true,
 };
 
+type Tab = "detail" | "input" | "output";
+const TABS: ReadonlyArray<readonly [Tab, string]> = [
+  ["detail", "Panel Estructurado"],
+  ["input", "Entrada (Prompt)"],
+  ["output", "Salida (JSON)"],
+];
+
+/** Veredicto semántico de Qwen: texto de cabecera, etiqueta del panel y clases del distintivo. */
+const STAGE_STATUS: Record<string, { head: string; label: string; badge: string }> = {
+  completed: {
+    head: "text-emerald-400",
+    label: "COMPLETED (Objetivo Cumplido)",
+    badge: "bg-emerald-950/80 text-emerald-300 border-emerald-800",
+  },
+  recoverable_deviation: {
+    head: "text-amber-400",
+    label: "RECOVERABLE_DEVIATION (Desviación)",
+    badge: "bg-amber-950/80 text-amber-300 border-amber-800",
+  },
+  insufficient_info: {
+    head: "text-sky-300",
+    label: "INSUFFICIENT_INFO (Requiere Respuesta)",
+    badge: "bg-sky-950/80 text-sky-300 border-sky-800",
+  },
+  unrecoverable_blocked: {
+    head: "text-rose-400",
+    label: "UNRECOVERABLE_BLOCKED (Bloqueado)",
+    badge: "bg-rose-950/80 text-rose-300 border-rose-800",
+  },
+};
+const STAGE_STATUS_UNKNOWN = { head: "text-rose-400", badge: "bg-rose-950/80 text-rose-300 border-rose-800" };
+
+/** Texto crudo de una de las dos caras de la llamada; solo se calcula al copiar (no en cada render). */
+const rawText = (raw: string | undefined, structured: unknown): string =>
+  raw || (typeof structured === "string" ? structured : JSON.stringify(structured, null, 2));
+
 /** `servidorSugerido` es la ruta del paso: se valida contra la lista del core antes de traducirla a su etiqueta. */
 const routeLabel = (route?: string): string =>
   route && (EXECUTABLE_ROUTES as readonly string[]).includes(route)
     ? getRouteLabel(route as ExecutableRoute)
     : route ?? "—";
 
-export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
-  iteration,
-  isInitiallyExpanded = false,
-}) => {
-  const [isExpanded, setIsExpanded] = useState(isInitiallyExpanded);
-  const [activeTab, setActiveTab] = useState<"detail" | "input" | "output">("detail");
-
-  useEffect(() => {
-    if (isInitiallyExpanded !== undefined) {
-      setIsExpanded(isInitiallyExpanded);
-    }
-  }, [isInitiallyExpanded]);
+export const ModelIterationCard = memo(function ModelIterationCard({ iteration }: ModelIterationCardProps) {
+  // Las tarjetas arrancan minimizadas; el estado es local y lo reinicia el remontaje del grupo.
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("detail");
 
   const isEos = iteration.model === "EOS_0_8B";
   const modelColorClass = isEos ? "text-sky-400" : "text-indigo-400";
   const modelBgClass = isEos ? "bg-sky-950/20 border-sky-900/50" : "bg-indigo-950/20 border-indigo-900/50";
   const modelBadgeName = MODELS[iteration.model].name;
 
-  const displayInput = iteration.rawInput || (typeof iteration.input === "string" ? iteration.input : JSON.stringify(iteration.input, null, 2));
-  const displayOutput = iteration.rawOutput || (typeof iteration.output === "string" ? iteration.output : JSON.stringify(iteration.output, null, 2));
+  const getInputText = () => rawText(iteration.rawInput, iteration.input);
+  const getOutputText = () => rawText(iteration.rawOutput, iteration.output);
 
   // Lo que copia el botón del encabezado depende de la pestaña activa
   const getHeaderCopyText = () => {
-    if (activeTab === "input") return displayInput;
-    if (activeTab === "output") return displayOutput;
+    if (activeTab === "input") return getInputText();
+    if (activeTab === "output") return getOutputText();
     return JSON.stringify(
       {
         id: iteration.id,
@@ -101,8 +128,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
         invoked: iteration.invoked,
         metrics: iteration.metrics,
         error: iteration.error,
-        rawInput: displayInput,
-        rawOutput: displayOutput,
+        rawInput: getInputText(),
+        rawOutput: getOutputText(),
         input: iteration.input,
         output: iteration.output,
       },
@@ -193,14 +220,16 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
     );
 
   return (
-    <div className={`flex flex-col rounded-md border ${modelBgClass} overflow-hidden text-xs transition-all`}>
+    <div className={`@container flex flex-col rounded-lg border ${modelBgClass} overflow-hidden text-xs`}>
       {/* Header — Click para abrir/cerrar (por defecto minimizado/encojido) */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between px-3 py-2 bg-slate-950/60 hover:bg-slate-900/60 cursor-pointer select-none transition-colors border-b border-slate-800/60"
-      >
-        <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono">
-          <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+      <div className="flex items-center justify-between bg-slate-950/60 border-b border-slate-800/60">
+        <button
+          type="button"
+          onClick={() => setIsExpanded((v) => !v)}
+          aria-expanded={isExpanded}
+          className="flex flex-1 min-w-0 items-center gap-2 flex-wrap px-3 py-2.5 text-left text-xs font-mono hover:bg-slate-900/60 cursor-pointer select-none transition-colors"
+        >
+          <span className="flex items-center gap-1.5 text-slate-300 font-medium">
             {isExpanded ? (
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             ) : (
@@ -212,7 +241,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
               <Sparkles className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
             )}
             <span className={`${modelColorClass} font-semibold`}>{modelBadgeName}</span>
-          </div>
+          </span>
 
           {sep}
           <span className="text-slate-200 font-semibold">{STAGE_TITLES[iteration.stage]}</span>
@@ -286,15 +315,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
           {iteration.stage === "STAGE_VERIFICATION" && stageStatus && (
             <>
               {sep}
-              <span className={
-                stageStatus === "completed"
-                  ? "text-emerald-400 font-semibold"
-                  : stageStatus === "recoverable_deviation"
-                    ? "text-amber-400 font-semibold"
-                    : stageStatus === "insufficient_info"
-                      ? "text-sky-300 font-semibold"
-                      : "text-rose-400 font-semibold"
-              }>
+              <span className={`${(STAGE_STATUS[stageStatus] ?? STAGE_STATUS_UNKNOWN).head} font-semibold`}>
                 {stageStatus === "completed" ? "✓ Etapa Completada" : stageStatus}
               </span>
             </>
@@ -324,16 +345,15 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
               </span>
             </>
           )}
-        </div>
+        </button>
 
-        {/* Acciones del encabezado */}
-        <div className="flex items-center gap-1 shrink-0 ml-2">
+        {/* Acciones del encabezado (fuera del botón: no se anidan controles interactivos) */}
+        <div className="flex items-center gap-1 shrink-0 px-2">
           <CopyButton
             text={getHeaderCopyText}
             label={activeTab === "input" ? "Copiar Entrada" : activeTab === "output" ? "Copiar Salida" : "Copiar"}
             title={activeTab === "input" ? "Copiar entrada cruda al portapapeles" : activeTab === "output" ? "Copiar salida cruda al portapapeles" : "Copiar datos completos de la iteración en JSON"}
             iconColor="text-slate-400"
-            stopPropagation
             className="gap-1 px-2 py-0.5 text-[11px] font-mono rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
           />
         </div>
@@ -341,46 +361,25 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
       {/* Contenido desplegado (cuando se expande) */}
       {isExpanded && (
-        <div className="flex flex-col gap-2.5 p-3 bg-slate-950/40 font-mono text-[11px]">
+        <div className="flex flex-col gap-3 px-3 py-3 font-mono text-[11px]">
           {/* Selector de Pestaña Interna */}
           <div className="flex items-center justify-between pb-1.5 text-[10px] text-slate-400 border-b border-slate-900">
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab("detail");
-                }}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === "detail" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
-                  }`}
-              >
-                Panel Estructurado
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab("input");
-                }}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === "input" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
-                  }`}
-              >
-                Entrada (Prompt)
-              </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab("output");
-                }}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === "output" ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
-                  }`}
-              >
-                Salida (JSON)
-              </button>
+              {TABS.map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  aria-pressed={activeTab === tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${activeTab === tab ? "bg-slate-800 text-white font-medium" : "text-slate-400 hover:text-slate-300"
+                    }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
             {iteration.stepTitle && (
-              <span className="text-slate-500 truncate max-w-sm hidden sm:inline">{iteration.stepTitle}</span>
+              <span className="text-slate-500 truncate max-w-sm hidden @md:inline">{iteration.stepTitle}</span>
             )}
           </div>
 
@@ -396,8 +395,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Eos Decision #1: Routing Breakdown */}
               {iteration.stage === "DECISION_ONE" && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-2 @xl:grid-cols-4 gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
                     <div>
                       <span className="text-slate-500">Ruta Seleccionada: </span>
                       <span className="text-sky-300 font-semibold font-sans">
@@ -428,7 +427,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                       <span className="text-slate-400 font-medium text-[10px]">
                         Distribución de Probabilidades {MODELS.EOS_0_8B.name}:
                       </span>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 @xl:grid-cols-4 gap-2">
                         {Object.entries(d1Probabilities).map(([key, val]) => {
                           const share = pct(val);
                           const isSelected = key === d1Route;
@@ -461,7 +460,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Eos Decision #2: Tool Selection Breakdown */}
               {iteration.stage === "DECISION_TWO" && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
                     <div>
                       <span className="text-slate-500">Herramienta Seleccionada: </span>
@@ -491,7 +490,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                       <span className="text-slate-400 font-medium text-[10px]">
                         Herramientas Evaluadas por {MODELS.EOS_0_8B.name}:
                       </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-1 @md:grid-cols-2 @2xl:grid-cols-3 gap-1.5">
                         {Object.entries(d2Probabilities)
                           .sort(([, a], [, b]) => b - a)
                           .slice(0, 6)
@@ -518,8 +517,8 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Step Verification: Factual Verification Breakdown */}
               {iteration.stage === "STEP_VERIFICATION" && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-1 @md:grid-cols-3 gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
                     <div className="flex items-center gap-1.5">
                       <span className="text-slate-500">ok:</span>
                       {verifyOk === null ? (
@@ -588,25 +587,12 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Qwen Semantic Stage Verification */}
               {iteration.stage === "STAGE_VERIFICATION" && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 text-slate-300">
                     <div className="flex items-center gap-2">
                       <span className="text-slate-500 font-medium">Veredicto Semántico:</span>
-                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${stageStatus === "completed"
-                        ? "bg-emerald-950/80 text-emerald-300 border-emerald-800"
-                        : stageStatus === "recoverable_deviation"
-                          ? "bg-amber-950/80 text-amber-300 border-amber-800"
-                          : stageStatus === "insufficient_info"
-                            ? "bg-sky-950/80 text-sky-300 border-sky-800"
-                            : "bg-rose-950/80 text-rose-300 border-rose-800"
-                        }`}>
-                        {stageStatus === "completed" && "COMPLETED (Objetivo Cumplido)"}
-                        {stageStatus === "recoverable_deviation" && "RECOVERABLE_DEVIATION (Desviación)"}
-                        {stageStatus === "insufficient_info" && "INSUFFICIENT_INFO (Requiere Respuesta)"}
-                        {stageStatus === "unrecoverable_blocked" && "UNRECOVERABLE_BLOCKED (Bloqueado)"}
-                        {stageStatus &&
-                          !["completed", "recoverable_deviation", "insufficient_info", "unrecoverable_blocked"].includes(stageStatus) &&
-                          stageStatus}
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${(STAGE_STATUS[stageStatus ?? ""] ?? STAGE_STATUS_UNKNOWN).badge}`}>
+                        {stageStatus ? (STAGE_STATUS[stageStatus]?.label ?? stageStatus) : "N/D"}
                       </span>
                     </div>
                   </div>
@@ -614,7 +600,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   {stageReason && (
                     <div className="flex flex-col gap-1 text-[11px] text-slate-300 pt-1">
                       <span className="text-slate-400 font-medium">Justificación Semántica:</span>
-                      <div className="p-2 rounded bg-slate-950/60 border border-slate-800/60 text-slate-200 leading-relaxed font-sans">
+                      <div className="pl-3 border-l-2 border-slate-700 text-slate-200 leading-relaxed font-sans">
                         {stageReason}
                       </div>
                     </div>
@@ -626,7 +612,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                         <HelpCircle className="w-3.5 h-3.5" />
                         <span>Pregunta Formulada al Usuario:</span>
                       </div>
-                      <div className="p-2 rounded bg-sky-950/40 border border-sky-800/60 text-sky-200 leading-relaxed font-sans">
+                      <div className="pl-3 border-l-2 border-sky-700 text-sky-200 leading-relaxed font-sans">
                         {stageQuestion}
                       </div>
                     </div>
@@ -636,7 +622,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Qwen Argument Generation */}
               {iteration.stage === "ARGUMENT_GENERATION" && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
                     <div>
                       <span className="text-slate-500">Herramienta: </span>
@@ -677,7 +663,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Qwen Plan / Replan */}
               {(iteration.stage === "PLAN_GENERATION" || iteration.stage === "REPLAN") && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                <div className="flex flex-col gap-2">
                   <div className="pb-2 border-b border-slate-800/60 text-slate-300">
                     <span className="text-slate-500">{iteration.stage === "REPLAN" ? "Replanificación: " : "Plan: "}</span>
                     <span className="text-indigo-300 font-semibold">
@@ -698,7 +684,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                             <div className="flex flex-col gap-0.5 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sky-300 font-medium">[{routeLabel(asString(s.servidorSugerido))}]</span>
-                                {id && <span className="text-slate-600 text-[10px]">{id}</span>}
+                                {id && <span className="text-slate-500 text-[10px]">{id}</span>}
                               </div>
                               <span className="text-slate-200 font-sans">{asString(s.instruccion)}</span>
                               {expected && <span className="text-emerald-400/90 text-[11px]">Esperado: {expected}</span>}
@@ -715,7 +701,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Qwen Final Response */}
               {iteration.stage === "FINAL_RESPONSE" && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2 pb-2 border-b border-slate-800/60 text-slate-300">
                     <span className="text-slate-500 font-medium">Origen:</span>
                     <span
@@ -729,7 +715,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
                   </div>
 
                   {finalText ? (
-                    <div className="max-h-80 overflow-y-auto p-2 rounded bg-slate-950/60 border border-slate-800/60 font-sans">
+                    <div className="max-h-80 overflow-y-auto font-sans">
                       <MarkdownRenderer content={finalText} />
                     </div>
                   ) : (
@@ -740,7 +726,7 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
 
               {/* Etapa sin panel propio (una etapa nueva del core): su salida en el visor JSON */}
               {!STRUCTURED_STAGES[iteration.stage] && (
-                <div className="flex flex-col gap-2 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+                <div className="flex flex-col gap-2">
                   <JsonViewer data={iteration.output} defaultExpandDepth={2} maxHeightClass="max-h-64" />
                 </div>
               )}
@@ -748,17 +734,16 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
           )}
 
           {activeTab === "input" && (
-            <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+            <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
                 <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
                   Entrada Cruda ({isEos ? `Payload { state, questions } enviado a ${MODELS.EOS_0_8B.short}` : `Payload JSON completo enviado a ${MODELS.QWEN_3_5_9B.short}`})
                 </span>
                 <CopyButton
-                  text={displayInput}
+                  text={getInputText}
                   label="Copiar entrada cruda"
                   title="Copiar string crudo completo de entrada"
                   iconColor="text-slate-400"
-                  stopPropagation
                   className="gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
                 />
               </div>
@@ -767,17 +752,16 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
           )}
 
           {activeTab === "output" && (
-            <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-900/60 border border-slate-800/80">
+            <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between border-b border-slate-800/60 pb-1.5">
                 <span className="text-slate-400 font-semibold text-[10px] uppercase tracking-wider">
                   Salida Cruda ({isEos ? `Respuesta original devuelta por ${MODELS.EOS_0_8B.short}` : `Respuesta original devuelta por ${MODELS.QWEN_3_5_9B.short}`})
                 </span>
                 <CopyButton
-                  text={displayOutput}
+                  text={getOutputText}
                   label="Copiar salida cruda"
                   title="Copiar string crudo completo de salida"
                   iconColor="text-slate-400"
-                  stopPropagation
                   className="gap-1 px-2 py-0.5 text-[10px] font-mono rounded text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700"
                 />
               </div>
@@ -788,4 +772,4 @@ export const ModelIterationCard: React.FC<ModelIterationCardProps> = ({
       )}
     </div>
   );
-};
+});

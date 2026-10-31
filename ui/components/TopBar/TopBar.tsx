@@ -27,7 +27,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectTask,
   ...status
 }) => (
-  <header className="relative z-30 flex items-center justify-between px-6 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
+  <header className="relative z-30 flex items-center justify-between px-6 2xl:px-10 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md shrink-0">
     {/* Zona 1: marca e historial de la sesión (el menú no se muestra sin tareas) */}
     <div className="flex items-center gap-3">
       <BrandWordmark />

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { memo, useState } from "react";
 import { HelpCircle, Send, Loader2 } from "lucide-react";
 import type { PendingApproval } from "../../../src/core/types.ts";
 import { ApprovalAction } from "./components/ApprovalAction.tsx";
@@ -43,7 +43,7 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
         <HelpCircle className="w-5 h-5 text-sky-400 shrink-0 mt-0.5 animate-pulse" />
         <div className="flex flex-col gap-1 flex-1">
           <div className="flex items-center gap-2 text-xs font-mono font-medium text-sky-300">
-            <span>WAITING_INPUT: RESPUESTA REQUERIDA</span>
+            <span>Respuesta requerida</span>
             <span aria-hidden="true">·</span>
             <span className="text-emerald-400 font-sans text-[11px] bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-800/60">
               Sin temporizador de expiración
@@ -78,13 +78,15 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
   );
 };
 
-export const GuardBanner: React.FC<GuardBannerProps> = ({ pending, userAnswer = null }) => {
+const GuardBannerBase: React.FC<GuardBannerProps> = ({ pending, userAnswer = null }) => {
   if (!pending && !userAnswer) return null;
 
   return (
-    <div className="sticky top-0 z-30 px-6 py-2.5 bg-slate-950/95 backdrop-blur-md border-b border-amber-900/50 shadow-xl transition-all">
+    <div className="p-2.5 bg-slate-950/95 backdrop-blur-md border border-amber-800/50 rounded-xl shadow-xl">
       {/* La aprobación Guard tiene prioridad sobre la pregunta interactiva */}
       {pending ? <ApprovalAction pending={pending} /> : userAnswer && <UserAnswerForm request={userAnswer} />}
     </div>
   );
 };
+
+export const GuardBanner = memo(GuardBannerBase);

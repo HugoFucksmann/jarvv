@@ -1,4 +1,4 @@
-import { useState, useRef, lazy, Suspense } from "react";
+import { useState, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
 import { isTerminalState } from "../src/core/types.ts";
@@ -7,6 +7,7 @@ import { PromptInput } from "./components/PromptInput/PromptInput.tsx";
 import { GuardBanner } from "./components/GuardBanner/GuardBanner.tsx";
 import { DecisionStream } from "./components/DecisionStream/DecisionStream.tsx";
 import { ProcessFlow } from "./components/ProcessFlow/ProcessFlow.tsx";
+import { TaskOverview } from "./components/ProcessFlow/components/TaskOverview.tsx";
 import { NewTaskDialog } from "./components/NewTaskDialog/NewTaskDialog.tsx";
 import { ErrorBanner } from "./components/Shared/ErrorBanner.tsx";
 
@@ -50,22 +51,33 @@ export default function App() {
   } = useJarvis();
 
   const isWaitingInput = task?.state === "WAITING_INPUT";
+  // Sin actividad de modelos no se reserva la columna lateral.
+  const hasActivity = events.length > 0 || modelIterations.length > 0;
   const isTaskActive = Boolean(task && !isTerminalState(task.state));
 
   // Una sola fuente para la pregunta interactiva: existe solo mientras la tarea espera una respuesta.
-  const userAnswer =
-    isWaitingInput && task?.waitingReason === "user_answer"
-      ? { question: userQuestion, onSubmit: provideUserAnswer }
-      : null;
+  const waitingReason = task?.waitingReason;
+  const userAnswer = useMemo(
+    () =>
+      isWaitingInput && waitingReason === "user_answer"
+        ? { question: userQuestion, onSubmit: provideUserAnswer }
+        : null,
+    [isWaitingInput, waitingReason, userQuestion, provideUserAnswer]
+  );
 
   // El input está deshabilitado mientras hay una tarea activa: se enfoca cuando React lo rehabilita.
   const focusInput = () => {
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
-  const handleCancel = () => {
+  // Estables: los diálogos suscriben listeners (Escape) con estas funciones y no deben re-suscribirse en cada render.
+  const openSettings = useCallback(() => setIsSettingsOpen(true), []);
+  const closeSettings = useCallback(() => setIsSettingsOpen(false), []);
+  const dismissNewTask = useCallback(() => setIsNewTaskConfirmOpen(false), []);
+
+  const handleCancel = useCallback(() => {
     void cancelTask();
-  };
+  }, [cancelTask]);
 
   const handleNewTask = () => {
     if (task?.state === "RUNNING") {
@@ -78,8 +90,12 @@ export default function App() {
   };
 
   const handleConfirmCancelAndNewTask = async () => {
-    // Si el back no confirma la cancelación, la vista no se limpia: el motivo ya se muestra en el banner de error.
-    if (task?.id && !(await cancelTask(task.id))) return;
+    // Si el back no confirma la cancelación, la vista no se limpia. El diálogo se cierra para que el motivo
+    // (banner de error) quede visible en lugar de quedar tapado por el fondo del modal.
+    if (task?.id && !(await cancelTask(task.id))) {
+      setIsNewTaskConfirmOpen(false);
+      return;
+    }
 
     clearTaskView();
     setIsNewTaskConfirmOpen(false);
@@ -91,10 +107,10 @@ export default function App() {
       <TopBar
         mode={mode}
         onModeChange={setMode}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenSettings={openSettings}
         isExecuting={isExecuting}
         isWaitingInput={isWaitingInput}
-        waitingReason={task?.waitingReason}
+        waitingReason={waitingReason}
         mcpCount={Object.keys(discoveredTools).length}
         unavailableCount={Object.keys(unavailableServers).length}
         mcpInitStatus={mcpInitStatus}
@@ -105,44 +121,57 @@ export default function App() {
 
       {error && <ErrorBanner message={error} onClose={clearError} />}
 
-      <main className="flex-1 flex flex-col overflow-y-auto max-w-5xl w-full mx-auto pb-4">
-        <PromptInput
-          inputRef={inputRef}
-          onRun={runTask}
-          onCancel={handleCancel}
-          mode={mode}
-          isBusy={isTaskActive}
-          isExecuting={isExecuting}
-          isWaitingInput={isWaitingInput}
-        />
+      <main className="flex-1 overflow-y-auto">
+        {/* En pantallas anchas: el trabajo de la tarea a la izquierda y la actividad de los modelos (depuración) fija a la derecha. */}
+        <div
+          className={`mx-auto w-full px-6 2xl:px-10 pb-6 grid gap-x-8 ${hasActivity
+              ? "max-w-[2200px] xl:grid-cols-[minmax(0,1fr)_minmax(28rem,38%)]"
+              : "max-w-6xl"
+            }`}
+        >
+          <div className="min-w-0 flex flex-col">
+            {/* Cabezal fijo: instrucción, estado de la tarea y lo que pide una acción del usuario siempre a la vista. */}
+            <div className="sticky top-0 z-30 flex flex-col gap-2.5 pt-4 pb-3 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/70">
+              <PromptInput
+                inputRef={inputRef}
+                onRun={runTask}
+                onCancel={handleCancel}
+                mode={mode}
+                isBusy={isTaskActive}
+                isExecuting={isExecuting}
+                isWaitingInput={isWaitingInput}
+              />
+              {task && <TaskOverview task={task} events={events} onNewTask={handleNewTask} />}
+              <GuardBanner pending={pendingApproval} userAnswer={userAnswer} />
+            </div>
 
-        <DecisionStream
-          events={events}
-          modelIterations={modelIterations}
-          isExecuting={isExecuting}
-          task={task}
-        />
+            <ProcessFlow
+              task={task}
+              onConfirmPlan={confirmPlan}
+              onRejectPlan={rejectPlan}
+              onModifyPlan={modifyPlan}
+              onCancelTask={handleCancel}
+            />
+          </div>
 
-        <GuardBanner pending={pendingApproval} userAnswer={userAnswer} />
-
-        <div className="flex-1">
-          <ProcessFlow
-            task={task}
-            events={events}
-            isExecuting={isExecuting}
-            onConfirmPlan={confirmPlan}
-            onRejectPlan={rejectPlan}
-            onModifyPlan={modifyPlan}
-            onCancelTask={handleCancel}
-            onNewTask={handleNewTask}
-          />
+          <aside
+            aria-label="Actividad de los modelos"
+            className="min-w-0 xl:sticky xl:top-0 xl:self-start xl:max-h-[calc(100vh-4.5rem)] xl:border-l xl:border-slate-800/70 xl:pl-6 xl:overflow-y-auto xl:pt-2"
+          >
+            <DecisionStream
+              events={events}
+              modelIterations={modelIterations}
+              isExecuting={isExecuting}
+              task={task}
+            />
+          </aside>
         </div>
       </main>
 
       {isSettingsOpen && (
         <Suspense fallback={null}>
           <SettingsModal
-            onClose={() => setIsSettingsOpen(false)}
+            onClose={closeSettings}
             onConfigSaved={refreshDiscovery}
           />
         </Suspense>
@@ -151,7 +180,7 @@ export default function App() {
       {isNewTaskConfirmOpen && (
         <NewTaskDialog
           onConfirm={handleConfirmCancelAndNewTask}
-          onDismiss={() => setIsNewTaskConfirmOpen(false)}
+          onDismiss={dismissNewTask}
         />
       )}
     </div>
