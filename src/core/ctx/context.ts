@@ -1,18 +1,43 @@
 /**
  * `TaskContext`: el contexto de una tarea. Fachada fina sobre los módulos del paquete:
- * escritura (`apply`), lectura (`get`, `find`, `current`), eventos (`on`) y persistencia (`snapshot`).
+ * escritura (`apply`), lectura (`get`, `find`, `current`), derivaciones y vistas (`view`, `isRepeat`, contadores),
+ * eventos (`on`) y persistencia (`snapshot`).
  *
  * Un solo escritor por tarea y todo síncrono: no hace falta control de concurrencia (sección 4).
  * No conoce herramientas, modelos ni traza (principio 5): quien lo usa le pasa los datos ya resueltos.
  */
 
 import { prepareBatch } from "./apply.ts";
+import { canFinish as canFinishOf, hasApprovedCall as hasApprovedCallOf } from "./closure.ts";
+import {
+  argsRetries as argsRetriesOf,
+  callsInStep as callsInStepOf,
+  effectsOf,
+  escalationCount,
+  handoffOf,
+  isRepeat as isRepeatOf,
+  possibleEffectsOf,
+  recentWindowSize,
+  replansDone as replansDoneOf,
+  resultRetries as resultRetriesOf,
+} from "./derive.ts";
+import type { Handoff, RepeatOptions } from "./derive.ts";
 import { ContextError } from "./errors.ts";
 import { currentOf, findElements, getElement } from "./query.ts";
 import { cloneData } from "./snapshot.ts";
 import { checkMeta } from "./validate.ts";
+import {
+  buildArgsView,
+  buildFallbackView,
+  buildFinalView,
+  buildPlanView,
+  buildRouteView,
+  buildVerifyView,
+} from "./views/index.ts";
+import type { ContextViews } from "./views/types.ts";
 import type {
   ApplyResult,
+  Call,
   ChangeEvent,
   ChangeMeta,
   ContextData,
@@ -37,6 +62,16 @@ export class TaskContext {
   private readonly now: () => number;
   private readonly limits: ContextLimits;
   private readonly onListenerError: ((error: unknown) => void) | undefined;
+
+  /** `ctx.view.<vista>(...)` (sección 8): objetos estructurados de solo lectura; el texto lo arman los renderizadores. */
+  readonly view: ContextViews = {
+    forPlan: (options) => buildPlanView(this.data, options),
+    forRoute: (options) => buildRouteView(this.data, options),
+    forArgs: (options) => buildArgsView(this.data, options),
+    forVerify: (callId) => buildVerifyView(this.data, callId),
+    forFinal: () => buildFinalView(this.data),
+    forFallback: (options) => buildFallbackView(this.data, options),
+  };
 
   constructor(data: ContextData, options: ContextOptions) {
     this.data = data;
@@ -141,6 +176,73 @@ export class TaskContext {
   /** `{ step, lastCall }`: el paso vigente `running` (o el primer vigente `pending`) y la última llamada. */
   current(): CurrentView {
     return currentOf(this.data);
+  }
+
+  // ─────────── Consultas para el control de ejecución (sección 8) ───────────
+
+  /**
+   * Anti-loop (5.4): ¿ejecutar `tool` con `sig` repite una llamada ejecutada anterior? Con `exempt = true` (la
+   * exención la resuelve quien ejecuta con el catálogo) devuelve `false` sin comparar.
+   */
+  isRepeat(tool: string, sig: string | null, options: RepeatOptions): boolean {
+    return isRepeatOf(this.data, tool, sig, options);
+  }
+
+  /** Cierre con `fin` (solo reactivo, 5.4): `completed`, `no_alternatives` o `null` (no se ofrece `fin`). */
+  canFinish(): "completed" | "no_alternatives" | null {
+    return this.data.task.mode === "reactive" ? canFinishOf(this.data.calls) : null;
+  }
+
+  /** ¿Existe una llamada con `verdict = approved`, de cualquier `status`? */
+  hasApprovedCall(): boolean {
+    return hasApprovedCallOf(this.data.calls);
+  }
+
+  // ─────────── Derivaciones (5.4) ───────────
+
+  /** Efectos: llamadas `write` con `status = ok`, sin tope. */
+  effects(): readonly Call[] {
+    return effectsOf(this.data.calls);
+  }
+
+  /** Posibles efectos: `write` con `tool_error`, `exception` o `interrupted`. */
+  possibleEffects(): readonly Call[] {
+    return possibleEffectsOf(this.data.calls);
+  }
+
+  /** Reintentos de argumentos del paso (llamadas `args_invalid`). */
+  argsRetries(stepId: string): number {
+    return argsRetriesOf(this.data.calls, stepId);
+  }
+
+  /** Reintentos de resultado del paso (llamadas con `verdict = rejected`). */
+  resultRetries(stepId: string): number {
+    return resultRetriesOf(this.data.calls, stepId);
+  }
+
+  /** Llamadas del paso para el tope por paso (sin `user_rejected`). */
+  callsInStep(stepId: string): number {
+    return callsInStepOf(this.data.calls, stepId);
+  }
+
+  /** Replans realizados: planes con `trigger = step_failure`. */
+  replansDone(): number {
+    return replansDoneOf(this.data.plans);
+  }
+
+  /** Escalaciones: pasos `failed`, incluidos los reemplazados. */
+  escalations(): number {
+    return escalationCount(this.data.steps);
+  }
+
+  /** Tamaño de las ventanas recientes según las escalaciones (9). */
+  recentWindow(recentWindows: readonly number[]): number {
+    return recentWindowSize(this.data.steps, recentWindows);
+  }
+
+  /** Resultado del paso anterior que se entrega al actual (5.4, provisorio); `null` si no aplica. */
+  handoff(): Handoff | null {
+    return handoffOf(this.data);
   }
 
   // ─────────── Persistencia ───────────

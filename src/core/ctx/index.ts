@@ -1,7 +1,8 @@
 /**
  * Módulo `ctx`: contexto de una tarea (PLAN_CONTEXT.md v0.28).
  * Fase 1: esquema, vocabularios, `create` (`context`, `fromSnapshot`), `apply`, lectura, eventos y snapshot.
- * Este paquete no importa nada fuera de `ctx/`.
+ * Fase 2: derivaciones (`derive.ts`) y las seis vistas estructuradas (`views/`), expuestas como `ctx.view.<vista>`.
+ * Este paquete no importa nada fuera de `ctx/`. El texto de los prompts lo arman los renderizadores de `src/core/render/`.
  */
 
 export { create } from "./create.ts";
@@ -76,5 +77,50 @@ export type {
   TerminalTaskState,
   VerdictReason,
 } from "./types.ts";
-// Derivaciones de cierre que `apply` ya necesita; la Fase 2 agrega el resto junto a ellas.
-export { canFinish, hasApprovedCall, hasApprovedOk, hasEffects, planClosure, terminalStateFor } from "./closure.ts";
+// Derivaciones de cierre (Fase 1) y derivaciones de 5.4 (Fase 2): funciones puras sobre arreglos y datos.
+export { canFinish, hasApprovedCall, hasApprovedOk, hasEffects, isEffect, planClosure, terminalStateFor } from "./closure.ts";
+export {
+  argsRetries,
+  callsInStep,
+  effectsOf,
+  escalationCount,
+  handoffOf,
+  isExecuted,
+  isFailure,
+  isPossibleEffect,
+  isRepeat,
+  isTransientFailure,
+  lastN,
+  lastReadsWithData,
+  possibleEffectsOf,
+  recentFailures,
+  recentWindowSize,
+  replansDone,
+  resultRetries,
+} from "./derive.ts";
+export type { Handoff, RepeatOptions } from "./derive.ts";
+// Vistas (sección 8): tipos estructurados y frases fijas por `status` y por `reason`.
+export { ARGS_SHOWN_STATUSES, REASON_NOTES, STATUS_NOTES } from "./views/messages.ts";
+export type {
+  ArgsView,
+  ArgsViewOptions,
+  AttemptView,
+  AvailableRefView,
+  CallView,
+  ContextViews,
+  EffectView,
+  FactView,
+  FallbackView,
+  FeedbackView,
+  FinalView,
+  HandoffView,
+  PlanView,
+  PlanViewOptions,
+  ReadArgKeys,
+  RefView,
+  RouteView,
+  ShownRange,
+  StepView,
+  VerifyView,
+  WindowOptions,
+} from "./views/types.ts";

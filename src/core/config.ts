@@ -57,6 +57,8 @@ export interface JarvisConfig {
   traceEnabled: boolean;
   /** Archivo del registro de trazas; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   tracePath: string;
+  /** Carpeta de los resultados crudos de las refs; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
+  refsDir: string;
 }
 
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
@@ -95,6 +97,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   mcpTimeoutMs: 30000,
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
+  refsDir: "data/refs",
 };
 
 /** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
@@ -168,6 +171,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
     traceEnabled: typeof r.traceEnabled === "boolean" ? r.traceEnabled : d.traceEnabled,
     tracePath: nonEmptyText(r.tracePath, d.tracePath),
+    refsDir: nonEmptyText(r.refsDir, d.refsDir),
   };
 }
 

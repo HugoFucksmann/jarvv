@@ -4,6 +4,13 @@
  */
 
 /**
+ * Etiquetas de bloque del prompt que un texto externo no puede imitar (`ETIQUETA:` al inicio de una palabra).
+ * Las primeras trece son las originales; las diez últimas las agregan los renderizadores de `src/core/render/`.
+ */
+const BLOCK_LABELS =
+    /\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST|DATA|PASOS|FEEDBACK|POSIBLES EFECTOS|HANDOFF|RESULTADO DE LA LLAMADA|EVID|PASO ACTUAL|EXPECTED|ESTADO DE LA TAREA|MOTIVO DE DETENCIÓN):/gi;
+
+/**
  * Reduce un texto externo a una sola línea y neutraliza lo que podría confundirse con la estructura del prompt:
  * `<obs>` y las etiquetas de bloque (`LOG:`, `FACTS:`…). Recorta a `maxLen` terminando en `...`.
  */
@@ -13,12 +20,32 @@ export function sanitizeForMemory(text: string, maxLen = 120): string {
         .replace(/[\r\n\t]+/g, " ")
         .replace(/[\x00-\x1F\x7F]/g, "")
         .replace(/<\/?obs>/gi, "[obs]")
-        .replace(/\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST|DATA):/gi, "$1_")
+        .replace(BLOCK_LABELS, "$1_")
         .trim();
     if (clean.length > maxLen) {
         clean = clean.substring(0, maxLen - 3) + "...";
     }
     return clean;
+}
+
+/**
+ * Como `sanitizeForMemory`, pero conserva los saltos de línea y la sangría de cada línea (un tabulador pasa a cuatro
+ * espacios); solo recorta los espacios finales de cada línea. Sin tope de largo. Para bloques de datos con estructura
+ * (contenido de archivos, resultados de lecturas).
+ */
+export function sanitizeMultiline(text: string): string {
+    if (!text) return "";
+    return text
+        .split(/\r\n|\r|\n/)
+        .map((line) =>
+            line
+                .replace(/\t/g, "    ")
+                .replace(/[\x00-\x1F\x7F]/g, "")
+                .replace(/<\/?obs>/gi, "[obs]")
+                .replace(BLOCK_LABELS, "$1_")
+                .trimEnd(),
+        )
+        .join("\n");
 }
 
 /** Texto en una sola línea, sin saltos ni espacios repetidos y saneado como el resto de la memoria; sin tope de largo. */
@@ -60,7 +87,7 @@ export function headTail(text: string, refKey: string | undefined, omitted = "om
     return `${text.slice(0, HEAD_TAIL_CHARS)}\n[... ${omitted}, ref:${refKey}]\n${text.slice(-HEAD_TAIL_CHARS)}`;
 }
 
-/** Observación de un texto: íntegro si es corto, `headTail` si es largo y `empty` si no hay texto. */
+/** Observación de un texto: íntegra si es corta, `headTail` si es larga y `empty` si no hay texto. */
 export function compactObservation(text: string, refKey: string | undefined, empty: string, omitted?: string): string {
     return text.length > LONG_OBS_CHARS ? headTail(text, refKey, omitted) : text || empty;
 }

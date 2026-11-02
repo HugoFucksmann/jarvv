@@ -1,15 +1,20 @@
 /**
  * Derivaciones que `apply` necesita para validar `finish` (5.3 y 5.4): la tabla de estado terminal por motivo y el
  * invariante 3. Son funciones puras sobre arreglos; las derivaciones restantes (anti-loop, efectos con topes,
- * contadores, vistas) pertenecen a la Fase 2 y reutilizarán estas.
+ * contadores, vistas) están en `derive.ts` y reutilizan estas.
  */
 
 import { violation } from "./errors.ts";
 import type { Call, Step, StopReason, TaskMode, TerminalTaskState } from "./types.ts";
 
-/** Efectos (5.4): llamadas `write` con `status = ok`, con cualquier veredicto. */
+/** Efecto (5.4): llamada `write` con `status = ok`, con cualquier veredicto. Único lugar donde se define. */
+export function isEffect(call: Call): boolean {
+  return call.kind === "write" && call.status === "ok";
+}
+
+/** Efectos (5.4): hay al menos una llamada que es efecto. */
 export function hasEffects(calls: readonly Call[]): boolean {
-  return calls.some((c) => c.kind === "write" && c.status === "ok");
+  return calls.some(isEffect);
 }
 
 /** Existe llamada aprobada (5.4): `verdict = approved`, de cualquier `status`. */
