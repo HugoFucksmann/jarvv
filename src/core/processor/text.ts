@@ -91,3 +91,44 @@ export function headTail(text: string, refKey: string | undefined, omitted = "om
 export function compactObservation(text: string, refKey: string | undefined, empty: string, omitted?: string): string {
     return text.length > LONG_OBS_CHARS ? headTail(text, refKey, omitted) : text || empty;
 }
+
+// ───────────────────────── Fase 4: recorte con marcador neutro ─────────────────────────
+// El `summary` de una llamada no contiene claves de ref (PLAN_CONTEXT 5.2): el marcador de omisión es neutro y la vista
+// añade la ref a partir de `call.ref`. Estas funciones no sanean (C9): el saneado lo hacen las vistas al renderizar.
+// Las usa `src/core/result/`; `headTail`, `compactObservation` y `fitFinding` siguen aquí hasta la Fase 8 porque el
+// código vigente las importa.
+
+/** Resultado de un recorte: el texto y si hubo omisión. */
+export interface ClippedText {
+    text: string;
+    clipped: boolean;
+}
+
+/** Marcador de omisión neutro (texto provisorio): `[… omitidos: 12 entradas]`. Sin clave de ref. */
+export function omissionMarker(count: number, unit = "caracteres"): string {
+    return `[… omitidos: ${count} ${unit}]`;
+}
+
+/** Caracteres que se reservan para el marcador (y sus dos saltos de línea) al recortar contra un tope. */
+const MARKER_RESERVE = 40;
+
+/** Inicio y final de un texto con el marcador neutro en medio; íntegro si cabe en `head + tail`. */
+export function headTailNeutral(text: string, head: number, tail: number): ClippedText {
+    if (text.length <= head + tail) return { text, clipped: false };
+    const omitted = text.length - head - tail;
+    return {
+        text: `${text.slice(0, head)}\n${omissionMarker(omitted)}\n${text.slice(text.length - tail)}`,
+        clipped: true,
+    };
+}
+
+/**
+ * Red de seguridad contra un tope de caracteres: si `text` no cabe en `cap`, conserva inicio y final y el marcador
+ * neutro cuenta dentro del tope. El resultado nunca supera `cap`.
+ */
+export function fitToCap(text: string, cap: number): ClippedText {
+    if (text.length <= cap) return { text, clipped: false };
+    const budget = Math.max(cap - MARKER_RESERVE, 0);
+    const head = Math.ceil(budget / 2);
+    return headTailNeutral(text, head, budget - head);
+}

@@ -1,28 +1,34 @@
-# JARVIS: plan de implementación del contexto v1 (revisión 8)
+# JARVIS: plan de implementación del contexto v1 (revisión 9)
 
 > Base: `PLAN_CONTEXT_v0.29.md` (aprobado; rige y está en el repo) contrastado con `src/core` y `src/server`; incorpora los cuatro cambios de diseño aprobados tras la Fase 2 (resumidos en "Estado actual"). Alcance: **solo el back (`src`)**. `lab/`, la UI y los scripts quedan fuera y no se tocan ni se consideran.
 > Revisión 4: al cerrar cada fase corres `tsc --noEmit`; las fases traen pocas pruebas, solo estructurales y justificadas; la validación fuerte va al final, antes del corte del servidor (Fase 7). La tabla de configuración sale de `ctx/` y pasa a `src/core/budget.ts`.
 > Revisión 6: Fase 2 cerrada; Fase 3 en curso; `render/` y los cambios a `text.ts` quedan registrados.
 > Revisión 7: Fase 3 con `refVault.ts` y `refResolver.ts` entregados; verificaciones de `allowedDirectories` y de `read_file` registradas; `refsDir` no existía en la configuración.
 > Revisión 8: base `PLAN_CONTEXT_v0.29.md`; `refsDir` aplicado en `config.ts`, `jarvis-config.json` y `.gitignore`; decisiones menores del vault aprobadas; riesgo de escritura decidido (A ahora, B en la Fase 5); Fase 3 a la espera de `tsc` limpio y visto bueno.
+> Revisión 9: Fase 3 cerrada; Fase 4 con el código entregado (nuevo `src/core/result/`; solo agregados a `text.ts` y `budget.ts`); aclaración del usuario sobre la estructura del proyecto; N1 de la Fase 4 pendiente de respuesta; falta `tsc` limpio y visto bueno.
+> Revisión 10: Fase 4 cerrada (`tsc` limpio, aprobada, N1 opción A aplicada); en curso: Fase 5, en etapa de plan (sin código; se piden archivos y se entrega un plan corto con las DECISIÓN NUEVA).
 
 > **Estado actual (para retomar en una sesión nueva).**
 > - **Fase 1 (`ctx`) cerrada:** `tsc --noEmit` limpio, aprobada, `ctx/budget.ts` borrado. Decisiones aprobadas: D1 a D6 de `SUPUESTOS_FASE_1.md` (topes y reloj obligatorios sin defaults; `fromSnapshot` con los mismos topes; veredicto sobre `interrupted`/`denied` se rechaza; `result` en el mismo lote que `finish` se rechaza; códigos `not_mutable`), más S4 (reglas `args`/`sig`) y S7 (un salto de estado por lote).
 > - **Fase 2 (derivaciones y vistas) cerrada:** `tsc --noEmit` limpio, aprobada. Entregó `ctx/derive.ts`, `ctx/views/` (objetos estructurados), `render/` (renderizadores fuera de `ctx/`, saneado con `text.ts`, `ContextOverflowError` en `render/errors.ts`) y los valores nuevos de `budget.ts`. Aprobadas D1 a D12 de `SUPUESTOS_FASE_2.md` (D2 como provisoria), N1, N2 y N4, y N3 con cambio (etiquetas `PASO ACTUAL`, `RESULTADO DE LA LLAMADA`, `ESTADO DE LA TAREA`); S1 a S4 confirmados. `text.ts` ganó `sanitizeMultiline` y etiquetas nuevas (solo agregados).
-> - **En curso: Fase 3 (refs en disco).** Entregados `refs/refVault.ts` y `refs/refResolver.ts` (decisiones 1 a 10 de la Fase 3 aprobadas; `RefLookup` asíncrono con `createRefLookup(ctx, vault)` y `resolveRefs` asíncrono aprobados). Aprobadas y aplicadas: `refsDir` (clave `refsDir: string` en `JarvisConfig`, por defecto `"data/refs"`, `nonEmptyText` en `normalize`; también en `jarvis-config.json` y `data/refs/` en `.gitignore`) y las tres decisiones del vault (`RefVaultError` con `invalid_input`, `write_failed`, `read_failed`, `outside_dir` y `where`; saneado del `taskId` como `taskFolderName`; `readAll` solo dentro de `dir`). Consecuencia conocida: tras un reinicio con otro `refsDir`, las refs de snapshots viejos darán `outside_dir` en `readAll`. Falta: `tsc --noEmit` limpio (lo corre el usuario) y su visto bueno. Siguiente: Fase 4, no se empieza sin ellos.
-> - **Datos de la Fase 3 (observados por el usuario):** `allowedDirectories` está vacío en `jarvis-config.json`, en el valor por defecto de `config.ts` y en el `config.json` de Desktop Commander (vacío = sin restricción, según el comentario de `desktopCommanderMcp.ts`; si se llena, `refsDir` debe quedar dentro). `read_file` (Desktop Commander, `dist/tools/schemas.js`): `path`, `isUrl` (false), `offset` (0), `length` (1000), `sheet?`, `range?`, `options?`, `origin?`; `offset` y `length` cuentan **líneas**; `size` de las refs sigue en caracteres y la vista (D9) muestra los valores crudos, sin cambiar `ctx/` ni el esquema. Límites de Desktop Commander: `fileReadLineLimit = 1000`, `fileWriteLineLimit = 50` (dato para 10.1: una lectura larga se hace por trozos de hasta 1000 líneas). `refsDir` no existía en `config.ts` ni en `jarvis-config.json`; se agregó en la Fase 3.
+> - **Fase 3 (refs en disco) cerrada:** `tsc --noEmit` limpio, aprobada. `refs/refVault.ts` (`createRefVault({ dir })`, `put`, `readAll`, `RefVaultError`) y `refs/refResolver.ts` (`resolveRefs` asíncrono, `RefLookup`, `createRefLookup(ctx, vault)`); `refsDir` (clave `refsDir: string` en `JarvisConfig`, por defecto `"data/refs"`; también en `jarvis-config.json` y `data/refs/` en `.gitignore`). Consecuencia conocida: tras un reinicio con otro `refsDir`, las refs de snapshots viejos darán `outside_dir` en `readAll`. De la Fase 3 no hay trazabilidad ni supuestos en archivo: su estado y decisiones están en este plan y en el código de `src/core/refs/*`.
+> - **Fase 4 (procesador y extractores) cerrada:** `tsc --noEmit` limpio, aprobada, con N1 opción A aplicada y D-ubicación (carpeta nueva `src/core/result/`) aprobada. Decididas por el usuario: D2 a D8 (forma de `ProcessedResult`, precedencia del `status`, `summary` nulo cuando el `status` basta, definición de `truncated`, marcador neutro, constantes de los extractores en `BUDGET.extract`, cabecera de offset negativo de `read_file`), S1 a S5 confirmados, O5 (`[NOT_FOUND]` sin error) sin cambio, O10 y O11 correctos. **N1 aplicada (opción A):** `exit_code` y `timed_out` se leen siempre del resultado MCP y del JSON embebido solo en `start_process`, `read_process_output` e `interact_with_process` (ver `SUPUESTOS_FASE_4.md`).
+> - **En curso: Fase 5 (`callRunner` y `stepLoop`).** Etapa de plan: no se escribe código hasta pedir los archivos que faltan (por tandas de 5, con motivo) y entregar un plan corto (archivos, qué se reutiliza de `callExecutor.ts`, orden de las fases de una llamada) con las DECISIÓN NUEVA, y hasta tener la respuesta del usuario. Alcance en la sección 4 (Fase 5). No se avanza a la Fase 6 sin su visto bueno.
+> - **Aclaración del usuario (rige desde la Fase 4):** el contexto mejorado puede implicar cambios en el core, el flujo y los archivos del proyecto; se puede modificar archivos existentes o crear nuevos según convenga tras analizar el código; la estructura del proyecto puede y debe modificarse si hace falta. No se altera el diseño del contexto para adaptarlo a la estructura actual: ante un conflicto entre el diseño y el código existente, gana el diseño. Dejan de ser restricciones las reglas «no tocar `callExecutor.ts` ni `modeEngines.ts`» y «código vigente intacto hasta la Fase 7». Siguen vigentes: DECISIÓN NUEVA para lo que el diseño no diga o contradiga, no ejecutar nada, y no cambiar el esquema ni las reglas del diseño sin consultar. El criterio práctico para elegir entre editar en el sitio o crear archivos nuevos es mantener `tsc --noEmit` limpio al cerrar cada fase.
+> - **Datos de la Fase 3 (observados por el usuario):** `allowedDirectories` está vacío en `jarvis-config.json`, en el valor por defecto de `config.ts` y en el `config.json` de Desktop Commander (vacío = sin restricción, según el comentario de `desktopCommanderMcp.ts`; si se llena, `refsDir` debe quedar dentro). `read_file` (Desktop Commander, `dist/tools/schemas.js`): `path`, `isUrl` (false), `offset` (0), `length` (1000), `sheet?`, `range?`, `options?`, `origin?`; `offset` y `length` cuentan **líneas**; `size` de las refs sigue en caracteres y la vista (D9) muestra los valores crudos, sin cambiar `ctx/` ni el esquema. Límites de Desktop Commander: `fileReadLineLimit = 1000`, `fileWriteLineLimit = 50` (dato para 10.1: una lectura larga se hace por trozos de hasta 1000 líneas).
 > - **Riesgo de escritura sobre la carpeta de refs:** opción A por ahora (la aprobación del usuario para `FILE_WRITE` es la barrera); opción B (regla del Guard que deniegue `FILE_WRITE` dentro de `refsDir`) prevista para la Fase 5. **Decidido y confirmado por el usuario.**
 > - **Cambios de diseño aprobados tras la Fase 2 (ya incorporados en `PLAN_CONTEXT_v0.29.md`):** (1) `forVerify` incluye herramienta, `args`, resumen y ref de la llamada evaluada; (2) `forArgs` en reactivo trae la solicitud y el historial (últimas llamadas de la ventana, una línea cada una, sin resumen), deja fuera el registro cronológico salvo ese historial, y el estado y el motivo de detención tienen una frase fija cada uno (texto provisorio); (3) los efectos nunca se recortan en ninguna vista que los muestra (todos, uno por línea, con `args` y resumen completos); si lo irrecortable excede el límite la vista falla en voz alta y la tarea termina `unrecoverable`, salvo `forFinal`, cuyo cierre cae a `forFallback` (que nunca falla); si una vista distinta de `forPlan` devuelve `overflow = true`, el ejecutor lo trata como `ContextOverflowError` (lo implementa la Fase 5); (4) se quitó de 10.1 la pregunta de recortar efectos en `forFinal` y `forFallback`.
 > - **Reglas que no cambian:** todo lo que el doc no diga o diga distinto se informa como **DECISIÓN NUEVA** y se espera (no se implementa primero); prioridad al contexto sobre el borde; no se ejecuta nada; el usuario corre `tsc --noEmit` al cerrar cada fase.
 
 ## 0. Reglas de trabajo
 
-1. **No se cambia el esquema ni las reglas del diseño sin tu aprobación.** Si el diseño choca con la implementación, se formula una pregunta concreta y no se resuelve por cuenta propia.
+1. **No se cambia el esquema ni las reglas del diseño sin tu aprobación.** Si el diseño choca con la implementación, se formula una pregunta concreta y no se resuelve por cuenta propia. Ante un conflicto entre el diseño y el código existente, gana el diseño.
 2. **Yo no ejecuto nada durante las fases:** ni tests, ni `tsc`, ni runner, ni comandos; solo escribo código. **Al cerrar cada fase corres tú `tsc --noEmit`** (`npm run lint`) y la fase no se da por cerrada hasta que pase limpio y des tu visto bueno. Cada fase puede traer **pocas pruebas, solo estructurales** (que algo compile, que una forma exista, que un invariante básico se cumpla), cada una con su justificación escrita; la validación fuerte (pruebas por regla, escenarios completos) va en la **Validación final**, antes del corte del servidor (Fase 7).
 3. **Trazabilidad por fase.** Cada fase se entrega con una tabla regla → código: cada regla del diseño que le aplica (validaciones de la sección 6, transiciones de 5.3, invariantes, topes) con archivo y función donde se cumple. Una regla sin fila se considera no implementada.
-4. **Tabla única de configuración: `src/core/budget.ts`, fuera de `ctx/`.** Todo valor provisorio o tentativo vive ahí, con su marca `provisional`, la sección del diseño que lo origina y la fase que lo consume. El contexto **no la importa** (principio 5): quien crea el contexto le pasa los topes ya resueltos (`summaryMax`, `argsStringMax`, `factValueMax`, `jsonMaxDepth`). `ARGS_MAX` no está en la tabla: se calcula desde el catálogo de herramientas (`argCaps` del manifest), con `argsStringDefault` como respaldo. Las constantes de `types/limits.ts` migran a esa tabla. Las rutas `tracePath` y `refsDir` (esta última agregada en la Fase 3, por defecto `data/refs`) viven en `ConfigManager`.
+4. **Tabla única de configuración: `src/core/budget.ts`, fuera de `ctx/`.** Todo valor provisorio o tentativo vive ahí, con su marca `provisional`, la sección del diseño que lo origina y la fase que lo consume. El contexto **no la importa** (principio 5): quien crea el contexto le pasa los topes ya resueltos (`summaryMax`, `argsStringMax`, `factValueMax`, `jsonMaxDepth`). `ARGS_MAX` no está en la tabla: se calcula desde el catálogo de herramientas (`argCaps` del manifest), con `argsStringDefault` como respaldo. Las constantes de `types/limits.ts` migran a esa tabla (en la Fase 4, `MAX_SCRATCHPAD_RESULTS` pasó a `BUDGET.extract.searchResultsShown` y `MAX_EVIDENCE_OBS_CHARS` es `BUDGET.summaryMax`; no se crea `SUMMARY_MAX`). Las rutas `tracePath` y `refsDir` (esta última agregada en la Fase 3, por defecto `data/refs`) viven en `ConfigManager`.
 5. Lo observado en el código y lo supuesto se separan siempre (cada entrega lista sus supuestos).
 6. **No se avanza a la siguiente fase sin tu visto bueno.**
+7. **Dónde va el código nuevo (desde la Fase 4).** Se decide fase por fase y se justifica en la entrega: edición en el sitio o archivos nuevos, según lo que mantenga `tsc --noEmit` limpio al cerrar la fase y respete el diseño. Si editar en el sitio deja archivos sin compilar, se indica antes, con el tiempo que durarían.
 
 ## 1. Decisión: adaptar o rehacer
 
@@ -31,17 +37,18 @@
 | Disposición | Archivos |
 |---|---|
 | **Se conserva sin cambios** | `llmTransport.ts`, `utils.ts`, `guard.ts`, `environment.ts`, `models.ts`, `mcp/*`, `discovery.ts`, `types/routes.ts`, `types/mcp.ts`, `types/policy.ts`, `types/audit.ts` |
-| **Se adapta** | `manifest.ts` (agrega `argCaps`), `callExecutor.ts` (se parte en las fases actuales más un bucle de paso), `resultProcessor.ts` y extractores, `decision.ts` y `prompts.ts`, `qwen.ts`, `refResolver.ts`, `core.ts`, `events.ts`, `taskTrace.ts`, `jarvisRouter.ts`, `config.ts`, `text.ts` (solo agregados, Fase 2: `sanitizeMultiline` y etiquetas nuevas en `BLOCK_LABELS`) |
+| **Se adapta** | `manifest.ts` (agrega `argCaps`), `callExecutor.ts` (se parte en las fases actuales más un bucle de paso), `decision.ts` y `prompts.ts`, `qwen.ts`, `core.ts`, `events.ts`, `taskTrace.ts`, `jarvisRouter.ts`, `config.ts`, `processor/text.ts` (solo agregados: Fase 2, `sanitizeMultiline` y etiquetas nuevas en `BLOCK_LABELS`; Fase 4, `omissionMarker`, `headTailNeutral`, `fitToCap`, `ClippedText`) |
+| **Se reemplaza por código nuevo** | `processor/resultProcessor.ts` y `processor/extractors/*` → `result/` (Fase 4; los vigentes quedan hasta la Fase 8 porque `callExecutor.ts` los usa); `processor/refResolver.ts` → `refs/refResolver.ts` (Fase 3) |
 | **Se reescribe** | `context.ts` (viejo), `modeEngines.ts`, `taskConclusion.ts`, `taskWire.ts`, `modelIterations.ts`, `types/task.ts`, `types/execution.ts`, partes de `types/plan.ts` |
-| **Nuevo** | `ctx/`, `render/`, `refs/`, `engine/`, `trace/` |
+| **Nuevo** | `ctx/`, `render/`, `refs/`, `result/`, `engine/`, `trace/` |
 
-**Corte.** Todo lo nuevo se construye en directorios nuevos, en una rama (`refactor/context-v2`), sin tocar el código vigente hasta la Fase 7, que va **después de la Validación final**. No hay bandera de versión: la vuelta atrás es git.
+**Corte.** El código nuevo se construye en directorios nuevos o se agrega a archivos existentes sin romper a sus consumidores, en una rama (`refactor/context-v2`). El código vigente se reemplaza donde su consumidor se reemplaza (ejecutor: Fases 5 y 6) y se borra en la Fase 8; el servidor pasa a los motores nuevos en la Fase 7, **después de la Validación final**. No hay bandera de versión: la vuelta atrás es git.
 
 ## 2. Estructura de módulos
 
 ```
 src/core/
-├── budget.ts                 # TABLA ÚNICA de configuración (valores provisorios); ctx/ no la importa   [Fases 1 y 2]
+├── budget.ts                 # TABLA ÚNICA de configuración (valores provisorios); ctx/ no la importa   [Fases 1, 2 y 4]
 ├── ctx/                      # el contexto: no importa nada fuera de ctx/
 │   ├── types.ts              # esquema, vocabularios, operaciones, eventos            [Fase 1]
 │   ├── errors.ts             # ContextError (código + número de regla)                [Fase 1]
@@ -61,6 +68,10 @@ src/core/
 ├── refs/
 │   ├── refVault.ts           # resultado crudo en disco; devuelve `where`             [Fase 3]
 │   └── refResolver.ts        # {{ref:rN}} → contenido, vía ctx.get(rN).where          [Fase 3]
+├── result/                   # resultado de una herramienta → status, summary, truncated, process   [Fase 4]
+│   ├── processResult.ts      # processResult(mcp, tool, rawResult, args): ProcessedResult
+│   └── extractors/           # types, shared, files, freeSearch, generic, process, index (registro)
+├── processor/                # vigente; text.ts sigue en uso (con agregados); el resto se borra en la Fase 8
 ├── engine/
 │   ├── runtime.ts            # TaskRuntime: lo que NO va en el contexto
 │   ├── callRunner.ts         # runCall: las fases actuales
@@ -97,23 +108,29 @@ Esquema, vocabularios, `create.context` / `create.fromSnapshot`, `apply` (las 7 
 - Seis vistas: objetos estructurados más un renderizador por consumidor (`render/`) que arma el texto de los prompts y sanea (C9). Los efectos no se recortan en ninguna vista (`ContextOverflowError` si lo irrecortable excede; `forFinal` cae a `forFallback`). Las vistas arman `ref:rN (tamaño, ruta)` desde `call.ref` y `refs` (C4, v0.28) y los mensajes fijos por `status` y por `reason` (sección 8, v0.28).
 - **Salida:** `TRAZABILIDAD_FASE_2.md` (5.4, sección 8, sección 9); `SUPUESTOS_FASE_2.md`; `tsc --noEmit` limpio.
 
-### Fase 3: refs en disco (M) — EN CURSO (código completo; falta `tsc` limpio y visto bueno)
+### Fase 3: refs en disco (M) — CERRADA (`tsc` limpio, aprobada)
 - `refVault` (`createRefVault({ dir })`): `put(taskId, text)` escribe el crudo en `<dir>/<taskId saneado>/<uuid>.txt` (UTF-8, `wx`, carpeta recursiva) y devuelve `{ where, size }` (`size` en caracteres); `readAll(where)` entrega el texto completo. **Sin lectura por trozos**: la hace el modelo con `read_file`. Sin borrado ni barrido. `refResolver`: `resolveRefs(args, lookup, inputSchema?)` asíncrono, con `RefLookup { get(id): Promise<string | undefined> }` y `createRefLookup(ctx, vault)` (`ctx.get(rN).where` → `vault.readAll`). Flujo: guardar en disco → `apply add ref` → `apply add call` con `ref`.
 - **Verificación (resultado):** (a) `read_file` acepta `offset` y `length`, que cuentan líneas (esquema observado); (b) `allowedDirectories` vacío = sin restricción (observado por el usuario); si se llena en el futuro, `refsDir` debe quedar dentro; (c) riesgo de escritura: ver "Estado actual" (A ahora, B en la Fase 5). La verificación real del acceso va en la Validación final.
 - **`refsDir` (aplicado):** `refsDir: string` en `JarvisConfig`, por defecto `"data/refs"` (ruta relativa contra el directorio de trabajo del proceso, como `tracePath`), validado con `nonEmptyText` en `normalize`; `"refsDir": "data/refs"` en `jarvis-config.json` y `data/refs/` en `.gitignore`. El aviso de coherencia con `allowedDirectories` (aviso único si la lista no está vacía y `refsDir` resuelto queda fuera) se hace en la composición (Fase 5 o 7), no en `normalize`. El vault se crea una vez con el valor del arranque.
 - **Vault, decisiones aprobadas:** `RefVaultError` con los códigos `invalid_input`, `write_failed`, `read_failed`, `outside_dir` y `where`; saneado del `taskId` como `taskFolderName`; `readAll` solo lee dentro de `dir`. **Consecuencia conocida:** tras un reinicio con otro `refsDir`, las refs de snapshots viejos darán `outside_dir`.
 - **Riesgo anotado:** si la carpeta de refs está dentro de `allowedDirectories` (o la lista está vacía, que no restringe), `write_file`, `move_file` y `create_directory` pueden modificar o borrar un crudo. Esas herramientas piden aprobación (`FILE_WRITE`). Decidido: A ahora (la aprobación del usuario es la barrera) y B (regla del Guard que deniegue `FILE_WRITE` dentro de `refsDir`) en la Fase 5.
-- **Salida:** tabla de trazabilidad (5.2 refs, sección 4 retención); supuestos; nota de riesgo.
 
-### Fase 4: procesador y extractores (M)
-- `ProcessedResult` pierde `factsDelta`, `scratchpadDelta`, `verification` y `decisionSummary`; gana `truncated` y `process: { pid, active }`. Marcadores de omisión neutros (C4). Estados de llamada incluido `denied` del servidor (C6). `summary` recortado al tope; saneado fuera del resumen (C9).
-- **Observación (sin implementar aún):** `extractReadFile` no reconoce la cabecera de offset negativo (`[Reading last N lines (total: T lines)]`); su regex exige `(total: T lines, R remaining)`. El texto que se guarda en la ref es el `fullText` de `collectContent` (bloques `text` unidos con `\n` y `trim()`; las imágenes solo dejan un flag).
-- **Salida:** tabla de trazabilidad (5.2 notas de `summary`, `ref`, `args`, 5.3 registro de llamada); supuestos.
+### Fase 4: procesador y extractores (M) — CERRADA (`tsc` limpio, aprobada; N1 opción A aplicada)
+- **Ubicación (D-ubicación, a validar):** código nuevo en `src/core/result/` (`processResult.ts`, `extractors/{types,shared,files,freeSearch,generic,process,index}.ts`); solo agregados a `processor/text.ts` (`omissionMarker`, `headTailNeutral`, `fitToCap`, `ClippedText`) y `budget.ts` (`BUDGET.extract`). Los archivos vigentes (`processor/resultProcessor.ts`, `processor/extractors/*`, `refStore.ts`) quedan intactos porque `callExecutor.ts` los usa; editarlos en el sitio habría dejado sin compilar `callExecutor.ts` y su cadena (`modeEngines.ts`) hasta la Fase 6. Se borran en la Fase 8.
+- **`ProcessedResult`** (`processResult(mcp, tool, rawResult, args)`): `{ status, summary, truncated, fullText, process? }`. Pierde `factsDelta`, `scratchpadDelta`, `verification`, `decisionSummary` (que pasa a las vistas) y también `finding`, `evidence`, `outcome`, `signals`, `refKey` y los flags de imagen y recurso. `ExtractorOutput`: `{ summary, truncated, signals?: { exit_code?, empty_output? }, process? }`; `ExtractorInput` pierde `refKey`.
+- **`status`** (precedencia `denied` › `not_found` › `tool_error` › `no_data` › `ok`): `denied` del servidor solo con resultado de error (`[DENIED]` o «access denied»); `exception` e `interrupted` los registra el ejecutor. **`summary`:** el resultado recortado al tope `BUDGET.summaryMax` (2500), `null` cuando el `status` basta (nunca `""`), sin claves de ref (marcador neutro `[… omitidos: N unidad]`) y sin sanear (C9). **`truncated`:** el extractor omitió contenido o el resumen superó el tope; el ejecutor crea la ref si y solo si `truncated`.
+- **Hechos:** `path` y `url` dejan de ser hechos (se derivan de `args`); el pid pasa a la señal `process: { pid, active }`, que el ejecutor convierte en el hecho `process` (Fase 5); `scratchpad.process_id` y `scratchpad.search_results` desaparecen.
+- **`read_file`:** reconoce `[Reading last N lines (total: T lines)]` (offset negativo). Sin dedupe de refs.
+- **Constantes** de los extractores (40 entradas, 15 + 15 líneas, 30 líneas de proceso, 10 resultados de búsqueda, snippets 240/160/100/60/40, lead 300, 750 + 750 caracteres) en `BUDGET.extract` (provisorias).
+- **N1 (opción A, aplicada):** `exit_code` y `timed_out` embebidos en el texto solo cuentan en las herramientas de procesos (`start_process`, `read_process_output`, `interact_with_process`); punto único: `controlFieldsOf`. La opción B (solo resultado MCP) se evalúa tras la Validación final.
+- **Pendiente heredado (sin cambio):** el manifest no declara `params` para `read_file` (el modelo ve todo su esquema).
+- **Salida:** `TRAZABILIDAD_FASE_4.md`; `SUPUESTOS_FASE_4.md`; `tsc --noEmit` limpio.
 
-### Fase 5: `callRunner` y `stepLoop` (L)
+### Fase 5: `callRunner` y `stepLoop` (L) — EN CURSO (etapa de plan; sin código)
 - `runCall` reutiliza las fases actuales sin `TaskExecutionContext`. Registro en dos `apply`; `interrupted` en `finally`. Cancelación con `Promise.race` sobre `callTool`. `stepLoop`: paso creado en `running` antes de consultar al modelo de decisión; reintentos; tope de llamadas; `user_rejected` fuera de la cuenta; una pregunta por paso. Verificador solo con el modelo de decisión (razones de C10). Revisión de argumentos: gancho y estados, sin prompt activo. Si un renderizador distinto de `renderPlan` devuelve `overflow = true`, se trata como `ContextOverflowError` (`unrecoverable`).
 - **Receptor de captura (opcional):** interfaz mínima con versión vacía por defecto; el cliente del modelo y `callTool` reportan a ella en los bordes. Es lo único de traza que existe antes de la Fase 7.
 - **De la Fase 3:** `resolveRefs` es asíncrono (`runCall` lo espera) y se alimenta con `createRefLookup(ctx, vault)`; quien llama a `put` arma el `label` (el total de líneas en el `label`, pospuesto aquí); qué hace el ejecutor ante un `RefVaultError` de `put` se decide aquí; regla B del Guard (denegar `FILE_WRITE` dentro de `refsDir`, decidida); aviso de coherencia entre `refsDir` y `allowedDirectories` al componer el sistema (Fase 5 o 7); creación del vault con `ConfigManager.getConfig().refsDir`; el manifest no declara `params` para `read_file`, así que se ofrece todo su esquema al modelo (`isUrl`, `sheet`, `range`, `options`, `origin`): limitarlo a `path`, `offset` y `length` queda por decidir.
+- **De la Fase 4:** `processResult` se llama con `(mcp, tool, rawResult, args)` y devuelve `{ status, summary, truncated, fullText, process? }`; la llamada lleva `ref` si y solo si `truncated` (el contenido de la ref es `fullText`, guardado en el vault antes de `apply add ref`); `denied` del servidor: llamada `denied`, sin verificar, paso `failed` con la recuperación del modo; `exception` (si `callTool` lanza) e `interrupted` los registra el ejecutor; `process` → hecho `process` (alta al terminar `ok` la mutación que lo lanza, baja cuando `active = false` o una interacción da `not_found`; con otros errores se conserva); el recorte de strings de `args` (`argCaps`, `…(+N)`) lo hace el ejecutor antes de escribir (`render/shared.clipMarked` ya existe; la Fase 5 decide si lo reutiliza).
 - **Salida:** tabla de trazabilidad (5.3 registro de llamada, esperas del usuario, reglas de estado); supuestos.
 
 ### Fase 6: proveedores, recuperación y cierre (L)
@@ -129,7 +146,7 @@ Esquema, vocabularios, `create.context` / `create.fromSnapshot`, `apply` (las 7 
 - **Salida:** tabla de trazabilidad (sección 7 del diseño); supuestos.
 
 ### Fase 8: limpieza (S)
-Borrar `context.ts` viejo, `modeEngines.ts`, `taskConclusion.ts`, `taskWire.ts`, `modelIterations.ts`, `RefStore` y tipos huérfanos; revisar el barril `types.ts`.
+Borrar `context.ts` viejo, `modeEngines.ts`, `taskConclusion.ts`, `taskWire.ts`, `modelIterations.ts`, `RefStore`, `processor/resultProcessor.ts`, `processor/extractors/*`, `processor/refResolver.ts` vigente, las funciones de `processor/text.ts` que queden huérfanas (`headTail`, `compactObservation`, `fitFinding` y sus constantes) y tipos huérfanos; revisar el barril `types.ts`.
 - **Salida:** lista de archivos borrados y de referencias huérfanas; supuestos; `tsc --noEmit` limpio.
 
 ### 4.1 Validación final: contenido
@@ -149,7 +166,7 @@ Runner: `node:test` ejecutado con `tsx --test` (el proyecto no tiene runner; no 
 
 **Refs (Fase 3):** una ref de 25 KB se guarda, aparece en `forArgs` con su tamaño, se lee por trozos con `read_file` (`offset` y `length` en líneas, hasta 1000 líneas por lectura) y sobrevive a la expulsión de la tarea; `resolveRefs` con una ref ilegible o desconocida da `unresolvedRefs`; verificación real del acceso del servidor de archivos a la carpeta de refs y de su exposición a escritura.
 
-**Procesador (Fase 4):** `truncated` por extractor; mapeo a estados de llamada; `denied` del servidor; `summary` sin claves de ref.
+**Procesador (Fase 4):** `truncated` por extractor (`list_directory`, `read_file`, procesos, `fetch`, genérico, `search`); precedencia del `status` (`denied` › `not_found` › `tool_error` › `no_data` › `ok`) y mapeo de `denied` del servidor (solo con resultado de error; un texto exitoso con «access denied» es `ok`); `read_file` con las tres cabeceras (`from start`, `from line K`, `last N`) y archivo vacío (`no_data`); `summary` nunca mayor que 2500, nunca `""` y sin claves de ref (marcador neutro); señal `process` (activo, terminado, con código de salida). **Crecimiento de refs en disco:** casi toda búsqueda web genera ref (D5) y las refs no se borran nunca en esta etapa; medir el tamaño de `data/refs` tras tareas reales.
 
 **Ejecutor (Fases 5 y 6):** el flujo de la traza de ejemplo se reproduce con servidor MCP y modelos simulados; tarea feliz, mutación rechazada (ambos modos), `denied` del servidor (paso `failed` con recuperación) y del Guard (`security_denied`), replan por fallo, plan `user_feedback`, `max_steps`, cancelación con `callTool` en vuelo, servicio caído → `unrecoverable`, verificador caído → `unrecoverable`, generación de plan inválida.
 
@@ -165,28 +182,33 @@ Runner: `node:test` ejecutado con `tsx --test` (el proyecto no tiene runner; no 
 | El modelo de decisión pierde el `log` y repite búsquedas | `forRoute` con intentos por ruta y herramienta; probar con la traza real |
 | `forPlan` con efectos sin tope desborda | `ContextOverflowError` → `unrecoverable`, sin recorte silencioso |
 | Verificador caído cierra la tarea (hoy se toleraba) | Aceptado por el diseño; deja `partial` si hubo efectos |
-| Crecimiento de refs sin borrado (no se borran nunca en esta etapa) | Medir el tamaño tras las primeras tareas; la idea de borrarlas al terminar la tarea está en 10.2 del diseño |
+| Crecimiento de refs sin borrado (no se borran nunca en esta etapa); con D5 casi toda búsqueda web genera una ref | Medir el tamaño de `data/refs` tras las primeras tareas y en la Validación final; la idea de borrarlas al terminar la tarea está en 10.2 del diseño |
+| Un `exit_code` o `timed_out` embebido en el texto de una lectura (por ejemplo, un `.json`) se clasifica como `tool_error` | Resuelto con N1 de la Fase 4, opción A (restringido a las herramientas de procesos); punto único `controlFieldsOf` |
 
 ## 6. Pendientes que no bloquean
 
-Revisión de argumentos (prompt y evaluación), lista definitiva de razones del verificador, valores abiertos de 10.1 (quedan en `src/core/budget.ts`), unificación de `loop_blocked`, (cerrado en v0.28: una llamada `denied` del servidor cuenta como ejecutada para el anti-loop).
+Revisión de argumentos (prompt y evaluación), lista definitiva de razones del verificador, valores abiertos de 10.1 (quedan en `src/core/budget.ts`), unificación de `loop_blocked`, `params` de `read_file` en el manifest, (cerrado en v0.28: una llamada `denied` del servidor cuenta como ejecutada para el anti-loop).
 
 ## 7. Observado en el código y supuesto
 
 **Observado**
 - `RefStore` es un `Map` en memoria; guarda el texto crudo; se libera al expulsar la tarea.
 - `IMCPServer.callTool(name, args)` no recibe señal de cancelación.
-- Los extractores omiten contenido bajo el tope de 2500.
+- Los extractores vigentes omiten contenido bajo el tope de 2500 e incrustan `ref:rN` en sus marcadores (los nuevos, no).
 - La traza v1 toma duración de `StepCall.execution` y el crudo de `RefStore`.
-- `signals.denied` lo activan el Guard, el rechazo del usuario y el texto del resultado del servidor; en ambos modos cierra la tarea hoy.
+- `signals.denied` lo activan el Guard, el rechazo del usuario y el texto del resultado del servidor (también en resultados sin error); en ambos modos cierra la tarea hoy. El procesador nuevo solo lo marca en resultados con error.
+- `classifyCall` (en `callExecutor.ts`) no mapea `denied` (cae en `tool_error`) y depende del veredicto (`unverified`, `rejected`).
+- `mergedData` (resultado MCP + JSON embebido en el texto) alimentaba `exit_code` y `timed_out` para cualquier herramienta; el procesador nuevo restringe el JSON embebido a las herramientas de procesos (N1, opción A).
 - Qwen reintenta una vez ante salida inválida.
 - `allowedDirectories` vacío en `jarvis-config.json`, en el valor por defecto de `config.ts` y en el `config.json` de Desktop Commander (reportado por el usuario); `refsDir` no existía en `config.ts` ni en `jarvis-config.json` (agregado en la Fase 3); `tracePath` relativo se resuelve contra el directorio de trabajo del proceso.
-- `read_file` (Desktop Commander): `path`, `isUrl`, `offset`, `length` (por defecto 1000), `sheet?`, `range?`, `options?`, `origin?`; `offset` y `length` cuentan líneas; `fileReadLineLimit = 1000`, `fileWriteLineLimit = 50` (reportado por el usuario).
+- `read_file` (Desktop Commander): `path`, `isUrl`, `offset`, `length` (por defecto 1000), `sheet?`, `range?`, `options?`, `origin?`; `offset` y `length` cuentan líneas; `fileReadLineLimit = 1000`, `fileWriteLineLimit = 50` (reportado por el usuario). Cabeceras de salida: `[Reading N lines from start|from line K (total: T lines, R remaining)]` y, con offset negativo, `[Reading last N lines (total: T lines)]`.
+- `emptyIsError` en el manifest: `read_file`, `read_multiple_files`, `search`.
 - El manifest no declara `params` para `read_file` (se ofrece todo su esquema); `write_file`, `move_file` y `create_directory` son `FILE_WRITE` y piden aprobación.
+- `MAX_SCRATCHPAD_RESULTS = 10` y `MAX_EVIDENCE_OBS_CHARS = 2500` en `types/limits.ts`.
 - `tsconfig.json`: `strict`, `moduleResolution: "bundler"`, `allowImportingTsExtensions`, `isolatedModules`; el código existente importa con extensión `.ts`. `package.json`: sin runner; `lint` es `tsc --noEmit`.
 
-**Supuesto (a verificar en la Fase 3 por lectura y en la Validación final por ejecución)**
+**Supuesto (a verificar en la Validación final por ejecución)**
 - `read_file` lee las rutas de las refs sin restricción mientras `allowedDirectories` esté vacío (según el comentario de `desktopCommanderMcp.ts`, que no se revisó aquí); verificación real en la Validación final.
 - `Promise.race` alcanza para cancelar: la llamada al servidor sigue y puede terminar de escribir, como ya admite el diseño.
 - `tsx --test` funciona con la configuración de TypeScript y los imports `.ts` del proyecto.
-- Tamaño de refs: decenas de KB por tarea; sin medir.
+- Tamaño de refs: decenas de KB por tarea; sin medir (ver el riesgo de crecimiento).

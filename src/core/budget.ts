@@ -59,12 +59,36 @@ export const BUDGET = {
    * modelo y lo pasa quien llama a `renderPlan`.
    */
   viewMaxChars: { route: 6000, args: 12000, verify: 6000, final: 12000, fallback: 4000 },
+
+  // ── Extractores de resultados (Fase 4) ──
+  /**
+   * Lo que cada extractor deja en el `summary` antes de recortar al tope `summaryMax`. Son los literales de los
+   * extractores vigentes (`processor/extractors/*`), movidos a la tabla única (D7 de la Fase 4).
+   */
+  extract: {
+    /** `list_directory`: entradas que se muestran. */
+    listDirEntries: 40,
+    /** `read_file`: líneas del inicio y del final que se muestran cuando el contenido es largo. */
+    readFileHeadLines: 15,
+    readFileTailLines: 15,
+    /** Procesos: últimas líneas de la salida que se muestran. */
+    processTailLines: 30,
+    /** `search`: resultados que se muestran (antes `MAX_SCRATCHPAD_RESULTS`). */
+    searchResultsShown: 10,
+    /** `search`: largos de snippet que se intentan, de mayor a menor; gana el mayor que quepa en todos. */
+    searchSnippetLengths: [240, 160, 100, 60, 40],
+    /** `search`: largo máximo del lead. */
+    searchLeadChars: 300,
+    /** Texto largo sin extractor propio (genérico, `fetch`): caracteres del inicio y del final que se conservan. */
+    textHeadChars: 750,
+    textTailChars: 750,
+  },
 } as const;
 
 export type BudgetKey = keyof typeof BUDGET;
 
 export const BUDGET_META: { readonly [K in BudgetKey]: BudgetMeta } = {
-  summaryMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7)" },
+  summaryMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7); Fase 4 · processResult (red de seguridad)" },
   factValueMax: { provisional: true, source: "5.1, 9, 10.1", usedBy: "create.context → apply (regla 7)" },
   jsonMaxDepth: { provisional: true, source: "6 regla 7; el valor es un supuesto de implementación", usedBy: "create.context → apply (regla 7)" },
   argsStringDefault: { provisional: true, source: "5.2, 9, 10.1", usedBy: "Fase 5 · ejecutor (recorte antes de escribir); base de ARGS_MAX" },
@@ -83,4 +107,5 @@ export const BUDGET_META: { readonly [K in BudgetKey]: BudgetMeta } = {
   viewRequestChars: { provisional: true, source: "9, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · renderizadores" },
   viewFeedbackChars: { provisional: true, source: "9, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · renderPlan" },
   viewMaxChars: { provisional: true, source: "9, 10.1; los valores son un supuesto de implementación", usedBy: "Fase 2 · renderizadores (route, args, verify, final, fallback)" },
+  extract: { provisional: true, source: "5.2 (summary), 9, 10.1; los valores son los literales de los extractores vigentes", usedBy: "Fase 4 · result/extractors/*" },
 };
