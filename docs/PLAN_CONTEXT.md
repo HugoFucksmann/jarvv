@@ -1,6 +1,6 @@
 # Contexto de JARVIS: idea de diseño
 
-> Estado: borrador v0.28. Esquema y API aprobados para empezar la implementación; lo pendiente está en la sección 10 y ajusta valores y vocabularios, no la estructura. Sin referencias al código actual; las notas sobre él están en la sección 11.
+> Estado: borrador v0.29. Esquema y API aprobados para empezar la implementación; lo pendiente está en la sección 10 y ajusta valores y vocabularios, no la estructura. Sin referencias al código actual; las notas sobre él están en la sección 11.
 
 ## Propósito de este documento
 
@@ -69,7 +69,7 @@ El esquema contiene solo lo decidido; lo pendiente está en la sección 10.
              sig: string | null,                  // null si no hubo args resueltos
              status: string,                      // vocabulario de 5.3
              verdict: "approved" | "rejected" | null,   // null al crearse; se actualiza tras la verificación
-             reason: string | null,                    // causa del rechazo (opción elegida por el modelo de decisión); solo con rejected
+             reason: string | null,                    // causa del rechazo (opción elegida por el modelo de decisión; en `tool_error` y `exception` la fija quien ejecuta); solo con rejected
              summary: string | null,              // tope 2500; sin modelo
              ref: string | null }],               // id de una ref; solo si el resumen no contiene el resultado completo
 
@@ -140,7 +140,7 @@ Notas:
 | `step.state` | `pending`, `running`, `completed`, `failed` |
 | `call.status` (resultado del intento) | ejecutadas (llegaron a despacharse): `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted` (la ejecución empezó y no terminó, por ejemplo por cancelación); no ejecutadas: `args_invalid`, `refs_unresolved`, `loop_blocked`, `user_rejected`, `tool_rejected`, `info_missing`; `denied` puede ser de uno u otro tipo (ver abajo) |
 | `call.verdict` (qué dijo la verificación) | `approved`, `rejected`, `null` (no verificada o no ejecutada) |
-| `call.reason` (causa del rechazo) | lista cerrada: las opciones del modelo de decisión. Valores iniciales (provisorios): `no_usable_data` (el resultado no tiene datos utilizables) y `not_accomplished` (el resultado no cumple lo pedido); si se dan ambas, gana `no_usable_data`. La lista definitiva se define con la evaluación de prompts (sección 10.1). El contexto guarda solo la clave; cada razón tiene un mensaje fijo que arman las vistas (sección 8) |
+| `call.reason` (causa del rechazo) | lista cerrada: las opciones del modelo de decisión. Valores iniciales (provisorios): `no_usable_data` (el resultado no tiene datos utilizables) y `not_accomplished` (el resultado no cumple lo pedido); si se dan ambas, gana `no_usable_data`. La lista definitiva se define con la evaluación de prompts (sección 10.1). El contexto guarda solo la clave; cada razón tiene un mensaje fijo que arman las vistas (sección 8). En `tool_error` y `exception` no se consulta al modelo: la fija quien ejecuta (`no_usable_data`) |
 | `error.kind` | `service_unavailable` |
 
 **Cuándo se crea cada `error.kind`** (siempre con el `stepId` del paso en curso):
@@ -153,17 +153,17 @@ Notas:
 
 **Registro de una llamada**
 
-Una **llamada** es el intento de ejecutar una herramienta. Consultar a un modelo (elegir la herramienta, generar o revisar los argumentos, verificar el resultado) es una consulta al modelo, no una llamada, y no se registra por sí sola. La llamada se registra **una sola vez, al terminar el intento, con su `status` final**, incluidos los rechazos previos a la ejecución; antes no existe en `calls`. La verificación del resultado es otra consulta al modelo, así que va en un segundo `apply` que actualiza `verdict` y `reason`. Mientras tanto `verdict = null` significa "ejecutada, aún sin verificar".
+Una **llamada** es el intento de ejecutar una herramienta. Consultar a un modelo (elegir la herramienta, generar o revisar los argumentos, verificar el resultado) es una consulta al modelo, no una llamada, y no se registra por sí sola. La llamada se registra **una sola vez, al terminar el intento, con su `status` final**, incluidos los rechazos previos a la ejecución; antes no existe en `calls`. La verificación del resultado es otra consulta al modelo (salvo en `tool_error` y `exception`, donde no hay consulta), así que va en un segundo `apply` que actualiza `verdict` y `reason`. Mientras tanto `verdict = null` significa "ejecutada, aún sin verificar".
 
 | Momento | Qué se registra |
 |---|---|
 | Los argumentos no pasan la validación contra el esquema, o la revisión los rechaza por mal generados | llamada `args_invalid` (cada rechazo cuenta como reintento, provisorio); se regeneran con lo rechazado a la vista |
 | La revisión rechaza la herramienta elegida | llamada `tool_rejected`; se vuelve al inicio del bucle (elegir ruta y herramienta; en deliberativo la ruta ya viene del plan) con lo rechazado a la vista |
 | La revisión detecta que faltan datos del usuario | llamada `info_missing`; igual que `tool_rejected`: se vuelve al inicio del bucle con lo rechazado a la vista, y el modelo de decisión puede elegir `ask_user` |
-| Antes de ejecutar: refs sin resolver, anti-loop, política del Guard, confirmación del usuario | `refs_unresolved`, `loop_blocked`, `denied` (Guard) o `user_rejected`. Mientras se espera la confirmación no hay registro |
+| Antes de ejecutar: refs sin resolver, anti-loop, política del Guard, confirmación del usuario | `refs_unresolved`, `loop_blocked`, `denied` (Guard) o `user_rejected`. `refs_unresolved` cuenta como reintento de argumentos, igual que `args_invalid`. Mientras se espera la confirmación no hay registro |
 | Ejecución terminada | `ok`, `no_data`, `not_found`, `tool_error`, `exception` o `denied` (política del servidor de la herramienta, detectada en el resultado), con `verdict = null` |
 | Ejecución cancelada o abortada | `interrupted`, registrada por quien ejecuta (por ejemplo, en un `finally`) |
-| Verificación del resultado (de toda llamada ejecutada, salvo `interrupted` y `denied`) | `update` de `verdict` y `reason`, juntos y una sola vez (de `null` a un valor); un reintento es una llamada nueva |
+| Verificación del resultado (de toda llamada ejecutada, salvo `interrupted` y `denied`) | `update` de `verdict` y `reason`, juntos y una sola vez (de `null` a un valor); un reintento es una llamada nueva. En `tool_error` y `exception` no se consulta al modelo: quien ejecuta registra `verdict = rejected` y `reason = no_usable_data` |
 
 - La revisión de argumentos es una consulta al modelo de decisión (no al LLM, para evitar llamadas lentas) que va después de las comprobaciones deterministas (validación, refs, anti-loop, política) y antes de pedir confirmación al usuario. Si aprueba, no deja registro; del rechazo solo importa el escenario elegido, que se refleja en el `status`, sin `reason`.
 
@@ -233,7 +233,7 @@ Una **llamada** es el intento de ejecutar una herramienta. Consultar a un modelo
 | Última llamada y últimas lecturas con datos | `calls` (`kind = read`, `status = ok`) |
 | Intentos previos por ruta o herramienta | `calls` |
 | Fallos del paso actual | `calls` del paso con fallo (misma regla que los fallos recientes) |
-| Reintentos de un paso (argumentos, resultado) | conteo de `calls` del paso con `status = args_invalid` o `verdict = rejected` (provisorio) |
+| Reintentos de un paso (argumentos, resultado) | conteo de `calls` del paso con `status = args_invalid` o `refs_unresolved`, o con `verdict = rejected` (provisorio) |
 | Llamadas de un paso (tope) | conteo de `calls` del paso, sin `user_rejected` (provisorio) |
 | Replans realizados | `plans` con `trigger = step_failure` |
 | Escalaciones | conteo de pasos `failed`, incluidos los `superseded` |
@@ -310,16 +310,16 @@ Una vista es una función de solo lectura y determinista (mismo contexto, mismo 
 |---|---|---|
 | `forPlan` | Planificador y replan | solicitud, ventana de pasos (ya ejecutados, actual, siguientes), todos los efectos sin recorte y los posibles efectos, hechos, fallos recientes, `feedback` de los planes anteriores |
 | `forRoute` | Decisiones de ruta y herramienta | paso actual y criterio, intentos recientes por ruta y herramienta (cuáles fallaron), fallos recientes, hechos |
-| `forArgs` | Generación de argumentos | instrucción del paso con handoff (5.4; en reactivo, la solicitud y el historial), últimas lecturas con datos, refs disponibles, efectos, hechos, fallos del paso actual |
-| `forVerify` | Verificación del paso | paso, criterio de éxito, llamada evaluada (resumen y ref), efectos del paso |
+| `forArgs` | Generación de argumentos | instrucción del paso con handoff (5.4; en reactivo, la solicitud y el historial: las últimas llamadas de la ventana, una línea cada una y sin resumen), últimas lecturas con datos, refs disponibles, efectos, hechos, fallos del paso actual |
+| `forVerify` | Verificación del paso | paso, criterio de éxito, llamada evaluada (herramienta, `args`, resumen y ref), efectos del paso |
 | `forFinal` | Respuesta final redactada por el modelo | solicitud, estado y motivo de detención de la tarea, estado de cada paso, evidencia, efectos y posibles efectos, hechos |
 | `forFallback` | Respuesta final de respaldo, sin modelo (también la usada en `cancelled`) | estado, motivo de detención, fallos, efectos y posibles efectos, hechos, últimas acciones |
 
 Las vistas muestran la ref de una llamada como `ref:rN (tamaño, ruta)`, armada a partir de `call.ref` y `refs` (la ruta es `where`, para que el modelo sepa qué `path` leer): el `summary` no contiene claves de ref (5.2).
 
-Los fallos de una llamada rechazada (`args_invalid`, `tool_rejected`, `info_missing`) muestran lo que se quiso ejecutar (herramienta y `args`) y una frase predefinida según el `status`, que aclara el escenario; la frase no se guarda en el contexto. Igual con `reason`: una llamada con `verdict = rejected` muestra un mensaje fijo según su `reason`, que arman las vistas y no se guarda.
+Los fallos de una llamada rechazada (`args_invalid`, `tool_rejected`, `info_missing`) muestran lo que se quiso ejecutar (herramienta y `args`) y una frase predefinida según el `status`, que aclara el escenario; la frase no se guarda en el contexto. Igual con `reason`: una llamada con `verdict = rejected` muestra un mensaje fijo según su `reason`, que arman las vistas y no se guarda. Igual con el cierre: el estado y el motivo de detención de la tarea tienen una frase fija cada uno (texto provisorio).
 
-`forArgs` es deliberadamente liviana: deja fuera el registro cronológico y la ventana del plan, pero incluye los fallos del paso actual para no regenerar el mismo error de argumentos (el anti-loop bloquearía una repetición idéntica).
+`forArgs` es deliberadamente liviana: deja fuera el registro cronológico (salvo, en reactivo, el historial de una línea por llamada) y la ventana del plan, pero incluye los fallos del paso actual para no regenerar el mismo error de argumentos (el anti-loop bloquearía una repetición idéntica).
 
 Además, consultas para el control de ejecución (`canFinish()` devuelve el cierre posible o `null`; las demás, sí o no): `isRepeat(tool, sig, { exempt })`, `canFinish()` (solo reactivo), `hasApprovedCall()` e `isClosed()`. El contexto no conoce herramientas (principio 5): quien ejecuta resuelve la exención con el catálogo (`loopExempt`) y la pasa como argumento; con `exempt = true`, `isRepeat` devuelve `false` sin comparar.
 
@@ -327,7 +327,7 @@ Además, consultas para el control de ejecución (`canFinish()` devuelve el cier
 
 - **Un solo lugar** define el presupuesto: una tabla consumidor → máximo de caracteres y de elementos por sección.
 - Al recortar, la prioridad es: paso actual y criterio, solicitud, último resultado relevante, fallos recientes, hechos, historial anterior.
-- Los **efectos nunca se recortan** en `forPlan`: el replan los recibe todos, uno por línea. Si aun así exceden el límite del modelo, la vista falla en voz alta (no recorta en silencio) y la tarea termina con `unrecoverable`.
+- Los **efectos nunca se recortan** en ninguna vista que los muestra: se entregan todos, uno por línea, con `args` y resumen completos. Si lo irrecortable excede el límite, la vista falla en voz alta (no recorta en silencio) y la tarea termina con `unrecoverable`. Excepción: si falla `forFinal`, el cierre cae a `forFallback`, que nunca falla.
 - El tamaño de las ventanas recientes (llamadas e intentos recientes, fallos recientes) sube con las escalaciones (5.4): con 0, 1 y 2 o más escalaciones (`min(escalaciones, 2)`, en ambos modos) las vistas muestran los últimos 2, 5 y 10 elementos de cada lista. La ventana de pasos de `forPlan` no depende de esto.
 - `summary` tiene tope de 2500 caracteres.
 - **Quién recorta.** Quien ejecuta, por longitud y antes de escribir; el resto de un resultado va a `refs`. `apply` nunca recorta: rechaza los excesos de `summary`, de los strings de `args` (contra `ARGS_MAX`) y del valor de un `fact`. Ni quien ejecuta ni `apply` sanean el texto: el saneado lo hacen las vistas al renderizar (5.2).
@@ -342,7 +342,7 @@ Además, consultas para el control de ejecución (`canFinish()` devuelve el cier
 - **Reintentos y anti-loop.** Cuando lo demás esté cerrado: qué consume cada rechazo (`args_invalid`, `tool_rejected`, `info_missing`, `verdict = rejected`), cuántos reintentos hay y precisar el "único reintento" del anti-loop (¿por herramienta y `sig`, o por paso?). Incluye ajustar con tareas reales el tope de llamadas por paso (8), definir qué pasa con las lecturas repetidas sin escritura de por medio (por ejemplo, consultar el estado de un proceso en segundo plano, que el anti-loop bloquea) y unificar `loop_blocked` en ambos modos (hoy en reactivo 2 seguidos cierran la tarea, 5.3): el paso queda `failed` y la recuperación del modo se encarga; de aceptarse, evaluar eliminar `stopReason = loop_blocked`, porque la causa ya queda en el `status` de las llamadas. Pregunta abierta: en deliberativo, ¿un `user_rejected` debe consumir replans? Hoy sí: deja el paso `failed` y el replan comparte `trigger = step_failure`, que es lo que cuenta el tope de 2.
 - **Razones de rechazo del verificador.** Los valores iniciales son dos (`no_usable_data`, `not_accomplished`; 5.3), derivados de las dos preguntas de verificación actuales. La lista definitiva y su criterio de prioridad salen de la evaluación de prompts.
 - **Handoff.** Se mantiene solo si hace falta: `forArgs` ya incluye las últimas lecturas con datos, que lo cubren en parte. Si se mantiene, definir qué llamada usar cuando el paso anterior tuvo varias.
-- **Topes y recortes.** Valores numéricos del presupuesto: topes por vista, topes de recorte (valores de `facts`: 500; strings de `args`: 300 por defecto, con las excepciones de `argCaps`; todos tentativos) y tamaños de las ventanas recientes, más el tope de `plans.feedback`. Propuesta: medir primero con tareas reales y fijarlos con el tokenizador de cada modelo; el ajuste por escalaciones va al final. Además: decidir si los efectos se recortan en `forFinal` y `forFallback` (5.4 dice "sin tope"; la sección 9 solo lo explicita para `forPlan`), y cómo se leen los resultados largos por trozos: cada trozo es una llamada y, por tanto, un paso, así que en reactivo (tope 15) un documento grande no alcanza. Opciones: lectura dirigida (buscar dentro del archivo), un tope aparte para estas lecturas o aceptar el límite; se mide con tareas reales.
+- **Topes y recortes.** Valores numéricos del presupuesto: topes por vista, topes de recorte (valores de `facts`: 500; strings de `args`: 300 por defecto, con las excepciones de `argCaps`; todos tentativos) y tamaños de las ventanas recientes, más el tope de `plans.feedback`. Propuesta: medir primero con tareas reales y fijarlos con el tokenizador de cada modelo; el ajuste por escalaciones va al final. Además: cómo se leen los resultados largos por trozos: cada trozo es una llamada y, por tanto, un paso, así que en reactivo (tope 15) un documento grande no alcanza. Opciones: lectura dirigida (buscar dentro del archivo), un tope aparte para estas lecturas o aceptar el límite; se mide con tareas reales.
 
 ### 10.2 Ideas y temas por pensar
 
