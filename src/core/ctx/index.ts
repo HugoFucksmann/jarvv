@@ -1,7 +1,7 @@
 /**
- * Módulo `ctx`: contexto de una tarea (PLAN_CONTEXT.md v0.28).
- * Fase 1: esquema, vocabularios, `create` (`context`, `fromSnapshot`), `apply`, lectura, eventos y snapshot.
- * Fase 2: derivaciones (`derive.ts`) y las seis vistas estructuradas (`views/`), expuestas como `ctx.view.<vista>`.
+ * Módulo `ctx`: contexto de una tarea (PLAN_CONTEXT.md v0.38).
+ * Esquema, vocabularios, `create` (`context`, `fromSnapshot`), `apply`, lectura, eventos y snapshot; derivaciones
+ * (`derive.ts`) y vistas estructuradas (`views/`), expuestas como `ctx.view.<vista>`.
  * Este paquete no importa nada fuera de `ctx/`. El texto de los prompts lo arman los renderizadores de `src/core/render/`.
  */
 
@@ -77,14 +77,18 @@ export type {
   TerminalTaskState,
   VerdictReason,
 } from "./types.ts";
-// Derivaciones de cierre (Fase 1) y derivaciones de 5.4 (Fase 2): funciones puras sobre arreglos y datos.
+// Derivaciones de cierre y derivaciones de 5.4: funciones puras sobre arreglos y datos.
 export { canFinish, hasApprovedCall, hasApprovedOk, hasEffects, isEffect, planClosure, terminalStateFor } from "./closure.ts";
 export {
-  argsRetries,
+  ANSWER_FACT_PREFIX,
+  attemptCalls,
   callsInStep,
+  doneCalls,
   effectsOf,
+  envOf,
   escalationCount,
-  handoffOf,
+  isAnswerKey,
+  isApproved,
   isExecuted,
   isFailure,
   isPossibleEffect,
@@ -92,35 +96,45 @@ export {
   isTransientFailure,
   lastN,
   lastReadsWithData,
+  lastResultOf,
+  outcomeOf,
   possibleEffectsOf,
   recentFailures,
   recentWindowSize,
   replansDone,
-  resultRetries,
+  userInputOf,
 } from "./derive.ts";
-export type { Handoff, RepeatOptions } from "./derive.ts";
+export type { EnvEntry, RepeatOptions, UserInputEntry } from "./derive.ts";
 // Vistas (sección 8): tipos estructurados y frases fijas por `status` y por `reason`.
-export { ARGS_SHOWN_STATUSES, REASON_NOTES, STATUS_NOTES } from "./views/messages.ts";
+export { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STATUS_NOTES, STOP_REASON_NOTES } from "./views/messages.ts";
 export type {
   ArgsView,
   ArgsViewOptions,
-  AttemptView,
+  AskView,
   AvailableRefView,
   CallView,
+  CriterionView,
   ContextViews,
   EffectView,
   FactView,
   FallbackView,
   FeedbackView,
   FinalView,
-  HandoffView,
+  FinalViewOptions,
+  PlanTriggerView,
   PlanView,
   PlanViewOptions,
   ReadArgKeys,
   RefView,
+  ReviewView,
+  ReviewViewOptions,
   RouteView,
+  RouteViewOptions,
   ShownRange,
+  StepDoneView,
   StepView,
+  TaskView,
+  UserInputView,
   VerifyView,
   WindowOptions,
 } from "./views/types.ts";

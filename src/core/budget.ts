@@ -1,5 +1,5 @@
 /**
- * Tabla única de valores provisorios o tentativos (PLAN_CONTEXT.md v0.28).
+ * Tabla única de valores provisorios o tentativos (PLAN_CONTEXT.md v0.38, PLAN_FLUJO.md v0.9).
  *
  * Vive FUERA de `ctx/` y el contexto no la importa (principio 5): quien crea el contexto toma de aquí los valores y se
  * los pasa a `create.context` como parámetros. Cada entrada declara si es provisoria, qué sección del diseño la
@@ -21,8 +21,10 @@ export const BUDGET = {
   summaryMax: 2500,
   /** Tope del valor de un hecho (9). */
   factValueMax: 500,
-  /** Profundidad máxima de un valor JSON (6, regla 7). */
-  jsonMaxDepth: 32,
+  /** Tope de `plans.feedback` (9). */
+  feedbackMax: 1500,
+  /** Profundidad máxima de un valor JSON escrito (`args`): niveles de contenedores contando la raíz (9). */
+  jsonMaxDepth: 6,
 
   // ── Recorte que aplica quien ejecuta (no lo valida `apply`) ──
   /**
@@ -35,30 +37,63 @@ export const BUDGET = {
   maxSteps: 15,
   maxReplans: 2,
   maxEscalations: 2,
-  stepRetriesArgs: 1,
-  stepRetriesResult: 1,
   maxCallsPerStep: 8,
-  maxUserQuestionsPerStep: 1,
   planRegenerationRetries: 1,
   /** Tamaño de las ventanas recientes con 0, 1 y 2 o más escalaciones (9). */
   recentWindows: [2, 5, 10],
 
-  // ── Vistas y renderizadores (Fase 2) ──
-  /** Pasos ya ejecutados que muestra la ventana de pasos de `forPlan`. */
-  planStepsBefore: 5,
-  /** Pasos siguientes (`pending`) que muestra la ventana de pasos de `forPlan`. */
-  planStepsAfter: 5,
-  /** Recorte de una línea de lista (fallos, intentos, instrucciones de pasos) en los renderizadores. */
-  viewLineChars: 600,
-  /** Recorte de la solicitud o la instrucción dentro de un prompt. */
-  viewRequestChars: 1500,
-  /** Recorte de cada `feedback` de un plan anterior. */
-  viewFeedbackChars: 1500,
+  // ── Ejecutor (Fase 5) ──
+  /** Repeticiones de una consulta a un modelo ante una respuesta inválida (no ante desborde): verificador, pregunta, Decision (D4). */
+  invalidResponseRetries: 1,
+  /** Largo máximo del argumento principal dentro del `label` de una ref (D8). */
+  refLabelChars: 200,
+  /** Generación del texto de la pregunta al usuario (`ask_user`, D17). */
+  ask: {
+    /** Tope de tokens de salida de `generateQuestion`. */
+    maxTokens: 300,
+  },
+
+  // ── Topes por sección y por elemento de las vistas (8.2, 9) ──
   /**
-   * Máximo de caracteres de cada vista que no depende del modelo. `forPlan` no tiene valor aquí: su límite es el del
-   * modelo y lo pasa quien llama a `renderPlan`.
+   * Los aplican los adaptadores y los renderizadores al armar el texto (nunca `apply`). Los recortes por elemento llevan el
+   * marcador `…(+N)`; en `userInput` y `env` se muestran los elementos más recientes que quepan, sin cortar uno.
+   * Los conteos (`done`, `stepsDone`, `lastReads`, `refs`, `evidence`) son elementos, el resto son caracteres.
    */
-  viewMaxChars: { route: 6000, args: 12000, verify: 6000, final: 12000, fallback: 4000 },
+  caps: {
+    request: 4000,
+    step: 2000,
+    /** Línea de llamada `L`. */
+    line: 160,
+    /** Fallo `F`: `L` + `args` + `summary`. */
+    failureArgs: 200,
+    failureSummary: 140,
+    /** Lectura: `L` + `args` + `summary` completo + marca de ref. */
+    readArgs: 300,
+    readSummary: 2500,
+    refMark: 150,
+    /** Llamada evaluada (`forVerify`) y llamada rechazada (`forAsk`). */
+    evaluatedArgs: 1000,
+    rejectedSummary: 300,
+    refLine: 250,
+    done: 15,
+    stepsDone: 15,
+    stepsDoneInstruction: 200,
+    stepsDoneOutcome: 150,
+    nextInstruction: 300,
+    lastResultSummary: 600,
+    lastReads: 2,
+    refs: 5,
+    userInput: 3000,
+    env: 500,
+    /** Reserva común de efectos y posibles efectos: nunca se recortan; si no entran, la vista falla en voz alta. */
+    effectsReserve: 6000,
+    candidate: 3000,
+    previousFeedback: 2,
+    finalNote: 300,
+    finalStepInstruction: 120,
+    evidence: 38,
+    evidenceSummary: 600,
+  },
 
   // ── Extractores de resultados (Fase 4) ──
   /**
@@ -89,23 +124,19 @@ export type BudgetKey = keyof typeof BUDGET;
 
 export const BUDGET_META: { readonly [K in BudgetKey]: BudgetMeta } = {
   summaryMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7); Fase 4 · processResult (red de seguridad)" },
-  factValueMax: { provisional: true, source: "5.1, 9, 10.1", usedBy: "create.context → apply (regla 7)" },
-  jsonMaxDepth: { provisional: true, source: "6 regla 7; el valor es un supuesto de implementación", usedBy: "create.context → apply (regla 7)" },
-  argsStringDefault: { provisional: true, source: "5.2, 9, 10.1", usedBy: "Fase 5 · ejecutor (recorte antes de escribir); base de ARGS_MAX" },
+  factValueMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7)" },
+  feedbackMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7)" },
+  jsonMaxDepth: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7); Fase 5 · engine/args.ts (clipArgs)" },
+  argsStringDefault: { provisional: false, source: "5.2, 9", usedBy: "Fase 5 · ejecutor (recorte antes de escribir); base de ARGS_MAX" },
   maxSteps: { provisional: false, source: "5.2", usedBy: "Fases 5 y 6 · ejecutor" },
   maxReplans: { provisional: false, source: "5.2", usedBy: "Fase 6 · recuperación" },
   maxEscalations: { provisional: false, source: "5.2", usedBy: "Fase 6 · recuperación" },
-  stepRetriesArgs: { provisional: true, source: "5.2, 10.1", usedBy: "Fase 5 · stepLoop" },
-  stepRetriesResult: { provisional: true, source: "5.2, 10.1", usedBy: "Fase 5 · stepLoop" },
-  maxCallsPerStep: { provisional: true, source: "5.2, 10.1", usedBy: "Fase 5 · stepLoop" },
-  maxUserQuestionsPerStep: { provisional: false, source: "5.2", usedBy: "Fase 5 · stepLoop" },
+  maxCallsPerStep: { provisional: false, source: "FLUJO 3", usedBy: "Fase 5 · stepLoop" },
   planRegenerationRetries: { provisional: true, source: "5.2 (C14)", usedBy: "Fase 6 · proveedor deliberativo" },
-  recentWindows: { provisional: true, source: "9, 10.1", usedBy: "Fase 2 · vistas (ctx.view.*)" },
-  planStepsBefore: { provisional: true, source: "8, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · ctx.view.forPlan" },
-  planStepsAfter: { provisional: true, source: "8, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · ctx.view.forPlan" },
-  viewLineChars: { provisional: true, source: "9, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · renderizadores" },
-  viewRequestChars: { provisional: true, source: "9, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · renderizadores" },
-  viewFeedbackChars: { provisional: true, source: "9, 10.1; el valor es un supuesto de implementación", usedBy: "Fase 2 · renderPlan" },
-  viewMaxChars: { provisional: true, source: "9, 10.1; los valores son un supuesto de implementación", usedBy: "Fase 2 · renderizadores (route, args, verify, final, fallback)" },
+  recentWindows: { provisional: false, source: "9", usedBy: "Fase 2 · vistas (ctx.view.*)" },
+  invalidResponseRetries: { provisional: false, source: "FLUJO 2", usedBy: "Fase 5 · verify.ts, ask.ts, callRunner.ts, stepLoop.ts" },
+  refLabelChars: { provisional: true, source: "D8; el valor es un supuesto de implementación", usedBy: "Fase 5 · engine/args.ts (callLabel)" },
+  ask: { provisional: true, source: "D17; el valor es un supuesto de implementación", usedBy: "Fase 5 · qwen.ts (generateQuestion)" },
+  caps: { provisional: false, source: "8.2, 9", usedBy: "Fase 5b · adaptadores de Decisión y renderizadores (los valores son los del doc)" },
   extract: { provisional: true, source: "5.2 (summary), 9, 10.1; los valores son los literales de los extractores vigentes", usedBy: "Fase 4 · result/extractors/*" },
 };

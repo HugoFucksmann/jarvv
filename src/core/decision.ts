@@ -6,6 +6,9 @@
  *
  * - Integración HTTP real contra la URL configurada; sin simulaciones. Si el servicio no está configurado o no
  *   responde, lanza DecisionServiceUnavailableError.
+ * - `chooseRoute` y `chooseTool` (contrato `IActionDecision`, engine/deps.ts) reciben el marco de `forRoute`, y `reviewArgs`
+ *   (Decisión 3) el de `forReview`; los métodos
+ *   `evaluateDecisionOne` y `evaluateDecisionTwo` del motor vigente no cambian.
  * - Tipos de pregunta implementados: `choice` y `noul`. El contrato también define `score`; no se usa ni se implementa.
  * - Validación de la respuesta en un solo punto (parseResponse); el resto del código confía en ella.
  * - Umbral de `noul`: se aprueba solo con probabilidad estrictamente mayor que 0.5 (ante ambigüedad, no se aprueba).
@@ -26,6 +29,19 @@ import {
   type StepVerificationResult,
 } from "./types.ts";
 import type { IDecisionEngine } from "./engineDeps.ts";
+import type {
+  DecisionTrace,
+  IActionDecision,
+  ReviewDecision,
+  ReviewDecisionInput,
+  RouteDecision,
+  RouteDecisionInput,
+  ToolDecision,
+  ToolDecisionInput,
+  VerifyDecisionInput,
+} from "./engine/deps.ts";
+import { ARGS_REVIEWS } from "./engine/deps.ts";
+import { ASK_USER, FIN, isExecutableRoute } from "./types/routes.ts";
 import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
 import {
@@ -83,7 +99,26 @@ function noulAnswer(response: DecisionResponse, key: string): DecisionAnswerNoul
   return answer;
 }
 
-export class Decision20Engine implements IDecisionEngine {
+/** Traza de una opción tomada sin consultar al modelo (había una sola). */
+function shortcutTrace(choice: string, state: string): DecisionTrace {
+  return {
+    probabilities: { [choice]: 1 },
+    rawInput: JSON.stringify({ state, single_option: choice }, null, 2),
+    rawOutput: JSON.stringify({ choice, source: "single_option_shortcut" }, null, 2),
+  };
+}
+
+/** La opción elegida de Decisión 1 como decisión del motor. `choice` ya es una de las ofrecidas. */
+function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean): RouteDecision {
+  if (choice === FIN) return { action: FIN, ...trace };
+  if (choice === ASK_USER) return { action: ASK_USER, ...trace };
+  if (!isExecutableRoute(choice)) {
+    throw new DecisionValidationError(`Decision #1: opción '${choice}' no es una ruta ejecutable.`);
+  }
+  return shortcut ? { action: "route", route: choice, shortcut: true, ...trace } : { action: "route", route: choice, ...trace };
+}
+
+export class Decision20Engine implements IDecisionEngine, IActionDecision {
   /**
    * Invoca `system_one` sobre el endpoint real. Devuelve las respuestas ya validadas contra `questions`
    * y los crudos de entrada/salida para depuración.
@@ -106,7 +141,8 @@ export class Decision20Engine implements IDecisionEngine {
     const estimated = estimateTokens(JSON.stringify(payload));
     if (estimated > config.decisionMaxContext) {
       throw new DecisionValidationError(
-        `Desbordamiento de contexto: ~${estimated} tokens superan el límite de ${config.decisionMaxContext}.`
+        `Desbordamiento de contexto: ~${estimated} tokens superan el límite de ${config.decisionMaxContext}.`,
+        true
       );
     }
 
@@ -213,7 +249,97 @@ export class Decision20Engine implements IDecisionEngine {
   }
 
   /**
-   * Verificación factual de paso con Decision: dos preguntas `noul` (`ok`, `cumple`).
+   * Decisión 1: ruta de la siguiente acción entre las ofrecidas (`input.routes`), `fin` (si `allowFin`) o `ask_user` (si
+   * `allowAsk`). Con una sola opción no hay decisión que tomar y se omite la consulta; sin opciones es un defecto de quien
+   * llama (el motor cierra el paso con `no_tools` antes). Las rutas y los identificadores salen de las constantes.
+   */
+  async chooseRoute(input: RouteDecisionInput, signal?: AbortSignal): Promise<RouteDecision> {
+    const { state, questions } = DECISION_PROMPTS.buildRouteChoice(input);
+    const question = questions.route;
+    const options = question.type === "choice" ? Object.keys(question.criteria) : [];
+    if (options.length === 0) throw new Error("chooseRoute: no hay opciones que ofrecer.");
+
+    if (options.length === 1) {
+      const choice = options[0];
+      console.log(`[Decision #1] action=${choice} (única opción) duration=0ms`);
+      return routeDecisionOf(choice, shortcutTrace(choice, state), true);
+    }
+
+    const t0 = Date.now();
+    const response = await this.ask("Decision #1", state, questions, signal);
+    const { choice, probabilities } = choiceAnswer(response, "route");
+    console.log(`[Decision #1] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+
+    const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    // `parseResponse` validó la pertenencia a `criteria`; `routeDecisionOf` solo estrecha el tipo.
+    return routeDecisionOf(choice, trace, false);
+  }
+
+  /**
+   * Decisión 2: herramienta dentro de la ruta elegida, o `ask_user` (si `allowAsk`).
+   * Con una sola herramienta y sin `ask_user` no hay decisión que tomar y se omite la llamada; con `ask_user` ofrecido
+   * hay dos opciones y sí se consulta.
+   */
+  async chooseTool(input: ToolDecisionInput, signal?: AbortSignal): Promise<ToolDecision> {
+    const { tools } = input;
+    if (tools.length === 0) throw new Error("chooseTool: no hay herramientas candidatas.");
+
+    if (tools.length === 1 && !input.allowAsk) {
+      const tool = tools[0];
+      console.log(`[Decision] tool=${tool.name} (única opción) duration=0ms`);
+      return {
+        action: "tool",
+        tool,
+        shortcut: true,
+        probabilities: { [tool.name]: 1 },
+        rawInput: JSON.stringify({ state: input.step?.instruction ?? input.request, single_tool: tool.name }, null, 2),
+        rawOutput: JSON.stringify({ choice: tool.name, source: "single_tool_shortcut" }, null, 2),
+      };
+    }
+
+    const { state, questions } = DECISION_PROMPTS.buildToolChoice(input);
+
+    const t0 = Date.now();
+    const response = await this.ask("Decision #2", state, questions, signal);
+    const { choice, probabilities } = choiceAnswer(response, "selected_tool");
+    console.log(`[Decision] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+
+    const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    if (choice === ASK_USER) return { action: ASK_USER, ...trace };
+    const selected = tools.find((t) => t.name === choice);
+    if (!selected) throw new DecisionValidationError(`Decision #2: la herramienta '${choice}' no está entre las candidatas.`);
+    return { action: "tool", tool: selected, ...trace };
+  }
+
+  /**
+   * Decisión 3: revisión de la llamada candidata. Una pregunta con cuatro opciones (aprobar o el escenario del rechazo);
+   * siempre se consulta, porque nunca hay una sola opción.
+   */
+  async reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision> {
+    const { state, questions } = DECISION_PROMPTS.buildArgsReview(input);
+
+    const t0 = Date.now();
+    const response = await this.ask("Decision #3", state, questions, signal);
+    const { choice, probabilities } = choiceAnswer(response, "review");
+    console.log(`[Decision #3] review=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+
+    // `parseResponse` validó la pertenencia a `criteria`; aquí solo se estrecha el tipo.
+    const review = ARGS_REVIEWS.find((r) => r === choice);
+    if (review === undefined) throw new DecisionValidationError(`Decision #3: resultado '${choice}' desconocido.`);
+    return { review, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+  }
+
+  /**
+   * Decisión 4: verificación del resultado de la llamada evaluada, con el criterio del paso o de la solicitud (`forVerify`).
+   * Mismas dos preguntas `noul` que `evaluateStepVerification`.
+   */
+  async verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<StepVerificationResult> {
+    const { state, questions } = DECISION_PROMPTS.buildResultVerification(input);
+    return this.runVerification("Verification", input.call.split("\n", 1)[0], state, questions, signal);
+  }
+
+  /**
+   * Verificación factual de paso con Decision (motor vigente): dos preguntas `noul` (`ok`, `cumple`).
    * Aprueba solo con probabilidad estrictamente mayor que NOUL_APPROVE.
    */
   async evaluateStepVerification(
@@ -233,9 +359,19 @@ export class Decision20Engine implements IDecisionEngine {
       expectedOutcome,
       observation,
     });
+    return this.runVerification("StepVerification", toolName, state, questions, signal);
+  }
 
+  /** Consulta de verificación común: las preguntas `ok` y `cumple`, aprobadas solo con probabilidad > NOUL_APPROVE. */
+  private async runVerification(
+    label: string,
+    toolLabel: string,
+    state: string,
+    questions: Record<string, DecisionQuestion>,
+    signal?: AbortSignal
+  ): Promise<StepVerificationResult> {
     const t0 = Date.now();
-    const response = await this.ask("StepVerification", state, questions, signal);
+    const response = await this.ask(label, state, questions, signal);
     const okProbability = noulAnswer(response, "ok").noul;
     const cumpleProbability = noulAnswer(response, "cumple").noul;
     const ok = okProbability > NOUL_APPROVE;
@@ -244,7 +380,7 @@ export class Decision20Engine implements IDecisionEngine {
     const { decisionBackend, decisionModel } = ConfigManager.getConfig();
     const modelLabel = decisionBackend === "d3" ? decisionModel : MODELS.EOS_0_8B.short;
     console.log(
-      `[StepVerification ${modelLabel}] tool=${toolName} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
+      `[${label} ${modelLabel}] ${toolLabel} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
     );
     return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }

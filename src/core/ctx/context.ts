@@ -10,27 +10,28 @@
 import { prepareBatch } from "./apply.ts";
 import { canFinish as canFinishOf, hasApprovedCall as hasApprovedCallOf } from "./closure.ts";
 import {
-  argsRetries as argsRetriesOf,
   callsInStep as callsInStepOf,
   effectsOf,
   escalationCount,
-  handoffOf,
+  canAsk as canAskOf,
+  nextAnswerKey as nextAnswerKeyOf,
   isRepeat as isRepeatOf,
   possibleEffectsOf,
   recentWindowSize,
   replansDone as replansDoneOf,
-  resultRetries as resultRetriesOf,
 } from "./derive.ts";
-import type { Handoff, RepeatOptions } from "./derive.ts";
+import type { RepeatOptions } from "./derive.ts";
 import { ContextError } from "./errors.ts";
 import { currentOf, findElements, getElement } from "./query.ts";
 import { cloneData } from "./snapshot.ts";
 import { checkMeta } from "./validate.ts";
 import {
   buildArgsView,
+  buildAskView,
   buildFallbackView,
   buildFinalView,
   buildPlanView,
+  buildReviewView,
   buildRouteView,
   buildVerifyView,
 } from "./views/index.ts";
@@ -68,8 +69,10 @@ export class TaskContext {
     forPlan: (options) => buildPlanView(this.data, options),
     forRoute: (options) => buildRouteView(this.data, options),
     forArgs: (options) => buildArgsView(this.data, options),
+    forAsk: () => buildAskView(this.data),
+    forReview: (options) => buildReviewView(this.data, options),
     forVerify: (callId) => buildVerifyView(this.data, callId),
-    forFinal: () => buildFinalView(this.data),
+    forFinal: (options) => buildFinalView(this.data, options),
     forFallback: (options) => buildFallbackView(this.data, options),
   };
 
@@ -80,6 +83,7 @@ export class TaskContext {
       summaryMax: options.summaryMax,
       argsStringMax: options.argsStringMax,
       factValueMax: options.factValueMax,
+      feedbackMax: options.feedbackMax,
       jsonMaxDepth: options.jsonMaxDepth,
     };
     this.onListenerError = options.onListenerError;
@@ -178,7 +182,7 @@ export class TaskContext {
     return currentOf(this.data);
   }
 
-  // ─────────── Consultas para el control de ejecución (sección 8) ───────────
+  // ─────────── Consultas para el control de ejecución (8.6) ───────────
 
   /**
    * Anti-loop (5.4): ¿ejecutar `tool` con `sig` repite una llamada ejecutada anterior? Con `exempt = true` (la
@@ -210,19 +214,19 @@ export class TaskContext {
     return possibleEffectsOf(this.data.calls);
   }
 
-  /** Reintentos de argumentos del paso (llamadas `args_invalid`). */
-  argsRetries(stepId: string): number {
-    return argsRetriesOf(this.data.calls, stepId);
-  }
-
-  /** Reintentos de resultado del paso (llamadas con `verdict = rejected`). */
-  resultRetries(stepId: string): number {
-    return resultRetriesOf(this.data.calls, stepId);
-  }
-
   /** Llamadas del paso para el tope por paso (sin `user_rejected`). */
   callsInStep(stepId: string): number {
     return callsInStepOf(this.data.calls, stepId);
+  }
+
+  /** ¿Se puede ofrecer `ask_user` en el paso? No hay una respuesta posterior a su última llamada. */
+  canAsk(stepId: string): boolean {
+    return canAskOf(this.data, stepId);
+  }
+
+  /** Clave del hecho de la siguiente respuesta del paso: `answer_<stepId>_<n>`. */
+  nextAnswerKey(stepId: string): string {
+    return nextAnswerKeyOf(this.data.facts, stepId);
   }
 
   /** Replans realizados: planes con `trigger = step_failure`. */
@@ -238,11 +242,6 @@ export class TaskContext {
   /** Tamaño de las ventanas recientes según las escalaciones (9). */
   recentWindow(recentWindows: readonly number[]): number {
     return recentWindowSize(this.data.steps, recentWindows);
-  }
-
-  /** Resultado del paso anterior que se entrega al actual (5.4, provisorio); `null` si no aplica. */
-  handoff(): Handoff | null {
-    return handoffOf(this.data);
   }
 
   // ─────────── Persistencia ───────────

@@ -1,11 +1,11 @@
 /**
- * Frases fijas del cierre (forFinal y forFallback). Redacción propuesta en la Fase 2 (DECISIÓN NUEVA): el diseño
- * exige un mensaje por motivo de detención pero no fija el texto.
+ * Frases fijas de la respuesta de respaldo (`forFallback`). Es texto para el usuario, no un prompt: está en español. Las
+ * frases del estado y del motivo de detención que ven los modelos están en inglés en `ctx/views/messages.ts`.
  */
 
 import type { StopReason, TaskState } from "../ctx/index.ts";
 
-export const STATE_NOTES: { readonly [S in TaskState]: string } = {
+export const FALLBACK_STATE_TEXT: { readonly [S in TaskState]: string } = {
   running: "La tarea sigue en curso.",
   completed: "La tarea se completó.",
   partial: "La tarea quedó incompleta: se logró solo una parte.",
@@ -13,9 +13,8 @@ export const STATE_NOTES: { readonly [S in TaskState]: string } = {
   cancelled: "La tarea fue cancelada.",
 };
 
-export const STOP_REASON_NOTES: { readonly [R in StopReason]: string } = {
+export const FALLBACK_STOP_TEXT: { readonly [R in StopReason]: string } = {
   max_steps: "Se alcanzó el máximo de pasos permitido.",
-  loop_blocked: "Se detuvo porque la tarea repetía las mismas acciones sin avanzar.",
   no_alternatives: "No quedaron alternativas para continuar.",
   security_denied: "La política de seguridad denegó una operación necesaria.",
   user_cancelled: "La tarea fue cancelada por el usuario.",

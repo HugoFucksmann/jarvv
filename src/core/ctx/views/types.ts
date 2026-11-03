@@ -24,10 +24,26 @@ export interface WindowOptions {
 }
 
 export interface PlanViewOptions extends WindowOptions {
-  /** Pasos ya ejecutados que muestra la ventana de pasos de `forPlan` (no depende de las escalaciones). */
-  readonly planStepsBefore: number;
-  /** Pasos siguientes (`pending`) que muestra la ventana de pasos de `forPlan`. */
-  readonly planStepsAfter: number;
+  /** PARAM: el `feedback` del plan en curso. Obligatorio en `user_feedback` (el plan todavía no está en el contexto). */
+  readonly feedback: string | null;
+  /** Planes anteriores con `feedback` que muestra la vista (`BUDGET.caps.previousFeedback`). */
+  readonly previousFeedback: number;
+  /** Pasos `completed` que muestra `steps.done` (`BUDGET.caps.stepsDone`). */
+  readonly stepsDone: number;
+}
+
+export interface FinalViewOptions {
+  /** Lecturas completas que muestra la vista (`BUDGET.caps.lastReads`). */
+  readonly lastReads: number;
+  /** Llamadas de `evidence` (`BUDGET.caps.evidence`). */
+  readonly evidence: number;
+  /** Pasos vigentes que muestra `steps` (`BUDGET.caps.stepsDone`). */
+  readonly steps: number;
+}
+
+export interface RouteViewOptions extends WindowOptions {
+  /** Decisión 2: la ruta elegida; los intentos se filtran a ella. Sin valor (Decisión 1) no se filtra. */
+  readonly route?: string;
 }
 
 /**
@@ -40,8 +56,15 @@ export interface ReadArgKeys {
   readonly length: string;
 }
 
-export interface ArgsViewOptions extends WindowOptions {
+export interface ReviewViewOptions extends WindowOptions {
+  /** Últimas lecturas aprobadas que muestra la vista (`BUDGET.caps.lastReads`): no depende de las escalaciones. */
+  readonly lastReads: number;
+}
+
+export interface ArgsViewOptions extends ReviewViewOptions {
   readonly readArgKeys: ReadArgKeys;
+  /** Refs más recientes que muestra la vista (`BUDGET.caps.refs`). */
+  readonly refs: number;
 }
 
 // ───────────────────────── Piezas ─────────────────────────
@@ -78,6 +101,8 @@ export interface CallView {
   readonly statusNote: string | null;
   /** Frase fija según el `reason` (`null` si no hay rechazo del verificador). */
   readonly reasonNote: string | null;
+  /** Fallo de llamada (5.4): `status` distinto de `ok` o `verdict = rejected`. */
+  readonly failed: boolean;
   /** `args` de la llamada; solo donde la vista muestra lo que se quiso ejecutar (si no, `null`). */
   readonly args: JsonObject | null;
   readonly summary: string | null;
@@ -87,17 +112,6 @@ export interface CallView {
 /** Un efecto o posible efecto es una llamada `write`; se muestra siempre con sus `args`. */
 export type EffectView = CallView;
 
-export interface AttemptView {
-  readonly callId: string;
-  readonly stepId: string;
-  readonly route: string;
-  readonly tool: string;
-  readonly status: CallStatus;
-  readonly verdict: CallVerdict | null;
-  /** Fallo de llamada (5.4). */
-  readonly failed: boolean;
-}
-
 export interface FactView {
   readonly key: string;
   readonly value: string;
@@ -105,16 +119,16 @@ export interface FactView {
   readonly at: number;
 }
 
+/** Entrada del usuario (5.4): respuesta a una pregunta o instrucción al rechazar una mutación. */
+export interface UserInputView {
+  readonly kind: "answer" | "rejection";
+  readonly stepId: string;
+  readonly text: string;
+}
+
 export interface FeedbackView {
   readonly planId: string;
   readonly feedback: string;
-}
-
-export interface HandoffView {
-  readonly stepId: string;
-  readonly callId: string;
-  readonly summary: string;
-  readonly ref: RefView | null;
 }
 
 /** Tramo de una ref ya leído, tal como lo pidió una lectura (valores crudos de `args`; `null` si no venían). */
@@ -131,95 +145,194 @@ export interface AvailableRefView extends RefView {
 
 // ───────────────────────── Vistas ─────────────────────────
 
+/** Por qué se genera el plan (derivado del contexto, no se pasa): 8.3. */
+export type PlanTriggerView =
+  | { readonly kind: "initial" }
+  | { readonly kind: "user_feedback"; readonly feedback: string }
+  | { readonly kind: "step_failure"; readonly failedStepId: string };
+
+/**
+ * `forPlan` (8.3): LLM 1, plan y replan.
+ * - `initial`: solo `request`.
+ * - `user_feedback` (durante la confirmación, sin nada ejecutado): `request`, `trigger`, `previousFeedback` y
+ *   `steps.current` + `steps.next`, que son el plan propuesto que el usuario pidió cambiar.
+ * - `step_failure`: todas las secciones; `failures` lleva los `args` para saber qué se probó.
+ */
 export interface PlanView {
-  readonly mode: TaskMode;
   readonly request: string;
+  readonly trigger: PlanTriggerView;
+  /** `feedback` de los últimos planes anteriores que lo tengan, del más antiguo al más reciente. */
+  readonly previousFeedback: readonly FeedbackView[];
   readonly steps: {
-    /** Pasos vigentes ya ejecutados (`completed`, `failed`): los últimos de la ventana. */
-    readonly before: readonly StepView[];
-    readonly omittedBefore: number;
-    /** Paso vigente `running`, si hay. */
+    /** Pasos `completed` vigentes (los últimos `options.stepsDone`). */
+    readonly done: readonly StepDoneView[];
+    /** El paso actual o el fallido, con su `state`. */
     readonly current: StepView | null;
-    /** Pasos vigentes `pending`: los primeros de la ventana. */
-    readonly after: readonly StepView[];
-    readonly omittedAfter: number;
+    /** Pasos vigentes `pending` que siguen. */
+    readonly next: readonly StepView[];
   };
+  /** Solo en `step_failure`: intentos del paso fallido (ventana por escalaciones), con `args`. */
+  readonly failures: readonly CallView[];
+  readonly userInput: readonly UserInputView[];
+  readonly env: readonly FactView[];
   /** Todos, sin recorte. */
   readonly effects: readonly EffectView[];
   readonly possibleEffects: readonly EffectView[];
-  readonly facts: readonly FactView[];
-  /** Fallos recientes (ventana por escalaciones). */
-  readonly failures: readonly CallView[];
-  /** `feedback` de los planes anteriores. */
-  readonly feedbacks: readonly FeedbackView[];
 }
 
+/**
+ * `forRoute` (8.3): Decisión 1 y Decisión 2. Las llamadas van como línea `L` (sin `args` ni `summary`), salvo `lastResult`,
+ * que lleva su resumen. Una llamada aparece una sola vez: `lastResult` no se repite en `done`.
+ */
 export interface RouteView {
-  /** Solo en reactivo (el paso no trae instrucción); `null` en deliberativo. */
+  /** Solo en reactivo; `null` en deliberativo. */
   readonly request: string | null;
+  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
   readonly step: StepView | null;
-  readonly attempts: readonly AttemptView[];
-  readonly failures: readonly CallView[];
-  readonly facts: readonly FactView[];
+  /** Solo en reactivo: la última llamada aprobada que no es efecto. */
+  readonly lastResult: CallView | null;
+  /** Solo en reactivo: llamadas hechas (aprobadas), sin `lastResult`. */
+  readonly done: readonly CallView[];
+  /** Intentos no aprobados, ventana por escalaciones: de la tarea (reactivo) o del paso actual (deliberativo). */
+  readonly attempts: readonly CallView[];
+  readonly userInput: readonly UserInputView[];
+  /** Hechos de entorno (hoy, `process`). */
+  readonly env: readonly FactView[];
 }
 
+/** Paso `completed` de un plan (deliberativo): su instrucción y su resultado (`outcome`, 5.4), si es una lectura. */
+export interface StepDoneView {
+  readonly id: string;
+  readonly instruction: string | null;
+  readonly outcome: CallView | null;
+}
+
+/**
+ * `forArgs` (8.3). Una llamada aparece una sola vez: `effects` > `lastReads` > `done` / `stepsDone` > `stepFailures`; las
+ * refs ya mostradas en otra sección no se repiten en `refs`.
+ */
 export interface ArgsView {
   /** Solo en reactivo; `null` en deliberativo. */
   readonly request: string | null;
+  /** Solo en reactivo: llamadas aprobadas como línea `L`, sin las que ya muestran `effects` o `lastReads`. */
+  readonly done: readonly CallView[];
+  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
   readonly step: StepView | null;
-  /** Solo en deliberativo. */
-  readonly handoff: HandoffView | null;
-  /** Historial reciente de acciones; solo en reactivo (en deliberativo, vacío). */
-  readonly history: readonly AttemptView[];
+  /** Solo en deliberativo: pasos `completed` vigentes, con su resultado. */
+  readonly stepsDone: readonly StepDoneView[];
+  /** Últimas lecturas aprobadas, con sus `args`, resumen y ref. */
   readonly lastReads: readonly CallView[];
-  /** Todas las refs, con lo ya leído de cada una. */
+  /** Las refs más recientes que no se muestran en otra sección, con lo ya leído de cada una. */
   readonly refs: readonly AvailableRefView[];
-  readonly effects: readonly EffectView[];
-  readonly facts: readonly FactView[];
   /** Fallos del paso actual (ventana por escalaciones). */
   readonly stepFailures: readonly CallView[];
+  readonly userInput: readonly UserInputView[];
+  readonly env: readonly FactView[];
+  /** Todos, con sus `args` y sin recorte. */
+  readonly effects: readonly EffectView[];
 }
 
-export interface VerifyView {
+/**
+ * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `refs` ni `effects`: las refs sin resolver y el
+ * anti-loop se resuelven antes, de forma determinista, y la seguridad de una escritura es del Guard y de la confirmación del
+ * usuario. El candidato (ruta, herramienta, descripción y `args`) es un parámetro: lo pasa el motor, no vive en el contexto.
+ */
+export interface ReviewView {
   /** Solo en reactivo; `null` en deliberativo. */
   readonly request: string | null;
-  readonly step: StepView;
-  readonly call: CallView;
-  /** Efectos del paso evaluado. */
-  readonly stepEffects: readonly EffectView[];
+  /** Solo en reactivo: llamadas aprobadas como línea `L`, sin las que ya muestra `lastReads`. */
+  readonly done: readonly CallView[];
+  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
+  readonly step: StepView | null;
+  /** Solo en deliberativo: pasos `completed` vigentes, con su resultado. */
+  readonly stepsDone: readonly StepDoneView[];
+  /** Las mismas lecturas que vio LLM 2: para contrastar los `args` con los datos. */
+  readonly lastReads: readonly CallView[];
+  readonly stepFailures: readonly CallView[];
+  /** Para decidir `info_missing`. */
+  readonly userInput: readonly UserInputView[];
+  readonly env: readonly FactView[];
 }
 
+/** Criterio contra el que se juzga la llamada: el del paso (deliberativo) o la solicitud (reactivo, avanza lo pedido). */
+export type CriterionView =
+  | { readonly source: "step"; readonly instruction: string | null; readonly expected: string | null }
+  | { readonly source: "request"; readonly text: string };
+
+/**
+ * `forVerify` (8.3): Decisión 4. El criterio, la llamada evaluada (con `args`, resumen y ref), lo hecho para juzgar si la
+ * llamada avanza lo pedido (solo reactivo) y la entrada del usuario, que precisa el criterio. No lleva efectos del paso: la
+ * llamada evaluada ya muestra su propio efecto.
+ */
+export interface VerifyView {
+  readonly criterion: CriterionView;
+  readonly call: CallView;
+  /** Solo en reactivo: llamadas aprobadas como línea `L`. */
+  readonly done: readonly CallView[];
+  readonly userInput: readonly UserInputView[];
+}
+
+/**
+ * `forAsk` (8.3): LLM 4, la pregunta de `ask_user`. Lo ya preguntado y respondido (`userInput`: no repetir), la última
+ * llamada no aprobada del paso (por qué falta información) y la última lectura con datos (de ahí salen las opciones).
+ */
+export interface AskView {
+  /** Solo en reactivo; `null` en deliberativo. */
+  readonly request: string | null;
+  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
+  readonly step: StepView | null;
+  readonly userInput: readonly UserInputView[];
+  /** Última llamada no aprobada del paso, con `args` y resumen; `null` si no hay. */
+  readonly rejectedCall: CallView | null;
+  /** Última lectura aprobada con datos; `null` si no hay. */
+  readonly lastRead: CallView | null;
+}
+
+/** Estado de la tarea con su frase fija (`note`). */
+export interface TaskView {
+  readonly state: TaskState;
+  readonly stopReason: StopReason | null;
+  /** Frase fija del estado y del motivo de detención. */
+  readonly note: string;
+}
+
+/**
+ * `forFinal` (8.3): LLM 3, respuesta final. Una llamada aparece una sola vez: efectos y posibles efectos > lecturas >
+ * `evidence`. `evidence`: aprobadas primero (con resumen), luego las más recientes (líneas `L`).
+ */
 export interface FinalView {
   readonly request: string;
-  readonly state: TaskState;
-  readonly stopReason: StopReason | null;
-  /** Estado de cada paso, incluidos los reemplazados. */
+  readonly task: TaskView;
+  /** Solo en deliberativo: pasos vigentes con su estado. */
   readonly steps: readonly StepView[];
-  /** Evidencia: cada llamada con su resumen, veredicto y razón. */
+  /** Las últimas lecturas con datos, completas. */
+  readonly lastReads: readonly CallView[];
   readonly evidence: readonly CallView[];
+  readonly userInput: readonly UserInputView[];
+  readonly env: readonly FactView[];
   readonly effects: readonly EffectView[];
   readonly possibleEffects: readonly EffectView[];
-  readonly facts: readonly FactView[];
 }
 
+/** `forFallback` (8.3): respuesta de respaldo sin modelo, también la usada en `cancelled`. Sin reserva ni tope. */
 export interface FallbackView {
-  readonly state: TaskState;
-  readonly stopReason: StopReason | null;
-  readonly failures: readonly CallView[];
+  readonly task: TaskView;
+  /** Últimas llamadas que no son efectos, de cualquier veredicto (ventana por escalaciones), como líneas `L`. */
+  readonly lastActions: readonly CallView[];
+  readonly env: readonly FactView[];
   readonly effects: readonly EffectView[];
   readonly possibleEffects: readonly EffectView[];
-  readonly facts: readonly FactView[];
-  /** Últimas acciones (ventana por escalaciones). */
-  readonly lastActions: readonly CallView[];
 }
 
 /** `ctx.view.<vista>(...)`. */
 export interface ContextViews {
   forPlan(options: PlanViewOptions): PlanView;
-  forRoute(options: WindowOptions): RouteView;
+  forRoute(options: RouteViewOptions): RouteView;
   forArgs(options: ArgsViewOptions): ArgsView;
+  forReview(options: ReviewViewOptions): ReviewView;
+  forAsk(): AskView;
   /** `callId`: la llamada evaluada. */
   forVerify(callId: string): VerifyView;
-  forFinal(): FinalView;
+  forFinal(options: FinalViewOptions): FinalView;
   forFallback(options: WindowOptions): FallbackView;
 }

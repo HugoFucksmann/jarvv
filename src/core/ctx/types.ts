@@ -1,5 +1,5 @@
 /**
- * Esquema y vocabularios del contexto (PLAN_CONTEXT.md v0.27, secciones 5 y 6).
+ * Esquema y vocabularios del contexto (PLAN_CONTEXT.md v0.38, secciones 5 y 6).
  * Solo tipos y constantes de vocabulario: sin lógica.
  */
 
@@ -19,7 +19,6 @@ export type TerminalTaskState = (typeof TERMINAL_TASK_STATES)[number];
 
 export const STOP_REASONS = [
   "max_steps",
-  "loop_blocked",
   "no_alternatives",
   "security_denied",
   "user_cancelled",
@@ -40,7 +39,7 @@ export type CallKind = (typeof CALL_KINDS)[number];
 /** Llamadas ejecutadas: llegaron a despacharse a la herramienta (5.3). */
 export const EXECUTED_CALL_STATUSES = ["ok", "no_data", "not_found", "tool_error", "exception", "interrupted"] as const;
 
-/** Llamadas no ejecutadas, sin `denied`, que tiene dos orígenes (5.3, C6). */
+/** Llamadas no ejecutadas, sin `denied`, que tiene dos orígenes (5.3). */
 export const NOT_EXECUTED_CALL_STATUSES = [
   "args_invalid",
   "refs_unresolved",
@@ -60,8 +59,8 @@ export const CALL_VERDICTS = ["approved", "rejected"] as const;
 export type CallVerdict = (typeof CALL_VERDICTS)[number];
 
 /**
- * Razones de rechazo del verificador (5.3). Valores iniciales y provisorios: la lista definitiva sale de la
- * evaluación de prompts (10.1). El contexto guarda solo la clave; el mensaje fijo de cada razón lo arman las vistas.
+ * Razones de rechazo del verificador (5.3, lista cerrada en 10.1). El contexto guarda solo la clave; el mensaje fijo de
+ * cada razón lo arman las vistas. Si se dan ambas, gana `no_usable_data`.
  */
 export const VERDICT_REASONS = ["no_usable_data", "not_accomplished"] as const;
 export type VerdictReason = (typeof VERDICT_REASONS)[number];
@@ -100,7 +99,7 @@ export interface Plan {
   id: string;
   at: number;
   trigger: PlanTrigger;
-  /** Instrucción del usuario; solo en `user_feedback`. */
+  /** Instrucción del usuario; solo en `user_feedback` (obligatoria ahí). Tope `feedbackMax`. */
   feedback: string | null;
   /** Paso que falló; solo en `step_failure`. */
   stepId: string | null;
@@ -138,7 +137,7 @@ export interface Call {
   verdict: CallVerdict | null;
   /** Causa del rechazo; solo con `rejected`. */
   reason: VerdictReason | null;
-  /** Tope `BUDGET.summaryMax`; sin modelo. */
+  /** Tope `summaryMax`; sin modelo. */
   summary: string | null;
   /** Id de una ref; solo si el resumen no contiene el resultado completo. */
   ref: string | null;
@@ -303,7 +302,9 @@ export interface ContextLimits {
   argsStringMax: number;
   /** Largo máximo del valor de un hecho. */
   factValueMax: number;
-  /** Profundidad máxima de un valor JSON (`args`). */
+  /** Largo máximo de `plans.feedback`. */
+  feedbackMax: number;
+  /** Profundidad máxima de un valor JSON (`args`): niveles de contenedores contando la raíz. */
   jsonMaxDepth: number;
 }
 
@@ -328,9 +329,9 @@ export type ContextElement = Plan | Step | Call | ErrorEntry | Ref | Fact;
 export type ElementOf<S extends SectionName> = S extends "plans"
   ? Plan
   : S extends "steps"
-    ? Step
-    : S extends "calls"
-      ? Call
-      : S extends "errors"
-        ? ErrorEntry
-        : Ref;
+  ? Step
+  : S extends "calls"
+  ? Call
+  : S extends "errors"
+  ? ErrorEntry
+  : Ref;

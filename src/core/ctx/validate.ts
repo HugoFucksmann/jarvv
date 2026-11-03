@@ -120,13 +120,14 @@ export function checkPlanInput(raw: unknown, env: CheckEnv): PlanInput {
   ensureKeys(o, ["trigger", "feedback", "stepId"], [], "plan");
   if (env.mode !== "deliberative") violation("invalid_value", 3, "`plans` solo existe en modo deliberativo");
   const trigger = oneOf(o.trigger, PLAN_TRIGGERS, "plan.trigger");
-  const feedback = nullableText(o.feedback, "plan.feedback");
+  const feedback = nullableText(o.feedback, "plan.feedback", env.limits.feedbackMax);
   const stepId = nullableText(o.stepId, "plan.stepId");
   switch (trigger) {
     case "initial":
       if (feedback !== null || stepId !== null) violation("invalid_value", 3, "plan `initial`: `feedback` y `stepId` valen null");
       break;
     case "user_feedback":
+      // Un rechazo del plan sin instrucción cierra con `user_cancelled` (FLUJO 6): un plan `user_feedback` siempre la trae.
       if (feedback === null) violation("invalid_value", 3, "plan `user_feedback` requiere `feedback` (la instrucción del usuario)");
       if (stepId !== null) violation("invalid_value", 3, "plan `user_feedback`: `stepId` vale null");
       break;

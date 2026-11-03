@@ -1,23 +1,28 @@
 /**
- * `forArgs` (sección 8): generación de argumentos. Liviana a propósito: sin ventana del plan. Instrucción del paso
- * con handoff (en reactivo, la solicitud y el historial), últimas lecturas con datos, refs disponibles (con lo ya
- * leído de cada una), efectos, hechos y fallos del paso actual (para no regenerar el mismo error de argumentos).
+ * `forArgs` (sección 8.3): generación de argumentos. En reactivo lleva la solicitud y lo hecho (líneas `L`); en
+ * deliberativo, el paso actual y los pasos ya completados con su resultado. En ambos: las últimas lecturas aprobadas, las
+ * refs más recientes que no se muestran en otra sección (con lo ya leído de cada una), los fallos del paso actual, la
+ * entrada del usuario, los hechos de entorno y los efectos.
+ *
+ * Una llamada aparece una sola vez, con este orden de prioridad: `effects` > `lastReads` > `done` / `stepsDone` >
+ * `stepFailures` (`taskPartsOf`). Sin handoff, sin hechos de usuario aparte ni historial: eso lo cubren `done`,
+ * `stepsDone` y `userInput`.
  */
 
-import { handoffOf, lastN, lastReadsWithData, recentFailures, recentWindowSize } from "../derive.ts";
-import { currentOf } from "../query.ts";
+import { effectsOf } from "../derive.ts";
 import type { ContextData, Ref } from "../types.ts";
 import {
-  attemptViewOf,
   callViewOf,
   effectViewsOf,
-  factViewsOf,
+  envViewsOf,
   failureViewOf,
+  lineViewOf,
   refToView,
-  refViewOf,
   stepViewOf,
+  taskPartsOf,
+  userInputViewsOf,
 } from "./shared.ts";
-import type { ArgsView, ArgsViewOptions, AvailableRefView, HandoffView, ReadArgKeys, ShownRange } from "./types.ts";
+import type { ArgsView, ArgsViewOptions, AvailableRefView, ReadArgKeys, ShownRange } from "./types.ts";
 
 /**
  * Tramos de una ref ya leídos: lecturas con datos cuyo `args[path]` es el `where` de la ref. Se devuelven los valores
@@ -40,31 +45,24 @@ function shownRanges(data: ContextData, ref: Ref, keys: ReadArgKeys): ShownRange
 }
 
 export function buildArgsView(data: ContextData, options: ArgsViewOptions): ArgsView {
-  const size = recentWindowSize(data.steps, options.recentWindows);
   const reactive = data.task.mode === "reactive";
-  const step = currentOf(data).step;
+  const parts = taskPartsOf(data, options, effectsOf(data.calls));
 
-  let handoff: HandoffView | null = null;
-  if (!reactive) {
-    const h = handoffOf(data);
-    if (h !== null) handoff = { stepId: h.stepId, callId: h.callId, summary: h.summary, ref: refViewOf(data, h.ref) };
-  }
-
-  const refs: AvailableRefView[] = data.refs.map((ref) => ({
-    ...refToView(ref),
-    stepId: ref.stepId,
-    shown: shownRanges(data, ref, options.readArgKeys),
-  }));
+  const refs: AvailableRefView[] = data.refs
+    .filter((ref) => !parts.shownRefs.has(ref.id))
+    .slice(-Math.max(0, options.refs))
+    .map((ref) => ({ ...refToView(ref), stepId: ref.stepId, shown: shownRanges(data, ref, options.readArgKeys) }));
 
   return {
     request: reactive ? data.task.request : null,
-    step: step === null ? null : stepViewOf(step),
-    handoff,
-    history: reactive ? lastN(data.calls, size).map(attemptViewOf) : [],
-    lastReads: lastReadsWithData(data.calls, size).map((c) => callViewOf(data, c, true)),
+    done: parts.done.map(lineViewOf),
+    step: reactive || parts.step === null ? null : stepViewOf(parts.step),
+    stepsDone: parts.stepsDone,
+    lastReads: parts.reads.map((c) => callViewOf(data, c, true)),
     refs,
+    stepFailures: parts.failures.map((c) => failureViewOf(data, c)),
+    userInput: userInputViewsOf(data),
+    env: envViewsOf(data),
     effects: effectViewsOf(data),
-    facts: factViewsOf(data),
-    stepFailures: step === null ? [] : recentFailures(data.calls, size, step.id).map((c) => failureViewOf(data, c)),
   };
 }

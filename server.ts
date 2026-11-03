@@ -19,7 +19,7 @@ import type { IMCPServer } from './src/core/mcp/types.ts';
 import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
 import { Decision20Engine } from './src/core/decision.ts';
 import { QwenEngine } from './src/core/reasoner/qwen.ts';
-import { JarvisCore } from './src/core/core.ts';
+import { TaskManager } from './src/core/tasks.ts';
 import { createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
 
@@ -67,7 +67,7 @@ async function main() {
   const decisionEngine = new Decision20Engine();
   const llm = new QwenEngine();
 
-  const jarvisCore = new JarvisCore({ decisionEngine, discoveryEngine, llm });
+  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm });
 
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
@@ -79,6 +79,7 @@ async function main() {
       process.exit(1);
     }, 5000).unref();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
+    tasks.cancelAll();
 
     // En paralelo: un servidor colgado no consume el plazo de los demás.
     const results = await Promise.allSettled(Object.values(servers).map((server) => server.close?.()));
@@ -95,7 +96,7 @@ async function main() {
   process.on('SIGINT', () => cleanShutdown('SIGINT'));
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
 
-  app.use('/api/jarvis', createJarvisRouter(jarvisCore, discoveryEngine));
+  app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine));
   app.use(['/api/mcp', '/mcp'], createMcpRouter(discoveryEngine));
 
   // Lo que cuelga de un prefijo de API y no coincide con ninguna ruta nunca llega al frontend.

@@ -1,40 +1,45 @@
 /**
  * Derivaciones (5.4 "Se deriva, no se guarda"): funciones puras de solo lectura sobre los datos del contexto.
  * Nada se guarda: cada llamada recalcula desde `calls`, `steps`, `plans` y `facts`. Reutilizan `closure.ts`
- * (`isEffect`, `canFinish`, `planClosure`, `hasApprovedCall`) y `query.ts` (`currentOf`).
+ * (`isEffect`, `canFinish`, `planClosure`, `hasApprovedCall`).
  *
  * El contexto no conoce herramientas (principio 5): `isRepeat` recibe la exención ya resuelta.
  */
 
 import { isEffect } from "./closure.ts";
 import { violation } from "./errors.ts";
-import { currentOf } from "./query.ts";
 import { EXECUTED_CALL_STATUSES } from "./types.ts";
-import type { Call, CallKind, CallStatus, ContextData, Fact, Plan, Step } from "./types.ts";
+import type { Call, CallStatus, ContextData, Fact, Plan, Step } from "./types.ts";
 
 // ───────────────────────── Predicados de llamada ─────────────────────────
 
-/** Fallos transitorios (5.4): la herramienta pudo fallar por algo pasajero, o la ejecución no terminó. */
-const TRANSIENT_STATUSES: readonly CallStatus[] = ["tool_error", "exception", "interrupted"];
+/** Estados de una escritura que pudo dejar cambios parciales (5.4, posibles efectos). */
+const POSSIBLE_EFFECT_STATUSES: readonly CallStatus[] = ["tool_error", "exception", "interrupted"];
 
+/** Fallo transitorio: la herramienta pudo fallar por algo pasajero, o la ejecución no terminó. */
 export function isTransientFailure(call: Call): boolean {
-  return TRANSIENT_STATUSES.includes(call.status);
+  return POSSIBLE_EFFECT_STATUSES.includes(call.status);
 }
 
 /** Posible efecto (5.4): `write` con `tool_error`, `exception` o `interrupted`; pudo dejar cambios parciales. */
 export function isPossibleEffect(call: Call): boolean {
-  return call.kind === "write" && isTransientFailure(call);
+  return call.kind === "write" && POSSIBLE_EFFECT_STATUSES.includes(call.status);
 }
 
 /**
- * Ejecutada (5.3): llegó a despacharse a la herramienta. Un `denied` cuenta como ejecutada (v0.28): si fue del Guard
- * la tarea ya cerró con `security_denied`, así que el único `denied` que sigue vivo es el del servidor.
+ * Ejecutada (5.3): llegó a despacharse a la herramienta. Un `denied` cuenta como ejecutada: si fue del Guard la tarea
+ * ya cerró con `security_denied`, así que el único `denied` que sigue vivo es el del servidor.
  */
 export function isExecuted(call: Call): boolean {
   return call.status === "denied" || (EXECUTED_CALL_STATUSES as readonly string[]).includes(call.status);
 }
 
-/** Fallo de llamada (5.4): `status` distinto de `ok` (incluye `no_data` y `not_found`) o `verdict = rejected`. */
+/** Aprobada por la verificación (5.4, hechas). */
+export function isApproved(call: Call): boolean {
+  return call.verdict === "approved";
+}
+
+/** Fallo de llamada: `status` distinto de `ok` (incluye `no_data` y `not_found`) o `verdict = rejected`. */
 export function isFailure(call: Call): boolean {
   return call.status !== "ok" || call.verdict === "rejected";
 }
@@ -45,7 +50,7 @@ export function lastN<T>(items: readonly T[], size: number): T[] {
   return items.length <= size ? items.slice() : items.slice(items.length - size);
 }
 
-// ───────────────────────── Efectos y fallos ─────────────────────────
+// ───────────────────────── Efectos, hechas e intentos ─────────────────────────
 
 /** Efectos (5.4): sin tope. */
 export function effectsOf(calls: readonly Call[]): Call[] {
@@ -57,7 +62,20 @@ export function possibleEffectsOf(calls: readonly Call[]): Call[] {
   return calls.filter(isPossibleEffect);
 }
 
-/** Fallos de llamada recientes (5.4); con `stepId`, los del paso (fallos del paso actual). */
+/** Hechas (`done`, 5.4): llamadas con `verdict = approved`, de cualquier `status`. */
+export function doneCalls(calls: readonly Call[]): Call[] {
+  return calls.filter(isApproved);
+}
+
+/**
+ * Intentos (`attempts`, 5.4): llamadas con `verdict` distinto de `approved` (fallos de cualquier `status`, rechazadas,
+ * no ejecutadas y sin verificar). Con `stepId`, los del paso.
+ */
+export function attemptCalls(calls: readonly Call[], stepId?: string): Call[] {
+  return calls.filter((c) => !isApproved(c) && (stepId === undefined || c.stepId === stepId));
+}
+
+/** Fallos de llamada recientes; con `stepId`, los del paso. */
 export function recentFailures(calls: readonly Call[], size: number, stepId?: string): Call[] {
   return lastN(
     calls.filter((c) => isFailure(c) && (stepId === undefined || c.stepId === stepId)),
@@ -65,27 +83,117 @@ export function recentFailures(calls: readonly Call[], size: number, stepId?: st
   );
 }
 
-/** Últimas lecturas con datos (5.4): `kind = read`, `status = ok`. */
+/** Últimas lecturas con datos (5.4): `kind = read`, `status = ok` y `verdict = approved`. */
 export function lastReadsWithData(calls: readonly Call[], size: number): Call[] {
   return lastN(
-    calls.filter((c) => c.kind === "read" && c.status === "ok"),
+    calls.filter((c) => c.kind === "read" && c.status === "ok" && isApproved(c)),
     size,
   );
 }
 
+/** Último resultado (`lastResult`, 5.4): la última llamada aprobada que no es efecto; `null` si no hay. */
+export function lastResultOf(calls: readonly Call[]): Call | null {
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const c = calls[i];
+    if (isApproved(c) && !isEffect(c)) return c;
+  }
+  return null;
+}
+
+/**
+ * Resultado de un paso (`outcome`, 5.4): la llamada aprobada del paso, solo si es una lectura (las escrituras ya se ven
+ * como efectos). El recorte del `summary` lo hace la vista.
+ */
+export function outcomeOf(calls: readonly Call[], stepId: string): Call | null {
+  for (const c of calls) {
+    if (c.stepId === stepId && isApproved(c)) return c.kind === "read" ? c : null;
+  }
+  return null;
+}
+
+// ───────────────────────── Hechos: usuario y entorno ─────────────────────────
+
+/** Prefijo de los hechos con la respuesta del usuario: `answer_<stepId>_<n>` (5.2). */
+export const ANSWER_FACT_PREFIX = "answer_";
+
+export function isAnswerKey(key: string): boolean {
+  return key.startsWith(ANSWER_FACT_PREFIX);
+}
+
+/** Preguntas ya hechas en un paso: hechos `answer_*` de ese paso, incluidos los retirados (la clave sigue ocupada). */
+export function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: string): number {
+  let count = 0;
+  for (const key of Object.keys(facts)) {
+    if (isAnswerKey(key) && facts[key].stepId === stepId) count++;
+  }
+  return count;
+}
+
+/** Clave del hecho con la respuesta a la siguiente pregunta del paso: `answer_<stepId>_<n>` (5.2). */
+export function nextAnswerKey(facts: { readonly [key: string]: Fact }, stepId: string): string {
+  return `${ANSWER_FACT_PREFIX}${stepId}_${questionsAsked(facts, stepId) + 1}`;
+}
+
+/**
+ * ¿Se puede ofrecer `ask_user` en el paso? Sí si no hay una respuesta del paso posterior a su última llamada (al empezar
+ * el paso, siempre). Sin tope propio: lo cortan el tope de llamadas y el anti-loop (FLUJO 6).
+ */
+export function canAsk(data: Pick<ContextData, "calls" | "facts">, stepId: string): boolean {
+  let lastCallAt = Number.NEGATIVE_INFINITY;
+  for (const c of data.calls) {
+    if (c.stepId === stepId && c.at > lastCallAt) lastCallAt = c.at;
+  }
+  for (const key of Object.keys(data.facts)) {
+    const fact = data.facts[key];
+    if (isAnswerKey(key) && fact.stepId === stepId && fact.at > lastCallAt) return false;
+  }
+  return true;
+}
+
+export interface UserInputEntry {
+  /** `answer`: respuesta a una pregunta (hecho `answer_*`). `rejection`: instrucción al rechazar una mutación. */
+  readonly kind: "answer" | "rejection";
+  readonly stepId: string;
+  readonly text: string;
+  readonly at: number;
+}
+
+/**
+ * Entrada del usuario (`userInput`, 5.4): hechos `answer_*` vigentes y `summary` de las llamadas `user_rejected` con
+ * instrucción, en orden cronológico.
+ */
+export function userInputOf(data: Pick<ContextData, "calls" | "facts">): UserInputEntry[] {
+  const out: UserInputEntry[] = [];
+  for (const key of Object.keys(data.facts)) {
+    const fact = data.facts[key];
+    if (isAnswerKey(key) && fact.value !== null) out.push({ kind: "answer", stepId: fact.stepId, text: fact.value, at: fact.at });
+  }
+  for (const c of data.calls) {
+    if (c.status === "user_rejected" && c.summary !== null) out.push({ kind: "rejection", stepId: c.stepId, text: c.summary, at: c.at });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+export interface EnvEntry {
+  readonly key: string;
+  readonly value: string;
+  readonly stepId: string;
+  readonly at: number;
+}
+
+/** Hechos de entorno (`env`, 5.4): hechos vigentes que no son `answer_*` (hoy, solo `process`). */
+export function envOf(facts: { readonly [key: string]: Fact }): EnvEntry[] {
+  const out: EnvEntry[] = [];
+  for (const key of Object.keys(facts)) {
+    const fact = facts[key];
+    if (!isAnswerKey(key) && fact.value !== null) out.push({ key, value: fact.value, stepId: fact.stepId, at: fact.at });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
 // ───────────────────────── Contadores ─────────────────────────
 
-/** Reintentos de argumentos de un paso (5.4, provisorio): llamadas del paso con `status = args_invalid`. */
-export function argsRetries(calls: readonly Call[], stepId: string): number {
-  return calls.filter((c) => c.stepId === stepId && c.status === "args_invalid").length;
-}
-
-/** Reintentos de resultado de un paso (5.4, provisorio): llamadas del paso con `verdict = rejected`. */
-export function resultRetries(calls: readonly Call[], stepId: string): number {
-  return calls.filter((c) => c.stepId === stepId && c.verdict === "rejected").length;
-}
-
-/** Llamadas de un paso para el tope (5.4, provisorio): sin `user_rejected`. */
+/** Llamadas de un paso para el tope (5.4): sin `user_rejected`. */
 export function callsInStep(calls: readonly Call[], stepId: string): number {
   return calls.filter((c) => c.stepId === stepId && c.status !== "user_rejected").length;
 }
@@ -122,25 +230,22 @@ export interface RepeatOptions {
 function latestAnswerAt(facts: { readonly [key: string]: Fact }): number {
   let latest = Number.NEGATIVE_INFINITY;
   for (const key of Object.keys(facts)) {
-    if (key.startsWith("answer_") && facts[key].at > latest) latest = facts[key].at;
+    if (isAnswerKey(key) && facts[key].at > latest) latest = facts[key].at;
   }
   return latest;
 }
 
 /**
- * Llamada repetida (5.4): ¿ejecutar `tool` con `sig` repite una llamada ejecutada anterior?
+ * Llamada repetida (5.4): ¿ejecutar `tool` con `sig` repite la llamada ejecutada idéntica más reciente?
  *
  * - `exempt = true` o `sig = null`: `false`, sin comparar.
  * - Se comparan herramienta y `sig` entre las llamadas ejecutadas de toda la tarea (un `denied` del servidor cuenta
- *   como ejecutada); el `kind` es el de la llamada idéntica más reciente.
- * - Lectura idéntica: se bloquea, salvo un único reintento tras un fallo transitorio (`tool_error`, `exception`,
- *   `interrupted`) o que haya una escritura `ok` intermedia.
- * - Escritura idéntica: se bloquea salvo que haya una lectura (ejecutada) intermedia; vale también si la anterior
- *   falló, porque pudo dejar cambios parciales.
- * - Un hecho `answer_*` escrito después de una llamada (`fact.at > call.at`) cuenta como intermedio en ambos casos.
- *
- * Las idénticas "sin separar" son las posteriores al último intermedio; el único reintento se concede cuando hay
- * exactamente una y fue transitoria.
+ *   como ejecutada). Manda la idéntica más reciente y su `kind`.
+ * - Lectura idéntica: se bloquea salvo una escritura `ok` intermedia.
+ * - Escritura idéntica: se bloquea salvo una lectura ejecutada intermedia; vale también si la anterior falló, porque
+ *   pudo dejar cambios parciales.
+ * - Un hecho `answer_*` escrito después de la idéntica (`fact.at > call.at`) cuenta como intermedio en ambos casos.
+ * - Sin reintento tras un fallo transitorio (FLUJO 5): lo cubre el tope de llamadas del paso.
  */
 export function isRepeat(
   data: Pick<ContextData, "calls" | "facts">,
@@ -150,70 +255,16 @@ export function isRepeat(
 ): boolean {
   if (options.exempt || sig === null) return false;
   const calls = data.calls;
-  const identical = (c: Call): boolean => c.tool === tool && c.sig === sig && isExecuted(c);
-
-  let found: CallKind | null = null;
-  for (let i = calls.length - 1; i >= 0; i--) {
-    if (identical(calls[i])) {
-      found = calls[i].kind;
-      break;
-    }
-  }
-  if (found === null) return false;
-  const kind: CallKind = found;
-
-  const isIntermediate = (c: Call): boolean => (kind === "read" ? isEffect(c) : c.kind === "read" && isExecuted(c));
-  const answerAt = latestAnswerAt(data.facts);
-
-  let separated = false;
-  let unseparated = 0;
-  let newest: Call | null = null;
+  let sawEffect = false;
+  let sawRead = false;
   for (let i = calls.length - 1; i >= 0; i--) {
     const c = calls[i];
-    if (identical(c)) {
-      if (separated || answerAt > c.at) break;
-      unseparated++;
-      if (newest === null) newest = c;
-    } else if (isIntermediate(c)) {
-      separated = true;
+    if (c.tool === tool && c.sig === sig && isExecuted(c)) {
+      if (latestAnswerAt(data.facts) > c.at) return false;
+      return c.kind === "read" ? !sawEffect : !sawRead;
     }
+    if (isEffect(c)) sawEffect = true;
+    if (c.kind === "read" && isExecuted(c)) sawRead = true;
   }
-
-  if (newest === null || unseparated === 0) return false;
-  if (kind === "read" && unseparated === 1 && isTransientFailure(newest)) return false;
-  return true;
-}
-
-// ───────────────────────── Handoff ─────────────────────────
-
-export interface Handoff {
-  /** Paso anterior que entrega el resultado. */
-  stepId: string;
-  /** Llamada cuyo `summary` se entrega. */
-  callId: string;
-  summary: string;
-  /** Id de la ref de esa llamada, si el resumen no tenía el resultado completo. */
-  ref: string | null;
-}
-
-/**
- * Handoff (5.4, provisorio): el paso vigente inmediato anterior al paso actual, solo si está `completed`;
- * entrega el `summary` de su última llamada con `verdict = approved` y resumen no nulo. `null` si no aplica.
- */
-export function handoffOf(data: ContextData): Handoff | null {
-  const current = currentOf(data).step;
-  if (current === null) return null;
-  let previous: Step | null = null;
-  for (const step of data.steps) {
-    if (step.id === current.id) break;
-    if (!step.superseded) previous = step;
-  }
-  if (previous === null || previous.state !== "completed") return null;
-  for (let i = data.calls.length - 1; i >= 0; i--) {
-    const call = data.calls[i];
-    if (call.stepId === previous.id && call.verdict === "approved" && call.summary !== null) {
-      return { stepId: previous.id, callId: call.id, summary: call.summary, ref: call.ref };
-    }
-  }
-  return null;
+  return false;
 }

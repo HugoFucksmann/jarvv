@@ -8,9 +8,16 @@
  *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
  * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
  * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura).
+ * - Regla B (Fase 5): una escritura (FILE_WRITE) sobre una ruta dentro de las carpetas protegidas (`refsDir`: resultados
+ *   crudos de las refs) => DENY siempre. Se revisan los argumentos de tipo texto, salvo `content` y `mode`; las rutas
+ *   relativas se resuelven contra cada base conocida (D27); se compara sin seguir enlaces simbólicos. No cubre
+ *   `start_process` (un comando puede tocar esas rutas; ya pide aprobación) ni un directorio que CONTENGA a la protegida.
  * - Resto => ALLOW (lecturas).
  * - La política sale únicamente del manifest (tools/manifest.ts); no hay otra fuente.
  */
+
+import os from "node:os";
+import path from "node:path";
 
 import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
@@ -26,8 +33,31 @@ const DENY_PATTERNS: readonly RegExp[] = [
   /system32\/drivers/,
 ];
 
+/** Carpetas que el modelo no puede modificar y bases para resolver las rutas relativas que escriba (regla B). */
+export interface ProtectedPaths {
+  /** Rutas absolutas de las carpetas protegidas (hoy: `refsDir`). */
+  readonly protectedDirs: readonly string[];
+  /** Bases contra las que se resuelve una ruta relativa: cada una es un candidato (D27). */
+  readonly relativeBases: readonly string[];
+}
+
+/**
+ * ¿`child` es `parent` o está dentro de `parent`? Ambas se resuelven con `path.resolve`; en Windows la comparación no
+ * distingue mayúsculas (lo hace `path.relative` de Node). No sigue enlaces simbólicos ni uniones.
+ */
+export function isPathInside(parent: string, child: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(child));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+/** Argumentos de las herramientas de escritura que no son rutas (texto que se escribe, modo de escritura). */
+const NON_PATH_ARGS: readonly string[] = ["content", "mode"];
+
 export class Guard {
-  static evaluate(mcp: string, tool: string, args: Record<string, unknown> = {}): GuardDecision {
+  /**
+   * @param scope Carpetas protegidas (regla B). Sin él, la regla no se aplica.
+   */
+  static evaluate(mcp: string, tool: string, args: Record<string, unknown> = {}, scope?: ProtectedPaths): GuardDecision {
     const policy = getToolPolicy(mcp, tool);
     const capability = policy.capability;
 
@@ -36,6 +66,14 @@ export class Guard {
       return {
         decision: "DENY",
         reason: "Operación rechazada (DENY): patrón destructivo prohibido sobre el sistema operativo.",
+        capability,
+      };
+    }
+
+    if (scope && capability === "FILE_WRITE" && Guard.touchesProtectedPath(args, scope)) {
+      return {
+        decision: "DENY",
+        reason: "Operación rechazada (DENY): la ruta pertenece a la carpeta de resultados guardados (refs) y no se puede modificar.",
         capability,
       };
     }
@@ -66,6 +104,26 @@ export class Guard {
       return rest;
     }
     return args;
+  }
+
+  /** Rutas que un argumento de texto puede nombrar: absoluta, `~` o relativa a cada base conocida. */
+  private static candidatePaths(value: string, scope: ProtectedPaths): string[] {
+    const text = value.trim();
+    if (text.length === 0 || text.includes("\0")) return [];
+    if (text === "~" || text.startsWith("~/") || text.startsWith("~\\")) return [path.join(os.homedir(), text.slice(1))];
+    if (path.isAbsolute(text)) return [text];
+    return scope.relativeBases.map((base) => path.resolve(base, text));
+  }
+
+  /** Regla B: ¿algún argumento de texto (salvo `content` y `mode`) nombra una ruta dentro de las carpetas protegidas? */
+  private static touchesProtectedPath(args: Record<string, unknown>, scope: ProtectedPaths): boolean {
+    for (const [key, value] of Object.entries(args)) {
+      if (typeof value !== "string" || NON_PATH_ARGS.includes(key.toLowerCase())) continue;
+      for (const candidate of Guard.candidatePaths(value, scope)) {
+        if (scope.protectedDirs.some((dir) => isPathInside(dir, candidate))) return true;
+      }
+    }
+    return false;
   }
 
   private static matchesDenyPattern(args: Record<string, unknown>): boolean {

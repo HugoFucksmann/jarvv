@@ -1,213 +1,152 @@
+/**
+ * JARVIS Core — API HTTP de las tareas (`/api/jarvis/*`). El contrato para quien la consume está en `JARVIS_API.md`.
+ *
+ * El router solo valida la entrada y traduce: toda la lógica vive en `TaskManager`. Las respuestas de error son siempre
+ * `{ error: string }`: 400 entrada inválida, 404 tarea inexistente, 409 la tarea no espera eso.
+ */
+
 import express from 'express';
-import { JarvisCore } from '../core/core.ts';
-import { DiscoveryEngine } from '../core/mcp/discovery.ts';
-import { PendingApproval } from '../core/types.ts';
-import { toWireTask } from '../core/taskWire.ts';
 import { ConfigManager } from '../core/config.ts';
+import type { ControlResult, TaskManager } from '../core/tasks.ts';
+import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
+import { TASK_MODES } from '../core/ctx/index.ts';
+import type { TaskMode } from '../core/ctx/index.ts';
 
-function serializePendingApproval(pending: PendingApproval | null) {
-  if (!pending) return null;
-  return {
-    id: pending.id,
-    stepId: pending.stepId,
-    mcp: pending.mcp,
-    tool: pending.tool,
-    capability: pending.capability,
-    args: pending.args,
-    reason: pending.reason,
-  };
+/** Texto no vacío (recortado) o `undefined`. */
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function resolveTargetTaskId(jarvisCore: JarvisCore, taskId?: string): string | undefined {
-  if (taskId) return taskId;
-  const allTasks = jarvisCore.getAllTasks();
-  return allTasks[allTasks.length - 1]?.id;
+function isMode(value: unknown): value is TaskMode {
+  return typeof value === 'string' && (TASK_MODES as readonly string[]).includes(value);
 }
 
-export function createJarvisRouter(jarvisCore: JarvisCore, discoveryEngine: DiscoveryEngine): express.Router {
+export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine): express.Router {
   const router = express.Router();
 
-  // Iniciar tarea
-  router.post('/process', async (req, res) => {
-    try {
-      const { message, mode } = req.body;
-      if (!message || typeof message !== 'string' || !message.trim()) {
-        return res.status(400).json({ error: 'Mensaje requerido.' });
-      }
-      const task = await jarvisCore.initiateTask(message.trim(), mode || 'NORMAL');
-      res.json({ task });
-    } catch (err: any) {
-      console.error('[JARVIS Task Initiation Error]', err);
-      res.status(500).json({ error: err.message || 'Error al iniciar tarea.' });
-    }
+  /** `taskId` del cuerpo o, si falta, la última tarea retenida (compatibilidad con clientes de una sola tarea). */
+  const targetOf = (body: unknown): string | undefined => {
+    const id = text((body as { taskId?: unknown } | undefined)?.taskId);
+    if (id) return id;
+    const all = tasks.list();
+    return all[all.length - 1]?.id;
+  };
+
+  const reply = (res: express.Response, result: ControlResult, notWaiting: string): void => {
+    if (result === 'ok') res.json({ ok: true });
+    else if (result === 'unknown_task') res.status(404).json({ error: 'Tarea no encontrada.' });
+    else res.status(409).json({ error: notWaiting });
+  };
+
+  /** Ejecuta una orden sobre la tarea indicada; 404 si no hay ninguna. */
+  const control = (notWaiting: string, run: (taskId: string, body: Record<string, unknown>) => ControlResult): express.RequestHandler =>
+    (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const taskId = targetOf(body);
+      if (!taskId) return void res.status(404).json({ error: 'No hay ninguna tarea.' });
+      reply(res, run(taskId, body), notWaiting);
+    };
+
+  // Iniciar una tarea. `mode`: 'reactive' (por defecto) o 'deliberative' (planifica y pide confirmar el plan).
+  router.post('/process', (req, res) => {
+    const message = text(req.body?.message);
+    if (!message) return void res.status(400).json({ error: 'Mensaje requerido.' });
+    const mode = req.body?.mode ?? 'reactive';
+    if (!isMode(mode)) return void res.status(400).json({ error: `Modo inválido; use ${TASK_MODES.join(' o ')}.` });
+    res.json({ task: tasks.start(message, mode) });
   });
 
-  // Cancelar tarea
+  // Cancelar. Sin `taskId`, la última tarea abierta.
   router.post('/cancel', (req, res) => {
-    const { taskId } = req.body;
-    if (taskId) {
-      jarvisCore.cancelTask(taskId);
-    } else {
-      const allTasks = jarvisCore.getAllTasks();
-      const running = allTasks.find((t) => t.state === 'RUNNING');
-      if (running) jarvisCore.cancelTask(running.id);
-    }
-    res.json({ ok: true });
+    const explicit = text(req.body?.taskId);
+    const taskId = explicit ?? [...tasks.list()].reverse().find((t) => t.state === 'running')?.id;
+    if (!taskId) return void res.json({ ok: true }); // nada que cancelar
+    const result = tasks.cancel(taskId);
+    // Cancelar una tarea que ya terminó no es un error.
+    if (result === 'not_waiting') return void res.json({ ok: true });
+    reply(res, result, '');
   });
 
-  // Confirmar el plan (modo PLAN). Rechazarlo y modificarlo tienen sus propios endpoints.
-  router.post('/confirm-plan', async (req, res) => {
-    try {
-      const { taskId } = req.body;
-      const targetId = resolveTargetTaskId(jarvisCore, taskId);
-
-      if (!targetId) {
-        return res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-      }
-
-      jarvisCore.confirmPlan(targetId);
-      res.json({ ok: true, action: 'confirm' });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || 'Error al procesar el plan.' });
-    }
+  // Plan (deliberativo): confirmar, pedir cambios (nuevo plan con la instrucción) o rechazar (cancela la tarea).
+  router.post(
+    '/confirm-plan',
+    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.approvePlan(id, text(b.waitId))),
+  );
+  router.post('/modify-plan', (req, res) => {
+    const feedback = text(req.body?.feedback);
+    if (!feedback) return void res.status(400).json({ error: 'Se requiere feedback.' });
+    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.modifyPlan(id, feedback, text(b.waitId)))(req, res, () => undefined);
   });
+  router.post(
+    '/reject-plan',
+    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.rejectPlan(id, text(b.waitId))),
+  );
 
-  // Rechazar plan formalmente
-  router.post('/reject-plan', (req, res) => {
-    const { taskId, reason } = req.body;
-    const targetId = resolveTargetTaskId(jarvisCore, taskId);
-    if (targetId) {
-      jarvisCore.rejectPlan(targetId, reason);
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-    }
-  });
+  // Mutación sensible: aprobar o rechazar (con una instrucción opcional en `reason`).
+  router.post('/approve', control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.approveCall(id, text(b.waitId))));
+  router.post(
+    '/deny',
+    control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId))),
+  );
 
-  // Solicitar modificación de plan
-  router.post('/modify-plan', async (req, res) => {
-    try {
-      const { taskId, feedback } = req.body;
-      const targetId = resolveTargetTaskId(jarvisCore, taskId);
-      if (targetId) {
-        await jarvisCore.modifyPlan(targetId, feedback || 'Ajustar pasos según solicitud.');
-        res.json({ ok: true });
-      } else {
-        res.status(404).json({ error: 'No se encontró ninguna tarea activa.' });
-      }
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || 'Error al modificar el plan.' });
-    }
-  });
-
-  // Responder a pregunta interactiva (WAITING_INPUT user_answer)
+  // Responder la pregunta abierta de la tarea.
   router.post('/user-answer', (req, res) => {
-    const { taskId, answer } = req.body;
-    const targetId = resolveTargetTaskId(jarvisCore, taskId);
-    if (targetId && typeof answer === 'string') {
-      if (jarvisCore.provideUserAnswer(targetId, answer)) {
-        res.json({ ok: true });
-      } else {
-        res.status(409).json({ error: 'La tarea no espera una respuesta o la respuesta está vacía.' });
-      }
-    } else {
-      res.status(400).json({ error: 'Se requiere taskId y respuesta válida.' });
-    }
+    const answer = text(req.body?.answer);
+    if (!answer) return void res.status(400).json({ error: 'Se requiere una respuesta no vacía.' });
+    control('La tarea no espera una respuesta.', (id) => tasks.answer(id, answer))(req, res, () => undefined);
   });
 
-  // Aprobar operación con compuerta de seguridad Guard
-  router.post('/approve', (req, res) => {
-    const { taskId } = req.body;
-    const pending = jarvisCore.getPendingApproval(taskId);
-    if (pending) {
-      pending.onApprove();
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna aprobación pendiente.' });
-    }
-  });
-
-  // Rechazar operación con compuerta de seguridad Guard
-  router.post('/deny', (req, res) => {
-    const { taskId, reason } = req.body;
-    const pending = jarvisCore.getPendingApproval(taskId);
-    if (pending) {
-      pending.onDeny(reason);
-      res.json({ ok: true });
-    } else {
-      res.status(404).json({ error: 'No se encontró ninguna aprobación pendiente.' });
-    }
-  });
-
-  // Consultar estado actual / snapshot reactivo de JARVIS
+  // Estado: la tarea pedida (o la última), el listado y el catálogo de herramientas.
   router.get('/state', async (req, res) => {
     try {
-      const taskId = req.query.taskId as string | undefined;
-      const allTasks = jarvisCore.getAllTasks();
-      const task = taskId ? jarvisCore.getTask(taskId) : allTasks[allTasks.length - 1] || null;
-      const pending = jarvisCore.getPendingApproval(task?.id);
+      const requested = text(req.query.taskId);
+      const list = tasks.list();
+      const id = requested ?? list[list.length - 1]?.id;
       const tools = await discoveryEngine.discoverAll().catch(() => ({}));
-
       res.json({
-        task,
-        pendingApproval: serializePendingApproval(pending),
-        allTasks: allTasks.map(toWireTask),
+        task: id ? tasks.get(id) : null,
+        tasks: list,
         discoveredTools: tools,
         unavailableServers: discoveryEngine.getUnavailableServers(),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar el estado.' });
     }
   });
 
-  // Stream Server-Sent Events (SSE) para eventos de Core en tiempo real
+  // Eventos en tiempo real (SSE): un mensaje `data: <TaskEvent>` por evento.
   router.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
-    const unsubscribe = jarvisCore.addEventListener((event) => {
-      const currentTask = jarvisCore.getTask(event.taskId);
-      const pending = jarvisCore.getPendingApproval(event.taskId);
-      const payload = JSON.stringify({
-        event,
-        task: toWireTask(currentTask),
-        pendingApproval: serializePendingApproval(pending),
-      });
-      res.write(`data: ${payload}\n\n`);
+    const unsubscribe = tasks.addEventListener((event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
     });
-
-    const keepAlive = setInterval(() => {
-      res.write(': ping\n\n');
-    }, 15000);
-
+    const keepAlive = setInterval(() => res.write(': ping\n\n'), 15000);
     req.on('close', () => {
       clearInterval(keepAlive);
       unsubscribe();
     });
   });
 
-  // Refrescar catálogo de Discovery dinámicamente
+  // Refrescar el catálogo de herramientas.
   router.all('/refresh-discovery', async (_req, res) => {
     try {
       const tools = await discoveryEngine.discoverAll(true);
       res.json({ tools, unavailableServers: discoveryEngine.getUnavailableServers() });
-    } catch (err: any) {
-      res.json({ tools: {}, error: err.message });
+    } catch (err: unknown) {
+      res.json({ tools: {}, error: err instanceof Error ? err.message : 'Error al refrescar el catálogo.' });
     }
   });
 
-
-
-  // Configuración de endpoints externos
+  // Configuración de los endpoints externos.
   router.get('/config', (_req, res) => {
     res.json(ConfigManager.getConfig());
   });
-
   router.post('/config', (req, res) => {
-    const updated = ConfigManager.updateConfig(req.body);
-    res.json(updated);
+    res.json(ConfigManager.updateConfig(req.body));
   });
 
   return router;

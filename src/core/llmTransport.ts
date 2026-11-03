@@ -38,15 +38,25 @@ export class LLMServiceUnavailableError extends Error {
     }
 }
 
-/** El LLM respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto). */
+/**
+ * El LLM respondió, pero la salida no es utilizable tras el reintento (o el prompt no cabe en el contexto).
+ * `overflow` distingue el segundo caso: el prompt no se envió y repetirlo no sirve (D15).
+ */
 export class LLMValidationError extends Error {
     readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
     readonly attempts?: FailedAttempt[];
-    constructor(message: string, raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan }, attempts?: FailedAttempt[]) {
+    readonly overflow: boolean;
+    constructor(
+        message: string,
+        raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan },
+        attempts?: FailedAttempt[],
+        overflow = false
+    ) {
         super(`[Qwen Validation] ${message}`);
         this.name = "LLMValidationError";
         this.raw = raw;
         this.attempts = attempts;
+        this.overflow = overflow;
     }
 }
 
@@ -57,10 +67,16 @@ export class DecisionServiceUnavailableError extends Error {
     }
 }
 
+/**
+ * Decision respondió algo inválido, o el payload no cabe en su contexto. `overflow` distingue el segundo caso: no se
+ * envió nada y repetir no sirve (D15).
+ */
 export class DecisionValidationError extends Error {
-    constructor(message: string) {
+    readonly overflow: boolean;
+    constructor(message: string, overflow = false) {
         super(`[Decision 2.0 Validation] ${message}`);
         this.name = "DecisionValidationError";
+        this.overflow = overflow;
     }
 }
 

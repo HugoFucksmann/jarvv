@@ -1,14 +1,16 @@
 /**
- * `forVerify` (sección 8): verificación del paso. Paso, criterio de éxito, llamada evaluada (resumen y ref) y
- * efectos del paso. Incluye herramienta y `args` de la llamada evaluada para que el verificador sepa qué se ejecutó.
+ * `forVerify` (sección 8.3): verificación del resultado de una llamada (Decisión 4). El criterio es el del paso en
+ * deliberativo y la solicitud en reactivo (donde el paso no tiene `expected`: se juzga si la llamada avanza lo pedido).
+ * La llamada evaluada lleva herramienta, `args`, resumen y ref para que el verificador sepa qué se ejecutó. En reactivo
+ * suma lo hecho (`done`, líneas `L`); en ambos modos, la entrada del usuario.
  */
 
-import { effectsOf } from "../derive.ts";
+import { doneCalls } from "../derive.ts";
 import { ContextError } from "../errors.ts";
 import { parseId } from "../ids.ts";
 import type { ContextData } from "../types.ts";
-import { callViewOf, stepViewOf } from "./shared.ts";
-import type { VerifyView } from "./types.ts";
+import { callViewOf, lineViewOf, userInputViewsOf } from "./shared.ts";
+import type { CriterionView, VerifyView } from "./types.ts";
 
 export function buildVerifyView(data: ContextData, callId: string): VerifyView {
   const parsedCall = parseId(callId);
@@ -21,12 +23,16 @@ export function buildVerifyView(data: ContextData, callId: string): VerifyView {
   if (step === undefined || step.id !== call.stepId) {
     throw new ContextError("unknown_target", null, `forVerify: el paso "${call.stepId}" de la llamada "${callId}" no existe`);
   }
+
+  const reactive = data.task.mode === "reactive";
+  const criterion: CriterionView = reactive
+    ? { source: "request", text: data.task.request }
+    : { source: "step", instruction: step.instruction, expected: step.expected };
+
   return {
-    request: data.task.mode === "reactive" ? data.task.request : null,
-    step: stepViewOf(step),
+    criterion,
     call: callViewOf(data, call, true),
-    stepEffects: effectsOf(data.calls)
-      .filter((c) => c.stepId === step.id)
-      .map((c) => callViewOf(data, c, true)),
+    done: reactive ? doneCalls(data.calls).filter((c) => c.id !== call.id).map(lineViewOf) : [],
+    userInput: userInputViewsOf(data),
   };
 }

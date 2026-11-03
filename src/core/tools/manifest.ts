@@ -41,6 +41,8 @@ export interface ToolDefinition {
   /** Formato de parámetros que el esquema del servidor no expresa (parámetro -> nota en inglés). */
   readonly notes?: Readonly<Record<string, string>>;
   readonly requires?: "process" | "search";
+  /** Excepciones al recorte por defecto de los strings de `args` al registrar la llamada (parámetro -> caracteres). */
+  readonly argCaps?: Readonly<Record<string, number>>;
   readonly policy: Readonly<ToolPolicy>;
 }
 
@@ -88,6 +90,8 @@ interface ToolOptions {
   notes?: Readonly<Record<string, string>>;
   /** Estado que la tarea debe tener para ofrecer la herramienta: un proceso en ejecución o una búsqueda iniciada. */
   requires?: "process" | "search";
+  /** Excepciones al recorte por defecto de los strings de `args` (parámetro -> caracteres); ver `argCapsOf`. */
+  argCaps?: Readonly<Record<string, number>>;
 }
 
 function def(
@@ -108,6 +112,14 @@ function def(
       throw new Error(`[Manifest] nota de '${route}:${name}.${param}': el parámetro no está en 'params'.`);
     }
   }
+  for (const [param, cap] of Object.entries(opts.argCaps ?? {})) {
+    if (!Number.isInteger(cap) || cap < 1) {
+      throw new Error(`[Manifest] argCaps de '${route}:${name}.${param}': debe ser un entero positivo.`);
+    }
+    if (opts.params && !opts.params.includes(param)) {
+      throw new Error(`[Manifest] argCaps de '${route}:${name}.${param}': el parámetro no está en 'params'.`);
+    }
+  }
   const mutates = !NO_MUTATION.has(capability);
   return Object.freeze({
     name,
@@ -117,6 +129,7 @@ function def(
     params: opts.params,
     notes: opts.notes ? Object.freeze({ ...opts.notes }) : undefined,
     requires: opts.requires,
+    argCaps: opts.argCaps ? Object.freeze({ ...opts.argCaps }) : undefined,
     policy: Object.freeze({
       capability,
       requiresApproval: NEEDS_APPROVAL.has(capability),
@@ -128,7 +141,11 @@ function def(
 }
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
-  def("files", "read_file", "FILE_READ", "Read a local or remote file (text, PDF, with offset).", { emptyIsError: true }),
+  // Sin `isUrl`: las URL las cubre `fetch`. `offset` y `length` cuentan líneas en archivos de texto (observado); en PDF o Excel no se verificó.
+  def("files", "read_file", "FILE_READ", "Read a local text/PDF/Excel file (offset, sheet, range).", {
+    emptyIsError: true,
+    params: ["path", "offset", "length", "sheet", "range"],
+  }),
   def("files", "read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
   def("files", "write_file", "FILE_WRITE", "Create or overwrite a file on disk.", {
     params: ["path", "content", "mode"],
@@ -149,6 +166,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // Sin `verbose_timing`: con él la última línea de la salida pasa a ser un bloque de tiempos y el extractor pierde el fin del proceso y su exit code.
   def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command.", {
     params: ["command", "timeout_ms", "shell"],
+    argCaps: { command: 1000 },
   }),
   def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", {
     loopExempt: true,
@@ -205,6 +223,31 @@ export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy
 export function requirementOf(server: string, tool: string): "process" | "search" | undefined {
   return lookup(server, tool)?.requires;
 }
+
+const NO_ARG_CAPS: Readonly<Record<string, number>> = Object.freeze({});
+
+/** Excepciones al recorte por defecto de los strings de `args` de una herramienta (vacío si no tiene o no está catalogada). */
+export function argCapsOf(server: string, tool: string): Readonly<Record<string, number>> {
+  return lookup(server, tool)?.argCaps ?? NO_ARG_CAPS;
+}
+
+/**
+ * `ARGS_MAX`: el mayor de `defaultCap` (`BUDGET.argsStringDefault`) y de todas las excepciones `argCaps` del catálogo.
+ * Es el valor que se pasa a `create.context` (`argsStringMax`); `clipWithin` garantiza que ningún string recortado lo supere.
+ */
+export function argsMax(defaultCap: number): number {
+  let max = defaultCap;
+  for (const t of SYSTEM_TOOL_MANIFEST) {
+    for (const cap of Object.values(t.argCaps ?? {})) max = Math.max(max, cap);
+  }
+  return max;
+}
+
+/**
+ * Nombres de los parámetros de `read_file` con los que `ctx.view.forArgs` deriva qué parte de una ref ya se mostró
+ * (`ArgsViewOptions.readArgKeys`). Único lugar donde se declaran: el contexto no conoce herramientas (principio 5).
+ */
+export const READ_ARG_KEYS = Object.freeze({ path: "path", offset: "offset", length: "length" });
 
 export function serverOf(route: ExecutableRoute): McpServerName {
   return DESTINATIONS[route].server;

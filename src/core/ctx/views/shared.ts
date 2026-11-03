@@ -3,11 +3,23 @@
  * texto ni lo recortan.
  */
 
-import { effectsOf, isFailure, possibleEffectsOf } from "../derive.ts";
+import {
+  doneCalls,
+  effectsOf,
+  envOf,
+  isFailure,
+  lastReadsWithData,
+  outcomeOf,
+  possibleEffectsOf,
+  recentFailures,
+  recentWindowSize,
+  userInputOf,
+} from "../derive.ts";
 import { parseId } from "../ids.ts";
+import { currentOf } from "../query.ts";
 import type { Call, ContextData, Ref, Step } from "../types.ts";
-import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATUS_NOTES } from "./messages.ts";
-import type { AttemptView, CallView, EffectView, FactView, RefView, StepView } from "./types.ts";
+import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STATUS_NOTES, STOP_REASON_NOTES } from "./messages.ts";
+import type { CallView, EffectView, FactView, RefView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
 
 export function refToView(ref: Ref): RefView {
   return { id: ref.id, size: ref.size, where: ref.where, label: ref.label };
@@ -33,8 +45,8 @@ export function stepViewOf(step: Step): StepView {
   };
 }
 
-/** `withArgs`: incluir los `args` (herramienta y lo que se quiso ejecutar). */
-export function callViewOf(data: ContextData, call: Call, withArgs: boolean): CallView {
+/** Línea de llamada `L` (8.2): identificación y resultado fijo, sin `args`, `summary` ni ref. */
+export function lineViewOf(call: Call): CallView {
   return {
     id: call.id,
     stepId: call.stepId,
@@ -46,6 +58,17 @@ export function callViewOf(data: ContextData, call: Call, withArgs: boolean): Ca
     reason: call.reason,
     statusNote: STATUS_NOTES[call.status],
     reasonNote: call.reason === null ? null : REASON_NOTES[call.reason],
+    failed: isFailure(call),
+    args: null,
+    summary: null,
+    ref: null,
+  };
+}
+
+/** `withArgs`: incluir los `args` (herramienta y lo que se quiso ejecutar). Siempre lleva `summary` y ref. */
+export function callViewOf(data: ContextData, call: Call, withArgs: boolean): CallView {
+  return {
+    ...lineViewOf(call),
     args: withArgs ? call.args : null,
     summary: call.summary,
     ref: refViewOf(data, call.ref),
@@ -55,18 +78,6 @@ export function callViewOf(data: ContextData, call: Call, withArgs: boolean): Ca
 /** Un fallo muestra los `args` solo en `args_invalid`, `tool_rejected` e `info_missing` (sección 8). */
 export function failureViewOf(data: ContextData, call: Call): CallView {
   return callViewOf(data, call, ARGS_SHOWN_STATUSES.includes(call.status));
-}
-
-export function attemptViewOf(call: Call): AttemptView {
-  return {
-    callId: call.id,
-    stepId: call.stepId,
-    route: call.route,
-    tool: call.tool,
-    status: call.status,
-    verdict: call.verdict,
-    failed: isFailure(call),
-  };
 }
 
 /** Hechos vigentes (los retirados, con `value = null`, se omiten), del más antiguo al más reciente. */
@@ -79,6 +90,16 @@ export function factViewsOf(data: ContextData): FactView[] {
   return out.sort((a, b) => a.at - b.at);
 }
 
+/** Entrada del usuario (5.4), en orden cronológico. */
+export function userInputViewsOf(data: ContextData): UserInputView[] {
+  return userInputOf(data).map(({ kind, stepId, text }) => ({ kind, stepId, text }));
+}
+
+/** Hechos de entorno (5.4): los vigentes que no son respuestas del usuario. */
+export function envViewsOf(data: ContextData): FactView[] {
+  return envOf(data.facts).map(({ key, value, stepId, at }) => ({ key, value, stepId, at }));
+}
+
 /** Todos los efectos, con sus `args` y sin recorte. */
 export function effectViewsOf(data: ContextData): EffectView[] {
   return effectsOf(data.calls).map((c) => callViewOf(data, c, true));
@@ -87,4 +108,74 @@ export function effectViewsOf(data: ContextData): EffectView[] {
 /** Todos los posibles efectos, con sus `args` y sin recorte. */
 export function possibleEffectViewsOf(data: ContextData): EffectView[] {
   return possibleEffectsOf(data.calls).map((c) => callViewOf(data, c, true));
+}
+
+// ───────────────────────── Partes comunes de `forArgs` y `forReview` ─────────────────────────
+
+export interface TaskParts {
+  /** Paso vigente en curso, si hay. */
+  readonly step: Step | null;
+  /** Reactivo: llamadas aprobadas no mostradas en otra sección. Deliberativo: vacío. */
+  readonly done: Call[];
+  /** Deliberativo: pasos completados; el resultado, si no se mostró ya en otra sección. Reactivo: vacío. */
+  readonly stepsDone: StepDoneView[];
+  readonly reads: Call[];
+  readonly failures: Call[];
+  /** Refs de las llamadas que muestran su ref (`excluded`, `reads` y `failures`): no se repiten en `refs`. */
+  readonly shownRefs: ReadonlySet<string>;
+}
+
+/**
+ * Lo que `forArgs` y `forReview` comparten (8.3). Una llamada aparece una sola vez, con este orden de prioridad:
+ * `excluded` (efectos, donde la vista los muestra) > `reads` > `done` / `stepsDone` > `failures`.
+ */
+export function taskPartsOf(data: ContextData, options: ReviewViewOptions, excluded: readonly Call[]): TaskParts {
+  const reactive = data.task.mode === "reactive";
+  const size = recentWindowSize(data.steps, options.recentWindows);
+  const step = currentOf(data).step;
+
+  const shown = new Set<string>();
+  const shownRefs = new Set<string>();
+  const mark = (call: Call): void => {
+    shown.add(call.id);
+    if (call.ref !== null) shownRefs.add(call.ref);
+  };
+  excluded.forEach(mark);
+
+  const reads = lastReadsWithData(data.calls, options.lastReads).filter((c) => !shown.has(c.id));
+  reads.forEach(mark);
+
+  // `done` (reactivo): líneas `L`, sin ref: no marca refs porque no las muestra.
+  const done = reactive ? doneCalls(data.calls).filter((c) => !shown.has(c.id)) : [];
+  done.forEach((c) => shown.add(c.id));
+
+  const stepsDone = reactive ? [] : stepsDoneViews(data, shown);
+
+  const failures = step === null ? [] : recentFailures(data.calls, size, step.id).filter((c) => !shown.has(c.id));
+  failures.forEach(mark);
+
+  return { step, done, stepsDone, reads, failures, shownRefs };
+}
+
+/**
+ * Pasos `completed` vigentes con su resultado (`outcome`, 5.4). El resultado se omite si esa llamada ya se mostró en otra
+ * sección (`shown`); si no, queda registrado en `shown`.
+ */
+export function stepsDoneViews(data: ContextData, shown: Set<string>): StepDoneView[] {
+  const out: StepDoneView[] = [];
+  for (const s of data.steps) {
+    if (s.superseded || s.state !== "completed") continue;
+    const outcome = outcomeOf(data.calls, s.id);
+    const free = outcome !== null && !shown.has(outcome.id) ? outcome : null;
+    if (free !== null) shown.add(free.id);
+    out.push({ id: s.id, instruction: s.instruction, outcome: free === null ? null : callViewOf(data, free, false) });
+  }
+  return out;
+}
+
+/** Estado de la tarea con su frase fija. */
+export function taskViewOf(data: ContextData): TaskView {
+  const { state, stopReason } = data.task;
+  const note = stopReason === null ? STATE_NOTES[state] : `${STATE_NOTES[state]} ${STOP_REASON_NOTES[stopReason]}`;
+  return { state, stopReason, note };
 }

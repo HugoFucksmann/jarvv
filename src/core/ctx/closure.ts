@@ -59,7 +59,6 @@ export function terminalStateFor(stopReason: StopReason, calls: readonly Call[])
     case "user_cancelled":
       return "cancelled";
     case "max_steps":
-    case "loop_blocked":
     case "replans_exhausted":
     case "no_alternatives":
     case "unrecoverable":

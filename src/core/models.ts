@@ -12,6 +12,6 @@ export interface ModelInfo {
 }
 
 export const MODELS: Record<ModelType, ModelInfo> = {
-  EOS_0_8B: { name: "Eos-0.8B", short: "Eos" },
-  QWEN_3_5_9B: { name: "Qwen 3.5 9B", short: "Qwen" },
+  EOS_0_8B: { name: "d3:2b", short: "D3" },
+  QWEN_3_5_9B: { name: "Qwen 3.5 4B", short: "Qwen" },
 };

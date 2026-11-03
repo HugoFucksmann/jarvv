@@ -7,6 +7,11 @@
  * - Reintentos: red y HTTP 503 en llmTransport; salida inválida o truncada: 1 reintento aquí, con el error
  *   previo en el prompt, más presupuesto de tokens y temperatura 0.3. Timeout y cancelación nunca se reintentan.
  * - Nada se infiere en silencio: ruta inválida, plan demasiado largo o expected_outcome vacío invalidan la salida.
+ * - Fase 6: `generatePlanFromView` (LLM 1: plan y replan, de 1 a `maxSteps` pasos) y `generateFinalFromView` (LLM 3). Un
+ *   plan fuera de ese rango es salida inválida: se reintenta una vez aquí y, si persiste, `LLMValidationError` (FLUJO 7).
+ * - Fase 5: `generateArgumentsFromView` (argumentos desde la vista de `renderArgs`) y `generateQuestion` (texto de la pregunta
+ *   al usuario, `ask_user`) son aditivos: contrato `EngineLLM` (engine/deps.ts). Una salida inválida de ambos se reintenta
+ *   una vez aquí; si persiste, `LLMValidationError` y quien ejecuta decide (D4, D29).
  */
 
 import {
@@ -34,6 +39,18 @@ import {
 import { ConfigManager } from "../config.ts";
 import { PROMPTS, retryNote } from "./prompts.ts";
 import type { ILLMClient } from "../engineDeps.ts";
+import type {
+  ArgsFromViewInput,
+  EngineLLM,
+  FinalFromViewInput,
+  FinalGenerationResult,
+  GeneratedStep,
+  PlanFromViewInput,
+  PlanGenerationResult,
+  QuestionGenerationResult,
+  QuestionInput,
+} from "../engine/deps.ts";
+import { BUDGET } from "../budget.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
 import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
 import {
@@ -75,6 +92,16 @@ export const PLAN_JSON_SCHEMA: JsonSchema = {
   required: ["objective", "steps"],
   additionalProperties: false,
 };
+
+/** Plan desde la vista (Fase 6): solo `steps`, de 1 a `maxSteps` (el tope lo pasa el motor). */
+function planViewSchema(maxSteps: number): JsonSchema {
+  return {
+    type: "object",
+    properties: { steps: { ...STEPS_SCHEMA, minItems: 1, maxItems: maxSteps } },
+    required: ["steps"],
+    additionalProperties: false,
+  };
+}
 
 export const REPLAN_JSON_SCHEMA: JsonSchema = {
   type: "object",
@@ -358,7 +385,7 @@ function readCompletion(data: unknown): Completion {
   };
 }
 
-export class QwenEngine implements ILLMClient {
+export class QwenEngine implements ILLMClient, EngineLLM {
   /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
     const t0 = Date.now();
@@ -402,7 +429,10 @@ export class QwenEngine implements ILLMClient {
     const available = numCtx - promptEstimate;
     if (available < MIN_COMPLETION_TOKENS) {
       throw new LLMValidationError(
-        `El prompt de '${o.stage}' (~${promptEstimate} tokens) no deja espacio de salida en el contexto de ${numCtx} tokens.`
+        `El prompt de '${o.stage}' (~${promptEstimate} tokens) no deja espacio de salida en el contexto de ${numCtx} tokens.`,
+        undefined,
+        undefined,
+        true // desborde: no se envió nada y repetir no sirve (D15)
       );
     }
     const maxTokens = Math.min(o.maxTokens, available);
@@ -535,34 +565,121 @@ export class QwenEngine implements ILLMClient {
   }
 
   async generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
-    return this.executeStage("generateArguments", async () => {
-      const inputSchema = data.tool.inputSchema;
-      const required = inputSchema.required ?? [];
-      const userPrompt = PROMPTS.ARGUMENTS.buildUserPrompt(data);
+    return this.executeStage("generateArguments", () =>
+      this.runArguments(data.tool, PROMPTS.ARGUMENTS.SYSTEM, PROMPTS.ARGUMENTS.buildUserPrompt(data), signal)
+    );
+  }
 
-      const { value, res, failed } = await this.dispatchValidated<Record<string, unknown>>({
-        stage: "arguments",
-        system: PROMPTS.ARGUMENTS.SYSTEM,
-        user: userPrompt,
-        json: true,
-        maxTokens: ConfigManager.getConfig().qwenMaxTokens.arguments,
+  /** Argumentos desde la vista estructurada (Fase 5): misma validación y mismo reintento que `generateArguments`. */
+  async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
+    return this.executeStage("generateArgumentsFromView", () =>
+      this.runArguments(input.tool, PROMPTS.ARGUMENTS_VIEW.SYSTEM, PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(input), signal)
+    );
+  }
+
+  /** Texto de la pregunta al usuario (`ask_user`, Fase 5). Salida vacía: un reintento aquí; si persiste, `LLMValidationError`. */
+  async generateQuestion(input: QuestionInput, signal?: AbortSignal): Promise<QuestionGenerationResult> {
+    return this.executeStage("generateQuestion", async () => {
+      const { value, res } = await this.dispatchValidated<string>({
+        stage: "question",
+        system: PROMPTS.QUESTION.SYSTEM,
+        user: PROMPTS.QUESTION.buildUserPrompt(input),
+        json: false,
+        maxTokens: BUDGET.ask.maxTokens,
         thinking: false,
+        signal,
+        validate: (r, isLast) => {
+          const text = stripThink(r.content).trim();
+          if (!text) return fail("salida vacía");
+          if (!r.truncated) return ok(text);
+          return isLast ? ok(text) : fail(TRUNCATED);
+        },
+      });
+
+      return { question: value, ...rawOf(res) };
+    });
+  }
+
+  /**
+   * LLM 1 desde la vista (Fase 6): plan inicial, replan por fallo de paso o por instrucción del usuario. El plan trae entre 1
+   * y `maxSteps` pasos; el cliente valida el rango para que cuente como salida inválida y se repita una vez.
+   */
+  async generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult> {
+    return this.executeStage("generatePlanFromView", async () => {
+      const tokens = ConfigManager.getConfig().qwenMaxTokens;
+      const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
+        stage: "plan",
+        system: PROMPTS.PLAN_VIEW.SYSTEM,
+        user: PROMPTS.PLAN_VIEW.buildUserPrompt({ view: input.view, maxSteps: input.maxSteps, catalog: buildCompactCatalog() }),
+        json: true,
+        schema: planViewSchema(input.maxSteps),
+        maxTokens: input.trigger === "initial" ? tokens.plan : tokens.replan,
+        thinking: true,
         signal,
         validate: (r) => {
           const out = parseObjectOutput(r);
           if (!out.ok) return out;
-          const parsed = out.value;
-          // null en un parámetro opcional equivale a "no usado".
-          for (const k of Object.keys(parsed)) {
-            if (parsed[k] === null && !required.includes(k)) delete parsed[k];
-          }
-          const problem = validateArgs(parsed, inputSchema);
-          return problem ? fail(problem) : ok(parsed);
+          const parsed = parsePlanSteps(out.value.steps, 1, false);
+          if ("error" in parsed) return fail(parsed.error);
+          if (parsed.steps.length > input.maxSteps) return fail(`máximo ${input.maxSteps} pasos; se recibieron ${parsed.steps.length}`);
+          return ok(parsed.steps.map((s) => ({ instruction: s.instruction, route: s.route, expected: s.expectedOutcome })));
         },
       });
-
-      return { args: value, ...rawOf(res), failedAttempts: failed };
+      return { steps: value, ...rawOf(res) };
     });
+  }
+
+  /** LLM 3 desde la vista (Fase 6): respuesta final. Misma política de salida vacía o truncada que `generateFinalResponse`. */
+  async generateFinalFromView(input: FinalFromViewInput, signal?: AbortSignal): Promise<FinalGenerationResult> {
+    return this.executeStage("generateFinalFromView", async () => {
+      const config = ConfigManager.getConfig();
+      const { value, res } = await this.dispatchValidated<string>({
+        stage: "final_response",
+        system: PROMPTS.FINAL_VIEW.SYSTEM,
+        user: PROMPTS.FINAL_VIEW.buildUserPrompt(input),
+        json: false,
+        maxTokens: config.qwenMaxTokens.final,
+        thinking: config.thinking,
+        retryThinking: false, // un final vacío suele ser thinking que agotó el presupuesto
+        signal,
+        validate: (r, isLast) => {
+          const text = stripThink(r.content);
+          if (!text) return fail("salida vacía");
+          if (!r.truncated) return ok(text);
+          return isLast ? ok(`${text}\n\n[Respuesta truncada por el límite de tokens]`) : fail(TRUNCATED);
+        },
+      });
+      return { response: value, ...rawOf(res) };
+    });
+  }
+
+  /** Núcleo común de la generación de argumentos: despacho, validación contra el schema de la herramienta y reintento. */
+  private async runArguments(tool: MCPTool, system: string, user: string, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
+    const inputSchema = tool.inputSchema;
+    const required = inputSchema.required ?? [];
+
+    const { value, res, failed } = await this.dispatchValidated<Record<string, unknown>>({
+      stage: "arguments",
+      system,
+      user,
+      json: true,
+      maxTokens: ConfigManager.getConfig().qwenMaxTokens.arguments,
+      thinking: false,
+      signal,
+      validate: (r) => {
+        const out = parseObjectOutput(r);
+        if (!out.ok) return out;
+        const parsed = out.value;
+        // null en un parámetro opcional equivale a "no usado".
+        for (const k of Object.keys(parsed)) {
+          if (parsed[k] === null && !required.includes(k)) delete parsed[k];
+        }
+        const problem = validateArgs(parsed, inputSchema);
+        return problem ? fail(problem) : ok(parsed);
+      },
+    });
+
+    return { args: value, ...rawOf(res), failedAttempts: failed };
   }
 
   async generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult> {
