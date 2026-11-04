@@ -1,61 +1,265 @@
 /**
  * Contrato HTTP/SSE entre la UI y el backend JARVIS (/api/jarvis/*).
- * Todo se deriva del core (src/core): aquí solo se describe lo que viaja por el cable
- * y no es un modelo del core. No se redeclara nada que el core ya exporte.
+ * Totalmente desacoplado de src/core.
  */
 
-import type { CoreEvent, MCPTool, PendingApproval, Task } from "../../src/core/types.ts";
+export type ExecutionMode = "reactive" | "deliberative";
+
+export type TaskState = "running" | "completed" | "partial" | "failed" | "cancelled";
+
+export type StopReason =
+  | "max_steps"
+  | "no_alternatives"
+  | "security_denied"
+  | "user_cancelled"
+  | "replans_exhausted"
+  | "unrecoverable";
+
+export interface TaskInfo {
+  id: string;
+  mode: ExecutionMode;
+  request: string;
+  state: TaskState;
+  stopReason?: StopReason;
+  startedAt: string;
+}
+
+export interface PlanDto {
+  id: string;
+  at: string;
+  trigger: "initial" | "user_feedback" | "step_failure";
+  feedback?: string;
+  stepId?: string;
+}
+
+export type StepState = "pending" | "running" | "completed" | "failed";
+
+export interface StepDto {
+  id: string;
+  at: string;
+  planId: string | null;
+  instruction: string | null;
+  route: string | null;
+  expected: string | null;
+  state: StepState;
+  superseded: boolean;
+}
+
+export type CallStatus =
+  | "ok"
+  | "no_data"
+  | "not_found"
+  | "tool_error"
+  | "exception"
+  | "interrupted"
+  | "denied"
+  | "args_invalid"
+  | "refs_unresolved"
+  | "loop_blocked"
+  | "user_rejected"
+  | "tool_rejected"
+  | "info_missing"
+  | string;
+
+export interface CallDto {
+  id: string;
+  stepId: string;
+  at: string;
+  route: string;
+  tool: string;
+  kind: "read" | "write";
+  args: Record<string, unknown>;
+  sig: string;
+  status: CallStatus;
+  verdict: "approved" | "rejected" | null;
+  reason?: string;
+  summary?: string;
+  ref?: string;
+}
+
+export interface ErrorDto {
+  id: string;
+  stepId: string;
+  at: string;
+  kind: "service_unavailable";
+}
+
+export interface FactEntry {
+  value: unknown;
+  stepId: string;
+  at: string;
+}
+
+export interface RefDto {
+  id: string;
+  stepId: string;
+  at: string;
+  label: string;
+  size: number;
+  where: string;
+}
+
+export interface TaskResult {
+  text: string;
+  origin: "model" | "fallback";
+}
+
+export interface WaitingPlanStep {
+  id: string;
+  instruction: string;
+  route: string;
+  expected: string;
+}
+
+export interface WaitingPlan {
+  kind: "plan";
+  request: {
+    id: string;
+    planId: string;
+    steps: WaitingPlanStep[];
+  };
+}
+
+export interface WaitingApproval {
+  kind: "approval";
+  request: {
+    id: string;
+    mcp: string;
+    tool: string;
+    capability: string;
+    reason: string;
+    args: Record<string, unknown>;
+  };
+}
+
+export interface WaitingQuestion {
+  kind: "question";
+  question: {
+    stepId: string;
+    question: string;
+  };
+}
+
+export type Waiting = WaitingPlan | WaitingApproval | WaitingQuestion;
+
+export interface TaskDto {
+  v: 1;
+  n: number;
+  task: TaskInfo;
+  plans: PlanDto[];
+  steps: StepDto[];
+  calls: CallDto[];
+  errors: ErrorDto[];
+  facts: Record<string, FactEntry>;
+  refs: RefDto[];
+  result: TaskResult | null;
+  waiting: Waiting | null;
+}
+
+export interface TaskSummary {
+  id: string;
+  state: TaskState;
+  mode: ExecutionMode;
+  request: string;
+  startedAt: string;
+}
+
+export interface McpToolDto {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
 
 export type UnavailableServers = Record<string, { reason: string; since: number }>;
 
-/**
- * Tarea tal como la envían `toWireTask` (SSE y `allTasks`): sin `modelIterations`.
- * `Task` y `WireTask` son asignables entre sí, porque en `Task` ese campo es opcional.
- */
-export type WireTask = Omit<Task, "modelIterations">;
-
-/** Espejo exacto de `serializePendingApproval` (jarvisRouter.ts): sin callbacks ni taskId. */
-export type SerializedPendingApproval = Pick<
-  PendingApproval,
-  "id" | "stepId" | "mcp" | "tool" | "capability" | "args" | "reason"
->;
-
-/** Error de cualquier endpoint: `{ error }` con status 4xx/5xx. */
 export interface ApiErrorBody {
   error: string;
 }
 
 export interface OkResponse {
-  ok: boolean;
+  ok?: boolean;
 }
 
-/** POST /process */
 export interface InitiateTaskResponse {
-  task: Task;
+  task: TaskDto;
 }
 
-/** GET /state. `task` es la tarea completa (con modelIterations); `allTasks`, la versión de cable. */
 export interface StateResponse {
-  task?: Task | null;
-  pendingApproval: SerializedPendingApproval | null;
-  allTasks: WireTask[];
-  discoveredTools: Record<string, MCPTool[]>;
+  task: TaskDto | null;
+  tasks: TaskSummary[];
+  discoveredTools: Record<string, McpToolDto[]>;
   unavailableServers: UnavailableServers;
 }
 
-/**
- * POST /refresh-discovery. En fallo el back responde 200 con `{ tools: {}, error }`:
- * quien consume debe revisar `error` además del status HTTP.
- */
 export interface DiscoveryResponse {
-  tools: Record<string, MCPTool[]>;
+  tools: Record<string, McpToolDto[]>;
   unavailableServers?: UnavailableServers;
   error?: string;
 }
 
-/** Mensaje de GET /events (SSE). `task` se omite si el core no encuentra la tarea del evento. */
-export interface SseMessage {
-  event: CoreEvent;
-  task?: WireTask | null;
-  pendingApproval: SerializedPendingApproval | null;
+export interface SseCreated {
+  type: "created";
+  taskId: string;
+  n: number;
 }
+
+export interface SseChangeOp {
+  op: "add" | "update" | "set" | "finish";
+  target: string;
+  value: unknown;
+}
+
+export interface SseChange {
+  type: "change";
+  taskId: string;
+  n: number;
+  at: string;
+  ops: SseChangeOp[];
+}
+
+export interface SseWaiting {
+  type: "waiting";
+  taskId: string;
+  waiting: Waiting | null;
+}
+
+export type SseMessage = SseCreated | SseChange | SseWaiting;
+
+// Tipos de configuración para SettingsModal
+export interface StdioServerConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  allowedDirectories?: string[];
+}
+
+export interface QwenMaxTokens {
+  arguments: number;
+  plan: number;
+  replan: number;
+  verify: number;
+  final: number;
+}
+
+export interface JarvisConfig {
+  qwenUrl: string;
+  qwenModel: string;
+  thinking: boolean;
+  qwenNumCtx: number;
+  qwenMaxTokens: QwenMaxTokens;
+  qwenTimeoutMs: number;
+  qwenThinkingTimeoutMs: number;
+  decisionUrl: string;
+  decisionBackend: "eos" | "d3";
+  decisionModel: string;
+  decisionMaxContext: number;
+  decisionTimeoutMs: number;
+  desktopCommanderMcp: StdioServerConfig;
+  freeSearchMcp: StdioServerConfig;
+  mcpTimeoutMs: number;
+  traceEnabled: boolean;
+  tracePath: string;
+}
+
+export type ConfigPatch = Partial<JarvisConfig>;

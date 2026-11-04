@@ -4,7 +4,6 @@ import { StatusDot, type StatusDotStatus } from "../../Shared/StatusDot.tsx";
 import { Separator } from "../../Shared/Separator.tsx";
 import { getWaitingReasonLabel } from "../../../utils/taskStatus.ts";
 import type { McpInitStatus } from "../../../types/ui.ts";
-import { MODELS } from "../../../../src/core/models.ts";
 
 export interface SystemStatusProps {
   isExecuting: boolean;
@@ -91,7 +90,7 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
       <StatusDot status={statusType} />
       <span className={statusColorClass}>{statusLabel}</span>
       <Separator />
-      <span title="Motor de decisión configurado por defecto">Decision 2.0 ({MODELS.EOS_0_8B.name})</span>
+      <span title="Motor JARVIS conectado">JARVIS Engine</span>
       <Separator />
       <McpStatus status={mcpInitStatus} count={mcpCount} unavailableCount={unavailableCount} />
       <Separator />

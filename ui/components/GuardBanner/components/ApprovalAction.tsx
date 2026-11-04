@@ -1,18 +1,15 @@
 import React, { useState } from "react";
 import { ShieldAlert, Check, X, Loader2, Terminal } from "lucide-react";
-import type { PendingApproval } from "../../../../src/core/types.ts";
+import type { WaitingApproval } from "../../../types/api.ts";
+import type { ActionResult } from "../../../types/ui.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
 
 interface ApprovalActionProps {
-  /** Sus callbacks onApprove/onDeny ya están vinculados a la tarea por useJarvis (única fuente de verdad). */
-  pending: PendingApproval;
+  request: WaitingApproval["request"];
+  onApprove: () => ActionResult;
+  onDeny: (reason?: string) => ActionResult;
 }
 
-/**
- * Renderiza texto preservando saltos de línea reales (\n) en un bloque <pre>
- * e insertando identificadores visuales destacados para caracteres de control
- * como \r (retorno de carro), \t (tabulador) o caracteres ASCII no imprimibles.
- */
 function renderWithVisibleControlChars(text: string): React.ReactNode {
   if (typeof text !== "string") return String(text);
 
@@ -69,25 +66,29 @@ function formatArgValue(val: unknown): string {
   }
 }
 
-export const ApprovalAction: React.FC<ApprovalActionProps> = ({ pending }) => {
+export const ApprovalAction: React.FC<ApprovalActionProps> = ({
+  request,
+  onApprove,
+  onDeny,
+}) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Bloquea los botones hasta que el backend responde para evitar dobles envíos
-  const runAction = async (action?: () => void | Promise<void>) => {
+
+  const runAction = async (action: () => ActionResult) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await action?.();
+      await action();
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleApprove = () => runAction(pending.onApprove);
-  const handleDeny = () => runAction(() => pending.onDeny?.("Rechazado manualmente por el usuario"));
+  const handleApprove = () => runAction(onApprove);
+  const handleDeny = () => runAction(() => onDeny("Rechazado manualmente por el usuario"));
 
-  const rawArgs = pending.args || {};
-  const isStartProcess = pending.tool === "start_process" || Boolean(rawArgs.command);
-  const isInteractWithProcess = pending.tool === "interact_with_process" || Boolean(rawArgs.input);
+  const rawArgs = request.args || {};
+  const isStartProcess = request.tool === "start_process" || Boolean(rawArgs.command);
+  const isInteractWithProcess = request.tool === "interact_with_process" || Boolean(rawArgs.input);
 
   let primaryType: "command" | "input" | null = null;
   let primaryContent: string | null = null;
@@ -119,35 +120,45 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({ pending }) => {
 
   return (
     <div className="flex flex-col gap-3 p-3.5 bg-amber-950/50 border border-amber-900/80 rounded-lg text-amber-200 shadow-md">
-      {/* 1. Encabezado de la compuerta y acciones (Aprobar / Denegar permanecen siempre visibles) */}
+      {/* Encabezado de la compuerta y acciones */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-amber-900/60">
         <div className="flex items-center gap-2.5 flex-wrap">
           <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 animate-pulse" />
           <span className="text-xs font-mono font-semibold text-amber-300">
             GUARD: APROBACIÓN REQUERIDA
           </span>
-          <span className="text-amber-700" aria-hidden="true">·</span>
-          <span className="px-1.5 py-0.5 rounded bg-amber-900/50 border border-amber-800/80 text-[11px] font-mono text-amber-300">
-            {pending.capability}
+          {request.capability && (
+            <>
+              <span className="text-amber-700" aria-hidden="true">
+                ·
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-amber-900/50 border border-amber-800/80 text-[11px] font-mono text-amber-300">
+                {request.capability}
+              </span>
+            </>
+          )}
+          <span className="text-amber-700" aria-hidden="true">
+            ·
           </span>
-          <span className="text-amber-700" aria-hidden="true">·</span>
           <span className="text-xs font-mono font-bold text-amber-200">
-            {pending.mcp}:{pending.tool}
+            {request.mcp ? `${request.mcp}:` : ""}
+            {request.tool}
           </span>
-          <span className="text-amber-700" aria-hidden="true">·</span>
+          <span className="text-amber-700" aria-hidden="true">
+            ·
+          </span>
           <span className="text-emerald-400 font-sans text-[11px] bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/60">
             Espera activa sin expiración
           </span>
         </div>
 
-        {/* Botones de acción principales (fijos en la cabecera, nunca desplazados fuera de vista) */}
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
           <button
             type="button"
             disabled={isSubmitting}
             onClick={handleDeny}
             title="Denegar operación"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-300 bg-rose-950/60 hover:bg-rose-900/50 border border-rose-900/60 rounded-md transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-300 bg-rose-950/60 hover:bg-rose-900/50 border border-rose-900/60 rounded-md transition-colors cursor-pointer disabled:opacity-50"
           >
             {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
             <span>Denegar</span>
@@ -157,7 +168,7 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({ pending }) => {
             disabled={isSubmitting}
             onClick={handleApprove}
             title="Aprobar ejecución"
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-emerald-950 bg-emerald-400 hover:bg-emerald-300 rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-emerald-950 bg-emerald-400 hover:bg-emerald-300 rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50"
           >
             {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
             <span>Aprobar Ejecución</span>
@@ -165,12 +176,12 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({ pending }) => {
         </div>
       </div>
 
-      {/* 2. Motivo reportado por Guard */}
-      <p className="text-sm text-amber-100 font-medium leading-relaxed">
-        {pending.reason}
-      </p>
+      {/* Motivo reportado por Guard */}
+      {request.reason && (
+        <p className="text-sm text-amber-100 font-medium leading-relaxed">{request.reason}</p>
+      )}
 
-      {/* 3. Bloque destacado de Comando (start_process) o Entrada interactiva (interact_with_process) */}
+      {/* Bloque de comando o entrada interactiva */}
       {primaryContent !== null && (
         <div className="flex flex-col gap-1.5 p-2.5 rounded bg-slate-950/80 border border-amber-900/70">
           <div className="flex items-center justify-between text-xs font-mono pb-1 border-b border-amber-950">
@@ -198,7 +209,7 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({ pending }) => {
         </div>
       )}
 
-      {/* 4. Otros argumentos de la llamada (o todos los argumentos para cualquier otra herramienta) */}
+      {/* Otros argumentos */}
       {secondaryEntries.length > 0 && (
         <div className="flex flex-col gap-2 pt-1 border-t border-amber-900/40">
           <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-amber-400/90">

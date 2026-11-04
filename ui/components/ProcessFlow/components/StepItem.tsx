@@ -1,7 +1,6 @@
 import React, { memo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal } from "lucide-react";
-import type { CallStatus, Step } from "../../../../src/core/types.ts";
-import { callVerdict } from "../../../../src/core/modelIterations.ts";
+import { ChevronDown, ChevronRight, Terminal, FileText } from "lucide-react";
+import type { CallDto, StepDto } from "../../../types/api.ts";
 import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
@@ -9,23 +8,48 @@ import { Separator } from "../../Shared/Separator.tsx";
 import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
 
 interface StepItemProps {
-  step: Step;
+  step: StepDto;
+  calls: CallDto[];
   index: number;
   isCurrent: boolean;
-  /** El último paso no continúa el riel hacia abajo. */
   isLast?: boolean;
 }
 
-/** `status` lo calcula el core una sola vez por llamada (classifyCall): la UI solo lo traduce a color. */
-function callStatusTone(status?: CallStatus): string {
+function callStatusTone(status?: string): string {
   if (status === "ok") return "text-emerald-400";
-  if (status === "unverified") return "text-amber-400";
+  if (status === "no_data" || status === "not_found") return "text-amber-400";
   return status ? "text-rose-400" : "text-slate-400";
 }
 
-/** Salida completa de una herramienta o evidencia: expandible y copiable. */
-const ObservationOutput: React.FC<{ obs: string; copyTitle: string; className?: string }> = ({
-  obs,
+function callVerdictLabel(call: CallDto): string {
+  if (call.verdict === "approved") return "VERIFICADO (Aprobado)";
+  if (call.verdict === "rejected") return "RECHAZADO";
+  switch (call.status) {
+    case "ok":
+      return "OK";
+    case "no_data":
+      return "SIN DATOS";
+    case "not_found":
+      return "NO ENCONTRADO";
+    case "tool_error":
+      return "ERROR DE HERRAMIENTA";
+    case "exception":
+      return "EXCEPCIÓN";
+    case "interrupted":
+      return "INTERRUMPIDO";
+    case "denied":
+      return "DENEGADO";
+    case "user_rejected":
+      return "RECHAZADO POR USUARIO";
+    case "tool_rejected":
+      return "RECHAZADO POR HERRAMIENTA";
+    default:
+      return call.status ? call.status.toUpperCase() : "EJECUTADO";
+  }
+}
+
+const OutputViewer: React.FC<{ text: string; copyTitle: string; className?: string }> = ({
+  text,
   copyTitle,
   className = "",
 }) => {
@@ -40,10 +64,10 @@ const ObservationOutput: React.FC<{ obs: string; copyTitle: string; className?: 
           className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer font-mono"
         >
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span>Salida completa ({obs.length} caracteres)</span>
+          <span>Salida completa ({text.length} caracteres)</span>
         </button>
         <CopyButton
-          text={obs}
+          text={text}
           title={copyTitle}
           iconSize="w-2.5 h-2.5"
           className="gap-1 text-[10px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800"
@@ -51,32 +75,49 @@ const ObservationOutput: React.FC<{ obs: string; copyTitle: string; className?: 
       </div>
       {expanded && (
         <div className="p-2 bg-slate-950/70 rounded text-[11px] font-mono text-slate-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
-          {obs}
+          {text}
         </div>
       )}
     </div>
   );
 };
 
-const StepItemBase: React.FC<StepItemProps> = ({ step, index, isCurrent, isLast = false }) => {
+const StepItemBase: React.FC<StepItemProps> = ({
+  step,
+  calls,
+  index,
+  isCurrent,
+  isLast = false,
+}) => {
   const [showCalls, setShowCalls] = useState(false);
-
-  const calls = step.calls ?? [];
   const callsCount = calls.length;
+
+  // En modo reactivo instruction suele ser null: inferimos del contenido de las llamadas
+  const displayInstruction =
+    step.instruction ||
+    (callsCount > 0
+      ? `Llamada a ${calls.map((c) => c.tool).join(", ")}`
+      : `Iteración #${index + 1}`);
+
+  const effectiveRoute = step.route || calls[0]?.route || null;
 
   return (
     <div
-      className={`relative flex flex-col gap-2 py-3 px-3.5 rounded-xl transition-colors ${step.superseded
-        ? "opacity-50"
-        : isCurrent
+      className={`relative flex flex-col gap-2 py-3 px-3.5 rounded-xl transition-colors ${
+        step.superseded
+          ? "opacity-50"
+          : isCurrent
           ? "bg-slate-900/60"
           : "hover:bg-slate-900/30"
-        }`}
+      }`}
     >
-      {/* Riel que une los pasos: el orden de ejecución es parte de la información */}
       {!isLast && (
-        <span aria-hidden="true" className="absolute left-[1.45rem] top-9 -bottom-2 w-px bg-slate-800" />
+        <span
+          aria-hidden="true"
+          className="absolute left-[1.45rem] top-9 -bottom-2 w-px bg-slate-800"
+        />
       )}
+
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className="mt-0.5">
@@ -85,54 +126,40 @@ const StepItemBase: React.FC<StepItemProps> = ({ step, index, isCurrent, isLast 
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-2 text-xs">
               <span className="font-mono text-slate-500 tabular-nums">#{index + 1}</span>
-              <span className="font-mono text-slate-400 font-medium">{getRouteLabel(step.route)}</span>
-              {step.tool && (
-                <>
-                  <Separator />
-                  <span className="font-mono text-sky-300">{step.tool}</span>
-                </>
+              {effectiveRoute && (
+                <span className="font-mono text-slate-400 font-medium">
+                  {getRouteLabel(effectiveRoute)}
+                </span>
               )}
               {step.superseded && (
                 <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-950/50 text-rose-400 border border-rose-900/50">
-                  Reemplazado{step.rev ? ` (rev ${step.rev})` : ""}
+                  Descartado (replan)
                 </span>
               )}
             </div>
-            <p className={`text-sm ${step.superseded ? "line-through text-slate-500" : "text-slate-200"}`}>
-              {step.instruction}
+
+            <p
+              className={`text-sm ${
+                step.superseded ? "line-through text-slate-500" : "text-slate-200"
+              }`}
+            >
+              {displayInstruction}
             </p>
-            {step.expectedOutcome && !step.superseded && (
+
+            {step.expected && !step.superseded && (
               <p className="text-xs text-emerald-400/70 font-mono mt-0.5">
-                Esperado: {step.expectedOutcome}
+                Esperado: {step.expected}
               </p>
-            )}
-            {step.handoff && !step.superseded && (
-              <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 bg-cyan-950/40 border border-cyan-900/50 px-2 py-0.5 rounded mt-1">
-                <span className="text-cyan-400 font-semibold">Handoff:</span>
-                <span className="text-slate-300">{step.handoff.finding}</span>
-                {step.handoff.primaryFact && (
-                  <span className="text-emerald-400 bg-emerald-950/80 px-1 rounded">
-                    {step.handoff.primaryFact.key}={step.handoff.primaryFact.value}
-                  </span>
-                )}
-                {step.handoff.refKey && (
-                  <span className="text-sky-300 font-medium">[{step.handoff.refKey}]</span>
-                )}
-              </div>
             )}
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-xs font-mono shrink-0">
-          {step.verification === "UNVERIFIED" && (
-            <span className="text-amber-400 font-medium">Sin verificar</span>
-          )}
-          {step.verification === "VERIFIED" && <span className="text-emerald-400">Verificado</span>}
-          <span className="text-slate-400">{STEP_STATE_LABELS[step.state]}</span>
+          <span className="text-slate-400">{STEP_STATE_LABELS[step.state] || step.state}</span>
         </div>
       </div>
 
-      {/* Historial de llamadas a herramientas (acordeón) */}
+      {/* Historial de llamadas a herramientas asociadas a este paso */}
       {callsCount > 0 && (
         <div className="ml-7 mt-1">
           <button
@@ -140,7 +167,11 @@ const StepItemBase: React.FC<StepItemProps> = ({ step, index, isCurrent, isLast 
             onClick={() => setShowCalls((v) => !v)}
             className="flex items-center gap-1.5 text-xs text-sky-400/90 hover:text-sky-300 font-mono transition-colors cursor-pointer"
           >
-            {showCalls ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            {showCalls ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
             <span>
               {callsCount} llamada{callsCount > 1 ? "s" : ""} a herramientas
             </span>
@@ -150,18 +181,35 @@ const StepItemBase: React.FC<StepItemProps> = ({ step, index, isCurrent, isLast 
             <div className="mt-2 flex flex-col divide-y divide-slate-800/60 border-l border-slate-800 pl-3">
               {calls.map((c, cIdx) => {
                 const tone = callStatusTone(c.status);
+                const verdict = callVerdictLabel(c);
+
                 return (
-                  <div
-                    key={`call-${c.id || "item"}-${cIdx}`}
-                    className="py-2 text-xs font-mono"
-                  >
+                  <div key={`call-${c.id || cIdx}`} className="py-2 text-xs font-mono">
                     <div className="flex items-center justify-between text-slate-400 mb-1">
-                      <span className="text-sky-300 font-semibold flex items-center gap-1">
+                      <div className="flex items-center gap-1.5 text-sky-300 font-semibold">
                         <Terminal className="w-3 h-3 text-sky-400" />
-                        {c.mcp}:{c.tool}
-                      </span>
+                        <span>{c.tool}</span>
+                        <span
+                          className={`text-[10px] px-1 py-0.2 rounded ${
+                            c.kind === "write"
+                              ? "bg-amber-950/70 text-amber-300 border border-amber-800/60"
+                              : "bg-slate-800 text-slate-300"
+                          }`}
+                        >
+                          {c.kind}
+                        </span>
+                        {c.ref && (
+                          <span
+                            className="flex items-center gap-1 text-[10px] px-1 py-0.2 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-800/60"
+                            title={`Referencia: ${c.ref}`}
+                          >
+                            <FileText className="w-2.5 h-2.5" />
+                            <span>{c.ref}</span>
+                          </span>
+                        )}
+                      </div>
                       <span className={`text-[11px] ${tone}`} title={c.status}>
-                        {callVerdict(c.status)}
+                        {verdict}
                       </span>
                     </div>
 
@@ -172,13 +220,21 @@ const StepItemBase: React.FC<StepItemProps> = ({ step, index, isCurrent, isLast 
                       </div>
                     )}
 
-                    <p className="text-[12px] text-slate-300 font-sans line-clamp-3">
-                      {c.evidence?.summary || c.error || c.evidence?.obs || "Sin detalle textual"}
-                    </p>
+                    {c.summary && (
+                      <p className="text-[12px] text-slate-300 font-sans line-clamp-3">
+                        {c.summary}
+                      </p>
+                    )}
 
-                    {c.evidence?.obs && (
-                      <ObservationOutput
-                        obs={c.evidence.obs}
+                    {c.reason && (
+                      <p className="text-[11px] text-amber-300/80 font-mono mt-0.5">
+                        Motivo: {c.reason}
+                      </p>
+                    )}
+
+                    {c.summary && (
+                      <OutputViewer
+                        text={c.summary}
                         copyTitle="Copiar salida de herramienta"
                         className="mt-1"
                       />
@@ -190,45 +246,8 @@ const StepItemBase: React.FC<StepItemProps> = ({ step, index, isCurrent, isLast 
           )}
         </div>
       )}
-
-      {/* Evidencia del paso */}
-      {step.evidence && (
-        <div className="ml-7 text-xs text-slate-400 border-l border-slate-800 pl-3 py-0.5 flex flex-col gap-1">
-          <p className="line-clamp-2 text-slate-300">
-            {step.evidence.summary || step.evidence.obs || "Paso ejecutado"}
-          </p>
-          {step.evidence.obs && callsCount === 0 && (
-            <ObservationOutput
-              obs={step.evidence.obs}
-              copyTitle="Copiar salida de evidencia"
-              className="mt-0.5"
-            />
-          )}
-          {step.evidence.flags && step.evidence.flags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-1 text-slate-500 font-mono text-[11px]">
-              {step.evidence.flags.map((flag, fIdx) => (
-                <span key={fIdx}>· {flag}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Error del paso */}
-      {step.error && (
-        <div className="ml-7 flex items-start justify-between gap-3 text-xs text-rose-400 font-mono border-l border-rose-900/60 pl-3 py-1">
-          <span className="flex-1 break-all">{step.error}</span>
-          <CopyButton
-            text={step.error}
-            title="Copiar error al portapapeles"
-            ariaLabel="Copiar mensaje de error"
-            className="gap-1 px-1.5 py-0.5 text-[11px] text-rose-300 hover:text-white hover:bg-rose-900/40 rounded shrink-0"
-          />
-        </div>
-      )}
     </div>
   );
 };
 
-/** `useJarvis` conserva la identidad de los pasos sin cambios: solo se re-renderiza el paso que cambió. */
 export const StepItem = memo(StepItemBase);

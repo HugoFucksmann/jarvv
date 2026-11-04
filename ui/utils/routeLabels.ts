@@ -1,10 +1,7 @@
-import type { ExecutableRoute } from "../../src/core/types.ts";
-
 /**
  * Obtiene la etiqueta amigable para la interfaz de usuario a partir del destino funcional.
- * Utiliza un switch exhaustivo sin cláusula default para garantizar validación en tiempo de compilación.
  */
-export function getRouteLabel(route: ExecutableRoute): string {
+export function getRouteLabel(route?: string | null): string {
   switch (route) {
     case "files":
       return "Archivos";
@@ -14,5 +11,7 @@ export function getRouteLabel(route: ExecutableRoute): string {
       return "Terminal y procesos";
     case "web":
       return "Web";
+    default:
+      return route || "General";
   }
 }

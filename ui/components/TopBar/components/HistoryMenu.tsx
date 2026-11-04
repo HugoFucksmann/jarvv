@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
 import { History, ChevronDown, Check } from "lucide-react";
-import type { WireTask } from "../../../types/api.ts";
+import type { TaskSummary } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
-import { getTaskStatusType } from "../../../utils/taskStatus.ts";
+import { getTaskStatusType, MODE_LABELS } from "../../../utils/taskStatus.ts";
 
 interface HistoryMenuProps {
-  tasks: WireTask[];
+  tasks: TaskSummary[];
   activeTaskId?: string | null;
   onSelectTask: (taskId: string) => void;
 }
@@ -18,7 +18,6 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Cierra el menú al hacer click fuera o presionar Escape.
   useEffect(() => {
     if (!isOpen) return;
 
@@ -73,23 +72,25 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   onSelectTask(t.id);
                   setIsOpen(false);
                 }}
-                className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${isSelected
-                  ? "bg-slate-800 text-white font-medium"
-                  : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
-                  }`}
+                className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${
+                  isSelected
+                    ? "bg-slate-800 text-white font-medium"
+                    : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
+                }`}
               >
                 <div className="mt-1">
                   <StatusDot status={getTaskStatusType(t.state)} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="truncate text-xs font-sans text-slate-200">{t.message}</span>
+                  <span className="truncate text-xs font-sans text-slate-200">
+                    {t.request}
+                  </span>
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
-                    <span>{t.mode}</span>
-                    <span aria-hidden="true">·</span>
-                    {/* Los pasos reemplazados por una replanificación siguen en `steps`, marcados `superseded` */}
-                    <span>{t.steps.filter((s) => !s.superseded).length} pasos</span>
-                    {t.state === "RUNNING" && (
-                      <span className="text-sky-400 font-semibold animate-pulse">[En curso]</span>
+                    <span>{MODE_LABELS[t.mode]}</span>
+                    {t.state === "running" && (
+                      <span className="text-sky-400 font-semibold animate-pulse">
+                        [En curso]
+                      </span>
                     )}
                   </div>
                 </div>

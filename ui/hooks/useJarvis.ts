@@ -1,160 +1,86 @@
 /**
  * React Hook for JARVIS Client
  *
- * Communicates exclusively with the authoritative Node.js JARVIS backend via HTTP / SSE.
- * Does NOT instantiate or bundle JarvisCore, DiscoveryEngine, Decision20Engine,
- * QwenEngine, child_process, or any MCP transport inside the browser.
- *
- * El back es la fuente de verdad: la pregunta interactiva sale de `task.pendingQuestion`, las iteraciones de
- * `task.modelIterations` (en `/state`) o de los eventos SSE (`createIterationFromEvent`, módulo del core).
+ * Se comunica exclusivamente con el backend JARVIS vía HTTP y SSE (/api/jarvis/*).
+ * Consume el nuevo modelo de datos unificado (TaskDto) y reacciona a eventos SSE
+ * con debouncing hacia GET /state, según la especificación de JARVIS_API.md.
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import type { Task, Step, PendingApproval, CoreEvent, MCPTool } from "../../src/core/types.ts";
-import type { ModelIteration } from "../types/debug.ts";
-import type { ExecutionMode, McpInitStatus } from "../types/ui.ts";
-import type { SerializedPendingApproval, SseMessage, UnavailableServers, WireTask } from "../types/api.ts";
+import { useState, useEffect, useRef, useCallback } from "react";
+import type {
+  ExecutionMode,
+  McpInitStatus,
+  ActionResult,
+} from "../types/ui.ts";
+import type {
+  TaskDto,
+  TaskSummary,
+  Waiting,
+  WaitingApproval,
+  WaitingPlan,
+  WaitingQuestion,
+  McpToolDto,
+  UnavailableServers,
+  SseMessage,
+} from "../types/api.ts";
 import { jarvisApi } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
-import { createIterationFromEvent } from "../utils/debugAccumulator.ts";
 
 export type { ExecutionMode, McpInitStatus } from "../types/ui.ts";
 
-const MAX_EVENTS = 500;
-/** Tope de iteraciones de modelo por tarea (cada una guarda el texto crudo de entrada y salida). */
-const MAX_ITERATIONS = 300;
-/** Tareas cuyos eventos e iteraciones se conservan en memoria: las más antiguas se descartan (se recuperan con `/state`). */
-const MAX_BUFFERED_TASKS = 20;
 const FALLBACK_POLL_MS = 5000;
-
-// ---------------------------------------------------------------------------
-// Helpers puros
-// ---------------------------------------------------------------------------
-
-/** Dos pasos son el mismo dato: se compara lo barato primero y la serialización solo si todo coincide. */
-function sameStep(a: Step, b: Step): boolean {
-  return (
-    a.id === b.id &&
-    a.state === b.state &&
-    a.rev === b.rev &&
-    a.superseded === b.superseded &&
-    a.verification === b.verification &&
-    (a.calls?.length ?? 0) === (b.calls?.length ?? 0) &&
-    JSON.stringify(a) === JSON.stringify(b)
-  );
-}
-
-/**
- * Cada mensaje SSE trae la tarea entera como objetos nuevos. Se reutilizan los pasos que no cambiaron para que
- * `React.memo` pueda saltarse sus renders: en cada evento normalmente cambia un solo paso.
- */
-function reuseSteps(prev: Task | null, next: WireTask): WireTask {
-  if (!prev || prev.id !== next.id) return next;
-  let allSame = prev.steps.length === next.steps.length;
-  const steps = next.steps.map((s, i) => {
-    const old = prev.steps[i];
-    if (old && sameStep(old, s)) return old;
-    allSame = false;
-    return s;
-  });
-  return { ...next, steps: allSame ? prev.steps : steps };
-}
-
-/** Descarta los buffers de las tareas más antiguas para que la memoria no crezca con la cantidad de tareas de la sesión. */
-function pruneBuffers(
-  events: Record<string, CoreEvent[]>,
-  iterations: Record<string, ModelIteration[]>,
-  keepId: string
-): void {
-  const ids = Object.keys(events);
-  for (let i = 0; ids.length - i > MAX_BUFFERED_TASKS; i++) {
-    if (ids[i] === keepId) continue;
-    delete events[ids[i]];
-    delete iterations[ids[i]];
-  }
-}
-
-function upsertById(list: WireTask[], task: WireTask): WireTask[] {
-  const idx = list.findIndex((t) => t.id === task.id);
-  if (idx < 0) return [...list, task];
-  const next = [...list];
-  next[idx] = task;
-  return next;
-}
+const DEBOUNCE_STATE_MS = 80;
 
 const countKeys = (obj?: object | null): number => (obj ? Object.keys(obj).length : 0);
 
-/** `whenEmpty` define qué significa "sin herramientas y sin errores": arranque (loading) o refresco fallido (error). */
-function resolveMcpStatus(discovered: number, unavailable: number, whenEmpty: McpInitStatus): McpInitStatus {
+function resolveMcpStatus(
+  discovered: number,
+  unavailable: number,
+  whenEmpty: McpInitStatus
+): McpInitStatus {
   if (discovered === 0 && unavailable === 0) return whenEmpty;
   if (unavailable === 0) return "ready";
   return discovered > 0 ? "partial" : "error";
 }
 
-/** La pregunta abierta la persiste el núcleo en `pendingQuestion`; no se infiere de los pasos ni de los eventos. */
-function userQuestionOf(t: WireTask | null | undefined): string | null {
-  return t?.state === "WAITING_INPUT" && t.waitingReason === "user_answer"
-    ? t.pendingQuestion?.question ?? null
-    : null;
-}
-
-/** Iteraciones de una tarea completa (`/state`): las que trae el back; si no, las ya acumuladas por SSE. */
-function resolveIterations(task: Task, known: ModelIteration[] | undefined): ModelIteration[] {
-  return task.modelIterations && task.modelIterations.length > 0 ? task.modelIterations : known ?? [];
-}
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useJarvis() {
   const activeTaskIdRef = useRef<string | null>(null);
-  const taskRef = useRef<Task | null>(null);
-  const allTasksRef = useRef<WireTask[]>([]);
-  const eventsByTaskRef = useRef<Record<string, CoreEvent[]>>({});
-  const iterationsByTaskRef = useRef<Record<string, ModelIteration[]>>({});
+  const taskRef = useRef<TaskDto | null>(null);
   const isInitialSnapshotLoaded = useRef(false);
   const userClearedViewRef = useRef(false);
   const mcpInitDoneRef = useRef(false);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [task, setTask] = useState<Task | null>(null);
-  const [allTasks, setAllTasks] = useState<WireTask[]>([]);
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
-  const [events, setEvents] = useState<CoreEvent[]>([]);
-  const [modelIterations, setModelIterations] = useState<ModelIteration[]>([]);
-  const [discoveredTools, setDiscoveredTools] = useState<Record<string, MCPTool[]>>({});
+  const [task, setTask] = useState<TaskDto | null>(null);
+  const [tasks, setTasks] = useState<TaskSummary[]>([]);
+  const [discoveredTools, setDiscoveredTools] = useState<Record<string, McpToolDto[]>>({});
   const [unavailableServers, setUnavailableServers] = useState<UnavailableServers>({});
-  const [mode, setMode] = useState<ExecutionMode>("NORMAL");
+  const [mode, setMode] = useState<ExecutionMode>("reactive");
   const [error, setError] = useState<string | null>(null);
   const [mcpInitStatus, setMcpInitStatus] = useState<McpInitStatus>("loading");
 
-  // Derivada de la tarea: el back la mantiene en `pendingQuestion`, así que no hay estado propio que sincronizar.
-  const userQuestion = useMemo(() => userQuestionOf(task), [task]);
-
-  // Refs sincronizadas con el estado para que los callbacks (EventSource, etc.) no dependan de él (FRONT-02)
-  useEffect(() => {
-    allTasksRef.current = allTasks;
-  }, [allTasks]);
-
   useEffect(() => {
     taskRef.current = task;
-    if (task?.id) {
-      activeTaskIdRef.current = task.id;
+    if (task?.task.id) {
+      activeTaskIdRef.current = task.task.id;
     }
   }, [task]);
 
-  // -------------------------------------------------------------------------
-  // Utilidades internas (todas estables: solo tocan refs y setters)
-  // -------------------------------------------------------------------------
-
-  /** taskId explícito válido, o el de la tarea activa. Nunca envía null. */
   const resolveTaskId = useCallback(
     (explicit?: string): string | undefined =>
-      explicit?.trim() ? explicit : activeTaskIdRef.current || taskRef.current?.id || undefined,
+      explicit?.trim() ? explicit : activeTaskIdRef.current || taskRef.current?.task.id || undefined,
     []
   );
 
-  /** Ejecuta una acción contra el backend limpiando y reportando el error de forma uniforme. */
+  const resolveWaitId = useCallback((): string | undefined => {
+    const current = taskRef.current?.waiting;
+    if (!current) return undefined;
+    if (current.kind === "plan" || current.kind === "approval") {
+      return current.request.id;
+    }
+    return undefined;
+  }, []);
+
   const runAction = useCallback(
     async <T>(action: () => Promise<T>, fallbackMessage: string): Promise<T | undefined> => {
       try {
@@ -169,7 +95,6 @@ export function useJarvis() {
     []
   );
 
-  /** Como `runAction` para acciones sin resultado: informa si el back la aceptó, para que el formulario sepa si cerrarse. */
   const runAccepted = useCallback(
     async (action: () => Promise<unknown>, fallbackMessage: string): Promise<boolean> =>
       (await runAction(async () => {
@@ -179,110 +104,42 @@ export function useJarvis() {
     [runAction]
   );
 
-  const upsertTask = useCallback((t: WireTask) => {
-    setAllTasks((prev) => {
-      const next = upsertById(prev, t);
-      allTasksRef.current = next;
-      return next;
-    });
-  }, []);
-
-  /** Muestra una tarea como la activa de la vista. */
-  const showTask = useCallback((t: WireTask) => {
-    const shared = reuseSteps(taskRef.current, t);
-    activeTaskIdRef.current = shared.id;
-    taskRef.current = shared;
-    setTask(shared);
-  }, []);
-
-  const commitIterations = useCallback((taskId: string, iterations: ModelIteration[]) => {
-    iterationsByTaskRef.current[taskId] = iterations;
-    setModelIterations(iterations);
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Aprobaciones Guard
-  // -------------------------------------------------------------------------
-
-  const approvePending = useCallback(
-    async (explicitTaskId?: string) => {
-      await runAction(async () => {
-        await jarvisApi.approvePending(resolveTaskId(explicitTaskId));
-        setPendingApproval(null);
-      }, "Error al aprobar la operación pendiente.");
-    },
-    [runAction, resolveTaskId]
-  );
-
-  const denyPending = useCallback(
-    async (reason?: string, explicitTaskId?: string) => {
-      await runAction(async () => {
-        await jarvisApi.denyPending(resolveTaskId(explicitTaskId), reason);
-        setPendingApproval(null);
-      }, "Error al denegar la operación pendiente.");
-    },
-    [runAction, resolveTaskId]
-  );
-
-  /**
-   * Convierte el pendiente serializado del backend en el objeto que usa la UI, con sus callbacks ya vinculados.
-   * El back no envía el taskId dentro del pendiente: lo aporta quien conoce la tarea (evento o snapshot).
-   */
-  const hydratePendingApproval = useCallback(
-    (raw: SerializedPendingApproval | null | undefined, taskId?: string): PendingApproval | null => {
-      if (!raw) return null;
-      const associatedTaskId = taskId || activeTaskIdRef.current || taskRef.current?.id;
-      return {
-        ...raw,
-        // Se devuelve la promesa para que la UI mantenga el botón bloqueado hasta que el backend responda.
-        onApprove: () => approvePending(associatedTaskId),
-        onDeny: (denyReason?: string) => denyPending(denyReason, associatedTaskId),
-      };
-    },
-    [approvePending, denyPending]
-  );
-
-  const hydratePendingApprovalRef = useRef(hydratePendingApproval);
-  useEffect(() => {
-    hydratePendingApprovalRef.current = hydratePendingApproval;
-  }, [hydratePendingApproval]);
-
-  /** Aplica el pendiente de una tarea; si es la misma aprobación que ya se muestra, conserva el objeto (sin re-render). */
-  const applyPending = useCallback((raw: SerializedPendingApproval | null | undefined, taskId?: string) => {
-    setPendingApproval((prev) =>
-      !raw ? null : prev?.id === raw.id ? prev : hydratePendingApprovalRef.current(raw, taskId)
-    );
-  }, []);
-
   // -------------------------------------------------------------------------
   // Snapshot de estado
   // -------------------------------------------------------------------------
 
-  const fetchState = useCallback(async () => {
+  const fetchState = useCallback(async (targetTaskId?: string) => {
     try {
-      const data = await jarvisApi.getState(activeTaskIdRef.current || undefined);
+      const qTaskId = targetTaskId || activeTaskIdRef.current || undefined;
+      const data = await jarvisApi.getState(qTaskId);
 
-      if (data.allTasks) {
-        setAllTasks(data.allTasks);
-        allTasksRef.current = data.allTasks;
+      if (data.tasks) {
+        setTasks(data.tasks);
       }
 
       if (data.task) {
         const fetched = data.task;
-        const iterations = resolveIterations(fetched, iterationsByTaskRef.current[fetched.id]);
-        iterationsByTaskRef.current[fetched.id] = iterations;
-
-        // No se pisa la vista si el usuario la limpió, salvo que haya una tarea corriendo
         const shouldShow =
-          !isInitialSnapshotLoaded.current || !userClearedViewRef.current || fetched.state === "RUNNING";
+          !isInitialSnapshotLoaded.current ||
+          !userClearedViewRef.current ||
+          fetched.task.state === "running" ||
+          (activeTaskIdRef.current && fetched.task.id === activeTaskIdRef.current);
+
         if (shouldShow) {
           isInitialSnapshotLoaded.current = true;
-          showTask(fetched);
-          setModelIterations(iterations);
+          userClearedViewRef.current = false;
+          activeTaskIdRef.current = fetched.task.id;
+          taskRef.current = fetched;
+          setTask(fetched);
+          if (fetched.task.mode) {
+            setMode(fetched.task.mode);
+          }
         }
+      } else if (!activeTaskIdRef.current) {
+        // No hay tareas en el servidor
+        setTask(null);
+        taskRef.current = null;
       }
-
-      applyPending(data.pendingApproval, data.task?.id);
 
       if (countKeys(data.discoveredTools) > 0) {
         setDiscoveredTools(data.discoveredTools);
@@ -291,7 +148,6 @@ export function useJarvis() {
         setUnavailableServers(data.unavailableServers);
       }
 
-      // El estado de inicialización de MCP se resuelve con el primer snapshot exitoso
       if (!mcpInitDoneRef.current) {
         mcpInitDoneRef.current = true;
         setMcpInitStatus(
@@ -305,63 +161,26 @@ export function useJarvis() {
         setMcpInitStatus("error");
       }
     }
-  }, [applyPending, showTask]);
+  }, []);
 
   const fetchStateRef = useRef(fetchState);
   useEffect(() => {
     fetchStateRef.current = fetchState;
   }, [fetchState]);
 
-  // -------------------------------------------------------------------------
-  // Eventos en tiempo real (SSE)
-  // -------------------------------------------------------------------------
-
-  /** Registra el evento en el buffer de su tarea y captura la iteración de modelo (Eos / Qwen) que genere. */
-  const recordEvent = useCallback((event: CoreEvent, updatedTask?: WireTask | null) => {
-    const isActive = !activeTaskIdRef.current || event.taskId === activeTaskIdRef.current;
-
-    // Buffer circular de MAX_EVENTS eventos por taskId. Un único arreglo nuevo por evento: el buffer y el estado lo comparten (nunca se muta).
-    const buffers = eventsByTaskRef.current;
-    const nextEvents = [...(buffers[event.taskId] ?? []).slice(-(MAX_EVENTS - 1)), event];
-    buffers[event.taskId] = nextEvents;
-    pruneBuffers(buffers, iterationsByTaskRef.current, event.taskId);
-    if (isActive) {
-      setEvents(nextEvents);
+  const scheduleFetchState = useCallback((targetTaskId?: string) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
     }
-
-    const contextTask = updatedTask || (event.taskId === taskRef.current?.id ? taskRef.current : null);
-    const iteration = createIterationFromEvent(event, contextTask);
-    if (!iteration) return;
-
-    const known = iterationsByTaskRef.current[event.taskId] || [];
-    if (known.some((it) => it.id === iteration.id)) return;
-
-    const next = [...known.slice(-(MAX_ITERATIONS - 1)), iteration];
-    iterationsByTaskRef.current[event.taskId] = next;
-    if (isActive) {
-      setModelIterations(next);
-    }
+    debounceTimerRef.current = setTimeout(() => {
+      void fetchStateRef.current(targetTaskId);
+    }, DEBOUNCE_STATE_MS);
   }, []);
 
-  /** Aplica la tarea actualizada que acompaña a cada mensaje SSE (sin `modelIterations`: se acumulan por evento). */
-  const applyTaskUpdate = useCallback(
-    (updatedTask: WireTask) => {
-      upsertTask(updatedTask);
+  // -------------------------------------------------------------------------
+  // Conexión SSE persistente
+  // -------------------------------------------------------------------------
 
-      // Evita que el SSE restaure una tarea si el usuario limpió la vista
-      const matchesActive = Boolean(activeTaskIdRef.current && updatedTask.id === activeTaskIdRef.current);
-      const isFreshRunningTask =
-        !activeTaskIdRef.current && !userClearedViewRef.current && updatedTask.state === "RUNNING";
-      if (!matchesActive && !isFreshRunningTask) return;
-
-      userClearedViewRef.current = false;
-      showTask(updatedTask);
-      commitIterations(updatedTask.id, iterationsByTaskRef.current[updatedTask.id] ?? []);
-    },
-    [upsertTask, showTask, commitIterations]
-  );
-
-  // Montaje único y conexión persistente: todas las dependencias son estables (FRONT-02)
   useEffect(() => {
     void fetchStateRef.current();
 
@@ -386,19 +205,19 @@ export function useJarvis() {
 
       eventSource.onopen = stopFallbackPolling;
 
-      eventSource.onmessage = (messageEvent) => {
+      eventSource.onmessage = (msgEvent) => {
         try {
-          const { event, task: updatedTask, pendingApproval: rawPending } = JSON.parse(messageEvent.data) as SseMessage;
-
-          recordEvent(event, updatedTask);
-          if (updatedTask) applyTaskUpdate(updatedTask);
-
-          // El pendiente de cada mensaje es el de SU tarea: solo se aplica si es la que se está viendo.
-          if (event.taskId === activeTaskIdRef.current) {
-            applyPending(rawPending, event.taskId);
+          if (!msgEvent.data || msgEvent.data.trim().startsWith(":")) {
+            return;
           }
-        } catch (e) {
-          console.error("Failed to parse JARVIS SSE message:", e);
+          const data = JSON.parse(msgEvent.data) as SseMessage;
+          if (data && data.taskId) {
+            scheduleFetchState(data.taskId);
+          } else {
+            scheduleFetchState();
+          }
+        } catch {
+          // Ignorar comentarios o mensajes no-JSON
         }
       };
 
@@ -407,21 +226,21 @@ export function useJarvis() {
         void fetchStateRef.current();
       };
     } catch (err) {
-      console.warn("EventSource not supported or failed to connect:", err);
+      console.warn("EventSource failed to connect:", err);
       startFallbackPolling();
     }
 
     return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       eventSource?.close();
       stopFallbackPolling();
     };
-  }, [recordEvent, applyTaskUpdate, applyPending]);
+  }, [scheduleFetchState]);
 
   // -------------------------------------------------------------------------
-  // Acciones
+  // Acciones sobre la tarea
   // -------------------------------------------------------------------------
 
-  /** Devuelve si el back aceptó la tarea: la entrada de texto devuelve lo escrito al usuario si no. */
   const runTask = useCallback(
     async (message: string, executionMode?: ExecutionMode): Promise<boolean> => {
       if (!message.trim()) return false;
@@ -431,19 +250,15 @@ export function useJarvis() {
         setMode(executionMode);
       }
 
-      // La vista actual solo se reemplaza cuando el back acepta la tarea: un rechazo no deja la pantalla vacía.
       return runAccepted(async () => {
         const data = await jarvisApi.initiateTask(message, effectiveMode);
         userClearedViewRef.current = false;
-        showTask(data.task);
-        setPendingApproval(null);
-        upsertTask(data.task); // Sincroniza allTasks al instante (FRONT-01)
-        // Lo que ya llegó por SSE de esta tarea antes de la respuesta HTTP queda en los buffers: se muestra desde ahí.
-        setEvents(eventsByTaskRef.current[data.task.id] ?? []);
-        setModelIterations(iterationsByTaskRef.current[data.task.id] ?? []);
+        activeTaskIdRef.current = data.task.task.id;
+        taskRef.current = data.task;
+        setTask(data.task);
       }, "Error al iniciar la tarea.");
     },
-    [mode, runAccepted, showTask, upsertTask]
+    [mode, runAccepted]
   );
 
   const cancelTask = useCallback(
@@ -453,47 +268,70 @@ export function useJarvis() {
         await fetchState();
         return result;
       }, "Error al cancelar la tarea.");
-      return Boolean(res?.ok);
+      return Boolean(res);
     },
     [runAction, resolveTaskId, fetchState]
   );
 
-  // Las acciones sobre el plan y la pregunta devuelven si el back las aceptó: el formulario solo se cierra si fue así.
   const confirmPlan = useCallback(
     (): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.confirmPlan(resolveTaskId());
+        await jarvisApi.confirmPlan(resolveTaskId(), resolveWaitId());
         await fetchState();
       }, "Error al confirmar el plan."),
-    [runAccepted, resolveTaskId, fetchState]
+    [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
 
   const rejectPlan = useCallback(
-    (reason?: string): Promise<boolean> =>
+    (): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.rejectPlan(resolveTaskId(), reason);
+        await jarvisApi.rejectPlan(resolveTaskId(), resolveWaitId());
         await fetchState();
       }, "Error al rechazar el plan."),
-    [runAccepted, resolveTaskId, fetchState]
+    [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
 
   const modifyPlan = useCallback(
-    (feedback?: string): Promise<boolean> =>
+    (feedback: string): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.modifyPlan(resolveTaskId(), feedback);
+        await jarvisApi.modifyPlan(feedback, resolveTaskId(), resolveWaitId());
         await fetchState();
       }, "Error al solicitar modificación del plan."),
-    [runAccepted, resolveTaskId, fetchState]
+    [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
 
-  /** La pregunta no se limpia aquí: desaparece cuando el back acepta la respuesta y cambia el estado de la tarea. */
   const provideUserAnswer = useCallback(
     (answer: string): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.provideUserAnswer(resolveTaskId(), answer);
+        await jarvisApi.provideUserAnswer(answer, resolveTaskId());
         await fetchState();
       }, "Error al enviar respuesta interactiva."),
     [runAccepted, resolveTaskId, fetchState]
+  );
+
+  const approvePending = useCallback(
+    async (explicitTaskId?: string, explicitWaitId?: string): Promise<boolean> =>
+      runAccepted(async () => {
+        await jarvisApi.approvePending(
+          resolveTaskId(explicitTaskId),
+          explicitWaitId || resolveWaitId()
+        );
+        await fetchState();
+      }, "Error al aprobar la operación pendiente."),
+    [runAccepted, resolveTaskId, resolveWaitId, fetchState]
+  );
+
+  const denyPending = useCallback(
+    async (reason?: string, explicitTaskId?: string, explicitWaitId?: string): Promise<boolean> =>
+      runAccepted(async () => {
+        await jarvisApi.denyPending(
+          reason,
+          resolveTaskId(explicitTaskId),
+          explicitWaitId || resolveWaitId()
+        );
+        await fetchState();
+      }, "Error al denegar la operación pendiente."),
+    [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
 
   const refreshDiscovery = useCallback(async () => {
@@ -511,70 +349,55 @@ export function useJarvis() {
     setMcpInitStatus(resolveMcpStatus(countKeys(data.tools), countKeys(data.unavailableServers), "error"));
   }, [runAction]);
 
-  /** Limpia la vista local para iniciar una nueva consulta sin alterar el historial del backend. */
   const clearTaskView = useCallback(() => {
     userClearedViewRef.current = true;
     activeTaskIdRef.current = null;
     taskRef.current = null;
     setTask(null);
-    setEvents([]);
-    setModelIterations([]);
-    setPendingApproval(null);
     setError(null);
   }, []);
 
-  /** Selecciona una tarea del historial. El listado no trae la traza: la tarea completa se pide siempre al back. */
   const selectHistoricalTask = useCallback(
     async (taskId: string) => {
-      let fetched: Task | undefined;
-      let rawPending: SerializedPendingApproval | null = null;
-
       try {
         const data = await jarvisApi.getState(taskId);
-        if (data.task?.id === taskId) {
-          fetched = data.task;
-          rawPending = data.pendingApproval;
-          upsertTask(data.task);
+        if (data.task?.task.id === taskId) {
+          userClearedViewRef.current = false;
+          activeTaskIdRef.current = taskId;
+          taskRef.current = data.task;
+          setTask(data.task);
+          if (data.task.task.mode) {
+            setMode(data.task.task.mode);
+          }
+          setError(null);
         }
       } catch (e) {
         console.warn("Failed to retrieve historical task:", e);
       }
-
-      const found: WireTask | undefined = fetched ?? allTasksRef.current.find((t) => t.id === taskId);
-      if (!found) return;
-
-      userClearedViewRef.current = false;
-      showTask(found);
-      applyPending(rawPending, taskId);
-      setError(null);
-      setEvents(eventsByTaskRef.current[found.id] || []);
-      commitIterations(
-        found.id,
-        fetched
-          ? resolveIterations(fetched, iterationsByTaskRef.current[found.id])
-          : iterationsByTaskRef.current[found.id] ?? []
-      );
     },
-    [upsertTask, showTask, commitIterations, applyPending]
+    []
   );
 
   const clearError = useCallback(() => setError(null), []);
 
+  const waiting = task?.waiting ?? null;
+  const isExecuting = task?.task.state === "running";
+  const isWaiting = waiting !== null;
+
   return {
     task,
-    allTasks,
+    allTasks: tasks,
     mode,
     setMode,
-    pendingApproval,
-    userQuestion,
-    events,
-    modelIterations,
+    waiting,
+    waitingKind: waiting?.kind ?? null,
+    isWaiting,
+    isExecuting,
     discoveredTools,
     unavailableServers,
     mcpInitStatus,
     error,
     clearError,
-    isExecuting: task?.state === "RUNNING",
     runTask,
     cancelTask,
     confirmPlan,

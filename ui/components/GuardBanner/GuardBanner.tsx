@@ -1,24 +1,20 @@
 import React, { memo, useState } from "react";
 import { HelpCircle, Send, Loader2 } from "lucide-react";
-import type { PendingApproval } from "../../../src/core/types.ts";
-import { ApprovalAction } from "./components/ApprovalAction.tsx";
+import type { Waiting } from "../../types/api.ts";
 import type { ActionResult } from "../../types/ui.ts";
-
-/** Pregunta del modelo que espera respuesta del usuario (WAITING_INPUT / user_answer). */
-export interface UserAnswerRequest {
-  /** Texto de la pregunta; si aún no se conoce se muestra un mensaje genérico. */
-  question: string | null;
-  /** Devuelve `false` si el back rechazó la respuesta (409/400): el campo conserva lo escrito. */
-  onSubmit: (answer: string) => ActionResult;
-}
+import { ApprovalAction } from "./components/ApprovalAction.tsx";
 
 interface GuardBannerProps {
-  /** Aprobación Guard pendiente. Sus callbacks ya vienen vinculados a la tarea desde useJarvis. */
-  pending: PendingApproval | null;
-  userAnswer?: UserAnswerRequest | null;
+  waiting: Waiting | null;
+  onApprove: () => ActionResult;
+  onDeny: (reason?: string) => ActionResult;
+  onAnswer: (answer: string) => ActionResult;
 }
 
-const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) => {
+const UserAnswerForm: React.FC<{
+  question: string;
+  onSubmit: (answer: string) => ActionResult;
+}> = ({ question, onSubmit }) => {
   const [answer, setAnswer] = useState("");
   const [isSending, setIsSending] = useState(false);
 
@@ -28,7 +24,7 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
     if (!trimmed || isSending) return;
     setIsSending(true);
     try {
-      if ((await request.onSubmit(trimmed)) !== false) setAnswer("");
+      if ((await onSubmit(trimmed)) !== false) setAnswer("");
     } finally {
       setIsSending(false);
     }
@@ -50,7 +46,7 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
             </span>
           </div>
           <p className="text-sm text-sky-100 font-medium whitespace-pre-wrap leading-relaxed">
-            {request.question || "JARVIS requiere aclaración del usuario para proceder con la ejecución de la tarea."}
+            {question || "JARVIS requiere aclaración del usuario para proceder con la ejecución."}
           </p>
           <div className="mt-1 flex items-center gap-2 w-full">
             <input
@@ -68,7 +64,11 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
               disabled={!answer.trim() || isSending}
               className="px-3 py-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-semibold text-xs rounded transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
             >
-              {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              {isSending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
               <span>Enviar</span>
             </button>
           </div>
@@ -78,13 +78,28 @@ const UserAnswerForm: React.FC<{ request: UserAnswerRequest }> = ({ request }) =
   );
 };
 
-const GuardBannerBase: React.FC<GuardBannerProps> = ({ pending, userAnswer = null }) => {
-  if (!pending && !userAnswer) return null;
+const GuardBannerBase: React.FC<GuardBannerProps> = ({
+  waiting,
+  onApprove,
+  onDeny,
+  onAnswer,
+}) => {
+  if (!waiting || waiting.kind === "plan") return null;
 
   return (
     <div className="p-2.5 bg-slate-950/95 backdrop-blur-md border border-amber-800/50 rounded-xl shadow-xl">
-      {/* La aprobación Guard tiene prioridad sobre la pregunta interactiva */}
-      {pending ? <ApprovalAction pending={pending} /> : userAnswer && <UserAnswerForm request={userAnswer} />}
+      {waiting.kind === "approval" ? (
+        <ApprovalAction
+          request={waiting.request}
+          onApprove={onApprove}
+          onDeny={onDeny}
+        />
+      ) : waiting.kind === "question" ? (
+        <UserAnswerForm
+          question={waiting.question.question}
+          onSubmit={onAnswer}
+        />
+      ) : null}
     </div>
   );
 };

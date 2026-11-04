@@ -22,8 +22,8 @@ function getPlaceholder(mode: ExecutionMode, isExecuting: boolean, isWaitingInpu
   if (isExecuting) {
     return "Ejecutando pipeline y despachando herramientas MCP...";
   }
-  return mode === "PLAN"
-    ? `Describe una tarea compleja en modo PLAN (${FOCUS_SHORTCUT_LABEL} para enfocar)...`
+  return mode === "deliberative"
+    ? `Describe una tarea compleja en modo deliberativo (${FOCUS_SHORTCUT_LABEL} para enfocar)...`
     : `Instrucción u objetivo para JARVIS (${FOCUS_SHORTCUT_LABEL} para enfocar)...`;
 }
 

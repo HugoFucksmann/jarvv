@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Settings, X, Check, Terminal, Loader2, AlertCircle, Cpu, Timer } from "lucide-react";
-import type { JarvisConfig } from "../../../src/core/config.ts";
+import type { JarvisConfig } from "../../types/api.ts";
 import { jarvisApi } from "../../services/jarvisApi.ts";
-import { MODELS } from "../../../src/core/models.ts";
+
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -302,7 +302,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
               <div className="flex flex-col gap-2 pl-1">
                 <UrlField
                   id="cfg-qwen-url"
-                  label={`${MODELS.QWEN_3_5_9B.name} URL (Ollama / ngrok / v1):`}
+                  label="Qwen URL (Ollama / ngrok / v1):"
                   value={config.qwenUrl}
                   placeholder="http://127.0.0.1:11434"
                   onChange={(qwenUrl) => update({ qwenUrl })}
@@ -354,7 +354,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
                     onChange={(e) => update({ decisionBackend: e.target.value as JarvisConfig["decisionBackend"] })}
                     className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-md text-slate-200 focus:outline-none focus:border-sky-500 font-mono"
                   >
-                    <option value="eos">{MODELS.EOS_0_8B.name} — FastAPI local (/v1/decide)</option>
+                    <option value="eos">d3:2b — FastAPI local (/v1/decide)</option>
                     <option value="d3">D3 — Ollama local (/v1/systemone)</option>
                   </select>
                 </div>
@@ -435,13 +435,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
                 />
                 <NumberField
                   id="cfg-qwen-timeout"
-                  label={`${MODELS.QWEN_3_5_9B.short} (sin thinking):`}
+                  label="Qwen (sin thinking):"
                   value={config.qwenTimeoutMs}
                   onChange={(qwenTimeoutMs) => update({ qwenTimeoutMs })}
                 />
                 <NumberField
                   id="cfg-qwen-thinking-timeout"
-                  label={`${MODELS.QWEN_3_5_9B.short} (con thinking):`}
+                  label="Qwen (con thinking):"
                   value={config.qwenThinkingTimeoutMs}
                   onChange={(qwenThinkingTimeoutMs) => update({ qwenThinkingTimeoutMs })}
                 />

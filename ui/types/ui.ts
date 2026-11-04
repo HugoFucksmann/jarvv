@@ -1,9 +1,8 @@
 /** Tipos de interfaz compartidos por el hook y los componentes. */
 
-import type { TaskMode } from "../../src/core/types.ts";
+import type { ExecutionMode } from "./api.ts";
 
-/** El modo de ejecución es el `TaskMode` del core: la UI no lo redeclara. */
-export type ExecutionMode = TaskMode;
+export type { ExecutionMode };
 
 export type McpInitStatus = "loading" | "ready" | "partial" | "error";
 
