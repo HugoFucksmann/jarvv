@@ -29,6 +29,10 @@ import { RouteLabelGrader, ToolChoiceLabelGrader, ArgsReviewLabelGrader, ResultV
 import { QuestionGrader } from "../core/graders/question.ts";
 import { FinalResponseGrader } from "../core/graders/final.ts";
 import { SCHEMA_VERSION } from "../core/types.ts";
+import { computeScoreSummary } from "../core/results.ts";
+import type { RunRecord } from "../core/types.ts";
+import { spawnSync } from "node:child_process";
+import os from "node:os";
 
 let passedCount = 0;
 let failedCount = 0;
@@ -544,6 +548,67 @@ async function main() {
     // Restaurar
     process.exitCode = prevExitCode;
   });
+
+  // -------------------------------------------------------------------------
+  // compare.ts
+  // -------------------------------------------------------------------------
+  const cmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "eval-next-compare-"));
+  const mkRun = (name: string, passes: boolean[], metaOver: Record<string, unknown> = {}) => {
+    const dir = path.join(cmpRoot, name);
+    fs.mkdirSync(dir, { recursive: true });
+    const records = passes.map((passed, i) => ({
+      schemaVersion: SCHEMA_VERSION, caseId: `route-${i}`, stage: "route", iteration: 1, variant: "prod",
+      model: "m", passed, errors: passed ? [] : ["route_match"], warnings: [], metrics: {}, measurements: {},
+      predictedLabel: passed ? "files" : "locate", expectedLabel: "files", requestHash: `h${i}`,
+      rawInput: {}, rawOutput: "", durationMs: 10, timestamp: "t",
+    })) as unknown as RunRecord[];
+    fs.writeFileSync(path.join(dir, "runs.jsonl"), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+    fs.writeFileSync(path.join(dir, "scores.json"), JSON.stringify(computeScoreSummary(records)));
+    fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify({
+      schemaVersion: SCHEMA_VERSION, runId: name, timestamp: "t", model: "m", variant: "prod", stages: ["route"],
+      datasetPath: "x/sample.jsonl", repeat: 1, promptHashes: { a: "1" }, sourceHashes: { b: "2" }, params: {}, ...metaOver,
+    }));
+    return dir;
+  };
+  const runCompare = (...args: string[]) =>
+    spawnSync(process.execPath, ["--import", "tsx", "scripts/eval-next/compare.ts", ...args], { encoding: "utf-8", cwd: process.cwd() });
+
+  await test("Compare: detecta regresión por caso y respeta --failOnRegression", () => {
+    const a = mkRun("a", [true, true, true, true]);
+    const b = mkRun("b", [true, true, true, false]);
+    const ok = runCompare(a, b);
+    assert.strictEqual(ok.status, 0, ok.stderr);
+    assert.ok(ok.stdout.includes("REGRESIÓN") && ok.stdout.includes("route/route-3"), ok.stdout);
+    assert.strictEqual(runCompare(a, b, "--failOnRegression").status, 1);
+    assert.strictEqual(runCompare(b, a, "--failOnRegression").status, 0, "una mejora no es regresión");
+  });
+
+  await test("Compare: prompts distintos son bloqueantes con --requireComparable", () => {
+    const a = mkRun("pa", [true, true]);
+    const b = mkRun("pb", [true, true], { promptHashes: { a: "999" } });
+    assert.strictEqual(runCompare(a, b).status, 0);
+    assert.strictEqual(runCompare(a, b, "--requireComparable").status, 1);
+  });
+
+  await test("Compare: schemaVersion desconocido o corrida incompleta → exit 2", () => {
+    const a = mkRun("sa", [true]);
+    const b = mkRun("sb", [true], { schemaVersion: 99 });
+    assert.strictEqual(runCompare(a, b).status, 2);
+    const c = mkRun("sc", [true]);
+    fs.rmSync(path.join(c, "scores.json"));
+    assert.strictEqual(runCompare(a, c).status, 2);
+  });
+
+  await test("Compare: --json es parseable y --models genera leaderboard", () => {
+    const a = mkRun("ja", [true, false]);
+    const b = mkRun("jb", [true, true]);
+    const r = runCompare(a, b, "--json");
+    const parsed = JSON.parse(r.stdout);
+    assert.strictEqual(parsed.hasRegression, false);
+    assert.strictEqual(parsed.changes.length, 1);
+  });
+
+  fs.rmSync(cmpRoot, { recursive: true, force: true });
 
   // -------------------------------------------------------------------------
   // Resumen

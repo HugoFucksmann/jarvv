@@ -20,6 +20,7 @@ scripts/eval-next/
 ├── INFORME.md                 # Informe de verificación (tsc, tests, imports, corridas reales)
 ├── MIGRACION_CASOS.md         # Guía para migrar casos del formato legado eval/ a eval-next/
 ├── cli.ts                     # Entry point ejecutable por consola
+├── compare.ts                 # Comparación de corridas (A vs B, leaderboard de modelos)
 ├── core/
 │   ├── types.ts               # Contratos unificados, tipos, SCHEMA_VERSION
 │   ├── config.ts              # Parseo y validación de flags CLI, STAGE_TIMEOUT_DEFAULTS_MS
@@ -53,7 +54,7 @@ scripts/eval-next/
 ├── variants/
 │   └── prod.ts                # Variante por defecto (prompts de producción)
 └── tests/
-    └── run.ts                 # Suite de 18 tests unitarios, negativos y de integración
+    └── run.ts                 # Suite de 22 tests unitarios, negativos y de integración
 ```
 
 ---
@@ -370,7 +371,7 @@ Todos los archivos de salida incluyen `schemaVersion: 1`. Si en el futuro se cam
 
 ## Cobertura de la suite de tests (`npm run test:eval`)
 
-18 tests (verificados: 18 pasados, 0 fallados):
+22 tests (verificados: 22 pasados, 0 fallados):
 
 1. **Acoplamiento de producción**: Falla si algún prompt, renderizador o schema de producción (`src/core/`) es modificado o renombrado.
 2. **Renderizadores**: Verifica que todos los adaptadores y renderizadores estén exportados y sean funciones.
@@ -390,6 +391,55 @@ Todos los archivos de salida incluyen `schemaVersion: 1`. Si en el futuro se cam
 16. **rawPassRate presente**: `scores.json` siempre tiene `rawTotalRuns`, `rawPassedRuns`, `rawPassRate`.
 17. **schemaVersion y sourceHashes**: Los tres archivos de salida tienen `schemaVersion: 1`; `meta.json` tiene `sourceHashes`.
 18. **minPassRate exit codes**: `exitCode=1` cuando no se cumple, `exitCode=0` cuando sí.
+19. **Compare — regresión**: detecta casos peores, respeta `--failOnRegression`; una mejora no es regresión.
+20. **Compare — comparabilidad**: prompts distintos bloquean con `--requireComparable`.
+21. **Compare — entradas inválidas**: `schemaVersion` desconocido o corrida incompleta → exit 2.
+22. **Compare — `--json` y `--models`**: salida parseable y leaderboard.
+
+---
+
+## Comparar corridas (`compare.ts`)
+
+Solo lee `meta.json`, `scores.json` y `runs.jsonl`; no ejecuta modelos ni importa `src/`.
+
+```bash
+# Listar corridas disponibles
+npx tsx scripts/eval-next/compare.ts --list [--model=qwen2.5:7b]
+
+# A (baseline) vs B (candidato): regresiones/mejoras por etapa y por caso
+npx tsx scripts/eval-next/compare.ts qwen2.5_7b/2026-11-03_232402 qwen2.5_7b/2026-11-03_232405
+
+# Última corrida de cada uno, mismo dataset/variante
+npx tsx scripts/eval-next/compare.ts qwen2.5:7b qwen3.5:4b --dataset=sample --variant=prod
+
+# Distinguir corridas del mismo modelo por label (sufijo del runId)
+npx tsx scripts/eval-next/compare.ts 'mock#base' 'mock#nuevo'
+
+# Leaderboard de varios modelos (última corrida de cada uno)
+npx tsx scripts/eval-next/compare.ts --models=d3,qwen2.5:7b,qwen3.5:4b
+
+# Gate de CI: falla ante regresión o corridas no comparables; guarda el reporte
+npx tsx scripts/eval-next/compare.ts base nuevo --failOnRegression --requireComparable --out=reporte.md
+```
+
+Atajo: `npm run eval:compare -- <args>`.
+
+**Referencias de corrida:** ruta a la carpeta · `<modelo>` (última) · `<modelo>/<runId o prefijo>` · `<modelo>#<label>`. Los `:` del modelo se sanitizan como en `results.ts`.
+
+**Flags:** `--dataset`, `--variant`, `--label` (filtros para "última corrida"), `--threshold=0.05` (caída de passRate que cuenta como regresión), `--failOnRegression`, `--requireComparable`, `--json`, `--out=<archivo>`, `--maxCases=20`.
+
+**Qué reporta (A vs B):**
+- *Comparabilidad*: dataset, conjunto de casos, etapas, `repeat`, `promptHashes`, `sourceHashes`, `requestHash` por caso, `gitDirty`, Mock. Dataset/casos/prompts/src distintos son **bloqueantes**; el resto, advertencias.
+- Deltas globales y por etapa de `passRate`, `passAllRate`, `rawPassRate`, `accuracy` y latencia p95.
+- Cambios en matrices de confusión (solo si `repeat` coincide).
+- Casos que empeoran / mejoran (con etiqueta predicha y primer error) y casos que fallan en ambas.
+- Veredicto: regresión si baja el passRate global o de una etapa más que el umbral, o si **cualquier** caso empeora.
+
+**Leaderboard:** ranking por passRate, tabla por etapa (🏆 mejor), latencia p95 por etapa, casos que ningún modelo resuelve y casos donde discrepan.
+
+**Exit codes:** `0` OK · `1` regresión o no comparable (solo con `--failOnRegression` / `--requireComparable`) · `2` entrada inválida, corrida incompleta o `schemaVersion` no soportado.
+
+> Con `sample.jsonl` (10 casos) las diferencias no son estadísticamente significativas: sirven para detectar roturas, no para rankear modelos.
 
 ---
 

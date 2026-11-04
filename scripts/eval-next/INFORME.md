@@ -57,7 +57,7 @@ Ningún módulo superó los 30 ms. No se detectaron efectos secundarios (no se a
 ### Tests (`npm run test:eval`)
 
 ```
-Tests finalizados: 18 pasados, 0 fallados.
+Tests finalizados: 22 pasados, 0 fallados.
 ```
 
 Tests incluidos:
@@ -80,6 +80,10 @@ Tests incluidos:
 16. `Scores: rawPassRate y rawTotalRuns presentes en scores.json` ✅
 17. `Meta: schemaVersion y sourceHashes presentes en todos los archivos de salida` ✅
 18. `Runner: --minPassRate sube exitCode=1 cuando no se cumple, deja 0 cuando sí` ✅
+19. `Compare: detecta regresión por caso y respeta --failOnRegression` ✅
+20. `Compare: prompts distintos son bloqueantes con --requireComparable` ✅
+21. `Compare: schemaVersion desconocido o corrida incompleta → exit 2` ✅
+22. `Compare: --json es parseable y --models genera leaderboard` ✅
 
 **Verificado:** ✅
 
@@ -141,7 +145,11 @@ Diferido. Ver sección correspondiente en README.
 
 ---
 
-## 7. Guía para scripts de análisis futuros
+## 7. Scripts de comparación
+
+`compare.ts` (ver README, sección "Comparar corridas") cubre A vs B y leaderboard de modelos, y verifica `promptHashes`/`sourceHashes` antes de comparar. Pendiente: validarlo con corridas reales de Qwen/D3 (no ejecutadas en este entorno).
+
+## 8. Guía para scripts de análisis futuros
 
 Los formatos de salida son estables (`schemaVersion: 1`). Para escribir un script de análisis:
 
