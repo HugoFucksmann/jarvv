@@ -1,0 +1,684 @@
+/**
+ * eval/prompts/core/runner.ts
+ *
+ * Corre los casos de un dataset con una variante, respetando concurrencia,
+ * repeat y la semántica de thinking (7.5). Produce RunRecord por cada ejecución.
+ *
+ * Secciones: 7.1–7.9.
+ */
+
+import { createHash } from "node:crypto";
+import type { DecisionClient } from "./client/decision.ts";
+import { estimateDecisionPromptTokens, DECISION_MAX_CONTEXT } from "./client/decision.ts";
+import type { GenerativeClient, GenerativeCallContext } from "./client/generative.ts";
+import type { EvalConfig } from "./config.ts";
+import { resolveDecisionTimeout, resolveGenerativeTimeout } from "./config.ts";
+import {
+  isRecord,
+  LLM_INVALID_OUTPUT_RETRIES,
+  RETRY_TEMPERATURE,
+  RETRY_TOKEN_FACTOR,
+  retryNote,
+  TRUNCATED_ERROR,
+} from "./contract.ts";
+import { createCollector } from "./graders/common.ts";
+import type { DecisionStageEntry, GenerativeStageEntry } from "./stages/index.ts";
+import { getStage, runGraders } from "./stages/index.ts";
+import { SCHEMA_VERSION } from "./types.ts";
+import type {
+  DecisionRequest,
+  DecisionStage,
+  FrozenCase,
+  GenerativeRequest,
+  GenerativeStage,
+  RunRecord,
+  StageName,
+} from "./types.ts";
+import { applyVariantChain, VariantApplyError } from "./variants/apply.ts";
+import { parseExtraQuestions } from "./variants/labels.ts";
+import type { Variant } from "./variants/types.ts";
+import { PROD_SHORTCUT_TAG } from "./case.ts";
+
+// ───────────────────────── Helpers ─────────────────────────
+
+function requestHash(body: unknown): string {
+  return createHash("sha256").update(JSON.stringify(body)).digest("hex").slice(0, 16);
+}
+
+function isoNow(): string {
+  return new Date().toISOString();
+}
+
+/** Parámetros generativos finales (sección 7.1): variante.params > valor del caso.
+ *  No hay flag de temperatura: sale del caso o de `params.temperature` de la variante (ya aplicada). */
+function resolveGenerativeRequest(
+  req: GenerativeRequest,
+  thinkingOverride?: boolean,
+): GenerativeRequest {
+  const out = { ...req };
+  // thinking: la expansión de thinking ya respetó lo que fijó la variante
+  if (thinkingOverride !== undefined) out.thinking = thinkingOverride;
+  return out;
+}
+
+// ───────────────────────── Expansión de thinking (7.5) ─────────────────────────
+
+interface ThinkingExpansion {
+  /** thinking efectivo para esta ejecución */
+  thinking: boolean;
+  /** stageKey para scoring */
+  stageKey: string;
+}
+
+/**
+ * Devuelve las combinaciones de thinking para un caso, según --thinking y la etapa.
+ * El runner itera sobre cada una.
+ */
+function expandThinking(
+  stage: StageName,
+  caseThinking: boolean,
+  cfg: EvalConfig,
+  variantFixedThinking?: boolean,
+): ThinkingExpansion[] {
+  // Decisión: stageKey = stage, no se expande
+  const decisionStages: StageName[] = ["route", "tool_choice", "args_review", "result_verification"];
+  if (decisionStages.includes(stage)) {
+    return [{ thinking: false, stageKey: stage }];
+  }
+
+  // Si la variante fija params.thinking → no se expande, stageKey = stage
+  if (variantFixedThinking !== undefined) {
+    return [{ thinking: variantFixedThinking, stageKey: stage }];
+  }
+
+  const mode = cfg.thinking;
+
+  if (mode === "prod") {
+    return [{ thinking: caseThinking, stageKey: stage }];
+  }
+  if (mode === "on") {
+    return [{ thinking: true, stageKey: stage }];
+  }
+  if (mode === "off") {
+    return [{ thinking: false, stageKey: stage }];
+  }
+  if (mode === "both") {
+    return [
+      { thinking: true, stageKey: `${stage}[think=on]` },
+      { thinking: false, stageKey: `${stage}[think=off]` },
+    ];
+  }
+  // auto (default)
+  if (stage === "final") {
+    return [
+      { thinking: true, stageKey: `${stage}[think=on]` },
+      { thinking: false, stageKey: `${stage}[think=off]` },
+    ];
+  }
+  // plan, arguments, question: valor del caso
+  return [{ thinking: caseThinking, stageKey: stage }];
+}
+
+// ───────────────────────── Bucket (7.9, 5.4) ─────────────────────────
+
+function resolveBucket(fc: FrozenCase, cfg: EvalConfig): "canonical" | "raw" {
+  if (fc.isRaw) return "raw";
+  if ((fc.tags ?? []).includes(PROD_SHORTCUT_TAG) && !cfg.includeShortcut) return "raw";
+  return "canonical";
+}
+
+// ───────────────────────── Runner ─────────────────────────
+
+export interface RunTask {
+  fc: FrozenCase;
+  variant: Variant;
+  /** Variantes individuales en orden; el request se aplica con `applyVariantChain`. */
+  variants: Variant[];
+  variantSpec: string;
+  variantChain: string[];
+  datasetName: string;
+  iteration: number;
+  thinkingExp: ThinkingExpansion;
+}
+
+export interface RunResult {
+  record: RunRecord;
+}
+
+/** Corre un único caso (una iteración, un thinking). */
+async function runOne(
+  task: RunTask,
+  cfg: EvalConfig,
+  genClient: GenerativeClient,
+  decClient: DecisionClient,
+  dryRun: boolean,
+): Promise<RunResult> {
+  const { fc, variant, variants, variantSpec, variantChain, datasetName, iteration, thinkingExp } = task;
+  const timestamp = isoNow();
+  const bucket = resolveBucket(fc, cfg);
+
+  // ── Aplicar variante ──
+  let appliedCase: FrozenCase;
+  let variantApplyOk = true;
+  let variantApplyError: string | undefined;
+  try {
+    appliedCase = applyVariantChain(fc, variants);
+  } catch (e) {
+    variantApplyOk = false;
+    variantApplyError = e instanceof VariantApplyError ? e.message : `variant_apply_error: ${String(e)}`;
+    appliedCase = fc; // usamos el original para no abortar
+  }
+
+  const stage = fc.stage;
+  const isDecision = ["route", "tool_choice", "args_review", "result_verification"].includes(stage);
+
+  // ── Base del record ──
+  const baseRecord: Omit<RunRecord, "rawInput" | "rawOutput" | "requestHash" | "durationMs" | "passed" | "errors" | "warnings" | "metrics" | "measurements" | "model"> = {
+    schemaVersion: SCHEMA_VERSION,
+    dataset: datasetName,
+    caseId: fc.id,
+    stage: stage as StageName,
+    stageKey: thinkingExp.stageKey,
+    iteration,
+    variant: variantSpec,
+    variantChain,
+    isRaw: fc.isRaw,
+    prodShortcut: (fc.tags ?? []).includes(PROD_SHORTCUT_TAG),
+    bucket,
+    timestamp,
+  };
+
+  // ── Preparar y ejecutar ──
+  if (isDecision) {
+    return runDecision(task, cfg, decClient, dryRun, appliedCase, variantApplyOk, variantApplyError, baseRecord);
+  } else {
+    return runGenerative(task, cfg, genClient, dryRun, appliedCase, variantApplyOk, variantApplyError, baseRecord, thinkingExp.thinking);
+  }
+}
+
+/**
+ * Ejecuta los graders y falla el caso si ninguno registró un check: un `expect` vacío o con claves
+ * desconocidas no puede contar como "pasó".
+ */
+function gradeWithGuard(
+  entry: DecisionStageEntry<unknown, unknown> | GenerativeStageEntry<unknown, unknown>,
+  parsed: unknown,
+  expectObj: unknown,
+  ctx: { rawOutput: string; finishReason?: string; durationMs: number },
+  collector: ReturnType<typeof createCollector>["collector"],
+  metrics: Record<string, boolean>,
+): void {
+  // `not_truncated` lo registra siempre un grader base: no cuenta como check del caso.
+  const countChecks = () => Object.keys(metrics).filter((k) => k !== "not_truncated").length;
+  const before = countChecks();
+  runGraders(entry, parsed, expectObj, ctx, collector);
+  if (countChecks() === before) {
+    collector.check("graders_ran_checks", false, "Ningún grader ejecutó checks: `expect` vacío o con claves no reconocidas.");
+  }
+}
+
+// ── Decisión ──
+
+async function runDecision(
+  task: RunTask,
+  cfg: EvalConfig,
+  client: DecisionClient,
+  dryRun: boolean,
+  appliedCase: FrozenCase,
+  variantApplyOk: boolean,
+  variantApplyError: string | undefined,
+  baseRecord: ReturnType<typeof buildBase>,
+): Promise<RunResult> {
+  const { fc, variant } = task;
+  const sentReq = appliedCase.request as DecisionRequest;
+  const sv = variant.decision?.[fc.stage as DecisionStage];
+  const prepared = client.prepare(sentReq);
+  const hash = requestHash(prepared.body);
+
+  // dry-run
+  if (dryRun) {
+    console.log(`POST ${prepared.url}`);
+    console.log(JSON.stringify(prepared.body, null, 2));
+  }
+
+  // Ojo: `passed` del collector es un getter; desestructurarlo lo congelaba en `true`. Se calcula al final.
+  const { collector, errors, warnings, metrics, measurements } = createCollector();
+
+  // check variant apply
+  collector.check("variant_apply_ok", variantApplyOk, variantApplyError ?? "");
+
+  // context check (soft warning)
+  const ctxTokens = estimateDecisionPromptTokens(sentReq);
+  collector.soft(
+    "decision_context_ok",
+    ctxTokens <= DECISION_MAX_CONTEXT,
+    `Tokens estimados (${ctxTokens}) superan decisionMaxContext (${DECISION_MAX_CONTEXT}).`,
+  );
+
+  if (dryRun) {
+    return makeRecord(baseRecord, {
+      rawInput: prepared.body,
+      rawOutput: "",
+      requestHash: hash,
+      durationMs: 0,
+      model: cfg.decisionModel,
+      passed: false,
+      errors,
+      warnings,
+      metrics,
+      measurements,
+    });
+  }
+
+  // Si la variante no se pudo aplicar no se llama al modelo: se mediría el caso sin modificar.
+  if (!variantApplyOk) {
+    return makeRecord(baseRecord, {
+      rawInput: prepared.body,
+      rawOutput: "",
+      requestHash: hash,
+      durationMs: 0,
+      model: cfg.decisionModel,
+      passed: false,
+      errors,
+      warnings,
+      metrics,
+      measurements,
+    });
+  }
+
+  const timeoutMs = resolveDecisionTimeout(cfg);
+  const result = await client.call(sentReq, timeoutMs, { stage: fc.stage, expect: appliedCase.expect });
+  const durationMs = result.durationMs; // mismo criterio que las etapas generativas
+
+  if (!result.ok) {
+    collector.check("client_call_ok", false, result.error);
+    return makeRecord(baseRecord, {
+      rawInput: prepared.body,
+      rawOutput: "",
+      requestHash: hash,
+      durationMs,
+      model: cfg.decisionModel,
+      passed: false,
+      errors,
+      warnings,
+      metrics,
+      measurements,
+      tokensEstimated: true,
+    });
+  }
+
+  collector.check("client_call_ok", true, "");
+  const rawOutput = result.rawOutput;
+
+  // Parse
+  const entry = getStage(fc.stage as StageName) as DecisionStageEntry<unknown, unknown>;
+  let parsed: unknown;
+  let parseOk = true;
+  try {
+    parsed = entry.parseOutput(rawOutput, sentReq, sv);
+  } catch (e) {
+    parseOk = false;
+    collector.check("output_parse_ok", false, e instanceof Error ? e.message : String(e));
+  }
+  if (parseOk) collector.check("output_parse_ok", true, "");
+
+  // Extra questions (warnings solamente, sección 7.6 §8)
+  if (variantApplyOk) {
+    const baseReq = fc.request as DecisionRequest;
+    const extra = parseExtraQuestions(rawOutput, sentReq, baseReq, sv);
+    warnings.push(...extra.warnings);
+    Object.assign(measurements, extra.measurements);
+  }
+
+  // Graders
+  const ctx = { rawOutput, durationMs };
+  gradeWithGuard(entry, parsed, appliedCase.expect, ctx, collector, metrics);
+
+  // Labels (7.8)
+  const labelInfo = entry.label(parsed, appliedCase.expect as never);
+
+  return makeRecord(baseRecord, {
+    rawInput: prepared.body,
+    rawOutput,
+    requestHash: hash,
+    durationMs,
+    model: cfg.decisionModel,
+    passed: errors.length === 0,
+    errors,
+    warnings,
+    metrics,
+    measurements,
+    parsedOutput: parsed,
+    tokens: result.tokens,
+    tokensEstimated: true,
+    predictedLabel: labelInfo.predicted,
+    expectedLabel: labelInfo.expected,
+    rawScore: labelInfo.rawScore,
+    probabilities: labelInfo.probabilities,
+  });
+}
+
+// ── Generativa ──
+
+async function runGenerative(
+  task: RunTask,
+  cfg: EvalConfig,
+  client: GenerativeClient,
+  dryRun: boolean,
+  appliedCase: FrozenCase,
+  variantApplyOk: boolean,
+  variantApplyError: string | undefined,
+  baseRecord: ReturnType<typeof buildBase>,
+  thinking: boolean,
+): Promise<RunResult> {
+  const { fc, variant } = task;
+  const sv = variant.generative?.[fc.stage as GenerativeStage];
+
+  // Resolver request final con precedencia (7.1)
+  const reqRaw = appliedCase.request as GenerativeRequest;
+  const req = resolveGenerativeRequest(reqRaw, thinking);
+
+  const callCtx: GenerativeCallContext = { toolSchema: fc.meta?.toolSchema, stage: fc.stage, expect: appliedCase.expect };
+  const prepared = client.prepare(req);
+  const hash = requestHash(prepared.body);
+
+  if (dryRun) {
+    console.log(`POST ${prepared.url}`);
+    console.log(JSON.stringify(prepared.body, null, 2));
+  }
+
+  // Ojo: `passed` del collector es un getter; desestructurarlo lo congelaba en `true`. Se calcula al final.
+  const { collector, errors, warnings, metrics, measurements } = createCollector();
+  collector.check("variant_apply_ok", variantApplyOk, variantApplyError ?? "");
+
+  const requestParams = {
+    temperature: req.temperature,
+    thinking: req.thinking,
+    maxTokens: req.maxTokens,
+    timeoutMs: resolveGenerativeTimeout(cfg, req.thinking),
+  };
+
+  if (dryRun) {
+    return makeRecord(baseRecord, {
+      rawInput: prepared.body,
+      rawOutput: "",
+      requestHash: hash,
+      durationMs: 0,
+      model: cfg.model,
+      passed: false,
+      errors,
+      warnings,
+      metrics,
+      measurements,
+      requestParams,
+    });
+  }
+
+  // Si la variante no se pudo aplicar no se llama al modelo: se mediría el caso sin modificar.
+  if (!variantApplyOk) {
+    return makeRecord(baseRecord, {
+      rawInput: prepared.body,
+      rawOutput: "",
+      requestHash: hash,
+      durationMs: 0,
+      model: cfg.model,
+      passed: false,
+      errors,
+      warnings,
+      metrics,
+      measurements,
+      requestParams,
+    });
+  }
+
+  const entry = getStage(fc.stage as StageName) as GenerativeStageEntry<unknown, unknown>;
+  // Como producción (`dispatchValidated`): un reintento ante salida inválida o truncada, con ERROR_PREVIO,
+  // 1.5x tokens y temperatura 0.3. Las fallas de transporte no entran aquí (las reintenta `postJson`).
+  const jsonStage = fc.stage === "plan" || fc.stage === "arguments";
+
+  let curReq = req;
+  let result = await client.call(curReq, resolveGenerativeTimeout(cfg, curReq.thinking), callCtx);
+  let durationMs = result.durationMs;
+  let parsed: unknown;
+  let parseError: string | undefined;
+  const retryErrors: string[] = [];
+  let tokens: { prompt?: number; completion?: number; total?: number } | undefined;
+  let usedBody: unknown = prepared.body;
+
+  for (let attempt = 0; ; attempt++) {
+    if (result.ok) {
+      usedBody = client.prepare(curReq).body;
+      if (result.tokens) {
+        tokens = {
+          prompt: (tokens?.prompt ?? 0) + (result.tokens.prompt ?? 0),
+          completion: (tokens?.completion ?? 0) + (result.tokens.completion ?? 0),
+          total: (tokens?.total ?? 0) + (result.tokens.total ?? 0),
+        };
+      }
+      parsed = undefined;
+      parseError = undefined;
+      try {
+        parsed = entry.parseOutput(result.rawOutput, curReq, sv, fc.meta?.toolSchema);
+      } catch (e) {
+        parseError = e instanceof Error ? e.message : String(e);
+      }
+      const isLast = attempt >= LLM_INVALID_OUTPUT_RETRIES;
+      const truncated = result.finishReason === "length";
+      // final/question: en el último intento se acepta una salida truncada; plan/arguments nunca.
+      let error: string | undefined;
+      if (jsonStage) error = truncated ? TRUNCATED_ERROR : parseError;
+      else error = parseError ?? (truncated && !isLast ? TRUNCATED_ERROR : undefined);
+      if (!error || isLast) break;
+      retryErrors.push(error);
+      curReq = {
+        ...req,
+        user: req.user + retryNote(error),
+        maxTokens: Math.ceil(req.maxTokens * RETRY_TOKEN_FACTOR),
+        // Un final vacío suele ser thinking que agotó el presupuesto.
+        thinking: fc.stage === "final" ? false : req.thinking,
+        temperature: RETRY_TEMPERATURE,
+      };
+      result = await client.call(curReq, resolveGenerativeTimeout(cfg, curReq.thinking), callCtx);
+      durationMs += result.durationMs;
+    } else break;
+  }
+
+  if (!result.ok) {
+    collector.check("client_call_ok", false, result.error);
+    return makeRecord(baseRecord, {
+      rawInput: usedBody,
+      rawOutput: "",
+      requestHash: hash,
+      durationMs,
+      model: cfg.model,
+      passed: false,
+      errors,
+      warnings,
+      metrics,
+      measurements,
+      requestParams,
+    });
+  }
+
+  collector.check("client_call_ok", true, "");
+  const rawOutput = result.rawOutput;
+  const parseOk = parseError === undefined;
+  if (!parseOk) collector.check("output_parse_ok", false, parseError as string);
+  if (parseOk) collector.check("output_parse_ok", true, "");
+  measurements.attempts = retryErrors.length + 1;
+  retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por salida inválida: ${e}`));
+
+  const ctx = { rawOutput, finishReason: result.finishReason, durationMs };
+  gradeWithGuard(entry, parsed, appliedCase.expect, ctx, collector, metrics);
+
+  return makeRecord(baseRecord, {
+    rawInput: usedBody,
+    rawOutput,
+    requestHash: hash,
+    durationMs,
+    model: cfg.model,
+    passed: errors.length === 0,
+    errors,
+    warnings,
+    metrics,
+    measurements,
+    parsedOutput: parsed,
+    tokens,
+    ...(result.tokensEstimated ? { tokensEstimated: true } : {}),
+    finishReason: result.finishReason,
+    requestParams,
+  });
+}
+
+// ───────────────────────── Helpers de record ─────────────────────────
+
+type BaseRecord = Omit<RunRecord, "rawInput" | "rawOutput" | "requestHash" | "durationMs" | "passed" | "errors" | "warnings" | "metrics" | "measurements" | "model">;
+
+function buildBase(x: BaseRecord): BaseRecord { return x; }
+
+function makeRecord(
+  base: BaseRecord,
+  extra: {
+    rawInput: unknown;
+    rawOutput: string;
+    requestHash: string;
+    durationMs: number;
+    model: string;
+    passed: boolean;
+    errors: string[];
+    warnings: string[];
+    metrics: Record<string, boolean>;
+    measurements: Record<string, number | string>;
+    parsedOutput?: unknown;
+    tokens?: { prompt?: number; completion?: number; total?: number };
+    tokensEstimated?: boolean;
+    finishReason?: string;
+    requestParams?: { temperature?: number; thinking?: boolean; maxTokens?: number; timeoutMs?: number };
+    predictedLabel?: string | null;
+    expectedLabel?: string | null;
+    rawScore?: number | null;
+    probabilities?: Record<string, number> | null;
+  },
+): RunResult {
+  const record: RunRecord = {
+    ...base,
+    model: extra.model,
+    passed: extra.passed,
+    errors: extra.errors,
+    warnings: extra.warnings,
+    metrics: extra.metrics,
+    measurements: extra.measurements,
+    requestHash: extra.requestHash,
+    rawInput: extra.rawInput,
+    rawOutput: extra.rawOutput,
+    durationMs: extra.durationMs,
+    ...(extra.parsedOutput !== undefined ? { parsedOutput: extra.parsedOutput } : {}),
+    ...(extra.tokens ? { tokens: extra.tokens } : {}),
+    ...(extra.tokensEstimated ? { tokensEstimated: extra.tokensEstimated } : {}),
+    ...(extra.finishReason ? { finishReason: extra.finishReason } : {}),
+    ...(extra.requestParams ? { requestParams: extra.requestParams } : {}),
+    ...(extra.predictedLabel !== undefined ? { predictedLabel: extra.predictedLabel } : {}),
+    ...(extra.expectedLabel !== undefined ? { expectedLabel: extra.expectedLabel } : {}),
+    ...(extra.rawScore !== undefined ? { rawScore: extra.rawScore } : {}),
+    ...(extra.probabilities !== undefined ? { probabilities: extra.probabilities } : {}),
+  };
+  return { record };
+}
+
+// ───────────────────────── Concurrencia ─────────────────────────
+
+/** Ejecuta `tasks` en paralelo con concurrencia máxima `limit`. */
+async function runWithConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number,
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < tasks.length) {
+      const i = idx++;
+      results[i] = await tasks[i]();
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+// ───────────────────────── Punto de entrada ─────────────────────────
+
+export interface RunnerInput {
+  cases: FrozenCase[];
+  datasetName: string;
+  variant: Variant;
+  /** Partes de la spec (`a+b` → [a, b]). `variant` es solo la vista de parseo/params. */
+  variants: Variant[];
+  variantSpec: string;
+  variantChain: string[];
+  cfg: EvalConfig;
+  genClient: GenerativeClient;
+  decClient: DecisionClient;
+  stageFilter: StageName[];     // vacío = todos
+  onRecord?: (record: RunRecord) => void;
+  dryRun?: boolean;
+}
+
+export interface RunnerOutput {
+  records: RunRecord[];
+  /** true si TODAS las llamadas fallaron por el cliente (red, timeout o HTTP) */
+  allNetworkFailed: boolean;
+}
+
+export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
+  const {
+    cases, datasetName, variant, variants, variantSpec, variantChain, cfg,
+    genClient, decClient, stageFilter, onRecord, dryRun = false,
+  } = input;
+
+  // Filtrar por etapa
+  const filtered = stageFilter.length > 0
+    ? cases.filter((c) => stageFilter.includes(c.stage as StageName))
+    : cases;
+
+  // Generar tareas: por caso × repetición × expansión de thinking
+  const tasks: RunTask[] = [];
+  for (const fc of filtered) {
+    // Determinar si la variante fija thinking (para generativas)
+    let variantFixedThinking: boolean | undefined;
+    if (!["route", "tool_choice", "args_review", "result_verification"].includes(fc.stage)) {
+      const sv = variant.generative?.[fc.stage as GenerativeStage];
+      if (sv?.params?.thinking !== undefined) variantFixedThinking = sv.params.thinking;
+    }
+
+    const caseThinking = fc.request.type === "generative" ? fc.request.thinking : false;
+    const expansions = expandThinking(fc.stage as StageName, caseThinking, cfg, variantFixedThinking);
+
+    for (const exp of expansions) {
+      for (let iter = 1; iter <= cfg.repeat; iter++) {
+        tasks.push({ fc, variant, variants, variantSpec, variantChain, datasetName, iteration: iter, thinkingExp: exp });
+      }
+    }
+  }
+
+  let networkFailCount = 0;
+  let callCount = 0;
+
+  const fns = tasks.map((task) => async () => {
+    const result = await runOne(task, cfg, genClient, decClient, dryRun);
+    // Detectar fallo de red
+    if (!dryRun && result.record.metrics.client_call_ok === false) {
+      const err = result.record.errors[result.record.errors.length - 1] ?? "";
+      if (err.startsWith("network:") || err === "timeout" || err.startsWith("http_")) networkFailCount++;
+    }
+    if (!dryRun) callCount++;
+    onRecord?.(result.record);
+    return result.record;
+  });
+
+  const records = await runWithConcurrency(fns, cfg.concurrency);
+
+  return {
+    records,
+    allNetworkFailed: callCount > 0 && networkFailCount === callCount,
+  };
+}

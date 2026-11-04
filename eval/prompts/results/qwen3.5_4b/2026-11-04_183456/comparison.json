@@ -1,0 +1,421 @@
+{
+  "baseline": "prod",
+  "cells": [
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "route",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 2624,
+      "p95DurationMs": 2624,
+      "tokens": {
+        "avgPrompt": 81,
+        "avgCompletion": 94,
+        "avgTotal": 175
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "files": {
+          "files": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "tool_choice",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 24,
+      "p95DurationMs": 24,
+      "tokens": {
+        "avgPrompt": 74,
+        "avgCompletion": 93,
+        "avgTotal": 167
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "read_file": {
+          "read_file": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "args_review",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 26,
+      "p95DurationMs": 26,
+      "tokens": {
+        "avgPrompt": 94,
+        "avgCompletion": 105,
+        "avgTotal": 199
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "result_verification",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 40,
+      "p95DurationMs": 40,
+      "tokens": {
+        "avgPrompt": 71,
+        "avgCompletion": 58,
+        "avgTotal": 129
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "ok=true,cumple=true": {
+          "ok=true,cumple=true": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "plan",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 14391,
+      "p95DurationMs": 14391,
+      "tokens": {
+        "avgPrompt": 31,
+        "avgCompletion": 1183,
+        "avgTotal": 1214
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "arguments",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 436,
+      "p95DurationMs": 436,
+      "tokens": {
+        "avgPrompt": 33,
+        "avgCompletion": 32,
+        "avgTotal": 65
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "final[think=on]",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 16599,
+      "p95DurationMs": 16599,
+      "tokens": {
+        "avgPrompt": 33,
+        "avgCompletion": 1786,
+        "avgTotal": 1819
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "final[think=off]",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 296,
+      "p95DurationMs": 296,
+      "tokens": {
+        "avgPrompt": 35,
+        "avgCompletion": 15,
+        "avgTotal": 50
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "question",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 213,
+      "p95DurationMs": 213,
+      "tokens": {
+        "avgPrompt": 30,
+        "avgCompletion": 12,
+        "avgTotal": 42
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "route",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 1006,
+      "p95DurationMs": 1006,
+      "tokens": {
+        "avgPrompt": 110,
+        "avgCompletion": 95,
+        "avgTotal": 205
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "files": {
+          "files": 1
+        }
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "tool_choice",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 23,
+      "p95DurationMs": 23,
+      "tokens": {
+        "avgPrompt": 74,
+        "avgCompletion": 93,
+        "avgTotal": 167
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "read_file": {
+          "read_file": 1
+        }
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "args_review",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 25,
+      "p95DurationMs": 25,
+      "tokens": {
+        "avgPrompt": 94,
+        "avgCompletion": 105,
+        "avgTotal": 199
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 1
+        }
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "result_verification",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 40,
+      "p95DurationMs": 40,
+      "tokens": {
+        "avgPrompt": 71,
+        "avgCompletion": 58,
+        "avgTotal": 129
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "ok=true,cumple=true": {
+          "ok=true,cumple=true": 1
+        }
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "plan",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 14543,
+      "p95DurationMs": 14543,
+      "tokens": {
+        "avgPrompt": 31,
+        "avgCompletion": 1098,
+        "avgTotal": 1129
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "arguments",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 449,
+      "p95DurationMs": 449,
+      "tokens": {
+        "avgPrompt": 33,
+        "avgCompletion": 32,
+        "avgTotal": 65
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "final[think=on]",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 19129,
+      "p95DurationMs": 19129,
+      "tokens": {
+        "avgPrompt": 33,
+        "avgCompletion": 2048,
+        "avgTotal": 2081
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "final[think=off]",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 244,
+      "p95DurationMs": 244,
+      "tokens": {
+        "avgPrompt": 35,
+        "avgCompletion": 15,
+        "avgTotal": 50
+      }
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "question",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 220,
+      "p95DurationMs": 220,
+      "tokens": {
+        "avgPrompt": 30,
+        "avgCompletion": 12,
+        "avgTotal": 42
+      }
+    }
+  ],
+  "deltas": [
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "route",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -1618,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "tool_choice",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -1,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "args_review",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -1,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "result_verification",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "plan",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 152
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "arguments",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 13
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "final[think=on]",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 2530
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "final[think=off]",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -52
+    },
+    {
+      "variant": "route_example",
+      "dataset": "smoke",
+      "stageKey": "question",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 7
+    }
+  ],
+  "regressions": [],
+  "improvements": [],
+  "warnings": []
+}

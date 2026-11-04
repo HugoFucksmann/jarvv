@@ -1,0 +1,296 @@
+{
+  "baseline": "prod",
+  "cells": [
+    {
+      "variant": "prod",
+      "dataset": "decision_discriminating",
+      "stageKey": "route",
+      "totalRuns": 3,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 94,
+        "avgCompletion": 24,
+        "avgTotal": 118
+      },
+      "tokensEstimated": true,
+      "accuracy": 0,
+      "confusionMatrix": {
+        "fin": {
+          "files": 1
+        },
+        "ask_user": {
+          "files": 1
+        },
+        "web": {
+          "files": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_discriminating",
+      "stageKey": "tool_choice",
+      "totalRuns": 2,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 85,
+        "avgCompletion": 29,
+        "avgTotal": 114
+      },
+      "tokensEstimated": true,
+      "accuracy": 0,
+      "confusionMatrix": {
+        "ask_user": {
+          "read_file": 1
+        },
+        "write_file": {
+          "read_file": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_discriminating",
+      "stageKey": "args_review",
+      "totalRuns": 3,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 107,
+        "avgCompletion": 26,
+        "avgTotal": 133
+      },
+      "tokensEstimated": true,
+      "accuracy": 0,
+      "confusionMatrix": {
+        "args_invalid": {
+          "approved": 1
+        },
+        "tool_rejected": {
+          "approved": 1
+        },
+        "info_missing": {
+          "approved": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_discriminating",
+      "stageKey": "result_verification",
+      "totalRuns": 2,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 85,
+        "avgCompletion": 19,
+        "avgTotal": 104
+      },
+      "tokensEstimated": true,
+      "accuracy": 0,
+      "confusionMatrix": {
+        "ok=false,cumple=false": {
+          "ok=true,cumple=true": 1
+        },
+        "ok=true,cumple=false": {
+          "ok=true,cumple=true": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "route",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 81,
+        "avgCompletion": 24,
+        "avgTotal": 105
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "files": {
+          "files": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "tool_choice",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 74,
+        "avgCompletion": 29,
+        "avgTotal": 103
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "read_file": {
+          "read_file": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "args_review",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 94,
+        "avgCompletion": 26,
+        "avgTotal": 120
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "result_verification",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 71,
+        "avgCompletion": 19,
+        "avgTotal": 90
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "ok=true,cumple=true": {
+          "ok=true,cumple=true": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "plan",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 23,
+        "avgCompletion": 30,
+        "avgTotal": 53
+      },
+      "tokensEstimated": true
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "arguments",
+      "totalRuns": 1,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 24,
+        "avgCompletion": 5,
+        "avgTotal": 29
+      },
+      "tokensEstimated": true
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "final[think=on]",
+      "totalRuns": 1,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 23,
+        "avgCompletion": 5,
+        "avgTotal": 28
+      },
+      "tokensEstimated": true
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "final[think=off]",
+      "totalRuns": 1,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 23,
+        "avgCompletion": 5,
+        "avgTotal": 28
+      },
+      "tokensEstimated": true
+    },
+    {
+      "variant": "prod",
+      "dataset": "smoke",
+      "stageKey": "question",
+      "totalRuns": 1,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 20,
+        "avgCompletion": 5,
+        "avgTotal": 25
+      },
+      "tokensEstimated": true
+    }
+  ],
+  "deltas": [],
+  "regressions": [],
+  "improvements": [],
+  "warnings": []
+}

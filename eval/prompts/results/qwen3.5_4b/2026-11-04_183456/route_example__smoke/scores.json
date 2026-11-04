@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 2,
+  "totalRuns": 9,
+  "passedRuns": 9,
+  "passRate": 1,
+  "passAllRate": 1,
+  "avgDurationMs": 3964,
+  "p50DurationMs": 244,
+  "p95DurationMs": 19129,
+  "rawTotalRuns": 0,
+  "rawPassedRuns": 0,
+  "rawPassRate": 0,
+  "stages": {
+    "route": {
+      "stageKey": "route",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 1006,
+      "p50DurationMs": 1006,
+      "p95DurationMs": 1006,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "files": {
+          "files": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-route",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 1006
+        }
+      ]
+    },
+    "tool_choice": {
+      "stageKey": "tool_choice",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 23,
+      "p50DurationMs": 23,
+      "p95DurationMs": 23,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "read_file": {
+          "read_file": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-tool",
+          "stage": "tool_choice",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 23
+        }
+      ]
+    },
+    "args_review": {
+      "stageKey": "args_review",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 25,
+      "p50DurationMs": 25,
+      "p95DurationMs": 25,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-review",
+          "stage": "args_review",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 25
+        }
+      ]
+    },
+    "result_verification": {
+      "stageKey": "result_verification",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 40,
+      "p50DurationMs": 40,
+      "p95DurationMs": 40,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "ok=true,cumple=true": {
+          "ok=true,cumple=true": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-verify",
+          "stage": "result_verification",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 40
+        }
+      ]
+    },
+    "plan": {
+      "stageKey": "plan",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 14543,
+      "p50DurationMs": 14543,
+      "p95DurationMs": 14543,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-plan",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 14543
+        }
+      ]
+    },
+    "arguments": {
+      "stageKey": "arguments",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 449,
+      "p50DurationMs": 449,
+      "p95DurationMs": 449,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-args",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 449
+        }
+      ]
+    },
+    "final[think=on]": {
+      "stageKey": "final[think=on]",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 19129,
+      "p50DurationMs": 19129,
+      "p95DurationMs": 19129,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-final",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 19129
+        }
+      ]
+    },
+    "final[think=off]": {
+      "stageKey": "final[think=off]",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 244,
+      "p50DurationMs": 244,
+      "p95DurationMs": 244,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-final",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 244
+        }
+      ]
+    },
+    "question": {
+      "stageKey": "question",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 220,
+      "p50DurationMs": 220,
+      "p95DurationMs": 220,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "smoke-question",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 220
+        }
+      ]
+    }
+  }
+}
