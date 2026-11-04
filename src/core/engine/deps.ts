@@ -104,6 +104,8 @@ export interface ReviewCandidate {
   readonly tool: string;
   /** Descripción de la herramienta en el catálogo. */
   readonly description: string;
+  /** Schema limpio de la herramienta (JSON en una línea): los tipos y requeridos contra los que se contrastan los `args`. */
+  readonly schema: string;
   /** `args` tal como los propuso el modelo (refs sin resolver, strings recortados), en una línea. */
   readonly args: string;
 }

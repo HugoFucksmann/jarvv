@@ -1,0 +1,37 @@
+{
+  "total": 2,
+  "passed": 0,
+  "failed": 0,
+  "errors": 2,
+  "pass_rate": 0,
+  "avg_latency_ms": 0,
+  "finish_reasons": {},
+  "settings": {
+    "model": "qwen2.5:7b",
+    "dataset": "v1",
+    "prompts": "Q0",
+    "url": "http://127.0.0.1:11434/v1/chat/completions",
+    "num_ctx": 16384,
+    "timeout_ms": 120000,
+    "thinking_timeout_ms": 180000,
+    "max_tokens": {
+      "plan": 4096,
+      "replan": 4096,
+      "arguments": 2048,
+      "final_response": 2048
+    },
+    "final_thinking": "both"
+  },
+  "by_stage": {
+    "plan": {
+      "total": 2,
+      "passed": 0,
+      "pass_rate": 0,
+      "errors": 2,
+      "truncated": 0,
+      "avg_latency_ms": 0,
+      "metrics_breakdown": {}
+    }
+  },
+  "thinking_comparison": {}
+}

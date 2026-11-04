@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:eval": "tsx scripts/eval-next/tests/run.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

@@ -573,7 +573,7 @@ export class QwenEngine implements ILLMClient, EngineLLM {
   /** Argumentos desde la vista estructurada (Fase 5): misma validación y mismo reintento que `generateArguments`. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArgumentsFromView", () =>
-      this.runArguments(input.tool, PROMPTS.ARGUMENTS_VIEW.SYSTEM, PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(input), signal)
+      this.runArguments(input.tool, PROMPTS.ARGUMENTS_VIEW.buildSystemPrompt(input.tool), PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(input), signal)
     );
   }
 

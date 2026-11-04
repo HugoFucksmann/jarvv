@@ -19,3 +19,6 @@ jarvis-refs/*
 # Referencias locales de JARVIS
 /jarvis-refs/
 data/refs/
+
+# Resultados de evaluación
+/scripts/eval-next/results/

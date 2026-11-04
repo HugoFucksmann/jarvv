@@ -28,6 +28,7 @@ import {
 } from "../render/shared.ts";
 import { READ_ARG_KEYS } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
+import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import type { DecisionFrame, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "./deps.ts";
 
@@ -90,6 +91,13 @@ function lastResultText(call: CallView): string {
   return parts.join(" ");
 }
 
+/** Intento no aprobado: la línea `L` y, si lo trae, su resumen (el último intento: por qué falló). */
+function attemptText(call: CallView): string {
+  const parts = [lineText(call)];
+  if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), caps.failureSummary)}`);
+  return parts.join(" ");
+}
+
 /** El paso actual en dos textos: `step` (2000) reparte su tope entre `instruction` y `expected`. */
 function stepText(step: NonNullable<RouteView["step"]>): { readonly instruction: string; readonly expected: string | null } {
   const half = Math.floor(caps.step / 2);
@@ -106,7 +114,8 @@ function decisionFrame(view: RouteView): DecisionFrame {
     step: view.step === null ? null : stepText(view.step),
     lastResult: view.lastResult === null ? null : lastResultText(view.lastResult),
     done: lastCapped(view.done.map(lineText), caps.done),
-    attempts: view.attempts.map((c) => ({ route: c.route, tool: c.tool, failed: c.failed, text: lineText(c) })),
+    // Un rechazo del usuario no es un fallo de la ruta ni de la herramienta: no se marca como tal (el texto ya lo dice).
+    attempts: view.attempts.map((c) => ({ route: c.route, tool: c.tool, failed: c.failed && c.status !== "user_rejected", text: attemptText(c) })),
     userInput: newestWithin(view.userInput.map(userInputLine), caps.userInput),
     env: newestWithin(view.env.map(factLine), caps.env),
   };
@@ -138,7 +147,8 @@ function candidateOf(route: ExecutableRoute, tool: MCPTool, args: JsonObject): R
   const name = `${route}/${tool.name}`;
   const description = clipMarked(oneLine(tool.description ?? ""), Math.floor(caps.candidate / 4));
   const room = Math.max(0, caps.candidate - name.length - description.length);
-  return { route, tool: tool.name, description, args: clipMarked(oneLine(JSON.stringify(args)), room) };
+  const schema = clipMarked(oneLine(JSON.stringify(cleanInputSchema(tool.inputSchema))), caps.candidateSchema);
+  return { route, tool: tool.name, description, schema, args: clipMarked(oneLine(JSON.stringify(args)), room) };
 }
 
 /** `args`: los registrados (refs sin resolver, strings recortados): lo que ve el modelo y queda en el contexto. */

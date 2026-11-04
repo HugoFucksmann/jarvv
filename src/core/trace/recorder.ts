@@ -10,6 +10,7 @@
  *   se verificó (`verify`); el plan (`plan`); el hecho de la respuesta (`question`) o `result` (`final`).
  * - `tools`: por llamada a una herramienta, el intervalo de ejecución, los argumentos resueltos y el resultado crudo. Con
  *   `ref` el resultado no se copia: se guarda la referencia (el contenido vive en el archivo de la ref).
+ * - `waits`: las esperas del usuario (plan, aprobación, pregunta) con su intervalo: explican los huecos entre etapas.
  * - `snapshot`: el contexto completo al terminar (5.4 y 4).
  *
  * El enlace con la llamada se hace al registrarse (`change` con `add calls`): lo anterior sin dueño es de ese intento. Una
@@ -24,6 +25,7 @@ import { ConfigManager } from "../config.ts";
 import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
 import { NULL_SINK } from "../engine/capture.ts";
 import type { CaptureSink, CaptureStage, LlmCapture, ToolCapture } from "../engine/capture.ts";
+import type { Waiting } from "../engine/runtime.ts";
 import { errorMessage } from "../utils.ts";
 
 /** Versión del formato de la línea de traza: quien la consume (lab/) la usa para interpretarla. */
@@ -66,9 +68,21 @@ export interface ToolRecord {
   durationMs: number;
   /** Resultado crudo, recortado; `null` si hay `ref` o si la herramienta lanzó. */
   result: string | null;
+  /** Largo del resultado crudo serializado como JSON (incluye la envoltura del protocolo). */
   resultChars: number | null;
   ref: string | null;
+  /** Largo del texto guardado en la ref (`size` de la ref); `null` sin ref. Difiere de `resultChars` por la envoltura JSON. */
+  refSize: number | null;
   error: string | null;
+}
+
+/** Una espera del usuario: de que la tarea se detuvo a que se resolvió (o se cerró la tarea). */
+export interface WaitRecord {
+  kind: Waiting["kind"];
+  /** Versión del contexto cuando empezó la espera. */
+  n: number;
+  startedAt: number;
+  endedAt: number;
 }
 
 const noLink = (): ModelLink => ({ call: null, plan: null, fact: null, result: false });
@@ -79,6 +93,9 @@ export class TaskTraceRecorder {
 
   private readonly models: ModelRecord[] = [];
   private readonly tools: ToolRecord[] = [];
+  private readonly waits: WaitRecord[] = [];
+  private openWait: { kind: Waiting["kind"]; n: number; startedAt: number } | null = null;
+  private readonly refSizes = new Map<string, number>();
   private pendingModels: ModelRecord[] = [];
   private pendingTools: ToolRecord[] = [];
   private currentStep: string | null = null;
@@ -131,6 +148,7 @@ export class TaskTraceRecorder {
       result: raw === null ? null : raw.slice(0, MAX_TOOL_RESULT_CHARS),
       resultChars: raw === null ? null : raw.length,
       ref: null,
+      refSize: null,
       error: event.error,
     };
     this.tools.push(record);
@@ -143,11 +161,30 @@ export class TaskTraceRecorder {
     }
   }
 
+  // ─────────── Esperas del usuario ───────────
+
+  /** Lo que espera la tarea del usuario cambió (`null` = nada). Una espera dura hasta el siguiente cambio. */
+  onWaiting(waiting: Waiting | null): void {
+    if (!this.enabled || this.finished) return;
+    const kind = waiting?.kind ?? null;
+    if (this.openWait !== null && this.openWait.kind === kind) return;
+    this.closeWait();
+    if (kind !== null) this.openWait = { kind, n: this.ctx.n, startedAt: Date.now() };
+  }
+
+  private closeWait(): void {
+    if (this.openWait === null) return;
+    this.waits.push({ ...this.openWait, endedAt: Date.now() });
+    this.openWait = null;
+  }
+
   // ─────────── Contexto: `change` ───────────
 
   private onChange(event: ChangeEvent): void {
     for (const op of event.ops) {
-      if (op.op === "add" && op.target === "steps" && op.value.planId === null) {
+      if (op.op === "add" && op.target === "refs") {
+        this.refSizes.set(op.value.id, op.value.size);
+      } else if (op.op === "add" && op.target === "steps" && op.value.planId === null) {
         this.currentStep = op.value.id; // reactivo: el paso nace `running`
       } else if (op.op === "update" && "state" in op.value && op.value.state === "running") {
         this.currentStep = op.target;
@@ -159,6 +196,7 @@ export class TaskTraceRecorder {
           tool.call = call.id;
           if (call.ref !== null) {
             tool.ref = call.ref;
+            tool.refSize = this.refSizes.get(call.ref) ?? null;
             tool.result = null; // con ref, la traza guarda la referencia y no el contenido
           }
         }
@@ -185,6 +223,7 @@ export class TaskTraceRecorder {
     this.finished = true;
     this.unsubscribe();
     if (!this.enabled) return;
+    this.closeWait();
     try {
       const snapshot = this.ctx.snapshot();
       const line = JSON.stringify({
@@ -195,6 +234,7 @@ export class TaskTraceRecorder {
         snapshot,
         models: this.models,
         tools: this.tools,
+        waits: this.waits,
       });
       const file = path.resolve(process.cwd(), ConfigManager.getConfig().tracePath);
       fs.mkdirSync(path.dirname(file), { recursive: true });

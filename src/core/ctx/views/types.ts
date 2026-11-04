@@ -181,8 +181,8 @@ export interface PlanView {
 }
 
 /**
- * `forRoute` (8.3): Decisión 1 y Decisión 2. Las llamadas van como línea `L` (sin `args` ni `summary`), salvo `lastResult`,
- * que lleva su resumen. Una llamada aparece una sola vez: `lastResult` no se repite en `done`.
+ * `forRoute` (8.3): Decisión 1 y Decisión 2. Las llamadas van como línea `L` (sin `args` ni `summary`), salvo `lastResult`
+ * y el último intento no aprobado, que llevan su resumen. Una llamada aparece una sola vez: `lastResult` no se repite en `done`.
  */
 export interface RouteView {
   /** Solo en reactivo; `null` en deliberativo. */

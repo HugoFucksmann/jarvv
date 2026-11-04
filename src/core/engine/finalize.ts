@@ -30,6 +30,9 @@ export async function finalize(env: EngineEnv, closing: Closing): Promise<void> 
   const { ctx } = env;
   if (ctx.isClosed()) return;
 
+  // Un paso que seguía en curso al cerrar (cancelación, servicio caído, denegación) no queda `running` en una tarea terminal.
+  for (const step of ctx.find("steps", { state: "running" })) ctx.apply({ op: "update", target: step.id, value: { state: "failed" } });
+
   const state = closing.stopReason === null ? "completed" : terminalStateFor(closing.stopReason, ctx.find("calls", {}));
   ctx.apply({ op: "finish", target: "task", value: { state, stopReason: closing.stopReason } });
 

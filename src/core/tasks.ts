@@ -89,7 +89,7 @@ export class TaskManager {
   constructor(
     private readonly deps: TaskManagerDeps,
     private readonly services: EngineServices = createEngineServices(),
-  ) {}
+  ) { }
 
   addEventListener(listener: TaskListener): () => void {
     this.listeners.add(listener);
@@ -104,8 +104,13 @@ export class TaskManager {
   start(message: string, mode: TaskMode): TaskDto {
     const id = newId("task");
     const ctx = create.context({ id, request: message, mode }, this.contextOptions);
-    const runtime = new TaskRuntime({ onChange: (waiting) => this.emit({ type: "waiting", taskId: id, waiting }) });
     const recorder = new TaskTraceRecorder(ctx);
+    const runtime = new TaskRuntime({
+      onChange: (waiting) => {
+        recorder.onWaiting(waiting);
+        this.emit({ type: "waiting", taskId: id, waiting });
+      },
+    });
     const entry: TaskEntry = { ctx, runtime, recorder };
 
     this.tasks.set(id, entry);

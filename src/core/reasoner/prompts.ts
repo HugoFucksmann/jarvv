@@ -54,6 +54,13 @@ const MAX_OBSERVATION_CHARS = MAX_EVIDENCE_OBS_CHARS;
 const MAX_ATTEMPTS = 8;
 const MAX_NOTE_CHARS = 60;
 
+/** Fecha local de hoy (`YYYY-MM-DD`): ningún modelo la conoce; sin ella no puede juzgar qué es "último" o "reciente". */
+const todayLine = (): string => {
+  const d = new Date();
+  const two = (n: number): string => String(n).padStart(2, "0");
+  return `TODAY: ${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+};
+
 const REF_MARKER = /\bref:r\d+\b/i;
 const REF_KEY = /ref:r\d+/i;
 
@@ -211,16 +218,24 @@ ${DATA_NOTICE}`,
    */
   ARGUMENTS_VIEW: {
     SYSTEM: `Generate the arguments for the indicated tool. Reply only with the JSON object, conforming to the SCHEMA.
-Include only the necessary parameters and omit optional ones you do not use. Do not invent filters the user did not ask for.
+Include only the necessary parameters and omit optional ones you do not use. Do not invent filters the user did not ask for, but if the task depends on recency (for example "latest" or "current"), you may include the current year from TODAY in a search query.
 The sections that follow describe the current situation. TASK is what to do now. STEPS lists the steps already completed and what each returned. DONE lists the calls already made, the most recent last. USER holds what the user answered or instructed: follow it. STATE lists facts about the environment, such as the active process id. REFS lists saved results and which parts of them were already read. DATA holds the latest successful reads, the most recent last. EFFECTS are the changes already made. FAIL lists the failed attempts of this step: do not repeat them.
-To use the full content of a saved result as an argument value, write {{ref:rX}} using only the references listed in REFS. To read part of a saved result, use the file-reading tool with the path shown in REFS and offset and length counted in lines.
+To use the full content of a saved result as an argument value, write {{ref:rX}} using only the references listed in REFS.
 Data you write into files, scripts or texts must come from DATA, STEPS, USER or a {{ref:rX}} reference: do not complete it with your own knowledge or invent values. If the task needs a field those sources do not provide, leave it empty or write N/A.
 ENV lists the real paths of this computer (home, desktop, documents, downloads). Every user path must start from them as written; never write placeholders like <user> or environment variables.
 ${DATA_NOTICE_EN}`,
 
+    /** Solo al leer un archivo tiene sentido hablar de leer partes de una ref; en las demás herramientas la frase sobra. */
+    READ_REFS_NOTE: `To read part of a saved result, use the path shown in REFS (valid as written, even though it is not under ENV) with offset and length counted in lines.`,
+
+    buildSystemPrompt(tool: MCPTool): string {
+      return tool.name === "read_file" ? `${this.SYSTEM}\n${this.READ_REFS_NOTE}` : this.SYSTEM;
+    },
+
     buildUserPrompt(data: ArgsViewPromptData): string {
       const desc = shortDesc(data.tool.description, "");
       return join([
+        todayLine(),
         linesBlock("ENV", Object.entries(data.environment).map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
         `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
         `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
@@ -234,7 +249,7 @@ ${DATA_NOTICE_EN}`,
     SYSTEM: `You are JARVIS. The task cannot continue without information only the user can give.
 Write ONE short question for the user, in the same language as the user's request, that asks for exactly the missing information.
 Do not answer it, do not propose actions, and do not mention tools or internal steps. Reply with the question text only.
-GOAL or TASK is what the user asked for (EXPECTED is what the step must achieve); USER is what the user already asked and answered (do not ask it again); REJECTED is the last attempt that did not succeed; DATA is the latest successful read: when the question is a choice, offer the options found there.
+GOAL or TASK is what the user asked for (EXPECTED is what the step must achieve); USER is what the user already asked and answered (do not ask it again); REJECTED is the last attempt that did not succeed: if it is a call the review stopped for missing information, ask for exactly the value its arguments lack, not about the meaning of the task; DATA is the latest successful read: when the question is a choice, offer the options found there.
 ${DATA_NOTICE_EN}`,
 
     buildUserPrompt(data: QuestionPromptData): string {
@@ -275,11 +290,11 @@ ${DATA_NOTICE}`,
 You are the planner of JARVIS, an agent that works on the user's computer through tools. Break the work into ordered steps.
 Reply only with JSON: {"steps":[{"goal":"...","suggested_mcp":"...","expected_outcome":"..."}]}
 - Between 1 and MAX_STEPS steps (MAX_STEPS is given below). Never an empty list.
-- goal: one concrete action, written in the same language as REQUEST.
+- goal: one concrete action, written in the same language as REQUEST. Keep the user's constraints in it (singular or plural, quantity, scope, period).
 - suggested_mcp: one of ${ROUTE_LIST}; never a URL or a tool name. Use the catalog only to choose the route.
-- expected_outcome: an observable success criterion.
+- expected_outcome: the result that answers what the user asked for, stated as the information or state that must be obtained, not as the action performed. Example: "name of the newest model of each provider, with source and date", not "a list of recent models".
 - Deliver the format the user asked for; do not replace it with another one. A terminal step can run scripts to produce formats no tool writes directly.
-The sections that follow describe the situation. REQUEST is what the user asked for. TRIGGER tells why you are planning:
+The sections that follow describe the situation. TODAY is the current date. REQUEST is what the user asked for. TRIGGER tells why you are planning:
 - initial: this is the first plan.
 - user_feedback: the user asked to change the proposed plan; FEEDBACK holds the instruction and PREVIOUS FEEDBACK the earlier ones: follow all of them. CURRENT and NEXT are the plan that was proposed and is being replaced.
 - step_failure: a step failed. CURRENT is the failed step and FAILURES lists its failed attempts with the arguments that were tried: do not repeat them; change the approach.
@@ -290,6 +305,7 @@ ${DATA_NOTICE_EN}`,
     buildUserPrompt(data: { readonly view: string; readonly maxSteps: number; readonly catalog?: string }): string {
       return join([
         data.catalog ? `CATALOG OF CAPABILITIES:\n${data.catalog}` : null,
+        todayLine(),
         `MAX_STEPS: ${data.maxSteps}`,
         data.view,
       ]);
@@ -301,13 +317,13 @@ ${DATA_NOTICE_EN}`,
     SYSTEM: `You are JARVIS. Write the final answer for the user, in the same language as REQUEST, answering directly and completely what was asked, with the concrete data and findings recorded in DATA, EVIDENCE and USER.
 Do not just confirm that the task ended: give the user the information they asked for.
 TASK tells how the task ended. If it did not complete, explain what happened, what was achieved and what is missing.
-STEPS lists the steps and their state. DATA holds the latest successful reads, in full. EVIDENCE lists other calls: the approved ones with their result first, then the most recent ones. USER holds what the user answered or instructed.
+STEPS lists the steps and their state. DATA holds the latest successful reads; long results and snippets may appear shortened. EVIDENCE lists other calls: the approved ones with their result first, then the most recent ones. USER holds what the user answered or instructed.
 EFFECTS are changes that remain on the computer: report them. POSSIBLE EFFECTS are operations that failed or were interrupted and may have left partial changes: warn about them. STATE: if a background process is still running, say so.
-State only what appears in these sections and mark anything else as unconfirmed. Do not mention internal ids (such as c1, s2 or r3), tools or internal mechanics unless the user needs them, for example a file path.
+TODAY is the current date: use it to judge how recent the data is. State only what appears in these sections and mark anything else as unconfirmed. Do not mention internal ids (such as c1, s2 or r3), tools or internal mechanics unless the user needs them, for example a file path.
 ${DATA_NOTICE_EN}`,
 
     buildUserPrompt(data: { readonly view: string }): string {
-      return data.view.trim() ? data.view : "(no context available)";
+      return data.view.trim() ? `${todayLine()}\n\n${data.view}` : "(no context available)";
     },
   },
 
@@ -659,6 +675,7 @@ export const DECISION_PROMPTS = {
         "Candidate call:",
         `Tool: ${c.route}/${c.tool}`,
         c.description ? `Tool description: ${c.description}` : null,
+        `Tool schema: ${c.schema}`,
         `Arguments: ${c.args}`,
       ].filter(Boolean).join("\n"),
     ].filter(Boolean).join("\n");
@@ -715,7 +732,8 @@ export const DECISION_PROMPTS = {
       questions: {
         ok: {
           type: "noul",
-          instructions: "Does the result contain usable data (not empty and not an error message)?",
+          instructions:
+            "Is the result usable: either it contains data, or (for an action that changes something) it confirms that the action succeeded? It is not usable if it is empty or an error message.",
         },
         cumple: {
           type: "noul",
