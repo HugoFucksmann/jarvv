@@ -26,7 +26,7 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 | Flag | Tipo | Descripción |
 |---|---|---|
 | `--list` | Booleano | Muestra las etapas registradas, variantes disponibles en `eval/variants/` y datasets por defecto, finalizando inmediatamente. |
-| `--menu` | Booleano | — | Asistente interactivo: elige modo (`--d-model`, `--llm-model` o `--model`), modelos, datasets, variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
+| `--menu` | Booleano | — | Asistente interactivo: elige modo (`--d-model`, `--llm-model` o `--model`), modelos, datasets, origen de los casos (`--source`), variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
 | `--help` | Booleano | — | Resumen breve de uso. |
 | `--dry-run` | Booleano | Carga la configuración, datasets y variantes pero no invoca a los modelos ni evalúa. |
 
@@ -36,6 +36,7 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 | `--dataset` | CSV de rutas / glob / carpetas | `eval/datasets/` | Archivos `.jsonl`, directorios o globs a evaluar. Basta el nombre: `--dataset=smoke` (o `smoke.jsonl`, o `decision_*`) se busca en `eval/datasets/`; una ruta que existe se respeta tal cual. |
 | `--stages` | CSV de etapas | *(todas)* | Filtra por etapas específicas (válidas: `plan`, `arguments`, `final`, `question`, `route`, `tool_choice`, `args_review`, `result_verification`). |
 | `--tags` | CSV de etiquetas | *(ninguno)* | Evalúa solo casos que contengan los tags especificados. |
+| `--source` | `frozen` \| `scenario` | *(ambos)* | Distingue el origen del contexto de los casos: `frozen` = prompt escrito a mano en el dataset (contexto inventado); `scenario` = armado con el código de Jarvis desde un escenario (ver "Casos por escenario"). Sin el flag corren ambos. |
 | `--ids` | CSV de IDs | *(ninguno)* | Evalúa solo casos con los IDs exactos indicados. |
 | `--limit` | Entero $\ge 1$ | *(sin límite)* | Cantidad máxima de casos a cargar por dataset. |
 | `--include-shortcut` | Booleano | `false` | Los casos con tag `prod_shortcut` (decisión con una sola opción) **se ejecutan siempre**, pero sin este flag se reportan en el bucket `raw`, fuera del `passRate` canónico. Con el flag cuentan como canónicos. |
@@ -108,7 +109,7 @@ Dentro del directorio se genera:
   - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens). En las decisiones, `questions` trae una entrada por cada pregunta del request (ver "Decisiones con varias preguntas").
   - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) o cuya variante no se pudo aplicar cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; los deltas comparan solo casos medidos en ambos lados y el reporte avisa si alguno quedó afuera. `latencySamples` indica cuántas llamadas hay detrás de las latencias: con 0, no hay dato aunque figure 0. La accuracy se calcula sobre las decisiones con respuesta y cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
   - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`.
-- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante: passRate agregado, Δ vs baseline, passRate macro por etapa, regresiones, mejoras, prueba de signos, runs sin medir, reintentos si los hubo, p50), resumen por etapa con deltas, regresiones, mejoras, casos raw y matrices de confusión. Con varios modelos agrega la sección **Comparación entre Modelos** (tabla global y por etapa con deltas contra la referencia, accuracy por pregunta y casos donde los modelos discrepan) y la tabla por variante trae una fila por modelo. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. Todo se imprime también en consola.
+- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante y tipo de etapas —generativo y decisión, y un total mezclado cuando hay ambos, con la columna Tipo—: passRate agregado, Δ vs baseline, passRate macro por etapa, regresiones, mejoras, prueba de signos, runs sin medir, reintentos si los hubo, p50; si una variante mejora un tipo y empeora el otro agrega el aviso **Resultado mixto**, porque el total no sirve para decidir), resumen por etapa con las variantes lado a lado (el delta contra la baseline va entre paréntesis), regresiones, mejoras, casos raw y matrices de confusión. Con varios modelos agrega la sección **Comparación entre Modelos** (tabla global y por etapa con deltas contra la referencia, accuracy por pregunta y casos donde los modelos discrepan) y la tabla por variante trae una fila por modelo. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. Todo se imprime también en consola.
 - `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `rawRegressions`, `rawImprovements`, `modelComparisons`, `warnings`).
 
 ### Decisiones con varias preguntas
@@ -157,6 +158,19 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 - Los globs soportan `*`, `**` y `?` (no `{a,b}`).
 - `datasets/decision_discriminating.jsonl` tiene casos de decisión donde la respuesta correcta **no** es la primera opción (`fin`, `ask_user`, `args_invalid`, `ok=false`…). Sirve para detectar sesgo de posición.
 
+
+### Casos por escenario (`scenario`)
+
+En vez de `request` (el prompt ya armado), un caso puede traer `scenario`: la situación de la tarea y el punto de decisión. El `request` se arma **al cargar** con el código de Jarvis (`ctx.view.*` → `engine/adapters.ts` → `reasoner/prompts.ts` y `reasoner/stageRequests.ts`), así que los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada etapa (tokens, thinking, schema) son los de producción y se actualizan solos cuando cambian en `src/`.
+
+- Un caso lleva `request` **o** `scenario`, nunca los dos. El resto (`id`, `stage`, `expect`, `tags`…) es igual.
+- `scenario`: `mode` (`reactive` | `deliberative`), `request` (la solicitud del usuario), `steps`, `calls` (con su `status`, `args`, `summary`, `verdict`, `ref`), `facts`, `userInput` (respuestas previas del usuario), `finish` (cierre, para `final`) y `at` (parámetros del punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `environment`). Los tipos están en `core/scenario.ts`.
+- Las herramientas se nombran como en el manifest de Jarvv (`SYSTEM_TOOL_MANIFEST`): la descripción sale de ahí; el schema de entrada (`at.inputSchema`) lo pone el caso, porque el del servidor MCP no es estático.
+- El escenario se valida con las reglas reales del contexto (`apply`): un escenario imposible (p. ej. cierre `completed` sin llamada aprobada) es error de carga `archivo:línea: scenario: …`.
+- Los prompts dependen del código de `src/` y de `jarvis-config.json` (tokens por etapa) y de la fecha (`TODAY`); `requestHash` de cada run permite detectar que cambió el prompt entre corridas, y `meta.json` guarda el commit.
+- Todas las entradas se arman con las mismas funciones que el motor (`engine/adapters.ts`: `planInput`, `renderArgsView`, `argsInput`, `routeInput`, `toolInput`, `reviewInput`, `verifyInput`), así que no hay lógica duplicada que mantener.
+- `datasets/scenarios_messages.jsonl` cubre los mensajes de `messages.ts` (status `info_missing`, `tool_rejected`, `user_rejected`, `args_invalid`, `not_found`, `no_data`, `denied`, y cierres `partial` / `failed`). Sus `expect` son una primera propuesta: conviene revisarlos.
+
 ---
 
 ## 5. Ejemplos de Uso
@@ -197,6 +211,15 @@ npx tsx eval/cli.ts --stages=final --thinking=both --limit=10
 ```bash
 npx tsx eval/cli.ts --concurrency=4 --repeat=3 --label=consistency_check
 ```
+
+### Separar casos con contexto inventado de los de contexto real
+```bash
+npx tsx eval/cli.ts --source=scenario
+```
+```bash
+npx tsx eval/cli.ts --source=frozen
+```
+`scenario` corre solo los casos armados con el código de Jarvis desde un escenario (por ejemplo `scenarios_messages`); `frozen`, solo los que traen el prompt escrito a mano. `--list` indica cuántos casos de cada dataset son por escenario.
 
 ### Verificación de umbral para CI/CD
 ```bash

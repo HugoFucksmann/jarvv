@@ -225,6 +225,15 @@ export async function runWizard(): Promise<string[] | null> {
     }
     summary.push(["Datasets", datasetSummary]);
 
+    // Origen del contexto de los casos (--source): escrito a mano o armado por Jarvis desde un escenario.
+    const source = await pickOne<"all" | "scenario" | "frozen">(ask, "¿Qué casos correr?", [
+      { value: "all", text: "Todos" },
+      { value: "scenario", text: `Solo escenario ${c.gray("contexto real: el prompt se arma con el código de Jarvis  (--source=scenario)")}` },
+      { value: "frozen", text: `Solo frozen    ${c.gray("contexto inventado: prompt escrito a mano en el dataset  (--source=frozen)")}` },
+    ]);
+    if (source !== "all") argv.push(`--source=${source}`);
+    summary.push(["Casos", source === "all" ? "todos" : source === "scenario" ? "solo escenario" : "solo frozen"]);
+
     // 4. Variantes (prod como baseline es opcional: --no-baseline)
     step(4, "Variantes");
     const variants = listVariantNames();

@@ -10,8 +10,9 @@
  */
 
 import { BUDGET } from "../budget.ts";
-import type { ArgsViewOptions, CallView, FinalViewOptions, JsonObject, PlanViewOptions, ReviewView, ReviewViewOptions, RouteView, RouteViewOptions, VerifyView, WindowOptions } from "../ctx/index.ts";
-import type { ArgsRenderOptions, AskRenderOptions, FinalRenderOptions, PlanRenderOptions } from "../render/index.ts";
+import type { ArgsViewOptions, CallView, FinalViewOptions, JsonObject, PlanViewOptions, ReviewView, ReviewViewOptions, RouteView, RouteViewOptions, TaskContext, VerifyView, WindowOptions } from "../ctx/index.ts";
+import { renderArgs, renderPlan } from "../render/index.ts";
+import type { ArgsRenderOptions, AskRenderOptions, FinalRenderOptions, PlanRenderOptions, Rendered } from "../render/index.ts";
 import {
   callHead,
   clipMarked,
@@ -30,7 +31,7 @@ import { READ_ARG_KEYS } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import type { DecisionFrame, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "./deps.ts";
+import type { ArgsFromViewInput, DecisionFrame, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "./deps.ts";
 
 // ───────────────────────── Opciones de vistas y renderizadores ─────────────────────────
 
@@ -74,6 +75,30 @@ export function finalViewOptions(): FinalViewOptions {
 
 export function finalRenderOptions(): FinalRenderOptions {
   return { caps: BUDGET.caps };
+}
+
+// ───────────────────────── LLM 1 (plan) y argumentos ─────────────────────────
+
+/**
+ * Entrada de LLM 1 desde `forPlan`: el texto de la vista (puede lanzar `ContextOverflowError` si los efectos no caben), el
+ * motivo del plan y el tope de pasos (`BUDGET.maxSteps` menos los `completed` vigentes, FLUJO 3). `trigger`: el que decide
+ * quien llama; si se omite, el que deriva el contexto.
+ */
+export function planInput(ctx: TaskContext, feedback: string | null, trigger?: PlanFromViewInput["trigger"]): PlanFromViewInput {
+  const view = ctx.view.forPlan(planViewOptions(feedback));
+  const text = renderPlan(view, planRenderOptions()).text;
+  const completed = ctx.find("steps", { state: "completed", superseded: false }).length;
+  return { view: text, trigger: trigger ?? view.trigger.kind, maxSteps: BUDGET.maxSteps - completed };
+}
+
+/** La vista `forArgs` ya renderizada; `overflow` indica que los efectos no caben en su reserva (el motor cierra la tarea). */
+export function renderArgsView(ctx: TaskContext): Rendered {
+  return renderArgs(ctx.view.forArgs(argsViewOptions()), argsRenderOptions());
+}
+
+/** Entrada de la generación de argumentos: la herramienta, su schema limpio, las rutas del usuario y el texto de la vista. */
+export function argsInput(tool: MCPTool, environment: ArgsFromViewInput["environment"], view: string): ArgsFromViewInput {
+  return { tool, cleanedSchema: cleanInputSchema(tool.inputSchema), environment, view };
 }
 
 // ───────────────────────── Decision #1 y #2 ─────────────────────────

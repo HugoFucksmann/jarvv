@@ -19,9 +19,10 @@
 
 import { BUDGET } from "../budget.ts";
 import type { Op } from "../ctx/index.ts";
-import { ContextOverflowError, renderPlan } from "../render/index.ts";
-import { planRenderOptions, planViewOptions } from "./adapters.ts";
+import { ContextOverflowError } from "../render/index.ts";
+import { planInput } from "./adapters.ts";
 import { clipWithin } from "./args.ts";
+import type { PlanFromViewInput } from "./deps.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { PlanApprovalOutcome } from "./runtime.ts";
@@ -52,9 +53,9 @@ export async function generatePlan(env: EngineEnv, request: PlanRequest): Promis
   const errorStepId = failed?.id ?? null;
 
   // ── La vista (puede desbordar por los efectos: cierre sin `error`).
-  let text: string;
+  let input: PlanFromViewInput;
   try {
-    text = renderPlan(ctx.view.forPlan(planViewOptions(feedback)), planRenderOptions()).text;
+    input = planInput(ctx, feedback, request.kind);
   } catch (error) {
     if (!(error instanceof ContextOverflowError)) throw error;
     console.error(`[Engine] ${error.message}`);
@@ -62,11 +63,7 @@ export async function generatePlan(env: EngineEnv, request: PlanRequest): Promis
   }
 
   // ── LLM 1. Qwen ya repite una vez una salida inválida: aquí no se repite.
-  const completed = ctx.find("steps", { state: "completed", superseded: false }).length;
-  const query = await queryModel(
-    () => env.llm.generatePlanFromView({ view: text, trigger: request.kind, maxSteps: BUDGET.maxSteps - completed }, runtime.signal),
-    0,
-  );
+  const query = await queryModel(() => env.llm.generatePlanFromView(input, runtime.signal), 0);
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (!query.ok) {
     if (query.failure === "invalid") {

@@ -4,7 +4,8 @@ Laboratorio para medir prompts y modelos de Jarvis contra casos congelados, y pa
 
 - **Mide** cada etapa del flujo con graders específicos: etiqueta correcta en las decisiones, y estructura y contenido en las salidas generativas.
 - **Compara** variantes de prompt contra la baseline `prod`, con deltas, regresiones y mejoras por caso.
-- **No toca nada**: ni `src` ni los casos. Las variantes se aplican en memoria, solo durante la corrida.
+- **Prueba con el contexto real de Jarvis**: los casos por escenario arman el prompt con el mismo código que usa Jarvis (vistas, mensajes fijos, renderizadores y parámetros de cada etapa), así que no se desactualizan cuando cambia `src`. Los casos escritos a mano siguen disponibles y se distinguen con `--source`.
+- **No modifica nada**: ni `src` ni los casos. Las variantes se aplican en memoria, solo durante la corrida.
 
 > Referencia completa de flags, formatos y códigos de salida: [`INSTRUCCIONES.md`](./INSTRUCCIONES.md).
 
@@ -38,6 +39,7 @@ npm run eval -- --dataset=eval/datasets/smoke.jsonl
 | (sin `--client`) | Corrida real contra `qwen3.5:4b` y `d3:2b` | Sí |
 | `--model=a+x` | Todas las etapas con ese modelo generativo (`a`) y de decisión (`x`) | Sí |
 | `--llm-model=a,b` / `--d-model=x,y` | Corre solo las etapas generativas / de decisión y compara los modelos | Sí |
+| `--source=scenario` / `--source=frozen` | Solo casos con contexto armado por Jarvis / escrito a mano | Según el resto |
 
 Por defecto usa Ollama en `http://127.0.0.1:11434` con `qwen3.5:4b` para las etapas generativas y `d3:2b` para las de decisión.
 
@@ -47,7 +49,7 @@ Por defecto usa Ollama en `http://127.0.0.1:11434` con `qwen3.5:4b` para las eta
 
 ```mermaid
 flowchart LR
-    D[Dataset .jsonl<br/>casos congelados] --> V[Variante<br/>edita el request en memoria]
+    D[Dataset .jsonl<br/>request fijo o escenario] --> V[Variante<br/>edita el request en memoria]
     V --> C[Cliente<br/>real, mock u oracle]
     C --> P[Parseo de la salida]
     P --> G[Graders<br/>checks por etapa]
@@ -136,7 +138,24 @@ Un request de decisión puede llevar varias preguntas y `expect.answers` fija la
 
 Los casos de decisión con una sola opción (donde producción omitiría la llamada) se etiquetan solos como `prod_shortcut` y quedan fuera del pass rate salvo que uses `--include-shortcut`.
 
-Hay dos datasets de ejemplo: `smoke.jsonl` (una pasada por todas las etapas) y `decision_discriminating.jsonl` (decisiones donde la respuesta correcta **no** es la primera opción, para detectar sesgo de posición).
+Hay datasets de ejemplo: `smoke.jsonl` (una pasada por todas las etapas), `decision_discriminating.jsonl` (decisiones donde la respuesta correcta **no** es la primera opción, para detectar sesgo de posición) y `scenarios_messages.jsonl` (casos por escenario que prueban los mensajes fijos de `ctx/views/messages.ts`).
+
+### Casos por escenario
+
+En vez de `request` (el prompt ya armado, con contexto escrito a mano), un caso puede traer `scenario`: la situación de la tarea y el punto de decisión. Al cargar, el eval arma el `request` con el código de Jarvis (`ctx.view.*` → `engine/adapters.ts` → `reasoner/prompts.ts` y `reasoner/stageRequests.ts`).
+
+```json
+{"id":"msg-route-info-missing","stage":"route","tags":["messages"],
+ "scenario":{"mode":"reactive","request":"Creá el archivo de notas con el resumen de la reunión de hoy",
+   "steps":[{"state":"running"}],
+   "calls":[{"route":"files","tool":"write_file","kind":"write","status":"info_missing","args":{"path":"/home/user/notas.txt"}}]},
+ "expect":{"expectedAction":"ask_user"}}
+```
+
+- Un caso lleva `request` **o** `scenario`, nunca los dos. El resto de los campos es igual.
+- Lo que se arma así llega al modelo igual que en producción: mensajes de estado, razones y motivos de detención, topes de cada sección, renderizado y parámetros (tokens, thinking, schema). Un cambio en `src` se refleja en el eval sin tocar los casos.
+- El escenario se valida con las reglas reales del contexto: uno imposible falla al cargar con `archivo:línea: scenario: …`.
+- `--source=scenario` / `--source=frozen` corre solo un origen. Formato completo del escenario en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md#casos-por-escenario-scenario).
 
 ---
 
@@ -203,7 +222,9 @@ Todo queda guardado en `eval/results/<modelo>/<fecha>[_<label>]/`:
     └── meta.json              ← configuración, commit de git, hashes de dataset y variante
 ```
 
-`comparison.md` trae el resumen por variante, el detalle por etapa, los deltas contra la baseline, las regresiones y mejoras caso por caso, los casos raw (fuera de `passRate`) y las matrices de confusión de las decisiones.
+`comparison.md` trae el resumen por variante, el detalle por etapa con las variantes lado a lado (el delta contra la baseline va entre paréntesis), las regresiones y mejoras caso por caso, los casos raw (fuera de `passRate`) y las matrices de confusión de las decisiones.
+
+El resumen por variante separa los tipos de etapas: con etapas generativas y de decisión en la misma corrida hay una fila por tipo (columna `Tipo`) más un total mezclado. Si una variante mejora un tipo y empeora el otro, el reporte avisa **Resultado mixto**: el total no sirve para decidir, hay que mirar cada tipo.
 
 ### Códigos de salida
 
@@ -222,7 +243,7 @@ Todo queda guardado en `eval/results/<modelo>/<fecha>[_<label>]/`:
 - **Casos sin medir.** Una llamada fallida (red, timeout, HTTP) o una variante que no se pudo aplicar cuenta como falla en `passRate`, pero no entra en las latencias ni aparece como regresión o mejora. Δ compara solo casos medidos en ambos lados, y el reporte avisa si alguno quedó afuera.
 - **Ruido.** Un Δ no es un veredicto: mirá `p (signos)`, calculado sobre los casos que cambiaron. Con menos de 6 cambios nunca baja de 0.05. Las etapas generativas varían entre corridas con el mismo request: usá `--repeat` antes de decidir por pocos casos.
 - **Peso de las etapas.** `passRate` pesa cada etapa según su cantidad de casos, y `final` corre dos veces con `--thinking=auto`. `Macro por etapa` pesa todas por igual y cuenta `final[think=on/off]` como una sola: si ambos difieren, el resultado depende de la composición del dataset.
-- **Casos congelados.** Guardan el prompt tal como se extrajo. Si cambiás los prompts de producción, hay que volver a extraer los casos. El eval compara contra esa foto, no contra `src` en vivo.
+- **Casos congelados vs. por escenario.** Los casos con `request` guardan el prompt tal como se escribió: si cambiás los prompts de producción, el eval compara contra esa foto, no contra `src` en vivo, y su contexto es inventado (`--source=frozen`). Los casos por escenario (`--source=scenario`) se arman con `src` en cada carga: miden el prompt actual, pero un cambio en `src`, en `jarvis-config.json` (tokens por etapa) o en la fecha (`TODAY`) cambia el request; `requestHash` de cada run permite detectarlo.
 - **Palabras clave.** Se buscan por palabra completa, sin distinguir mayúsculas ni acentos: "archivo" no coincide con "archivos". Escribí ambas formas si hacen falta.
 - **Variantes con `labelMap`.** Dos opciones que se mapeen al mismo nombre canónico se pisan entre sí; evitalo.
 - **Modelos.** Los pass rates valen solo para el modelo con el que corren. Los defaults coinciden con los de producción.
@@ -236,7 +257,7 @@ eval/
 ├── README.md
 ├── INSTRUCCIONES.md              referencia completa de flags
 ├── cli.ts                        punto de entrada
-├── datasets/                     casos congelados (.jsonl)
+├── datasets/                     casos (.jsonl): con request fijo o por escenario
 ├── variants/                     variantes de prompt (prod, route_example)
 ├── results/                      salidas de cada corrida
 └── core/
@@ -245,9 +266,10 @@ eval/
         ├── graders/              checks por etapa
         ├── client/               real, mock y oracle
         ├── variants/             carga y aplicación de variantes
+        ├── scenario.ts           casos por escenario: arma el request con el código de Jarvis (importa `src/`)
         ├── targets.ts            reparto de modelos en pasadas (comparación entre modelos)
         ├── questions.ts          preguntas múltiples en decisiones: parseo y checks por pregunta
         ├── scoring.ts            métricas agregadas
         ├── report.ts             comparison.md y resumen en consola
-        └── contract.ts           helpers de producción copiados (parseo, validación, límites)
+        └── contract.ts           helpers de producción copiados (parseo, validación, límites); lo demás del eval no importa `src/`
 ```

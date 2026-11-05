@@ -24,15 +24,15 @@ import type { IMCPServer } from "../mcp/types.ts";
 import { Guard } from "../policy/guard.ts";
 import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
 import { RefVaultError } from "../refs/refVault.ts";
-import { ContextOverflowError, renderArgs } from "../render/index.ts";
+import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
 import type { ProcessedResult } from "../result/processResult.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import { ASK_USER } from "../types/routes.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import { cleanInputSchema, errorMessage } from "../utils.ts";
-import { argsRenderOptions, argsViewOptions, reviewInput, reviewViewOptions, routeViewOptions, toolInput } from "./adapters.ts";
+import { errorMessage } from "../utils.ts";
+import { argsInput, renderArgsView, reviewInput, reviewViewOptions, routeViewOptions, toolInput } from "./adapters.ts";
 import { callLabel, clipArgs, clipWithin, computeSig } from "./args.ts";
 import { captureCallTool } from "./capture.ts";
 import type { EngineEnv } from "./env.ts";
@@ -247,8 +247,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const base = { stepId, route, tool: tool.name, kind: kindOf(policy) } as const;
 
   // 3. Argumentos (LLM). Una salida inválida es `args_invalid`; el LLM caído o el desborde cierran la tarea.
-  const argsView = ctx.view.forArgs(argsViewOptions());
-  const rendered = renderArgs(argsView, argsRenderOptions());
+  const rendered = renderArgsView(ctx);
   if (rendered.overflow) {
     // D26, D30: la vista no cabe en su límite; cierre sin `error`.
     console.error(`[Engine] ${new ContextOverflowError("forArgs", BUDGET.caps.effectsReserve, rendered.chars).message}`);
@@ -257,7 +256,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const environment = await getUserEnvironment();
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
-    () => env.llm.generateArgumentsFromView({ tool, cleanedSchema: cleanInputSchema(tool.inputSchema), environment, view: rendered.text }, runtime.signal),
+    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text), runtime.signal),
     0,
   );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;

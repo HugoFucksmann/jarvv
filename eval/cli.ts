@@ -90,18 +90,19 @@ function printHelp(): void {
   section("Ejemplos");
   log(`  ${c.cyan("▌")} npm run eval -- --menu`);
   log(`  ${c.cyan("▌")} npm run eval -- --dataset=smoke --variant=prod,mi_variante`);
+  log(`  ${c.cyan("▌")} npm run eval -- --source=scenario   ${c.gray("solo casos con contexto armado por Jarvis (frozen = escrito a mano)")}`);
   log(`\n  ${c.gray("Datasets y variantes se pueden escribir solo por nombre.")}`);
   log(`  ${c.gray("Referencia completa de flags:")} ${c.cyan("eval/INSTRUCCIONES.md")}\n`);
 }
 
 /** Lee un dataset para contar sus casos por etapa; `null` si no se puede cargar (no debe romper el listado). */
-function datasetInfo(name: string): { total: number; byStage: Array<[string, number]> } | null {
+function datasetInfo(name: string): { total: number; scenario: number; byStage: Array<[string, number]> } | null {
   try {
     const [ds] = loadDatasets([name], {});
     if (!ds) return null;
     const by = new Map<string, number>();
     for (const k of ds.cases) by.set(k.stage, (by.get(k.stage) ?? 0) + 1);
-    return { total: ds.cases.length, byStage: [...by.entries()] };
+    return { total: ds.cases.length, scenario: ds.cases.filter((k) => k.source === "scenario").length, byStage: [...by.entries()] };
   } catch {
     return null;
   }
@@ -168,7 +169,8 @@ function printList(baseline: string, defaultDatasets: string[]): void {
     names.forEach((name, i) => {
       const info = infos[i];
       const isDef = defaultDatasets.includes(name);
-      const count = info ? c.gray(`${String(info.total).padStart(totalW)} casos`) : c.gray(`${"—".padStart(totalW)} (no se pudo leer)`);
+      const origin = info && info.scenario > 0 ? ` (${info.scenario === info.total ? "todos" : info.scenario} por escenario)` : "";
+      const count = info ? c.gray(`${String(info.total).padStart(totalW)} casos${origin}`) : c.gray(`${"—".padStart(totalW)} (no se pudo leer)`);
       const tag = isDef ? `  ${c.green("por defecto")}` : "";
       const head = `  ${isDef ? sym.dot : sym.ring} ${c.cyan(name.padEnd(nameW))}  ${count}${tag}`;
       log(head);
@@ -216,7 +218,7 @@ function printRunConfig(
     ["Baseline", cfg.baseline],
     ["Datasets", datasets.map((d) => `${d.name} ${c.gray(`(${d.cases.length} casos)`)}`).join(", ")],
     ["Etapas", list(cfg.stages)],
-    ["Filtros", `tags: ${list(cfg.tags)} | ids: ${list(cfg.ids)} | limit: ${cfg.limit ?? "sin límite"}`],
+    ["Filtros", `tags: ${list(cfg.tags)} | ids: ${list(cfg.ids)} | source: ${cfg.source ?? "todos"} | limit: ${cfg.limit ?? "sin límite"}`],
     ["Casos prod_shortcut", cfg.includeShortcut ? "incluidos" : "excluidos"],
   ];
   if (cfg.label) rows.push(["Label", cfg.label]);
@@ -286,6 +288,7 @@ async function main(): Promise<number> {
       stages: cfg.stages.length > 0 ? cfg.stages : undefined,
       tags: cfg.tags.length > 0 ? cfg.tags : undefined,
       ids: cfg.ids.length > 0 ? cfg.ids : undefined,
+      source: cfg.source,
       limit: cfg.limit,
     });
   } catch (e) {
@@ -305,7 +308,7 @@ async function main(): Promise<number> {
     0,
   );
   if (totalCases === 0) {
-    fail("Los filtros (--stages/--tags/--ids/--limit) no dejaron ningún caso para correr.");
+    fail("Los filtros (--stages/--tags/--ids/--source/--limit) no dejaron ningún caso para correr.");
     return 2;
   }
 

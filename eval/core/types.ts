@@ -46,6 +46,8 @@ export interface GenerativeRequest {
   reasoningEffort?: string;
 }
 
+export type CaseSource = "frozen" | "scenario";
+
 export interface FrozenCase {
   /** Único dentro del dataset. */
   id: string;
@@ -55,6 +57,11 @@ export interface FrozenCase {
   description?: string;
   /** Adversarial: se reporta aparte. */
   isRaw?: boolean;
+  /**
+   * Origen del contexto: `frozen` = prompt escrito a mano en el dataset (`request`); `scenario` = armado al cargar con el
+   * código de Jarvis desde un escenario. Lo asigna el cargador; un dataset no puede traerlo.
+   */
+  source?: CaseSource;
   /** Debe coincidir con el tipo de la etapa. */
   request: DecisionRequest | GenerativeRequest;
   expect: StageExpect;

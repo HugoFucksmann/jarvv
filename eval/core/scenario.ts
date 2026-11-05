@@ -1,0 +1,293 @@
+/**
+ * eval/core/scenario.ts
+ *
+ * Casos por escenario: en vez de guardar el prompt ya armado, el caso describe la situación (solicitud, pasos, llamadas con
+ * su `status`, hechos, entradas del usuario) y el punto de decisión. El `request` se arma al cargar el dataset con el mismo
+ * código que usa Jarvis:
+ *
+ *   escenario → `create.context` + `apply` → `ctx.view.<vista>` → adaptadores (`engine/adapters.ts`) → constructores de
+ *   prompts (`reasoner/prompts.ts`, `reasoner/stageRequests.ts`) → request del eval.
+ *
+ * Así los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada
+ * etapa llegan al modelo tal como en producción, y un cambio en `src/` se refleja solo en el eval.
+ *
+ * Esto es lo único del eval que importa `src/` (el resto sigue aislado; ver `contract.ts`). Todas las entradas se arman con
+ * las mismas funciones que el motor (`planInput`, `renderArgsView`, `argsInput`, `routeInput`…, en `engine/adapters.ts`).
+ */
+
+import { BUDGET } from "../../src/core/budget.ts";
+import { ConfigManager } from "../../src/core/config.ts";
+import { create } from "../../src/core/ctx/index.ts";
+import type { CallStatus, JsonObject, Op, StepState, StopReason, TaskContext, TerminalTaskState, VerdictReason } from "../../src/core/ctx/index.ts";
+import {
+  argsInput,
+  askRenderOptions,
+  finalRenderOptions,
+  finalViewOptions,
+  planInput,
+  renderArgsView,
+  reviewInput,
+  reviewViewOptions,
+  routeInput,
+  routeViewOptions,
+  toolInput,
+  verifyInput,
+} from "../../src/core/engine/adapters.ts";
+import { renderAsk, renderFinal } from "../../src/core/render/index.ts";
+import { DECISION_PROMPTS } from "../../src/core/reasoner/prompts.ts";
+import {
+  argumentsStageRequest,
+  BASE_TEMPERATURE,
+  finalStageRequest,
+  planStageRequest,
+  questionStageRequest,
+} from "../../src/core/reasoner/stageRequests.ts";
+import type { StageRequest } from "../../src/core/reasoner/stageRequests.ts";
+import { argsMax, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+import type { MCPTool } from "../../src/core/types.ts";
+import type { ExecutableRoute } from "../../src/core/types/routes.ts";
+import { EXECUTABLE_ROUTES } from "./contract.ts";
+import type { ToolInputSchema } from "./contract.ts";
+import type { DecisionRequest, GenerativeRequest } from "./types.ts";
+
+// ───────────────────────── Forma del escenario ─────────────────────────
+
+export interface ScenarioStep {
+  /** Solo en deliberativo; en reactivo valen null y se omiten. */
+  instruction?: string;
+  route?: string;
+  expected?: string;
+  /** Estado final del paso (default `pending`). `completed` y `failed` pasan antes por `running`. */
+  state?: StepState;
+}
+
+export interface ScenarioCall {
+  /** Índice del paso en `steps` (default: el último). */
+  step?: number;
+  route: string;
+  tool: string;
+  /** Default `read`. */
+  kind?: "read" | "write";
+  status: CallStatus;
+  /** Default `{}`; `null` solo con `args_invalid`. */
+  args?: JsonObject | null;
+  summary?: string | null;
+  verdict?: "approved" | "rejected";
+  reason?: VerdictReason | null;
+  /** Resultado guardado aparte: el resumen no lo contiene completo. */
+  ref?: { label: string; size: number; where: string };
+}
+
+/** Parámetros del punto de decisión; cada etapa lee solo los suyos. */
+export interface ScenarioAt {
+  // route
+  routes?: ExecutableRoute[];
+  allowFin?: boolean;
+  allowAsk?: boolean;
+  // tool_choice, args_review, arguments
+  route?: ExecutableRoute;
+  /** tool_choice: nombres del manifest (default: todas las de la ruta). */
+  tools?: string[];
+  /** args_review y arguments: herramienta (nombre del manifest) con su schema de entrada. */
+  tool?: string;
+  inputSchema?: ToolInputSchema;
+  /** args_review: argumentos propuestos. */
+  args?: JsonObject;
+  // result_verification: índice de la llamada evaluada en `calls` (default: la última).
+  call?: number;
+  // plan: instrucción del usuario (replan por feedback).
+  feedback?: string;
+  // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC).
+  environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
+}
+
+export interface Scenario {
+  mode: "reactive" | "deliberative";
+  request: string;
+  steps?: ScenarioStep[];
+  calls?: ScenarioCall[];
+  /** Hechos de entorno (hoy solo `process`). */
+  facts?: Record<string, string>;
+  /** Respuestas del usuario a preguntas anteriores (`answer_1`, `answer_2`…), en orden. */
+  userInput?: string[];
+  /** Cierre de la tarea (para `final`). */
+  finish?: { state: TerminalTaskState; stopReason?: StopReason | null };
+  at?: ScenarioAt;
+}
+
+const DEFAULT_ENVIRONMENT = {
+  home: "/home/user",
+  desktop: "/home/user/Desktop",
+  documents: "/home/user/Documents",
+  downloads: "/home/user/Downloads",
+};
+
+// ───────────────────────── Contexto ─────────────────────────
+
+/** Reloj determinista: cada `apply` avanza un segundo, así el orden cronológico no depende de cuándo se carga. */
+function fixedClock(): () => number {
+  let t = 1_700_000_000_000;
+  return () => (t += 1000);
+}
+
+interface Built {
+  ctx: TaskContext;
+  callIds: string[];
+}
+
+function buildContext(sc: Scenario): Built {
+  const ctx = create.context(
+    { id: "eval", request: sc.request, mode: sc.mode },
+    {
+      now: fixedClock(),
+      summaryMax: BUDGET.summaryMax,
+      argsStringMax: argsMax(BUDGET.argsStringDefault),
+      factValueMax: BUDGET.factValueMax,
+      feedbackMax: BUDGET.feedbackMax,
+      jsonMaxDepth: BUDGET.jsonMaxDepth,
+    },
+  );
+  const addOne = (op: Op): string => ctx.apply(op).ids[0];
+
+  // Deliberativo: un plan inicial al que pertenecen los pasos. Reactivo: un único paso vacío.
+  const deliberative = sc.mode === "deliberative";
+  const planId = deliberative ? addOne({ op: "add", target: "plans", value: { trigger: "initial", feedback: null, stepId: null } }) : null;
+  const stepSpecs: ScenarioStep[] = sc.steps && sc.steps.length > 0 ? sc.steps : [{}];
+
+  const stepIds = stepSpecs.map((s) =>
+    addOne({
+      op: "add",
+      target: "steps",
+      value: deliberative
+        ? { planId, instruction: s.instruction ?? "", route: s.route ?? "", expected: s.expected ?? "" }
+        : { planId: null, instruction: null, route: null, expected: null },
+    }),
+  );
+  const lastStepId = stepIds[stepIds.length - 1];
+
+  // Llamadas, con la ref (si la hay) agregada antes y el veredicto después, como en producción.
+  const callIds: string[] = [];
+  (sc.calls ?? []).forEach((c, i) => {
+    const stepId = stepIds[c.step ?? stepIds.length - 1] ?? lastStepId;
+    const refId = c.ref ? addOne({ op: "add", target: "refs", value: { stepId, ...c.ref } }) : null;
+    const args = c.args === undefined ? {} : c.args;
+    const sig = args === null || c.status === "refs_unresolved" ? null : `sig-${i}`;
+    const id = addOne({
+      op: "add",
+      target: "calls",
+      value: { stepId, route: c.route, tool: c.tool, kind: c.kind ?? "read", args, sig, status: c.status, summary: c.summary ?? null, ref: refId },
+    });
+    callIds.push(id);
+    if (c.verdict) ctx.apply({ op: "update", target: id, value: { verdict: c.verdict, reason: c.reason ?? null } });
+  });
+
+  // Estado de los pasos: de a uno y en orden (solo puede haber uno `running`).
+  stepSpecs.forEach((s, i) => {
+    const state = s.state ?? "pending";
+    if (state === "pending") return;
+    ctx.apply({ op: "update", target: stepIds[i], value: { state: "running" } });
+    if (state !== "running") ctx.apply({ op: "update", target: stepIds[i], value: { state } });
+  });
+
+  for (const [key, value] of Object.entries(sc.facts ?? {})) {
+    ctx.apply({ op: "set", target: `facts.${key}`, value: { value, stepId: lastStepId } });
+  }
+  (sc.userInput ?? []).forEach((text, i) => {
+    ctx.apply({ op: "set", target: `facts.answer_${i + 1}`, value: { value: text, stepId: lastStepId } });
+  });
+
+  if (sc.finish) {
+    ctx.apply({ op: "finish", target: "task", value: { state: sc.finish.state, stopReason: sc.finish.stopReason ?? null } });
+  }
+  return { ctx, callIds };
+}
+
+// ───────────────────────── Herramientas del manifest ─────────────────────────
+
+/** Herramienta con la descripción real del manifest y el schema del escenario (el del servidor no es estático). */
+function toolOf(route: ExecutableRoute, name: string, inputSchema?: ToolInputSchema): MCPTool {
+  const def = SYSTEM_TOOL_MANIFEST.find((d) => d.name === name && d.route === route);
+  if (!def) throw new Error(`la herramienta '${name}' no está en el manifest de la ruta '${route}'.`);
+  return { name, description: def.description, inputSchema: inputSchema ?? { type: "object", properties: {} } } as MCPTool;
+}
+
+function need<T>(value: T | undefined, what: string, stage: string): T {
+  if (value === undefined) throw new Error(`etapa '${stage}': falta scenario.at.${what}.`);
+  return value;
+}
+
+// ───────────────────────── Armado por etapa ─────────────────────────
+
+export interface Materialized {
+  request: DecisionRequest | GenerativeRequest;
+  /** `arguments`: schema real de la herramienta, para validar la salida. */
+  toolSchema?: ToolInputSchema;
+}
+
+const decision = (d: { state: string; questions: unknown }): Materialized => ({
+  request: { type: "decision", state: d.state, questions: d.questions as DecisionRequest["questions"] },
+});
+
+function generative(r: StageRequest, schemaName?: string): GenerativeRequest {
+  return {
+    type: "generative",
+    system: r.system,
+    user: r.user,
+    json: r.json,
+    ...(r.schema ? { schema: r.schema, schemaName: schemaName ?? r.stage } : {}),
+    maxTokens: r.maxTokens,
+    temperature: BASE_TEMPERATURE,
+    thinking: r.thinking,
+  };
+}
+
+/** Arma el `request` de una etapa a partir del escenario. Lanza `Error` con el motivo si el escenario no sirve. */
+export function materializeScenario(stage: string, sc: Scenario): Materialized {
+  const { ctx, callIds } = buildContext(sc);
+  const at = sc.at ?? {};
+  const config = ConfigManager.getConfig();
+
+  switch (stage) {
+    case "route": {
+      const flags = {
+        routes: at.routes ?? [...EXECUTABLE_ROUTES],
+        allowFin: at.allowFin ?? ctx.canFinish() !== null,
+        allowAsk: at.allowAsk ?? true,
+      };
+      return decision(DECISION_PROMPTS.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
+    }
+    case "tool_choice": {
+      const route = need(at.route, "route", stage);
+      const names = at.tools ?? SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route).map((d) => d.name);
+      const tools = names.map((n) => toolOf(route, n));
+      return decision(DECISION_PROMPTS.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools, at.allowAsk ?? true)));
+    }
+    case "args_review": {
+      const route = need(at.route, "route", stage);
+      const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
+      return decision(DECISION_PROMPTS.buildArgsReview(reviewInput(ctx.view.forReview(reviewViewOptions()), route, tool, at.args ?? {})));
+    }
+    case "result_verification": {
+      const id = callIds[at.call ?? callIds.length - 1];
+      if (id === undefined) throw new Error("etapa 'result_verification': el escenario no tiene la llamada a evaluar (scenario.calls / at.call).");
+      return decision(DECISION_PROMPTS.buildResultVerification(verifyInput(ctx.view.forVerify(id))));
+    }
+    case "plan": {
+      return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config), "plan") };
+    }
+    case "arguments": {
+      const route = need(at.route, "route", stage);
+      const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
+      const request = argumentsStageRequest(argsInput(tool, at.environment ?? DEFAULT_ENVIRONMENT, renderArgsView(ctx).text), config);
+      return { request: generative(request), toolSchema: tool.inputSchema as ToolInputSchema };
+    }
+    case "question":
+      return { request: generative(questionStageRequest({ view: renderAsk(ctx.view.forAsk(), askRenderOptions()) })) };
+    case "final":
+      return {
+        request: generative(finalStageRequest({ view: renderFinal(ctx.view.forFinal(finalViewOptions()), finalRenderOptions()).text }, config)),
+      };
+    default:
+      throw new Error(`etapa '${stage}' desconocida para un escenario.`);
+  }
+}

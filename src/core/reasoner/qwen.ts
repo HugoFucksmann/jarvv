@@ -26,7 +26,7 @@ import {
   type TimeSpan,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
-import { PROMPTS, retryNote } from "./prompts.ts";
+import { retryNote } from "./prompts.ts";
 import type {
   ArgsFromViewInput,
   EngineLLM,
@@ -38,8 +38,8 @@ import type {
   QuestionGenerationResult,
   QuestionInput,
 } from "../engine/deps.ts";
-import { BUDGET } from "../budget.ts";
-import { buildCompactCatalog } from "../tools/manifest.ts";
+import { argumentsStageRequest, BASE_TEMPERATURE, finalStageRequest, planStageRequest, questionStageRequest } from "./stageRequests.ts";
+import type { StageRequest } from "./stageRequests.ts";
 import { isWholeRefToken, schemaTypes } from "../refs/refResolver.ts";
 import {
   estimateTokens,
@@ -52,34 +52,6 @@ import {
 import { errorMessage, isRecord } from "../utils.ts";
 
 type JsonSchema = Record<string, unknown>;
-
-/** Claves del paso en el contrato con el LLM (PlanStepWire): `satisfies` obliga a que schema y tipo coincidan. */
-const STEP_WIRE_PROPERTIES = {
-  goal: { type: "string" },
-  suggested_mcp: { type: "string", enum: [...EXECUTABLE_ROUTES] },
-  expected_outcome: { type: "string" },
-} satisfies Record<keyof PlanStepWire, JsonSchema>;
-
-const STEPS_SCHEMA: JsonSchema = {
-  type: "array",
-  items: {
-    type: "object",
-    properties: STEP_WIRE_PROPERTIES,
-    required: Object.keys(STEP_WIRE_PROPERTIES),
-    additionalProperties: false,
-  },
-  maxItems: MAX_STEPS,
-};
-
-/** Plan desde la vista (Fase 6): solo `steps`, de 1 a `maxSteps` (el tope lo pasa el motor). */
-function planViewSchema(maxSteps: number): JsonSchema {
-  return {
-    type: "object",
-    properties: { steps: { ...STEPS_SCHEMA, minItems: 1, maxItems: maxSteps } },
-    required: ["steps"],
-    additionalProperties: false,
-  };
-}
 
 interface LlmDispatchResult {
   content: string;
@@ -281,7 +253,6 @@ const parseObjectOutput = (r: LlmDispatchResult): Validation<Record<string, unkn
   return parsed ? ok(parsed) : fail(NOT_JSON);
 };
 
-const BASE_TEMPERATURE = 0.1;
 const RETRY_TEMPERATURE = 0.3;
 const RETRY_TOKEN_FACTOR = 1.5;
 const MIN_COMPLETION_TOKENS = 256;
@@ -512,7 +483,7 @@ export class QwenEngine implements EngineLLM {
   /** Argumentos desde la vista estructurada: validados contra el schema de la herramienta, con un reintento. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArgumentsFromView", () =>
-      this.runArguments(input.tool, PROMPTS.ARGUMENTS_VIEW.buildSystemPrompt(input.tool), PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(input), signal)
+      this.runArguments(input.tool, argumentsStageRequest(input, ConfigManager.getConfig()), signal)
     );
   }
 
@@ -520,12 +491,7 @@ export class QwenEngine implements EngineLLM {
   async generateQuestion(input: QuestionInput, signal?: AbortSignal): Promise<QuestionGenerationResult> {
     return this.executeStage("generateQuestion", async () => {
       const { value, res } = await this.dispatchValidated<string>({
-        stage: "question",
-        system: PROMPTS.QUESTION.SYSTEM,
-        user: PROMPTS.QUESTION.buildUserPrompt(input),
-        json: false,
-        maxTokens: BUDGET.ask.maxTokens,
-        thinking: false,
+        ...questionStageRequest(input),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content).trim();
@@ -545,15 +511,8 @@ export class QwenEngine implements EngineLLM {
    */
   async generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult> {
     return this.executeStage("generatePlanFromView", async () => {
-      const tokens = ConfigManager.getConfig().qwenMaxTokens;
       const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
-        stage: "plan",
-        system: PROMPTS.PLAN_VIEW.SYSTEM,
-        user: PROMPTS.PLAN_VIEW.buildUserPrompt({ view: input.view, maxSteps: input.maxSteps, catalog: buildCompactCatalog() }),
-        json: true,
-        schema: planViewSchema(input.maxSteps),
-        maxTokens: input.trigger === "initial" ? tokens.plan : tokens.replan,
-        thinking: true,
+        ...planStageRequest(input, ConfigManager.getConfig()),
         signal,
         validate: (r) => {
           const out = parseObjectOutput(r);
@@ -571,15 +530,8 @@ export class QwenEngine implements EngineLLM {
   /** LLM 3 desde la vista (Fase 6): respuesta final. Misma política de salida vacía o truncada que `generateFinalResponse`. */
   async generateFinalFromView(input: FinalFromViewInput, signal?: AbortSignal): Promise<FinalGenerationResult> {
     return this.executeStage("generateFinalFromView", async () => {
-      const config = ConfigManager.getConfig();
       const { value, res } = await this.dispatchValidated<string>({
-        stage: "final_response",
-        system: PROMPTS.FINAL_VIEW.SYSTEM,
-        user: PROMPTS.FINAL_VIEW.buildUserPrompt(input),
-        json: false,
-        maxTokens: config.qwenMaxTokens.final,
-        thinking: config.thinking,
-        retryThinking: false, // un final vacío suele ser thinking que agotó el presupuesto
+        ...finalStageRequest(input, ConfigManager.getConfig()),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content);
@@ -593,17 +545,12 @@ export class QwenEngine implements EngineLLM {
   }
 
   /** Núcleo común de la generación de argumentos: despacho, validación contra el schema de la herramienta y reintento. */
-  private async runArguments(tool: MCPTool, system: string, user: string, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
+  private async runArguments(tool: MCPTool, request: StageRequest, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     const inputSchema = tool.inputSchema;
     const required = inputSchema.required ?? [];
 
     const { value, res, failed } = await this.dispatchValidated<Record<string, unknown>>({
-      stage: "arguments",
-      system,
-      user,
-      json: true,
-      maxTokens: ConfigManager.getConfig().qwenMaxTokens.arguments,
-      thinking: false,
+      ...request,
       signal,
       validate: (r) => {
         const out = parseObjectOutput(r);
