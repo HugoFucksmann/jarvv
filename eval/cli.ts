@@ -26,6 +26,7 @@ import {
   printComparisonSummary,
   printModelComparison,
   printQuestionSummary,
+  printStageSummary,
   printVariantSummary,
   writeComparison,
 } from "./core/report.ts";
@@ -430,6 +431,7 @@ async function main(): Promise<number> {
           scope: target.scope,
           timestamp: startedAt,
           runId,
+          caseIds: cases.filter((k) => target.stages.includes(k.stage as StageName)).map((k) => k.id),
         });
 
         let result;
@@ -511,6 +513,7 @@ async function main(): Promise<number> {
   // ── Resumen global ──
   printGlobalSummary(comparisonCells);
   printVariantSummary(comparisonReport);
+  printStageSummary(comparisonReport);
   printModelComparison(comparisonReport);
   printQuestionSummary(comparisonReport);
   printComparisonSummary(comparisonReport);

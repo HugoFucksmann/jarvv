@@ -53,6 +53,14 @@ export function cellDirName(variantSpec: string, datasetName: string, targetId?:
  */
 export function runRootDir(cfg: EvalConfig, ts: string): string {
   const label = cfg.label ? `_${safeName(cfg.label)}` : "";
+  // Las corridas de `oracle` y `mock` no miden ningún modelo: van aparte (`eval/results/_oracle/…`) para que no se mezclen
+  // con las reales al comparar ni al limpiar.
+  if (cfg.client !== "real") {
+    const base = `eval/results/_${cfg.client}/${ts}${label}`;
+    let dir = base;
+    for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
+    return dir;
+  }
   // La carpeta nombra lo que corre. Una configuración (o un solo flag): el modelo generativo, o el de decisión con
   // `--d-model`. Varias: todos los nombres unidos (`a+b`); en modo "all", cada configuración como `gen~decisión`.
   const names = (list: string[]) => list.map(safeName).join("+");
@@ -146,8 +154,10 @@ export function buildRunMeta(opts: {
   timestamp: string;
   /** Un solo id por invocación: pasar el mismo a todas las celdas. Si falta, se genera uno. */
   runId?: string;
+  /** Ids de los casos que corre la celda (ya filtrados). */
+  caseIds: string[];
 }): RunMeta {
-  const { cfg, variantChain, variantHash, datasetPath, datasetHash, stages, timestamp } = opts;
+  const { cfg, variantChain, variantHash, datasetPath, datasetHash, stages, timestamp, caseIds } = opts;
   const scope = opts.scope ?? "all";
   const git = gitInfo();
 
@@ -165,6 +175,8 @@ export function buildRunMeta(opts: {
     datasetPath,
     datasetHash,
     stages,
+    filters: { tags: cfg.tags, ids: cfg.ids, source: cfg.source ?? null, limit: cfg.limit ?? null },
+    cases: { count: caseIds.length, hash: objectHash([...caseIds].sort()) },
     repeat: cfg.repeat,
     ...(git.gitCommit ? { gitCommit: git.gitCommit } : {}),
     ...(git.gitDirty !== undefined ? { gitDirty: git.gitDirty } : {}),

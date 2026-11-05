@@ -131,6 +131,13 @@ export interface ModelRow {
   p95DurationMs?: number;
   latencySamples: number;
   clientFailedRuns: number;
+  /** Runs que necesitaron un reintento por salida inválida o truncada. */
+  retriedRuns: number;
+  /**
+   * Decisiones con opciones (route, tool_choice, args_review): probabilidad media que el modelo da a la opción correcta
+   * y errores cometidos con seguridad (probabilidad alta en la opción equivocada). undefined si no hay probabilidades.
+   */
+  calibration?: { avgCorrectProb: number; errors: number; confidentErrors: number };
   tokens?: { avgPrompt: number; avgCompletion: number; avgTotal: number };
   tokensEstimated?: boolean;
   /** Deltas contra la referencia, solo sobre casos medidos en ambos modelos. */
@@ -166,6 +173,10 @@ export interface ModelComparison {
      */
     rows: Array<{ model: string; accuracy: number; graded: number; errors: number; unanswered: number; fp?: number; fn?: number }>;
   }>;
+  /** Decisiones: aciertos por clase esperada y modelo, solo de las clases donde algún modelo se equivoca. */
+  classes: Array<{ stageKey: string; label: string; rows: Array<{ model: string; correct: number; total: number }> }>;
+  /** Checks que fallaron en algún modelo, con en cuántos runs falló cada uno (más fallado primero). */
+  checks: Array<{ stageKey: string; check: string; rows: Array<{ model: string; failed: number; total: number }> }>;
   /** Casos medidos en todos los modelos: los únicos donde se buscan discrepancias. */
   comparedCases: number;
   /** Casos donde los modelos no obtuvieron lo mismo (pasa/falla). */
@@ -499,6 +510,32 @@ function errorSummary(q: { errors: number; unanswered: number }, fpfn: { fp: num
   return `FP ${fpfn.fp}, FN ${fpfn.fn}${q.unanswered > 0 ? `, sin respuesta ${q.unanswered}` : ""}`;
 }
 
+/** Una probabilidad igual o mayor en la opción equivocada es un error cometido "con seguridad". */
+const CONFIDENT_PROB = 0.8;
+
+/** Calibración de las decisiones con opciones. Las de `noul` (ok/cumple) no tienen una probabilidad por opción: no cuentan. */
+function calibration(records: RunRecord[]): ModelRow["calibration"] {
+  const probOf = (r: RunRecord, label: string | null | undefined): number | undefined =>
+    label ? r.probabilities?.[label] : undefined;
+  const withProb = records.filter((r) => r.expectedLabel && probOf(r, r.expectedLabel) !== undefined);
+  if (withProb.length === 0) return undefined;
+  const wrong = withProb.filter((r) => !isDecisionCorrect(r));
+  return {
+    avgCorrectProb: mean(withProb.map((r) => probOf(r, r.expectedLabel) as number)),
+    errors: wrong.length,
+    confidentErrors: wrong.filter((r) => (probOf(r, r.predictedLabel) ?? 0) >= CONFIDENT_PROB).length,
+  };
+}
+
+/** Cuántos runs fallaron cada check (`metrics[check] === false`). */
+function failedChecks(records: RunRecord[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const r of records) {
+    for (const [check, ok] of Object.entries(r.metrics ?? {})) if (ok === false) out.set(check, (out.get(check) ?? 0) + 1);
+  }
+  return out;
+}
+
 /** Fila de modelo para un conjunto de celdas ya filtradas (una celda de un modelo o una etapa de ella). */
 function modelRow(model: string, records: RunRecord[]): ModelRow {
   const canonical = records.filter((r) => r.bucket === "canonical");
@@ -508,12 +545,15 @@ function modelRow(model: string, records: RunRecord[]): ModelRow {
   const latency = latencies(canonical);
   const passedRuns = canonical.filter((r) => r.passed).length;
   const tokens = computeAvgTokens(canonical);
+  const calib = calibration(canonical);
   return {
     model,
     totalRuns: canonical.length,
     passedRuns,
     passRate: canonical.length > 0 ? passedRuns / canonical.length : 0,
     ...(accuracy !== undefined ? { accuracy } : {}),
+    ...(calib ? { calibration: calib } : {}),
+    retriedRuns: canonical.filter((r) => Number(r.measurements?.attempts) > 1).length,
     ...(latency.samples > 0 ? { p50DurationMs: latency.p50, p95DurationMs: latency.p95 } : {}),
     latencySamples: latency.samples,
     clientFailedRuns: canonical.filter((r) => r.metrics?.client_call_ok === false).length,
@@ -605,6 +645,38 @@ export function compareModels(cells: InputCell[]): ModelComparison[] {
       }
     }
 
+    // Decisiones: en qué clases se equivoca cada modelo (de la matriz de confusión de su celda).
+    const classes: ModelComparison["classes"] = [];
+    for (const stageKey of stageKeys) {
+      const matrices = group.map((c) => c.scores.stages[stageKey]?.confusionMatrix);
+      const labels = new Set<string>(matrices.flatMap((m) => Object.keys(m ?? {})));
+      for (const label of labels) {
+        const rows = group.map((c, i) => {
+          const row = matrices[i]?.[label] ?? {};
+          return { model: c.model as string, correct: row[label] ?? 0, total: Object.values(row).reduce((a, b) => a + b, 0) };
+        });
+        if (rows.some((r) => r.correct < r.total)) classes.push({ stageKey, label, rows });
+      }
+    }
+    const errorsOf = (rows: Array<{ correct: number; total: number }>): number => Math.max(...rows.map((r) => r.total - r.correct));
+    classes.sort((a, b) => errorsOf(b.rows) - errorsOf(a.rows));
+
+    // Por qué fallan: checks fallidos por etapa y modelo.
+    const checks: ModelComparison["checks"] = [];
+    for (const stageKey of stageKeys) {
+      const perStage = group.map((c) => c.records.filter((r) => r.stageKey === stageKey && r.bucket === "canonical"));
+      const counts = perStage.map(failedChecks);
+      for (const check of new Set(counts.flatMap((m) => [...m.keys()]))) {
+        checks.push({
+          stageKey,
+          check,
+          rows: group.map((c, i) => ({ model: c.model as string, failed: counts[i].get(check) ?? 0, total: perStage[i].length })),
+        });
+      }
+    }
+    const maxFailed = (rows: Array<{ failed: number }>): number => Math.max(...rows.map((r) => r.failed));
+    checks.sort((a, b) => maxFailed(b.rows) - maxFailed(a.rows));
+
     // Casos donde no todos los modelos obtuvieron lo mismo. Solo cuentan runs comparables (sin falla de cliente).
     const perModel = group.map((c) => {
       const m = new Map<string, RunRecord[]>();
@@ -643,6 +715,8 @@ export function compareModels(cells: InputCell[]): ModelComparison[] {
       overall,
       stages,
       questions,
+      classes,
+      checks,
       comparedCases: caseKeys.length,
       disagreements,
     });
@@ -857,6 +931,8 @@ interface ModelColumn {
   cell: (r: ModelRow, isRef: boolean) => string;
   /** Columna que solo tiene sentido en etapas de decisión (la accuracy es la de las decisiones). */
   decisionOnly?: boolean;
+  /** Columna que solo tiene sentido en etapas generativas (reintentos por salida inválida). */
+  generativeOnly?: boolean;
   /** Se omite en la tabla de consola. */
   mdOnly?: boolean;
 }
@@ -871,10 +947,18 @@ const MODEL_COLUMNS: ModelColumn[] = [
   },
   { head: "Accuracy", decisionOnly: true, cell: (r) => fmtOpt(r.accuracy) },
   { head: "Δ acc", decisionOnly: true, cell: (r, ref) => (ref ? "—" : fmtOpt(r.deltaAccuracy, true)) },
+  { head: "P(correcta)", decisionOnly: true, cell: (r) => (r.calibration ? fmtPct(r.calibration.avgCorrectProb) : "—") },
+  {
+    head: "Errores seguros",
+    decisionOnly: true,
+    mdOnly: true,
+    cell: (r) => (r.calibration ? `${r.calibration.confidentErrors}/${r.calibration.errors}` : "—"),
+  },
   { head: "p50", cell: (r) => fmtMs(r.p50DurationMs) },
   { head: "Δ p50", cell: (r, ref) => (ref ? "—" : fmtMs(r.deltaP50Ms, true)) },
   { head: "p95", cell: (r) => fmtP95(r.p95DurationMs, r.latencySamples) },
   { head: "Δ p95", cell: (r, ref) => (ref ? "—" : fmtMs(r.deltaP95Ms, true)) },
+  { head: "Reintentos", generativeOnly: true, mdOnly: true, cell: (r) => String(r.retriedRuns) },
   {
     head: "Tokens (P/C/T)",
     mdOnly: true,
@@ -883,9 +967,11 @@ const MODEL_COLUMNS: ModelColumn[] = [
   { head: "Fallas cliente", cell: (r) => String(r.clientFailedRuns) },
 ];
 
-/** Columnas de la tabla de modelos: la accuracy solo se muestra si la comparación incluye etapas de decisión. */
+/** Columnas de la tabla de modelos: las de decisión (accuracy, calibración) y las generativas (reintentos) según el alcance. */
 function modelColumns(scope: ModelComparison["scope"], forConsole = false): ModelColumn[] {
-  return MODEL_COLUMNS.filter((c) => (scope !== "generative" || !c.decisionOnly) && (!forConsole || !c.mdOnly));
+  return MODEL_COLUMNS.filter(
+    (c) => (scope !== "generative" || !c.decisionOnly) && (scope !== "decision" || !c.generativeOnly) && (!forConsole || !c.mdOnly),
+  );
 }
 
 function mdTable(head: string[], rows: string[][]): string[] {
@@ -899,7 +985,9 @@ function renderModelComparisonMarkdown(report: ComparisonReport): string[] {
   lines.push(
     "Mismo dataset y variante contra cada modelo. Los deltas son contra el **primer modelo** de la lista (ref). " +
       "Cada modelo corre solo las etapas de su tipo. Una latencia `—` significa que ninguna llamada se completó. " +
-      "Δ pass y Δ acc se calculan solo sobre casos medidos en ambos modelos. " + P95_NOTE + " " + SIGN_NOTE,
+      "Δ pass y Δ acc se calculan solo sobre casos medidos en ambos modelos. " +
+      "`P(correcta)` = probabilidad media que el modelo da a la opción correcta; `Errores seguros` = errores con probabilidad ≥ 80 % en la opción equivocada (route, tool_choice y args_review). " +
+      P95_NOTE + " " + SIGN_NOTE,
     "",
   );
   for (const c of comps) {
@@ -932,6 +1020,30 @@ function renderModelComparisonMarkdown(report: ComparisonReport): string[] {
         }),
       ]);
       lines.push(...mdTable(head, rows), "");
+    }
+    if (c.classes.length > 0) {
+      lines.push("**Aciertos por clase esperada** (aciertos/casos; solo clases donde algún modelo se equivoca)", "");
+      const shown = c.classes.slice(0, 25);
+      lines.push(
+        ...mdTable(
+          ["Etapa", "Clase esperada", ...c.models],
+          shown.map((x) => [`\`${x.stageKey}\``, `\`${x.label}\``, ...c.models.map((m) => { const r = x.rows.find((y) => y.model === m); return r ? `${r.correct}/${r.total}` : "—"; })]),
+        ),
+        "",
+      );
+      if (c.classes.length > shown.length) lines.push(`… y ${c.classes.length - shown.length} más.`, "");
+    }
+    if (c.checks.length > 0) {
+      lines.push("**Checks fallidos** (runs en que falló cada check; el más fallado primero)", "");
+      const shown = c.checks.slice(0, 25);
+      lines.push(
+        ...mdTable(
+          ["Etapa", "Check", ...c.models],
+          shown.map((x) => [`\`${x.stageKey}\``, `\`${x.check}\``, ...c.models.map((m) => { const r = x.rows.find((y) => y.model === m); return r ? `${r.failed}/${r.total}` : "—"; })]),
+        ),
+        "",
+      );
+      if (c.checks.length > shown.length) lines.push(`… y ${c.checks.length - shown.length} más (ver runs.jsonl).`, "");
     }
     if (c.noData.length > 0) {
       lines.push("No se listan discrepancias por caso: hay modelos sin llamadas exitosas.", "");
@@ -1253,7 +1365,47 @@ export function printModelComparison(report: ComparisonReport): void {
       );
       console.log(`  [${q.stageKey}] pregunta ${q.question}${q.role === "main" ? " (principal)" : ""}: ${parts.join("  |  ")}`);
     }
+    const modelsText = (rows: Array<{ model: string }>, fmt: (r: never) => string): string =>
+      rows.map((r) => `${r.model} ${fmt(r as never)}`).join("  |  ");
+    for (const x of c.classes.slice(0, 10)) {
+      console.log(`  [${x.stageKey}] clase ${x.label}: ${modelsText(x.rows, (r: { correct: number; total: number }) => `${r.correct}/${r.total}`)}`);
+    }
+    if (c.classes.length > 10) console.log(`  … ${c.classes.length - 10} clase(s) más (ver comparison.md).`);
+    for (const x of c.checks.slice(0, 10)) {
+      console.log(`  [${x.stageKey}] check ${x.check} falló: ${modelsText(x.rows, (r: { failed: number; total: number }) => `${r.failed}/${r.total}`)}`);
+    }
+    if (c.checks.length > 10) console.log(`  … ${c.checks.length - 10} check(s) más (ver comparison.md).`);
     if (c.disagreements.length > 0) console.log(`  ${c.disagreements.length} caso(s) donde los modelos discrepan (ver comparison.md).`);
+  }
+}
+
+/**
+ * Resumen por etapa en consola: por cada (dataset, modelo, etapa), una línea por variante con su pass rate, accuracy y p50, y
+ * el delta contra la baseline. Es lo mismo que la tabla por etapa de comparison.md, en un formato que entra en la terminal.
+ */
+export function printStageSummary(report: ComparisonReport): void {
+  if (report.cells.length === 0) return;
+  const key = (variant: string, c: { dataset: string; model?: string; stageKey: string }): string =>
+    `${variant}\u0000${c.dataset}\u0000${c.model ?? ""}\u0000${c.stageKey}`;
+  const deltas = new Map(report.deltas.map((d) => [key(d.variant, d), d]));
+  const groups = new Map<string, CellStageReport[]>();
+  for (const c of report.cells) {
+    const k = `${c.dataset}\u0000${c.model ?? ""}\u0000${c.stageKey}`;
+    groups.set(k, [...(groups.get(k) ?? []), c]);
+  }
+  const labelOf = (c: CellStageReport): string => (c.variant === report.baseline ? `${c.variant} (base)` : c.variant);
+  const nameW = Math.max(...report.cells.map((c) => labelOf(c).length));
+  console.log("\n── Resumen por etapa ──");
+  for (const cells of groups.values()) {
+    const f = cells[0];
+    console.log(`  ${f.dataset}${f.model ? ` {${f.model}}` : ""} · ${f.stageKey}`);
+    for (const c of cells) {
+      const d = deltas.get(key(c.variant, c));
+      const pass = c.totalRuns > 0 ? `${fmtPct(c.passRate)} (${c.passedRuns}/${c.totalRuns})` : "—";
+      const acc = c.accuracy !== undefined ? `acc ${fmtPct(c.accuracy)}` : "";
+      const delta = d ? `Δ pass ${fmtDeltaPct(d.deltaPassRate)}${d.deltaAccuracy !== undefined ? `, Δ acc ${fmtDeltaPct(d.deltaAccuracy)}` : ""}` : "";
+      console.log(`    ${labelOf(c).padEnd(nameW)}  ${pass.padEnd(15)}  ${acc.padEnd(10)}  p50 ${fmtMs(c.p50DurationMs).padEnd(8)}  ${delta}`.trimEnd());
+    }
   }
 }
 
@@ -1282,6 +1434,7 @@ export function printComparisonSummary(report: ComparisonReport): void {
     report.regressions.length === 0 &&
     report.improvements.length === 0 &&
     report.rawRegressions.length === 0 &&
+    report.rawImprovements.length === 0 &&
     warnings.length === 0
   ) {
     return;
@@ -1317,6 +1470,13 @@ export function printComparisonSummary(report: ComparisonReport): void {
     console.log(`\n  ⚠ Regresiones en casos raw (${report.rawRegressions.length}, fuera de passRate):`);
     for (const r of report.rawRegressions) {
       console.log(`    - ${r.caseId} [${r.stageKey}] (${r.variant}${r.model ? `, ${r.model}` : ""}): ${r.diff}`);
+    }
+  }
+
+  if (report.rawImprovements.length > 0) {
+    console.log(`\n  ★ Mejoras en casos raw (${report.rawImprovements.length}, fuera de passRate):`);
+    for (const im of report.rawImprovements) {
+      console.log(`    + ${im.caseId} [${im.stageKey}] (${im.variant}${im.model ? `, ${im.model}` : ""}): ${im.diff}`);
     }
   }
 }

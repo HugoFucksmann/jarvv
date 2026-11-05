@@ -337,6 +337,13 @@ export interface RunMeta {
   datasetPath: string;
   datasetHash: string;
   stages: StageName[];
+  /**
+   * Filtros de la corrida. `datasetHash` es el del archivo completo: sin esto no se sabe qué subconjunto corrió. Vacío o
+   * null = sin ese filtro.
+   */
+  filters: { tags: string[]; ids: string[]; source: CaseSource | null; limit: number | null };
+  /** Casos que corrió la celda y hash de sus ids ordenados: mismo hash = mismos casos. */
+  cases: { count: number; hash: string };
   repeat: number;
   gitCommit?: string;
   gitDirty?: boolean;
