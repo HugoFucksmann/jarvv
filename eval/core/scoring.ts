@@ -36,8 +36,13 @@ function clientFailed(r: RunRecord): boolean {
  * La latencia solo vale si la llamada se completó. Un run sin `client_call_ok` (p. ej. la variante no se
  * pudo aplicar y no hubo llamada) tiene durationMs 0 y falsearía el promedio y los percentiles.
  */
-function hasLatency(r: RunRecord): boolean {
-  return r.metrics.client_call_ok === true;
+export function hasLatency(r: RunRecord): boolean {
+  return r.metrics?.client_call_ok === true;
+}
+
+/** Una decisión sin predicción (parseo fallido) cuenta como error. Requiere `expectedLabel`. */
+export function isDecisionCorrect(r: RunRecord): boolean {
+  return r.expectedLabel === (r.predictedLabel || NO_PREDICTION);
 }
 
 function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
@@ -192,7 +197,7 @@ export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
         if (r.expectedLabel) {
           const predicted = r.predictedLabel || NO_PREDICTION;
           totalDecisions++;
-          if (r.expectedLabel === predicted) correctDecisions++;
+          if (isDecisionCorrect(r)) correctDecisions++;
           confusionMatrix[r.expectedLabel] = confusionMatrix[r.expectedLabel] || {};
           confusionMatrix[r.expectedLabel][predicted] =
             (confusionMatrix[r.expectedLabel][predicted] || 0) + 1;
@@ -252,8 +257,10 @@ export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
       avgDurationMs,
       p50DurationMs: percentile(stDurations, 50),
       p95DurationMs: percentile(stDurations, 95),
+      latencySamples: stDurations.length,
       clientFailedRuns: stClientFailed,
-      accuracy: totalDecisions > 0 ? Math.round((correctDecisions / totalDecisions) * 1000) / 1000 : undefined,
+      // Sin redondear, igual que passRate: restar valores redondeados daba deltas distintos con los mismos conteos.
+      accuracy: totalDecisions > 0 ? correctDecisions / totalDecisions : undefined,
       confusionMatrix: totalDecisions > 0 ? confusionMatrix : undefined,
       ...(qScores ? { questions: qScores.questions, questionCross: qScores.cross } : {}),
       rawTotalRuns: stRawTotal,
@@ -276,6 +283,7 @@ export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
     avgDurationMs: avgGlobalDurationMs,
     p50DurationMs: percentile(globalDurations, 50),
     p95DurationMs: percentile(globalDurations, 95),
+    latencySamples: globalDurations.length,
     clientFailedRuns: globalClientFailed,
     rawTotalRuns: globalRawTotal,
     rawPassedRuns: globalRawPassed,

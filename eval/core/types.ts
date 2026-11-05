@@ -428,6 +428,9 @@ export interface StageScoreSummary {
   avgDurationMs: number;
   p50DurationMs: number;
   p95DurationMs: number;
+  /** Llamadas completadas detrás de avg/p50/p95. Con 0, esas latencias valen 0 pero no significan "0ms": no hay dato. */
+  latencySamples: number;
+  /** Aciertos de etiqueta sobre las decisiones con respuesta (no incluye llamadas fallidas ni casos sin etiqueta esperada). */
   accuracy?: number;
   confusionMatrix?: Record<string, Record<string, number>>;
   /** Solo en etapas con 2 o más preguntas evaluadas: métricas por pregunta y cruces entre ellas. */
@@ -452,6 +455,8 @@ export interface GlobalScoreSummary {
   avgDurationMs: number;
   p50DurationMs: number;
   p95DurationMs: number;
+  /** Ver `StageScoreSummary.latencySamples`. Ojo: p50/p95 globales mezclan etapas de decisión y generativas. */
+  latencySamples: number;
   /** Runs canónicos con llamada fallida (ver `StageScoreSummary.clientFailedRuns`). */
   clientFailedRuns?: number;
   rawTotalRuns: number;

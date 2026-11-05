@@ -185,10 +185,10 @@ Cada corrida imprime la configuración, el progreso por caso y dos resúmenes:
 
 ```
 ── Resumen por variante ──
-  Variante         passRate      Δ vs baseline  Regresiones  Mejoras  Fallas cliente  p50
-  ---------------  ------------  -------------  -----------  -------  --------------  ---
-  prod (baseline)  100.0% (9/9)  —              0            0        0               0ms
-  route_example    100.0% (9/9)  0.0%           0            0        0               0ms
+  Variante         passRate      Δ vs baseline  Macro por etapa  Regresiones  Mejoras  p (signos)  Sin medir  p50
+  ---------------  ------------  -------------  ---------------  -----------  -------  ----------  ---------  ---
+  prod (baseline)  100.0% (9/9)  —              100.0%           —            —        —           0          0ms
+  route_example    100.0% (9/9)  0.0%           100.0% (0.0%)    0            0        —           0          0ms
 ```
 
 Todo queda guardado en `eval/results/<modelo>/<fecha>[_<label>]/`:
@@ -203,7 +203,7 @@ Todo queda guardado en `eval/results/<modelo>/<fecha>[_<label>]/`:
     └── meta.json              ← configuración, commit de git, hashes de dataset y variante
 ```
 
-`comparison.md` trae el resumen por variante, el detalle por etapa, los deltas contra la baseline, las regresiones y mejoras caso por caso, y las matrices de confusión de las decisiones.
+`comparison.md` trae el resumen por variante, el detalle por etapa, los deltas contra la baseline, las regresiones y mejoras caso por caso, los casos raw (fuera de `passRate`) y las matrices de confusión de las decisiones.
 
 ### Códigos de salida
 
@@ -218,7 +218,10 @@ Todo queda guardado en `eval/results/<modelo>/<fecha>[_<label>]/`:
 ## Qué tener en cuenta al interpretar
 
 - **Latencia y concurrencia.** Con `--concurrency` mayor que 1, p50 y p95 incluyen espera del servidor y no son comparables. Usá `1` para medir latencia; el pass/fail no se ve afectado.
-- **Fallas de red.** Cuentan como falla en el pass rate, pero no entran en las latencias ni aparecen como regresión o mejora. La CLI avisa cuántas fueron.
+- **p95 con pocas muestras.** Con menos de 20 llamadas el p95 es el máximo, que suele ser la carga en frío del modelo. Se marca con `†` y no se publica su delta; compará con p50. El total mezclado no muestra p50 porque combina etapas de milisegundos y de segundos. Las latencias generativas suman los reintentos.
+- **Casos sin medir.** Una llamada fallida (red, timeout, HTTP) o una variante que no se pudo aplicar cuenta como falla en `passRate`, pero no entra en las latencias ni aparece como regresión o mejora. Δ compara solo casos medidos en ambos lados, y el reporte avisa si alguno quedó afuera.
+- **Ruido.** Un Δ no es un veredicto: mirá `p (signos)`, calculado sobre los casos que cambiaron. Con menos de 6 cambios nunca baja de 0.05. Las etapas generativas varían entre corridas con el mismo request: usá `--repeat` antes de decidir por pocos casos.
+- **Peso de las etapas.** `passRate` pesa cada etapa según su cantidad de casos, y `final` corre dos veces con `--thinking=auto`. `Macro por etapa` pesa todas por igual y cuenta `final[think=on/off]` como una sola: si ambos difieren, el resultado depende de la composición del dataset.
 - **Casos congelados.** Guardan el prompt tal como se extrajo. Si cambiás los prompts de producción, hay que volver a extraer los casos. El eval compara contra esa foto, no contra `src` en vivo.
 - **Palabras clave.** Se buscan por palabra completa, sin distinguir mayúsculas ni acentos: "archivo" no coincide con "archivos". Escribí ambas formas si hacen falta.
 - **Variantes con `labelMap`.** Dos opciones que se mapeen al mismo nombre canónico se pisan entre sí; evitalo.

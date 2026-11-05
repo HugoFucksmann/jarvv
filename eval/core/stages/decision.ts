@@ -52,9 +52,11 @@ export const routeStage: DecisionStageEntry<RouteOutput, RouteExpect> = {
         ? (output.route ?? output.action)
         : output.action
       : null;
+    // Sin `expectedRoute` vale cualquier ruta: no hay etiqueta contra la cual medir accuracy (el grader sí evalúa la acción).
+    // Antes la etiqueta era "route", que nunca coincide con una predicción como "files": error de accuracy en un caso que pasa.
     const expected = expect
       ? expect.expectedAction === "route"
-        ? (expect.expectedRoute ?? expect.expectedAction)
+        ? (expect.expectedRoute ?? null)
         : expect.expectedAction
       : null;
     const rawScore = output?.probabilities

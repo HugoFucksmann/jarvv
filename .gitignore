@@ -22,3 +22,4 @@ data/refs/
 
 # Resultados de evaluación
 /scripts/eval-next/results/
+eval/results
