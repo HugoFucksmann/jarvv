@@ -56,8 +56,26 @@ export interface CaseComparison {
   diff: string;
 }
 
+/** Una fila por variante, agregada sobre todos los datasets y etapas corridos. */
+export interface VariantSummary {
+  variant: string;
+  totalRuns: number;
+  passedRuns: number;
+  passRate: number;
+  /** Diferencia de passRate contra la baseline (undefined si es la baseline o no corrió). */
+  deltaPassRate?: number;
+  /** Runs cuya llamada al cliente falló: cuentan como falla en passRate. */
+  clientFailedRuns: number;
+  regressions: number;
+  improvements: number;
+  /** Mediana de latencia de los runs con llamada exitosa. */
+  p50DurationMs: number;
+}
+
 export interface ComparisonReport {
   baseline: string;
+  /** Resumen agregado por variante (en el orden en que corrieron). */
+  variants: VariantSummary[];
   cells: CellStageReport[];
   deltas: ComparisonDelta[];
   regressions: CaseComparison[];
@@ -290,6 +308,7 @@ export function generateComparisonReport(opts: {
 
   return {
     baseline,
+    variants: summarizeVariants(baseline, cells, regressions, improvements),
     cells: cellReports,
     deltas,
     regressions,
@@ -301,6 +320,69 @@ export function generateComparisonReport(opts: {
 /**
  * Renderiza el reporte a Markdown.
  */
+function summarizeVariants(
+  baseline: string,
+  cells: InputCell[],
+  regressions: CaseComparison[],
+  improvements: CaseComparison[],
+): VariantSummary[] {
+  const order: string[] = [];
+  for (const c of cells) if (!order.includes(c.variantSpec)) order.push(c.variantSpec);
+
+  const rows: VariantSummary[] = order.map((variant) => {
+    const mine = cells.filter((c) => c.variantSpec === variant);
+    const canonical = mine.flatMap((c) => c.records.filter((r) => r.bucket === "canonical"));
+    const totalRuns = canonical.length;
+    const passedRuns = canonical.filter((r) => r.passed).length;
+    const durations = canonical
+      .filter((r) => r.metrics?.client_call_ok === true)
+      .map((r) => r.durationMs)
+      .sort((a, b) => a - b);
+    return {
+      variant,
+      totalRuns,
+      passedRuns,
+      passRate: totalRuns > 0 ? passedRuns / totalRuns : 0,
+      clientFailedRuns: canonical.filter((r) => r.metrics?.client_call_ok === false).length,
+      regressions: regressions.filter((r) => r.variant === variant).length,
+      improvements: improvements.filter((r) => r.variant === variant).length,
+      p50DurationMs: durations.length > 0 ? durations[Math.floor((durations.length - 1) / 2)] : 0,
+    };
+  });
+
+  const base = rows.find((r) => r.variant === baseline);
+  if (base && base.totalRuns > 0) {
+    for (const r of rows) if (r !== base && r.totalRuns > 0) r.deltaPassRate = r.passRate - base.passRate;
+  }
+  return rows;
+}
+
+function variantTableRows(report: ComparisonReport): string[][] {
+  return report.variants.map((v) => [
+    v.variant === report.baseline ? `${v.variant} (baseline)` : v.variant,
+    `${fmtPct(v.passRate)} (${v.passedRuns}/${v.totalRuns})`,
+    v.deltaPassRate === undefined ? "—" : fmtDeltaPct(v.deltaPassRate),
+    String(v.regressions),
+    String(v.improvements),
+    String(v.clientFailedRuns),
+    `${v.p50DurationMs}ms`,
+  ]);
+}
+
+const VARIANT_TABLE_HEAD = ["Variante", "passRate", "Δ vs baseline", "Regresiones", "Mejoras", "Fallas cliente", "p50"];
+
+/** Tabla de una fila por variante, para la consola. */
+export function printVariantSummary(report: ComparisonReport): void {
+  if (report.variants.length === 0) return;
+  const rows = [VARIANT_TABLE_HEAD, ...variantTableRows(report)];
+  const widths = VARIANT_TABLE_HEAD.map((_, i) => Math.max(...rows.map((r) => r[i].length)));
+  console.log("\n── Resumen por variante ──");
+  rows.forEach((r, idx) => {
+    console.log("  " + r.map((c, i) => c.padEnd(widths[i])).join("  "));
+    if (idx === 0) console.log("  " + widths.map((w) => "-".repeat(w)).join("  "));
+  });
+}
+
 export function renderComparisonMarkdown(report: ComparisonReport): string {
   const lines: string[] = [
     "# Reporte de Comparación",
@@ -308,6 +390,14 @@ export function renderComparisonMarkdown(report: ComparisonReport): string {
     `**Baseline:** \`${report.baseline}\``,
     "",
     ...(report.warnings ?? []).flatMap((w) => [`> ⚠ ${w}`, ""]),
+    "## Resumen por Variante",
+    "",
+    `| ${VARIANT_TABLE_HEAD.join(" | ")} |`,
+    `|${VARIANT_TABLE_HEAD.map(() => "---").join("|")}|`,
+    ...variantTableRows(report).map((r) => `| ${r.join(" | ")} |`),
+    "",
+    "Agregado sobre todos los datasets y etapas. Las fallas de cliente (red, timeout, HTTP) cuentan como falla en passRate.",
+    "",
     "## 1. Resumen por Etapa",
     "",
     "| Variante | Dataset | Stage | passRate | passAllRate | p50 | p95 | Tokens (P/C/T) | Accuracy |",

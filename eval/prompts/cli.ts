@@ -20,7 +20,7 @@ import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/clien
 import { parseConfig } from "./core/config.ts";
 import { filterCases, loadDatasets } from "./core/datasets.ts";
 import type { InputCell } from "./core/report.ts";
-import { generateComparisonReport, printComparisonSummary, writeComparison } from "./core/report.ts";
+import { generateComparisonReport, printComparisonSummary, printVariantSummary, writeComparison } from "./core/report.ts";
 import { buildRunMeta, createCellWriter, newRunId, runRootDir, timestampDir } from "./core/results.ts";
 import { runDataset } from "./core/runner.ts";
 import { computeScoreSummary } from "./core/scoring.ts";
@@ -34,6 +34,37 @@ function log(...args: unknown[]) { console.log(...args); }
 function err(...args: unknown[]) { console.error(...args); }
 
 function fmtPct(r: number) { return `${(r * 100).toFixed(1)}%`; }
+
+/** Imprime con qué configuración corre el eval (modelos, concurrencia, datasets, variantes, filtros). */
+function printRunConfig(
+  cfg: ReturnType<typeof parseConfig>,
+  datasets: Array<{ name: string; path: string; cases: unknown[] }>,
+  variants: Array<{ spec: string; chain: string[] }>,
+): void {
+  const list = (v: string[]) => (v.length > 0 ? v.join(", ") : "todos");
+  const offline = cfg.client !== "real";
+  const where = (model: string, url: string) => (offline ? `${model}  (sin red)` : `${model}  @ ${url}`);
+  const rows: Array<[string, string]> = [
+    ["Cliente", cfg.client === "real" ? "real" : `${cfg.client} (simulado, no usa modelos)`],
+    ["Modelo generativo", where(cfg.model, cfg.url)],
+    ["Modelo de decisión", where(cfg.decisionModel, cfg.decisionUrl)],
+    ["Concurrencia", `${cfg.concurrency}${cfg.concurrency > 1 ? "  (la latencia p50/p95 no es comparable)" : ""}`],
+    ["Repeticiones", String(cfg.repeat)],
+    ["Thinking", cfg.thinking],
+    ["Timeout", cfg.timeoutMs !== undefined ? `${cfg.timeoutMs}ms` : "default por tipo"],
+    ["Variantes", variants.map((v) => (v.chain.length > 1 ? `${v.spec} [${v.chain.join(" → ")}]` : v.spec)).join(", ")],
+    ["Baseline", cfg.baseline],
+    ["Datasets", datasets.map((d) => `${d.name} (${d.cases.length} casos)`).join(", ")],
+    ["Etapas", list(cfg.stages)],
+    ["Filtros", `tags: ${list(cfg.tags)} | ids: ${list(cfg.ids)} | limit: ${cfg.limit ?? "sin límite"}`],
+    ["Casos prod_shortcut", cfg.includeShortcut ? "incluidos" : "excluidos"],
+  ];
+  if (cfg.label) rows.push(["Label", cfg.label]);
+  if (cfg.minPassRate !== undefined) rows.push(["Umbral passRate", fmtPct(cfg.minPassRate)]);
+  const w = Math.max(...rows.map(([k]) => k.length));
+  log("\n── Configuración ──");
+  for (const [k, v] of rows) log(`  ${k.padEnd(w)}  ${v}`);
+}
 
 // ───────────────────────── Main ─────────────────────────
 
@@ -160,6 +191,9 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  // ── Configuración de la corrida ──
+  printRunConfig(cfg, datasets, variantResults);
+
   // ── Preparar directorio de salida ──
   const ts = timestampDir();
   const runId = newRunId();           // un id por invocación, compartido por todas las celdas
@@ -274,6 +308,7 @@ async function main(): Promise<number> {
       (s.rawTotalRuns > 0 ? ` | raw: ${fmtPct(s.rawPassRate)} (${s.rawPassedRuns}/${s.rawTotalRuns})` : ""),
     );
   }
+  printVariantSummary(comparisonReport);
   printComparisonSummary(comparisonReport);
   log(`\nComparación: ${rootDir}/comparison.md`);
 
