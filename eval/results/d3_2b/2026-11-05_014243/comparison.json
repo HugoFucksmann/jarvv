@@ -1,0 +1,100 @@
+{
+  "baseline": "prod",
+  "variants": [
+    {
+      "variant": "prod",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "clientFailedRuns": 0,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 0
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "clientFailedRuns": 0,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 0,
+      "deltaPassRate": 0
+    }
+  ],
+  "cells": [
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "stageKey": "args_review",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 146,
+        "avgCompletion": 65,
+        "avgTotal": 211
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 1
+        },
+        "args_invalid": {
+          "args_invalid": 1
+        },
+        "info_missing": {
+          "info_missing": 1
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "decision_combo_52",
+      "stageKey": "args_review",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0,
+      "tokens": {
+        "avgPrompt": 315,
+        "avgCompletion": 65,
+        "avgTotal": 380
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 1
+        },
+        "args_invalid": {
+          "args_invalid": 1
+        },
+        "info_missing": {
+          "info_missing": 1
+        }
+      }
+    }
+  ],
+  "deltas": [
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "decision_combo_52",
+      "stageKey": "args_review",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0,
+      "deltaAccuracy": 0
+    }
+  ],
+  "regressions": [],
+  "improvements": [],
+  "modelComparisons": [],
+  "warnings": []
+}

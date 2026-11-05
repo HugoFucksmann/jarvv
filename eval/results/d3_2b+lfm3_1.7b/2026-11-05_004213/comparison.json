@@ -1,0 +1,1108 @@
+{
+  "baseline": "prod",
+  "variants": [
+    {
+      "variant": "prod",
+      "model": "d3:2b",
+      "totalRuns": 52,
+      "passedRuns": 38,
+      "passRate": 0.7307692307692307,
+      "clientFailedRuns": 0,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 28
+    },
+    {
+      "variant": "prod",
+      "model": "lfm3:1.7b",
+      "totalRuns": 52,
+      "passedRuns": 0,
+      "passRate": 0,
+      "clientFailedRuns": 52,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "model": "d3:2b",
+      "totalRuns": 52,
+      "passedRuns": 38,
+      "passRate": 0.7307692307692307,
+      "clientFailedRuns": 0,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 66,
+      "deltaPassRate": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "model": "lfm3:1.7b",
+      "totalRuns": 52,
+      "passedRuns": 0,
+      "passRate": 0,
+      "clientFailedRuns": 52,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 0,
+      "deltaPassRate": 0
+    }
+  ],
+  "cells": [
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "args_review",
+      "totalRuns": 18,
+      "passedRuns": 11,
+      "passRate": 0.6111111111111112,
+      "passAllRate": 0.6111111111111112,
+      "p50DurationMs": 26,
+      "p95DurationMs": 3158,
+      "tokens": {
+        "avgPrompt": 161,
+        "avgCompletion": 105,
+        "avgTotal": 265
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.611,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 6
+        },
+        "args_invalid": {
+          "approved": 4
+        },
+        "info_missing": {
+          "info_missing": 2,
+          "approved": 2
+        },
+        "tool_rejected": {
+          "tool_rejected": 3,
+          "approved": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "result_verification",
+      "totalRuns": 14,
+      "passedRuns": 11,
+      "passRate": 0.7857142857142857,
+      "passAllRate": 0.7857142857142857,
+      "p50DurationMs": 38,
+      "p95DurationMs": 39,
+      "tokens": {
+        "avgPrompt": 94,
+        "avgCompletion": 59,
+        "avgTotal": 153
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.786,
+      "confusionMatrix": {
+        "ok=true,cumple=true": {
+          "ok=true,cumple=true": 4
+        },
+        "ok=true,cumple=false": {
+          "ok=true,cumple=false": 3,
+          "ok=false,cumple=false": 1
+        },
+        "ok=false,cumple=false": {
+          "ok=false,cumple=false": 3,
+          "ok=false,cumple=true": 1
+        },
+        "ok=false,cumple=true": {
+          "ok=false,cumple=false": 1,
+          "ok=false,cumple=true": 1
+        }
+      },
+      "questions": {
+        "cumple": {
+          "graded": 14,
+          "correct": 12,
+          "accuracy": 0.857,
+          "unanswered": 0,
+          "role": "main",
+          "confusionMatrix": {
+            "yes": {
+              "yes": 5,
+              "no": 1
+            },
+            "no": {
+              "no": 7,
+              "yes": 1
+            }
+          },
+          "perClass": {
+            "no": {
+              "tp": 7,
+              "fp": 1,
+              "fn": 1,
+              "precision": 0.875,
+              "recall": 0.875
+            },
+            "yes": {
+              "tp": 5,
+              "fp": 1,
+              "fn": 1,
+              "precision": 0.833,
+              "recall": 0.833
+            }
+          }
+        },
+        "ok": {
+          "graded": 14,
+          "correct": 13,
+          "accuracy": 0.929,
+          "unanswered": 0,
+          "role": "main",
+          "confusionMatrix": {
+            "yes": {
+              "yes": 7,
+              "no": 1
+            },
+            "no": {
+              "no": 6
+            }
+          },
+          "perClass": {
+            "no": {
+              "tp": 6,
+              "fp": 1,
+              "fn": 0,
+              "precision": 0.857,
+              "recall": 1
+            },
+            "yes": {
+              "tp": 7,
+              "fp": 0,
+              "fn": 1,
+              "precision": 1,
+              "recall": 0.875
+            }
+          }
+        }
+      },
+      "questionCross": [
+        {
+          "a": "cumple",
+          "b": "ok",
+          "runs": 14,
+          "bothCorrect": 11,
+          "onlyA": 1,
+          "onlyB": 2,
+          "bothWrong": 0
+        }
+      ]
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "route",
+      "totalRuns": 12,
+      "passedRuns": 9,
+      "passRate": 0.75,
+      "passAllRate": 0.75,
+      "p50DurationMs": 28,
+      "p95DurationMs": 31,
+      "tokens": {
+        "avgPrompt": 235,
+        "avgCompletion": 115,
+        "avgTotal": 350
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.75,
+      "confusionMatrix": {
+        "fin": {
+          "fin": 2
+        },
+        "files": {
+          "files": 2
+        },
+        "terminal": {
+          "terminal": 2,
+          "fin": 1
+        },
+        "ask_user": {
+          "ask_user": 1,
+          "files": 1
+        },
+        "locate": {
+          "locate": 2
+        },
+        "web": {
+          "ask_user": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "tool_choice",
+      "totalRuns": 8,
+      "passedRuns": 7,
+      "passRate": 0.875,
+      "passAllRate": 0.875,
+      "p50DurationMs": 24,
+      "p95DurationMs": 29,
+      "tokens": {
+        "avgPrompt": 157,
+        "avgCompletion": 122,
+        "avgTotal": 279
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.875,
+      "confusionMatrix": {
+        "write_file": {
+          "write_file": 1
+        },
+        "ask_user": {
+          "write_file": 1
+        },
+        "read_process_output": {
+          "read_process_output": 1
+        },
+        "interact_with_process": {
+          "interact_with_process": 1
+        },
+        "search": {
+          "search": 1
+        },
+        "fetch": {
+          "fetch": 1
+        },
+        "list_directory": {
+          "list_directory": 1
+        },
+        "start_search": {
+          "start_search": 1
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "args_review",
+      "totalRuns": 18,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "result_verification",
+      "totalRuns": 14,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "route",
+      "totalRuns": 12,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "tool_choice",
+      "totalRuns": 8,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "args_review",
+      "totalRuns": 18,
+      "passedRuns": 11,
+      "passRate": 0.6111111111111112,
+      "passAllRate": 0.6111111111111112,
+      "p50DurationMs": 66,
+      "p95DurationMs": 68,
+      "tokens": {
+        "avgPrompt": 265,
+        "avgCompletion": 140,
+        "avgTotal": 404
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.611,
+      "confusionMatrix": {
+        "approved": {
+          "approved": 6
+        },
+        "args_invalid": {
+          "approved": 4
+        },
+        "info_missing": {
+          "info_missing": 2,
+          "approved": 2
+        },
+        "tool_rejected": {
+          "tool_rejected": 3,
+          "approved": 1
+        }
+      }
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "result_verification",
+      "totalRuns": 14,
+      "passedRuns": 11,
+      "passRate": 0.7857142857142857,
+      "passAllRate": 0.7857142857142857,
+      "p50DurationMs": 90,
+      "p95DurationMs": 94,
+      "tokens": {
+        "avgPrompt": 254,
+        "avgCompletion": 112,
+        "avgTotal": 365
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.786,
+      "confusionMatrix": {
+        "ok=true,cumple=true": {
+          "ok=true,cumple=true": 4
+        },
+        "ok=true,cumple=false": {
+          "ok=true,cumple=false": 3,
+          "ok=false,cumple=false": 1
+        },
+        "ok=false,cumple=false": {
+          "ok=false,cumple=false": 3,
+          "ok=false,cumple=true": 1
+        },
+        "ok=false,cumple=true": {
+          "ok=false,cumple=false": 1,
+          "ok=false,cumple=true": 1
+        }
+      },
+      "questions": {
+        "cumple": {
+          "graded": 14,
+          "correct": 12,
+          "accuracy": 0.857,
+          "unanswered": 0,
+          "role": "main",
+          "confusionMatrix": {
+            "yes": {
+              "yes": 5,
+              "no": 1
+            },
+            "no": {
+              "no": 7,
+              "yes": 1
+            }
+          },
+          "perClass": {
+            "no": {
+              "tp": 7,
+              "fp": 1,
+              "fn": 1,
+              "precision": 0.875,
+              "recall": 0.875
+            },
+            "yes": {
+              "tp": 5,
+              "fp": 1,
+              "fn": 1,
+              "precision": 0.833,
+              "recall": 0.833
+            }
+          }
+        },
+        "ok": {
+          "graded": 14,
+          "correct": 13,
+          "accuracy": 0.929,
+          "unanswered": 0,
+          "role": "main",
+          "confusionMatrix": {
+            "yes": {
+              "yes": 7,
+              "no": 1
+            },
+            "no": {
+              "no": 6
+            }
+          },
+          "perClass": {
+            "no": {
+              "tp": 6,
+              "fp": 1,
+              "fn": 0,
+              "precision": 0.857,
+              "recall": 1
+            },
+            "yes": {
+              "tp": 7,
+              "fp": 0,
+              "fn": 1,
+              "precision": 1,
+              "recall": 0.875
+            }
+          }
+        }
+      },
+      "questionCross": [
+        {
+          "a": "cumple",
+          "b": "ok",
+          "runs": 14,
+          "bothCorrect": 11,
+          "onlyA": 1,
+          "onlyB": 2,
+          "bothWrong": 0
+        }
+      ]
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "route",
+      "totalRuns": 12,
+      "passedRuns": 9,
+      "passRate": 0.75,
+      "passAllRate": 0.75,
+      "p50DurationMs": 64,
+      "p95DurationMs": 69,
+      "tokens": {
+        "avgPrompt": 314,
+        "avgCompletion": 152,
+        "avgTotal": 466
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.75,
+      "confusionMatrix": {
+        "fin": {
+          "fin": 2
+        },
+        "files": {
+          "files": 2
+        },
+        "terminal": {
+          "terminal": 2,
+          "fin": 1
+        },
+        "ask_user": {
+          "ask_user": 1,
+          "files": 1
+        },
+        "locate": {
+          "locate": 2
+        },
+        "web": {
+          "ask_user": 1
+        }
+      }
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "tool_choice",
+      "totalRuns": 8,
+      "passedRuns": 7,
+      "passRate": 0.875,
+      "passAllRate": 0.875,
+      "p50DurationMs": 61,
+      "p95DurationMs": 66,
+      "tokens": {
+        "avgPrompt": 242,
+        "avgCompletion": 161,
+        "avgTotal": 402
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.875,
+      "confusionMatrix": {
+        "write_file": {
+          "write_file": 1
+        },
+        "ask_user": {
+          "write_file": 1
+        },
+        "read_process_output": {
+          "read_process_output": 1
+        },
+        "interact_with_process": {
+          "interact_with_process": 1
+        },
+        "search": {
+          "search": 1
+        },
+        "fetch": {
+          "fetch": 1
+        },
+        "list_directory": {
+          "list_directory": 1
+        },
+        "start_search": {
+          "start_search": 1
+        }
+      }
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "args_review",
+      "totalRuns": 18,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "result_verification",
+      "totalRuns": 14,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "route",
+      "totalRuns": 12,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "tool_choice",
+      "totalRuns": 8,
+      "passedRuns": 0,
+      "passRate": 0,
+      "passAllRate": 0,
+      "p50DurationMs": 0,
+      "p95DurationMs": 0
+    }
+  ],
+  "deltas": [
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "args_review",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 40,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "result_verification",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 52,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "route",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 36,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "d3:2b",
+      "stageKey": "tool_choice",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 37,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "args_review",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "result_verification",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "route",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "model": "lfm3:1.7b",
+      "stageKey": "tool_choice",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0
+    }
+  ],
+  "regressions": [],
+  "improvements": [],
+  "modelComparisons": [
+    {
+      "variant": "prod",
+      "dataset": "decision_combo_52",
+      "scope": "decision",
+      "reference": "d3:2b",
+      "models": [
+        "d3:2b",
+        "lfm3:1.7b"
+      ],
+      "overall": [
+        {
+          "model": "d3:2b",
+          "totalRuns": 52,
+          "passedRuns": 38,
+          "passRate": 0.7307692307692307,
+          "accuracy": 0.731,
+          "p50DurationMs": 28,
+          "p95DurationMs": 39,
+          "clientFailedRuns": 0,
+          "tokens": {
+            "avgPrompt": 159,
+            "avgCompletion": 97,
+            "avgTotal": 257
+          },
+          "tokensEstimated": true
+        },
+        {
+          "model": "lfm3:1.7b",
+          "totalRuns": 52,
+          "passedRuns": 0,
+          "passRate": 0,
+          "p50DurationMs": 0,
+          "p95DurationMs": 0,
+          "clientFailedRuns": 52,
+          "deltaPassRate": -0.731,
+          "deltaP50Ms": -28,
+          "deltaP95Ms": -39
+        }
+      ],
+      "stages": [
+        {
+          "stageKey": "args_review",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 18,
+              "passedRuns": 11,
+              "passRate": 0.6111111111111112,
+              "accuracy": 0.611,
+              "p50DurationMs": 26,
+              "p95DurationMs": 3158,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 161,
+                "avgCompletion": 105,
+                "avgTotal": 265
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 18,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 18,
+              "deltaPassRate": -0.611,
+              "deltaP50Ms": -26,
+              "deltaP95Ms": -3158
+            }
+          ]
+        },
+        {
+          "stageKey": "result_verification",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 14,
+              "passedRuns": 11,
+              "passRate": 0.7857142857142857,
+              "accuracy": 0.786,
+              "p50DurationMs": 38,
+              "p95DurationMs": 39,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 94,
+                "avgCompletion": 59,
+                "avgTotal": 153
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 14,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 14,
+              "deltaPassRate": -0.786,
+              "deltaP50Ms": -38,
+              "deltaP95Ms": -39
+            }
+          ]
+        },
+        {
+          "stageKey": "route",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 12,
+              "passedRuns": 9,
+              "passRate": 0.75,
+              "accuracy": 0.75,
+              "p50DurationMs": 28,
+              "p95DurationMs": 31,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 235,
+                "avgCompletion": 115,
+                "avgTotal": 350
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 12,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 12,
+              "deltaPassRate": -0.75,
+              "deltaP50Ms": -28,
+              "deltaP95Ms": -31
+            }
+          ]
+        },
+        {
+          "stageKey": "tool_choice",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 8,
+              "passedRuns": 7,
+              "passRate": 0.875,
+              "accuracy": 0.875,
+              "p50DurationMs": 24,
+              "p95DurationMs": 29,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 157,
+                "avgCompletion": 122,
+                "avgTotal": 279
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 8,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 8,
+              "deltaPassRate": -0.875,
+              "deltaP50Ms": -24,
+              "deltaP95Ms": -29
+            }
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "stageKey": "result_verification",
+          "question": "cumple",
+          "role": "main",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "accuracy": 0.857,
+              "graded": 14,
+              "errors": 2,
+              "fp": 1,
+              "fn": 1
+            }
+          ]
+        },
+        {
+          "stageKey": "result_verification",
+          "question": "ok",
+          "role": "main",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "accuracy": 0.929,
+              "graded": 14,
+              "errors": 1,
+              "fp": 0,
+              "fn": 1
+            }
+          ]
+        }
+      ],
+      "disagreements": []
+    },
+    {
+      "variant": "decision_alt_questions",
+      "dataset": "decision_combo_52",
+      "scope": "decision",
+      "reference": "d3:2b",
+      "models": [
+        "d3:2b",
+        "lfm3:1.7b"
+      ],
+      "overall": [
+        {
+          "model": "d3:2b",
+          "totalRuns": 52,
+          "passedRuns": 38,
+          "passRate": 0.7307692307692307,
+          "accuracy": 0.731,
+          "p50DurationMs": 66,
+          "p95DurationMs": 92,
+          "clientFailedRuns": 0,
+          "tokens": {
+            "avgPrompt": 270,
+            "avgCompletion": 138,
+            "avgTotal": 408
+          },
+          "tokensEstimated": true
+        },
+        {
+          "model": "lfm3:1.7b",
+          "totalRuns": 52,
+          "passedRuns": 0,
+          "passRate": 0,
+          "p50DurationMs": 0,
+          "p95DurationMs": 0,
+          "clientFailedRuns": 52,
+          "deltaPassRate": -0.731,
+          "deltaP50Ms": -66,
+          "deltaP95Ms": -92
+        }
+      ],
+      "stages": [
+        {
+          "stageKey": "args_review",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 18,
+              "passedRuns": 11,
+              "passRate": 0.6111111111111112,
+              "accuracy": 0.611,
+              "p50DurationMs": 66,
+              "p95DurationMs": 68,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 265,
+                "avgCompletion": 140,
+                "avgTotal": 404
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 18,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 18,
+              "deltaPassRate": -0.611,
+              "deltaP50Ms": -66,
+              "deltaP95Ms": -68
+            }
+          ]
+        },
+        {
+          "stageKey": "result_verification",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 14,
+              "passedRuns": 11,
+              "passRate": 0.7857142857142857,
+              "accuracy": 0.786,
+              "p50DurationMs": 90,
+              "p95DurationMs": 94,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 254,
+                "avgCompletion": 112,
+                "avgTotal": 365
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 14,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 14,
+              "deltaPassRate": -0.786,
+              "deltaP50Ms": -90,
+              "deltaP95Ms": -94
+            }
+          ]
+        },
+        {
+          "stageKey": "route",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 12,
+              "passedRuns": 9,
+              "passRate": 0.75,
+              "accuracy": 0.75,
+              "p50DurationMs": 64,
+              "p95DurationMs": 69,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 314,
+                "avgCompletion": 152,
+                "avgTotal": 466
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 12,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 12,
+              "deltaPassRate": -0.75,
+              "deltaP50Ms": -64,
+              "deltaP95Ms": -69
+            }
+          ]
+        },
+        {
+          "stageKey": "tool_choice",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "totalRuns": 8,
+              "passedRuns": 7,
+              "passRate": 0.875,
+              "accuracy": 0.875,
+              "p50DurationMs": 61,
+              "p95DurationMs": 66,
+              "clientFailedRuns": 0,
+              "tokens": {
+                "avgPrompt": 242,
+                "avgCompletion": 161,
+                "avgTotal": 402
+              },
+              "tokensEstimated": true
+            },
+            {
+              "model": "lfm3:1.7b",
+              "totalRuns": 8,
+              "passedRuns": 0,
+              "passRate": 0,
+              "p50DurationMs": 0,
+              "p95DurationMs": 0,
+              "clientFailedRuns": 8,
+              "deltaPassRate": -0.875,
+              "deltaP50Ms": -61,
+              "deltaP95Ms": -66
+            }
+          ]
+        }
+      ],
+      "questions": [
+        {
+          "stageKey": "result_verification",
+          "question": "cumple",
+          "role": "main",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "accuracy": 0.857,
+              "graded": 14,
+              "errors": 2,
+              "fp": 1,
+              "fn": 1
+            }
+          ]
+        },
+        {
+          "stageKey": "result_verification",
+          "question": "ok",
+          "role": "main",
+          "rows": [
+            {
+              "model": "d3:2b",
+              "accuracy": 0.929,
+              "graded": 14,
+              "errors": 1,
+              "fp": 0,
+              "fn": 1
+            }
+          ]
+        }
+      ],
+      "disagreements": []
+    }
+  ],
+  "warnings": []
+}

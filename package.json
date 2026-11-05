@@ -11,8 +11,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "eval": "tsx eval/prompts/cli.ts",
-    "eval:smoke": "tsx eval/prompts/cli.ts --client=mock --dataset=eval/prompts/datasets/smoke.jsonl --dry-run"
+    "eval": "tsx eval/cli.ts",
+    "eval:menu": "tsx eval/cli.ts --menu",
+    "eval:smoke": "tsx eval/cli.ts --client=mock --dataset=eval/datasets/smoke.jsonl --dry-run"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",

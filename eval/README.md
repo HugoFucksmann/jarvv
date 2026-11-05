@@ -23,11 +23,11 @@ npm run eval:smoke
 ```
 
 ```bash
-npm run eval -- --client=oracle --dataset=eval/prompts/datasets/smoke.jsonl
+npm run eval -- --client=oracle --dataset=eval/datasets/smoke.jsonl
 ```
 
 ```bash
-npm run eval -- --dataset=eval/prompts/datasets/smoke.jsonl
+npm run eval -- --dataset=eval/datasets/smoke.jsonl
 ```
 
 | Comando | Qué hace | Necesita Ollama |
@@ -105,14 +105,14 @@ Hay tres flags de modelo y se usa **uno solo** por corrida (combinarlos es error
 Sin ninguno se usan los defaults (`qwen3.5:4b` + `d3:2b`). Todos aceptan varios elementos separados por coma: la misma variante y dataset corren contra cada uno y `comparison.md` los compara entre sí, con deltas contra el primero. Con `--model=a+x,b+y` se comparan configuraciones completas.
 
 ```bash
-npm run eval -- --d-model=d3:2b,lfm3:1.7b --dataset=eval/prompts/datasets/decision_discriminating.jsonl
+npm run eval -- --d-model=d3:2b,lfm3:1.7b --dataset=eval/datasets/decision_discriminating.jsonl
 ``` Detalle en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md#comparar-modelos).
 
 ---
 
 ## Escribir un caso
 
-Un caso es una línea de un `.jsonl` en `eval/prompts/datasets/`. Las líneas vacías y las que empiezan con `#` se ignoran.
+Un caso es una línea de un `.jsonl` en `eval/datasets/`. Las líneas vacías y las que empiezan con `#` se ignoran.
 
 ```json
 {"id":"smoke-route","stage":"route","tags":["smoke"],
@@ -142,7 +142,7 @@ Hay dos datasets de ejemplo: `smoke.jsonl` (una pasada por todas las etapas) y `
 
 ## Escribir una variante
 
-Una variante es un archivo en `eval/prompts/variants/<nombre>.ts` que edita el request en memoria. El `name` debe coincidir con el archivo, y `prod` es la identidad.
+Una variante es un archivo en `eval/variants/<nombre>.ts` que edita el request en memoria. El `name` debe coincidir con el archivo, y `prod` es la identidad.
 
 ```ts
 import type { Variant } from "../core/variants/types.ts";
@@ -172,7 +172,7 @@ Para decisiones también podés editar `state`, cambiar o quitar criterios (`cri
 Se corren y comparan así:
 
 ```bash
-npm run eval -- --variant=prod,concise_plan --dataset=eval/prompts/datasets/smoke.jsonl
+npm run eval -- --variant=prod,concise_plan --dataset=eval/datasets/smoke.jsonl
 ```
 
 `prod` se incluye siempre como baseline. Se pueden combinar variantes con `+` (`--variant=varA+varB`).
@@ -191,7 +191,7 @@ Cada corrida imprime la configuración, el progreso por caso y dos resúmenes:
   route_example    100.0% (9/9)  0.0%           0            0        0               0ms
 ```
 
-Todo queda guardado en `eval/prompts/results/<modelo>/<fecha>[_<label>]/`:
+Todo queda guardado en `eval/results/<modelo>/<fecha>[_<label>]/`:
 
 ```
 <corrida>/
@@ -232,12 +232,11 @@ Todo queda guardado en `eval/prompts/results/<modelo>/<fecha>[_<label>]/`:
 eval/
 ├── README.md
 ├── INSTRUCCIONES.md              referencia completa de flags
-└── prompts/
-    ├── cli.ts                    punto de entrada
-    ├── datasets/                 casos congelados (.jsonl)
-    ├── variants/                 variantes de prompt (prod, route_example)
-    ├── results/                  salidas de cada corrida
-    └── core/
+├── cli.ts                        punto de entrada
+├── datasets/                     casos congelados (.jsonl)
+├── variants/                     variantes de prompt (prod, route_example)
+├── results/                      salidas de cada corrida
+└── core/
         ├── runner.ts             ejecuta casos, reintentos, concurrencia
         ├── stages/               parseo y labels de cada etapa
         ├── graders/              checks por etapa

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "runId": "a1dcb75e7f61ea23",
+  "timestamp": "2026-11-05T03:42:13.305Z",
+  "model": null,
+  "decisionModel": "lfm3:1.7b",
+  "scope": "decision",
+  "url": "http://127.0.0.1:11434",
+  "decisionUrl": "http://127.0.0.1:11434",
+  "variantChain": [
+    "decision_alt_questions"
+  ],
+  "variantHash": "be0a07f21fca7bbc",
+  "datasetPath": "eval/prompts/datasets/decision_combo_52.jsonl",
+  "datasetHash": "0109f4d079559951",
+  "stages": [
+    "route",
+    "tool_choice",
+    "args_review",
+    "result_verification"
+  ],
+  "repeat": 1,
+  "gitCommit": "df5c925",
+  "gitDirty": true,
+  "params": {
+    "concurrency": 1,
+    "thinking": "auto",
+    "client": "real",
+    "includeShortcut": false
+  }
+}

@@ -1,0 +1,676 @@
+{
+  "schemaVersion": 2,
+  "totalRuns": 58,
+  "passedRuns": 41,
+  "passRate": 0.7068965517241379,
+  "passAllRate": 0.7068965517241379,
+  "avgDurationMs": 4757,
+  "p50DurationMs": 915,
+  "p95DurationMs": 25652,
+  "clientFailedRuns": 0,
+  "rawTotalRuns": 2,
+  "rawPassedRuns": 1,
+  "rawPassRate": 0.5,
+  "stages": {
+    "plan": {
+      "stageKey": "plan",
+      "totalRuns": 14,
+      "passedRuns": 13,
+      "passRate": 0.9285714285714286,
+      "passAllRate": 0.9285714285714286,
+      "avgDurationMs": 9447,
+      "p50DurationMs": 3660,
+      "p95DurationMs": 85442,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "pl-leer-un-archivo",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4180
+        },
+        {
+          "caseId": "pl-carpeta-y-archivo",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 2372
+        },
+        {
+          "caseId": "pl-locate-antes-de-leer",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 2719
+        },
+        {
+          "caseId": "pl-terminal-y-web",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 2753
+        },
+        {
+          "caseId": "pl-fetch-y-guardar",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 3660
+        },
+        {
+          "caseId": "pl-dos-comandos",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 3815
+        },
+        {
+          "caseId": "pl-solo-web",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 2092
+        },
+        {
+          "caseId": "pl-url-conocida-precio",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 2062
+        },
+        {
+          "caseId": "pl-tres-proyectos",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 6488
+        },
+        {
+          "caseId": "pl-replan-404",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4228
+        },
+        {
+          "caseId": "pl-replan-npm-g",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 3016
+        },
+        {
+          "caseId": "pl-replan-efecto-ejecutado",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 85442
+        },
+        {
+          "caseId": "pl-replan-feedback-resumen",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4354
+        },
+        {
+          "caseId": "pl-replan-feedback-backup",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 5081
+        }
+      ]
+    },
+    "arguments": {
+      "stageKey": "arguments",
+      "totalRuns": 14,
+      "passedRuns": 6,
+      "passRate": 0.42857142857142855,
+      "passAllRate": 0.42857142857142855,
+      "avgDurationMs": 761,
+      "p50DurationMs": 728,
+      "p95DurationMs": 1027,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "ar-search-sin-max",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 564
+        },
+        {
+          "caseId": "ar-search-max",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 689
+        },
+        {
+          "caseId": "ar-read-lineas",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 728
+        },
+        {
+          "caseId": "ar-write-append",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 574
+        },
+        {
+          "caseId": "ar-proc-timeout",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 606
+        },
+        {
+          "caseId": "ar-fetch-forzar",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 474
+        },
+        {
+          "caseId": "ar-move-espacios",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 1003
+        },
+        {
+          "caseId": "ar-interact-pid",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 971
+        },
+        {
+          "caseId": "ar-list-depth",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 746
+        },
+        {
+          "caseId": "ar-fetch-batch",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 525
+        },
+        {
+          "caseId": "ar-read-multiple",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 915
+        },
+        {
+          "caseId": "ar-ref-ruta",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 826
+        },
+        {
+          "caseId": "ar-ref-contenido",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 1027
+        },
+        {
+          "caseId": "ar-ref-elegir-correcto",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 1007
+        }
+      ]
+    },
+    "final[think=on]": {
+      "stageKey": "final[think=on]",
+      "totalRuns": 11,
+      "passedRuns": 8,
+      "passRate": 0.7272727272727273,
+      "passAllRate": 0.7272727272727273,
+      "avgDurationMs": 11615,
+      "p50DurationMs": 6045,
+      "p95DurationMs": 25699,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 1,
+      "rawPassedRuns": 1,
+      "rawPassRate": 1,
+      "cases": [
+        {
+          "caseId": "fn-multipaso",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4730
+        },
+        {
+          "caseId": "fn-parcial",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 5487
+        },
+        {
+          "caseId": "fn-sin-plan-pro",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 7112
+        },
+        {
+          "caseId": "fn-enoent",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 25699
+        },
+        {
+          "caseId": "fn-lista-librerias",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 6045
+        },
+        {
+          "caseId": "fn-comparar-precios",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 3337
+        },
+        {
+          "caseId": "fn-carpeta-mas-grande",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 25626
+        },
+        {
+          "caseId": "fn-idioma-ingles",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4825
+        },
+        {
+          "caseId": "fn-dos-mutaciones",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 25652
+        },
+        {
+          "caseId": "fn-timeout-proceso",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 4471
+        },
+        {
+          "caseId": "fn-fuentes-contradictorias",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 14785
+        }
+      ]
+    },
+    "final[think=off]": {
+      "stageKey": "final[think=off]",
+      "totalRuns": 11,
+      "passedRuns": 7,
+      "passRate": 0.6363636363636364,
+      "passAllRate": 0.6363636363636364,
+      "avgDurationMs": 281,
+      "p50DurationMs": 252,
+      "p95DurationMs": 505,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 1,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "fn-multipaso",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 505
+        },
+        {
+          "caseId": "fn-parcial",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 433
+        },
+        {
+          "caseId": "fn-sin-plan-pro",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 369
+        },
+        {
+          "caseId": "fn-enoent",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 154
+        },
+        {
+          "caseId": "fn-lista-librerias",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 272
+        },
+        {
+          "caseId": "fn-comparar-precios",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 151
+        },
+        {
+          "caseId": "fn-carpeta-mas-grande",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 219
+        },
+        {
+          "caseId": "fn-idioma-ingles",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 196
+        },
+        {
+          "caseId": "fn-dos-mutaciones",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 322
+        },
+        {
+          "caseId": "fn-timeout-proceso",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 216
+        },
+        {
+          "caseId": "fn-fuentes-contradictorias",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 252
+        }
+      ]
+    },
+    "question": {
+      "stageKey": "question",
+      "totalRuns": 8,
+      "passedRuns": 7,
+      "passRate": 0.875,
+      "passAllRate": 0.875,
+      "avgDurationMs": 263,
+      "p50DurationMs": 251,
+      "p95DurationMs": 314,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "qs-borrar-viejos",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 274
+        },
+        {
+          "caseId": "qs-un-dato-bloqueante",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 236
+        },
+        {
+          "caseId": "qs-nombre-con-guion-bajo",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 314
+        },
+        {
+          "caseId": "qs-opciones-cerradas",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 291
+        },
+        {
+          "caseId": "qs-sin-jerga-interna",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 228
+        },
+        {
+          "caseId": "qs-ingles",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 251
+        },
+        {
+          "caseId": "qs-hora-backup",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 211
+        },
+        {
+          "caseId": "qs-confirmar-borrado",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 302
+        }
+      ]
+    }
+  }
+}

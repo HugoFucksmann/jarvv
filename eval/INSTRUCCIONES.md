@@ -1,4 +1,4 @@
-# Guía de Uso del Framework de Evaluación (`eval/prompts`)
+# Guía de Uso del Framework de Evaluación (`eval`)
 
 Documentación y referencia de comandos para ejecutar el nuevo framework de evaluación de prompts y modelos (generativos y de decisión).
 
@@ -9,7 +9,7 @@ Documentación y referencia de comandos para ejecutar el nuevo framework de eval
 El punto de entrada unificado es:
 
 ```bash
-npx tsx eval/prompts/cli.ts [flags]
+npx tsx eval/cli.ts [flags]
 ```
 
 Atajos de `package.json`: `npm run eval -- [flags]` (equivale a lo anterior) y `npm run eval:smoke` (`smoke` con el mock en `--dry-run`, sin modelos).
@@ -25,13 +25,15 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 ### Exploración y Modo Rápido
 | Flag | Tipo | Descripción |
 |---|---|---|
-| `--list` | Booleano | Muestra las etapas registradas, variantes disponibles en `eval/prompts/variants/` y datasets por defecto, finalizando inmediatamente. |
+| `--list` | Booleano | Muestra las etapas registradas, variantes disponibles en `eval/variants/` y datasets por defecto, finalizando inmediatamente. |
+| `--menu` | Booleano | — | Asistente interactivo: elige modo (`--d-model`, `--llm-model` o `--model`), modelos, datasets, variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
+| `--help` | Booleano | — | Resumen breve de uso. |
 | `--dry-run` | Booleano | Carga la configuración, datasets y variantes pero no invoca a los modelos ni evalúa. |
 
 ### Datasets y Filtros
 | Flag | Tipo / Formato | Default | Descripción |
 |---|---|---|---|
-| `--dataset` | CSV de rutas / glob / carpetas | `eval/prompts/datasets/` | Archivos `.jsonl`, directorios o globs a evaluar (ej: `--dataset=eval/prompts/datasets/smoke.jsonl`). |
+| `--dataset` | CSV de rutas / glob / carpetas | `eval/datasets/` | Archivos `.jsonl`, directorios o globs a evaluar. Basta el nombre: `--dataset=smoke` (o `smoke.jsonl`, o `decision_*`) se busca en `eval/datasets/`; una ruta que existe se respeta tal cual. |
 | `--stages` | CSV de etapas | *(todas)* | Filtra por etapas específicas (válidas: `plan`, `arguments`, `final`, `question`, `route`, `tool_choice`, `args_review`, `result_verification`). |
 | `--tags` | CSV de etiquetas | *(ninguno)* | Evalúa solo casos que contengan los tags especificados. |
 | `--ids` | CSV de IDs | *(ninguno)* | Evalúa solo casos con los IDs exactos indicados. |
@@ -41,8 +43,9 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 ### Variantes y Baseline (Pruebas A/B)
 | Flag | Tipo / Formato | Default | Descripción |
 |---|---|---|---|
-| `--variant` | CSV de variantes | `prod` | Nombres de variantes en `eval/prompts/variants/`. Permite composición con `+` (ej: `--variant=prod,route_example` o `--variant=varA+varB`). `prod` siempre se incluye como baseline de comparación. Con composición (`prod+x`) se agrega igualmente `prod` como spec propia. |
+| `--variant` | CSV de variantes | `prod` | Nombres de variantes en `eval/variants/`. Permite composición con `+` (ej: `--variant=prod,route_example` o `--variant=varA+varB`). `prod` siempre se incluye como baseline de comparación. Con composición (`prod+x`) se agrega igualmente `prod` como spec propia. |
 | `--baseline` | String | `prod` | Variante tomada como base para la comparación de métricas (delta/diff). Debe coincidir exactamente con una de las specs de `--variant`; si no, error de configuración. |
+| `--no-baseline` | Booleano | — | No agrega `prod` a las variantes: corre solo las que indiques en `--variant` (obligatorio). La baseline pasa a ser la primera variante, o la de `--baseline` si la pasas. No hay deltas contra `prod`; con dos o más variantes, se comparan contra la primera. Ejemplo: `--variant=jarvis_alt_v2 --no-baseline`. |
 
 ### Modelos y Conexión (Generativos y Decisión)
 | Flag | Tipo / Opciones | Default | Descripción |
@@ -94,7 +97,7 @@ Con más de un elemento en la lista, la misma variante y el mismo dataset se cor
 ## 3. Estructura de Salida (`results`)
 
 Las corridas se almacenan organizadas por modelo y timestamp en:
-`eval/prompts/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/`
+`eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/`
 
 `<modelo>` es el modelo generativo, o el de decisión con `--d-model`; con varios los nombra a todos separados por `+` (`modA+modB`). Con varias configuraciones de `--model` cada una figura como `<llm>~<decisión>`.
 
@@ -104,7 +107,7 @@ Dentro del directorio se genera:
 - `<variante>__<dataset>/` (con varios modelos: `<variante>__<dataset>__gen-<modelo>` o `__dec-<modelo>`, una por modelo):
   - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens). En las decisiones, `questions` trae una entrada por cada pregunta del request (ver "Decisiones con varias preguntas").
   - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; la CLI avisa cuántos fueron. La accuracy cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
-  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/prompts/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`.
+  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`.
 - `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante: passRate agregado, Δ vs baseline, regresiones, mejoras, fallas de cliente, p50), resumen por etapa, deltas, regresiones, mejoras y matrices de confusión. Con varios modelos agrega la sección **Comparación entre Modelos** (tabla global y por etapa con deltas contra la referencia, accuracy por pregunta y casos donde los modelos discrepan) y la tabla por variante trae una fila por modelo. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. Todo se imprime también en consola.
 - `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `modelComparisons`, `warnings`).
 
@@ -160,43 +163,43 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 
 ### Listar etapas y variantes disponibles
 ```bash
-npx tsx eval/prompts/cli.ts --list
+npx tsx eval/cli.ts --list
 ```
 
 ### Validar casos y graders con el oráculo (sin servidor/GPU)
 ```bash
-npx tsx eval/prompts/cli.ts --client=oracle --dataset=eval/prompts/datasets/smoke.jsonl
+npx tsx eval/cli.ts --client=oracle --dataset=eval/datasets/smoke.jsonl
 ```
 Esperado: 100 %. Cualquier falla indica un caso o grader mal escrito.
 
 ### Ejecución de humo con mock (sin requerir servidor/GPU)
 > Nota: el mock devuelve respuestas genéricas (primera opción, `"Mock response."`), por lo que `smoke-args`, `smoke-final` y `smoke-question` fallan con él (5/9 runs en `smoke.jsonl`; 0/10 en `decision_discriminating.jsonl`, donde ninguna respuesta correcta es la primera opción). Sirve para probar la maquinaria, no para validar prompts.
 ```bash
-npx tsx eval/prompts/cli.ts --client=mock --dataset=eval/prompts/datasets/smoke.jsonl
+npx tsx eval/cli.ts --client=mock --dataset=eval/datasets/smoke.jsonl
 ```
 
 ### Evaluar etapa específica (ej: solo `plan`) con modelo real
 ```bash
-npx tsx eval/prompts/cli.ts --stages=plan --dataset=eval/prompts/datasets/smoke.jsonl --llm-model=qwen3.5:4b
+npx tsx eval/cli.ts --stages=plan --dataset=eval/datasets/smoke.jsonl --llm-model=qwen3.5:4b
 ```
 
 ### Comparar una variante contra producción (A/B testing)
 ```bash
-npx tsx eval/prompts/cli.ts --variant=prod,route_example --stages=route --dataset=eval/prompts/datasets/smoke.jsonl
+npx tsx eval/cli.ts --variant=prod,route_example --stages=route --dataset=eval/datasets/smoke.jsonl
 ```
 
 ### Comparar impacto de Thinking (`both` = on y off)
 ```bash
-npx tsx eval/prompts/cli.ts --stages=final --thinking=both --limit=10
+npx tsx eval/cli.ts --stages=final --thinking=both --limit=10
 ```
 
 ### Corrida en paralelo con repeticiones para verificar consistencia
 ```bash
-npx tsx eval/prompts/cli.ts --concurrency=4 --repeat=3 --label=consistency_check
+npx tsx eval/cli.ts --concurrency=4 --repeat=3 --label=consistency_check
 ```
 
 ### Verificación de umbral para CI/CD
 ```bash
-npx tsx eval/prompts/cli.ts --dataset=eval/prompts/datasets/smoke.jsonl --min-pass-rate=0.90
+npx tsx eval/cli.ts --dataset=eval/datasets/smoke.jsonl --min-pass-rate=0.90
 ```
 

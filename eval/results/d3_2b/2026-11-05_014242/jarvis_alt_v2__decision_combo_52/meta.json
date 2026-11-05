@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "runId": "73251fc21b565ffd",
+  "timestamp": "2026-11-05T04:42:42.146Z",
+  "model": null,
+  "decisionModel": "d3:2b",
+  "scope": "decision",
+  "url": "http://127.0.0.1:11434",
+  "decisionUrl": "http://127.0.0.1:11434",
+  "variantChain": [
+    "jarvis_alt_v2"
+  ],
+  "variantHash": "2578a43cf4649979",
+  "datasetPath": "eval/datasets/decision_combo_52.jsonl",
+  "datasetHash": "0109f4d079559951",
+  "stages": [
+    "route",
+    "tool_choice",
+    "args_review",
+    "result_verification"
+  ],
+  "repeat": 1,
+  "gitCommit": "df5c925",
+  "gitDirty": true,
+  "params": {
+    "concurrency": 1,
+    "thinking": "auto",
+    "client": "oracle",
+    "includeShortcut": false
+  }
+}
