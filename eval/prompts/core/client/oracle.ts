@@ -54,14 +54,17 @@ function targetChoice(stage: string | undefined, expect: Rec, options: string[])
 export function oracleDecisionResponder(_prepared: PreparedRequest, req: DecisionRequest, ctx?: DecisionCallContext): string {
   const expect = rec(ctx?.expect);
   const answers: Record<string, unknown> = {};
+  const extra = rec(expect.answers);
   for (const [key, q] of Object.entries(req.questions)) {
+    // Pregunta adicional con respuesta esperada explícita (`expect.answers`): se responde eso.
+    const ex = rec(extra[key]);
     if (q.type === "noul") {
-      const want = key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
+      const want = typeof ex.yes === "boolean" ? ex.yes : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
       answers[key] = { noul: want === false ? MISS : HIT };
       continue;
     }
     const options = Object.keys(q.criteria);
-    const t = targetChoice(ctx?.stage, expect, options);
+    const t = typeof ex.choice === "string" ? ex.choice : targetChoice(ctx?.stage, expect, options);
     const pick = t !== undefined && options.includes(t) ? t : options[0];
     const probabilities: Record<string, number> = {};
     for (const o of options) probabilities[o] = o === pick ? HIT : MISS / Math.max(1, options.length - 1);

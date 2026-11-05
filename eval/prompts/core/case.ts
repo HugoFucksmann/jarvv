@@ -96,19 +96,19 @@ interface ExpectSpec {
 
 const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
   route: {
-    keys: { expectedAction: "string", expectedRoute: "string", minProbability: "number" },
+    keys: { expectedAction: "string", expectedRoute: "string", minProbability: "number", answers: "object" },
     required: ["expectedAction"],
   },
   tool_choice: {
-    keys: { expectedTool: "string", expectedAction: "string", minProbability: "number" },
+    keys: { expectedTool: "string", expectedAction: "string", minProbability: "number", answers: "object" },
     atLeastOne: ["expectedTool", "expectedAction"],
   },
   args_review: {
-    keys: { expectedReview: "string", minProbability: "number" },
+    keys: { expectedReview: "string", minProbability: "number", answers: "object" },
     required: ["expectedReview"],
   },
   result_verification: {
-    keys: { expectedOk: "boolean", expectedCumple: "boolean", minOkProb: "number", minCumpleProb: "number" },
+    keys: { expectedOk: "boolean", expectedCumple: "boolean", minOkProb: "number", minCumpleProb: "number", answers: "object" },
     required: ["expectedOk", "expectedCumple"],
   },
   plan: {
@@ -152,8 +152,59 @@ function matchesKind(v: unknown, kind: ExpectKind): boolean {
   }
 }
 
+/**
+ * `expect.answers`: respuesta esperada de preguntas adicionales, por clave. Una pregunta que el request no trae
+ * se acepta (puede agregarla una variante); si la trae, el tipo y la opción tienen que ser coherentes.
+ */
+function validateAnswers(answers: unknown, request: unknown, errs: string[]): void {
+  if (answers === undefined) return;
+  if (!isObj(answers)) return; // el tipo ya lo reportó validateExpect
+  const keys = Object.keys(answers);
+  if (keys.length === 0) {
+    errs.push("expect.answers no puede ser un objeto vacío (no generaría ningún check).");
+    return;
+  }
+  const questions = isObj(request) && isObj(request.questions) ? request.questions : {};
+  for (const key of keys) {
+    const at = `expect.answers.${key}`;
+    const a = answers[key];
+    if (!isObj(a)) {
+      errs.push(`${at} debe ser un objeto con 'choice' o 'yes'.`);
+      continue;
+    }
+    for (const k of Object.keys(a)) {
+      if (!["choice", "yes", "minProbability"].includes(k)) errs.push(`${at}.${k} no es una clave válida (válidas: choice, yes, minProbability).`);
+    }
+    const hasChoice = a.choice !== undefined;
+    const hasYes = a.yes !== undefined;
+    if (hasChoice === hasYes) {
+      errs.push(`${at} necesita exactamente una de 'choice' (pregunta choice) o 'yes' (pregunta noul).`);
+      continue;
+    }
+    if (hasChoice && !isNonEmptyString(a.choice)) errs.push(`${at}.choice debe ser un string no vacío.`);
+    if (hasYes && typeof a.yes !== "boolean") errs.push(`${at}.yes debe ser booleano.`);
+    if (a.minProbability !== undefined) {
+      if (typeof a.minProbability !== "number" || !Number.isFinite(a.minProbability) || a.minProbability < 0 || a.minProbability > 1) {
+        errs.push(`${at}.minProbability debe ser un número entre 0 y 1.`);
+      } else if (a.yes === false) {
+        errs.push(`${at}.minProbability contradice yes=false (la probabilidad medida es la de 'sí').`);
+      }
+    }
+    const q = questions[key];
+    if (!isObj(q)) continue;
+    if (q.type === "choice") {
+      if (!hasChoice) errs.push(`${at}: la pregunta '${key}' es choice; usá 'choice', no 'yes'.`);
+      else if (isNonEmptyString(a.choice) && isObj(q.criteria) && !Object.hasOwn(q.criteria, a.choice)) {
+        errs.push(`${at}.choice '${a.choice}' no está en las opciones de la pregunta (${Object.keys(q.criteria).join(", ")}).`);
+      }
+    } else if (q.type === "noul" && !hasYes) {
+      errs.push(`${at}: la pregunta '${key}' es noul; usá 'yes', no 'choice'.`);
+    }
+  }
+}
+
 /** Lista cerrada de claves: un typo (`expectedRoutes`) o un `expect` sin checks se rechaza al cargar. */
-function validateExpect(stage: StageName, expectObj: Record<string, unknown>, errs: string[]): void {
+function validateExpect(stage: StageName, expectObj: Record<string, unknown>, errs: string[], request?: unknown): void {
   const spec = EXPECT_SPECS[stage];
   for (const key of Object.keys(expectObj)) {
     if (!(key in spec.keys)) {
@@ -223,6 +274,7 @@ function validateExpect(stage: StageName, expectObj: Record<string, unknown>, er
       errs.push("expect.minCumpleProb contradice expectedCumple=false (la probabilidad medida es la de 'sí').");
     }
   }
+  validateAnswers(expectObj.answers, request, errs);
   // Coherencias entre claves.
   if (stage === "route" && expectObj.expectedRoute !== undefined && expectObj.expectedAction !== "route") {
     errs.push("expect.expectedRoute solo aplica con expectedAction 'route'.");
@@ -306,7 +358,7 @@ export function validateCase(raw: unknown): CaseValidation {
   }
 
   if (!isObj(raw.expect)) errs.push("expect ausente o no es un objeto.");
-  else if (stage) validateExpect(stage, raw.expect, errs);
+  else if (stage) validateExpect(stage, raw.expect, errs, raw.request);
 
   if (raw.meta !== undefined) validateMeta(raw.meta, errs);
 

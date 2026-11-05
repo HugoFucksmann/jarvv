@@ -7,10 +7,17 @@
  */
 
 import type { StageName, ThinkingMode } from "./types.ts";
+import { DECISION_STAGES, GENERATIVE_STAGES } from "./case.ts";
 import { allStageNames } from "./stages/index.ts";
 import { parseVariantSpecs } from "./variants/load.ts";
 
 // ───────────────────────── Tipos ─────────────────────────
+
+/** Configuración completa del modo común: un modelo generativo y uno de decisión. */
+export interface ModelPair {
+  model: string;
+  decisionModel: string;
+}
 
 export interface EvalConfig {
   // Datasets
@@ -30,13 +37,24 @@ export interface EvalConfig {
   repeat: number;
   concurrency: number;
 
-  // Modelos generativos
+  /**
+   * Qué flag de modelo se usó (son excluyentes): `--model` o ninguno → "all" (todas las etapas, un modelo generativo
+   * y uno de decisión por configuración), `--llm-model` → "generative", `--d-model` → "decision".
+   */
+  modelScope: "all" | "generative" | "decision";
+
+  /** Modo "all": configuraciones (generativo + decisión) a correr; más de una = comparación entre configuraciones. */
+  pairs: ModelPair[];
+
+  // Modelos generativos. `model` es el primero de `models` (en modo "all", el de la primera configuración).
   model: string;
+  models: string[];
   url: string;
 
-  // Modelos de decisión
+  // Modelos de decisión. `decisionModel` es el primero de `decisionModels` (en modo "all", el de la primera configuración).
   decisionUrl: string;
   decisionModel: string;
+  decisionModels: string[];
 
   // Parámetros
   thinking: ThinkingMode;
@@ -82,10 +100,13 @@ export function resolveDecisionTimeout(cfg: EvalConfig): number {
 
 const KNOWN_FLAGS = new Set([
   "dataset", "variant", "baseline", "stages", "tags", "ids", "limit",
-  "repeat", "concurrency", "model", "url", "decision-url",
-  "decision-model", "thinking", "timeout", "client",
+  "repeat", "concurrency", "model", "llm-model", "url", "decision-url",
+  "d-model", "thinking", "timeout", "client",
   "dry-run", "list", "label", "min-pass-rate", "include-shortcut",
 ]);
+
+/** Flags que cambiaron de nombre: el error de "flag desconocido" indica el nuevo. */
+const RENAMED_FLAGS: Record<string, string> = { "decision-model": "d-model" };
 
 // ───────────────────────── Parseo ─────────────────────────
 
@@ -100,7 +121,8 @@ function parseArgs(argv: string[]): Map<string, string | true> {
     if (result.has(key)) throw new Error(`Flag repetido: '--${key}'.`);
     const value = eq === -1 ? true : arg.slice(eq + 1);
     if (!KNOWN_FLAGS.has(key)) {
-      throw new Error(`Flag desconocido: '--${key}'.`);
+      const renamed = RENAMED_FLAGS[key];
+      throw new Error(`Flag desconocido: '--${key}'.${renamed ? ` Ahora se llama '--${renamed}'.` : ""}`);
     }
     result.set(key, value);
   }
@@ -141,6 +163,35 @@ function float(flags: Map<string, string | true>, key: string): number | undefin
   // Solo decimales simples (0.5, -1, 2): `0x10`, `1e3` o `.5` no se aceptan.
   if (!/^-?\d+(\.\d+)?$/.test(v.trim())) throw new Error(`--${key} debe ser un número decimal simple (ej. 0.5), recibido: '${v}'.`);
   return Number(v);
+}
+
+/** Lista CSV de modelos sin repetidos: dos veces el mismo modelo mezclaría sus resultados en una sola carpeta. */
+function modelList(flags: Map<string, string | true>, key: string, fallback: string): string[] {
+  const list = csvList(flags, key);
+  if (list.length === 0) return [fallback];
+  const dup = list.find((m, i) => list.indexOf(m) !== i);
+  if (dup !== undefined) throw new Error(`--${key}: el modelo '${dup}' está repetido.`);
+  return list;
+}
+
+/**
+ * `--model=<llm>[+<decisión>][,…]`: una configuración por elemento. Un lado vacío usa el default
+ * (`--model=qwen3.5:4b` = ese generativo con el de decisión por defecto; `--model=+d3:2b` al revés).
+ */
+function parsePairs(raw: string): ModelPair[] {
+  const pairs: ModelPair[] = [];
+  for (const item of raw.split(",").map((x) => x.trim()).filter(Boolean)) {
+    const parts = item.split("+");
+    if (parts.length > 2) throw new Error(`--model: '${item}' tiene más de un '+' (formato: <generativo>+<decisión>).`);
+    const model = parts[0].trim() || DEFAULT_MODEL;
+    const decisionModel = (parts[1] ?? "").trim() || DEFAULT_DECISION_MODEL;
+    if (pairs.some((p) => p.model === model && p.decisionModel === decisionModel)) {
+      throw new Error(`--model: la configuración '${model}+${decisionModel}' está repetida.`);
+    }
+    pairs.push({ model, decisionModel });
+  }
+  if (pairs.length === 0) throw new Error(`--model no contiene ningún valor (recibido: '${raw}').`);
+  return pairs;
 }
 
 function csvList(flags: Map<string, string | true>, key: string): string[] {
@@ -195,6 +246,34 @@ export function parseConfig(argv: string[]): EvalConfig {
     throw new Error(`--min-pass-rate debe estar entre 0 y 1 (ej. 0.95), recibido: '${minPassRate}'.`);
   }
 
+  // `--model` (todas las etapas), `--llm-model` (solo generativas) y `--d-model` (solo decisión) son excluyentes.
+  const modelFlags = ["model", "llm-model", "d-model"].filter((k) => flags.has(k));
+  if (modelFlags.length > 1) {
+    throw new Error(
+      `${modelFlags.map((k) => `--${k}`).join(" y ")} son excluyentes: --model corre todas las etapas, ` +
+        "--llm-model solo las generativas y --d-model solo las de decisión.",
+    );
+  }
+  const modelScope: EvalConfig["modelScope"] = flags.has("llm-model") ? "generative" : flags.has("d-model") ? "decision" : "all";
+  const modelRaw = str(flags, "model");
+  const pairs: ModelPair[] =
+    modelScope === "all" ? (modelRaw !== undefined ? parsePairs(modelRaw) : [{ model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL }]) : [];
+  const models = modelScope === "all" ? pairs.map((p) => p.model) : modelList(flags, "llm-model", DEFAULT_MODEL);
+  const decisionModels = modelScope === "all" ? pairs.map((p) => p.decisionModel) : modelList(flags, "d-model", DEFAULT_DECISION_MODEL);
+
+  // Con un modelo elegido, las etapas del otro tipo se apagan. Un `--stages` explícito del otro tipo es contradictorio.
+  if (modelScope !== "all") {
+    const flag = modelScope === "generative" ? "--llm-model" : "--d-model";
+    const mine: readonly StageName[] = modelScope === "generative" ? GENERATIVE_STAGES : DECISION_STAGES;
+    const other = stages.filter((s) => !mine.includes(s));
+    if (other.length > 0) {
+      throw new Error(
+        `--stages: ${other.join(", ")} no corre${other.length > 1 ? "n" : ""} con ${flag} (solo etapas ${modelScope === "generative" ? "generativas" : "de decisión"}: ${mine.join(", ")}).`,
+      );
+    }
+    if (stages.length === 0) stages.push(...mine);
+  }
+
   const datasetList = csvList(flags, "dataset");
   const datasetSpecs = datasetList.length > 0 ? datasetList : [DEFAULT_DATASETS];
 
@@ -208,10 +287,14 @@ export function parseConfig(argv: string[]): EvalConfig {
     limit: int(flags, "limit", 1),
     repeat: int(flags, "repeat", 1) ?? 1,
     concurrency: int(flags, "concurrency", 1) ?? 1,
-    model: str(flags, "model") ?? DEFAULT_MODEL,
+    modelScope,
+    pairs,
+    model: models[0],
+    models,
     url: str(flags, "url") ?? DEFAULT_URL,
     decisionUrl,
-    decisionModel: str(flags, "decision-model") ?? DEFAULT_DECISION_MODEL,
+    decisionModel: decisionModels[0],
+    decisionModels,
     thinking,
     timeoutMs: int(flags, "timeout", 1),
     client: clientRaw as "real" | "mock" | "oracle",

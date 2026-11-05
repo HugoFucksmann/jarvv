@@ -67,11 +67,24 @@ export interface FrozenCase {
 
 // ───────────────────────── 5.2 Expect y Output por etapa ─────────────────────────
 
+/**
+ * Respuesta esperada de una pregunta **adicional** de una decisión (la define el caso o la agrega una variante).
+ * `choice` para preguntas `choice`; `yes` para `noul`. Se evalúa por clave de pregunta, sin pisar las demás.
+ */
+export interface AnswerExpect {
+  choice?: string;
+  yes?: boolean;
+  /** `choice`: probabilidad de la opción esperada. `noul`: probabilidad de "sí" (solo con `yes: true`). */
+  minProbability?: number;
+}
+export type AnswerExpects = Record<string, AnswerExpect>;
+
 // route
 export interface RouteExpect {
   expectedAction: "route" | "fin" | "ask_user";
   expectedRoute?: string;
   minProbability?: number;
+  answers?: AnswerExpects;
 }
 export interface RouteOutput {
   action: string;
@@ -84,6 +97,7 @@ export interface ToolChoiceExpect {
   expectedTool?: string;
   expectedAction?: "tool" | "ask_user";
   minProbability?: number;
+  answers?: AnswerExpects;
 }
 export interface ToolChoiceOutput {
   selected: string;
@@ -94,6 +108,7 @@ export interface ToolChoiceOutput {
 export interface ArgsReviewExpect {
   expectedReview: "approved" | "args_invalid" | "tool_rejected" | "info_missing";
   minProbability?: number;
+  answers?: AnswerExpects;
 }
 export interface ArgsReviewOutput {
   review: string;
@@ -106,6 +121,7 @@ export interface ResultVerificationExpect {
   expectedCumple: boolean;
   minOkProb?: number;
   minCumpleProb?: number;
+  answers?: AnswerExpects;
 }
 export interface ResultVerificationOutput {
   ok: boolean;
@@ -222,6 +238,29 @@ export interface Variant {
 /** Valores de `--thinking` (ver 7.5). */
 export type ThinkingMode = "auto" | "prod" | "on" | "off" | "both";
 
+/**
+ * Resultado de UNA pregunta de una decisión. Se registra una entrada por cada pregunta enviada, indexada por su
+ * clave: las respuestas y métricas de varias preguntas en el mismo request conviven sin pisarse.
+ */
+export interface QuestionResult {
+  type: "choice" | "noul";
+  /** main = alimenta la salida canónica de la etapa; extra = pregunta adicional (caso o variante). */
+  role: "main" | "extra";
+  /** `choice`: opción elegida (canónica si es la principal y hay `labelMap`). `noul`: "yes" o "no" (> 0.5). null = sin respuesta válida. */
+  answer: string | null;
+  /** Opción tal como la respondió el modelo, solo si difiere de `answer` (por `labelMap`). */
+  rawAnswer?: string;
+  /** Valor `noul` en [0,1] (probabilidad de "sí"). */
+  noul?: number;
+  probabilities?: Record<string, number>;
+  /** Respuesta esperada ("yes"/"no" en `noul`); null si el caso no fija expectativa para esta pregunta. */
+  expected: string | null;
+  /** null = sin expectativa. Sin respuesta válida con expectativa cuenta como false. */
+  correct: boolean | null;
+  /** Por qué no hay respuesta válida. Afecta solo a esta pregunta. */
+  error?: string;
+}
+
 export interface RunRecord {
   schemaVersion: typeof SCHEMA_VERSION;
   dataset: string;
@@ -248,6 +287,8 @@ export interface RunRecord {
   expectedLabel?: string | null;
   probabilities?: Record<string, number> | null;
   rawScore?: number | null;
+  /** Decisión: una entrada por pregunta enviada, por clave. */
+  questions?: Record<string, QuestionResult>;
   requestParams?: {
     temperature?: number;
     thinking?: boolean;
@@ -276,8 +317,12 @@ export interface RunMeta {
   schemaVersion: typeof SCHEMA_VERSION;
   runId: string;
   timestamp: string;
-  model: string;
-  decisionModel: string;
+  /** Modelo generativo; null si la celda no corre etapas generativas. */
+  model: string | null;
+  /** Modelo de decisión; null si la celda no corre etapas de decisión. */
+  decisionModel: string | null;
+  /** all = un solo target con ambos modelos; con varios modelos cada celda cubre un solo tipo de etapa. */
+  scope: "all" | "generative" | "decision";
   url: string;
   decisionUrl: string;
   variantChain: string[];
@@ -339,6 +384,40 @@ export interface CaseScoreSummary {
   avgDurationMs: number;
 }
 
+/** Métricas de una clase de una pregunta, una-contra-resto. FP = se predijo la clase y no era; FN = era y no se predijo. */
+export interface ClassScore {
+  tp: number;
+  fp: number;
+  fn: number;
+  precision: number | null;
+  recall: number | null;
+}
+
+export interface QuestionScore {
+  /** Runs con expectativa para esta pregunta (denominador de accuracy). */
+  graded: number;
+  correct: number;
+  accuracy: number;
+  /** Runs graduados sin respuesta válida (cuentan como error). */
+  unanswered: number;
+  role: "main" | "extra";
+  /** esperado → predicho. */
+  confusionMatrix: Record<string, Record<string, number>>;
+  /** Por clase. En `noul` la clase positiva es "yes". */
+  perClass: Record<string, ClassScore>;
+}
+
+/** Cruce de dos preguntas del mismo request: en cuántos runs acertó cada una. */
+export interface QuestionCross {
+  a: string;
+  b: string;
+  runs: number;
+  bothCorrect: number;
+  onlyA: number;
+  onlyB: number;
+  bothWrong: number;
+}
+
 export interface StageScoreSummary {
   stageKey: string;
   totalRuns: number;
@@ -351,6 +430,9 @@ export interface StageScoreSummary {
   p95DurationMs: number;
   accuracy?: number;
   confusionMatrix?: Record<string, Record<string, number>>;
+  /** Solo en etapas con 2 o más preguntas evaluadas: métricas por pregunta y cruces entre ellas. */
+  questions?: Record<string, QuestionScore>;
+  questionCross?: QuestionCross[];
   /** Runs canónicos cuya llamada al cliente falló (red/timeout/HTTP). Cuentan como falla en passRate pero no en latencias. */
   clientFailedRuns?: number;
   /** Runs del bucket raw (excluidos del passRate canónico). */

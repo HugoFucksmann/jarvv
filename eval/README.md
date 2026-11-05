@@ -36,6 +36,8 @@ npm run eval -- --dataset=eval/prompts/datasets/smoke.jsonl
 | `eval:smoke` | Imprime los requests que se enviarían (`--dry-run`) | No |
 | `--client=oracle` | Responde lo que pide cada caso. **Debe dar 100 %** | No |
 | (sin `--client`) | Corrida real contra `qwen3.5:4b` y `d3:2b` | Sí |
+| `--model=a+x` | Todas las etapas con ese modelo generativo (`a`) y de decisión (`x`) | Sí |
+| `--llm-model=a,b` / `--d-model=x,y` | Corre solo las etapas generativas / de decisión y compara los modelos | Sí |
 
 Por defecto usa Ollama en `http://127.0.0.1:11434` con `qwen3.5:4b` para las etapas generativas y `d3:2b` para las de decisión.
 
@@ -90,6 +92,24 @@ El oráculo solo entiende la variante `prod` (no interpreta `labelMap` ni `answe
 
 ---
 
+## Comparar modelos
+
+Hay tres flags de modelo y se usa **uno solo** por corrida (combinarlos es error):
+
+| Flag | Corre | Ejemplo |
+|---|---|---|
+| `--model=<llm>[+<decisión>]` | todas las etapas (modo común) | `--model=qwen3.5:4b+d3:2b` |
+| `--llm-model=a[,b…]` | solo las etapas generativas | `--llm-model=qwen3.5:4b,qwen3:8b` |
+| `--d-model=x[,y…]` | solo las etapas de decisión | `--d-model=d3:2b,lfm3:1.7b` |
+
+Sin ninguno se usan los defaults (`qwen3.5:4b` + `d3:2b`). Todos aceptan varios elementos separados por coma: la misma variante y dataset corren contra cada uno y `comparison.md` los compara entre sí, con deltas contra el primero. Con `--model=a+x,b+y` se comparan configuraciones completas.
+
+```bash
+npm run eval -- --d-model=d3:2b,lfm3:1.7b --dataset=eval/prompts/datasets/decision_discriminating.jsonl
+``` Detalle en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md#comparar-modelos).
+
+---
+
 ## Escribir un caso
 
 Un caso es una línea de un `.jsonl` en `eval/prompts/datasets/`. Las líneas vacías y las que empiezan con `#` se ignoran.
@@ -111,6 +131,8 @@ Un caso es una línea de un `.jsonl` en `eval/prompts/datasets/`. Las líneas va
 | `tags`, `description` | Opcionales. Los tags sirven con `--tags=` |
 | `isRaw` | Caso adversarial: se reporta aparte, fuera del pass rate canónico |
 | `meta.toolSchema` | **Obligatorio en `arguments`**: schema real de la herramienta, para validar como prod |
+
+Un request de decisión puede llevar varias preguntas y `expect.answers` fija la respuesta esperada de las adicionales. Cada pregunta se registra y evalúa por separado, con accuracy, FP/FN por clase y cruces entre preguntas en `comparison.md` (ver [`INSTRUCCIONES.md`](./INSTRUCCIONES.md#decisiones-con-varias-preguntas)).
 
 Los casos de decisión con una sola opción (donde producción omitiría la llamada) se etiquetan solos como `prod_shortcut` y quedan fuera del pass rate salvo que uses `--include-shortcut`.
 
@@ -221,6 +243,8 @@ eval/
         ├── graders/              checks por etapa
         ├── client/               real, mock y oracle
         ├── variants/             carga y aplicación de variantes
+        ├── targets.ts            reparto de modelos en pasadas (comparación entre modelos)
+        ├── questions.ts          preguntas múltiples en decisiones: parseo y checks por pregunta
         ├── scoring.ts            métricas agregadas
         ├── report.ts             comparison.md y resumen en consola
         └── contract.ts           helpers de producción copiados (parseo, validación, límites)

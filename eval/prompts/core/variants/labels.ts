@@ -37,7 +37,7 @@ export class DecisionParseError extends Error {
 
 // ───────────────────────── Defaults de answerMap (sección 5.3) ─────────────────────────
 
-const DEFAULT_ANSWER_MAP: Record<string, Record<string, string | { question: string; trueOption: string }>> = {
+export const DEFAULT_ANSWER_MAP: Record<string, Record<string, string | { question: string; trueOption: string }>> = {
   route: { choice: "route" },
   tool_choice: { choice: "selected_tool" },
   args_review: { choice: "review" },
@@ -46,13 +46,13 @@ const DEFAULT_ANSWER_MAP: Record<string, Record<string, string | { question: str
 
 // ───────────────────────── Parseo de la respuesta cruda ─────────────────────────
 
-interface ParsedAnswer {
+export interface ParsedAnswer {
   choice?: string;
   probabilities?: Record<string, number>;
   noul?: number;
 }
 
-function parseAnswers(rawOutput: string): Record<string, ParsedAnswer> {
+export function parseAnswers(rawOutput: string): Record<string, ParsedAnswer> {
   let data: unknown;
   try {
     data = JSON.parse(rawOutput);
@@ -109,7 +109,7 @@ function extractNoul(answers: Record<string, ParsedAnswer>, questionKey: string)
 }
 
 /** Clave de la pregunta `choice` según el answerMap. Lanza DecisionParseError (no TypeError) si falta. */
-function choiceQuestionKey(
+export function choiceQuestionKey(
   answerMap: Record<string, string | { question: string; trueOption: string }>,
 ): string {
   const m = answerMap.choice;
@@ -120,7 +120,7 @@ function choiceQuestionKey(
 
 // ───────────────────────── Aplicación de labelMap ─────────────────────────
 
-function applyLabelMap(
+export function applyLabelMap(
   choice: string,
   probs: Record<string, number>,
   labelMap: Record<string, string> | undefined,
@@ -263,46 +263,3 @@ export function parseResultVerificationDecision(
     cumpleProbability: cumpleProb,
   };
 }
-
-/**
- * Procesa las preguntas **extra** agregadas por una variante (7.6 §8).
- * Errores de formato son solo warnings; valores válidos van a `measurements`.
- * Devuelve `{ warnings, measurements }`.
- */
-export function parseExtraQuestions(
-  rawOutput: string,
-  sentReq: DecisionRequest,
-  baseReq: DecisionRequest,
-  sv: DecisionStageVariant | undefined,
-): { warnings: string[]; measurements: Record<string, string | number> } {
-  const warnings: string[] = [];
-  const measurements: Record<string, string | number> = {};
-
-  const extraKeys = Object.keys(sentReq.questions).filter((k) => !Object.hasOwn(baseReq.questions, k));
-  if (extraKeys.length === 0) return { warnings, measurements };
-
-  let answers: Record<string, ParsedAnswer>;
-  try {
-    answers = parseAnswers(rawOutput);
-  } catch {
-    return { warnings, measurements };
-  }
-
-  for (const key of extraKeys) {
-    const q = sentReq.questions[key];
-    try {
-      if (q.type === "noul") {
-        const v = extractNoul(answers, key);
-        measurements[`extra_${key}_noul`] = v;
-      } else {
-        const { choice } = extractChoice(answers, key, (q as ChoiceQ).criteria);
-        measurements[`extra_${key}_choice`] = choice;
-      }
-    } catch (e) {
-      warnings.push(`Pregunta extra '${key}': ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-
-  return { warnings, measurements };
-}
-

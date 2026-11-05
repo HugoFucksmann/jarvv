@@ -1,0 +1,879 @@
+{
+  "baseline": "prod",
+  "variants": [
+    {
+      "variant": "prod",
+      "totalRuns": 99,
+      "passedRuns": 80,
+      "passRate": 0.8080808080808081,
+      "clientFailedRuns": 0,
+      "regressions": 0,
+      "improvements": 0,
+      "p50DurationMs": 226
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "totalRuns": 99,
+      "passedRuns": 88,
+      "passRate": 0.8888888888888888,
+      "clientFailedRuns": 0,
+      "regressions": 1,
+      "improvements": 3,
+      "p50DurationMs": 243,
+      "deltaPassRate": 0.08080808080808077
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "totalRuns": 99,
+      "passedRuns": 80,
+      "passRate": 0.8080808080808081,
+      "clientFailedRuns": 0,
+      "regressions": 3,
+      "improvements": 2,
+      "p50DurationMs": 265,
+      "deltaPassRate": 0
+    }
+  ],
+  "cells": [
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "route",
+      "totalRuns": 21,
+      "passedRuns": 18,
+      "passRate": 0.8571428571428571,
+      "passAllRate": 0.8571428571428571,
+      "p50DurationMs": 33,
+      "p95DurationMs": 392,
+      "tokens": {
+        "avgPrompt": 239,
+        "avgCompletion": 115,
+        "avgTotal": 354
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.857,
+      "confusionMatrix": {
+        "web": {
+          "web": 3
+        },
+        "locate": {
+          "locate": 6
+        },
+        "terminal": {
+          "fin": 3
+        },
+        "files": {
+          "files": 3
+        },
+        "ask_user": {
+          "ask_user": 3
+        },
+        "fin": {
+          "fin": 3
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "tool_choice",
+      "totalRuns": 12,
+      "passedRuns": 12,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 28,
+      "p95DurationMs": 33,
+      "tokens": {
+        "avgPrompt": 161,
+        "avgCompletion": 117,
+        "avgTotal": 278
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "fetch": {
+          "fetch": 3
+        },
+        "fetch_batch": {
+          "fetch_batch": 3
+        },
+        "move_file": {
+          "move_file": 3
+        },
+        "interact_with_process": {
+          "interact_with_process": 3
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "arguments",
+      "totalRuns": 9,
+      "passedRuns": 3,
+      "passRate": 0.3333333333333333,
+      "passAllRate": 0.3333333333333333,
+      "p50DurationMs": 995,
+      "p95DurationMs": 3122,
+      "tokens": {
+        "avgPrompt": 193,
+        "avgCompletion": 65,
+        "avgTotal": 258
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=on]",
+      "totalRuns": 9,
+      "passedRuns": 9,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 6221,
+      "p95DurationMs": 21462,
+      "tokens": {
+        "avgPrompt": 124,
+        "avgCompletion": 979,
+        "avgTotal": 1103
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=off]",
+      "totalRuns": 9,
+      "passedRuns": 8,
+      "passRate": 0.8888888888888888,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 373,
+      "p95DurationMs": 577,
+      "tokens": {
+        "avgPrompt": 108,
+        "avgCompletion": 30,
+        "avgTotal": 138
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "args_review",
+      "totalRuns": 9,
+      "passedRuns": 3,
+      "passRate": 0.3333333333333333,
+      "passAllRate": 0.3333333333333333,
+      "p50DurationMs": 26,
+      "p95DurationMs": 202,
+      "tokens": {
+        "avgPrompt": 135,
+        "avgCompletion": 105,
+        "avgTotal": 239
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.333,
+      "confusionMatrix": {
+        "info_missing": {
+          "info_missing": 3
+        },
+        "tool_rejected": {
+          "approved": 3
+        },
+        "args_invalid": {
+          "approved": 3
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "result_verification",
+      "totalRuns": 9,
+      "passedRuns": 6,
+      "passRate": 0.6666666666666666,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 47,
+      "p95DurationMs": 231,
+      "tokens": {
+        "avgPrompt": 96,
+        "avgCompletion": 59,
+        "avgTotal": 156
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.667,
+      "confusionMatrix": {
+        "ok=true,cumple=false": {
+          "ok=false,cumple=false": 3,
+          "ok=true,cumple=false": 3
+        },
+        "ok=false,cumple=false": {
+          "ok=false,cumple=false": 3
+        }
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "plan",
+      "totalRuns": 18,
+      "passedRuns": 18,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 3748,
+      "p95DurationMs": 5452,
+      "tokens": {
+        "avgPrompt": 435,
+        "avgCompletion": 353,
+        "avgTotal": 787
+      }
+    },
+    {
+      "variant": "prod",
+      "dataset": "agentic_30",
+      "stageKey": "question",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 402,
+      "p95DurationMs": 1385,
+      "tokens": {
+        "avgPrompt": 65,
+        "avgCompletion": 23,
+        "avgTotal": 88
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "route",
+      "totalRuns": 21,
+      "passedRuns": 21,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 37,
+      "p95DurationMs": 282,
+      "tokens": {
+        "avgPrompt": 291,
+        "avgCompletion": 116,
+        "avgTotal": 407
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "web": {
+          "web": 3
+        },
+        "locate": {
+          "locate": 6
+        },
+        "terminal": {
+          "terminal": 3
+        },
+        "files": {
+          "files": 3
+        },
+        "ask_user": {
+          "ask_user": 3
+        },
+        "fin": {
+          "fin": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "tool_choice",
+      "totalRuns": 12,
+      "passedRuns": 12,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 28,
+      "p95DurationMs": 31,
+      "tokens": {
+        "avgPrompt": 161,
+        "avgCompletion": 117,
+        "avgTotal": 278
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "fetch": {
+          "fetch": 3
+        },
+        "fetch_batch": {
+          "fetch_batch": 3
+        },
+        "move_file": {
+          "move_file": 3
+        },
+        "interact_with_process": {
+          "interact_with_process": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "arguments",
+      "totalRuns": 9,
+      "passedRuns": 6,
+      "passRate": 0.6666666666666666,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 666,
+      "p95DurationMs": 1593,
+      "tokens": {
+        "avgPrompt": 219,
+        "avgCompletion": 43,
+        "avgTotal": 262
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=on]",
+      "totalRuns": 9,
+      "passedRuns": 9,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 7961,
+      "p95DurationMs": 19194,
+      "tokens": {
+        "avgPrompt": 119,
+        "avgCompletion": 988,
+        "avgTotal": 1107
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=off]",
+      "totalRuns": 9,
+      "passedRuns": 8,
+      "passRate": 0.8888888888888888,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 391,
+      "p95DurationMs": 517,
+      "tokens": {
+        "avgPrompt": 108,
+        "avgCompletion": 31,
+        "avgTotal": 139
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "args_review",
+      "totalRuns": 9,
+      "passedRuns": 6,
+      "passRate": 0.6666666666666666,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 35,
+      "p95DurationMs": 302,
+      "tokens": {
+        "avgPrompt": 304,
+        "avgCompletion": 106,
+        "avgTotal": 409
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.667,
+      "confusionMatrix": {
+        "info_missing": {
+          "info_missing": 3
+        },
+        "tool_rejected": {
+          "tool_rejected": 3
+        },
+        "args_invalid": {
+          "approved": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "result_verification",
+      "totalRuns": 9,
+      "passedRuns": 6,
+      "passRate": 0.6666666666666666,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 64,
+      "p95DurationMs": 274,
+      "tokens": {
+        "avgPrompt": 186,
+        "avgCompletion": 59,
+        "avgTotal": 245
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.667,
+      "confusionMatrix": {
+        "ok=true,cumple=false": {
+          "ok=false,cumple=false": 3,
+          "ok=true,cumple=false": 3
+        },
+        "ok=false,cumple=false": {
+          "ok=false,cumple=false": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "plan",
+      "totalRuns": 18,
+      "passedRuns": 17,
+      "passRate": 0.9444444444444444,
+      "passAllRate": 0.8333333333333334,
+      "p50DurationMs": 3546,
+      "p95DurationMs": 5491,
+      "tokens": {
+        "avgPrompt": 435,
+        "avgCompletion": 336,
+        "avgTotal": 770
+      }
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "question",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 244,
+      "p95DurationMs": 1402,
+      "tokens": {
+        "avgPrompt": 65,
+        "avgCompletion": 23,
+        "avgTotal": 88
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "route",
+      "totalRuns": 21,
+      "passedRuns": 21,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 33,
+      "p95DurationMs": 331,
+      "tokens": {
+        "avgPrompt": 291,
+        "avgCompletion": 116,
+        "avgTotal": 407
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "web": {
+          "web": 3
+        },
+        "locate": {
+          "locate": 6
+        },
+        "terminal": {
+          "terminal": 3
+        },
+        "files": {
+          "files": 3
+        },
+        "ask_user": {
+          "ask_user": 3
+        },
+        "fin": {
+          "fin": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "tool_choice",
+      "totalRuns": 12,
+      "passedRuns": 12,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 27,
+      "p95DurationMs": 35,
+      "tokens": {
+        "avgPrompt": 161,
+        "avgCompletion": 117,
+        "avgTotal": 278
+      },
+      "tokensEstimated": true,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "fetch": {
+          "fetch": 3
+        },
+        "fetch_batch": {
+          "fetch_batch": 3
+        },
+        "move_file": {
+          "move_file": 3
+        },
+        "interact_with_process": {
+          "interact_with_process": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "arguments",
+      "totalRuns": 9,
+      "passedRuns": 4,
+      "passRate": 0.4444444444444444,
+      "passAllRate": 0,
+      "p50DurationMs": 615,
+      "p95DurationMs": 1657,
+      "tokens": {
+        "avgPrompt": 238,
+        "avgCompletion": 46,
+        "avgTotal": 283
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=on]",
+      "totalRuns": 9,
+      "passedRuns": 9,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 7597,
+      "p95DurationMs": 18012,
+      "tokens": {
+        "avgPrompt": 119,
+        "avgCompletion": 997,
+        "avgTotal": 1116
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=off]",
+      "totalRuns": 9,
+      "passedRuns": 7,
+      "passRate": 0.7777777777777778,
+      "passAllRate": 0.6666666666666666,
+      "p50DurationMs": 349,
+      "p95DurationMs": 523,
+      "tokens": {
+        "avgPrompt": 108,
+        "avgCompletion": 30,
+        "avgTotal": 138
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "args_review",
+      "totalRuns": 9,
+      "passedRuns": 3,
+      "passRate": 0.3333333333333333,
+      "passAllRate": 0.3333333333333333,
+      "p50DurationMs": 33,
+      "p95DurationMs": 265,
+      "tokens": {
+        "avgPrompt": 356,
+        "avgCompletion": 105,
+        "avgTotal": 461
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.333,
+      "confusionMatrix": {
+        "info_missing": {
+          "info_missing": 3
+        },
+        "tool_rejected": {
+          "approved": 3
+        },
+        "args_invalid": {
+          "approved": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "result_verification",
+      "totalRuns": 9,
+      "passedRuns": 3,
+      "passRate": 0.3333333333333333,
+      "passAllRate": 0.3333333333333333,
+      "p50DurationMs": 49,
+      "p95DurationMs": 491,
+      "tokens": {
+        "avgPrompt": 184,
+        "avgCompletion": 59,
+        "avgTotal": 243
+      },
+      "tokensEstimated": true,
+      "accuracy": 0.333,
+      "confusionMatrix": {
+        "ok=true,cumple=false": {
+          "ok=false,cumple=false": 3,
+          "ok=true,cumple=false": 3
+        },
+        "ok=false,cumple=false": {
+          "ok=true,cumple=false": 3
+        }
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "plan",
+      "totalRuns": 18,
+      "passedRuns": 18,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 3642,
+      "p95DurationMs": 5762,
+      "tokens": {
+        "avgPrompt": 435,
+        "avgCompletion": 356,
+        "avgTotal": 791
+      }
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "question",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "p50DurationMs": 350,
+      "p95DurationMs": 1315,
+      "tokens": {
+        "avgPrompt": 65,
+        "avgCompletion": 23,
+        "avgTotal": 88
+      }
+    }
+  ],
+  "deltas": [
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "route",
+      "deltaPassRate": 0.143,
+      "deltaP50Ms": 4,
+      "deltaAccuracy": 0.143
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "tool_choice",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 0,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "arguments",
+      "deltaPassRate": 0.333,
+      "deltaP50Ms": -329
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=on]",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 1740
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=off]",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 18
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "args_review",
+      "deltaPassRate": 0.333,
+      "deltaP50Ms": 9,
+      "deltaAccuracy": 0.334
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "result_verification",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 17,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "plan",
+      "deltaPassRate": -0.056,
+      "deltaP50Ms": -202
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "stageKey": "question",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -158
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "route",
+      "deltaPassRate": 0.143,
+      "deltaP50Ms": 0,
+      "deltaAccuracy": 0.143
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "tool_choice",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -1,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "arguments",
+      "deltaPassRate": 0.111,
+      "deltaP50Ms": -380
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=on]",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 1376
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "final[think=off]",
+      "deltaPassRate": -0.111,
+      "deltaP50Ms": -24
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "args_review",
+      "deltaPassRate": 0,
+      "deltaP50Ms": 7,
+      "deltaAccuracy": 0
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "result_verification",
+      "deltaPassRate": -0.333,
+      "deltaP50Ms": 2,
+      "deltaAccuracy": -0.334
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "plan",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -106
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "stageKey": "question",
+      "deltaPassRate": 0,
+      "deltaP50Ms": -52
+    }
+  ],
+  "regressions": [
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "caseId": "comb-plan-web-y-archivo",
+      "stageKey": "plan",
+      "baseline": "3/3",
+      "variantResult": "2/3",
+      "diff": "3/3 -> 2/3"
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "caseId": "term-args-start-process",
+      "stageKey": "arguments",
+      "baseline": "3/3",
+      "variantResult": "2/3",
+      "diff": "3/3 -> 2/3"
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "caseId": "comb-final-multipaso",
+      "stageKey": "final[think=off]",
+      "baseline": "2/3",
+      "variantResult": "1/3",
+      "diff": "2/3 -> 1/3"
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "caseId": "prob-verify-permiso-denegado",
+      "stageKey": "result_verification",
+      "baseline": "3/3",
+      "variantResult": "0/3",
+      "diff": "3/3 -> 0/3"
+    }
+  ],
+  "improvements": [
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "caseId": "fs-args-write-append",
+      "stageKey": "arguments",
+      "baseline": "0/3",
+      "variantResult": "3/3",
+      "diff": "0/3 -> 3/3"
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "caseId": "term-route-tests",
+      "stageKey": "route",
+      "baseline": "0/3",
+      "variantResult": "3/3",
+      "diff": "0/3 -> 3/3"
+    },
+    {
+      "variant": "jarvis_alt_v2",
+      "dataset": "agentic_30",
+      "caseId": "term-review-ls-en-terminal",
+      "stageKey": "args_review",
+      "baseline": "0/3",
+      "variantResult": "3/3",
+      "diff": "0/3 -> 3/3"
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "caseId": "fs-args-write-append",
+      "stageKey": "arguments",
+      "baseline": "0/3",
+      "variantResult": "2/3",
+      "diff": "0/3 -> 2/3"
+    },
+    {
+      "variant": "jarvis_alt_v3",
+      "dataset": "agentic_30",
+      "caseId": "term-route-tests",
+      "stageKey": "route",
+      "baseline": "0/3",
+      "variantResult": "3/3",
+      "diff": "0/3 -> 3/3"
+    }
+  ],
+  "warnings": []
+}

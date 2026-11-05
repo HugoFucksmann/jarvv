@@ -47,11 +47,33 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 ### Modelos y Conexión (Generativos y Decisión)
 | Flag | Tipo / Opciones | Default | Descripción |
 |---|---|---|---|
-| `--model` | String | `qwen3.5:4b` | Nombre del modelo generativo (ej: Ollama / vLLM / OpenAI compatible). |
+| `--model` | `<llm>[+<decisión>]`, CSV | `qwen3.5:4b+d3:2b` | **Modo común: todas las etapas.** Cada elemento es una configuración: modelo generativo y, tras `+`, el de decisión. Un lado vacío usa su default (`--model=modA` = `modA` + `d3:2b`; `--model=+lfm3:1.7b` = `qwen3.5:4b` + `lfm3:1.7b`). Con varios (`--model=a+x,b+y`) se comparan las configuraciones completas. Excluyente con `--llm-model` y `--d-model`. |
+| `--llm-model` | CSV de modelos | `qwen3.5:4b` | Modelo(s) generativo(s) (ej: Ollama / vLLM / OpenAI compatible). **Corre solo las etapas generativas** y apaga las de decisión. Con varios (`--llm-model=modA,modB`) se compara cada uno contra los demás: ver "Comparar modelos". Excluyente con `--model` y `--d-model`. |
 | `--url` | URL | `http://127.0.0.1:11434` | Endpoint base del servidor para modelos generativos. |
-| `--decision-model` | String | `d3:2b` | Nombre del modelo de decisión. |
+| `--d-model` | CSV de modelos | `d3:2b` | Modelo(s) de decisión (ej: `--d-model=d3:2b,lfm3:1.7b`). **Corre solo las etapas de decisión** y apaga las generativas. Excluyente con `--model` y `--llm-model`. |
 | `--decision-url` | URL | `http://127.0.0.1:11434` | Endpoint del servidor de decisión (se le agrega `/v1/systemone`). |
 | `--client` | `real` \| `mock` \| `oracle` | `real` | `mock` devuelve respuestas genéricas sin red (prueba la maquinaria). `oracle` responde lo que pide el `expect` de cada caso: debe dar 100 %; si un caso falla, el bug está en el caso, un grader o el parseo, no en el modelo. Solo vale con la variante `prod` (no entiende `labelMap`/`answerMap`). |
+
+### Comparar modelos
+`--model`, `--llm-model` y `--d-model` son **excluyentes** (combinar dos o más es error de configuración). Cada uno define qué corre:
+
+| Flags | Modelos | Etapas que corren |
+|---|---|---|
+| ninguno | `qwen3.5:4b` + `d3:2b` (defaults) | todas |
+| `--model=<llm>[+<d>]` | esa configuración (generativo + decisión) | todas |
+| `--llm-model=a[,b…]` | solo los generativos | `plan`, `arguments`, `final`, `question` |
+| `--d-model=x[,y…]` | solo los de decisión | `route`, `tool_choice`, `args_review`, `result_verification` |
+
+Con `--llm-model` o `--d-model`, un `--stages` explícito del otro tipo es error de configuración (ej. `--d-model=x --stages=plan`); sin `--stages` se corren todas las etapas del tipo elegido. Con `--model`, `--stages` filtra como siempre, y si deja solo etapas de un tipo el modelo del otro no se usa.
+
+Con más de un elemento en la lista, la misma variante y el mismo dataset se corren contra cada uno en una sola ejecución y se comparan entre sí:
+
+- Cada caso se ejecuta una vez por elemento y en cada celda hay un solo modelo (o una sola configuración con `--model`).
+- El primer elemento de la lista es la **referencia**: los deltas (passRate, accuracy, p50, p95) son contra él.
+- Si un modelo no responde, sus runs cuentan como falla de cliente; la corrida solo termina con código `2` si fallaron **todas** las llamadas de todos los modelos.
+- La baseline de variantes se empareja por modelo: cada modelo se compara contra `prod` consigo mismo.
+- `--min-pass-rate` se evalúa por celda, es decir, por modelo.
+- Usar `--concurrency=1` para comparar latencias.
 
 ### Parámetros de Ejecución
 | Flag | Tipo / Opciones | Default | Descripción |
@@ -74,15 +96,37 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 Las corridas se almacenan organizadas por modelo y timestamp en:
 `eval/prompts/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/`
 
+`<modelo>` es el modelo generativo, o el de decisión con `--d-model`; con varios los nombra a todos separados por `+` (`modA+modB`). Con varias configuraciones de `--model` cada una figura como `<llm>~<decisión>`.
+
 Si ya existe una carpeta con ese nombre (dos corridas en el mismo segundo) se agrega `-2`, `-3`… En Windows, los caracteres inválidos del modelo, la etiqueta y las celdas se reemplazan por `_`. Un mismo `runId` identifica todas las celdas de una invocación y `meta.timestamp` es ISO 8601.
 
 Dentro del directorio se genera:
-- `<variante>__<dataset>/`:
-  - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens).
+- `<variante>__<dataset>/` (con varios modelos: `<variante>__<dataset>__gen-<modelo>` o `__dec-<modelo>`, una por modelo):
+  - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens). En las decisiones, `questions` trae una entrada por cada pregunta del request (ver "Decisiones con varias preguntas").
   - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; la CLI avisa cuántos fueron. La accuracy cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
-  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/prompts/results/`.
-- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante: passRate agregado, Δ vs baseline, regresiones, mejoras, fallas de cliente, p50), resumen por etapa, deltas, regresiones, mejoras y matrices de confusión. La tabla por variante también se imprime en consola.
-- `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `warnings`).
+  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/prompts/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`.
+- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante: passRate agregado, Δ vs baseline, regresiones, mejoras, fallas de cliente, p50), resumen por etapa, deltas, regresiones, mejoras y matrices de confusión. Con varios modelos agrega la sección **Comparación entre Modelos** (tabla global y por etapa con deltas contra la referencia, accuracy por pregunta y casos donde los modelos discrepan) y la tabla por variante trae una fila por modelo. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. Todo se imprime también en consola.
+- `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `modelComparisons`, `warnings`).
+
+### Decisiones con varias preguntas
+Un request de decisión puede llevar varias preguntas (las del caso más las que agrega una variante con `addQuestions`) para cruzarlas en una sola pasada, por ejemplo para detectar falsos positivos y falsos negativos.
+
+- **Parseo por pregunta**: cada pregunta se parsea por separado. Una respuesta mal formada afecta solo a esa pregunta (`error` en su entrada), no a las demás.
+- **Registro sin pisarse**: `runs.jsonl` trae `questions`, indexado por la clave de la pregunta. Cada entrada tiene `type`, `role` (`main` = alimenta la salida canónica de la etapa; `extra` = adicional), `answer`, `probabilities` o `noul`, `expected` y `correct`. En `noul`, `answer` es `yes` o `no` (> 0.5). La principal usa la etiqueta canónica (con `labelMap`); `rawAnswer` guarda la opción tal como respondió el modelo.
+- **Esperado por pregunta**: la principal se evalúa con el `expect` de la etapa. Las adicionales, con `expect.answers`:
+  ```json
+  "expect": {
+    "expectedReview": "approved",
+    "answers": {
+      "tool":    { "choice": "ok" },
+      "info":    { "choice": "missing", "minProbability": 0.6 },
+      "hasdata": { "yes": false }
+    }
+  }
+  ```
+  `choice` para preguntas `choice`, `yes` para `noul`. Las claves pueden ser de preguntas que solo agrega una variante: si el request no las trae no se evalúan (warning `q_<clave>_sent`). Cada una genera sus propios checks (`q_<clave>_match`, `q_<clave>_min_probability`) y, si falla, cuenta como falla del run con un mensaje que nombra la pregunta. Una pregunta enviada sin expectativa se registra pero no se evalúa.
+- **Scoring** (`scores.json` y `comparison.md`, solo en etapas con 2 o más preguntas evaluadas): por pregunta, accuracy, matriz de confusión y, por clase, TP/FP/FN, precisión y recall; y `questionCross`, que cruza cada par de preguntas (ambas bien, solo A, solo B, ambas mal). En `noul` la clase positiva es `yes`. En consola, las preguntas sí/no muestran FP/FN y las demás muestran la cantidad de errores.
+- **Oráculo**: responde las preguntas adicionales según `expect.answers`.
 
 ### Códigos de salida
 | Código | Significado |
@@ -133,7 +177,7 @@ npx tsx eval/prompts/cli.ts --client=mock --dataset=eval/prompts/datasets/smoke.
 
 ### Evaluar etapa específica (ej: solo `plan`) con modelo real
 ```bash
-npx tsx eval/prompts/cli.ts --stages=plan --dataset=eval/prompts/datasets/smoke.jsonl --model=qwen3.5:4b
+npx tsx eval/prompts/cli.ts --stages=plan --dataset=eval/prompts/datasets/smoke.jsonl --llm-model=qwen3.5:4b
 ```
 
 ### Comparar una variante contra producción (A/B testing)

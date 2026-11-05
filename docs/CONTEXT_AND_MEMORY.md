@@ -4,69 +4,80 @@
 Todo lo que el sistema sabe de una tarea vive en un único objeto, el **contexto** (`TaskContext`). No hay memorias paralelas: el estado que ve la interfaz, lo que leen los modelos y lo que audita la traza salen de las mismas secciones.
 
 ### Cómo se ve
-Snapshot (`v: 1`) de una tarea **deliberativa en curso**: el paso `s1` ya se completó leyendo un archivo grande y el paso `s2` está escribiendo. Los comentarios `//` no existen en el JSON real.
+Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no existen en el JSON real.
 
 ```jsonc
 {
-  "v": 1,                                  // versión del esquema del snapshot
+  "v": 1,
   "task": {
-    "id": "t_8f3a",
-    "mode": "deliberative",                // reactive | deliberative
-    "request": "Resume config.json y guarda el resumen en resumen.txt",
-    "state": "running",                    // running | completed | partial | failed | cancelled
-    "stopReason": null,                    // solo en partial / failed / cancelled
-    "startedAt": 1762290000000
+    "id": string,
+    "mode": "reactive" | "deliberative",
+    "request": string,
+    "state": "running" | "completed" | "partial" | "failed" | "cancelled",
+    "stopReason": StopReason | null,       // solo en partial, failed y cancelled
+    "startedAt": number
   },
 
-  "plans": [                               // un plan por cada vez que se planificó
-    { "id": "p1", "at": 1762290002000,
-      "trigger": "initial",                // initial | user_feedback | step_failure
-      "feedback": null,                    // instrucción del usuario (solo user_feedback)
-      "stepId": null }                     // paso que falló (solo step_failure)
-  ],
+  "plans": [{
+    "id": string,                          // "p1", "p2"…
+    "at": number,
+    "trigger": "initial" | "user_feedback" | "step_failure",
+    "feedback": string | null,             // solo user_feedback
+    "stepId": string | null                // solo step_failure
+  }],
 
-  "steps": [
-    { "id": "s1", "at": 1762290003000, "planId": "p1",
-      "instruction": "Leer config.json", "route": "files", "expected": "Contenido de config.json",
-      "state": "completed",                // pending | running | completed | failed
-      "superseded": false },               // true si un replan lo reemplazó
-    { "id": "s2", "at": 1762290009000, "planId": "p1",
-      "instruction": "Guardar el resumen en resumen.txt", "route": "files", "expected": "Archivo creado",
-      "state": "running", "superseded": false }
-  ],
+  "steps": [{
+    "id": string,                          // "s1"…
+    "at": number,
+    "planId": string | null,               // null en reactivo
+    "instruction": string | null,          // null en reactivo
+    "route": string | null,                // null en reactivo
+    "expected": string | null,             // null en reactivo
+    "state": "pending" | "running" | "completed" | "failed",
+    "superseded": boolean
+  }],
 
-  "calls": [                               // nunca se borran
-    { "id": "c1", "stepId": "s1", "at": 1762290004000,
-      "route": "files", "tool": "read_file", "kind": "read",
-      "args": { "path": "config.json" },
-      "sig": "a91c…",                      // huella de los argumentos resueltos (anti-bucle)
-      "status": "ok",                      // resultado de la ejecución, fijado una vez
-      "verdict": "approved",               // se escribe después, tras verificar
-      "reason": null,                      // no_usable_data | not_accomplished (solo con rejected)
-      "summary": "config.json (4 210 car.): primeras y últimas 15 líneas…",
-      "ref": "r1" },                       // el resumen no contiene todo el resultado
-    { "id": "c2", "stepId": "s2", "at": 1762290010000,
-      "route": "files", "tool": "write_file", "kind": "write",
-      "args": { "path": "resumen.txt", "content": "{{ref:r1}}" },
-      "sig": "5d02…", "status": "ok",
-      "verdict": null, "reason": null,     // verificación pendiente
-      "summary": "Escrito resumen.txt", "ref": null }
-  ],
+  "calls": [{
+    "id": string,                          // "c1"…
+    "stepId": string,
+    "at": number,
+    "route": string,
+    "tool": string,
+    "kind": "read" | "write",
+    "args": object | null,
+    "sig": string | null,                  // huella de args resueltos
+    "status": CallStatus,                  // §2
+    "verdict": "approved" | "rejected" | null,
+    "reason": "no_usable_data" | "not_accomplished" | null,   // solo con rejected
+    "summary": string | null,
+    "ref": string | null                   // id de ref si el resumen no es completo
+  }],
 
-  "errors": [],                            // { id, stepId, at, kind: "service_unavailable" }
+  "errors": [{
+    "id": string,                          // "e1"…
+    "stepId": string,
+    "at": number,
+    "kind": "service_unavailable"
+  }],
 
-  "facts": {                               // clave → valor (null = retirado)
-    "answer_s2_1": { "value": "¿Sobrescribo? -> sí", "stepId": "s2", "at": 1762290008000 }
-    // "process": identificador del proceso activo; se retira al terminar
+  "facts": {
+    [key: string]: {                       // "process" | "answer_<paso>_<n>"
+      "value": string | null,              // null = retirado
+      "stepId": string,
+      "at": number
+    }
   },
 
-  "refs": [                                // resultados completos en disco
-    { "id": "r1", "stepId": "s1", "at": 1762290004000,
-      "label": "read_file config.json", "size": 4210,
-      "where": "<refsDir>/t_8f3a/6c1e….txt" }
-  ],
+  "refs": [{
+    "id": string,                          // "r1"…
+    "stepId": string,
+    "at": number,
+    "label": string,
+    "size": number,                        // caracteres
+    "where": string                        // ruta absoluta del archivo
+  }],
 
-  "result": null                           // al cerrar: { "text": "…", "origin": "model" | "fallback" }
+  "result": { "text": string, "origin": "model" | "fallback" } | null
 }
 ```
 

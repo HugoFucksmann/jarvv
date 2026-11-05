@@ -1,0 +1,548 @@
+{
+  "schemaVersion": 2,
+  "totalRuns": 33,
+  "passedRuns": 27,
+  "passRate": 0.8181818181818182,
+  "passAllRate": 0.8181818181818182,
+  "avgDurationMs": 2807,
+  "p50DurationMs": 682,
+  "p95DurationMs": 15060,
+  "clientFailedRuns": 0,
+  "rawTotalRuns": 0,
+  "rawPassedRuns": 0,
+  "rawPassRate": 0,
+  "stages": {
+    "route": {
+      "stageKey": "route",
+      "totalRuns": 7,
+      "passedRuns": 6,
+      "passRate": 0.8571428571428571,
+      "passAllRate": 0.8571428571428571,
+      "avgDurationMs": 962,
+      "p50DurationMs": 269,
+      "p95DurationMs": 4860,
+      "clientFailedRuns": 0,
+      "accuracy": 0.857,
+      "confusionMatrix": {
+        "web": {
+          "web": 1
+        },
+        "locate": {
+          "locate": 2
+        },
+        "terminal": {
+          "fin": 1
+        },
+        "files": {
+          "files": 1
+        },
+        "ask_user": {
+          "ask_user": 1
+        },
+        "fin": {
+          "fin": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "busq-route-url-conocida",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4860
+        },
+        {
+          "caseId": "fs-route-locate",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 1045
+        },
+        {
+          "caseId": "term-route-tests",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 52
+        },
+        {
+          "caseId": "comb-route-tras-web",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 269
+        },
+        {
+          "caseId": "prob-route-locate-tras-enoent",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 41
+        },
+        {
+          "caseId": "auto-route-ask-destructivo",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 409
+        },
+        {
+          "caseId": "auto-route-fin",
+          "stage": "route",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 59
+        }
+      ]
+    },
+    "tool_choice": {
+      "stageKey": "tool_choice",
+      "totalRuns": 4,
+      "passedRuns": 4,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 38,
+      "p50DurationMs": 33,
+      "p95DurationMs": 47,
+      "clientFailedRuns": 0,
+      "accuracy": 1,
+      "confusionMatrix": {
+        "fetch": {
+          "fetch": 1
+        },
+        "fetch_batch": {
+          "fetch_batch": 1
+        },
+        "move_file": {
+          "move_file": 1
+        },
+        "interact_with_process": {
+          "interact_with_process": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "busq-tool-fetch-url",
+          "stage": "tool_choice",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 32
+        },
+        {
+          "caseId": "busq-tool-fetch-batch",
+          "stage": "tool_choice",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 33
+        },
+        {
+          "caseId": "fs-tool-move",
+          "stage": "tool_choice",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 40
+        },
+        {
+          "caseId": "term-tool-interact-repl",
+          "stage": "tool_choice",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 47
+        }
+      ]
+    },
+    "arguments": {
+      "stageKey": "arguments",
+      "totalRuns": 3,
+      "passedRuns": 1,
+      "passRate": 0.3333333333333333,
+      "passAllRate": 0.3333333333333333,
+      "avgDurationMs": 3490,
+      "p50DurationMs": 2402,
+      "p95DurationMs": 6484,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "busq-args-search",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 6484
+        },
+        {
+          "caseId": "fs-args-write-append",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 2402
+        },
+        {
+          "caseId": "term-args-start-process",
+          "stage": "arguments",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 1585
+        }
+      ]
+    },
+    "final[think=on]": {
+      "stageKey": "final[think=on]",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 14223,
+      "p50DurationMs": 15060,
+      "p95DurationMs": 23288,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "busq-final-sintesis",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4320
+        },
+        {
+          "caseId": "comb-final-multipaso",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 15060
+        },
+        {
+          "caseId": "prob-final-fallo-honesto",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 23288
+        }
+      ]
+    },
+    "final[think=off]": {
+      "stageKey": "final[think=off]",
+      "totalRuns": 3,
+      "passedRuns": 3,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 474,
+      "p50DurationMs": 564,
+      "p95DurationMs": 682,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "busq-final-sintesis",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 564
+        },
+        {
+          "caseId": "comb-final-multipaso",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 682
+        },
+        {
+          "caseId": "prob-final-fallo-honesto",
+          "stage": "final",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 176
+        }
+      ]
+    },
+    "args_review": {
+      "stageKey": "args_review",
+      "totalRuns": 3,
+      "passedRuns": 1,
+      "passRate": 0.3333333333333333,
+      "passAllRate": 0.3333333333333333,
+      "avgDurationMs": 158,
+      "p50DurationMs": 188,
+      "p95DurationMs": 254,
+      "clientFailedRuns": 0,
+      "accuracy": 0.333,
+      "confusionMatrix": {
+        "info_missing": {
+          "info_missing": 1
+        },
+        "tool_rejected": {
+          "approved": 1
+        },
+        "args_invalid": {
+          "approved": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "fs-review-sin-contenido",
+          "stage": "args_review",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 31
+        },
+        {
+          "caseId": "term-review-ls-en-terminal",
+          "stage": "args_review",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 188
+        },
+        {
+          "caseId": "prob-review-clave-incorrecta",
+          "stage": "args_review",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 254
+        }
+      ]
+    },
+    "result_verification": {
+      "stageKey": "result_verification",
+      "totalRuns": 3,
+      "passedRuns": 2,
+      "passRate": 0.6666666666666666,
+      "passAllRate": 0.6666666666666666,
+      "avgDurationMs": 1408,
+      "p50DurationMs": 611,
+      "p95DurationMs": 3332,
+      "clientFailedRuns": 0,
+      "accuracy": 0.667,
+      "confusionMatrix": {
+        "ok=true,cumple=false": {
+          "ok=false,cumple=false": 1,
+          "ok=true,cumple=false": 1
+        },
+        "ok=false,cumple=false": {
+          "ok=false,cumple=false": 1
+        }
+      },
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "fs-verify-archivo-ausente",
+          "stage": "result_verification",
+          "runsCount": 1,
+          "passCount": 0,
+          "passRate": 0,
+          "variance": null,
+          "passAll": false,
+          "avgDurationMs": 611
+        },
+        {
+          "caseId": "term-verify-servidor-sin-confirmar",
+          "stage": "result_verification",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 280
+        },
+        {
+          "caseId": "prob-verify-permiso-denegado",
+          "stage": "result_verification",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 3332
+        }
+      ]
+    },
+    "plan": {
+      "stageKey": "plan",
+      "totalRuns": 6,
+      "passedRuns": 6,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 4187,
+      "p50DurationMs": 3448,
+      "p95DurationMs": 6378,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "comb-plan-web-y-archivo",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 5719
+        },
+        {
+          "caseId": "comb-plan-locate-leer-correr",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 4344
+        },
+        {
+          "caseId": "comb-plan-web-y-terminal",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 3351
+        },
+        {
+          "caseId": "prob-plan-replan-npm",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 3448
+        },
+        {
+          "caseId": "auto-plan-minimo",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 1883
+        },
+        {
+          "caseId": "auto-plan-feedback",
+          "stage": "plan",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 6378
+        }
+      ]
+    },
+    "question": {
+      "stageKey": "question",
+      "totalRuns": 1,
+      "passedRuns": 1,
+      "passRate": 1,
+      "passAllRate": 1,
+      "avgDurationMs": 1374,
+      "p50DurationMs": 1374,
+      "p95DurationMs": 1374,
+      "clientFailedRuns": 0,
+      "rawTotalRuns": 0,
+      "rawPassedRuns": 0,
+      "rawPassRate": 0,
+      "cases": [
+        {
+          "caseId": "auto-question-desambiguar",
+          "stage": "question",
+          "runsCount": 1,
+          "passCount": 1,
+          "passRate": 1,
+          "variance": null,
+          "passAll": true,
+          "avgDurationMs": 1374
+        }
+      ]
+    }
+  }
+}

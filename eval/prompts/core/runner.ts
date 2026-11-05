@@ -25,16 +25,18 @@ import type { DecisionStageEntry, GenerativeStageEntry } from "./stages/index.ts
 import { getStage, runGraders } from "./stages/index.ts";
 import { SCHEMA_VERSION } from "./types.ts";
 import type {
+  AnswerExpects,
   DecisionRequest,
   DecisionStage,
   FrozenCase,
   GenerativeRequest,
   GenerativeStage,
+  QuestionResult,
   RunRecord,
   StageName,
 } from "./types.ts";
 import { applyVariantChain, VariantApplyError } from "./variants/apply.ts";
-import { parseExtraQuestions } from "./variants/labels.ts";
+import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
 import type { Variant } from "./variants/types.ts";
 import { PROD_SHORTCUT_TAG } from "./case.ts";
 
@@ -321,20 +323,24 @@ async function runDecision(
   }
   if (parseOk) collector.check("output_parse_ok", true, "");
 
-  // Extra questions (warnings solamente, sección 7.6 §8)
-  if (variantApplyOk) {
-    const baseReq = fc.request as DecisionRequest;
-    const extra = parseExtraQuestions(rawOutput, sentReq, baseReq, sv);
-    warnings.push(...extra.warnings);
-    Object.assign(measurements, extra.measurements);
-  }
+  // Labels (7.8)
+  const labelInfo = entry.label(parsed, appliedCase.expect as never);
 
-  // Graders
+  // Graders de la etapa (pregunta principal)
   const ctx = { rawOutput, durationMs };
   gradeWithGuard(entry, parsed, appliedCase.expect, ctx, collector, metrics);
 
-  // Labels (7.8)
-  const labelInfo = entry.label(parsed, appliedCase.expect as never);
+  // Todas las preguntas del request, una entrada por clave. Las adicionales con `expect.answers` se evalúan aparte.
+  const expectRec = appliedCase.expect as unknown as Record<string, unknown>;
+  const questions = buildQuestionResults({
+    rawOutput,
+    sentReq,
+    stage: fc.stage as DecisionStage,
+    sv,
+    expect: expectRec,
+    canonicalExpected: labelInfo.expected,
+  });
+  gradeExtraQuestions(questions, expectRec.answers as AnswerExpects | undefined, collector);
 
   return makeRecord(baseRecord, {
     rawInput: prepared.body,
@@ -354,6 +360,7 @@ async function runDecision(
     expectedLabel: labelInfo.expected,
     rawScore: labelInfo.rawScore,
     probabilities: labelInfo.probabilities,
+    questions,
   });
 }
 
@@ -557,6 +564,7 @@ function makeRecord(
     expectedLabel?: string | null;
     rawScore?: number | null;
     probabilities?: Record<string, number> | null;
+    questions?: Record<string, QuestionResult>;
   },
 ): RunResult {
   const record: RunRecord = {
@@ -580,6 +588,7 @@ function makeRecord(
     ...(extra.expectedLabel !== undefined ? { expectedLabel: extra.expectedLabel } : {}),
     ...(extra.rawScore !== undefined ? { rawScore: extra.rawScore } : {}),
     ...(extra.probabilities !== undefined ? { probabilities: extra.probabilities } : {}),
+    ...(extra.questions !== undefined ? { questions: extra.questions } : {}),
   };
   return { record };
 }

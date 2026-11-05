@@ -5,7 +5,16 @@
  * separa por `bucket` (en vez de `isRaw`) y agrupa por `stageKey` (en vez de `stage`).
  */
 
-import type { CaseScoreSummary, GlobalScoreSummary, RunRecord, StageName, StageScoreSummary } from "./types.ts";
+import type {
+  CaseScoreSummary,
+  ClassScore,
+  GlobalScoreSummary,
+  QuestionCross,
+  QuestionScore,
+  RunRecord,
+  StageName,
+  StageScoreSummary,
+} from "./types.ts";
 import { SCHEMA_VERSION } from "./types.ts";
 
 /** Etiqueta de la matriz de confusión cuando la decisión no produjo predicción (parseo fallido). */
@@ -40,6 +49,89 @@ function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
     map.set(k, list);
   }
   return map;
+}
+
+const round3 = (x: number): number => Math.round(x * 1000) / 1000;
+
+/**
+ * Métricas por pregunta y cruces entre preguntas de una misma etapa. Solo cuenta runs con respuesta registrada
+ * (las llamadas caídas por red no traen `questions`) y preguntas con expectativa. Devuelve undefined si la etapa
+ * evalúa menos de dos preguntas: con una sola, la matriz de confusión de la etapa ya lo dice todo.
+ */
+export function scoreQuestions(
+  records: RunRecord[],
+): { questions: Record<string, QuestionScore>; cross: QuestionCross[] } | undefined {
+  const acc = new Map<string, {
+    role: "main" | "extra";
+    graded: number;
+    correct: number;
+    unanswered: number;
+    conf: Record<string, Record<string, number>>;
+  }>();
+
+  for (const r of records) {
+    for (const [key, q] of Object.entries(r.questions ?? {})) {
+      if (q.expected === null) continue;
+      const a = acc.get(key) ?? { role: q.role, graded: 0, correct: 0, unanswered: 0, conf: {} };
+      a.graded++;
+      if (q.correct) a.correct++;
+      if (q.answer === null) a.unanswered++;
+      const predicted = q.answer ?? NO_PREDICTION;
+      a.conf[q.expected] = a.conf[q.expected] ?? {};
+      a.conf[q.expected][predicted] = (a.conf[q.expected][predicted] ?? 0) + 1;
+      acc.set(key, a);
+    }
+  }
+  if (acc.size < 2) return undefined;
+
+  const questions: Record<string, QuestionScore> = {};
+  for (const [key, a] of [...acc.entries()].sort(([x], [y]) => x.localeCompare(y))) {
+    const labels = new Set<string>();
+    for (const [e, row] of Object.entries(a.conf)) {
+      labels.add(e);
+      for (const p of Object.keys(row)) if (p !== NO_PREDICTION) labels.add(p);
+    }
+    const perClass: Record<string, ClassScore> = {};
+    for (const label of [...labels].sort()) {
+      const tp = a.conf[label]?.[label] ?? 0;
+      const fn = Object.entries(a.conf[label] ?? {}).reduce((n, [p, c]) => n + (p === label ? 0 : c), 0);
+      const fp = Object.entries(a.conf).reduce((n, [e, row]) => n + (e === label ? 0 : (row[label] ?? 0)), 0);
+      perClass[label] = {
+        tp, fp, fn,
+        precision: tp + fp > 0 ? round3(tp / (tp + fp)) : null,
+        recall: tp + fn > 0 ? round3(tp / (tp + fn)) : null,
+      };
+    }
+    questions[key] = {
+      graded: a.graded,
+      correct: a.correct,
+      accuracy: round3(a.correct / a.graded),
+      unanswered: a.unanswered,
+      role: a.role,
+      confusionMatrix: a.conf,
+      perClass,
+    };
+  }
+
+  const keys = Object.keys(questions);
+  const cross: QuestionCross[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const c: QuestionCross = { a: keys[i], b: keys[j], runs: 0, bothCorrect: 0, onlyA: 0, onlyB: 0, bothWrong: 0 };
+      for (const r of records) {
+        const qa = r.questions?.[keys[i]]?.correct;
+        const qb = r.questions?.[keys[j]]?.correct;
+        if (qa === null || qa === undefined || qb === null || qb === undefined) continue;
+        c.runs++;
+        if (qa && qb) c.bothCorrect++;
+        else if (qa) c.onlyA++;
+        else if (qb) c.onlyB++;
+        else c.bothWrong++;
+      }
+      if (c.runs > 0) cross.push(c);
+    }
+  }
+  return { questions, cross };
 }
 
 export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
@@ -149,6 +241,8 @@ export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
     const avgDurationMs =
       stDurations.length > 0 ? Math.round(stDurations.reduce((a, b) => a + b, 0) / stDurations.length) : 0;
 
+    const qScores = scoreQuestions(stageRecords);
+
     stagesSummary[stageKey] = {
       stageKey,
       totalRuns: totalStRuns,
@@ -161,6 +255,7 @@ export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
       clientFailedRuns: stClientFailed,
       accuracy: totalDecisions > 0 ? Math.round((correctDecisions / totalDecisions) * 1000) / 1000 : undefined,
       confusionMatrix: totalDecisions > 0 ? confusionMatrix : undefined,
+      ...(qScores ? { questions: qScores.questions, questionCross: qScores.cross } : {}),
       rawTotalRuns: stRawTotal,
       rawPassedRuns: stRawPassed,
       rawPassRate: stRawTotal > 0 ? stRawPassed / stRawTotal : 0,

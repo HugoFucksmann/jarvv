@@ -20,11 +20,20 @@ import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/clien
 import { parseConfig } from "./core/config.ts";
 import { loadDatasets } from "./core/datasets.ts";
 import type { InputCell } from "./core/report.ts";
-import { generateComparisonReport, printComparisonSummary, printVariantSummary, writeComparison } from "./core/report.ts";
+import {
+  generateComparisonReport,
+  printComparisonSummary,
+  printModelComparison,
+  printQuestionSummary,
+  printVariantSummary,
+  writeComparison,
+} from "./core/report.ts";
 import { buildRunMeta, createCellWriter, newRunId, runRootDir, timestampDir } from "./core/results.ts";
 import { runDataset } from "./core/runner.ts";
 import { computeScoreSummary } from "./core/scoring.ts";
 import { allStageNames } from "./core/stages/index.ts";
+import type { ModelTarget } from "./core/targets.ts";
+import { buildTargets, targetConfig, targetModelName } from "./core/targets.ts";
 import type { RunRecord, StageName } from "./core/types.ts";
 import { loadVariantSpec } from "./core/variants/load.ts";
 
@@ -34,6 +43,21 @@ function log(...args: unknown[]) { console.log(...args); }
 function err(...args: unknown[]) { console.error(...args); }
 
 function fmtPct(r: number) { return `${(r * 100).toFixed(1)}%`; }
+
+/** Crea los clientes de un target (con sus modelos). Lanza si la URL generativa es inválida. */
+function makeClients(cfg: ReturnType<typeof parseConfig>): { genClient: GenerativeClient; decClient: DecisionClient } {
+  if (cfg.client === "mock" || cfg.client === "oracle") {
+    const oracle = cfg.client === "oracle";
+    return {
+      genClient: createMockGenerativeClient({ url: cfg.url, model: cfg.model }, oracle ? oracleGenerativeResponder : undefined),
+      decClient: createMockDecisionClient({ url: cfg.decisionUrl, model: cfg.decisionModel }, oracle ? oracleDecisionResponder : undefined),
+    };
+  }
+  return {
+    genClient: createGenerativeClient({ url: cfg.url, model: cfg.model }),
+    decClient: createDecisionClient({ url: cfg.decisionUrl, model: cfg.decisionModel }),
+  };
+}
 
 /** Imprime con qué configuración corre el eval (modelos, concurrencia, datasets, variantes, filtros). */
 function printRunConfig(
@@ -46,8 +70,18 @@ function printRunConfig(
   const where = (model: string, url: string) => (offline ? `${model}  (sin red)` : `${model}  @ ${url}`);
   const rows: Array<[string, string]> = [
     ["Cliente", cfg.client === "real" ? "real" : `${cfg.client} (simulado, no usa modelos)`],
-    ["Modelo generativo", where(cfg.model, cfg.url)],
-    ["Modelo de decisión", where(cfg.decisionModel, cfg.decisionUrl)],
+    ...(cfg.modelScope === "all" && cfg.pairs.length > 1
+      ? ([["Configuraciones", cfg.pairs.map((p) => `${p.model} + ${p.decisionModel}`).join("  |  ")]] as Array<[string, string]>)
+      : ([
+        [
+          cfg.models.length > 1 ? "Modelos generativos" : "Modelo generativo",
+          cfg.modelScope === "decision" ? "— (apagado: se eligió --d-model)" : where(cfg.models.join(", "), cfg.url),
+        ],
+        [
+          cfg.decisionModels.length > 1 ? "Modelos de decisión" : "Modelo de decisión",
+          cfg.modelScope === "generative" ? "— (apagado: se eligió --llm-model)" : where(cfg.decisionModels.join(", "), cfg.decisionUrl),
+        ],
+      ] as Array<[string, string]>)),
     ["Concurrencia", `${cfg.concurrency}${cfg.concurrency > 1 ? "  (la latencia p50/p95 no es comparable)" : ""}`],
     ["Repeticiones", String(cfg.repeat)],
     ["Thinking", cfg.thinking],
@@ -137,22 +171,20 @@ async function main(): Promise<number> {
     }
   }
 
-  // ── Crear clientes ──
-  let genClient: GenerativeClient;
-  let decClient: DecisionClient;
+  // ── Targets: un modelo (o par generativo + decisión) por pasada ──
+  const stageFilter = cfg.stages.length > 0 ? cfg.stages : (allStageNames() as StageName[]);
+  const targets = buildTargets(cfg, stageFilter);
+  const compareModels = targets.length > 1;
 
-  if (cfg.client === "mock" || cfg.client === "oracle") {
-    const oracle = cfg.client === "oracle";
-    genClient = createMockGenerativeClient({ url: cfg.url, model: cfg.model }, oracle ? oracleGenerativeResponder : undefined);
-    decClient = createMockDecisionClient({ url: cfg.decisionUrl, model: cfg.decisionModel }, oracle ? oracleDecisionResponder : undefined);
-  } else {
+  const prepared: Array<{ target: ModelTarget; cfg: ReturnType<typeof parseConfig>; genClient: GenerativeClient; decClient: DecisionClient }> = [];
+  for (const target of targets) {
+    const tcfg = targetConfig(cfg, target);
     try {
-      genClient = createGenerativeClient({ url: cfg.url, model: cfg.model });
+      prepared.push({ target, cfg: tcfg, ...makeClients(tcfg) });
     } catch (e) {
       err(`Error de configuración de URL generativa: ${e instanceof Error ? e.message : String(e)}`);
       return 2;
     }
-    decClient = createDecisionClient({ url: cfg.decisionUrl, model: cfg.decisionModel });
   }
 
   // ── dry-run: solo imprime bodies y sale ──
@@ -161,25 +193,26 @@ async function main(): Promise<number> {
     let applyErrors = 0;
     for (const ds of datasets) {
       for (const vr of variantResults) {
-        log(`# variant=${vr.spec} dataset=${ds.name}`);
-        const stageFilter = cfg.stages.length > 0 ? cfg.stages : (allStageNames() as StageName[]);
-        const dry = await runDataset({
-          cases: ds.cases,
-          datasetName: ds.name,
-          variant: vr.variant,
-          variants: vr.parts,
-          variantSpec: vr.spec,
-          variantChain: vr.chain,
-          cfg,
-          genClient,
-          decClient,
-          stageFilter,
-          dryRun: true,
-        });
-        for (const r of dry.records) {
-          if (r.metrics.variant_apply_ok === false) {
-            applyErrors++;
-            err(`  ✗ ${r.caseId} [${r.variant}]: ${r.errors[0] ?? "variant_apply_error"}`);
+        for (const p of prepared) {
+          log(`# variant=${vr.spec} dataset=${ds.name}${p.target.id ? ` target=${p.target.id}` : ""}`);
+          const dry = await runDataset({
+            cases: ds.cases,
+            datasetName: ds.name,
+            variant: vr.variant,
+            variants: vr.parts,
+            variantSpec: vr.spec,
+            variantChain: vr.chain,
+            cfg: p.cfg,
+            genClient: p.genClient,
+            decClient: p.decClient,
+            stageFilter: p.target.stages,
+            dryRun: true,
+          });
+          for (const r of dry.records) {
+            if (r.metrics.variant_apply_ok === false) {
+              applyErrors++;
+              err(`  ✗ ${r.caseId} [${r.variant}]: ${r.errors[0] ?? "variant_apply_error"}`);
+            }
           }
         }
       }
@@ -202,79 +235,91 @@ async function main(): Promise<number> {
   mkdirSync(resolve(rootDir), { recursive: true });
   log(`\nResultados en: ${rootDir}`);
 
-  const stageFilter = cfg.stages.length > 0 ? cfg.stages : (allStageNames() as StageName[]);
+  if (compareModels) {
+    log("\nComparación: " + targets.map((t) => `${targetModelName(t, cfg)} (${t.scope === "generative" ? "generativo" : t.scope === "decision" ? "decisión" : "completo"})`).join(", "));
+  }
   const comparisonCells: InputCell[] = [];
   let anyNetworkFailed = false;
   let allNetworkFailed = true;
 
-  // ── Correr (variante × dataset) ──
+  // ── Correr (variante × dataset × modelo) ──
   for (const vr of variantResults) {
     for (const ds of datasets) {
-      log(`\n▶ variant=${vr.spec}  dataset=${ds.name}  (${ds.cases.length} casos)`);
+      for (const p of prepared) {
+        const { target } = p;
+        const modelName = compareModels ? targetModelName(target, cfg) : undefined;
+        // Con varios modelos, un target solo corre los casos de sus etapas; sin ellos no hay celda que reportar.
+        const cases = compareModels ? ds.cases.filter((c) => target.stages.includes(c.stage as StageName)) : ds.cases;
+        if (compareModels && cases.length === 0) continue;
 
-      const writer = createCellWriter(rootDir, vr.spec, ds.name);
-      let runCount = 0;
-      let passCount = 0;
+        log(`\n▶ variant=${vr.spec}  dataset=${ds.name}${modelName ? `  modelo=${modelName}` : ""}  (${cases.length} casos)`);
 
-      const meta = buildRunMeta({
-        cfg,
-        variantChain: vr.chain,
-        variantHash: vr.hash,
-        datasetPath: ds.path,
-        datasetHash: ds.hash,
-        stages: stageFilter,
-        timestamp: startedAt,
-        runId,
-      });
+        const writer = createCellWriter(rootDir, vr.spec, ds.name, target.id);
+        let runCount = 0;
+        let passCount = 0;
 
-      let result;
-      try {
-        result = await runDataset({
-          cases: ds.cases,
-          datasetName: ds.name,
-          variant: vr.variant,
-          variants: vr.parts,
-          variantSpec: vr.spec,
+        const meta = buildRunMeta({
+          cfg: p.cfg,
           variantChain: vr.chain,
-          cfg,
-          genClient,
-          decClient,
-          stageFilter,
-          onRecord: (record: RunRecord) => {
-            writer.writeRun(record);
-            if (record.bucket === "canonical") {
-              runCount++;
-              if (record.passed) passCount++;
-            }
-            const icon = record.passed ? "✓" : "✗";
-            const bucket = record.bucket === "raw" ? " [raw]" : "";
-            log(`  ${icon} ${record.caseId} [${record.stageKey}] iter=${record.iteration}${bucket}`);
-          },
+          variantHash: vr.hash,
+          datasetPath: ds.path,
+          datasetHash: ds.hash,
+          stages: target.stages,
+          scope: target.scope,
+          timestamp: startedAt,
+          runId,
         });
-      } finally {
-        // Siempre cerrar: si el runner lanza, igual queda meta.json junto a runs.jsonl.
-        writer.close(meta);
-      }
 
-      if (result.allNetworkFailed) {
-        anyNetworkFailed = true;
-      } else {
-        allNetworkFailed = false;
-      }
+        let result;
+        try {
+          result = await runDataset({
+            cases,
+            datasetName: ds.name,
+            variant: vr.variant,
+            variants: vr.parts,
+            variantSpec: vr.spec,
+            variantChain: vr.chain,
+            cfg: p.cfg,
+            genClient: p.genClient,
+            decClient: p.decClient,
+            stageFilter: target.stages,
+            onRecord: (record: RunRecord) => {
+              writer.writeRun(record);
+              if (record.bucket === "canonical") {
+                runCount++;
+                if (record.passed) passCount++;
+              }
+              const icon = record.passed ? "✓" : "✗";
+              const bucket = record.bucket === "raw" ? " [raw]" : "";
+              log(`  ${icon} ${record.caseId} [${record.stageKey}] iter=${record.iteration}${bucket}`);
+            },
+          });
+        } finally {
+          // Siempre cerrar: si el runner lanza, igual queda meta.json junto a runs.jsonl.
+          writer.close(meta);
+        }
 
-      const pct = runCount > 0 ? fmtPct(passCount / runCount) : "—";
-      log(`  → ${passCount}/${runCount} pasados (${pct})`);
-      const failedCalls = result.records.filter((r) => r.bucket === "canonical" && r.metrics.client_call_ok === false).length;
-      if (failedCalls > 0) {
-        log(`  ⚠ ${failedCalls} de ${runCount} runs fallaron por el cliente (red/timeout/HTTP): cuentan como falla en el pass rate.`);
-      }
+        if (result.allNetworkFailed) {
+          anyNetworkFailed = true;
+        } else {
+          allNetworkFailed = false;
+        }
 
-      comparisonCells.push({
-        variantSpec: vr.spec,
-        datasetName: ds.name,
-        scores: computeScoreSummary(writer.records),
-        records: writer.records,
-      });
+        const pct = runCount > 0 ? fmtPct(passCount / runCount) : "—";
+        log(`  → ${passCount}/${runCount} pasados (${pct})`);
+        const failedCalls = result.records.filter((r) => r.bucket === "canonical" && r.metrics.client_call_ok === false).length;
+        if (failedCalls > 0) {
+          log(`  ⚠ ${failedCalls} de ${runCount} runs fallaron por el cliente (red/timeout/HTTP): cuentan como falla en el pass rate.`);
+        }
+
+        comparisonCells.push({
+          variantSpec: vr.spec,
+          datasetName: ds.name,
+          scores: computeScoreSummary(writer.records),
+          records: writer.records,
+          ...(modelName !== undefined ? { model: modelName, scope: target.scope } : {}),
+        });
+      }
     }
   }
 
@@ -303,12 +348,14 @@ async function main(): Promise<number> {
   for (const cell of comparisonCells) {
     const s = cell.scores;
     log(
-      `  ${cell.variantSpec}/${cell.datasetName}: ` +
+      `  ${cell.variantSpec}/${cell.datasetName}${cell.model ? ` {${cell.model}}` : ""}: ` +
       `${fmtPct(s.passRate)} (${s.passedRuns}/${s.totalRuns})` +
       (s.rawTotalRuns > 0 ? ` | raw: ${fmtPct(s.rawPassRate)} (${s.rawPassedRuns}/${s.rawTotalRuns})` : ""),
     );
   }
   printVariantSummary(comparisonReport);
+  printModelComparison(comparisonReport);
+  printQuestionSummary(comparisonReport);
   printComparisonSummary(comparisonReport);
   log(`\nComparación: ${rootDir}/comparison.md`);
 
@@ -321,7 +368,7 @@ async function main(): Promise<number> {
     if (failing.length > 0) {
       for (const c of failing) {
         err(
-          `\n${c.variantSpec}/${c.datasetName}: passRate ${c.scores.totalRuns === 0 ? "sin runs" : fmtPct(c.scores.passRate)} ` +
+          `\n${c.variantSpec}/${c.datasetName}${c.model ? ` {${c.model}}` : ""}: passRate ${c.scores.totalRuns === 0 ? "sin runs" : fmtPct(c.scores.passRate)} ` +
           `por debajo del umbral ${fmtPct(cfg.minPassRate)}.`,
         );
       }
