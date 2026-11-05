@@ -3,7 +3,7 @@
  *
  * Catálogo reducido a propósito: de cada servidor MCP solo figuran las herramientas listadas abajo, repartidas en 4
  * destinos (grupos funcionales que elige Decision #1). Para ofrecer otra herramienta se añade su línea con su destino;
- * solo si el formato de su resultado lo justifica se registra además su extractor en processor/extractors/index.ts
+ * solo si el formato de su resultado lo justifica se registra además su extractor en result/extractors/index.ts
  * (sin él, lo trata el extractor genérico). Los nombres de argumento salen de sus inputSchema.
  *
  * - Una sola tabla: (server, name) -> capability + política derivada. Es la ÚNICA fuente de políticas.

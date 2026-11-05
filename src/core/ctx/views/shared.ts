@@ -80,16 +80,6 @@ export function failureViewOf(data: ContextData, call: Call): CallView {
   return callViewOf(data, call, ARGS_SHOWN_STATUSES.includes(call.status));
 }
 
-/** Hechos vigentes (los retirados, con `value = null`, se omiten), del más antiguo al más reciente. */
-export function factViewsOf(data: ContextData): FactView[] {
-  const out: FactView[] = [];
-  for (const key of Object.keys(data.facts)) {
-    const fact = data.facts[key];
-    if (fact.value !== null) out.push({ key, value: fact.value, stepId: fact.stepId, at: fact.at });
-  }
-  return out.sort((a, b) => a.at - b.at);
-}
-
 /** Entrada del usuario (5.4), en orden cronológico. */
 export function userInputViewsOf(data: ContextData): UserInputView[] {
   return userInputOf(data).map(({ kind, stepId, text }) => ({ kind, stepId, text }));

@@ -1,17 +1,16 @@
 /**
- * JARVIS Core — Cliente del motor de razonamiento (LLM, API OpenAI-compatible)
+ * JARVIS Core — Cliente del modelo generativo (LLM, API OpenAI-compatible)
  *
  * - POST {qwenUrl}/v1/chat/completions con structured outputs (json_schema) y parser tolerante como red de
  *   seguridad. Los argumentos de tools MCP usan json_object: sus schemas son dinámicos.
- * - Thinking por etapa: plan y replan = true; arguments y verify_stage = false; final_response = config.thinking.
+ * - Etapas (contrato `EngineLLM`, engine/deps.ts), todas desde las vistas del contexto: `generatePlanFromView` (plan y
+ *   replan, de 1 a `maxSteps` pasos), `generateArgumentsFromView`, `generateQuestion` (texto de la pregunta al usuario) y
+ *   `generateFinalFromView` (respuesta final).
+ * - Thinking por etapa: plan y replan = true; arguments y question = false; final_response = config.thinking.
  * - Reintentos: red y HTTP 503 en llmTransport; salida inválida o truncada: 1 reintento aquí, con el error
  *   previo en el prompt, más presupuesto de tokens y temperatura 0.3. Timeout y cancelación nunca se reintentan.
- * - Nada se infiere en silencio: ruta inválida, plan demasiado largo o expected_outcome vacío invalidan la salida.
- * - Fase 6: `generatePlanFromView` (LLM 1: plan y replan, de 1 a `maxSteps` pasos) y `generateFinalFromView` (LLM 3). Un
- *   plan fuera de ese rango es salida inválida: se reintenta una vez aquí y, si persiste, `LLMValidationError` (FLUJO 7).
- * - Fase 5: `generateArgumentsFromView` (argumentos desde la vista de `renderArgs`) y `generateQuestion` (texto de la pregunta
- *   al usuario, `ask_user`) son aditivos: contrato `EngineLLM` (engine/deps.ts). Una salida inválida de ambos se reintenta
- *   una vez aquí; si persiste, `LLMValidationError` y quien ejecuta decide (D4, D29).
+ * - Nada se infiere en silencio: ruta inválida, plan fuera de rango o expected_outcome vacío invalidan la salida; si
+ *   persiste tras el reintento, `LLMValidationError` y quien ejecuta decide.
  */
 
 import {
@@ -19,26 +18,15 @@ import {
   LLM_INVALID_OUTPUT_RETRIES,
   MAX_STEPS,
   isExecutableRoute,
-  type ArgumentPromptData,
   type ArgumentsGenerationResult,
   type FailedAttempt,
-  type FinalResponsePromptData,
-  type FinalResponseResult,
   type MCPTool,
-  type Plan,
-  type PlanRevision,
   type PlanStep,
   type PlanStepWire,
-  type ReplanPromptData,
-  type ReplanResult,
-  type StageVerificationPromptData,
-  type StageVerificationResult,
-  type StageVerificationStatus,
   type TimeSpan,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
 import { PROMPTS, retryNote } from "./prompts.ts";
-import type { ILLMClient } from "../engineDeps.ts";
 import type {
   ArgsFromViewInput,
   EngineLLM,
@@ -52,7 +40,7 @@ import type {
 } from "../engine/deps.ts";
 import { BUDGET } from "../budget.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
-import { isWholeRefToken, schemaTypes } from "../processor/refResolver.ts";
+import { isWholeRefToken, schemaTypes } from "../refs/refResolver.ts";
 import {
   estimateTokens,
   postJson,
@@ -83,16 +71,6 @@ const STEPS_SCHEMA: JsonSchema = {
   maxItems: MAX_STEPS,
 };
 
-export const PLAN_JSON_SCHEMA: JsonSchema = {
-  type: "object",
-  properties: {
-    objective: { type: "string" },
-    steps: STEPS_SCHEMA,
-  },
-  required: ["objective", "steps"],
-  additionalProperties: false,
-};
-
 /** Plan desde la vista (Fase 6): solo `steps`, de 1 a `maxSteps` (el tope lo pasa el motor). */
 function planViewSchema(maxSteps: number): JsonSchema {
   return {
@@ -102,39 +80,6 @@ function planViewSchema(maxSteps: number): JsonSchema {
     additionalProperties: false,
   };
 }
-
-export const REPLAN_JSON_SCHEMA: JsonSchema = {
-  type: "object",
-  properties: {
-    action: { type: "string", enum: ["continue", "abort"] },
-    reason: { type: "string" },
-    objective: { type: "string" },
-    steps: STEPS_SCHEMA,
-  },
-  required: ["action", "steps"],
-  additionalProperties: false,
-};
-
-const STAGE_STATUSES = [
-  "completed",
-  "recoverable_deviation",
-  "insufficient_info",
-  "unrecoverable_blocked",
-] as const satisfies readonly StageVerificationStatus[];
-
-const isStageStatus = (s: unknown): s is StageVerificationStatus =>
-  typeof s === "string" && (STAGE_STATUSES as readonly string[]).includes(s);
-
-export const STAGE_VERIFICATION_JSON_SCHEMA: JsonSchema = {
-  type: "object",
-  properties: {
-    status: { type: "string", enum: [...STAGE_STATUSES] },
-    reason: { type: "string" },
-    question_for_user: { type: "string" },
-  },
-  required: ["status", "reason", "question_for_user"],
-  additionalProperties: false,
-};
 
 interface LlmDispatchResult {
   content: string;
@@ -385,7 +330,7 @@ function readCompletion(data: unknown): Completion {
   };
 }
 
-export class QwenEngine implements ILLMClient, EngineLLM {
+export class QwenEngine implements EngineLLM {
   /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
     const t0 = Date.now();
@@ -564,13 +509,7 @@ export class QwenEngine implements ILLMClient, EngineLLM {
     );
   }
 
-  async generateArguments(data: ArgumentPromptData, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
-    return this.executeStage("generateArguments", () =>
-      this.runArguments(data.tool, PROMPTS.ARGUMENTS.SYSTEM, PROMPTS.ARGUMENTS.buildUserPrompt(data), signal)
-    );
-  }
-
-  /** Argumentos desde la vista estructurada (Fase 5): misma validación y mismo reintento que `generateArguments`. */
+  /** Argumentos desde la vista estructurada: validados contra el schema de la herramienta, con un reintento. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArgumentsFromView", () =>
       this.runArguments(input.tool, PROMPTS.ARGUMENTS_VIEW.buildSystemPrompt(input.tool), PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(input), signal)
@@ -680,153 +619,5 @@ export class QwenEngine implements ILLMClient, EngineLLM {
     });
 
     return { args: value, ...rawOf(res), failedAttempts: failed };
-  }
-
-  async generateFinalResponse(data: FinalResponsePromptData, signal?: AbortSignal): Promise<FinalResponseResult> {
-    return this.executeStage("generateFinalResponse", async () => {
-      const config = ConfigManager.getConfig();
-      const userPrompt = PROMPTS.FINAL_RESPONSE.buildUserPrompt(data);
-
-      const { value, res } = await this.dispatchValidated<string>({
-        stage: "final_response",
-        system: PROMPTS.FINAL_RESPONSE.SYSTEM,
-        user: userPrompt,
-        json: false,
-        maxTokens: config.qwenMaxTokens.final,
-        thinking: config.thinking,
-        retryThinking: false, // un final vacío suele ser thinking que agotó el presupuesto
-        signal,
-        validate: (r, isLast) => {
-          const text = stripThink(r.content);
-          if (!text) return fail("salida vacía");
-          if (!r.truncated) return ok(text);
-          return isLast ? ok(`${text}\n\n[Respuesta truncada por el límite de tokens]`) : fail(TRUNCATED);
-        },
-      });
-
-      return { response: value, ...rawOf(res) };
-    });
-  }
-
-  /** Plan inicial. `steps: []` es válido (la solicitud no requiere herramientas). */
-  async generatePlan(userMessage: string, signal?: AbortSignal, revision?: PlanRevision): Promise<Plan> {
-    return this.executeStage("generatePlan", async () => {
-      const userPrompt = PROMPTS.PLAN.buildUserPrompt(
-        userMessage,
-        undefined, // chatContext (no se usa)
-        buildCompactCatalog(),
-        revision?.feedback,
-        revision?.existingPlanSummary
-      );
-
-      const { value, res } = await this.dispatchValidated<{ objective: string; steps: PlanStep[] }>({
-        stage: "plan",
-        system: PROMPTS.PLAN.SYSTEM,
-        user: userPrompt,
-        json: true,
-        schema: PLAN_JSON_SCHEMA,
-        maxTokens: ConfigManager.getConfig().qwenMaxTokens.plan,
-        thinking: true,
-        signal,
-        validate: (r) => {
-          const out = parseObjectOutput(r);
-          if (!out.ok) return out;
-          const parsed = out.value;
-          const parsedSteps = parsePlanSteps(parsed.steps, 1, true);
-          if ("error" in parsedSteps) return fail(parsedSteps.error);
-          return ok({ objective: nonEmptyString(parsed.objective) ?? userMessage, steps: parsedSteps.steps });
-        },
-      });
-
-      return { objective: value.objective, steps: value.steps, ...rawOf(res) };
-    });
-  }
-
-  /** Replan localizado. Exige `action`; "continue" exige pasos válidos. */
-  async replan(data: ReplanPromptData, signal?: AbortSignal): Promise<ReplanResult> {
-    return this.executeStage("replan", async () => {
-      const userPrompt = PROMPTS.REPLAN.buildUserPrompt(data);
-
-      const { value, res } = await this.dispatchValidated<
-        { action: "abort"; reason: string } | { action: "continue"; objective: string; steps: PlanStep[] }
-      >({
-        stage: "replan",
-        system: PROMPTS.REPLAN.SYSTEM,
-        user: userPrompt,
-        json: true,
-        schema: REPLAN_JSON_SCHEMA,
-        maxTokens: ConfigManager.getConfig().qwenMaxTokens.replan,
-        thinking: true,
-        signal,
-        validate: (r) => {
-          const out = parseObjectOutput(r);
-          if (!out.ok) return out;
-          const parsed = out.value;
-          if (parsed.action === "abort") {
-            return ok({ action: "abort" as const, reason: nonEmptyString(parsed.reason) ?? "Replan decidió abortar." });
-          }
-          if (parsed.action !== "continue") return fail(`'action' debe ser "continue" o "abort"`);
-          const parsedSteps = parsePlanSteps(parsed.steps, data.nextStepNumber, false);
-          if ("error" in parsedSteps) return fail(parsedSteps.error);
-          return ok({
-            action: "continue" as const,
-            objective: nonEmptyString(parsed.objective) ?? data.goal,
-            steps: parsedSteps.steps,
-          });
-        },
-      });
-
-      const raw = rawOf(res);
-      if (value.action === "abort") return { action: "abort", reason: value.reason, ...raw };
-      return { action: "continue", plan: { objective: value.objective, steps: value.steps }, ...raw };
-    });
-  }
-
-  /**
-   * Verificación semántica de etapa. Si el LLM no produce un veredicto válido tras el reintento, el resultado es
-   * `recoverable_deviation`: la señal de Decision nunca sustituye al juez semántico.
-   */
-  async verifyStage(data: StageVerificationPromptData, signal?: AbortSignal): Promise<StageVerificationResult> {
-    return this.executeStage("verifyStage", async () => {
-      const userPrompt = PROMPTS.STAGE_VERIFICATION.buildUserPrompt(data);
-
-      try {
-        const { value, res } = await this.dispatchValidated<Omit<StageVerificationResult, "rawInput" | "rawOutput" | "timing">>({
-          stage: "verify_stage",
-          system: PROMPTS.STAGE_VERIFICATION.SYSTEM,
-          user: userPrompt,
-          json: true,
-          schema: STAGE_VERIFICATION_JSON_SCHEMA,
-          maxTokens: ConfigManager.getConfig().qwenMaxTokens.verify,
-          thinking: false,
-          signal,
-          validate: (r, isLast) => {
-            const out = parseObjectOutput(r);
-            if (!out.ok) return out;
-            const parsed = out.value;
-            if (!isStageStatus(parsed.status)) return fail(`'status' debe ser uno de ${STAGE_STATUSES.join(", ")}`);
-            const status = parsed.status;
-            const reason = nonEmptyString(parsed.reason) ?? "Sin detalle.";
-            if (status !== "insufficient_info") return ok({ status, reason });
-            // Una pregunta al usuario sin pregunta no sirve: se reintenta; en el último intento la razón hace de pregunta.
-            const question = nonEmptyString(parsed.question_for_user);
-            if (question) return ok({ status, reason, questionForUser: question });
-            return isLast
-              ? ok({ status, reason, questionForUser: reason })
-              : fail('con status "insufficient_info", question_for_user debe contener la pregunta concreta');
-          },
-        });
-        return { ...value, ...rawOf(res) };
-      } catch (err) {
-        if (!(err instanceof LLMValidationError)) throw err;
-        return {
-          status: "recoverable_deviation",
-          reason: `La verificación semántica no produjo un veredicto válido: ${err.message}`,
-          rawInput: err.raw?.rawInput,
-          rawOutput: err.raw?.rawOutput,
-          timing: err.raw?.timing,
-        };
-      }
-    });
   }
 }

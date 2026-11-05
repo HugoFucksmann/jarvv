@@ -6,7 +6,6 @@
  * `ctx.n`, que es de esa tarea.
  */
 
-import type { IDecisionEngine } from "../engineDeps.ts";
 import type { TaskContext } from "../ctx/index.ts";
 import { captureDecision, captureLlm, NULL_SINK } from "./capture.ts";
 import type { CaptureSink } from "./capture.ts";
@@ -18,7 +17,7 @@ export interface EngineEnv {
   readonly runtime: TaskRuntime;
   readonly deps: EngineDeps;
   /** Decision con la captura aplicada (sin `sink`, es el de `deps`). */
-  readonly decision: IDecisionEngine & IActionDecision;
+  readonly decision: IActionDecision;
   /** LLM con la captura aplicada (sin `sink`, es el de `deps`). */
   readonly llm: EngineLLM;
   readonly sink: CaptureSink;

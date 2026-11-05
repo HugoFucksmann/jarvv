@@ -5,7 +5,7 @@
  * Si algo es inconsistente se lanza con un error `variant_apply_error`.
  */
 
-import type { ChoiceQ, DecisionRequest, FrozenCase, GenerativeRequest, NoulQ } from "../types.ts";
+import type { ChoiceQ, DecisionRequest, FrozenCase, GenerativeRequest } from "../types.ts";
 import type { CriteriaEdit, DecisionStageVariant, GenerativeStageVariant, TextEdit, Variant } from "./types.ts";
 
 /** Error lanzado por `applyVariant`; el runner lo captura y registra `variant_apply_error`. */

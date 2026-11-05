@@ -17,8 +17,7 @@
 import { BUDGET } from "./budget.ts";
 import { create, terminalStateFor } from "./ctx/index.ts";
 import type { ContextData, ContextOptions, NormalizedOp, StopReason, TaskContext, TaskMode, TaskState } from "./ctx/index.ts";
-import type { IDiscoveryEngine } from "./engineDeps.ts";
-import type { EngineDeps, EngineLLM, EngineServices, IActionDecision } from "./engine/deps.ts";
+import type { EngineDeps, EngineLLM, EngineServices, IActionDecision, IDiscoveryEngine } from "./engine/deps.ts";
 import { createEngineServices } from "./engine/deps.ts";
 import { runTask } from "./engine/runTask.ts";
 import { TaskRuntime } from "./engine/runtime.ts";
@@ -28,12 +27,11 @@ import { windowOptions } from "./engine/adapters.ts";
 import { argsMax } from "./tools/manifest.ts";
 import { TaskTraceRecorder } from "./trace/recorder.ts";
 import { MAX_RETAINED_TASKS } from "./types/limits.ts";
-import type { IDecisionEngine } from "./engineDeps.ts";
 import { errorMessage, newId } from "./utils.ts";
 
 /** Motores que recibe la fachada; los construye la raíz de composición (server.ts). */
 export interface TaskManagerDeps {
-  readonly decision: IDecisionEngine & IActionDecision;
+  readonly decision: IActionDecision;
   readonly discovery: IDiscoveryEngine;
   readonly llm: EngineLLM;
 }

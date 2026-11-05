@@ -100,7 +100,7 @@ export const BUDGET = {
   // ── Extractores de resultados (Fase 4) ──
   /**
    * Lo que cada extractor deja en el `summary` antes de recortar al tope `summaryMax`. Son los literales de los
-   * extractores vigentes (`processor/extractors/*`), movidos a la tabla única (D7 de la Fase 4).
+   * extractores (`result/extractors/*`), movidos a la tabla única (D7 de la Fase 4).
    */
   extract: {
     /** `list_directory`: entradas que se muestran. */

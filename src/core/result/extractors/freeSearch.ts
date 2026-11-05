@@ -1,6 +1,6 @@
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
 import { BUDGET } from "../../budget.ts";
-import { clipAtWord, omissionMarker } from "../../processor/text.ts";
+import { clipAtWord, omissionMarker } from "../../text.ts";
 import { compactText } from "./shared.ts";
 
 /** Líneas con las que `search` informa un motor inexistente: `- <motor>: Unknown engine: '<x>'.` */

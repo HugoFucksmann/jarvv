@@ -14,7 +14,6 @@ import type { GenerativeClient, GenerativeCallContext } from "./client/generativ
 import type { EvalConfig } from "./config.ts";
 import { resolveDecisionTimeout, resolveGenerativeTimeout } from "./config.ts";
 import {
-  isRecord,
   LLM_INVALID_OUTPUT_RETRIES,
   RETRY_TEMPERATURE,
   RETRY_TOKEN_FACTOR,
@@ -153,7 +152,7 @@ async function runOne(
   decClient: DecisionClient,
   dryRun: boolean,
 ): Promise<RunResult> {
-  const { fc, variant, variants, variantSpec, variantChain, datasetName, iteration, thinkingExp } = task;
+  const { fc, variants, variantSpec, variantChain, datasetName, iteration, thinkingExp } = task;
   const timestamp = isoNow();
   const bucket = resolveBucket(fc, cfg);
 

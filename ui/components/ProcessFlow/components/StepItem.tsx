@@ -4,7 +4,6 @@ import type { CallDto, StepDto } from "../../../types/api.ts";
 import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
-import { Separator } from "../../Shared/Separator.tsx";
 import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
 
 interface StepItemProps {

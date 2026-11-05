@@ -53,21 +53,6 @@ export function flatten(text: string): string {
     return sanitizeForMemory(text, Number.MAX_SAFE_INTEGER).replace(/\s{2,}/g, " ");
 }
 
-/** Tope del hallazgo (`finding`): la línea de un resultado que viaja a LOG, FAIL, efectos y replan. */
-export const MAX_FINDING_CHARS = 300;
-
-/**
- * Hallazgo genérico: el contenido completo aplanado (sin saltos de línea ni espacios repetidos), no solo su primera
- * línea. Si no cabe en `maxLen`, el recorte es explícito: termina en `…` y, cuando el resultado quedó en RefStore,
- * lleva la clave `[ref:rN]` para recuperar el texto íntegro.
- */
-export function fitFinding(text: string, prefix = "", refKey?: string, maxLen = MAX_FINDING_CHARS): string {
-    const flat = flatten(`${prefix}${text}`);
-    if (flat.length <= maxLen) return flat;
-    const marker = refKey ? ` [ref:${refKey}]` : "";
-    return `${flat.slice(0, maxLen - marker.length - 1).trimEnd()}…${marker}`;
-}
-
 /** Recorta en el último espacio dentro de `n` caracteres; si recortó, termina en `…`. */
 export function clipAtWord(text: string, n: number): string {
     if (text.length <= n) return text;
@@ -75,28 +60,10 @@ export function clipAtWord(text: string, n: number): string {
     return `${text.slice(0, cut > n * 0.6 ? cut : n).trimEnd()}…`;
 }
 
-/** Caracteres que `headTail` conserva en cada extremo, y largo a partir del cual una salida se recorta. */
-export const HEAD_TAIL_CHARS = 750;
-export const LONG_OBS_CHARS = 2 * HEAD_TAIL_CHARS;
-
-/**
- * Observación de un texto largo: su inicio y su final con un marcador en medio (`[... omitidos, ref:rN]`) que lleva la
- * clave de RefStore para recuperar el texto íntegro. `omitted` es la leyenda del marcador.
- */
-export function headTail(text: string, refKey: string | undefined, omitted = "omitidos"): string {
-    return `${text.slice(0, HEAD_TAIL_CHARS)}\n[... ${omitted}, ref:${refKey}]\n${text.slice(-HEAD_TAIL_CHARS)}`;
-}
-
-/** Observación de un texto: íntegra si es corta, `headTail` si es larga y `empty` si no hay texto. */
-export function compactObservation(text: string, refKey: string | undefined, empty: string, omitted?: string): string {
-    return text.length > LONG_OBS_CHARS ? headTail(text, refKey, omitted) : text || empty;
-}
-
 // ───────────────────────── Fase 4: recorte con marcador neutro ─────────────────────────
 // El `summary` de una llamada no contiene claves de ref (PLAN_CONTEXT 5.2): el marcador de omisión es neutro y la vista
 // añade la ref a partir de `call.ref`. Estas funciones no sanean (C9): el saneado lo hacen las vistas al renderizar.
-// Las usa `src/core/result/`; `headTail`, `compactObservation` y `fitFinding` siguen aquí hasta la Fase 8 porque el
-// código vigente las importa.
+// Las usa `src/core/result/`.
 
 /** Resultado de un recorte: el texto y si hubo omisión. */
 export interface ClippedText {

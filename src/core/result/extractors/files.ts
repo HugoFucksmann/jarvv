@@ -1,6 +1,6 @@
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
 import { BUDGET } from "../../budget.ts";
-import { omissionMarker } from "../../processor/text.ts";
+import { omissionMarker } from "../../text.ts";
 
 /** `list_directory`: entradas del directorio (hasta `listDirEntries` en el resumen). */
 export function extractListDirectory({ fullText }: ExtractorInput): ExtractorOutput {

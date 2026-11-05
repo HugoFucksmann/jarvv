@@ -12,6 +12,10 @@ El punto de entrada unificado es:
 npx tsx eval/prompts/cli.ts [flags]
 ```
 
+Atajos de `package.json`: `npm run eval -- [flags]` (equivale a lo anterior) y `npm run eval:smoke` (`smoke` con el mock en `--dry-run`, sin modelos).
+
+Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, la concurrencia, las repeticiones, el thinking, el timeout, las variantes, la baseline, los datasets (con cantidad de casos), las etapas y los filtros. No se imprime en `--dry-run`.
+
 > **Sintaxis de flags:** `--flag=valor` para valores y `--flag` (o `--flag=false`) para booleanos. Es error de configuración (código 2): un flag no reconocido, repetido, sin valor o con valor vacío (`--model=`), o un número que no sea un entero/decimal simple (`--limit=1e3`, `--min-pass-rate=.9`; usar `0.9`). Una lista CSV que queda vacía (`--stages=,`) también es error. Ejecutar siempre desde la raíz del repo: las rutas por defecto son relativas al cwd.
 
 ---
@@ -78,8 +82,8 @@ Dentro del directorio se genera:
   - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens).
   - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; la CLI avisa cuántos fueron. La accuracy cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
   - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/prompts/results/`.
-- `comparison.md`: Reporte markdown comparando variantes contra el `baseline` (`prod`).
-- `comparison.json`: Resumen numérico comparativo en formato JSON.
+- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante: passRate agregado, Δ vs baseline, regresiones, mejoras, fallas de cliente, p50), resumen por etapa, deltas, regresiones, mejoras y matrices de confusión. La tabla por variante también se imprime en consola.
+- `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `warnings`).
 
 ### Códigos de salida
 | Código | Significado |
@@ -87,14 +91,6 @@ Dentro del directorio se genera:
 | `0` | Corrida correcta (y umbral cumplido, si se pidió). |
 | `1` | Alguna celda quedó por debajo de `--min-pass-rate`. |
 | `2` | Error de configuración, dataset inválido, filtros que no dejan casos, ninguna corrida canónica, todas las llamadas fallaron por el cliente (red, timeout o HTTP), o `--dry-run` con alguna variante que no se pudo aplicar. |
-
-### Datasets (`.jsonl`)
-- Una línea por caso; las líneas vacías y las que empiezan con `#` se ignoran.
-- `expect` se valida con lista cerrada de claves por etapa: una clave desconocida, un `expect` sin ningún check o un valor inválido es error de carga (`archivo:línea: mensaje`). También se rechazan: rutas que no son ejecutables (`expectedRoute`, `firstRoute`, `allowedRoutes`, `requiredRoutes`), probabilidades fuera de 0–1, `minSteps` > `maxSteps`, `exactFieldValues` vacío y `minOkProb`/`minCumpleProb` con el veredicto esperado en `false`.
-- Los textos (`mustContainFacts`, keywords, etc.) se buscan por palabra o frase completa, sin distinguir mayúsculas ni acentos; un número no coincide dentro de otro (`12` no está en `12.5`, `12.000` ni `120`).
-- Etapa `arguments`: el caso debe traer `meta.toolSchema`; sin él falla (producción siempre valida contra el schema).
-- Los globs soportan `*`, `**` y `?` (no `{a,b}`).
-- `datasets/decision_discriminating.jsonl` tiene casos de decisión donde la respuesta correcta **no** es la primera opción (`fin`, `ask_user`, `args_invalid`, `ok=false`…). Sirve para detectar sesgo de posición.
 
 ### Qué cuenta como "pasó"
 Un run pasa solo si no registró ningún error: llamada al cliente, aplicación de variante, parseo de la salida y todos los checks de los graders. Si la variante no se puede aplicar, el run falla sin llamar al modelo. Un caso donde ningún grader ejecuta checks falla (`graders_ran_checks`). Si el caso pide `minProbability`, la salida debe traer la probabilidad; si no la trae, falla.
@@ -106,7 +102,18 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 
 ---
 
-## 4. Ejemplos de Uso
+## 4. Datasets (`.jsonl`)
+
+- Una línea por caso; las líneas vacías y las que empiezan con `#` se ignoran.
+- `expect` se valida con lista cerrada de claves por etapa: una clave desconocida, un `expect` sin ningún check o un valor inválido es error de carga (`archivo:línea: mensaje`). También se rechazan: rutas que no son ejecutables (`expectedRoute`, `firstRoute`, `allowedRoutes`, `requiredRoutes`), probabilidades fuera de 0–1, `minSteps` > `maxSteps`, `exactFieldValues` vacío y `minOkProb`/`minCumpleProb` con el veredicto esperado en `false`.
+- Los textos (`mustContainFacts`, keywords, etc.) se buscan por palabra o frase completa, sin distinguir mayúsculas ni acentos; un número no coincide dentro de otro (`12` no está en `12.5`, `12.000` ni `120`).
+- Etapa `arguments`: el caso debe traer `meta.toolSchema`; sin él falla (producción siempre valida contra el schema).
+- Los globs soportan `*`, `**` y `?` (no `{a,b}`).
+- `datasets/decision_discriminating.jsonl` tiene casos de decisión donde la respuesta correcta **no** es la primera opción (`fin`, `ask_user`, `args_invalid`, `ok=false`…). Sirve para detectar sesgo de posición.
+
+---
+
+## 5. Ejemplos de Uso
 
 ### Listar etapas y variantes disponibles
 ```bash
@@ -120,7 +127,7 @@ npx tsx eval/prompts/cli.ts --client=oracle --dataset=eval/prompts/datasets/smok
 Esperado: 100 %. Cualquier falla indica un caso o grader mal escrito.
 
 ### Ejecución de humo con mock (sin requerir servidor/GPU)
-> Nota: el mock devuelve respuestas genéricas (primera opción, `"Mock response."`), por lo que `smoke-args`, `smoke-final` y `smoke-question` fallan con él (5/8 en `smoke.jsonl`; 0/10 en `decision_discriminating.jsonl`, donde ninguna respuesta correcta es la primera opción). Sirve para probar la maquinaria, no para validar prompts.
+> Nota: el mock devuelve respuestas genéricas (primera opción, `"Mock response."`), por lo que `smoke-args`, `smoke-final` y `smoke-question` fallan con él (5/9 runs en `smoke.jsonl`; 0/10 en `decision_discriminating.jsonl`, donde ninguna respuesta correcta es la primera opción). Sirve para probar la maquinaria, no para validar prompts.
 ```bash
 npx tsx eval/prompts/cli.ts --client=mock --dataset=eval/prompts/datasets/smoke.jsonl
 ```

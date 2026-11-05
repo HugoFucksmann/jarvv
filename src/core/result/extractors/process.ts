@@ -4,7 +4,7 @@
 
 import type { ExtractorInput, ExtractorOutput, ExtractorSignals, ProcessSignal } from "./types.ts";
 import { BUDGET } from "../../budget.ts";
-import { omissionMarker } from "../../processor/text.ts";
+import { omissionMarker } from "../../text.ts";
 
 /** Caracteres que se reservan al principio del resumen para el marcador de omisión (con su salto de línea). */
 const MARKER_ROOM = 48;

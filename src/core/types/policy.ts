@@ -29,15 +29,3 @@ export interface ToolPolicy {
   /** Exenta del anti-loop (p. ej. sondeos repetidos de una misma salida). */
   loopExempt: boolean;
 }
-
-export interface PendingApproval {
-  id: string;
-  stepId: string;
-  mcp: string;
-  tool: string;
-  capability: Capability;
-  args: Record<string, unknown>;
-  reason: string;
-  onApprove: () => void;
-  onDeny: (reason?: string) => void;
-}

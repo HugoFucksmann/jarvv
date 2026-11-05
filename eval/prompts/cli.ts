@@ -18,7 +18,7 @@ import { createMockDecisionClient } from "./core/client/mock.ts";
 import { createMockGenerativeClient } from "./core/client/mock.ts";
 import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/client/oracle.ts";
 import { parseConfig } from "./core/config.ts";
-import { filterCases, loadDatasets } from "./core/datasets.ts";
+import { loadDatasets } from "./core/datasets.ts";
 import type { InputCell } from "./core/report.ts";
 import { generateComparisonReport, printComparisonSummary, printVariantSummary, writeComparison } from "./core/report.ts";
 import { buildRunMeta, createCellWriter, newRunId, runRootDir, timestampDir } from "./core/results.ts";

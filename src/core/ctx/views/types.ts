@@ -11,7 +11,6 @@ import type {
   JsonObject,
   StepState,
   StopReason,
-  TaskMode,
   TaskState,
   VerdictReason,
 } from "../types.ts";

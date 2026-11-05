@@ -13,7 +13,7 @@ import type { CallStatus } from "../ctx/types.ts";
 
 import { getToolPolicy } from "../tools/manifest.ts";
 import { isRecord } from "../utils.ts";
-import { fitToCap } from "../processor/text.ts";
+import { fitToCap } from "../text.ts";
 import { selectExtractor } from "./extractors/index.ts";
 import type { ExtractorInput, ProcessSignal } from "./extractors/types.ts";
 import { BUDGET } from "../budget.ts";

@@ -1,126 +1,207 @@
-# JARVIS — Asistente Determinista Full-Stack
+<div align="center">
 
-> Última revisión: **13 de octubre de 2026** (Fase 6 — Cierre y Calibración)
+# ✦ JARVIS
 
-JARVIS es un sistema de asistente inteligente determinista full-stack que orquesta la ejecución autónoma y supervisada de tareas complejas en sistemas operativos locales y la web mediante **Decision 2.0**, **Qwen 3.5 9B** y servidores de herramientas bajo el protocolo **Model Context Protocol (MCP)**.
+### Tu asistente local: le hablás, actúa en tu computadora y vos mantenés el control.
 
----
+<br>
 
-## Propósito y Alcance
+![Local first](https://img.shields.io/badge/100%25-local-2ea44f?style=for-the-badge)
+![Guard](https://img.shields.io/badge/seguridad-determinista-0969da?style=for-the-badge)
+![MCP](https://img.shields.io/badge/herramientas-MCP-8250df?style=for-the-badge)
 
-JARVIS permite a usuarios y operadores ejecutar flujos de trabajo sobre el sistema operativo Windows, la línea de comandos, el sistema de archivos y la web a partir de instrucciones en lenguaje natural, garantizando seguridad, verificabilidad y control humano.
+![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React_19-20232a?logo=react&logoColor=61dafb)
+![Tailwind](https://img.shields.io/badge/Tailwind_4-0f172a?logo=tailwindcss&logoColor=38bdf8)
+![Node](https://img.shields.io/badge/Node.js_20+-339933?logo=nodedotjs&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)
 
-- **Qué hace:**
-  - Recibe instrucciones en lenguaje natural en modos **FAST** (iterativo directo) o **PLAN** (planificación estructurada y revisión humana).
-  - Enruta y selecciona herramientas mediante el modelo clasificador **Decision 2.0 (Eos-0.8B)**.
-  - Resuelve referencias entre pasos con **RefResolver** (`${stepId.ref}`) y aísla salidas completas en **RefStore**.
-  - Genera argumentos conforme a esquemas JSON estrictos con **Qwen 3.5 9B**.
-  - Ejecuta herramientas locales vía transporte stdio en **Desktop Commander MCP** y **Free Search MCP**.
-  - Somete cada acción a la compuerta determinista **Guard**, exigiendo confirmación humana interactiva en **GuardBanner** ante cualquier mutación del sistema.
-  - Verifica el cumplimiento de criterios mediante juicios **Eos** (`ok` y `cumple`).
-  - Sincroniza el estado de ejecución en tiempo real mediante **Server-Sent Events (SSE)** hacia una interfaz web reactiva en **React 19** y **Tailwind CSS**.
-- **Qué no hace:**
-  - No ejecuta comandos destructivos sobre el sistema operativo raíz sin autorización ni permite saltar las políticas de seguridad de Guard.
-  - No opera como un chatbot meramente generativo sin validación determinista ni ejecución auditable.
+</div>
 
----
+<br>
 
-## Tecnologías
+JARVIS convierte instrucciones en lenguaje natural en acciones reales: busca archivos, ejecuta comandos, consulta la web y te devuelve una respuesta clara. Piensa con modelos que corren **en tu propia máquina**, y antes de tocar tu sistema pasa por un guardián de reglas fijas que ningún modelo puede saltarse.
 
-| Área | Tecnología | Versión / Modelo |
-|------|-----------|------------------|
-| **Lenguaje** | TypeScript | 5.7+ / ES2022 |
-| **Runtime** | Node.js (con `tsx`) | 20+ |
-| **Backend & Host** | Express | 4.21.2 |
-| **Frontend UI** | React + Vite + Tailwind CSS | React 19 / Vite 8 / Tailwind 4 |
-| **Modelo Razonador LLM** | Qwen 3.5 9B (vía Ollama/vLLM) | `qwen3.5:9b` |
-| **Modelo Clasificador** | Decision 2.0 (Eos-0.8B) | `Decision-2.0-Eos-0.8B` |
-| **Protocolo de Herramientas** | Model Context Protocol (MCP) | JSON-RPC 2.0 sobre stdio |
-| **Servidores MCP** | Desktop Commander, Free Search | 2.1.0 / 0.13.1 |
-| **Sincronización en Tiempo Real**| Server-Sent Events (SSE) | EventSource nativo |
-| **Persistencia de Tareas** | JSON local persistido | `jarvis-tasks.json` |
+> *"Buscá el contrato de marzo y resumilo."*
+> *"Listá lo que hay en esta carpeta."*
+> *"Averiguá cuál es la última versión de esa librería."*
+
+Mientras trabaja, vas viendo en la interfaz cada paso, cada herramienta y cada decisión. Y si una operación modifica algo, espera tu aprobación.
 
 ---
 
-## Configuración y Variables
+## ✨ Lo que lo hace especial
 
-Las conexiones y comportamientos se configuran en `jarvis-config.json`:
+<table>
+<tr>
+<td width="50%" valign="top">
 
-| Propiedad | Descripción | Valor por Defecto |
-|-----------|-------------|-------------------|
-| `PORT` | Puerto HTTP para el servidor Express | `3000` |
-| `qwenUrl` | URL del servicio Ollama/vLLM para Qwen 3.5 9B | `http://127.0.0.1:11434` |
-| `qwenModel` | Nombre del modelo LLM de razonamiento | `qwen3.5:9b` |
-| `decisionUrl` | URL del servicio Decision 2.0 | `http://127.0.0.1:8765` |
-| `desktopCommanderMcp`| Comando para Desktop Commander MCP | `npx -y @wonderwhy-er/desktop-commander` |
-| `freeSearchMcp` | Comando para Free Search MCP | `uvx --from free-search-mcp==0.13.1 --with selectolax==0.3.34 free-search-mcp` |
-| `timeoutMs` | Timeout general para operaciones | `30000` (30 s) |
-| `decisionTimeoutMs` | Timeout para inferencias de Decision 2.0 | `30000` (30 s) |
-| `qwenTimeoutMs` | Timeout para inferencias de Qwen 3.5 9B | `120000` (120 s) |
-| `mcpTimeoutMs` | Timeout para ejecuciones de herramientas MCP | `30000` (30 s) |
+### 🏠 Local por diseño
+Los modelos corren en tu equipo con [Ollama](https://ollama.com). Tus instrucciones y tus archivos no viajan a ningún servicio de IA. El servidor escucha solo en `127.0.0.1` y rechaza cualquier petición con `Host` u `Origin` que no sea local.
+
+</td>
+<td width="50%" valign="top">
+
+### 🛡️ Seguridad que no depende de un prompt
+**Guard** aplica reglas fijas antes de cada acción. Lo destructivo (`rm -rf /`, `format c:`, `mkfs`…) se **deniega siempre**. Escribir, ejecutar, descargar o cambiar configuración **pide tu aprobación cada vez**: aprobar una operación no autoriza la siguiente.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🧭 Dos modos, según la tarea
+**`reactive`**: elige y ejecuta paso a paso, verificando cada resultado.
+**`deliberative`**: planifica primero y **te pide confirmar el plan**; podés aceptarlo, rechazarlo o pedir cambios.
+Si un paso falla, se recupera con un plan nuevo (hasta dos veces) o te pregunta lo que le falta.
+
+</td>
+<td width="50%" valign="top">
+
+### 🧩 Modelos chicos, cada uno en lo suyo
+Un modelo de **decisión** (`d3:2b`) elige rutas y herramientas y verifica resultados. Un modelo **generativo** (`qwen3.5:4b`) planifica, arma los argumentos y redacta la respuesta. Ambos con contextos acotados de 16 384 tokens.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🔭 Todo a la vista
+La interfaz se actualiza en vivo (Server-Sent Events): el plan, los pasos, las herramientas que se llaman, las aprobaciones pendientes y la respuesta final aparecen a medida que ocurren.
+
+</td>
+<td width="50%" valign="top">
+
+### 🎯 Resultados honestos
+Cada tarea termina en un estado explícito (`completed`, `partial`, `failed` o `cancelled`) y, si no se completó, con el motivo. Un logro parcial se informa como parcial, y si un modelo no responde, JARVIS lo dice en lugar de inventar.
+
+</td>
+</tr>
+</table>
+
+### 🧰 Un catálogo cerrado de herramientas
+
+JARVIS solo ofrece a los modelos las herramientas catalogadas, agrupadas en cuatro destinos. Lo que un servidor MCP exponga y no figure en el catálogo, no se ofrece.
+
+| | Destino | Para qué |
+|:-:|---|---|
+| 📁 | `files` | Leer, crear, guardar y mover archivos y carpetas; listar una carpeta |
+| 🔎 | `locate` | Encontrar archivos por nombre o por texto interno cuando no sabés dónde están |
+| ⌨️ | `terminal` | Ejecutar comandos y programas, leer su salida y enviarles entrada |
+| 🌐 | `web` | Buscar información en línea y leer páginas web |
+
+Se ejecutan mediante el protocolo [MCP](https://modelcontextprotocol.io) con [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP) y [Free Search](https://pypi.org/project/free-search-mcp/).
+
+### 📏 Y se puede medir
+
+JARVIS trae su propio laboratorio de evaluación: mide prompts y modelos contra casos congelados y compara variantes antes de tocar producción. → [`eval/README.md`](eval/README.md)
 
 ---
 
-## Inicio Rápido y Verificación
+## 🚀 Puesta en marcha
+
+### Requisitos
+
+| | Requisito | Para qué |
+|:-:|---|---|
+| 🟢 | [Node.js](https://nodejs.org) 20 o superior (incluye `npx`) | Servidor, interfaz y Desktop Commander |
+| 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b` |
+| 🐍 | [uv](https://docs.astral.sh/uv/) (`uvx`) | Free Search, la herramienta de la ruta `web` |
+
+### Instalación
 
 ```bash
-# 1. Instalar dependencias
 npm install
+```
 
-# 2. Iniciar servidor autoritativo de desarrollo (puerto 3000)
+```bash
 npm run dev
+```
 
-# 3. Validar tipado y dependencias circulares
-npx tsc --noEmit
-npx -y madge --extensions ts,tsx --ts-config tsconfig.json --circular src/
+Abrí **<http://localhost:3000>** y listo: el servidor y la interfaz arrancan juntos.
 
-# 4. Compilar para producción
+<details>
+<summary><b>Servir la versión compilada</b></summary>
+
+<br>
+
+```bash
 npm run build
 ```
 
----
+Luego iniciá con `NODE_ENV=production` y `npm start`.
 
-## Estructura del Código Fuente
+</details>
 
-```
-src/
-├── components/          # Interfaz React modular y reactiva
-│   ├── CommandSection/  # Entrada de instrucciones y selector de modo
-│   ├── DecisionStream/  # Trazabilidad en vivo de Decision 1, Decision 2 y Verificación Eos
-│   ├── GuardBanner/     # Compuerta visual para autorización humana interactiva
-│   ├── ProcessFlow/     # Línea de tiempo, revisión de planes y respuesta final
-│   ├── SettingsModal/   # Modal de configuración de URLs y endpoints
-│   ├── Shared/          # Renderizador Markdown y estados
-│   └── TopBar/          # Barra superior, historial y estado del sistema
-├── core/                # Núcleo determinista de orquestación
-│   ├── callExecutor.ts  # Ejecución de pasos y orquestación de herramientas
-│   ├── config.ts        # Gestor de configuración persistente
-│   ├── context.ts       # Contexto de tarea, memoria y recorte
-│   ├── core.ts          # Orquestador JarvisCore y persistencia
-│   ├── decision.ts      # Cliente Decision 2.0 y juicios Eos
-│   ├── modeEngines.ts   # Motores de bucle FAST y PLAN
-│   ├── mcp/             # Transporte stdio JSON-RPC y adaptadores MCP
-│   ├── policy/          # Guard y PolicyRegistry
-│   ├── processor/       # ResultProcessor y RefResolver
-│   ├── reasoner/        # Cliente Qwen 3.5 9B y prompts centralizados
-│   ├── tools/           # Manifest y catálogo consolidado
-│   └── types.ts         # Contratos de tipos y constantes globales
-├── hooks/               # Hook useJarvis con suscripción a SSE
-├── services/            # Cliente API jarvisApi
-└── utils/               # Utilidades de red y URLs
-```
+<details>
+<summary><b>Scripts y variables de entorno</b></summary>
+
+<br>
+
+| Script | Descripción |
+|---|---|
+| `npm run dev` / `npm start` | Servidor de JARVIS (con Vite integrado fuera de producción) |
+| `npm run build` | Compila la interfaz a `dist/` |
+| `npm run lint` | Verificación de tipos (`tsc --noEmit`) |
+| `npm run eval` | Laboratorio de evaluación de prompts |
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `PORT` | `3000` | Puerto del servidor |
+| `HOST` | `127.0.0.1` | Interfaz de red. Con `0.0.0.0` se expone a la red; como no hay autenticación, daría control de tu PC a quien llegue al servidor, así que no lo uses en redes que no controlás |
+
+</details>
 
 ---
 
-## Documentación Técnica Completa
+## ⚙️ Configuración
 
-| Documento | Descripción |
-|-----------|-------------|
-| [ARCHITECTURE](docs/ARCHITECTURE.md) | Arquitectura full-stack, responsabilidades de componentes y límites modulares |
-| [CORE_FLOW](docs/CORE_FLOW.md) | Flujo paso a paso desde el prompt hasta la síntesis de la respuesta final |
-| [CONTEXT_AND_MEMORY](docs/CONTEXT_AND_MEMORY.md) | Manejo de memoria, RefStore, presupuestos de tokens y ensamble de prompts |
-| [TOOLS_AND_SECURITY](docs/TOOLS_AND_SECURITY.md) | Catálogo de herramientas MCP, políticas deterministas de Guard y flujo de aprobación |
-| [INCONSISTENCIAS](docs/INCONSISTENCIAS.md) | Diagnóstico técnico y estado de calibración de los 7 hallazgos detectados |
-| [CODEBASE_MAP](docs/CODEBASE_MAP.md) | Árbol completo de archivos, grafo de dependencias e importaciones |
-| [MCP_TOOLS_SNAPSHOT](docs/MCP_TOOLS_SNAPSHOT.md) | Snapshot de las herramientas descubiertas en runtime por protocolo stdio |
-| [FASE_6_PREPARACION_AUDITORIA_INTEGRAL](docs/FASE_6_PREPARACION_AUDITORIA_INTEGRAL.md) | Informe exhaustivo de auditoría técnica y preparación de la Fase 6 |
+Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la interfaz o directamente en el archivo.
+
+<details open>
+<summary><b>Valores que trae el proyecto</b></summary>
+
+<br>
+
+| Propiedad | Valor | Descripción |
+|---|---|---|
+| `qwenUrl` · `qwenModel` | `http://127.0.0.1:11434` · `qwen3.5:4b` | Modelo generativo |
+| `decisionUrl` · `decisionModel` | `http://127.0.0.1:11434` · `d3:2b` | Modelo de decisión |
+| `decisionBackend` | `d3` | Motor de decisión: `d3` por Ollama, o `eos` con un servicio propio |
+| `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
+| `thinking` | `false` | Razonamiento extendido en la respuesta final |
+| `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `30000` | Timeouts en milisegundos |
+| `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción) |
+| `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Registro local de tareas terminadas, para el laboratorio |
+| `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
+
+</details>
+
+---
+
+## 🗂️ Estructura del proyecto
+
+```
+jarvis/
+├── server.ts            Servidor Express: composición, API local y eventos en vivo
+├── src/
+│   ├── core/            Núcleo: modos, decisión, razonador, Guard, MCP, contexto y refs
+│   └── server/          Rutas HTTP (/api/jarvis y /api/mcp)
+├── ui/                  Interfaz React: componentes, hooks y cliente de la API
+├── eval/                Laboratorio de evaluación de prompts y modelos
+├── docs/                Documentación técnica
+├── data/                Datos locales de ejecución
+└── jarvis-config.json   Configuración
+```
+
+---
+
+## 📚 Para ir más a fondo
+
+Si te interesa entender cómo está construido por dentro:
+
+| Documento | Qué vas a encontrar |
+|---|---|
+| 🏛️ [ARCHITECTURE](docs/ARCHITECTURE.md) | La arquitectura y las responsabilidades de cada módulo |
+| 🔄 [CORE_FLOW](docs/CORE_FLOW.md) | El recorrido de una tarea, de la instrucción a la respuesta final |
+| 🧠 [CONTEXT_AND_MEMORY](docs/CONTEXT_AND_MEMORY.md) | Cómo se arma el contexto, la memoria y el manejo de resultados |

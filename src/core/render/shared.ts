@@ -5,7 +5,7 @@
 
 import type { BUDGET } from "../budget.ts";
 import type { AvailableRefView, CallView, FactView, RefView, StepDoneView, StepView, UserInputView } from "../ctx/index.ts";
-import { sanitizeMultiline, flatten } from "../processor/text.ts";
+import { sanitizeMultiline, flatten } from "../text.ts";
 
 /** Texto externo en una sola línea, saneado. */
 export const oneLine = (text: string): string => flatten(text);
@@ -82,15 +82,6 @@ export function callLine(call: CallView, lineChars: number | null): string {
   if (call.summary !== null) parts.push(`| ${fit(oneLine(call.summary))}`);
   if (call.ref !== null) parts.push(refText(call.ref));
   return parts.join(" ");
-}
-
-/** Llamada en varias líneas (cabecera, `args`, resumen con sus saltos de línea, ref): para evidencia y datos. */
-export function callEntry(call: CallView): string {
-  const lines = [callHead(call)];
-  if (call.args !== null) lines.push(`args=${oneLine(JSON.stringify(call.args))}`);
-  if (call.summary !== null) lines.push(multiLine(call.summary));
-  if (call.ref !== null) lines.push(refText(call.ref));
-  return lines.join("\n");
 }
 
 export function factLine(fact: FactView): string {

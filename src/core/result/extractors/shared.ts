@@ -1,5 +1,5 @@
 import { BUDGET } from "../../budget.ts";
-import { headTailNeutral } from "../../processor/text.ts";
+import { headTailNeutral } from "../../text.ts";
 
 /**
  * Resumen de un texto sin estructura conocida: íntegro si cabe, inicio y final con el marcador neutro si es largo,

@@ -10,15 +10,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type {
   ExecutionMode,
   McpInitStatus,
-  ActionResult,
 } from "../types/ui.ts";
 import type {
   TaskDto,
   TaskSummary,
-  Waiting,
-  WaitingApproval,
-  WaitingPlan,
-  WaitingQuestion,
   McpToolDto,
   UnavailableServers,
   SseMessage,

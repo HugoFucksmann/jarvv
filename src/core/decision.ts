@@ -6,9 +6,8 @@
  *
  * - Integración HTTP real contra la URL configurada; sin simulaciones. Si el servicio no está configurado o no
  *   responde, lanza DecisionServiceUnavailableError.
- * - `chooseRoute` y `chooseTool` (contrato `IActionDecision`, engine/deps.ts) reciben el marco de `forRoute`, y `reviewArgs`
- *   (Decisión 3) el de `forReview`; los métodos
- *   `evaluateDecisionOne` y `evaluateDecisionTwo` del motor vigente no cambian.
+ * - `chooseRoute` y `chooseTool` (contrato `IActionDecision`, engine/deps.ts) reciben el marco de `forRoute`, `reviewArgs`
+ *   (Decisión 3) el de `forReview` y `verifyResult` (Decisión 4) el de `forVerify`.
  * - Tipos de pregunta implementados: `choice` y `noul`. El contrato también define `score`; no se usa ni se implementa.
  * - Validación de la respuesta en un solo punto (parseResponse); el resto del código confía en ella.
  * - Umbral de `noul`: se aprueba solo con probabilidad estrictamente mayor que 0.5 (ante ambigüedad, no se aprueba).
@@ -16,19 +15,13 @@
  */
 
 import {
-  type Attempt,
   type DecisionAnswer,
   type DecisionAnswerChoice,
   type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
-  type DecisionOneResult,
-  type DecisionTwoResult,
-  type MCPTool,
-  type StepRoute,
   type StepVerificationResult,
 } from "./types.ts";
-import type { IDecisionEngine } from "./engineDeps.ts";
 import type {
   DecisionTrace,
   IActionDecision,
@@ -118,7 +111,7 @@ function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean
   return shortcut ? { action: "route", route: choice, shortcut: true, ...trace } : { action: "route", route: choice, ...trace };
 }
 
-export class Decision20Engine implements IDecisionEngine, IActionDecision {
+export class Decision20Engine implements IActionDecision {
   /**
    * Invoca `system_one` sobre el endpoint real. Devuelve las respuestas ya validadas contra `questions`
    * y los crudos de entrada/salida para depuración.
@@ -178,74 +171,6 @@ export class Decision20Engine implements IDecisionEngine, IActionDecision {
       rawOutput: result.text,
       timing: { startedAt, durationMs: Date.now() - startedAt },
     };
-  }
-
-  /** Decision #1: ruta de la siguiente acción. */
-  async evaluateDecisionOne(
-    taskMessage: string,
-    historyContext: string = "",
-    options?: {
-      allowFin?: boolean;
-      /** Observación compacta del último resultado, para que Decision la vea. */
-      lastResult?: string;
-      /** Acciones ya ejecutadas; marcan rutas cuyo último intento falló. */
-      attempts?: Attempt[];
-      signal?: AbortSignal;
-    }
-  ): Promise<DecisionOneResult> {
-    const { state, questions } = DECISION_PROMPTS.buildDecisionOne({
-      taskMessage,
-      history: historyContext,
-      allowFin: options?.allowFin !== false,
-      lastResult: options?.lastResult,
-      attempts: options?.attempts,
-    });
-
-    const t0 = Date.now();
-    const response = await this.ask("Decision #1", state, questions, options?.signal);
-    const { choice, probabilities } = choiceAnswer(response, "route");
-
-    console.log(`[Decision #1] route=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
-    return { route: choice as StepRoute, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
-  }
-
-  /** Decision #2: tool dentro de las herramientas descubiertas del MCP activo. */
-  async evaluateDecisionTwo(
-    instruction: string,
-    discoveredTools: MCPTool[],
-    memory?: string,
-    attempts?: Attempt[],
-    options?: { mcp?: string; signal?: AbortSignal }
-  ): Promise<DecisionTwoResult> {
-    // Con una sola opción no hay decisión que tomar: se omite la llamada (sin simular una respuesta del modelo).
-    if (discoveredTools.length === 1) {
-      const tool = discoveredTools[0];
-      console.log(`[Decision] tool=${tool.name} (única opción) duration=0ms`);
-      return {
-        selectedTool: tool,
-        probabilities: { [tool.name]: 1 },
-        rawInput: JSON.stringify({ state: instruction, single_tool: tool.name }, null, 2),
-        rawOutput: JSON.stringify({ choice: tool.name, source: "single_tool_shortcut" }, null, 2),
-        shortcut: true,
-      };
-    }
-
-    const { state, questions } = DECISION_PROMPTS.buildDecisionTwo({
-      instruction,
-      memory: memory ?? "",
-      tools: discoveredTools,
-      attempts,
-      mcp: options?.mcp,
-    });
-
-    const t0 = Date.now();
-    const response = await this.ask("Decision #2", state, questions, options?.signal);
-    const { choice, probabilities } = choiceAnswer(response, "selected_tool");
-    // `criteria` se construyó con los nombres de discoveredTools y parseResponse validó la pertenencia.
-    const selectedTool = discoveredTools.find((t) => t.name === choice)!;
-
-    console.log(`[Decision] tool=${selectedTool.name} duration=${Date.now() - t0}ms`);
-    return { selectedTool, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /**
@@ -331,35 +256,11 @@ export class Decision20Engine implements IDecisionEngine, IActionDecision {
 
   /**
    * Decisión 4: verificación del resultado de la llamada evaluada, con el criterio del paso o de la solicitud (`forVerify`).
-   * Mismas dos preguntas `noul` que `evaluateStepVerification`.
+   * Dos preguntas `noul` (`ok`, `cumple`), aprobadas solo con probabilidad estrictamente mayor que NOUL_APPROVE.
    */
   async verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<StepVerificationResult> {
     const { state, questions } = DECISION_PROMPTS.buildResultVerification(input);
     return this.runVerification("Verification", input.call.split("\n", 1)[0], state, questions, signal);
-  }
-
-  /**
-   * Verificación factual de paso con Decision (motor vigente): dos preguntas `noul` (`ok`, `cumple`).
-   * Aprueba solo con probabilidad estrictamente mayor que NOUL_APPROVE.
-   */
-  async evaluateStepVerification(
-    instruction: string,
-    toolName: string,
-    resultSummary: string,
-    evidenceSummary?: string,
-    expectedOutcome?: string,
-    observation?: string,
-    signal?: AbortSignal
-  ): Promise<StepVerificationResult> {
-    const { state, questions } = DECISION_PROMPTS.buildStepVerification({
-      instruction,
-      toolName,
-      resultSummary,
-      evidenceSummary,
-      expectedOutcome,
-      observation,
-    });
-    return this.runVerification("StepVerification", toolName, state, questions, signal);
   }
 
   /** Consulta de verificación común: las preguntas `ok` y `cumple`, aprobadas solo con probabilidad > NOUL_APPROVE. */

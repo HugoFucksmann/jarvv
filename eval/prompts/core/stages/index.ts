@@ -11,7 +11,7 @@
 import type { DecisionClient } from "../client/decision.ts";
 import type { GenerativeClient } from "../client/generative.ts";
 import type { ToolInputSchema } from "../contract.ts";
-import type { Grader, GraderCollector, GraderContext, StageName, StageExpect } from "../types.ts";
+import type { Grader, GraderCollector, GraderContext, StageName } from "../types.ts";
 import type { DecisionStageVariant, GenerativeStageVariant } from "../variants/types.ts";
 
 // ───────────────────────── Tipos del registro ─────────────────────────

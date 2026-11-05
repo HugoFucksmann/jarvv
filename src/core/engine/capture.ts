@@ -9,7 +9,6 @@
  * Criterio: si se borra `trace/`, el motor compila y funciona igual (este archivo no importa nada de allí).
  */
 
-import type { IDecisionEngine } from "../engineDeps.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import type { MCPCallResult } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
@@ -100,22 +99,18 @@ export function captureLlm(llm: EngineLLM, sink: CaptureSink, version: () => num
 }
 
 /**
- * Envuelve Decision: `chooseRoute` (`route`), `chooseTool` (`tool`), `reviewArgs` (`review`), `verifyResult` y
- * `evaluateStepVerification` (`verify`).
+ * Envuelve Decision: `chooseRoute` (`route`), `chooseTool` (`tool`), `reviewArgs` (`review`) y `verifyResult` (`verify`).
  */
 export function captureDecision(
-  decision: IDecisionEngine & IActionDecision,
+  decision: IActionDecision,
   sink: CaptureSink,
   version: () => number,
-): IDecisionEngine & IActionDecision {
+): IActionDecision {
   return {
-    evaluateDecisionOne: decision.evaluateDecisionOne.bind(decision),
-    evaluateDecisionTwo: decision.evaluateDecisionTwo.bind(decision),
     chooseRoute: (input, signal) => observe("route", sink, version, () => decision.chooseRoute(input, signal)),
     chooseTool: (input, signal) => observe("tool", sink, version, () => decision.chooseTool(input, signal)),
     reviewArgs: (input, signal) => observe("review", sink, version, () => decision.reviewArgs(input, signal)),
     verifyResult: (input, signal) => observe("verify", sink, version, () => decision.verifyResult(input, signal)),
-    evaluateStepVerification: (...args) => observe("verify", sink, version, () => decision.evaluateStepVerification(...args)),
   };
 }
 

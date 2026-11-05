@@ -1,86 +1,131 @@
 # Flujo de Ejecución y Orquestación
 
 ## 1. Ciclo de Vida
-1. **Recepción e inicio**: La instrucción del usuario ingresa al sistema y se registra una tarea activa en memoria.
-2. **Selección de estrategia**: Según la modalidad seleccionada, el sistema activa la orquestación reactiva directa o la orquestación deliberativa por etapas.
-3. **Planificación previa (solo modalidad deliberativa)**: El razonador formula una secuencia de etapas con criterios observables de éxito y la tarea se suspende a la espera de confirmación, ajuste o rechazo humano. Si la solicitud no requiere herramientas, el plan queda vacío y la tarea concluye con respuesta directa.
-4. **Ejecución iterativa de pasos**: Cada acción individual atraviesa el pipeline indivisible del ejecutor atómico de herramientas.
-5. **Evaluación de resultados**: Se contrasta el resultado técnico observable mediante el clasificador factual y, en modalidad deliberativa, mediante el supervisor semántico.
-6. **Resolución de contingencias**: Los fallos recuperables activan escalación con cambio de ruta o replanificación autónoma; las dudas sobre información esencial suspenden la tarea para consultar al usuario.
-7. **Conclusión y síntesis**: Al completarse los objetivos o alcanzarse un límite operativo, el sistema sintetiza una respuesta final con la evidencia acumulada y asienta la traza de la tarea. Si el razonador no puede redactarla (sin respuesta a tiempo, no disponible o salida inutilizable), se entrega una respuesta de respaldo determinista con contenido fijo (estado de la tarea, motivo de detención, fallos registrados, cambios aplicados al entorno, datos registrados y últimas acciones) y la traza marca su origen. El estado terminal no depende de cómo se redactó la respuesta.
+1. **Recepción**: la instrucción entra por `/process` con un modo (`reactive` o `deliberative`). La fachada crea el contexto de la tarea, lo registra y lanza `runTask` en segundo plano.
+2. **Estrategia**: `runTask` ejecuta el modo elegido (§2 y §3). Es el único que decide cuándo y cómo se cierra la tarea.
+3. **Ejecución por pasos**: cada paso consulta el destino (Decisión 1) y ejecuta llamadas (§4) hasta que una queda aprobada o se agota el tope de llamadas del paso.
+4. **Recuperación**: un paso fallido dispara la recuperación del modo: escalación en reactivo, replan en deliberativo (§6).
+5. **Cierre**: `finalize` escribe el estado terminal una sola vez y, después, la respuesta final (§8).
 
-## 2. Bucle Principal
-En cada ciclo de ejecución, el sistema realiza la siguiente secuencia:
-1. **Determinación de acción**: En modo reactivo, el clasificador evalúa el historial para elegir el destino operativo o declarar el fin. En modo deliberativo, se toma la etapa pendiente del plan vigente.
-2. **Validación de fin**: La finalización reactiva requiere que exista al menos una acción productiva previa comprobada y que no existan pasos no verificados sin observar. De no cumplirse, la finalización se deniega y se fuerza a continuar con la ruta más adecuada.
-3. **Pipeline atómico del paso**:
-   - Selección de herramienta dentro del destino asignado; las que dependen de un proceso en ejecución o de una búsqueda iniciada solo se ofrecen mientras existan.
-   - Generación de argumentos estructurados conforme al esquema.
-   - Sustitución determinista de tokens por contenidos del almacén de referencias.
-   - Control anti-bucle: bloqueo de lecturas idénticas o acciones repetidas sin lecturas intermedias de confirmación.
-   - Evaluación en la compuerta de seguridad: denegación terminal ante comandos destructivos o suspensión interactiva ante mutaciones sensibles.
-   - Despacho hacia el servidor de herramientas bajo control de cancelación cooperativa.
-   - Procesamiento de la salida cruda, extracción de hechos y aislamiento de cargas masivas.
-4. **Verificación y memoria**: Verificación factual del resultado observable. Consolidación de hechos si la acción fue validada, si no hubo veredicto o si produjo una mutación física en el entorno.
-5. **Corte o continuación**: El bucle prosigue mientras existan etapas pendientes o alternativas viables, y se detiene ante objetivo cumplido, cancelación del usuario, agotamiento de cotas operativas de pasos o bloqueos de seguridad.
+## 2. Modo Reactivo
+Cada vuelta del bucle crea un paso nuevo, sin plan previo.
 
-## 3. Rol del Plan en el Flujo
-- **Generación**: El razonador descompone la solicitud en etapas secuenciales con ruta asignada y criterio observable de éxito.
-- **Intervención humana previa**: La tarea suspende su ejecución hasta que el usuario confirma el plan, solicita ajustes o lo cancela.
-- **Ejecución y doble juez**: Cada etapa del plan se envía al ejecutor atómico. La verificación técnica factual es evaluada primero por el clasificador; si este no aprueba o no está disponible, el razonador evalúa semánticamente si la evidencia satisface el objetivo de la etapa.
-- **Clarificación interactiva**: Si el razonador dictamina falta de información esencial del usuario, la tarea se suspende formulando una pregunta puntual. Al recibir la respuesta, esta se asienta íntegra como hecho, se incorpora a la instrucción de la etapa y la ejecución se reanuda. Si se alcanza el límite de preguntas permitidas, la situación se procesa como desviación y se activa replanificación.
-- **Replanificación autónoma**: Ante una desviación técnica o semántica, el razonador reestructura exclusivamente las etapas pendientes. Las etapas completadas jamás se repiten y el registro completo de mutaciones consolidadas se transmite sin recorte para no duplicar acciones destructivas. El plan ajustado prosigue de manera autónoma sin requerir confirmación interactiva.
+- **Elección del destino**: Decisión 1 recibe la solicitud, lo hecho, el último resultado y los intentos fallidos. Ofrece las rutas con alguna herramienta utilizable, `ask_user` (si corresponde) y `fin`.
+- **Cuándo se ofrece `fin`**: solo si el contexto lo permite (`canFinish`): la tarea todavía no tiene llamadas (conversación directa) o existe al menos una llamada aprobada. Si lo único que hubo son operaciones rechazadas por el usuario, `fin` cierra con `no_alternatives`.
+- **Tope de pasos**: al llegar a 15 pasos (los fallidos cuentan) la tarea se cierra con `max_steps`.
+- **Escalación**: un paso fallido es una escalación. Al tercero, la tarea se cierra con `no_alternatives`.
 
-## 4. Estados y Transiciones
+## 3. Modo Deliberativo
+1. **Plan inicial**: el modelo generativo propone entre 1 y 15 pasos, cada uno con instrucción, ruta y resultado esperado. Un plan inválido tras el reintento cierra la tarea con `unrecoverable`.
+2. **Confirmación humana**: la tarea espera la decisión del usuario.
+   - *Aceptar*: se ejecutan los pasos.
+   - *Pedir cambios* (con instrucción): se genera un plan nuevo (`user_feedback`), sin tope de veces, y se vuelve a pedir confirmación. Si el plan nuevo resulta inválido, se conserva el vigente y se vuelve a preguntar.
+   - *Rechazar sin instrucción*: la tarea se cancela.
+3. **Ejecución**: se toma el paso vigente pendiente y se corre con su ruta fija. La tarea se completa cuando todos los pasos vigentes quedan `completed`.
+4. **Replan autónomo**: un paso fallido genera un plan nuevo (`step_failure`) sin pedir confirmación, hasta 2 veces. Los pasos no completados pasan a `superseded` y se agregan los nuevos; los completados nunca se repiten. El tope de pasos del plan nuevo es 15 menos los ya completados. Agotados los replans, o si el replan es inválido, la tarea se cierra con `replans_exhausted`.
 
-| Estado Inicial | Transición | Estado Destino | Condición |
-|---|---|---|---|
-| Ninguno | Inicialización | En ejecución | Se crea la tarea y comienza la orquestación. |
-| En ejecución | Suspensión interactiva | En espera de intervención | El plan inicial requiere aprobación, una herramienta sensible exige confirmación de seguridad, o se requiere una respuesta aclaratoria del usuario. |
-| En espera de intervención | Reanudación interactiva | En ejecución | El usuario autoriza la mutación, confirma el plan, remite ajustes o provee la aclaración requerida. |
-| En ejecución | Conclusión exitosa | Completada | Se cumplen los criterios observables de la tarea con todas las etapas vigentes verificadas. |
-| En ejecución | Conclusión parcial | Parcial | Se alcanza la cota máxima de pasos permitidos, persisten bloqueos reiterados de bucle, o el plan concluye con etapas no verificadas. |
-| En ejecución | Fallo terminal | Fallida | Acción denegada por patrón prohibido, rechazo expreso del usuario en la compuerta de seguridad, agotamiento de intentos de replanificación o error no recuperable. |
-| En ejecución o En espera | Cancelación | Cancelada | El usuario interrumpe la tarea explícitamente en cualquier momento. |
+## 4. Un Paso (`runStep`)
+El paso repite este ciclo hasta que termina:
 
-## 5. Errores y Límites
-- **Transporte hacia modelos**: Los fallos transitorios de red o saturación temporal se reintentan una vez con espera progresiva antes de catalogar el servicio como no disponible. El agotamiento de tiempo de espera y la cancelación nunca se reintentan.
-- **Salidas inválidas de modelos**: Si la respuesta de un modelo no respeta el esquema esperado o se corta, se efectúa un reintento correctivo inyectando el motivo del desvío en la siguiente invocación.
-- **Servicio no disponible durante un paso**: El fallo se asienta en el registro de fallos y no se atribuye a la herramienta elegida; el paso se marca como fallido y se aplica el tratamiento de desviación.
-- **Escalación reactiva**: Ante un fallo de herramienta en modo reactivo, la herramienta fallida se excluye de la siguiente iteración, se amplía el contexto recuperado y el clasificador arbitra una ruta alternativa. Si el clasificador determina fin de alternativas o se agotan las cotas de escalación, la tarea concluye.
-- **Tratamiento de incertidumbre**:
-  - En modo reactivo, una acción sin veredicto no permite concluir la tarea de forma exitosa a menos que una acción posterior de lectura confirme el estado del entorno.
-  - En modo deliberativo, una acción sin veredicto permite continuar con las etapas siguientes, pero si al finalizar persisten acciones sin verificar, la tarea concluye como parcial y no como completada.
-- **Seguridad**: Toda denegación por política prohibida o rechazo humano en la compuerta de seguridad detiene la tarea de inmediato; está prohibido escalar o replanificar para evadir un bloqueo de seguridad.
-- **Cupo de tareas**: Al crear una tarea por encima del cupo se expulsan las terminales más antiguas y, si aún se supera, se cancela la tarea en espera más antigua.
-- **Cancelación cooperativa**: La cancelación del usuario propaga una señal de aborto a todas las capas, descarta respuestas en vuelo y concluye la tarea inmediatamente sin catalogarse como error.
+1. **Tope de llamadas**: si el paso ya hizo 8 llamadas (sin contar las rechazadas por el usuario), falla.
+2. **Decisión 1**: en ambos modos. En deliberativo ofrece solo la ruta del paso y `ask_user`. Si no queda ninguna opción, el paso falla (`no_tools`). Con una sola opción disponible, el modelo de decisión no se consulta.
+3. **`ask_user`**: se genera la pregunta (modelo generativo), se espera la respuesta y se registra como hecho `answer_<paso>_<n>`. No se vuelve a ofrecer hasta que el paso haga otra llamada.
+4. **Llamada** (§5): si queda aprobada, el paso termina `completed`. Si el servidor deniega la herramienta, el paso falla. Cualquier otro resultado (argumentos inválidos, referencias sin resolver, anti-bucle, revisión rechazada, rechazo del usuario o verificación rechazada) vuelve al inicio con lo ocurrido a la vista del modelo.
 
-Límites vigentes (definidos en `types.ts` y `config.ts`; los tiempos y el contexto son valores por defecto):
+## 5. Una Llamada (`runCall`)
+Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, con su estado final.
+
+| # | Fase | Qué ocurre si falla |
+|---|---|---|
+| 1 | **Descubrir** las herramientas del destino | Servidor o catálogo no disponible: se registra el error y la tarea se cierra (`unrecoverable`). Sin ninguna herramienta utilizable en ese momento, el paso falla (`no_tools`) |
+| 2 | **Elegir herramienta** (Decisión 2, también puede elegir `ask_user`). Solo se ofrecen las herramientas utilizables: las que dependen de un proceso activo o de una búsqueda iniciada aparecen solo mientras existan | — |
+| 3 | **Generar argumentos** (modelo generativo, conforme al esquema) | Salida inválida tras el reintento: `args_invalid` |
+| 4 | **Resolver referencias** `{{ref:rN}}` / `ref:rN` por su contenido en disco | Referencia desconocida: `refs_unresolved` |
+| 5 | **Anti-bucle** sobre la huella de los argumentos resueltos | Repetición bloqueada: `loop_blocked` |
+| 6 | **Guard** | `DENY`: la llamada queda `denied` y la tarea se cierra con `security_denied` |
+| 7 | **Revisar argumentos** (Decisión 3) | `args_invalid`, `tool_rejected` o `info_missing` |
+| 8 | **Confirmación del usuario**, si Guard pidió aprobación. No se registra nada mientras se espera | Rechazo: `user_rejected`, con la instrucción opcional del usuario |
+| 9 | **Despacho** a la herramienta, compitiendo contra la cancelación | Excepción: `exception`. Cancelación: `interrupted`, y un resultado tardío se descarta |
+| 10 | **Procesar el resultado**: estado, resumen acotado y, si el resumen no contiene todo, el texto completo va a una ref en disco | — |
+| 11 | **Verificar** (Decisión 4, §7) | Rechazada: vuelve al paso con el motivo |
+
+## 6. Recuperación y Dudas
+- **Reactivo**: tras un paso fallido, Decisión 1 vuelve a elegir con una ventana de historial que crece con las escalaciones (los últimos 2, 5 y 10 elementos). No se bloquea la herramienta fallida: lo ocurrido queda a la vista del modelo y el anti-bucle evita repeticiones idénticas.
+- **Deliberativo**: replan autónomo (§3).
+- **Información faltante**: Decisión 1 o 2 puede elegir `ask_user`. Si la revisión de argumentos detecta `info_missing`, la llamada se registra con ese estado y el flujo vuelve a Decisión 1, que puede elegir preguntar. No hay un tope propio de preguntas: lo cortan el tope de llamadas del paso y el anti-bucle.
+- **Seguridad**: una denegación de Guard cierra la tarea de inmediato, sin escalar ni replanificar. Un rechazo del usuario sobre una operación concreta no cierra la tarea: se registra como `user_rejected` y el flujo continúa con esa información.
+
+## 7. Verificación del Resultado
+Decisión 4 evalúa dos preguntas `noul` sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface el objetivo?). El criterio es el paso (deliberativo) o la solicitud (reactivo).
+
+- Aprueba solo si pasan las dos, cada una con probabilidad estrictamente mayor que 0.5.
+- Si falla `ok`, el motivo es `no_usable_data`; si falla solo `cumple`, `not_accomplished`; si fallan ambas, gana `no_usable_data`.
+- `tool_error` y `exception` se rechazan sin consultar al modelo. `interrupted` y `denied` no se verifican y quedan sin veredicto.
+- Una respuesta inválida se repite una vez; si persiste, el servicio se considera no disponible.
+
+## 8. Cierre y Respuesta Final
+`finalize` escribe el estado terminal una sola vez y después la respuesta (`result`), con su origen:
+
+- **`cancelled`**: siempre respuesta de respaldo, sin modelo.
+- **Modelo generativo caído** (un fallo anterior ya lo marcó): respuesta de respaldo directa, sin consultarlo.
+- **Resto de los cierres**: el modelo generativo redacta la respuesta con la vista final. Si la vista no entra en su reserva, o el modelo falla por cualquier causa, se entrega la respuesta de respaldo.
+
+La respuesta de respaldo es texto fijo, sin modelo: estado de la tarea, motivo de detención, fallos, cambios aplicados al entorno y últimas acciones. Su origen (`model` o `fallback`) queda registrado. El estado terminal nunca depende de cómo se redactó la respuesta.
+
+## 9. Estados y Transiciones
+
+| Estado | Condición |
+|---|---|
+| `running` | La tarea está en curso, incluidas las esperas del usuario (plan, aprobación o pregunta). |
+| `completed` | Reactivo: `fin` con `canFinish` habilitado. Deliberativo: todos los pasos vigentes `completed`. No lleva motivo. |
+| `partial` | Se detuvo por `max_steps`, `replans_exhausted`, `no_alternatives` o `unrecoverable`, pero hubo efectos sobre el entorno o al menos una llamada aprobada. |
+| `failed` | Se detuvo por `security_denied`, o por alguno de los motivos anteriores sin efectos ni llamadas aprobadas. |
+| `cancelled` | El usuario canceló (`user_cancelled`), en cualquier momento. |
+
+El motivo de detención es una lista cerrada: `max_steps`, `no_alternatives`, `security_denied`, `user_cancelled`, `replans_exhausted` y `unrecoverable` (falló un modelo o el catálogo de herramientas, o una vista no cupo en su límite; no la tarea en sí).
+
+## 10. Errores y Límites
+- **Transporte hacia modelos**: los fallos de red o HTTP 503 se reintentan una vez tras 1 s. El timeout y la cancelación nunca se reintentan.
+- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez inyectando el motivo del error en el prompt; el modelo de decisión repite la consulta una vez. Si persiste: en argumentos es `args_invalid`; en decisión y verificación, servicio no disponible.
+- **Servicio no disponible**: se registra el error `service_unavailable` y la tarea se cierra con `unrecoverable`.
+- **Desborde de contexto**: si un prompt no deja margen para la salida, o una vista no entra en su límite, la tarea se cierra con `unrecoverable` sin registrar error y sin repetir.
+- **Cancelación cooperativa**: la señal de aborto llega a las esperas y a las llamadas en vuelo, y la tarea concluye sin tratarse como error. Una herramienta ya despachada queda `interrupted`.
+- **Cupo de tareas**: ver `CONTEXT_AND_MEMORY.md`.
+
+Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el contexto son valores por defecto):
 
 | Límite | Valor |
 |---|---|
-| Pasos máximos | 15 (reactivo: detiene la tarea como parcial; deliberativo: máximo por plan) |
-| Replanificaciones | 2 |
-| Escalaciones (reactivo) | 2 |
-| Preguntas al usuario por paso | 2 |
-| Tareas retenidas | 20 |
+| Pasos máximos | 15 (reactivo: tope de la tarea; deliberativo: tope por plan) |
+| Replans | 2 |
+| Escalaciones (reactivo) | 2 (la tercera cierra la tarea) |
+| Llamadas por paso | 8 (sin contar rechazos del usuario) |
 | Reintentos de transporte | 1, tras 1 s |
 | Reintentos por salida inválida | 1 |
-| Tiempo de espera | Razonador 120 s (180 s con razonamiento extendido); clasificador 30 s; herramientas 30 s |
-| Contexto configurado | 16 384 tokens para razonador y clasificador |
+| Tareas retenidas | 20 |
+| Timeouts | Modelo generativo 120 s (180 s con razonamiento extendido); modelo de decisión 30 s; herramientas 30 s |
+| Contexto configurado | 16 384 tokens para ambos modelos |
 
-## 6. Invariantes del Flujo
-1. **Unicidad de ejecución**: Todo comando o acceso a herramientas opera exclusivamente a través del ejecutor atómico (ver principio en `ARCHITECTURE.md`).
-2. **Invarianza de etapas completadas**: Las etapas concluidas y verificadas nunca se vuelven a ejecutar durante una replanificación.
-3. **Permanencia de efectos**: Las alteraciones físicas consolidadas no se revierten ante desvíos posteriores (ver detalle en `CONTEXT_AND_MEMORY.md`).
-4. **Cierre de estados terminales**: Una vez alcanzado un estado terminal (completada, parcial, fallida o cancelada), ninguna respuesta demorada ni evento tardío puede modificar dicho estado.
+## 11. Invariantes del Flujo
+1. **Unicidad de ejecución**: toda herramienta se ejecuta exclusivamente a través de `runCall` y detrás de Guard (ver `ARCHITECTURE.md`).
+2. **Un solo cierre**: solo `runTask` decide el cierre; `runStep` y `runCall` nunca escriben el estado terminal ni la respuesta.
+3. **Pasos completados inmutables**: un replan nunca repite ni reemplaza pasos `completed`.
+4. **Efectos permanentes**: los efectos ya aplicados no se retiran ante desvíos posteriores (ver `CONTEXT_AND_MEMORY.md`).
+5. **Estado terminal cerrado**: una vez terminal, ninguna respuesta demorada ni evento tardío modifica el estado; el contexto rechaza toda escritura posterior.
 
-## 7. Archivos Base
-- `src/core/core.ts`
-- `src/core/modeEngines.ts`
-- `src/core/callExecutor.ts`
+## 12. Archivos Base
+- `src/core/tasks.ts`
+- `src/core/engine/runTask.ts`
+- `src/core/engine/stepLoop.ts`
+- `src/core/engine/callRunner.ts`
+- `src/core/engine/planner.ts`
+- `src/core/engine/verify.ts`
+- `src/core/engine/ask.ts`
+- `src/core/engine/finalize.ts`
+- `src/core/engine/failures.ts`
+- `src/core/engine/runtime.ts`
 - `src/core/decision.ts`
-- `src/core/llmTransport.ts`
 - `src/core/reasoner/qwen.ts`
 - `src/core/policy/guard.ts`
-- `src/core/types.ts`
+- `src/core/llmTransport.ts`
+- `src/core/budget.ts`

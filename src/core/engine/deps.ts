@@ -1,10 +1,9 @@
 /**
  * JARVIS Core — Dependencias del ejecutor de llamadas y del bucle de paso (Fase 5).
  *
- * Contratos mínimos, sin implementaciones (las conoce solo la raíz de composición). Reutiliza `IDecisionEngine` (aquí solo
- * `evaluateStepVerification`, que sigue para el motor vigente) e `IDiscoveryEngine` de `engineDeps.ts` sin tocarlos; lo nuevo (elección de ruta y de
- * herramienta con `ask_user`, revisión de argumentos, argumentos y pregunta desde la vista) tiene contratos propios, para no ensanchar los tipos
- * que usa el motor vigente hasta la Fase 8.
+ * Contratos mínimos, sin implementaciones (las conoce solo la raíz de composición): el descubrimiento de herramientas,
+ * las decisiones (ruta, herramienta, revisión de argumentos y verificación) y el modelo generativo (argumentos, pregunta,
+ * plan y respuesta final, todos desde las vistas del contexto).
  *
  * También compone, una sola vez, el almacén de refs y el alcance de la regla B del Guard (`createEngineServices`).
  */
@@ -13,13 +12,22 @@ import path from "node:path";
 
 import { ConfigManager, type JarvisConfig } from "../config.ts";
 import type { getUserEnvironment } from "../environment.ts";
-import type { IDecisionEngine, IDiscoveryEngine } from "../engineDeps.ts";
+import type { IMCPServer } from "../mcp/types.ts";
 import { isPathInside, type ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
 import type { ArgumentsGenerationResult, MCPTool, StepVerificationResult, TimeSpan } from "../types.ts";
 import type { ASK_USER, ExecutableRoute, FIN } from "../types/routes.ts";
 import type { cleanInputSchema } from "../utils.ts";
 import type { CaptureSink } from "./capture.ts";
+
+// ───────────────────────── Descubrimiento de herramientas ─────────────────────────
+
+export interface IDiscoveryEngine {
+  getServer(name: string): IMCPServer | undefined;
+  getDiscoveredTools(serverName: string, forceRefresh?: boolean): Promise<MCPTool[]>;
+  getUnavailableServers(): Record<string, { reason: string; since: number }>;
+  validateToolExists(serverName: string, toolName: string): Promise<boolean>;
+}
 
 // ───────────────────────── Decision: ruta y herramienta ─────────────────────────
 
@@ -228,7 +236,7 @@ export interface EngineLLM {
 
 export interface EngineDeps {
   /** Elección de ruta y herramienta (`chooseRoute`, `chooseTool`), revisión (`reviewArgs`) y verificación (`verifyResult`). */
-  readonly decision: IDecisionEngine & IActionDecision;
+  readonly decision: IActionDecision;
   readonly discovery: IDiscoveryEngine;
   readonly llm: EngineLLM;
   readonly vault: RefVault;
