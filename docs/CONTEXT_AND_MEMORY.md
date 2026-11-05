@@ -3,16 +3,84 @@
 ## 1. El Contexto de Tarea
 Todo lo que el sistema sabe de una tarea vive en un único objeto, el **contexto** (`TaskContext`). No hay memorias paralelas: el estado que ve la interfaz, lo que leen los modelos y lo que audita la traza salen de las mismas secciones.
 
+### Cómo se ve
+Snapshot (`v: 1`) de una tarea **deliberativa en curso**: el paso `s1` ya se completó leyendo un archivo grande y el paso `s2` está escribiendo. Los comentarios `//` no existen en el JSON real.
+
+```jsonc
+{
+  "v": 1,                                  // versión del esquema del snapshot
+  "task": {
+    "id": "t_8f3a",
+    "mode": "deliberative",                // reactive | deliberative
+    "request": "Resume config.json y guarda el resumen en resumen.txt",
+    "state": "running",                    // running | completed | partial | failed | cancelled
+    "stopReason": null,                    // solo en partial / failed / cancelled
+    "startedAt": 1762290000000
+  },
+
+  "plans": [                               // un plan por cada vez que se planificó
+    { "id": "p1", "at": 1762290002000,
+      "trigger": "initial",                // initial | user_feedback | step_failure
+      "feedback": null,                    // instrucción del usuario (solo user_feedback)
+      "stepId": null }                     // paso que falló (solo step_failure)
+  ],
+
+  "steps": [
+    { "id": "s1", "at": 1762290003000, "planId": "p1",
+      "instruction": "Leer config.json", "route": "files", "expected": "Contenido de config.json",
+      "state": "completed",                // pending | running | completed | failed
+      "superseded": false },               // true si un replan lo reemplazó
+    { "id": "s2", "at": 1762290009000, "planId": "p1",
+      "instruction": "Guardar el resumen en resumen.txt", "route": "files", "expected": "Archivo creado",
+      "state": "running", "superseded": false }
+  ],
+
+  "calls": [                               // nunca se borran
+    { "id": "c1", "stepId": "s1", "at": 1762290004000,
+      "route": "files", "tool": "read_file", "kind": "read",
+      "args": { "path": "config.json" },
+      "sig": "a91c…",                      // huella de los argumentos resueltos (anti-bucle)
+      "status": "ok",                      // resultado de la ejecución, fijado una vez
+      "verdict": "approved",               // se escribe después, tras verificar
+      "reason": null,                      // no_usable_data | not_accomplished (solo con rejected)
+      "summary": "config.json (4 210 car.): primeras y últimas 15 líneas…",
+      "ref": "r1" },                       // el resumen no contiene todo el resultado
+    { "id": "c2", "stepId": "s2", "at": 1762290010000,
+      "route": "files", "tool": "write_file", "kind": "write",
+      "args": { "path": "resumen.txt", "content": "{{ref:r1}}" },
+      "sig": "5d02…", "status": "ok",
+      "verdict": null, "reason": null,     // verificación pendiente
+      "summary": "Escrito resumen.txt", "ref": null }
+  ],
+
+  "errors": [],                            // { id, stepId, at, kind: "service_unavailable" }
+
+  "facts": {                               // clave → valor (null = retirado)
+    "answer_s2_1": { "value": "¿Sobrescribo? -> sí", "stepId": "s2", "at": 1762290008000 }
+    // "process": identificador del proceso activo; se retira al terminar
+  },
+
+  "refs": [                                // resultados completos en disco
+    { "id": "r1", "stepId": "s1", "at": 1762290004000,
+      "label": "read_file config.json", "size": 4210,
+      "where": "<refsDir>/t_8f3a/6c1e….txt" }
+  ],
+
+  "result": null                           // al cerrar: { "text": "…", "origin": "model" | "fallback" }
+}
+```
+
+### Secciones
 | Sección | Contenido | Quién la escribe |
 |---|---|---|
-| `task` | Identificador, modo, solicitud original, estado, motivo de detención y hora de inicio | Alta al crear; estado y motivo solo con `finish` |
-| `plans` | Cada plan generado: motivo (`initial`, `user_feedback`, `step_failure`), la instrucción del usuario si la hubo y el paso que falló | Planificador |
-| `steps` | Pasos con instrucción, ruta y resultado esperado (vacíos en reactivo), estado (`pending`, `running`, `completed`, `failed`) y marca `superseded` | Bucle de pasos y planificador |
-| `calls` | Cada llamada a una herramienta: ruta, herramienta, tipo (`read` o `write`), argumentos, huella, estado, veredicto, motivo, resumen y ref | Ejecutor de llamadas (alta) y verificación (veredicto) |
-| `errors` | Fallos de infraestructura (`service_unavailable`) asociados a un paso | Motor |
-| `facts` | Clave → valor (con paso y hora): el proceso activo (`process`) y las respuestas del usuario (`answer_<paso>_<n>`) | Motor |
-| `refs` | Resultados completos guardados en disco: etiqueta, tamaño y ruta del archivo | Ejecutor de llamadas |
-| `result` | Respuesta final y su origen (`model` o `fallback`) | Cierre |
+| `task` | Id, modo, solicitud, estado, motivo de detención, inicio | Alta al crear; estado y motivo solo con `finish` |
+| `plans` | Un plan por vez que se planificó | Planificador |
+| `steps` | Pasos; ruta, instrucción y resultado esperado vacíos en reactivo | Bucle de pasos y planificador |
+| `calls` | Una por llamada a herramienta | Ejecutor de llamadas (alta) y verificación (veredicto) |
+| `errors` | Fallos de infraestructura asociados a un paso | Motor |
+| `facts` | `process` (proceso activo, como texto) y `answer_<paso>_<n>` (`pregunta -> respuesta`; si excede 500 caracteres, el texto completo va a una ref) | Motor |
+| `refs` | Resultados completos en disco: etiqueta, tamaño, ruta | Ejecutor de llamadas |
+| `result` | Respuesta final y origen | Cierre |
 
 ### Escritura: una sola puerta
 `apply` es la única forma de modificar el contexto. Recibe un lote de operaciones (`add`, `update`, `set`, `finish`) y lo valida **completo antes de tocar nada**: si cualquier operación o comprobación falla, el contexto queda intacto y no se emite ningún evento. Reglas, en orden:
@@ -94,42 +162,29 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 4. **Resolución segura**: solo se aceptan ids `rN` de la propia tarea, la sustitución es de una sola pasada (el contenido inyectado no se vuelve a analizar) y una ref desconocida o ilegible nunca llega a la herramienta: la llamada queda `refs_unresolved`.
 5. **Protección**: Guard deniega las escrituras de archivos sobre la carpeta de refs.
 
-## 6. Hechos
-- **`process`**: el identificador del proceso en ejecución, como texto. Se escribe al lanzar un proceso, se retira al terminar y habilita las herramientas que dependen de él.
-- **`answer_<paso>_<n>`**: la respuesta del usuario a una pregunta, en el formato `pregunta -> respuesta`. Si excede el tope de un hecho (500 caracteres), el texto completo va a una ref.
-
-## 7. Persistencia
+## 6. Persistencia
 - **Tareas en memoria**: el estado de las tareas vive solo en RAM. Se retienen como máximo 20; al excederse, se expulsan las terminales más antiguas y, si aun así se supera, se cancela la tarea en espera más antigua.
 - **Sin restauración**: al reiniciar el servidor no se recuperan tareas; el sistema arranca limpio.
 - **En disco**: la configuración (`jarvis-config.json`), los resultados crudos de las refs y la traza.
 - **Traza de solo adición**: si `traceEnabled` está activo, al terminar cada tarea se agrega una línea JSON a `tracePath`. Es de consumo externo (auditoría y laboratorio de evaluación) y el backend nunca la lee. Contiene, por tarea: el snapshot final del contexto; por cada consulta a un modelo, su etapa, entrada y salida crudas y a qué llamada o plan quedó enlazada; por cada llamada a una herramienta, el intervalo de ejecución, los argumentos resueltos y el resultado crudo (con ref, se guarda la referencia y no el contenido); y las esperas del usuario con su duración. Su formato lleva versión. Un fallo al escribirla nunca afecta a la tarea.
 - **Pensamiento de los modelos**: la salida cruda de los modelos se reduce a una lista blanca de campos (identificador, modelo, motivo de fin, contenido y uso de tokens); el razonamiento interno no se registra.
 
-## 8. Invariantes de Acceso a Memoria
-1. **Escritura solo por el motor**: los modelos nunca escriben en el contexto ni en las refs; toda incorporación pasa por `apply`, que valida.
-2. **Sin prosa de modelos en el contexto**: lo que un modelo razona o justifica no entra en el contexto ni en el contexto de otros modelos; solo viaja en eventos y trazas. Los motivos de rechazo y de detención son claves cerradas con texto fijo.
-3. **Efectos permanentes**: los efectos se derivan de las llamadas, que nunca se borran (un paso reemplazado solo se marca `superseded`). Ni el replan ni ningún retroceso pueden ocultarlos; esta garantía se cumple por construcción.
-4. **Aislamiento por tarea**: las refs se resuelven solo contra la tarea activa; ninguna tarea consulta ni altera las de otra.
-5. **Sustitución no recursiva**: los tokens de referencia se sustituyen una sola vez, antes de la evaluación de seguridad.
-6. **Barrera de saneamiento**: todo dato externo entra al prompt saneado y delimitado como dato (ver §4).
-7. **Estado terminal cerrado**: una tarea terminal no admite escrituras, así que ninguna respuesta tardía puede modificarla.
+## 7. Invariantes de Acceso a Memoria
+1. **Escritura solo por el motor**: los modelos nunca escriben en el contexto ni en las refs; todo pasa por `apply` (§1).
+2. **Sin prosa de modelos en el contexto**: lo que un modelo razona o justifica solo viaja en eventos y trazas. Motivos de rechazo y de detención son claves cerradas con texto fijo.
+3. **Efectos permanentes**: se derivan de `calls`, que nunca se borran (un paso reemplazado solo se marca `superseded`). Ni el replan ni ningún retroceso pueden ocultarlos.
+4. **Aislamiento por tarea**: las refs se resuelven solo contra la tarea activa (§5).
+5. **Estado terminal cerrado**: una tarea terminal rechaza toda escritura; ninguna respuesta tardía puede modificarla.
 
-## 9. Limitaciones Conocidas
-- **Refs sin retención**: los archivos de refs no se borran nunca; viven mientras viva el disco, aunque la tarea ya haya sido expulsada de la memoria.
-- **Reinicio**: tras reiniciar, las refs en disco quedan sin tarea que las referencie.
-- **Escrituras con error**: una escritura que terminó con error no cuenta como efecto sino como posible efecto, porque no se puede saber si dejó cambios parciales.
+## 8. Limitaciones Conocidas
+- **Refs sin retención**: los archivos de refs no se borran nunca; tras expulsar la tarea o reiniciar el servidor quedan en disco sin tarea que las referencie.
 - **Timeouts de modelos**: un timeout durante un paso se registra como servicio no disponible, sin distinguirlo de una caída.
 
-## 10. Archivos Base
-- `src/core/ctx/` (`types.ts`, `context.ts`, `apply.ts`, `validate.ts`, `derive.ts`, `closure.ts`, `snapshot.ts`, `views/`)
-- `src/core/render/`
-- `src/core/result/processResult.ts`
-- `src/core/result/extractors/`
-- `src/core/refs/refVault.ts`
-- `src/core/refs/refResolver.ts`
-- `src/core/engine/callRunner.ts`
-- `src/core/engine/args.ts`
-- `src/core/tasks.ts`
-- `src/core/trace/recorder.ts`
-- `src/core/budget.ts`
-- `src/core/config.ts`
+## 9. Archivos Base
+| Tema | Ruta en `src/core/` |
+|---|---|
+| Contexto (`apply`, validación, derivaciones, cierre, snapshot, vistas) | `ctx/` |
+| Renderizado de prompts y topes | `render/`, `budget.ts` |
+| Resultados y refs | `result/processResult.ts`, `result/extractors/`, `refs/refVault.ts`, `refs/refResolver.ts` |
+| Escritura desde el motor | `engine/callRunner.ts`, `engine/args.ts` |
+| Tareas, traza y configuración | `tasks.ts`, `trace/recorder.ts`, `config.ts` |

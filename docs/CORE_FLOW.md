@@ -7,6 +7,88 @@
 4. **Recuperación**: un paso fallido dispara la recuperación del modo: escalación en reactivo, replan en deliberativo (§6).
 5. **Cierre**: `finalize` escribe el estado terminal una sola vez y, después, la respuesta final (§8).
 
+### Mapa del flujo
+Las flechas punteadas son los cierres de la tarea; todos pasan por `finalize` (§8). Los números de las cajas remiten a las secciones.
+
+```mermaid
+flowchart TD
+    IN(["POST /process<br/>modo + instrucción"]) --> CTX["Crear contexto y lanzar runTask"]
+    CTX --> MODE{"Modo"}
+
+    MODE -->|reactive| RS["Paso nuevo sin plan<br/>§2"]
+    MODE -->|deliberative| PLAN["Plan inicial: 1 a 15 pasos<br/>§3"]
+
+    PLAN -->|inválido tras reintento| CLOSE
+    PLAN --> CONF{"Confirmación<br/>del usuario"}
+    CONF -->|pide cambios| PLAN
+    CONF -->|rechaza sin instrucción| CLOSE
+    CONF -->|acepta| DS["Siguiente paso vigente pendiente"]
+
+    RS --> STEP
+    DS --> STEP
+    STEP[["runStep §4<br/>Decisión 1, ask_user, runCall"]]
+
+    STEP -->|completed| NEXT{"¿Terminó?"}
+    NEXT -->|reactivo: fin con canFinish| CLOSE
+    NEXT -->|deliberativo: todos completed| CLOSE
+    NEXT -->|no| MODE2{"Modo"}
+    MODE2 -->|reactive| RS
+    MODE2 -->|deliberative| DS
+
+    STEP -->|failed| REC{"Recuperación §6"}
+    REC -->|reactivo: escalación 1 y 2| RS
+    REC -->|deliberativo: replan hasta 2| PLAN2["Replan autónomo<br/>step_failure"]
+    PLAN2 --> DS
+    REC -.->|tercera escalación| CLOSE
+    REC -.->|replans agotados| CLOSE
+
+    STEP -.->|Guard DENY| CLOSE
+    STEP -.->|modelo o catálogo caído| CLOSE
+    RS -.->|15 pasos| CLOSE
+
+    CLOSE["finalize §8<br/>estado terminal una sola vez, luego respuesta"]
+    CLOSE --> OUT(["completed, partial, failed o cancelled"])
+```
+
+### Dentro de un paso
+`runStep` (§4) elige el destino y `runCall` (§5) recorre las fases de la llamada. Cada rama de error vuelve al inicio del paso con lo ocurrido a la vista del modelo, salvo las marcadas como cierre.
+
+```mermaid
+flowchart TD
+    A{"¿8 llamadas<br/>en el paso?"} -->|sí| FAIL(["Paso failed"])
+    A -->|no| D1["Decisión 1<br/>ruta, ask_user o fin"]
+    D1 -->|sin opciones| FAIL
+    D1 -->|ask_user| Q["Pregunta, espera, hecho answer"] --> A
+    D1 -->|ruta| C1
+
+    subgraph CALL ["runCall"]
+        direction TB
+        C1["1 Descubrir herramientas"] --> C2["2 Decisión 2: elegir herramienta"]
+        C2 --> C3["3 Generar argumentos"]
+        C3 --> C4["4 Resolver refs"]
+        C4 --> C5["5 Anti-bucle"]
+        C5 --> C6{"6 Guard"}
+        C6 -->|ALLOW o pide aprobación| C7["7 Decisión 3: revisar argumentos"]
+        C7 --> C8["8 Confirmación del usuario<br/>si Guard la pidió"]
+        C8 --> C9["9 Despacho a la herramienta"]
+        C9 --> C10["10 Procesar resultado<br/>resumen y ref"]
+        C10 --> C11{"11 Decisión 4:<br/>ok y cumple > 0.5"}
+    end
+
+    C11 -->|approved| DONE(["Paso completed"])
+
+    C1 -.->|sin herramientas| FAIL
+    C1 -.->|catálogo caído| CLOSE(["Cierre de la tarea"])
+    C6 -.->|DENY| CLOSE
+    C3 -->|args_invalid| A
+    C4 -->|refs_unresolved| A
+    C5 -->|loop_blocked| A
+    C7 -->|args_invalid, tool_rejected, info_missing| A
+    C8 -->|user_rejected| A
+    C9 -->|exception, interrupted| A
+    C11 -->|rejected| A
+```
+
 ## 2. Modo Reactivo
 Cada vuelta del bucle crea un paso nuevo, sin plan previo.
 
@@ -50,10 +132,10 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | 11 | **Verificar** (Decisión 4, §7) | Rechazada: vuelve al paso con el motivo |
 
 ## 6. Recuperación y Dudas
-- **Reactivo**: tras un paso fallido, Decisión 1 vuelve a elegir con una ventana de historial que crece con las escalaciones (los últimos 2, 5 y 10 elementos). No se bloquea la herramienta fallida: lo ocurrido queda a la vista del modelo y el anti-bucle evita repeticiones idénticas.
+- **Reactivo**: tras un paso fallido, Decisión 1 vuelve a elegir con una ventana de historial que crece con las escalaciones (últimos 2, 5 y 10 elementos). La herramienta fallida no se bloquea: queda a la vista del modelo y el anti-bucle evita repeticiones idénticas.
 - **Deliberativo**: replan autónomo (§3).
-- **Información faltante**: Decisión 1 o 2 puede elegir `ask_user`. Si la revisión de argumentos detecta `info_missing`, la llamada se registra con ese estado y el flujo vuelve a Decisión 1, que puede elegir preguntar. No hay un tope propio de preguntas: lo cortan el tope de llamadas del paso y el anti-bucle.
-- **Seguridad**: una denegación de Guard cierra la tarea de inmediato, sin escalar ni replanificar. Un rechazo del usuario sobre una operación concreta no cierra la tarea: se registra como `user_rejected` y el flujo continúa con esa información.
+- **Información faltante**: Decisión 1 o 2 puede elegir `ask_user`; si la revisión detecta `info_missing`, la llamada se registra con ese estado y el flujo vuelve a Decisión 1. No hay tope propio de preguntas: lo cortan el tope de llamadas del paso y el anti-bucle.
+- **Seguridad**: una denegación de Guard cierra la tarea sin escalar ni replanificar. Un rechazo del usuario sobre una operación no cierra la tarea: queda como `user_rejected` y el flujo continúa.
 
 ## 7. Verificación del Resultado
 Decisión 4 evalúa dos preguntas `noul` sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface el objetivo?). El criterio es el paso (deliberativo) o la solicitud (reactivo).
@@ -90,7 +172,6 @@ El motivo de detención es una lista cerrada: `max_steps`, `no_alternatives`, `s
 - **Servicio no disponible**: se registra el error `service_unavailable` y la tarea se cierra con `unrecoverable`.
 - **Desborde de contexto**: si un prompt no deja margen para la salida, o una vista no entra en su límite, la tarea se cierra con `unrecoverable` sin registrar error y sin repetir.
 - **Cancelación cooperativa**: la señal de aborto llega a las esperas y a las llamadas en vuelo, y la tarea concluye sin tratarse como error. Una herramienta ya despachada queda `interrupted`.
-- **Cupo de tareas**: ver `CONTEXT_AND_MEMORY.md`.
 
 Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el contexto son valores por defecto):
 
@@ -114,18 +195,10 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 5. **Estado terminal cerrado**: una vez terminal, ninguna respuesta demorada ni evento tardío modifica el estado; el contexto rechaza toda escritura posterior.
 
 ## 12. Archivos Base
-- `src/core/tasks.ts`
-- `src/core/engine/runTask.ts`
-- `src/core/engine/stepLoop.ts`
-- `src/core/engine/callRunner.ts`
-- `src/core/engine/planner.ts`
-- `src/core/engine/verify.ts`
-- `src/core/engine/ask.ts`
-- `src/core/engine/finalize.ts`
-- `src/core/engine/failures.ts`
-- `src/core/engine/runtime.ts`
-- `src/core/decision.ts`
-- `src/core/reasoner/qwen.ts`
-- `src/core/policy/guard.ts`
-- `src/core/llmTransport.ts`
-- `src/core/budget.ts`
+| Tema | Ruta en `src/core/` |
+|---|---|
+| Entrada y estrategia | `tasks.ts`, `engine/runTask.ts`, `engine/stepLoop.ts`, `engine/planner.ts` |
+| Llamadas y verificación | `engine/callRunner.ts`, `engine/verify.ts`, `engine/ask.ts` |
+| Cierre y fallos | `engine/finalize.ts`, `engine/failures.ts`, `engine/runtime.ts` |
+| Modelos y transporte | `decision.ts`, `reasoner/qwen.ts`, `llmTransport.ts`, `budget.ts` |
+| Seguridad | `policy/guard.ts` |
