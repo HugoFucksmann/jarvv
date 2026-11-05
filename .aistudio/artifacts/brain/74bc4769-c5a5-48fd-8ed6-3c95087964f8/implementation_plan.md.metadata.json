@@ -1,6 +1,0 @@
-{
-  "summary": "Plan maestro de implementación para la mejora del Debug Visual de JARVIS:\n- Corrección de la pérdida de información visual (coexistencia de StepTimeline y PlanReview, preservación de eventos e iteraciones por tarea y sesión).\n- Historial completo de iteraciones de modelos (Eos y Qwen) en cards independientes organizadas por paso con colapso interactivo y botón de copiado integral (input enviado + output devuelto).\n- Visor de contexto actual de la sesión en tiempo real como pestaña 'Estado' en ContextInspector (objetivo, historial, resultados previos, último resultado, facts, effects, scratchpad y fail).",
-  "updatedAt": "2026-10-14T02:18:10.073256128Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

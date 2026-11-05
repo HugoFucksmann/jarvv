@@ -144,7 +144,6 @@ export function buildRunMeta(opts: {
     timestamp,
     model: cfg.model,
     decisionModel: cfg.decisionModel,
-    backend: "d3",
     url: cfg.url,
     decisionUrl: cfg.decisionUrl,
     variantChain,

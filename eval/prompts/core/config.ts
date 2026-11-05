@@ -82,7 +82,7 @@ export function resolveDecisionTimeout(cfg: EvalConfig): number {
 
 const KNOWN_FLAGS = new Set([
   "dataset", "variant", "baseline", "stages", "tags", "ids", "limit",
-  "repeat", "concurrency", "model", "url", "decision-backend", "decision-url",
+  "repeat", "concurrency", "model", "url", "decision-url",
   "decision-model", "thinking", "timeout", "client",
   "dry-run", "list", "label", "min-pass-rate", "include-shortcut",
 ]);
@@ -180,11 +180,6 @@ export function parseConfig(argv: string[]): EvalConfig {
     throw new Error(`--client: debe ser 'real', 'mock' u 'oracle', recibido: '${clientRaw}'.`);
   }
 
-  // decision-backend: el backend `eos` ya no existe; solo se acepta `d3` (no-op, por compatibilidad con scripts)
-  const decisionBackendRaw = str(flags, "decision-backend");
-  if (decisionBackendRaw !== undefined && decisionBackendRaw !== "d3") {
-    throw new Error(`--decision-backend: solo se soporta 'd3' (recibido: '${decisionBackendRaw}').`);
-  }
   const decisionUrl = str(flags, "decision-url") ?? DEFAULT_DECISION_URL;
 
   // variants: `prod` se agrega si falta (la comparación usa spec exacta, `prod+x` no cuenta), sin duplicados

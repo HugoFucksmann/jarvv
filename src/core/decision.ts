@@ -1,8 +1,7 @@
 /**
- * Decision 2.0 — Adaptador HTTP real
- * Motores soportados por JARVIS:
- *   - eos : FastAPI local (payload: state + questions → answers)
- *   - d3  : Ollama local (payload: model + state + questions → answers)
+ * Modelo de decisión — Adaptador HTTP real
+ * Protocolo: `POST {decisionUrl}/v1/systemone` con `{ model, state, questions }` → `{ answers }`. El servidor es Ollama
+ * local o, a futuro, una URL remota con el mismo contrato.
  *
  * - Integración HTTP real contra la URL configurada; sin simulaciones. Si el servicio no está configurado o no
  *   responde, lanza DecisionServiceUnavailableError.
@@ -45,30 +44,18 @@ import {
   TransportError,
 } from "./llmTransport.ts";
 import { errorMessage, isRecord } from "./utils.ts";
-import { MODELS } from "./models.ts";
 
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
 const NOUL_APPROVE = 0.5;
 
-/**
- * Construye la URL y el body serializado según el backend configurado.
- * eos  → /v1/decide,     payload sin model
- * d3   → /v1/systemone,  payload con model (Ollama)
- */
+/** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
 function buildDecisionRequest(
   config: ReturnType<typeof import("./config.ts").ConfigManager.getConfig>,
   payload: { state: string; questions: Record<string, unknown> }
 ): { url: string; body: string } {
   const base = config.decisionUrl.replace(/\/+$/, "");
-
-  if (config.decisionBackend === "d3") {
-    const url = base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
-    return { url, body: JSON.stringify({ model: config.decisionModel, ...payload }) };
-  }
-
-  // eos (default)
-  const url = base.endsWith("/v1/decide") ? base : `${base}/v1/decide`;
-  return { url, body: JSON.stringify(payload) };
+  const url = base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
+  return { url, body: JSON.stringify({ model: config.decisionModel, ...payload }) };
 }
 
 const pct = (probabilities: Record<string, number>): string =>
@@ -140,7 +127,7 @@ export class Decision20Engine implements IActionDecision {
     }
 
     const { url, body } = buildDecisionRequest(config, payload);
-    console.log(`[Decision → SEND] backend=${config.decisionBackend} url=${url} state=${JSON.stringify(state).slice(0, 200)} questions=${JSON.stringify(questions).slice(0, 200)}`);
+    console.log(`[Decision → SEND] model=${config.decisionModel} url=${url} state=${JSON.stringify(state).slice(0, 200)} questions=${JSON.stringify(questions).slice(0, 200)}`);
 
     let result;
     const startedAt = Date.now();
@@ -278,8 +265,7 @@ export class Decision20Engine implements IActionDecision {
     const ok = okProbability > NOUL_APPROVE;
     const cumple = cumpleProbability > NOUL_APPROVE;
 
-    const { decisionBackend, decisionModel } = ConfigManager.getConfig();
-    const modelLabel = decisionBackend === "d3" ? decisionModel : MODELS.EOS_0_8B.short;
+    const modelLabel = ConfigManager.getConfig().decisionModel;
     console.log(
       `[${label} ${modelLabel}] ${toolLabel} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
     );

@@ -40,12 +40,7 @@ export interface JarvisConfig {
   qwenTimeoutMs: number;
   qwenThinkingTimeoutMs: number;
   decisionUrl: string;
-  /** Motor de decisión activo:
-   *  - "eos" → FastAPI local en decisionUrl/v1/decide (sin model)
-   *  - "d3"  → Ollama local en decisionUrl/v1/systemone con campo model
-   */
-  decisionBackend: "eos" | "d3";
-  /** Tag del modelo Ollama. Solo aplica cuando decisionBackend === "d3". */
+  /** Tag del modelo de decisión en el servidor (Ollama local o una URL remota); viaja en el campo `model`. */
   decisionModel: string;
   /** Ventana de contexto de Decision 2.0 según su contrato. */
   decisionMaxContext: number;
@@ -74,14 +69,13 @@ const CONFIG_FILE_PATH = path.resolve(process.cwd(), "jarvis-config.json");
 
 const DEFAULT_CONFIG: JarvisConfig = {
   qwenUrl: "http://127.0.0.1:11434",
-  qwenModel: "qwen3.5:9b",
+  qwenModel: "qwen3.5:4b",
   thinking: false,
   qwenNumCtx: 16384,
   qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, verify: 1024, final: 2048 },
   qwenTimeoutMs: 120000,
   qwenThinkingTimeoutMs: 180000,
-  decisionUrl: "http://127.0.0.1:8765",
-  decisionBackend: "eos",
+  decisionUrl: "http://127.0.0.1:11434",
   decisionModel: "d3:2b",
   decisionMaxContext: 16384,
   decisionTimeoutMs: 30000,
@@ -162,7 +156,6 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     qwenTimeoutMs: positiveInt(r.qwenTimeoutMs, d.qwenTimeoutMs),
     qwenThinkingTimeoutMs: positiveInt(r.qwenThinkingTimeoutMs, d.qwenThinkingTimeoutMs),
     decisionUrl: text(r.decisionUrl, d.decisionUrl),
-    decisionBackend: r.decisionBackend === "d3" || r.decisionBackend === "eos" ? r.decisionBackend : d.decisionBackend,
     decisionModel: nonEmptyText(r.decisionModel, d.decisionModel),
     decisionMaxContext: positiveInt(r.decisionMaxContext, d.decisionMaxContext),
     decisionTimeoutMs: positiveInt(r.decisionTimeoutMs, d.decisionTimeoutMs),

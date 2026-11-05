@@ -49,7 +49,6 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 |---|---|---|---|
 | `--model` | String | `qwen3.5:4b` | Nombre del modelo generativo (ej: Ollama / vLLM / OpenAI compatible). |
 | `--url` | URL | `http://127.0.0.1:11434` | Endpoint base del servidor para modelos generativos. |
-| `--decision-backend`| `d3` | `d3` | Obsoleto, se mantiene solo por compatibilidad con scripts: acepta únicamente `d3` (Ollama). El backend `eos` fue eliminado; `--decision-backend=eos` da error. El campo `backend` de los casos solo admite `"d3"` y se ignora. |
 | `--decision-model` | String | `d3:2b` | Nombre del modelo de decisión. |
 | `--decision-url` | URL | `http://127.0.0.1:11434` | Endpoint del servidor de decisión (se le agrega `/v1/systemone`). |
 | `--client` | `real` \| `mock` \| `oracle` | `real` | `mock` devuelve respuestas genéricas sin red (prueba la maquinaria). `oracle` responde lo que pide el `expect` de cada caso: debe dar 100 %; si un caso falla, el bug está en el caso, un grader o el parseo, no en el modelo. Solo vale con la variante `prod` (no entiende `labelMap`/`answerMap`). |

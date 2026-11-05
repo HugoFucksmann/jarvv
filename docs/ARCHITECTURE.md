@@ -47,14 +47,14 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 
 | Servicio | Rol | Conexión |
 |---|---|---|
-| Modelo de decisión | Cuatro decisiones del motor mediante preguntas `choice` y `noul` | Backend `d3`: Ollama, `POST /v1/systemone` con el campo `model`. Backend `eos`: servicio propio, `POST /v1/decide`. Se elige con `decisionBackend` |
+| Modelo de decisión | Cuatro decisiones del motor mediante preguntas `choice` y `noul` | `POST /v1/systemone` sobre `decisionUrl` con el campo `model` (`decisionModel`). Hoy es Ollama local; a futuro puede ser una URL remota con el mismo contrato |
 | Modelo generativo | Plan, replan, argumentos, pregunta al usuario y respuesta final | Ollama en `qwenUrl` (modelo `qwenModel`) |
 | `desktop_commander` | Herramientas de archivos, búsqueda local y terminal | MCP por stdio (`desktopCommanderMcp`) |
 | `free_search` | Búsqueda y lectura web | MCP por stdio (`freeSearchMcp`) |
 
 - La configuración vive en `jarvis-config.json`. Toda lectura y escritura pasa por una normalización que descarta claves desconocidas y valores inválidos.
 - Define endpoints, timeouts, tope de tokens de salida por etapa, servidores MCP, la traza y la carpeta de refs. `qwenNumCtx` y `decisionMaxContext` deben coincidir con el contexto real de cada servicio.
-- Si falta el archivo de configuración, rigen los valores por defecto del código, que no coinciden con los del archivo incluido (por ejemplo, el backend de decisión por defecto es `eos`).
+- Si falta el archivo de configuración, rigen los valores por defecto del código, que coinciden con los del archivo incluido.
 
 ## 7. Interfaz Externa
 Base `/api/jarvis`, solo local. El detalle de cada ruta y el formato de la tarea están en `JARVIS_API.md`.

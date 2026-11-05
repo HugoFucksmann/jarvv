@@ -278,8 +278,6 @@ export interface RunMeta {
   timestamp: string;
   model: string;
   decisionModel: string;
-  /** Siempre "d3" (único backend soportado); se conserva por compatibilidad del esquema. */
-  backend: "d3";
   url: string;
   decisionUrl: string;
   variantChain: string[];

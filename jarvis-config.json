@@ -13,7 +13,6 @@
   "qwenTimeoutMs": 120000,
   "qwenThinkingTimeoutMs": 180000,
   "decisionUrl": "http://127.0.0.1:11434",
-  "decisionBackend": "d3",
   "decisionModel": "d3:2b",
   "decisionMaxContext": 16384,
   "decisionTimeoutMs": 30000,

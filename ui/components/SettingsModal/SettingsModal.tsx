@@ -344,48 +344,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
 
               {/* Decision 2.0 */}
               <div className="pl-1 pt-2 flex flex-col gap-2">
-                <div className="flex flex-col gap-1">
-                  <label htmlFor="cfg-decision-backend" className="font-mono text-slate-300 font-medium">
-                    Motor de Decisión:
-                  </label>
-                  <select
-                    id="cfg-decision-backend"
-                    value={config.decisionBackend ?? "eos"}
-                    onChange={(e) => update({ decisionBackend: e.target.value as JarvisConfig["decisionBackend"] })}
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-md text-slate-200 focus:outline-none focus:border-sky-500 font-mono"
-                  >
-                    <option value="eos">d3:2b — FastAPI local (/v1/decide)</option>
-                    <option value="d3">D3 — Ollama local (/v1/systemone)</option>
-                  </select>
-                </div>
-
                 <UrlField
                   id="cfg-decision-url"
                   label="URL del servicio:"
                   value={config.decisionUrl}
-                  placeholder={
-                    config.decisionBackend === "d3"
-                      ? "http://127.0.0.1:11434"
-                      : "http://127.0.0.1:8765"
-                  }
+                  placeholder="http://127.0.0.1:11434"
                   onChange={(decisionUrl) => update({ decisionUrl })}
                 />
 
-                {config.decisionBackend !== "eos" && (
-                  <div className="flex flex-col gap-1">
-                    <label htmlFor="cfg-decision-model" className="font-mono text-[11px] text-slate-400">
-                      Tag del modelo:
-                    </label>
-                    <input
-                      id="cfg-decision-model"
-                      type="text"
-                      value={config.decisionModel ?? ""}
-                      onChange={(e) => update({ decisionModel: e.target.value })}
-                      placeholder="d3:2b"
-                      className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 font-mono text-[11px] focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-                )}
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="cfg-decision-model" className="font-mono text-[11px] text-slate-400">
+                    Tag del modelo:
+                  </label>
+                  <input
+                    id="cfg-decision-model"
+                    type="text"
+                    value={config.decisionModel ?? ""}
+                    onChange={(e) => update({ decisionModel: e.target.value })}
+                    placeholder="d3:2b"
+                    className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 font-mono text-[11px] focus:outline-none focus:border-sky-500"
+                  />
+                </div>
 
               </div>
             </div>

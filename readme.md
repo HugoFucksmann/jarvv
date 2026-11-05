@@ -167,7 +167,6 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 |---|---|---|
 | `qwenUrl` · `qwenModel` | `http://127.0.0.1:11434` · `qwen3.5:4b` | Modelo generativo |
 | `decisionUrl` · `decisionModel` | `http://127.0.0.1:11434` · `d3:2b` | Modelo de decisión |
-| `decisionBackend` | `d3` | Motor de decisión: `d3` por Ollama, o `eos` con un servicio propio |
 | `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `30000` | Timeouts en milisegundos |

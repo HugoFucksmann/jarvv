@@ -58,10 +58,6 @@ function validateQuestion(key: string, q: unknown, errs: string[]): void {
 }
 
 function validateDecisionRequest(r: Record<string, unknown>, errs: string[]): void {
-  // `backend` quedó solo por compatibilidad con datasets viejos: únicamente 'd3' (eos ya no existe).
-  if (r.backend !== undefined && r.backend !== "d3") {
-    errs.push("request.backend solo puede ser 'd3' (el backend 'eos' ya no está soportado).");
-  }
   if (typeof r.state !== "string") errs.push("request.state debe ser string.");
   if (!isObj(r.questions) || Object.keys(r.questions).length === 0) {
     errs.push("request.questions debe ser un objeto con al menos una pregunta.");

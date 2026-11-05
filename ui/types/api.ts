@@ -251,7 +251,6 @@ export interface JarvisConfig {
   qwenTimeoutMs: number;
   qwenThinkingTimeoutMs: number;
   decisionUrl: string;
-  decisionBackend: "eos" | "d3";
   decisionModel: string;
   decisionMaxContext: number;
   decisionTimeoutMs: number;
