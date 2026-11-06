@@ -27,8 +27,13 @@ function escapeRegExp(s: string): string {
  * "no hay letra o dígito pegado" a cada lado, así que `README.md` o `src/a.ts` siguen funcionando.
  * Tampoco coincide dentro de un número mayor con separador decimal o de miles: "12" no está en "12.5",
  * "12,5", "12.000" ni "1.12".
+ * Un término puede traer alternativas separadas por `|` (`archivo|archivos`): basta con que coincida una.
  */
 export function containsTerm(haystack: string, needle: string): boolean {
+  // Alternativas: `archivo|archivos` coincide con cualquiera de las dos (`\|` es un `|` literal).
+  const parts = needle.split(/(?<!\\)\|/);
+  if (parts.length > 1) return parts.some((p) => containsTerm(haystack, p));
+  needle = needle.replace(/\\\|/g, "|");
   const h = norm(haystack);
   const n = norm(needle);
   if (n === "") return false;

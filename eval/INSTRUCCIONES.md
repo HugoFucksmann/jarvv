@@ -41,8 +41,8 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 | Flag | Tipo | Descripción |
 |---|---|---|
 | `--list` | Booleano | Muestra las etapas registradas, variantes disponibles en `eval/variants/` y datasets por defecto, finalizando inmediatamente. |
-| `--menu` | Booleano | — | Asistente interactivo: elige modo (`--d-model`, `--llm-model` o `--model`), modelos, datasets, origen de los casos (`--source`), variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
-| `--help` | Booleano | — | Resumen breve de uso. |
+| `--menu` | Booleano | Asistente interactivo: elige modo (`--d-model`, `--llm-model` o `--model`), modelos, datasets, origen de los casos (`--source`), variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
+| `--help` | Booleano | Resumen breve de uso. |
 | `--dry-run` | Booleano | Carga la configuración, datasets y variantes pero no invoca a los modelos ni evalúa. |
 
 ### Datasets y Filtros
@@ -64,6 +64,8 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 | `--no-baseline` | Booleano | — | No agrega `prod` a las variantes: corre solo las que indiques en `--variant` (obligatorio). La baseline pasa a ser la primera variante, o la de `--baseline` si la pasas. No hay deltas contra `prod`; con dos o más variantes, se comparan contra la primera. Ejemplo: `--variant=jarvis_alt_v2 --no-baseline`. |
 
 ### Modelos y Conexión (Generativos y Decisión)
+
+Los modelos y URLs por defecto salen de la configuración de producción (`jarvis-config.json`; sin ese archivo, sus valores por defecto: `qwen3.5:4b` y `d3:2b` en Ollama local). Así el eval mide por defecto lo que corre Jarvis. Los valores de la tabla son esos defaults.
 | Flag | Tipo / Opciones | Default | Descripción |
 |---|---|---|---|
 | `--model` | `<llm>[+<decisión>]`, CSV | `qwen3.5:4b+d3:2b` | **Modo común: todas las etapas.** Cada elemento es una configuración: modelo generativo y, tras `+`, el de decisión. Un lado vacío usa su default (`--model=modA` = `modA` + `d3:2b`; `--model=+lfm3:1.7b` = `qwen3.5:4b` + `lfm3:1.7b`). Con varios (`--model=a+x,b+y`) se comparan las configuraciones completas. Excluyente con `--llm-model` y `--d-model`. |
@@ -94,7 +96,7 @@ Con más de un elemento en la lista, la misma variante y el mismo dataset se cor
 - `--min-pass-rate` se evalúa por celda, es decir, por modelo.
 - Usar `--concurrency=1` para comparar latencias.
 - La comparación incluye lo propio de cada tipo de modelo:
-  - **Decisión:** accuracy, `P(correcta)` (probabilidad media que el modelo da a la opción correcta), `Errores seguros` (errores con probabilidad ≥ 80 % en la opción equivocada; solo en `route`, `tool_choice` y `args_review`), accuracy por pregunta y aciertos por clase esperada (solo las clases donde algún modelo se equivoca).
+  - **Decisión:** accuracy, `P(correcta)` (probabilidad media que el modelo da a la opción correcta), `Brier` (error cuadrático medio de las probabilidades; 0 = perfecto, menor es mejor), `Errores seguros` (errores con probabilidad ≥ 80 % en la opción equivocada; solo en `route`, `tool_choice` y `args_review`), accuracy por pregunta y aciertos por clase esperada (solo las clases donde algún modelo se equivoca).
   - **Generativo:** reintentos por salida inválida y checks fallidos por etapa (por qué falla cada modelo).
 
 ### Parámetros de Ejecución
@@ -126,7 +128,7 @@ Dentro del directorio se genera:
 - `<variante>__<dataset>/` (con varios modelos: `<variante>__<dataset>__gen-<modelo>` o `__dec-<modelo>`, una por modelo):
   - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens). En las decisiones, `questions` trae una entrada por cada pregunta del request (ver "Decisiones con varias preguntas").
   - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) o cuya variante no se pudo aplicar cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; los deltas comparan solo casos medidos en ambos lados y el reporte avisa si alguno quedó afuera. `latencySamples` indica cuántas llamadas hay detrás de las latencias: con 0, no hay dato aunque figure 0. La accuracy se calcula sobre las decisiones con respuesta y cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
-  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`. `filters` (`tags`, `ids`, `source`, `limit`) y `cases` (cantidad y hash de los ids) dicen qué subconjunto del dataset corrió la celda: `datasetHash` es el del archivo completo, así que dos celdas solo son comparables si tienen el mismo `cases.hash`.
+  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`. `filters` (`tags`, `ids`, `source`, `limit`) y `cases` (cantidad y hash de los ids) dicen qué subconjunto del dataset corrió la celda: `datasetHash` es el del archivo completo, así que dos celdas solo son comparables si tienen el mismo `cases.hash`. `promptEnv` (fecha y hash de la configuración de etapas) explica por qué cambió el `requestHash` de un caso por escenario entre corridas aunque `src` sea el mismo.
 - `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante y tipo de etapas —generativo y decisión, y un total mezclado cuando hay ambos, con la columna Tipo—: passRate agregado, Δ vs baseline, passRate macro por etapa, regresiones, mejoras, prueba de signos, runs sin medir, reintentos si los hubo, p50; si una variante mejora un tipo y empeora el otro agrega el aviso **Resultado mixto**, porque el total no sirve para decidir), resumen por etapa con las variantes lado a lado (el delta contra la baseline va entre paréntesis), regresiones, mejoras, casos raw y matrices de confusión. Con varios modelos agrega la sección **Comparación entre Modelos** (tabla global y por etapa con deltas contra la referencia, accuracy por pregunta y casos donde los modelos discrepan) y la tabla por variante trae una fila por modelo. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. La consola muestra el resumen por variante, el resumen por etapa (una línea por variante, con sus deltas), la comparación de modelos, las preguntas por etapa y las regresiones y mejoras (también las de casos raw); las matrices de confusión y las tablas completas quedan solo en `comparison.md`.
 - `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `rawRegressions`, `rawImprovements`, `modelComparisons`, `warnings`).
 
@@ -171,7 +173,7 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 
 - Una línea por caso; las líneas vacías y las que empiezan con `#` se ignoran.
 - `expect` se valida con lista cerrada de claves por etapa: una clave desconocida, un `expect` sin ningún check o un valor inválido es error de carga (`archivo:línea: mensaje`). También se rechazan: rutas que no son ejecutables (`expectedRoute`, `firstRoute`, `allowedRoutes`, `requiredRoutes`), probabilidades fuera de 0–1, `minSteps` > `maxSteps`, `exactFieldValues` vacío y `minOkProb`/`minCumpleProb` con el veredicto esperado en `false`.
-- Los textos (`mustContainFacts`, keywords, etc.) se buscan por palabra o frase completa, sin distinguir mayúsculas ni acentos; un número no coincide dentro de otro (`12` no está en `12.5`, `12.000` ni `120`).
+- Los textos (`mustContainFacts`, keywords, etc.) se buscan por palabra o frase completa, sin distinguir mayúsculas ni acentos; un número no coincide dentro de otro (`12` no está en `12.5`, `12.000` ni `120`). Un término admite alternativas con `|` (`archivo|archivos` coincide con cualquiera de las dos; `\|` es un `|` literal); en las listas de lo prohibido, basta con que aparezca una.
 - Etapa `arguments`: el caso debe traer `meta.toolSchema`; sin él falla (producción siempre valida contra el schema).
 - Los globs soportan `*`, `**` y `?` (no `{a,b}`).
 - `datasets/decision_discriminating.jsonl` tiene casos de decisión donde la respuesta correcta **no** es la primera opción (`fin`, `ask_user`, `args_invalid`, `ok=false`…). Sirve para detectar sesgo de posición.
@@ -209,7 +211,7 @@ En vez de `request` (el prompt ya armado), un caso puede traer `scenario`: la si
 
 - Un caso lleva `request` **o** `scenario`, nunca los dos. El resto (`id`, `stage`, `expect`, `tags`…) es igual.
 - `scenario`: `mode` (`reactive` | `deliberative`), `request` (la solicitud del usuario), `steps`, `calls` (con su `status`, `args`, `summary`, `verdict`, `ref`), `facts`, `userInput` (respuestas previas del usuario), `finish` (cierre, para `final`) y `at` (parámetros del punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `environment`). Los tipos están en `core/scenario.ts`.
-- Las herramientas se nombran como en el manifest de Jarvv (`SYSTEM_TOOL_MANIFEST`): la descripción sale de ahí; el schema de entrada (`at.inputSchema`) lo pone el caso, porque el del servidor MCP no es estático.
+- Las herramientas se nombran como en el manifest de Jarvis (`SYSTEM_TOOL_MANIFEST`): la descripción sale de ahí; el schema de entrada (`at.inputSchema`) lo pone el caso, porque el del servidor MCP no es estático.
 - El escenario se valida con las reglas reales del contexto (`apply`): un escenario imposible (p. ej. cierre `completed` sin llamada aprobada) es error de carga `archivo:línea: scenario: …`.
 - Los prompts dependen del código de `src/` y de `jarvis-config.json` (tokens por etapa) y de la fecha (`TODAY`); `requestHash` de cada run permite detectar que cambió el prompt entre corridas, y `meta.json` guarda el commit.
 - Todas las entradas se arman con las mismas funciones que el motor (`engine/adapters.ts`: `planInput`, `renderArgsView`, `argsInput`, `routeInput`, `toolInput`, `reviewInput`, `verifyInput`), así que no hay lógica duplicada que mantener.
@@ -308,12 +310,16 @@ Para decisiones también se puede editar `state`, cambiar o quitar criterios (`c
 - **Latencia y concurrencia.** Con `--concurrency` mayor que 1, p50 y p95 incluyen espera del servidor y no son comparables. Usar `1` para medir latencia; el pass/fail no se ve afectado.
 - **p95 con pocas muestras.** Con menos de 20 llamadas el p95 es el máximo, que suele ser la carga en frío del modelo. Se marca con `†` y no se publica su delta; comparar con p50. El total mezclado no muestra p50 porque combina etapas de milisegundos y de segundos. Las latencias generativas suman los reintentos.
 - **Casos sin medir.** Una llamada fallida (red, timeout, HTTP) o una variante que no se pudo aplicar cuenta como falla en `passRate`, pero no entra en las latencias ni aparece como regresión o mejora. Δ compara solo casos medidos en ambos lados, y el reporte avisa si alguno quedó afuera.
+- **Unidad de comparación.** Δ, regresiones, mejoras y la prueba de signos se calculan **por caso**: con `--repeat`, las repeticiones de un caso no cuentan como muestras independientes (un caso que pasa 2 de 3 es distinto de uno que siempre falla).
+- **Reintentos.** El `pass` se mide después del reintento "como producción", que puede esconder cuánto falla el modelo crudo: la columna `Reintentos` cuenta los runs que lo necesitaron.
+- **Costo.** Los tokens por etapa están en la tabla por etapa y en la comparación de modelos; con `--thinking=both`, `final[think=on]` y `final[think=off]` van en filas separadas para comparar su costo.
+- **Sobreajuste al dataset.** Iterar variantes contra el mismo dataset con el que se miden acaba premiando el ruido. Conviene reservar un dataset aparte (holdout) que no se use al iterar y correrlo solo para validar una variante antes de pasarla a `src`.
 - **Ruido.** Un Δ no es un veredicto: mirar `p (signos)`, calculado sobre los casos que cambiaron. Con menos de 6 cambios nunca baja de 0.05. Las etapas generativas varían entre corridas con el mismo request: usar `--repeat` antes de decidir por pocos casos.
 - **Tipos de etapas.** El total mezcla etapas de decisión y generativas, que corren modelos distintos. Si una variante mejora un tipo y empeora el otro, el reporte avisa **Resultado mixto**: decidir con el desglose por tipo.
 - **Peso de las etapas.** `passRate` pesa cada etapa según su cantidad de casos, y `final` corre dos veces con `--thinking=auto`. `Macro por etapa` pesa todas por igual y cuenta `final[think=on/off]` como una sola: si ambos difieren, el resultado depende de la composición del dataset.
 - **Casos escritos a mano vs. por escenario.** Los casos con `request` guardan el prompt tal como se escribió: si cambian los prompts de producción, el eval compara contra esa foto, no contra `src` en vivo, y su contexto es inventado (`--source=frozen`). Los casos por escenario (`--source=scenario`) se arman con `src` en cada carga: miden el prompt actual, pero un cambio en `src`, en `jarvis-config.json` (tokens por etapa) o en la fecha (`TODAY`) cambia el request; `requestHash` de cada run permite detectarlo.
 - **Comparar corridas.** Cada corrida compara solo las celdas que ejecutó. Dos celdas son comparables si tienen el mismo `datasetHash` y el mismo `cases.hash` en su `meta.json`.
-- **Palabras clave.** Se buscan por palabra completa, sin distinguir mayúsculas ni acentos: "archivo" no coincide con "archivos". Escribir ambas formas si hacen falta.
+- **Palabras clave.** Se buscan por palabra completa, sin distinguir mayúsculas ni acentos: "archivo" no coincide con "archivos". Usar alternativas (`archivo|archivos`) cuando haga falta.
 - **Variantes con `labelMap`.** Dos opciones que se mapeen al mismo nombre canónico se pisan entre sí; evitarlo.
 - **Modelos.** Los pass rates valen solo para el modelo con el que corren. Los defaults coinciden con los de producción.
 

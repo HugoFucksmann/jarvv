@@ -6,6 +6,7 @@
  * Flag desconocido → lanza error de configuración.
  */
 
+import { ConfigManager } from "../../src/core/config.ts";
 import type { CaseSource, StageName, ThinkingMode } from "./types.ts";
 import { DECISION_STAGES, GENERATIVE_STAGES } from "./case.ts";
 import { allStageNames } from "./stages/index.ts";
@@ -77,10 +78,13 @@ export interface EvalConfig {
 
 // ───────────────────────── Defaults ─────────────────────────
 
-export const DEFAULT_MODEL = "qwen3.5:4b";
-export const DEFAULT_URL = "http://127.0.0.1:11434";
-export const DEFAULT_DECISION_URL = "http://127.0.0.1:11434";
-export const DEFAULT_DECISION_MODEL = "d3:2b";
+// Los defaults salen de la configuración de producción (`jarvis-config.json`; sin él, sus valores por defecto), así el eval
+// mide por defecto lo que corre Jarvis y no puede divergir en silencio.
+const PROD = ConfigManager.getConfig();
+export const DEFAULT_MODEL = PROD.qwenModel;
+export const DEFAULT_URL = PROD.qwenUrl;
+export const DEFAULT_DECISION_URL = PROD.decisionUrl;
+export const DEFAULT_DECISION_MODEL = PROD.decisionModel;
 export const DEFAULT_DATASETS = "eval/datasets/";
 
 /** Timeout por tipo de llamada (ms). */

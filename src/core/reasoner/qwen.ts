@@ -38,7 +38,16 @@ import type {
   QuestionGenerationResult,
   QuestionInput,
 } from "../engine/deps.ts";
-import { argumentsStageRequest, BASE_TEMPERATURE, finalStageRequest, planStageRequest, questionStageRequest } from "./stageRequests.ts";
+import {
+  argumentsStageRequest,
+  BASE_TEMPERATURE,
+  finalStageRequest,
+  planStageRequest,
+  questionStageRequest,
+  RETRY_TEMPERATURE,
+  RETRY_TOKEN_FACTOR,
+  TRUNCATED,
+} from "./stageRequests.ts";
 import type { StageRequest } from "./stageRequests.ts";
 import { isWholeRefToken, schemaTypes } from "../refs/refResolver.ts";
 import {
@@ -243,7 +252,6 @@ type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 const ok = <T>(value: T): Validation<T> => ({ ok: true, value });
 const fail = (error: string): Validation<never> => ({ ok: false, error });
 
-const TRUNCATED = "la salida se truncó por el límite de tokens";
 const NOT_JSON = "la respuesta no es un objeto JSON válido";
 
 /** Primer filtro de toda salida JSON: sin truncar y con un objeto parseable. */
@@ -253,8 +261,6 @@ const parseObjectOutput = (r: LlmDispatchResult): Validation<Record<string, unkn
   return parsed ? ok(parsed) : fail(NOT_JSON);
 };
 
-const RETRY_TEMPERATURE = 0.3;
-const RETRY_TOKEN_FACTOR = 1.5;
 const MIN_COMPLETION_TOKENS = 256;
 
 interface DispatchOptions {

@@ -39,7 +39,7 @@ npm run eval -- --variant=prod,mi_variante --dataset=smoke --repeat=3
 | `--list` | Lista etapas, variantes y datasets disponibles |
 | `--menu` | Asistente interactivo que arma y ejecuta el comando |
 | `--client=oracle` | Valida casos y graders sin modelos |
-| `--dataset=smoke` | Corrida real con los modelos por defecto (`qwen3.5:4b` y `d3:2b`) |
+| `--dataset=smoke` | Corrida real con los modelos de producción (por defecto `qwen3.5:4b` y `d3:2b`) |
 | `--variant=… --repeat=3` | Compara una variante contra `prod` con tres repeticiones |
 
 ---

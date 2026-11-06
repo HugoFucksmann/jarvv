@@ -344,6 +344,8 @@ export interface RunMeta {
   filters: { tags: string[]; ids: string[]; source: CaseSource | null; limit: number | null };
   /** Casos que corrió la celda y hash de sus ids ordenados: mismo hash = mismos casos. */
   cases: { count: number; hash: string };
+  /** Fecha (`TODAY`) y hash de la configuración de etapas con que se armaron los prompts por escenario. */
+  promptEnv: { date: string; stageConfigHash: string };
   repeat: number;
   gitCommit?: string;
   gitDirty?: boolean;

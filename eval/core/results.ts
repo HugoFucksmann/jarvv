@@ -10,6 +10,7 @@ import { execSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { EvalConfig } from "./config.ts";
+import { promptEnvironment } from "./scenario.ts";
 import { computeScoreSummary } from "./scoring.ts";
 import type { GlobalScoreSummary, RunMeta, RunRecord, StageName } from "./types.ts";
 import { SCHEMA_VERSION } from "./types.ts";
@@ -177,6 +178,7 @@ export function buildRunMeta(opts: {
     stages,
     filters: { tags: cfg.tags, ids: cfg.ids, source: cfg.source ?? null, limit: cfg.limit ?? null },
     cases: { count: caseIds.length, hash: objectHash([...caseIds].sort()) },
+    promptEnv: promptEnvironment(),
     repeat: cfg.repeat,
     ...(git.gitCommit ? { gitCommit: git.gitCommit } : {}),
     ...(git.gitDirty !== undefined ? { gitDirty: git.gitDirty } : {}),

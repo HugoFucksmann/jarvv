@@ -46,7 +46,7 @@ import {
 import { errorMessage, isRecord } from "./utils.ts";
 
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
-const NOUL_APPROVE = 0.5;
+export const NOUL_APPROVE = 0.5;
 
 /** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
 function buildDecisionRequest(

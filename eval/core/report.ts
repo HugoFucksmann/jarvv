@@ -137,7 +137,7 @@ export interface ModelRow {
    * Decisiones con opciones (route, tool_choice, args_review): probabilidad media que el modelo da a la opción correcta
    * y errores cometidos con seguridad (probabilidad alta en la opción equivocada). undefined si no hay probabilidades.
    */
-  calibration?: { avgCorrectProb: number; errors: number; confidentErrors: number };
+  calibration?: { avgCorrectProb: number; brier: number; errors: number; confidentErrors: number };
   tokens?: { avgPrompt: number; avgCompletion: number; avgTotal: number };
   tokensEstimated?: boolean;
   /** Deltas contra la referencia, solo sobre casos medidos en ambos modelos. */
@@ -520,8 +520,12 @@ function calibration(records: RunRecord[]): ModelRow["calibration"] {
   const withProb = records.filter((r) => r.expectedLabel && probOf(r, r.expectedLabel) !== undefined);
   if (withProb.length === 0) return undefined;
   const wrong = withProb.filter((r) => !isDecisionCorrect(r));
+  // Brier: error cuadrático medio de las probabilidades contra la opción correcta (0 = perfecto; menor es mejor).
+  const brier = (r: RunRecord): number =>
+    Object.entries(r.probabilities ?? {}).reduce((acc, [label, p]) => acc + (p - (label === r.expectedLabel ? 1 : 0)) ** 2, 0);
   return {
     avgCorrectProb: mean(withProb.map((r) => probOf(r, r.expectedLabel) as number)),
+    brier: mean(withProb.map(brier)),
     errors: wrong.length,
     confidentErrors: wrong.filter((r) => (probOf(r, r.predictedLabel) ?? 0) >= CONFIDENT_PROB).length,
   };
@@ -948,6 +952,7 @@ const MODEL_COLUMNS: ModelColumn[] = [
   { head: "Accuracy", decisionOnly: true, cell: (r) => fmtOpt(r.accuracy) },
   { head: "Δ acc", decisionOnly: true, cell: (r, ref) => (ref ? "—" : fmtOpt(r.deltaAccuracy, true)) },
   { head: "P(correcta)", decisionOnly: true, cell: (r) => (r.calibration ? fmtPct(r.calibration.avgCorrectProb) : "—") },
+  { head: "Brier", decisionOnly: true, cell: (r) => (r.calibration ? r.calibration.brier.toFixed(3) : "—") },
   {
     head: "Errores seguros",
     decisionOnly: true,
@@ -986,7 +991,7 @@ function renderModelComparisonMarkdown(report: ComparisonReport): string[] {
     "Mismo dataset y variante contra cada modelo. Los deltas son contra el **primer modelo** de la lista (ref). " +
       "Cada modelo corre solo las etapas de su tipo. Una latencia `—` significa que ninguna llamada se completó. " +
       "Δ pass y Δ acc se calculan solo sobre casos medidos en ambos modelos. " +
-      "`P(correcta)` = probabilidad media que el modelo da a la opción correcta; `Errores seguros` = errores con probabilidad ≥ 80 % en la opción equivocada (route, tool_choice y args_review). " +
+      "`P(correcta)` = probabilidad media que el modelo da a la opción correcta; `Brier` = error cuadrático medio de las probabilidades (0 = perfecto, menor es mejor); `Errores seguros` = errores con probabilidad ≥ 80 % en la opción equivocada (route, tool_choice y args_review). " +
       P95_NOTE + " " + SIGN_NOTE,
     "",
   );

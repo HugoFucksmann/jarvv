@@ -15,8 +15,13 @@ import { PROMPTS } from "./prompts.ts";
 
 type JsonSchema = Record<string, unknown>;
 
-/** Temperatura del primer intento de toda etapa (los reintentos usan otra, en `qwen.ts`). */
+/** Temperatura del primer intento de toda etapa. */
 export const BASE_TEMPERATURE = 0.1;
+
+/** Política de reintento por salida inválida o truncada: temperatura, factor de tokens y mensaje del error de truncado. */
+export const RETRY_TEMPERATURE = 0.3;
+export const RETRY_TOKEN_FACTOR = 1.5;
+export const TRUNCATED = "la salida se truncó por el límite de tokens";
 
 /** Lo que define una consulta al modelo generativo, antes de enviarla. */
 export interface StageRequest {

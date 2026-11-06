@@ -15,6 +15,7 @@
  * las mismas funciones que el motor (`planInput`, `renderArgsView`, `argsInput`, `routeInput`…, en `engine/adapters.ts`).
  */
 
+import { createHash } from "node:crypto";
 import { BUDGET } from "../../src/core/budget.ts";
 import { ConfigManager } from "../../src/core/config.ts";
 import { create } from "../../src/core/ctx/index.ts";
@@ -49,6 +50,21 @@ import type { ExecutableRoute } from "../../src/core/types/routes.ts";
 import { EXECUTABLE_ROUTES } from "./contract.ts";
 import type { ToolInputSchema } from "./contract.ts";
 import type { DecisionRequest, GenerativeRequest } from "./types.ts";
+
+/**
+ * Lo que, además de `src/`, cambia los prompts de los casos por escenario: la fecha (`TODAY`) y la configuración que fija
+ * tokens y thinking por etapa. Va en `meta.json` para explicar por qué cambió un `requestHash` entre corridas.
+ */
+export function promptEnvironment(): { date: string; stageConfigHash: string } {
+  const d = new Date();
+  const two = (n: number): string => String(n).padStart(2, "0");
+  const { qwenMaxTokens, thinking } = ConfigManager.getConfig();
+  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, askMaxTokens: BUDGET.ask.maxTokens });
+  return {
+    date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`,
+    stageConfigHash: createHash("sha256").update(stageConfig).digest("hex").slice(0, 16),
+  };
+}
 
 // ───────────────────────── Forma del escenario ─────────────────────────
 
