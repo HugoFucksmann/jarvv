@@ -54,7 +54,7 @@ export interface RefVault {
 const UNSAFE_CHARS = /[^A-Za-z0-9._-]/g;
 
 /** Nombre de carpeta seguro para un id de tarea: lo que no es letra, dígito, `.`, `_` o `-` pasa a `_`; nunca solo puntos. */
-export function taskFolderName(taskId: string): string {
+function taskFolderName(taskId: string): string {
   const name = taskId.replace(UNSAFE_CHARS, "_");
   return /^\.+$/.test(name) ? name.replace(/\./g, "_") : name;
 }

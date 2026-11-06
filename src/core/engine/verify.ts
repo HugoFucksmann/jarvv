@@ -25,7 +25,7 @@ export type VerifyOutcome =
   | { readonly kind: "cancelled" };
 
 /** Veredicto de las dos preguntas de Decision: aprueba solo si pasan ambas; la razón sigue la precedencia de 5.3. */
-export function verdictOf(ok: boolean, cumple: boolean): { verdict: CallVerdict; reason: VerdictReason | null } {
+function verdictOf(ok: boolean, cumple: boolean): { verdict: CallVerdict; reason: VerdictReason | null } {
   if (ok && cumple) return { verdict: "approved", reason: null };
   return { verdict: "rejected", reason: ok ? "not_accomplished" : "no_usable_data" };
 }

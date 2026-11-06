@@ -26,7 +26,7 @@ export function refToView(ref: Ref): RefView {
 }
 
 /** La ref con ese id, o `null` si `id` es `null` o no existe. */
-export function refViewOf(data: ContextData, id: string | null): RefView | null {
+function refViewOf(data: ContextData, id: string | null): RefView | null {
   if (id === null) return null;
   const parsed = parseId(id);
   if (parsed === null || parsed.section !== "refs") return null;

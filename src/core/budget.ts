@@ -124,21 +124,3 @@ export const BUDGET = {
 
 export type BudgetKey = keyof typeof BUDGET;
 
-export const BUDGET_META: { readonly [K in BudgetKey]: BudgetMeta } = {
-  summaryMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7); Fase 4 · processResult (red de seguridad)" },
-  factValueMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7)" },
-  feedbackMax: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7)" },
-  jsonMaxDepth: { provisional: false, source: "9", usedBy: "create.context → apply (regla 7); Fase 5 · engine/args.ts (clipArgs)" },
-  argsStringDefault: { provisional: false, source: "5.2, 9", usedBy: "Fase 5 · ejecutor (recorte antes de escribir); base de ARGS_MAX" },
-  maxSteps: { provisional: false, source: "5.2", usedBy: "Fases 5 y 6 · ejecutor" },
-  maxReplans: { provisional: false, source: "5.2", usedBy: "Fase 6 · recuperación" },
-  maxEscalations: { provisional: false, source: "5.2", usedBy: "Fase 6 · recuperación" },
-  maxCallsPerStep: { provisional: false, source: "FLUJO 3", usedBy: "Fase 5 · stepLoop" },
-  planRegenerationRetries: { provisional: true, source: "5.2 (C14)", usedBy: "Fase 6 · proveedor deliberativo" },
-  recentWindows: { provisional: false, source: "9", usedBy: "Fase 2 · vistas (ctx.view.*)" },
-  invalidResponseRetries: { provisional: false, source: "FLUJO 2", usedBy: "Fase 5 · verify.ts, ask.ts, callRunner.ts, stepLoop.ts" },
-  refLabelChars: { provisional: true, source: "D8; el valor es un supuesto de implementación", usedBy: "Fase 5 · engine/args.ts (callLabel)" },
-  ask: { provisional: true, source: "D17; el valor es un supuesto de implementación", usedBy: "Fase 5 · qwen.ts (generateQuestion)" },
-  caps: { provisional: true, source: "8.2, 9; topes ampliados por decisión del usuario (hay margen de contexto)", usedBy: "Fase 5b · adaptadores de Decisión y renderizadores" },
-  extract: { provisional: true, source: "5.2 (summary), 9, 10.1; los valores son los literales de los extractores vigentes", usedBy: "Fase 4 · result/extractors/*" },
-};

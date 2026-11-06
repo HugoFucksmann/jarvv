@@ -97,7 +97,7 @@ export function nullableOneOf<T extends string>(value: unknown, list: readonly T
 // ───────────────────────── Argumentos y hechos ─────────────────────────
 
 /** Regla 3 (JSON plano) y regla 7 (ningún string supera `argsStringMax`; la anidación no supera `jsonMaxDepth`). */
-export function checkArgs(raw: unknown, limits: ContextLimits): JsonObject {
+function checkArgs(raw: unknown, limits: ContextLimits): JsonObject {
   if (!isPlainObject(raw)) violation("invalid_value", 3, "call.args debe ser null o un objeto JSON plano");
   const problem = jsonProblem(raw, { maxDepth: limits.jsonMaxDepth, maxString: limits.argsStringMax });
   if (problem?.kind === "limit") violation("limit", 7, `call.args${problem.path.slice(1)}: ${problem.detail}`);

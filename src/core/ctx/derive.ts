@@ -121,7 +121,7 @@ export function isAnswerKey(key: string): boolean {
 }
 
 /** Preguntas ya hechas en un paso: hechos `answer_*` de ese paso, incluidos los retirados (la clave sigue ocupada). */
-export function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: string): number {
+function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: string): number {
   let count = 0;
   for (const key of Object.keys(facts)) {
     if (isAnswerKey(key) && facts[key].stepId === stepId) count++;

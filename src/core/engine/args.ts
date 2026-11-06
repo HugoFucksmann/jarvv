@@ -120,7 +120,7 @@ function labelArg(args: Record<string, unknown>): string | null {
  * Líneas del texto, sin contar una línea vacía final (D8): `\r\n` y `\n` son un solo salto. Texto vacío = 0.
  * Es la cuenta del archivo de la ref, que es la que usa el modelo con `offset` y `length` (líneas).
  */
-export function lineCount(text: string): number {
+function lineCount(text: string): number {
   if (text.length === 0) return 0;
   const lines = text.split(/\r?\n/);
   if (lines[lines.length - 1] === "") lines.pop();
