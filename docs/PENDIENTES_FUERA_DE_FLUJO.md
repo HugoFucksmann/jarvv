@@ -49,3 +49,10 @@ Lo que quedó abierto después del refactor del flujo (`PLAN_REFACTOR_FLUJO.md`)
 - `eval/core/contract.ts` define `MAX_STEPS` y `LLM_INVALID_OUTPUT_RETRIES` desde `BUDGET`: usar `BUDGET` directo en `runner.ts` y `stages/generative.ts` cuando se toque.
 - Exponer el eval a un agente remoto (API con túnel): descartado, el agente corre en la nube de Anthropic y no llega a la máquina local. El agente trabaja con los resultados (`comparison.md`, `comparison.json`) que se le pasen.
 - Verificar con el modelo real (no solo render) el encabezado fijo de `renderStatusNote` y la salida parcial de `runReactive` en una corrida del pedido "último modelo de GPT y Gemini → md"; medir `maxItemFailures` (2) y el filtro de segunda línea del extractor `research` (0,6).
+- **Revisión de arquitectura de `src` (2026-11-07).** Sin hallazgos bloqueantes: `ctx/` no importa nada de fuera, ninguna capa de bajo nivel depende de `engine/` salvo por los contratos de `deps.ts`, y los dos ciclos de imports son solo de tipos. Mejoras menores sin hacer:
+  - `fold`/`stems` están duplicados en `engine/pendingList.ts` y `result/extractors/research.ts` (con listas de palabras vacías distintas): pasar a un módulo común (`text.ts`) cuando se toque uno.
+  - `engine/deps.ts` mezcla contratos con `createEngineServices` (que lee `ConfigManager`) y las listas `ARGS_REVIEWS`/`VERIFY_CHECKS`: separar contratos y fábrica si crece.
+  - Mover los tipos de registro (`ModelRecord`, `ToolRecord`, `WaitRecord`) a un `trace/types.ts` y los de `CaptureSink` fuera de `deps.ts` eliminaría los dos ciclos de tipos.
+  - `any` en `mcp/transport.ts` y `server/mcpRouter.ts` (capturas `catch (err: any)` y mensajes JSON-RPC): tipar con `unknown` y `errorMessage`.
+  - El bloque `ANTI-BUCLE`: `failedRepeatTools` solo oculta la herramienta si la llamada previa falló; una repetida de una aprobada ahora cierra el paso (`repeatsApprovedCall`), pero una repetida de una lectura no aprobada sigue contando para `maxRepeatsPerStep`.
+- **Sin medir con el modelo real:** límites nuevos (`maxSteps` 20, `maxReplans` 3, `maxCallsPerStep` 6, `maxRepeatsPerStep` 2) y el cierre por repetición de una llamada aprobada.
