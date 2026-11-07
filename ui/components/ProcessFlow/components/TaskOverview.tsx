@@ -1,6 +1,6 @@
 import React from "react";
-import { AlertCircle, CheckCircle2, Loader2, Plus, XCircle } from "lucide-react";
-import type { StepState, TaskDto, TaskState } from "../../../types/api.ts";
+import { AlertCircle, CheckCircle2, Loader2, Plus, XCircle, Activity, Cpu } from "lucide-react";
+import type { StepState, TaskDto, TaskState, EngineLimits } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
 import {
   getActivityPhrase,
@@ -45,12 +45,15 @@ const ActivityIcon: React.FC<{ group: ActivityStateGroup; state: TaskState }> = 
 
 interface TaskOverviewProps {
   task: TaskDto;
+  limits?: EngineLimits | null;
   onNewTask?: () => void;
+  onOpenTrace?: () => void;
 }
 
-function getProgressText(task: TaskDto): string {
+function getProgressText(task: TaskDto, limits?: EngineLimits | null): string {
   const activeSteps = task.steps.filter((s) => !s.superseded);
   const totalSteps = activeSteps.length;
+  const maxSuffix = limits?.maxSteps ? ` (tope: ${limits.maxSteps})` : "";
 
   if (totalSteps === 0) return "Respuesta directa";
 
@@ -72,21 +75,29 @@ function getProgressText(task: TaskDto): string {
 
   if (task.task.mode === "deliberative") {
     const current = runningStepIdx >= 0 ? runningStepIdx + 1 : completedSteps + 1;
-    return `Paso ${Math.min(current, totalSteps)} de ${totalSteps}`;
+    return `Paso ${Math.min(current, totalSteps)} de ${totalSteps}${maxSuffix}`;
   }
 
-  return `Paso ${completedSteps + 1} de ${totalSteps}`;
+  return `Paso ${completedSteps + 1} de ${totalSteps}${maxSuffix}`;
 }
 
-export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) => {
+export const TaskOverview: React.FC<TaskOverviewProps> = ({
+  task,
+  limits,
+  onNewTask,
+  onOpenTrace,
+}) => {
   const replans = Math.max(0, task.plans.length - 1);
+  const maxReplans = limits?.maxReplans ? ` de ${limits.maxReplans}` : "";
   const activeSteps = task.steps.filter((s) => !s.superseded);
-  const progress = getProgressText(task);
+  const progress = getProgressText(task, limits);
   const activity = getActivityPhrase(task);
+  const hasActiveProcess = task.facts?.process && task.facts.process.value !== null && task.facts.process.value !== undefined;
+  const isTerminal = task.task.state !== "running";
 
   return (
     <header className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
         <StatusDot status={getTaskStatusType(task.task.state, Boolean(task.waiting))} />
         <h2
           title={task.task.request}
@@ -99,23 +110,48 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({ task, onNewTask }) =
           {replans > 0 && (
             <span className="text-amber-300">
               {" "}
-              · {replans} {replans === 1 ? "replanificación" : "replanificaciones"}
+              · {replans}{maxReplans} {replans === 1 ? "replanificación" : "replanificaciones"}
             </span>
           )}
         </span>
 
-        {task.task.state !== "running" && onNewTask && (
-          <button
-            type="button"
-            onClick={onNewTask}
-            title="Iniciar nueva consulta (limpiar vista activa)"
-            aria-label="Iniciar nueva consulta"
-            className="shrink-0 flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
+        {hasActiveProcess && (
+          <span
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/80 text-[10px] font-mono shrink-0"
+            title={`Proceso en segundo plano activo (PID: ${String(task.facts.process.value)})`}
           >
-            <Plus className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden sm:inline">Nueva</span>
-          </button>
+            <Cpu className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <span>PID: {String(task.facts.process.value)}</span>
+          </span>
         )}
+
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
+          {isTerminal && onOpenTrace && (
+            <button
+              type="button"
+              onClick={onOpenTrace}
+              title="Ver traza de auditoría (decisiones D1 a D4 y duraciones)"
+              aria-label="Ver traza de auditoría"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-300 hover:text-white hover:bg-purple-950/60 rounded-md transition-colors cursor-pointer border border-transparent hover:border-purple-800/60 font-mono"
+            >
+              <Activity className="w-3.5 h-3.5 text-purple-400" />
+              <span className="hidden sm:inline">Traza</span>
+            </button>
+          )}
+
+          {isTerminal && onNewTask && (
+            <button
+              type="button"
+              onClick={onNewTask}
+              title="Iniciar nueva consulta (limpiar vista activa)"
+              aria-label="Iniciar nueva consulta"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-sky-400" />
+              <span className="hidden sm:inline">Nueva</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-3 min-w-0">

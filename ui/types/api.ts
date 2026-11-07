@@ -242,6 +242,33 @@ export interface QwenMaxTokens {
   final: number;
 }
 
+export interface BlacklistEntry {
+  tool: string;
+  pattern?: string;
+  reason: string;
+}
+
+export interface UserEnvironment {
+  platform: "windows" | "macos" | "linux";
+  home: string;
+  desktop?: string;
+  documents?: string;
+  downloads?: string;
+  now: string;
+  timeZone: string;
+}
+
+export interface EngineLimits {
+  maxSteps: number;
+  maxReplans: number;
+  maxEscalations: number;
+  maxItemFailures: number;
+  maxCallsPerStep: number;
+  maxRepeatsPerStep: number;
+  maxReviewRejectionsPerStep: number;
+  maxQuestionsPerStep: number;
+}
+
 export interface JarvisConfig {
   qwenUrl: string;
   qwenModel: string;
@@ -259,6 +286,15 @@ export interface JarvisConfig {
   mcpTimeoutMs: number;
   traceEnabled: boolean;
   tracePath: string;
+  refsDir?: string;
+  blacklist?: BlacklistEntry[];
+  autoMode?: boolean;
 }
 
-export type ConfigPatch = Partial<JarvisConfig>;
+export type ConfigPatch = Partial<
+  Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
+> & {
+  desktopCommanderMcp?: Partial<StdioServerConfig>;
+  freeSearchMcp?: Partial<StdioServerConfig>;
+  qwenMaxTokens?: Partial<QwenMaxTokens>;
+};

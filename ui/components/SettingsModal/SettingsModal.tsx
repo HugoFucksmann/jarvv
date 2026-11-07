@@ -1,12 +1,27 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Settings, X, Check, Terminal, Loader2, AlertCircle, Cpu, Timer } from "lucide-react";
-import type { JarvisConfig } from "../../types/api.ts";
+import {
+  Settings,
+  X,
+  Check,
+  Terminal,
+  Loader2,
+  AlertCircle,
+  Cpu,
+  Timer,
+  Shield,
+  ShieldAlert,
+  Plus,
+  Trash2,
+  Activity,
+  Laptop,
+} from "lucide-react";
+import type { JarvisConfig, BlacklistEntry, UserEnvironment, EngineLimits } from "../../types/api.ts";
 import { jarvisApi } from "../../services/jarvisApi.ts";
-
 
 interface SettingsModalProps {
   onClose: () => void;
   onConfigSaved: () => void;
+  onOpenEnvironment?: () => void;
 }
 
 type McpKey = "desktopCommanderMcp" | "freeSearchMcp";
@@ -184,7 +199,11 @@ const McpCommandField: React.FC<McpCommandFieldProps> = ({
 // Modal
 // ---------------------------------------------------------------------------
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigSaved }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({
+  onClose,
+  onConfigSaved,
+  onOpenEnvironment,
+}) => {
   // La configuración vigente vive en el backend: no se duplican sus valores por defecto en el cliente.
   const [config, setConfig] = useState<JarvisConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -192,6 +211,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Estado para formulario de nueva regla en lista negra
+  const [showBlacklistForm, setShowBlacklistForm] = useState(false);
+  const [newTool, setNewTool] = useState("");
+  const [newPattern, setNewPattern] = useState("");
+  const [newReason, setNewReason] = useState("");
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
@@ -221,6 +246,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
 
   const updateMcp = (key: McpKey, patch: McpPatch) =>
     setConfig((prev) => (prev ? ({ ...prev, [key]: { ...prev[key], ...patch } } as JarvisConfig) : prev));
+
+  const handleAddBlacklist = () => {
+    if (!newTool.trim() || !newReason.trim()) return;
+    const entry: BlacklistEntry = {
+      tool: newTool.trim(),
+      reason: newReason.trim(),
+      ...(newPattern.trim() ? { pattern: newPattern.trim() } : {}),
+    };
+    const list = [...(config?.blacklist || []), entry];
+    update({ blacklist: list });
+    setNewTool("");
+    setNewPattern("");
+    setNewReason("");
+    setShowBlacklistForm(false);
+  };
+
+  const handleRemoveBlacklist = (index: number) => {
+    const list = (config?.blacklist || []).filter((_, i) => i !== index);
+    update({ blacklist: list });
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -431,6 +476,209 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, onConfigS
                   onChange={(mcpTimeoutMs) => update({ mcpTimeoutMs })}
                 />
               </div>
+            </div>
+
+            {/* SECCIÓN 4: SEGURIDAD, POLÍTICAS GUARD Y MODO AUTOMÁTICO */}
+            <div className="flex flex-col gap-3 border-t border-slate-800/80 pt-4">
+              <SectionTitle icon={<Shield className="w-3.5 h-3.5 text-amber-400" />}>
+                4. Seguridad, Guard y Modo Automático (/config)
+              </SectionTitle>
+
+              {/* Modo Automático */}
+              <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-slate-950 border border-slate-800">
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-semibold text-slate-200">
+                      Modo Automático (autoMode):
+                    </span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                        config.autoMode
+                          ? "bg-amber-950 text-amber-300 border border-amber-800/80"
+                          : "bg-slate-800 text-slate-400"
+                      }`}
+                    >
+                      {config.autoMode ? "ACTIVADO" : "DESACTIVADO (Interactivo)"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+                    Con Modo Automático activado, las operaciones de escritura y comandos del catálogo <strong>no generarán espera de aprobación manual</strong>; serán validadas directamente por la revisión de argumentos de Decisión 3. Guard destructivo y la lista negra continuarán bloqueando amenazas.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.autoMode)}
+                  onChange={(e) => update({ autoMode: e.target.checked })}
+                  aria-label="Activar o desactivar modo automático"
+                  className="w-4 h-4 accent-amber-500 rounded cursor-pointer mt-1 shrink-0 bg-slate-950 border-slate-800"
+                />
+              </div>
+
+              {/* Lista Negra */}
+              <div className="flex flex-col gap-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 text-slate-300 font-mono text-xs font-medium">
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Lista Negra de Herramientas Modificadoras (blacklist):</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowBlacklistForm((v) => !v)}
+                    className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono text-rose-300 bg-rose-950/60 hover:bg-rose-900 border border-rose-800/60 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Agregar Regla</span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-500 font-sans">
+                  Reglas deterministas de rechazo (tool_rejected). Afecta solo a herramientas que modifican el sistema.
+                </p>
+
+                {/* Formulario para nueva regla */}
+                {showBlacklistForm && (
+                  <div className="p-3 rounded-lg bg-slate-950 border border-rose-900/60 flex flex-col gap-2 mt-1">
+                    <div className="flex items-center justify-between text-[11px] font-mono text-rose-300 font-semibold">
+                      <span>Nueva regla de lista negra</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowBlacklistForm(false)}
+                        className="text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Herramienta (ej: start_process)"
+                        value={newTool}
+                        onChange={(e) => setNewTool(e.target.value)}
+                        className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-slate-200 text-xs font-mono"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Patrón Regex (opcional)"
+                        value={newPattern}
+                        onChange={(e) => setNewPattern(e.target.value)}
+                        className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-slate-200 text-xs font-mono"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Motivo para el modelo"
+                        value={newReason}
+                        onChange={(e) => setNewReason(e.target.value)}
+                        className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-slate-200 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowBlacklistForm(false)}
+                        className="px-2.5 py-1 text-slate-400 text-[11px] hover:text-slate-200 cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!newTool.trim() || !newReason.trim()}
+                        onClick={handleAddBlacklist}
+                        className="px-3 py-1 bg-rose-500 hover:bg-rose-400 text-slate-950 font-semibold rounded text-[11px] disabled:opacity-50 cursor-pointer"
+                      >
+                        Añadir Regla
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Listado de reglas actuales */}
+                <div className="flex flex-col gap-1 mt-1">
+                  {config.blacklist && config.blacklist.length > 0 ? (
+                    config.blacklist.map((rule, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-2 p-2 rounded bg-slate-950/80 border border-slate-800/80 font-mono text-[11px]"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="font-bold text-rose-300">{rule.tool}</span>
+                          {rule.pattern && (
+                            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-amber-300 text-[10px]">
+                              regex: /{rule.pattern}/
+                            </span>
+                          )}
+                          <span className="text-slate-400 truncate max-w-sm">
+                            {rule.reason}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveBlacklist(idx)}
+                          title="Eliminar regla"
+                          className="p-1 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-500 text-[11px] italic font-mono pl-1">
+                      No hay reglas personalizadas en la lista negra (todas las herramientas permitidas por Guard están habilitadas).
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* SECCIÓN 5: REGISTRO DE TRAZAS Y ENTORNO */}
+            <div className="flex flex-col gap-3 border-t border-slate-800/80 pt-4">
+              <SectionTitle icon={<Activity className="w-3.5 h-3.5 text-purple-400" />}>
+                5. Auditoría y Registro de Trazas
+              </SectionTitle>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-1">
+                <div className="flex items-center justify-between p-2.5 rounded bg-slate-950 border border-slate-800">
+                  <div className="flex flex-col">
+                    <span className="font-mono text-xs text-slate-300 font-medium">
+                      Habilitar Trazas (traceEnabled):
+                    </span>
+                    <span className="font-mono text-[10px] text-slate-500">
+                      Registra una carpeta y snapshot por tarea terminada
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.traceEnabled)}
+                    onChange={(e) => update({ traceEnabled: e.target.checked })}
+                    className="w-4 h-4 accent-purple-500 rounded cursor-pointer bg-slate-950 border-slate-800"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label htmlFor="cfg-trace-path" className="font-mono text-[11px] text-slate-400">
+                    Ruta del archivo de registro de trazas:
+                  </label>
+                  <input
+                    id="cfg-trace-path"
+                    type="text"
+                    value={config.tracePath || ""}
+                    onChange={(e) => update({ tracePath: e.target.value })}
+                    placeholder="trace/runs.jsonl"
+                    className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              {onOpenEnvironment && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={onOpenEnvironment}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-mono text-sky-300 bg-sky-950/40 hover:bg-sky-900/60 border border-sky-800/60 transition-colors cursor-pointer"
+                  >
+                    <Laptop className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Ver Información del Entorno de la PC y Límites Operativos</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Acciones de pie */}

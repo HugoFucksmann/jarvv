@@ -7,6 +7,7 @@ interface StepTimelineProps {
   calls?: CallDto[];
   taskState?: TaskState;
   mode?: ExecutionMode;
+  onViewRef?: (refId: string) => void;
 }
 
 const StepTimelineBase: React.FC<StepTimelineProps> = ({
@@ -14,6 +15,7 @@ const StepTimelineBase: React.FC<StepTimelineProps> = ({
   calls = [],
   taskState,
   mode,
+  onViewRef,
 }) => {
   const isTerminal =
     taskState === "completed" ||
@@ -50,6 +52,7 @@ const StepTimelineBase: React.FC<StepTimelineProps> = ({
             index={idx}
             isCurrent={isCurrent}
             isLast={idx === steps.length - 1}
+            onViewRef={onViewRef}
           />
         );
       })}

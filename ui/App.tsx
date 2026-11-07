@@ -8,6 +8,8 @@ import { ProcessFlow } from "./components/ProcessFlow/ProcessFlow.tsx";
 import { TaskOverview } from "./components/ProcessFlow/components/TaskOverview.tsx";
 import { NewTaskDialog } from "./components/NewTaskDialog/NewTaskDialog.tsx";
 import { ErrorBanner } from "./components/Shared/ErrorBanner.tsx";
+import { EnvironmentModal } from "./components/TopBar/components/EnvironmentModal.tsx";
+import { TraceViewerModal } from "./components/ProcessFlow/components/TraceViewerModal.tsx";
 
 const SettingsModal = lazy(() =>
   import("./components/SettingsModal/SettingsModal.tsx").then((m) => ({
@@ -26,6 +28,8 @@ function isTerminalState(state?: string): boolean {
 
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isEnvironmentOpen, setIsEnvironmentOpen] = useState(false);
+  const [isTraceOpen, setIsTraceOpen] = useState(false);
   const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -54,6 +58,10 @@ export default function App() {
     approvePending,
     denyPending,
     refreshDiscovery,
+    refreshConfig,
+    environment,
+    limits,
+    autoMode,
     clearTaskView,
     selectHistoricalTask,
   } = useJarvis();
@@ -66,6 +74,10 @@ export default function App() {
 
   const openSettings = useCallback(() => setIsSettingsOpen(true), []);
   const closeSettings = useCallback(() => setIsSettingsOpen(false), []);
+  const openEnvironment = useCallback(() => setIsEnvironmentOpen(true), []);
+  const closeEnvironment = useCallback(() => setIsEnvironmentOpen(false), []);
+  const openTrace = useCallback(() => setIsTraceOpen(true), []);
+  const closeTrace = useCallback(() => setIsTraceOpen(false), []);
   const dismissNewTask = useCallback(() => setIsNewTaskConfirmOpen(false), []);
 
   const handleCancel = useCallback(() => {
@@ -105,6 +117,9 @@ export default function App() {
         mcpCount={Object.keys(discoveredTools).length}
         unavailableCount={Object.keys(unavailableServers).length}
         mcpInitStatus={mcpInitStatus}
+        unavailableServers={unavailableServers}
+        autoMode={autoMode}
+        onOpenEnvironment={openEnvironment}
         tasks={allTasks}
         activeTaskId={task?.task.id}
         onSelectTask={selectHistoricalTask}
@@ -125,7 +140,14 @@ export default function App() {
               isExecuting={isExecuting}
               isWaitingInput={isWaiting}
             />
-            {task && <TaskOverview task={task} onNewTask={handleNewTask} />}
+            {task && (
+              <TaskOverview
+                task={task}
+                limits={limits}
+                onNewTask={handleNewTask}
+                onOpenTrace={openTrace}
+              />
+            )}
             <GuardBanner
               waiting={waiting}
               onApprove={approvePending}
@@ -140,14 +162,41 @@ export default function App() {
             onRejectPlan={rejectPlan}
             onModifyPlan={modifyPlan}
             onCancelTask={handleCancel}
+            onOpenTrace={openTrace}
           />
         </div>
       </main>
 
       {isSettingsOpen && (
         <Suspense fallback={null}>
-          <SettingsModal onClose={closeSettings} onConfigSaved={refreshDiscovery} />
+          <SettingsModal
+            onClose={closeSettings}
+            onConfigSaved={() => {
+              void refreshDiscovery();
+              void refreshConfig();
+            }}
+            onOpenEnvironment={() => {
+              closeSettings();
+              openEnvironment();
+            }}
+          />
         </Suspense>
+      )}
+
+      {isEnvironmentOpen && (
+        <EnvironmentModal
+          environment={environment}
+          limits={limits}
+          onClose={closeEnvironment}
+        />
+      )}
+
+      {isTraceOpen && task && (
+        <TraceViewerModal
+          taskId={task.task.id}
+          taskRequest={task.task.request}
+          onClose={closeTrace}
+        />
       )}
 
       {isNewTaskConfirmOpen && (

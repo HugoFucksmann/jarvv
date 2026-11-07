@@ -6,18 +6,23 @@
 
 import { getApiUrl } from "../utils/apiUrl.ts";
 import type {
+  BlacklistEntry,
   ConfigPatch,
   DiscoveryResponse,
+  EngineLimits,
   ExecutionMode,
   InitiateTaskResponse,
   JarvisConfig,
   OkResponse,
   StateResponse,
+  UserEnvironment,
 } from "../types/api.ts";
 
 export type {
+  BlacklistEntry,
   ConfigPatch,
   DiscoveryResponse,
+  EngineLimits,
   InitiateTaskResponse,
   JarvisConfig,
   OkResponse,
@@ -25,6 +30,7 @@ export type {
   TaskDto,
   TaskSummary,
   UnavailableServers,
+  UserEnvironment,
   Waiting,
   WaitingApproval,
   WaitingPlan,
@@ -42,6 +48,15 @@ async function handleResponse<T>(res: Response, defaultErrorMsg: string): Promis
 async function request<T>(path: string, errorMsg: string, init?: RequestInit): Promise<T> {
   const res = await fetch(getApiUrl(path), init);
   return handleResponse<T>(res, errorMsg);
+}
+
+async function requestText(path: string, errorMsg: string, init?: RequestInit): Promise<string> {
+  const res = await fetch(getApiUrl(path), init);
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `${errorMsg} (HTTP ${res.status})`);
+  }
+  return res.text();
 }
 
 function post<T>(path: string, body: object, errorMsg: string): Promise<T> {
@@ -148,5 +163,31 @@ export const jarvisApi = {
   /** Actualiza la configuración en el backend (parche parcial). */
   updateConfig(patch: ConfigPatch): Promise<JarvisConfig> {
     return post<JarvisConfig>("/api/jarvis/config", patch, "Error al guardar la configuración");
+  },
+
+  /** Obtiene la información del entorno del sistema y carpetas conocidas de la PC. */
+  getEnvironment(): Promise<UserEnvironment> {
+    return request<UserEnvironment>("/api/jarvis/environment", "Error al obtener el entorno");
+  },
+
+  /** Obtiene los límites de presupuesto y ejecución del motor JARVIS. */
+  getLimits(): Promise<EngineLimits> {
+    return request<EngineLimits>("/api/jarvis/limits", "Error al obtener los límites");
+  },
+
+  /** Obtiene el texto crudo de una referencia de la tarea. */
+  getRefContent(taskId: string, refId: string): Promise<string> {
+    return requestText(
+      `/api/jarvis/tasks/${encodeURIComponent(taskId)}/refs/${encodeURIComponent(refId)}`,
+      "Error al obtener el contenido de la referencia"
+    );
+  },
+
+  /** Obtiene la traza de auditoría de una tarea terminada (formato summary Markdown o json). */
+  getTrace(taskId: string, format: "summary" | "json" = "summary"): Promise<string> {
+    return requestText(
+      `/api/jarvis/tasks/${encodeURIComponent(taskId)}/trace?format=${encodeURIComponent(format)}`,
+      "Error al obtener la traza de la tarea"
+    );
   },
 };

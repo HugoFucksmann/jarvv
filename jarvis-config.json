@@ -7,7 +7,6 @@
     "arguments": 2048,
     "plan": 4096,
     "replan": 4096,
-    "verify": 1024,
     "final": 2048
   },
   "qwenTimeoutMs": 120000,
@@ -34,7 +33,7 @@
       "free-search-mcp"
     ]
   },
-  "mcpTimeoutMs": 30000,
+  "mcpTimeoutMs": 60000,
   "traceEnabled": true,
   "tracePath": "jarvis-traces.jsonl",
   "refsDir": "data/refs",

@@ -203,7 +203,7 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 | Reintentos de transporte | 1, tras 1 s |
 | Reintentos por salida inválida (`invalidResponseRetries`) | 1 |
 | Tareas retenidas | 20 |
-| Timeouts | Modelo generativo 120 s (180 s con razonamiento extendido); modelo de decisión 30 s; herramientas 30 s |
+| Timeouts | Modelo generativo 120 s (180 s con razonamiento extendido); modelo de decisión 30 s; herramientas 60 s |
 | Contexto configurado | 16 384 tokens para ambos modelos |
 
 ## 11. Invariantes del Flujo

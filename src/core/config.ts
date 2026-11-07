@@ -23,7 +23,6 @@ export interface QwenMaxTokens {
   arguments: number;
   plan: number;
   replan: number;
-  verify: number;
   final: number;
 }
 
@@ -80,7 +79,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   qwenModel: "qwen3.5:4b",
   thinking: false,
   qwenNumCtx: 16384,
-  qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, verify: 1024, final: 2048 },
+  qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, final: 2048 },
   qwenTimeoutMs: 120000,
   qwenThinkingTimeoutMs: 180000,
   decisionUrl: "http://127.0.0.1:11434",
@@ -96,7 +95,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
     command: "uvx",
     args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
   },
-  mcpTimeoutMs: 30000,
+  mcpTimeoutMs: 60000,
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
   refsDir: "data/refs",
@@ -172,7 +171,6 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
       arguments: positiveInt(t.arguments, d.qwenMaxTokens.arguments),
       plan: positiveInt(t.plan, d.qwenMaxTokens.plan),
       replan: positiveInt(t.replan, d.qwenMaxTokens.replan),
-      verify: positiveInt(t.verify, d.qwenMaxTokens.verify),
       final: positiveInt(t.final, d.qwenMaxTokens.final),
     },
     qwenTimeoutMs: positiveInt(r.qwenTimeoutMs, d.qwenTimeoutMs),

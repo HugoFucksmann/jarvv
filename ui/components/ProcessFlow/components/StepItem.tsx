@@ -1,5 +1,5 @@
 import React, { memo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert } from "lucide-react";
 import type { CallDto, StepDto } from "../../../types/api.ts";
 import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
@@ -12,6 +12,7 @@ interface StepItemProps {
   index: number;
   isCurrent: boolean;
   isLast?: boolean;
+  onViewRef?: (refId: string) => void;
 }
 
 function callStatusTone(status?: string): string {
@@ -87,6 +88,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
   index,
   isCurrent,
   isLast = false,
+  onViewRef,
 }) => {
   const [showCalls, setShowCalls] = useState(false);
   const callsCount = calls.length;
@@ -128,6 +130,12 @@ const StepItemBase: React.FC<StepItemProps> = ({
               {effectiveRoute && (
                 <span className="font-mono text-slate-400 font-medium">
                   {getRouteLabel(effectiveRoute)}
+                </span>
+              )}
+              {step.at && (
+                <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                  <Clock className="w-2.5 h-2.5" />
+                  <span>{new Date(step.at).toLocaleTimeString()}</span>
                 </span>
               )}
               {step.superseded && (
@@ -183,9 +191,9 @@ const StepItemBase: React.FC<StepItemProps> = ({
                 const verdict = callVerdictLabel(c);
 
                 return (
-                  <div key={`call-${c.id || cIdx}`} className="py-2 text-xs font-mono">
-                    <div className="flex items-center justify-between text-slate-400 mb-1">
-                      <div className="flex items-center gap-1.5 text-sky-300 font-semibold">
+                  <div key={`call-${c.id || cIdx}`} className="py-2.5 text-xs font-mono">
+                    <div className="flex items-center justify-between text-slate-400 mb-1 flex-wrap gap-1">
+                      <div className="flex items-center gap-1.5 text-sky-300 font-semibold flex-wrap">
                         <Terminal className="w-3 h-3 text-sky-400" />
                         <span>{c.tool}</span>
                         <span
@@ -198,24 +206,53 @@ const StepItemBase: React.FC<StepItemProps> = ({
                           {c.kind}
                         </span>
                         {c.ref && (
-                          <span
-                            className="flex items-center gap-1 text-[10px] px-1 py-0.2 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-800/60"
-                            title={`Referencia: ${c.ref}`}
+                          <button
+                            type="button"
+                            onClick={() => onViewRef?.(c.ref!)}
+                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/60 transition-colors cursor-pointer"
+                            title={`Ver contenido completo de referencia ${c.ref}`}
                           >
                             <FileText className="w-2.5 h-2.5" />
                             <span>{c.ref}</span>
+                            <span className="text-[9px] underline">ver</span>
+                          </button>
+                        )}
+                        {c.at && (
+                          <span className="text-[10px] text-slate-500 font-normal">
+                            {new Date(c.at).toLocaleTimeString()}
                           </span>
                         )}
                       </div>
-                      <span className={`text-[11px] ${tone}`} title={c.status}>
-                        {verdict}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {c.verdict === "approved" && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-emerald-400 font-semibold bg-emerald-950/50 px-1 py-0.2 rounded border border-emerald-800/50">
+                            <ShieldCheck className="w-2.5 h-2.5" />
+                            <span>D4 Verificado</span>
+                          </span>
+                        )}
+                        {c.verdict === "rejected" && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-rose-400 font-semibold bg-rose-950/50 px-1 py-0.2 rounded border border-rose-800/50">
+                            <ShieldAlert className="w-2.5 h-2.5" />
+                            <span>D4 Rechazado</span>
+                          </span>
+                        )}
+                        <span className={`text-[11px] font-bold ${tone}`} title={c.status}>
+                          {verdict}
+                        </span>
+                      </div>
                     </div>
 
                     {c.args && Object.keys(c.args).length > 0 && (
                       <div className="text-[11px] text-slate-400 truncate mb-1">
                         <span className="text-slate-500">args: </span>
                         {JSON.stringify(c.args)}
+                      </div>
+                    )}
+
+                    {c.sig && (
+                      <div className="text-[10px] text-slate-500 font-mono truncate mb-1">
+                        <span className="text-slate-600">sig: </span>
+                        {c.sig}
                       </div>
                     )}
 
@@ -235,7 +272,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
                       <OutputViewer
                         text={c.summary}
                         copyTitle="Copiar salida de herramienta"
-                        className="mt-1"
+                        className="mt-1.5"
                       />
                     )}
                   </div>

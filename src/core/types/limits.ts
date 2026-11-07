@@ -1,6 +1,6 @@
 /** Tareas retenidas en memoria. Las terminales más antiguas se expulsan (junto con sus refs). */
 export const MAX_RETAINED_TASKS = 20;
-/** Tope (caracteres) de la descripción de una herramienta: el manifest rechaza al arrancar una más larga y Decision recorta a este valor. */
+/** Tope (caracteres) de la descripción de una herramienta: el manifest rechaza al arrancar una más larga y los prompts la recortan a este valor. */
 export const MAX_TOOL_DESC_CHARS = 80;
 /** Tope (caracteres) de la nota de un parámetro (formato que el esquema del servidor no expresa): el manifest rechaza al arrancar una más larga. */
 export const MAX_PARAM_NOTE_CHARS = 240;

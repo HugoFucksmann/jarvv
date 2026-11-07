@@ -1,9 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import { History } from "lucide-react";
-import type { TaskDto } from "../../types/api.ts";
+import type { TaskDto, RefDto } from "../../types/api.ts";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
 import { FinalResponseView } from "./components/FinalResponseView.tsx";
+import { FailureAnalysis } from "./components/FailureAnalysis.tsx";
+import { ArtifactsList } from "./components/ArtifactsList.tsx";
+import { RefViewerModal } from "./components/RefViewerModal.tsx";
+import { TraceViewerModal } from "./components/TraceViewerModal.tsx";
 import { Separator } from "../Shared/Separator.tsx";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
 import type { ActionResult } from "../../types/ui.ts";
@@ -14,6 +18,7 @@ interface ProcessFlowProps {
   onRejectPlan?: () => ActionResult;
   onModifyPlan?: (feedback: string) => ActionResult;
   onCancelTask: () => ActionResult;
+  onOpenTrace?: () => void;
 }
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({
@@ -22,7 +27,12 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   onRejectPlan,
   onModifyPlan,
   onCancelTask,
+  onOpenTrace: externalOpenTrace,
 }) => {
+  const [internalTraceOpen, setInternalTraceOpen] = useState(false);
+  const [activeRefId, setActiveRefId] = useState<string | null>(null);
+  const [activeRefMeta, setActiveRefMeta] = useState<RefDto | undefined>(undefined);
+
   if (!task) {
     return (
       <div className="flex flex-col items-center justify-center gap-1.5 py-20 text-center">
@@ -34,6 +44,20 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       </div>
     );
   }
+
+  const handleOpenTrace = () => {
+    if (externalOpenTrace) {
+      externalOpenTrace();
+    } else {
+      setInternalTraceOpen(true);
+    }
+  };
+
+  const handleViewRef = (refId: string, meta?: RefDto) => {
+    const foundMeta = meta || task.refs?.find((r) => r.id === refId);
+    setActiveRefMeta(foundMeta);
+    setActiveRefId(refId);
+  };
 
   const isAwaitingPlanConfirmation = task.waiting?.kind === "plan";
   const planWaiting = isAwaitingPlanConfirmation ? task.waiting : null;
@@ -49,6 +73,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       calls={task.calls}
       taskState={task.task.state}
       mode={task.task.mode}
+      onViewRef={handleViewRef}
     />
   );
 
@@ -84,7 +109,38 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
         timeline
       )}
 
-      {task.result && <FinalResponseView result={task.result} />}
+      {/* Auditoría de fallo o conclusión parcial (stopReason + escrituras) */}
+      <FailureAnalysis task={task} />
+
+      {/* Artefactos, referencias, procesos en segundo plano y respuestas */}
+      <ArtifactsList task={task} onViewRef={handleViewRef} />
+
+      {/* Respuesta final si ya está sintetizada */}
+      {task.result && (
+        <FinalResponseView result={task.result} onOpenTrace={handleOpenTrace} />
+      )}
+
+      {/* Modal visor de referencia */}
+      {activeRefId && (
+        <RefViewerModal
+          taskId={task.task.id}
+          refId={activeRefId}
+          refMeta={activeRefMeta}
+          onClose={() => {
+            setActiveRefId(null);
+            setActiveRefMeta(undefined);
+          }}
+        />
+      )}
+
+      {/* Modal visor de traza de auditoría */}
+      {internalTraceOpen && (
+        <TraceViewerModal
+          taskId={task.task.id}
+          taskRequest={task.task.request}
+          onClose={() => setInternalTraceOpen(false)}
+        />
+      )}
     </section>
   );
 };

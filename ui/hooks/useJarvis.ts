@@ -17,6 +17,8 @@ import type {
   McpToolDto,
   UnavailableServers,
   SseMessage,
+  UserEnvironment,
+  EngineLimits,
 } from "../types/api.ts";
 import { jarvisApi } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
@@ -53,6 +55,9 @@ export function useJarvis() {
   const [mode, setMode] = useState<ExecutionMode>("reactive");
   const [error, setError] = useState<string | null>(null);
   const [mcpInitStatus, setMcpInitStatus] = useState<McpInitStatus>("loading");
+  const [environment, setEnvironment] = useState<UserEnvironment | null>(null);
+  const [limits, setLimits] = useState<EngineLimits | null>(null);
+  const [autoMode, setAutoMode] = useState<boolean>(false);
 
   useEffect(() => {
     taskRef.current = task;
@@ -178,6 +183,9 @@ export function useJarvis() {
 
   useEffect(() => {
     void fetchStateRef.current();
+    void jarvisApi.getEnvironment().then(setEnvironment).catch(() => {});
+    void jarvisApi.getLimits().then(setLimits).catch(() => {});
+    void jarvisApi.getConfig().then((cfg) => setAutoMode(Boolean(cfg.autoMode))).catch(() => {});
 
     let eventSource: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -344,6 +352,28 @@ export function useJarvis() {
     setMcpInitStatus(resolveMcpStatus(countKeys(data.tools), countKeys(data.unavailableServers), "error"));
   }, [runAction]);
 
+  const refreshConfig = useCallback(async () => {
+    try {
+      const cfg = await jarvisApi.getConfig();
+      setAutoMode(Boolean(cfg.autoMode));
+    } catch (e) {
+      console.warn("Failed to refresh config in hook:", e);
+    }
+  }, []);
+
+  const toggleAutoMode = useCallback(async (forced?: boolean) => {
+    const nextVal = forced !== undefined ? forced : !autoMode;
+    try {
+      const updated = await jarvisApi.updateConfig({ autoMode: nextVal });
+      setAutoMode(Boolean(updated.autoMode));
+      return Boolean(updated.autoMode);
+    } catch (err) {
+      console.error("Error updating autoMode:", err);
+      setError(err instanceof Error ? err.message : "Error al actualizar modo automático");
+      return autoMode;
+    }
+  }, [autoMode]);
+
   const clearTaskView = useCallback(() => {
     userClearedViewRef.current = true;
     activeTaskIdRef.current = null;
@@ -402,6 +432,11 @@ export function useJarvis() {
     approvePending,
     denyPending,
     refreshDiscovery,
+    refreshConfig,
+    environment,
+    limits,
+    autoMode,
+    toggleAutoMode,
     clearTaskView,
     selectHistoricalTask,
   };
