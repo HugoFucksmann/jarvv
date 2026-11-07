@@ -1,7 +1,7 @@
 /**
  * JARVIS Core — Pregunta al usuario (`ask_user`, Fase 5).
  *
- * Cuando Decision elige `ask_user` (en Decision #1 o #2), `runStep` llama a `askUser`:
+ * Cuando la revisión de argumentos da `info_missing` o el paso llegaría al tope de llamadas, `runStep` llama a `askUser`:
  *
  * 1. Se genera el texto de la pregunta con el LLM a partir de `forAsk` (`generateQuestion`). Una salida inválida ya se
  *    reintentó una vez dentro de Qwen; si persiste, o el servicio cae, `service_unavailable` (D29). Sin texto de reserva.
@@ -10,8 +10,7 @@
  *    al tope de un hecho con `clipWithin` (D23). Si se recortó, el texto completo va al almacén y a `refs` en el mismo
  *    `apply` (D13). Un fallo del almacén conserva el hecho recortado, registra `service_unavailable` y cierra la tarea (D7).
  *
- * No se registra ninguna llamada. La pregunta no tiene tope propio: `ask_user` deja de ofrecerse mientras el paso no tenga
- * una llamada posterior a la última respuesta (`ctx.canAsk`); lo cortan el tope de llamadas y el anti-loop.
+ * No se registra ninguna llamada. Una pregunta por paso (`BUDGET.maxQuestionsPerStep`, `canAskUser`).
  */
 
 import { BUDGET } from "../budget.ts";

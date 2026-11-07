@@ -1,6 +1,6 @@
 /**
- * `forAsk` (sección 8.3): la pregunta de `ask_user` (LLM 4). En reactivo lleva la solicitud; en deliberativo, el paso
- * actual. Suma la entrada del usuario (lo ya preguntado y respondido, para no repetirlo), la última llamada no aprobada del
+ * `forAsk` (sección 8.3): la pregunta de `ask_user` (LLM 4). Lleva el paso actual y, en reactivo, también la solicitud.
+ * Suma la entrada del usuario (lo ya preguntado y respondido, para no repetirlo), la última llamada no aprobada del
  * paso (con `args` y resumen) y la última lectura con datos, de donde salen las opciones a ofrecer.
  */
 
@@ -20,7 +20,7 @@ export function buildAskView(data: ContextData): AskView {
 
   return {
     request: reactive ? data.task.request : null,
-    step: reactive || step === null ? null : stepViewOf(step),
+    step: step === null ? null : stepViewOf(step),
     userInput: userInputViewsOf(data),
     rejectedCall: rejectedCall === null ? null : callViewOf(data, rejectedCall, true),
     lastRead: reads.length === 0 ? null : callViewOf(data, reads[0], true),

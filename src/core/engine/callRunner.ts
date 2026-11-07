@@ -29,7 +29,6 @@ import { processResult } from "../result/processResult.ts";
 import type { ProcessedResult } from "../result/processResult.ts";
 import { applyDestination, getToolPolicy, requirementOf, serverOf } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
-import { ASK_USER } from "../types/routes.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import { errorMessage } from "../utils.ts";
 import { argsInput, renderArgsView, reviewInput, reviewViewOptions, routeViewOptions, toolInput } from "./adapters.ts";
@@ -39,7 +38,7 @@ import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
-import { canAskUser, factValue } from "./retries.ts";
+import { factValue } from "./retries.ts";
 import { verifyCall } from "./verify.ts";
 
 export interface RunCallParams {
@@ -98,13 +97,16 @@ type Discovery =
   | { readonly kind: "outcome"; readonly outcome: CallOutcome };
 
 /**
- * Herramientas del catálogo que se pueden usar ahora: las que no exigen un proceso o una búsqueda activos, o cuyo requisito
- * se cumple (FLUJO 2, opciones disponibles).
+ * Herramientas del catálogo que se pueden usar ahora en el paso: las que no exigen un proceso o una búsqueda activos, o
+ * cuyo requisito se cumple, menos las que ya repitieron en el paso una llamada idéntica que había fallado (FLUJO 2,
+ * opciones disponibles).
  */
-function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[]): MCPTool[] {
+function usableTools(ctx: TaskContext, stepId: string, mcp: string, cataloged: readonly MCPTool[]): MCPTool[] {
   const processActive = factValue(ctx, "process") !== null;
   const searchActive = ctx.find("calls", { tool: "start_search", status: "ok" }).length > 0;
+  const blocked = ctx.failedRepeatTools(stepId);
   return cataloged.filter((t) => {
+    if (blocked.includes(t.name)) return false;
     const required = requirementOf(mcp, t.name);
     return required === undefined || (required === "process" ? processActive : searchActive);
   });
@@ -114,7 +116,7 @@ function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[
  * Rutas que se ofrecen a Decisión 1: las que tienen al menos una herramienta usable. Una ruta cuyo servidor o catálogo no
  * se puede consultar NO se descarta: el fallo aparece al ejecutar y cierra la tarea como infraestructura caída.
  */
-export async function availableRoutes(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
+export async function availableRoutes(env: EngineEnv, stepId: string, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const { ctx, deps } = env;
   const out: ExecutableRoute[] = [];
   for (const route of routes) {
@@ -125,7 +127,7 @@ export async function availableRoutes(env: EngineEnv, routes: readonly Executabl
     } catch {
       cataloged = [];
     }
-    if (cataloged.length === 0 || usableTools(ctx, mcp, cataloged).length > 0) out.push(route);
+    if (cataloged.length === 0 || usableTools(ctx, stepId, mcp, cataloged).length > 0) out.push(route);
   }
   return out;
 }
@@ -155,7 +157,7 @@ async function discoverTools(env: EngineEnv, stepId: string, route: ExecutableRo
     );
   }
 
-  const usable = usableTools(ctx, mcp, cataloged);
+  const usable = usableTools(ctx, stepId, mcp, cataloged);
   if (usable.length === 0) {
     console.warn(`[Engine] no hay herramientas utilizables en el destino '${route}'.`);
     return { kind: "outcome", outcome: { kind: "no_tools" } };
@@ -223,15 +225,12 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const { server, tools } = found;
   if (runtime.cancelled) return CANCELLED;
 
-  // 2. Elegir la herramienta (Decision #2; con `ask_user` si todavía se puede preguntar). Los intentos de la vista van
-  // filtrados a la ruta elegida.
+  // 2. Elegir la herramienta (Decision #2). Los intentos de la vista van filtrados a la ruta elegida.
   const routeView = ctx.view.forRoute(routeViewOptions(route));
-  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, tools, canAskUser(ctx, stepId)), runtime.signal));
+  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, tools), runtime.signal));
   if (!toolQuery.ok) return fromFailure(ctx, stepId, toolQuery.failure, toolQuery.error);
   if (runtime.cancelled) return CANCELLED;
-  const chosen = toolQuery.value;
-  if (chosen.action === ASK_USER) return { kind: "ask_user" };
-  const tool = chosen.tool;
+  const tool = toolQuery.value.tool;
 
   // El catálogo del servidor pudo cambiar: `validateToolExists` refresca antes de dar la herramienta por inexistente.
   let exists: boolean;

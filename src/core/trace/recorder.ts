@@ -24,8 +24,9 @@ import path from "node:path";
 import { ConfigManager } from "../config.ts";
 import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
 import { NULL_SINK } from "../engine/capture.ts";
-import type { CaptureSink, CaptureStage, LlmCapture, ToolCapture } from "../engine/capture.ts";
+import type { CaptureSink, LlmCapture, ToolCapture } from "../engine/capture.ts";
 import type { Waiting } from "../engine/runtime.ts";
+import type { StageId } from "../types.ts";
 import { errorMessage } from "../utils.ts";
 
 /** Versión del formato de la línea de traza: quien la consume (lab/) la usa para interpretarla. */
@@ -45,8 +46,8 @@ interface ModelLink {
 export interface ModelRecord {
   /** Orden de la consulta en la tarea (por el inicio de cada una). */
   seq: number;
-  stage: CaptureStage;
-  /** Paso en curso cuando empezó la consulta; `null` en el plan y la respuesta final. */
+  stage: StageId;
+  /** Paso en curso cuando empezó la consulta; `null` en el plan, la lista de pendientes y la respuesta final. */
   step: string | null;
   /** Versión del contexto al empezar la consulta. */
   n: number;
@@ -121,7 +122,7 @@ export class TaskTraceRecorder {
     const record: ModelRecord = {
       seq: this.models.length + 1,
       stage: event.stage,
-      step: event.stage === "plan" || event.stage === "final" ? null : this.currentStep,
+      step: event.stage === "plan" || event.stage === "final" || event.stage === "pending" ? null : this.currentStep,
       n: event.n,
       startedAt: event.startedAt,
       durationMs: event.durationMs,

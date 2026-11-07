@@ -7,12 +7,13 @@
  * y `schemaTypes` devuelve un arreglo (producción: un `Set`).
  */
 
+import { BUDGET } from "../../src/core/budget.ts";
 import { parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/reasoner/qwen.ts";
 import { schemaTypes as prodSchemaTypes } from "../../src/core/refs/refResolver.ts";
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
-export { NOUL_APPROVE } from "../../src/core/decision.ts";
+export { NOUL_APPROVE } from "../../src/core/engine/verify.ts";
 export { ARGS_REVIEWS } from "../../src/core/engine/deps.ts";
 export { estimateTokens } from "../../src/core/llmTransport.ts";
 export { retryNote } from "../../src/core/reasoner/prompts.ts";
@@ -24,12 +25,9 @@ export {
   TRUNCATED as TRUNCATED_ERROR,
 } from "../../src/core/reasoner/stageRequests.ts";
 export { isWholeRefToken } from "../../src/core/refs/refResolver.ts";
-export {
-  LLM_INVALID_OUTPUT_RETRIES,
-  LLM_TRANSPORT_BACKOFF_MS,
-  LLM_TRANSPORT_RETRIES,
-  MAX_STEPS,
-} from "../../src/core/types/limits.ts";
+export { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../../src/core/types/limits.ts";
+export const LLM_INVALID_OUTPUT_RETRIES = BUDGET.invalidResponseRetries;
+export const MAX_STEPS = BUDGET.maxSteps;
 export { ASK_USER, EXECUTABLE_ROUTES, FIN, isExecutableRoute } from "../../src/core/types/routes.ts";
 export type { ExecutableRoute } from "../../src/core/types/routes.ts";
 export { isRecord } from "../../src/core/utils.ts";

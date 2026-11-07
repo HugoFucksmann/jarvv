@@ -25,17 +25,6 @@ export interface DecisionResponse {
   timing: TimeSpan;
 }
 
-/** Resultado de la verificación factual de un paso con Decision. */
-export interface StepVerificationResult {
-  ok: boolean;
-  cumple: boolean;
-  okProbability: number;
-  cumpleProbability: number;
-  rawInput: string;
-  rawOutput: string;
-  timing: TimeSpan;
-}
-
 export interface DecisionQuestionChoice {
   type: "choice";
   instructions: string;

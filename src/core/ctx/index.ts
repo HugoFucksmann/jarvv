@@ -121,6 +121,7 @@ export type {
   FeedbackView,
   FinalView,
   FinalViewOptions,
+  PendingView,
   PlanTriggerView,
   PlanView,
   PlanViewOptions,

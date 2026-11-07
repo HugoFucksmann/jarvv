@@ -28,7 +28,7 @@ export function hasApprovedOk(calls: readonly Call[]): boolean {
 }
 
 /**
- * Cierre con `fin` (modo reactivo, 5.4): `completed` si `calls` está vacío o existe una llamada `approved`;
+ * Cierre del modo reactivo (5.4), cuando la lista de pendientes queda vacía: `completed` si `calls` está vacío o existe una llamada `approved`;
  * si no, `no_alternatives` si existe una `user_rejected`; si no, `null`.
  */
 export function canFinish(calls: readonly Call[]): "completed" | "no_alternatives" | null {

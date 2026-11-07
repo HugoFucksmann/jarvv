@@ -12,6 +12,8 @@ export { ContextOverflowError } from "./errors.ts";
 export type { OverflowingView } from "./errors.ts";
 export { renderFallback, renderFinal } from "./final.ts";
 export type { FinalRenderOptions } from "./final.ts";
+export { renderPending } from "./pending.ts";
+export type { PendingRenderOptions } from "./pending.ts";
 export { renderPlan } from "./plan.ts";
 export type { PlanRenderOptions } from "./plan.ts";
 export type { Rendered, ViewCaps } from "./shared.ts";

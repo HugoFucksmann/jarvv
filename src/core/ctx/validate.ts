@@ -140,7 +140,10 @@ export function checkPlanInput(raw: unknown, env: CheckEnv): PlanInput {
   return { trigger, feedback, stepId };
 }
 
-/** 5.2: en deliberativo `instruction`, `route` y `expected` son obligatorios; en reactivo los cuatro campos valen `null`. */
+/**
+ * 5.2: `instruction` es obligatoria en ambos modos. En deliberativo `planId`, `route` y `expected` también; en reactivo
+ * los tres valen `null`.
+ */
 export function checkStepInput(raw: unknown, env: CheckEnv): StepInput {
   const o = ensureObject(raw, "step");
   ensureKeys(o, ["planId", "instruction", "route", "expected"], [], "step");
@@ -148,13 +151,13 @@ export function checkStepInput(raw: unknown, env: CheckEnv): StepInput {
   const instruction = nullableText(o.instruction, "step.instruction");
   const route = nullableText(o.route, "step.route");
   const expected = nullableText(o.expected, "step.expected");
+  if (instruction === null) violation("invalid_value", 3, "el paso requiere `instruction`");
   if (env.mode === "reactive") {
-    if (planId !== null || instruction !== null || route !== null || expected !== null) {
-      violation("invalid_value", 3, "en reactivo `planId`, `instruction`, `route` y `expected` del paso valen null");
+    if (planId !== null || route !== null || expected !== null) {
+      violation("invalid_value", 3, "en reactivo `planId`, `route` y `expected` del paso valen null");
     }
   } else {
     if (planId === null) violation("invalid_value", 3, "en deliberativo el paso requiere `planId`");
-    if (instruction === null) violation("invalid_value", 3, "en deliberativo el paso requiere `instruction`");
     if (route === null) violation("invalid_value", 3, "en deliberativo el paso requiere `route`");
     if (expected === null) violation("invalid_value", 3, "en deliberativo el paso requiere `expected`");
     if (!env.hasPlan(planId)) violation("dangling_ref", 5, `step.planId "${planId}" no existe`);

@@ -1,6 +1,6 @@
 /**
- * `forArgs` (sección 8.3): generación de argumentos. En reactivo lleva la solicitud y lo hecho (líneas `L`); en
- * deliberativo, el paso actual y los pasos ya completados con su resultado. En ambos: las últimas lecturas aprobadas, las
+ * `forArgs` (sección 8.3): generación de argumentos. Lleva el paso actual; en reactivo suma lo hecho (líneas `L`) y en
+ * deliberativo los pasos ya completados con su resultado. En ambos: las últimas lecturas aprobadas, las
  * refs más recientes que no se muestran en otra sección (con lo ya leído de cada una), los fallos del paso actual, la
  * entrada del usuario, los hechos de entorno y los efectos.
  *
@@ -45,7 +45,6 @@ function shownRanges(data: ContextData, ref: Ref, keys: ReadArgKeys): ShownRange
 }
 
 export function buildArgsView(data: ContextData, options: ArgsViewOptions): ArgsView {
-  const reactive = data.task.mode === "reactive";
   const parts = taskPartsOf(data, options, effectsOf(data.calls));
 
   const refs: AvailableRefView[] = data.refs
@@ -54,9 +53,8 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
     .map((ref) => ({ ...refToView(ref), stepId: ref.stepId, shown: shownRanges(data, ref, options.readArgKeys) }));
 
   return {
-    request: reactive ? data.task.request : null,
     done: parts.done.map(lineViewOf),
-    step: reactive || parts.step === null ? null : stepViewOf(parts.step),
+    step: parts.step === null ? null : stepViewOf(parts.step),
     stepsDone: parts.stepsDone,
     lastReads: parts.reads.map((c) => callViewOf(data, c, true)),
     refs,

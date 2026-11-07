@@ -81,7 +81,7 @@ export interface StepView {
   readonly id: string;
   readonly state: StepState;
   readonly superseded: boolean;
-  /** `null` en reactivo. */
+  /** Qué hace el paso: la del plan (deliberativo) o el primer pendiente (reactivo). */
   readonly instruction: string | null;
   readonly route: string | null;
   readonly expected: string | null;
@@ -184,15 +184,13 @@ export interface PlanView {
  * y el último intento no aprobado, que llevan su resumen. Una llamada aparece una sola vez: `lastResult` no se repite en `done`.
  */
 export interface RouteView {
-  /** Solo en reactivo; `null` en deliberativo. */
-  readonly request: string | null;
-  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
+  /** El paso actual. */
   readonly step: StepView | null;
   /** Solo en reactivo: la última llamada aprobada que no es efecto. */
   readonly lastResult: CallView | null;
   /** Solo en reactivo: llamadas hechas (aprobadas), sin `lastResult`. */
   readonly done: readonly CallView[];
-  /** Intentos no aprobados, ventana por escalaciones: de la tarea (reactivo) o del paso actual (deliberativo). */
+  /** Intentos no aprobados del paso actual, ventana por escalaciones. */
   readonly attempts: readonly CallView[];
   readonly userInput: readonly UserInputView[];
   /** Hechos de entorno (hoy, `process`). */
@@ -211,11 +209,9 @@ export interface StepDoneView {
  * refs ya mostradas en otra sección no se repiten en `refs`.
  */
 export interface ArgsView {
-  /** Solo en reactivo; `null` en deliberativo. */
-  readonly request: string | null;
   /** Solo en reactivo: llamadas aprobadas como línea `L`, sin las que ya muestran `effects` o `lastReads`. */
   readonly done: readonly CallView[];
-  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
+  /** El paso actual. */
   readonly step: StepView | null;
   /** Solo en deliberativo: pasos `completed` vigentes, con su resultado. */
   readonly stepsDone: readonly StepDoneView[];
@@ -237,11 +233,9 @@ export interface ArgsView {
  * usuario. El candidato (ruta, herramienta, descripción y `args`) es un parámetro: lo pasa el motor, no vive en el contexto.
  */
 export interface ReviewView {
-  /** Solo en reactivo; `null` en deliberativo. */
-  readonly request: string | null;
   /** Solo en reactivo: llamadas aprobadas como línea `L`, sin las que ya muestra `lastReads`. */
   readonly done: readonly CallView[];
-  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
+  /** El paso actual. */
   readonly step: StepView | null;
   /** Solo en deliberativo: pasos `completed` vigentes, con su resultado. */
   readonly stepsDone: readonly StepDoneView[];
@@ -253,15 +247,16 @@ export interface ReviewView {
   readonly env: readonly FactView[];
 }
 
-/** Criterio contra el que se juzga la llamada: el del paso (deliberativo) o la solicitud (reactivo, avanza lo pedido). */
-export type CriterionView =
-  | { readonly source: "step"; readonly instruction: string | null; readonly expected: string | null }
-  | { readonly source: "request"; readonly text: string };
+/** Criterio contra el que se juzga la llamada: el del paso (`expected` solo en deliberativo). */
+export interface CriterionView {
+  readonly instruction: string | null;
+  readonly expected: string | null;
+}
 
 /**
- * `forVerify` (8.3): Decisión 4. El criterio, la llamada evaluada (con `args`, resumen y ref), lo hecho para juzgar si la
- * llamada avanza lo pedido (solo reactivo) y la entrada del usuario, que precisa el criterio. No lleva efectos del paso: la
- * llamada evaluada ya muestra su propio efecto.
+ * `forVerify` (8.3): Decisión 4. El criterio del paso, la llamada evaluada (con `args`, resumen y ref), lo hecho (solo
+ * reactivo) y la entrada del usuario, que precisa el criterio. No lleva efectos del paso: la llamada evaluada ya muestra su
+ * propio efecto.
  */
 export interface VerifyView {
   readonly criterion: CriterionView;
@@ -278,13 +273,27 @@ export interface VerifyView {
 export interface AskView {
   /** Solo en reactivo; `null` en deliberativo. */
   readonly request: string | null;
-  /** Solo en deliberativo: el paso actual; `null` en reactivo. */
+  /** El paso actual. */
   readonly step: StepView | null;
   readonly userInput: readonly UserInputView[];
   /** Última llamada no aprobada del paso, con `args` y resumen; `null` si no hay. */
   readonly rejectedCall: CallView | null;
   /** Última lectura aprobada con datos; `null` si no hay. */
   readonly lastRead: CallView | null;
+}
+
+/**
+ * `forPending` (8.3): la lista de pendientes del reactivo. La solicitud, la lista anterior, lo hecho (aprobadas, con `args` y
+ * resumen), los últimos intentos no aprobados (ventana por escalaciones, con su razón) y la entrada del usuario.
+ */
+export interface PendingView {
+  readonly request: string;
+  /** Lista de pendientes de la vuelta anterior; vacía en la primera. */
+  readonly previous: readonly string[];
+  readonly done: readonly CallView[];
+  readonly attempts: readonly CallView[];
+  readonly userInput: readonly UserInputView[];
+  readonly env: readonly FactView[];
 }
 
 /** Estado de la tarea con su frase fija (`note`). */
@@ -330,6 +339,8 @@ export interface ContextViews {
   forArgs(options: ArgsViewOptions): ArgsView;
   forReview(options: ReviewViewOptions): ReviewView;
   forAsk(): AskView;
+  /** `previous`: la lista de pendientes anterior (la guarda el motor, no el contexto). */
+  forPending(previous: readonly string[], options: WindowOptions): PendingView;
   /** `callId`: la llamada evaluada. */
   forVerify(callId: string): VerifyView;
   forFinal(options: FinalViewOptions): FinalView;

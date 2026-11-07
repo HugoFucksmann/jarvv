@@ -121,7 +121,7 @@ export function isAnswerKey(key: string): boolean {
 }
 
 /** Preguntas ya hechas en un paso: hechos `answer_*` de ese paso, incluidos los retirados (la clave sigue ocupada). */
-function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: string): number {
+export function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: string): number {
   let count = 0;
   for (const key of Object.keys(facts)) {
     if (isAnswerKey(key) && facts[key].stepId === stepId) count++;
@@ -132,22 +132,6 @@ function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: string)
 /** Clave del hecho con la respuesta a la siguiente pregunta del paso: `answer_<stepId>_<n>` (5.2). */
 export function nextAnswerKey(facts: { readonly [key: string]: Fact }, stepId: string): string {
   return `${ANSWER_FACT_PREFIX}${stepId}_${questionsAsked(facts, stepId) + 1}`;
-}
-
-/**
- * ¿Se puede ofrecer `ask_user` en el paso? Sí si no hay una respuesta del paso posterior a su última llamada (al empezar
- * el paso, siempre). Sin tope propio: lo cortan el tope de llamadas y el anti-loop (FLUJO 6).
- */
-export function canAsk(data: Pick<ContextData, "calls" | "facts">, stepId: string): boolean {
-  let lastCallAt = Number.NEGATIVE_INFINITY;
-  for (const c of data.calls) {
-    if (c.stepId === stepId && c.at > lastCallAt) lastCallAt = c.at;
-  }
-  for (const key of Object.keys(data.facts)) {
-    const fact = data.facts[key];
-    if (isAnswerKey(key) && fact.stepId === stepId && fact.at > lastCallAt) return false;
-  }
-  return true;
 }
 
 export interface UserInputEntry {
@@ -267,4 +251,24 @@ export function isRepeat(
     if (c.kind === "read" && isExecuted(c)) sawRead = true;
   }
   return false;
+}
+
+/**
+ * Herramientas que ya no se ofrecen en el paso: las que tienen en él una llamada `loop_blocked` cuya llamada ejecutada
+ * idéntica más reciente (misma herramienta y `sig`, la que `isRepeat` comparó) falló. Con otros argumentos la
+ * herramienta sigue disponible.
+ */
+export function failedRepeatTools(calls: readonly Call[], stepId: string): string[] {
+  const out = new Set<string>();
+  calls.forEach((c, i) => {
+    if (c.stepId !== stepId || c.status !== "loop_blocked") return;
+    for (let j = i - 1; j >= 0; j--) {
+      const previous = calls[j];
+      if (previous.tool === c.tool && previous.sig === c.sig && isExecuted(previous)) {
+        if (isFailure(previous)) out.add(c.tool);
+        return;
+      }
+    }
+  });
+  return [...out];
 }

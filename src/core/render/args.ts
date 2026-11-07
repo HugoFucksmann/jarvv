@@ -4,7 +4,7 @@
  * `overflow = true` y quien ejecuta cierra la tarea.
  *
  * Secciones: STATE (hechos de entorno), USER, STEPS (deliberativo) o DONE (reactivo), REFS, DATA, EFFECTS, FAIL y TASK
- * (la solicitud o la instrucción del paso, al final).
+ * (la instrucción del paso, al final).
  */
 
 import type { ArgsView } from "../ctx/index.ts";
@@ -36,9 +36,9 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
   const effects = view.effects.map((c) => callLine(c, null));
   const effectsChars = effects.join("\n").length;
 
-  // En reactivo la tarea es la solicitud; en deliberativo, la instrucción del paso.
-  const taskText = view.step?.instruction ?? view.request;
-  const task = taskText === null || taskText === undefined ? null : `TASK: ${clipMarked(oneLine(taskText), view.step === null ? caps.request : caps.step)}`;
+  // La tarea es la instrucción del paso.
+  const taskText = view.step?.instruction;
+  const task = taskText === null || taskText === undefined ? null : `TASK: ${clipMarked(oneLine(taskText), caps.step)}`;
 
   const sections = [
     obsBlock("STATE", newestWithin(view.env.map(factLine), caps.env)),

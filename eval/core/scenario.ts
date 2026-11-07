@@ -69,7 +69,7 @@ export function promptEnvironment(): { date: string; stageConfigHash: string } {
 // ───────────────────────── Forma del escenario ─────────────────────────
 
 export interface ScenarioStep {
-  /** Solo en deliberativo; en reactivo valen null y se omiten. */
+  /** Deliberativo: la del plan. Reactivo: el primer pendiente (default: la solicitud). */
   instruction?: string;
   route?: string;
   expected?: string;
@@ -98,8 +98,6 @@ export interface ScenarioCall {
 export interface ScenarioAt {
   // route
   routes?: ExecutableRoute[];
-  allowFin?: boolean;
-  allowAsk?: boolean;
   // tool_choice, args_review, arguments
   route?: ExecutableRoute;
   /** tool_choice: nombres del manifest (default: todas las de la ruta). */
@@ -176,7 +174,7 @@ function buildContext(sc: Scenario): Built {
       target: "steps",
       value: deliberative
         ? { planId, instruction: s.instruction ?? "", route: s.route ?? "", expected: s.expected ?? "" }
-        : { planId: null, instruction: null, route: null, expected: null },
+        : { planId: null, instruction: s.instruction ?? sc.request, route: null, expected: null },
     }),
   );
   const lastStepId = stepIds[stepIds.length - 1];
@@ -267,8 +265,6 @@ export function materializeScenario(stage: string, sc: Scenario): Materialized {
     case "route": {
       const flags = {
         routes: at.routes ?? [...EXECUTABLE_ROUTES],
-        allowFin: at.allowFin ?? ctx.canFinish() !== null,
-        allowAsk: at.allowAsk ?? true,
       };
       return decision(DECISION_PROMPTS.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
     }
@@ -276,7 +272,7 @@ export function materializeScenario(stage: string, sc: Scenario): Materialized {
       const route = need(at.route, "route", stage);
       const names = at.tools ?? SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route).map((d) => d.name);
       const tools = names.map((n) => toolOf(route, n));
-      return decision(DECISION_PROMPTS.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools, at.allowAsk ?? true)));
+      return decision(DECISION_PROMPTS.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools)));
     }
     case "args_review": {
       const route = need(at.route, "route", stage);

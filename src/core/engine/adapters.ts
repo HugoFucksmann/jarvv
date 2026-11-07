@@ -4,14 +4,14 @@
  * Decision #1, #2 y #3 y el verificador reciben campos ya armados: aquí se convierten los objetos estructurados de
  * `ctx.view.*` en esos campos, aplicando los topes por sección y por elemento de 8.2 (`BUDGET.caps`). Todo texto que viene
  * de fuera del contexto se sanea con `render/shared` (neutraliza `<obs>` y las etiquetas de bloque). Solo `renderArgs`
- * (argumentos) y `renderAsk` (pregunta al usuario) se usan como renderizadores.
+ * (argumentos), `renderAsk` (pregunta al usuario) y `renderPending` (lista de pendientes) se usan como renderizadores.
  *
  * También reúne las opciones de las vistas y de los renderizadores, que salen de `BUDGET` y del catálogo.
  */
 
 import { BUDGET } from "../budget.ts";
 import type { ArgsViewOptions, CallView, FinalViewOptions, JsonObject, PlanViewOptions, ReviewView, ReviewViewOptions, RouteView, RouteViewOptions, TaskContext, VerifyView, WindowOptions } from "../ctx/index.ts";
-import { renderArgs, renderPlan } from "../render/index.ts";
+import { renderArgs, renderPending, renderPlan } from "../render/index.ts";
 import type { ArgsRenderOptions, AskRenderOptions, FinalRenderOptions, PlanRenderOptions, Rendered } from "../render/index.ts";
 import {
   callHead,
@@ -31,7 +31,7 @@ import { READ_ARG_KEYS } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import type { ArgsFromViewInput, DecisionFrame, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "./deps.ts";
+import type { ArgsFromViewInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "./deps.ts";
 
 // ───────────────────────── Opciones de vistas y renderizadores ─────────────────────────
 
@@ -75,6 +75,11 @@ export function finalViewOptions(): FinalViewOptions {
 
 export function finalRenderOptions(): FinalRenderOptions {
   return { caps: BUDGET.caps };
+}
+
+/** Entrada de la lista de pendientes desde `forPending`: el texto de la vista con la lista anterior. */
+export function pendingInput(ctx: TaskContext, previous: readonly string[]): PendingFromViewInput {
+  return { view: renderPending(ctx.view.forPending(previous, windowOptions()), { caps: BUDGET.caps }) };
 }
 
 // ───────────────────────── LLM 1 (plan) y argumentos ─────────────────────────
@@ -135,7 +140,6 @@ function stepText(step: NonNullable<RouteView["step"]>): { readonly instruction:
 /** El marco común de Decisión 1 y 2: la vista `forRoute` en líneas saneadas y recortadas a los topes de 8.2. */
 function decisionFrame(view: RouteView): DecisionFrame {
   return {
-    request: view.request === null ? null : clipMarked(oneLine(view.request), caps.request),
     step: view.step === null ? null : stepText(view.step),
     lastResult: view.lastResult === null ? null : lastResultText(view.lastResult),
     done: lastCapped(view.done.map(lineText), caps.done),
@@ -149,8 +153,6 @@ function decisionFrame(view: RouteView): DecisionFrame {
 export interface RouteChoiceFlags {
   /** Rutas con alguna herramienta usable. */
   readonly routes: readonly ExecutableRoute[];
-  readonly allowFin: boolean;
-  readonly allowAsk: boolean;
 }
 
 export function routeInput(view: RouteView, flags: RouteChoiceFlags): RouteDecisionInput {
@@ -158,8 +160,8 @@ export function routeInput(view: RouteView, flags: RouteChoiceFlags): RouteDecis
 }
 
 /** `view` es `forRoute` con `route`: los intentos ya están filtrados a la ruta elegida. */
-export function toolInput(view: RouteView, route: ExecutableRoute, tools: MCPTool[], allowAsk: boolean): ToolDecisionInput {
-  return { ...decisionFrame(view), route, tools, allowAsk };
+export function toolInput(view: RouteView, route: ExecutableRoute, tools: MCPTool[]): ToolDecisionInput {
+  return { ...decisionFrame(view), route, tools };
 }
 
 // ───────────────────────── Decision #3 ─────────────────────────
@@ -180,7 +182,6 @@ function candidateOf(route: ExecutableRoute, tool: MCPTool, args: JsonObject): R
 export function reviewInput(view: ReviewView, route: ExecutableRoute, tool: MCPTool, args: JsonObject): ReviewDecisionInput {
   return {
     candidate: candidateOf(route, tool, args),
-    request: view.request === null ? null : clipMarked(oneLine(view.request), caps.request),
     step: view.step === null ? null : stepText(view.step),
     stepsDone: lastCapped(view.stepsDone.map((s) => stepDoneLine(s, caps)), caps.stepsDone),
     done: lastCapped(view.done.map(lineText), caps.done),
@@ -206,14 +207,10 @@ export function verifyInput(view: VerifyView): VerifyDecisionInput {
   const criterion = view.criterion;
   const half = Math.floor(caps.step / 2);
   return {
-    criterion:
-      criterion.source === "request"
-        ? { source: "request", text: clipMarked(oneLine(criterion.text), caps.request) }
-        : {
-          source: "step",
-          instruction: clipMarked(oneLine(criterion.instruction ?? ""), half),
-          expected: criterion.expected === null ? null : clipMarked(oneLine(criterion.expected), half),
-        },
+    criterion: {
+      instruction: clipMarked(oneLine(criterion.instruction ?? ""), half),
+      expected: criterion.expected === null ? null : clipMarked(oneLine(criterion.expected), half),
+    },
     call: evaluatedEntry(view.call),
     done: lastCapped(view.done.map(lineText), caps.done),
     userInput: newestWithin(view.userInput.map(userInputLine), caps.userInput),

@@ -13,7 +13,8 @@ import {
   callsInStep as callsInStepOf,
   effectsOf,
   escalationCount,
-  canAsk as canAskOf,
+  failedRepeatTools as failedRepeatToolsOf,
+  questionsAsked as questionsAskedOf,
   nextAnswerKey as nextAnswerKeyOf,
   isRepeat as isRepeatOf,
   possibleEffectsOf,
@@ -30,6 +31,7 @@ import {
   buildAskView,
   buildFallbackView,
   buildFinalView,
+  buildPendingView,
   buildPlanView,
   buildReviewView,
   buildRouteView,
@@ -70,6 +72,7 @@ export class TaskContext {
     forRoute: (options) => buildRouteView(this.data, options),
     forArgs: (options) => buildArgsView(this.data, options),
     forAsk: () => buildAskView(this.data),
+    forPending: (previous, options) => buildPendingView(this.data, previous, options),
     forReview: (options) => buildReviewView(this.data, options),
     forVerify: (callId) => buildVerifyView(this.data, callId),
     forFinal: (options) => buildFinalView(this.data, options),
@@ -192,7 +195,7 @@ export class TaskContext {
     return isRepeatOf(this.data, tool, sig, options);
   }
 
-  /** Cierre con `fin` (solo reactivo, 5.4): `completed`, `no_alternatives` o `null` (no se ofrece `fin`). */
+  /** Cierre del reactivo (5.4): `completed`, `no_alternatives` o `null` (todavía no se puede cerrar). */
   canFinish(): "completed" | "no_alternatives" | null {
     return this.data.task.mode === "reactive" ? canFinishOf(this.data.calls) : null;
   }
@@ -219,9 +222,14 @@ export class TaskContext {
     return callsInStepOf(this.data.calls, stepId);
   }
 
-  /** ¿Se puede ofrecer `ask_user` en el paso? No hay una respuesta posterior a su última llamada. */
-  canAsk(stepId: string): boolean {
-    return canAskOf(this.data, stepId);
+  /** Herramientas que ya no se ofrecen en el paso: repitieron una llamada idéntica que había fallado. */
+  failedRepeatTools(stepId: string): readonly string[] {
+    return failedRepeatToolsOf(this.data.calls, stepId);
+  }
+
+  /** Preguntas ya hechas al usuario en el paso (hechos `answer_*` del paso). */
+  questionsAsked(stepId: string): number {
+    return questionsAskedOf(this.data.facts, stepId);
   }
 
   /** Clave del hecho de la siguiente respuesta del paso: `answer_<stepId>_<n>`. */

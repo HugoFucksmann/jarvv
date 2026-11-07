@@ -34,16 +34,19 @@ export const BUDGET = {
   argsStringDefault: 300,
 
   // ── Límites del motor (5.2) ──
-  maxSteps: 15,
-  maxReplans: 2,
+  maxSteps: 100,
+  maxReplans: 10,
   maxEscalations: 2,
-  maxCallsPerStep: 8,
-  planRegenerationRetries: 1,
+  maxCallsPerStep: 50,
+  /** Llamadas rechazadas por la revisión (`tool_rejected` o `args_invalid`) que fallan el paso: 2 = un solo reintento. */
+  maxReviewRejectionsPerStep: 2,
+  /** Preguntas al usuario (`ask_user`) por paso. */
+  maxQuestionsPerStep: 1,
   /** Tamaño de las ventanas recientes con 0, 1 y 2 o más escalaciones (9). */
   recentWindows: [2, 5, 10],
 
   // ── Ejecutor (Fase 5) ──
-  /** Repeticiones de una consulta a un modelo ante una respuesta inválida (no ante desborde): verificador, pregunta, Decision (D4). */
+  /** Repeticiones de una consulta a un modelo ante una respuesta inválida o truncada (no ante desborde): LLM (Qwen) y Decision (D4). */
   invalidResponseRetries: 1,
   /** Largo máximo del argumento principal dentro del `label` de una ref (D8). */
   refLabelChars: 200,
@@ -51,6 +54,11 @@ export const BUDGET = {
   ask: {
     /** Tope de tokens de salida de `generateQuestion`. */
     maxTokens: 300,
+  },
+  /** Lista de pendientes del reactivo (sin thinking). */
+  pending: {
+    /** Tope de tokens de salida de `generatePendingFromView`. */
+    maxTokens: 1024,
   },
 
   // ── Topes por sección y por elemento de las vistas (8.2, 9) ──
@@ -64,6 +72,8 @@ export const BUDGET = {
     step: 4000,
     /** Línea de llamada `L`. */
     line: 300,
+    /** Llamada hecha en `forPending`: `args` y `summary`, cada uno con este tope. */
+    pendingEntry: 600,
     /** Fallo `F`: `L` + `args` + `summary`. */
     failureArgs: 500,
     failureSummary: 600,
@@ -110,7 +120,7 @@ export const BUDGET = {
     readFileTailLines: 15,
     /** Procesos: últimas líneas de la salida que se muestran. */
     processTailLines: 30,
-    /** `search`: resultados que se muestran (antes `MAX_SCRATCHPAD_RESULTS`). */
+    /** `search`: resultados que se muestran. */
     searchResultsShown: 10,
     /** `search`: largos de snippet que se intentan, de mayor a menor; gana el mayor que quepa en todos. */
     searchSnippetLengths: [240, 160, 100, 60, 40],

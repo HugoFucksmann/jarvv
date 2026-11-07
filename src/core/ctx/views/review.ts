@@ -12,12 +12,10 @@ import { callViewOf, envViewsOf, failureViewOf, lineViewOf, stepViewOf, taskPart
 import type { ReviewView, ReviewViewOptions } from "./types.ts";
 
 export function buildReviewView(data: ContextData, options: ReviewViewOptions): ReviewView {
-  const reactive = data.task.mode === "reactive";
   const parts = taskPartsOf(data, options, []);
   return {
-    request: reactive ? data.task.request : null,
     done: parts.done.map(lineViewOf),
-    step: reactive || parts.step === null ? null : stepViewOf(parts.step),
+    step: parts.step === null ? null : stepViewOf(parts.step),
     stepsDone: parts.stepsDone,
     lastReads: parts.reads.map((c) => callViewOf(data, c, true)),
     stepFailures: parts.failures.map((c) => failureViewOf(data, c)),

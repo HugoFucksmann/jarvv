@@ -15,8 +15,9 @@ import type { getUserEnvironment } from "../environment.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { isPathInside, type ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
-import type { ArgumentsGenerationResult, MCPTool, StepVerificationResult, TimeSpan } from "../types.ts";
-import type { ASK_USER, ExecutableRoute, FIN } from "../types/routes.ts";
+import type { VerdictReason } from "../ctx/index.ts";
+import type { ArgumentsGenerationResult, MCPTool, TimeSpan } from "../types.ts";
+import type { ExecutableRoute } from "../types/routes.ts";
 import type { cleanInputSchema } from "../utils.ts";
 import type { CaptureSink } from "./capture.ts";
 
@@ -39,23 +40,11 @@ export interface DecisionTrace {
   readonly timing?: TimeSpan;
 }
 
-/**
- * Decisión 1: ruta de la siguiente acción, `fin` o `ask_user`. `shortcut`: había una sola opción y no se consultó al
- * modelo.
- */
-export type RouteDecision = DecisionTrace &
-  (
-    | { readonly action: "route"; readonly route: ExecutableRoute; readonly shortcut?: boolean }
-    | { readonly action: typeof FIN }
-    | { readonly action: typeof ASK_USER }
-  );
+/** Decisión 1: ruta de la siguiente acción. `shortcut`: había una sola opción y no se consultó al modelo. */
+export type RouteDecision = DecisionTrace & { readonly action: "route"; readonly route: ExecutableRoute; readonly shortcut?: boolean };
 
-/** Decisión 2: herramienta dentro de la ruta elegida, o `ask_user`. `shortcut`: había una sola opción y no se consultó al modelo. */
-export type ToolDecision = DecisionTrace &
-  (
-    | { readonly action: "tool"; readonly tool: MCPTool; readonly shortcut?: boolean }
-    | { readonly action: typeof ASK_USER }
-  );
+/** Decisión 2: herramienta dentro de la ruta elegida. `shortcut`: había una sola opción y no se consultó al modelo. */
+export type ToolDecision = DecisionTrace & { readonly action: "tool"; readonly tool: MCPTool; readonly shortcut?: boolean };
 
 /** Intento no aprobado tal como lo ve Decision: marca la ruta o la herramienta cuyo último intento falló. */
 export interface DecisionAttempt {
@@ -72,9 +61,7 @@ export interface DecisionAttempt {
  * por entrada del usuario.
  */
 export interface DecisionFrame {
-  /** Solicitud: solo en reactivo. */
-  readonly request: string | null;
-  /** Paso actual: solo en deliberativo. */
+  /** Paso actual. */
   readonly step: { readonly instruction: string; readonly expected: string | null } | null;
   /** Última llamada aprobada que no es efecto, con su resumen: solo en reactivo. */
   readonly lastResult: string | null;
@@ -88,10 +75,6 @@ export interface DecisionFrame {
 export interface RouteDecisionInput extends DecisionFrame {
   /** Rutas con alguna herramienta usable: son las opciones de ruta. */
   readonly routes: readonly ExecutableRoute[];
-  /** `fin` se ofrece solo si `ctx.canFinish()` no es `null`. */
-  readonly allowFin: boolean;
-  /** `ask_user` se ofrece si el paso no tiene una respuesta posterior a su última llamada. */
-  readonly allowAsk: boolean;
 }
 
 export interface ToolDecisionInput extends DecisionFrame {
@@ -99,7 +82,6 @@ export interface ToolDecisionInput extends DecisionFrame {
   readonly route: ExecutableRoute;
   /** Herramientas usables de la ruta, ya filtradas. */
   readonly tools: MCPTool[];
-  readonly allowAsk: boolean;
 }
 
 /** Resultado de la revisión de argumentos: aprobar o el escenario del rechazo (se refleja en el `status` de la llamada). */
@@ -124,9 +106,7 @@ export interface ReviewCandidate {
  */
 export interface ReviewDecisionInput {
   readonly candidate: ReviewCandidate;
-  /** Solicitud: solo en reactivo. */
-  readonly request: string | null;
-  /** Paso actual: solo en deliberativo. */
+  /** Paso actual. */
   readonly step: { readonly instruction: string; readonly expected: string | null } | null;
   /** Pasos completados: solo en deliberativo. */
   readonly stepsDone: readonly string[];
@@ -142,13 +122,10 @@ export interface ReviewDecisionInput {
 export type ReviewDecision = DecisionTrace & { readonly review: ArgsReview };
 
 /**
- * Lo que Decisión 4 recibe de `forVerify` (8.3), ya saneado y recortado a los topes de 8.2. El criterio es el del paso
- * (deliberativo) o la solicitud (reactivo: se juzga si la llamada avanza lo pedido).
+ * Lo que Decisión 4 recibe de `forVerify` (8.3), ya saneado y recortado a los topes de 8.2. El criterio es el del paso.
  */
 export interface VerifyDecisionInput {
-  readonly criterion:
-  | { readonly source: "step"; readonly instruction: string; readonly expected: string | null }
-  | { readonly source: "request"; readonly text: string };
+  readonly criterion: { readonly instruction: string; readonly expected: string | null };
   /** La llamada evaluada: cabecera, `args`, resumen y ref, en varias líneas. */
   readonly call: string;
   /** Llamadas hechas (aprobadas): solo en reactivo. */
@@ -156,13 +133,27 @@ export interface VerifyDecisionInput {
   readonly userInput: readonly string[];
 }
 
+/**
+ * Preguntas `noul` de la verificación (Decisión 4), en orden de precedencia: la primera que no se aprueba da la `reason` del
+ * rechazo. El texto de cada una está en `DECISION_PROMPTS` (`VERIFY_QUESTIONS`, tipado contra esta tabla); la regla que las
+ * combina es `verdictOf` (`engine/verify.ts`).
+ */
+export const VERIFY_CHECKS = [
+  { key: "ok", reason: "no_usable_data" },
+  { key: "cumple", reason: "not_accomplished" },
+] as const satisfies readonly { readonly key: string; readonly reason: VerdictReason }[];
+export type VerifyCheckKey = (typeof VERIFY_CHECKS)[number]["key"];
+
+/** Decisión 4: la probabilidad de la afirmativa de cada pregunta de `VERIFY_CHECKS`, sin umbral aplicado. */
+export type VerifyDecision = Omit<DecisionTrace, "probabilities"> & { readonly answers: Readonly<Record<VerifyCheckKey, number>> };
+
 export interface IActionDecision {
   chooseRoute(input: RouteDecisionInput, signal?: AbortSignal): Promise<RouteDecision>;
   chooseTool(input: ToolDecisionInput, signal?: AbortSignal): Promise<ToolDecision>;
   /** Decisión 3: revisa la llamada candidata. Corre en cada intento, después de las comprobaciones deterministas. */
   reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision>;
-  /** Decisión 4: verifica el resultado de una llamada ejecutada (`ok` y `cumple`). */
-  verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<StepVerificationResult>;
+  /** Decisión 4: verifica el resultado de una llamada ejecutada (las preguntas de `VERIFY_CHECKS`). */
+  verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<VerifyDecision>;
 }
 
 // ───────────────────────── LLM: argumentos y pregunta (D17) ─────────────────────────
@@ -223,9 +214,24 @@ export interface FinalGenerationResult {
   readonly timing?: TimeSpan;
 }
 
+export interface PendingFromViewInput {
+  /** Texto de `renderPending(ctx.view.forPending(...))`. */
+  readonly view: string;
+}
+
+/** Lista de pendientes ya validada (textos no vacíos): el primero es la instrucción del paso; vacía = nada por hacer. */
+export interface PendingGenerationResult {
+  readonly pending: readonly string[];
+  readonly rawInput: string;
+  readonly rawOutput: string;
+  readonly timing?: TimeSpan;
+}
+
 export interface EngineLLM {
   generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult>;
   generateQuestion(input: QuestionInput, signal?: AbortSignal): Promise<QuestionGenerationResult>;
+  /** Lista de pendientes del reactivo, al inicio de cada vuelta. */
+  generatePendingFromView(input: PendingFromViewInput, signal?: AbortSignal): Promise<PendingGenerationResult>;
   /** LLM 1: plan y replan (solo deliberativo). */
   generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult>;
   /** LLM 3: respuesta final. */

@@ -9,7 +9,7 @@
  *   (Decisión 3) el de `forReview` y `verifyResult` (Decisión 4) el de `forVerify`.
  * - Tipos de pregunta implementados: `choice` y `noul`. El contrato también define `score`; no se usa ni se implementa.
  * - Validación de la respuesta en un solo punto (parseResponse); el resto del código confía en ella.
- * - Umbral de `noul`: se aprueba solo con probabilidad estrictamente mayor que 0.5 (ante ambigüedad, no se aprueba).
+ * - Las respuestas `noul` se devuelven como probabilidades: el umbral y el veredicto son de `engine/verify.ts`.
  * - Transporte (reintento único en red/503, timeout, cancelación): llmTransport.ts.
  */
 
@@ -19,7 +19,6 @@ import {
   type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
-  type StepVerificationResult,
 } from "./types.ts";
 import type {
   DecisionTrace,
@@ -30,10 +29,12 @@ import type {
   RouteDecisionInput,
   ToolDecision,
   ToolDecisionInput,
+  VerifyCheckKey,
+  VerifyDecision,
   VerifyDecisionInput,
 } from "./engine/deps.ts";
-import { ARGS_REVIEWS } from "./engine/deps.ts";
-import { ASK_USER, FIN, isExecutableRoute } from "./types/routes.ts";
+import { ARGS_REVIEWS, VERIFY_CHECKS } from "./engine/deps.ts";
+import { isExecutableRoute } from "./types/routes.ts";
 import { ConfigManager } from "./config.ts";
 import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
 import {
@@ -44,9 +45,6 @@ import {
   TransportError,
 } from "./llmTransport.ts";
 import { errorMessage, isRecord } from "./utils.ts";
-
-/** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente). */
-export const NOUL_APPROVE = 0.5;
 
 /** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
 function buildDecisionRequest(
@@ -90,8 +88,6 @@ function shortcutTrace(choice: string, state: string): DecisionTrace {
 
 /** La opción elegida de Decisión 1 como decisión del motor. `choice` ya es una de las ofrecidas. */
 function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean): RouteDecision {
-  if (choice === FIN) return { action: FIN, ...trace };
-  if (choice === ASK_USER) return { action: ASK_USER, ...trace };
   if (!isExecutableRoute(choice)) {
     throw new DecisionValidationError(`Decision #1: opción '${choice}' no es una ruta ejecutable.`);
   }
@@ -99,6 +95,9 @@ function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean
 }
 
 export class Decision20Engine implements IActionDecision {
+  /** `prompts`: los constructores de las preguntas de cada decisión; por defecto los de producción (el laboratorio de evaluación pasa otros). */
+  constructor(private readonly prompts: typeof DECISION_PROMPTS = DECISION_PROMPTS) { }
+
   /**
    * Invoca `system_one` sobre el endpoint real. Devuelve las respuestas ya validadas contra `questions`
    * y los crudos de entrada/salida para depuración.
@@ -161,12 +160,12 @@ export class Decision20Engine implements IActionDecision {
   }
 
   /**
-   * Decisión 1: ruta de la siguiente acción entre las ofrecidas (`input.routes`), `fin` (si `allowFin`) o `ask_user` (si
-   * `allowAsk`). Con una sola opción no hay decisión que tomar y se omite la consulta; sin opciones es un defecto de quien
-   * llama (el motor cierra el paso con `no_tools` antes). Las rutas y los identificadores salen de las constantes.
+   * Decisión 1: ruta de la siguiente acción entre las ofrecidas (`input.routes`). Con una sola opción no hay decisión que
+   * tomar y se omite la consulta; sin opciones es un defecto de quien llama (el motor cierra el paso con `no_tools` antes).
+   * Las rutas salen de las constantes.
    */
   async chooseRoute(input: RouteDecisionInput, signal?: AbortSignal): Promise<RouteDecision> {
-    const { state, questions } = DECISION_PROMPTS.buildRouteChoice(input);
+    const { state, questions } = this.prompts.buildRouteChoice(input);
     const question = questions.route;
     const options = question.type === "choice" ? Object.keys(question.criteria) : [];
     if (options.length === 0) throw new Error("chooseRoute: no hay opciones que ofrecer.");
@@ -188,15 +187,14 @@ export class Decision20Engine implements IActionDecision {
   }
 
   /**
-   * Decisión 2: herramienta dentro de la ruta elegida, o `ask_user` (si `allowAsk`).
-   * Con una sola herramienta y sin `ask_user` no hay decisión que tomar y se omite la llamada; con `ask_user` ofrecido
-   * hay dos opciones y sí se consulta.
+   * Decisión 2: herramienta dentro de la ruta elegida. Con una sola herramienta no hay decisión que tomar y se omite la
+   * consulta.
    */
   async chooseTool(input: ToolDecisionInput, signal?: AbortSignal): Promise<ToolDecision> {
     const { tools } = input;
     if (tools.length === 0) throw new Error("chooseTool: no hay herramientas candidatas.");
 
-    if (tools.length === 1 && !input.allowAsk) {
+    if (tools.length === 1) {
       const tool = tools[0];
       console.log(`[Decision] tool=${tool.name} (única opción) duration=0ms`);
       return {
@@ -204,12 +202,12 @@ export class Decision20Engine implements IActionDecision {
         tool,
         shortcut: true,
         probabilities: { [tool.name]: 1 },
-        rawInput: JSON.stringify({ state: input.step?.instruction ?? input.request, single_tool: tool.name }, null, 2),
+        rawInput: JSON.stringify({ state: input.step?.instruction ?? null, single_tool: tool.name }, null, 2),
         rawOutput: JSON.stringify({ choice: tool.name, source: "single_tool_shortcut" }, null, 2),
       };
     }
 
-    const { state, questions } = DECISION_PROMPTS.buildToolChoice(input);
+    const { state, questions } = this.prompts.buildToolChoice(input);
 
     const t0 = Date.now();
     const response = await this.ask("Decision #2", state, questions, signal);
@@ -217,7 +215,6 @@ export class Decision20Engine implements IActionDecision {
     console.log(`[Decision] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
     const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
-    if (choice === ASK_USER) return { action: ASK_USER, ...trace };
     const selected = tools.find((t) => t.name === choice);
     if (!selected) throw new DecisionValidationError(`Decision #2: la herramienta '${choice}' no está entre las candidatas.`);
     return { action: "tool", tool: selected, ...trace };
@@ -228,7 +225,7 @@ export class Decision20Engine implements IActionDecision {
    * siempre se consulta, porque nunca hay una sola opción.
    */
   async reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision> {
-    const { state, questions } = DECISION_PROMPTS.buildArgsReview(input);
+    const { state, questions } = this.prompts.buildArgsReview(input);
 
     const t0 = Date.now();
     const response = await this.ask("Decision #3", state, questions, signal);
@@ -242,34 +239,21 @@ export class Decision20Engine implements IActionDecision {
   }
 
   /**
-   * Decisión 4: verificación del resultado de la llamada evaluada, con el criterio del paso o de la solicitud (`forVerify`).
-   * Dos preguntas `noul` (`ok`, `cumple`), aprobadas solo con probabilidad estrictamente mayor que NOUL_APPROVE.
+   * Decisión 4: verificación del resultado de la llamada evaluada, con el criterio del paso (`forVerify`). Una pregunta
+   * `noul` por cada entrada de `VERIFY_CHECKS`; devuelve sus probabilidades sin umbral: el veredicto es de `verdictOf`.
    */
-  async verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<StepVerificationResult> {
-    const { state, questions } = DECISION_PROMPTS.buildResultVerification(input);
-    return this.runVerification("Verification", input.call.split("\n", 1)[0], state, questions, signal);
-  }
+  async verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<VerifyDecision> {
+    const { state, questions } = this.prompts.buildResultVerification(input);
 
-  /** Consulta de verificación común: las preguntas `ok` y `cumple`, aprobadas solo con probabilidad > NOUL_APPROVE. */
-  private async runVerification(
-    label: string,
-    toolLabel: string,
-    state: string,
-    questions: Record<string, DecisionQuestion>,
-    signal?: AbortSignal
-  ): Promise<StepVerificationResult> {
     const t0 = Date.now();
-    const response = await this.ask(label, state, questions, signal);
-    const okProbability = noulAnswer(response, "ok").noul;
-    const cumpleProbability = noulAnswer(response, "cumple").noul;
-    const ok = okProbability > NOUL_APPROVE;
-    const cumple = cumpleProbability > NOUL_APPROVE;
+    const response = await this.ask("Verification", state, questions, signal);
+    const answers = Object.fromEntries(VERIFY_CHECKS.map(({ key }) => [key, noulAnswer(response, key).noul])) as Record<VerifyCheckKey, number>;
 
-    const modelLabel = ConfigManager.getConfig().decisionModel;
+    const probabilities = VERIFY_CHECKS.map(({ key }) => `${key}=${answers[key].toFixed(2)}`).join(" ");
     console.log(
-      `[${label} ${modelLabel}] ${toolLabel} ok=${ok} (p=${okProbability.toFixed(2)}) cumple=${cumple} (p=${cumpleProbability.toFixed(2)}) duration=${Date.now() - t0}ms`
+      `[Verification ${ConfigManager.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
     );
-    return { ok, cumple, okProbability, cumpleProbability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    return { answers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /** `systemOne` con el registro de error común a todas las evaluaciones. */

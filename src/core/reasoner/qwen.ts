@@ -13,10 +13,9 @@
  *   persiste tras el reintento, `LLMValidationError` y quien ejecuta decide.
  */
 
+import { BUDGET } from "../budget.ts";
 import {
   EXECUTABLE_ROUTES,
-  LLM_INVALID_OUTPUT_RETRIES,
-  MAX_STEPS,
   isExecutableRoute,
   type ArgumentsGenerationResult,
   type FailedAttempt,
@@ -26,13 +25,15 @@ import {
   type TimeSpan,
 } from "../types.ts";
 import { ConfigManager } from "../config.ts";
-import { retryNote } from "./prompts.ts";
+import { PROMPTS, retryNote } from "./prompts.ts";
 import type {
   ArgsFromViewInput,
   EngineLLM,
   FinalFromViewInput,
   FinalGenerationResult,
   GeneratedStep,
+  PendingFromViewInput,
+  PendingGenerationResult,
   PlanFromViewInput,
   PlanGenerationResult,
   QuestionGenerationResult,
@@ -42,13 +43,14 @@ import {
   argumentsStageRequest,
   BASE_TEMPERATURE,
   finalStageRequest,
+  pendingStageRequest,
   planStageRequest,
   questionStageRequest,
   RETRY_TEMPERATURE,
   RETRY_TOKEN_FACTOR,
   TRUNCATED,
 } from "./stageRequests.ts";
-import type { StageRequest } from "./stageRequests.ts";
+import type { PromptSet, StageRequest } from "./stageRequests.ts";
 import { isWholeRefToken, schemaTypes } from "../refs/refResolver.ts";
 import {
   estimateTokens,
@@ -227,7 +229,7 @@ export function parsePlanSteps(
 ): { steps: PlanStep[] } | { error: string } {
   if (!Array.isArray(raw)) return { error: "'steps' debe ser un arreglo" };
   if (raw.length === 0) return allowEmpty ? { steps: [] } : { error: "'steps' no puede estar vacío" };
-  if (raw.length > MAX_STEPS) return { error: `máximo ${MAX_STEPS} pasos; se recibieron ${raw.length}` };
+  if (raw.length > BUDGET.maxSteps) return { error: `máximo ${BUDGET.maxSteps} pasos; se recibieron ${raw.length}` };
 
   const steps: PlanStep[] = [];
   for (const [i, s] of raw.entries()) {
@@ -308,6 +310,9 @@ function readCompletion(data: unknown): Completion {
 }
 
 export class QwenEngine implements EngineLLM {
+  /** `prompts`: los textos de cada etapa; por defecto los de producción (el laboratorio de evaluación pasa otros). */
+  constructor(private readonly prompts: PromptSet = PROMPTS) { }
+
   /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
     const t0 = Date.now();
@@ -456,7 +461,8 @@ export class QwenEngine implements EngineLLM {
     let last: LlmDispatchResult | undefined;
     const failed: FailedAttempt[] = [];
 
-    for (let attempt = 0; attempt <= LLM_INVALID_OUTPUT_RETRIES; attempt++) {
+    const retries = BUDGET.invalidResponseRetries;
+    for (let attempt = 0; attempt <= retries; attempt++) {
       const retry = attempt > 0;
       const res = await this.dispatchPrompt({
         stage: o.stage,
@@ -471,12 +477,12 @@ export class QwenEngine implements EngineLLM {
       });
       last = res;
 
-      const v = o.validate(res, attempt === LLM_INVALID_OUTPUT_RETRIES);
+      const v = o.validate(res, attempt === retries);
       if (v.ok) return { value: v.value, res, failed };
 
       previousError = v.error;
       failed.push({ rawInput: res.rawInput, rawOutput: res.rawOutput, error: v.error, timing: res.timing });
-      console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${LLM_INVALID_OUTPUT_RETRIES + 1}`);
+      console.warn(`[Qwen] ${o.stage}: salida inválida (${v.error}); intento ${attempt + 1}/${retries + 1}`);
     }
 
     throw new LLMValidationError(
@@ -489,7 +495,7 @@ export class QwenEngine implements EngineLLM {
   /** Argumentos desde la vista estructurada: validados contra el schema de la herramienta, con un reintento. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArgumentsFromView", () =>
-      this.runArguments(input.tool, argumentsStageRequest(input, ConfigManager.getConfig()), signal)
+      this.runArguments(input.tool, argumentsStageRequest(input, ConfigManager.getConfig(), this.prompts), signal)
     );
   }
 
@@ -497,7 +503,7 @@ export class QwenEngine implements EngineLLM {
   async generateQuestion(input: QuestionInput, signal?: AbortSignal): Promise<QuestionGenerationResult> {
     return this.executeStage("generateQuestion", async () => {
       const { value, res } = await this.dispatchValidated<string>({
-        ...questionStageRequest(input),
+        ...questionStageRequest(input, this.prompts),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content).trim();
@@ -512,13 +518,40 @@ export class QwenEngine implements EngineLLM {
   }
 
   /**
+   * Lista de pendientes del reactivo: un objeto `{ pending: string[] }`. Una lista vacía es válida (nada por hacer); un
+   * ítem que no es texto o está vacío es salida inválida y se repite una vez.
+   */
+  async generatePendingFromView(input: PendingFromViewInput, signal?: AbortSignal): Promise<PendingGenerationResult> {
+    return this.executeStage("generatePendingFromView", async () => {
+      const { value, res } = await this.dispatchValidated<string[]>({
+        ...pendingStageRequest(input, this.prompts),
+        signal,
+        validate: (r) => {
+          const out = parseObjectOutput(r);
+          if (!out.ok) return out;
+          const raw = out.value.pending;
+          if (!Array.isArray(raw)) return fail("'pending' debe ser un arreglo");
+          const items: string[] = [];
+          for (const [i, item] of raw.entries()) {
+            const text = typeof item === "string" ? item.trim() : "";
+            if (!text) return fail(`pendiente ${i + 1}: texto vacío`);
+            items.push(text);
+          }
+          return ok(items);
+        },
+      });
+      return { pending: value, ...rawOf(res) };
+    });
+  }
+
+  /**
    * LLM 1 desde la vista (Fase 6): plan inicial, replan por fallo de paso o por instrucción del usuario. El plan trae entre 1
    * y `maxSteps` pasos; el cliente valida el rango para que cuente como salida inválida y se repita una vez.
    */
   async generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult> {
     return this.executeStage("generatePlanFromView", async () => {
       const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
-        ...planStageRequest(input, ConfigManager.getConfig()),
+        ...planStageRequest(input, ConfigManager.getConfig(), this.prompts),
         signal,
         validate: (r) => {
           const out = parseObjectOutput(r);
@@ -537,7 +570,7 @@ export class QwenEngine implements EngineLLM {
   async generateFinalFromView(input: FinalFromViewInput, signal?: AbortSignal): Promise<FinalGenerationResult> {
     return this.executeStage("generateFinalFromView", async () => {
       const { value, res } = await this.dispatchValidated<string>({
-        ...finalStageRequest(input, ConfigManager.getConfig()),
+        ...finalStageRequest(input, ConfigManager.getConfig(), this.prompts),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content);

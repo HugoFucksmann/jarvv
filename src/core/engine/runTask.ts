@@ -4,9 +4,9 @@
  * `runTask` es el único que decide cuándo y cómo cierra la tarea: ejecuta los pasos (`runStep`), aplica la recuperación del
  * modo y llama a `finalize` una sola vez. Los topes son los de la tabla única (`BUDGET`).
  *
- * Reactivo: cada vuelta es un paso nuevo. Cierra `completed` cuando Decisión 1 elige `fin` (con lo que da `canFinish()`);
- * `max_steps` antes de crear el paso 16 (los `failed` cuentan); un paso `failed` es una escalación: al tercero,
- * `no_alternatives`.
+ * Reactivo: cada vuelta empieza con la lista de pendientes (`generatePending`) y es un paso nuevo cuya instrucción es el
+ * primer pendiente. Una lista vacía cierra la tarea (`completed` o `no_alternatives`, según `canFinish()`); `max_steps`
+ * al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); un paso `failed` es una escalación: al tercero, `no_alternatives`.
  *
  * Deliberativo: plan inicial (LLM 1) y confirmación del usuario. Rechazarlo con instrucción da un plan `user_feedback`
  * (sin tope) y se vuelve a pedir la confirmación; si ese plan es inválido se conserva el vigente y se vuelve a pedir;
@@ -26,6 +26,7 @@ import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
 import type { Closing } from "./finalize.ts";
+import { generatePending } from "./pending.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
 import type { TaskRuntime } from "./runtime.ts";
@@ -56,16 +57,29 @@ export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: Engi
 
 async function runReactive(env: EngineEnv): Promise<Closing> {
   const { ctx, runtime } = env;
+  let pending: readonly string[] = [];
   for (;;) {
     if (runtime.cancelled) return CANCELLED;
     if (ctx.find("steps", {}).length >= BUDGET.maxSteps) return stop("max_steps");
 
-    const outcome = await runStep(env, { kind: "reactive" });
+    // La lista de pendientes se regenera en cada vuelta; el primer pendiente es la instrucción del paso.
+    const next = await generatePending(env, pending);
+    switch (next.kind) {
+      case "next":
+        pending = next.list;
+        break;
+      case "done":
+        return next.closure === "completed" ? COMPLETED : stop("no_alternatives");
+      case "close":
+        return stop(next.stopReason);
+      case "cancelled":
+        return CANCELLED;
+    }
+
+    const outcome = await runStep(env, { kind: "reactive", instruction: pending[0] });
     switch (outcome.kind) {
       case "completed":
         continue;
-      case "fin":
-        return outcome.closure === "completed" ? COMPLETED : stop("no_alternatives");
       case "failed":
         // Un paso `failed` es una escalación; el tercero agota la recuperación.
         if (ctx.escalations() > BUDGET.maxEscalations) return stop("no_alternatives");
@@ -112,8 +126,6 @@ async function runDeliberative(env: EngineEnv): Promise<Closing> {
         if (replan.kind === "planned") continue;
         return replan.kind === "invalid" ? stop("replans_exhausted") : planStop(replan);
       }
-      case "fin":
-        throw new Error("runTask: 'fin' solo existe en modo reactivo.");
       case "close":
         return stop(outcome.stopReason);
       case "cancelled":

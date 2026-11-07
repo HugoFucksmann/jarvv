@@ -8,12 +8,16 @@
 
 import { BUDGET } from "../budget.ts";
 import type { JarvisConfig } from "../config.ts";
-import type { ArgsFromViewInput, FinalFromViewInput, PlanFromViewInput, QuestionInput } from "../engine/deps.ts";
+import type { ArgsFromViewInput, FinalFromViewInput, PendingFromViewInput, PlanFromViewInput, QuestionInput } from "../engine/deps.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
-import { EXECUTABLE_ROUTES, MAX_STEPS, type PlanStepWire } from "../types.ts";
+import { EXECUTABLE_ROUTES, type PlanStepWire } from "../types.ts";
 import { PROMPTS } from "./prompts.ts";
 
 type JsonSchema = Record<string, unknown>;
+
+/** `PROMPTS` es `as const`: sus textos tienen tipo literal. `PromptSet` es la misma forma con textos `string`, para poder pasar otros prompts. */
+type Widen<T> = T extends string ? string : T extends (...args: never[]) => unknown ? T : { -readonly [K in keyof T]: Widen<T[K]> };
+export type PromptSet = Widen<typeof PROMPTS>;
 
 /** Temperatura del primer intento de toda etapa. */
 export const BASE_TEMPERATURE = 0.1;
@@ -55,7 +59,7 @@ const STEPS_SCHEMA: JsonSchema = {
     required: Object.keys(STEP_WIRE_PROPERTIES),
     additionalProperties: false,
   },
-  maxItems: MAX_STEPS,
+  maxItems: BUDGET.maxSteps,
 };
 
 /** Plan desde la vista (Fase 6): solo `steps`, de 1 a `maxSteps` (el tope lo pasa el motor). */
@@ -69,12 +73,12 @@ export function planViewSchema(maxSteps: number): JsonSchema {
 }
 
 /** LLM 1: plan y replan. Thinking siempre activo. */
-export function planStageRequest(input: PlanFromViewInput, config: StageConfig): StageRequest {
+export function planStageRequest(input: PlanFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
   const tokens = config.qwenMaxTokens;
   return {
     stage: "plan",
-    system: PROMPTS.PLAN_VIEW.SYSTEM,
-    user: PROMPTS.PLAN_VIEW.buildUserPrompt({ view: input.view, maxSteps: input.maxSteps, catalog: buildCompactCatalog() }),
+    system: prompts.PLAN_VIEW.SYSTEM,
+    user: prompts.PLAN_VIEW.buildUserPrompt({ view: input.view, maxSteps: input.maxSteps, catalog: buildCompactCatalog() }),
     json: true,
     schema: planViewSchema(input.maxSteps),
     maxTokens: input.trigger === "initial" ? tokens.plan : tokens.replan,
@@ -83,11 +87,11 @@ export function planStageRequest(input: PlanFromViewInput, config: StageConfig):
 }
 
 /** Argumentos de la herramienta: `json_object` (los schemas de las herramientas son dinámicos), sin thinking. */
-export function argumentsStageRequest(input: ArgsFromViewInput, config: StageConfig): StageRequest {
+export function argumentsStageRequest(input: ArgsFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
   return {
     stage: "arguments",
-    system: PROMPTS.ARGUMENTS_VIEW.buildSystemPrompt(input.tool),
-    user: PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(input),
+    system: prompts.ARGUMENTS_VIEW.buildSystemPrompt(input.tool),
+    user: prompts.ARGUMENTS_VIEW.buildUserPrompt(input),
     json: true,
     maxTokens: config.qwenMaxTokens.arguments,
     thinking: false,
@@ -95,23 +99,41 @@ export function argumentsStageRequest(input: ArgsFromViewInput, config: StageCon
 }
 
 /** Pregunta al usuario (`ask_user`): texto libre, sin thinking. */
-export function questionStageRequest(input: QuestionInput): StageRequest {
+export function questionStageRequest(input: QuestionInput, prompts: PromptSet = PROMPTS): StageRequest {
   return {
     stage: "question",
-    system: PROMPTS.QUESTION.SYSTEM,
-    user: PROMPTS.QUESTION.buildUserPrompt(input),
+    system: prompts.QUESTION.SYSTEM,
+    user: prompts.QUESTION.buildUserPrompt(input),
     json: false,
     maxTokens: BUDGET.ask.maxTokens,
     thinking: false,
   };
 }
 
+/** Lista de pendientes del reactivo: `{ pending: string[] }` (puede venir vacía), sin thinking. */
+export function pendingStageRequest(input: PendingFromViewInput, prompts: PromptSet = PROMPTS): StageRequest {
+  return {
+    stage: "pending",
+    system: prompts.PENDING_VIEW.SYSTEM,
+    user: prompts.PENDING_VIEW.buildUserPrompt(input),
+    json: true,
+    schema: {
+      type: "object",
+      properties: { pending: { type: "array", items: { type: "string" } } },
+      required: ["pending"],
+      additionalProperties: false,
+    },
+    maxTokens: BUDGET.pending.maxTokens,
+    thinking: false,
+  };
+}
+
 /** LLM 3: respuesta final. Thinking según la configuración; el reintento lo apaga (un final vacío suele ser thinking agotado). */
-export function finalStageRequest(input: FinalFromViewInput, config: StageConfig): StageRequest {
+export function finalStageRequest(input: FinalFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
   return {
     stage: "final_response",
-    system: PROMPTS.FINAL_VIEW.SYSTEM,
-    user: PROMPTS.FINAL_VIEW.buildUserPrompt(input),
+    system: prompts.FINAL_VIEW.SYSTEM,
+    user: prompts.FINAL_VIEW.buildUserPrompt(input),
     json: false,
     maxTokens: config.qwenMaxTokens.final,
     thinking: config.thinking,

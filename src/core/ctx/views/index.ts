@@ -3,6 +3,7 @@
 export { buildArgsView } from "./args.ts";
 export { buildAskView } from "./ask.ts";
 export { buildFallbackView, buildFinalView } from "./final.ts";
+export { buildPendingView } from "./pending.ts";
 export { buildPlanView } from "./plan.ts";
 export { buildReviewView } from "./review.ts";
 export { buildRouteView } from "./route.ts";

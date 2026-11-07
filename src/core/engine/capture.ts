@@ -10,15 +10,13 @@
  */
 
 import type { IMCPServer } from "../mcp/types.ts";
-import type { MCPCallResult } from "../types.ts";
+import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
 import type { EngineLLM, IActionDecision } from "./deps.ts";
 
-/** Consulta a un modelo que se captura. */
-export type CaptureStage = "route" | "tool" | "args" | "review" | "question" | "verify" | "plan" | "final";
-
+/** Consulta a un modelo que se captura; `stage` es uno de `STAGES`. */
 export interface LlmCapture {
-  readonly stage: CaptureStage;
+  readonly stage: StageId;
   /** Versión del contexto (`ctx.n`) cuando empezó la consulta. */
   readonly n: number;
   readonly startedAt: number;
@@ -71,7 +69,7 @@ function rawOf(source: unknown): { input: string | null; output: string | null }
   };
 }
 
-async function observe<T>(stage: CaptureStage, sink: CaptureSink, version: () => number, call: () => Promise<T>): Promise<T> {
+async function observe<T>(stage: StageId, sink: CaptureSink, version: () => number, call: () => Promise<T>): Promise<T> {
   const n = version();
   const startedAt = Date.now();
   try {
@@ -88,11 +86,12 @@ async function observe<T>(stage: CaptureStage, sink: CaptureSink, version: () =>
   }
 }
 
-/** Envuelve el cliente del LLM: `generateArgumentsFromView` (`args`), `generateQuestion` (`question`), `generatePlanFromView` (`plan`) y `generateFinalFromView` (`final`). */
+/** Envuelve el cliente del LLM: `generateArgumentsFromView` (`args`), `generateQuestion` (`question`), `generatePendingFromView` (`pending`), `generatePlanFromView` (`plan`) y `generateFinalFromView` (`final`). */
 export function captureLlm(llm: EngineLLM, sink: CaptureSink, version: () => number): EngineLLM {
   return {
     generateArgumentsFromView: (input, signal) => observe("args", sink, version, () => llm.generateArgumentsFromView(input, signal)),
     generateQuestion: (input, signal) => observe("question", sink, version, () => llm.generateQuestion(input, signal)),
+    generatePendingFromView: (input, signal) => observe("pending", sink, version, () => llm.generatePendingFromView(input, signal)),
     generatePlanFromView: (input, signal) => observe("plan", sink, version, () => llm.generatePlanFromView(input, signal)),
     generateFinalFromView: (input, signal) => observe("final", sink, version, () => llm.generateFinalFromView(input, signal)),
   };
