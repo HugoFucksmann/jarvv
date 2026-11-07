@@ -19,7 +19,7 @@ export type StageName = DecisionStage | GenerativeStage;
 // ───────────────────────── 5.1 Caso frozen ─────────────────────────
 
 export type ChoiceQ = { type: "choice"; instructions: string; criteria: Record<string, string> };
-export type NoulQ = { type: "noul"; instructions: string };
+export type NoulQ = { type: "noul"; instructions: string; criteria?: { true: string; false: string } };
 
 export interface DecisionRequest {
   type: "decision";
@@ -236,6 +236,16 @@ export interface DecisionStageVariant {
   labelMap?: Record<string, string>;
   /** `<campo de salida>` → pregunta, o `{question, trueOption}` para derivar un booleano de una pregunta `choice`. */
   answerMap?: Record<string, string | { question: string; trueOption: string }>;
+  /**
+   * Solo `args_review`: arma la etiqueta desde las respuestas de todas las preguntas `noul` enviadas (clave → probabilidad de sí),
+   * en vez de leer una pregunta `choice`. Es la regla en código de una variante con varias preguntas binarias.
+   */
+  combine?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
+  /**
+   * Solo `result_verification`: arma las probabilidades de `ok` y `cumple` desde todas las preguntas enviadas (una `choice`
+   * trae sus `probabilities`; una `noul`, su valor), en vez de leer dos preguntas `noul` llamadas `ok` y `cumple`.
+   */
+  combineVerification?: (answers: Record<string, { probabilities?: Record<string, number>; noul?: number }>) => { ok: number; cumple: number };
 }
 
 export interface GenerativeStageVariant {

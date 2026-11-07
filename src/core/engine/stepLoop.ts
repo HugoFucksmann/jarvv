@@ -6,7 +6,7 @@
  *   instrucción, ANTES de consultar a Decisión 1.
  * - Deliberativo: el paso `pending` del plan pasa a `running`; su ruta viene del plan.
  * - Termina `completed` cuando una llamada queda `approved`; termina `failed` al agotar el tope de llamadas, al segundo
- *   rechazo de la revisión (`tool_rejected` o `args_invalid`), ante un `denied` del servidor o sin opciones disponibles
+ *   rechazo de la revisión (`args_invalid`), ante un `denied` del servidor o sin opciones disponibles
  *   (`no_tools`). La recuperación del modo (escalación o replan) es de la Fase 6.
  *
  * Decisión 1 corre en cada vuelta, en ambos modos. Sus opciones: en reactivo, las rutas con alguna herramienta usable; en
@@ -14,9 +14,10 @@
  * queda `failed` (`no_tools`).
  *
  * Qué pasa tras cada llamada registrada: `approved` → paso `completed`; `denied` del servidor → `failed` (no se verifica);
- * cualquier otro resultado (`args_invalid`, `refs_unresolved`, `tool_rejected`, `info_missing`, `loop_blocked`,
- * `user_rejected`, veredicto `rejected`) → vuelve a Decisión 1 con lo ocurrido a la vista. No hay contadores de reintento:
- * el único tope es el de llamadas por paso, `BUDGET.maxCallsPerStep` (sin `user_rejected`).
+ * `loop_blocked` contra una llamada idéntica ya aprobada → paso `completed` (lo pedido ya está hecho); el segundo `loop_blocked` del
+ * paso (`BUDGET.maxRepeatsPerStep`) → `failed`; cualquier otro resultado (`args_invalid`, `refs_unresolved`, `info_missing`,
+ * `loop_blocked`, `user_rejected`, veredicto `rejected`) → vuelve a Decisión 1 con lo ocurrido a la vista. Topes del paso:
+ * `BUDGET.maxCallsPerStep` (sin `user_rejected`) y `BUDGET.maxRepeatsPerStep`.
  *
  * `ask_user` no es una opción de Decision: se pregunta aquí, una vez por paso (`BUDGET.maxQuestionsPerStep`), cuando la
  * revisión de argumentos registra `info_missing` o cuando el paso llegaría al tope de llamadas (antes de fallar). Se espera
@@ -34,7 +35,7 @@ import { availableRoutes, runCall } from "./callRunner.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { CallOutcome, StepFailureCause, StepOutcome } from "./outcomes.ts";
-import { callCapReached, canAskUser, reviewRejectionsReached } from "./retries.ts";
+import { callCapReached, canAskUser, repeatsApprovedCall, repeatsReached, reviewRejectionsReached } from "./retries.ts";
 
 /** Cómo empieza el paso: reactivo lo crea; deliberativo promueve el `pending` que indica el proveedor. */
 export type StepSeed = { readonly kind: "reactive"; readonly instruction: string } | { readonly kind: "planned"; readonly stepId: string };
@@ -124,6 +125,14 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
       return { kind: "completed" };
     }
     if (outcome.status === "denied") return failStep("server_denied");
+    if (outcome.status === "loop_blocked") {
+      // Pedir otra vez lo que ya salió bien es haberlo terminado; pedir otra vez lo que falló, dos veces, es un atasco.
+      if (repeatsApprovedCall(ctx, outcome.callId)) {
+        finishStep("completed");
+        return { kind: "completed" };
+      }
+      if (repeatsReached(ctx, stepId)) return failStep("repeat_blocked");
+    }
     if (outcome.status === "info_missing" && canAskUser(ctx, stepId)) {
       const stop = await ask();
       if (stop !== null) return stop;

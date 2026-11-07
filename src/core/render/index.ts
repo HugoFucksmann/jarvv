@@ -10,7 +10,7 @@ export { renderAsk } from "./ask.ts";
 export type { AskRenderOptions } from "./ask.ts";
 export { ContextOverflowError } from "./errors.ts";
 export type { OverflowingView } from "./errors.ts";
-export { renderFallback, renderFinal } from "./final.ts";
+export { renderFallback, renderFinal, renderStatusNote } from "./final.ts";
 export type { FinalRenderOptions } from "./final.ts";
 export { renderPending } from "./pending.ts";
 export type { PendingRenderOptions } from "./pending.ts";

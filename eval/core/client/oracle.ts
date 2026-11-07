@@ -46,6 +46,9 @@ function targetChoice(stage: string | undefined, expect: Rec, options: string[])
       return options.find((o) => o !== "ask_user");
     case "args_review":
       return expect.expectedReview as string | undefined;
+    case "result_verification":
+      // Variantes con una pregunta `choice` de cuatro vías (`matches`, `mismatch`, `failed`, `unconfirmed`).
+      return expect.expectedCumple === true ? "matches" : expect.expectedOk === false ? "failed" : "mismatch";
     default:
       return undefined;
   }
@@ -59,7 +62,13 @@ export function oracleDecisionResponder(_prepared: PreparedRequest, req: Decisio
     // Pregunta adicional con respuesta esperada explícita (`expect.answers`): se responde eso.
     const ex = rec(extra[key]);
     if (q.type === "noul") {
-      const want = typeof ex.yes === "boolean" ? ex.yes : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
+      const review = ctx?.stage === "args_review" ? expect.expectedReview : undefined;
+      // Variantes de `args_review` con preguntas binarias: la respuesta "buena" sale de la etiqueta esperada.
+      // `args_invalid` aquí es una pregunta de problema (sí = hay problema); `args_grounded` es de bienestar (sí = todo bien).
+      const fromReview = key === "args_grounded" ? review !== "args_invalid" : key === "args_invalid" ? review === "args_invalid" : key === "needs_user" ? review === "info_missing" : undefined;
+      // Variantes de `result_verification` con preguntas sí/no por dimensión.
+      const fromVerify = key === "effect_ok" ? expect.expectedOk !== false : key === "target_ok" || key === "content_ok" ? expect.expectedCumple === true : undefined;
+      const want = typeof ex.yes === "boolean" ? ex.yes : fromReview !== undefined ? fromReview : fromVerify !== undefined ? fromVerify : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
       answers[key] = { noul: want === false ? MISS : HIT };
       continue;
     }

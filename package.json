@@ -13,6 +13,8 @@
     "lint": "tsc --noEmit",
     "eval": "tsx eval/cli.ts",
     "eval:menu": "tsx eval/cli.ts --menu",
+    "eval:cross": "tsx eval/cross.ts",
+    "eval:psvalid": "tsx eval/psvalid.ts",
     "eval:smoke": "tsx eval/cli.ts --client=mock --dataset=eval/datasets/smoke.jsonl --dry-run"
   },
   "dependencies": {

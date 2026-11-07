@@ -79,7 +79,7 @@ Los modelos y URLs por defecto salen de la configuración de producción (`jarvi
 |---|---|---|---|
 | `--thinking` | `auto` \| `prod` \| `on` \| `off` \| `both` | `auto` | Política de razonamiento/thinking. `both` corre cada caso dos veces (con y sin thinking) para comparar el impacto. |
 | `--timeout` | Entero (ms) | `120000` (gen) / `180000` (thinking) / `30000` (dec) | Timeout por petición en milisegundos. |
-| `--concurrency` | Entero $\ge 1$ | `1` | Cantidad de peticiones simultáneas. Con valores > 1 las **latencias no son comparables** (incluyen espera del servidor, p. ej. `OLLAMA_NUM_PARALLEL`); usar `1` para medir latencia. Pass/fail no se ve afectado. |
+| `--concurrency` | Entero $\ge 1$ | `3` | Cantidad de peticiones simultáneas. Con valores > 1 las **latencias no son comparables** (incluyen espera del servidor, p. ej. `OLLAMA_NUM_PARALLEL`); usar `1` para medir latencia. Pass/fail no se ve afectado. |
 | `--repeat` | Entero $\ge 1$ | `1` | Repeticiones por caso para medir estabilidad y varianza. |
 
 ### Resultados y Umbrales
@@ -178,7 +178,7 @@ Un caso es una línea de un `.jsonl` en `eval/datasets/`.
 
 Un request de decisión puede llevar varias preguntas y `expect.answers` fija la respuesta esperada de las adicionales (ver [Decisiones con varias preguntas](#decisiones-con-varias-preguntas)). Los casos de decisión con una sola opción se etiquetan solos como `prod_shortcut` (ver `--include-shortcut`).
 
-Datasets de ejemplo en `eval/datasets/`: `smoke` (una pasada por todas las etapas), `decision_discriminating` (la respuesta correcta no es la primera opción), `scenarios_messages` (casos por escenario que prueban los mensajes fijos de `ctx/views/messages.ts`), `verificacion_corrida` (7 casos mínimos para comprobar que el eval corre de punta a punta con prompts enteros y preguntas con opciones; no es un dataset de evaluación).
+Datasets de ejemplo en `eval/datasets/`: `smoke` (una pasada por todas las etapas), `decision_discriminating` (la respuesta correcta no es la primera opción) y `scenarios_messages` (casos por escenario que prueban los mensajes fijos de `ctx/views/messages.ts`).
 
 ### Casos por escenario (`scenario`)
 

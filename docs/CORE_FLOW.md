@@ -70,7 +70,7 @@ flowchart TD
         C3 --> C4["4 Resolver refs"]
         C4 --> C5["5 Anti-bucle"]
         C5 --> C6{"6 Guard"}
-        C6 -->|ALLOW o pide aprobación| C7["7 Decisión 3: revisar argumentos"]
+        C6 -->|ALLOW o pide aprobación| C6B["6b Pre-chequeo determinista"] --> C7["7 Decisión 3: revisar argumentos"]
         C7 --> C8["8 Confirmación del usuario<br/>si Guard la pidió"]
         C8 --> C9["9 Despacho a la herramienta"]
         C9 --> C10["10 Procesar resultado<br/>resumen y ref"]
@@ -86,7 +86,8 @@ flowchart TD
     C4 -->|refs_unresolved| A
     C5 -->|loop_blocked| A
     C7 -->|info_missing| Q["Pregunta, espera, hecho answer<br/>(una por paso)"] --> A
-    C7 -->|args_invalid, tool_rejected| R{"¿Segundo rechazo<br/>de la revisión?"}
+    C6B -->|args_invalid, info_missing| R
+    C7 -->|args_invalid| R{"¿Segundo rechazo<br/>de la revisión?"}
     R -->|no| A
     R -->|sí| FAIL
     C8 -->|user_rejected| A
@@ -95,9 +96,10 @@ flowchart TD
 ```
 
 ## 2. Modo Reactivo
-Cada vuelta del bucle empieza con la **lista de pendientes** y crea un paso nuevo, sin plan previo.
+Cada vuelta del bucle toma el primer ítem de la **lista de pendientes** y crea un paso nuevo, sin plan previo.
 
-- **Lista de pendientes**: una consulta aparte al modelo generativo (sin razonamiento extendido) devuelve la lista completa de lo que falta para cumplir la solicitud. Recibe la solicitud, la lista de la vuelta anterior, lo hecho (con argumentos y resumen del resultado), los últimos intentos fallidos con su motivo y la entrada del usuario. La lista vive solo en el bucle; en el contexto entra únicamente la instrucción del paso.
+- **Lista de pendientes**: una consulta aparte al modelo generativo (sin razonamiento extendido) devuelve la lista completa de lo que falta para cumplir la solicitud. Recibe la solicitud, la lista de la vuelta anterior, lo hecho (con argumentos y resumen del resultado), los últimos intentos fallidos con su motivo y la entrada del usuario. La lista vive solo en el bucle; en el contexto entra únicamente la instrucción del paso. **La mantiene el código** (`pendingList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem sin consultar, y solo se vuelve a consultar al modelo tras un paso fallido (para reescribir el ítem) o al vaciarse la lista (para confirmar que no falta nada). `reconcileList` evita que el modelo vuelva a agregar ítems ya cumplidos o abandonados y conserva los que venían detrás del reescrito.
+- **Salida parcial**: un ítem con `maxItemFailures` (2) pasos fallidos seguidos se abandona si quedan otros; se ejecutan los restantes (p. ej. guardar lo obtenido) y la tarea cierra `no_alternatives` (`partial`), con lo no logrado en el encabezado de la respuesta final.
 - **Instrucción del paso**: el primer pendiente. Decisión 1, 2, 3 y 4 y la generación de argumentos ven esa instrucción, no la solicitud completa.
 - **Lista vacía**: significa que no queda nada por hacer y cierra la tarea según `canFinish`: `completed` si no hay llamadas o alguna está aprobada; `no_alternatives` si solo hubo rechazos del usuario. Sin llamadas (primera vuelta) o con solo fallos, una lista vacía no se acepta de inmediato: se consulta una vez más. Si en la primera vuelta vuelve vacía se acepta (la solicitud no necesita herramientas); si solo hubo fallos, la instrucción pasa a ser la solicitud entera.
 - **Lista inválida**: un reintento y, si persiste, la tarea se cierra con `unrecoverable`.
@@ -134,7 +136,8 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | 4 | **Resolver referencias** `{{ref:rN}}` / `ref:rN` por su contenido en disco | Referencia desconocida: `refs_unresolved` |
 | 5 | **Anti-bucle** sobre la huella de los argumentos resueltos | Repetición bloqueada: `loop_blocked` |
 | 6 | **Guard** | `DENY`: la llamada queda `denied` y la tarea se cierra con `security_denied` |
-| 7 | **Revisar argumentos** (Decisión 3) | `args_invalid`, `tool_rejected` o `info_missing` |
+| 6b | **Pre-chequeo determinista** (código, sin modelo; `engine/precheck.ts`): valores vacíos o `N/A`, marcadores de posición, rutas de otro usuario o de Linux, comandos que no existen en el sistema (parser de PowerShell), rutas de lectura y URLs que no aparecen en nada de lo que la tarea sabe. Ante la duda no rechaza | `args_invalid` o `info_missing`, con la razón escrita como resumen (llega a la línea FAIL del LLM de argumentos) |
+| 7 | **Revisar argumentos**, solo en escrituras (`kind: write`; las lecturas pasan por el pre-chequeo y se aprueban) (Decisión 3; opciones `approved`, `args_invalid` e `info_missing`: no hay `tool_rejected`, la herramienta la elige Decisión 2) | `args_invalid` o `info_missing` |
 | 8 | **Confirmación del usuario**, si Guard pidió aprobación. No se registra nada mientras se espera | Rechazo: `user_rejected`, con la instrucción opcional del usuario |
 | 9 | **Despacho** a la herramienta, compitiendo contra la cancelación | Excepción: `exception`. Cancelación: `interrupted`, y un resultado tardío se descarta |
 | 10 | **Procesar el resultado**: estado, resumen acotado y, si el resumen no contiene todo, el texto completo va a una ref en disco | — |
@@ -161,6 +164,8 @@ Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`engine/de
 - **Modelo generativo caído** (un fallo anterior ya lo marcó): respuesta de respaldo directa, sin consultarlo.
 - **Resto de los cierres**: el modelo generativo redacta la respuesta con la vista final. Si la vista no entra en su reserva, o el modelo falla por cualquier causa, se entrega la respuesta de respaldo.
 
+Cuando la tarea termina `partial` o `failed`, la respuesta del modelo va precedida de un **encabezado fijo** escrito por el código (`renderStatusNote`: estado, qué no se logró y cambios hechos en la computadora). El bloque `EFFECTS` dice "none" de forma explícita si no hubo cambios, y el prompt aclara que `read`/`write` junto a una herramienta es su tipo, no lo que hizo. Un `loop_blocked` muestra al modelo de argumentos los argumentos bloqueados y el mensaje pide cambiarlos; un rechazo con razón escrita oculta los argumentos.
+
 La respuesta de respaldo es texto fijo, sin modelo: estado de la tarea, motivo de detención, fallos, cambios aplicados al entorno y últimas acciones. Su origen (`model` o `fallback`) queda registrado. El estado terminal nunca depende de cómo se redactó la respuesta.
 
 ## 9. Estados y Transiciones
@@ -186,10 +191,11 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 
 | Límite | Valor |
 |---|---|
-| Pasos máximos (`maxSteps`) | 100 (reactivo: tope de la tarea; deliberativo: tope por plan) |
-| Replans (`maxReplans`) | 10 |
+| Pasos máximos (`maxSteps`) | 20 (reactivo: tope de la tarea; deliberativo: tope por plan) |
+| Replans (`maxReplans`) | 3 |
 | Escalaciones (reactivo) | 2 (la tercera cierra la tarea) |
-| Llamadas por paso (`maxCallsPerStep`) | 50 (sin contar rechazos del usuario) |
+| Llamadas por paso (`maxCallsPerStep`) | 6 (sin contar rechazos del usuario) |
+| Bloqueos por repetición por paso (`maxRepeatsPerStep`) | 2 (el segundo falla el paso; si repetía una llamada ya aprobada, el paso se da por cumplido) |
 | Rechazos de la revisión por paso (`maxReviewRejectionsPerStep`) | 2 (el segundo falla el paso) |
 | Preguntas al usuario por paso (`maxQuestionsPerStep`) | 1 |
 | Salida de la lista de pendientes (`pending.maxTokens`) | 1024 tokens |

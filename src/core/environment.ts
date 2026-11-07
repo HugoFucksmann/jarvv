@@ -27,7 +27,15 @@ const KNOWN_FOLDERS_SCRIPT = [
 const FOLDER_KEYS = ["desktop", "documents", "downloads"] as const;
 type FolderKey = (typeof FOLDER_KEYS)[number];
 
+/** Sistema operativo de esta PC (sale de `process.platform`, sin consultas externas). */
+export type Platform = "windows" | "macos" | "linux";
+
+export function currentPlatform(): Platform {
+    return process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
+}
+
 export interface UserEnvironment {
+    platform: Platform;
     home: string;
     desktop?: string;
     documents?: string;
@@ -59,12 +67,12 @@ export function getUserEnvironment(): Promise<UserEnvironment> {
     cached ??= (async (): Promise<UserEnvironment> => {
         const home = os.homedir();
         try {
-            return { home, ...(await queryKnownFolders()) };
+            return { platform: currentPlatform(), home, ...(await queryKnownFolders()) };
         } catch (err) {
             console.warn(
                 `[Environment] No se pudieron consultar las carpetas del usuario; solo se informa la carpeta personal: ${err instanceof Error ? err.message : String(err)}`
             );
-            return { home };
+            return { platform: currentPlatform(), home };
         }
     })();
     return cached;

@@ -245,7 +245,7 @@ export function parseConfig(argv: string[]): EvalConfig {
     ...(sourceRaw !== undefined ? { source: sourceRaw as CaseSource } : {}),
     limit: int(flags, "limit", 1),
     repeat: int(flags, "repeat", 1) ?? 1,
-    concurrency: int(flags, "concurrency", 1) ?? 1,
+    concurrency: int(flags, "concurrency", 3) ?? 3,
     model,
     url: str(flags, "url") ?? DEFAULT_URL,
     decisionUrl,

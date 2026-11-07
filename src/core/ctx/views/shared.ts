@@ -77,7 +77,9 @@ export function callViewOf(data: ContextData, call: Call, withArgs: boolean): Ca
 
 /** Un fallo muestra los `args` solo en `args_invalid`, `tool_rejected` e `info_missing` (sección 8). */
 export function failureViewOf(data: ContextData, call: Call): CallView {
-  return callViewOf(data, call, ARGS_SHOWN_STATUSES.includes(call.status));
+  // Un `args_invalid` con razón escrita (pre-chequeo) no muestra los argumentos: la razón dice qué cambiar y, viéndolos, el modelo los copiaba.
+  const hide = call.status === "args_invalid" && call.summary !== null;
+  return callViewOf(data, call, ARGS_SHOWN_STATUSES.includes(call.status) && !hide);
 }
 
 /** Entrada del usuario (5.4), en orden cronológico. */

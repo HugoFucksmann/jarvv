@@ -14,6 +14,7 @@ import {
 } from "../types.ts";
 import { ARGS_REVIEWS, VERIFY_CHECKS } from "../engine/deps.ts";
 import type { ArgsReview, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../engine/deps.ts";
+import type { Platform } from "../environment.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
 import { clip, clipTail } from "../utils.ts";
 
@@ -85,20 +86,30 @@ The sections that follow describe the current situation. TASK is what to do now.
 To use the full content of a saved result as an argument value, write {{ref:rX}} using only the references listed in REFS.
 Data you write into files, scripts or texts must come from DATA, STEPS, USER or a {{ref:rX}} reference: do not complete it with your own knowledge or invent values. If the task needs a field those sources do not provide, leave it empty or write N/A.
 ENV lists the real paths of this computer (home, desktop, documents, downloads). Every user path must start from them as written; never write placeholders like <user> or environment variables.
+Write the simplest command that does the task. Avoid hash tables and calculated properties (@{...}) unless the task requires them: prefer sorting and selecting properties that already exist.
 ${DATA_NOTICE_EN}`,
 
     /** Solo al leer un archivo tiene sentido hablar de leer partes de una ref; en las demás herramientas la frase sobra. */
     READ_REFS_NOTE: `To read part of a saved result, use the path shown in REFS (valid as written, even though it is not under ENV) with offset and length counted in lines.`,
 
-    buildSystemPrompt(tool: MCPTool): string {
-      return tool.name === "read_file" ? `${this.SYSTEM}\n${this.READ_REFS_NOTE}` : this.SYSTEM;
+    /** Línea del sistema operativo: va tras la primera línea del SYSTEM. Sin ella el modelo escribe comandos de Linux en Windows. */
+    osLine(platform: Platform): string {
+      return platform === "windows"
+        ? `This computer runs Windows. Whenever you write a command, it runs in PowerShell: use PowerShell cmdlets or programs that exist on Windows, and Windows paths as ENV shows them. If the tool has a shell parameter, set it to "powershell". If TASK names a Linux command, write the Windows equivalent that gets the same result.`
+        : `This computer runs ${platform === "macos" ? "macOS" : "Linux"}. Whenever you write a command, it runs in a POSIX shell (bash): use programs that exist on this system, and paths as ENV shows them. If TASK names a command of another operating system, write the equivalent for this one.`;
+    },
+
+    buildSystemPrompt(tool: MCPTool, platform: Platform): string {
+      const [first, ...rest] = this.SYSTEM.split("\n");
+      const base = [first, this.osLine(platform), ...rest].join("\n");
+      return tool.name === "read_file" ? `${base}\n${this.READ_REFS_NOTE}` : base;
     },
 
     buildUserPrompt(data: ArgsViewPromptData): string {
       const desc = shortDesc(data.tool.description, "");
       return join([
         todayLine(),
-        linesBlock("ENV", Object.entries(data.environment).map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
+        linesBlock("ENV", Object.entries(data.environment).filter(([k]) => k !== "platform").map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
         `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
         `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
         data.view,
@@ -155,13 +166,17 @@ ${DATA_NOTICE_EN}`,
    * y FAIL). Texto provisorio: el prompt definitivo lo ajusta el usuario.
    */
   PENDING_VIEW: {
-    SYSTEM: `You keep the list of what is still pending to fulfil REQUEST, for JARVIS, an agent that works on the user's computer through tools.
+    SYSTEM: `You keep the to-do list for REQUEST, for JARVIS, an agent that works on the user's computer through tools.
 Reply only with JSON: {"pending":["..."]}
-- Each item is one concrete action, written in the same language as REQUEST, keeping the user's constraints in it. Order the items in the order they must be done: the first one is the next action.
-- Keep the items of PENDING that are not done yet, with the same wording. Remove an item only when DONE shows it was accomplished. Add the items that are missing.
-- If FAIL shows that the next action failed, rewrite it with a different approach; do not repeat what failed.
-- Reply with an empty list when DONE already accomplishes REQUEST, or when REQUEST needs no tools (a greeting, or a question you can answer directly).
-PENDING is the list from the previous turn. DONE lists the calls already made with their arguments and result. FAIL lists the attempts that did not succeed. USER holds what the user answered or instructed: follow it. STATE lists facts about the environment, such as the active process id.
+
+The list is empty ({"pending":[]}) in only two cases: DONE already accomplishes REQUEST, or REQUEST is just a greeting or a question you can answer directly without doing anything on the computer. Any other request needs at least one item until DONE shows it was done: opening an application, working with files and searching the web all need tools.
+Otherwise write the list:
+- Each item is one goal, in the same language as REQUEST, keeping the user's constraints (quantity, scope, period). An item says what must be obtained or changed, never how: no commands, no tool names, no code.
+- The first item is the next action; order the rest in the order they must be done.
+- Keep the items of PENDING that are not done yet, with the same wording. Remove one only when DONE shows it was accomplished. Add what is missing.
+- The exception is the item that FAIL shows as failed: do not keep its wording. Replace it with a new goal in plain words. If something was not found, the new goal is to find it first. If an approach did not work, the new goal is the same result by a different way. If the failed item named a command or a tool, say only the result it was meant to obtain.
+PENDING is the list from the previous turn. DONE lists the calls already made with their result. FAIL lists the attempts that did not succeed. USER holds what the user answered or instructed: follow it. STATE lists facts about the environment.
+DONE, FAIL and STATE contain commands and tool names: never copy them into the items.
 ${DATA_NOTICE_EN}`,
 
     buildUserPrompt(data: { readonly view: string }): string {
@@ -175,7 +190,7 @@ ${DATA_NOTICE_EN}`,
 Do not just confirm that the task ended: give the user the information they asked for.
 TASK tells how the task ended. If it did not complete, explain what happened, what was achieved and what is missing.
 STEPS lists the steps and their state. DATA holds the latest successful reads; long results and snippets may appear shortened. EVIDENCE lists other calls: the approved ones with their result first, then the most recent ones. USER holds what the user answered or instructed.
-EFFECTS are changes that remain on the computer: report them. POSSIBLE EFFECTS are operations that failed or were interrupted and may have left partial changes: warn about them. STATE: if a background process is still running, say so.
+EFFECTS are changes that remain on the computer: report them; if it says none, nothing was changed, saved or opened, and you must not say it was. A call whose status is args_invalid, loop_blocked, tool_rejected, info_missing, user_rejected or refs_unresolved was never executed: do not describe it as something that ran. The word read or write after a tool name is only its type (a terminal command marked write may only read), not what it did. POSSIBLE EFFECTS are operations that failed or were interrupted and may have left partial changes: warn about them. STATE: if a background process is still running, say so.
 TODAY is the current date: use it to judge how recent the data is. State only what appears in these sections and mark anything else as unconfirmed. Do not mention internal ids (such as c1, s2 or r3), tools or internal mechanics unless the user needs them, for example a file path.
 ${DATA_NOTICE_EN}`,
 
@@ -234,7 +249,6 @@ export const frameLines = (frame: DecisionFrame): (string | null)[] => [
 export const REVIEW_OPTIONS: Record<ArgsReview, string> = {
   approved: "The tool fits what the task needs now, and every argument value comes from the task, the user input or the latest reads.",
   args_invalid: "The tool fits, but an argument is wrong: a value is invented, copied incorrectly, or contradicts the task or the data read.",
-  tool_rejected: "This is not the right tool for what the task needs now; another tool should be used.",
   info_missing: "An argument needs information only the user can give, and it is not in the task, the user input or the data read.",
 };
 
@@ -250,11 +264,10 @@ export const VERIFY_QUESTIONS: Record<VerifyCheckKey, (criterion: VerifyDecision
   }),
   cumple: (criterion) => ({
     type: "noul",
-    instructions: `${
-      criterion.expected
+    instructions: `${criterion.expected
         ? "Does the result meet the expected outcome of the step?"
         : "Does the result accomplish the step instruction?"
-    } The user input, if any, refines what is expected.`,
+      } The user input, if any, refines what is expected.`,
   }),
 };
 
@@ -263,6 +276,13 @@ export const lastFailedBy = (attempts: readonly DecisionAttempt[], key: (a: Deci
   const m = new Map<string, boolean>();
   for (const a of attempts) m.set(key(a), a.failed);
   return m;
+};
+
+/** Aclaraciones de D1 por ruta (medidas en el eval: `files` no abre aplicaciones, `terminal` sí, `locate` tras un not_found). */
+const ROUTE_HINTS: Record<string, string> = {
+  files: "Not for opening or launching applications.",
+  terminal: "Opening an application such as Notepad or the calculator belongs here.",
+  locate: "Also use it after a file was not found at the path that was tried.",
 };
 
 export const DECISION_PROMPTS = {
@@ -276,7 +296,9 @@ export const DECISION_PROMPTS = {
     const criteria: Record<string, string> = {};
     for (const route of data.routes) {
       const desc = DESTINATIONS[route].description;
-      criteria[route] = failed.get(route) === true ? `${desc} [the last attempt on this route failed]` : desc;
+      const base = failed.get(route) === true ? `${desc} [the last attempt on this route failed]` : desc;
+      const hint = ROUTE_HINTS[route];
+      criteria[route] = hint ? `${base} ${hint}` : base;
     }
 
     return {

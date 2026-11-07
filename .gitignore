@@ -23,3 +23,6 @@ data/refs/
 # Resultados de evaluación
 /scripts/eval-next/results/
 eval/results
+
+# Trazas por tarea (jarvis-traces/AAAAMMDD-HHMMSS_<id>/)
+/jarvis-traces/

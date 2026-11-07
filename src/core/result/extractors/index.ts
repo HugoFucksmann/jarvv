@@ -4,13 +4,15 @@
  * Una herramienta sin entrada aquí usa el extractor genérico: añadir una herramienta al manifest no exige código.
  * Se registra un extractor solo cuando el formato de salida de esa herramienta lo justifica. La clave es la misma del
  * manifest (`toolKey`), y una entrada que el manifest no cataloga falla al arrancar, como una clave duplicada.
+ * `extractSearch` queda en `freeSearch.ts` sin registrar (`search` ya no se ofrece).
  */
 
 import { isKnownTool, toolKey } from "../../tools/manifest.ts";
 import type { Extractor } from "./types.ts";
 import { extractListDirectory, extractReadFile } from "./files.ts";
 import { extractProcess } from "./process.ts";
-import { extractSearch, extractFetch } from "./freeSearch.ts";
+import { extractFetch } from "./freeSearch.ts";
+import { extractResearch } from "./research.ts";
 import { extractGeneric } from "./generic.ts";
 
 const ENTRIES: ReadonlyArray<readonly [server: string, tool: string, extractor: Extractor]> = [
@@ -19,8 +21,8 @@ const ENTRIES: ReadonlyArray<readonly [server: string, tool: string, extractor: 
     ["desktop_commander", "start_process", extractProcess],
     ["desktop_commander", "read_process_output", extractProcess],
     ["desktop_commander", "interact_with_process", extractProcess],
-    ["free_search", "search", extractSearch],
     ["free_search", "fetch", extractFetch],
+    ["free_search", "research", extractResearch],
 ];
 
 const REGISTRY = new Map<string, Extractor>();

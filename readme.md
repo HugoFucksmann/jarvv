@@ -171,7 +171,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `30000` | Timeouts en milisegundos |
 | `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción) |
-| `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Registro local de tareas terminadas, para el laboratorio |
+| `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
 
 </details>

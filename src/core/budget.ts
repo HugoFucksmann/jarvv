@@ -34,11 +34,16 @@ export const BUDGET = {
   argsStringDefault: 300,
 
   // ── Límites del motor (5.2) ──
-  maxSteps: 100,
-  maxReplans: 10,
+  // Reintentos y fallos seguidos: todos en 2 (un intento y un reintento); los topes de pasos y llamadas, ajustados al uso real.
+  maxSteps: 20,
+  maxReplans: 3,
   maxEscalations: 2,
-  maxCallsPerStep: 50,
-  /** Llamadas rechazadas por la revisión (`tool_rejected` o `args_invalid`) que fallan el paso: 2 = un solo reintento. */
+  /** Pasos fallidos seguidos sobre el mismo ítem de la lista antes de abandonarlo (si quedan otros): ver `runReactive`. */
+  maxItemFailures: 2,
+  maxCallsPerStep: 6,
+  /** Llamadas bloqueadas por repetición (`loop_blocked`) que fallan el paso: 2 = un solo reintento. */
+  maxRepeatsPerStep: 2,
+  /** Llamadas rechazadas por la revisión (`args_invalid`) que fallan el paso: 2 = un solo reintento. */
   maxReviewRejectionsPerStep: 2,
   /** Preguntas al usuario (`ask_user`) por paso. */
   maxQuestionsPerStep: 1,

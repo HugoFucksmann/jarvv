@@ -67,6 +67,10 @@ eval/results/<modelo>/<fecha>/
 
 ---
 
+## Datasets generados y cruce con el pre-chequeo
+
+Los generadores están en `eval/gen/` (`reales.ts`, `mutaciones.ts`, `verificacion_vieja.ts`, `ram_real.ts`, `ram_retry.ts`) y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de `conclusiones.md`). Resultados y conclusiones: `conclusiones.md` en la raíz.
+
 ## Documentación
 
 Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas y estructura del código.

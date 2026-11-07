@@ -2,7 +2,7 @@
  * JARVIS Core — Ejecutor de una llamada (`runCall`, Fase 5; PLAN_CONTEXT 5.2 y 5.3).
  *
  * Fases, en orden: descubrir herramientas → elegir herramienta (Decision #2) → argumentos (LLM) → resolver refs → huella
- * (`sig`) y anti-loop → Guard (política) → revisión de argumentos (Decisión 3) → confirmación del usuario → despacho (compite
+ * (`sig`) y anti-loop → Guard (política) → pre-chequeo determinista → revisión de argumentos (Decisión 3, solo escrituras) → confirmación del usuario → despacho (compite
  * contra la cancelación) → procesar el resultado → guardar la ref si hace falta → registrar la llamada → verificar.
  *
  * Registro en el contexto:
@@ -20,6 +20,7 @@
 import { BUDGET } from "../budget.ts";
 import type { CallKind, CallStatus, JsonObject, Op, TaskContext } from "../ctx/index.ts";
 import { getUserEnvironment } from "../environment.ts";
+import { collectSources, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { Guard } from "../policy/guard.ts";
 import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
@@ -298,16 +299,28 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return { kind: "close", stopReason: "security_denied", callId };
   }
 
-  // 7. Revisión de argumentos (Decisión 3): corre en cada intento, después de lo determinista y antes de pedir confirmación.
-  // Si rechaza, la llamada queda con su `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  const reviewView = ctx.view.forReview(reviewViewOptions());
-  const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
-  if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
+  // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
+  const finding = await precheckCall({ tool: tool.name, kind: base.kind, args: resolved, sources: collectSources(ctx), environment });
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  if (review.value.review !== "approved") {
-    const status: CallStatus = review.value.review;
-    const callId = register(ctx, { ...base, args: recorded, sig, status, summary: null, ref: null });
-    return registered(callId, status);
+  if (finding !== null) {
+    const callId = register(ctx, { ...base, args: recorded, sig, status: finding.review, summary: summaryText(finding.reason), ref: null });
+    return registered(callId, finding.review);
+  }
+
+  // 7. Revisión de argumentos (Decisión 3): solo en las escrituras, después de lo determinista y antes de pedir confirmación.
+  // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
+  // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
+  // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
+  if (base.kind === "write") {
+    const reviewView = ctx.view.forReview(reviewViewOptions());
+    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
+    if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
+    if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
+    if (review.value.review !== "approved") {
+      const status: CallStatus = review.value.review;
+      const callId = register(ctx, { ...base, args: recorded, sig, status, summary: null, ref: null });
+      return registered(callId, status);
+    }
   }
 
   // 8. Confirmación del usuario. No hay registro mientras se espera; cancelar aquí no deja llamada.

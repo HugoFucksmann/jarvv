@@ -184,6 +184,18 @@ export function parseArgsReviewDecision(
   sv: DecisionStageVariant | undefined,
 ): ArgsReviewOutput {
   const answers = parseAnswers(rawOutput);
+  if (sv?.combine) {
+    // Regla en código: todas las preguntas `noul` enviadas, cruzadas por la función de la variante.
+    const values: Record<string, number> = {};
+    for (const [key, q] of Object.entries(sentReq.questions)) {
+      if (q.type === "noul") values[key] = extractNoul(answers, key);
+    }
+    const { choice, probabilities } = sv.combine(values);
+    if (!(ARGS_REVIEWS as readonly string[]).includes(choice)) {
+      throw new DecisionParseError(`'${choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`);
+    }
+    return { review: choice, probabilities };
+  }
   const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP.args_review;
   const labelMap = sv?.labelMap;
 
@@ -214,6 +226,15 @@ export function parseResultVerificationDecision(
   sv: DecisionStageVariant | undefined,
 ): ResultVerificationOutput {
   const answers = parseAnswers(rawOutput);
+  if (sv?.combineVerification) {
+    // Regla en código: todas las preguntas enviadas (choice con sus probabilidades, noul con su valor).
+    const values: Record<string, { probabilities?: Record<string, number>; noul?: number }> = {};
+    for (const [key, q] of Object.entries(sentReq.questions)) {
+      values[key] = q.type === "noul" ? { noul: extractNoul(answers, key) } : { probabilities: extractChoice(answers, key, (q as ChoiceQ).criteria).probabilities };
+    }
+    const { ok, cumple } = sv.combineVerification(values);
+    return { ok: ok > NOUL_APPROVE, cumple: cumple > NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
+  }
   const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP.result_verification;
 
   function resolveNoul(fieldKey: string): number {

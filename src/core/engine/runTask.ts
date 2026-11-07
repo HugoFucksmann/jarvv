@@ -4,9 +4,12 @@
  * `runTask` es el único que decide cuándo y cómo cierra la tarea: ejecuta los pasos (`runStep`), aplica la recuperación del
  * modo y llama a `finalize` una sola vez. Los topes son los de la tabla única (`BUDGET`).
  *
- * Reactivo: cada vuelta empieza con la lista de pendientes (`generatePending`) y es un paso nuevo cuya instrucción es el
- * primer pendiente. Una lista vacía cierra la tarea (`completed` o `no_alternatives`, según `canFinish()`); `max_steps`
- * al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); un paso `failed` es una escalación: al tercero, `no_alternatives`.
+ * Reactivo: cada vuelta es un paso nuevo cuya instrucción es el primer pendiente de una lista que mantiene el código
+ * (`pendingList.ts`; el modelo la genera al empezar y se le consulta de nuevo solo tras un fallo o al vaciarse). Un paso que
+ * termina bien quita su ítem; un ítem con `BUDGET.maxItemFailures` pasos fallidos seguidos se abandona si quedan otros, y la tarea
+ * cierra `no_alternatives` (parcial) cuando se vacía. Una lista vacía confirmada por el modelo cierra `completed` o
+ * `no_alternatives`, según `canFinish()`; `max_steps` al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); un paso `failed`
+ * es una escalación: al tercero, `no_alternatives`.
  *
  * Deliberativo: plan inicial (LLM 1) y confirmación del usuario. Rechazarlo con instrucción da un plan `user_feedback`
  * (sin tope) y se vuelve a pedir la confirmación; si ese plan es inválido se conserva el vigente y se vuelve a pedir;
@@ -27,6 +30,7 @@ import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
 import type { Closing } from "./finalize.ts";
 import { generatePending } from "./pending.ts";
+import { reconcileList } from "./pendingList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
 import type { TaskRuntime } from "./runtime.ts";
@@ -57,32 +61,73 @@ export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: Engi
 
 async function runReactive(env: EngineEnv): Promise<Closing> {
   const { ctx, runtime } = env;
+  // La lista la mantiene el código (ver `pendingList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem,
+  // y solo se consulta al modelo tras un fallo (reescribir el ítem) o al vaciarse (confirmar que no falta nada).
   let pending: readonly string[] = [];
+  let askModel = true;
+  const settled: string[] = []; // ítems cumplidos o abandonados: el modelo no los vuelve a agregar
+  let abandoned = 0;
+  let headFailures = 0; // pasos fallidos seguidos sobre el ítem de adelante
+
+  // Cierre con la lista vacía: abandonar un ítem deja la tarea incompleta; si no, decide `canFinish()`.
+  const finishEmpty = (closure: "completed" | "no_alternatives" | null): Closing =>
+    abandoned > 0 || closure !== "completed" ? stop("no_alternatives") : COMPLETED;
+
   for (;;) {
     if (runtime.cancelled) return CANCELLED;
     if (ctx.find("steps", {}).length >= BUDGET.maxSteps) return stop("max_steps");
 
-    // La lista de pendientes se regenera en cada vuelta; el primer pendiente es la instrucción del paso.
-    const next = await generatePending(env, pending);
-    switch (next.kind) {
-      case "next":
-        pending = next.list;
-        break;
-      case "done":
-        return next.closure === "completed" ? COMPLETED : stop("no_alternatives");
-      case "close":
-        return stop(next.stopReason);
-      case "cancelled":
-        return CANCELLED;
+    if (askModel) {
+      const previous = pending;
+      const next = await generatePending(env, previous);
+      switch (next.kind) {
+        case "next":
+          pending = reconcileList(next.list, previous, settled);
+          break;
+        case "done":
+          // El modelo dice que no queda nada; si el código tiene ítems detrás del que falló, siguen.
+          pending = reconcileList([], previous, settled);
+          if (previous.length > 0 && pending.length < previous.length) {
+            settled.push(previous[0]);
+            abandoned++;
+          }
+          if (pending.length === 0) return finishEmpty(next.closure);
+          break;
+        case "close":
+          return stop(next.stopReason);
+        case "cancelled":
+          return CANCELLED;
+      }
+      if (pending.length === 0) return finishEmpty(ctx.canFinish());
+      askModel = false;
     }
 
-    const outcome = await runStep(env, { kind: "reactive", instruction: pending[0] });
+    const head = pending[0];
+    const outcome = await runStep(env, { kind: "reactive", instruction: head });
     switch (outcome.kind) {
       case "completed":
+        settled.push(head);
+        pending = pending.slice(1);
+        headFailures = 0;
+        if (pending.length === 0) {
+          // Hecho todo lo previsto: si se abandonó algo, la tarea es parcial; si no, se confirma con el modelo que no falta nada.
+          if (abandoned > 0) return stop("no_alternatives");
+          askModel = true;
+        }
         continue;
       case "failed":
         // Un paso `failed` es una escalación; el tercero agota la recuperación.
         if (ctx.escalations() > BUDGET.maxEscalations) return stop("no_alternatives");
+        headFailures++;
+        if (headFailures >= BUDGET.maxItemFailures && pending.length > 1) {
+          // Salida parcial: el ítem agotó sus intentos y quedan otros (p. ej. guardar lo obtenido): se sigue con el resto.
+          settled.push(head);
+          abandoned++;
+          pending = pending.slice(1);
+          headFailures = 0;
+        } else {
+          askModel = true;
+        }
         continue;
       case "close":
         return stop(outcome.stopReason);

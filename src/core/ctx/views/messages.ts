@@ -15,7 +15,7 @@ export const STATUS_NOTES: { readonly [S in CallStatus]: string | null } = {
   interrupted: "The execution was interrupted before finishing.",
   args_invalid: "The arguments were not valid; not executed.",
   refs_unresolved: "A reference could not be resolved; not executed.",
-  loop_blocked: "Repetition blocked: the same call was already made; not executed.",
+  loop_blocked: "Repetition blocked: the same call was already made; not executed. Change the arguments (for a search, use other keywords).",
   user_rejected: "The user rejected the action; not executed.",
   tool_rejected: "The review discarded this tool; not executed.",
   info_missing: "The review found that information from the user is missing; not executed.",
@@ -28,7 +28,7 @@ export const REASON_NOTES: { readonly [R in VerdictReason]: string } = {
 };
 
 /** Fallos que muestran lo que se quiso ejecutar (herramienta y `args`) además de la frase (sección 8). */
-export const ARGS_SHOWN_STATUSES: readonly CallStatus[] = ["args_invalid", "tool_rejected", "info_missing"];
+export const ARGS_SHOWN_STATUSES: readonly CallStatus[] = ["args_invalid", "tool_rejected", "info_missing", "loop_blocked"];
 
 export const STATE_NOTES: { readonly [S in TaskState]: string } = {
   running: "The task is still running.",

@@ -1,8 +1,9 @@
 /**
  * JARVIS Core — Lista de pendientes del reactivo (Fase 6).
  *
- * Al inicio de cada vuelta del reactivo una consulta aparte al LLM (sin thinking) devuelve la lista completa de lo que falta
- * para cumplir la solicitud, a partir de la solicitud, la lista anterior y lo hecho (`forPending`). El primer pendiente es la
+ * Una consulta aparte al LLM (sin thinking) devuelve la lista completa de lo que falta para cumplir la solicitud, a partir de la
+ * solicitud, la lista anterior y lo hecho (`forPending`). `runReactive` la hace al empezar, tras un paso fallido (reescribir el
+ * ítem) y al vaciarse la lista (confirmar que no falta nada); entre tanto la lista la mantiene el código (`pendingList.ts`). El primer pendiente es la
  * instrucción del paso; la lista vacía significa que no queda nada por hacer. La lista vive solo en `runReactive`: en el
  * contexto entra únicamente la instrucción del paso.
  *

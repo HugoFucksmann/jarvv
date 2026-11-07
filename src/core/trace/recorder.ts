@@ -4,7 +4,7 @@
  * La traza queda FUERA del contexto: depende de él (se suscribe a `change`) y de los bordes del motor (`CaptureSink`: las
  * consultas a los modelos y las llamadas a herramientas), no al revés. Si se borra `trace/`, el motor compila y funciona igual.
  *
- * Qué guarda, por tarea y en una sola línea JSON al terminar (`traceEnabled`, `tracePath`):
+ * Qué reúne, por tarea (`traceEnabled`, `tracePath`):
  * - `models`: entrada y salida crudas de cada consulta a un modelo, con su etapa, `n` (versión del contexto al empezar), el
  *   paso en curso y a qué quedó enlazada: la llamada que se registró después (`route`, `tool`, `args`, `review`) o a la que
  *   se verificó (`verify`); el plan (`plan`); el hecho de la respuesta (`question`) o `result` (`final`).
@@ -13,6 +13,14 @@
  * - `waits`: las esperas del usuario (plan, aprobación, pregunta) con su intervalo: explican los huecos entre etapas.
  * - `snapshot`: el contexto completo al terminar (5.4 y 4).
  *
+ * Al terminar escribe una carpeta por tarea, `<dir de tracePath>/<nombre sin extensión>/AAAAMMDD-HHMMSS_<id>/` (con el valor por
+ * defecto, `jarvis-traces/…`; ver `format.ts`):
+ * - `summary.md`: lo que se lee o se pega a un agente.
+ * - `trace.json`: la traza liviana (contexto, consultas con la salida interpretada, herramientas con un fragmento).
+ * - `full.json.gz`: lo reunido arriba, completo y comprimido (entradas y salidas crudas).
+ * y una línea en `index.jsonl` de esa carpeta base. El archivo único de la versión 2 (`jarvis-traces.jsonl`) ya no se escribe.
+ * Los resultados grandes no se copian: viven en las refs (`data/refs`) y la traza guarda id, tamaño y un fragmento.
+ *
  * El enlace con la llamada se hace al registrarse (`change` con `add calls`): lo anterior sin dueño es de ese intento. Una
  * consulta o ejecución que no llegó a registrar llamada (cancelación, cierre) queda con enlace `null`. Un fallo al escribir
  * la traza nunca afecta a la tarea.
@@ -20,6 +28,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 
 import { ConfigManager } from "../config.ts";
 import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
@@ -28,9 +37,10 @@ import type { CaptureSink, LlmCapture, ToolCapture } from "../engine/capture.ts"
 import type { Waiting } from "../engine/runtime.ts";
 import type { StageId } from "../types.ts";
 import { errorMessage } from "../utils.ts";
+import { TRACE_FORMAT_VERSION, buildMeta, buildSummary, folderName, indexEntry, refInfos, slimQuery, slimTool } from "./format.ts";
+import type { SummaryInput } from "./format.ts";
 
-/** Versión del formato de la línea de traza: quien la consume (lab/) la usa para interpretarla. */
-export const TRACE_FORMAT_VERSION = 2;
+export { TRACE_FORMAT_VERSION };
 
 /** Tope del resultado crudo de una herramienta sin ref; `resultChars` conserva el tamaño original. */
 const MAX_TOOL_RESULT_CHARS = 20_000;
@@ -226,20 +236,40 @@ export class TaskTraceRecorder {
     if (!this.enabled) return;
     this.closeWait();
     try {
+      const config = ConfigManager.getConfig();
       const snapshot = this.ctx.snapshot();
-      const line = JSON.stringify({
-        v: TRACE_FORMAT_VERSION,
-        taskId: snapshot.task.id,
-        startedAt: new Date(snapshot.task.startedAt).toISOString(),
-        endedAt: new Date().toISOString(),
+      const startedAt = snapshot.task.startedAt;
+      const endedAt = Date.now();
+      const input: SummaryInput = {
         snapshot,
-        models: this.models,
+        startedAt,
+        endedAt,
+        meta: buildMeta(this.models, config.qwenModel, config.decisionModel),
+        queries: this.models.map(slimQuery),
         tools: this.tools,
         waits: this.waits,
-      });
-      const file = path.resolve(process.cwd(), ConfigManager.getConfig().tracePath);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.appendFileSync(file, `${line}\n`, "utf-8");
+        refs: refInfos(snapshot.refs),
+      };
+      const file = path.resolve(process.cwd(), config.tracePath);
+      const base = path.join(path.dirname(file), path.basename(file, path.extname(file)));
+      const folder = folderName(startedAt, snapshot.task.id);
+      const dir = path.join(base, folder);
+      fs.mkdirSync(dir, { recursive: true });
+
+      const header = { v: TRACE_FORMAT_VERSION, taskId: snapshot.task.id, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString() };
+      fs.writeFileSync(path.join(dir, "summary.md"), buildSummary(input), "utf-8");
+      fs.writeFileSync(
+        path.join(dir, "trace.json"),
+        JSON.stringify(
+          { ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: this.tools.map(slimTool), waits: this.waits, refs: input.refs }),
+        "utf-8",
+      );
+      fs.writeFileSync(
+        path.join(dir, "full.json.gz"),
+        zlib.gzipSync(Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models: this.models, tools: this.tools, waits: this.waits }), "utf-8"), { level: 6 }),
+      );
+      fs.appendFileSync(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}
+`, "utf-8");
     } catch (error) {
       console.warn("[TaskTrace] No se pudo registrar la traza:", errorMessage(error));
     }

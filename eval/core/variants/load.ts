@@ -154,11 +154,13 @@ function composeParseView(variants: Variant[]): Variant {
     }
     for (const stage of Object.keys(v.decision ?? {}) as (keyof DecisionMap)[]) {
       const sv = v.decision?.[stage];
-      if (!sv || (!sv.labelMap && !sv.answerMap)) continue;
+      if (!sv || (!sv.labelMap && !sv.answerMap && !sv.combine && !sv.combineVerification)) continue;
       const cur = decision[stage] ?? {};
       decision[stage] = {
         ...(sv.labelMap || cur.labelMap ? { labelMap: { ...cur.labelMap, ...sv.labelMap } } : {}),
         ...(sv.answerMap || cur.answerMap ? { answerMap: { ...cur.answerMap, ...sv.answerMap } } : {}),
+        ...(sv.combine || cur.combine ? { combine: sv.combine ?? cur.combine } : {}),
+        ...(sv.combineVerification || cur.combineVerification ? { combineVerification: sv.combineVerification ?? cur.combineVerification } : {}),
       };
     }
     for (const stage of Object.keys(v.generative ?? {}) as (keyof GenerativeMap)[]) {

@@ -45,7 +45,8 @@ export function renderFinal(view: FinalView, options: FinalRenderOptions): Rende
     obsBlock("EVIDENCE", view.evidence.map((c) => evidenceEntry(c, caps))),
     obsBlock("USER", newestWithin(view.userInput.map(userInputLine), caps.userInput)),
     obsBlock("STATE", newestWithin(view.env.map(factLine), caps.env)),
-    obsBlock("EFFECTS", effects),
+    // Sin cambios, una línea explícita: si no, el modelo de la respuesta final no tiene con qué descartar que "guardó" o "abrió" algo.
+    effects.length === 0 ? "EFFECTS: none — no call changed anything on the computer." : obsBlock("EFFECTS", effects),
     obsBlock("POSSIBLE EFFECTS", possible),
   ];
 
@@ -60,6 +61,25 @@ function plainCall(call: CallView, withDetail: boolean): string {
   if (withDetail && call.args !== null) parts.push(`args=${oneLine(JSON.stringify(call.args))}`);
   if (withDetail && call.summary !== null) parts.push(`| ${oneLine(call.summary)}`);
   return `- ${parts.join(" ")}`;
+}
+
+/**
+ * Encabezado fijo (sin modelo, para el usuario) de una respuesta final cuando la tarea no se completó: el estado, qué no se logró y
+ * qué se cambió en la computadora. Lo escribe el código porque el modelo de la respuesta final, con la solicitud a la vista,
+ * tendía a contar como hecho lo que se pidió ("aquí tienes el archivo generado") aunque los datos dijeran lo contrario.
+ * `null` si la tarea se completó.
+ */
+export function renderStatusNote(view: FallbackView, notAchieved: readonly string[]): string | null {
+  const task = view.task;
+  if (task.state !== "partial" && task.state !== "failed") return null;
+  const lines = [`⚠ ${FALLBACK_STATE_TEXT[task.state]}${task.stopReason === null ? "" : ` ${FALLBACK_STOP_TEXT[task.stopReason]}`}`];
+  if (notAchieved.length > 0) lines.push(`No se logró: ${notAchieved.map((i) => oneLine(i)).join("; ")}.`);
+  lines.push(
+    view.effects.length === 0
+      ? "Cambios realizados en la computadora: ninguno."
+      : `Cambios realizados en la computadora:\n${view.effects.map((c) => plainCall(c, false)).join("\n")}`,
+  );
+  return lines.join("\n");
 }
 
 export function renderFallback(view: FallbackView): Rendered {

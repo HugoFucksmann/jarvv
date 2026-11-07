@@ -85,7 +85,8 @@ export interface ToolDecisionInput extends DecisionFrame {
 }
 
 /** Resultado de la revisión de argumentos: aprobar o el escenario del rechazo (se refleja en el `status` de la llamada). */
-export const ARGS_REVIEWS = ["approved", "args_invalid", "tool_rejected", "info_missing"] as const;
+/** Resultados de la revisión. No hay `tool_rejected`: la herramienta la elige Decisión 2, y una herramienta equivocada la atrapa la verificación. */
+export const ARGS_REVIEWS = ["approved", "args_invalid", "info_missing"] as const;
 export type ArgsReview = (typeof ARGS_REVIEWS)[number];
 
 /** Llamada candidata de Decisión 3 (parámetro de la vista, ≤ `caps.candidate`): ya saneada y recortada. */

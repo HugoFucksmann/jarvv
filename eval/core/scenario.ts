@@ -46,7 +46,9 @@ import {
   questionStageRequest,
 } from "../../src/core/reasoner/stageRequests.ts";
 import type { PromptSet, StageRequest } from "../../src/core/reasoner/stageRequests.ts";
-import { argsMax, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
+import type { CommandAnalyzer, PrecheckFinding } from "../../src/core/engine/precheck.ts";
+import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
 import { EXECUTABLE_ROUTES } from "./contract.ts";
@@ -133,11 +135,13 @@ export interface Scenario {
   at?: ScenarioAt;
 }
 
+/** Rutas de una PC Windows (las de los datasets: `C:/Users/hugof/...`); los casos que necesiten otras fijan `at.environment`. */
 const DEFAULT_ENVIRONMENT = {
-  home: "/home/user",
-  desktop: "/home/user/Desktop",
-  documents: "/home/user/Documents",
-  downloads: "/home/user/Downloads",
+  platform: "windows" as const,
+  home: "C:/Users/hugof",
+  desktop: "C:/Users/hugof/Desktop",
+  documents: "C:/Users/hugof/Documents",
+  downloads: "C:/Users/hugof/Downloads",
 };
 
 // ───────────────────────── Contexto ─────────────────────────
@@ -298,6 +302,20 @@ function effectivePrompts(ov?: PromptOverrides): { P: PromptSet; D: typeof DECIS
 }
 
 /**
+ * Pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre un caso `args_review`: el mismo código que corre `runCall`,
+ * con las fuentes del contexto del escenario. No usa ningún modelo.
+ */
+export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer): Promise<PrecheckFinding | null> {
+  const { ctx } = buildContext(sc);
+  const at = sc.at ?? {};
+  const route = need(at.route, "route", "args_review");
+  const tool = toolOf(route, need(at.tool, "tool", "args_review"), at.inputSchema);
+  const kind = getToolPolicy(serverOf(route), tool.name).mutates ? "write" : "read";
+  const environment = at.environment ? { ...DEFAULT_ENVIRONMENT, ...at.environment } : DEFAULT_ENVIRONMENT;
+  return precheckCall({ tool: tool.name, kind, args: at.args ?? {}, sources: collectSources(ctx), environment }, analyze);
+}
+
+/**
  * Arma el `request` de una etapa a partir del escenario, con los prompts de producción o los de la variante (`ov`).
  * Lanza `Error` con el motivo si el escenario no sirve.
  */
@@ -337,7 +355,7 @@ export function materializeScenario(stage: string, sc: Scenario, ov?: PromptOver
     case "arguments": {
       const route = need(at.route, "route", stage);
       const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      const request = argumentsStageRequest(argsInput(tool, at.environment ?? DEFAULT_ENVIRONMENT, renderArgsView(ctx).text), config, P);
+      const request = argumentsStageRequest(argsInput(tool, at.environment ? { ...DEFAULT_ENVIRONMENT, ...at.environment } : DEFAULT_ENVIRONMENT, renderArgsView(ctx).text), config, P);
       return { request: generative(request), toolSchema: tool.inputSchema as ToolInputSchema };
     }
     case "pending": {

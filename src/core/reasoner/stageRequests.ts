@@ -90,7 +90,7 @@ export function planStageRequest(input: PlanFromViewInput, config: StageConfig, 
 export function argumentsStageRequest(input: ArgsFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
   return {
     stage: "arguments",
-    system: prompts.ARGUMENTS_VIEW.buildSystemPrompt(input.tool),
+    system: prompts.ARGUMENTS_VIEW.buildSystemPrompt(input.tool, input.environment.platform),
     user: prompts.ARGUMENTS_VIEW.buildUserPrompt(input),
     json: true,
     maxTokens: config.qwenMaxTokens.arguments,

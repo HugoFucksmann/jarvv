@@ -34,4 +34,6 @@ export interface DecisionQuestionChoice {
 export interface DecisionQuestionNoul {
   type: "noul";
   instructions: string;
+  /** Qué significa responder sí (`true`) y no (`false`): quita la zona gris de la pregunta. Opcional. */
+  criteria?: { true: string; false: string };
 }

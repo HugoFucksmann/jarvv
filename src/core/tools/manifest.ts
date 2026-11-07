@@ -165,7 +165,8 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
 
   // Sin `verbose_timing`: con él la última línea de la salida pasa a ser un bloque de tiempos y el extractor pierde el fin del proceso y su exit code.
   def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command.", {
-    params: ["command", "timeout_ms", "shell"],
+    // Sin `shell`: el servidor usa powershell.exe por defecto y es lo que los prompts y el pre-chequeo asumen.
+    params: ["command", "timeout_ms"],
     argCaps: { command: 1000 },
   }),
   def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", {
@@ -178,16 +179,18 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     params: ["pid", "input", "timeout_ms", "wait_for_prompt"],
   }),
 
-  def("web", "search", "READ", "Deduplicated multi-engine web search with clean snippets.", {
+  // `search` y `fetch_batch` no se ofrecen: `research` busca y lee en una sola llamada (sin la cadena buscar-y-leer que producía pasos
+  // sin herramienta y bucles), y `fetch_batch` era una segunda firma para la misma página que esquivaba el anti-loop.
+  // Solo `question`: `depth` queda en el valor del servidor (3 páginas) y los filtros no se exponen.
+  def("web", "research", "READ", "Search the web and read the top pages in one call. Use it for any lookup.", {
     emptyIsError: true,
-    params: ["query", "max_results"],
+    params: ["question"],
+    notes: { question: "What to look up, in natural language. Never a URL." },
   }),
-  // Sin `format` ni `inline`: el extractor asume Markdown (con JSON el resumen sería "{") y una imagen en línea no es texto.
-  def("web", "fetch", "READ", "Download a web page and convert it to clean Markdown.", {
-    params: ["url", "render", "force_refresh", "max_age_hours"],
-  }),
-  def("web", "fetch_batch", "READ", "Download several URLs in parallel.", {
-    params: ["urls", "render"],
+  // Sin `render` (la palabra "navegador" lo activaba y el valor `auto` ya recurre al navegador si HTTP falla), sin
+  // `max_age_hours` (con 0 equivale a `force_refresh`; su tipo `anyOf` complica el schema) ni `format` ni `inline`: el extractor asume Markdown.
+  def("web", "fetch", "READ", "Download ONE known URL as Markdown. To find pages, use research.", {
+    params: ["url", "force_refresh"],
   }),
 ];
 

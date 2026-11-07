@@ -16,7 +16,7 @@
 
 import type { ResultEntry, StopReason } from "../ctx/index.ts";
 import { terminalStateFor } from "../ctx/index.ts";
-import { ContextOverflowError, renderFallback, renderFinal } from "../render/index.ts";
+import { ContextOverflowError, renderFallback, renderFinal, renderStatusNote } from "../render/index.ts";
 import { finalRenderOptions, finalViewOptions, windowOptions } from "./adapters.ts";
 import type { EngineEnv } from "./env.ts";
 import { isLlmDown, queryModel } from "./failures.ts";
@@ -60,5 +60,8 @@ async function answer(env: EngineEnv): Promise<ResultEntry> {
     console.error(`[Engine] LLM 3 falló (${query.failure}); respuesta de respaldo.`);
     return fallback();
   }
-  return { text: query.value.response, origin: "model" };
+  // Con la tarea incompleta, el encabezado fijo va antes de lo que redactó el modelo.
+  const failed = [...new Set(ctx.find("steps", { state: "failed", superseded: false }).map((x) => x.instruction ?? ctx.task.request))];
+  const note = renderStatusNote(ctx.view.forFallback(windowOptions()), failed);
+  return { text: note === null ? query.value.response : `${note}\n\n${query.value.response}`, origin: "model" };
 }
