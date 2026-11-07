@@ -63,7 +63,7 @@ export type StageEntry<TOutput = unknown, TExpect = unknown, TReq = unknown> =
 // ───────────────────────── Registro ─────────────────────────
 
 import { argsReviewStage, resultVerificationStage, routeStage, toolChoiceStage } from "./decision.ts";
-import { argumentsStage, finalStage, planStage, questionStage } from "./generative.ts";
+import { argumentsStage, finalStage, pendingStage, planStage, questionStage } from "./generative.ts";
 
 /** Registro indexado por nombre de etapa. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,6 +76,7 @@ const REGISTRY = new Map<StageName, DecisionStageEntry<any, any> | GenerativeSta
   ["arguments", argumentsStage],
   ["final", finalStage],
   ["question", questionStage],
+  ["pending", pendingStage],
 ]);
 
 export function getStage(name: StageName): DecisionStageEntry<unknown, unknown> | GenerativeStageEntry<unknown, unknown> {

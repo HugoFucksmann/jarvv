@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { PromptOverrides } from "../contract.ts";
 import type { Variant } from "./types.ts";
 
 /** Directorio donde viven las variantes (relativo al CWD). */
@@ -102,11 +103,11 @@ export function parseVariantSpecs(raw: string, withBaseline = true): string[] {
  * Carga y compone las variantes de una especificación compuesta (`a+b` o `a`).
  * Devuelve `{ variant, chain, parts, hash }`.
  *
- * - `parts`: las variantes individuales, en orden. El request SE APLICA con
- *   `applyVariantChain(case, parts)` (semántica secuencial correcta).
- * - `variant`: vista compuesta, solo válida para leer campos de parseo/params
- *   (`labelMap`, `answerMap`, `params`). NO usarla con `applyVariant` si hay más de una parte:
- *   sus ediciones de request no son equivalentes a aplicarlas en secuencia.
+ * - `parts`: las variantes individuales, en orden. Las ediciones del request se aplican con
+ *   `applyVariantToCases(cases, parts)` (en secuencia).
+ * - `variant`: vista compuesta, solo válida para leer lo que se fusiona (`prompts`, `labelMap`, `answerMap`,
+ *   `params`). NO usarla con `applyVariant` si hay más de una parte: sus ediciones de request no son equivalentes a
+ *   aplicarlas en secuencia.
  */
 export async function loadVariantSpec(spec: string): Promise<{
   variant: Variant;
@@ -127,21 +128,30 @@ export async function loadVariantSpec(spec: string): Promise<{
 }
 
 /**
- * Vista compuesta de una cadena de variantes, SOLO con lo que el runner lee de `variant`:
+ * Vista compuesta de una cadena de variantes, con lo que se fusiona (gana la última variante de la cadena, por pieza):
+ *  - `prompts`                                  (casos por escenario: `datasets.ts` los rearma al cargar)
  *  - `decision[stage].labelMap` / `answerMap`  (parseo en `labels.ts`)
  *  - `generative[stage].params`                 (`expandThinking` en `runner.ts`)
  *
- * Las ediciones de request (`state`, `questions`, `system`, `user`, ...) NO se componen aquí:
- * se aplican en secuencia con `applyVariantChain(case, parts)`, que es la semántica correcta.
- * En los mapas gana la última variante de la cadena.
+ * Las ediciones de request (`state`, `questions`, `system`, `user`, ...) NO se componen aquí: se acumulan en orden y se
+ * aplican con `applyVariantToCases(cases, parts)`, después de armar el request.
  */
 function composeParseView(variants: Variant[]): Variant {
   type DecisionMap = NonNullable<Variant["decision"]>;
   type GenerativeMap = NonNullable<Variant["generative"]>;
   const decision: DecisionMap = {};
   const generative: GenerativeMap = {};
+  let prompts: PromptOverrides | undefined;
 
   for (const v of variants) {
+    if (v.prompts) {
+      // Un `prompts` vacío también cuenta: la variante pasa por el camino de armado con prompts (igual a producción).
+      prompts = { ...prompts, PROMPTS: { ...prompts?.PROMPTS }, DECISION_PROMPTS: { ...prompts?.DECISION_PROMPTS, ...v.prompts.DECISION_PROMPTS } };
+      for (const [view, pieces] of Object.entries(v.prompts.PROMPTS ?? {})) {
+        const key = view as keyof NonNullable<PromptOverrides["PROMPTS"]>;
+        prompts.PROMPTS = { ...prompts.PROMPTS, [key]: { ...prompts.PROMPTS?.[key], ...pieces } };
+      }
+    }
     for (const stage of Object.keys(v.decision ?? {}) as (keyof DecisionMap)[]) {
       const sv = v.decision?.[stage];
       if (!sv || (!sv.labelMap && !sv.answerMap)) continue;
@@ -158,5 +168,5 @@ function composeParseView(variants: Variant[]): Variant {
     }
   }
 
-  return { name: variants.map((v) => v.name).join("+"), decision, generative };
+  return { name: variants.map((v) => v.name).join("+"), ...(prompts ? { prompts } : {}), decision, generative };
 }

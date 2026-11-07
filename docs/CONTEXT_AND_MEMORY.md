@@ -30,7 +30,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
     "id": string,                          // "s1"…
     "at": number,
     "planId": string | null,               // null en reactivo
-    "instruction": string | null,          // null en reactivo
+    "instruction": string | null,          // siempre presente; en reactivo, el primer pendiente
     "route": string | null,                // null en reactivo
     "expected": string | null,             // null en reactivo
     "state": "pending" | "running" | "completed" | "failed",
@@ -86,7 +86,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
 |---|---|---|
 | `task` | Id, modo, solicitud, estado, motivo de detención, inicio | Alta al crear; estado y motivo solo con `finish` |
 | `plans` | Un plan por vez que se planificó | Planificador |
-| `steps` | Pasos; ruta, instrucción y resultado esperado vacíos en reactivo | Bucle de pasos y planificador |
+| `steps` | Pasos; en reactivo la instrucción es el primer pendiente y el plan, la ruta y el resultado esperado quedan vacíos | Bucle de pasos y planificador |
 | `calls` | Una por llamada a herramienta | Ejecutor de llamadas (alta) y verificación (veredicto) |
 | `errors` | Fallos de infraestructura asociados a un paso | Motor |
 | `facts` | `process` (proceso activo, como texto) y `answer_<paso>_<n>` (`pregunta -> respuesta`; si excede 500 caracteres, el texto completo va a una ref) | Motor |
@@ -140,7 +140,7 @@ Todo lo que no es un dato primario se recalcula desde `calls`, `steps`, `plans` 
 | Último resultado | Última llamada aprobada que no es un efecto |
 | Últimas lecturas | Lecturas `ok` aprobadas más recientes (hasta 3) |
 | Entrada del usuario | Respuestas (`answer_*`) y las instrucciones dadas al rechazar una operación |
-| Cierre reactivo (`canFinish`) | `completed` si no hay llamadas o alguna está aprobada; `no_alternatives` si solo hubo rechazos del usuario |
+| Cierre reactivo (`canFinish`) | Cuando la lista de pendientes queda vacía: `completed` si no hay llamadas o alguna está aprobada; `no_alternatives` si solo hubo rechazos del usuario; `null` (no se puede cerrar) si solo hubo fallos |
 | Cierre deliberativo | `completed` si hay al menos un paso vigente y todos están `completed` |
 | Contadores | Llamadas por paso (sin rechazos del usuario), replans, escalaciones (pasos `failed`) |
 | Ventana reciente | Los últimos 2, 5 o 10 elementos según haya 0, 1 o 2 o más escalaciones |
@@ -159,9 +159,10 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 | `forReview` | Decisión 3 (revisión de argumentos) |
 | `forVerify` | Decisión 4 (verificación) |
 | `forAsk` | Pregunta al usuario |
+| `forPending` | Lista de pendientes del reactivo: solicitud, lista anterior, lo hecho (con argumentos y resumen), últimos intentos fallidos y entrada del usuario |
 | `forFinal` / `forFallback` | Respuesta final con modelo / respuesta de respaldo sin modelo |
 
-- **Qué muestra cada una** depende del modo: en reactivo, la solicitud y lo hecho; en deliberativo, el paso actual y los pasos completados con su resultado.
+- **Qué muestra cada una** depende del modo, pero en ambos las decisiones, los argumentos y la verificación ven el paso actual (en reactivo, el primer pendiente; la solicitud completa solo la ven la lista de pendientes, la pregunta al usuario y la respuesta final). En reactivo suman lo hecho y el último resultado; en deliberativo, los pasos completados con su resultado. Los intentos que ven las decisiones son los del paso actual.
 - **Topes por sección**: cada bloque de una vista tiene su tope de caracteres (tabla `caps` de `budget.ts`), y los elementos largos se recortan con un marcador de omisión. Los efectos y posibles efectos **nunca se recortan**: comparten una reserva de 12 000 caracteres y, si no caben, la tarea se cierra con `unrecoverable` en vez de mostrar una versión parcial.
 - **Saneamiento**: todo texto externo (resúmenes, argumentos, rutas, instrucciones) pasa por un saneador que neutraliza las etiquetas `<obs>` y los encabezados de bloque del prompt (`LOG:`, `PASOS:`, etc.), de modo que un dato no pueda hacerse pasar por estructura.
 - **Guarda de contexto**: antes de cada llamada al modelo generativo se estima el prompt (3 caracteres por token); si no deja margen mínimo para la salida, la llamada se rechaza. `qwenNumCtx` debe coincidir con el contexto real del servidor.

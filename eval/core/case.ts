@@ -13,7 +13,7 @@ import type { DecisionStage, FrozenCase, GenerativeStage, StageName } from "./ty
  * verdad; esta lista debe coincidir con él.
  */
 export const DECISION_STAGES: readonly DecisionStage[] = ["route", "tool_choice", "args_review", "result_verification"];
-export const GENERATIVE_STAGES: readonly GenerativeStage[] = ["plan", "arguments", "final", "question"];
+export const GENERATIVE_STAGES: readonly GenerativeStage[] = ["plan", "arguments", "final", "question", "pending"];
 export const ALL_STAGES: readonly StageName[] = [...DECISION_STAGES, ...GENERATIVE_STAGES];
 
 /** Tag automático de 7.9: decisión con una sola opción (producción omitiría la llamada). */
@@ -134,6 +134,10 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
     keys: { maxChars: "number", mustContainKeywords: "string[]", forbiddenKeywords: "string[]", singleQuestionOnly: "boolean" },
     atLeastOne: ["maxChars", "mustContainKeywords", "forbiddenKeywords", "singleQuestionOnly"],
   },
+  pending: {
+    keys: { expectEmpty: "boolean", maxItems: "number", requiredKeywordsInFirst: "string[]", forbiddenKeywords: "string[]" },
+    atLeastOne: ["expectEmpty", "maxItems", "requiredKeywordsInFirst", "forbiddenKeywords"],
+  },
 };
 
 const ENUM_VALUES: Partial<Record<StageName, Record<string, readonly string[]>>> = {
@@ -250,7 +254,7 @@ function validateExpect(stage: StageName, expectObj: Record<string, unknown>, er
       errs.push(`expect.${key} debe estar entre 0 y 1 (recibido: ${v}).`);
     }
   }
-  for (const key of ["minSteps", "maxSteps", "maxChars"]) {
+  for (const key of ["minSteps", "maxSteps", "maxChars", "maxItems"]) {
     const v = expectObj[key];
     if (typeof v === "number" && Number.isFinite(v) && (!Number.isInteger(v) || v < 1)) {
       errs.push(`expect.${key} debe ser un entero >= 1 (recibido: ${v}).`);
@@ -276,6 +280,9 @@ function validateExpect(stage: StageName, expectObj: Record<string, unknown>, er
   }
   validateAnswers(expectObj.answers, request, errs);
   // Coherencias entre claves.
+  if (stage === "pending" && expectObj.expectEmpty === true && expectObj.requiredKeywordsInFirst !== undefined) {
+    errs.push("expect.requiredKeywordsInFirst contradice expectEmpty=true (una lista vacía no tiene primer pendiente).");
+  }
   if (stage === "route" && expectObj.expectedRoute !== undefined && expectObj.expectedAction !== "route") {
     errs.push("expect.expectedRoute solo aplica con expectedAction 'route'.");
   }

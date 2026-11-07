@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { validateCase } from "./case.ts";
+import type { PromptOverrides } from "./contract.ts";
 import { globBaseDir, isGlob, matchGlob, normalizePath } from "./glob.ts";
 import { materializeScenario } from "./scenario.ts";
 import type { Scenario } from "./scenario.ts";
@@ -136,7 +137,7 @@ export function resolveDatasetPaths(specs: string[]): string[] {
 }
 
 /** Lee y valida un archivo. Acumula errores `archivo:línea: mensaje` en `errors`. */
-function loadFile(path: string, errors: string[]): Dataset {
+function loadFile(path: string, errors: string[], ov?: PromptOverrides): Dataset {
   const content = readFileSync(path, "utf8");
   const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
   const cases: FrozenCase[] = [];
@@ -165,7 +166,7 @@ function loadFile(path: string, errors: string[]): Dataset {
         return;
       }
       try {
-        const m = materializeScenario(String(rest.stage), scenario as Scenario);
+        const m = materializeScenario(String(rest.stage), scenario as Scenario, ov);
         const meta = rest.meta !== null && typeof rest.meta === "object" ? (rest.meta as Record<string, unknown>) : {};
         source = "scenario";
         parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema } } : {}) };
@@ -204,10 +205,11 @@ export function filterCases(cases: FrozenCase[], f: CaseFilters): FrozenCase[] {
 }
 
 /**
- * Resuelve, valida (todos los archivos, antes de filtrar) y filtra. Lanza `Error` con un mensaje por línea
+ * Resuelve, valida (todos los archivos, antes de filtrar) y filtra. `ov`: los prompts de una variante, con los que se rearman
+ * los casos por escenario (sin `ov`, los de producción). Lanza `Error` con un mensaje por línea
  * si hay datasets inválidos o nombres de dataset repetidos.
  */
-export function loadDatasets(specs: string[], filters: CaseFilters = {}): Dataset[] {
+export function loadDatasets(specs: string[], filters: CaseFilters = {}, ov?: PromptOverrides): Dataset[] {
   const paths = resolveDatasetPaths(specs);
 
   const byName = new Map<string, string>();
@@ -221,7 +223,7 @@ export function loadDatasets(specs: string[], filters: CaseFilters = {}): Datase
   }
 
   const errors: string[] = [];
-  const datasets = paths.map((p) => loadFile(p, errors));
+  const datasets = paths.map((p) => loadFile(p, errors, ov));
   if (errors.length > 0) throw new Error(errors.join("\n"));
 
   // Un id que no existe en ningún dataset (typo) se ignoraba si otros ids sí coincidían.

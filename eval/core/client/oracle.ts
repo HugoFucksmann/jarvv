@@ -112,6 +112,12 @@ function oracleQuestion(expect: Rec): string {
   return max !== undefined && text.length > max ? text.slice(0, Math.max(1, max - 1)) + "?" : text;
 }
 
+/** Lista vacía si el caso la espera vacía; si no, un pendiente con las palabras clave que pide el `expect`. */
+function oraclePending(expect: Rec): string {
+  if (expect.expectEmpty === true) return JSON.stringify({ pending: [] });
+  return JSON.stringify({ pending: [["Next action", ...strs(expect.requiredKeywordsInFirst)].join(" ")] });
+}
+
 export function oracleGenerativeResponder(
   prepared: PreparedRequest,
   _req: GenerativeRequest,
@@ -127,6 +133,8 @@ export function oracleGenerativeResponder(
       return ["Listo.", ...strs(expect.mustContainFacts), ...strs(expect.mustMentionEffects)].join(" ");
     case "question":
       return oracleQuestion(expect);
+    case "pending":
+      return oraclePending(expect);
     default:
       return "{}";
   }

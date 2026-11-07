@@ -12,7 +12,7 @@
  * etapa; acá solo se registra, para poder cruzarla con las demás.
  */
 
-import { NOUL_APPROVE } from "./contract.ts";
+import { NOUL_APPROVE, validateAnswer } from "./contract.ts";
 import type {
   AnswerExpects,
   ChoiceQ,
@@ -70,29 +70,28 @@ function mainBindings(
   return out.filter((b) => req.questions[b.question] !== undefined);
 }
 
+/** Valida una pregunta `choice` con el código de producción; devuelve el motivo si la respuesta no sirve. */
 function readChoice(
-  a: ParsedAnswer | undefined,
+  key: string,
+  a: unknown,
   q: ChoiceQ,
 ): { answer: string; probabilities: Record<string, number> } | string {
-  if (!a || typeof a !== "object") return "la respuesta no incluye esta pregunta";
-  if (typeof a.choice !== "string" || !Object.prototype.hasOwnProperty.call(q.criteria, a.choice)) {
-    return `choice_not_in_criteria: '${String(a.choice)}'`;
+  try {
+    const v = validateAnswer(key, q, a);
+    return "choice" in v ? { answer: v.choice, probabilities: v.probabilities } : "la respuesta no es de tipo choice";
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
-  const probabilities: Record<string, number> = {};
-  if (a.probabilities && typeof a.probabilities === "object") {
-    for (const [k, v] of Object.entries(a.probabilities)) {
-      if (typeof v === "number" && Number.isFinite(v)) probabilities[k] = v;
-    }
-  }
-  return { answer: a.choice, probabilities };
 }
 
-function readNoul(a: ParsedAnswer | undefined): number | string {
-  if (!a || typeof a !== "object") return "la respuesta no incluye esta pregunta";
-  if (typeof a.noul !== "number" || !Number.isFinite(a.noul) || a.noul < 0 || a.noul > 1) {
-    return "noul debe ser un número en [0,1]";
+/** Valida una pregunta `noul` con el código de producción; devuelve el motivo si la respuesta no sirve. */
+function readNoul(key: string, a: unknown): number | string {
+  try {
+    const v = validateAnswer(key, { type: "noul", instructions: "" }, a);
+    return "noul" in v ? v.noul : "la respuesta no es de tipo noul";
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
-  return a.noul;
 }
 
 function explicitExpected(a: AnswerExpects[string] | undefined, type: "choice" | "noul"): string | null {
@@ -141,7 +140,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
     if (globalError !== undefined) {
       res.error = globalError;
     } else if (q.type === "choice") {
-      const r = readChoice(raw, q);
+      const r = readChoice(key, raw, q);
       if (typeof r === "string") {
         res.error = r;
       } else {
@@ -152,7 +151,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
         if (res.answer !== r.answer) res.rawAnswer = r.answer;
       }
     } else {
-      const r = readNoul(raw);
+      const r = readNoul(key, raw);
       if (typeof r === "string") {
         res.error = r;
       } else {

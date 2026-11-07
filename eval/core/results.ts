@@ -42,10 +42,9 @@ export function timestampDir(): string {
   );
 }
 
-/** Nombre de carpeta de celda: `<variante>__<dataset>`, más `__<target>` cuando la corrida compara modelos. */
-export function cellDirName(variantSpec: string, datasetName: string, targetId?: string): string {
-  const base = `${safeName(variantSpec)}__${safeName(datasetName)}`;
-  return targetId ? `${base}__${safeName(targetId)}` : base;
+/** Nombre de carpeta de celda: `<variante>__<dataset>`. */
+export function cellDirName(variantSpec: string, datasetName: string): string {
+  return `${safeName(variantSpec)}__${safeName(datasetName)}`;
 }
 
 /**
@@ -62,15 +61,8 @@ export function runRootDir(cfg: EvalConfig, ts: string): string {
     for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
     return dir;
   }
-  // La carpeta nombra lo que corre. Una configuración (o un solo flag): el modelo generativo, o el de decisión con
-  // `--d-model`. Varias: todos los nombres unidos (`a+b`); en modo "all", cada configuración como `gen~decisión`.
-  const names = (list: string[]) => list.map(safeName).join("+");
-  const modelDir =
-    cfg.modelScope === "decision"
-      ? names(cfg.decisionModels)
-      : cfg.modelScope === "generative" || cfg.pairs.length <= 1
-        ? names(cfg.models)
-        : cfg.pairs.map((p) => `${safeName(p.model)}~${safeName(p.decisionModel)}`).join("+").slice(0, 100);
+  // La carpeta nombra el modelo generativo.
+  const modelDir = safeName(cfg.model);
   const base = `eval/results/${modelDir}/${ts}${label}`;
   let dir = base;
   for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
@@ -111,8 +103,8 @@ export interface CellWriter {
   readonly cellDir: string;
 }
 
-export function createCellWriter(rootDir: string, variantSpec: string, datasetName: string, targetId?: string): CellWriter {
-  const cellDir = resolve(`${rootDir}/${cellDirName(variantSpec, datasetName, targetId)}`);
+export function createCellWriter(rootDir: string, variantSpec: string, datasetName: string): CellWriter {
+  const cellDir = resolve(`${rootDir}/${cellDirName(variantSpec, datasetName)}`);
   mkdirSync(cellDir, { recursive: true });
 
   const records: RunRecord[] = [];
@@ -149,8 +141,6 @@ export function buildRunMeta(opts: {
   datasetPath: string;
   datasetHash: string;
   stages: StageName[];
-  /** Target de la celda; define qué modelos figuran en el meta. Sin él, ambos modelos de `cfg`. */
-  scope?: RunMeta["scope"];
   /** ISO 8601 del inicio de la corrida (igual que `RunRecord.timestamp`). */
   timestamp: string;
   /** Un solo id por invocación: pasar el mismo a todas las celdas. Si falta, se genera uno. */
@@ -159,16 +149,14 @@ export function buildRunMeta(opts: {
   caseIds: string[];
 }): RunMeta {
   const { cfg, variantChain, variantHash, datasetPath, datasetHash, stages, timestamp, caseIds } = opts;
-  const scope = opts.scope ?? "all";
   const git = gitInfo();
 
   return {
     schemaVersion: SCHEMA_VERSION,
     runId: opts.runId ?? newRunId(),
     timestamp,
-    model: scope === "decision" ? null : cfg.model,
-    decisionModel: scope === "generative" ? null : cfg.decisionModel,
-    scope,
+    model: cfg.model,
+    decisionModel: cfg.decisionModel,
     url: cfg.url,
     decisionUrl: cfg.decisionUrl,
     variantChain,

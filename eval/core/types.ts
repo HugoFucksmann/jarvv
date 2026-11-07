@@ -5,7 +5,7 @@
  * Secciones del documento: 5.1 caso frozen, 5.2 expect/output, 5.3 variantes, 5.4 resultados, 8 graders, 9 scoring.
  */
 
-import type { ToolInputSchema } from "./contract.ts";
+import type { PromptOverrides, ToolInputSchema } from "./contract.ts";
 
 /** Versión del esquema de salida. Incrementar al cambiar campos incompatibles. */
 export const SCHEMA_VERSION = 2 as const;
@@ -13,7 +13,7 @@ export const SCHEMA_VERSION = 2 as const;
 // ───────────────────────── Etapas ─────────────────────────
 
 export type DecisionStage = "route" | "tool_choice" | "args_review" | "result_verification";
-export type GenerativeStage = "plan" | "arguments" | "final" | "question";
+export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
 // ───────────────────────── 5.1 Caso frozen ─────────────────────────
@@ -62,6 +62,8 @@ export interface FrozenCase {
    * código de Jarvis desde un escenario. Lo asigna el cargador; un dataset no puede traerlo.
    */
   source?: CaseSource;
+  /** Lo asigna la carga por variante si una edición no se pudo aplicar a este caso; el runner lo registra y no llama al modelo. */
+  variantApplyError?: string;
   /** Debe coincidir con el tipo de la etapa. */
   request: DecisionRequest | GenerativeRequest;
   expect: StageExpect;
@@ -194,6 +196,20 @@ export interface QuestionExpect {
   singleQuestionOnly?: boolean;
 }
 
+// pending (lista de pendientes del reactivo)
+export interface PendingOutput {
+  pending: string[];
+}
+export interface PendingExpect {
+  /** `true`: la lista debe venir vacía (nada por hacer); `false`: debe tener al menos un pendiente. */
+  expectEmpty?: boolean;
+  maxItems?: number;
+  /** Palabras que debe contener el primer pendiente (la instrucción del paso). */
+  requiredKeywordsInFirst?: string[];
+  /** Palabras que no puede contener ningún pendiente (por ejemplo, un comando o herramienta inventados). */
+  forbiddenKeywords?: string[];
+}
+
 export type StageExpect =
   | RouteExpect
   | ToolChoiceExpect
@@ -202,7 +218,8 @@ export type StageExpect =
   | PlanExpect
   | ArgumentsExpect
   | FinalExpect
-  | QuestionExpect;
+  | QuestionExpect
+  | PendingExpect;
 
 // ───────────────────────── 5.3 Variantes ─────────────────────────
 
@@ -236,6 +253,11 @@ export interface GenerativeStageVariant {
 export interface Variant {
   /** Debe coincidir con el nombre del archivo. */
   name: string;
+  /**
+   * Prompts enteros (piezas de `PROMPTS` y `DECISION_PROMPTS` que reemplaza). Solo aplica a casos por escenario, que se
+   * rearman al cargar con estos prompts; en un caso fijo se ignora. Las ediciones de abajo se aplican después.
+   */
+  prompts?: PromptOverrides;
   decision?: Partial<Record<DecisionStage, DecisionStageVariant>>;
   generative?: Partial<Record<GenerativeStage, GenerativeStageVariant>>;
 }
@@ -324,12 +346,10 @@ export interface RunMeta {
   schemaVersion: typeof SCHEMA_VERSION;
   runId: string;
   timestamp: string;
-  /** Modelo generativo; null si la celda no corre etapas generativas. */
-  model: string | null;
-  /** Modelo de decisión; null si la celda no corre etapas de decisión. */
-  decisionModel: string | null;
-  /** all = un solo target con ambos modelos; con varios modelos cada celda cubre un solo tipo de etapa. */
-  scope: "all" | "generative" | "decision";
+  /** Modelo generativo. */
+  model: string;
+  /** Modelo de decisión. */
+  decisionModel: string;
   url: string;
   decisionUrl: string;
   variantChain: string[];

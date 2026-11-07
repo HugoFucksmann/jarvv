@@ -1,6 +1,6 @@
 # Plan de refactor del flujo
 
-Estado: **plan aprobado; el orden de ejecución es el de los pasos de abajo**. Alcance: solo el flujo (etapas, orden, transiciones, bucles, cierre). Lo demás está en `PENDIENTES_FUERA_DE_FLUJO.md`. El refactor del ctx está terminado y no se rediseña.
+Estado: **pasos 1 a 7 ejecutados** (el paso 8, el eval, está en `PLAN_EVAL.md`). Lo que quedó abierto está en `PENDIENTES_FUERA_DE_FLUJO.md`; el comportamiento vigente, en `CORE_FLOW.md`. Alcance: solo el flujo (etapas, orden, transiciones, bucles, cierre). Lo demás está en `PENDIENTES_FUERA_DE_FLUJO.md`. El refactor del ctx está terminado y no se rediseña.
 
 Reglas: sin tests nuevos ni modificados; sin cambios fuera de este plan; sin hardening ni pulido (desarrollo local). Cada paso se aplica por separado, para poder comparar las trazas de antes y después.
 

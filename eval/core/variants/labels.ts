@@ -15,6 +15,8 @@ import {
   FIN,
   isExecutableRoute,
   NOUL_APPROVE,
+  parseAnswersObject,
+  validateAnswer,
 } from "../contract.ts";
 import type {
   ArgsReviewOutput,
@@ -52,23 +54,13 @@ export interface ParsedAnswer {
   noul?: number;
 }
 
+/** El objeto `answers` de la respuesta cruda. Valida con el mismo código que producción (`src/core/decision.ts`). */
 export function parseAnswers(rawOutput: string): Record<string, ParsedAnswer> {
-  let data: unknown;
   try {
-    data = JSON.parse(rawOutput);
-  } catch {
-    throw new DecisionParseError("La respuesta de decisión no es JSON válido.");
+    return parseAnswersObject(rawOutput) as Record<string, ParsedAnswer>;
+  } catch (e) {
+    throw new DecisionParseError(e instanceof Error ? e.message : String(e));
   }
-  if (
-    typeof data !== "object" ||
-    data === null ||
-    !("answers" in data) ||
-    typeof (data as Record<string, unknown>).answers !== "object" ||
-    (data as Record<string, unknown>).answers === null
-  ) {
-    throw new DecisionParseError("La respuesta de decisión no contiene 'answers' objeto.");
-  }
-  return (data as { answers: Record<string, ParsedAnswer> }).answers;
 }
 
 /** Extrae el valor de una pregunta `choice` de los answers. Lanza si falta o no está en criteria. */
@@ -77,35 +69,24 @@ function extractChoice(
   questionKey: string,
   sentCriteria: Record<string, string>,
 ): { choice: string; probabilities: Record<string, number> } {
-  const a = answers[questionKey];
-  if (!a || typeof a !== "object") {
-    throw new DecisionParseError(`La respuesta no incluye la pregunta '${questionKey}'`);
+  try {
+    const a = validateAnswer(questionKey, { type: "choice", instructions: "", criteria: sentCriteria }, answers[questionKey]);
+    if (!("choice" in a)) throw new Error(`La respuesta de '${questionKey}' no es de tipo choice.`);
+    return { choice: a.choice, probabilities: a.probabilities };
+  } catch (e) {
+    throw new DecisionParseError(e instanceof Error ? e.message : String(e));
   }
-  // hasOwnProperty: `in` aceptaba "constructor" / "toString" por la cadena de prototipos.
-  if (typeof a.choice !== "string" || !Object.prototype.hasOwnProperty.call(sentCriteria, a.choice)) {
-    throw new DecisionParseError(
-      `choice_not_in_criteria: '${String(a.choice)}' no es una opción válida en '${questionKey}'.`,
-    );
-  }
-  const probs: Record<string, number> = {};
-  if (a.probabilities && typeof a.probabilities === "object") {
-    for (const [k, v] of Object.entries(a.probabilities)) {
-      if (typeof v === "number" && Number.isFinite(v)) probs[k] = v;
-    }
-  }
-  return { choice: a.choice, probabilities: probs };
 }
 
 /** Extrae el valor de una pregunta `noul`. Lanza si falta o está fuera de rango. */
 function extractNoul(answers: Record<string, ParsedAnswer>, questionKey: string): number {
-  const a = answers[questionKey];
-  if (!a || typeof a !== "object") {
-    throw new DecisionParseError(`La respuesta no incluye la pregunta '${questionKey}'`);
+  try {
+    const a = validateAnswer(questionKey, { type: "noul", instructions: "" }, answers[questionKey]);
+    if (!("noul" in a)) throw new Error(`La respuesta de '${questionKey}' no es de tipo noul.`);
+    return a.noul;
+  } catch (e) {
+    throw new DecisionParseError(e instanceof Error ? e.message : String(e));
   }
-  if (typeof a.noul !== "number" || !Number.isFinite(a.noul) || a.noul < 0 || a.noul > 1) {
-    throw new DecisionParseError(`noul en '${questionKey}' debe ser un número en [0,1].`);
-  }
-  return a.noul;
 }
 
 /** Clave de la pregunta `choice` según el answerMap. Lanza DecisionParseError (no TypeError) si falta. */

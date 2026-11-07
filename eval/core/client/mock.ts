@@ -107,6 +107,7 @@ function defaultGenerativeResponder(
 ): MockGenerativeResponse {
   const schema = sentSchema(prepared);
   if (schema) {
+    if (isRecord(schema.properties) && schema.properties.pending) return { rawOutput: JSON.stringify({ pending: ["Mock pending"] }) };
     return { rawOutput: isRecord(schema.properties) && schema.properties.steps ? mockPlan(prepared) : "{}" };
   }
   if (hasResponseFormat(prepared, "json_object")) return { rawOutput: mockArgsFor(ctx?.toolSchema) };

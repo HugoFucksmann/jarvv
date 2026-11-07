@@ -30,6 +30,7 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 | Generativa | `arguments` | Campos requeridos, valores exactos, refs válidos, valores prohibidos |
 | Generativa | `final` | Datos y efectos que debe mencionar, alucinaciones prohibidas |
 | Generativa | `question` | Largo, una sola pregunta, sin fugas de identificadores internos |
+| Generativa | `pending` | Lista de pendientes del reactivo: primer pendiente, palabras prohibidas, lista vacía cuando no queda nada por hacer |
 
 Cada corrida ejecuta **variante × dataset × caso × repetición**.
 
@@ -41,7 +42,7 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 | Flag | Tipo | Descripción |
 |---|---|---|
 | `--list` | Booleano | Muestra las etapas registradas, variantes disponibles en `eval/variants/` y datasets por defecto, finalizando inmediatamente. |
-| `--menu` | Booleano | Asistente interactivo: elige modo (`--d-model`, `--llm-model` o `--model`), modelos, datasets, origen de los casos (`--source`), variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
+| `--menu` | Booleano | Asistente interactivo: elige modelos, datasets, origen de los casos (`--source`), variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
 | `--help` | Booleano | Resumen breve de uso. |
 | `--dry-run` | Booleano | Carga la configuración, datasets y variantes pero no invoca a los modelos ni evalúa. |
 
@@ -49,7 +50,7 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 | Flag | Tipo / Formato | Default | Descripción |
 |---|---|---|---|
 | `--dataset` | CSV de rutas / glob / carpetas | `eval/datasets/` | Archivos `.jsonl`, directorios o globs a evaluar. Basta el nombre: `--dataset=smoke` (o `smoke.jsonl`, o `decision_*`) se busca en `eval/datasets/`; una ruta que existe se respeta tal cual. |
-| `--stages` | CSV de etapas | *(todas)* | Filtra por etapas específicas (válidas: `plan`, `arguments`, `final`, `question`, `route`, `tool_choice`, `args_review`, `result_verification`). |
+| `--stages` | CSV de etapas | *(todas)* | Filtra por etapas específicas (válidas: `plan`, `arguments`, `final`, `question`, `pending`, `route`, `tool_choice`, `args_review`, `result_verification`). |
 | `--tags` | CSV de etiquetas | *(ninguno)* | Evalúa solo casos que contengan los tags especificados. |
 | `--source` | `frozen` \| `scenario` | *(ambos)* | Distingue el origen del contexto de los casos: `frozen` = prompt escrito a mano en el dataset (contexto inventado); `scenario` = armado con el código de Jarvis desde un escenario (ver "Casos por escenario"). Sin el flag corren ambos. |
 | `--ids` | CSV de IDs | *(ninguno)* | Evalúa solo casos con los IDs exactos indicados. |
@@ -68,36 +69,10 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 Los modelos y URLs por defecto salen de la configuración de producción (`jarvis-config.json`; sin ese archivo, sus valores por defecto: `qwen3.5:4b` y `d3:2b` en Ollama local). Así el eval mide por defecto lo que corre Jarvis. Los valores de la tabla son esos defaults.
 | Flag | Tipo / Opciones | Default | Descripción |
 |---|---|---|---|
-| `--model` | `<llm>[+<decisión>]`, CSV | `qwen3.5:4b+d3:2b` | **Modo común: todas las etapas.** Cada elemento es una configuración: modelo generativo y, tras `+`, el de decisión. Un lado vacío usa su default (`--model=modA` = `modA` + `d3:2b`; `--model=+lfm3:1.7b` = `qwen3.5:4b` + `lfm3:1.7b`). Con varios (`--model=a+x,b+y`) se comparan las configuraciones completas. Excluyente con `--llm-model` y `--d-model`. |
-| `--llm-model` | CSV de modelos | `qwen3.5:4b` | Modelo(s) generativo(s) (ej: Ollama / vLLM / OpenAI compatible). **Corre solo las etapas generativas** y apaga las de decisión. Con varios (`--llm-model=modA,modB`) se compara cada uno contra los demás: ver "Comparar modelos". Excluyente con `--model` y `--d-model`. |
-| `--url` | URL | `http://127.0.0.1:11434` | Endpoint base del servidor para modelos generativos. |
-| `--d-model` | CSV de modelos | `d3:2b` | Modelo(s) de decisión (ej: `--d-model=d3:2b,lfm3:1.7b`). **Corre solo las etapas de decisión** y apaga las generativas. Excluyente con `--model` y `--llm-model`. |
+| `--model` | `<llm>[+<decisión>]` | `qwen3.5:4b+d3:2b` | Modelo generativo y, tras `+`, el de decisión. Un lado vacío usa su default (`--model=modA` = `modA` + `d3:2b`; `--model=+lfm3:1.7b` = `qwen3.5:4b` + `lfm3:1.7b`). El eval corre un solo modelo de cada tipo: para comparar modelos, correr dos veces. |
+| `--url` | URL | `http://127.0.0.1:11434` | Endpoint base del servidor para el modelo generativo. |
 | `--decision-url` | URL | `http://127.0.0.1:11434` | Endpoint del servidor de decisión (se le agrega `/v1/systemone`). |
 | `--client` | `real` \| `mock` \| `oracle` | `real` | `mock` devuelve respuestas genéricas sin red (prueba la maquinaria). `oracle` responde lo que pide el `expect` de cada caso: debe dar 100 %; si un caso falla, el bug está en el caso, un grader o el parseo, no en el modelo. Solo vale con la variante `prod` (no entiende `labelMap`/`answerMap`). |
-
-### Comparar modelos
-`--model`, `--llm-model` y `--d-model` son **excluyentes** (combinar dos o más es error de configuración). Cada uno define qué corre:
-
-| Flags | Modelos | Etapas que corren |
-|---|---|---|
-| ninguno | `qwen3.5:4b` + `d3:2b` (defaults) | todas |
-| `--model=<llm>[+<d>]` | esa configuración (generativo + decisión) | todas |
-| `--llm-model=a[,b…]` | solo los generativos | `plan`, `arguments`, `final`, `question` |
-| `--d-model=x[,y…]` | solo los de decisión | `route`, `tool_choice`, `args_review`, `result_verification` |
-
-Con `--llm-model` o `--d-model`, un `--stages` explícito del otro tipo es error de configuración (ej. `--d-model=x --stages=plan`); sin `--stages` se corren todas las etapas del tipo elegido. Con `--model`, `--stages` filtra como siempre, y si deja solo etapas de un tipo el modelo del otro no se usa.
-
-Con más de un elemento en la lista, la misma variante y el mismo dataset se corren contra cada uno en una sola ejecución y se comparan entre sí:
-
-- Cada caso se ejecuta una vez por elemento y en cada celda hay un solo modelo (o una sola configuración con `--model`).
-- El primer elemento de la lista es la **referencia**: los deltas (passRate, accuracy, p50, p95) son contra él.
-- Si un modelo no responde, sus runs cuentan como falla de cliente; la corrida solo termina con código `2` si fallaron **todas** las llamadas de todos los modelos.
-- La baseline de variantes se empareja por modelo: cada modelo se compara contra `prod` consigo mismo.
-- `--min-pass-rate` se evalúa por celda, es decir, por modelo.
-- Usar `--concurrency=1` para comparar latencias.
-- La comparación incluye lo propio de cada tipo de modelo:
-  - **Decisión:** accuracy, `P(correcta)` (probabilidad media que el modelo da a la opción correcta), `Brier` (error cuadrático medio de las probabilidades; 0 = perfecto, menor es mejor), `Errores seguros` (errores con probabilidad ≥ 80 % en la opción equivocada; solo en `route`, `tool_choice` y `args_review`), accuracy por pregunta y aciertos por clase esperada (solo las clases donde algún modelo se equivoca).
-  - **Generativo:** reintentos por salida inválida y checks fallidos por etapa (por qué falla cada modelo).
 
 ### Parámetros de Ejecución
 | Flag | Tipo / Opciones | Default | Descripción |
@@ -120,17 +95,17 @@ Con más de un elemento en la lista, la misma variante y el mismo dataset se cor
 Las corridas se almacenan organizadas por modelo y timestamp en:
 `eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/` (las corridas con `--client=oracle` o `--client=mock` no miden ningún modelo y van aparte, en `eval/results/_oracle/…` y `eval/results/_mock/…`)
 
-`<modelo>` es el modelo generativo, o el de decisión con `--d-model`; con varios los nombra a todos separados por `+` (`modA+modB`). Con varias configuraciones de `--model` cada una figura como `<llm>~<decisión>`.
+`<modelo>` es el modelo generativo.
 
 Si ya existe una carpeta con ese nombre (dos corridas en el mismo segundo) se agrega `-2`, `-3`… En Windows, los caracteres inválidos del modelo, la etiqueta y las celdas se reemplazan por `_`. Un mismo `runId` identifica todas las celdas de una invocación y `meta.timestamp` es ISO 8601.
 
 Dentro del directorio se genera:
-- `<variante>__<dataset>/` (con varios modelos: `<variante>__<dataset>__gen-<modelo>` o `__dec-<modelo>`, una por modelo):
+- `<variante>__<dataset>/`:
   - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens). En las decisiones, `questions` trae una entrada por cada pregunta del request (ver "Decisiones con varias preguntas").
   - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) o cuya variante no se pudo aplicar cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; los deltas comparan solo casos medidos en ambos lados y el reporte avisa si alguno quedó afuera. `latencySamples` indica cuántas llamadas hay detrás de las latencias: con 0, no hay dato aunque figure 0. La accuracy se calcula sobre las decisiones con respuesta y cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
-  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `scope` indica qué cubre la celda (`all`, `generative` o `decision`); el modelo que la celda no usa figura como `null`. `filters` (`tags`, `ids`, `source`, `limit`) y `cases` (cantidad y hash de los ids) dicen qué subconjunto del dataset corrió la celda: `datasetHash` es el del archivo completo, así que dos celdas solo son comparables si tienen el mismo `cases.hash`. `promptEnv` (fecha y hash de la configuración de etapas) explica por qué cambió el `requestHash` de un caso por escenario entre corridas aunque `src` sea el mismo.
-- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante y tipo de etapas —generativo y decisión, y un total mezclado cuando hay ambos, con la columna Tipo—: passRate agregado, Δ vs baseline, passRate macro por etapa, regresiones, mejoras, prueba de signos, runs sin medir, reintentos si los hubo, p50; si una variante mejora un tipo y empeora el otro agrega el aviso **Resultado mixto**, porque el total no sirve para decidir), resumen por etapa con las variantes lado a lado (el delta contra la baseline va entre paréntesis), regresiones, mejoras, casos raw y matrices de confusión. Con varios modelos agrega la sección **Comparación entre Modelos** (tabla global y por etapa con deltas contra la referencia, accuracy por pregunta y casos donde los modelos discrepan) y la tabla por variante trae una fila por modelo. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. La consola muestra el resumen por variante, el resumen por etapa (una línea por variante, con sus deltas), la comparación de modelos, las preguntas por etapa y las regresiones y mejoras (también las de casos raw); las matrices de confusión y las tablas completas quedan solo en `comparison.md`.
-- `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `rawRegressions`, `rawImprovements`, `modelComparisons`, `warnings`).
+  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `model` y `decisionModel` son los modelos de la corrida. `filters` (`tags`, `ids`, `source`, `limit`) y `cases` (cantidad y hash de los ids) dicen qué subconjunto del dataset corrió la celda: `datasetHash` es el del archivo completo, así que dos celdas solo son comparables si tienen el mismo `cases.hash`. `promptEnv` (fecha y hash de la configuración de etapas) explica por qué cambió el `requestHash` de un caso por escenario entre corridas aunque `src` sea el mismo.
+- `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante y tipo de etapas —generativo y decisión, y un total mezclado cuando hay ambos, con la columna Tipo—: passRate agregado, Δ vs baseline, passRate macro por etapa, regresiones, mejoras, prueba de signos, runs sin medir, reintentos si los hubo, p50; si una variante mejora un tipo y empeora el otro agrega el aviso **Resultado mixto**, porque el total no sirve para decidir), resumen por etapa con las variantes lado a lado (el delta contra la baseline va entre paréntesis), regresiones, mejoras, casos raw y matrices de confusión. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. La consola muestra el resumen por variante, el resumen por etapa (una línea por variante, con sus deltas), las preguntas por etapa y las regresiones y mejoras (también las de casos raw); las matrices de confusión y las tablas completas quedan solo en `comparison.md`.
+- `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `rawRegressions`, `rawImprovements`, `warnings`).
 
 ### Decisiones con varias preguntas
 Un request de decisión puede llevar varias preguntas (las del caso más las que agrega una variante con `addQuestions`) para cruzarlas en una sola pasada, por ejemplo para detectar falsos positivos y falsos negativos.
@@ -164,7 +139,7 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 
 ### Reintentos (iguales a producción)
 - **Transporte** (todas las etapas): ante error de red o HTTP 503 se reintenta una vez tras 1 s. El timeout es un presupuesto total que incluye el reintento y nunca se reintenta.
-- **Salida inválida o truncada** (solo `plan`, `arguments`, `final`, `question`): un reintento con `ERROR_PREVIO` agregado al `user`, 1.5× `maxTokens` y temperatura 0.3. En `final` el reintento va sin thinking. En `final` y `question` una salida truncada en el último intento se acepta, aunque `not_truncated` igual la marca. Las etapas de decisión no tienen este reintento.
+- **Salida inválida o truncada** (solo `plan`, `arguments`, `final`, `question`, `pending`): un reintento con `ERROR_PREVIO` agregado al `user`, 1.5× `maxTokens` y temperatura 0.3. En `final` el reintento va sin thinking. En `final` y `question` una salida truncada en el último intento se acepta, aunque `not_truncated` igual la marca. Las etapas de decisión no tienen este reintento.
 - El run guarda `measurements.attempts` y un warning por cada reintento. `durationMs` y los tokens suman todos los intentos. Los mensajes de error del reintento son los del eval, que pueden diferir en el texto de los de producción.
 
 ---
@@ -194,7 +169,7 @@ Un caso es una línea de un `.jsonl` en `eval/datasets/`.
 | Campo | Descripción |
 |---|---|
 | `id` | Único dentro del dataset |
-| `stage` | Una de las ocho etapas |
+| `stage` | Una de las nueve etapas |
 | `request` | Lo que se envía al modelo: `decision` (`state` + `questions`) o `generative` (`system` + `user` + parámetros). Alternativa: `scenario` (ver abajo) |
 | `expect` | Lo que debe cumplir la salida. Claves cerradas por etapa; un typo falla al cargar con `archivo:línea` |
 | `tags`, `description` | Opcionales. Los tags sirven con `--tags=` |
@@ -203,14 +178,14 @@ Un caso es una línea de un `.jsonl` en `eval/datasets/`.
 
 Un request de decisión puede llevar varias preguntas y `expect.answers` fija la respuesta esperada de las adicionales (ver [Decisiones con varias preguntas](#decisiones-con-varias-preguntas)). Los casos de decisión con una sola opción se etiquetan solos como `prod_shortcut` (ver `--include-shortcut`).
 
-Datasets de ejemplo en `eval/datasets/`: `smoke` (una pasada por todas las etapas), `decision_discriminating` (la respuesta correcta no es la primera opción), `scenarios_messages` (casos por escenario que prueban los mensajes fijos de `ctx/views/messages.ts`).
+Datasets de ejemplo en `eval/datasets/`: `smoke` (una pasada por todas las etapas), `decision_discriminating` (la respuesta correcta no es la primera opción), `scenarios_messages` (casos por escenario que prueban los mensajes fijos de `ctx/views/messages.ts`), `verificacion_corrida` (7 casos mínimos para comprobar que el eval corre de punta a punta con prompts enteros y preguntas con opciones; no es un dataset de evaluación).
 
 ### Casos por escenario (`scenario`)
 
 En vez de `request` (el prompt ya armado), un caso puede traer `scenario`: la situación de la tarea y el punto de decisión. El `request` se arma **al cargar** con el código de Jarvis (`ctx.view.*` → `engine/adapters.ts` → `reasoner/prompts.ts` y `reasoner/stageRequests.ts`), así que los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada etapa (tokens, thinking, schema) son los de producción y se actualizan solos cuando cambian en `src/`.
 
 - Un caso lleva `request` **o** `scenario`, nunca los dos. El resto (`id`, `stage`, `expect`, `tags`…) es igual.
-- `scenario`: `mode` (`reactive` | `deliberative`), `request` (la solicitud del usuario), `steps`, `calls` (con su `status`, `args`, `summary`, `verdict`, `ref`), `facts`, `userInput` (respuestas previas del usuario), `finish` (cierre, para `final`) y `at` (parámetros del punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `environment`). Los tipos están en `core/scenario.ts`.
+- `scenario`: `mode` (`reactive` | `deliberative`), `request` (la solicitud del usuario), `steps`, `calls` (con su `status`, `args`, `summary`, `verdict`, `ref`), `facts`, `userInput` (respuestas previas del usuario), `finish` (cierre, para `final`) y `at` (parámetros del punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `previous`, `environment`). Los tipos están en `core/scenario.ts`. La etapa `pending` solo existe en modo `reactive`: `at.previous` es la lista de pendientes de la vuelta anterior (ausente o vacía en la primera), y su `expect` admite `expectEmpty`, `maxItems`, `requiredKeywordsInFirst` y `forbiddenKeywords`.
 - Las herramientas se nombran como en el manifest de Jarvis (`SYSTEM_TOOL_MANIFEST`): la descripción sale de ahí; el schema de entrada (`at.inputSchema`) lo pone el caso, porque el del servidor MCP no es estático.
 - El escenario se valida con las reglas reales del contexto (`apply`): un escenario imposible (p. ej. cierre `completed` sin llamada aprobada) es error de carga `archivo:línea: scenario: …`.
 - Los prompts dependen del código de `src/` y de `jarvis-config.json` (tokens por etapa) y de la fecha (`TODAY`); `requestHash` de cada run permite detectar que cambió el prompt entre corridas, y `meta.json` guarda el commit.
@@ -240,7 +215,7 @@ npx tsx eval/cli.ts --client=mock --dataset=eval/datasets/smoke.jsonl
 
 ### Evaluar etapa específica (ej: solo `plan`) con modelo real
 ```bash
-npx tsx eval/cli.ts --stages=plan --dataset=eval/datasets/smoke.jsonl --llm-model=qwen3.5:4b
+npx tsx eval/cli.ts --stages=plan --dataset=eval/datasets/smoke.jsonl --model=qwen3.5:4b
 ```
 
 ### Comparar una variante contra producción (A/B testing)
@@ -276,7 +251,7 @@ npx tsx eval/cli.ts --dataset=eval/datasets/smoke.jsonl --min-pass-rate=0.90
 
 ## 6. Escribir una variante
 
-Una variante es un archivo en `eval/variants/<nombre>.ts` que edita el request en memoria, solo durante la corrida (no modifica `src` ni los casos). El `name` debe coincidir con el archivo y `prod` es la identidad.
+Una variante es un archivo en `eval/variants/<nombre>.ts` que edita el request en memoria (no modifica `src` ni los casos). El `name` debe coincidir con el archivo y `prod` es la identidad.
 
 ```ts
 import type { Variant } from "../core/variants/types.ts";
@@ -301,6 +276,26 @@ const concise_plan: Variant = {
 export default concise_plan;
 ```
 
+### Prompts enteros (`prompts`)
+
+Además de editar el request, una variante puede traer `prompts`: las piezas de `PROMPTS` y `DECISION_PROMPTS` (`src/core/reasoner/prompts.ts`) que reemplaza. Lo que no define cae al prompt de producción, pieza por pieza.
+
+```ts
+const mi_prompt: Variant = {
+  name: "mi_prompt",
+  prompts: {
+    PROMPTS: { ARGUMENTS_VIEW: { SYSTEM: "..." } },          // generativas: vista y pieza
+    DECISION_PROMPTS: { buildArgsReview: (data) => ({ state: "...", questions: { /* ... */ } }) },  // decisión: constructor entero
+  },
+};
+```
+
+- Los helpers y tablas de `prompts.ts` (`frameLines`, `listBlock`, `REVIEW_OPTIONS`, `VERIFY_QUESTIONS`, `join`, `todayLine`…) están exportados para que un prompt de decisión reutilice lo que no cambia.
+- Si el prompt cambia las claves de las preguntas o los nombres de las opciones, la misma variante declara cómo leerlos con `answerMap` y `labelMap`.
+- Aplica solo a los **casos por escenario**: se rearman al cargar con esos prompts. Los casos fijos traen el prompt ya armado y se omiten con un aviso (con `--source=frozen` es error).
+- **Orden de aplicación**: primero los `prompts`; después las ediciones (`state`, `questions`, `system`, `user`…), que se acumulan en el orden de la cadena `a+b`. `prompts`, `labelMap`, `answerMap` y `params` se fusionan y gana la última variante. Todo se aplica una sola vez, al cargar; un error de edición queda en el caso (`variant_apply_error`).
+- `prod_explicit` es la identidad por el camino de prompts: con un dataset por escenario debe dar el mismo `requestHash` que `prod`.
+
 Para decisiones también se puede editar `state`, cambiar o quitar criterios (`criteria: { set, remove, append }`), reemplazar una pregunta y renombrar opciones con `labelMap`. Un ejemplo completo está en `variants/route_example.ts`. Se corren con `--variant=prod,concise_plan` y se pueden componer con `+` (`--variant=varA+varB`).
 
 ---
@@ -312,7 +307,7 @@ Para decisiones también se puede editar `state`, cambiar o quitar criterios (`c
 - **Casos sin medir.** Una llamada fallida (red, timeout, HTTP) o una variante que no se pudo aplicar cuenta como falla en `passRate`, pero no entra en las latencias ni aparece como regresión o mejora. Δ compara solo casos medidos en ambos lados, y el reporte avisa si alguno quedó afuera.
 - **Unidad de comparación.** Δ, regresiones, mejoras y la prueba de signos se calculan **por caso**: con `--repeat`, las repeticiones de un caso no cuentan como muestras independientes (un caso que pasa 2 de 3 es distinto de uno que siempre falla).
 - **Reintentos.** El `pass` se mide después del reintento "como producción", que puede esconder cuánto falla el modelo crudo: la columna `Reintentos` cuenta los runs que lo necesitaron.
-- **Costo.** Los tokens por etapa están en la tabla por etapa y en la comparación de modelos; con `--thinking=both`, `final[think=on]` y `final[think=off]` van en filas separadas para comparar su costo.
+- **Costo.** Los tokens por etapa están en la tabla por etapa; con `--thinking=both`, `final[think=on]` y `final[think=off]` van en filas separadas para comparar su costo.
 - **Sobreajuste al dataset.** Iterar variantes contra el mismo dataset con el que se miden acaba premiando el ruido. Conviene reservar un dataset aparte (holdout) que no se use al iterar y correrlo solo para validar una variante antes de pasarla a `src`.
 - **Ruido.** Un Δ no es un veredicto: mirar `p (signos)`, calculado sobre los casos que cambiaron. Con menos de 6 cambios nunca baja de 0.05. Las etapas generativas varían entre corridas con el mismo request: usar `--repeat` antes de decidir por pocos casos.
 - **Tipos de etapas.** El total mezcla etapas de decisión y generativas, que corren modelos distintos. Si una variante mejora un tipo y empeora el otro, el reporte avisa **Resultado mixto**: decidir con el desglose por tipo.
@@ -343,11 +338,10 @@ eval/
     ├── client/                   real, mock y oracle
     ├── variants/                 carga y aplicación de variantes
     ├── scenario.ts               casos por escenario: arma el request con el código de Jarvis (importa `src/`)
-    ├── targets.ts                reparto de modelos en pasadas (comparación entre modelos)
     ├── questions.ts              preguntas múltiples en decisiones: parseo y checks por pregunta
     ├── scoring.ts                métricas agregadas
     ├── report.ts                 comparison.md y resumen en consola
-    └── contract.ts               helpers de producción copiados (parseo, validación, límites)
+    └── contract.ts               helpers y constantes de producción reexportados de `src/` (parseo, validación, límites)
 ```
 
-Solo `core/scenario.ts` importa `src/`; el resto del eval es independiente de él.
+Importan `src/` solo `core/scenario.ts` y `core/contract.ts` (la capa de reexportes); el resto del eval pasa por ellos. Un archivo de prompts de una variante también puede importar `src/core/reasoner/prompts.ts`.

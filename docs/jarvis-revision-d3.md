@@ -1,3 +1,5 @@
+> **Estado: implementado.** El análisis es histórico: D1 y D2 ya no ofrecen `fin` ni `ask_user`, D4 usa `VERIFY_CHECKS` y `verdictOf(answers)`, D3 usa la tabla `REVIEW_OPTIONS`, `StepVerificationResult` y `runVerification` ya no existen y las constantes duplicadas se unificaron en `BUDGET`. Ver `PLAN_REFACTOR_FLUJO.md` (pasos 1, 2, 4, 5 y 7) y `CORE_FLOW.md`.
+
 # Jarvis · Revisión de uso de d3 y plan de mejoras (v4)
 
 **Objetivo:** que d3 (modelo de decisión) pueda recibir un conjunto variable de preguntas y opciones, para que el eval decida cuál combinación es la mejor. Secundario: simplificar Jarvis donde haya complejidad innecesaria.

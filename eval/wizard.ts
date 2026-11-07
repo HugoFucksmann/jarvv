@@ -1,20 +1,17 @@
 /**
  * eval/wizard.ts
  *
- * Menú interactivo de consola (`--menu`): guía la elección de modo, modelos, datasets, variantes y opciones, arma el
+ * Menú interactivo de consola (`--menu`): guía la elección de modelos, datasets, variantes y opciones, arma el
  * `argv` equivalente y, tras confirmar, lo devuelve para que la CLI lo ejecute como si se hubiera escrito a mano.
  * Sin dependencias: solo `node:readline`; el estilo de consola vive en `ui.ts`.
  */
 
 import { createInterface } from "node:readline/promises";
-import { DECISION_STAGES, GENERATIVE_STAGES } from "./core/case.ts";
 import { DEFAULT_DECISION_MODEL, DEFAULT_MODEL } from "./core/config.ts";
 import { listDatasetNames } from "./core/datasets.ts";
 import { allStageNames } from "./core/stages/index.ts";
 import { listVariantNames } from "./core/variants/load.ts";
 import { box, c, padEnd, sym, vlen, WIDTH } from "./ui.ts";
-
-type Mode = "decision" | "generative" | "all";
 
 class Cancelled extends Error { }
 
@@ -24,7 +21,7 @@ type Ask = (prompt: string) => Promise<string>;
 // Estilo
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 5;
 
 /** Encabezado de paso: "Paso 2/6 · Modelos" con barra de progreso. */
 function step(n: number, title: string): void {
@@ -182,33 +179,15 @@ export async function runWizard(): Promise<string[] | null> {
     const argv: string[] = [];
     const summary: Array<[string, string]> = [];
 
-    // 1. Modo
-    step(1, "Modo de evaluación");
-    const mode = await pickOne<Mode>(ask, "¿Qué quieres evaluar?", [
-      { value: "decision", text: `Solo decisión    ${c.gray("route, tool_choice, args_review, result_verification  (--d-model)")}` },
-      { value: "generative", text: `Solo generativo  ${c.gray("plan, arguments, final, question  (--llm-model)")}` },
-      { value: "all", text: `Todas las etapas ${c.gray("(--model)")}` },
-    ]);
-    summary.push(["Modo", mode === "decision" ? "decisión" : mode === "generative" ? "generativo" : "todas las etapas"]);
-
-    // 2. Modelos
-    step(2, "Modelos");
-    let models: string;
-    if (mode === "decision") {
-      models = await text(ask, "Modelos de decisión (separados por coma)", DEFAULT_DECISION_MODEL);
-      argv.push(`--d-model=${models}`);
-    } else if (mode === "generative") {
-      models = await text(ask, "Modelos generativos (separados por coma)", DEFAULT_MODEL);
-      argv.push(`--llm-model=${models}`);
-    } else {
-      hint("Formato: <generativo>+<decisión>");
-      models = await text(ask, "Configuraciones (separadas por coma)", `${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL}`);
-      if (models !== `${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL}`) argv.push(`--model=${models}`);
-    }
+    // 1. Modelos
+    step(1, "Modelos");
+    hint("Formato: <generativo>+<decisión>");
+    const models = await text(ask, "Modelos", `${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL}`);
+    if (models !== `${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL}`) argv.push(`--model=${models}`);
     summary.push(["Modelos", models]);
 
-    // 3. Datasets
-    step(3, "Datasets");
+    // 2. Datasets
+    step(2, "Datasets");
     const datasets = listDatasetNames();
     let datasetSummary = "todos";
     if (datasets.length > 0) {
@@ -234,8 +213,8 @@ export async function runWizard(): Promise<string[] | null> {
     if (source !== "all") argv.push(`--source=${source}`);
     summary.push(["Casos", source === "all" ? "todos" : source === "scenario" ? "solo escenario" : "solo frozen"]);
 
-    // 4. Variantes (prod como baseline es opcional: --no-baseline)
-    step(4, "Variantes");
+    // 3. Variantes (prod como baseline es opcional: --no-baseline)
+    step(3, "Variantes");
     const variants = listVariantNames();
     const others = variants.filter((v) => v !== "prod");
     let variantSummary = "solo prod";
@@ -268,10 +247,10 @@ export async function runWizard(): Promise<string[] | null> {
     }
     summary.push(["Variantes", variantSummary]);
 
-    // 5. Etapas
-    step(5, "Etapas");
-    const stagePool: string[] = mode === "decision" ? [...DECISION_STAGES] : mode === "generative" ? [...GENERATIVE_STAGES] : allStageNames();
-    const stages = await pickMany(ask, "Etapas disponibles", stagePool, { def: [], hint: "Enter o 'a' = todas las del modo" });
+    // 4. Etapas
+    step(4, "Etapas");
+    const stagePool: string[] = allStageNames();
+    const stages = await pickMany(ask, "Etapas disponibles", stagePool, { def: [], hint: "Enter o 'a' = todas" });
     let stageSummary = "todas";
     if (stages.length > 0 && stages.length < stagePool.length) {
       argv.push(`--stages=${stages.join(",")}`);
@@ -279,8 +258,8 @@ export async function runWizard(): Promise<string[] | null> {
     }
     summary.push(["Etapas", stageSummary]);
 
-    // 6. Opciones avanzadas
-    step(6, "Opciones avanzadas");
+    // 5. Opciones avanzadas
+    step(5, "Opciones avanzadas");
     if (await confirm(ask, "¿Configurar repeticiones, concurrencia, límite, thinking, cliente...?", false)) {
       const client = await pickOne(ask, "Cliente", [
         { value: "real", text: `real    ${c.gray("llama a los modelos")}` },
@@ -318,7 +297,7 @@ export async function runWizard(): Promise<string[] | null> {
         } else note("Límite ignorado (no es un entero >= 1).");
       }
 
-      if (mode !== "decision") {
+      {
         const thinking = await pickOne(ask, "Thinking", [
           { value: "auto", text: "auto" },
           { value: "prod", text: "prod" },

@@ -25,6 +25,7 @@ import {
   askRenderOptions,
   finalRenderOptions,
   finalViewOptions,
+  pendingInput,
   planInput,
   renderArgsView,
   reviewInput,
@@ -35,20 +36,21 @@ import {
   verifyInput,
 } from "../../src/core/engine/adapters.ts";
 import { renderAsk, renderFinal } from "../../src/core/render/index.ts";
-import { DECISION_PROMPTS } from "../../src/core/reasoner/prompts.ts";
+import { DECISION_PROMPTS, PROMPTS } from "../../src/core/reasoner/prompts.ts";
 import {
   argumentsStageRequest,
   BASE_TEMPERATURE,
   finalStageRequest,
+  pendingStageRequest,
   planStageRequest,
   questionStageRequest,
 } from "../../src/core/reasoner/stageRequests.ts";
-import type { StageRequest } from "../../src/core/reasoner/stageRequests.ts";
+import type { PromptSet, StageRequest } from "../../src/core/reasoner/stageRequests.ts";
 import { argsMax, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
 import { EXECUTABLE_ROUTES } from "./contract.ts";
-import type { ToolInputSchema } from "./contract.ts";
+import type { PromptOverrides, ToolInputSchema } from "./contract.ts";
 import type { DecisionRequest, GenerativeRequest } from "./types.ts";
 
 /**
@@ -111,6 +113,8 @@ export interface ScenarioAt {
   call?: number;
   // plan: instrucción del usuario (replan por feedback).
   feedback?: string;
+  // pending: la lista de pendientes de la vuelta anterior (vacía o ausente en la primera vuelta).
+  previous?: string[];
   // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC).
   environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
 }
@@ -255,49 +259,69 @@ function generative(r: StageRequest, schemaName?: string): GenerativeRequest {
   };
 }
 
-/** Arma el `request` de una etapa a partir del escenario. Lanza `Error` con el motivo si el escenario no sirve. */
-export function materializeScenario(stage: string, sc: Scenario): Materialized {
+/**
+ * Los prompts con que se arma un caso: los de producción, con las piezas que la variante reemplaza (por pieza, a dos
+ * niveles: `PROMPTS.<vista>.<pieza>` y `DECISION_PROMPTS.<constructor>`). Lo que la variante no define cae a producción.
+ */
+function effectivePrompts(ov?: PromptOverrides): { P: PromptSet; D: typeof DECISION_PROMPTS } {
+  if (!ov) return { P: PROMPTS, D: DECISION_PROMPTS };
+  const P = Object.fromEntries(
+    Object.entries(PROMPTS).map(([view, pieces]) => [view, { ...pieces, ...ov.PROMPTS?.[view as keyof PromptSet] }]),
+  ) as PromptSet;
+  return { P, D: { ...DECISION_PROMPTS, ...ov.DECISION_PROMPTS } };
+}
+
+/**
+ * Arma el `request` de una etapa a partir del escenario, con los prompts de producción o los de la variante (`ov`).
+ * Lanza `Error` con el motivo si el escenario no sirve.
+ */
+export function materializeScenario(stage: string, sc: Scenario, ov?: PromptOverrides): Materialized {
+  if (stage === "pending" && sc.mode !== "reactive") throw new Error("etapa 'pending': la lista de pendientes solo existe en modo reactivo.");
   const { ctx, callIds } = buildContext(sc);
   const at = sc.at ?? {};
   const config = ConfigManager.getConfig();
+  const { P, D } = effectivePrompts(ov);
 
   switch (stage) {
     case "route": {
       const flags = {
         routes: at.routes ?? [...EXECUTABLE_ROUTES],
       };
-      return decision(DECISION_PROMPTS.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
+      return decision(D.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
     }
     case "tool_choice": {
       const route = need(at.route, "route", stage);
       const names = at.tools ?? SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route).map((d) => d.name);
       const tools = names.map((n) => toolOf(route, n));
-      return decision(DECISION_PROMPTS.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools)));
+      return decision(D.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools)));
     }
     case "args_review": {
       const route = need(at.route, "route", stage);
       const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      return decision(DECISION_PROMPTS.buildArgsReview(reviewInput(ctx.view.forReview(reviewViewOptions()), route, tool, at.args ?? {})));
+      return decision(D.buildArgsReview(reviewInput(ctx.view.forReview(reviewViewOptions()), route, tool, at.args ?? {})));
     }
     case "result_verification": {
       const id = callIds[at.call ?? callIds.length - 1];
       if (id === undefined) throw new Error("etapa 'result_verification': el escenario no tiene la llamada a evaluar (scenario.calls / at.call).");
-      return decision(DECISION_PROMPTS.buildResultVerification(verifyInput(ctx.view.forVerify(id))));
+      return decision(D.buildResultVerification(verifyInput(ctx.view.forVerify(id))));
     }
     case "plan": {
-      return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config), "plan") };
+      return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config, P), "plan") };
     }
     case "arguments": {
       const route = need(at.route, "route", stage);
       const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      const request = argumentsStageRequest(argsInput(tool, at.environment ?? DEFAULT_ENVIRONMENT, renderArgsView(ctx).text), config);
+      const request = argumentsStageRequest(argsInput(tool, at.environment ?? DEFAULT_ENVIRONMENT, renderArgsView(ctx).text), config, P);
       return { request: generative(request), toolSchema: tool.inputSchema as ToolInputSchema };
     }
+    case "pending": {
+      return { request: generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), P), "pending") };
+    }
     case "question":
-      return { request: generative(questionStageRequest({ view: renderAsk(ctx.view.forAsk(), askRenderOptions()) })) };
+      return { request: generative(questionStageRequest({ view: renderAsk(ctx.view.forAsk(), askRenderOptions()) }, P)) };
     case "final":
       return {
-        request: generative(finalStageRequest({ view: renderFinal(ctx.view.forFinal(finalViewOptions()), finalRenderOptions()).text }, config)),
+        request: generative(finalStageRequest({ view: renderFinal(ctx.view.forFinal(finalViewOptions()), finalRenderOptions()).text }, config, P)),
       };
     default:
       throw new Error(`etapa '${stage}' desconocida para un escenario.`);

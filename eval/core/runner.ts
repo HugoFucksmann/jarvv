@@ -35,7 +35,6 @@ import type {
   RunRecord,
   StageName,
 } from "./types.ts";
-import { applyVariantChain, VariantApplyError } from "./variants/apply.ts";
 import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
 import type { Variant } from "./variants/types.ts";
 import { PROD_SHORTCUT_TAG } from "./case.ts";
@@ -133,8 +132,6 @@ function resolveBucket(fc: FrozenCase, cfg: EvalConfig): "canonical" | "raw" {
 export interface RunTask {
   fc: FrozenCase;
   variant: Variant;
-  /** Variantes individuales en orden; el request se aplica con `applyVariantChain`. */
-  variants: Variant[];
   variantSpec: string;
   variantChain: string[];
   datasetName: string;
@@ -154,21 +151,15 @@ async function runOne(
   decClient: DecisionClient,
   dryRun: boolean,
 ): Promise<RunResult> {
-  const { fc, variants, variantSpec, variantChain, datasetName, iteration, thinkingExp } = task;
+  const { fc, variantSpec, variantChain, datasetName, iteration, thinkingExp } = task;
   const timestamp = isoNow();
   const bucket = resolveBucket(fc, cfg);
 
-  // ── Aplicar variante ──
-  let appliedCase: FrozenCase;
-  let variantApplyOk = true;
-  let variantApplyError: string | undefined;
-  try {
-    appliedCase = applyVariantChain(fc, variants);
-  } catch (e) {
-    variantApplyOk = false;
-    variantApplyError = e instanceof VariantApplyError ? e.message : `variant_apply_error: ${String(e)}`;
-    appliedCase = fc; // usamos el original para no abortar
-  }
+  // La variante ya se aplicó al cargar (`applyVariantToCases`): el caso trae el request final, o `variantApplyError` si
+  // una edición no se pudo aplicar (el caso queda sin modificar y no se llama al modelo).
+  const appliedCase: FrozenCase = fc;
+  const variantApplyOk = fc.variantApplyError === undefined;
+  const variantApplyError = fc.variantApplyError;
 
   const stage = fc.stage;
   const isDecision = ["route", "tool_choice", "args_review", "result_verification"].includes(stage);
@@ -440,7 +431,7 @@ async function runGenerative(
   const entry = getStage(fc.stage as StageName) as GenerativeStageEntry<unknown, unknown>;
   // Como producción (`dispatchValidated`): un reintento ante salida inválida o truncada, con ERROR_PREVIO,
   // 1.5x tokens y temperatura 0.3. Las fallas de transporte no entran aquí (las reintenta `postJson`).
-  const jsonStage = fc.stage === "plan" || fc.stage === "arguments";
+  const jsonStage = fc.stage === "plan" || fc.stage === "arguments" || fc.stage === "pending";
 
   let curReq = req;
   let result = await client.call(curReq, resolveGenerativeTimeout(cfg, curReq.thinking), callCtx);
@@ -618,9 +609,8 @@ async function runWithConcurrency<T>(
 export interface RunnerInput {
   cases: FrozenCase[];
   datasetName: string;
+  /** Vista de parseo/params de la variante. Los casos ya traen las ediciones aplicadas (`applyVariantToCases`). */
   variant: Variant;
-  /** Partes de la spec (`a+b` → [a, b]). `variant` es solo la vista de parseo/params. */
-  variants: Variant[];
   variantSpec: string;
   variantChain: string[];
   cfg: EvalConfig;
@@ -639,7 +629,7 @@ export interface RunnerOutput {
 
 export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
   const {
-    cases, datasetName, variant, variants, variantSpec, variantChain, cfg,
+    cases, datasetName, variant, variantSpec, variantChain, cfg,
     genClient, decClient, stageFilter, onRecord, dryRun = false,
   } = input;
 
@@ -663,7 +653,7 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
 
     for (const exp of expansions) {
       for (let iter = 1; iter <= cfg.repeat; iter++) {
-        tasks.push({ fc, variant, variants, variantSpec, variantChain, datasetName, iteration: iter, thinkingExp: exp });
+        tasks.push({ fc, variant, variantSpec, variantChain, datasetName, iteration: iter, thinkingExp: exp });
       }
     }
   }

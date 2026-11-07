@@ -2,13 +2,14 @@
  * eval/core/stages/generative.ts
  *
  * Entradas del registro para las etapas generativas
- * (plan, arguments, final, question).
+ * (plan, arguments, final, question, pending).
  * Secciones 3 y 7.7.
  */
 
 import {
   MAX_STEPS,
   parseJsonObject,
+  parsePendingList,
   parsePlanSteps,
   stripThink,
   validateArgs,
@@ -17,6 +18,7 @@ import type { ToolInputSchema } from "../contract.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import { ArgumentsGrader } from "../graders/arguments.ts";
 import { FinalResponseGrader } from "../graders/final.ts";
+import { PendingGrader } from "../graders/pending.ts";
 import { PlanStepsGrader } from "../graders/plan.ts";
 import { QuestionGrader } from "../graders/question.ts";
 import type {
@@ -25,6 +27,8 @@ import type {
   FinalExpect,
   FinalOutput,
   GenerativeRequest,
+  PendingExpect,
+  PendingOutput,
   PlanExpect,
   PlanOutput,
   PlanStep,
@@ -129,6 +133,23 @@ export const finalStage: GenerativeStageEntry<FinalOutput, FinalExpect> = {
     const response = stripThink(rawOutput).trim();
     if (!response) throw new Error("La respuesta final está vacía después de stripThink.");
     return { response };
+  },
+  label: noLabel,
+};
+
+// ───────────────────────── pending ─────────────────────────
+
+export const pendingStage: GenerativeStageEntry<PendingOutput, PendingExpect> = {
+  stageName: "pending",
+  requestType: "generative",
+  graders: [LatencyGrader, NotTruncatedGrader, PendingGrader],
+  parseOutput(rawOutput: string): PendingOutput {
+    const obj = parseJsonObject(rawOutput);
+    if (!obj) throw new Error("No se pudo extraer un objeto JSON de la lista de pendientes.");
+    // La misma validación que producción: arreglo de textos no vacíos (puede venir vacío).
+    const parsed = parsePendingList(obj.pending);
+    if ("error" in parsed) throw new Error(parsed.error);
+    return { pending: parsed.pending };
   },
   label: noLabel,
 };

@@ -187,3 +187,17 @@ export function applyVariantChain(c: FrozenCase, variants: Variant[]): FrozenCas
   return variants.reduce((acc, v) => applyVariant(acc, v), c);
 }
 
+/**
+ * Aplica la cadena a cada caso al cargar (una vez por variante). Un caso donde una edición no se puede aplicar queda
+ * sin modificar y con `variantApplyError`: el runner lo registra como `variant_apply_error` y no llama al modelo.
+ */
+export function applyVariantToCases(cases: FrozenCase[], variants: Variant[]): FrozenCase[] {
+  return cases.map((c) => {
+    try {
+      return applyVariantChain(c, variants);
+    } catch (e) {
+      return { ...c, variantApplyError: e instanceof VariantApplyError ? e.message : `variant_apply_error: ${String(e)}` };
+    }
+  });
+}
+

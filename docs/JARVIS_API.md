@@ -49,7 +49,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 }
 ```
 
-- **Reactivo:** `plans` está vacío y los pasos traen `planId`, `instruction`, `route` y `expected` en `null`; lo que se hizo se lee de `calls`. Cada iteración del bucle es un paso.
+- **Reactivo:** `plans` está vacío y los pasos traen `planId`, `route` y `expected` en `null`; `instruction` es el primer pendiente de la lista que el modelo mantiene en cada vuelta. Lo que se hizo se lee de `calls`. Cada iteración del bucle es un paso.
 - **Deliberativo:** un replan o una modificación del usuario marca `superseded: true` los pasos que reemplaza: se muestran como descartados, no como fallidos. Los vigentes son los que no están `superseded`.
 - **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid`, `refs_unresolved`, `loop_blocked`, `user_rejected`, `tool_rejected`, `info_missing`, `denied` (la rechazó la política de seguridad: la tarea termina con `security_denied`). `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data` o `not_accomplished`.
 - **Escrituras:** `kind: "write"` con `status: "ok"` son cambios hechos en la PC; con `tool_error`, `exception` o `interrupted` pudieron dejar cambios parciales.

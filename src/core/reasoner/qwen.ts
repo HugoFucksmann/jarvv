@@ -250,6 +250,18 @@ export function parsePlanSteps(
   return { steps };
 }
 
+/** Valida la lista de pendientes del reactivo: arreglo de textos no vacíos (puede venir vacío). */
+export function parsePendingList(raw: unknown): { pending: string[] } | { error: string } {
+  if (!Array.isArray(raw)) return { error: "'pending' debe ser un arreglo" };
+  const pending: string[] = [];
+  for (const [i, item] of raw.entries()) {
+    const text = typeof item === "string" ? item.trim() : "";
+    if (!text) return { error: `pendiente ${i + 1}: texto vacío` };
+    pending.push(text);
+  }
+  return { pending };
+}
+
 type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 const ok = <T>(value: T): Validation<T> => ({ ok: true, value });
 const fail = (error: string): Validation<never> => ({ ok: false, error });
@@ -529,15 +541,8 @@ export class QwenEngine implements EngineLLM {
         validate: (r) => {
           const out = parseObjectOutput(r);
           if (!out.ok) return out;
-          const raw = out.value.pending;
-          if (!Array.isArray(raw)) return fail("'pending' debe ser un arreglo");
-          const items: string[] = [];
-          for (const [i, item] of raw.entries()) {
-            const text = typeof item === "string" ? item.trim() : "";
-            if (!text) return fail(`pendiente ${i + 1}: texto vacío`);
-            items.push(text);
-          }
-          return ok(items);
+          const parsed = parsePendingList(out.value.pending);
+          return "error" in parsed ? fail(parsed.error) : ok(parsed.pending);
         },
       });
       return { pending: value, ...rawOf(res) };

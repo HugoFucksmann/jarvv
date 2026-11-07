@@ -152,7 +152,7 @@ export class Decision20Engine implements IActionDecision {
     console.log(`[Decision ← RECV] ${result.text.slice(0, 600)}`);
 
     return {
-      answers: this.parseResponse(result.text, questions),
+      answers: parseResponse(result.text, questions),
       rawInput: JSON.stringify(payload, null, 2), // el mismo payload, legible
       rawOutput: result.text,
       timing: { startedAt, durationMs: Date.now() - startedAt },
@@ -271,48 +271,57 @@ export class Decision20Engine implements IActionDecision {
     }
   }
 
-  /**
-   * Único punto de validación. Verifica por pregunta (según su tipo, por forma y sin exigir un campo `type`):
-   * - choice: `choice` existe en `criteria`; `probabilities` se conserva solo con valores numéricos.
-   * - noul: número en [0, 1].
-   */
-  private parseResponse(raw: string, questions: Record<string, DecisionQuestion>): Record<string, DecisionAnswer> {
-    let data: unknown;
-    try {
-      data = JSON.parse(raw);
-    } catch {
-      throw new DecisionValidationError("La respuesta de Decision 2.0 no es un JSON válido.");
-    }
-    if (!isRecord(data) || !isRecord(data.answers)) {
-      throw new DecisionValidationError("La respuesta de Decision 2.0 no contiene la clave 'answers'.");
-    }
+}
 
-    const answers: Record<string, DecisionAnswer> = {};
-    for (const [key, question] of Object.entries(questions)) {
-      const ans = data.answers[key];
-      if (!isRecord(ans)) {
-        throw new DecisionValidationError(`La respuesta no incluye la pregunta '${key}'.`);
-      }
+// ───────────────────────── Validación de la respuesta ─────────────────────────
+// Funciones sueltas y exportadas: el eval valida con el mismo código que producción (por pregunta, para tolerar una mal formada).
 
-      if (question.type === "choice") {
-        const choice = ans.choice;
-        if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
-          throw new DecisionValidationError(
-            `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
-          );
-        }
-        const probabilities = isRecord(ans.probabilities)
-          ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
-          : {};
-        answers[key] = { choice, probabilities };
-      } else {
-        const noul = ans.noul;
-        if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
-          throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
-        }
-        answers[key] = { noul };
-      }
-    }
-    return answers;
+/** El objeto `answers` de la respuesta cruda de Decision: JSON válido con esa clave. */
+export function parseAnswersObject(raw: string): Record<string, unknown> {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new DecisionValidationError("La respuesta de Decision 2.0 no es un JSON válido.");
   }
+  if (!isRecord(data) || !isRecord(data.answers)) {
+    throw new DecisionValidationError("La respuesta de Decision 2.0 no contiene la clave 'answers'.");
+  }
+  return data.answers;
+}
+
+/**
+ * Valida la respuesta de UNA pregunta (según su tipo, por forma y sin exigir un campo `type`):
+ * - choice: `choice` existe en `criteria`; `probabilities` se conserva solo con valores numéricos.
+ * - noul: número en [0, 1].
+ */
+export function validateAnswer(key: string, question: DecisionQuestion, ans: unknown): DecisionAnswer {
+  if (!isRecord(ans)) {
+    throw new DecisionValidationError(`La respuesta no incluye la pregunta '${key}'.`);
+  }
+  if (question.type === "choice") {
+    const choice = ans.choice;
+    if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
+      throw new DecisionValidationError(
+        `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
+      );
+    }
+    const probabilities = isRecord(ans.probabilities)
+      ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
+      : {};
+    return { choice, probabilities };
+  }
+  const noul = ans.noul;
+  if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
+    throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
+  }
+  return { noul };
+}
+
+/** Único punto de validación de una consulta completa: todas las preguntas enviadas deben venir bien respondidas. */
+export function parseResponse(raw: string, questions: Record<string, DecisionQuestion>): Record<string, DecisionAnswer> {
+  const given = parseAnswersObject(raw);
+  const answers: Record<string, DecisionAnswer> = {};
+  for (const [key, question] of Object.entries(questions)) answers[key] = validateAnswer(key, question, given[key]);
+  return answers;
 }

@@ -3,7 +3,7 @@
 ## 1. Ciclo de Vida
 1. **Recepción**: la instrucción entra por `/process` con un modo (`reactive` o `deliberative`). La fachada crea el contexto de la tarea, lo registra y lanza `runTask` en segundo plano.
 2. **Estrategia**: `runTask` ejecuta el modo elegido (§2 y §3). Es el único que decide cuándo y cómo se cierra la tarea.
-3. **Ejecución por pasos**: cada paso consulta el destino (Decisión 1) y ejecuta llamadas (§4) hasta que una queda aprobada o se agota el tope de llamadas del paso.
+3. **Ejecución por pasos**: cada paso consulta el destino (Decisión 1) y ejecuta llamadas (§4) hasta que una queda aprobada o el paso falla.
 4. **Recuperación**: un paso fallido dispara la recuperación del modo: escalación en reactivo, replan en deliberativo (§6).
 5. **Cierre**: `finalize` escribe el estado terminal una sola vez y, después, la respuesta final (§8).
 
@@ -15,8 +15,11 @@ flowchart TD
     IN(["POST /process<br/>modo + instrucción"]) --> CTX["Crear contexto y lanzar runTask"]
     CTX --> MODE{"Modo"}
 
-    MODE -->|reactive| RS["Paso nuevo sin plan<br/>§2"]
-    MODE -->|deliberative| PLAN["Plan inicial: 1 a 15 pasos<br/>§3"]
+    MODE -->|reactive| PEND["Lista de pendientes<br/>(modelo generativo) §2"]
+    MODE -->|deliberative| PLAN["Plan inicial<br/>§3"]
+
+    PEND -->|vacía y canFinish| CLOSE
+    PEND -->|el primer pendiente<br/>es la instrucción| RS["Paso nuevo sin plan"]
 
     PLAN -->|inválido tras reintento| CLOSE
     PLAN --> CONF{"Confirmación<br/>del usuario"}
@@ -26,44 +29,43 @@ flowchart TD
 
     RS --> STEP
     DS --> STEP
-    STEP[["runStep §4<br/>Decisión 1, ask_user, runCall"]]
+    STEP[["runStep §4<br/>Decisión 1, runCall"]]
 
     STEP -->|completed| NEXT{"¿Terminó?"}
-    NEXT -->|reactivo: fin con canFinish| CLOSE
     NEXT -->|deliberativo: todos completed| CLOSE
     NEXT -->|no| MODE2{"Modo"}
-    MODE2 -->|reactive| RS
+    MODE2 -->|reactive| PEND
     MODE2 -->|deliberative| DS
 
     STEP -->|failed| REC{"Recuperación §6"}
-    REC -->|reactivo: escalación 1 y 2| RS
-    REC -->|deliberativo: replan hasta 2| PLAN2["Replan autónomo<br/>step_failure"]
+    REC -->|reactivo: escalación 1 y 2| PEND
+    REC -->|deliberativo: replan| PLAN2["Replan autónomo<br/>step_failure"]
     PLAN2 --> DS
     REC -.->|tercera escalación| CLOSE
     REC -.->|replans agotados| CLOSE
 
     STEP -.->|Guard DENY| CLOSE
     STEP -.->|modelo o catálogo caído| CLOSE
-    RS -.->|15 pasos| CLOSE
+    PEND -.->|modelo caído| CLOSE
+    PEND -.->|tope de pasos| CLOSE
 
     CLOSE["finalize §8<br/>estado terminal una sola vez, luego respuesta"]
     CLOSE --> OUT(["completed, partial, failed o cancelled"])
 ```
 
 ### Dentro de un paso
-`runStep` (§4) elige el destino y `runCall` (§5) recorre las fases de la llamada. Cada rama de error vuelve al inicio del paso con lo ocurrido a la vista del modelo, salvo las marcadas como cierre.
+`runStep` (§4) elige el destino y `runCall` (§5) recorre las fases de la llamada. Cada rama de error vuelve al inicio del paso con lo ocurrido a la vista del modelo, salvo las marcadas como cierre o como falla del paso.
 
 ```mermaid
 flowchart TD
-    A{"¿8 llamadas<br/>en el paso?"} -->|sí| FAIL(["Paso failed"])
-    A -->|no| D1["Decisión 1<br/>ruta, ask_user o fin"]
+    A{"¿Tope de llamadas<br/>en el paso?"} -->|sí| QCAP["Una pregunta al usuario<br/>si no se hizo ya"] --> FAIL(["Paso failed"])
+    A -->|no| D1["Decisión 1<br/>ruta"]
     D1 -->|sin opciones| FAIL
-    D1 -->|ask_user| Q["Pregunta, espera, hecho answer"] --> A
     D1 -->|ruta| C1
 
     subgraph CALL ["runCall"]
         direction TB
-        C1["1 Descubrir herramientas"] --> C2["2 Decisión 2: elegir herramienta"]
+        C1["1 Descubrir herramientas<br/>(sin las excluidas del paso)"] --> C2["2 Decisión 2: elegir herramienta"]
         C2 --> C3["3 Generar argumentos"]
         C3 --> C4["4 Resolver refs"]
         C4 --> C5["5 Anti-bucle"]
@@ -72,7 +74,7 @@ flowchart TD
         C7 --> C8["8 Confirmación del usuario<br/>si Guard la pidió"]
         C8 --> C9["9 Despacho a la herramienta"]
         C9 --> C10["10 Procesar resultado<br/>resumen y ref"]
-        C10 --> C11{"11 Decisión 4:<br/>ok y cumple > 0.5"}
+        C10 --> C11{"11 Decisión 4:<br/>preguntas de VERIFY_CHECKS > 0.5"}
     end
 
     C11 -->|approved| DONE(["Paso completed"])
@@ -80,39 +82,46 @@ flowchart TD
     C1 -.->|sin herramientas| FAIL
     C1 -.->|catálogo caído| CLOSE(["Cierre de la tarea"])
     C6 -.->|DENY| CLOSE
-    C3 -->|args_invalid| A
+    C3 -->|args_invalid| R
     C4 -->|refs_unresolved| A
     C5 -->|loop_blocked| A
-    C7 -->|args_invalid, tool_rejected, info_missing| A
+    C7 -->|info_missing| Q["Pregunta, espera, hecho answer<br/>(una por paso)"] --> A
+    C7 -->|args_invalid, tool_rejected| R{"¿Segundo rechazo<br/>de la revisión?"}
+    R -->|no| A
+    R -->|sí| FAIL
     C8 -->|user_rejected| A
     C9 -->|exception, interrupted| A
     C11 -->|rejected| A
 ```
 
 ## 2. Modo Reactivo
-Cada vuelta del bucle crea un paso nuevo, sin plan previo.
+Cada vuelta del bucle empieza con la **lista de pendientes** y crea un paso nuevo, sin plan previo.
 
-- **Elección del destino**: Decisión 1 recibe la solicitud, lo hecho, el último resultado y los intentos fallidos. Ofrece las rutas con alguna herramienta utilizable, `ask_user` (si corresponde) y `fin`.
-- **Cuándo se ofrece `fin`**: solo si el contexto lo permite (`canFinish`): la tarea todavía no tiene llamadas (conversación directa) o existe al menos una llamada aprobada. Si lo único que hubo son operaciones rechazadas por el usuario, `fin` cierra con `no_alternatives`.
-- **Tope de pasos**: al llegar a 15 pasos (los fallidos cuentan) la tarea se cierra con `max_steps`.
+- **Lista de pendientes**: una consulta aparte al modelo generativo (sin razonamiento extendido) devuelve la lista completa de lo que falta para cumplir la solicitud. Recibe la solicitud, la lista de la vuelta anterior, lo hecho (con argumentos y resumen del resultado), los últimos intentos fallidos con su motivo y la entrada del usuario. La lista vive solo en el bucle; en el contexto entra únicamente la instrucción del paso.
+- **Instrucción del paso**: el primer pendiente. Decisión 1, 2, 3 y 4 y la generación de argumentos ven esa instrucción, no la solicitud completa.
+- **Lista vacía**: significa que no queda nada por hacer y cierra la tarea según `canFinish`: `completed` si no hay llamadas o alguna está aprobada; `no_alternatives` si solo hubo rechazos del usuario. Sin llamadas (primera vuelta) o con solo fallos, una lista vacía no se acepta de inmediato: se consulta una vez más. Si en la primera vuelta vuelve vacía se acepta (la solicitud no necesita herramientas); si solo hubo fallos, la instrucción pasa a ser la solicitud entera.
+- **Lista inválida**: un reintento y, si persiste, la tarea se cierra con `unrecoverable`.
+- **Tope de pasos**: al llegar a `maxSteps` pasos (los fallidos cuentan) la tarea se cierra con `max_steps`.
 - **Escalación**: un paso fallido es una escalación. Al tercero, la tarea se cierra con `no_alternatives`.
 
 ## 3. Modo Deliberativo
-1. **Plan inicial**: el modelo generativo propone entre 1 y 15 pasos, cada uno con instrucción, ruta y resultado esperado. Un plan inválido tras el reintento cierra la tarea con `unrecoverable`.
+1. **Plan inicial**: el modelo generativo propone pasos (hasta el tope), cada uno con instrucción, ruta y resultado esperado. Un plan inválido tras el reintento cierra la tarea con `unrecoverable`.
 2. **Confirmación humana**: la tarea espera la decisión del usuario.
    - *Aceptar*: se ejecutan los pasos.
    - *Pedir cambios* (con instrucción): se genera un plan nuevo (`user_feedback`), sin tope de veces, y se vuelve a pedir confirmación. Si el plan nuevo resulta inválido, se conserva el vigente y se vuelve a preguntar.
    - *Rechazar sin instrucción*: la tarea se cancela.
 3. **Ejecución**: se toma el paso vigente pendiente y se corre con su ruta fija. La tarea se completa cuando todos los pasos vigentes quedan `completed`.
-4. **Replan autónomo**: un paso fallido genera un plan nuevo (`step_failure`) sin pedir confirmación, hasta 2 veces. Los pasos no completados pasan a `superseded` y se agregan los nuevos; los completados nunca se repiten. El tope de pasos del plan nuevo es 15 menos los ya completados. Agotados los replans, o si el replan es inválido, la tarea se cierra con `replans_exhausted`.
+4. **Replan autónomo**: un paso fallido genera un plan nuevo (`step_failure`) sin pedir confirmación, hasta `maxReplans` veces. Los pasos no completados pasan a `superseded` y se agregan los nuevos; los completados nunca se repiten. El tope de pasos del plan nuevo es `maxSteps` menos los ya completados. Agotados los replans, o si el replan es inválido, la tarea se cierra con `replans_exhausted`.
 
 ## 4. Un Paso (`runStep`)
 El paso repite este ciclo hasta que termina:
 
-1. **Tope de llamadas**: si el paso ya hizo 8 llamadas (sin contar las rechazadas por el usuario), falla.
-2. **Decisión 1**: en ambos modos. En deliberativo ofrece solo la ruta del paso y `ask_user`. Si no queda ninguna opción, el paso falla (`no_tools`). Con una sola opción disponible, el modelo de decisión no se consulta.
-3. **`ask_user`**: se genera la pregunta (modelo generativo), se espera la respuesta y se registra como hecho `answer_<paso>_<n>`. No se vuelve a ofrecer hasta que el paso haga otra llamada.
-4. **Llamada** (§5): si queda aprobada, el paso termina `completed`. Si el servidor deniega la herramienta, el paso falla. Cualquier otro resultado (argumentos inválidos, referencias sin resolver, anti-bucle, revisión rechazada, rechazo del usuario o verificación rechazada) vuelve al inicio con lo ocurrido a la vista del modelo.
+1. **Tope de llamadas**: si el paso ya hizo `maxCallsPerStep` llamadas (sin contar las rechazadas por el usuario), antes de fallar se le hace una pregunta al usuario, si todavía no se le hizo una en el paso; el paso falla igual y la respuesta queda a la vista de lo que siga (siguiente paso o replan).
+2. **Decisión 1**: en ambos modos. Ofrece las rutas con alguna herramienta utilizable (en deliberativo, solo la ruta del paso). Si no queda ninguna opción, el paso falla (`no_tools`). Con una sola opción disponible, el modelo de decisión no se consulta.
+3. **Llamada** (§5): si queda aprobada, el paso termina `completed`. Si el servidor deniega la herramienta, el paso falla. Una revisión que detecta `info_missing` hace una pregunta al usuario (una por paso): se genera con el modelo generativo, se espera la respuesta y se registra como hecho `answer_<paso>_<n>`. Cualquier otro resultado (argumentos inválidos, referencias sin resolver, anti-bucle, revisión rechazada, rechazo del usuario o verificación rechazada) vuelve al inicio con lo ocurrido a la vista del modelo.
+4. **Rechazos de la revisión**: al segundo `args_invalid` o `tool_rejected` en el mismo paso, el paso falla (`review_rejected`) y la recuperación del modo lo reencauza.
+
+`ask_user` no es una opción de las decisiones: solo se pregunta en los dos casos de arriba (`info_missing` y tope de llamadas).
 
 ## 5. Una Llamada (`runCall`)
 Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, con su estado final.
@@ -120,7 +129,7 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | # | Fase | Qué ocurre si falla |
 |---|---|---|
 | 1 | **Descubrir** las herramientas del destino | Servidor o catálogo no disponible: se registra el error y la tarea se cierra (`unrecoverable`). Sin ninguna herramienta utilizable en ese momento, el paso falla (`no_tools`) |
-| 2 | **Elegir herramienta** (Decisión 2, también puede elegir `ask_user`). Solo se ofrecen las herramientas utilizables: las que dependen de un proceso activo o de una búsqueda iniciada aparecen solo mientras existan | — |
+| 2 | **Elegir herramienta** (Decisión 2). Solo se ofrecen las herramientas utilizables: las que dependen de un proceso activo o de una búsqueda iniciada aparecen solo mientras existan, y se excluye la que ya repitió en el paso una llamada idéntica que había fallado | — |
 | 3 | **Generar argumentos** (modelo generativo, conforme al esquema) | Salida inválida tras el reintento: `args_invalid` |
 | 4 | **Resolver referencias** `{{ref:rN}}` / `ref:rN` por su contenido en disco | Referencia desconocida: `refs_unresolved` |
 | 5 | **Anti-bucle** sobre la huella de los argumentos resueltos | Repetición bloqueada: `loop_blocked` |
@@ -132,16 +141,16 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | 11 | **Verificar** (Decisión 4, §7) | Rechazada: vuelve al paso con el motivo |
 
 ## 6. Recuperación y Dudas
-- **Reactivo**: tras un paso fallido, Decisión 1 vuelve a elegir con una ventana de historial que crece con las escalaciones (últimos 2, 5 y 10 elementos). La herramienta fallida no se bloquea: queda a la vista del modelo y el anti-bucle evita repeticiones idénticas.
+- **Reactivo**: tras un paso fallido, la lista de pendientes se regenera viendo los fallos con sus argumentos y puede reescribir la instrucción. Decisión 1 y 2 ven solo los intentos del paso actual; los de pasos anteriores los ve la lista. Una herramienta que repitió en el paso una llamada idéntica que había fallado deja de ofrecerse en ese paso; con otros argumentos sigue disponible. El anti-bucle compara contra toda la tarea.
 - **Deliberativo**: replan autónomo (§3).
-- **Información faltante**: Decisión 1 o 2 puede elegir `ask_user`; si la revisión detecta `info_missing`, la llamada se registra con ese estado y el flujo vuelve a Decisión 1. No hay tope propio de preguntas: lo cortan el tope de llamadas del paso y el anti-bucle.
+- **Información faltante**: la revisión detecta `info_missing`, la llamada se registra con ese estado y se pregunta al usuario, una vez por paso. También se pregunta antes de fallar por tope de llamadas.
 - **Seguridad**: una denegación de Guard cierra la tarea sin escalar ni replanificar. Un rechazo del usuario sobre una operación no cierra la tarea: queda como `user_rejected` y el flujo continúa.
 
 ## 7. Verificación del Resultado
-Decisión 4 evalúa dos preguntas `noul` sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface el objetivo?). El criterio es el paso (deliberativo) o la solicitud (reactivo).
+Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`engine/deps.ts`) sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface la instrucción del paso?). El criterio es siempre el paso: en reactivo, el primer pendiente.
 
-- Aprueba solo si pasan las dos, cada una con probabilidad estrictamente mayor que 0.5.
-- Si falla `ok`, el motivo es `no_usable_data`; si falla solo `cumple`, `not_accomplished`; si fallan ambas, gana `no_usable_data`.
+- Aprueba solo si pasan todas, cada una con probabilidad estrictamente mayor que 0.5 (`verdictOf`).
+- La razón es la de la primera pregunta que falla, en el orden de la tabla: si falla `ok`, `no_usable_data`; si falla solo `cumple`, `not_accomplished`.
 - `tool_error` y `exception` se rechazan sin consultar al modelo. `interrupted` y `denied` no se verifican y quedan sin veredicto.
 - Una respuesta inválida se repite una vez; si persiste, el servicio se considera no disponible.
 
@@ -159,7 +168,7 @@ La respuesta de respaldo es texto fijo, sin modelo: estado de la tarea, motivo d
 | Estado | Condición |
 |---|---|
 | `running` | La tarea está en curso, incluidas las esperas del usuario (plan, aprobación o pregunta). |
-| `completed` | Reactivo: `fin` con `canFinish` habilitado. Deliberativo: todos los pasos vigentes `completed`. No lleva motivo. |
+| `completed` | Reactivo: lista de pendientes vacía con `canFinish` en `completed`. Deliberativo: todos los pasos vigentes `completed`. No lleva motivo. |
 | `partial` | Se detuvo por `max_steps`, `replans_exhausted`, `no_alternatives` o `unrecoverable`, pero hubo efectos sobre el entorno o al menos una llamada aprobada. |
 | `failed` | Se detuvo por `security_denied`, o por alguno de los motivos anteriores sin efectos ni llamadas aprobadas. |
 | `cancelled` | El usuario canceló (`user_cancelled`), en cualquier momento. |
@@ -168,8 +177,8 @@ El motivo de detención es una lista cerrada: `max_steps`, `no_alternatives`, `s
 
 ## 10. Errores y Límites
 - **Transporte hacia modelos**: los fallos de red o HTTP 503 se reintentan una vez tras 1 s. El timeout y la cancelación nunca se reintentan.
-- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez inyectando el motivo del error en el prompt; el modelo de decisión repite la consulta una vez. Si persiste: en argumentos es `args_invalid`; en decisión y verificación, servicio no disponible.
-- **Servicio no disponible**: se registra el error `service_unavailable` y la tarea se cierra con `unrecoverable`.
+- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez inyectando el motivo del error en el prompt; el modelo de decisión repite la consulta una vez. Si persiste: en argumentos es `args_invalid`; en la lista de pendientes, `unrecoverable`; en decisión y verificación, servicio no disponible.
+- **Servicio no disponible**: se registra el error `service_unavailable` (si ya hay un paso) y la tarea se cierra con `unrecoverable`.
 - **Desborde de contexto**: si un prompt no deja margen para la salida, o una vista no entra en su límite, la tarea se cierra con `unrecoverable` sin registrar error y sin repetir.
 - **Cancelación cooperativa**: la señal de aborto llega a las esperas y a las llamadas en vuelo, y la tarea concluye sin tratarse como error. Una herramienta ya despachada queda `interrupted`.
 
@@ -177,12 +186,15 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 
 | Límite | Valor |
 |---|---|
-| Pasos máximos | 15 (reactivo: tope de la tarea; deliberativo: tope por plan) |
-| Replans | 2 |
+| Pasos máximos (`maxSteps`) | 100 (reactivo: tope de la tarea; deliberativo: tope por plan) |
+| Replans (`maxReplans`) | 10 |
 | Escalaciones (reactivo) | 2 (la tercera cierra la tarea) |
-| Llamadas por paso | 8 (sin contar rechazos del usuario) |
+| Llamadas por paso (`maxCallsPerStep`) | 50 (sin contar rechazos del usuario) |
+| Rechazos de la revisión por paso (`maxReviewRejectionsPerStep`) | 2 (el segundo falla el paso) |
+| Preguntas al usuario por paso (`maxQuestionsPerStep`) | 1 |
+| Salida de la lista de pendientes (`pending.maxTokens`) | 1024 tokens |
 | Reintentos de transporte | 1, tras 1 s |
-| Reintentos por salida inválida | 1 |
+| Reintentos por salida inválida (`invalidResponseRetries`) | 1 |
 | Tareas retenidas | 20 |
 | Timeouts | Modelo generativo 120 s (180 s con razonamiento extendido); modelo de decisión 30 s; herramientas 30 s |
 | Contexto configurado | 16 384 tokens para ambos modelos |
@@ -197,8 +209,9 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 ## 12. Archivos Base
 | Tema | Ruta en `src/core/` |
 |---|---|
-| Entrada y estrategia | `tasks.ts`, `engine/runTask.ts`, `engine/stepLoop.ts`, `engine/planner.ts` |
+| Entrada y estrategia | `tasks.ts`, `engine/runTask.ts`, `engine/stepLoop.ts`, `engine/planner.ts`, `engine/pending.ts` |
 | Llamadas y verificación | `engine/callRunner.ts`, `engine/verify.ts`, `engine/ask.ts` |
 | Cierre y fallos | `engine/finalize.ts`, `engine/failures.ts`, `engine/runtime.ts` |
-| Modelos y transporte | `decision.ts`, `reasoner/qwen.ts`, `llmTransport.ts`, `budget.ts` |
+| Modelos y transporte | `decision.ts`, `reasoner/qwen.ts`, `reasoner/prompts.ts`, `reasoner/stageRequests.ts`, `llmTransport.ts`, `budget.ts` |
+| Etapas de modelo (ids de traza) | `types/stages.ts` |
 | Seguridad | `policy/guard.ts` |

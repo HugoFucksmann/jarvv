@@ -8,16 +8,19 @@
  */
 
 import { BUDGET } from "../../src/core/budget.ts";
+import type { DECISION_PROMPTS } from "../../src/core/reasoner/prompts.ts";
+import type { PromptSet } from "../../src/core/reasoner/stageRequests.ts";
 import { parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/reasoner/qwen.ts";
 import { schemaTypes as prodSchemaTypes } from "../../src/core/refs/refResolver.ts";
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
+export { parseAnswersObject, validateAnswer } from "../../src/core/decision.ts";
 export { NOUL_APPROVE } from "../../src/core/engine/verify.ts";
 export { ARGS_REVIEWS } from "../../src/core/engine/deps.ts";
 export { estimateTokens } from "../../src/core/llmTransport.ts";
 export { retryNote } from "../../src/core/reasoner/prompts.ts";
-export { parseJsonObject, stripThink } from "../../src/core/reasoner/qwen.ts";
+export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/reasoner/qwen.ts";
 export {
   planViewSchema as buildPlanSchema,
   RETRY_TEMPERATURE,
@@ -31,6 +34,17 @@ export const MAX_STEPS = BUDGET.maxSteps;
 export { ASK_USER, EXECUTABLE_ROUTES, FIN, isExecutableRoute } from "../../src/core/types/routes.ts";
 export type { ExecutableRoute } from "../../src/core/types/routes.ts";
 export { isRecord } from "../../src/core/utils.ts";
+
+// ───────────────────────── Prompts de una variante ─────────────────────────
+
+/**
+ * Piezas de los prompts de producción que una variante reemplaza. Dos niveles: `PROMPTS.<vista>.<pieza>` (generativas) y
+ * `DECISION_PROMPTS.<constructor>` (decisión). Lo que no define cae al prompt de producción.
+ */
+export interface PromptOverrides {
+  PROMPTS?: { [K in keyof PromptSet]?: Partial<PromptSet[K]> };
+  DECISION_PROMPTS?: Partial<typeof DECISION_PROMPTS>;
+}
 
 // ───────────────────────── Tipos locales ─────────────────────────
 

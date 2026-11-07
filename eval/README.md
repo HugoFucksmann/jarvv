@@ -2,7 +2,7 @@
 
 > Mide cómo decide y responde Jarvis, y valida cada cambio de prompt contra producción antes de tocar `src`.
 
-**Versión 1.0** · Evalúa las ocho etapas del flujo, compara variantes de prompt y modelos, y deja cada resultado trazable.
+**Versión 1.0** · Evalúa las nueve etapas del flujo, compara variantes de prompt, y deja cada resultado trazable.
 
 ---
 
@@ -11,10 +11,9 @@
 | | |
 |---|---|
 | **Contexto real de Jarvis** | Los casos por escenario describen la situación y el eval arma el prompt con el mismo código que usa Jarvis: vistas, mensajes fijos, renderizadores y parámetros de cada etapa. Si `src` cambia, el eval se actualiza solo. |
-| **Cobertura completa** | Cuatro etapas de decisión y cuatro generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
+| **Cobertura completa** | Cuatro etapas de decisión y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
 | **A/B de prompts sin riesgo** | Las variantes se aplican en memoria y se comparan contra la baseline `prod`: deltas, regresiones y mejoras caso por caso, prueba de signos y promedio por etapa. No modifica `src` ni los casos. |
 | **Lectura por tipo de modelo** | El resumen separa etapas generativas y de decisión, y avisa cuando una variante mejora un tipo y empeora el otro, para que el total no engañe. |
-| **Comparación de modelos** | Un mismo dataset contra varios modelos generativos, de decisión o configuraciones completas, con deltas contra una referencia. |
 | **Fiel a producción** | Mismos reintentos, mismos criterios de validación y un `pass` estricto: un run solo pasa si no registra ningún error. |
 | **Verificable sin GPU** | El cliente `oracle` responde lo que pide cada caso y debe dar 100 %: si falla, el problema no es el modelo. `mock` y `--dry-run` prueban la maquinaria sin red. |
 | **Trazable** | Cada celda guarda cada ejecución, sus métricas y su configuración: commit, hashes de dataset y variante, filtros y casos corridos. |
@@ -70,4 +69,4 @@ eval/results/<modelo>/<fecha>/
 
 ## Documentación
 
-Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, comparación de modelos, estructura de resultados, interpretación de métricas y estructura del código.
+Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas y estructura del código.

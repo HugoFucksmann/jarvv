@@ -1,3 +1,5 @@
+> **Estado: implementado, con cambios.** El camino de prompts enteros se hizo con un modelo de variantes único (composición en orden de la cadena y aplicación al cargar) y la comparación de modelos se quitó. Ver `PLAN_EVAL.md` y `eval/INSTRUCCIONES.md` (sección 6). Este documento queda como referencia del diseño original.
+
 # Plan: prompts enteros del eval viejo en el eval nuevo
 
 ## 1. Objetivo y decisión
