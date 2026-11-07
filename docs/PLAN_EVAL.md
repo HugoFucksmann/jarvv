@@ -35,3 +35,31 @@ Etapa `pending` registrada en el eval: tipos (`PendingOutput`, `PendingExpect`),
 Fixtures mínimos (se pueden borrar o reemplazar; los prompts y datasets reales los escribe otro agente): `eval/datasets/verificacion_corrida.jsonl` (7 casos por escenario: `pending`, `route`, `args_review`, `arguments`, `result_verification`), `eval/variants/prompt_prueba.ts` (prompts enteros de `pending`, `arguments` y `args_review`) y `eval/variants/decision_opciones.ts` (quita `tool_rejected` de `args_review` y agrega las preguntas `os_fit` (choice) y `command_valid` (noul)).
 - `--client=oracle` con las tres variantes: 100 %. Los hashes de request cambian solo en las etapas que cada variante toca.
 - Corrida real (qwen3.5:4b + d3:2b): 21 runs sin errores de ejecución (cliente, parseo ni aplicación de variantes); los fallos son de calidad del modelo. Resultado: con el prompt de producción D3 etiqueta `tool_rejected` tanto el comando de Linux como el de PowerShell; con `tool_rejected` quitado etiqueta `args_invalid` el de Linux (bien) pero también el de PowerShell (mal); `os_fit` acierta 2/2 y `command_valid` falla en el de Linux. Con una sola repetición no hay conclusiones: usar `--repeat`.
+
+## Corrección de `buildContext` (escenarios reactivos con varios pasos)
+En reactivo cada paso nace `running` y el contexto admite uno solo (invariante 2), así que `buildContext` fallaba con dos o más pasos. Ahora, en reactivo, cada paso se crea, recibe sus llamadas y llega a su estado final antes de crear el siguiente; el deliberativo no cambió. Con el arreglo cargan los datasets `scenarios_pending`, `scenarios_args_review`, `scenarios_arguments` y `scenarios_reactivo` (102 casos, 100 % con `--client=oracle`). Los pasos anteriores de un escenario reactivo deben declarar un estado final (`completed` o `failed`): sin estado quedan `running` y violan la invariante.
+
+## Candidatas para probar en JARVIS
+Dos variantes que reúnen lo medido el 2026-11-07: `cand_a` (conservadora: `pending` = `pending_corto2` más regla de reescritura tras fallo, y `arguments` = `args_so_basico`; no toca decisiones) y `cand_b` (A más: regla de "cumplido tras fallo" en `pending`, equivalencia de comandos de Linux en `arguments`, y ajustes de texto en D1, D3 y D4). Cada una cambia solo las etapas que dice su encabezado (`pending`, `arguments` y, en B, `route`, `args_review` y `result_verification`); `tool_choice`, `plan`, `final` y `question` quedan igual que `prod`. Como las etapas son independientes, se elige por etapa y se pueden mezclar.
+
+Comando de comparación (raíz del repo):
+```
+npm run eval -- --variant=prod,cand_a,cand_b --dataset=scenarios_pending,scenarios_arguments,scenarios_args_review,scenarios_reactivo,dificil_pending,dificil_arguments,dificil_reactivo,scenarios_chains,scenarios_messages --stages=pending,arguments,args_review,route,result_verification --repeat=3 --label=candidatas
+```
+Los 8 casos de `route` que esperan `fin` o `ask_user` (6 en `scenarios_chains`, 2 en `scenarios_messages`) fallan igual en las tres variantes: no cuentan para decidir.
+
+## Resultado de las candidatas (`2026-11-07_015324_candidatas`, qwen3.5:4b + d3:2b, `--repeat=3`)
+| Etapa (dataset) | prod | cand_a | cand_b |
+|---|---|---|---|
+| pending (scenarios_pending) | 64,7 % | 94,1 % | 98,0 % |
+| pending (dificil_pending) | 74,5 % | 80,4 % | 70,6 % |
+| arguments (scenarios_arguments) | 76,5 % | 94,1 % | 100 % |
+| arguments (dificil_arguments) | 100 % | 100 % | 100 % |
+| route (scenarios_reactivo) | 87,5 % | 87,5 % | 100 % |
+| route (dificil_reactivo) | 94,4 % | 94,4 % | 100 % |
+| route (scenarios_chains) | 58,3 % | 58,3 % | 58,3 % |
+| args_review (scenarios_args_review) | 35 % | 35 % | 25 % |
+| result_verification (scenarios_chains) | 58,3 % | 58,3 % | 66,7 % |
+| result_verification (scenarios_reactivo) | 75 % | 75 % | 75 % |
+
+Decisión por etapa: `pending` de A (la regla extra de B vació la lista en `dpen-parcial-falta-guardar` y bajó `dificil_pending`); `arguments` de B (100 %, arregla `arg-terminal-tras-ps-cmd`); D1 de B (100 % en los dos datasets reactivos; riesgo: `seq-comparar-precios-03-route`); D3 y D4 de producción (el ajuste de D3 empeoró `args_review`; el de D4 mejoró 5 casos y empeoró 3, sin mover los que apuntaba). Esa combinación es `eval/variants/cand_c.ts`. Sin resolver con prompts: `pending` no reescribe el ítem tras un fallo (`dpen-archivo-no-encontrado`, 0/3 en A, B y C; prod 2/3).

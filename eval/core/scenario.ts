@@ -167,45 +167,71 @@ function buildContext(sc: Scenario): Built {
   );
   const addOne = (op: Op): string => ctx.apply(op).ids[0];
 
-  // Deliberativo: un plan inicial al que pertenecen los pasos. Reactivo: un único paso vacío.
+  // Deliberativo: un plan inicial al que pertenecen los pasos. Reactivo: sin plan; cada paso nace `running`.
   const deliberative = sc.mode === "deliberative";
   const planId = deliberative ? addOne({ op: "add", target: "plans", value: { trigger: "initial", feedback: null, stepId: null } }) : null;
   const stepSpecs: ScenarioStep[] = sc.steps && sc.steps.length > 0 ? sc.steps : [{}];
+  const callSpecs = sc.calls ?? [];
+  const lastIdx = stepSpecs.length - 1;
+  // Paso de cada llamada (índice en `steps`; por defecto el último).
+  const callStep = callSpecs.map((c) => (c.step !== undefined && c.step >= 0 && c.step <= lastIdx ? c.step : lastIdx));
 
-  const stepIds = stepSpecs.map((s) =>
-    addOne({
-      op: "add",
-      target: "steps",
-      value: deliberative
-        ? { planId, instruction: s.instruction ?? "", route: s.route ?? "", expected: s.expected ?? "" }
-        : { planId: null, instruction: s.instruction ?? sc.request, route: null, expected: null },
-    }),
-  );
-  const lastStepId = stepIds[stepIds.length - 1];
-
-  // Llamadas, con la ref (si la hay) agregada antes y el veredicto después, como en producción.
+  const stepIds: string[] = [];
   const callIds: string[] = [];
-  (sc.calls ?? []).forEach((c, i) => {
-    const stepId = stepIds[c.step ?? stepIds.length - 1] ?? lastStepId;
+
+  const addStep = (s: ScenarioStep): void => {
+    stepIds.push(
+      addOne({
+        op: "add",
+        target: "steps",
+        value: deliberative
+          ? { planId, instruction: s.instruction ?? "", route: s.route ?? "", expected: s.expected ?? "" }
+          : { planId: null, instruction: s.instruction ?? sc.request, route: null, expected: null },
+      }),
+    );
+  };
+
+  // Una llamada, con la ref (si la hay) agregada antes y el veredicto después, como en producción.
+  const addCall = (k: number): void => {
+    const c = callSpecs[k];
+    const stepId = stepIds[callStep[k]];
     const refId = c.ref ? addOne({ op: "add", target: "refs", value: { stepId, ...c.ref } }) : null;
     const args = c.args === undefined ? {} : c.args;
-    const sig = args === null || c.status === "refs_unresolved" ? null : `sig-${i}`;
+    const sig = args === null || c.status === "refs_unresolved" ? null : `sig-${k}`;
     const id = addOne({
       op: "add",
       target: "calls",
       value: { stepId, route: c.route, tool: c.tool, kind: c.kind ?? "read", args, sig, status: c.status, summary: c.summary ?? null, ref: refId },
     });
-    callIds.push(id);
+    callIds[k] = id;
     if (c.verdict) ctx.apply({ op: "update", target: id, value: { verdict: c.verdict, reason: c.reason ?? null } });
-  });
+  };
 
-  // Estado de los pasos: de a uno y en orden (solo puede haber uno `running`).
-  stepSpecs.forEach((s, i) => {
-    const state = s.state ?? "pending";
+  // Estado final del paso: `completed` y `failed` pasan antes por `running`.
+  const settle = (i: number): void => {
+    const state = stepSpecs[i].state ?? "pending";
     if (state === "pending") return;
     ctx.apply({ op: "update", target: stepIds[i], value: { state: "running" } });
     if (state !== "running") ctx.apply({ op: "update", target: stepIds[i], value: { state } });
-  });
+  };
+
+  if (deliberative) {
+    // Los pasos nacen `pending`: se crean todos, después las llamadas y al final los estados (de a uno y en orden).
+    stepSpecs.forEach((s) => addStep(s));
+    callSpecs.forEach((_, k) => addCall(k));
+    stepSpecs.forEach((_, i) => settle(i));
+  } else {
+    // Reactivo: un paso nuevo nace `running` y el contexto admite uno solo (invariante 2): cada paso se crea, recibe sus
+    // llamadas y llega a su estado final antes de crear el siguiente.
+    stepSpecs.forEach((s, i) => {
+      addStep(s);
+      callSpecs.forEach((_, k) => {
+        if (callStep[k] === i) addCall(k);
+      });
+      settle(i);
+    });
+  }
+  const lastStepId = stepIds[lastIdx];
 
   for (const [key, value] of Object.entries(sc.facts ?? {})) {
     ctx.apply({ op: "set", target: `facts.${key}`, value: { value, stepId: lastStepId } });
