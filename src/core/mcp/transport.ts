@@ -14,6 +14,7 @@
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import { ConfigManager, type StdioServerConfig } from "../config.ts";
+import { errorMessage } from "../utils.ts";
 
 export class MCPTransportError extends Error {
   constructor(public readonly serverName: string, message: string, public readonly cause?: unknown) {
@@ -42,8 +43,8 @@ export class StdioMcpTransport implements IMCPTransport {
   private pendingRequests = new Map<
     number | string,
     {
-      resolve: (value: any) => void;
-      reject: (reason: any) => void;
+      resolve: (value: unknown) => void;
+      reject: (reason: unknown) => void;
       timer: ReturnType<typeof setTimeout>;
       method: string;
     }
@@ -216,12 +217,12 @@ export class StdioMcpTransport implements IMCPTransport {
         initCompleted = true;
 
         return child;
-      } catch (err: any) {
+      } catch (err) {
         const transportErr = err instanceof MCPTransportError
           ? err
           : new MCPTransportError(
             this.serverName,
-            `No fue posible iniciar el proceso MCP '${command} ${args.join(" ")}': ${err.message}`,
+            `No fue posible iniciar el proceso MCP '${command} ${args.join(" ")}': ${errorMessage(err)}`,
             err
           );
         if (superseded()) {
@@ -232,7 +233,7 @@ export class StdioMcpTransport implements IMCPTransport {
         this.initPromise = null;
         if (!initCompleted) {
           this.permanentFailure = transportErr;
-          console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar: ${err.message}`);
+          console.error(`[MCP '${this.serverName}'] Fallo permanente al iniciar: ${errorMessage(err)}`);
         }
         throw transportErr;
       } finally {
@@ -353,7 +354,7 @@ export class StdioMcpTransport implements IMCPTransport {
         );
       }, currentTimeoutMs);
 
-      this.pendingRequests.set(id, { resolve, reject, timer, method });
+      this.pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, method });
 
       try {
         const line = JSON.stringify(payload) + "\n";
@@ -364,10 +365,10 @@ export class StdioMcpTransport implements IMCPTransport {
             reject(new MCPTransportError(this.serverName, `Error escribiendo a stdin: ${err.message}`, err));
           }
         });
-      } catch (err: any) {
+      } catch (err) {
         clearTimeout(timer);
         this.pendingRequests.delete(id);
-        reject(new MCPTransportError(this.serverName, `Error enviando mensaje por stdio: ${err.message}`, err));
+        reject(new MCPTransportError(this.serverName, `Error enviando mensaje por stdio: ${errorMessage(err)}`, err));
       }
     });
   }

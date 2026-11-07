@@ -25,7 +25,11 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 | `POST /user-answer` | `{ taskId?, answer }` | Responde la pregunta abierta (no vacía) |
 | `GET /state?taskId=` | | `{ task: TaskDto \| null, tasks: TaskSummary[], discoveredTools, unavailableServers }`. Sin `taskId`, la última |
 | `GET /events` | | SSE, ver abajo |
-| `GET/POST /config`, `ALL /refresh-discovery` | | Sin cambios |
+| `GET /tasks/:taskId/refs/:refId` | | Texto completo de una ref de la tarea (`calls[].ref`, `refs[].id`), `text/plain`. 404 si la tarea o la ref no existen o el archivo ya no está |
+| `GET /tasks/:taskId/trace?format=` | | Traza de una tarea **terminada**: `summary` (Markdown, por defecto; alertas, línea de tiempo con las decisiones D1 a D4, esperas y respuesta final) o `json` (snapshot, consultas a modelos con sus opciones, herramientas y duraciones). 400 si `format` es otro; 404 si la tarea sigue en curso, la traza está desactivada (`traceEnabled`) o no existe |
+| `GET /environment` | | Datos de esta PC: `platform`, `home`, `desktop`, `documents`, `downloads` (los que se pudieron consultar), más `now` (ISO) y `timeZone` |
+| `GET /limits` | | Topes del motor: `maxSteps`, `maxReplans`, `maxEscalations`, `maxItemFailures`, `maxCallsPerStep`, `maxRepeatsPerStep`, `maxReviewRejectionsPerStep`, `maxQuestionsPerStep`: para mostrar progreso (paso 3 de 20, llamada 2 de 6) |
+| `GET/POST /config`, `ALL /refresh-discovery` | | `/config` devuelve y acepta la configuración completa; `POST` fusiona las claves que se envían y descarta las inválidas. Claves de seguridad: `autoMode` (boolean) y `blacklist` (ver abajo) |
 
 `taskId` es opcional por compatibilidad (toma la última tarea); con varias tareas conviene enviarlo siempre. `waitId` es el `request.id` de la espera actual: si se envía y no coincide (respuesta tardía), responde 409.
 
@@ -49,13 +53,18 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 }
 ```
 
-- **Reactivo:** `plans` está vacío y los pasos traen `planId`, `route` y `expected` en `null`; `instruction` es el primer pendiente de la lista que el modelo mantiene en cada vuelta. Lo que se hizo se lee de `calls`. Cada iteración del bucle es un paso.
+- **Reactivo:** `plans` está vacío y los pasos traen `planId`, `route` y `expected` en `null`; `instruction` es el primer ítem de la lista de pendientes, que mantiene el código (el modelo la genera al empezar, tras un fallo y al vaciarse); la lista completa no se expone. Lo que se hizo se lee de `calls`. Cada iteración del bucle es un paso.
 - **Deliberativo:** un replan o una modificación del usuario marca `superseded: true` los pasos que reemplaza: se muestran como descartados, no como fallidos. Los vigentes son los que no están `superseded`.
-- **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid`, `refs_unresolved`, `loop_blocked`, `user_rejected`, `tool_rejected`, `info_missing`, `denied` (la rechazó la política de seguridad: la tarea termina con `security_denied`). `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data` o `not_accomplished`.
+- **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid` (el pre-chequeo o la revisión rechazaron los argumentos), `refs_unresolved`, `loop_blocked` (la misma llamada ya se había hecho), `user_rejected`, `tool_rejected` (la herramienta o el comando está en la lista negra de la configuración), `info_missing`, `denied` (la rechazó la política de seguridad: la tarea termina con `security_denied`). `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data` o `not_accomplished`.
 - **Escrituras:** `kind: "write"` con `status: "ok"` son cambios hechos en la PC; con `tool_error`, `exception` o `interrupted` pudieron dejar cambios parciales.
 - **`summary`:** resultado ya resumido (máx. 2500 caracteres, con marcadores `…(+N)` si se recortó). Si `ref` no es `null`, el resultado completo está en el archivo de esa ref (`refs[].where`, ruta absoluta en la PC; `size` en caracteres).
 - **`facts`:** `process` (id del proceso en segundo plano activo; `value: null` = ya no hay) y `answer_<stepId>_<n>` (`"pregunta -> respuesta"`).
 - `args` van como los propuso el modelo, con los strings recortados; `{{ref:rN}}` es una referencia a un resultado guardado.
+
+## Modo automático y lista negra (`/config`)
+
+- `autoMode` (`false` por defecto): con `true`, las escrituras y comandos del catálogo **no generan espera `approval`**; las valida la revisión de argumentos y se ejecutan. Guard (patrones destructivos, carpetas protegidas → `security_denied`) y la lista negra siguen rechazando. Se lee en cada llamada: cambiarlo no libera una espera `approval` que ya esté abierta (hay que aprobarla o rechazarla).
+- `blacklist`: `[{ "tool": "start_process" | "servidor:herramienta", "pattern"?: "regex sobre los argumentos", "reason": "texto para el modelo" }]`. Solo afecta a herramientas que modifican el sistema; un acierto registra la llamada como `tool_rejected` (la tarea sigue). Sin `pattern` la herramienta entera deja de ofrecerse. `POST` reemplaza la lista completa.
 
 ## Esperas (`waiting`)
 
@@ -67,6 +76,7 @@ La tarea queda detenida hasta que el usuario responde; solo hay una espera a la 
 { "kind": "question", "question": { "stepId", "question" } }                                                  // → /user-answer
 ```
 
+- La aprobación se pide después de que el pre-chequeo aceptó los argumentos, y no se pide con `autoMode`. Si el usuario aprueba, no hay otra revisión de argumentos.
 - El plan se confirma tras el plan inicial y tras cada plan generado por una modificación del usuario; nunca tras un replan automático.
 - `args` de `approval` son los registrados (recortados); un contenido grande aparece como `{{ref:rN}}`.
 - Cancelar resuelve cualquier espera y la tarea cierra con `cancelled` / `user_cancelled`.
@@ -88,7 +98,7 @@ Un mensaje `data: <json>` por evento, más un comentario `: ping` cada 15 s.
 ## Qué mostrar y cómo
 
 - **Progreso:** `steps` (deliberativo: plan con estado por paso) y `calls` (qué herramienta se llamó, con qué `args` y qué devolvió).
-- **Fin de la tarea:** `task.state` se vuelve terminal antes que `result`: mostrar el estado y esperar `result` (llega en el evento `set result`). `result.text` es el mensaje al usuario; con `origin: "fallback"` es un resumen fijo de lo hecho y de los cambios que quedaron en la PC.
+- **Fin de la tarea:** `task.state` se vuelve terminal antes que `result`: mostrar el estado y esperar `result` (llega en el evento `set result`). `result.text` es el mensaje al usuario; con la tarea `partial` o `failed` y `origin: "model"` empieza con un encabezado fijo (estado, qué no se logró y cambios hechos en la PC) escrito por el código: no hace falta repetirlo en la UI; con `origin: "fallback"` es un resumen fijo de lo hecho y de los cambios que quedaron en la PC.
 - **`partial` o `failed`:** mostrar `stopReason` y, de `calls`, los cambios que permanecen (escrituras `ok`) y los posibles (escrituras `tool_error`, `exception` o `interrupted`).
 - **Proceso en segundo plano:** si `facts.process.value` no es `null`, la tarea terminó dejando uno corriendo.
 - **Tareas retenidas:** hasta 20 en memoria; las terminales más antiguas se descartan (la lista `tasks` es la vigente).

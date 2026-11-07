@@ -11,15 +11,16 @@
 import path from "node:path";
 
 import { ConfigManager, type JarvisConfig } from "../config.ts";
-import type { getUserEnvironment } from "../environment.ts";
+import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
 import type { IMCPServer } from "../mcp/types.ts";
+import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
 import { isPathInside, type ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
 import type { VerdictReason } from "../ctx/index.ts";
 import type { ArgumentsGenerationResult, MCPTool, TimeSpan } from "../types.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import type { cleanInputSchema } from "../utils.ts";
-import type { CaptureSink } from "./capture.ts";
+import type { CaptureSink } from "./sink.ts";
 
 // ───────────────────────── Descubrimiento de herramientas ─────────────────────────
 
@@ -162,7 +163,7 @@ export interface IActionDecision {
 export interface ArgsFromViewInput {
   readonly tool: MCPTool;
   readonly cleanedSchema: ReturnType<typeof cleanInputSchema>;
-  readonly environment: Awaited<ReturnType<typeof getUserEnvironment>>;
+  readonly environment: UserEnvironment;
   /** Texto de `renderArgs(ctx.view.forArgs(...))`. */
   readonly view: string;
 }
@@ -249,6 +250,12 @@ export interface EngineDeps {
   readonly vault: RefVault;
   /** Alcance de la regla B del Guard (D9, D20, D27). */
   readonly guardScope: ProtectedPaths;
+  /** Lista negra de herramientas que modifican el sistema (`policy/blacklist.ts`). */
+  readonly blacklist: Blacklist;
+  /** Datos de esta PC (sistema operativo y carpetas del usuario): se consultan una vez por proceso. */
+  readonly environment: () => Promise<UserEnvironment>;
+  /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */
+  readonly autoMode: () => boolean;
   /** Receptor de la traza (D11). Sin él, no se captura nada. */
   readonly sink?: CaptureSink;
 }
@@ -258,6 +265,11 @@ export interface EngineDeps {
 export interface EngineServices {
   readonly vault: RefVault;
   readonly guardScope: ProtectedPaths;
+  /** Lista negra de herramientas que modifican el sistema, compilada desde la configuración. */
+  readonly blacklist: Blacklist;
+  /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
+  readonly environment: () => Promise<UserEnvironment>;
+  readonly autoMode: () => boolean;
 }
 
 let coherenceWarned = false;
@@ -294,5 +306,8 @@ export function createEngineServices(config: JarvisConfig = ConfigManager.getCon
   return {
     vault: createRefVault({ dir: refsDir }),
     guardScope: { protectedDirs: [refsDir], relativeBases: [...bases] },
+    blacklist: compileBlacklist(config.blacklist),
+    environment: getUserEnvironment,
+    autoMode: () => ConfigManager.getConfig().autoMode,
   };
 }

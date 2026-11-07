@@ -99,3 +99,22 @@ export function fitToCap(text: string, cap: number): ClippedText {
     const head = Math.ceil(budget / 2);
     return headTailNeutral(text, head, budget - head);
 }
+
+// ───────────────────────── Comparación de textos por raíz ─────────────────────────
+
+/** Minúsculas y sin acentos. */
+export const fold = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/**
+ * Prefijos de 5 letras (o la palabra entera si es más corta) de las palabras que distinguen un texto, sin las de `stop` (se compara la
+ * palabra y su prefijo). Sirve en español e inglés sin listas por idioma. Lo usan la lista de pendientes y el extractor de `research`.
+ */
+export function stemsOf(text: string, stop: ReadonlySet<string>): Set<string> {
+    const out = new Set<string>();
+    for (const word of fold(text).split(/[^a-z0-9]+/)) {
+        if (word.length < 3) continue;
+        const stem = word.slice(0, 5);
+        if (!stop.has(word) && !stop.has(stem)) out.add(stem);
+    }
+    return out;
+}

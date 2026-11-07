@@ -22,6 +22,7 @@ import { QwenEngine } from './src/core/reasoner/qwen.ts';
 import { TaskManager } from './src/core/tasks.ts';
 import { createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
+import { getUserEnvironment } from './src/core/environment.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -139,6 +140,9 @@ async function main() {
   // Solo loopback por defecto: sin autenticación, exponerlo a la red local daría control de la PC. HOST=0.0.0.0 lo abre.
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || '127.0.0.1';
+  // Datos de esta PC (carpetas del usuario): se consultan ahora y no en la primera tarea; la primera tarea espera la misma promesa.
+  void getUserEnvironment();
+
   app.listen(PORT, HOST, () => {
     console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);
   });

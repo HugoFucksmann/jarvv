@@ -147,6 +147,20 @@ export class TaskManager {
   }
 
   /** Tareas retenidas, de la más antigua a la más reciente. */
+  /** Texto completo de una ref de la tarea. La ruta sale del contexto, nunca del pedido, y el almacén solo lee dentro de su carpeta. */
+  async readRef(taskId: string, refId: string): Promise<{ readonly text: string } | "unknown_task" | "unknown_ref" | "unavailable"> {
+    const entry = this.tasks.get(taskId);
+    if (!entry) return "unknown_task";
+    const ref = entry.ctx.snapshot().refs.find((r) => r.id === refId);
+    if (!ref) return "unknown_ref";
+    try {
+      return { text: await this.services.vault.readAll(ref.where) };
+    } catch (error) {
+      console.warn(`[Tasks] no se pudo leer la ref ${refId}: ${errorMessage(error)}`);
+      return "unavailable";
+    }
+  }
+
   list(): TaskSummary[] {
     return [...this.tasks.values()].map(({ ctx, runtime }) => ({
       id: ctx.task.id,

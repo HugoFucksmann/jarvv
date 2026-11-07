@@ -17,7 +17,7 @@ export const STATUS_NOTES: { readonly [S in CallStatus]: string | null } = {
   refs_unresolved: "A reference could not be resolved; not executed.",
   loop_blocked: "Repetition blocked: the same call was already made; not executed. Change the arguments (for a search, use other keywords).",
   user_rejected: "The user rejected the action; not executed.",
-  tool_rejected: "The review discarded this tool; not executed.",
+  tool_rejected: "This tool or command is on the blacklist for this computer; not executed. Choose another tool or another way to do it.",
   info_missing: "The review found that information from the user is missing; not executed.",
   denied: "The operation was denied; not performed.",
 };

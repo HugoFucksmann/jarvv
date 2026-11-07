@@ -23,20 +23,22 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Modelo de decisión** | Cuatro decisiones con preguntas `choice` y `noul`: ruta (Decisión 1), herramienta (2), revisión de argumentos (3) y verificación del resultado (4). | No genera texto libre, planes ni argumentos. | `decision.ts` |
 | **Modelo generativo** | Plan y replan, lista de pendientes (reactivo), argumentos conforme al esquema de la herramienta, pregunta al usuario y respuesta final. | No despacha comandos ni accede al entorno local. | `reasoner/qwen.ts`, `reasoner/prompts.ts` |
 | **Renderizadores** | Convierten las vistas estructuradas del contexto en el texto de los prompts, saneando todo texto externo. | No leen el contexto directamente ni aplican topes de negocio. | `render/` |
-| **Compuerta de seguridad (Guard)** | Evalúa los argumentos resueltos: deniega patrones destructivos y escrituras sobre las carpetas protegidas, y exige aprobación humana para las operaciones sensibles. | No modifica argumentos ni negocia alternativas con los modelos. | `policy/guard.ts` |
+| **Compuerta de seguridad (Guard)** | Evalúa los argumentos resueltos: deniega patrones destructivos y escrituras sobre las carpetas protegidas, y exige aprobación humana para las operaciones sensibles. Si el usuario aprueba, la llamada no pasa por la revisión de Decisión 3. Con `autoMode` no se pide aprobación y la revisión de Decisión 3 valida las escrituras del catálogo. | No modifica argumentos ni negocia alternativas con los modelos. | `policy/guard.ts` |
+| **Lista negra** | Rechazo determinista y editable (`blacklist` en `jarvis-config.json`) de herramientas que modifican el sistema, enteras o por patrón sobre los argumentos; las lecturas pasan siempre. El rechazo es recuperable (`tool_rejected`), a diferencia de Guard, que cierra la tarea. | No evalúa seguridad destructiva (es de Guard) ni consulta modelos. | `policy/blacklist.ts` |
 | **Catálogo de herramientas** | Lista cerrada de herramientas autorizadas, con su destino, capacidad, política (aprobación, anti-bucle) y notas de parámetros. Es la única fuente de políticas. | No ejecuta llamadas ni guarda estado dinámico. | `tools/manifest.ts` |
 | **Procesador de resultados** | Convierte el resultado crudo de una herramienta en un estado (`ok`, `no_data`, `not_found`, `tool_error`, `denied`), un resumen acotado y el texto completo para la ref; incluye extractores por herramienta. | No guarda nada, no conoce tareas ni refs y no sanea. | `result/processResult.ts`, `result/extractors/` |
 | **Almacén y resolutor de refs** | Guarda el resultado crudo en disco y sustituye los tokens `{{ref:rN}}` de los argumentos por su contenido antes de Guard y del despacho. | El almacén no conoce el contexto; el resolutor no toca el disco ni las herramientas. | `refs/refVault.ts`, `refs/refResolver.ts` |
 | **Servidores MCP** | Transporte stdio JSON-RPC por servidor, descubrimiento y caché de herramientas, y adaptadores de cada servidor. | No deciden qué herramienta se usa. | `mcp/` |
-| **Registro de trazabilidad** | Al terminar cada tarea escribe una carpeta (`summary.md`, `trace.json`, `full.json.gz`) y una línea en `index.jsonl`, para análisis y evaluación externa; los resultados grandes quedan en las refs. | No es base de datos, no restaura estado al reiniciar y el backend nunca la lee. | `trace/recorder.ts`, `trace/format.ts` |
+| **Registro de trazabilidad** | Al terminar cada tarea escribe una carpeta (`summary.md`, `trace.json`, `full.json.gz`) y una línea en `index.jsonl`, para análisis y evaluación externa; los resultados grandes quedan en las refs. | No es base de datos, no restaura estado al reiniciar y el backend nunca la lee. | `trace/recorder.ts`, `trace/format.ts`, `trace/types.ts` |
 | **Presupuesto** | Tabla única de límites y topes (pasos, replans, llamadas por paso, recortes de las vistas, extractores). | No contiene lógica. | `budget.ts` |
 
 ## 4. Dependencias entre Capas
 - **Dirección permitida**: de afuera hacia adentro. El host compone los motores concretos; la fachada de tareas usa el motor; el motor usa el contexto, los modelos, Guard, el catálogo y los servidores MCP a través de contratos mínimos (`engine/deps.ts`), nunca de implementaciones.
 - **Contexto aislado**: `ctx/` no importa nada fuera de `ctx/`. Los topes se pasan al crearlo desde `budget.ts`, y el texto de los prompts lo arma `render/`.
 - **Traza desacoplada**: `trace/` depende del contexto (se suscribe a sus cambios) y de los puntos de captura del motor (`engine/capture.ts`), nunca a la inversa.
+- **Entorno de la PC**: los datos de la máquina (sistema operativo y carpetas del usuario, `environment.ts`) no viven en el contexto, que solo guarda el estado de la tarea y no conoce el sistema. Se consultan una vez por proceso (el servidor las pide al arrancar) y llegan al motor por `EngineServices.environment`, de donde las toma la generación de argumentos. La fecha (con día de la semana y zona horaria) la escribe el constructor de cada prompt al armarlo.
 - **Reglas deterministas en el motor**: lo que se puede decidir sin modelo vive en funciones puras o con entradas explícitas dentro de `engine/`: el pre-chequeo de argumentos (`precheck.ts`), la lista de pendientes (`pendingList.ts`) y los topes del paso (`retries.ts`, con los números en `budget.ts`). Los modelos solo deciden lo que el código no puede comprobar.
-- **Contratos**: `engine/deps.ts` define las interfaces que implementan los modelos (`reasoner/`, `decision.ts`), por eso estos importan de él los tipos y las listas cerradas (`ARGS_REVIEWS`, `VERIFY_CHECKS`); no importan lógica del motor. Los dos ciclos de imports que hay (`engine/capture` ↔ `engine/deps` y `trace/format` ↔ `trace/recorder`) son solo de tipos y desaparecen al compilar.
+- **Contratos**: `engine/deps.ts` define las interfaces que implementan los modelos (`reasoner/`, `decision.ts`), por eso estos importan de él los tipos y las listas cerradas (`ARGS_REVIEWS`, `VERIFY_CHECKS`); no importan lógica del motor. No hay ciclos de imports: el receptor de la captura vive en `engine/sink.ts` (aparte de los envoltorios de `capture.ts`) y los registros de la traza en `trace/types.ts`.
 - **Prohibido**: que modelos, Guard, el catálogo o el procesador de resultados dependan del host, de la fachada o del motor. El backend tampoco depende de la interfaz ni del laboratorio de evaluación.
 
 ## 5. Puntos de Extensión
@@ -91,7 +93,8 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 - `src/core/refs/refVault.ts`
 - `src/core/refs/refResolver.ts`
 - `src/core/mcp/discovery.ts`
-- `src/core/trace/recorder.ts`, `src/core/trace/format.ts`
+- `src/core/trace/recorder.ts`, `src/core/trace/format.ts`, `src/core/trace/types.ts`
+- `src/core/policy/blacklist.ts`, `src/core/engine/sink.ts`, `src/core/text.ts` (saneado y comparación de textos por raíz, común al motor y a los extractores)
 - `src/core/engine/pendingList.ts`, `src/core/engine/precheck.ts`, `src/core/engine/retries.ts`
 - `src/core/budget.ts`
 - `src/core/config.ts`

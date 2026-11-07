@@ -22,11 +22,16 @@ const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
 
 // Los helpers y las tablas de abajo se exportan para que un archivo de prompts del eval (variante con `prompts`) los reutilice.
-/** Fecha local de hoy (`YYYY-MM-DD`): ningún modelo la conoce; sin ella no puede juzgar qué es "último" o "reciente". */
-export const todayLine = (): string => {
-  const d = new Date();
+/**
+ * Fecha local de hoy con el día de la semana y la zona horaria (`TODAY: 2026-11-07 (Saturday, America/Argentina/Buenos_Aires)`):
+ * ningún modelo la conoce; sin ella no puede juzgar qué es "último" o "reciente". Sin hora: la hora cambia en cada consulta y
+ * rompería el prefijo reutilizable del prompt sin aportar nada a lo que se pide.
+ */
+export const todayLine = (now: Date = new Date()): string => {
   const two = (n: number): string => String(n).padStart(2, "0");
-  return `TODAY: ${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+  const weekday = now.toLocaleDateString("en-US", { weekday: "long" });
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return `TODAY: ${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} (${weekday}${zone ? `, ${zone}` : ""})`;
 };
 
 /** Neutraliza los delimitadores <obs> en cualquier texto interpolado. */

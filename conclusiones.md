@@ -162,6 +162,9 @@ rechazar algo bueno) la regla se invierte, pero 2.2 muestra que cruzar estas pre
 ### 2.4 "Reescribilo desde cero, no copies el anterior" en la razón del rechazo
 Empeora: con el comando oculto baja de 55 % a 20 % de comandos válidos, y con el comando visible sigue en 0 %. Ver 3.4.
 
+### 2.4b Temperatura más alta (0,2 y 0,3) en el reintento de la lista de pendientes vacía (2026-11-07)
+Prueba: `pending` sobre `scenarios_pending` y `dificil_pending` (17 casos cada uno), `--repeat=5`, temperatura 0,1 (`prod`) contra 0,2 y 0,3. Con 0,1 pasan 94,1 % y 80,0 %; con 0,2, 94,1 % y 77,6 %; con 0,3, 96,5 % y 71,8 %. Lo que el reintento intenta arreglar, una lista vacía cuando debía traer ítems, no ocurrió ni una vez a ninguna temperatura (0 de 135 corridas con ítems esperados) ni se inventaron ítems donde debía ir vacía (0 de 15). No se incorpora a `src`: no hay fallo que corregir en estos datasets y 0,3 empeora `dificil_pending` (regresiones: `dpen-comando-del-usuario-tasklist` 5/5 a 1/5, `dpen-verificacion-rechazada-incompleto` 3/5 a 1/5). Si aparece una lista vacía real en una traza, medirlo con ese caso. Las variantes `pend_t02` y `pend_t03` se borraron. Corrida: `2026-11-07_182930_pend_temp`.
+
 ### 2.5 Otras conclusiones de las pruebas viejas que siguen valiendo
 `read_status` aislada y J2 para verificar ausencias (activa un veto equivocado); repetir llamadas a temperatura 0 para medir ruido
 (diferencia 0,000); la pregunta `ok` sola ("¿hay datos?") no detecta contenido equivocado.

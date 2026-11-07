@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 import type { Call, ContextData, Ref } from "../ctx/index.ts";
-import type { ModelRecord, ToolRecord, WaitRecord } from "./recorder.ts";
+import type { ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
 
 /** Versión del formato de la traza. `full.json.gz` conserva la forma de la versión 2 (`snapshot`, `models`, `tools`, `waits`) más `kind: "full"`. */
 export const TRACE_FORMAT_VERSION = 3;

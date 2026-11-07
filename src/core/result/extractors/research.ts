@@ -1,6 +1,6 @@
 import type { ExtractorInput, ExtractorOutput } from "./types.ts";
 import { BUDGET } from "../../budget.ts";
-import { clipAtWord, omissionMarker } from "../../text.ts";
+import { clipAtWord, omissionMarker, stemsOf } from "../../text.ts";
 import { compactText } from "./shared.ts";
 
 /**
@@ -31,17 +31,7 @@ const STOP = new Set(
     )
 );
 
-const fold = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-
-/** Prefijos de 5 letras (o la palabra entera si es más corta) de las palabras que distinguen un texto. */
-function stems(text: string): Set<string> {
-    const out = new Set<string>();
-    for (const word of fold(text).split(/[^a-z0-9]+/)) {
-        if (word.length < 3 || STOP.has(word)) continue;
-        out.add(word.slice(0, 5));
-    }
-    return out;
-}
+const stems = (text: string): Set<string> => stemsOf(text, STOP);
 
 interface Source {
     n: number;

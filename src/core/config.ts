@@ -8,6 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isRecord } from "./utils.ts";
+import type { BlacklistEntry } from "./policy/blacklist.ts";
 
 export interface StdioServerConfig {
   command: string;
@@ -54,6 +55,13 @@ export interface JarvisConfig {
   tracePath: string;
   /** Carpeta de los resultados crudos de las refs; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   refsDir: string;
+  /** Lista negra de herramientas que modifican el sistema (rechazo `tool_rejected`; ver `policy/blacklist.ts`). */
+  blacklist: BlacklistEntry[];
+  /**
+   * Modo automático: las operaciones que piden aprobación (escrituras y comandos) no se la piden al usuario y las valida la revisión de
+   * argumentos (Decisión 3). Lo prohibido (Guard, lista negra) sigue rechazado. Se lee en cada llamada: se puede cambiar con la tarea en curso.
+   */
+  autoMode: boolean;
 }
 
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
@@ -92,6 +100,8 @@ const DEFAULT_CONFIG: JarvisConfig = {
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
   refsDir: "data/refs",
+  blacklist: [],
+  autoMode: false,
 };
 
 /** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
@@ -111,6 +121,18 @@ const stringRecord = (v: unknown): Record<string, string> | undefined =>
   isRecord(v) && Object.values(v).every((x) => typeof x === "string")
     ? { ...(v as Record<string, string>) }
     : undefined;
+
+/** Entradas válidas de la lista negra (`tool` y `reason` con texto; `pattern` opcional); las demás se descartan. */
+function blacklistEntries(v: unknown): BlacklistEntry[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: BlacklistEntry[] = [];
+  for (const raw of v) {
+    if (!isRecord(raw) || typeof raw.tool !== "string" || !raw.tool.trim() || typeof raw.reason !== "string" || !raw.reason.trim()) continue;
+    const pattern = typeof raw.pattern === "string" && raw.pattern.trim() ? raw.pattern : undefined;
+    out.push({ tool: raw.tool.trim(), reason: raw.reason.trim(), ...(pattern === undefined ? {} : { pattern }) });
+  }
+  return out;
+}
 
 function normalizeServer(raw: unknown, base: StdioServerConfig): StdioServerConfig {
   const r = isRecord(raw) ? raw : {};
@@ -165,6 +187,8 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     traceEnabled: typeof r.traceEnabled === "boolean" ? r.traceEnabled : d.traceEnabled,
     tracePath: nonEmptyText(r.tracePath, d.tracePath),
     refsDir: nonEmptyText(r.refsDir, d.refsDir),
+    blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
+    autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
   };
 }
 

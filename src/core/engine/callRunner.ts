@@ -2,7 +2,8 @@
  * JARVIS Core — Ejecutor de una llamada (`runCall`, Fase 5; PLAN_CONTEXT 5.2 y 5.3).
  *
  * Fases, en orden: descubrir herramientas → elegir herramienta (Decision #2) → argumentos (LLM) → resolver refs → huella
- * (`sig`) y anti-loop → Guard (política) → pre-chequeo determinista → revisión de argumentos (Decisión 3, solo escrituras) → confirmación del usuario → despacho (compite
+ * (`sig`) y anti-loop → Guard (política) → lista negra → pre-chequeo determinista → confirmación del usuario (si Guard la exige y no hay modo automático: con ella,
+ * D3 no entra) → revisión de argumentos (Decisión 3, solo escrituras que no pidieron confirmación) → despacho (compite
  * contra la cancelación) → procesar el resultado → guardar la ref si hace falta → registrar la llamada → verificar.
  *
  * Registro en el contexto:
@@ -19,16 +20,16 @@
 
 import { BUDGET } from "../budget.ts";
 import type { CallKind, CallStatus, JsonObject, Op, TaskContext } from "../ctx/index.ts";
-import { getUserEnvironment } from "../environment.ts";
 import { collectSources, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
+import { blacklistReason, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
 import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
 import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
 import type { ProcessedResult } from "../result/processResult.ts";
-import { applyDestination, getToolPolicy, requirementOf, serverOf } from "../tools/manifest.ts";
+import { applyDestination, getToolPolicy, isKnownTool, requirementOf, serverOf } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import { errorMessage } from "../utils.ts";
@@ -99,15 +100,16 @@ type Discovery =
 
 /**
  * Herramientas del catálogo que se pueden usar ahora en el paso: las que no exigen un proceso o una búsqueda activos, o
- * cuyo requisito se cumple, menos las que ya repitieron en el paso una llamada idéntica que había fallado (FLUJO 2,
+ * cuyo requisito se cumple, menos las vetadas enteras por la lista negra y las que ya repitieron en el paso una llamada idéntica que había fallado (FLUJO 2,
  * opciones disponibles).
  */
-function usableTools(ctx: TaskContext, stepId: string, mcp: string, cataloged: readonly MCPTool[]): MCPTool[] {
+function usableTools(ctx: TaskContext, stepId: string, mcp: string, cataloged: readonly MCPTool[], blacklist: Blacklist): MCPTool[] {
   const processActive = factValue(ctx, "process") !== null;
   const searchActive = ctx.find("calls", { tool: "start_search", status: "ok" }).length > 0;
   const blocked = ctx.failedRepeatTools(stepId);
   return cataloged.filter((t) => {
     if (blocked.includes(t.name)) return false;
+    if (isBlacklistedTool(blacklist, mcp, t.name, getToolPolicy(mcp, t.name).mutates)) return false;
     const required = requirementOf(mcp, t.name);
     return required === undefined || (required === "process" ? processActive : searchActive);
   });
@@ -128,7 +130,7 @@ export async function availableRoutes(env: EngineEnv, stepId: string, routes: re
     } catch {
       cataloged = [];
     }
-    if (cataloged.length === 0 || usableTools(ctx, stepId, mcp, cataloged).length > 0) out.push(route);
+    if (cataloged.length === 0 || usableTools(ctx, stepId, mcp, cataloged, deps.blacklist).length > 0) out.push(route);
   }
   return out;
 }
@@ -158,7 +160,7 @@ async function discoverTools(env: EngineEnv, stepId: string, route: ExecutableRo
     );
   }
 
-  const usable = usableTools(ctx, stepId, mcp, cataloged);
+  const usable = usableTools(ctx, stepId, mcp, cataloged, deps.blacklist);
   if (usable.length === 0) {
     console.warn(`[Engine] no hay herramientas utilizables en el destino '${route}'.`);
     return { kind: "outcome", outcome: { kind: "no_tools" } };
@@ -253,7 +255,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     console.error(`[Engine] ${new ContextOverflowError("forArgs", BUDGET.caps.effectsReserve, rendered.chars).message}`);
     return { kind: "close", stopReason: "unrecoverable", callId: null };
   }
-  const environment = await getUserEnvironment();
+  const environment = await deps.environment();
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
     () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text), runtime.signal),
@@ -299,6 +301,13 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return { kind: "close", stopReason: "security_denied", callId };
   }
 
+  // 6a. Lista negra (editable en la configuración): rechaza con su razón una herramienta que modifica el sistema; las lecturas no pasan por aquí.
+  const listed = blacklistReason(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
+  if (listed !== null) {
+    const callId = register(ctx, { ...base, args: recorded, sig, status: "tool_rejected", summary: summaryText(listed), ref: null });
+    return registered(callId, "tool_rejected");
+  }
+
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
   const finding = await precheckCall({ tool: tool.name, kind: base.kind, args: resolved, sources: collectSources(ctx), environment });
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
@@ -307,24 +316,12 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return registered(callId, finding.review);
   }
 
-  // 7. Revisión de argumentos (Decisión 3): solo en las escrituras, después de lo determinista y antes de pedir confirmación.
-  // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
-  // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
-  // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  if (base.kind === "write") {
-    const reviewView = ctx.view.forReview(reviewViewOptions());
-    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
-    if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
-    if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    if (review.value.review !== "approved") {
-      const status: CallStatus = review.value.review;
-      const callId = register(ctx, { ...base, args: recorded, sig, status, summary: null, ref: null });
-      return registered(callId, status);
-    }
-  }
+  // Modo automático: una herramienta del catálogo que pedía aprobación no se la pide al usuario y pasa por D3 (si escribe). Una no catalogada
+  // (Guard la manda a aprobación por defecto) sigue pidiéndola.
+  const askUser = guard.decision === "APPROVAL" && !(deps.autoMode() && isKnownTool(mcp, tool.name));
 
-  // 8. Confirmación del usuario. No hay registro mientras se espera; cancelar aquí no deja llamada.
-  if (guard.decision === "APPROVAL") {
+  // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
+  if (askUser) {
     const approval = await runtime.requestApproval({
       mcp,
       tool: tool.name,
@@ -336,6 +333,23 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     if (approval.kind === "rejected") {
       const callId = register(ctx, { ...base, args: recorded, sig, status: "user_rejected", summary: summaryText(approval.instruction), ref: null });
       return registered(callId, "user_rejected");
+    }
+  }
+
+  // 8. Revisión de argumentos (Decisión 3): solo en las escrituras que el usuario no aprobó. Si el usuario las aprobó (paso 7), la
+  // aprobación es la revisión y D3 no entra.
+  // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
+  // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
+  // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
+  if (base.kind === "write" && !askUser) {
+    const reviewView = ctx.view.forReview(reviewViewOptions());
+    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
+    if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
+    if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
+    if (review.value.review !== "approved") {
+      const status: CallStatus = review.value.review;
+      const callId = register(ctx, { ...base, args: recorded, sig, status, summary: null, ref: null });
+      return registered(callId, status);
     }
   }
 

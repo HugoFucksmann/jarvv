@@ -14,24 +14,15 @@
  * "último modelo de Gemini", o "10 procesos" y "5 procesos", no se confunden aunque compartan casi todo el resto.
  */
 
+import { fold, stemsOf } from "../text.ts";
+
 const STOP = new Set(
   "que cual cuales como donde cuando para por con una uno unos unas del los las sus sobre hay esta este ese esa son ser the and for with what which how are you was this that from has have about into obten busca encon infor datos dispo recop tener obtener buscar encontrar informacion data find get search".split(
     " ",
   ),
 );
 
-const fold = (s: string): string => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-
-/** Prefijos de 5 letras de las palabras que distinguen un ítem. */
-function stems(text: string): Set<string> {
-  const out = new Set<string>();
-  for (const word of fold(text).split(/[^a-z0-9]+/)) {
-    if (word.length < 3) continue;
-    const stem = word.slice(0, 5);
-    if (!STOP.has(word) && !STOP.has(stem)) out.add(stem);
-  }
-  return out;
-}
+const stems = (text: string): Set<string> => stemsOf(text, STOP);
 
 /** Nombres propios y cifras del ítem (sin contar la primera palabra, que va en mayúscula por ser el verbo). */
 function proper(text: string): Set<string> {

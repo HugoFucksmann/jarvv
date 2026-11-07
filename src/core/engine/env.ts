@@ -7,8 +7,8 @@
  */
 
 import type { TaskContext } from "../ctx/index.ts";
-import { captureDecision, captureLlm, NULL_SINK } from "./capture.ts";
-import type { CaptureSink } from "./capture.ts";
+import { captureDecision, captureLlm } from "./capture.ts";
+import { NULL_SINK, type CaptureSink } from "./sink.ts";
 import type { EngineDeps, EngineLLM, IActionDecision } from "./deps.ts";
 import type { TaskRuntime } from "./runtime.ts";
 

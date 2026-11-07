@@ -37,5 +37,7 @@
   "mcpTimeoutMs": 30000,
   "traceEnabled": true,
   "tracePath": "jarvis-traces.jsonl",
-  "refsDir": "data/refs"
+  "refsDir": "data/refs",
+  "blacklist": [],
+  "autoMode": false
 }

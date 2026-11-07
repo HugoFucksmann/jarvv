@@ -6,7 +6,11 @@
  */
 
 import express from 'express';
+import { BUDGET } from '../core/budget.ts';
 import { ConfigManager } from '../core/config.ts';
+import { getUserEnvironment } from '../core/environment.ts';
+import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
+import type { TraceFile } from '../core/trace/files.ts';
 import type { ControlResult, TaskManager } from '../core/tasks.ts';
 import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { TASK_MODES } from '../core/ctx/index.ts';
@@ -114,6 +118,45 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     }
   });
 
+  // Lecturas para la UI (solo lectura, sin efecto en el motor).
+  // Texto completo de una ref de la tarea (`calls[].ref`): `text/plain`.
+  router.get('/tasks/:taskId/refs/:refId', async (req, res) => {
+    let result: Awaited<ReturnType<TaskManager['readRef']>>;
+    try {
+      result = await tasks.readRef(req.params.taskId, req.params.refId);
+    } catch (err: unknown) {
+      return void res.status(500).json({ error: err instanceof Error ? err.message : 'Error al leer la referencia.' });
+    }
+    if (result === 'unknown_task') return void res.status(404).json({ error: 'Tarea no encontrada.' });
+    if (result === 'unknown_ref') return void res.status(404).json({ error: 'Referencia no encontrada.' });
+    if (result === 'unavailable') return void res.status(404).json({ error: 'El resultado guardado ya no está disponible.' });
+    res.type('text/plain').send(result.text);
+  });
+
+  // Traza de una tarea terminada: `?format=summary` (Markdown, por defecto) o `json`.
+  router.get('/tasks/:taskId/trace', (req, res) => {
+    const format = text(req.query.format) ?? 'summary';
+    if (!Object.hasOwn(TRACE_FILES, format)) return void res.status(400).json({ error: `format inválido; use ${Object.keys(TRACE_FILES).join(' o ')}.` });
+    const body = readTraceFile(req.params.taskId, format as TraceFile);
+    if (body === null) return void res.status(404).json({ error: 'No hay traza para esa tarea (sigue en curso o la traza está desactivada).' });
+    res.type(format === 'json' ? 'application/json' : 'text/markdown').send(body);
+  });
+
+  // Datos de esta PC (sistema operativo y carpetas del usuario) y la hora del servidor.
+  router.get('/environment', async (_req, res) => {
+    try {
+      res.json({ ...(await getUserEnvironment()), now: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar el entorno.' });
+    }
+  });
+
+  // Topes del motor, para mostrar el progreso (paso 3 de 20, llamada 2 de 6).
+  router.get('/limits', (_req, res) => {
+    const { maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxQuestionsPerStep } = BUDGET;
+    res.json({ maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxQuestionsPerStep });
+  });
+
   // Eventos en tiempo real (SSE): un mensaje `data: <TaskEvent>` por evento.
   router.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
@@ -146,6 +189,9 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     res.json(ConfigManager.getConfig());
   });
   router.post('/config', (req, res) => {
+    if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
+      return void res.status(400).json({ error: 'Se requiere un objeto JSON con las claves a cambiar.' });
+    }
     res.json(ConfigManager.updateConfig(req.body));
   });
 

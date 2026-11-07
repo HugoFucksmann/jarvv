@@ -13,44 +13,10 @@ import type { IMCPServer } from "../mcp/types.ts";
 import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
 import type { EngineLLM, IActionDecision } from "./deps.ts";
+import type { CaptureSink } from "./sink.ts";
 
-/** Consulta a un modelo que se captura; `stage` es uno de `STAGES`. */
-export interface LlmCapture {
-  readonly stage: StageId;
-  /** Versión del contexto (`ctx.n`) cuando empezó la consulta. */
-  readonly n: number;
-  readonly startedAt: number;
-  readonly durationMs: number;
-  /** Entrada cruda enviada al modelo, si se conoce. */
-  readonly input: string | null;
-  /** Salida cruda del modelo, si se conoce (también en una salida inválida). */
-  readonly output: string | null;
-  /** Mensaje del error si la consulta falló. */
-  readonly error: string | null;
-}
-
-export interface ToolCapture {
-  readonly mcp: string;
-  readonly tool: string;
-  /** Argumentos resueltos tal como se despacharon. */
-  readonly args: Record<string, unknown>;
-  readonly startedAt: number;
-  readonly durationMs: number;
-  /** Resultado crudo; `null` si la herramienta lanzó. */
-  readonly result: MCPCallResult | null;
-  readonly error: string | null;
-}
-
-export interface CaptureSink {
-  llm(event: LlmCapture): void;
-  tool(event: ToolCapture): void;
-}
-
-/** Receptor vacío: la versión por defecto cuando no hay traza. */
-export const NULL_SINK: CaptureSink = Object.freeze({
-  llm: () => undefined,
-  tool: () => undefined,
-});
+export { NULL_SINK } from "./sink.ts";
+export type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
 
 function safely(action: () => void): void {
   try {

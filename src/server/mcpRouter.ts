@@ -3,6 +3,7 @@ import { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { IMCPServer } from '../core/mcp/types.ts';
 import { Guard } from '../core/policy/guard.ts';
 import { getToolPolicy } from '../core/tools/manifest.ts';
+import { errorMessage } from '../core/utils.ts';
 
 export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Router {
   const router = express.Router();
@@ -16,8 +17,8 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
     try {
       const tools = await discoveryEngine.discoverAll();
       res.json(tools);
-    } catch (err: any) {
-      res.json({ desktop_commander: [], free_search: [], error: err.message });
+    } catch (err) {
+      res.json({ desktop_commander: [], free_search: [], error: errorMessage(err) });
     }
   });
 
@@ -32,8 +33,8 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
     try {
       const tools = await server.listTools();
       res.json({ tools });
-    } catch (err: any) {
-      res.json({ error: err.message, tools: [] });
+    } catch (err) {
+      res.json({ error: errorMessage(err), tools: [] });
     }
   });
 
@@ -73,11 +74,11 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
     try {
       const result = await server.callTool(name, toolArgs);
       res.json(result);
-    } catch (err: any) {
+    } catch (err) {
       res.json({
         isError: true,
         success: false,
-        content: [{ type: 'text', text: `[MCP Server Error] ${err.message}` }],
+        content: [{ type: 'text', text: `[MCP Server Error] ${errorMessage(err)}` }],
       });
     }
   });
@@ -92,8 +93,8 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
     try {
       await server.reconnect();
       res.json({ ok: true });
-    } catch (err: any) {
-      res.json({ error: err.message, ok: false });
+    } catch (err) {
+      res.json({ error: errorMessage(err), ok: false });
     }
   });
 
