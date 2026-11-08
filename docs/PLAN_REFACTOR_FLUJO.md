@@ -48,7 +48,7 @@ Implementado, con estas diferencias respecto del texto de abajo:
 - Los campos `request` de `RouteView`, `ArgsView`, `ReviewView`, `DecisionFrame` y `ReviewDecisionInput` se eliminaron (quedaban siempre `null`); `render/args.ts` y `prompts.ts` se tocaron solo para quitar esa línea. `forAsk` conserva `request` (línea GOAL) además del paso.
 - La rama `source: "request"` del criterio de D4 se eliminó aquí (estaba prevista en el paso 7).
 - Código nuevo: `engine/pending.ts` (`generatePending`), `ctx/views/pending.ts` (`forPending`), `render/pending.ts`, `generatePendingFromView` (interfaz, `qwen.ts`, `capture.ts`), `pendingStageRequest` y `PROMPTS.PENDING_VIEW` (texto provisorio).
-- `FIN` y `ASK_USER` quedaron sin uso en `src`; solo el eval los importa (ver `PENDIENTES_FUERA_DE_FLUJO.md`).
+- `FIN` y `ASK_USER` quedaron sin uso en `src`; se quitaron de `src` y del eval el 2026-11-08.
 - `tsc --noEmit` sin errores; no se corrió el flujo real.
 
 Detalle original:

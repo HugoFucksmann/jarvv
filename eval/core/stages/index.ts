@@ -12,7 +12,7 @@ import type { DecisionClient } from "../client/decision.ts";
 import type { GenerativeClient } from "../client/generative.ts";
 import type { ToolInputSchema } from "../contract.ts";
 import type { Grader, GraderCollector, GraderContext, StageName } from "../types.ts";
-import type { DecisionStageVariant, GenerativeStageVariant } from "../variants/types.ts";
+import type { DecisionReaders } from "../types.ts";
 
 // ───────────────────────── Tipos del registro ─────────────────────────
 
@@ -34,7 +34,7 @@ export interface DecisionStageEntry<TOutput, TExpect> {
   parseOutput(
     rawOutput: string,
     sentReq: import("../types.ts").DecisionRequest,
-    sv: DecisionStageVariant | undefined,
+    read: DecisionReaders | undefined,
   ): TOutput;
   /** Calcula etiquetas para scoring (7.8). */
   label(output: TOutput | undefined, expect: TExpect | undefined): LabelInfo;
@@ -49,7 +49,6 @@ export interface GenerativeStageEntry<TOutput, TExpect> {
   parseOutput(
     rawOutput: string,
     sentReq: import("../types.ts").GenerativeRequest,
-    sv: GenerativeStageVariant | undefined,
     toolSchema?: ToolInputSchema,
   ): TOutput;
   label(output: TOutput | undefined, expect: TExpect | undefined): LabelInfo;

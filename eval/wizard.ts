@@ -93,14 +93,13 @@ function printNumbered(items: string[]): void {
 }
 
 /**
- * Elige varios por número o nombre (separados por coma). `a` = todos. Con `allowCompose`, `2+3` compone dos elementos.
- * Enter devuelve `def` (nombres).
+ * Elige varios por número o nombre (separados por coma). `a` = todos. Enter devuelve `def` (nombres).
  */
 async function pickMany(
   ask: Ask,
   label: string,
   items: string[],
-  opts: { def: string[]; defLabel?: string; allowCompose?: boolean; hint: string },
+  opts: { def: string[]; defLabel?: string; hint: string },
 ): Promise<string[]> {
   console.log(`\n  ${c.bold(label)}\n`);
   printNumbered(items);
@@ -119,14 +118,12 @@ async function pickMany(
     const out: string[] = [];
     let bad: string | null = null;
     for (const tok of a.split(",").map((t) => t.trim()).filter(Boolean)) {
-      const parts = opts.allowCompose ? tok.split("+").map((p) => p.trim()) : [tok];
-      const names = parts.map(resolveOne);
-      if (names.some((n) => n === null)) {
+      const name = resolveOne(tok);
+      if (name === null) {
         bad = tok;
         break;
       }
-      const joined = names.join("+");
-      if (!out.includes(joined)) out.push(joined);
+      if (!out.includes(name)) out.push(name);
     }
     if (bad !== null) {
       warn(`'${bad}' no es válido.`);
@@ -204,15 +201,6 @@ export async function runWizard(): Promise<string[] | null> {
     }
     summary.push(["Datasets", datasetSummary]);
 
-    // Origen del contexto de los casos (--source): escrito a mano o armado por Jarvis desde un escenario.
-    const source = await pickOne<"all" | "scenario" | "frozen">(ask, "¿Qué casos correr?", [
-      { value: "all", text: "Todos" },
-      { value: "scenario", text: `Solo escenario ${c.gray("contexto real: el prompt se arma con el código de Jarvis  (--source=scenario)")}` },
-      { value: "frozen", text: `Solo frozen    ${c.gray("contexto inventado: prompt escrito a mano en el dataset  (--source=frozen)")}` },
-    ]);
-    if (source !== "all") argv.push(`--source=${source}`);
-    summary.push(["Casos", source === "all" ? "todos" : source === "scenario" ? "solo escenario" : "solo frozen"]);
-
     // 3. Variantes (prod como baseline es opcional: --no-baseline)
     step(3, "Variantes");
     const variants = listVariantNames();
@@ -226,15 +214,13 @@ export async function runWizard(): Promise<string[] | null> {
         chosen = await pickMany(ask, "Variantes disponibles", others, {
           def: [],
           defLabel: withProd ? "solo prod" : "elige al menos una",
-          allowCompose: true,
           hint: withProd
-            ? "Números o nombres separados por coma  ·  'a+b' compone dos  ·  Enter = solo prod"
-            : "Números o nombres separados por coma  ·  'a+b' compone dos  ·  elige al menos una",
+            ? "Números o nombres separados por coma  ·  Enter = solo prod"
+            : "Números o nombres separados por coma  ·  elige al menos una",
         });
         if (withProd || chosen.length > 0) break;
         warn("Sin prod hay que elegir al menos una variante.");
       }
-      // `a` devuelve todos: eso es una lista, no una composición.
       if (withProd && chosen.length > 0) {
         argv.push(`--variant=prod,${chosen.join(",")}`);
         variantSummary = `prod, ${chosen.join(", ")}`;

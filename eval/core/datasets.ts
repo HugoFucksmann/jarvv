@@ -9,11 +9,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { validateCase } from "./case.ts";
-import type { PromptOverrides } from "./contract.ts";
 import { globBaseDir, isGlob, matchGlob, normalizePath } from "./glob.ts";
 import { materializeScenario } from "./scenario.ts";
 import type { Scenario } from "./scenario.ts";
-import type { CaseSource, FrozenCase } from "./types.ts";
+import type { Case, Variant } from "./types.ts";
 
 export interface CaseFilters {
   /** Por nombre de etapa (no por `stageKey`). */
@@ -22,8 +21,6 @@ export interface CaseFilters {
   tags?: string[];
   /** Id exacto. */
   ids?: string[];
-  /** Solo casos de ese origen de contexto (`frozen` o `scenario`). */
-  source?: CaseSource;
   /** Primeros N casos por dataset, después de filtrar. */
   limit?: number;
 }
@@ -34,7 +31,7 @@ export interface Dataset {
   path: string;
   /** sha256 (16 hex) del contenido del archivo. */
   hash: string;
-  cases: FrozenCase[];
+  cases: Case[];
 }
 
 /** Directorios que no se recorren al resolver carpetas y globs. */
@@ -137,10 +134,10 @@ export function resolveDatasetPaths(specs: string[]): string[] {
 }
 
 /** Lee y valida un archivo. Acumula errores `archivo:línea: mensaje` en `errors`. */
-function loadFile(path: string, errors: string[], ov?: PromptOverrides): Dataset {
+function loadFile(path: string, errors: string[], variant?: Variant): Dataset {
   const content = readFileSync(path, "utf8");
   const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
-  const cases: FrozenCase[] = [];
+  const cases: Case[] = [];
   const idLines = new Map<string, number>();
 
   const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
@@ -157,18 +154,24 @@ function loadFile(path: string, errors: string[], ov?: PromptOverrides): Dataset
       return;
     }
 
-    // Caso por escenario: el `request` se arma con el código de producción (ver scenario.ts).
-    let source: CaseSource = "frozen";
-    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && "scenario" in parsed) {
+    // Un solo formato de caso: el escenario. El `request` se arma con el código de producción y los prompts de la variante.
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      errors.push(`${path}:${lineNo}: la línea debe ser un objeto JSON.`);
+      return;
+    }
+    if ("request" in parsed) {
+      errors.push(`${path}:${lineNo}: un caso no trae 'request' (prompt armado a mano): describí la situación en 'scenario'. El prompt lo arma la variante.`);
+      return;
+    }
+    if (!("scenario" in parsed)) {
+      errors.push(`${path}:${lineNo}: falta 'scenario' (la situación del caso).`);
+      return;
+    }
+    {
       const { scenario, ...rest } = parsed as Record<string, unknown>;
-      if ("request" in rest) {
-        errors.push(`${path}:${lineNo}: un caso no puede traer 'request' y 'scenario' a la vez.`);
-        return;
-      }
       try {
-        const m = materializeScenario(String(rest.stage), scenario as Scenario, ov);
+        const m = materializeScenario(String(rest.stage), scenario as Scenario, variant);
         const meta = rest.meta !== null && typeof rest.meta === "object" ? (rest.meta as Record<string, unknown>) : {};
-        source = "scenario";
         parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema } } : {}) };
       } catch (e) {
         errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);
@@ -188,28 +191,27 @@ function loadFile(path: string, errors: string[], ov?: PromptOverrides): Dataset
       return;
     }
     idLines.set(v.case.id, lineNo);
-    cases.push({ ...v.case, source });
+    cases.push(v.case);
   });
 
   return { name: datasetName(path), path, hash, cases };
 }
 
-export function filterCases(cases: FrozenCase[], f: CaseFilters): FrozenCase[] {
+export function filterCases(cases: Case[], f: CaseFilters): Case[] {
   let out = cases;
   if (f.stages && f.stages.length > 0) out = out.filter((c) => f.stages!.includes(c.stage));
   if (f.tags && f.tags.length > 0) out = out.filter((c) => (c.tags ?? []).some((t) => f.tags!.includes(t)));
   if (f.ids && f.ids.length > 0) out = out.filter((c) => f.ids!.includes(c.id));
-  if (f.source) out = out.filter((c) => c.source === f.source);
   if (f.limit !== undefined) out = out.slice(0, f.limit);
   return out;
 }
 
 /**
- * Resuelve, valida (todos los archivos, antes de filtrar) y filtra. `ov`: los prompts de una variante, con los que se rearman
- * los casos por escenario (sin `ov`, los de producción). Lanza `Error` con un mensaje por línea
+ * Resuelve, valida (todos los archivos, antes de filtrar) y filtra. `variant`: la variante con cuyos prompts se arman
+ * los casos (sin ella, los de producción). Lanza `Error` con un mensaje por línea
  * si hay datasets inválidos o nombres de dataset repetidos.
  */
-export function loadDatasets(specs: string[], filters: CaseFilters = {}, ov?: PromptOverrides): Dataset[] {
+export function loadDatasets(specs: string[], filters: CaseFilters = {}, variant?: Variant): Dataset[] {
   const paths = resolveDatasetPaths(specs);
 
   const byName = new Map<string, string>();
@@ -223,7 +225,7 @@ export function loadDatasets(specs: string[], filters: CaseFilters = {}, ov?: Pr
   }
 
   const errors: string[] = [];
-  const datasets = paths.map((p) => loadFile(p, errors, ov));
+  const datasets = paths.map((p) => loadFile(p, errors, variant));
   if (errors.length > 0) throw new Error(errors.join("\n"));
 
   // Un id que no existe en ningún dataset (typo) se ignoraba si otros ids sí coincidían.

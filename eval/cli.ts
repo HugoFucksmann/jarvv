@@ -34,7 +34,6 @@ import { runDataset } from "./core/runner.ts";
 import { computeScoreSummary } from "./core/scoring.ts";
 import { allStageNames } from "./core/stages/index.ts";
 import type { RunRecord, StageName } from "./core/types.ts";
-import { applyVariantToCases } from "./core/variants/apply.ts";
 import { listVariantNames, loadVariantSpec } from "./core/variants/load.ts";
 import type { Variant } from "./core/variants/types.ts";
 import { box, c, kv, padEnd, section, sym, WIDTH, wrapList } from "./ui.ts";
@@ -89,19 +88,19 @@ function printHelp(): void {
   section("Ejemplos");
   log(`  ${c.cyan("▌")} npm run eval -- --menu`);
   log(`  ${c.cyan("▌")} npm run eval -- --dataset=smoke --variant=prod,mi_variante`);
-  log(`  ${c.cyan("▌")} npm run eval -- --source=scenario   ${c.gray("solo casos con contexto armado por Jarvis (frozen = escrito a mano)")}`);
+  log(`  ${c.cyan("▌")} npm run eval -- --dataset=smoke --dry-run --ids=<caso>   ${c.gray("imprime el prompt que recibe el modelo (copiable para armar una variante)")}`);
   log(`\n  ${c.gray("Datasets y variantes se pueden escribir solo por nombre.")}`);
   log(`  ${c.gray("Referencia completa de flags:")} ${c.cyan("eval/INSTRUCCIONES.md")}\n`);
 }
 
 /** Lee un dataset para contar sus casos por etapa; `null` si no se puede cargar (no debe romper el listado). */
-function datasetInfo(name: string): { total: number; scenario: number; byStage: Array<[string, number]> } | null {
+function datasetInfo(name: string): { total: number; byStage: Array<[string, number]> } | null {
   try {
     const [ds] = loadDatasets([name], {});
     if (!ds) return null;
     const by = new Map<string, number>();
     for (const k of ds.cases) by.set(k.stage, (by.get(k.stage) ?? 0) + 1);
-    return { total: ds.cases.length, scenario: ds.cases.filter((k) => k.source === "scenario").length, byStage: [...by.entries()] };
+    return { total: ds.cases.length, byStage: [...by.entries()] };
   } catch {
     return null;
   }
@@ -155,7 +154,7 @@ function printList(baseline: string, defaultDatasets: string[]): void {
   } else {
     for (const ln of wrapList(variants.map((v) => (v === baseline ? c.green(v) : c.cyan(v))), WIDTH - 2, c.gray(" · "))) log(`  ${ln}`);
   }
-  if (variants.length > 0) log(`\n  ${c.gray("Se pueden componer con a+b, por ejemplo --variant=prod,a+b")}`);
+  if (variants.length > 0) log(`\n  ${c.gray("Una variante es un archivo con prompts enteros (eval/variants/<nombre>.ts); no se componen.")}`);
 
   // Datasets
   section("Datasets");
@@ -168,8 +167,7 @@ function printList(baseline: string, defaultDatasets: string[]): void {
     names.forEach((name, i) => {
       const info = infos[i];
       const isDef = defaultDatasets.includes(name);
-      const origin = info && info.scenario > 0 ? ` (${info.scenario === info.total ? "todos" : info.scenario} por escenario)` : "";
-      const count = info ? c.gray(`${String(info.total).padStart(totalW)} casos${origin}`) : c.gray(`${"—".padStart(totalW)} (no se pudo leer)`);
+      const count = info ? c.gray(`${String(info.total).padStart(totalW)} casos`) : c.gray(`${"—".padStart(totalW)} (no se pudo leer)`);
       const tag = isDef ? `  ${c.green("por defecto")}` : "";
       const head = `  ${isDef ? sym.dot : sym.ring} ${c.cyan(name.padEnd(nameW))}  ${count}${tag}`;
       log(head);
@@ -190,7 +188,7 @@ function printList(baseline: string, defaultDatasets: string[]): void {
 function printRunConfig(
   cfg: ReturnType<typeof parseConfig>,
   datasets: Array<{ name: string; path: string; cases: unknown[] }>,
-  variants: Array<{ spec: string; chain: string[] }>,
+  variants: Array<{ spec: string }>,
 ): void {
   const list = (v: string[]) => (v.length > 0 ? v.join(", ") : "todos");
   const offline = cfg.client !== "real";
@@ -203,11 +201,11 @@ function printRunConfig(
     ["Repeticiones", String(cfg.repeat)],
     ["Thinking", cfg.thinking],
     ["Timeout", cfg.timeoutMs !== undefined ? `${cfg.timeoutMs}ms` : "default por tipo"],
-    ["Variantes", variants.map((v) => (v.chain.length > 1 ? `${v.spec} ${c.gray(`[${v.chain.join(" → ")}]`)}` : v.spec)).join(", ")],
+    ["Variantes", variants.map((v) => v.spec).join(", ")],
     ["Baseline", cfg.baseline],
     ["Datasets", datasets.map((d) => `${d.name} ${c.gray(`(${d.cases.length} casos)`)}`).join(", ")],
     ["Etapas", list(cfg.stages)],
-    ["Filtros", `tags: ${list(cfg.tags)} | ids: ${list(cfg.ids)} | source: ${cfg.source ?? "todos"} | limit: ${cfg.limit ?? "sin límite"}`],
+    ["Filtros", `tags: ${list(cfg.tags)} | ids: ${list(cfg.ids)} | limit: ${cfg.limit ?? "sin límite"}`],
     ["Casos prod_shortcut", cfg.includeShortcut ? "incluidos" : "excluidos"],
   ];
   if (cfg.label) rows.push(["Label", cfg.label]);
@@ -275,7 +273,6 @@ async function main(): Promise<number> {
     stages: cfg.stages.length > 0 ? cfg.stages : undefined,
     tags: cfg.tags.length > 0 ? cfg.tags : undefined,
     ids: cfg.ids.length > 0 ? cfg.ids : undefined,
-    source: cfg.source,
     limit: cfg.limit,
   };
   let datasets;
@@ -298,12 +295,12 @@ async function main(): Promise<number> {
     0,
   );
   if (totalCases === 0) {
-    fail("Los filtros (--stages/--tags/--ids/--source/--limit) no dejaron ningún caso para correr.");
+    fail("Los filtros (--stages/--tags/--ids/--limit) no dejaron ningún caso para correr.");
     return 2;
   }
 
   // ── Cargar variantes ──
-  const variantResults: Array<{ spec: string; chain: string[]; hash: string; variant: Variant; parts: Variant[] }> = [];
+  const variantResults: Array<{ spec: string; hash: string; variant: Variant }> = [];
   for (const spec of cfg.variantSpecs) {
     try {
       const r = await loadVariantSpec(spec);
@@ -314,32 +311,20 @@ async function main(): Promise<number> {
     }
   }
 
-  // ── Casos de cada variante: se arman una vez, con sus prompts y sus ediciones; el runner solo envía ──
-  // Con `prompts` los casos por escenario se rearman con esos prompts y los fijos se omiten (traen el prompt ya armado).
-  const countCases = (list: typeof datasets): number => list.reduce((n, d) => n + d.cases.length, 0);
+  // ── Casos de cada variante: se arman una vez con los prompts de la variante (los escenarios + sus prompts enteros); el runner solo envía ──
   const datasetsByVariant = new Map<string, typeof datasets>();
   for (const vr of variantResults) {
-    let own = datasets;
-    const ov = vr.variant.prompts;
-    if (ov) {
-      if (cfg.source === "frozen") {
-        fail(`La variante '${vr.spec}' usa prompts enteros y solo corre casos por escenario; --source=frozen no deja ninguno.`);
+    try {
+      const own = loadDatasets(cfg.datasetSpecs, datasetFilters, vr.variant);
+      if (own.every((d) => d.cases.length === 0)) {
+        fail(`La variante '${vr.spec}' no dejó ningún caso para correr.`);
         return 2;
       }
-      try {
-        own = loadDatasets(cfg.datasetSpecs, { ...datasetFilters, source: "scenario" }, ov);
-      } catch (e) {
-        fail(`Error de dataset con la variante '${vr.spec}': ${e instanceof Error ? e.message : String(e)}`);
-        return 2;
-      }
-      const skipped = countCases(datasets) - countCases(own);
-      if (skipped > 0) log(`${sym.warn} ${c.yellow(`${vr.spec}: ${skipped} caso(s) fijos (frozen) omitidos: no admiten prompts enteros.`)}`);
-      if (countCases(own) === 0) {
-        fail(`La variante '${vr.spec}' no dejó ningún caso por escenario.`);
-        return 2;
-      }
+      datasetsByVariant.set(vr.spec, own);
+    } catch (e) {
+      fail(`Error de dataset con la variante '${vr.spec}': ${e instanceof Error ? e.message : String(e)}`);
+      return 2;
     }
-    datasetsByVariant.set(vr.spec, own.map((d) => ({ ...d, cases: applyVariantToCases(d.cases, vr.parts) })));
   }
 
   // ── Clientes: un modelo generativo y uno de decisión ──
@@ -354,33 +339,21 @@ async function main(): Promise<number> {
   // ── dry-run: solo imprime bodies y sale ──
   if (cfg.dryRun) {
     section("Dry run");
-    let applyErrors = 0;
     for (const vr of variantResults) {
       for (const ds of datasetsByVariant.get(vr.spec) ?? []) {
         log(`\n${c.cyan("#")} variant=${c.bold(vr.spec)} dataset=${c.bold(ds.name)}`);
-        const dry = await runDataset({
+        await runDataset({
           cases: ds.cases,
           datasetName: ds.name,
           variant: vr.variant,
           variantSpec: vr.spec,
-          variantChain: vr.chain,
           cfg,
           genClient: clients.genClient,
           decClient: clients.decClient,
           stageFilter,
           dryRun: true,
         });
-        for (const r of dry.records) {
-          if (r.metrics.variant_apply_ok === false) {
-            applyErrors++;
-            err(`  ${sym.err} ${r.caseId} ${c.gray(`[${r.variant}]`)}: ${c.red(r.errors[0] ?? "variant_apply_error")}`);
-          }
-        }
       }
-    }
-    if (applyErrors > 0) {
-      fail(`${applyErrors} caso(s) no pudieron aplicar la variante.`);
-      return 2;
     }
     return 0;
   }
@@ -418,7 +391,6 @@ async function main(): Promise<number> {
 
       const meta = buildRunMeta({
         cfg,
-        variantChain: vr.chain,
         variantHash: vr.hash,
         datasetPath: ds.path,
         datasetHash: ds.hash,
@@ -435,7 +407,6 @@ async function main(): Promise<number> {
           datasetName: ds.name,
           variant: vr.variant,
           variantSpec: vr.spec,
-          variantChain: vr.chain,
           cfg,
           genClient: clients.genClient,
           decClient: clients.decClient,

@@ -7,7 +7,7 @@
  */
 
 import { ConfigManager } from "../../src/core/config.ts";
-import type { CaseSource, StageName, ThinkingMode } from "./types.ts";
+import type { StageName, ThinkingMode } from "./types.ts";
 import { allStageNames } from "./stages/index.ts";
 import { parseVariantSpecs } from "./variants/load.ts";
 
@@ -25,8 +25,6 @@ export interface EvalConfig {
   stages: StageName[];        // vacío = todas
   tags: string[];
   ids: string[];
-  /** `--source`: solo casos con contexto escrito a mano (`frozen`) o armado desde un escenario (`scenario`); undefined = ambos. */
-  source?: CaseSource;
   limit?: number;
 
   // Ejecución
@@ -85,7 +83,7 @@ export function resolveDecisionTimeout(cfg: EvalConfig): number {
 // ───────────────────────── Flags conocidos ─────────────────────────
 
 const KNOWN_FLAGS = new Set([
-  "dataset", "variant", "baseline", "stages", "tags", "ids", "source", "limit",
+  "dataset", "variant", "baseline", "stages", "tags", "ids", "limit",
   "repeat", "concurrency", "model", "url", "decision-url",
   "thinking", "timeout", "client",
   "dry-run", "list", "label", "min-pass-rate", "include-shortcut", "no-baseline",
@@ -190,12 +188,6 @@ export function parseConfig(argv: string[]): EvalConfig {
     stages.push(s as StageName);
   }
 
-  // source
-  const sourceRaw = str(flags, "source");
-  if (sourceRaw !== undefined && sourceRaw !== "frozen" && sourceRaw !== "scenario") {
-    throw new Error(`--source: debe ser 'frozen' o 'scenario', recibido: '${sourceRaw}'.`);
-  }
-
   // thinking
   const thinkingRaw = str(flags, "thinking") ?? "auto";
   if (!["auto", "prod", "on", "off", "both"].includes(thinkingRaw)) {
@@ -242,10 +234,9 @@ export function parseConfig(argv: string[]): EvalConfig {
     stages,
     tags: csvList(flags, "tags"),
     ids: csvList(flags, "ids"),
-    ...(sourceRaw !== undefined ? { source: sourceRaw as CaseSource } : {}),
     limit: int(flags, "limit", 1),
     repeat: int(flags, "repeat", 1) ?? 1,
-    concurrency: int(flags, "concurrency", 3) ?? 3,
+    concurrency: int(flags, "concurrency", 1) ?? 3,
     model,
     url: str(flags, "url") ?? DEFAULT_URL,
     decisionUrl,

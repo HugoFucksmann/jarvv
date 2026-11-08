@@ -1,14 +1,14 @@
 /**
  * eval/core/types.ts
  *
- * Tipos del eval de prompts (esquema v2). Sin imports de `src/` ni de `scripts/eval-next/`.
- * Secciones del documento: 5.1 caso frozen, 5.2 expect/output, 5.3 variantes, 5.4 resultados, 8 graders, 9 scoring.
+ * Tipos del eval de prompts (esquema v3). Sin imports de `src/` ni de `scripts/eval-next/`.
+ * Un solo formato de caso (el escenario, `scenario.ts`) y un solo formato de variante (prompts enteros, `Variant`).
  */
 
-import type { PromptOverrides, ToolInputSchema } from "./contract.ts";
+import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
 
 /** Versión del esquema de salida. Incrementar al cambiar campos incompatibles. */
-export const SCHEMA_VERSION = 2 as const;
+export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
@@ -16,7 +16,7 @@ export type DecisionStage = "route" | "tool_choice" | "args_review" | "result_ve
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
-// ───────────────────────── 5.1 Caso frozen ─────────────────────────
+// ───────────────────────── Caso ─────────────────────────
 
 export type ChoiceQ = { type: "choice"; instructions: string; criteria: Record<string, string> };
 export type NoulQ = { type: "noul"; instructions: string; criteria?: { true: string; false: string } };
@@ -46,9 +46,11 @@ export interface GenerativeRequest {
   reasoningEffort?: string;
 }
 
-export type CaseSource = "frozen" | "scenario";
-
-export interface FrozenCase {
+/**
+ * Un caso ya armado: el escenario del dataset (`scenario`) más los prompts de la variante dan el `request`. El cargador lo arma;
+ * un dataset no puede traer `request` (ver `datasets.ts`).
+ */
+export interface Case {
   /** Único dentro del dataset. */
   id: string;
   stage: StageName;
@@ -57,13 +59,6 @@ export interface FrozenCase {
   description?: string;
   /** Adversarial: se reporta aparte. */
   isRaw?: boolean;
-  /**
-   * Origen del contexto: `frozen` = prompt escrito a mano en el dataset (`request`); `scenario` = armado al cargar con el
-   * código de Jarvis desde un escenario. Lo asigna el cargador; un dataset no puede traerlo.
-   */
-  source?: CaseSource;
-  /** Lo asigna la carga por variante si una edición no se pudo aplicar a este caso; el runner lo registra y no llama al modelo. */
-  variantApplyError?: string;
   /** Debe coincidir con el tipo de la etapa. */
   request: DecisionRequest | GenerativeRequest;
   expect: StageExpect;
@@ -90,21 +85,18 @@ export type AnswerExpects = Record<string, AnswerExpect>;
 
 // route
 export interface RouteExpect {
-  expectedAction: "route" | "fin" | "ask_user";
-  expectedRoute?: string;
+  expectedRoute: string;
   minProbability?: number;
   answers?: AnswerExpects;
 }
 export interface RouteOutput {
-  action: string;
-  route?: string;
+  route: string;
   probabilities?: Record<string, number>;
 }
 
 // tool_choice
 export interface ToolChoiceExpect {
-  expectedTool?: string;
-  expectedAction?: "tool" | "ask_user";
+  expectedTool: string;
   minProbability?: number;
   answers?: AnswerExpects;
 }
@@ -115,7 +107,7 @@ export interface ToolChoiceOutput {
 
 // args_review
 export interface ArgsReviewExpect {
-  expectedReview: "approved" | "args_invalid" | "tool_rejected" | "info_missing";
+  expectedReview: "approved" | "args_invalid" | "info_missing";
   minProbability?: number;
   answers?: AnswerExpects;
 }
@@ -221,55 +213,44 @@ export type StageExpect =
   | QuestionExpect
   | PendingExpect;
 
-// ───────────────────────── 5.3 Variantes ─────────────────────────
+// ───────────────────────── Variantes ─────────────────────────
 
-export type TextEdit = { replace?: string; prepend?: string; append?: string } | ((t: string) => string);
-/** Orden de aplicación: remove → set → append. */
-export type CriteriaEdit = { set?: Record<string, string>; remove?: string[]; append?: Record<string, string> };
-
-export interface DecisionStageVariant {
-  state?: TextEdit;
-  questions?: Record<string, { instructions?: TextEdit; criteria?: CriteriaEdit; replace?: ChoiceQ | NoulQ }>;
-  addQuestions?: Record<string, ChoiceQ | NoulQ>;
-  removeQuestions?: string[];
-  /** Opción de la variante → nombre canónico. */
-  labelMap?: Record<string, string>;
-  /** `<campo de salida>` → pregunta, o `{question, trueOption}` para derivar un booleano de una pregunta `choice`. */
-  answerMap?: Record<string, string | { question: string; trueOption: string }>;
-  /**
-   * Solo `args_review`: arma la etiqueta desde las respuestas de todas las preguntas `noul` enviadas (clave → probabilidad de sí),
-   * en vez de leer una pregunta `choice`. Es la regla en código de una variante con varias preguntas binarias.
-   */
-  combine?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
-  /**
-   * Solo `result_verification`: arma las probabilidades de `ok` y `cumple` desde todas las preguntas enviadas (una `choice`
-   * trae sus `probabilities`; una `noul`, su valor), en vez de leer dos preguntas `noul` llamadas `ok` y `cumple`.
-   */
-  combineVerification?: (answers: Record<string, { probabilities?: Record<string, number>; noul?: number }>) => { ok: number; cumple: number };
+/** Parámetros de una etapa generativa que no son texto del prompt (valores, no ediciones). */
+export interface ParamsOverride {
+  thinking?: boolean;
+  maxTokens?: number;
+  temperature?: number;
+  schema?: Record<string, unknown>;
+  reasoningEffort?: string;
 }
 
-export interface GenerativeStageVariant {
-  system?: TextEdit;
-  user?: TextEdit;
-  params?: {
-    thinking?: boolean;
-    maxTokens?: number;
-    temperature?: number;
-    schema?: Record<string, unknown>;
-    reasoningEffort?: string;
-  };
+/** Respuesta de una pregunta enviada, tal como la lee el eval: `noul` con su valor, `choice` con sus probabilidades. */
+export type ReadAnswer = { probabilities?: Record<string, number>; noul?: number };
+
+/**
+ * Cómo interpretar las respuestas cuando la variante cambia el conjunto de preguntas de la etapa. Opcional: si la variante conserva
+ * las preguntas de producción (`review`; `ok` y `cumple`, ambas `noul`), se usa la lectura de producción y no hace falta escribir nada.
+ */
+export interface DecisionReaders {
+  /** `args_review`: de las respuestas `noul` enviadas (clave → probabilidad de sí) a la etiqueta y sus probabilidades. */
+  args_review?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
+  /** `result_verification`: de las respuestas de todas las preguntas enviadas a las probabilidades de `ok` y `cumple`. */
+  result_verification?: (answers: Record<string, ReadAnswer>) => { ok: number; cumple: number };
 }
 
+/**
+ * Una variante es un archivo `variants/<nombre>.ts` con prompts ENTEROS (ver `VariantPrompts`). No hay ediciones sobre el prompt de
+ * producción ni composición de variantes: el texto que se prueba es el que está escrito en el archivo.
+ */
 export interface Variant {
   /** Debe coincidir con el nombre del archivo. */
   name: string;
-  /**
-   * Prompts enteros (piezas de `PROMPTS` y `DECISION_PROMPTS` que reemplaza). Solo aplica a casos por escenario, que se
-   * rearman al cargar con estos prompts; en un caso fijo se ignora. Las ediciones de abajo se aplican después.
-   */
-  prompts?: PromptOverrides;
-  decision?: Partial<Record<DecisionStage, DecisionStageVariant>>;
-  generative?: Partial<Record<GenerativeStage, GenerativeStageVariant>>;
+  /** Vistas generativas completas (`PROMPTS.<vista>`) y constructores de decisión completos (`DECISION_PROMPTS.<constructor>`). */
+  prompts?: VariantPrompts;
+  /** Parámetros por etapa generativa (única perilla que no es texto). */
+  params?: Partial<Record<GenerativeStage, ParamsOverride>>;
+  /** Lectura de las respuestas si cambia el conjunto de preguntas. */
+  read?: DecisionReaders;
 }
 
 // ───────────────────────── 5.4 Resultados ─────────────────────────
@@ -285,10 +266,8 @@ export interface QuestionResult {
   type: "choice" | "noul";
   /** main = alimenta la salida canónica de la etapa; extra = pregunta adicional (caso o variante). */
   role: "main" | "extra";
-  /** `choice`: opción elegida (canónica si es la principal y hay `labelMap`). `noul`: "yes" o "no" (> 0.5). null = sin respuesta válida. */
+  /** `choice`: opción elegida. `noul`: "yes" o "no" (> 0.5). null = sin respuesta válida. */
   answer: string | null;
-  /** Opción tal como la respondió el modelo, solo si difiere de `answer` (por `labelMap`). */
-  rawAnswer?: string;
   /** Valor `noul` en [0,1] (probabilidad de "sí"). */
   noul?: number;
   probabilities?: Record<string, number>;
@@ -310,7 +289,6 @@ export interface RunRecord {
   /** 1..repeat. */
   iteration: number;
   variant: string;
-  variantChain: string[];
   /** Modelo que respondió (generativo o de decisión). */
   model: string;
   passed: boolean;
@@ -362,7 +340,6 @@ export interface RunMeta {
   decisionModel: string;
   url: string;
   decisionUrl: string;
-  variantChain: string[];
   variantHash: string;
   datasetPath: string;
   datasetHash: string;
@@ -371,7 +348,7 @@ export interface RunMeta {
    * Filtros de la corrida. `datasetHash` es el del archivo completo: sin esto no se sabe qué subconjunto corrió. Vacío o
    * null = sin ese filtro.
    */
-  filters: { tags: string[]; ids: string[]; source: CaseSource | null; limit: number | null };
+  filters: { tags: string[]; ids: string[]; limit: number | null };
   /** Casos que corrió la celda y hash de sus ids ordenados: mismo hash = mismos casos. */
   cases: { count: number; hash: string };
   /** Fecha (`TODAY`) y hash de la configuración de etapas con que se armaron los prompts por escenario. */

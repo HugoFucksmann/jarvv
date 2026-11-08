@@ -1,8 +1,8 @@
 /**
  * eval/core/variants/labels.ts
  *
- * Parser de decisión post-variante: aplica `labelMap` y `answerMap` para producir
- * la salida canónica (*Output de 5.2). Secciones 7.6 y 5.3.
+ * Parser de decisión: produce la salida canónica (*Output de 5.2) desde la respuesta cruda. Con las preguntas de producción
+ * usa la lectura de producción; una variante que cambia las preguntas aporta `read` (ver `DecisionReaders`).
  *
  * Implementa `Decision20Engine.parseResponse` y los mapeos de `chooseRoute`,
  * `chooseTool`, `reviewArgs`, `runVerification`.
@@ -10,9 +10,7 @@
 
 import {
   ARGS_REVIEWS,
-  ASK_USER,
   EXECUTABLE_ROUTES,
-  FIN,
   isExecutableRoute,
   NOUL_APPROVE,
   parseAnswersObject,
@@ -26,7 +24,7 @@ import type {
   RouteOutput,
   ToolChoiceOutput,
 } from "../types.ts";
-import type { DecisionStageVariant } from "./types.ts";
+import type { DecisionReaders, ReadAnswer } from "../types.ts";
 
 // ───────────────────────── Error de parseo ─────────────────────────
 
@@ -37,13 +35,14 @@ export class DecisionParseError extends Error {
   }
 }
 
-// ───────────────────────── Defaults de answerMap (sección 5.3) ─────────────────────────
+// ───────────────────────── Preguntas principales ─────────────────────────
 
-export const DEFAULT_ANSWER_MAP: Record<string, Record<string, string | { question: string; trueOption: string }>> = {
-  route: { choice: "route" },
-  tool_choice: { choice: "selected_tool" },
-  args_review: { choice: "review" },
-  result_verification: { ok: "ok", cumple: "cumple" },
+/** Pregunta (o preguntas) de producción que alimentan la salida de cada etapa. */
+export const MAIN_QUESTIONS: Record<string, readonly string[]> = {
+  route: ["route"],
+  tool_choice: ["selected_tool"],
+  args_review: ["review"],
+  result_verification: ["ok", "cumple"],
 };
 
 // ───────────────────────── Parseo de la respuesta cruda ─────────────────────────
@@ -89,179 +88,77 @@ function extractNoul(answers: Record<string, ParsedAnswer>, questionKey: string)
   }
 }
 
-/** Clave de la pregunta `choice` según el answerMap. Lanza DecisionParseError (no TypeError) si falta. */
-export function choiceQuestionKey(
-  answerMap: Record<string, string | { question: string; trueOption: string }>,
-): string {
-  const m = answerMap.choice;
-  if (typeof m === "string") return m;
-  if (m && typeof m === "object" && typeof m.question === "string") return m.question;
-  throw new DecisionParseError("answerMap no tiene una entrada válida para 'choice'.");
-}
-
-// ───────────────────────── Aplicación de labelMap ─────────────────────────
-
-export function applyLabelMap(
-  choice: string,
-  probs: Record<string, number>,
-  labelMap: Record<string, string> | undefined,
-): { choice: string; probabilities: Record<string, number> } {
-  if (!labelMap || Object.keys(labelMap).length === 0) {
-    return { choice, probabilities: probs };
-  }
-  // hasOwn: una clave como "constructor" (viene del modelo) no debe resolver por el prototipo.
-  const map = (k: string): string => (Object.hasOwn(labelMap, k) ? labelMap[k] : k);
-  const mappedChoice = map(choice);
-  const mappedProbs: Record<string, number> = {};
-  for (const [k, v] of Object.entries(probs)) {
-    mappedProbs[map(k)] = v;
-  }
-  return { choice: mappedChoice, probabilities: mappedProbs };
-}
-
 // ───────────────────────── Parsers por etapa ─────────────────────────
 
-/**
- * Parsea la respuesta y produce `RouteOutput`.
- * Implementa la lógica de `chooseRoute`.
- */
-export function parseRouteDecision(
-  rawOutput: string,
-  sentReq: DecisionRequest,
-  sv: DecisionStageVariant | undefined,
-): RouteOutput {
+/** Valida la pregunta `choice` principal de la etapa y devuelve su elección y probabilidades. */
+function mainChoice(stage: string, rawOutput: string, sentReq: DecisionRequest): { choice: string; probabilities: Record<string, number> } {
   const answers = parseAnswers(rawOutput);
-  const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP.route;
-  const labelMap = sv?.labelMap;
-
-  const questionKey = choiceQuestionKey(answerMap);
-
+  const questionKey = MAIN_QUESTIONS[stage][0];
   const q = sentReq.questions[questionKey];
   if (!q || q.type !== "choice") {
-    throw new DecisionParseError(`La pregunta '${questionKey}' de ruta no es choice o no existe.`);
+    throw new DecisionParseError(`La pregunta '${questionKey}' de la etapa '${stage}' no es choice o no existe.`);
   }
-  const { choice: rawChoice, probabilities: rawProbs } = extractChoice(answers, questionKey, (q as ChoiceQ).criteria);
-  const { choice, probabilities } = applyLabelMap(rawChoice, rawProbs, labelMap);
-
-  // Validación canónica (7.6 §7)
-  if (choice === FIN) return { action: "fin", probabilities };
-  if (choice === ASK_USER) return { action: "ask_user", probabilities };
-  if (isExecutableRoute(choice)) return { action: "route", route: choice, probabilities };
-  throw new DecisionParseError(`La ruta '${choice}' no es válida (fin, ask_user o ${EXECUTABLE_ROUTES.join("|")}).`);
+  return extractChoice(answers, questionKey, (q as ChoiceQ).criteria);
 }
 
-/**
- * Parsea la respuesta y produce `ToolChoiceOutput`.
- * Implementa la lógica de `chooseTool`.
- */
-export function parseToolChoiceDecision(
-  rawOutput: string,
-  sentReq: DecisionRequest,
-  sv: DecisionStageVariant | undefined,
-): ToolChoiceOutput {
-  const answers = parseAnswers(rawOutput);
-  const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP.tool_choice;
-  const labelMap = sv?.labelMap;
+/** Parsea la respuesta y produce `RouteOutput`. Implementa la lógica de `chooseRoute`. */
+export function parseRouteDecision(rawOutput: string, sentReq: DecisionRequest): RouteOutput {
+  const { choice, probabilities } = mainChoice("route", rawOutput, sentReq);
+  // Validación canónica (7.6 §7)
+  if (isExecutableRoute(choice)) return { route: choice, probabilities };
+  throw new DecisionParseError(`La ruta '${choice}' no es válida (${EXECUTABLE_ROUTES.join("|")}).`);
+}
 
-  const questionKey = choiceQuestionKey(answerMap);
-
-  const q = sentReq.questions[questionKey];
-  if (!q || q.type !== "choice") {
-    throw new DecisionParseError(`La pregunta '${questionKey}' de selección de herramienta no es choice.`);
-  }
-  const { choice: rawChoice, probabilities: rawProbs } = extractChoice(answers, questionKey, (q as ChoiceQ).criteria);
-  const { choice, probabilities } = applyLabelMap(rawChoice, rawProbs, labelMap);
+/** Parsea la respuesta y produce `ToolChoiceOutput`. Implementa la lógica de `chooseTool`. */
+export function parseToolChoiceDecision(rawOutput: string, sentReq: DecisionRequest): ToolChoiceOutput {
+  const { choice, probabilities } = mainChoice("tool_choice", rawOutput, sentReq);
   return { selected: choice, probabilities };
 }
 
 /**
- * Parsea la respuesta y produce `ArgsReviewOutput`.
- * Implementa la lógica de `reviewArgs`.
+ * Parsea la respuesta y produce `ArgsReviewOutput`. Implementa la lógica de `reviewArgs`. Con `read` (la variante cambió las
+ * preguntas), todas las preguntas `noul` enviadas se cruzan con esa función; sin él, se lee la pregunta `review` de producción.
  */
-export function parseArgsReviewDecision(
-  rawOutput: string,
-  sentReq: DecisionRequest,
-  sv: DecisionStageVariant | undefined,
-): ArgsReviewOutput {
-  const answers = parseAnswers(rawOutput);
-  if (sv?.combine) {
-    // Regla en código: todas las preguntas `noul` enviadas, cruzadas por la función de la variante.
+export function parseArgsReviewDecision(rawOutput: string, sentReq: DecisionRequest, read?: DecisionReaders["args_review"]): ArgsReviewOutput {
+  let result: { choice: string; probabilities: Record<string, number> };
+  if (read) {
+    const answers = parseAnswers(rawOutput);
     const values: Record<string, number> = {};
     for (const [key, q] of Object.entries(sentReq.questions)) {
       if (q.type === "noul") values[key] = extractNoul(answers, key);
     }
-    const { choice, probabilities } = sv.combine(values);
-    if (!(ARGS_REVIEWS as readonly string[]).includes(choice)) {
-      throw new DecisionParseError(`'${choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`);
-    }
-    return { review: choice, probabilities };
+    result = read(values);
+  } else {
+    result = mainChoice("args_review", rawOutput, sentReq);
   }
-  const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP.args_review;
-  const labelMap = sv?.labelMap;
-
-  const questionKey = choiceQuestionKey(answerMap);
-
-  const q = sentReq.questions[questionKey];
-  if (!q || q.type !== "choice") {
-    throw new DecisionParseError(`La pregunta '${questionKey}' de revisión no es choice.`);
+  if (!(ARGS_REVIEWS as readonly string[]).includes(result.choice)) {
+    throw new DecisionParseError(`'${result.choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`);
   }
-  const { choice: rawChoice, probabilities: rawProbs } = extractChoice(answers, questionKey, (q as ChoiceQ).criteria);
-  const { choice, probabilities } = applyLabelMap(rawChoice, rawProbs, labelMap);
-
-  if (!(ARGS_REVIEWS as readonly string[]).includes(choice)) {
-    throw new DecisionParseError(
-      `'${choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`,
-    );
-  }
-  return { review: choice, probabilities };
+  return { review: result.choice, probabilities: result.probabilities };
 }
 
 /**
- * Parsea la respuesta y produce `ResultVerificationOutput`.
- * Implementa la lógica de `runVerification`.
+ * Parsea la respuesta y produce `ResultVerificationOutput`. Implementa la lógica de `runVerification`. Con `read`, todas las
+ * preguntas enviadas (choice con sus probabilidades, noul con su valor) se cruzan con esa función; sin él, se leen las dos
+ * preguntas `noul` de producción, `ok` y `cumple`.
  */
 export function parseResultVerificationDecision(
   rawOutput: string,
   sentReq: DecisionRequest,
-  sv: DecisionStageVariant | undefined,
+  read?: DecisionReaders["result_verification"],
 ): ResultVerificationOutput {
   const answers = parseAnswers(rawOutput);
-  if (sv?.combineVerification) {
-    // Regla en código: todas las preguntas enviadas (choice con sus probabilidades, noul con su valor).
-    const values: Record<string, { probabilities?: Record<string, number>; noul?: number }> = {};
+  let ok: number;
+  let cumple: number;
+  if (read) {
+    const values: Record<string, ReadAnswer> = {};
     for (const [key, q] of Object.entries(sentReq.questions)) {
       values[key] = q.type === "noul" ? { noul: extractNoul(answers, key) } : { probabilities: extractChoice(answers, key, (q as ChoiceQ).criteria).probabilities };
     }
-    const { ok, cumple } = sv.combineVerification(values);
-    return { ok: ok > NOUL_APPROVE, cumple: cumple > NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
+    ({ ok, cumple } = read(values));
+  } else {
+    ok = extractNoul(answers, "ok");
+    cumple = extractNoul(answers, "cumple");
   }
-  const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP.result_verification;
-
-  function resolveNoul(fieldKey: string): number {
-    const mapping = answerMap[fieldKey];
-    if (!mapping) throw new DecisionParseError(`answerMap no tiene entrada para '${fieldKey}'.`);
-
-    if (typeof mapping === "string") {
-      // pregunta noul directa
-      return extractNoul(answers, mapping);
-    }
-    // { question, trueOption }: deriva booleano de pregunta choice
-    const { question: qKey, trueOption } = mapping;
-    const q = sentReq.questions[qKey];
-    if (!q || q.type !== "choice") {
-      throw new DecisionParseError(`answerMap: la pregunta '${qKey}' no es choice.`);
-    }
-    const { choice } = extractChoice(answers, qKey, (q as ChoiceQ).criteria);
-    return choice === trueOption ? 1 : 0;
-  }
-
-  const okProb = resolveNoul("ok");
-  const cumpleProb = resolveNoul("cumple");
-
-  return {
-    ok: okProb > NOUL_APPROVE,
-    cumple: cumpleProb > NOUL_APPROVE,
-    okProbability: okProb,
-    cumpleProbability: cumpleProb,
-  };
+  return { ok: ok > NOUL_APPROVE, cumple: cumple > NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
 }

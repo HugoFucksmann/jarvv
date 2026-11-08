@@ -1,44 +1,28 @@
 /**
  * eval/core/variants/load.ts
  *
- * Carga variantes desde archivos `variants/<nombre>.ts` (sección 5.3).
+ * Carga variantes desde archivos `variants/<nombre>.ts`.
  * - `name` del export default debe coincidir con el nombre del archivo.
  * - Hash de variante: sha256 (16 hex) del contenido del archivo.
- * - `prod.ts` es un archivo físico que exporta `{ name: "prod" }`.
+ * - `prod.ts` es la variante de producción: apunta a los prompts de `src`, sin cambios.
+ * - Una variante es un solo archivo con prompts enteros: no se componen (`a+b` no existe).
  */
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { PromptOverrides } from "../contract.ts";
 import type { Variant } from "./types.ts";
 
 /** Directorio donde viven las variantes (relativo al CWD). */
 const VARIANTS_DIR = "eval/variants";
 
-/**
- * Calcula el hash del contenido del archivo de variante.
- * Se usa para `variantHash` en `RunMeta`.
- */
+/** Hash del contenido del archivo de variante (`variantHash` en `RunMeta`). */
 export function variantFileHash(filePath: string): string {
-  const content = readFileSync(filePath, "utf8");
-  return createHash("sha256").update(content).digest("hex").slice(0, 16);
+  return createHash("sha256").update(readFileSync(filePath, "utf8")).digest("hex").slice(0, 16);
 }
 
-/** Hash combinado de varios archivos (para cadenas de variantes). */
-export function combinedVariantHash(filePaths: string[]): string {
-  const hash = createHash("sha256");
-  for (const p of filePaths) {
-    hash.update(readFileSync(p, "utf8"));
-  }
-  return hash.digest("hex").slice(0, 16);
-}
-
-/**
- * Resuelve el nombre de un archivo de variante dado su nombre lógico.
- * Los nombres compuestos `a+b` se descomponen en sus partes antes de llamar aquí.
- */
+/** Ruta del archivo de una variante dado su nombre. */
 export function variantFilePath(name: string): string {
   return resolve(`${VARIANTS_DIR}/${name}.ts`);
 }
@@ -55,120 +39,38 @@ export function listVariantNames(): string[] {
 /** Lanza con un mensaje de error de configuración si el archivo no existe. */
 export function requireVariantFile(name: string): string {
   const path = variantFilePath(name);
-  if (!existsSync(path)) {
-    throw new Error(`Variante '${name}' no encontrada (${path}).`);
-  }
+  if (!existsSync(path)) throw new Error(`Variante '${name}' no encontrada (${path}).`);
   return path;
 }
 
-/**
- * Carga una variante desde su archivo mediante dynamic import.
- * Lanza si el archivo no existe o `name` no coincide con el del archivo.
- */
+/** Carga una variante desde su archivo mediante dynamic import. Lanza si no existe o `name` no coincide con el archivo. */
 export async function loadVariant(name: string): Promise<Variant> {
   const path = requireVariantFile(name);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  // En Windows `import("E:\\...")` falla: el loader ESM toma "E:" como esquema de URL.
-  // `pathToFileURL` produce un file:// válido en Windows y Linux.
-  const mod = (await import(pathToFileURL(path).href)) as { default?: unknown;[k: string]: unknown };
+  // En Windows `import("E:\\...")` falla: el loader ESM toma "E:" como esquema de URL. `pathToFileURL` produce un file:// válido.
+  const mod = (await import(pathToFileURL(path).href)) as { default?: unknown; [k: string]: unknown };
   const v = mod.default ?? mod;
   if (!v || typeof v !== "object" || (v as Record<string, unknown>).name !== name) {
-    throw new Error(
-      `Variante '${name}': el export default debe ser un objeto con name="${name}".`,
-    );
+    throw new Error(`Variante '${name}': el export default debe ser un objeto con name="${name}".`);
   }
   return v as Variant;
 }
 
 /**
- * Parsea la especificación de variantes del flag `--variant`.
- * Cada elemento separado por coma es independiente; `x+y` compone en orden.
- * Agrega `prod` si no está presente, salvo con `withBaseline = false` (`--no-baseline`).
+ * Parsea `--variant`: nombres separados por coma. Agrega `prod` si no está, salvo con `withBaseline = false` (`--no-baseline`).
+ * Una variante con `+` era una composición de varias: ya no existe, y se avisa en vez de buscar un archivo que no está.
  */
 export function parseVariantSpecs(raw: string, withBaseline = true): string[] {
-  const parts = Array.from(
-    new Set(
-      raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ),
-  );
-  // La baseline se compara por spec exacta: `prod+x` no la reemplaza, así que se agrega igual.
+  const parts = Array.from(new Set(raw.split(",").map((s) => s.trim()).filter(Boolean)));
+  const composed = parts.find((p) => p.includes("+"));
+  if (composed) {
+    throw new Error(`--variant: '${composed}' compone variantes con '+', y eso ya no existe: cada variante es un archivo con prompts enteros.`);
+  }
   if (withBaseline && !parts.includes("prod")) parts.unshift("prod");
   return parts;
 }
 
-/**
- * Carga y compone las variantes de una especificación compuesta (`a+b` o `a`).
- * Devuelve `{ variant, chain, parts, hash }`.
- *
- * - `parts`: las variantes individuales, en orden. Las ediciones del request se aplican con
- *   `applyVariantToCases(cases, parts)` (en secuencia).
- * - `variant`: vista compuesta, solo válida para leer lo que se fusiona (`prompts`, `labelMap`, `answerMap`,
- *   `params`). NO usarla con `applyVariant` si hay más de una parte: sus ediciones de request no son equivalentes a
- *   aplicarlas en secuencia.
- */
-export async function loadVariantSpec(spec: string): Promise<{
-  variant: Variant;
-  chain: string[];
-  parts: Variant[];
-  hash: string;
-}> {
-  const names = spec.split("+").map((s) => s.trim()).filter(Boolean);
-  if (names.length === 0) throw new Error("Especificación de variante vacía.");
-
-  const paths = names.map(requireVariantFile);
-  const hash = combinedVariantHash(paths);
-
-  const variants = await Promise.all(names.map(loadVariant));
-  const composed = composeParseView(variants);
-
-  return { variant: { ...composed, name: spec }, chain: names, parts: variants, hash };
-}
-
-/**
- * Vista compuesta de una cadena de variantes, con lo que se fusiona (gana la última variante de la cadena, por pieza):
- *  - `prompts`                                  (casos por escenario: `datasets.ts` los rearma al cargar)
- *  - `decision[stage].labelMap` / `answerMap`  (parseo en `labels.ts`)
- *  - `generative[stage].params`                 (`expandThinking` en `runner.ts`)
- *
- * Las ediciones de request (`state`, `questions`, `system`, `user`, ...) NO se componen aquí: se acumulan en orden y se
- * aplican con `applyVariantToCases(cases, parts)`, después de armar el request.
- */
-function composeParseView(variants: Variant[]): Variant {
-  type DecisionMap = NonNullable<Variant["decision"]>;
-  type GenerativeMap = NonNullable<Variant["generative"]>;
-  const decision: DecisionMap = {};
-  const generative: GenerativeMap = {};
-  let prompts: PromptOverrides | undefined;
-
-  for (const v of variants) {
-    if (v.prompts) {
-      // Un `prompts` vacío también cuenta: la variante pasa por el camino de armado con prompts (igual a producción).
-      prompts = { ...prompts, PROMPTS: { ...prompts?.PROMPTS }, DECISION_PROMPTS: { ...prompts?.DECISION_PROMPTS, ...v.prompts.DECISION_PROMPTS } };
-      for (const [view, pieces] of Object.entries(v.prompts.PROMPTS ?? {})) {
-        const key = view as keyof NonNullable<PromptOverrides["PROMPTS"]>;
-        prompts.PROMPTS = { ...prompts.PROMPTS, [key]: { ...prompts.PROMPTS?.[key], ...pieces } };
-      }
-    }
-    for (const stage of Object.keys(v.decision ?? {}) as (keyof DecisionMap)[]) {
-      const sv = v.decision?.[stage];
-      if (!sv || (!sv.labelMap && !sv.answerMap && !sv.combine && !sv.combineVerification)) continue;
-      const cur = decision[stage] ?? {};
-      decision[stage] = {
-        ...(sv.labelMap || cur.labelMap ? { labelMap: { ...cur.labelMap, ...sv.labelMap } } : {}),
-        ...(sv.answerMap || cur.answerMap ? { answerMap: { ...cur.answerMap, ...sv.answerMap } } : {}),
-        ...(sv.combine || cur.combine ? { combine: sv.combine ?? cur.combine } : {}),
-        ...(sv.combineVerification || cur.combineVerification ? { combineVerification: sv.combineVerification ?? cur.combineVerification } : {}),
-      };
-    }
-    for (const stage of Object.keys(v.generative ?? {}) as (keyof GenerativeMap)[]) {
-      const sv = v.generative?.[stage];
-      if (!sv?.params) continue;
-      generative[stage] = { params: { ...generative[stage]?.params, ...sv.params } };
-    }
-  }
-
-  return { name: variants.map((v) => v.name).join("+"), ...(prompts ? { prompts } : {}), decision, generative };
+/** Carga una variante y su hash. */
+export async function loadVariantSpec(spec: string): Promise<{ variant: Variant; hash: string }> {
+  const variant = await loadVariant(spec);
+  return { variant, hash: variantFileHash(requireVariantFile(spec)) };
 }

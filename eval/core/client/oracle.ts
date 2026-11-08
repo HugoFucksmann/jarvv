@@ -7,8 +7,8 @@
  * grader o en el parseo, no en el modelo.
  *
  * Limitación: el oráculo responde en los términos de la variante `prod` (claves de pregunta y opciones
- * originales). Con variantes que renombran preguntas u opciones (`labelMap`, `answerMap`) cae a la primera
- * opción; sirve para validar casos, no variantes.
+ * originales). Con una variante que cambia las preguntas u opciones cae a la primera opción; sirve para validar casos, no
+ * variantes.
  */
 
 import type { DecisionRequest, GenerativeRequest } from "../types.ts";
@@ -38,12 +38,9 @@ function num(v: unknown): number | undefined {
 function targetChoice(stage: string | undefined, expect: Rec, options: string[]): string | undefined {
   switch (stage) {
     case "route":
-      return expect.expectedAction === "route" ? (expect.expectedRoute as string | undefined) : (expect.expectedAction as string | undefined);
+      return expect.expectedRoute as string | undefined;
     case "tool_choice":
-      if (typeof expect.expectedTool === "string") return expect.expectedTool;
-      if (expect.expectedAction === "ask_user") return "ask_user";
-      // `tool` sin herramienta concreta: cualquiera salvo ask_user.
-      return options.find((o) => o !== "ask_user");
+      return typeof expect.expectedTool === "string" ? expect.expectedTool : options[0];
     case "args_review":
       return expect.expectedReview as string | undefined;
     case "result_verification":

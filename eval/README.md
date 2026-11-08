@@ -47,7 +47,7 @@ npm run eval -- --variant=prod,mi_variante --dataset=smoke --repeat=3
 
 ```mermaid
 flowchart LR
-    D[Dataset<br/>caso fijo o escenario] --> V[Variante<br/>edita el request en memoria]
+    D[Dataset<br/>escenarios] --> V[Variante<br/>prompts enteros]
     V --> C[Cliente<br/>real, mock u oracle]
     C --> G[Graders<br/>checks por etapa]
     G --> R[Resultados<br/>scores y comparación]

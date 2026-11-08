@@ -22,8 +22,7 @@ import type {
   QuestionResult,
   ResultVerificationExpect,
 } from "./types.ts";
-import type { DecisionStageVariant } from "./variants/types.ts";
-import { applyLabelMap, choiceQuestionKey, DEFAULT_ANSWER_MAP, parseAnswers } from "./variants/labels.ts";
+import { MAIN_QUESTIONS, parseAnswers } from "./variants/labels.ts";
 import type { ParsedAnswer } from "./variants/labels.ts";
 
 const YES = "yes";
@@ -36,37 +35,24 @@ interface MainBinding {
 }
 
 /**
- * Preguntas principales de la etapa según el `answerMap` de la variante (o el default de producción).
- * `canonicalExpected` es la etiqueta canónica esperada de las etapas de una sola pregunta.
+ * Preguntas principales de la etapa: las de producción (`MAIN_QUESTIONS`). Una que el request no trae (la variante cambió las
+ * preguntas) no se registra como principal. `canonicalExpected` es la etiqueta canónica esperada de las etapas de una sola pregunta.
  */
 function mainBindings(
   stage: DecisionStage,
-  sv: DecisionStageVariant | undefined,
   req: DecisionRequest,
   canonicalExpected: string | null,
   expect: Record<string, unknown>,
 ): MainBinding[] {
-  const answerMap = sv?.answerMap ?? DEFAULT_ANSWER_MAP[stage];
-  if (stage !== "result_verification") {
-    try {
-      return [{ question: choiceQuestionKey(answerMap), expected: canonicalExpected }];
-    } catch {
-      return [];
-    }
+  const keys = MAIN_QUESTIONS[stage];
+  let out: MainBinding[];
+  if (stage === "result_verification") {
+    const rv = expect as unknown as ResultVerificationExpect;
+    const wants = [rv.expectedOk, rv.expectedCumple];
+    out = keys.map((question, i) => ({ question, expected: wants[i] === undefined ? null : wants[i] ? YES : NO }));
+  } else {
+    out = [{ question: keys[0], expected: canonicalExpected }];
   }
-  const rv = expect as unknown as ResultVerificationExpect;
-  const out: MainBinding[] = [];
-  for (const [field, want] of [["ok", rv.expectedOk], ["cumple", rv.expectedCumple]] as const) {
-    const m = answerMap[field];
-    if (!m) continue;
-    if (typeof m === "string") {
-      out.push({ question: m, expected: want === undefined ? null : want ? YES : NO });
-    } else {
-      // Booleano derivado de una pregunta `choice`: solo se puede fijar la opción "verdadera".
-      out.push({ question: m.question, expected: want ? m.trueOption : null });
-    }
-  }
-  // Una pregunta sin entrada en el request no se registra como principal.
   return out.filter((b) => req.questions[b.question] !== undefined);
 }
 
@@ -102,10 +88,9 @@ function explicitExpected(a: AnswerExpects[string] | undefined, type: "choice" |
 
 export interface BuildQuestionsInput {
   rawOutput: string;
-  /** Request ya con la variante aplicada: define qué preguntas se enviaron. */
+  /** Request ya armado con los prompts de la variante: define qué preguntas se enviaron. */
   sentReq: DecisionRequest;
   stage: DecisionStage;
-  sv: DecisionStageVariant | undefined;
   /** `expect` del caso. */
   expect: Record<string, unknown>;
   /** Etiqueta canónica esperada de la etapa (de `entry.label`). */
@@ -114,7 +99,7 @@ export interface BuildQuestionsInput {
 
 /** Un `QuestionResult` por cada pregunta enviada. Nunca lanza: los errores quedan en la pregunta afectada. */
 export function buildQuestionResults(input: BuildQuestionsInput): Record<string, QuestionResult> {
-  const { rawOutput, sentReq, stage, sv, expect, canonicalExpected } = input;
+  const { rawOutput, sentReq, stage, expect, canonicalExpected } = input;
   const out: Record<string, QuestionResult> = {};
 
   let answers: Record<string, ParsedAnswer> | undefined;
@@ -125,7 +110,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
     globalError = e instanceof Error ? e.message : String(e);
   }
 
-  const bindings = mainBindings(stage, sv, sentReq, canonicalExpected, expect);
+  const bindings = mainBindings(stage, sentReq, canonicalExpected, expect);
   const explicit = (expect.answers ?? {}) as AnswerExpects;
 
   for (const [key, q] of Object.entries(sentReq.questions)) {
@@ -144,11 +129,8 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
       if (typeof r === "string") {
         res.error = r;
       } else {
-        // `labelMap` solo aplica a la pregunta principal: sus opciones son las que la variante renombra.
-        const mapped = binding ? applyLabelMap(r.answer, r.probabilities, sv?.labelMap) : undefined;
-        res.answer = mapped ? mapped.choice : r.answer;
-        res.probabilities = mapped ? mapped.probabilities : r.probabilities;
-        if (res.answer !== r.answer) res.rawAnswer = r.answer;
+        res.answer = r.answer;
+        res.probabilities = r.probabilities;
       }
     } else {
       const r = readNoul(key, raw);

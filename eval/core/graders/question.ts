@@ -1,7 +1,7 @@
 /**
  * eval/core/graders/question.ts
  *
- * Graders para la etapa QUESTION (ask_user).
+ * Graders para la etapa QUESTION (la pregunta que se le hace al usuario).
  */
 
 import type { Grader, QuestionExpect, QuestionOutput } from "../types.ts";

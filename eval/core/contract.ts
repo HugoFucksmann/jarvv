@@ -31,18 +31,19 @@ export { isWholeRefToken } from "../../src/core/refs/refResolver.ts";
 export { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../../src/core/types/limits.ts";
 export const LLM_INVALID_OUTPUT_RETRIES = BUDGET.invalidResponseRetries;
 export const MAX_STEPS = BUDGET.maxSteps;
-export { ASK_USER, EXECUTABLE_ROUTES, FIN, isExecutableRoute } from "../../src/core/types/routes.ts";
+export { EXECUTABLE_ROUTES, isExecutableRoute } from "../../src/core/types/routes.ts";
 export type { ExecutableRoute } from "../../src/core/types/routes.ts";
 export { isRecord } from "../../src/core/utils.ts";
 
 // ───────────────────────── Prompts de una variante ─────────────────────────
 
 /**
- * Piezas de los prompts de producción que una variante reemplaza. Dos niveles: `PROMPTS.<vista>.<pieza>` (generativas) y
- * `DECISION_PROMPTS.<constructor>` (decisión). Lo que no define cae al prompt de producción.
+ * Los prompts que una variante reemplaza, siempre ENTEROS: una vista generativa completa (`PROMPTS.<vista>`, con todas sus
+ * piezas) o un constructor de decisión completo (`DECISION_PROMPTS.<constructor>`). No hay reemplazo por pieza ni se fusiona con
+ * producción: lo que la variante no nombra usa el prompt de producción tal cual.
  */
-export interface PromptOverrides {
-  PROMPTS?: { [K in keyof PromptSet]?: Partial<PromptSet[K]> };
+export interface VariantPrompts {
+  PROMPTS?: { [K in keyof PromptSet]?: PromptSet[K] };
   DECISION_PROMPTS?: Partial<typeof DECISION_PROMPTS>;
 }
 

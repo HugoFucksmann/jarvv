@@ -95,8 +95,6 @@ export interface VariantSummary {
   deltaMacroPassRate?: number;
   /** Runs cuya llamada al cliente falló: cuentan como falla en passRate. */
   clientFailedRuns: number;
-  /** Runs donde la variante no se pudo aplicar (no hubo llamada): cuentan como falla en passRate. */
-  variantApplyFailedRuns: number;
   /** Runs que necesitaron un reintento por salida inválida o truncada para llegar a su resultado. */
   retriedRuns: number;
   regressions: number;
@@ -123,8 +121,8 @@ export interface ComparisonReport {
 }
 
 /**
- * Solo un run cuya llamada se completó mide al modelo. Una falla de cliente (red, timeout, HTTP) o una variante que no
- * se pudo aplicar (no hubo llamada) no dice nada sobre el prompt: no debe aparecer como regresión ni como mejora.
+ * Solo un run cuya llamada se completó mide al modelo. Una falla de cliente (red, timeout, HTTP) no dice nada sobre el prompt:
+ * no debe aparecer como regresión ni como mejora.
  */
 const isComparable = hasLatency;
 
@@ -387,7 +385,7 @@ export function generateComparisonReport(opts: {
   }
   for (const [variant, count] of unpairedByVariant) {
     warnings.push(
-      `\`${variant}\`: ${count} caso(s) sin medición comparable contra la baseline (llamada fallida, variante no aplicada o etapa distinta). ` +
+      `\`${variant}\`: ${count} caso(s) sin medición comparable contra la baseline (llamada fallida o etapa distinta). ` +
         "Cuentan como falla en su passRate pero quedan fuera de Δ, regresiones y mejoras: passRate y Δ pueden no cuadrar.",
     );
   }
@@ -488,7 +486,6 @@ function summarizeVariants(baseline: string, cells: InputCell[]): VariantSummary
         passRate: canonical.length > 0 ? passedRuns / canonical.length : 0,
         macroPassRate: stageRates.length > 0 ? mean(stageRates) : 0,
         clientFailedRuns: canonical.filter((r) => r.metrics?.client_call_ok === false).length,
-        variantApplyFailedRuns: canonical.filter((r) => r.metrics?.variant_apply_ok === false).length,
         retriedRuns: canonical.filter((r) => Number(r.measurements?.attempts) > 1).length,
         regressions: 0,
         improvements: 0,
@@ -574,7 +571,7 @@ function variantTableRows(report: ComparisonReport): string[][] {
       isBase ? "—" : String(v.regressions),
       isBase ? "—" : String(v.improvements),
       fmtP(v.signTestP),
-      String(v.clientFailedRuns + v.variantApplyFailedRuns),
+      String(v.clientFailedRuns),
       ...(withRetries ? [String(v.retriedRuns)] : []),
       fmtMs(v.p50DurationMs),
     ];
@@ -805,7 +802,7 @@ export function renderComparisonMarkdown(report: ComparisonReport): string {
     `|${variantTableHead(report).map(() => "---").join("|")}|`,
     ...variantTableRows(report).map((r) => `| ${r.join(" | ")} |`),
     "",
-    "Agregado sobre todos los datasets, por tipo de etapas (generativo / decisión). **Sin medir** = llamadas fallidas (red, timeout, HTTP) o variante no aplicada: cuentan como falla en passRate, pero Δ, regresiones y mejoras comparan solo casos medidos en ambos lados. **Macro por etapa** pesa cada etapa por igual (en passRate pesan según su cantidad de casos).",
+    "Agregado sobre todos los datasets, por tipo de etapas (generativo / decisión). **Sin medir** = llamadas fallidas (red, timeout, HTTP): cuentan como falla en passRate, pero Δ, regresiones y mejoras comparan solo casos medidos en ambos lados. **Macro por etapa** pesa cada etapa por igual (en passRate pesan según su cantidad de casos).",
     SIGN_NOTE,
     "",
     ...renderStageTable(report),

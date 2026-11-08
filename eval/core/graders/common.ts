@@ -1,7 +1,7 @@
 /**
  * eval/core/graders/common.ts
  *
- * Graders base y utilidades compartidas. `client_call_ok`, `variant_apply_ok` y `output_parse_ok`
+ * Graders base y utilidades compartidas. `client_call_ok` y `output_parse_ok`
  * los registra el runner (F4), no un grader.
  */
 

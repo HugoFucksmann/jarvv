@@ -30,7 +30,7 @@ import {
   parseRouteDecision,
   parseToolChoiceDecision,
 } from "../variants/labels.ts";
-import type { DecisionStageVariant } from "../variants/types.ts";
+import type { DecisionReaders } from "../types.ts";
 import type { DecisionStageEntry, LabelInfo } from "./index.ts";
 
 // ───────────────────────── route ─────────────────────────
@@ -42,23 +42,13 @@ export const routeStage: DecisionStageEntry<RouteOutput, RouteExpect> = {
   parseOutput(
     rawOutput: string,
     sentReq: DecisionRequest,
-    sv: DecisionStageVariant | undefined,
+    read: DecisionReaders | undefined,
   ): RouteOutput {
-    return parseRouteDecision(rawOutput, sentReq, sv);
+    return parseRouteDecision(rawOutput, sentReq);
   },
   label(output: RouteOutput | undefined, expect: RouteExpect | undefined): LabelInfo {
-    const predicted = output
-      ? output.action === "route"
-        ? (output.route ?? output.action)
-        : output.action
-      : null;
-    // Sin `expectedRoute` vale cualquier ruta: no hay etiqueta contra la cual medir accuracy (el grader sí evalúa la acción).
-    // Antes la etiqueta era "route", que nunca coincide con una predicción como "files": error de accuracy en un caso que pasa.
-    const expected = expect
-      ? expect.expectedAction === "route"
-        ? (expect.expectedRoute ?? null)
-        : expect.expectedAction
-      : null;
+    const predicted = output?.route ?? null;
+    const expected = expect?.expectedRoute ?? null;
     const rawScore = output?.probabilities
       ? (predicted !== null ? (output.probabilities[predicted] ?? null) : null)
       : null;
@@ -80,14 +70,13 @@ export const toolChoiceStage: DecisionStageEntry<ToolChoiceOutput, ToolChoiceExp
   parseOutput(
     rawOutput: string,
     sentReq: DecisionRequest,
-    sv: DecisionStageVariant | undefined,
+    read: DecisionReaders | undefined,
   ): ToolChoiceOutput {
-    return parseToolChoiceDecision(rawOutput, sentReq, sv);
+    return parseToolChoiceDecision(rawOutput, sentReq);
   },
   label(output: ToolChoiceOutput | undefined, expect: ToolChoiceExpect | undefined): LabelInfo {
     const predicted = output?.selected ?? null;
-    const expected =
-      expect?.expectedTool ?? (expect?.expectedAction === "ask_user" ? "ask_user" : null);
+    const expected = expect?.expectedTool ?? null;
     const rawScore =
       output?.probabilities && predicted !== null
         ? (output.probabilities[predicted] ?? null)
@@ -110,9 +99,9 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
   parseOutput(
     rawOutput: string,
     sentReq: DecisionRequest,
-    sv: DecisionStageVariant | undefined,
+    read: DecisionReaders | undefined,
   ): ArgsReviewOutput {
-    return parseArgsReviewDecision(rawOutput, sentReq, sv);
+    return parseArgsReviewDecision(rawOutput, sentReq, read?.args_review);
   },
   label(output: ArgsReviewOutput | undefined, expect: ArgsReviewExpect | undefined): LabelInfo {
     const predicted = output?.review ?? null;
@@ -142,9 +131,9 @@ export const resultVerificationStage: DecisionStageEntry<
   parseOutput(
     rawOutput: string,
     sentReq: DecisionRequest,
-    sv: DecisionStageVariant | undefined,
+    read: DecisionReaders | undefined,
   ): ResultVerificationOutput {
-    return parseResultVerificationDecision(rawOutput, sentReq, sv);
+    return parseResultVerificationDecision(rawOutput, sentReq, read?.result_verification);
   },
   label(
     output: ResultVerificationOutput | undefined,

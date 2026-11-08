@@ -52,8 +52,8 @@ import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../sr
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
 import { EXECUTABLE_ROUTES } from "./contract.ts";
-import type { PromptOverrides, ToolInputSchema } from "./contract.ts";
-import type { DecisionRequest, GenerativeRequest } from "./types.ts";
+import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
+import type { DecisionRequest, GenerativeRequest, GenerativeStage, Variant } from "./types.ts";
 
 /**
  * Lo que, además de `src/`, cambia los prompts de los casos por escenario: la fecha (`TODAY`) y la configuración que fija
@@ -290,15 +290,11 @@ function generative(r: StageRequest, schemaName?: string): GenerativeRequest {
 }
 
 /**
- * Los prompts con que se arma un caso: los de producción, con las piezas que la variante reemplaza (por pieza, a dos
- * niveles: `PROMPTS.<vista>.<pieza>` y `DECISION_PROMPTS.<constructor>`). Lo que la variante no define cae a producción.
+ * Los prompts con que se arma un caso: los de producción, con las vistas y los constructores ENTEROS que la variante define (nada se
+ * fusiona por pieza). Lo que la variante no nombra usa el prompt de producción.
  */
-function effectivePrompts(ov?: PromptOverrides): { P: PromptSet; D: typeof DECISION_PROMPTS } {
-  if (!ov) return { P: PROMPTS, D: DECISION_PROMPTS };
-  const P = Object.fromEntries(
-    Object.entries(PROMPTS).map(([view, pieces]) => [view, { ...pieces, ...ov.PROMPTS?.[view as keyof PromptSet] }]),
-  ) as PromptSet;
-  return { P, D: { ...DECISION_PROMPTS, ...ov.DECISION_PROMPTS } };
+function effectivePrompts(ov?: VariantPrompts): { P: PromptSet; D: typeof DECISION_PROMPTS } {
+  return { P: { ...PROMPTS, ...ov?.PROMPTS } as PromptSet, D: { ...DECISION_PROMPTS, ...ov?.DECISION_PROMPTS } };
 }
 
 /**
@@ -316,10 +312,18 @@ export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer):
 }
 
 /**
- * Arma el `request` de una etapa a partir del escenario, con los prompts de producción o los de la variante (`ov`).
- * Lanza `Error` con el motivo si el escenario no sirve.
+ * Arma el `request` de una etapa a partir del escenario, con los prompts de producción o los de la variante, y le aplica los
+ * parámetros de la variante (`params`: temperatura, tokens, thinking…). Lanza `Error` con el motivo si el escenario no sirve.
  */
-export function materializeScenario(stage: string, sc: Scenario, ov?: PromptOverrides): Materialized {
+export function materializeScenario(stage: string, sc: Scenario, variant?: Variant): Materialized {
+  const built = buildFromScenario(stage, sc, variant?.prompts);
+  const params = variant?.params?.[stage as GenerativeStage];
+  if (params === undefined || built.request.type !== "generative") return built;
+  const defined = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
+  return { ...built, request: { ...built.request, ...defined } };
+}
+
+function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Materialized {
   if (stage === "pending" && sc.mode !== "reactive") throw new Error("etapa 'pending': la lista de pendientes solo existe en modo reactivo.");
   const { ctx, callIds } = buildContext(sc);
   const at = sc.at ?? {};

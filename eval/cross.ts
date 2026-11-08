@@ -26,7 +26,6 @@ import { analyzePowerShell } from "../src/core/engine/precheck.ts";
 import { getToolPolicy, serverOf } from "../src/core/tools/manifest.ts";
 import type { Scenario } from "./core/scenario.ts";
 import { scenarioPrecheck } from "./core/scenario.ts";
-import { frozenPrecheck } from "./core/frozenPrecheck.ts";
 
 // ───────────────────────── Entrada ─────────────────────────
 
@@ -35,8 +34,6 @@ interface RawCase {
   stage: string;
   tags?: string[];
   scenario?: Scenario;
-  /** Caso fijo: el request ya armado (solo se usa `state`). */
-  request?: { state?: string };
   expect?: { expectedReview?: string };
 }
 
@@ -63,7 +60,7 @@ function loadCases(dataset: string): RawCase[] {
     const t = line.trim();
     if (t === "" || t.startsWith("#")) continue;
     const c = JSON.parse(t) as RawCase;
-    if (c.stage === "args_review" && (c.scenario !== undefined || typeof c.request?.state === "string") && c.expect?.expectedReview !== undefined) out.push(c);
+    if (c.stage === "args_review" && c.scenario !== undefined && c.expect?.expectedReview !== undefined) out.push(c);
   }
   return out;
 }
@@ -102,11 +99,10 @@ async function precheckRows(datasets: string[]): Promise<CaseRow[]> {
   for (const dataset of datasets) {
     for (const c of loadCases(dataset)) {
       const sc = c.scenario;
-      const frozen = sc === undefined ? await frozenPrecheck(c.request?.state ?? "", analyze) : null;
-      const tool = sc?.at?.tool ?? frozen?.tool ?? "";
-      const route = sc?.at?.route ?? frozen?.route;
+      const tool = sc?.at?.tool ?? "";
+      const route = sc?.at?.route;
       const kind = route !== undefined && getToolPolicy(serverOf(route), tool).mutates ? "write" : "read";
-      let finding = frozen?.finding ?? null;
+      let finding: Awaited<ReturnType<typeof scenarioPrecheck>> = null;
       try {
         if (sc !== undefined) finding = await scenarioPrecheck(sc, analyze);
       } catch (e) {

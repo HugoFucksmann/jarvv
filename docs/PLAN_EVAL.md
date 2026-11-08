@@ -2,14 +2,14 @@
 
 Alcance: preparar el eval para probar prompts enteros y preguntas con opciones de decisión usando el flujo con prompts inyectables. Reglas: sin tests nuevos ni modificados; cada paso se aplica por separado; el flujo (`src`) solo cambia donde se indica.
 
-## Modelo de variantes (único)
+## Modelo de casos y variantes (único; 2026-11-08)
 
-Una variante es datos con una sola regla de composición y un solo punto de aplicación:
-- `prompts`: constructores y textos de `src` (se fusionan en la cadena `a+b`; gana el último por pieza).
-- Ediciones: `state`, `questions`, `criteria`, `system`, `user` (se acumulan en orden y se aplican después de armar el request).
-- Lectura: `labelMap` y `answerMap`, más `params` (se fusionan; gana el último).
-- Aplicación al cargar, una vez por variante y caso. En un caso por escenario: constructor de `src` con los prompts fusionados y luego las ediciones. En un caso fijo: las mismas funciones de edición sobre el request guardado; los `prompts` se ignoran con aviso. El runner solo envía.
-- Un error de edición queda en el caso (`variant_apply_error`), no aborta la carga.
+Un solo formato de caso y un solo formato de variante. La referencia de uso está en `eval/INSTRUCCIONES.md` (secciones "Formato de un caso" y "Escribir una variante").
+- **Caso:** el escenario (`scenario` + `expect`). No trae el prompt: lo arma el cargador con el código de `src` y los prompts de la variante. Un caso con `request` (prompt escrito a mano) es error de carga. Ya no existen los casos "frozen", `--source` ni `variantApplyError`.
+- **Variante:** un archivo con prompts ENTEROS: constructores completos de decisión (`prompts.DECISION_PROMPTS`) y vistas generativas completas (`prompts.PROMPTS`). Lo que no nombra usa producción; lo que nombra no se fusiona por pieza. Más `params` (temperatura, tokens, thinking, schema por etapa generativa) y, solo si cambia el conjunto de preguntas de `args_review` o `result_verification`, `read`. Se quitaron las ediciones sobre el request (`TextEdit`, `CriteriaEdit`, `addQuestions`, `removeQuestions`, `replace`), `labelMap`, `answerMap`, `combine`, `combineVerification` y la composición `a+b`.
+- **Aplicación:** al cargar, una vez por variante: escenario → vistas de `ctx` → adaptadores → constructores de la variante → request. El prompt que ve el modelo se inspecciona con `--dry-run`.
+
+(Lo que sigue en este documento es el historial del plan anterior, que usaba ediciones y composición.)
 
 ## Pasos
 

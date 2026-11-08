@@ -1,12 +1,12 @@
 /**
  * eval/core/case.ts
  *
- * Validación de un caso frozen (secciones 5.1 y 10.3). Devuelve mensajes sin ubicación:
- * `datasets.ts` les antepone `archivo:línea:`.
+ * Validación de un caso ya armado (el escenario del dataset más el `request` que generó la variante). Devuelve mensajes sin
+ * ubicación: `datasets.ts` les antepone `archivo:línea:`.
  */
 
 import { EXECUTABLE_ROUTES, isExecutableRoute } from "./contract.ts";
-import type { DecisionStage, FrozenCase, GenerativeStage, StageName } from "./types.ts";
+import type { DecisionStage, Case, GenerativeStage, StageName } from "./types.ts";
 
 /**
  * Etapas conocidas por el eval. Cuando exista el registro de F3 (`stages/index.ts`) será la fuente de
@@ -25,7 +25,7 @@ const SHORTCUT_QUESTION: Partial<Record<StageName, string>> = {
   tool_choice: "selected_tool",
 };
 
-export type CaseValidation = { ok: true; case: FrozenCase } | { ok: false; errors: string[] };
+export type CaseValidation = { ok: true; case: Case } | { ok: false; errors: string[] };
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -96,12 +96,12 @@ interface ExpectSpec {
 
 const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
   route: {
-    keys: { expectedAction: "string", expectedRoute: "string", minProbability: "number", answers: "object" },
-    required: ["expectedAction"],
+    keys: { expectedRoute: "string", minProbability: "number", answers: "object" },
+    required: ["expectedRoute"],
   },
   tool_choice: {
-    keys: { expectedTool: "string", expectedAction: "string", minProbability: "number", answers: "object" },
-    atLeastOne: ["expectedTool", "expectedAction"],
+    keys: { expectedTool: "string", minProbability: "number", answers: "object" },
+    required: ["expectedTool"],
   },
   args_review: {
     keys: { expectedReview: "string", minProbability: "number", answers: "object" },
@@ -141,9 +141,7 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
 };
 
 const ENUM_VALUES: Partial<Record<StageName, Record<string, readonly string[]>>> = {
-  route: { expectedAction: ["route", "fin", "ask_user"] },
-  tool_choice: { expectedAction: ["tool", "ask_user"] },
-  args_review: { expectedReview: ["approved", "args_invalid", "tool_rejected", "info_missing"] },
+  args_review: { expectedReview: ["approved", "args_invalid", "info_missing"] },
 };
 
 function matchesKind(v: unknown, kind: ExpectKind): boolean {
@@ -283,15 +281,6 @@ function validateExpect(stage: StageName, expectObj: Record<string, unknown>, er
   if (stage === "pending" && expectObj.expectEmpty === true && expectObj.requiredKeywordsInFirst !== undefined) {
     errs.push("expect.requiredKeywordsInFirst contradice expectEmpty=true (una lista vacía no tiene primer pendiente).");
   }
-  if (stage === "route" && expectObj.expectedRoute !== undefined && expectObj.expectedAction !== "route") {
-    errs.push("expect.expectedRoute solo aplica con expectedAction 'route'.");
-  }
-  if (stage === "route" && expectObj.expectedAction === "route" && expectObj.expectedRoute === undefined) {
-    errs.push("expect.expectedRoute es obligatorio con expectedAction 'route'.");
-  }
-  if (stage === "tool_choice" && expectObj.expectedTool !== undefined && expectObj.expectedAction === "ask_user") {
-    errs.push("expect.expectedTool y expectedAction 'ask_user' son excluyentes.");
-  }
 }
 
 function validateMeta(meta: unknown, errs: string[]): void {
@@ -310,7 +299,7 @@ function validateMeta(meta: unknown, errs: string[]): void {
 }
 
 /** Una sola opción en la pregunta de ruta/herramienta → tag `prod_shortcut` (si no lo tiene ya). */
-function withAutoTags(c: FrozenCase): FrozenCase {
+function withAutoTags(c: Case): Case {
   const tags = [...(c.tags ?? [])];
   const key = SHORTCUT_QUESTION[c.stage];
   if (key && c.request.type === "decision") {
@@ -370,5 +359,5 @@ export function validateCase(raw: unknown): CaseValidation {
   if (raw.meta !== undefined) validateMeta(raw.meta, errs);
 
   if (errs.length > 0) return { ok: false, errors: errs };
-  return { ok: true, case: withAutoTags(raw as unknown as FrozenCase) };
+  return { ok: true, case: withAutoTags(raw as unknown as Case) };
 }

@@ -4,7 +4,6 @@
  * Graders de coincidencia de etiquetas para las etapas de decisión.
  */
 
-import { ASK_USER } from "../contract.ts";
 import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
@@ -46,26 +45,12 @@ export const RouteLabelGrader: Grader<RouteOutput, RouteExpect> = {
     }
 
     col.check(
-      "action_match",
-      output.action === expect.expectedAction,
-      `Acción obtenida '${output.action}' difiere de la esperada '${expect.expectedAction}'.`,
+      "route_match",
+      output.route === expect.expectedRoute,
+      `Ruta obtenida '${output.route}' difiere de la esperada '${expect.expectedRoute}'.`,
     );
 
-    if (expect.expectedAction === "route" && expect.expectedRoute) {
-      col.check(
-        "route_match",
-        output.action === "route" && output.route === expect.expectedRoute,
-        `Ruta obtenida '${output.route}' difiere de la esperada '${expect.expectedRoute}'.`,
-      );
-    }
-
-    // La clave de probabilidad es la ruta (si la acción esperada es route) o la acción (fin / ask_user).
-    const probKey = expect.expectedAction === "route" ? expect.expectedRoute : expect.expectedAction;
-    if (probKey !== undefined) {
-      checkMinProbability(col, "min_probability_met", probKey, output.probabilities?.[probKey], expect.minProbability);
-    } else if (expect.minProbability !== undefined) {
-      col.check("min_probability_met", false, "minProbability requiere expectedRoute cuando expectedAction es 'route'.");
-    }
+    checkMinProbability(col, "min_probability_met", expect.expectedRoute, output.probabilities?.[expect.expectedRoute], expect.minProbability);
   },
 };
 
@@ -77,37 +62,13 @@ export const ToolChoiceLabelGrader: Grader<ToolChoiceOutput, ToolChoiceExpect> =
       return;
     }
 
-    if (expect.expectedTool) {
-      col.check(
-        "tool_match",
-        output.selected === expect.expectedTool,
-        `Herramienta seleccionada '${output.selected}' difiere de la esperada '${expect.expectedTool}'.`,
-      );
-    }
+    col.check(
+      "tool_match",
+      output.selected === expect.expectedTool,
+      `Herramienta seleccionada '${output.selected}' difiere de la esperada '${expect.expectedTool}'.`,
+    );
 
-    if (expect.expectedAction === "ask_user") {
-      col.check(
-        "ask_user_match",
-        output.selected === ASK_USER,
-        `Se esperaba '${ASK_USER}' pero se seleccionó '${output.selected}'.`,
-      );
-    }
-
-    // `expectedAction: "tool"` sin `expectedTool`: cualquier herramienta, pero no ask_user.
-    if (expect.expectedAction === "tool") {
-      col.check(
-        "tool_action_match",
-        output.selected !== ASK_USER,
-        `Se esperaba una herramienta pero se seleccionó '${ASK_USER}'.`,
-      );
-    }
-
-    const target = expect.expectedTool ?? (expect.expectedAction === "ask_user" ? ASK_USER : undefined);
-    if (target !== undefined) {
-      checkMinProbability(col, "min_probability_met", target, output.probabilities?.[target], expect.minProbability);
-    } else if (expect.minProbability !== undefined) {
-      col.check("min_probability_met", false, "minProbability requiere expectedTool o expectedAction 'ask_user'.");
-    }
+    checkMinProbability(col, "min_probability_met", expect.expectedTool, output.probabilities?.[expect.expectedTool], expect.minProbability);
   },
 };
 

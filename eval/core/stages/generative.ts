@@ -35,7 +35,6 @@ import type {
   QuestionExpect,
   QuestionOutput,
 } from "../types.ts";
-import type { GenerativeStageVariant } from "../variants/types.ts";
 import type { GenerativeStageEntry, LabelInfo } from "./index.ts";
 
 // ───────────────────────── Helpers de parseo ─────────────────────────
@@ -62,7 +61,6 @@ export const planStage: GenerativeStageEntry<PlanOutput, PlanExpect> = {
   parseOutput(
     rawOutput: string,
     sentReq: GenerativeRequest,
-    _sv: GenerativeStageVariant | undefined,
   ): PlanOutput {
     const obj = parseJsonObject(rawOutput);
     if (!obj) throw new Error("No se pudo extraer un objeto JSON del plan.");
@@ -97,7 +95,6 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
   parseOutput(
     rawOutput: string,
     _sentReq: GenerativeRequest,
-    _sv: GenerativeStageVariant | undefined,
     toolSchema?: ToolInputSchema,
   ): ArgumentsOutput {
     const obj = parseJsonObject(rawOutput);

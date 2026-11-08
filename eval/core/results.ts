@@ -136,7 +136,6 @@ export function newRunId(): string {
 
 export function buildRunMeta(opts: {
   cfg: EvalConfig;
-  variantChain: string[];
   variantHash: string;
   datasetPath: string;
   datasetHash: string;
@@ -148,7 +147,7 @@ export function buildRunMeta(opts: {
   /** Ids de los casos que corre la celda (ya filtrados). */
   caseIds: string[];
 }): RunMeta {
-  const { cfg, variantChain, variantHash, datasetPath, datasetHash, stages, timestamp, caseIds } = opts;
+  const { cfg, variantHash, datasetPath, datasetHash, stages, timestamp, caseIds } = opts;
   const git = gitInfo();
 
   return {
@@ -159,12 +158,11 @@ export function buildRunMeta(opts: {
     decisionModel: cfg.decisionModel,
     url: cfg.url,
     decisionUrl: cfg.decisionUrl,
-    variantChain,
     variantHash,
     datasetPath,
     datasetHash,
     stages,
-    filters: { tags: cfg.tags, ids: cfg.ids, source: cfg.source ?? null, limit: cfg.limit ?? null },
+    filters: { tags: cfg.tags, ids: cfg.ids, limit: cfg.limit ?? null },
     cases: { count: caseIds.length, hash: objectHash([...caseIds].sort()) },
     promptEnv: promptEnvironment(),
     repeat: cfg.repeat,
