@@ -82,6 +82,10 @@ export const BUDGET = {
     /** Fallo `F`: `L` + `args` + `summary`. */
     failureArgs: 500,
     failureSummary: 600,
+    /** Resumen de un intento no aprobado que ven Decisión 1 y 2 (solo si explica el fallo). */
+    attemptSummary: 200,
+    /** Resultado del último intento fallido de la misma herramienta (`forArgs`, `lastError`). */
+    lastErrorSummary: 800,
     /** Lectura: `L` + `args` + `summary` completo + marca de ref. */
     readArgs: 600,
     readSummary: 2500,

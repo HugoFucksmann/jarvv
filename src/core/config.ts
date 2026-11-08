@@ -48,9 +48,9 @@ export interface JarvisConfig {
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
-  /** Registro de trazas: una línea JSON por tarea terminada (lo consume el laboratorio; Jarvis nunca lo lee). */
+  /** Registro de trazas: una carpeta por tarea terminada más una línea en `index.jsonl` (lo consume el laboratorio; Jarvis nunca lo lee). */
   traceEnabled: boolean;
-  /** Archivo del registro de trazas; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
+  /** Solo fija la ubicación: las trazas van a la carpeta homónima sin extensión (`jarvis-traces.jsonl` → `jarvis-traces/`); el archivo `.jsonl` no se escribe. Una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   tracePath: string;
   /** Carpeta de los resultados crudos de las refs; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   refsDir: string;

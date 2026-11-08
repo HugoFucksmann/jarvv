@@ -41,7 +41,7 @@ import { closeOnFailure, queryModel } from "./failures.ts";
 import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
 import { factValue } from "./retries.ts";
-import { verifyCall } from "./verify.ts";
+import { reviewOutcome, verifyCall } from "./verify.ts";
 
 export interface RunCallParams {
   readonly stepId: string;
@@ -59,6 +59,10 @@ function summaryText(text: string | null | undefined): string | null {
   const clean = text?.trim();
   return clean ? clipWithin(clean, BUDGET.summaryMax) : null;
 }
+
+/** Motivo fijo de un `args_invalid` de la revisión (D3): el modelo de decisión solo elige la opción, no dice qué argumento falla. */
+export const REVIEW_ARGS_INVALID_NOTE =
+  "The review found a wrong argument: a value is invented, copied incorrectly, or contradicts the task or the data read. Write the arguments again from the task and the data.";
 
 const registered = (
   callId: string,
@@ -99,16 +103,14 @@ type Discovery =
   | { readonly kind: "outcome"; readonly outcome: CallOutcome };
 
 /**
- * Herramientas del catálogo que se pueden usar ahora en el paso: las que no exigen un proceso o una búsqueda activos, o
- * cuyo requisito se cumple, menos las vetadas enteras por la lista negra y las que ya repitieron en el paso una llamada idéntica que había fallado (FLUJO 2,
- * opciones disponibles).
+ * Herramientas del catálogo que se pueden usar ahora: las que no exigen un proceso o una búsqueda activos, o cuyo requisito
+ * se cumple, menos las vetadas enteras por la lista negra (FLUJO 2, opciones disponibles). Una herramienta cuya llamada se
+ * bloqueó por repetición sigue disponible: el anti-bucle solo bloquea la llamada idéntica, y con otros argumentos pasa.
  */
-function usableTools(ctx: TaskContext, stepId: string, mcp: string, cataloged: readonly MCPTool[], blacklist: Blacklist): MCPTool[] {
+function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[], blacklist: Blacklist): MCPTool[] {
   const processActive = factValue(ctx, "process") !== null;
   const searchActive = ctx.find("calls", { tool: "start_search", status: "ok" }).length > 0;
-  const blocked = ctx.failedRepeatTools(stepId);
   return cataloged.filter((t) => {
-    if (blocked.includes(t.name)) return false;
     if (isBlacklistedTool(blacklist, mcp, t.name, getToolPolicy(mcp, t.name).mutates)) return false;
     const required = requirementOf(mcp, t.name);
     return required === undefined || (required === "process" ? processActive : searchActive);
@@ -130,7 +132,7 @@ export async function availableRoutes(env: EngineEnv, stepId: string, routes: re
     } catch {
       cataloged = [];
     }
-    if (cataloged.length === 0 || usableTools(ctx, stepId, mcp, cataloged, deps.blacklist).length > 0) out.push(route);
+    if (cataloged.length === 0 || usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0) out.push(route);
   }
   return out;
 }
@@ -160,7 +162,7 @@ async function discoverTools(env: EngineEnv, stepId: string, route: ExecutableRo
     );
   }
 
-  const usable = usableTools(ctx, stepId, mcp, cataloged, deps.blacklist);
+  const usable = usableTools(ctx, mcp, cataloged, deps.blacklist);
   if (usable.length === 0) {
     console.warn(`[Engine] no hay herramientas utilizables en el destino '${route}'.`);
     return { kind: "outcome", outcome: { kind: "no_tools" } };
@@ -249,7 +251,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const base = { stepId, route, tool: tool.name, kind: kindOf(policy) } as const;
 
   // 3. Argumentos (LLM). Una salida inválida es `args_invalid`; el LLM caído o el desborde cierran la tarea.
-  const rendered = renderArgsView(ctx);
+  const rendered = renderArgsView(ctx, tool.name);
   if (rendered.overflow) {
     // D26, D30: la vista no cabe en su límite; cierre sin `error`.
     console.error(`[Engine] ${new ContextOverflowError("forArgs", BUDGET.caps.effectsReserve, rendered.chars).message}`);
@@ -346,9 +348,11 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    if (review.value.review !== "approved") {
-      const status: CallStatus = review.value.review;
-      const callId = register(ctx, { ...base, args: recorded, sig, status, summary: null, ref: null });
+    const reviewed = reviewOutcome(review.value);
+    if (reviewed !== "approved") {
+      const status: CallStatus = reviewed;
+      const summary = status === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null;
+      const callId = register(ctx, { ...base, args: recorded, sig, status, summary, ref: null });
       return registered(callId, status);
     }
   }

@@ -14,7 +14,6 @@ import type {
   TaskState,
   VerdictReason,
 } from "../types.ts";
-import type { lineViewOf } from "./shared.ts";
 // ───────────────────────── Opciones ─────────────────────────
 
 /** Tamaños de las ventanas recientes con 0, 1 y 2 o más escalaciones (`BUDGET.recentWindows`). */
@@ -64,6 +63,8 @@ export interface ArgsViewOptions extends ReviewViewOptions {
   readonly readArgKeys: ReadArgKeys;
   /** Refs más recientes que muestra la vista (`BUDGET.caps.refs`). */
   readonly refs: number;
+  /** Herramienta para la que se generan los argumentos: con ella la vista incluye `lastError`. */
+  readonly tool?: string;
 }
 
 // ───────────────────────── Piezas ─────────────────────────
@@ -221,6 +222,12 @@ export interface ArgsView {
   readonly refs: readonly AvailableRefView[];
   /** Fallos del paso actual (ventana por escalaciones). */
   readonly stepFailures: readonly CallView[];
+  /**
+   * El último intento ejecutado de la misma herramienta (de cualquier paso) que falló, con sus `args` y su resultado: lo que el
+   * generador no debe repetir. `null` sin `options.tool`, si una llamada posterior de esa herramienta quedó aprobada o si ese
+   * intento ya aparece en `stepFailures`.
+   */
+  readonly lastError: CallView | null;
   readonly userInput: readonly UserInputView[];
   readonly env: readonly FactView[];
   /** Todos, con sus `args` y sin recorte. */
@@ -264,7 +271,7 @@ export interface VerifyView {
   readonly criterion: CriterionView;
   readonly call: CallView;
   /** Solo en reactivo: llamadas aprobadas como línea `L`. */
-  readonly done: readonly ReturnType<typeof lineViewOf>[];
+  readonly done: readonly CallView[];
   /** Llamadas aprobadas anteriores a la evaluada, completas (args y resumen), en orden y en ambos modos. Sin tope: lo aplica el adaptador. */
   readonly previous: readonly CallView[];
   readonly userInput: readonly UserInputView[];

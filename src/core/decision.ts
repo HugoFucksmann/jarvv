@@ -221,7 +221,7 @@ export class Decision20Engine implements IActionDecision {
   }
 
   /**
-   * Decisión 3: revisión de la llamada candidata. Una pregunta con cuatro opciones (aprobar o el escenario del rechazo);
+   * Decisión 3: revisión de la llamada candidata. Una pregunta con tres opciones (aprobar o el escenario del rechazo);
    * siempre se consulta, porque nunca hay una sola opción.
    */
   async reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision> {

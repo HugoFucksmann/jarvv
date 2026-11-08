@@ -65,13 +65,13 @@ flowchart TD
 
     subgraph CALL ["runCall"]
         direction TB
-        C1["1 Descubrir herramientas<br/>(sin las excluidas del paso)"] --> C2["2 Decisión 2: elegir herramienta"]
+        C1["1 Descubrir herramientas<br/>(sin las vetadas por la lista negra)"] --> C2["2 Decisión 2: elegir herramienta"]
         C2 --> C3["3 Generar argumentos"]
         C3 --> C4["4 Resolver refs"]
         C4 --> C5["5 Anti-bucle"]
         C5 --> C6{"6 Guard"}
-        C6 -->|ALLOW o pide aprobación| C6B["6b Pre-chequeo determinista"] --> C7["7 Decisión 3: revisar argumentos"]
-        C7 --> C8["8 Confirmación del usuario<br/>si Guard la pidió"]
+        C6 -->|ALLOW o pide aprobación| C6A["6a Lista negra"] --> C6B["6b Pre-chequeo determinista"] --> C7["7 Confirmación del usuario<br/>si Guard la pidió y autoMode está apagado"]
+        C7 --> C8["8 Decisión 3: revisar argumentos<br/>solo escrituras sin confirmación"]
         C8 --> C9["9 Despacho a la herramienta"]
         C9 --> C10["10 Procesar resultado<br/>resumen y ref"]
         C10 --> C11{"11 Decisión 4:<br/>preguntas de VERIFY_CHECKS > 0.5"}
@@ -85,12 +85,13 @@ flowchart TD
     C3 -->|args_invalid| R
     C4 -->|refs_unresolved| A
     C5 -->|loop_blocked| A
-    C7 -->|info_missing| Q["Pregunta, espera, hecho answer<br/>(una por paso)"] --> A
+    C8 -->|info_missing| Q["Pregunta, espera, hecho answer<br/>(una por paso)"] --> A
+    C6A -->|tool_rejected| A
     C6B -->|args_invalid, info_missing| R
-    C7 -->|args_invalid| R{"¿Segundo rechazo<br/>de la revisión?"}
+    C8 -->|args_invalid| R{"¿Segundo rechazo<br/>de la revisión?"}
     R -->|no| A
     R -->|sí| FAIL
-    C8 -->|user_rejected| A
+    C7 -->|user_rejected| A
     C9 -->|exception, interrupted| A
     C11 -->|rejected| A
 ```
@@ -131,21 +132,21 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | # | Fase | Qué ocurre si falla |
 |---|---|---|
 | 1 | **Descubrir** las herramientas del destino | Servidor o catálogo no disponible: se registra el error y la tarea se cierra (`unrecoverable`). Sin ninguna herramienta utilizable en ese momento, el paso falla (`no_tools`) |
-| 2 | **Elegir herramienta** (Decisión 2). Solo se ofrecen las herramientas utilizables: las que dependen de un proceso activo o de una búsqueda iniciada aparecen solo mientras existan, y se excluye la que ya repitió en el paso una llamada idéntica que había fallado | — |
-| 3 | **Generar argumentos** (modelo generativo, conforme al esquema) | Salida inválida tras el reintento: `args_invalid` |
+| 2 | **Elegir herramienta** (Decisión 2). Solo se ofrecen las herramientas utilizables: las que dependen de un proceso activo o de una búsqueda iniciada aparecen solo mientras existan | — |
+| 3 | **Generar argumentos** (modelo generativo, conforme al esquema). El prompt incluye, además de `FAIL` (fallos del paso), la sección `LAST ERROR`: el último intento ejecutado de esa misma herramienta que falló (error de la herramienta o resultado rechazado por la verificación), de cualquier paso, con los argumentos que se probaron y lo que devolvió, para que no los repita y corrija solo la causa. No aparece si una llamada posterior de esa herramienta quedó aprobada ni si ese intento ya está en `FAIL`. Se agrega aunque la escritura ya figure en `EFFECTS` | Salida inválida tras el reintento: `args_invalid` |
 | 4 | **Resolver referencias** `{{ref:rN}}` / `ref:rN` por su contenido en disco | Referencia desconocida: `refs_unresolved` |
 | 5 | **Anti-bucle** sobre la huella de los argumentos resueltos | Repetición bloqueada: `loop_blocked` |
 | 6 | **Guard** | `DENY`: la llamada queda `denied` y la tarea se cierra con `security_denied` |
 | 6a | **Lista negra** (`policy/blacklist.ts`, clave `blacklist` de `jarvis-config.json`): una herramienta que modifica el sistema, entera o con un patrón sobre los argumentos. Las lecturas nunca se rechazan. Una herramienta vetada entera no se ofrece en la Decisión 2 | `tool_rejected`, con la razón escrita; el modelo sigue con otra herramienta u otros argumentos (no cierra la tarea, a diferencia de Guard) |
 | 6b | **Pre-chequeo determinista** (código, sin modelo; `engine/precheck.ts`): valores vacíos o `N/A`, marcadores de posición, rutas de otro usuario o de Linux, comandos que no existen en el sistema (parser de PowerShell), rutas de lectura y URLs que no aparecen en nada de lo que la tarea sabe. Ante la duda no rechaza | `args_invalid` o `info_missing`, con la razón escrita como resumen (llega a la línea FAIL del LLM de argumentos) |
 | 7 | **Confirmación del usuario**, si Guard pidió aprobación y el modo automático (`autoMode`) está apagado, después del pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No se registra nada mientras se espera. **Si el usuario aprueba, la llamada se da por revisada: Decisión 3 no entra** | Rechazo: `user_rejected`, con la instrucción opcional del usuario |
-| 8 | **Revisar argumentos**, solo en escrituras a las que no se les pidió confirmación (`kind: write` sin aprobación de Guard o con el modo automático encendido; las lecturas pasan por el pre-chequeo) (Decisión 3; opciones `approved`, `args_invalid` e `info_missing`: no hay `tool_rejected`, la herramienta la elige Decisión 2) | `args_invalid` o `info_missing` |
-| 9 | **Despacho** a la herramienta, compitiendo contra la cancelación | Excepción: `exception`. Cancelación: `interrupted`, y un resultado tardío se descarta |
+| 8 | **Revisar argumentos**, con umbral (`REVIEW_APPROVE` = 0,6 en `engine/verify.ts`: aprueba solo si la probabilidad de `approved` llega a 0,6; si no, rechaza con la opción de rechazo más probable), solo en escrituras a las que no se les pidió confirmación (`kind: write` sin aprobación de Guard o con el modo automático encendido; las lecturas pasan por el pre-chequeo) (Decisión 3; opciones `approved`, `args_invalid` e `info_missing`: no hay `tool_rejected`, la herramienta la elige Decisión 2) | `args_invalid` (con un motivo fijo: el modelo de decisión solo elige la opción; los argumentos rechazados no se muestran en `FAIL`) o `info_missing` |
+| 9 | **Despacho** a la herramienta, compitiendo contra la cancelación. En Windows, un `start_process` en PowerShell se despacha con `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ` antepuesto (`mcp/desktopCommanderMcp.ts`): Desktop Commander decodifica la salida como UTF-8 y PowerShell 5.1 escribe en la página OEM (850), lo que corrompía las tildes. El contexto y la traza guardan el comando sin el prefijo | Excepción: `exception`. Cancelación: `interrupted`, y un resultado tardío se descarta |
 | 10 | **Procesar el resultado**: estado, resumen acotado y, si el resumen no contiene todo, el texto completo va a una ref en disco | — |
 | 11 | **Verificar** (Decisión 4, §7) | Rechazada: vuelve al paso con el motivo |
 
 ## 6. Recuperación y Dudas
-- **Reactivo**: tras un paso fallido, la lista de pendientes se regenera viendo los fallos con sus argumentos y puede reescribir la instrucción. Decisión 1 y 2 ven solo los intentos del paso actual; los de pasos anteriores los ve la lista. Una herramienta que repitió en el paso una llamada idéntica que había fallado deja de ofrecerse en ese paso; con otros argumentos sigue disponible. El anti-bucle compara contra toda la tarea.
+- **Reactivo**: tras un paso fallido, la lista de pendientes se regenera viendo los fallos con sus argumentos y puede reescribir la instrucción. Decisión 1 y 2 ven solo los intentos del paso actual (la línea de cada uno y, solo si explica el fallo —`tool_error`, `exception`, `args_invalid`, `info_missing`, `tool_rejected`, `user_rejected`—, su resumen recortado a `caps.attemptSummary`; el resultado leído de una llamada que la verificación rechazó no se repite); los de pasos anteriores los ve la lista. Una herramienta cuya llamada se bloqueó por repetición sigue ofrecida: el anti-bucle solo bloquea la llamada idéntica (misma herramienta y huella de argumentos) y compara contra toda la tarea; dos bloqueos en el paso lo fallan (`repeat_blocked`).
 - **Deliberativo**: replan autónomo (§3).
 - **Información faltante**: la revisión detecta `info_missing`, la llamada se registra con ese estado y se pregunta al usuario, una vez por paso. También se pregunta antes de fallar por tope de llamadas.
 - **Seguridad**: una denegación de Guard cierra la tarea sin escalar ni replanificar. Un rechazo del usuario sobre una operación no cierra la tarea: queda como `user_rejected` y el flujo continúa.
@@ -157,6 +158,7 @@ Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`engine/de
 - La razón es la de la primera pregunta que falla, en el orden de la tabla: si falla `ok`, `no_usable_data`; si falla solo `cumple`, `not_accomplished`.
 - `tool_error` y `exception` se rechazan sin consultar al modelo. `interrupted` y `denied` no se verifican y quedan sin veredicto.
 - Una respuesta inválida se repite una vez; si persiste, el servicio se considera no disponible.
+- **Llamadas previas (`recent`)**: `forVerify` entrega además las llamadas aprobadas anteriores a la evaluada, completas (argumentos y resumen), en ambos modos (`VerifyView.previous`). `verifyInput` (`engine/adapters.ts`) se queda con las últimas `caps.lastReads` (3) como `VerifyDecisionInput.recent`. `buildResultVerification` (`reasoner/prompts.ts`) lo agrega al prompt como el bloque `Previous approved calls` (la más reciente al final), antes de la llamada evaluada; sin llamadas previas el bloque se omite.
 
 ## 8. Cierre y Respuesta Final
 `finalize` escribe el estado terminal una sola vez y después la respuesta (`result`), con su origen:

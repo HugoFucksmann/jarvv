@@ -13,7 +13,6 @@ import {
   callsInStep as callsInStepOf,
   effectsOf,
   escalationCount,
-  failedRepeatTools as failedRepeatToolsOf,
   questionsAsked as questionsAskedOf,
   nextAnswerKey as nextAnswerKeyOf,
   isRepeat as isRepeatOf,
@@ -220,11 +219,6 @@ export class TaskContext {
   /** Llamadas del paso para el tope por paso (sin `user_rejected`). */
   callsInStep(stepId: string): number {
     return callsInStepOf(this.data.calls, stepId);
-  }
-
-  /** Herramientas que ya no se ofrecen en el paso: repitieron una llamada idéntica que había fallado. */
-  failedRepeatTools(stepId: string): readonly string[] {
-    return failedRepeatToolsOf(this.data.calls, stepId);
   }
 
   /** Preguntas ya hechas al usuario en el paso (hechos `answer_*` del paso). */

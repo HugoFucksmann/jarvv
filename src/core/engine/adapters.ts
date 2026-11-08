@@ -4,7 +4,7 @@
  * Decision #1, #2 y #3 y el verificador reciben campos ya armados: aquí se convierten los objetos estructurados de
  * `ctx.view.*` en esos campos, aplicando los topes por sección y por elemento de 8.2 (`BUDGET.caps`). Todo texto que viene
  * de fuera del contexto se sanea con `render/shared` (neutraliza `<obs>` y las etiquetas de bloque). Solo `renderArgs`
- * (argumentos), `renderAsk` (pregunta al usuario) y `renderPending` (lista de pendientes) se usan como renderizadores.
+ * (argumentos), `renderAsk` (pregunta al usuario), `renderPending` (lista de pendientes) y `renderPlan` (plan) se usan como renderizadores.
  *
  * También reúne las opciones de las vistas y de los renderizadores, que salen de `BUDGET` y del catálogo.
  */
@@ -48,8 +48,8 @@ export function reviewViewOptions(): ReviewViewOptions {
   return { recentWindows: BUDGET.recentWindows, lastReads: BUDGET.caps.lastReads };
 }
 
-export function argsViewOptions(): ArgsViewOptions {
-  return { ...reviewViewOptions(), readArgKeys: READ_ARG_KEYS, refs: BUDGET.caps.refs };
+export function argsViewOptions(tool?: string): ArgsViewOptions {
+  return { ...reviewViewOptions(), readArgKeys: READ_ARG_KEYS, refs: BUDGET.caps.refs, tool };
 }
 
 export function argsRenderOptions(): ArgsRenderOptions {
@@ -97,8 +97,8 @@ export function planInput(ctx: TaskContext, feedback: string | null, trigger?: P
 }
 
 /** La vista `forArgs` ya renderizada; `overflow` indica que los efectos no caben en su reserva (el motor cierra la tarea). */
-export function renderArgsView(ctx: TaskContext): Rendered {
-  return renderArgs(ctx.view.forArgs(argsViewOptions()), argsRenderOptions());
+export function renderArgsView(ctx: TaskContext, tool?: string): Rendered {
+  return renderArgs(ctx.view.forArgs(argsViewOptions(tool)), argsRenderOptions());
 }
 
 /** Entrada de la generación de argumentos: la herramienta, su schema limpio, las rutas del usuario y el texto de la vista. */
@@ -121,10 +121,17 @@ function lastResultText(call: CallView): string {
   return parts.join(" ");
 }
 
-/** Intento no aprobado: la línea `L` y, si lo trae, su resumen (el último intento: por qué falló). */
+/** Estados cuyo resumen explica el fallo (el mensaje de la herramienta o del código); en el resto es el dato leído y no aporta a elegir ruta o herramienta. */
+const ATTEMPT_SUMMARY_STATUSES: readonly CallView["status"][] = ["tool_error", "exception", "args_invalid", "info_missing", "tool_rejected", "user_rejected"];
+
+/**
+ * Intento no aprobado (Decisión 1 y 2): la línea `L` y, solo si el resumen explica el fallo, ese resumen recortado a `attemptSummary`.
+ * Una llamada ejecutada que la verificación rechazó ya dice por qué en la línea (`reasonNote`): su resumen es el resultado leído
+ * (un listado, una salida larga) y no se repite acá.
+ */
 function attemptText(call: CallView): string {
   const parts = [lineText(call)];
-  if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), caps.failureSummary)}`);
+  if (call.summary !== null && ATTEMPT_SUMMARY_STATUSES.includes(call.status)) parts.push(`| ${clipMarked(oneLine(call.summary), caps.attemptSummary)}`);
   return parts.join(" ");
 }
 

@@ -15,8 +15,8 @@
 import type { CallVerdict, VerdictReason } from "../ctx/index.ts";
 import { VERIFIABLE_CALL_STATUSES } from "../ctx/index.ts";
 import { verifyInput } from "./adapters.ts";
-import { VERIFY_CHECKS } from "./deps.ts";
-import type { VerifyCheckKey } from "./deps.ts";
+import { ARGS_REVIEWS, VERIFY_CHECKS } from "./deps.ts";
+import type { ArgsReview, ReviewDecision, VerifyCheckKey } from "./deps.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 
@@ -28,6 +28,21 @@ export type VerifyOutcome =
 
 /** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente; ante ambigüedad, no se aprueba). */
 export const NOUL_APPROVE = 0.5;
+
+/** La revisión de argumentos (D3) aprueba solo si la probabilidad de `approved` es al menos este valor (`reviewOutcome`). */
+export const REVIEW_APPROVE = 0.6;
+
+/**
+ * Resultado de la revisión de argumentos con umbral: `approved` si su probabilidad llega a `REVIEW_APPROVE`; si no, la opción de
+ * rechazo más probable. Sin la probabilidad de `approved` en la respuesta se conserva la opción que eligió el modelo.
+ */
+export function reviewOutcome(decision: Pick<ReviewDecision, "review" | "probabilities">): ArgsReview {
+  const approved = decision.probabilities.approved;
+  if (typeof approved !== "number") return decision.review;
+  if (approved >= REVIEW_APPROVE) return "approved";
+  const rejections = ARGS_REVIEWS.filter((r) => r !== "approved");
+  return rejections.reduce((best, r) => ((decision.probabilities[r] ?? 0) > (decision.probabilities[best] ?? 0) ? r : best), rejections[0]);
+}
 
 /**
  * Veredicto de las respuestas de Decision: aprueba solo si pasan todas las preguntas de `VERIFY_CHECKS`; si no, la razón es

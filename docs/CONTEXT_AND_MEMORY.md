@@ -118,10 +118,10 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `exception` | La ejecución lanzó una excepción |
 | | `interrupted` | La cancelación llegó con la herramienta ya despachada |
 | | `denied` | La política del servidor la denegó (la denegación de Guard cierra la tarea) |
-| No ejecutadas | `args_invalid` | Argumentos inválidos (validación o revisión) |
+| No ejecutadas | `args_invalid` | Argumentos inválidos (validación, pre-chequeo o revisión; el pre-chequeo y la revisión dejan un motivo fijo como resumen) |
 | | `refs_unresolved` | Una referencia `rN` no se pudo resolver |
 | | `loop_blocked` | El anti-bucle bloqueó una repetición |
-| | `tool_rejected` | La revisión de argumentos descartó la herramienta |
+| | `tool_rejected` | La lista negra de la configuración vetó la herramienta o el comando |
 | | `info_missing` | La revisión detectó información faltante |
 | | `user_rejected` | El usuario rechazó la operación |
 
@@ -155,9 +155,9 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 |---|---|
 | `forRoute` | Decisión 1 y 2 (ruta y herramienta) |
 | `forPlan` | Planificador y replan |
-| `forArgs` | Generación de argumentos |
+| `forArgs` | Generación de argumentos (con `lastError`: el último intento fallido de la herramienta para la que se generan, de cualquier paso) |
 | `forReview` | Decisión 3 (revisión de argumentos) |
-| `forVerify` | Decisión 4 (verificación) |
+| `forVerify` | Decisión 4 (verificación): criterio del paso, la llamada evaluada, lo hecho (`done`, solo reactivo), la entrada del usuario y las llamadas aprobadas previas completas (`previous`, en ambos modos; el adaptador toma las últimas `caps.lastReads` como `recent`) |
 | `forAsk` | Pregunta al usuario |
 | `forPending` | Lista de pendientes del reactivo: solicitud, lista anterior, lo hecho (con argumentos y resumen), últimos intentos fallidos y entrada del usuario |
 | `forFinal` / `forFallback` | Respuesta final con modelo / respuesta de respaldo sin modelo |

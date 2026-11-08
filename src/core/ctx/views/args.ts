@@ -9,8 +9,8 @@
  * `stepsDone` y `userInput`.
  */
 
-import { effectsOf } from "../derive.ts";
-import type { ContextData, Ref } from "../types.ts";
+import { effectsOf, isApproved, isExecuted, isFailure } from "../derive.ts";
+import type { Call, ContextData, Ref } from "../types.ts";
 import {
   callViewOf,
   effectViewsOf,
@@ -44,6 +44,22 @@ function shownRanges(data: ContextData, ref: Ref, keys: ReadArgKeys): ShownRange
   return out;
 }
 
+/**
+ * El último intento ejecutado de `tool` que falló (error de la herramienta o resultado rechazado por la verificación), de
+ * cualquier paso. Se corta en la primera llamada aprobada de esa herramienta (ya funcionó) y se omite si ya está en `skip`.
+ * `denied` e `interrupted` no cuentan: no hay resultado que corregir.
+ */
+function lastErrorOf(calls: readonly Call[], tool: string | undefined, skip: ReadonlySet<string>): Call | null {
+  if (tool === undefined) return null;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const c = calls[i];
+    if (c.tool !== tool) continue;
+    if (isApproved(c)) return null;
+    if (isExecuted(c) && c.status !== "denied" && c.status !== "interrupted" && isFailure(c)) return skip.has(c.id) ? null : c;
+  }
+  return null;
+}
+
 export function buildArgsView(data: ContextData, options: ArgsViewOptions): ArgsView {
   const parts = taskPartsOf(data, options, effectsOf(data.calls));
 
@@ -52,6 +68,8 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
     .slice(-Math.max(0, options.refs))
     .map((ref) => ({ ...refToView(ref), stepId: ref.stepId, shown: shownRanges(data, ref, options.readArgKeys) }));
 
+  const lastError = lastErrorOf(data.calls, options.tool, new Set(parts.failures.map((c) => c.id)));
+
   return {
     done: parts.done.map(lineViewOf),
     step: parts.step === null ? null : stepViewOf(parts.step),
@@ -59,6 +77,7 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
     lastReads: parts.reads.map((c) => callViewOf(data, c, true)),
     refs,
     stepFailures: parts.failures.map((c) => failureViewOf(data, c)),
+    lastError: lastError === null ? null : callViewOf(data, lastError, true),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
     effects: effectViewsOf(data),

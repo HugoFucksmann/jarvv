@@ -1,6 +1,10 @@
 /**
  * Adaptador del servidor MCP Desktop Commander. Antes de delegar en el transporte, rechaza con `[DENIED]` (prefijo que
  * reconoce ResultProcessor) los argumentos de ruta fuera de `allowedDirectories`; con la lista vacía no restringe nada.
+ *
+ * En Windows, además, un `start_process` en PowerShell sale con la salida en UTF-8 (`utf8Command`): Desktop Commander decodifica la
+ * salida del shell como UTF-8 (`data.toString()`) y PowerShell 5.1 escribe en la página de códigos OEM (850 en es-AR), así que
+ * `ó` llegaba como `�`. El cambio vale solo para lo que se despacha: la traza y el contexto conservan el comando original.
  */
 
 import path from "node:path";
@@ -8,6 +12,13 @@ import { MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { StdioMcpServer } from "./stdioServer.ts";
 import { ConfigManager } from "../config.ts";
+
+/** Antepone al comando de PowerShell la salida en UTF-8; en otros sistemas, con otro shell o sin comando, lo deja igual. */
+export function utf8Command(args: Record<string, unknown>, platform: NodeJS.Platform = process.platform): Record<string, unknown> {
+  const shell = typeof args.shell === "string" ? args.shell.toLowerCase().replace(/\.exe$/, "") : undefined;
+  if (platform !== "win32" || typeof args.command !== "string" || (shell !== undefined && shell !== "powershell" && shell !== "pwsh")) return args;
+  return { ...args, command: `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${args.command}` };
+}
 
 export class DesktopCommanderMCPServer extends StdioMcpServer {
   readonly name = "desktop_commander";
@@ -66,6 +77,6 @@ export class DesktopCommanderMCPServer extends StdioMcpServer {
       }
     }
 
-    return super.callTool(name, args);
+    return super.callTool(name, name === "start_process" ? utf8Command(args) : args);
   }
 }

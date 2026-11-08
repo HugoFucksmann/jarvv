@@ -252,23 +252,3 @@ export function isRepeat(
   }
   return false;
 }
-
-/**
- * Herramientas que ya no se ofrecen en el paso: las que tienen en él una llamada `loop_blocked` cuya llamada ejecutada
- * idéntica más reciente (misma herramienta y `sig`, la que `isRepeat` comparó) falló. Con otros argumentos la
- * herramienta sigue disponible.
- */
-export function failedRepeatTools(calls: readonly Call[], stepId: string): string[] {
-  const out = new Set<string>();
-  calls.forEach((c, i) => {
-    if (c.stepId !== stepId || c.status !== "loop_blocked") return;
-    for (let j = i - 1; j >= 0; j--) {
-      const previous = calls[j];
-      if (previous.tool === c.tool && previous.sig === c.sig && isExecuted(previous)) {
-        if (isFailure(previous)) out.add(c.tool);
-        return;
-      }
-    }
-  });
-  return [...out];
-}

@@ -3,11 +3,11 @@
  * el marcador `…(+N)`. Los efectos no se recortan: si no caben en la reserva (`effectsReserve`) no lanza, devuelve
  * `overflow = true` y quien ejecuta cierra la tarea.
  *
- * Secciones: STATE (hechos de entorno), USER, STEPS (deliberativo) o DONE (reactivo), REFS, DATA, EFFECTS, FAIL y TASK
+ * Secciones: STATE (hechos de entorno), USER, STEPS (deliberativo) o DONE (reactivo), REFS, DATA, EFFECTS, FAIL, LAST ERROR y TASK
  * (la instrucción del paso, al final).
  */
 
-import type { ArgsView } from "../ctx/index.ts";
+import type { ArgsView, CallView } from "../ctx/index.ts";
 import {
   availableRefLine,
   callHead,
@@ -16,6 +16,7 @@ import {
   factLine,
   failureLine,
   lastCapped,
+  multiLine,
   newestWithin,
   obsBlock,
   oneLine,
@@ -27,6 +28,14 @@ import type { Rendered, ViewCaps } from "./shared.ts";
 
 export interface ArgsRenderOptions {
   readonly caps: ViewCaps;
+}
+
+/** Último intento fallido de la herramienta: `L`, los argumentos que se probaron y lo que devolvió (en líneas, para conservar el mensaje de error). */
+function lastErrorEntry(call: CallView, caps: ViewCaps): string {
+  const lines = [clipMarked(callHead(call), caps.line)];
+  if (call.args !== null) lines.push(`args=${clipMarked(oneLine(JSON.stringify(call.args)), caps.failureArgs)}`);
+  if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.lastErrorSummary));
+  return lines.join("\n");
 }
 
 export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered {
@@ -49,6 +58,7 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
     obsBlock("DATA", view.lastReads.map((c) => readEntry(c, caps))),
     obsBlock("EFFECTS", effects),
     obsBlock("FAIL", view.stepFailures.map((c) => failureLine(c, caps))),
+    obsBlock("LAST ERROR", view.lastError === null ? [] : [lastErrorEntry(view.lastError, caps)]),
     task,
   ];
 
