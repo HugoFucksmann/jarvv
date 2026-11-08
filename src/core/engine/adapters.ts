@@ -214,5 +214,6 @@ export function verifyInput(view: VerifyView): VerifyDecisionInput {
     call: evaluatedEntry(view.call),
     done: lastCapped(view.done.map(lineText), caps.done),
     userInput: newestWithin(view.userInput.map(userInputLine), caps.userInput),
+    recent: view.previous.slice(-caps.lastReads).map(evaluatedEntry),
   };
 }

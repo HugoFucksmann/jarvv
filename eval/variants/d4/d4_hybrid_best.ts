@@ -1,15 +1,15 @@
 /**
- * eval/variants/d4_hybrid_zero.ts
+ * eval/variants/d4_hybrid_best.ts
  *
- * Fusión de d4_hybrid_best + d4_precision_calibrated:
- * - ok: detección de errores en texto (concise_precision) + conteos en cero válidos cuentan como true (calibrated).
- * - cumple: el de d4_hybrid_best (parciales, incompletos y objetivo equivocado = false).
+ * Fusión de las dos mejores variantes:
+ * - Pregunta `ok` de d4_concise_precision (100% acc en d4_verify, 88.9% en d4_verify_hard, atrapa errores en texto).
+ * - Pregunta `cumple` de d4_structured_checks (85.2% acc en d4_verify_hard, baja FPs de 12 a 7 detectando parciales).
  */
 
-import type { VerifyDecisionInput } from "../../src/core/engine/deps.ts";
-import { listBlock } from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
-import type { Variant } from "../core/variants/types.ts";
+import type { VerifyDecisionInput } from "../../../src/core/engine/deps.ts";
+import { listBlock } from "../../../src/core/reasoner/prompts.ts";
+import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { Variant } from "../../core/variants/types.ts";
 
 function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
   const c = data.criterion;
@@ -27,9 +27,9 @@ function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
       ok: {
         type: "noul",
         instructions:
-          "Does the result contain real usable data or confirm success? True even for valid zero-count results. False if empty, error, or exception in output.",
+          "Does the result contain real usable data or confirm success? False if empty, error, or exception in output.",
         criteria: {
-          true: "Valid data or confirmed success, including valid zero-counts, without errors.",
+          true: "Contains valid data or confirms success without errors.",
           false: "Empty, command error, exception, or failure message.",
         },
       },
@@ -47,8 +47,8 @@ function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
   };
 }
 
-const d4_hybrid_zero: Variant = {
-  name: "d4_hybrid_zero",
+const d4_hybrid_best: Variant = {
+  name: "d4_hybrid_best",
   prompts: {
     DECISION_PROMPTS: {
       buildResultVerification,
@@ -56,4 +56,5 @@ const d4_hybrid_zero: Variant = {
   },
 };
 
-export default d4_hybrid_zero;
+export default d4_hybrid_best;
+

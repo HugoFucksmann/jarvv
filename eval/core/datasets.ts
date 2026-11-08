@@ -62,18 +62,21 @@ export function datasetName(path: string): string {
 /** Carpeta donde se buscan los datasets cuando solo se escribe el nombre. */
 export const DATASETS_DIR = "eval/datasets";
 
-/** Nombres (sin extensión) de los datasets `.jsonl` disponibles en `DATASETS_DIR`, ordenados. */
+/** Nombres (sin extensión) de los datasets `.jsonl` disponibles en `DATASETS_DIR` y subcarpetas, ordenados. */
 export function listDatasetNames(): string[] {
   try {
-    return readdirSync(DATASETS_DIR).filter((f) => f.endsWith(".jsonl")).map((f) => f.slice(0, -6)).sort();
+    return walkFiles(DATASETS_DIR)
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => datasetName(f))
+      .sort();
   } catch {
     return [];
   }
 }
 
 /**
- * Spec corta → ruta real. `smoke`, `smoke.jsonl` o `decision_*` se buscan en `DATASETS_DIR`. Una ruta que ya existe
- * (o una spec con carpeta) se respeta tal cual.
+ * Spec corta → ruta real. `smoke`, `smoke.jsonl` o `decision_*` se buscan en `DATASETS_DIR` o sus subcarpetas.
+ * Una ruta que ya existe (o una spec con carpeta) se respeta tal cual.
  */
 function expandShortSpec(spec: string): string {
   if (existsSync(spec)) return spec;
@@ -82,6 +85,12 @@ function expandShortSpec(spec: string): string {
   for (const candidate of [`${DATASETS_DIR}/${spec}`, `${DATASETS_DIR}/${spec}.jsonl`]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
+  // Búsqueda recursiva en subcarpetas de DATASETS_DIR
+  const targetWithExt = spec.endsWith(".jsonl") ? spec : `${spec}.jsonl`;
+  const allFiles = walkFiles(DATASETS_DIR);
+  const found = allFiles.find((f) => f.endsWith(`/${targetWithExt}`) || f === targetWithExt);
+  if (found) return found;
+
   return spec;
 }
 

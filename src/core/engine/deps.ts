@@ -133,6 +133,8 @@ export interface VerifyDecisionInput {
   /** Llamadas hechas (aprobadas): solo en reactivo. */
   readonly done: readonly string[];
   readonly userInput: readonly string[];
+  /** Llamadas aprobadas previas a la evaluada, ya renderizadas como texto, la más reciente al final. */
+  readonly recent: readonly string[];
 }
 
 /**

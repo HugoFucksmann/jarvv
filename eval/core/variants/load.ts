@@ -10,30 +10,56 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Variant } from "./types.ts";
 
 /** Directorio donde viven las variantes (relativo al CWD). */
 const VARIANTS_DIR = "eval/variants";
 
+/** Busca recursivamente todos los archivos .ts bajo un directorio. */
+function findVariantFiles(dir: string): string[] {
+  const results: string[] = [];
+  try {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        results.push(...findVariantFiles(fullPath));
+      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+        results.push(fullPath);
+      }
+    }
+  } catch {
+    // Si no existe el directorio, devuelve array vacío
+  }
+  return results;
+}
+
 /** Hash del contenido del archivo de variante (`variantHash` en `RunMeta`). */
 export function variantFileHash(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath, "utf8")).digest("hex").slice(0, 16);
 }
 
-/** Ruta del archivo de una variante dado su nombre. */
+/** Ruta del archivo de una variante dado su nombre. Busca directamente y en subcarpetas de eval/variants. */
 export function variantFilePath(name: string): string {
-  return resolve(`${VARIANTS_DIR}/${name}.ts`);
+  // 1. Si se especificó una ruta relativa o existe directamente en la raíz
+  const directPath = resolve(`${VARIANTS_DIR}/${name}.ts`);
+  if (existsSync(directPath)) return directPath;
+
+  // 2. Búsqueda recursiva en subcarpetas
+  const allFiles = findVariantFiles(VARIANTS_DIR);
+  const targetFileName = `${name}.ts`;
+  const match = allFiles.find((f) => f.endsWith(`/${targetFileName}`) || f.endsWith(`\\${targetFileName}`));
+  if (match) return resolve(match);
+
+  return directPath;
 }
 
-/** Nombres de las variantes disponibles (archivos `.ts` de la carpeta de variantes), ordenados. */
+/** Nombres de las variantes disponibles (archivos `.ts` en eval/variants y subcarpetas), ordenados. */
 export function listVariantNames(): string[] {
-  try {
-    return readdirSync(VARIANTS_DIR).filter((f) => f.endsWith(".ts")).map((f) => f.slice(0, -3)).sort();
-  } catch {
-    return [];
-  }
+  const allFiles = findVariantFiles(VARIANTS_DIR);
+  return allFiles.map((f) => basename(f, ".ts")).sort();
 }
 
 /** Lanza con un mensaje de error de configuración si el archivo no existe. */

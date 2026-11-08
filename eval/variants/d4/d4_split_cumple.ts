@@ -11,10 +11,10 @@
  * Si el eval exige la clave `cumple` en la respuesta, hay que agregar esa derivación antes de correrla.
  */
 
-import type { VerifyDecisionInput } from "../../src/core/engine/deps.ts";
-import { listBlock } from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
-import type { Variant } from "../core/variants/types.ts";
+import type { VerifyDecisionInput } from "../../../src/core/engine/deps.ts";
+import { listBlock } from "../../../src/core/reasoner/prompts.ts";
+import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { Variant } from "../../core/variants/types.ts";
 
 function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
   const c = data.criterion;

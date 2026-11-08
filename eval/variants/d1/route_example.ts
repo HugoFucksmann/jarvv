@@ -17,11 +17,11 @@
  * Para ver el prompt actual de una etapa: `npm run eval -- --dataset=smoke --ids=smoke-route --dry-run`.
  */
 
-import type { RouteDecisionInput } from "../../src/core/engine/deps.ts";
-import { frameLines, lastFailedBy } from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
-import { DESTINATIONS } from "../../src/core/tools/manifest.ts";
-import type { Variant } from "../core/variants/types.ts";
+import type { RouteDecisionInput } from "../../../src/core/engine/deps.ts";
+import { frameLines, lastFailedBy } from "../../../src/core/reasoner/prompts.ts";
+import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import { DESTINATIONS } from "../../../src/core/tools/manifest.ts";
+import type { Variant } from "../../core/variants/types.ts";
 
 /** Aclaración por ruta (texto propio de esta variante). */
 const HINTS: Record<string, string> = {

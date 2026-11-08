@@ -5,10 +5,10 @@
  * El modelo busca activamente un problema y solo responde true si no encuentra ninguno.
  */
 
-import type { VerifyDecisionInput } from "../../src/core/engine/deps.ts";
-import { listBlock } from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
-import type { Variant } from "../core/variants/types.ts";
+import type { VerifyDecisionInput } from "../../../src/core/engine/deps.ts";
+import { listBlock } from "../../../src/core/reasoner/prompts.ts";
+import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { Variant } from "../../core/variants/types.ts";
 
 function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
   const c = data.criterion;
@@ -35,8 +35,8 @@ function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
       cumple: {
         type: "noul",
         instructions: `Look for a problem. ${c.expected
-            ? "Compared with the expected outcome, is anything missing or wrong in the result?"
-            : "Compared with the step instruction, is anything missing or wrong in the result?"
+          ? "Compared with the expected outcome, is anything missing or wrong in the result?"
+          : "Compared with the step instruction, is anything missing or wrong in the result?"
           } Problems: only a preliminary step (located or listed, not done), partial or missing items, wrong target, or a result that contradicts the request. If you find ANY problem, answer false. Answer true only if you find none.`,
         criteria: {
           true: "No problem found: right target, nothing missing, requested action done.",

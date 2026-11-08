@@ -14,7 +14,7 @@ import type {
   TaskState,
   VerdictReason,
 } from "../types.ts";
-
+import type { lineViewOf } from "./shared.ts";
 // ───────────────────────── Opciones ─────────────────────────
 
 /** Tamaños de las ventanas recientes con 0, 1 y 2 o más escalaciones (`BUDGET.recentWindows`). */
@@ -258,11 +258,15 @@ export interface CriterionView {
  * reactivo) y la entrada del usuario, que precisa el criterio. No lleva efectos del paso: la llamada evaluada ya muestra su
  * propio efecto.
  */
+
+
 export interface VerifyView {
   readonly criterion: CriterionView;
   readonly call: CallView;
   /** Solo en reactivo: llamadas aprobadas como línea `L`. */
-  readonly done: readonly CallView[];
+  readonly done: readonly ReturnType<typeof lineViewOf>[];
+  /** Llamadas aprobadas anteriores a la evaluada, completas (args y resumen), en orden y en ambos modos. Sin tope: lo aplica el adaptador. */
+  readonly previous: readonly CallView[];
   readonly userInput: readonly UserInputView[];
 }
 

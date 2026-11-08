@@ -5,10 +5,10 @@
  * parcial (como borrar 1 de 3 archivos, o encontrar la ruta en lugar de leer el contenido).
  */
 
-import type { VerifyDecisionInput } from "../../src/core/engine/deps.ts";
-import { listBlock } from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
-import type { Variant } from "../core/variants/types.ts";
+import type { VerifyDecisionInput } from "../../../src/core/engine/deps.ts";
+import { listBlock } from "../../../src/core/reasoner/prompts.ts";
+import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { Variant } from "../../core/variants/types.ts";
 
 function buildResultVerification(data: VerifyDecisionInput): DecisionInput {
   const c = data.criterion;
