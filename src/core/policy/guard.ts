@@ -3,7 +3,7 @@
  *
  * Invariantes:
  * - Ningún modelo puede eludir Guard.
- * - Patrones destructivos sobre el SO => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
+ * - Patrones destructivos sobre el SO y comandos catastróficos (nivel `guard` de `commandRules.ts`: discos, raíz del sistema) => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
  *   escanean los de `free_search` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
  *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
  * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
@@ -21,11 +21,12 @@ import path from "node:path";
 
 import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
+import { classify, commandOf } from "./commandRules.ts";
 
 // Se evalúan sobre el JSON de args en minúsculas, con "\\" -> "/" y espacios colapsados.
-// NOTA: comportamiento heredado: `rm -rf /<cualquier ruta>` también dispara DENY (falso positivo conocido).
+// Los comandos de terminal (Windows y Linux) los analiza además `commandRules.ts` (comando y ruta juntos): `rm -rf /` o `Remove-Item -Recurse C:\`
+// dan DENY, pero `rm -rf /tmp/x` ya no (antes un patrón de texto lo denegaba: falso positivo heredado).
 const DENY_PATTERNS: readonly RegExp[] = [
-  /\brm\s+(-\w+\s+)+\//,
   /\bformat\s+c:/,
   /\bmkfs\b/,
   /del\s+\/f\s+\/s\s+\/q\s+c:\/windows/,
@@ -68,6 +69,12 @@ export class Guard {
         reason: "Operación rechazada (DENY): patrón destructivo prohibido sobre el sistema operativo.",
         capability,
       };
+    }
+
+    const command = scannable ? commandOf(scannable) : null;
+    const found = command !== null ? classify(command, { homeDirs: [os.homedir()] }) : null;
+    if (found?.tier === "guard") {
+      return { decision: "DENY", reason: `Operación rechazada (DENY): comando catastrófico prohibido (${found.id}).`, capability };
     }
 
     if (scope && capability === "FILE_WRITE" && Guard.touchesProtectedPath(args, scope)) {

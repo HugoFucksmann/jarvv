@@ -1,7 +1,7 @@
 /**
  * eval/core/client/generative.ts
  *
- * Cliente de las etapas generativas (plan, arguments, final, question). Sección 7.2 del plan.
+ * Cliente de las etapas generativas (plan, arguments, final, question, pending).
  * Envía exactamente el body que envía producción (orden de claves incluido).
  */
 
@@ -20,8 +20,16 @@ export type PostResult =
   | { ok: false; error: string; durationMs: number };
 
 /**
- * POST JSON con `fetch` + `AbortSignal.timeout`. Reintento único en red o 503 (como producción), sin `Authorization` (2, 7.4).
- * Errores: `timeout` / `network: …` / `http_<status>`.
+ * ¿`error` es un fallo del transporte (timeout, red o HTTP)? Es el contrato entre los clientes y el runner: los textos los
+ * fijan `postJson` y `createGenerativeClient`, y quien clasifique un error debe usar esta función en vez de comparar textos.
+ */
+export function isTransportError(error: string): boolean {
+  return error === "timeout" || error.startsWith("network:") || error.startsWith("http_");
+}
+
+/**
+ * POST JSON con `fetch` + `AbortSignal.timeout`. Reintento único en red o 503 (como producción), sin `Authorization`.
+ * Errores: `timeout` / `network: …` / `http_<status>` (ver `isTransportError`).
  */
 export async function postJson(url: string, body: unknown, timeoutMs: number): Promise<PostResult> {
   const start = Date.now();
@@ -53,6 +61,8 @@ export async function postJson(url: string, body: unknown, timeoutMs: number): P
     }
     // Reintento único (red o HTTP 503) tras 1 s; el timeout nunca se reintenta.
     await new Promise<void>((resolve) => {
+      // Con el presupuesto ya agotado el evento `abort` no se repite: sin esto se esperaba el backoff entero y se inflaba la latencia.
+      if (signal.aborted) return resolve();
       const t = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
       signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
     });

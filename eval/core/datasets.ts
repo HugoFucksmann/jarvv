@@ -1,8 +1,8 @@
 /**
  * eval/core/datasets.ts
  *
- * Carga de datasets: archivo | carpeta | glob (sección 6) + filtros. Errores de validación con formato
- * `archivo:línea: mensaje` (10.3); el llamador (CLI, F4) los convierte en salida 2.
+ * Carga de datasets: archivo | carpeta | glob + filtros. Errores de validación con formato
+ * `archivo:línea: mensaje`; el llamador (la CLI) los convierte en salida 2.
  */
 
 import { createHash } from "node:crypto";
@@ -75,17 +75,19 @@ export function listDatasetNames(): string[] {
 }
 
 /**
- * Spec corta → ruta real. `smoke`, `smoke.jsonl` o `decision_*` se buscan en `DATASETS_DIR` o sus subcarpetas.
- * Una ruta que ya existe (o una spec con carpeta) se respeta tal cual.
+ * Spec corta → ruta real. `smoke` y `smoke.jsonl` se buscan en `DATASETS_DIR` y sus subcarpetas; un glob sin carpeta
+ * (`llm_*`) también en `DATASETS_DIR` y sus subcarpetas (`**\/` admite cero o más carpetas). Una ruta que ya existe (o una spec con carpeta) se respeta tal cual.
  */
 function expandShortSpec(spec: string): string {
   if (existsSync(spec)) return spec;
   if (spec.includes("/")) return spec;
-  if (isGlob(spec)) return `${DATASETS_DIR}/${spec.includes(".") ? spec : `${spec}.jsonl`}`;
+  // `**/` coincide con cero o más carpetas: encuentra tanto `eval/datasets/x.jsonl` como `eval/datasets/pending/x.jsonl`.
+  if (isGlob(spec)) return `${DATASETS_DIR}/**/${spec.includes(".") ? spec : `${spec}.jsonl`}`;
   for (const candidate of [`${DATASETS_DIR}/${spec}`, `${DATASETS_DIR}/${spec}.jsonl`]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
-  // Búsqueda recursiva en subcarpetas de DATASETS_DIR
+  // Búsqueda recursiva en subcarpetas de DATASETS_DIR (sin la carpeta, `walkFiles` lanzaría ENOENT en vez del "no existe" de abajo).
+  if (!existsSync(DATASETS_DIR)) return spec;
   const targetWithExt = spec.endsWith(".jsonl") ? spec : `${spec}.jsonl`;
   const allFiles = walkFiles(DATASETS_DIR);
   const found = allFiles.find((f) => f.endsWith(`/${targetWithExt}`) || f === targetWithExt);
@@ -119,10 +121,11 @@ export function resolveDatasetPaths(specs: string[]): string[] {
       const maxDepth = spec.includes("**")
         ? Infinity
         : spec.split("/").length - (base === "." ? 0 : base.split("/").length) - 1;
+      // Solo `.jsonl`, igual que al resolver una carpeta: un glob amplio (`eval/datasets/*`) no debe cargar README ni otros archivos.
       const matches = walkFiles(base, maxDepth)
-        .filter((f) => matchGlob(spec, f))
+        .filter((f) => f.endsWith(".jsonl") && matchGlob(spec, f))
         .sort();
-      if (matches.length === 0) throw new Error(`Glob '${rawSpec}' no coincide con ningún archivo.`);
+      if (matches.length === 0) throw new Error(`Glob '${rawSpec}' no coincide con ningún archivo .jsonl.`);
       matches.forEach(add);
     } else if (existsSync(spec)) {
       if (statSync(spec).isDirectory()) {
@@ -178,9 +181,14 @@ function loadFile(path: string, errors: string[], variant?: Variant): Dataset {
     }
     {
       const { scenario, ...rest } = parsed as Record<string, unknown>;
+      // Un `meta` que no es objeto se rechazaba o se pisaba en silencio al fusionarlo con el `toolSchema` del escenario.
+      if (rest.meta !== undefined && (rest.meta === null || typeof rest.meta !== "object" || Array.isArray(rest.meta))) {
+        errors.push(`${path}:${lineNo}: meta debe ser un objeto.`);
+        return;
+      }
       try {
         const m = materializeScenario(String(rest.stage), scenario as Scenario, variant);
-        const meta = rest.meta !== null && typeof rest.meta === "object" ? (rest.meta as Record<string, unknown>) : {};
+        const meta = (rest.meta ?? {}) as Record<string, unknown>;
         parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema } } : {}) };
       } catch (e) {
         errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);

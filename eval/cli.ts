@@ -4,8 +4,6 @@
  *
  * Punto de entrada del eval. Uso:
  *   npx tsx eval/cli.ts [flags]
- *
- * Secciones: 6, 7, 12.
  */
 
 import { mkdirSync } from "node:fs";
@@ -19,7 +17,7 @@ import { createMockGenerativeClient } from "./core/client/mock.ts";
 import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/client/oracle.ts";
 import { DECISION_STAGES, GENERATIVE_STAGES } from "./core/case.ts";
 import { parseConfig } from "./core/config.ts";
-import { listDatasetNames, loadDatasets } from "./core/datasets.ts";
+import { datasetName, listDatasetNames, loadDatasets, resolveDatasetPaths } from "./core/datasets.ts";
 import type { InputCell } from "./core/report.ts";
 import {
   generateComparisonReport,
@@ -107,7 +105,7 @@ function datasetInfo(name: string): { total: number; byStage: Array<[string, num
 }
 
 /** `--list`: etapas (agrupadas), variantes (con baseline) y datasets (con cantidad de casos). */
-function printList(baseline: string, defaultDatasets: string[]): void {
+function printList(baseline: string, datasetSpecs: string[]): void {
   const stages = allStageNames() as string[];
   const decisionSet = DECISION_STAGES as readonly string[];
   const generativeSet = GENERATIVE_STAGES as readonly string[];
@@ -116,6 +114,14 @@ function printList(baseline: string, defaultDatasets: string[]): void {
   const other = stages.filter((s) => !decisionSet.includes(s) && !generativeSet.includes(s));
   const variants = listVariantNames();
   const names = listDatasetNames();
+  // Datasets que elige `--dataset`. Si elige todos, marcarlos no informa nada: en ese caso no se marca ninguno.
+  let selected = new Set<string>();
+  try {
+    selected = new Set(resolveDatasetPaths(datasetSpecs).map(datasetName));
+  } catch {
+    // Spec inválida: el listado no debe romper.
+  }
+  const markSelected = selected.size > 0 && names.some((n) => !selected.has(n));
 
   log();
   log(
@@ -166,10 +172,10 @@ function printList(baseline: string, defaultDatasets: string[]): void {
     const totalW = Math.max(...infos.map((i) => (i ? String(i.total).length : 1)));
     names.forEach((name, i) => {
       const info = infos[i];
-      const isDef = defaultDatasets.includes(name);
+      const isSel = markSelected && selected.has(name);
       const count = info ? c.gray(`${String(info.total).padStart(totalW)} casos`) : c.gray(`${"—".padStart(totalW)} (no se pudo leer)`);
-      const tag = isDef ? `  ${c.green("por defecto")}` : "";
-      const head = `  ${isDef ? sym.dot : sym.ring} ${c.cyan(name.padEnd(nameW))}  ${count}${tag}`;
+      const tag = isSel ? `  ${c.green("seleccionado")}` : "";
+      const head = `  ${isSel ? sym.dot : sym.ring} ${c.cyan(name.padEnd(nameW))}  ${count}${tag}`;
       log(head);
       if (info && info.byStage.length > 0) {
         const breakdown = info.byStage.map(([s, n]) => `${s} ${n}`).join(" · ");
@@ -177,6 +183,8 @@ function printList(baseline: string, defaultDatasets: string[]): void {
       }
     });
   }
+
+  if (markSelected) log(`\n  ${c.gray("seleccionado = lo que elige --dataset en este comando.")}`);
 
   // Ejemplos
   section("Ejemplo");

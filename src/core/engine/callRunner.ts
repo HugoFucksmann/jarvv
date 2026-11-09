@@ -2,8 +2,8 @@
  * JARVIS Core — Ejecutor de una llamada (`runCall`, Fase 5; PLAN_CONTEXT 5.2 y 5.3).
  *
  * Fases, en orden: descubrir herramientas → elegir herramienta (Decision #2) → argumentos (LLM) → resolver refs → huella
- * (`sig`) y anti-loop → Guard (política) → lista negra → pre-chequeo determinista → confirmación del usuario (si Guard la exige y no hay modo automático: con ella,
- * D3 no entra) → revisión de argumentos (Decisión 3, solo escrituras que no pidieron confirmación) → despacho (compite
+ * (`sig`) y anti-loop → Guard (política) → lista negra (en automático, el nivel 1 se rechaza aquí) → pre-chequeo determinista → confirmación del usuario (si Guard la exige
+ * y no hay modo automático, o si la lista negra coincide y no hay modo automático: con ella, D3 no entra) → revisión de argumentos (Decisión 3, solo escrituras que no pidieron confirmación) → despacho (compite
  * contra la cancelación) → procesar el resultado → guardar la ref si hace falta → registrar la llamada → verificar.
  *
  * Registro en el contexto:
@@ -22,7 +22,7 @@ import { BUDGET } from "../budget.ts";
 import type { CallKind, CallStatus, JsonObject, Op, TaskContext } from "../ctx/index.ts";
 import { collectSources, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
-import { blacklistReason, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
+import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
 import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
 import { RefVaultError } from "../refs/refVault.ts";
@@ -303,10 +303,13 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return { kind: "close", stopReason: "security_denied", callId };
   }
 
-  // 6a. Lista negra (editable en la configuración): rechaza con su razón una herramienta que modifica el sistema; las lecturas no pasan por aquí.
-  const listed = blacklistReason(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
-  if (listed !== null) {
-    const callId = register(ctx, { ...base, args: recorded, sig, status: "tool_rejected", summary: summaryText(listed), ref: null });
+  // 6a. Lista negra (reglas de comando integradas + configuración). Solo escrituras. Nivel 1 (`blocked`) con modo automático: se rechaza aquí con la razón
+  // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
+  // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
+  const auto = deps.autoMode();
+  const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
+  if (listed !== null && auto && listed.level === "blocked") {
+    const callId = register(ctx, { ...base, args: recorded, sig, status: "tool_rejected", summary: summaryText(listed.reason), ref: null });
     return registered(callId, "tool_rejected");
   }
 
@@ -319,8 +322,8 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   }
 
   // Modo automático: una herramienta del catálogo que pedía aprobación no se la pide al usuario y pasa por D3 (si escribe). Una no catalogada
-  // (Guard la manda a aprobación por defecto) sigue pidiéndola.
-  const askUser = guard.decision === "APPROVAL" && !(deps.autoMode() && isKnownTool(mcp, tool.name));
+  // (Guard la manda a aprobación por defecto) sigue pidiéndola. Sin modo automático, una coincidencia con la lista negra siempre se pregunta.
+  const askUser = (guard.decision === "APPROVAL" && !(auto && isKnownTool(mcp, tool.name))) || (listed !== null && !auto);
 
   // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
   if (askUser) {
@@ -328,7 +331,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
       mcp,
       tool: tool.name,
       capability: guard.capability,
-      reason: guard.reason ?? "Operación sensible",
+      reason: listed !== null ? `Lista de seguridad (${listed.id}): ${listed.reason}` : (guard.reason ?? "Operación sensible"),
       args: recorded,
     });
     if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
@@ -348,7 +351,15 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    const reviewed = reviewOutcome(review.value);
+    // Nivel 2 de la lista negra (solo llega aquí en automático): umbral estricto. Si el comando habría pasado con el umbral normal y solo lo frena la
+    // exigencia extra, no es un argumento inválido: se rechaza como `tool_rejected` (no cuenta contra el tope de rechazos de D3) y el modelo prueba otro camino.
+    const strict = listed?.level === "sensitive";
+    const reviewed = reviewOutcome(review.value, strict ? BUDGET.sensitiveApprove : undefined);
+    if (reviewed !== "approved" && strict && reviewOutcome(review.value) === "approved") {
+      const note = `${listed?.reason ?? "Sensitive command."} The safety review was not confident enough to run it automatically. Use a safer command or a different approach.`;
+      const callId = register(ctx, { ...base, args: recorded, sig, status: "tool_rejected", summary: summaryText(note), ref: null });
+      return registered(callId, "tool_rejected");
+    }
     if (reviewed !== "approved") {
       const status: CallStatus = reviewed;
       const summary = status === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null;

@@ -14,7 +14,7 @@
 import type { DecisionRequest, GenerativeRequest } from "../types.ts";
 import type { DecisionCallContext } from "./decision.ts";
 import type { GenerativeCallContext, PreparedRequest } from "./generative.ts";
-import { mockArgsFor, mockPlanRoute } from "./mock.ts";
+import { mockPlanRoute } from "./mock.ts";
 
 /** Probabilidad de la opción correcta. Alta para cumplir cualquier `minProbability` razonable. */
 const HIT = 0.99;
@@ -30,6 +30,40 @@ function strs(v: unknown): string[] {
 }
 function num(v: unknown): number | undefined {
   return typeof v === "number" ? v : undefined;
+}
+
+/**
+ * Alternativas de un término de dataset: `a|b` coincide con `a` o con `b`; `\|` es un `|` literal.
+ * Siempre devuelve al menos un elemento.
+ */
+function splitAlternatives(term: string): string[] {
+  const parts: string[] = [];
+  let cur = "";
+  for (let i = 0; i < term.length; i++) {
+    const ch = term[i];
+    if (ch === "\\" && term[i + 1] === "|") {
+      cur += "|";
+      i++;
+    } else if (ch === "|") {
+      parts.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  parts.push(cur);
+  const out = parts.map((p) => p.trim()).filter((p) => p.length > 0);
+  return out.length > 0 ? out : [term];
+}
+
+/** Texto a escribir por cada término (primera alternativa). */
+function firstAlt(terms: string[]): string[] {
+  return terms.map((t) => splitAlternatives(t)[0]);
+}
+
+/** Todas las alternativas de una lista de términos prohibidos (basta que aparezca una para fallar). */
+function allAlts(terms: string[]): string[] {
+  return terms.flatMap(splitAlternatives);
 }
 
 // ───────────────────────── Decisión ─────────────────────────
@@ -73,7 +107,8 @@ export function oracleDecisionResponder(_prepared: PreparedRequest, req: Decisio
     const t = typeof ex.choice === "string" ? ex.choice : targetChoice(ctx?.stage, expect, options);
     const pick = t !== undefined && options.includes(t) ? t : options[0];
     const probabilities: Record<string, number> = {};
-    for (const o of options) probabilities[o] = o === pick ? HIT : MISS / Math.max(1, options.length - 1);
+    // Con una sola opción la probabilidad es 1 (si no, la suma quedaría en 0.99).
+    for (const o of options) probabilities[o] = o === pick ? (options.length === 1 ? 1 : HIT) : MISS / Math.max(1, options.length - 1);
     answers[key] = { choice: pick, probabilities };
   }
   return JSON.stringify({ answers });
@@ -94,7 +129,7 @@ function oraclePlan(prepared: PreparedRequest, expect: Rec): string {
   if (routes.length === 0) routes.push(allowed[0] ?? mockPlanRoute(prepared));
 
   const count = Math.min(maxSteps, Math.max(minSteps, routes.length, 1));
-  const words = [...strs(expect.requiredKeywordsInGoal), ...strs(expect.mustReflectFeedback)];
+  const words = firstAlt([...strs(expect.requiredKeywordsInGoal), ...strs(expect.mustReflectFeedback)]);
 
   const steps = Array.from({ length: count }, (_, i) => ({
     goal: i === 0 ? ["Plan step", ...words].join(" ") : `Plan step ${i + 1}`,
@@ -104,24 +139,111 @@ function oraclePlan(prepared: PreparedRequest, expect: Rec): string {
   return JSON.stringify({ steps });
 }
 
+/**
+ * Valor que cumple el schema de una propiedad (JSON Schema simple): respeta `const`, `enum`, el tipo y los límites
+ * numéricos, y rellena los `required` de objetos y los `minItems` de arrays. Sin schema o con tipo desconocido, un string.
+ * Mismos valores base que `mock.ts` (0, true, [], {}, "mock"), así los casos que ya pasaban no cambian.
+ */
+function valueFor(schema: unknown, bad: (s: string) => boolean = () => false, depth = 0): unknown {
+  const s = rec(schema);
+  if ("const" in s) return s.const;
+  if (Array.isArray(s.enum) && s.enum.length > 0) {
+    // Primer valor del enum que el caso no prohíbe (`forbiddenHardcodedValues`); si todos están prohibidos, el primero.
+    return s.enum.find((e) => !(typeof e === "string" && bad(e))) ?? s.enum[0];
+  }
+  const t = s.type;
+  const type = Array.isArray(t) ? t.find((x) => x !== "null") : t;
+  // Sin `type` pero con ramas `anyOf`/`oneOf`: se toma la primera que no sea `null` (si no, saldría siempre un string).
+  if (type === undefined && depth < 4) {
+    const branches = [...(Array.isArray(s.anyOf) ? s.anyOf : []), ...(Array.isArray(s.oneOf) ? s.oneOf : [])];
+    const branch = branches.find((b) => rec(b).type !== "null");
+    if (branch !== undefined) return valueFor(branch, bad, depth + 1);
+  }
+  switch (type) {
+    case "number":
+    case "integer": {
+      let n = 0;
+      const min = num(s.minimum);
+      const exMin = num(s.exclusiveMinimum);
+      const max = num(s.maximum);
+      if (min !== undefined && n < min) n = min;
+      if (exMin !== undefined && n <= exMin) n = exMin + 1;
+      if (max !== undefined && n > max) n = max;
+      return type === "integer" ? Math.ceil(n) : n;
+    }
+    case "boolean":
+      return true;
+    case "array": {
+      const minItems = num(s.minItems) ?? 0;
+      if (minItems <= 0 || depth >= 4) return [];
+      return Array.from({ length: minItems }, () => valueFor(s.items, bad, depth + 1));
+    }
+    case "object": {
+      const out: Rec = {};
+      if (depth >= 4) return out;
+      const props = rec(s.properties);
+      for (const key of strs(s.required)) out[key] = valueFor(props[key], bad, depth + 1);
+      return out;
+    }
+    default:
+      return "mock";
+  }
+}
+
 function oracleArgs(ctx: GenerativeCallContext | undefined, expect: Rec): string {
-  const args = JSON.parse(mockArgsFor(ctx?.toolSchema)) as Rec;
-  for (const f of strs(expect.requiredFields)) if (args[f] === undefined) args[f] = "value";
+  const schema = rec(ctx?.toolSchema);
+  const props = rec(schema.properties);
+  // Mismo criterio que el grader de `arguments` para `forbiddenHardcodedValues`: sin distinguir mayúsculas ni `\` / `/`.
+  const foldPath = (s: string) => s.replace(/\\/g, "/").toLowerCase();
+  const forbidden = strs(expect.forbiddenHardcodedValues).map(foldPath).filter((w) => w.length > 0);
+  const bad = (v: string) => forbidden.some((w) => foldPath(v).includes(w));
+  const args: Rec = {};
+  // Parámetros `required` del schema de la herramienta, con un valor del tipo correcto.
+  for (const key of strs(schema.required)) args[key] = valueFor(props[key], bad);
+  // Campos que el caso exige aunque el schema los deje opcionales: también con su tipo (antes siempre "value",
+  // que fallaba la validación en parámetros `number` o con `enum`). Si el campo no existe en el schema, se mantiene "value".
+  for (const f of strs(expect.requiredFields)) {
+    if (args[f] === undefined) args[f] = props[f] === undefined ? "value" : valueFor(props[f], bad);
+  }
   Object.assign(args, rec(expect.exactFieldValues));
   return JSON.stringify(args);
 }
 
+/** Minúsculas y sin tildes: comparación conservadora (si algo coincide así, coincide con cualquier criterio más estricto). */
+function fold(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/**
+ * Una sola pregunta que cumple el `expect`: contiene `mustContainKeywords`, no contiene ninguna `forbiddenKeywords` y cabe en
+ * `maxChars`. Se prueba una lista de candidatas en orden (la primera es la de siempre) y se usa la primera válida.
+ */
 function oracleQuestion(expect: Rec): string {
-  const kws = strs(expect.mustContainKeywords);
-  const text = kws.length > 0 ? `¿Podrías indicarme ${kws.join(" ")}?` : "¿Cuál es el nombre del archivo?";
+  const kws = firstAlt(strs(expect.mustContainKeywords));
+  const forbidden = allAlts(strs(expect.forbiddenKeywords)).map(fold).filter((w) => w.length > 0);
   const max = num(expect.maxChars);
+  const candidates =
+    kws.length > 0
+      ? [`¿Podrías indicarme ${kws.join(" ")}?`, `¿${kws.join(" ")}?`]
+      : [
+        "¿Cuál es el nombre del archivo?",
+        "¿Qué nombre debo usar?",
+        "¿Dónde lo guardo?",
+        "¿Puedes darme más detalles?",
+        "¿Podrías aclararme eso?",
+        // Casos con pedido en inglés: prohíben las palabras en español.
+        "Could you give me more details?",
+        "Which one do you mean?",
+      ];
+  const valid = (t: string) => !forbidden.some((w) => fold(t).includes(w)) && (max === undefined || t.length <= max);
+  const text = candidates.find(valid) ?? candidates[0];
   return max !== undefined && text.length > max ? text.slice(0, Math.max(1, max - 1)) + "?" : text;
 }
 
 /** Lista vacía si el caso la espera vacía; si no, un pendiente con las palabras clave que pide el `expect`. */
 function oraclePending(expect: Rec): string {
   if (expect.expectEmpty === true) return JSON.stringify({ pending: [] });
-  return JSON.stringify({ pending: [["Next action", ...strs(expect.requiredKeywordsInFirst)].join(" ")] });
+  return JSON.stringify({ pending: [["Next action", ...firstAlt(strs(expect.requiredKeywordsInFirst))].join(" ")] });
 }
 
 export function oracleGenerativeResponder(
@@ -136,7 +258,7 @@ export function oracleGenerativeResponder(
     case "arguments":
       return oracleArgs(ctx, expect);
     case "final":
-      return ["Listo.", ...strs(expect.mustContainFacts), ...strs(expect.mustMentionEffects)].join(" ");
+      return ["Listo.", ...firstAlt(strs(expect.mustContainFacts)), ...firstAlt(strs(expect.mustMentionEffects))].join(" ");
     case "question":
       return oracleQuestion(expect);
     case "pending":

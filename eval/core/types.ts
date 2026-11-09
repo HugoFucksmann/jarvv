@@ -1,7 +1,7 @@
 /**
  * eval/core/types.ts
  *
- * Tipos del eval de prompts (esquema v3). Sin imports de `src/` ni de `scripts/eval-next/`.
+ * Tipos del eval de prompts (esquema v3). Solo importa tipos de `contract.ts` (que los toma de `src/`).
  * Un solo formato de caso (el escenario, `scenario.ts`) y un solo formato de variante (prompts enteros, `Variant`).
  */
 
@@ -69,7 +69,7 @@ export interface Case {
   };
 }
 
-// ───────────────────────── 5.2 Expect y Output por etapa ─────────────────────────
+// ───────────────────────── Expect y Output por etapa ─────────────────────────
 
 /**
  * Respuesta esperada de una pregunta **adicional** de una decisión (la define el caso o la agrega una variante).
@@ -253,9 +253,9 @@ export interface Variant {
   read?: DecisionReaders;
 }
 
-// ───────────────────────── 5.4 Resultados ─────────────────────────
+// ───────────────────────── Resultados ─────────────────────────
 
-/** Valores de `--thinking` (ver 7.5). */
+/** Valores de `--thinking`. */
 export type ThinkingMode = "auto" | "prod" | "on" | "off" | "both";
 
 /**
@@ -284,7 +284,7 @@ export interface RunRecord {
   dataset: string;
   caseId: string;
   stage: StageName;
-  /** Ver 7.5. */
+  /** Clave con la que se agrupa la etapa en los scores (ver `--thinking`). */
   stageKey: string;
   /** 1..repeat. */
   iteration: number;
@@ -366,7 +366,7 @@ export interface RunMeta {
   };
 }
 
-// ───────────────────────── 8 Graders ─────────────────────────
+// ───────────────────────── Graders ─────────────────────────
 
 export interface GraderContext {
   rawOutput: string;
@@ -392,7 +392,7 @@ export interface Grader<TOutput, TExpect> {
   ): void;
 }
 
-// ───────────────────────── 9 Scoring ─────────────────────────
+// ───────────────────────── Scoring ─────────────────────────
 
 export interface CaseScoreSummary {
   caseId: string;

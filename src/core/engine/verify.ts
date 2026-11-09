@@ -35,11 +35,12 @@ export const REVIEW_APPROVE = 0.6;
 /**
  * Resultado de la revisión de argumentos con umbral: `approved` si su probabilidad llega a `REVIEW_APPROVE`; si no, la opción de
  * rechazo más probable. Sin la probabilidad de `approved` en la respuesta se conserva la opción que eligió el modelo.
+ * `approveAt` permite un umbral más estricto (`BUDGET.sensitiveApprove`, comandos del nivel 2 de la lista negra en modo automático).
  */
-export function reviewOutcome(decision: Pick<ReviewDecision, "review" | "probabilities">): ArgsReview {
+export function reviewOutcome(decision: Pick<ReviewDecision, "review" | "probabilities">, approveAt: number = REVIEW_APPROVE): ArgsReview {
   const approved = decision.probabilities.approved;
   if (typeof approved !== "number") return decision.review;
-  if (approved >= REVIEW_APPROVE) return "approved";
+  if (approved >= approveAt) return "approved";
   const rejections = ARGS_REVIEWS.filter((r) => r !== "approved");
   return rejections.reduce((best, r) => ((decision.probabilities[r] ?? 0) > (decision.probabilities[best] ?? 0) ? r : best), rejections[0]);
 }

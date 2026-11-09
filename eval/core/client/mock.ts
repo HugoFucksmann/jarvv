@@ -1,7 +1,7 @@
 /**
  * eval/core/client/mock.ts
  *
- * `--client=mock`. Sección 11. No hace llamadas de red. `prepare` delega en los clientes reales,
+ * `--client=mock`. No hace llamadas de red. `prepare` delega en los clientes reales,
  * así `--dry-run` imprime los mismos bodies con cualquiera de los dos clientes.
  */
 

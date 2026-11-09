@@ -16,7 +16,7 @@ import { schemaTypes as prodSchemaTypes } from "../../src/core/refs/refResolver.
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
 export { parseAnswersObject, validateAnswer } from "../../src/core/decision.ts";
-export { NOUL_APPROVE } from "../../src/core/engine/verify.ts";
+export { NOUL_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
 export { ARGS_REVIEWS } from "../../src/core/engine/deps.ts";
 export { estimateTokens } from "../../src/core/llmTransport.ts";
 export { retryNote } from "../../src/core/reasoner/prompts.ts";

@@ -1,8 +1,9 @@
 /**
  * eval/core/variants/load.ts
  *
- * Carga variantes desde archivos `variants/<nombre>.ts`.
- * - `name` del export default debe coincidir con el nombre del archivo.
+ * Carga variantes desde archivos `.ts` bajo `eval/variants/` (raíz o subcarpetas).
+ * - `name` del export default debe coincidir con el nombre del archivo (sin `.ts`).
+ * - El nombre es único en todo `eval/variants/`: si dos subcarpetas tienen el mismo nombre, cargarlo es un error.
  * - Hash de variante: sha256 (16 hex) del contenido del archivo.
  * - `prod.ts` es la variante de producción: apunta a los prompts de `src`, sin cambios.
  * - Una variante es un solo archivo con prompts enteros: no se componen (`a+b` no existe).
@@ -17,7 +18,7 @@ import type { Variant } from "./types.ts";
 /** Directorio donde viven las variantes (relativo al CWD). */
 const VARIANTS_DIR = "eval/variants";
 
-/** Busca recursivamente todos los archivos .ts bajo un directorio. */
+/** Busca recursivamente todos los archivos .ts bajo un directorio, en orden estable. */
 function findVariantFiles(dir: string): string[] {
   const results: string[] = [];
   try {
@@ -26,14 +27,19 @@ function findVariantFiles(dir: string): string[] {
       const fullPath = `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
         results.push(...findVariantFiles(fullPath));
-      } else if (entry.isFile() && entry.name.endsWith(".ts")) {
+      } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) {
         results.push(fullPath);
       }
     }
   } catch {
     // Si no existe el directorio, devuelve array vacío
   }
-  return results;
+  return results.sort();
+}
+
+/** Archivos de `eval/variants` (raíz y subcarpetas) cuyo nombre sin extensión es `name`. */
+function variantMatches(name: string): string[] {
+  return findVariantFiles(VARIANTS_DIR).filter((f) => basename(f, ".ts") === name);
 }
 
 /** Hash del contenido del archivo de variante (`variantHash` en `RunMeta`). */
@@ -41,29 +47,23 @@ export function variantFileHash(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath, "utf8")).digest("hex").slice(0, 16);
 }
 
-/** Ruta del archivo de una variante dado su nombre. Busca directamente y en subcarpetas de eval/variants. */
+/** Ruta del archivo de una variante dado su nombre (raíz o subcarpetas de eval/variants). Si no existe, la ruta esperada en la raíz. */
 export function variantFilePath(name: string): string {
-  // 1. Si se especificó una ruta relativa o existe directamente en la raíz
-  const directPath = resolve(`${VARIANTS_DIR}/${name}.ts`);
-  if (existsSync(directPath)) return directPath;
-
-  // 2. Búsqueda recursiva en subcarpetas
-  const allFiles = findVariantFiles(VARIANTS_DIR);
-  const targetFileName = `${name}.ts`;
-  const match = allFiles.find((f) => f.endsWith(`/${targetFileName}`) || f.endsWith(`\\${targetFileName}`));
-  if (match) return resolve(match);
-
-  return directPath;
+  const [first] = variantMatches(name);
+  return resolve(first ?? `${VARIANTS_DIR}/${name}.ts`);
 }
 
-/** Nombres de las variantes disponibles (archivos `.ts` en eval/variants y subcarpetas), ordenados. */
+/** Nombres de las variantes disponibles (archivos `.ts` en eval/variants y subcarpetas), sin repetidos y ordenados. */
 export function listVariantNames(): string[] {
-  const allFiles = findVariantFiles(VARIANTS_DIR);
-  return allFiles.map((f) => basename(f, ".ts")).sort();
+  return [...new Set(findVariantFiles(VARIANTS_DIR).map((f) => basename(f, ".ts")))].sort();
 }
 
-/** Lanza con un mensaje de error de configuración si el archivo no existe. */
+/** Lanza con un mensaje de error de configuración si el archivo no existe o el nombre está en más de un archivo. */
 export function requireVariantFile(name: string): string {
+  const matches = variantMatches(name);
+  if (matches.length > 1) {
+    throw new Error(`Variante '${name}' ambigua: el nombre está en ${matches.length} archivos (${matches.join(", ")}). Los nombres deben ser únicos.`);
+  }
   const path = variantFilePath(name);
   if (!existsSync(path)) throw new Error(`Variante '${name}' no encontrada (${path}).`);
   return path;
@@ -73,7 +73,7 @@ export function requireVariantFile(name: string): string {
 export async function loadVariant(name: string): Promise<Variant> {
   const path = requireVariantFile(name);
   // En Windows `import("E:\\...")` falla: el loader ESM toma "E:" como esquema de URL. `pathToFileURL` produce un file:// válido.
-  const mod = (await import(pathToFileURL(path).href)) as { default?: unknown; [k: string]: unknown };
+  const mod = (await import(pathToFileURL(path).href)) as { default?: unknown;[k: string]: unknown };
   const v = mod.default ?? mod;
   if (!v || typeof v !== "object" || (v as Record<string, unknown>).name !== name) {
     throw new Error(`Variante '${name}': el export default debe ser un objeto con name="${name}".`);

@@ -14,6 +14,7 @@ import {
   isExecutableRoute,
   NOUL_APPROVE,
   parseAnswersObject,
+  reviewOutcome,
   validateAnswer,
 } from "../contract.ts";
 import type {
@@ -134,7 +135,9 @@ export function parseArgsReviewDecision(rawOutput: string, sentReq: DecisionRequ
   if (!(ARGS_REVIEWS as readonly string[]).includes(result.choice)) {
     throw new DecisionParseError(`'${result.choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`);
   }
-  return { review: result.choice, probabilities: result.probabilities };
+  // Como producción (`callRunner`): aprueba solo si P(approved) llega al umbral; si no, la rechazo más probable.
+  const review = reviewOutcome({ review: result.choice as (typeof ARGS_REVIEWS)[number], probabilities: result.probabilities });
+  return { review, probabilities: result.probabilities };
 }
 
 /**

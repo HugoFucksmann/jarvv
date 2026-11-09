@@ -2,7 +2,6 @@
  * eval/core/results.ts
  *
  * Escritura de runs.jsonl, scores.json y meta.json por celda (variante × dataset).
- * Estructura de carpetas: sección 5.4.
  */
 
 import { createHash } from "node:crypto";
@@ -17,7 +16,7 @@ import { SCHEMA_VERSION } from "./types.ts";
 
 // ───────────────────────── Helpers ─────────────────────────
 
-/** sha256 (16 hex) de un objeto cualquiera (canonicalizado con JSON.stringify). */
+/** sha256 (16 hex) del `JSON.stringify` de un valor. Depende del orden de las claves: el mismo objeto con otro orden da otro hash. */
 export function objectHash(obj: unknown): string {
   return createHash("sha256").update(JSON.stringify(obj)).digest("hex").slice(0, 16);
 }
@@ -82,13 +81,18 @@ function tryGit(cmd: string): string | undefined {
   }
 }
 
+let gitCache: { gitCommit?: string; gitDirty?: boolean } | undefined;
+
+/** Commit y estado del árbol. Se consulta una sola vez por proceso: todas las celdas de una corrida llevan el mismo valor. */
 export function gitInfo(): { gitCommit?: string; gitDirty?: boolean } {
+  if (gitCache) return gitCache;
   const commit = tryGit("git rev-parse --short HEAD");
   const status = tryGit(GIT_STATUS_CMD);
-  return {
+  gitCache = {
     gitCommit: commit || undefined,
     gitDirty: status !== undefined ? status.length > 0 : undefined,
   };
+  return gitCache;
 }
 
 // ───────────────────────── Writer por celda ─────────────────────────
@@ -98,7 +102,7 @@ export interface CellWriter {
   writeRun(record: RunRecord): void;
   /** Cierra la celda: escribe scores.json y meta.json. */
   close(meta: RunMeta): void;
-  /** Records acumulados (para comparison en F5). */
+  /** Records acumulados (alimentan el reporte de comparación). */
   readonly records: RunRecord[];
   readonly cellDir: string;
 }

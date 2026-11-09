@@ -1,7 +1,7 @@
 /**
  * eval/core/client/decision.ts
  *
- * Cliente de las etapas de decisión (route, tool_choice, args_review, result_verification). Sección 7.3.
+ * Cliente de las etapas de decisión (route, tool_choice, args_review, result_verification).
  */
 
 import { estimateTokens } from "../contract.ts";

@@ -5,21 +5,18 @@
  * ubicación: `datasets.ts` les antepone `archivo:línea:`.
  */
 
-import { EXECUTABLE_ROUTES, isExecutableRoute } from "./contract.ts";
+import { ARGS_REVIEWS, EXECUTABLE_ROUTES, isExecutableRoute } from "./contract.ts";
 import type { DecisionStage, Case, GenerativeStage, StageName } from "./types.ts";
 
-/**
- * Etapas conocidas por el eval. Cuando exista el registro de F3 (`stages/index.ts`) será la fuente de
- * verdad; esta lista debe coincidir con él.
- */
+/** Etapas conocidas por el eval. Deben coincidir con el registro `stages/index.ts` (`allStageNames()`). */
 export const DECISION_STAGES: readonly DecisionStage[] = ["route", "tool_choice", "args_review", "result_verification"];
 export const GENERATIVE_STAGES: readonly GenerativeStage[] = ["plan", "arguments", "final", "question", "pending"];
 export const ALL_STAGES: readonly StageName[] = [...DECISION_STAGES, ...GENERATIVE_STAGES];
 
-/** Tag automático de 7.9: decisión con una sola opción (producción omitiría la llamada). */
+/** Tag automático: decisión con una sola opción (producción omitiría la llamada). */
 export const PROD_SHORTCUT_TAG = "prod_shortcut";
 
-/** Pregunta cuya única opción dispara el atajo de producción, por etapa (10.2). */
+/** Pregunta cuya única opción dispara el atajo de producción, por etapa. */
 const SHORTCUT_QUESTION: Partial<Record<StageName, string>> = {
   route: "route",
   tool_choice: "selected_tool",
@@ -140,8 +137,9 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
   },
 };
 
+/** Valores cerrados por clave. Las etiquetas de `args_review` salen de producción (`ARGS_REVIEWS`), no se copian a mano. */
 const ENUM_VALUES: Partial<Record<StageName, Record<string, readonly string[]>>> = {
-  args_review: { expectedReview: ["approved", "args_invalid", "info_missing"] },
+  args_review: { expectedReview: ARGS_REVIEWS as readonly string[] },
 };
 
 function matchesKind(v: unknown, kind: ExpectKind): boolean {
