@@ -74,7 +74,7 @@ flowchart TD
         C7 --> C8["8 Decisión 3: revisar argumentos<br/>solo escrituras sin confirmación"]
         C8 --> C9["9 Despacho a la herramienta"]
         C9 --> C10["10 Procesar resultado<br/>resumen y ref"]
-        C10 --> C11{"11 Decisión 4:<br/>preguntas de VERIFY_CHECKS > 0.5"}
+        C10 --> C11{"11 Decisión 4:<br/>preguntas de VERIFY_CHECKS ≥ 0,6"}
     end
 
     C11 -->|approved| DONE(["Paso completed"])
@@ -145,6 +145,21 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | 10 | **Procesar el resultado**: estado, resumen acotado y, si el resumen no contiene todo, el texto completo va a una ref en disco | — |
 | 11 | **Verificar** (Decisión 4, §7) | Rechazada: vuelve al paso con el motivo |
 
+### Modo automático (`autoMode`)
+Se lee en cada llamada (`deps.autoMode()`, `callRunner.ts`) y cambia solo dos fases de §5; el resto del flujo es igual.
+
+| Fase | `autoMode` apagado | `autoMode` encendido |
+|---|---|---|
+| 7 Confirmación del usuario | Si Guard pide aprobación (toda escritura o comando del catálogo: `write_file`, `create_directory`, `move_file`, `start_process`, `interact_with_process`), la tarea espera la decisión | No se pide para herramientas del catálogo. Una herramienta no catalogada sigue pidiéndola |
+| 8 Decisión 3 | Solo corre si no hubo confirmación (en la práctica, nunca para esas herramientas) | Corre en toda escritura o comando del catálogo, con el umbral `REVIEW_APPROVE` (0,6) |
+
+No cambian: Guard (`DENY` cierra la tarea, regla B de carpetas protegidas, herramienta no catalogada → aprobación), la lista negra (6a), el pre-chequeo (6b), la verificación (D4) ni las lecturas (nunca pasan por D3). Con `autoMode` encendido la última barrera antes de ejecutar una escritura es D3, un modelo de 2B; D4 actúa después de ejecutar y no deshace nada.
+
+Cobertura real de esas barreras (revisada en el código):
+- Los patrones `DENY` de Guard son pocos y de estilo Linux (`rm -rf /…`, `mkfs`, `format c:`, `del /f /s /q c:/windows`, `/etc/shadow`, `system32/drivers`). No cubren comandos destructivos de PowerShell como `Remove-Item -Recurse -Force`, `rd /s`, `Format-Volume`, `Stop-Computer` o `reg delete`.
+- `blacklist` viene vacía en el código y en `jarvis-config.json`, así que no agrega nada hasta que se cargue.
+- Un `start_process` es siempre `write` (aunque el comando solo lea), por lo que con `autoMode` todo comando pasa por D3 y consume una consulta.
+
 ## 6. Recuperación y Dudas
 - **Reactivo**: tras un paso fallido, la lista de pendientes se regenera viendo los fallos con sus argumentos y puede reescribir la instrucción. Decisión 1 y 2 ven solo los intentos del paso actual (la línea de cada uno y, solo si explica el fallo —`tool_error`, `exception`, `args_invalid`, `info_missing`, `tool_rejected`, `user_rejected`—, su resumen recortado a `caps.attemptSummary`; el resultado leído de una llamada que la verificación rechazó no se repite); los de pasos anteriores los ve la lista. Una herramienta cuya llamada se bloqueó por repetición sigue ofrecida: el anti-bucle solo bloquea la llamada idéntica (misma herramienta y huella de argumentos) y compara contra toda la tarea; dos bloqueos en el paso lo fallan (`repeat_blocked`).
 - **Deliberativo**: replan autónomo (§3).
@@ -154,7 +169,7 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 ## 7. Verificación del Resultado
 Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`engine/deps.ts`) sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface la instrucción del paso?). El criterio es siempre el paso: en reactivo, el primer pendiente.
 
-- Aprueba solo si pasan todas, cada una con probabilidad estrictamente mayor que 0.5 (`verdictOf`).
+- Aprueba solo si pasan todas, cada una con probabilidad de al menos 0,6 (`NOUL_APPROVE` en `engine/verify.ts`, `verdictOf`).
 - La razón es la de la primera pregunta que falla, en el orden de la tabla: si falla `ok`, `no_usable_data`; si falla solo `cumple`, `not_accomplished`.
 - `tool_error` y `exception` se rechazan sin consultar al modelo. `interrupted` y `denied` no se verifican y quedan sin veredicto.
 - Una respuesta inválida se repite una vez; si persiste, el servicio se considera no disponible.

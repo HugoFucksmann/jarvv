@@ -160,5 +160,5 @@ export function parseResultVerificationDecision(
     ok = extractNoul(answers, "ok");
     cumple = extractNoul(answers, "cumple");
   }
-  return { ok: ok > NOUL_APPROVE, cumple: cumple > NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
+  return { ok: ok >= NOUL_APPROVE, cumple: cumple >= NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
 }

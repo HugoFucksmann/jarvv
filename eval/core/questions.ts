@@ -138,7 +138,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
         res.error = r;
       } else {
         res.noul = r;
-        res.answer = r > NOUL_APPROVE ? YES : NO;
+        res.answer = r >= NOUL_APPROVE ? YES : NO;
       }
     }
 

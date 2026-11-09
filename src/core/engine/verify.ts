@@ -26,8 +26,8 @@ export type VerifyOutcome =
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };
 
-/** Una respuesta `noul` aprueba solo si su probabilidad supera este valor (estrictamente; ante ambigüedad, no se aprueba). */
-export const NOUL_APPROVE = 0.5;
+/** Una respuesta `noul` aprueba solo si su probabilidad llega a este valor (ante ambigüedad, no se aprueba). */
+export const NOUL_APPROVE = 0.6;
 
 /** La revisión de argumentos (D3) aprueba solo si la probabilidad de `approved` es al menos este valor (`reviewOutcome`). */
 export const REVIEW_APPROVE = 0.6;
@@ -49,7 +49,7 @@ export function reviewOutcome(decision: Pick<ReviewDecision, "review" | "probabi
  * la de la primera que no pasa, en el orden de la tabla (5.3).
  */
 export function verdictOf(answers: Readonly<Record<VerifyCheckKey, number>>): { verdict: CallVerdict; reason: VerdictReason | null } {
-  const failed = VERIFY_CHECKS.find(({ key }) => !(answers[key] > NOUL_APPROVE));
+  const failed = VERIFY_CHECKS.find(({ key }) => !(answers[key] >= NOUL_APPROVE));
   return failed === undefined ? { verdict: "approved", reason: null } : { verdict: "rejected", reason: failed.reason };
 }
 

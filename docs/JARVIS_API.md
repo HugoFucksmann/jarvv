@@ -63,7 +63,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 
 ## Modo automático y lista negra (`/config`)
 
-- `autoMode` (`false` por defecto): con `true`, las escrituras y comandos del catálogo **no generan espera `approval`**; las valida la revisión de argumentos y se ejecutan. Guard (patrones destructivos, carpetas protegidas → `security_denied`) y la lista negra siguen rechazando. Se lee en cada llamada: cambiarlo no libera una espera `approval` que ya esté abierta (hay que aprobarla o rechazarla).
+- `autoMode` (`false` por defecto): con `true`, las escrituras y comandos del catálogo **no generan espera `approval`**; las valida la revisión de argumentos y se ejecutan. Guard (patrones destructivos, carpetas protegidas → `security_denied`) y la lista negra siguen rechazando; los patrones de Guard son pocos y de estilo Linux, así que conviene cargar `blacklist` (ver `CORE_FLOW.md`, «Modo automático»). Se lee en cada llamada: cambiarlo no libera una espera `approval` que ya esté abierta (hay que aprobarla o rechazarla).
 - `blacklist`: `[{ "tool": "start_process" | "servidor:herramienta", "pattern"?: "regex sobre los argumentos", "reason": "texto para el modelo" }]`. Solo afecta a herramientas que modifican el sistema; un acierto registra la llamada como `tool_rejected` (la tarea sigue). Sin `pattern` la herramienta entera deja de ofrecerse. `POST` reemplaza la lista completa.
 
 ## Esperas (`waiting`)
