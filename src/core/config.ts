@@ -105,7 +105,8 @@ const DEFAULT_CONFIG: JarvisConfig = {
   decisionTimeoutMs: 30000,
   desktopCommanderMcp: {
     command: "npx",
-    args: ["-y", "@wonderwhy-er/desktop-commander"],
+    // Versión fija: `npx -y` sin versión baja la última publicada en cada arranque (cadena de suministro). Subirla es una decisión: probar y cambiar aquí y en jarvis-config.json.
+    args: ["-y", "@wonderwhy-er/desktop-commander@0.3.2"],
     allowedDirectories: [],
   },
   freeSearchMcp: {
