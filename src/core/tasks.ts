@@ -164,6 +164,11 @@ export class TaskManager {
   }
 
   /** Tareas retenidas, de la más antigua a la más reciente. */
+  /** Ids de las tareas retenidas en memoria (la retención en disco no borra sus refs). */
+  taskIds(): string[] {
+    return [...this.tasks.keys()];
+  }
+
   list(): TaskSummary[] {
     return [...this.tasks.values()].map(({ ctx, runtime }) => ({
       id: ctx.task.id,

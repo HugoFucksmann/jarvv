@@ -288,6 +288,7 @@ export interface JarvisConfig {
   traceEnabled: boolean;
   tracePath: string;
   refsDir?: string;
+  retentionDays?: number;
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;
 }

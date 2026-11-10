@@ -20,11 +20,16 @@ const folderId = (taskId: string): string => taskId.replace(/[^A-Za-z0-9._-]/g, 
 /** Largo de `AAAAMMDD-HHMMSS_`, el prefijo de la carpeta antes del id. */
 const STAMP_CHARS = 16;
 
+/** Carpeta que contiene las carpetas de traza (una por tarea terminada), a partir de `tracePath`. */
+export function traceBaseDir(tracePath: string): string {
+  const file = path.resolve(process.cwd(), tracePath);
+  return path.join(path.dirname(file), path.basename(file, path.extname(file)));
+}
+
 /** Texto del archivo de la traza de la tarea; `null` si la traza está desactivada, la tarea no terminó o el archivo no existe. */
 export function readTraceFile(tracePath: string, taskId: string, which: TraceFile): string | null {
   try {
-    const file = path.resolve(process.cwd(), tracePath);
-    const base = path.join(path.dirname(file), path.basename(file, path.extname(file)));
+    const base = traceBaseDir(tracePath);
     // Id exacto: uno parcial no debe acertar con la carpeta de otra tarea.
     const id = folderId(taskId);
     const folder = fs

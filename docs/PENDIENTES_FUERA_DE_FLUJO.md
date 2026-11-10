@@ -20,8 +20,8 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 - **Comandos de solo lectura** (`policy/readOnly.ts`): la lista de cmdlets es cerrada y conservadora (sin paréntesis, bloques, variables ni métodos), así que consultas con `(Get-Date).AddDays(-1)` o `ForEach-Object` siguen pidiendo confirmación. Medir en uso real cuántas consultas legítimas quedan fuera y ampliar la lista con casos medidos. Solo PowerShell: los comandos de Linux/macOS (`ls`, `cat`) siguen como escritura. `interact_with_process` sigue siempre como escritura.
 
 ## Backend general
-- **Retención sin límite:** `data/refs/` (resultados crudos) y `jarvis-traces/` crecen sin tope ni limpieza; solo las tareas en memoria se expulsan (`MAX_RETAINED_TASKS`). Definir una política (por antigüedad o por tamaño). [V]
-- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, lógica pura y `runTask` con dobles. Sin tests: `precheck.ts`, `result/` (extractores y `processResult`), `refs/refResolver.ts`, `mcp/` (transporte), `TaskManager` y las rutas HTTP. [V]
+- **Retención:** solo por antigüedad (`retentionDays`). No hay tope por tamaño y `index.jsonl` de las trazas crece sin límite (se borran las carpetas, no sus líneas). [V]
+- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, reglas, pre-chequeo, resultados y refs, comandos de solo lectura, retención, lógica pura y `runTask` con dobles. Sin tests: `mcp/` (transporte), `TaskManager`, las rutas HTTP y el análisis real con PowerShell del pre-chequeo. [V]
 - **Logs:** unas 60 llamadas a `console.*` repartidas por `models/`, `engine/`, `tasks.ts` y `mcp/`, sin niveles ni formato común. [V]
 
 ## Catálogo de herramientas

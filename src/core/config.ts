@@ -52,6 +52,8 @@ export interface JarvisConfig {
   traceEnabled: boolean;
   /** Solo fija la ubicación: las trazas van a la carpeta homónima sin extensión (`jarvis-traces.jsonl` → `jarvis-traces/`); el archivo `.jsonl` no se escribe. Una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   tracePath: string;
+  /** Días que se conservan los resultados crudos (`refsDir`) y las trazas; lo más viejo se borra al arrancar y cada 6 horas. 0 = no se borra nada. Las refs de una tarea retenida en memoria no se tocan. */
+  retentionDays: number;
   /** Carpeta de los resultados crudos de las refs; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   refsDir: string;
   /** Lista negra de herramientas que modifican el sistema (rechazo `tool_rejected`; ver `policy/blacklist.ts`). */
@@ -108,6 +110,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
   refsDir: "data/refs",
+  retentionDays: 30,
   blacklist: [],
   autoMode: false,
 };
@@ -121,6 +124,9 @@ const nonEmptyText = (v: unknown, fallback: string): string =>
 
 const positiveInt = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
+
+const nonNegativeInt = (v: unknown, fallback: number): number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.floor(v) : fallback;
 
 const stringList = (v: unknown): string[] | undefined =>
   Array.isArray(v) && v.every((x) => typeof x === "string") ? [...(v as string[])] : undefined;
@@ -194,6 +200,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     traceEnabled: typeof r.traceEnabled === "boolean" ? r.traceEnabled : d.traceEnabled,
     tracePath: nonEmptyText(r.tracePath, d.tracePath),
     refsDir: nonEmptyText(r.refsDir, d.refsDir),
+    retentionDays: nonNegativeInt(r.retentionDays, d.retentionDays),
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
   };

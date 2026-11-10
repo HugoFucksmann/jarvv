@@ -24,6 +24,7 @@ import { createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
+import { startRetention } from './src/core/retention.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -73,6 +74,9 @@ async function main() {
 
   const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig);
 
+  // Limpieza por antigüedad de las refs y las trazas (`retentionDays`): al arrancar y cada 6 horas.
+  const stopRetention = startRetention(getConfig, () => tasks.taskIds());
+
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
@@ -83,6 +87,7 @@ async function main() {
       process.exit(1);
     }, 5000).unref();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
+    stopRetention();
     tasks.cancelAll();
 
     // En paralelo: un servidor colgado no consume el plazo de los demás.
