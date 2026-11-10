@@ -13,7 +13,9 @@ import { createJarvisRouter, withoutLaunchFields } from "../src/server/jarvisRou
 import { localOnly } from "../src/server/localOnly.ts";
 
 const calls: string[] = [];
+const listeners = new Set<(event: unknown) => void>();
 const fakeTasks = {
+  addEventListener: (listener: (event: unknown) => void) => (listeners.add(listener), () => listeners.delete(listener)),
   list: () => [{ id: "task_1", state: "running" }],
   cancel: (id: string) => (calls.push(`cancel ${id}`), "ok"),
   approveCall: (id: string, wait?: string) => (calls.push(`approve ${id} ${wait}`), "ok"),
@@ -141,4 +143,25 @@ test("el parche de /config descarta lo que solo se edita en el archivo y conserv
     freeSearchMcp: { command: "evil" },
   });
   assert.deepEqual(patch, { autoMode: true, retentionDays: 7, desktopCommanderMcp: { allowedDirectories: ["C:\\Users"] }, freeSearchMcp: {} });
+});
+
+test("SSE: los eventos llegan como `data:`, y al cerrar el cliente se da de baja el suscriptor (sin fuga)", async () => {
+  const received = await new Promise<string>((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path: "/api/jarvis/events", headers: { Host: `127.0.0.1:${port}` } }, (res) => {
+      assert.match(String(res.headers["content-type"]), /text\/event-stream/);
+      res.setEncoding("utf8");
+      res.on("data", (chunk: string) => {
+        if (chunk.includes("data:")) {
+          req.destroy();
+          resolve(chunk);
+        }
+      });
+      setTimeout(() => [...listeners].forEach((listener) => listener({ type: "task_updated", taskId: "task_1" })), 50);
+    });
+    req.on("error", (error) => (error as NodeJS.ErrnoException).code === "ECONNRESET" || reject(error));
+    req.end();
+  });
+  assert.equal(received.trim(), 'data: {"type":"task_updated","taskId":"task_1"}');
+  for (let i = 0; i < 50 && listeners.size > 0; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(listeners.size, 0);
 });

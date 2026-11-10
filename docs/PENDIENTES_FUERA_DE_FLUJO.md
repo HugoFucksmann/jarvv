@@ -20,8 +20,8 @@ Lo que sigue abierto en JARVIS v0.6.0 (actualizado el 2026-11-10): limitaciones 
 
 ## Backend general
 - **Retención** (`retention.ts`): solo por antigüedad (`retentionDays`, 30 por defecto). No hay tope por tamaño. Solo se borran carpetas con nombre de Jarvis, así que una carpeta de refs o de trazas con otro nombre se acumula. [V]
-- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, reglas, rutas sensibles, comandos de solo lectura, pre-chequeo, resultados, refs, retención, recorder, rutas HTTP y `localOnly`, lógica pura y `runTask` con dobles. Sin tests: `mcp/` (transporte y adaptadores), el SSE, el análisis real con PowerShell del pre-chequeo y la interfaz. [V]
-- **Logs:** unas 60 llamadas a `console.*` repartidas por `models/`, `engine/`, `tasks.ts` y `mcp/`, sin niveles ni formato común. [V]
+- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, reglas, rutas sensibles, comandos de solo lectura, pre-chequeo, resultados, refs, retención, recorder, rutas HTTP y `localOnly`, lógica pura y `runTask` con dobles. Hay tests del transporte MCP (contra un servidor de mentira) y del SSE. Sin tests: los adaptadores de `mcp/`, el análisis real con PowerShell del pre-chequeo y la interfaz. [V]
+- **Logs:** unas 70 llamadas a `console.*` con prefijo `[Módulo]`. Los niveles ya son los de `console` (`error` para fallos, `warn` para degradaciones, `log` para el resto); un módulo de log propio no agregaría nada (no hay consumidor que filtre) y obligaría a tocar todos los sitios. Se descartó. [V]
 
 ## Seguridad
 Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
@@ -33,7 +33,7 @@ Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
 - **Sin límite de tareas concurrentes ni de tasa:** `POST /process` lanza una tarea por llamada, cada una con consultas a los modelos y herramientas. `MAX_RETAINED_TASKS` acota lo retenido, no lo que corre a la vez. Tampoco hay tope de conexiones SSE simultáneas (sí de lo que acumula cada una). [V]
 
 **Política de rutas y comandos**
-- **Rutas sensibles** (`policy/sensitivePaths.ts`): listas cerradas y sin medir en uso real (falsos positivos: confirmaciones de más; falsos negativos: rutas que no figuren). Miran el texto de las rutas y del comando, no lo que un comando arma por variables. No resuelven enlaces simbólicos o uniones, nombres cortos 8.3 (`PROGRA~1`), prefijos `\\?\` ni rutas UNC. La regla B de las carpetas protegidas (`refsDir`) tampoco sigue enlaces simbólicos. [V]
+- **Rutas sensibles** (`policy/sensitivePaths.ts`): listas cerradas y sin medir en uso real (falsos positivos: confirmaciones de más; falsos negativos: rutas que no figuren). Miran el texto de las rutas y del comando, no lo que un comando arma por variables. Cubren claves, credenciales, historiales de shell, tokens de CLI (`gh`, `terraform`, `vault`) y datos de navegadores; las plantillas `.env.example` no se marcan. No resuelven enlaces simbólicos o uniones, nombres cortos 8.3 (`PROGRA~1`), prefijos `\\?\` ni rutas UNC. La regla B de las carpetas protegidas (`refsDir`) tampoco sigue enlaces simbólicos. [V]
 - **`allowedDirectories`** viene vacío (sin restricción) y solo valida los argumentos de ruta de las herramientas de archivos: no restringe lo que haga un `start_process`. [V]
 - **`autoMode` descansa en un modelo de 2B** para lo que las reglas no marcan: sin medir cuántas escrituras peligrosas aprobaría. Encendido, el único control humano son las rutas sensibles.
 
@@ -44,7 +44,7 @@ Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
 
 **Procesos y dependencias**
 - **Procesos en segundo plano:** al terminar una tarea que no se completó se cierran (`engine/processes.ts`); si se cancela mientras `start_process` está en vuelo, el resultado tardío se descarta y su `pid` no se conoce. Una tarea completada los deja (puede ser lo pedido).
-- **Dependencias de los servidores MCP:** Desktop Commander es una dependencia del proyecto, fijada en `0.3.2` con `package-lock.json` (versión y dependencias transitivas), y arranca con `node` directo en ~0,7 s. Free Search está fijado en `0.18.0` con `uvx` (arranca en ~1,8-2,5 s; con versiones exactas no consulta la red), pero `uvx` resuelve sus dependencias transitivas por rangos: no hay lockfile para él. Subir cualquiera de los dos es una decisión que se prueba antes (`config.ts` y `jarvis-config.json`). [V]
+- **Dependencias de los servidores MCP:** Desktop Commander es una dependencia del proyecto, fijada en `0.3.2` con `package-lock.json` (versión y dependencias transitivas), y arranca con `node` directo en ~0,7 s. Free Search está fijado en `0.18.0` con `uvx` (arranca en ~1,8-2,5 s; con versiones exactas no consulta la red), y sus ~90 dependencias transitivas quedan fijadas en `mcp/free-search/constraints.txt` (`--constraints`: fija versiones, no verifica hashes). Los servidores MCP se lanzan con `shell: true` en Windows (Node avisa con `DEP0190`): los argumentos no se escapan, y hoy solo vienen de `jarvis-config.json`. Subir cualquiera de los dos es una decisión que se prueba antes (`config.ts` y `jarvis-config.json`). [V]
 
 ## Catálogo de herramientas
 - **Extractor de `research`** (`result/extractors/research.ts`): no resuelve la recencia (las fechas de las fuentes llegan, pero una tabla con los modelos más nuevos queda en la ref). Medir con un dataset de preguntas "último X" y decidir si hace falta una lectura posterior de la ref.

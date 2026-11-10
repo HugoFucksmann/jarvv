@@ -40,9 +40,11 @@ const rule = (id: string, reason: string, source: string): PathRule => ({ id, re
 const SECRET_PATTERNS: readonly PathRule[] = [
   rule("ssh-keys", "SSH keys and settings.", String.raw`${START}\.ssh${END}`),
   rule("gnupg", "GnuPG keys.", String.raw`${START}\.gnupg${END}`),
-  rule("cloud-credentials", "Cloud or cluster credentials.", String.raw`${START}\.(aws|azure|kube|gcloud)${END}|${START}\.config/gcloud${END}|${START}\.docker/config\.json${END}`),
-  rule("token-files", "A file that holds access tokens or passwords.", String.raw`${START}(\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.pgpass|credentials\.json)${END}`),
-  rule("dotenv", "An environment file with secrets (.env).", String.raw`${START}\.env(\.[\w.-]+)?${END}`),
+  rule("cloud-credentials", "Cloud or cluster credentials.", String.raw`${START}\.(aws|azure|kube|gcloud)${END}|${START}\.config/(gcloud|gh)${END}|${START}\.docker/config\.json${END}|${START}\.terraform\.d/credentials\.tfrc\.json${END}`),
+  rule("token-files", "A file that holds access tokens or passwords.", String.raw`${START}(\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.pgpass|\.vault-token|\.htpasswd|credentials\.json)${END}|${START}\.config/git/credentials${END}`),
+  rule("shell-history", "Shell history (commands often include tokens and passwords).", String.raw`${START}(consolehost_history\.txt|\.bash_history|\.zsh_history|\.python_history)${END}`),
+  // Las plantillas (`.env.example`, `.env.sample`...) no guardan secretos y se leen a diario.
+  rule("dotenv", "An environment file with secrets (.env).", String.raw`${START}\.env(?!\.(example|sample|template|dist)${END})(\.[\w.-]+)?${END}`),
   rule("private-keys", "A private key or certificate store.", String.raw`${START}id_(rsa|dsa|ecdsa|ed25519)${END}|\.(pem|key|pfx|p12|ppk|kdbx|jks|keystore)${END}`),
   rule(
     "browser-data",

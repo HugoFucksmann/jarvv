@@ -19,6 +19,9 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 - Los servidores MCP se arrancan en paralelo al encender Jarvis (antes, al primer uso: la primera carga de la interfaz o la primera tarea esperaba ~3 s) y las rutas de una tarea consultan su catálogo en paralelo. Desktop Commander se lanza con `--prefer-offline` (unos 0,4 s menos).
 - Free Search actualizado a `0.18.0` (mismos nombres y parámetros de herramientas y mismo formato de salida que `0.13.1`; arranca más rápido). Se lanza con `SEARCH_MCP_AGENT_ENGINES=off`: sin él, una sesión de Codex firmada en la PC mandaría las búsquedas también a ChatGPT y gastaría su cuota.
 - Desktop Commander pasa a ser una dependencia del proyecto (`package.json`, versión exacta `0.3.2`; se agrega `package-lock.json`) y se lanza con `node` directo en vez de `npx`: listo en ~0,7 s contra ~2,7 s, sin consultar el registro ni depender de la red. Se instaló con `--ignore-scripts` (su `postinstall` manda una estadística de instalación; el binario de `rg` viene en un paquete por plataforma y no lo necesita). Si falta el archivo (falta `npm install`), Jarvis lo avisa al arrancar. Requiere Node 22.12 o superior.
+- Free Search: sus dependencias transitivas quedan fijadas (`mcp/free-search/constraints.txt`, generado con `uv pip compile` desde `requirements.in`) y se pasan con `--constraints`; mismo tiempo de arranque.
+- Rutas sensibles: se agregan los historiales de shell, los tokens de `gh`, `terraform`, `vault` y `.htpasswd`; `.env.example`, `.env.sample`, `.env.template` y `.env.dist` ya no piden confirmación.
+- Tests del transporte MCP (servidor de mentira por stdio) y del SSE (entrega y baja del suscriptor).
 - Pruebas del núcleo (`npm test`) y menos repetición en `render/` y en el ejecutor de llamadas, sin cambios en el texto de los prompts.
 
 ## [0.6.0] — 2026-11-09

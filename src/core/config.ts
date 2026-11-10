@@ -113,8 +113,10 @@ const DEFAULT_CONFIG: JarvisConfig = {
     allowedDirectories: [],
   },
   freeSearchMcp: {
+    // `mcp/free-search/constraints.txt` fija las ~90 dependencias transitivas (las genera `uv pip compile` desde `requirements.in`); sin él `uvx`
+    // las resuelve por rangos y dos arranques en fechas distintas podrían traer versiones distintas. La ruta es relativa a la raíz del proyecto.
     command: "uvx",
-    args: ["--from", "free-search-mcp==0.18.0", "--with", "selectolax==0.3.34", "free-search-mcp"],
+    args: ["--from", "free-search-mcp==0.18.0", "--with", "selectolax==0.3.34", "--constraints", "mcp/free-search/constraints.txt", "free-search-mcp"],
     // Sin el carril de agentes: con una sesión de Codex firmada en la PC, `auto` mandaría las búsquedas también a ChatGPT y gastaría su cuota.
     env: { SEARCH_MCP_AGENT_ENGINES: "off" },
   },

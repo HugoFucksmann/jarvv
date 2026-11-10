@@ -442,7 +442,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   label="Free Search MCP (Comando / Argumentos):"
                   value={config.freeSearchMcp}
                   commandPlaceholder="uvx"
-                  argsPlaceholder="--from free-search-mcp==0.13.1 free-search-mcp"
+                  argsPlaceholder="--from free-search-mcp==0.18.0 free-search-mcp"
                   onChange={(patch) => updateMcp("freeSearchMcp", patch)}
                 />
               </div>
