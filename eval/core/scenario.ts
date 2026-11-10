@@ -54,6 +54,7 @@ import type { ExecutableRoute } from "../../src/core/types/routes.ts";
 import { EXECUTABLE_ROUTES } from "./contract.ts";
 import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
 import type { DecisionRequest, GenerativeRequest, GenerativeStage, Variant } from "./types.ts";
+import type { UserEnvironment } from "../../src/core/environment.ts";
 
 /**
  * Lo que, además de `src/`, cambia los prompts de los casos por escenario: la fecha (`TODAY`) y la configuración que fija
@@ -270,6 +271,9 @@ export interface Materialized {
   request: DecisionRequest | GenerativeRequest;
   /** `arguments`: schema real de la herramienta, para validar la salida. */
   toolSchema?: ToolInputSchema;
+  /** `arguments`: herramienta y entorno del caso, para repetir el pre-chequeo de producción sobre la salida. */
+  toolName?: string;
+  environment?: UserEnvironment;
 }
 
 const decision = (d: { state: string; questions: unknown }): Materialized => ({
@@ -359,8 +363,9 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
     case "arguments": {
       const route = need(at.route, "route", stage);
       const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      const request = argumentsStageRequest(argsInput(tool, at.environment ? { ...DEFAULT_ENVIRONMENT, ...at.environment } : DEFAULT_ENVIRONMENT, renderArgsView(ctx).text), config, P);
-      return { request: generative(request), toolSchema: tool.inputSchema as ToolInputSchema };
+      const env = at.environment ? { ...DEFAULT_ENVIRONMENT, ...at.environment } : DEFAULT_ENVIRONMENT;
+      const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), config, P);
+      return { request: generative(request), toolSchema: tool.inputSchema as ToolInputSchema, toolName: tool.name, environment: env };
     }
     case "pending": {
       return { request: generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), P), "pending") };

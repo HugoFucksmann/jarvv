@@ -10,7 +10,7 @@
 import type { PlanView } from "../ctx/index.ts";
 import { ContextOverflowError } from "./errors.ts";
 import {
-  callLine,
+  effectEntry,
   clipMarked,
   currentStepLine,
   factLine,
@@ -42,8 +42,8 @@ export function renderPlan(view: PlanView, options: PlanRenderOptions): Rendered
         ? `step_failure (failed step: ${trigger.failedStepId})`
         : `user_feedback\n${obsBlock("FEEDBACK", [clipMarked(oneLine(trigger.feedback), feedbackMax)])}`;
 
-  const effects = view.effects.map((c) => callLine(c, null));
-  const possible = view.possibleEffects.map((c) => callLine(c, null));
+  const effects = view.effects.map(effectEntry);
+  const possible = view.possibleEffects.map(effectEntry);
   const effectsChars = [...effects, ...possible].join("\n").length;
   if (effectsChars > caps.effectsReserve) throw new ContextOverflowError("forPlan", caps.effectsReserve, effectsChars);
 

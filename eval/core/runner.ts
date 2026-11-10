@@ -35,6 +35,8 @@ import type {
   RunRecord,
   StageName,
 } from "./types.ts";
+import { analyzePowerShell, precheckCall } from "../../src/core/engine/precheck.ts";
+import type { CommandAnalyzer } from "../../src/core/engine/precheck.ts";
 import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
 import type { Variant } from "./variants/types.ts";
 import { PROD_SHORTCUT_TAG } from "./case.ts";
@@ -118,6 +120,17 @@ function expandThinking(
   // plan, arguments, question: valor del caso
   return [{ thinking: caseThinking, stageKey: stage }];
 }
+
+/** El analizador de producción, con caché por comando (cada análisis lanza un PowerShell). */
+const analysisCache = new Map<string, ReturnType<CommandAnalyzer>>();
+const cachedAnalyze: CommandAnalyzer = (command) => {
+  let r = analysisCache.get(command);
+  if (r === undefined) {
+    r = analyzePowerShell(command);
+    analysisCache.set(command, r);
+  }
+  return r;
+};
 
 // ───────────────────────── Bucket (7.9, 5.4) ─────────────────────────
 
@@ -454,6 +467,18 @@ async function runGenerative(
 
   const ctx = { rawOutput, finishReason: result.finishReason, durationMs };
   gradeWithGuard(entry, parsed, fc.expect, ctx, collector, metrics);
+
+  // Como producción (6b): los argumentos generados pasan por el pre-chequeo determinista (sintaxis de PowerShell, comandos que existen).
+  if (fc.stage === "arguments" && parsed !== undefined && fc.meta?.toolName !== undefined && fc.meta.environment !== undefined) {
+    const finding = await precheckCall({
+      tool: fc.meta.toolName,
+      kind: "write",
+      args: (parsed as { args: Record<string, unknown> }).args,
+      sources: { text: "", complete: false },
+      environment: fc.meta.environment,
+    }, cachedAnalyze);
+    collector.check("precheck_ok", finding === null, `El pre-chequeo de producción rechazaría estos argumentos: ${finding?.reason}`);
+  }
 
   return makeRecord(baseRecord, {
     rawInput: usedBody,

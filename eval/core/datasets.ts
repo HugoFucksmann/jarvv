@@ -189,7 +189,7 @@ function loadFile(path: string, errors: string[], variant?: Variant): Dataset {
       try {
         const m = materializeScenario(String(rest.stage), scenario as Scenario, variant);
         const meta = (rest.meta ?? {}) as Record<string, unknown>;
-        parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema } } : {}) };
+        parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema, toolName: m.toolName, environment: m.environment } } : {}) };
       } catch (e) {
         errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);
         return;

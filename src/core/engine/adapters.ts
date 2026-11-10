@@ -102,8 +102,8 @@ export function renderArgsView(ctx: TaskContext, tool?: string): Rendered {
 }
 
 /** Entrada de la generación de argumentos: la herramienta, su schema limpio, las rutas del usuario y el texto de la vista. */
-export function argsInput(tool: MCPTool, environment: ArgsFromViewInput["environment"], view: string): ArgsFromViewInput {
-  return { tool, cleanedSchema: cleanInputSchema(tool.inputSchema), environment, view };
+export function argsInput(tool: MCPTool, environment: ArgsFromViewInput["environment"], view: string, priorAttempts = 0): ArgsFromViewInput {
+  return { tool, cleanedSchema: cleanInputSchema(tool.inputSchema), environment, view, priorAttempts };
 }
 
 // ───────────────────────── Decision #1 y #2 ─────────────────────────

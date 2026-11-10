@@ -168,6 +168,8 @@ export interface ArgsFromViewInput {
   readonly environment: UserEnvironment;
   /** Texto de `renderArgs(ctx.view.forArgs(...))`. */
   readonly view: string;
+  /** Intentos previos de esta herramienta en este paso que no se aprobaron; sube la temperatura (`argsTemperature`). Por defecto 0. */
+  readonly priorAttempts?: number;
 }
 
 export interface QuestionInput {

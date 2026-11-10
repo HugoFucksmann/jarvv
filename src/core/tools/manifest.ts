@@ -64,7 +64,7 @@ export const DESTINATIONS: Readonly<
 > = {
   files: {
     server: "desktop_commander",
-    description: "Read, create, save or move files and folders, and list a folder, when the path is already known.",
+    description: "Read, create, save or move files and folders, and list a folder (names only, without sizes or dates), when the path is already known.",
   },
   locate: {
     server: "desktop_commander",
@@ -73,7 +73,7 @@ export const DESTINATIONS: Readonly<
   terminal: {
     server: "desktop_commander",
     description:
-      "Run a command or program (including launching apps), and read its output or send it input while it runs. Not for reading or listing files.",
+      "Run a command or program (including launching apps), and read its output or send it input while it runs. Also for information about files that a plain listing does not give: sizes, dates, sorting, filtering or totals.",
   },
   web: {
     server: "free_search",
@@ -155,7 +155,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
   }),
   def("files", "create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
-  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path.", { params: ["path", "depth"] }),
+  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path (names only: no sizes or dates).", { params: ["path", "depth"] }),
   def("files", "move_file", "FILE_WRITE", "Move or rename files or directories."),
 
   def("locate", "start_search", "FILE_READ", "Start a streaming file search.", {

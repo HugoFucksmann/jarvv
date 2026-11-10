@@ -6,6 +6,7 @@
  */
 
 import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
+import type { UserEnvironment } from "../../src/core/environment.ts";
 
 /** Versión del esquema de salida. Incrementar al cambiar campos incompatibles. */
 export const SCHEMA_VERSION = 3 as const;
@@ -65,6 +66,9 @@ export interface Case {
   meta?: {
     /** `arguments`: inputSchema real de la herramienta; se usa para `validateArgs`, no se envía al modelo. */
     toolSchema?: ToolInputSchema;
+    /** `arguments`: herramienta y entorno del escenario; con ellos el runner repite el pre-chequeo de producción (6b) sobre la salida. */
+    toolName?: string;
+    environment?: UserEnvironment;
     origin?: { id: string; commit?: string };
   };
 }

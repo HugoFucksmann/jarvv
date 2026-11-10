@@ -84,6 +84,18 @@ export function callLine(call: CallView, lineChars: number | null): string {
   return parts.join(" ");
 }
 
+/**
+ * Efecto: encabezado, argumentos y resultado COMPLETO con sus saltos de línea (sin recorte). En una sola línea la salida de un comando
+ * (columnas de `Get-ChildItem`, `Get-Process`) llegaba aplastada y el modelo cortaba o convertía mal las cifras (traza del 2026-11-09).
+ */
+export function effectEntry(call: CallView): string {
+  const lines = [callHead(call)];
+  if (call.args !== null) lines.push(`args=${oneLine(JSON.stringify(call.args))}`);
+  if (call.summary !== null) lines.push(multiLine(call.summary));
+  if (call.ref !== null) lines.push(refText(call.ref));
+  return lines.join("\n");
+}
+
 export function factLine(fact: FactView): string {
   return `${fact.key}=${oneLine(fact.value)}`;
 }

@@ -12,7 +12,7 @@ import type { CallView, FallbackView, FinalView } from "../ctx/index.ts";
 import { ContextOverflowError } from "./errors.ts";
 import { FALLBACK_STATE_TEXT, FALLBACK_STOP_TEXT } from "./messages.ts";
 import {
-  callLine,
+  effectEntry,
   clipMarked,
   evidenceEntry,
   factLine,
@@ -32,8 +32,8 @@ export interface FinalRenderOptions {
 export function renderFinal(view: FinalView, options: FinalRenderOptions): Rendered {
   const caps = options.caps;
 
-  const effects = view.effects.map((c) => callLine(c, null));
-  const possible = view.possibleEffects.map((c) => callLine(c, null));
+  const effects = view.effects.map(effectEntry);
+  const possible = view.possibleEffects.map(effectEntry);
   const effectsChars = [...effects, ...possible].join("\n").length;
   if (effectsChars > caps.effectsReserve) throw new ContextOverflowError("forFinal", caps.effectsReserve, effectsChars);
 

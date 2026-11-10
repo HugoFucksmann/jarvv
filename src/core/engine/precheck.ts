@@ -242,6 +242,32 @@ function checkCommand(report: CommandReport | null, platform: Platform): Prechec
   return null;
 }
 
+/**
+ * `powershell -Command "..."` (o `pwsh`, `-c`, con opciones como `-NoProfile` antes): el texto entre comillas lo analiza otro PowerShell,
+ * así que el analizador solo ve el comando externo y no encontraría errores de sintaxis del interior. Devuelve ese texto interior, o null
+ * si el comando no tiene esa forma.
+ */
+export function unwrapPowerShellCommand(command: string): string | null {
+  const m = /^\s*(?:powershell|pwsh)(?:\.exe)?((?:\s+-(?!c(?:ommand)?\b)[A-Za-z]+(?:\s+(?!-)\S+)?)*)\s+-c(?:ommand)?\s+([\s\S]+)$/i.exec(command);
+  if (m === null) return null;
+  let inner = m[2].trim();
+  const quote = inner[0];
+  if ((quote === '"' || quote === "'") && inner.length >= 2 && inner.endsWith(quote)) {
+    inner = inner.slice(1, -1);
+    if (quote === '"') inner = inner.replace(/\\"/g, '"');
+  }
+  return inner.trim() === "" ? null : inner;
+}
+
+const WRAPPER_REASON =
+  "The command is already run in PowerShell: write the PowerShell command directly, without wrapping it in 'powershell -Command'.";
+
+/** Envoltorio `powershell -Command`: se analiza el interior (el error de sintaxis, si lo hay, va primero) y, aunque esté bien, se pide escribirlo sin el envoltorio. */
+async function checkWrappedCommand(inner: string, analyze: CommandAnalyzer, platform: Platform): Promise<PrecheckFinding> {
+  const found = checkCommand(await analyze(inner), platform);
+  return { review: "args_invalid", reason: found === null ? WRAPPER_REASON : `${WRAPPER_REASON} Also: ${found.reason}` };
+}
+
 // ───────────────────────── Analizador de comandos (PowerShell) ─────────────────────────
 
 const ANALYZER_TIMEOUT_MS = 8000;
@@ -322,6 +348,8 @@ export async function precheckCall(input: PrecheckInput, analyze: CommandAnalyze
     const shell = typeof input.args.shell === "string" ? input.args.shell.toLowerCase() : undefined;
     if (input.environment.platform === "windows") {
       if (shell === undefined || shell === "powershell" || shell === "pwsh") {
+        const inner = unwrapPowerShellCommand(input.args.command);
+        if (inner !== null) return checkWrappedCommand(inner, analyze, input.environment.platform);
         const found = checkCommand(await analyze(input.args.command), input.environment.platform);
         if (found !== null) return found;
       } else if (shell === "cmd") {

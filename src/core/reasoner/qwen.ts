@@ -291,6 +291,8 @@ interface DispatchOptions {
 }
 
 interface ValidatedDispatch<T> extends Omit<DispatchOptions, "temperature"> {
+  /** Temperatura del primer intento (por defecto `BASE_TEMPERATURE`); el reintento usa `RETRY_TEMPERATURE` o más si esta ya la supera. */
+  temperature?: number;
   /** Thinking en el reintento; por defecto el mismo. */
   retryThinking?: boolean;
   validate: (res: LlmDispatchResult, isLastAttempt: boolean) => Validation<T>;
@@ -484,7 +486,7 @@ export class QwenEngine implements EngineLLM {
         schema: o.schema,
         maxTokens: retry ? Math.ceil(o.maxTokens * RETRY_TOKEN_FACTOR) : o.maxTokens,
         thinking: retry ? (o.retryThinking ?? o.thinking) : o.thinking,
-        temperature: retry ? RETRY_TEMPERATURE : BASE_TEMPERATURE,
+        temperature: retry ? Math.max(RETRY_TEMPERATURE, o.temperature ?? 0) : (o.temperature ?? BASE_TEMPERATURE),
         signal: o.signal,
       });
       last = res;

@@ -122,6 +122,19 @@ function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[
  * se puede consultar NO se descarta: el fallo aparece al ejecutar y cierra la tarea como infraestructura caída.
  */
 export async function availableRoutes(env: EngineEnv, stepId: string, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
+  const out = await routesWithTools(env, routes);
+  // Una ruta cuyo resultado Decisión 4 rechazó `ROUTE_EXHAUSTED_AFTER` veces como "no cumple lo pedido" en este paso se deja de ofrecer: cambiar los
+  // argumentos de la misma herramienta no resuelve lo que esa ruta no puede dar (p. ej. `list_directory` no trae tamaños). Si no quedara ninguna ruta, se ofrecen todas.
+  const notAccomplished = (route: string): number =>
+    env.ctx.find("calls", { stepId, route }).filter((c) => c.verdict === "rejected" && c.reason === "not_accomplished").length;
+  const remaining = out.filter((route) => notAccomplished(route) < ROUTE_EXHAUSTED_AFTER);
+  return remaining.length > 0 ? remaining : out;
+}
+
+/** Cuántos rechazos `not_accomplished` de Decisión 4 en un paso agotan una ruta (deja de ofrecerse a Decisión 1 en ese paso). */
+export const ROUTE_EXHAUSTED_AFTER = 2;
+
+async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const { ctx, deps } = env;
   const out: ExecutableRoute[] = [];
   for (const route of routes) {
@@ -258,9 +271,11 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return { kind: "close", stopReason: "unrecoverable", callId: null };
   }
   const environment = await deps.environment();
+  // Intentos previos de esta herramienta en este paso que no se aprobaron (rechazados, bloqueados o con error): suben la temperatura.
+  const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved").length;
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
-    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text), runtime.signal),
+    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
     0,
   );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
