@@ -42,6 +42,7 @@ import { closeOnFailure, queryModel } from "./failures.ts";
 import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
 import { factValue } from "./retries.ts";
+import { trackProcess } from "./processes.ts";
 import { reviewOutcome, verifyCall } from "./verify.ts";
 
 export interface RunCallParams {
@@ -430,6 +431,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   }
   if (ctx.isClosed()) return CANCELLED;
 
+  trackProcess(env.processes, processed, policy.mutates, resolved);
   const factOps = processFactOps(ctx, stepId, mcp, tool.name, policy, processed);
   const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
   const callId = register(

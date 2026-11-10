@@ -32,6 +32,10 @@ interface Scenario {
   readonly args: Record<string, unknown>;
   readonly onWait?: (waiting: Waiting, runtime: TaskRuntime) => void;
   readonly autoMode?: boolean;
+  /** Texto que devuelve la herramienta (por defecto, un listado de archivos). */
+  readonly result?: string;
+  /** Se invoca al verificar el resultado de la llamada (para cancelar la tarea en ese punto). */
+  readonly onVerify?: (runtime: TaskRuntime) => void;
 }
 
 interface Outcome {
@@ -52,7 +56,7 @@ async function run(s: Scenario): Promise<Outcome> {
     listTools: async () => TOOLS,
     callTool: async (name, args): Promise<MCPCallResult> => {
       dispatched.push({ tool: name, args });
-      return { content: [{ type: "text", text: "[FILE] a.txt\n[FILE] b.txt" }] };
+      return { content: [{ type: "text", text: name === "force_terminate" ? "terminated" : (s.result ?? "[FILE] a.txt\n[FILE] b.txt") }] };
     },
     isConnected: () => true,
     reconnect: async () => undefined,
@@ -72,7 +76,10 @@ async function run(s: Scenario): Promise<Outcome> {
         reviews++;
         return { review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" };
       },
-      verifyResult: async () => ({ answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" }),
+      verifyResult: async () => {
+        s.onVerify?.(runtime);
+        return { answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
+      },
     },
     llm: {
       generateArgumentsFromView: async () => ({ args: s.args, rawInput: "", rawOutput: "", timing: TIMING }),
@@ -189,4 +196,26 @@ test("start_process que escribe: sigue siendo una escritura que pide confirmaci�
   assert.equal(asked, true);
   assert.equal(dispatched.length, 1);
   assert.equal(ctx.find("calls", {})[0].kind, "write");
+});
+
+const STARTED = "Process started with PID 4321 (shell: powershell)\nesperando...";
+const READ_CMD = { command: "Get-Date" };
+
+test("procesos: si la tarea se cancela con un proceso en segundo plano activo, se cierra (force_terminate)", async () => {
+  const { dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: STARTED, onVerify: (runtime) => runtime.cancel() });
+  const closed = dispatched.filter((d) => d.tool === "force_terminate");
+  assert.equal(closed.length, 1);
+  assert.deepEqual(closed[0].args, { pid: 4321 });
+});
+
+test("procesos: si la tarea se completa, el proceso en segundo plano se deja (puede ser lo pedido)", async () => {
+  const { ctx, dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: STARTED });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(dispatched.filter((d) => d.tool === "force_terminate").length, 0);
+});
+
+test("procesos: un proceso que ya terminó no se vuelve a cerrar", async () => {
+  const done = "Process started with PID 4321 (shell: powershell)\nlisto\n✅ Process 4321 has finished execution";
+  const { dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: done, onVerify: (runtime) => runtime.cancel() });
+  assert.equal(dispatched.filter((d) => d.tool === "force_terminate").length, 0);
 });

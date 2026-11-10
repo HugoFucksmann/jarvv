@@ -34,6 +34,7 @@ import { reconcileList } from "./pendingList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
 import type { TaskRuntime } from "./runtime.ts";
+import { terminateProcesses } from "./processes.ts";
 import { runStep } from "./stepLoop.ts";
 
 const COMPLETED: Closing = { stopReason: null };
@@ -55,8 +56,13 @@ function planStop(outcome: Exclude<PlanOutcome, { readonly kind: "planned" }>): 
 /** Ejecuta la tarea hasta su cierre: estado terminal y respuesta final quedan escritos en el contexto. */
 export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: EngineDeps): Promise<void> {
   const env = createEngineEnv(ctx, runtime, deps);
-  const closing = ctx.task.mode === "reactive" ? await runReactive(env) : await runDeliberative(env);
-  await finalize(env, closing);
+  try {
+    const closing = ctx.task.mode === "reactive" ? await runReactive(env) : await runDeliberative(env);
+    await finalize(env, closing);
+  } finally {
+    // Cancelada, fallida, parcial o con un error interno: no se dejan procesos en segundo plano. Completada: se dejan (pudo ser lo pedido).
+    if (ctx.task.state !== "completed") await terminateProcesses(env);
+  }
 }
 
 async function runReactive(env: EngineEnv): Promise<Closing> {
