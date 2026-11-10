@@ -219,3 +219,50 @@ test("procesos: un proceso que ya terminó no se vuelve a cerrar", async () => {
   const { dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: done, onVerify: (runtime) => runtime.cancel() });
   assert.equal(dispatched.filter((d) => d.tool === "force_terminate").length, 0);
 });
+
+test("ruta sensible: pide confirmación aunque esté encendido el modo automático, y si se rechaza no se despacha", async () => {
+  let asked: string | null = null;
+  const { dispatched } = await run({
+    request: "Listar C:\\Users\\Ana\\.ssh",
+    tool: "list_directory",
+    args: { path: "C:\\Users\\Ana\\.ssh" },
+    autoMode: true,
+    onWait: (waiting, runtime) => {
+      if (waiting.kind !== "approval") return;
+      asked = waiting.request.reason;
+      runtime.cancel();
+    },
+  });
+  assert.match(asked ?? "", /ssh-keys/);
+  assert.equal(dispatched.length, 0);
+});
+
+test("ruta sensible aprobada por el usuario: se despacha", async () => {
+  const { dispatched } = await run({
+    request: "Listar C:\\Users\\Ana\\.ssh",
+    tool: "list_directory",
+    args: { path: "C:\\Users\\Ana\\.ssh" },
+    autoMode: true,
+    onWait: (waiting, runtime) => {
+      if (waiting.kind === "approval") runtime.resolveApproval(waiting.request.id, true);
+    },
+  });
+  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1);
+});
+
+test("start_process de solo lectura sobre una ruta sensible: ya no se permite sin confirmar", async () => {
+  let asked = false;
+  const { dispatched } = await run({
+    request: "Leer C:\\Users\\Ana\\.ssh\\config",
+    tool: "start_process",
+    args: { command: "Get-Content C:\\Users\\Ana\\.ssh\\config" },
+    autoMode: true,
+    onWait: (waiting, runtime) => {
+      if (waiting.kind !== "approval") return;
+      asked = true;
+      runtime.cancel();
+    },
+  });
+  assert.equal(asked, true);
+  assert.equal(dispatched.length, 0);
+});

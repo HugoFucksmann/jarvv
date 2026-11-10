@@ -18,6 +18,8 @@ export type GuardResult = "ALLOW" | "DENY" | "APPROVAL";
 export interface GuardDecision {
   decision: GuardResult;
   reason?: string;
+  /** Con `APPROVAL`: la confirmación del usuario es obligatoria aunque `autoMode` esté encendido (rutas sensibles). */
+  mandatory?: boolean;
   capability: Capability;
 }
 

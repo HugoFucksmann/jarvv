@@ -334,9 +334,10 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (finding !== null) return reject(finding.review, summaryText(finding.reason));
 
+  // Una ruta sensible (`guard.mandatory`) pide confirmación también en modo automático.
   // Modo automático: una herramienta del catálogo que pedía aprobación no se la pide al usuario y pasa por D3 (si escribe). Una no catalogada
   // (Guard la manda a aprobación por defecto) sigue pidiéndola. Sin modo automático, una coincidencia con la lista negra siempre se pregunta.
-  const askUser = (guard.decision === "APPROVAL" && !(auto && isKnownTool(mcp, tool.name))) || (listed !== null && !auto);
+  const askUser = (guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto);
 
   // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
   if (askUser) {
