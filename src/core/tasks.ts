@@ -103,6 +103,13 @@ export class TaskManager {
 
   // ─────────── Ciclo de vida ───────────
 
+  /** Tareas sin cerrar (en curso o esperando al usuario). */
+  activeCount(): number {
+    let active = 0;
+    for (const { ctx } of this.tasks.values()) if (!ctx.isClosed()) active++;
+    return active;
+  }
+
   /** Crea la tarea y la lanza en segundo plano. Devuelve su estado inicial. */
   start(message: string, mode: TaskMode): TaskDto {
     const id = newId("task");

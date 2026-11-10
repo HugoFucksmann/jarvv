@@ -7,6 +7,7 @@
 
 import express from 'express';
 import { limitValues } from '../core/engine/limits.ts';
+import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from '../core/types/limits.ts';
 import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
@@ -90,6 +91,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     if (!message) return void res.status(400).json({ error: 'Mensaje requerido.' });
     const mode = req.body?.mode ?? 'reactive';
     if (!isMode(mode)) return void res.status(400).json({ error: `Modo inválido; use ${TASK_MODES.join(' o ')}.` });
+    if (tasks.activeCount() >= MAX_ACTIVE_TASKS) return void res.status(429).json({ error: `Hay ${MAX_ACTIVE_TASKS} tareas en curso; espere a que termine alguna o cancele una.` });
     res.json({ task: tasks.start(message, mode) });
   });
 
@@ -190,7 +192,10 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   });
 
   // Eventos en tiempo real (SSE): un mensaje `data: <TaskEvent>` por evento.
+  let sseClients = 0;
   router.get('/events', (req, res) => {
+    if (sseClients >= MAX_SSE_CLIENTS) return void res.status(429).json({ error: 'Demasiadas conexiones de eventos abiertas.' });
+    sseClients++;
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -207,6 +212,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     const unsubscribe = tasks.addEventListener((event) => send(`data: ${JSON.stringify(event)}\n\n`));
     const keepAlive = setInterval(() => send(': ping\n\n'), 15000);
     req.on('close', () => {
+      sseClients--;
       clearInterval(keepAlive);
       unsubscribe();
     });

@@ -8,6 +8,7 @@ import { Guard, isPathInside } from "../src/core/policy/guard.ts";
 import type { ProtectedPaths } from "../src/core/policy/guard.ts";
 import { blacklistMatch, compileBlacklist } from "../src/core/policy/blacklist.ts";
 import { classify } from "../src/core/policy/commandRules.ts";
+import { SYSTEM_TOOL_MANIFEST } from "../src/core/tools/manifest.ts";
 
 const DC = "desktop_commander";
 const scope: ProtectedPaths = { protectedDirs: [path.resolve("data/refs")], relativeBases: [process.cwd()] };
@@ -59,4 +60,13 @@ test("lista negra: una entrada con patrón solo coincide con sus argumentos y so
   assert.ok(blacklistMatch(list, DC, "start_process", true, { command: "shutdown /s" }));
   assert.equal(blacklistMatch(list, DC, "start_process", true, { command: "dir" }), null);
   assert.equal(blacklistMatch(list, DC, "read_file", false, { command: "shutdown /s" }), null);
+});
+
+test("fail-closed: una herramienta que no está en el catálogo pide aprobación, y toda herramienta del catálogo que modifica también la pide", () => {
+  const unknown = Guard.evaluate(DC, "herramienta_nueva", { path: "C:/x/a.txt" });
+  assert.equal(unknown.decision, "APPROVAL");
+  assert.notEqual(unknown.mandatory, true);
+  for (const t of SYSTEM_TOOL_MANIFEST) {
+    if (t.policy.mutates) assert.equal(t.policy.requiresApproval, true, `${t.server}:${t.name} modifica y no pide aprobación`);
+  }
 });

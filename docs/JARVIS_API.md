@@ -15,7 +15,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 
 | Método y ruta | Cuerpo | Qué hace |
 |---|---|---|
-| `POST /process` | `{ message, mode? }` | Crea y lanza la tarea. Responde `{ task: TaskDto }` |
+| `POST /process` | `{ message, mode? }` | Crea y lanza la tarea. Responde `{ task: TaskDto }`, o `429` si ya hay 4 tareas en curso |
 | `POST /cancel` | `{ taskId? }` | Cancela. Sin `taskId`, la última abierta. Idempotente |
 | `POST /confirm-plan` | `{ taskId, waitId }` | Acepta el plan que espera confirmación |
 | `POST /modify-plan` | `{ taskId, feedback, waitId }` | Pide un plan nuevo con la instrucción (sin tope de veces); vuelve a pedir confirmación |
@@ -24,7 +24,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 | `POST /deny` | `{ taskId, reason?, waitId }` | Rechaza la operación; `reason` (opcional) llega al modelo como instrucción. La tarea no termina |
 | `POST /user-answer` | `{ taskId?, answer }` | Responde la pregunta abierta (no vacía) |
 | `GET /state?taskId=` | | `{ task: TaskDto \| null, tasks: TaskSummary[], discoveredTools, unavailableServers }`. Sin `taskId`, la última |
-| `GET /events` | | SSE, ver abajo |
+| `GET /events` | | SSE, ver abajo (`429` con 8 conexiones abiertas) |
 | `GET /tasks/:taskId/refs/:refId` | | Texto completo de una ref de la tarea (`calls[].ref`, `refs[].id`), `text/plain`. 404 si la tarea o la ref no existen o el archivo ya no está |
 | `GET /tasks/:taskId/trace?format=` | | Traza de una tarea **terminada**: `summary` (Markdown, por defecto; alertas, línea de tiempo con las decisiones D1 a D4, esperas y respuesta final) o `json` (snapshot, consultas a modelos con sus opciones, herramientas y duraciones). 400 si `format` es otro; 404 si la tarea sigue en curso, la traza está desactivada (`traceEnabled`) o no existe |
 | `GET /environment` | | Datos de esta PC: `platform`, `home`, `desktop`, `documents`, `downloads` (los que se pudieron consultar), más `now` (ISO) y `timeZone` |

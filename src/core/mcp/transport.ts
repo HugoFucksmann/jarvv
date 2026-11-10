@@ -13,11 +13,39 @@
 
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import type { StdioServerConfig } from "../config.ts";
 import { errorMessage } from "../utils.ts";
 
 /** Tope de una línea de salida del servidor sin salto de línea: un mensaje JSON-RPC es una línea; más que esto no es una respuesta, es un servidor descontrolado. */
 const MAX_STDOUT_BUFFER_CHARS = 32 * 1024 * 1024;
+
+/**
+ * ¿Hace falta un shell para lanzar `command`? Solo en Windows y solo para un script `.cmd`/`.bat` (como `npx`): Node no los lanza sin shell. Un `.exe`
+ * (`node`, `uvx`) se lanza directo, así que los argumentos no pasan por ningún shell ni se reinterpretan. Se busca como lo hace Windows: cada carpeta
+ * del PATH y, sin extensión, cada una de PATHEXT; manda la primera coincidencia. Si no se encuentra nada, sin shell (el fallo es un "no existe" claro).
+ */
+export function needsShell(
+  command: string,
+  env: { readonly platform?: string; readonly path?: string; readonly pathExt?: string; readonly exists?: (file: string) => boolean } = {},
+): boolean {
+  if ((env.platform ?? process.platform) !== "win32") return false;
+  const win = path.win32;
+  const exists = env.exists ?? fs.existsSync;
+  const scripts = new Set([".cmd", ".bat"]);
+  const ext = win.extname(command).toLowerCase();
+  if (ext === ".cmd" || ext === ".bat") return true;
+  if (ext === ".exe" || ext === ".com") return false;
+  const dirs = /[\\/]/.test(command) ? [""] : (env.path ?? process.env.PATH ?? "").split(";").filter(Boolean);
+  const exts = (env.pathExt ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((e) => e.toLowerCase());
+  for (const dir of dirs) {
+    for (const e of exts) {
+      if (exists(win.join(dir, command + e))) return scripts.has(e);
+    }
+  }
+  return false;
+}
 
 export class MCPTransportError extends Error {
   constructor(public readonly serverName: string, message: string, public readonly cause?: unknown) {
@@ -124,7 +152,7 @@ export class StdioMcpTransport implements IMCPTransport {
           env,
           cwd: this.config.cwd,
           stdio: ["pipe", "pipe", "pipe"],
-          shell: process.platform === "win32",
+          shell: needsShell(command, { path: env.PATH ?? env.Path, pathExt: env.PATHEXT }),
         });
 
         started = child;

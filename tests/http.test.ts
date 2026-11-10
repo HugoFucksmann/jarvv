@@ -9,12 +9,16 @@ import express from "express";
 
 import type { TaskManager } from "../src/core/tasks.ts";
 import type { DiscoveryEngine } from "../src/core/mcp/discovery.ts";
+import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from "../src/core/types/limits.ts";
 import { createJarvisRouter, withoutLaunchFields } from "../src/server/jarvisRouter.ts";
 import { localOnly } from "../src/server/localOnly.ts";
 
 const calls: string[] = [];
 const listeners = new Set<(event: unknown) => void>();
+let active = 0;
 const fakeTasks = {
+  activeCount: () => active,
+  start: (message: string) => ({ id: "task_new", message }),
   addEventListener: (listener: (event: unknown) => void) => (listeners.add(listener), () => listeners.delete(listener)),
   list: () => [{ id: "task_1", state: "running" }],
   cancel: (id: string) => (calls.push(`cancel ${id}`), "ok"),
@@ -164,4 +168,36 @@ test("SSE: los eventos llegan como `data:`, y al cerrar el cliente se da de baja
   assert.equal(received.trim(), 'data: {"type":"task_updated","taskId":"task_1"}');
   for (let i = 0; i < 50 && listeners.size > 0; i++) await new Promise((r) => setTimeout(r, 20));
   assert.equal(listeners.size, 0);
+});
+
+test("POST /process responde 429 con el tope de tareas en curso y vuelve a aceptar al liberarse una", async () => {
+  active = MAX_ACTIVE_TASKS;
+  assert.equal((await request("POST", "/api/jarvis/process", { body: { message: "hola" } })).status, 429);
+  active = MAX_ACTIVE_TASKS - 1;
+  assert.equal((await request("POST", "/api/jarvis/process", { body: { message: "hola" } })).status, 200);
+  active = 0;
+});
+
+test("SSE: pasado el tope de conexiones abiertas responde 429, y al cerrarse una se acepta otra", async () => {
+  const open = (): Promise<{ status: number; close: () => void }> =>
+    new Promise((resolve, reject) => {
+      const req = http.request({ host: "127.0.0.1", port, path: "/api/jarvis/events" }, (res) => resolve({ status: res.statusCode ?? 0, close: () => req.destroy() }));
+      req.on("error", (error) => (error as NodeJS.ErrnoException).code === "ECONNRESET" || reject(error));
+      req.end();
+    });
+  const clients = [];
+  for (let i = 0; i < MAX_SSE_CLIENTS; i++) clients.push(await open());
+  assert.ok(clients.every((c) => c.status === 200));
+  const refused = await open();
+  assert.equal(refused.status, 429);
+  clients[0].close();
+  let again = 429;
+  for (let i = 0; i < 50 && again !== 200; i++) {
+    await new Promise((r) => setTimeout(r, 20));
+    const next = await open();
+    again = next.status;
+    clients.push(next);
+  }
+  assert.equal(again, 200);
+  for (const c of clients) c.close();
 });

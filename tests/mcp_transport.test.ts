@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { test } from "node:test";
 
-import { StdioMcpTransport } from "../src/core/mcp/transport.ts";
+import { needsShell, StdioMcpTransport } from "../src/core/mcp/transport.ts";
 
 const SERVER = path.resolve("tests/helpers/fake_mcp_server.mjs");
 const make = (timeoutMs = 5000) => new StdioMcpTransport("fake", { command: "node", args: [SERVER] }, () => timeoutMs);
@@ -52,4 +52,16 @@ test("un servidor que no arranca queda como fallo permanente (no se relanza en c
   assert.ok(transport.getPermanentFailure() !== null);
   await assert.rejects(transport.callTool("echo", {}), /terminó|Transport Error/);
   await transport.close();
+});
+
+test("shell solo para scripts .cmd/.bat de Windows: node y uvx (.exe) se lanzan directo y sin Windows no hay shell", () => {
+  const present = new Set([String.raw`c:\bin\node.exe`, String.raw`c:\bin\uvx.exe`, String.raw`c:\npm\npx.cmd`, String.raw`c:\npm\npx.ps1`]);
+  const env = { platform: "win32", path: String.raw`C:\bin;C:\npm`, pathExt: ".COM;.EXE;.BAT;.CMD", exists: (file: string) => present.has(file.toLowerCase()) };
+  assert.equal(needsShell("node", env), false);
+  assert.equal(needsShell("uvx", env), false);
+  assert.equal(needsShell("npx", env), true);
+  assert.equal(needsShell(String.raw`C:\npm\npx.cmd`, env), true);
+  assert.equal(needsShell(String.raw`C:\bin\node.exe`, env), false);
+  assert.equal(needsShell("inexistente", env), false);
+  assert.equal(needsShell("npx", { ...env, platform: "linux" }), false);
 });
