@@ -665,6 +665,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="text"
                     value={config.tracePath || ""}
                     onChange={(e) => update({ tracePath: e.target.value })}
+                    readOnly
+                    title="Solo se cambia en jarvis-config.json (la API no lo acepta)"
                     placeholder="trace/runs.jsonl"
                     className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 font-mono text-[11px] focus:outline-none focus:border-purple-500"
                   />

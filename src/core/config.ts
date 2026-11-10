@@ -74,6 +74,12 @@ export type ConfigSource = () => JarvisConfig;
  */
 export const LAUNCH_ONLY_KEYS = ["command", "args", "env", "cwd"] as const;
 
+/**
+ * Claves de primer nivel que dicen DÓNDE escribe o borra Jarvis (`refsDir`, `tracePath`: la retención y las trazas actúan sobre esas carpetas).
+ * Igual que `LAUNCH_ONLY_KEYS`, solo se cambian editando `jarvis-config.json`.
+ */
+export const FILE_ONLY_KEYS = ["refsDir", "tracePath"] as const;
+
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
 export type ConfigPatch = Partial<
   Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">

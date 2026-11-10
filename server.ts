@@ -22,6 +22,7 @@ import { QwenEngine } from './src/core/models/qwen.ts';
 import { TaskManager } from './src/core/tasks.ts';
 import { createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
+import { localOnly } from './src/server/localOnly.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { startRetention } from './src/core/retention.ts';
@@ -33,30 +34,8 @@ async function main() {
   const app = express();
   app.use(express.json());
 
-  // Acceso solo local: el agente ejecuta comandos en esta PC. Se exige un Host local (frena el DNS rebinding) y,
-  // si el request trae Origin, que también sea local, sea cual sea el método (el frontend en otro puerto de
-  // localhost sigue funcionando). Los requests sin Origin (mismo origen, curl) pasan.
-  const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
-  const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
-  app.use((req, res, next) => {
-    if (!LOCAL_HOST.test(req.headers.host ?? '')) {
-      return res.status(403).json({ error: 'Host no permitido.' });
-    }
-    const origin = req.headers.origin;
-    if (origin) {
-      if (!LOCAL_ORIGIN.test(origin)) {
-        return res.status(403).json({ error: 'Origen no permitido.' });
-      }
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    }
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(200);
-    }
-    next();
-  });
+  // Acceso solo local (Host y Origin): ver `src/server/localOnly.ts`.
+  app.use(localOnly());
 
   const getConfig = () => ConfigManager.getConfig();
 

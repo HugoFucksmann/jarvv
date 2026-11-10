@@ -174,7 +174,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos |
-| `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción) |
+| `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción). Solo valida los argumentos de ruta de las herramientas de archivos: **no restringe lo que haga un comando** de `start_process` |
 | `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
 | `retentionDays` | `30` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar nada). Las refs de una tarea retenida en memoria no se tocan |
@@ -214,7 +214,7 @@ Esta es una **versión temprana ([v0.6.0](CHANGELOG.md))**: el flujo completo fu
 | **Tareas largas** | ⚠️ Con muchos pasos y reintentos el contexto crece y el modelo chico pierde precisión; hay compactación, pero falta medirla |
 | **Validaciones** | ⚠️ La revisión de argumentos (Decisión 3) y la verificación de resultados (Decisión 4) usan umbrales iniciales (0,6) sin calibrar con uso real |
 | **Evaluación** | ⚠️ El laboratorio funciona, pero los datasets y las variantes se cargan a mano: no es 100 % autónomo y aún no evalúa tareas completas de punta a punta |
-| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` viene apagado; encendido, los comandos no piden aprobación y los valida un modelo de 2B. `POST /config` puede cambiar el comando de los servidores MCP: **no expongas el servidor fuera de `localhost`** |
+| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` viene apagado; encendido, los comandos no piden aprobación y los valida un modelo de 2B, salvo las rutas sensibles (claves, credenciales, inicio automático, sistema), que siempre piden confirmación. La API no tiene autenticación: solo acepta `Host` y `Origin` locales y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. **No expongas el servidor fuera de `localhost`** |
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell; en otros sistemas no está validado |
 | **Herramientas** | 13 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 

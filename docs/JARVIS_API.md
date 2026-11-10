@@ -17,11 +17,11 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 |---|---|---|
 | `POST /process` | `{ message, mode? }` | Crea y lanza la tarea. Responde `{ task: TaskDto }` |
 | `POST /cancel` | `{ taskId? }` | Cancela. Sin `taskId`, la última abierta. Idempotente |
-| `POST /confirm-plan` | `{ taskId?, waitId? }` | Acepta el plan que espera confirmación |
-| `POST /modify-plan` | `{ taskId?, feedback, waitId? }` | Pide un plan nuevo con la instrucción (sin tope de veces); vuelve a pedir confirmación |
-| `POST /reject-plan` | `{ taskId?, waitId? }` | Rechaza sin instrucción: la tarea se cancela |
-| `POST /approve` | `{ taskId?, waitId? }` | Acepta la operación sensible pendiente |
-| `POST /deny` | `{ taskId?, reason?, waitId? }` | Rechaza la operación; `reason` (opcional) llega al modelo como instrucción. La tarea no termina |
+| `POST /confirm-plan` | `{ taskId, waitId }` | Acepta el plan que espera confirmación |
+| `POST /modify-plan` | `{ taskId, feedback, waitId }` | Pide un plan nuevo con la instrucción (sin tope de veces); vuelve a pedir confirmación |
+| `POST /reject-plan` | `{ taskId, waitId }` | Rechaza sin instrucción: la tarea se cancela |
+| `POST /approve` | `{ taskId, waitId }` | Acepta la operación sensible pendiente |
+| `POST /deny` | `{ taskId, reason?, waitId }` | Rechaza la operación; `reason` (opcional) llega al modelo como instrucción. La tarea no termina |
 | `POST /user-answer` | `{ taskId?, answer }` | Responde la pregunta abierta (no vacía) |
 | `GET /state?taskId=` | | `{ task: TaskDto \| null, tasks: TaskSummary[], discoveredTools, unavailableServers }`. Sin `taskId`, la última |
 | `GET /events` | | SSE, ver abajo |
@@ -29,9 +29,9 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 | `GET /tasks/:taskId/trace?format=` | | Traza de una tarea **terminada**: `summary` (Markdown, por defecto; alertas, línea de tiempo con las decisiones D1 a D4, esperas y respuesta final) o `json` (snapshot, consultas a modelos con sus opciones, herramientas y duraciones). 400 si `format` es otro; 404 si la tarea sigue en curso, la traza está desactivada (`traceEnabled`) o no existe |
 | `GET /environment` | | Datos de esta PC: `platform`, `home`, `desktop`, `documents`, `downloads` (los que se pudieron consultar), más `now` (ISO) y `timeZone` |
 | `GET /limits` | | Topes del motor: `maxSteps`, `maxReplans`, `maxEscalations`, `maxItemFailures`, `maxCallsPerStep`, `maxRepeatsPerStep`, `maxReviewRejectionsPerStep`, `maxUserRejectionsPerStep`, `maxQuestionsPerStep`: para mostrar progreso (paso 3 de 20, llamada 2 de 6) |
-| `GET/POST /config`, `ALL /refresh-discovery` | | `/config` devuelve y acepta la configuración completa; `POST` fusiona las claves que se envían y descarta las inválidas; ignora `command`, `args`, `env` y `cwd` de los servidores MCP (definen qué proceso se lanza: se editan en `jarvis-config.json` y se reinicia). Claves de seguridad: `autoMode` (boolean) y `blacklist` (ver abajo) |
+| `GET/POST /config`, `ALL /refresh-discovery` | | `/config` devuelve y acepta la configuración completa; `POST` fusiona las claves que se envían y descarta las inválidas; ignora `refsDir` y `tracePath` (dónde escribe y borra Jarvis) y `command`, `args`, `env` y `cwd` de los servidores MCP (definen qué proceso se lanza: se editan en `jarvis-config.json` y se reinicia). Claves de seguridad: `autoMode` (boolean) y `blacklist` (ver abajo) |
 
-`taskId` es opcional por compatibilidad (toma la última tarea); con varias tareas conviene enviarlo siempre. `waitId` es el `request.id` de la espera actual: si se envía y no coincide (respuesta tardía), responde 409.
+Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-plan`) **exigen `taskId` y `waitId`** (si faltan, 400): sin ellos se aplicarían a la última tarea y un cliente aprobaría a ciegas lo que no vio. `waitId` es el `request.id` de la espera actual: si no coincide (respuesta tardía), responde 409. `/cancel` y `/user-answer` conservan el atajo (toman la última tarea si no se envía `taskId`).
 
 ## TaskDto
 
@@ -63,7 +63,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 
 ## Modo automático y lista negra (`/config`)
 
-- `autoMode` (`false` por defecto): con `true`, las escrituras y comandos del catálogo **no generan espera `approval`**; las valida la revisión de argumentos y se ejecutan. Guard (patrones destructivos y nivel `guard` de las reglas de comando, carpetas protegidas → `security_denied`) y la lista negra siguen actuando: las reglas integradas (`commandRules.ts`) rechazan con `tool_rejected` lo muy destructivo (`blocked`) y mandan lo `sensitive` a la revisión de argumentos con umbral estricto (ver `CORE_FLOW.md`, «Modo automático»). Con `autoMode` en `false`, toda coincidencia con la lista pide aprobación (`approval`) con el motivo de la regla. Se lee en cada llamada: cambiarlo no libera una espera `approval` que ya esté abierta (hay que aprobarla o rechazarla).
+- `autoMode` (`false` por defecto): con `true`, las escrituras y comandos del catálogo **no generan espera `approval`**; las valida la revisión de argumentos y se ejecutan. Guard (patrones destructivos y nivel `guard` de las reglas de comando, carpetas protegidas → `security_denied`) y la lista negra siguen actuando: las reglas integradas (`commandRules.ts`) rechazan con `tool_rejected` lo muy destructivo (`blocked`) y mandan lo `sensitive` a la revisión de argumentos con umbral estricto (ver `CORE_FLOW.md`, «Modo automático»). Con `autoMode` en `false`, toda coincidencia con la lista pide aprobación (`approval`) con el motivo de la regla. Las **rutas sensibles** (`policy/sensitivePaths.ts`: claves y credenciales, datos de navegadores, variables de entorno con secretos, y para escribir, lugares de inicio automático, perfiles de shell, carpetas del sistema y `jarvis-config.json`) piden aprobación **también con `autoMode`**. Se lee en cada llamada: cambiarlo no libera una espera `approval` que ya esté abierta (hay que aprobarla o rechazarla).
 - `blacklist`: entradas **propias** que se suman a las reglas de comando integradas (que no se configuran): `[{ "tool": "start_process" | "servidor:herramienta", "pattern"?: "regex sobre los argumentos", "reason": "texto para el modelo", "level"?: "blocked" | "sensitive" }]` (sin `level`, `blocked`). Solo afecta a herramientas que modifican el sistema; un acierto registra la llamada como `tool_rejected` (la tarea sigue). Sin `pattern` la herramienta entera deja de ofrecerse. `POST` reemplaza la lista completa.
 
 ## Esperas (`waiting`)

@@ -146,7 +146,7 @@ Fases en orden. Cada llamada se registra una sola vez, al terminar el intento, c
 | 11 | **Verificar** (Decisión 4, §7) | Rechazada: vuelve al paso con el motivo |
 
 ### Modo automático (`autoMode`)
-Se lee en cada llamada (`deps.autoMode()`, `callRunner.ts`) y cambia solo dos fases de §5; el resto del flujo es igual.
+Se lee en cada llamada (`deps.autoMode()`, `callRunner.ts`) y cambia solo dos fases de §5; el resto del flujo es igual. Una **ruta sensible** (`policy/sensitivePaths.ts`) pide confirmación obligatoria también con `autoMode` (`GuardDecision.mandatory`).
 
 | Fase | `autoMode` apagado | `autoMode` encendido |
 |---|---|---|

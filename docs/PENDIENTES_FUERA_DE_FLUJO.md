@@ -24,6 +24,13 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 - **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, reglas, pre-chequeo, resultados y refs, comandos de solo lectura, retención, lógica pura y `runTask` con dobles. Sin tests: `mcp/` (transporte), `TaskManager`, las rutas HTTP y el análisis real con PowerShell del pre-chequeo. [V]
 - **Logs:** unas 60 llamadas a `console.*` repartidas por `models/`, `engine/`, `tasks.ts` y `mcp/`, sin niveles ni formato común. [V]
 
+## Seguridad
+- **La API no tiene autenticación.** El modelo de amenaza es un solo usuario en su PC: `Host` y `Origin` locales frenan a los sitios web (DNS rebinding, CSRF), no a otro proceso ni a otro usuario de la máquina. Un token por arranque solo sirve si se entrega fuera de banda (el HTML lo serviría a cualquiera); decidir si hace falta antes de abrir el servidor a otro uso. `HOST=0.0.0.0` anula incluso el filtro de `Host` (un cliente puede mandar `Host: localhost`).
+- **Rutas sensibles** (`policy/sensitivePaths.ts`): listas cerradas y sin medir en uso real (falsos positivos: pedirán confirmación de más; falsos negativos: rutas que no figuren). Sesgadas a Windows. Miran las rutas y el texto del comando, no lo que un comando arma por variables.
+- **`allowedDirectories`** solo valida los argumentos de ruta de las herramientas de archivos: no restringe lo que haga un `start_process`.
+- **Canal de salida por `research`:** la consulta de búsqueda no se inspecciona y puede llevar datos. El resto de las salidas (`fetch`) lo cubre el pre-chequeo de URL (la URL completa debe figurar en el pedido o en resultados previos), y la lectura de secretos está detrás de la confirmación obligatoria.
+- **Procesos en segundo plano:** al terminar una tarea que no se completó se cierran (`engine/processes.ts`); si se cancela mientras `start_process` está en vuelo, el resultado tardío se descarta y su `pid` no se conoce. Una tarea completada los deja (puede ser lo pedido).
+
 ## Catálogo de herramientas
 - **Extractor de `research`** (`result/extractors/research.ts`): no resuelve la recencia (las fechas de las fuentes llegan, pero una tabla con los modelos más nuevos queda en la ref). Medir con un dataset de preguntas "último X" y decidir si hace falta una lectura posterior de la ref.
 - **Tiempo de espera:** `mcpTimeoutMs` pasó a 60 s para toda llamada; medir si alcanza para `research` (busca y descarga hasta 3 páginas, más si el servidor recurre al navegador). No hay un tiempo por herramienta.

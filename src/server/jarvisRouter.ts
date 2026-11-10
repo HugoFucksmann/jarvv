@@ -7,7 +7,7 @@
 
 import express from 'express';
 import { BUDGET } from '../core/budget.ts';
-import { ConfigManager, LAUNCH_ONLY_KEYS } from '../core/config.ts';
+import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
 import type { TraceFile } from '../core/trace/files.ts';
@@ -25,9 +25,17 @@ function isMode(value: unknown): value is TaskMode {
   return typeof value === 'string' && (TASK_MODES as readonly string[]).includes(value);
 }
 
-/** Quita de un parche los campos que definen el proceso de un servidor MCP (`LAUNCH_ONLY_KEYS`): solo se editan en el archivo. */
+/**
+ * Quita de un parche lo que solo se edita en el archivo: los campos que definen el proceso de un servidor MCP (`LAUNCH_ONLY_KEYS`) y las
+ * carpetas donde Jarvis escribe y borra (`FILE_ONLY_KEYS`).
+ */
 export function withoutLaunchFields(body: Record<string, unknown>): Record<string, unknown> {
   const patch = { ...body };
+  for (const key of FILE_ONLY_KEYS) {
+    if (!(key in patch)) continue;
+    delete patch[key];
+    console.warn(`[Config] se ignora '${key}' (solo se cambia en jarvis-config.json).`);
+  }
   for (const server of ['desktopCommanderMcp', 'freeSearchMcp']) {
     const value = patch[server];
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
@@ -61,9 +69,16 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   };
 
   /** Ejecuta una orden sobre la tarea indicada; 404 si no hay ninguna. */
-  const control = (notWaiting: string, run: (taskId: string, body: Record<string, unknown>) => ControlResult): express.RequestHandler =>
+  /**
+   * `strict`: una decisión (aprobar, rechazar, confirmar o modificar un plan) exige `taskId` y `waitId`: sin ellos se aplicaría a "la última
+   * tarea" y un cliente podría aprobar a ciegas lo que no vio. Cancelar y responder una pregunta conservan el atajo.
+   */
+  const control = (notWaiting: string, run: (taskId: string, body: Record<string, unknown>) => ControlResult, strict = false): express.RequestHandler =>
     (req, res) => {
       const body = (req.body ?? {}) as Record<string, unknown>;
+      if (strict && (!text(body.taskId) || !text(body.waitId))) {
+        return void res.status(400).json({ error: 'Se requieren taskId y waitId: la decisión debe indicar qué tarea y qué espera resuelve.' });
+      }
       const taskId = targetOf(body);
       if (!taskId) return void res.status(404).json({ error: 'No hay ninguna tarea.' });
       reply(res, run(taskId, body), notWaiting);
@@ -92,23 +107,23 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   // Plan (deliberativo): confirmar, pedir cambios (nuevo plan con la instrucción) o rechazar (cancela la tarea).
   router.post(
     '/confirm-plan',
-    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.approvePlan(id, text(b.waitId))),
+    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.approvePlan(id, text(b.waitId)), true),
   );
   router.post('/modify-plan', (req, res) => {
     const feedback = text(req.body?.feedback);
     if (!feedback) return void res.status(400).json({ error: 'Se requiere feedback.' });
-    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.modifyPlan(id, feedback, text(b.waitId)))(req, res, () => undefined);
+    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.modifyPlan(id, feedback, text(b.waitId)), true)(req, res, () => undefined);
   });
   router.post(
     '/reject-plan',
-    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.rejectPlan(id, text(b.waitId))),
+    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.rejectPlan(id, text(b.waitId)), true),
   );
 
   // Mutación sensible: aprobar o rechazar (con una instrucción opcional en `reason`).
-  router.post('/approve', control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.approveCall(id, text(b.waitId))));
+  router.post('/approve', control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.approveCall(id, text(b.waitId)), true));
   router.post(
     '/deny',
-    control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId))),
+    control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId)), true),
   );
 
   // Responder la pregunta abierta de la tarea.
