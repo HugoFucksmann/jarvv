@@ -13,7 +13,7 @@
  * - `waits`: las esperas del usuario (plan, aprobación, pregunta) con su intervalo: explican los huecos entre etapas.
  * - `snapshot`: el contexto completo al terminar (5.4 y 4).
  *
- * Al terminar escribe una carpeta por tarea, `<dir de tracePath>/<nombre sin extensión>/AAAAMMDD-HHMMSS_<id>/` (con el valor por
+ * Al terminar (`finish`) toma lo reunido al instante y escribe, en segundo plano y sin bloquear el servidor, una carpeta por tarea, `<dir de tracePath>/<nombre sin extensión>/AAAAMMDD-HHMMSS_<id>/` (con el valor por
  * defecto, `jarvis-traces/…`; ver `format.ts`):
  * - `summary.md`: lo que se lee o se pega a un agente.
  * - `trace.json`: la traza liviana (contexto, consultas con la salida interpretada, herramientas con un fragmento).
@@ -26,8 +26,9 @@
  * la traza nunca afecta a la tarea.
  */
 
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import zlib from "node:zlib";
 
 import type { ConfigSource } from "../config.ts";
@@ -35,6 +36,7 @@ import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
 import { NULL_SINK } from "./sink.ts";
 import type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
 import type { Waiting } from "../engine/runtime.ts";
+import type { MCPCallResult } from "../types.ts";
 import type { ModelLink, ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
 import { errorMessage } from "../utils.ts";
 import { TRACE_FORMAT_VERSION, buildMeta, buildSummary, folderName, indexEntry, refInfos, slimQuery, slimTool } from "./format.ts";
@@ -42,6 +44,11 @@ import type { SummaryInput } from "./format.ts";
 
 export { TRACE_FORMAT_VERSION };
 export type { ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
+
+const gzip = promisify(zlib.gzip);
+
+/** Cede el hilo al resto del servidor: entre dos trabajos pesados de la escritura de la traza, el servidor atiende lo demás. */
+const yieldToLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 /** Tope del resultado crudo de una herramienta sin ref; `resultChars` conserva el tamaño original. */
 const MAX_TOOL_RESULT_CHARS = 20_000;
@@ -63,7 +70,13 @@ export class TaskTraceRecorder {
   private lastCall: { id: string; tool: string; status: string } | null = null;
   private readonly unsubscribe: () => void;
   private finished = false;
+  /** La escritura de la traza en curso (o ya hecha): `finish` es idempotente y devuelve siempre la misma. */
+  private done: Promise<void> | null = null;
   private readonly enabled: boolean;
+  /** Resultados crudos aún sin serializar: `JSON.stringify` de un resultado grande no corre dentro del flujo de la tarea, sino al escribir la traza. */
+  private readonly rawResults = new Map<ToolRecord, MCPCallResult>();
+  /** Herramientas cuya traza guarda la ref y no el texto (el resultado se serializa igual, para registrar su largo). */
+  private readonly textDropped = new Set<ToolRecord>();
 
   constructor(private readonly ctx: TaskContext, private readonly getConfig: ConfigSource) {
     this.enabled = getConfig().traceEnabled;
@@ -98,7 +111,6 @@ export class TaskTraceRecorder {
   }
 
   private onTool(event: ToolCapture): void {
-    const raw = event.result === null ? null : JSON.stringify(event.result);
     const record: ToolRecord = {
       call: null,
       mcp: event.mcp,
@@ -106,13 +118,14 @@ export class TaskTraceRecorder {
       args: event.args,
       startedAt: event.startedAt,
       durationMs: event.durationMs,
-      result: raw === null ? null : raw.slice(0, MAX_TOOL_RESULT_CHARS),
-      resultChars: raw === null ? null : raw.length,
+      result: null,
+      resultChars: null,
       ref: null,
       refSize: null,
       error: event.error,
     };
     this.tools.push(record);
+    if (event.result !== null) this.rawResults.set(record, event.result);
     // Una herramienta cancelada en vuelo responde después de que su llamada `interrupted` ya se registró.
     const last = this.lastCall;
     if (last !== null && last.status === "interrupted" && last.tool === event.tool && !this.tools.some((t) => t.call === last.id)) {
@@ -158,7 +171,7 @@ export class TaskTraceRecorder {
           if (call.ref !== null) {
             tool.ref = call.ref;
             tool.refSize = this.refSizes.get(call.ref) ?? null;
-            tool.result = null; // con ref, la traza guarda la referencia y no el contenido
+            this.textDropped.add(tool); // con ref, la traza guarda la referencia y no el contenido
           }
         }
         this.pendingModels = [];
@@ -178,23 +191,37 @@ export class TaskTraceRecorder {
 
   // ─────────── Cierre ───────────
 
-  /** Escribe la línea de la tarea (una sola vez) y deja de escuchar. Un fallo se ignora. */
-  finish(): void {
-    if (this.finished) return;
+  /**
+   * Cierra la traza de la tarea: deja de escuchar, toma de inmediato lo que hay (síncrono, barato) y escribe la carpeta en segundo plano,
+   * sin bloquear el servidor ni la tarea (que ya entregó su respuesta). Idempotente: devuelve siempre la misma promesa, que nunca rechaza
+   * (un fallo al escribir se informa y se ignora). Quien necesite esperar a que quede en disco (el cierre del servidor) la espera.
+   */
+  finish(): Promise<void> {
+    if (this.done !== null) return this.done;
     this.finished = true;
     this.unsubscribe();
-    if (!this.enabled) return;
+    if (!this.enabled) return (this.done = Promise.resolve());
     this.closeWait();
-    try {
-      this.write();
-    } catch (error) {
-      console.warn("[TaskTrace] No se pudo registrar la traza:", errorMessage(error));
-    } finally {
-      this.release();
-    }
+    const captured = this.capture();
+    // Lo capturado es lo único que la escritura necesita: la tarea sigue retenida en memoria y no debe cargar con lo crudo.
+    this.release();
+    this.done = this.write(captured).catch((error: unknown) => console.warn("[TaskTrace] No se pudo registrar la traza:", errorMessage(error)));
+    return this.done;
   }
 
-  /** Una vez escrita (o fallida) la traza, la tarea sigue retenida en memoria: no debe cargar con los prompts y resultados crudos. */
+  /** Copia de lo reunido y del contexto al terminar. */
+  private capture(): Captured {
+    return {
+      config: this.getConfig(),
+      snapshot: this.ctx.snapshot(),
+      models: [...this.models],
+      tools: [...this.tools],
+      waits: [...this.waits],
+      raw: new Map(this.rawResults),
+      dropped: new Set(this.textDropped),
+    };
+  }
+
   private release(): void {
     this.models.length = 0;
     this.tools.length = 0;
@@ -202,42 +229,63 @@ export class TaskTraceRecorder {
     this.pendingModels = [];
     this.pendingTools = [];
     this.refSizes.clear();
+    this.rawResults.clear();
+    this.textDropped.clear();
   }
 
-  /** Escribe la carpeta de la tarea y su línea en `index.jsonl`. Puede lanzar: `finish` lo informa. */
-  private write(): void {
-    const config = this.getConfig();
-    const snapshot = this.ctx.snapshot();
+  /** Escribe la carpeta de la tarea y su línea en `index.jsonl`. Cede el hilo entre los trabajos pesados (serializar, comprimir). */
+  private async write(c: Captured): Promise<void> {
+    const { config, snapshot, models, tools, waits } = c;
     const startedAt = snapshot.task.startedAt;
     const endedAt = Date.now();
+
+    // Resultados crudos: se serializan recién ahora, y solo el fragmento (o nada, con ref) queda en la traza.
+    for (const [record, raw] of c.raw) {
+      const text = JSON.stringify(raw);
+      record.resultChars = text.length;
+      record.result = c.dropped.has(record) ? null : text.slice(0, MAX_TOOL_RESULT_CHARS);
+    }
+    await yieldToLoop();
+
     const input: SummaryInput = {
       snapshot,
       startedAt,
       endedAt,
-      meta: buildMeta(this.models, config.qwenModel, config.decisionModel),
-      queries: this.models.map(slimQuery),
-      tools: this.tools,
-      waits: this.waits,
+      meta: buildMeta(models, config.qwenModel, config.decisionModel),
+      queries: models.map(slimQuery),
+      tools,
+      waits,
       refs: refInfos(snapshot.refs),
     };
     const file = path.resolve(process.cwd(), config.tracePath);
     const base = path.join(path.dirname(file), path.basename(file, path.extname(file)));
     const folder = folderName(startedAt, snapshot.task.id);
     const dir = path.join(base, folder);
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.mkdir(dir, { recursive: true });
 
     const header = { v: TRACE_FORMAT_VERSION, taskId: snapshot.task.id, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString() };
-    fs.writeFileSync(path.join(dir, "summary.md"), buildSummary(input), "utf-8");
-    fs.writeFileSync(
+    await fs.writeFile(path.join(dir, "summary.md"), buildSummary(input), "utf-8");
+    await yieldToLoop();
+    await fs.writeFile(
       path.join(dir, "trace.json"),
-      JSON.stringify(
-        { ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: this.tools.map(slimTool), waits: this.waits, refs: input.refs }),
+      JSON.stringify({ ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: tools.map(slimTool), waits, refs: input.refs }),
       "utf-8",
     );
-    fs.writeFileSync(
-      path.join(dir, "full.json.gz"),
-      zlib.gzipSync(Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models: this.models, tools: this.tools, waits: this.waits }), "utf-8"), { level: 6 }),
-    );
-    fs.appendFileSync(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}\n`, "utf-8");
+    await yieldToLoop();
+    const full = Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models, tools, waits }), "utf-8");
+    await yieldToLoop();
+    await fs.writeFile(path.join(dir, "full.json.gz"), await gzip(full, { level: 6 }));
+    await fs.appendFile(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}\n`, "utf-8");
   }
+}
+
+/** Lo que `finish` toma de la tarea para escribir después. */
+interface Captured {
+  readonly config: ReturnType<ConfigSource>;
+  readonly snapshot: ReturnType<TaskContext["snapshot"]>;
+  readonly models: ModelRecord[];
+  readonly tools: ToolRecord[];
+  readonly waits: WaitRecord[];
+  readonly raw: Map<ToolRecord, MCPCallResult>;
+  readonly dropped: Set<ToolRecord>;
 }

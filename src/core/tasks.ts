@@ -76,6 +76,8 @@ interface TaskEntry {
 export class TaskManager {
   private readonly tasks = new Map<string, TaskEntry>();
   private readonly listeners = new Set<TaskListener>();
+  /** Ejecuciones en curso (con la escritura de su traza). */
+  private readonly inFlight = new Set<Promise<void>>();
   private readonly contextOptions: ContextOptions = {
     now: Date.now,
     summaryMax: BUDGET.summaryMax,
@@ -121,9 +123,12 @@ export class TaskManager {
 
     console.log(`[Task] start id=${id} mode=${mode}`);
     const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink };
-    void runTask(ctx, runtime, deps)
+    // La ejecución incluye la escritura de la traza (asíncrona, después de la respuesta): `drain` espera a ambas al apagar el servidor.
+    const run: Promise<void> = runTask(ctx, runtime, deps)
       .catch((error: unknown) => this.closeOnDefect(entry, error))
-      .finally(() => recorder.finish());
+      .finally(() => recorder.finish())
+      .finally(() => void this.inFlight.delete(run));
+    this.inFlight.add(run);
 
     return this.toDto(entry);
   }
@@ -135,6 +140,23 @@ export class TaskManager {
     if (entry.ctx.isClosed()) return "not_waiting";
     entry.runtime.cancel();
     return "ok";
+  }
+
+  /**
+   * Espera a que terminen las ejecuciones en curso (cierre de la tarea, cierre de sus procesos en segundo plano y escritura de la traza),
+   * hasta `timeoutMs`. Se usa después de `cancelAll`, antes de apagar los servidores MCP.
+   */
+  async drain(timeoutMs: number): Promise<void> {
+    if (this.inFlight.size === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, timeoutMs);
+    });
+    try {
+      await Promise.race([Promise.allSettled([...this.inFlight]), limit]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /** Cancela todas las tareas abiertas (cierre del servidor). */

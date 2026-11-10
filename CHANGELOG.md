@@ -13,6 +13,8 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 - Retención por antigüedad de `data/refs` y de las trazas (`retentionDays`, 30 por defecto; `0` la desactiva).
 - **Seguridad:** rutas sensibles (`policy/sensitivePaths.ts`) con confirmación obligatoria también con `autoMode` (claves y credenciales, datos de navegadores, variables de entorno con secretos y, al escribir, inicio automático, perfiles de shell, sistema y `jarvis-config.json`); `/approve`, `/deny` y las decisiones de plan exigen `taskId` y `waitId`; `POST /config` ya no cambia `refsDir` ni `tracePath`; el control de `Host` y `Origin` pasa a `src/server/localOnly.ts` con tests.
 - **Fugas:** la retención solo borra carpetas con nombre de Jarvis y limpia `index.jsonl`; el recorder libera lo crudo al escribir la traza; tope a la línea de salida de un servidor MCP y desconexión del cliente SSE que no lee; los procesos en segundo plano se cierran al terminar una tarea que no se completó.
+- La traza de cada tarea se escribe en segundo plano (captura al instante, escritura y compresión asíncronas sin bloquear el servidor) y el cierre del servidor espera un momento (`TaskManager.drain`) a que las tareas cancelen sus procesos y escriban su traza antes de apagar los servidores MCP.
+- Desktop Commander fijado en `0.3.2`.
 - Pruebas del núcleo (`npm test`) y menos repetición en `render/` y en el ejecutor de llamadas, sin cambios en el texto de los prompts.
 
 ## [0.6.0] — 2026-11-09

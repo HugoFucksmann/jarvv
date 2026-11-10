@@ -19,9 +19,8 @@ Lo que sigue abierto en JARVIS v0.6.0 (actualizado el 2026-11-10): limitaciones 
 
 ## Backend general
 - **Retención** (`retention.ts`): solo por antigüedad (`retentionDays`, 30 por defecto). No hay tope por tamaño. Solo se borran carpetas con nombre de Jarvis, así que una carpeta de refs o de trazas con otro nombre se acumula. [V]
-- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, reglas, rutas sensibles, comandos de solo lectura, pre-chequeo, resultados, refs, retención, recorder, rutas HTTP y `localOnly`, lógica pura y `runTask` con dobles. Sin tests: `mcp/` (transporte y adaptadores), `TaskManager` y el SSE, el análisis real con PowerShell del pre-chequeo y la interfaz. [V]
+- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, reglas, rutas sensibles, comandos de solo lectura, pre-chequeo, resultados, refs, retención, recorder, rutas HTTP y `localOnly`, lógica pura y `runTask` con dobles. Sin tests: `mcp/` (transporte y adaptadores), el SSE, el análisis real con PowerShell del pre-chequeo y la interfaz. [V]
 - **Logs:** unas 60 llamadas a `console.*` repartidas por `models/`, `engine/`, `tasks.ts` y `mcp/`, sin niveles ni formato común. [V]
-- **Trazas síncronas:** `TaskTraceRecorder.finish` escribe y comprime (`gzip`) con llamadas síncronas; con una tarea grande bloquea el servidor unos instantes. [V]
 
 ## Seguridad
 Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
@@ -44,7 +43,7 @@ Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
 
 **Procesos y dependencias**
 - **Procesos en segundo plano:** al terminar una tarea que no se completó se cierran (`engine/processes.ts`); si se cancela mientras `start_process` está en vuelo, el resultado tardío se descarta y su `pid` no se conoce. Una tarea completada los deja (puede ser lo pedido).
-- **Desktop Commander sin versión fijada:** la configuración lo lanza con `npx -y @wonderwhy-er/desktop-commander`, que baja la última versión publicada en cada arranque (Free Search sí está fijado con `==0.13.1`). Fijar la versión y revisar las actualizaciones. [V]
+- **Dependencias de los servidores MCP:** Desktop Commander está fijado en `0.3.2` (`config.ts` y `jarvis-config.json`; subirlo es una decisión que se prueba antes) y Free Search en `0.13.1`, pero `npx` y `uvx` siguen resolviendo sus dependencias transitivas por rangos, sin lockfile. [V]
 
 ## Catálogo de herramientas
 - **Extractor de `research`** (`result/extractors/research.ts`): no resuelve la recencia (las fechas de las fuentes llegan, pero una tabla con los modelos más nuevos queda en la ref). Medir con un dataset de preguntas "último X" y decidir si hace falta una lectura posterior de la ref.
