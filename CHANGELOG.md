@@ -2,6 +2,15 @@
 
 Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y las versiones, [SemVer](https://semver.org/lang/es/). Mientras la versión sea `0.x`, la API y la configuración pueden cambiar entre versiones.
 
+## [Sin publicar]
+
+### Cambios
+- `contracts.ts` (interfaces) separado de `engine/services.ts` (composición); `reasoner/`, `decision.ts` y `llmTransport.ts` pasan a `models/`.
+- La configuración se inyecta (`ConfigSource`) en modelos, servidores MCP, trazas y `TaskManager`; el núcleo ya no lee `ConfigManager` por su cuenta.
+- `POST /config` ignora `command`, `args`, `env` y `cwd` de los servidores MCP: solo se editan en `jarvis-config.json` (en la interfaz son de solo lectura).
+- Nuevo tope `maxUserRejectionsPerStep` (2): el segundo rechazo del usuario falla el paso en vez de pedirle confirmación otra vez. Se expone en `GET /limits`.
+- Pruebas del núcleo (`npm test`) y menos repetición en `render/` y en el ejecutor de llamadas, sin cambios en el texto de los prompts.
+
 ## [0.6.0] — 2026-11-09
 
 Primera publicación. El flujo completo funciona de punta a punta y el laboratorio de evaluación está incluido, con limitaciones conocidas (ver [`docs/PENDIENTES_FUERA_DE_FLUJO.md`](docs/PENDIENTES_FUERA_DE_FLUJO.md)).

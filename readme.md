@@ -145,6 +145,7 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 | `npm run dev` / `npm start` | Servidor de JARVIS (con Vite integrado fuera de producción) |
 | `npm run build` | Compila la interfaz a `dist/` |
 | `npm run lint` | Verificación de tipos (`tsc --noEmit`) |
+| `npm test` | Pruebas del núcleo (`tests/`): Guard y reglas de comando, lógica pura, `runTask` con dobles y foto dorada del texto de los prompts (`UPDATE_GOLDEN=1 npm test` la regenera) |
 | `npm run eval` | Laboratorio de evaluación de prompts (`-- --menu` abre el asistente) |
 | `npm run eval:smoke` | Prueba rápida del eval sin modelos (cliente `mock`, `--dry-run`) |
 
@@ -189,9 +190,10 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 jarvis/
 ├── server.ts            Servidor Express: composición, API local y eventos en vivo
 ├── src/
-│   ├── core/            Núcleo: modos, decisión, razonador, Guard, MCP, contexto y refs
+│   ├── core/            Núcleo: motor, modelos (`models/`), Guard, MCP, contexto, refs y contratos
 │   └── server/          Rutas HTTP (/api/jarvis y /api/mcp)
 ├── ui/                  Interfaz React: componentes, hooks y cliente de la API
+├── tests/               Pruebas del núcleo (`npm test`)
 ├── eval/                Laboratorio de evaluación: datasets, variantes de prompt y resultados
 ├── docs/                Documentación técnica
 ├── scripts/             Utilidades (volcado de los esquemas de herramientas)
