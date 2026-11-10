@@ -106,12 +106,15 @@ const DEFAULT_CONFIG: JarvisConfig = {
   desktopCommanderMcp: {
     command: "npx",
     // Versión fija: `npx -y` sin versión baja la última publicada en cada arranque (cadena de suministro). Subirla es una decisión: probar y cambiar aquí y en jarvis-config.json.
-    args: ["-y", "@wonderwhy-er/desktop-commander@0.3.2"],
+    // `--prefer-offline`: con la versión exacta ya en la caché de npm no consulta el registro en cada arranque (unos 0,4 s menos).
+    args: ["-y", "--prefer-offline", "@wonderwhy-er/desktop-commander@0.3.2"],
     allowedDirectories: [],
   },
   freeSearchMcp: {
     command: "uvx",
-    args: ["--from", "free-search-mcp==0.13.1", "--with", "selectolax==0.3.34", "free-search-mcp"],
+    args: ["--from", "free-search-mcp==0.18.0", "--with", "selectolax==0.3.34", "free-search-mcp"],
+    // Sin el carril de agentes: con una sesión de Codex firmada en la PC, `auto` mandaría las búsquedas también a ChatGPT y gastaría su cuota.
+    env: { SEARCH_MCP_AGENT_ENGINES: "off" },
   },
   mcpTimeoutMs: 60000,
   traceEnabled: true,

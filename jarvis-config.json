@@ -19,6 +19,7 @@
     "command": "npx",
     "args": [
       "-y",
+      "--prefer-offline",
       "@wonderwhy-er/desktop-commander@0.3.2"
     ],
     "allowedDirectories": []
@@ -27,11 +28,14 @@
     "command": "uvx",
     "args": [
       "--from",
-      "free-search-mcp==0.13.1",
+      "free-search-mcp==0.18.0",
       "--with",
       "selectolax==0.3.34",
       "free-search-mcp"
-    ]
+    ],
+    "env": {
+      "SEARCH_MCP_AGENT_ENGINES": "off"
+    }
   },
   "mcpTimeoutMs": 60000,
   "traceEnabled": true,

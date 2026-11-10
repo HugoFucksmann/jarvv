@@ -134,18 +134,21 @@ export async function availableRoutes(env: EngineEnv, stepId: string, routes: re
 
 async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const { ctx, deps } = env;
-  const out: ExecutableRoute[] = [];
-  for (const route of routes) {
-    const mcp = serverOf(route);
-    let cataloged: MCPTool[] = [];
-    try {
-      cataloged = deps.discovery.getServer(mcp) ? applyDestination(route, await deps.discovery.getDiscoveredTools(mcp)) : [];
-    } catch {
-      cataloged = [];
-    }
-    if (cataloged.length === 0 || usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0) out.push(route);
-  }
-  return out;
+  // En paralelo: si el servidor todavía está arrancando (lo normal en la primera tarea tras encender Jarvis), esperar a cada ruta una tras otra
+  // sumaría los arranques de los dos servidores en vez de esperar al más lento. El orden de las rutas se conserva.
+  const checked = await Promise.all(
+    routes.map(async (route): Promise<ExecutableRoute | null> => {
+      const mcp = serverOf(route);
+      let cataloged: MCPTool[] = [];
+      try {
+        cataloged = deps.discovery.getServer(mcp) ? applyDestination(route, await deps.discovery.getDiscoveredTools(mcp)) : [];
+      } catch {
+        cataloged = [];
+      }
+      return cataloged.length === 0 || usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0 ? route : null;
+    }),
+  );
+  return checked.filter((route): route is ExecutableRoute => route !== null);
 }
 
 /**

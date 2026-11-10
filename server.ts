@@ -135,6 +135,14 @@ async function main() {
   app.listen(PORT, HOST, () => {
     console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);
   });
+
+  // Arranque de los servidores MCP en paralelo desde ya: tardan unos 2-3 s en estar listos y, si esperan a la primera petición, la paga la
+  // primera carga de la interfaz o la primera tarea. Un fallo no detiene nada: queda como servidor no disponible (se reintenta con un refresco).
+  const warmUpStart = Date.now();
+  void discoveryEngine.discoverAll().then((tools) => {
+    const summary = Object.entries(tools).map(([name, list]) => `${name}: ${list.length}`).join(', ');
+    console.log(`[Host] Servidores MCP listos en ${((Date.now() - warmUpStart) / 1000).toFixed(1)} s (${summary}).`);
+  });
 }
 
 main().catch((err) => {
