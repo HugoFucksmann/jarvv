@@ -16,6 +16,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { StdioServerConfig } from "../config.ts";
 import { errorMessage } from "../utils.ts";
 
+/** Tope de una línea de salida del servidor sin salto de línea: un mensaje JSON-RPC es una línea; más que esto no es una respuesta, es un servidor descontrolado. */
+const MAX_STDOUT_BUFFER_CHARS = 32 * 1024 * 1024;
+
 export class MCPTransportError extends Error {
   constructor(public readonly serverName: string, message: string, public readonly cause?: unknown) {
     super(`[MCP Server '${serverName}' Transport Error] ${message}`);
@@ -252,6 +255,11 @@ export class StdioMcpTransport implements IMCPTransport {
     this.stdoutBuffer += data;
     const lines = this.stdoutBuffer.split(/\r?\n/);
     this.stdoutBuffer = lines.pop() || "";
+    if (this.stdoutBuffer.length > MAX_STDOUT_BUFFER_CHARS) {
+      // Sin salto de línea no hay mensaje que leer: se descarta y se rechaza lo pendiente en vez de acumular memoria sin límite.
+      this.stdoutBuffer = "";
+      this.rejectAllPending(new MCPTransportError(this.serverName, "El servidor envió una línea de salida mayor a 32 MB sin terminarla."));
+    }
 
     for (const line of lines) {
       const trimmed = line.trim();

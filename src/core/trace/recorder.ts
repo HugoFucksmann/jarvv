@@ -186,42 +186,58 @@ export class TaskTraceRecorder {
     if (!this.enabled) return;
     this.closeWait();
     try {
-      const config = this.getConfig();
-      const snapshot = this.ctx.snapshot();
-      const startedAt = snapshot.task.startedAt;
-      const endedAt = Date.now();
-      const input: SummaryInput = {
-        snapshot,
-        startedAt,
-        endedAt,
-        meta: buildMeta(this.models, config.qwenModel, config.decisionModel),
-        queries: this.models.map(slimQuery),
-        tools: this.tools,
-        waits: this.waits,
-        refs: refInfos(snapshot.refs),
-      };
-      const file = path.resolve(process.cwd(), config.tracePath);
-      const base = path.join(path.dirname(file), path.basename(file, path.extname(file)));
-      const folder = folderName(startedAt, snapshot.task.id);
-      const dir = path.join(base, folder);
-      fs.mkdirSync(dir, { recursive: true });
-
-      const header = { v: TRACE_FORMAT_VERSION, taskId: snapshot.task.id, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString() };
-      fs.writeFileSync(path.join(dir, "summary.md"), buildSummary(input), "utf-8");
-      fs.writeFileSync(
-        path.join(dir, "trace.json"),
-        JSON.stringify(
-          { ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: this.tools.map(slimTool), waits: this.waits, refs: input.refs }),
-        "utf-8",
-      );
-      fs.writeFileSync(
-        path.join(dir, "full.json.gz"),
-        zlib.gzipSync(Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models: this.models, tools: this.tools, waits: this.waits }), "utf-8"), { level: 6 }),
-      );
-      fs.appendFileSync(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}
-`, "utf-8");
+      this.write();
     } catch (error) {
       console.warn("[TaskTrace] No se pudo registrar la traza:", errorMessage(error));
+    } finally {
+      this.release();
     }
+  }
+
+  /** Una vez escrita (o fallida) la traza, la tarea sigue retenida en memoria: no debe cargar con los prompts y resultados crudos. */
+  private release(): void {
+    this.models.length = 0;
+    this.tools.length = 0;
+    this.waits.length = 0;
+    this.pendingModels = [];
+    this.pendingTools = [];
+    this.refSizes.clear();
+  }
+
+  /** Escribe la carpeta de la tarea y su línea en `index.jsonl`. Puede lanzar: `finish` lo informa. */
+  private write(): void {
+    const config = this.getConfig();
+    const snapshot = this.ctx.snapshot();
+    const startedAt = snapshot.task.startedAt;
+    const endedAt = Date.now();
+    const input: SummaryInput = {
+      snapshot,
+      startedAt,
+      endedAt,
+      meta: buildMeta(this.models, config.qwenModel, config.decisionModel),
+      queries: this.models.map(slimQuery),
+      tools: this.tools,
+      waits: this.waits,
+      refs: refInfos(snapshot.refs),
+    };
+    const file = path.resolve(process.cwd(), config.tracePath);
+    const base = path.join(path.dirname(file), path.basename(file, path.extname(file)));
+    const folder = folderName(startedAt, snapshot.task.id);
+    const dir = path.join(base, folder);
+    fs.mkdirSync(dir, { recursive: true });
+
+    const header = { v: TRACE_FORMAT_VERSION, taskId: snapshot.task.id, startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString() };
+    fs.writeFileSync(path.join(dir, "summary.md"), buildSummary(input), "utf-8");
+    fs.writeFileSync(
+      path.join(dir, "trace.json"),
+      JSON.stringify(
+        { ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: this.tools.map(slimTool), waits: this.waits, refs: input.refs }),
+      "utf-8",
+    );
+    fs.writeFileSync(
+      path.join(dir, "full.json.gz"),
+      zlib.gzipSync(Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models: this.models, tools: this.tools, waits: this.waits }), "utf-8"), { level: 6 }),
+    );
+    fs.appendFileSync(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}\n`, "utf-8");
   }
 }

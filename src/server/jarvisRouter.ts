@@ -40,6 +40,9 @@ export function withoutLaunchFields(body: Record<string, unknown>): Record<strin
   return patch;
 }
 
+/** Bytes que un cliente SSE puede tener pendientes de leer antes de que se lo desconecte. */
+const SSE_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
+
 export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine): express.Router {
   const router = express.Router();
 
@@ -179,10 +182,16 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
-    const unsubscribe = tasks.addEventListener((event) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    });
-    const keepAlive = setInterval(() => res.write(': ping\n\n'), 15000);
+    // Un cliente que no lee no puede hacer crecer la memoria del servidor: pasado el tope de bytes sin enviar, se lo desconecta.
+    const send = (chunk: string): void => {
+      if (res.writableLength > SSE_MAX_BUFFERED_BYTES) {
+        res.destroy();
+        return;
+      }
+      res.write(chunk);
+    };
+    const unsubscribe = tasks.addEventListener((event) => send(`data: ${JSON.stringify(event)}\n\n`));
+    const keepAlive = setInterval(() => send(': ping\n\n'), 15000);
     req.on('close', () => {
       clearInterval(keepAlive);
       unsubscribe();
