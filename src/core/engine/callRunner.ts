@@ -42,6 +42,7 @@ import { closeOnFailure, queryModel } from "./failures.ts";
 import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
 import { factValue } from "./retries.ts";
+import { routeExhausted } from "./limits.ts";
 import { trackProcess } from "./processes.ts";
 import { reviewOutcome, verifyCall } from "./verify.ts";
 
@@ -125,16 +126,11 @@ function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[
  */
 export async function availableRoutes(env: EngineEnv, stepId: string, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const out = await routesWithTools(env, routes);
-  // Una ruta cuyo resultado Decisión 4 rechazó `ROUTE_EXHAUSTED_AFTER` veces como "no cumple lo pedido" en este paso se deja de ofrecer: cambiar los
+  // Una ruta cuyo resultado Decisión 4 rechazó `maxNotAccomplishedPerRoute` veces como "no cumple lo pedido" en este paso se deja de ofrecer: cambiar los
   // argumentos de la misma herramienta no resuelve lo que esa ruta no puede dar (p. ej. `list_directory` no trae tamaños). Si no quedara ninguna ruta, se ofrecen todas.
-  const notAccomplished = (route: string): number =>
-    env.ctx.find("calls", { stepId, route }).filter((c) => c.verdict === "rejected" && c.reason === "not_accomplished").length;
-  const remaining = out.filter((route) => notAccomplished(route) < ROUTE_EXHAUSTED_AFTER);
+  const remaining = out.filter((route) => !routeExhausted(env.ctx, stepId, route));
   return remaining.length > 0 ? remaining : out;
 }
-
-/** Cuántos rechazos `not_accomplished` de Decisión 4 en un paso agotan una ruta (deja de ofrecerse a Decisión 1 en ese paso). */
-export const ROUTE_EXHAUSTED_AFTER = 2;
 
 async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const { ctx, deps } = env;
@@ -314,7 +310,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
   const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, kind, args: recorded, sig, status, summary, ref: null });
   const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summary), status);
-  if (ctx.isRepeat(tool.name, sig, { exempt: policy.loopExempt })) return reject("loop_blocked");
+  if (ctx.isRepeat(tool.name, sig, { policy: policy.repeat, stepId })) return reject("loop_blocked");
 
   // 6. Política (Guard). DENY: la llamada queda `denied` y la tarea cierra con `security_denied` (regla B incluida).
   const guard = Guard.evaluate(mcp, tool.name, resolved, deps.guardScope);

@@ -10,7 +10,6 @@
 import { prepareBatch } from "./apply.ts";
 import { canFinish as canFinishOf, hasApprovedCall as hasApprovedCallOf } from "./closure.ts";
 import {
-  callsInStep as callsInStepOf,
   effectsOf,
   escalationCount,
   questionsAsked as questionsAskedOf,
@@ -214,11 +213,6 @@ export class TaskContext {
   /** Posibles efectos: `write` con `tool_error`, `exception` o `interrupted`. */
   possibleEffects(): readonly Call[] {
     return possibleEffectsOf(this.data.calls);
-  }
-
-  /** Llamadas del paso para el tope por paso (sin `user_rejected`). */
-  callsInStep(stepId: string): number {
-    return callsInStepOf(this.data.calls, stepId);
   }
 
   /** Preguntas ya hechas al usuario en el paso (hechos `answer_*` del paso). */

@@ -36,6 +36,12 @@ interface Scenario {
   readonly result?: string;
   /** Se invoca al verificar el resultado de la llamada (para cancelar la tarea en ese punto). */
   readonly onVerify?: (runtime: TaskRuntime) => void;
+  /** Resultado de la herramienta en su `n`-ésima ejecución (0, 1…); por defecto `result`. */
+  readonly resultFor?: (n: number) => MCPCallResult;
+  /** Respuestas de la verificación (D4) para la `n`-ésima llamada verificada; por defecto aprueba. */
+  readonly verifyFor?: (n: number) => { ok: number; cumple: number };
+  /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): el reactivo reintenta con pasos nuevos del mismo criterio. */
+  readonly pendingAlways?: boolean;
 }
 
 interface Outcome {
@@ -49,13 +55,16 @@ async function run(s: Scenario): Promise<Outcome> {
   const dispatched: { tool: string; args: Record<string, unknown> }[] = [];
   let reviews = 0;
   let pendingCalls = 0;
+  let verified = 0;
 
   const server: IMCPServer = {
     name: "desktop_commander",
     version: "test",
     listTools: async () => TOOLS,
     callTool: async (name, args): Promise<MCPCallResult> => {
+      const n = dispatched.filter((d) => d.tool === name).length;
       dispatched.push({ tool: name, args });
+      if (s.resultFor !== undefined && name !== "force_terminate") return s.resultFor(n);
       return { content: [{ type: "text", text: name === "force_terminate" ? "terminated" : (s.result ?? "[FILE] a.txt\n[FILE] b.txt") }] };
     },
     isConnected: () => true,
@@ -78,14 +87,14 @@ async function run(s: Scenario): Promise<Outcome> {
       },
       verifyResult: async () => {
         s.onVerify?.(runtime);
-        return { answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
+        return { answers: s.verifyFor?.(verified++) ?? { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
       },
     },
     llm: {
       generateArgumentsFromView: async () => ({ args: s.args, rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
-      generatePendingFromView: async () => ({ pending: pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
+      generatePendingFromView: async () => ({ pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
       generatePlanFromView: async () => {
         throw new Error("no se usa en reactivo");
       },
@@ -265,4 +274,47 @@ test("start_process de solo lectura sobre una ruta sensible: ya no se permite si
   });
   assert.equal(asked, true);
   assert.equal(dispatched.length, 0);
+});
+
+// ───────────────────────── Topes y repeticiones, de punta a punta ─────────────────────────
+
+const REJECT = { ok: 0.01, cumple: 0.01 };
+const LIST = { path: "C:\\Users\\Ana\\Documents" };
+const DOCS = "Listar C:\\Users\\Ana\\Documents";
+
+test("topes: el modelo repite los mismos argumentos tras un rechazo: no se vuelve a ejecutar ni en el paso ni en los pasos que piden lo mismo", async () => {
+  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_directory", args: LIST, verifyFor: () => REJECT, pendingAlways: true });
+  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1, "las repeticiones bloqueadas no llegan a la herramienta");
+  const calls = ctx.find("calls", {});
+  assert.equal(calls[0].status, "ok");
+  assert.equal(calls[0].verdict, "rejected");
+  assert.ok(calls.slice(1).every((c) => c.status === "loop_blocked"), "todo lo demás son repeticiones bloqueadas");
+  assert.deepEqual(ctx.find("calls", { stepId: calls[0].stepId }).map((c) => c.status), ["ok", "loop_blocked", "loop_blocked"], "dos bloqueos fallan el paso");
+  assert.ok(ctx.find("steps", { state: "failed" }).length >= 2, "los pasos siguientes (mismo criterio) fallan igual, acotados por las escalaciones");
+});
+
+// Un `tool_error` se rechaza sin consultar a D4 (no hay datos que juzgar): solo se verifica el resultado del reintento.
+test("repetición: un fallo pasajero de una lectura se reintenta una vez con los mismos argumentos", async () => {
+  const { ctx, dispatched } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    resultFor: (n) => (n === 0 ? { content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true } : { content: [{ type: "text", text: "[FILE] a.txt" }] }),
+  });
+  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 2, "el reintento idéntico se ejecutó");
+  assert.deepEqual(ctx.find("calls", {}).map((c) => c.status), ["tool_error", "ok"]);
+  assert.equal(ctx.find("steps", {})[0].state, "completed");
+});
+
+test("repetición: un segundo fallo pasajero idéntico en el mismo paso ya no se reintenta (un reintento por paso)", async () => {
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    resultFor: () => ({ content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true }),
+    pendingAlways: true,
+  });
+  const first = ctx.find("steps", {})[0];
+  const statuses = ctx.find("calls", { stepId: first.id }).map((c) => c.status);
+  assert.deepEqual(statuses.slice(0, 3), ["tool_error", "tool_error", "loop_blocked"], "ejecución, un reintento y después bloqueo");
 });

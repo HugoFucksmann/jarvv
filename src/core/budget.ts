@@ -40,7 +40,12 @@ export const BUDGET = {
   maxEscalations: 2,
   /** Pasos fallidos seguidos sobre el mismo ítem de la lista antes de abandonarlo (si quedan otros): ver `runReactive`. */
   maxItemFailures: 2,
+  /** Ejecuciones por paso: llamadas que llegaron a la herramienta (lo que cuesta de verdad). Ver `engine/limits.ts`. */
   maxCallsPerStep: 6,
+  /** Intentos por paso: toda llamada registrada salvo `user_rejected`, incluidas las que no tocaron la herramienta (bloqueadas, argumentos inválidos...). Techo contra un modelo que da vueltas. */
+  maxAttemptsPerStep: 10,
+  /** Rechazos `not_accomplished` de Decisión 4 que agotan una ruta en un paso (deja de ofrecerse a Decisión 1 en ese paso). */
+  maxNotAccomplishedPerRoute: 2,
   /** Llamadas bloqueadas por repetición (`loop_blocked`) que fallan el paso: 2 = un solo reintento. */
   maxRepeatsPerStep: 2,
   /** Llamadas rechazadas por la revisión (`args_invalid`) que fallan el paso: 2 = un solo reintento. */

@@ -82,7 +82,6 @@ export { canFinish, hasApprovedCall, hasApprovedOk, hasEffects, isEffect, planCl
 export {
   ANSWER_FACT_PREFIX,
   attemptCalls,
-  callsInStep,
   doneCalls,
   effectsOf,
   envOf,
@@ -104,7 +103,7 @@ export {
   replansDone,
   userInputOf,
 } from "./derive.ts";
-export type { EnvEntry, RepeatOptions, UserInputEntry } from "./derive.ts";
+export type { EnvEntry, RepeatOptions, RepeatPolicy, UserInputEntry } from "./derive.ts";
 // Vistas (sección 8): tipos estructurados y frases fijas por `status` y por `reason`.
 export { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STATUS_NOTES, STOP_REASON_NOTES } from "./views/messages.ts";
 export type {

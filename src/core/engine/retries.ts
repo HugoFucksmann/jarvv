@@ -1,33 +1,12 @@
 /**
  * JARVIS Core — Topes y preguntas del bucle de paso (Fase 5).
  *
- * Sin estado propio (D5): todo se deriva de `calls` y `facts`. No hay contadores de reintento: el único tope del paso es
- * el de llamadas (FLUJO 3). Aquí solo vive la REGLA (comparar con `BUDGET`); el número sale de la tabla única.
+ * Sin estado propio (D5): todo se deriva de `calls` y `facts`. Los topes (qué se cuenta y contra qué número) están en `limits.ts`;
+ * aquí quedan las decisiones que dependen de lo ya ocurrido en el paso (si se puede preguntar, si lo repetido ya estaba aprobado).
  */
 
 import { BUDGET } from "../budget.ts";
 import { isExecuted, type TaskContext } from "../ctx/index.ts";
-
-/** Tope de llamadas por paso alcanzado (sin `user_rejected`): no se inicia otra llamada. */
-export function callCapReached(ctx: TaskContext, stepId: string): boolean {
-  return ctx.callsInStep(stepId) >= BUDGET.maxCallsPerStep;
-}
-
-/** Tope de rechazos de la revisión alcanzado en el paso (`args_invalid`, del pre-chequeo o de Decisión 3): el paso falla en vez de reintentar. */
-export function reviewRejectionsReached(ctx: TaskContext, stepId: string): boolean {
-  const rejected = ctx.find("calls", { stepId }).filter((c) => c.status === "args_invalid");
-  return rejected.length >= BUDGET.maxReviewRejectionsPerStep;
-}
-
-/** Tope de rechazos del usuario alcanzado en el paso: el paso falla en vez de pedirle confirmación otra vez (un rechazo no cuenta para el tope de llamadas, así que sin esto un modelo insistente lo repetiría sin fin). */
-export function userRejectionsReached(ctx: TaskContext, stepId: string): boolean {
-  return ctx.find("calls", { stepId, status: "user_rejected" }).length >= BUDGET.maxUserRejectionsPerStep;
-}
-
-/** Tope de llamadas bloqueadas por repetición alcanzado en el paso: el paso falla en vez de volver a pedir lo mismo. */
-export function repeatsReached(ctx: TaskContext, stepId: string): boolean {
-  return ctx.find("calls", { stepId }).filter((c) => c.status === "loop_blocked").length >= BUDGET.maxRepeatsPerStep;
-}
 
 /**
  * ¿La llamada bloqueada por repetición repetía una llamada idéntica que la verificación ya aprobó? Entonces lo pedido ya está

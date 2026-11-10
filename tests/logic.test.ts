@@ -33,12 +33,12 @@ test("contexto: una llamada idéntica a una ya ejecutada es repetición, salvo q
   const step = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "Listar", route: null, expected: null } }).ids[0];
   const read = { stepId: step, route: "files", tool: "list_directory", kind: "read" as const, args: { path: "C:\\x" }, sig: "huella", status: "ok" as const, summary: null, ref: null };
   ctx.apply({ op: "add", target: "calls", value: read });
-  assert.equal(ctx.isRepeat("list_directory", "huella", { exempt: false }), true);
-  assert.equal(ctx.isRepeat("list_directory", "otra_huella", { exempt: false }), false);
-  assert.equal(ctx.isRepeat("list_directory", "huella", { exempt: true }), false);
+  assert.equal(ctx.isRepeat("list_directory", "huella", { policy: "strict", stepId: step }), true);
+  assert.equal(ctx.isRepeat("list_directory", "otra_huella", { policy: "strict", stepId: step }), false);
+  assert.equal(ctx.isRepeat("list_directory", "huella", { policy: "allow", stepId: step }), false);
   // Una escritura exitosa intermedia habilita volver a leer lo mismo.
   ctx.apply({ op: "add", target: "calls", value: { ...read, tool: "write_file", kind: "write", sig: "otra" } });
-  assert.equal(ctx.isRepeat("list_directory", "huella", { exempt: false }), false);
+  assert.equal(ctx.isRepeat("list_directory", "huella", { policy: "strict", stepId: step }), false);
 });
 
 test("contexto: un cierre parcial deja de ser 'running' y el plan sin pasos pendientes se cierra", () => {

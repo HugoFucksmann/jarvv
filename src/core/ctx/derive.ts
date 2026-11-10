@@ -3,7 +3,7 @@
  * Nada se guarda: cada llamada recalcula desde `calls`, `steps`, `plans` y `facts`. Reutilizan `closure.ts`
  * (`isEffect`, `canFinish`, `planClosure`, `hasApprovedCall`).
  *
- * El contexto no conoce herramientas (principio 5): `isRepeat` recibe la exención ya resuelta.
+ * El contexto no conoce herramientas (principio 5): `isRepeat` recibe la política de repetición ya resuelta.
  */
 
 import { isEffect } from "./closure.ts";
@@ -177,11 +177,6 @@ export function envOf(facts: { readonly [key: string]: Fact }): EnvEntry[] {
 
 // ───────────────────────── Contadores ─────────────────────────
 
-/** Llamadas de un paso para el tope (5.4): sin `user_rejected`. */
-export function callsInStep(calls: readonly Call[], stepId: string): number {
-  return calls.filter((c) => c.stepId === stepId && c.status !== "user_rejected").length;
-}
-
 /** Replans realizados (5.4): `plans` con `trigger = step_failure`. */
 export function replansDone(plans: readonly Plan[]): number {
   return plans.filter((p) => p.trigger === "step_failure").length;
@@ -205,9 +200,19 @@ export function recentWindowSize(steps: readonly Step[], windows: readonly numbe
 
 // ───────────────────────── Anti-loop ─────────────────────────
 
+/**
+ * Política de repetición de una herramienta (`repeat` del catálogo, resuelta por quien ejecuta):
+ * - `strict` (por defecto): una lectura idéntica a una ya hecha se bloquea (ver `isRepeat` para las excepciones).
+ * - `retry_failed`: además, tras un resultado fallido (`tool_error`, `no_data`, `not_found`...) se permite un reintento idéntico por paso.
+ *   Para herramientas cuyo resultado puede cambiar entre dos llamadas iguales (la web).
+ * - `allow`: nunca se bloquea (sondeos repetidos de una misma salida).
+ */
+export type RepeatPolicy = "strict" | "retry_failed" | "allow";
+
 export interface RepeatOptions {
-  /** La herramienta está exenta del anti-loop (`loopExempt` del catálogo, resuelto por quien ejecuta). */
-  readonly exempt: boolean;
+  readonly policy: RepeatPolicy;
+  /** Paso desde el que se pide la llamada: un rechazo de la verificación vale solo dentro del paso que lo emitió. */
+  readonly stepId: string;
 }
 
 /** Marca de tiempo del hecho `answer_*` más reciente (cualquier valor, incluido `null`); `-Infinity` si no hay. */
@@ -222,22 +227,30 @@ function latestAnswerAt(facts: { readonly [key: string]: Fact }): number {
 /**
  * Llamada repetida (5.4): ¿ejecutar `tool` con `sig` repite la llamada ejecutada idéntica más reciente?
  *
- * - `exempt = true` o `sig = null`: `false`, sin comparar.
- * - Se comparan herramienta y `sig` entre las llamadas ejecutadas de toda la tarea (un `denied` del servidor cuenta
- *   como ejecutada). Manda la idéntica más reciente y su `kind`.
- * - Lectura idéntica: se bloquea salvo una escritura `ok` intermedia.
- * - Escritura idéntica: se bloquea salvo una lectura ejecutada intermedia; vale también si la anterior falló, porque
- *   pudo dejar cambios parciales.
- * - Un hecho `answer_*` escrito después de la idéntica (`fact.at > call.at`) cuenta como intermedio en ambos casos.
- * - Sin reintento tras un fallo transitorio (FLUJO 5): lo cubre el tope de llamadas del paso.
+ * Se comparan herramienta y `sig` entre las llamadas ejecutadas de toda la tarea (un `denied` del servidor cuenta como ejecutada). Manda
+ * la idéntica más reciente (`previous`) y su `kind`. `policy = allow` o `sig = null`: `false`, sin comparar.
+ *
+ * Primero, el orden (igual para cualquier política):
+ * - Lectura idéntica: se bloquea salvo una escritura `ok` intermedia (cambió el mundo).
+ * - Escritura idéntica: se bloquea salvo una lectura ejecutada intermedia; vale también si la anterior falló, porque pudo dejar cambios parciales.
+ * - Un hecho `answer_*` escrito después de la idéntica (`fact.at > previous.at`) cuenta como intermedio en ambos casos.
+ *
+ * Después, y solo para LECTURAS (una escritura que falló no se reintenta a ciegas), qué resultado previo permite repetir:
+ * - `previous` aprobada por la verificación: se bloquea en toda la tarea (el dato ya se obtuvo y está a la vista).
+ * - `previous` rechazada por la verificación (el resultado llegó pero no sirvió): vale **solo para su criterio**. Es un juicio contra la
+ *   instrucción y lo esperado de ese paso; un paso con OTRO criterio puede aprobar lo que aquel rechazó. Dentro del mismo paso, o en otro paso
+ *   que pide lo mismo (el reactivo reintenta un ítem con un paso nuevo), repetir da el mismo veredicto.
+ * - `previous` fallida por algo pasajero (`tool_error`, `exception`, `interrupted`): se permite **un** reintento idéntico por paso. Con `retry_failed`,
+ *   también tras `no_data` y `not_found`. En otro paso, siempre.
+ * - `previous` `denied` (política del servidor): se bloquea.
  */
 export function isRepeat(
-  data: Pick<ContextData, "calls" | "facts">,
+  data: Pick<ContextData, "calls" | "facts" | "steps">,
   tool: string,
   sig: string | null,
   options: RepeatOptions,
 ): boolean {
-  if (options.exempt || sig === null) return false;
+  if (options.policy === "allow" || sig === null) return false;
   const calls = data.calls;
   let sawEffect = false;
   let sawRead = false;
@@ -245,10 +258,34 @@ export function isRepeat(
     const c = calls[i];
     if (c.tool === tool && c.sig === sig && isExecuted(c)) {
       if (latestAnswerAt(data.facts) > c.at) return false;
-      return c.kind === "read" ? !sawEffect : !sawRead;
+      const blockedByOrder = c.kind === "read" ? !sawEffect : !sawRead;
+      if (!blockedByOrder) return false;
+      return c.kind === "read" ? !mayRepeatRead(data.steps, calls, c, tool, sig, options) : true;
     }
     if (isEffect(c)) sawEffect = true;
     if (c.kind === "read" && isExecuted(c)) sawRead = true;
   }
   return false;
+}
+
+/** Dos pasos tienen el mismo criterio si piden lo mismo (instrucción y lo esperado): reintentar un ítem con otro paso no cambia lo que se juzga. */
+function sameCriterion(steps: readonly Step[], a: string, b: string): boolean {
+  const first = steps.find((s) => s.id === a);
+  const second = steps.find((s) => s.id === b);
+  return first !== undefined && second !== undefined && first.instruction === second.instruction && first.expected === second.expected;
+}
+
+/** ¿Lo ocurrido con la lectura idéntica anterior (`previous`) permite repetirla? Ver `isRepeat`. */
+function mayRepeatRead(steps: readonly Step[], calls: readonly Call[], previous: Call, tool: string, sig: string, options: RepeatOptions): boolean {
+  if (previous.verdict === "approved" || previous.status === "denied") return false;
+  const retriable = isTransientFailure(previous) || (options.policy === "retry_failed" && previous.status !== "ok");
+  if (previous.stepId !== options.stepId) {
+    // Otro paso: un resultado rechazado se juzgó contra el criterio de aquel; solo si el de este es otro puede salir distinto.
+    const rejectedUnderAnotherCriterion = previous.status === "ok" && previous.verdict === "rejected" && !sameCriterion(steps, previous.stepId, options.stepId);
+    return rejectedUnderAnotherCriterion || retriable;
+  }
+  if (!retriable) return false;
+  // Un reintento por paso: si ya hay dos ejecuciones idénticas en este paso, el reintento ya se usó.
+  const inStep = calls.filter((c) => c.stepId === options.stepId && c.tool === tool && c.sig === sig && isExecuted(c)).length;
+  return inStep < 2;
 }

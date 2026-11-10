@@ -23,11 +23,14 @@ export interface GuardDecision {
   capability: Capability;
 }
 
+/** Política de repetición de una herramienta (ver `RepeatPolicy` en `ctx/derive.ts`, que el contexto define por su cuenta). */
+export type RepeatPolicy = "strict" | "retry_failed" | "allow";
+
 export interface ToolPolicy {
   capability: Capability;
   requiresApproval: boolean;
   mutates: boolean;
   emptyIsError: boolean;
-  /** Exenta del anti-loop (p. ej. sondeos repetidos de una misma salida). */
-  loopExempt: boolean;
+  /** Qué hacer con una llamada idéntica a una ya ejecutada (`strict`, `retry_failed`, `allow`); ver `isRepeat` en `ctx/derive.ts`. */
+  repeat: RepeatPolicy;
 }

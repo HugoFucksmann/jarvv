@@ -14,8 +14,16 @@ const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> 
     desc: "Cantidad máxima de iteraciones o pasos antes de detener la tarea.",
   },
   maxCallsPerStep: {
-    label: "Llamadas por Paso",
-    desc: "Máximo de herramientas que el modelo puede invocar en un solo paso.",
+    label: "Ejecuciones por Paso",
+    desc: "Máximo de llamadas que llegan a una herramienta en un solo paso.",
+  },
+  maxAttemptsPerStep: {
+    label: "Intentos por Paso",
+    desc: "Techo de intentos del modelo en un paso, incluidos los que no llegaron a la herramienta (repetidos, argumentos inválidos).",
+  },
+  maxNotAccomplishedPerRoute: {
+    label: "Rechazos por Ruta",
+    desc: "Veces que la verificación puede decir 'no cumple lo pedido' sobre una ruta en un paso antes de dejar de ofrecerla.",
   },
   maxReplans: {
     label: "Tope de Replanificaciones",

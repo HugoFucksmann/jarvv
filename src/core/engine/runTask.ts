@@ -21,13 +21,13 @@
  * `user_cancelled`. `security_denied` viene del Guard (`runStep`).
  */
 
-import { BUDGET } from "../budget.ts";
 import { planClosure } from "../ctx/index.ts";
 import type { StopReason, TaskContext } from "../ctx/index.ts";
 import type { EngineDeps } from "../contracts.ts";
 import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
+import { escalationsExceeded, itemFailuresReached, replansExhausted, stepsExhausted } from "./limits.ts";
 import type { Closing } from "./finalize.ts";
 import { generatePending } from "./pending.ts";
 import { reconcileList } from "./pendingList.ts";
@@ -81,7 +81,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
 
   for (;;) {
     if (runtime.cancelled) return CANCELLED;
-    if (ctx.find("steps", {}).length >= BUDGET.maxSteps) return stop("max_steps");
+    if (stepsExhausted(ctx)) return stop("max_steps");
 
     if (askModel) {
       const previous = pending;
@@ -123,9 +123,9 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
         continue;
       case "failed":
         // Un paso `failed` es una escalación; el tercero agota la recuperación.
-        if (ctx.escalations() > BUDGET.maxEscalations) return stop("no_alternatives");
+        if (escalationsExceeded(ctx)) return stop("no_alternatives");
         headFailures++;
-        if (headFailures >= BUDGET.maxItemFailures && pending.length > 1) {
+        if (itemFailuresReached(headFailures) && pending.length > 1) {
           // Salida parcial: el ítem agotó sus intentos y quedan otros (p. ej. guardar lo obtenido): se sigue con el resto.
           settled.push(head);
           abandoned++;
@@ -172,7 +172,7 @@ async function runDeliberative(env: EngineEnv): Promise<Closing> {
       case "completed":
         continue;
       case "failed": {
-        if (ctx.replansDone() >= BUDGET.maxReplans) return stop("replans_exhausted");
+        if (replansExhausted(ctx)) return stop("replans_exhausted");
         const replan = await generatePlan(env, { kind: "step_failure" });
         if (replan.kind === "planned") continue;
         return replan.kind === "invalid" ? stop("replans_exhausted") : planStop(replan);

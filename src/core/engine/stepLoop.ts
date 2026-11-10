@@ -35,7 +35,8 @@ import { availableRoutes, runCall } from "./callRunner.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { CallOutcome, StepFailureCause, StepOutcome } from "./outcomes.ts";
-import { callCapReached, canAskUser, repeatsApprovedCall, repeatsReached, reviewRejectionsReached, userRejectionsReached } from "./retries.ts";
+import { checkStepLimits } from "./limits.ts";
+import { canAskUser, repeatsApprovedCall } from "./retries.ts";
 
 /** Cómo empieza el paso: reactivo lo crea; deliberativo promueve el `pending` que indica el proveedor. */
 export type StepSeed = { readonly kind: "reactive"; readonly instruction: string } | { readonly kind: "planned"; readonly stepId: string };
@@ -80,12 +81,13 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
 
   for (; ;) {
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    if (callCapReached(ctx, stepId)) {
-      // Atasco: antes de fallar se le pregunta al usuario (si no se le preguntó ya en este paso); el paso falla igual y la
-      // respuesta queda a la vista de lo que siga (siguiente paso o replan).
-      if (!canAskUser(ctx, stepId)) return failStep("call_cap");
+    // El único punto de control de los topes del paso (`limits.ts`). Un atasco por llamadas pregunta al usuario antes de fallar (si no se le
+    // preguntó ya en este paso); el paso falla igual y la respuesta queda a la vista de lo que siga (siguiente paso o replan).
+    const hit = checkStepLimits(ctx, stepId);
+    if (hit !== null) {
+      if (!hit.askFirst || !canAskUser(ctx, stepId)) return failStep(hit.cause);
       const stop = await ask();
-      return stop ?? failStep("call_cap");
+      return stop ?? failStep(hit.cause);
     }
 
     // ── Destino de la llamada: Decisión 1 en ambos modos.
@@ -131,15 +133,11 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
         finishStep("completed");
         return { kind: "completed" };
       }
-      if (repeatsReached(ctx, stepId)) return failStep("repeat_blocked");
     }
     if (outcome.status === "info_missing" && canAskUser(ctx, stepId)) {
       const stop = await ask();
       if (stop !== null) return stop;
     }
-    // El usuario rechazó la confirmación dos veces: el paso falla (su instrucción queda a la vista de lo que siga).
-    if (outcome.status === "user_rejected" && userRejectionsReached(ctx, stepId)) return failStep("user_rejected");
-    // La revisión rechazó la herramienta o los argumentos más de una vez: el paso falla y la recuperación del modo lo reencauza.
-    if (reviewRejectionsReached(ctx, stepId)) return failStep("review_rejected");
+    // Los demás topes (repeticiones, rechazos del usuario, argumentos inválidos, ejecuciones e intentos) los revisa `checkStepLimits` al volver al inicio.
   }
 }

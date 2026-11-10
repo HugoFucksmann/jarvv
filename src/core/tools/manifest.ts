@@ -28,6 +28,7 @@ import {
   type ExecutableRoute,
   type McpServerName,
   type MCPTool,
+  type RepeatPolicy,
   type ToolPolicy,
 } from "../types.ts";
 
@@ -84,8 +85,8 @@ export const DESTINATIONS: Readonly<
 interface ToolOptions {
   /** Una salida vacía es un error (lecturas y búsquedas). */
   emptyIsError?: boolean;
-  /** Exenta del anti-loop. */
-  loopExempt?: boolean;
+  /** Qué hacer con una llamada idéntica a una ya ejecutada (por defecto `strict`; `allow` para sondeos, `retry_failed` para la web). */
+  repeat?: RepeatPolicy;
   params?: readonly string[];
   notes?: Readonly<Record<string, string>>;
   /** Estado que la tarea debe tener para ofrecer la herramienta: un proceso en ejecución o una búsqueda iniciada. */
@@ -135,7 +136,7 @@ function def(
       requiresApproval: NEEDS_APPROVAL.has(capability),
       mutates,
       emptyIsError: opts.emptyIsError ?? false,
-      loopExempt: opts.loopExempt ?? false,
+      repeat: opts.repeat ?? "strict",
     }),
   });
 }
@@ -161,7 +162,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   def("locate", "start_search", "FILE_READ", "Start a streaming file search.", {
     params: ["path", "pattern", "searchType", "filePattern", "ignoreCase", "maxResults"],
   }),
-  def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true, requires: "search" }),
+  def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { repeat: "allow", requires: "search" }),
 
   // Sin `verbose_timing`: con él la última línea de la salida pasa a ser un bloque de tiempos y el extractor pierde el fin del proceso y su exit code.
   // Escritura por catálogo; un comando que `policy/readOnly.ts` demuestra de solo lectura se trata como lectura llamada por llamada.
@@ -171,7 +172,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     argCaps: { command: 1000 },
   }),
   def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", {
-    loopExempt: true,
+    repeat: "allow",
     requires: "process",
     params: ["pid", "timeout_ms", "offset", "length"],
   }),
@@ -185,12 +186,14 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // Solo `question`: `depth` queda en el valor del servidor (3 páginas) y los filtros no se exponen.
   def("web", "research", "READ", "Search the web and read the top pages in one call. Use it for any lookup.", {
     emptyIsError: true,
+    repeat: "retry_failed",
     params: ["question"],
     notes: { question: "What to look up, in natural language. Never a URL." },
   }),
   // Sin `render` (la palabra "navegador" lo activaba y el valor `auto` ya recurre al navegador si HTTP falla), sin
   // `max_age_hours` (con 0 equivale a `force_refresh`; su tipo `anyOf` complica el schema) ni `format` ni `inline`: el extractor asume Markdown.
   def("web", "fetch", "READ", "Download ONE known URL as Markdown. To find pages, use research.", {
+    repeat: "retry_failed",
     params: ["url", "force_refresh"],
   }),
 ];
@@ -211,7 +214,7 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   requiresApproval: true,
   mutates: true,
   emptyIsError: false,
-  loopExempt: false,
+  repeat: "strict",
 });
 
 const lookup = (server: string, tool: string): ToolDefinition | undefined => INDEX.get(toolKey(server, tool));

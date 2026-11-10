@@ -6,7 +6,7 @@
  */
 
 import express from 'express';
-import { BUDGET } from '../core/budget.ts';
+import { limitValues } from '../core/engine/limits.ts';
 import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
@@ -186,8 +186,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
 
   // Topes del motor, para mostrar el progreso (paso 3 de 20, llamada 2 de 6).
   router.get('/limits', (_req, res) => {
-    const { maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxUserRejectionsPerStep, maxQuestionsPerStep } = BUDGET;
-    res.json({ maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxUserRejectionsPerStep, maxQuestionsPerStep });
+    res.json(limitValues());
   });
 
   // Eventos en tiempo real (SSE): un mensaje `data: <TaskEvent>` por evento.
