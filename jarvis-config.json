@@ -16,11 +16,9 @@
   "decisionMaxContext": 16384,
   "decisionTimeoutMs": 30000,
   "desktopCommanderMcp": {
-    "command": "npx",
+    "command": "node",
     "args": [
-      "-y",
-      "--prefer-offline",
-      "@wonderwhy-er/desktop-commander@0.3.2"
+      "node_modules/@wonderwhy-er/desktop-commander/dist/index.js"
     ],
     "allowedDirectories": []
   },
@@ -41,6 +39,7 @@
   "traceEnabled": true,
   "tracePath": "jarvis-traces.jsonl",
   "refsDir": "data/refs",
+  "retentionDays": 30,
   "blacklist": [],
-  "autoMode": false
+  "autoMode": true
 }

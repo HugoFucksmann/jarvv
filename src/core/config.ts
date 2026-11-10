@@ -104,10 +104,12 @@ const DEFAULT_CONFIG: JarvisConfig = {
   decisionMaxContext: 16384,
   decisionTimeoutMs: 30000,
   desktopCommanderMcp: {
-    command: "npx",
-    // Versión fija: `npx -y` sin versión baja la última publicada en cada arranque (cadena de suministro). Subirla es una decisión: probar y cambiar aquí y en jarvis-config.json.
-    // `--prefer-offline`: con la versión exacta ya en la caché de npm no consulta el registro en cada arranque (unos 0,4 s menos).
-    args: ["-y", "--prefer-offline", "@wonderwhy-er/desktop-commander@0.3.2"],
+    // Desktop Commander es una dependencia del proyecto (`package.json`, versión exacta; el lockfile fija el resto) y se lanza con `node` directo:
+    // arranca en ~1,4 s contra ~2,7 s con `npx`, no consulta el registro y no depende de la red. La ruta es relativa al directorio de trabajo de
+    // Jarvis (la raíz del proyecto). Para subir la versión: `npm install --save-exact --ignore-scripts @wonderwhy-er/desktop-commander@<x>` (sin scripts: el `postinstall` del paquete manda
+    // una estadística de instalación; el binario de `rg` viene en un paquete por plataforma y no necesita script) y probar.
+    command: "node",
+    args: ["node_modules/@wonderwhy-er/desktop-commander/dist/index.js"],
     allowedDirectories: [],
   },
   freeSearchMcp: {

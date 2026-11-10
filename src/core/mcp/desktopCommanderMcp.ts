@@ -7,6 +7,7 @@
  * `ó` llegaba como `�`. El cambio vale solo para lo que se despacha: la traza y el contexto conservan el comando original.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import { MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
@@ -20,6 +21,18 @@ export function utf8Command(args: Record<string, unknown>, platform: NodeJS.Plat
   return { ...args, command: `[Console]::OutputEncoding=[Text.Encoding]::UTF8; ${args.command}` };
 }
 
+/**
+ * Si el servidor se lanza con `node <archivo>` y ese archivo no existe (típico: falta `npm install`), el motivo; si no, `null`. Sin este aviso el
+ * fallo aparece recién en la primera tarea, como un servidor caído, con el error de Node en el stderr del hijo.
+ */
+export function missingLaunchScript(config: { command: string; args: readonly string[]; cwd?: string }, exists: (file: string) => boolean = fs.existsSync): string | null {
+  if (path.basename(config.command).replace(/\.exe$/i, "").toLowerCase() !== "node") return null;
+  const script = config.args.find((arg) => !arg.startsWith("-"));
+  if (script === undefined) return null;
+  const resolved = path.resolve(config.cwd ?? process.cwd(), script);
+  return exists(resolved) ? null : `no existe ${resolved}. Ejecuta \`npm install\` en la carpeta de Jarvis (Desktop Commander es una dependencia del proyecto).`;
+}
+
 export class DesktopCommanderMCPServer extends StdioMcpServer {
   readonly name = "desktop_commander";
   readonly version = "2.1.0";
@@ -29,6 +42,8 @@ export class DesktopCommanderMCPServer extends StdioMcpServer {
     const config = getConfig().desktopCommanderMcp;
     super(transport ?? new StdioMcpTransport("desktop_commander", config, () => getConfig().mcpTimeoutMs));
     this.allowedDirectories = allowedDirs ?? config.allowedDirectories ?? [];
+    const missing = transport === undefined ? missingLaunchScript(config) : null;
+    if (missing !== null) console.warn(`[MCP desktop_commander] ${missing}`);
   }
 
   /**

@@ -106,7 +106,7 @@ JARVIS trae su propio laboratorio de evaluación: mide prompts y modelos contra 
 
 | | Requisito | Para qué |
 |:-:|---|---|
-| 🟢 | [Node.js](https://nodejs.org) 20 o superior (incluye `npx`) | Servidor, interfaz y Desktop Commander |
+| 🟢 | [Node.js](https://nodejs.org) 22.12 o superior | Servidor, interfaz y Desktop Commander (que se instala con `npm install` y se lanza con `node`) |
 | 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b` |
 | 🐍 | [uv](https://docs.astral.sh/uv/) (`uvx`) | Free Search, la herramienta de la ruta `web` |
 
