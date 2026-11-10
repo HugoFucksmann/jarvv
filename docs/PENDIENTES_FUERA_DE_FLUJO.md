@@ -7,9 +7,9 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 - **D3 casi no corre en producción.** Todas las escrituras del catálogo piden aprobación y, si el usuario aprueba, D3 no entra. Solo corre en una escritura sin aprobación o con `autoMode` encendido. Decidir si D3 se reserva para ese modo (la idea) y medirlo sobre escrituras reales sin aprobación humana.
 - **Umbrales de D3 y D4** (`REVIEW_APPROVE` y `NOUL_APPROVE` = 0,6, `engine/verify.ts`): valores iniciales sin medir; con ellos, una aprobación al 51 % ya se rechaza. Medir falsos rechazos con el eval (el eval comparte `NOUL_APPROVE`).
 - **Shell Linux en Windows (evaluado, sin hacer):** WSL no está instalado (`bash.exe` de System32 es el lanzador de WSL y no sirve); Git Bash existe (`bash.exe` en la carpeta `bin` de Git) y habría que pasarlo con ruta completa en `shell`. Su `ps -W` no da memoria, y el pre-chequeo (`precheck.ts`, parser de PowerShell y rechazo de rutas Linux) asume PowerShell. Si se quiere probar, hacerlo primero en el eval con tareas de archivos y texto, no de procesos del sistema.
-- **Reglas de comando** (`policy/commandRules.ts`): sin tests automáticos (se probaron a mano con ~100 comandos, v0.6.0). No reconocen llamadas .NET que no sean las estáticas a `[IO.File]`/`[IO.Directory]` (por ejemplo `(Get-Item x).Delete()`), ni variables definidas por el propio comando, ni rutas que vienen de una tubería. Medir cuántas aprobaciones extra generan las reglas nuevas (`sensitive`) en uso real.
-- **`autoMode`** (apagado por defecto, sin medir con el modelo real): con él encendido, lo `sensitive` lo decide D3 (modelo de 2B, umbral 0,65) y no hay control en la interfaz (hoy se cambia por `jarvis-config.json` o por `POST /config`).
-- **Lista negra** (`blacklist` de la config): viene vacía (las reglas integradas de `commandRules.ts` actúan igual). No hay UI para editarla.
+- **Reglas de comando** (`policy/commandRules.ts`): solo tienen tests de humo (`tests/policy.test.ts`); el resto se probó a mano con ~100 comandos (v0.6.0). No reconocen llamadas .NET que no sean las estáticas a `[IO.File]`/`[IO.Directory]` (por ejemplo `(Get-Item x).Delete()`), ni variables definidas por el propio comando, ni rutas que vienen de una tubería. Medir cuántas aprobaciones extra generan las reglas nuevas (`sensitive`) en uso real.
+- **`autoMode`** (apagado por defecto, sin medir con el modelo real): con él encendido, lo `sensitive` lo decide D3 (modelo de 2B, umbral 0,65). Se cambia desde la interfaz (Configuración) o por `POST /config`.
+- **Lista negra** (`blacklist` de la config): viene vacía (las reglas integradas de `commandRules.ts` actúan igual). Se edita desde la interfaz (Configuración).
 - **Anti-loop antes de los argumentos: no es posible.** La huella (`sig`) sale de los argumentos resueltos, así que el bloqueo solo puede ir después de generarlos. Desde 2026-11-08 una herramienta bloqueada por repetición sigue ofrecida (antes se excluía del paso y podía dejar sin herramientas a la ruta correcta): cuesta, como mucho, dos llamadas bloqueadas por paso (`maxRepeatsPerStep`). Medir si `LAST ERROR` reduce esas repeticiones.
 - **Candidato idéntico a uno ya rechazado (`args_invalid`).** El anti-bucle solo compara llamadas ejecutadas; el tope de dos rechazos por paso (`maxReviewRejectionsPerStep`) lo acota, pero no lo bloquea antes de generar los argumentos. [V]
 - **Sin medir con el modelo real:** los límites nuevos (`maxSteps` 20, `maxReplans` 3, `maxCallsPerStep` 6, `maxRepeatsPerStep` 2), el cierre de un paso por repetir una llamada ya aprobada, el encabezado fijo de `renderStatusNote` y la salida parcial de `runReactive` (`maxItemFailures` 2) en una corrida del pedido "último modelo de GPT y Gemini → md".
@@ -19,22 +19,24 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 - **Tareas largas:** con muchos pasos y reintentos el contexto crece y el modelo chico pierde calidad (hay compactación de EFFECTS y FAIL, pero sin medir en tareas de más de ~10 llamadas).
 - **`start_process` es siempre `write`** (aunque el comando solo lea): su salida va a EFFECTS y no a DATA, y con `autoMode` todo comando pasa por D3.
 
+## Backend general
+- **Retención sin límite:** `data/refs/` (resultados crudos) y `jarvis-traces/` crecen sin tope ni limpieza; solo las tareas en memoria se expulsan (`MAX_RETAINED_TASKS`). Definir una política (por antigüedad o por tamaño). [V]
+- **Cobertura de tests (`tests/`):** hay foto dorada de los prompts, Guard, lógica pura y `runTask` con dobles. Sin tests: `precheck.ts`, `result/` (extractores y `processResult`), `refs/refResolver.ts`, `mcp/` (transporte), `TaskManager` y las rutas HTTP. [V]
+- **Logs:** unas 60 llamadas a `console.*` repartidas por `models/`, `engine/`, `tasks.ts` y `mcp/`, sin niveles ni formato común. [V]
+
 ## Catálogo de herramientas
 - **Extractor de `research`** (`result/extractors/research.ts`): no resuelve la recencia (las fechas de las fuentes llegan, pero una tabla con los modelos más nuevos queda en la ref). Medir con un dataset de preguntas "último X" y decidir si hace falta una lectura posterior de la ref.
 - **Tiempo de espera:** `mcpTimeoutMs` pasó a 60 s para toda llamada; medir si alcanza para `research` (busca y descarga hasta 3 páginas, más si el servidor recurre al navegador). No hay un tiempo por herramienta.
 - **`inputSchemaManifest.md`** (raíz) está desactualizado: lo genera `scripts/dumpManifestInputSchemas.ts`, que necesita los servidores MCP.
 
 ## API (`src/server/`)
-- **`POST /config` puede cambiar `command` y `args` de los servidores MCP:** quien llegue desde `localhost` puede hacer que el servidor lance otro programa. Hoy solo lo frena la validación de `Host` y `Origin`. Decidir si esas claves quedan solo en el archivo.
 - `ALL /refresh-discovery` acepta también `GET` y tiene efecto (vuelve a descubrir). Heredado.
 - La lista de pendientes completa (vive solo en `runReactive`) y las decisiones de D1 a D4 en vivo (solo las registra la traza al terminar) no se exponen: hacerlo exigiría guardarlas en el contexto o emitir un evento nuevo.
 - Falta comprobar `GET /tasks/:id/refs/:refId` con una ref existente (necesita una tarea real).
-- **Front (`ui/types/api.ts`):** todavía declara `qwenMaxTokens.verify`, que el backend ya no devuelve.
 
 ## Prompts
 - `PROMPTS.PENDING_VIEW` es la variante `pending_elite_labels` (eval del 2026-11-09, +2,6 puntos). Antes, en dos corridas reales, inventó el comando (`…usando el comando ps`); falta confirmar en uso real que ya no lo hace. [V]
 - Para que una variante agregue o quite partes de un prompt de forma autónoma, `prompts.ts` debe organizarse en partes con nombre (hoy son literales dentro de `buildX` y `SYSTEM`).
-- `adapters.ts`: el comentario de cabecera dice que solo se usan `renderArgs`, `renderAsk` y `renderPending`, pero también importa `renderPlan`. [V]
 - `ReviewView` es `ArgsView` sin `refs` ni `effects`; derivar con `Omit`. [V]
 
 ## d3 / decisiones
