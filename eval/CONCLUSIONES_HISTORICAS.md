@@ -1,8 +1,9 @@
-# conclusiones.md — referencia de lo medido sobre la revisión (D3) y la verificación (D4)
+# Conclusiones históricas — revisión (D3) y verificación (D4)
+
+> **Documento histórico (mediciones del 2026-11-07).** Los nombres de variantes y datasets que cita ya no existen en el repo. Lo vigente está en [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) y en los `conclusiones_*.md` de cada carpeta de `variants/`.
 
 > Documento de referencia, pensado también para pasárselo a un agente que mejore prompts. Empieza por una guía (qué prompt hace qué, cómo medir) y sigue con tres secciones: **lo que sirve**, **lo que no sirve** y **lo que se está probando**; después, la línea base actual, el catálogo de fallas, las hipótesis abiertas y las reglas de trabajo. Lo que sirve
 > puede vetarse más adelante si se descubre que no funciona: cada punto dice con qué evidencia se aceptó y qué lo vetaría.
-> Reemplaza a `conclusiones_old.md` (pruebas viejas con otro modelo y otro flujo; se cita donde aplica).
 >
 > Fecha de las mediciones: 2026-11-07. Modelos: `qwen3.5:4b` (generativo) y `d3:2b` (decisión), ambos en Ollama local.
 

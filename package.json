@@ -1,7 +1,9 @@
 {
-  "name": "react-example",
+  "name": "jarvis",
+  "description": "Asistente local que convierte instrucciones en acciones sobre tu PC con modelos chicos, Guard determinista y un laboratorio de evaluación de prompts.",
+  "license": "MIT",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",

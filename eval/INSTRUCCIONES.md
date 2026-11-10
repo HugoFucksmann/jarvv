@@ -1,6 +1,6 @@
 # Guía de Uso del Framework de Evaluación (`eval`)
 
-Documentación y referencia completa del framework de evaluación de prompts y modelos (generativos y de decisión). Versión 1.0. Para una presentación breve, ver [`README.md`](./README.md).
+Documentación y referencia completa del framework de evaluación de prompts y modelos (generativos y de decisión). Para una presentación breve, ver [`README.md`](./README.md).
 
 ---
 
@@ -59,7 +59,7 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 ### Variantes y Baseline (Pruebas A/B)
 | Flag | Tipo / Formato | Default | Descripción |
 |---|---|---|---|
-| `--variant` | CSV de variantes | `prod` | Nombres de variantes en `eval/variants/`. Permite composición con `+` (ej: `--variant=prod,route_example` o `--variant=varA+varB`). `prod` siempre se incluye como baseline de comparación. Con composición (`prod+x`) se agrega igualmente `prod` como spec propia. |
+| `--variant` | CSV de variantes | `prod` | Nombres de variantes en `eval/variants/`. Una variante por nombre (ej: `--variant=prod,route_min`); la composición con `+` ya no existe y da error. `prod` siempre se incluye como baseline de comparación. |
 | `--baseline` | String | `prod` | Variante tomada como base para la comparación de métricas (delta/diff). Debe coincidir exactamente con una de las specs de `--variant`; si no, error de configuración. |
 | `--no-baseline` | Booleano | — | No agrega `prod` a las variantes: corre solo las que indiques en `--variant` (obligatorio). La baseline pasa a ser la primera variante, o la de `--baseline` si la pasas. No hay deltas contra `prod`; con dos o más variantes, se comparan contra la primera. Ejemplo: `--variant=jarvis_alt_v2 --no-baseline`. |
 
@@ -211,7 +211,7 @@ npx tsx eval/cli.ts --stages=plan --dataset=eval/datasets/smoke.jsonl --model=qw
 
 ### Comparar una variante contra producción (A/B testing)
 ```bash
-npx tsx eval/cli.ts --variant=prod,route_example --stages=route --dataset=eval/datasets/smoke.jsonl
+npx tsx eval/cli.ts --variant=prod,route_min --stages=route --dataset=eval/datasets/smoke.jsonl
 ```
 
 ### Comparar impacto de Thinking (`both` = on y off)
@@ -275,7 +275,7 @@ export default mi_variante;
 - **Leer las respuestas**: si la variante conserva las preguntas de producción (`review`; `ok` y `cumple`, ambas `noul`), no hace falta nada. Si cambia el conjunto de preguntas de `args_review` o `result_verification`, `read` dice cómo salen la etiqueta o `ok`/`cumple` de las respuestas (`read.args_review`, `read.result_verification`). Las claves de pregunta de `route` (`route`) y `tool_choice` (`selected_tool`) son fijas.
 - Los helpers y tablas de `prompts.ts` (`frameLines`, `listBlock`, `lastFailedBy`, `REVIEW_OPTIONS`, `VERIFY_QUESTIONS`, `join`, `todayLine`…) están exportados para reutilizar lo que no cambia. Para partir del texto actual de una etapa, usar `--dry-run` (sección 5).
 - Un error en el constructor o un request mal formado es error de carga, con el caso y la línea.
-- Un ejemplo completo está en `variants/route_example.ts`. Se corre con `--variant=prod,mi_variante` (una por nombre; `+` ya no compone y da error).
+- Una plantilla completa de las cuatro etapas de decisión está en `variants/decision_all_stages_example.ts`, y las variantes reales por etapa están en las subcarpetas de `variants/` (con un `conclusiones_*.md` cada una). Se corre con `--variant=prod,mi_variante`.
 
 ---
 
@@ -307,7 +307,7 @@ eval/
 ├── cli.ts                        punto de entrada
 ├── wizard.ts                     asistente interactivo (--menu)
 ├── datasets/                     casos (.jsonl): escenarios
-├── variants/                     variantes: prompts enteros (prod, route_example, …)
+├── variants/                     variantes: prompts enteros (prod, una subcarpeta por etapa, plantilla)
 ├── results/                      salidas de cada corrida
 └── core/
     ├── runner.ts                 ejecuta casos, reintentos, concurrencia

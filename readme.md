@@ -9,6 +9,8 @@
 ![Local first](https://img.shields.io/badge/100%25-local-2ea44f?style=for-the-badge)
 ![Guard](https://img.shields.io/badge/seguridad-determinista-0969da?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/herramientas-MCP-8250df?style=for-the-badge)
+![Versión](https://img.shields.io/badge/versi%C3%B3n-0.6.0-orange?style=for-the-badge)
+![Licencia](https://img.shields.io/badge/licencia-MIT-lightgrey?style=for-the-badge)
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-20232a?logo=react&logoColor=61dafb)
@@ -143,7 +145,8 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 | `npm run dev` / `npm start` | Servidor de JARVIS (con Vite integrado fuera de producción) |
 | `npm run build` | Compila la interfaz a `dist/` |
 | `npm run lint` | Verificación de tipos (`tsc --noEmit`) |
-| `npm run eval` | Laboratorio de evaluación de prompts |
+| `npm run eval` | Laboratorio de evaluación de prompts (`-- --menu` abre el asistente) |
+| `npm run eval:smoke` | Prueba rápida del eval sin modelos (cliente `mock`, `--dry-run`) |
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
@@ -159,7 +162,7 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la interfaz o directamente en el archivo.
 
 <details open>
-<summary><b>Valores que trae el proyecto</b></summary>
+<summary><b>Valores por defecto</b></summary>
 
 <br>
 
@@ -173,8 +176,8 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción) |
 | `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
-| `blacklist` | `[]` | Lista negra editable de herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
-| `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y `blacklist` siguen rechazando. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
+| `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
+| `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
 
 </details>
 
@@ -189,11 +192,30 @@ jarvis/
 │   ├── core/            Núcleo: modos, decisión, razonador, Guard, MCP, contexto y refs
 │   └── server/          Rutas HTTP (/api/jarvis y /api/mcp)
 ├── ui/                  Interfaz React: componentes, hooks y cliente de la API
-├── eval/                Laboratorio de evaluación de prompts y modelos
+├── eval/                Laboratorio de evaluación: datasets, variantes de prompt y resultados
 ├── docs/                Documentación técnica
-├── data/                Datos locales de ejecución
+├── scripts/             Utilidades (volcado de los esquemas de herramientas)
+├── data/                Datos locales de ejecución (resultados completos de las herramientas)
 └── jarvis-config.json   Configuración
 ```
+
+---
+
+## 🧪 Estado actual y limitaciones
+
+Esta es una **versión temprana ([v0.6.0](CHANGELOG.md))**: el flujo completo funciona y ejecuta tareas de forma correcta, pero todavía hay cosas por mejorar. Lo que hay que saber antes de probarlo:
+
+| Área | Estado |
+|---|---|
+| **Tareas simples y medianas** | ✅ Funcionan de punta a punta en ambos modos |
+| **Tareas largas** | ⚠️ Con muchos pasos y reintentos el contexto crece y el modelo chico pierde precisión; hay compactación, pero falta medirla |
+| **Validaciones** | ⚠️ La revisión de argumentos (Decisión 3) y la verificación de resultados (Decisión 4) usan umbrales iniciales (0,6) sin calibrar con uso real |
+| **Evaluación** | ⚠️ El laboratorio funciona, pero los datasets y las variantes se cargan a mano: no es 100 % autónomo y aún no evalúa tareas completas de punta a punta |
+| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` viene apagado; encendido, los comandos no piden aprobación y los valida un modelo de 2B. `POST /config` puede cambiar el comando de los servidores MCP: **no expongas el servidor fuera de `localhost`** |
+| **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell; en otros sistemas no está validado |
+| **Herramientas** | 13 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
+
+Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES_FUERA_DE_FLUJO`](docs/PENDIENTES_FUERA_DE_FLUJO.md).
 
 ---
 
@@ -206,3 +228,13 @@ Si te interesa entender cómo está construido por dentro:
 | 🏛️ [ARCHITECTURE](docs/ARCHITECTURE.md) | La arquitectura y las responsabilidades de cada módulo |
 | 🔄 [CORE_FLOW](docs/CORE_FLOW.md) | El recorrido de una tarea, de la instrucción a la respuesta final |
 | 🧠 [CONTEXT_AND_MEMORY](docs/CONTEXT_AND_MEMORY.md) | Cómo se arma el contexto, la memoria y el manejo de resultados |
+| 🔌 [JARVIS_API](docs/JARVIS_API.md) | La API HTTP local y los eventos en vivo que consume la interfaz |
+| 📏 [Eval](eval/README.md) | El laboratorio de evaluación de prompts: uso, variantes y [mejores resultados](eval/MEJORES_VARIANTES.md) |
+| 🚧 [PENDIENTES](docs/PENDIENTES_FUERA_DE_FLUJO.md) | Limitaciones conocidas y trabajo abierto |
+| 📝 [CHANGELOG](CHANGELOG.md) | Qué trae cada versión y la historia del desarrollo |
+
+---
+
+## 📄 Licencia
+
+[MIT](LICENSE) © 2026 Hugo Fucksmann

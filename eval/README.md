@@ -2,7 +2,7 @@
 
 > Mide cómo decide y responde Jarvis, y valida cada cambio de prompt contra producción antes de tocar `src`.
 
-**Versión 1.0** · Evalúa las nueve etapas del flujo, compara variantes de prompt, y deja cada resultado trazable.
+Evalúa las nueve etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
 
 ---
 
@@ -69,7 +69,7 @@ eval/results/<modelo>/<fecha>/
 
 ## Datasets generados y cruce con el pre-chequeo
 
-Los generadores están en `eval/gen/` (`reales.ts`, `mutaciones.ts`, `verificacion_vieja.ts`, `ram_real.ts`, `ram_retry.ts`) y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de `conclusiones.md`). Resultados y conclusiones: `conclusiones.md` en la raíz.
+Los datasets de `eval/datasets/<etapa>/` se cargan a mano (casos por escenario, hoy con ayuda de otros modelos y revisión humana); no hay generación automática de casos. Los scripts de `eval/gen/` (`mutaciones.ts`, `ram_real.ts`, `ram_retry.ts`, `repeticiones.ts`) generan casos sintéticos puntuales y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md)). Resultados y conclusiones: [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las mejores variantes por etapa) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
 
 ## Documentación
 
