@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 const SYSTEM = `You are JARVIS. Crucial information is missing from the user to continue execution.

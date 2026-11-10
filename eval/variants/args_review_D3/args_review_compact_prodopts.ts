@@ -1,6 +1,6 @@
-import type { ReviewDecisionInput } from "../../../src/core/engine/deps.ts";
-import { listBlock } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { ReviewDecisionInput } from "../../../src/core/contracts.ts";
+import { listBlock } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 1. Estado de args_review_compact_history con las opciones (criterios) de producción: aísla el efecto del estado del de los criterios. */

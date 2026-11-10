@@ -54,7 +54,7 @@ export interface ParsedAnswer {
   noul?: number;
 }
 
-/** El objeto `answers` de la respuesta cruda. Valida con el mismo código que producción (`src/core/decision.ts`). */
+/** El objeto `answers` de la respuesta cruda. Valida con el mismo código que producción (`src/core/models/decision.ts`). */
 export function parseAnswers(rawOutput: string): Record<string, ParsedAnswer> {
   try {
     return parseAnswersObject(rawOutput) as Record<string, ParsedAnswer>;

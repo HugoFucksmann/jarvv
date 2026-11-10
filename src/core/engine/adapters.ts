@@ -10,28 +10,27 @@
  */
 
 import { BUDGET } from "../budget.ts";
-import type { ArgsViewOptions, CallView, FinalViewOptions, JsonObject, PlanViewOptions, ReviewView, ReviewViewOptions, RouteView, RouteViewOptions, TaskContext, VerifyView, WindowOptions } from "../ctx/index.ts";
+import type { ArgsViewOptions, CallView, CriterionView, FinalViewOptions, JsonObject, PlanViewOptions, ReviewView, ReviewViewOptions, RouteView, RouteViewOptions, TaskContext, VerifyView, WindowOptions } from "../ctx/index.ts";
 import { renderArgs, renderPending, renderPlan } from "../render/index.ts";
 import type { ArgsRenderOptions, AskRenderOptions, FinalRenderOptions, PlanRenderOptions, Rendered } from "../render/index.ts";
 import {
+  argsText,
   callHead,
   clipMarked,
-  factLine,
   failureLine,
   lastCapped,
-  multiLine,
-  newestWithin,
   oneLine,
   readEntry,
   refText,
+  stateLines,
   stepDoneLine,
-  userInputLine,
+  userLines,
 } from "../render/shared.ts";
 import { READ_ARG_KEYS } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import type { ArgsFromViewInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "./deps.ts";
+import type { ArgsFromViewInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "../contracts.ts";
 
 // ───────────────────────── Opciones de vistas y renderizadores ─────────────────────────
 
@@ -135,8 +134,8 @@ function attemptText(call: CallView): string {
   return parts.join(" ");
 }
 
-/** El paso actual en dos textos: `step` (2000) reparte su tope entre `instruction` y `expected`. */
-function stepText(step: NonNullable<RouteView["step"]>): { readonly instruction: string; readonly expected: string | null } {
+/** El paso actual (o el criterio de la verificación) en dos textos: `step` (2000) reparte su tope entre `instruction` y `expected`. */
+function stepText(step: CriterionView): { readonly instruction: string; readonly expected: string | null } {
   const half = Math.floor(caps.step / 2);
   return {
     instruction: clipMarked(oneLine(step.instruction ?? ""), half),
@@ -152,8 +151,8 @@ function decisionFrame(view: RouteView): DecisionFrame {
     done: lastCapped(view.done.map(lineText), caps.done),
     // Un rechazo del usuario no es un fallo de la ruta ni de la herramienta: no se marca como tal (el texto ya lo dice).
     attempts: view.attempts.map((c) => ({ route: c.route, tool: c.tool, failed: c.failed && c.status !== "user_rejected", text: attemptText(c) })),
-    userInput: newestWithin(view.userInput.map(userInputLine), caps.userInput),
-    env: newestWithin(view.env.map(factLine), caps.env),
+    userInput: userLines(view.userInput, caps),
+    env: stateLines(view.env, caps),
   };
 }
 
@@ -182,7 +181,7 @@ function candidateOf(route: ExecutableRoute, tool: MCPTool, args: JsonObject): R
   const description = clipMarked(oneLine(tool.description ?? ""), Math.floor(caps.candidate / 4));
   const room = Math.max(0, caps.candidate - name.length - description.length);
   const schema = clipMarked(oneLine(JSON.stringify(cleanInputSchema(tool.inputSchema))), caps.candidateSchema);
-  return { route, tool: tool.name, description, schema, args: clipMarked(oneLine(JSON.stringify(args)), room) };
+  return { route, tool: tool.name, description, schema, args: argsText(args, room) };
 }
 
 /** `args`: los registrados (refs sin resolver, strings recortados): lo que ve el modelo y queda en el contexto. */
@@ -194,33 +193,22 @@ export function reviewInput(view: ReviewView, route: ExecutableRoute, tool: MCPT
     done: lastCapped(view.done.map(lineText), caps.done),
     lastReads: view.lastReads.map((c) => readEntry(c, caps)),
     stepFailures: view.stepFailures.map((c) => failureLine(c, caps)),
-    userInput: newestWithin(view.userInput.map(userInputLine), caps.userInput),
-    env: newestWithin(view.env.map(factLine), caps.env),
+    userInput: userLines(view.userInput, caps),
+    env: stateLines(view.env, caps),
   };
 }
 
 // ───────────────────────── Decision #4 ─────────────────────────
 
-/** La llamada evaluada: cabecera, `args` (≤ `evaluatedArgs`), resumen completo y marca de ref. */
-function evaluatedEntry(call: CallView): string {
-  const lines = [clipMarked(callHead(call), caps.line)];
-  if (call.args !== null) lines.push(`args=${clipMarked(oneLine(JSON.stringify(call.args)), caps.evaluatedArgs)}`);
-  if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.readSummary));
-  if (call.ref !== null) lines.push(clipMarked(refText(call.ref), caps.refMark));
-  return lines.join("\n");
-}
+/** La llamada evaluada: como una lectura, con más espacio para los `args` (`evaluatedArgs`). */
+const evaluatedEntry = (call: CallView): string => readEntry(call, caps, caps.evaluatedArgs);
 
 export function verifyInput(view: VerifyView): VerifyDecisionInput {
-  const criterion = view.criterion;
-  const half = Math.floor(caps.step / 2);
   return {
-    criterion: {
-      instruction: clipMarked(oneLine(criterion.instruction ?? ""), half),
-      expected: criterion.expected === null ? null : clipMarked(oneLine(criterion.expected), half),
-    },
+    criterion: stepText(view.criterion),
     call: evaluatedEntry(view.call),
     done: lastCapped(view.done.map(lineText), caps.done),
-    userInput: newestWithin(view.userInput.map(userInputLine), caps.userInput),
+    userInput: userLines(view.userInput, caps),
     recent: view.previous.slice(-caps.lastReads).map(evaluatedEntry),
   };
 }

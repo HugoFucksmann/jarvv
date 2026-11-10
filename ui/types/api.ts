@@ -266,6 +266,7 @@ export interface EngineLimits {
   maxCallsPerStep: number;
   maxRepeatsPerStep: number;
   maxReviewRejectionsPerStep: number;
+  maxUserRejectionsPerStep: number;
   maxQuestionsPerStep: number;
 }
 

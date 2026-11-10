@@ -7,7 +7,7 @@
  */
 
 import type { PendingView } from "../ctx/index.ts";
-import { callLine, clipMarked, factLine, failureLine, lastCapped, newestWithin, obsBlock, oneLine, userInputLine } from "./shared.ts";
+import { callLine, clipMarked, failureLine, joinSections, lastCapped, obsBlock, oneLine, stateBlock, userBlock } from "./shared.ts";
 import type { ViewCaps } from "./shared.ts";
 
 export interface PendingRenderOptions {
@@ -21,10 +21,10 @@ export function renderPending(view: PendingView, options: PendingRenderOptions):
   const sections = [
     `REQUEST: ${clipMarked(oneLine(view.request), caps.request)}`,
     previous.length === 0 ? null : `PENDING:\n${previous.join("\n")}`,
-    obsBlock("STATE", newestWithin(view.env.map(factLine), caps.env)),
-    obsBlock("USER", newestWithin(view.userInput.map(userInputLine), caps.userInput)),
+    stateBlock(view.env, caps),
+    userBlock(view.userInput, caps),
     obsBlock("DONE", lastCapped(view.done.map((c) => callLine(c, caps.pendingEntry)), caps.done)),
     obsBlock("FAIL", view.attempts.map((c) => failureLine(c, caps))),
   ];
-  return sections.filter((s): s is string => s !== null).join("\n\n");
+  return joinSections(sections);
 }

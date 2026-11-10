@@ -17,7 +17,7 @@
  * `loop_blocked` contra una llamada idéntica ya aprobada → paso `completed` (lo pedido ya está hecho); el segundo `loop_blocked` del
  * paso (`BUDGET.maxRepeatsPerStep`) → `failed`; cualquier otro resultado (`args_invalid`, `refs_unresolved`, `info_missing`,
  * `loop_blocked`, `user_rejected`, veredicto `rejected`) → vuelve a Decisión 1 con lo ocurrido a la vista. Topes del paso:
- * `BUDGET.maxCallsPerStep` (sin `user_rejected`) y `BUDGET.maxRepeatsPerStep`.
+ * `BUDGET.maxCallsPerStep` (sin `user_rejected`), `BUDGET.maxRepeatsPerStep` y `BUDGET.maxUserRejectionsPerStep` (el segundo rechazo del usuario falla el paso).
  *
  * `ask_user` no es una opción de Decision: se pregunta aquí, una vez por paso (`BUDGET.maxQuestionsPerStep`), cuando la
  * revisión de argumentos registra `info_missing` o cuando el paso llegaría al tope de llamadas (antes de fallar). Se espera
@@ -35,7 +35,7 @@ import { availableRoutes, runCall } from "./callRunner.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { CallOutcome, StepFailureCause, StepOutcome } from "./outcomes.ts";
-import { callCapReached, canAskUser, repeatsApprovedCall, repeatsReached, reviewRejectionsReached } from "./retries.ts";
+import { callCapReached, canAskUser, repeatsApprovedCall, repeatsReached, reviewRejectionsReached, userRejectionsReached } from "./retries.ts";
 
 /** Cómo empieza el paso: reactivo lo crea; deliberativo promueve el `pending` que indica el proveedor. */
 export type StepSeed = { readonly kind: "reactive"; readonly instruction: string } | { readonly kind: "planned"; readonly stepId: string };
@@ -137,6 +137,8 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
       const stop = await ask();
       if (stop !== null) return stop;
     }
+    // El usuario rechazó la confirmación dos veces: el paso falla (su instrucción queda a la vista de lo que siga).
+    if (outcome.status === "user_rejected" && userRejectionsReached(ctx, stepId)) return failStep("user_rejected");
     // La revisión rechazó la herramienta o los argumentos más de una vez: el paso falla y la recuperación del modo lo reencauza.
     if (reviewRejectionsReached(ctx, stepId)) return failStep("review_rejected");
   }

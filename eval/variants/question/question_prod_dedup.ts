@@ -1,5 +1,5 @@
-import { PROMPTS } from "../../../src/core/reasoner/prompts.ts";
-import type { QuestionPromptData } from "../../../src/core/reasoner/prompts.ts";
+import { PROMPTS } from "../../../src/core/models/prompts.ts";
+import type { QuestionPromptData } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 1. SYSTEM de producción con la entrada de question_clean_view (sin TASK cuando repite GOAL). */

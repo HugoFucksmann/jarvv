@@ -7,7 +7,7 @@
 
 import express from 'express';
 import { BUDGET } from '../core/budget.ts';
-import { ConfigManager } from '../core/config.ts';
+import { ConfigManager, LAUNCH_ONLY_KEYS } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
 import type { TraceFile } from '../core/trace/files.ts';
@@ -23,6 +23,21 @@ function text(value: unknown): string | undefined {
 
 function isMode(value: unknown): value is TaskMode {
   return typeof value === 'string' && (TASK_MODES as readonly string[]).includes(value);
+}
+
+/** Quita de un parche los campos que definen el proceso de un servidor MCP (`LAUNCH_ONLY_KEYS`): solo se editan en el archivo. */
+export function withoutLaunchFields(body: Record<string, unknown>): Record<string, unknown> {
+  const patch = { ...body };
+  for (const server of ['desktopCommanderMcp', 'freeSearchMcp']) {
+    const value = patch[server];
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
+    const rest = { ...(value as Record<string, unknown>) };
+    const ignored = LAUNCH_ONLY_KEYS.filter((key) => key in rest);
+    for (const key of ignored) delete rest[key];
+    if (ignored.length > 0) console.warn(`[Config] '${server}': se ignoran ${ignored.join(', ')} (solo se cambian en jarvis-config.json).`);
+    patch[server] = rest;
+  }
+  return patch;
 }
 
 export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine): express.Router {
@@ -137,7 +152,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   router.get('/tasks/:taskId/trace', (req, res) => {
     const format = text(req.query.format) ?? 'summary';
     if (!Object.hasOwn(TRACE_FILES, format)) return void res.status(400).json({ error: `format inválido; use ${Object.keys(TRACE_FILES).join(' o ')}.` });
-    const body = readTraceFile(req.params.taskId, format as TraceFile);
+    const body = readTraceFile(ConfigManager.getConfig().tracePath, req.params.taskId, format as TraceFile);
     if (body === null) return void res.status(404).json({ error: 'No hay traza para esa tarea (sigue en curso o la traza está desactivada).' });
     res.type(format === 'json' ? 'application/json' : 'text/markdown').send(body);
   });
@@ -153,8 +168,8 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
 
   // Topes del motor, para mostrar el progreso (paso 3 de 20, llamada 2 de 6).
   router.get('/limits', (_req, res) => {
-    const { maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxQuestionsPerStep } = BUDGET;
-    res.json({ maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxQuestionsPerStep });
+    const { maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxUserRejectionsPerStep, maxQuestionsPerStep } = BUDGET;
+    res.json({ maxSteps, maxReplans, maxEscalations, maxItemFailures, maxCallsPerStep, maxRepeatsPerStep, maxReviewRejectionsPerStep, maxUserRejectionsPerStep, maxQuestionsPerStep });
   });
 
   // Eventos en tiempo real (SSE): un mensaje `data: <TaskEvent>` por evento.
@@ -192,7 +207,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
       return void res.status(400).json({ error: 'Se requiere un objeto JSON con las claves a cambiar.' });
     }
-    res.json(ConfigManager.updateConfig(req.body));
+    res.json(ConfigManager.updateConfig(withoutLaunchFields(req.body) as Parameters<typeof ConfigManager.updateConfig>[0]));
   });
 
   return router;

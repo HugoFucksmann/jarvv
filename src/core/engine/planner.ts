@@ -22,7 +22,7 @@ import type { Op } from "../ctx/index.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { planInput } from "./adapters.ts";
 import { clipWithin } from "./args.ts";
-import type { PlanFromViewInput } from "./deps.ts";
+import type { PlanFromViewInput } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { PlanApprovalOutcome } from "./runtime.ts";

@@ -12,8 +12,8 @@ import {
   type DecisionQuestionNoul,
   type MCPTool,
 } from "../types.ts";
-import { ARGS_REVIEWS, VERIFY_CHECKS } from "../engine/deps.ts";
-import type { ArgsReview, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../engine/deps.ts";
+import { ARGS_REVIEWS } from "../contracts.ts";
+import type { ArgsReview, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../contracts.ts";
 import type { Platform } from "../environment.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
 import { clip, clipTail } from "../utils.ts";

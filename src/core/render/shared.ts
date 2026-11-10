@@ -6,6 +6,8 @@
 import type { BUDGET } from "../budget.ts";
 import type { AvailableRefView, CallView, FactView, RefView, StepDoneView, StepView, UserInputView } from "../ctx/index.ts";
 import { sanitizeMultiline, flatten } from "../text.ts";
+import { ContextOverflowError } from "./errors.ts";
+import type { OverflowingView } from "./errors.ts";
 
 /** Texto externo en una sola línea, saneado. */
 export const oneLine = (text: string): string => flatten(text);
@@ -119,20 +121,31 @@ export function availableRefLine(ref: AvailableRefView): string {
 /** Topes por sección y por elemento (`BUDGET.caps`). */
 export type ViewCaps = typeof BUDGET.caps;
 
-/** Lectura: `L` + `args` + resumen completo (en líneas) + marca de ref. */
-export function readEntry(call: CallView, caps: ViewCaps): string {
+/** `args` de una llamada en una línea, saneados y recortados a `max` con el marcador `…(+N)`. */
+export function argsText(args: NonNullable<CallView["args"]>, max: number): string {
+  return clipMarked(oneLine(JSON.stringify(args)), max);
+}
+
+/** Lectura: `L` + `args` + resumen completo (en líneas) + marca de ref. `argsMax`: tope de los `args` (por defecto `readArgs`). */
+export function readEntry(call: CallView, caps: ViewCaps, argsMax: number = caps.readArgs): string {
   const lines = [clipMarked(callHead(call), caps.line)];
-  if (call.args !== null) lines.push(`args=${clipMarked(oneLine(JSON.stringify(call.args)), caps.readArgs)}`);
+  if (call.args !== null) lines.push(`args=${argsText(call.args, argsMax)}`);
   if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.readSummary));
   if (call.ref !== null) lines.push(clipMarked(refText(call.ref), caps.refMark));
   return lines.join("\n");
 }
 
-/** Fallo `F`: `L` + `args` (solo donde la vista los trae) + resumen, cada uno con su tope. */
-export function failureLine(call: CallView, caps: ViewCaps): string {
+/** Topes de `args` y de resumen de una línea de fallo. */
+export interface FailureLimits {
+  readonly args: number;
+  readonly summary: number;
+}
+
+/** Fallo `F`: `L` + `args` (solo donde la vista los trae) + resumen, cada uno con su tope (por defecto `failureArgs` y `failureSummary`). */
+export function failureLine(call: CallView, caps: ViewCaps, limits: FailureLimits = { args: caps.failureArgs, summary: caps.failureSummary }): string {
   const parts = [clipMarked(callHead(call), caps.line)];
-  if (call.args !== null) parts.push(`args=${clipMarked(oneLine(JSON.stringify(call.args)), caps.failureArgs)}`);
-  if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), caps.failureSummary)}`);
+  if (call.args !== null) parts.push(`args=${argsText(call.args, limits.args)}`);
+  if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), limits.summary)}`);
   if (call.ref !== null) parts.push(clipMarked(refText(call.ref), caps.refMark));
   return parts.join(" ");
 }
@@ -182,4 +195,47 @@ export function evidenceEntry(call: CallView, caps: ViewCaps): string {
   if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.evidenceSummary));
   if (call.ref !== null) lines.push(clipMarked(refText(call.ref), caps.refMark));
   return lines.join("\n");
+}
+
+// ───────────────────────── Piezas que repiten todos los renderizadores ─────────────────────────
+
+/** El texto del prompt: las secciones que no son `null`, separadas por una línea en blanco. */
+export function joinSections(sections: readonly (string | null)[]): string {
+  return sections.filter((s): s is string => s !== null).join("\n\n");
+}
+
+/** Entrada del usuario: las líneas más recientes que caben en `caps.userInput`. */
+export function userLines(input: readonly UserInputView[], caps: ViewCaps): string[] {
+  return newestWithin(input.map(userInputLine), caps.userInput);
+}
+
+/** Hechos de entorno: las líneas más recientes que caben en `caps.env`. */
+export function stateLines(env: readonly FactView[], caps: ViewCaps): string[] {
+  return newestWithin(env.map(factLine), caps.env);
+}
+
+/** Sección USER. */
+export function userBlock(input: readonly UserInputView[], caps: ViewCaps): string | null {
+  return obsBlock("USER", userLines(input, caps));
+}
+
+/** Sección STATE. */
+export function stateBlock(env: readonly FactView[], caps: ViewCaps): string | null {
+  return obsBlock("STATE", stateLines(env, caps));
+}
+
+/**
+ * Efectos y posibles efectos con su resultado completo. Comparten la reserva `effectsReserve` y no se recortan: si no entran,
+ * falla en voz alta (`ContextOverflowError`) y quien ejecuta decide qué hacer (cerrar o caer a `forFallback`).
+ */
+export function effectEntries(
+  view: { readonly effects: readonly CallView[]; readonly possibleEffects: readonly CallView[] },
+  caps: ViewCaps,
+  where: OverflowingView,
+): { readonly effects: string[]; readonly possible: string[] } {
+  const effects = view.effects.map(effectEntry);
+  const possible = view.possibleEffects.map(effectEntry);
+  const chars = [...effects, ...possible].join("\n").length;
+  if (chars > caps.effectsReserve) throw new ContextOverflowError(where, caps.effectsReserve, chars);
+  return { effects, possible };
 }

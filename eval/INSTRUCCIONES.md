@@ -154,7 +154,7 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 
 ### Formato de un caso
 
-Hay un solo formato de caso: el **escenario**. Un caso es una línea de un `.jsonl` en `eval/datasets/` que describe la situación de la tarea y lo que se espera; **no trae el prompt**. El prompt lo arma la variante al cargar (`prod` usa el de Jarvis; otra variante, el suyo), con el mismo código de Jarvis: `ctx.view.*` → `engine/adapters.ts` → constructores de `reasoner/prompts.ts` y `reasoner/stageRequests.ts`. Los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada etapa (tokens, thinking, schema) son los de producción y se actualizan solos cuando cambian en `src/`.
+Hay un solo formato de caso: el **escenario**. Un caso es una línea de un `.jsonl` en `eval/datasets/` que describe la situación de la tarea y lo que se espera; **no trae el prompt**. El prompt lo arma la variante al cargar (`prod` usa el de Jarvis; otra variante, el suyo), con el mismo código de Jarvis: `ctx.view.*` → `engine/adapters.ts` → constructores de `models/prompts.ts` y `models/stageRequests.ts`. Los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada etapa (tokens, thinking, schema) son los de producción y se actualizan solos cuando cambian en `src/`.
 
 ```json
 {"id":"smoke-route","stage":"route","tags":["smoke"],"description":"Con package.json leído falta el README: seguir en files.",
@@ -251,9 +251,9 @@ Qué se reemplaza, siempre completo:
 Lo que la variante no nombra (otras etapas, otras vistas) usa producción, para poder comparar etapa por etapa. Una vista o un constructor que sí se nombra se escribe entero: el tipo no admite piezas sueltas y nada se fusiona con producción.
 
 ```ts
-import type { RouteDecisionInput } from "../../src/core/engine/deps.ts";
-import { frameLines } from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
+import type { RouteDecisionInput } from "../../src/core/contracts.ts";
+import { frameLines } from "../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../src/core/models/prompts.ts";
 import type { Variant } from "../core/variants/types.ts";
 
 function buildRouteChoice(data: RouteDecisionInput): DecisionInput {
@@ -322,4 +322,4 @@ eval/
     └── contract.ts               helpers y constantes de producción reexportados de `src/` (parseo, validación, límites)
 ```
 
-Importan `src/` solo `core/scenario.ts` y `core/contract.ts` (la capa de reexportes); el resto del eval pasa por ellos. Un archivo de prompts de una variante también puede importar `src/core/reasoner/prompts.ts`.
+Importan `src/` solo `core/scenario.ts` y `core/contract.ts` (la capa de reexportes); el resto del eval pasa por ellos. Un archivo de prompts de una variante también puede importar `src/core/models/prompts.ts`.

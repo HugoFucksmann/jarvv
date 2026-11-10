@@ -3,11 +3,11 @@
  *
  * - POST {qwenUrl}/v1/chat/completions con structured outputs (json_schema) y parser tolerante como red de
  *   seguridad. Los argumentos de tools MCP usan json_object: sus schemas son dinámicos.
- * - Etapas (contrato `EngineLLM`, engine/deps.ts), todas desde las vistas del contexto: `generatePlanFromView` (plan y
+ * - Etapas (contrato `EngineLLM`, contracts.ts), todas desde las vistas del contexto: `generatePlanFromView` (plan y
  *   replan, de 1 a `maxSteps` pasos), `generateArgumentsFromView`, `generateQuestion` (texto de la pregunta al usuario) y
  *   `generateFinalFromView` (respuesta final).
  * - Thinking por etapa: plan y replan = true; arguments y question = false; final_response = config.thinking.
- * - Reintentos: red y HTTP 503 en llmTransport; salida inválida o truncada: 1 reintento aquí, con el error
+ * - Reintentos: red y HTTP 503 en models/transport; salida inválida o truncada: 1 reintento aquí, con el error
  *   previo en el prompt, más presupuesto de tokens y temperatura 0.3. Timeout y cancelación nunca se reintentan.
  * - Nada se infiere en silencio: ruta inválida, plan fuera de rango o expected_outcome vacío invalidan la salida; si
  *   persiste tras el reintento, `LLMValidationError` y quien ejecuta decide.
@@ -24,7 +24,7 @@ import {
   type PlanStepWire,
   type TimeSpan,
 } from "../types.ts";
-import { ConfigManager } from "../config.ts";
+import type { ConfigSource } from "../config.ts";
 import { PROMPTS, retryNote } from "./prompts.ts";
 import type {
   ArgsFromViewInput,
@@ -38,7 +38,7 @@ import type {
   PlanGenerationResult,
   QuestionGenerationResult,
   QuestionInput,
-} from "../engine/deps.ts";
+} from "../contracts.ts";
 import {
   argumentsStageRequest,
   BASE_TEMPERATURE,
@@ -59,7 +59,7 @@ import {
   LLMValidationError,
   RequestAbortedError,
   TransportError,
-} from "../llmTransport.ts";
+} from "./transport.ts";
 import { errorMessage, isRecord } from "../utils.ts";
 
 type JsonSchema = Record<string, unknown>;
@@ -325,7 +325,10 @@ function readCompletion(data: unknown): Completion {
 
 export class QwenEngine implements EngineLLM {
   /** `prompts`: los textos de cada etapa; por defecto los de producción (el laboratorio de evaluación pasa otros). */
-  constructor(private readonly prompts: PromptSet = PROMPTS) { }
+  constructor(
+    private readonly getConfig: ConfigSource,
+    private readonly prompts: PromptSet = PROMPTS,
+  ) { }
 
   /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
@@ -408,7 +411,7 @@ export class QwenEngine implements EngineLLM {
 
   /** Una petición de inferencia. No valida el contenido. */
   private async dispatchPrompt(o: DispatchOptions): Promise<LlmDispatchResult> {
-    const config = ConfigManager.getConfig();
+    const config = this.getConfig();
     const url = this.resolveUrl(config.qwenUrl);
     const maxTokens = this.reserveCompletionTokens(o, config.qwenNumCtx);
 
@@ -509,7 +512,7 @@ export class QwenEngine implements EngineLLM {
   /** Argumentos desde la vista estructurada: validados contra el schema de la herramienta, con un reintento. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArgumentsFromView", () =>
-      this.runArguments(input.tool, argumentsStageRequest(input, ConfigManager.getConfig(), this.prompts), signal)
+      this.runArguments(input.tool, argumentsStageRequest(input, this.getConfig(), this.prompts), signal)
     );
   }
 
@@ -558,7 +561,7 @@ export class QwenEngine implements EngineLLM {
   async generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult> {
     return this.executeStage("generatePlanFromView", async () => {
       const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
-        ...planStageRequest(input, ConfigManager.getConfig(), this.prompts),
+        ...planStageRequest(input, this.getConfig(), this.prompts),
         signal,
         validate: (r) => {
           const out = parseObjectOutput(r);
@@ -577,7 +580,7 @@ export class QwenEngine implements EngineLLM {
   async generateFinalFromView(input: FinalFromViewInput, signal?: AbortSignal): Promise<FinalGenerationResult> {
     return this.executeStage("generateFinalFromView", async () => {
       const { value, res } = await this.dispatchValidated<string>({
-        ...finalStageRequest(input, ConfigManager.getConfig(), this.prompts),
+        ...finalStageRequest(input, this.getConfig(), this.prompts),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content);

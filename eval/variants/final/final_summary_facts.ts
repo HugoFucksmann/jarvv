@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 2. final_summary con una regla más: citar los valores exactos de DATA y no completar con conocimiento propio. */

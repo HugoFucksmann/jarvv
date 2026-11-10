@@ -14,7 +14,6 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 - **Candidato idéntico a uno ya rechazado (`args_invalid`).** El anti-bucle solo compara llamadas ejecutadas; el tope de dos rechazos por paso (`maxReviewRejectionsPerStep`) lo acota, pero no lo bloquea antes de generar los argumentos. [V]
 - **Sin medir con el modelo real:** los límites nuevos (`maxSteps` 20, `maxReplans` 3, `maxCallsPerStep` 6, `maxRepeatsPerStep` 2), el cierre de un paso por repetir una llamada ya aprobada, el encabezado fijo de `renderStatusNote` y la salida parcial de `runReactive` (`maxItemFailures` 2) en una corrida del pedido "último modelo de GPT y Gemini → md".
 - **`sameItem`** (`pendingList.ts`) es la pieza más heurística del flujo (cifras, nombres propios, 60 % de raíces): no reconoció "10 tareas" y "10 procesos" como el mismo ítem. No ampliarla sin un caso medido.
-- **`engine/deps.ts`** mezcla contratos con `createEngineServices` (que lee `ConfigManager`) y las listas `ARGS_REVIEWS`/`VERIFY_CHECKS`: separar contratos y fábrica si crece.
 
 - **Validación real pendiente (2026-11-09):** la ruta agotada tras dos `not_accomplished` (`availableRoutes`), la temperatura creciente por intento y el prompt de la respuesta final se midieron en el eval y en trazas, pero falta confirmarlos con varias tareas reales.
 - **Tareas largas:** con muchos pasos y reintentos el contexto crece y el modelo chico pierde calidad (hay compactación de EFFECTS y FAIL, pero sin medir en tareas de más de ~10 llamadas).
@@ -39,10 +38,9 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 - `ReviewView` es `ArgsView` sin `refs` ni `effects`; derivar con `Omit`. [V]
 
 ## d3 / decisiones
-- `validateAnswer` (`decision.ts`): todo tipo distinto de `choice` se valida como `noul`. Hace falta un `switch` exhaustivo si se agrega `score`. [V]
+- `validateAnswer` (`models/decision.ts`): todo tipo distinto de `choice` se valida como `noul`. Hace falta un `switch` exhaustivo si se agrega `score`. [V]
 - `score` está en el contrato pero no se implementa. [V]
-- La traza queda con `input`/`output` en `null` cuando d3 responde algo inválido: `DecisionValidationError` no lleva el crudo (`llmTransport.ts`). [V]
-- `buildDecisionRequest` (`decision.ts`) tipa `config` con `ReturnType<typeof import(...)>`; usar `JarvisConfig`. [V]
+- La traza queda con `input`/`output` en `null` cuando d3 responde algo inválido: `DecisionValidationError` no lleva el crudo (`models/transport.ts`). [V]
 - Nombres: `Decision20Engine`, "Decision 2.0" en mensajes; los "D3/D4" de los comentarios son decisiones de diseño, no las decisiones d3. [V]
 - `shortDesc` recorta a `MAX_TOOL_DESC_CHARS` pero el manifest ya rechaza descripciones más largas al arrancar: un solo mecanismo. [V]
 

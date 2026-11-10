@@ -1,6 +1,6 @@
-import type { ToolDecisionInput } from "../../../src/core/engine/deps.ts";
-import { frameLines, shortDesc } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { ToolDecisionInput } from "../../../src/core/contracts.ts";
+import { frameLines, shortDesc } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 2. Instrucción de tool_choice_direct, estado de producción y criterios planos: los fallos solo figuran en `Attempts not approved`. */

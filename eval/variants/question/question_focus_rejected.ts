@@ -1,5 +1,5 @@
-import { DATA_NOTICE_EN, PROMPTS, safe } from "../../../src/core/reasoner/prompts.ts";
-import type { QuestionPromptData } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS, safe } from "../../../src/core/models/prompts.ts";
+import type { QuestionPromptData } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /**

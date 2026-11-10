@@ -7,9 +7,9 @@
  * - cumple: localizar/listar sin ejecutar la acción pedida (leer, editar, crear) = false; objetivo equivocado = false.
  */
 
-import type { VerifyDecisionInput } from "../../../src/core/engine/deps.ts";
-import { listBlock } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { VerifyDecisionInput } from "../../../src/core/contracts.ts";
+import { listBlock } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 function buildResultVerification(data: VerifyDecisionInput): DecisionInput {

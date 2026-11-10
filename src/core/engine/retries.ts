@@ -19,6 +19,11 @@ export function reviewRejectionsReached(ctx: TaskContext, stepId: string): boole
   return rejected.length >= BUDGET.maxReviewRejectionsPerStep;
 }
 
+/** Tope de rechazos del usuario alcanzado en el paso: el paso falla en vez de pedirle confirmación otra vez (un rechazo no cuenta para el tope de llamadas, así que sin esto un modelo insistente lo repetiría sin fin). */
+export function userRejectionsReached(ctx: TaskContext, stepId: string): boolean {
+  return ctx.find("calls", { stepId, status: "user_rejected" }).length >= BUDGET.maxUserRejectionsPerStep;
+}
+
 /** Tope de llamadas bloqueadas por repetición alcanzado en el paso: el paso falla en vez de volver a pedir lo mismo. */
 export function repeatsReached(ctx: TaskContext, stepId: string): boolean {
   return ctx.find("calls", { stepId }).filter((c) => c.status === "loop_blocked").length >= BUDGET.maxRepeatsPerStep;

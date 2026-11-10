@@ -13,7 +13,7 @@
 
 import { MCPTool, MCPCallResult } from "../types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
-import { ConfigManager, type StdioServerConfig } from "../config.ts";
+import type { StdioServerConfig } from "../config.ts";
 import { errorMessage } from "../utils.ts";
 
 export class MCPTransportError extends Error {
@@ -55,7 +55,9 @@ export class StdioMcpTransport implements IMCPTransport {
 
   constructor(
     public readonly serverName: string,
-    public readonly config: StdioServerConfig
+    public readonly config: StdioServerConfig,
+    /** Timeout de cada petición, leído en cada uso (cambia en caliente con la configuración). */
+    private readonly timeoutMs: () => number,
   ) { }
 
   isConnected(): boolean {
@@ -69,7 +71,7 @@ export class StdioMcpTransport implements IMCPTransport {
   }
 
   private getTimeoutMs(): number {
-    return ConfigManager.getConfig().mcpTimeoutMs;
+    return this.timeoutMs();
   }
 
   getPermanentFailure(): MCPTransportError | null {

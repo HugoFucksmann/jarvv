@@ -306,16 +306,15 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
 
   // 5. Huella de los argumentos resueltos y anti-loop (un `denied` del servidor cuenta como ejecutada).
   const sig = computeSig(resolved);
-  if (ctx.isRepeat(tool.name, sig, { exempt: policy.loopExempt })) {
-    const callId = register(ctx, { ...base, args: recorded, sig, status: "loop_blocked", summary: null, ref: null });
-    return registered(callId, "loop_blocked");
-  }
+  // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
+  const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, args: recorded, sig, status, summary, ref: null });
+  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summary), status);
+  if (ctx.isRepeat(tool.name, sig, { exempt: policy.loopExempt })) return reject("loop_blocked");
 
   // 6. Política (Guard). DENY: la llamada queda `denied` y la tarea cierra con `security_denied` (regla B incluida).
   const guard = Guard.evaluate(mcp, tool.name, resolved, deps.guardScope);
   if (guard.decision === "DENY") {
-    const callId = register(ctx, { ...base, args: recorded, sig, status: "denied", summary: summaryText(guard.reason), ref: null });
-    return { kind: "close", stopReason: "security_denied", callId };
+    return { kind: "close", stopReason: "security_denied", callId: record("denied", summaryText(guard.reason)) };
   }
 
   // 6a. Lista negra (reglas de comando integradas + configuración). Solo escrituras. Nivel 1 (`blocked`) con modo automático: se rechaza aquí con la razón
@@ -323,18 +322,12 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
   const auto = deps.autoMode();
   const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
-  if (listed !== null && auto && listed.level === "blocked") {
-    const callId = register(ctx, { ...base, args: recorded, sig, status: "tool_rejected", summary: summaryText(listed.reason), ref: null });
-    return registered(callId, "tool_rejected");
-  }
+  if (listed !== null && auto && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
   const finding = await precheckCall({ tool: tool.name, kind: base.kind, args: resolved, sources: collectSources(ctx), environment });
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  if (finding !== null) {
-    const callId = register(ctx, { ...base, args: recorded, sig, status: finding.review, summary: summaryText(finding.reason), ref: null });
-    return registered(callId, finding.review);
-  }
+  if (finding !== null) return reject(finding.review, summaryText(finding.reason));
 
   // Modo automático: una herramienta del catálogo que pedía aprobación no se la pide al usuario y pasa por D3 (si escribe). Una no catalogada
   // (Guard la manda a aprobación por defecto) sigue pidiéndola. Sin modo automático, una coincidencia con la lista negra siempre se pregunta.
@@ -350,10 +343,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
       args: recorded,
     });
     if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    if (approval.kind === "rejected") {
-      const callId = register(ctx, { ...base, args: recorded, sig, status: "user_rejected", summary: summaryText(approval.instruction), ref: null });
-      return registered(callId, "user_rejected");
-    }
+    if (approval.kind === "rejected") return reject("user_rejected", summaryText(approval.instruction));
   }
 
   // 8. Revisión de argumentos (Decisión 3): solo en las escrituras que el usuario no aprobó. Si el usuario las aprobó (paso 7), la
@@ -372,15 +362,9 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     const reviewed = reviewOutcome(review.value, strict ? BUDGET.sensitiveApprove : undefined);
     if (reviewed !== "approved" && strict && reviewOutcome(review.value) === "approved") {
       const note = `${listed?.reason ?? "Sensitive command."} The safety review was not confident enough to run it automatically. Use a safer command or a different approach.`;
-      const callId = register(ctx, { ...base, args: recorded, sig, status: "tool_rejected", summary: summaryText(note), ref: null });
-      return registered(callId, "tool_rejected");
+      return reject("tool_rejected", summaryText(note));
     }
-    if (reviewed !== "approved") {
-      const status: CallStatus = reviewed;
-      const summary = status === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null;
-      const callId = register(ctx, { ...base, args: recorded, sig, status, summary, ref: null });
-      return registered(callId, status);
-    }
+    if (reviewed !== "approved") return reject(reviewed, reviewed === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null);
   }
 
   // 9. Despacho: compite contra la cancelación.
@@ -390,7 +374,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
 
   if (raced.kind === "cancelled") {
     if (ctx.isClosed()) return CANCELLED;
-    const callId = register(ctx, { ...base, args: recorded, sig, status: "interrupted", summary: null, ref: null });
+    const callId = record("interrupted");
     console.warn(`[Engine] '${tool.name}' interrumpida por la cancelación; si responde después, el resultado se descarta.`);
     return { kind: "cancelled", callId };
   }
@@ -414,8 +398,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     // `callTool` lanzó: la herramienta no produjo resultado. `exception` es de quien ejecuta (el procesador no lo produce).
     console.error(`[MCP ← ERROR] server=${mcp} tool=${tool.name}: ${errorMessage(raced.error)}`);
     const summary = summaryText(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
-    const callId = register(ctx, { ...base, args: recorded, sig, status: "exception", summary, ref: null });
-    return finishWithVerification(callId, "exception");
+    return finishWithVerification(record("exception", summary), "exception");
   }
 
   // 10. Procesar el resultado.

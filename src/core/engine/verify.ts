@@ -15,8 +15,8 @@
 import type { CallVerdict, VerdictReason } from "../ctx/index.ts";
 import { VERIFIABLE_CALL_STATUSES } from "../ctx/index.ts";
 import { verifyInput } from "./adapters.ts";
-import { ARGS_REVIEWS, VERIFY_CHECKS } from "./deps.ts";
-import type { ArgsReview, ReviewDecision, VerifyCheckKey } from "./deps.ts";
+import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";
+import type { ArgsReview, ReviewDecision, VerifyCheckKey } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 

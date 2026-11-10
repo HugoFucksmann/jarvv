@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { ConfigManager } from '../src/core/config.ts';
 import { DesktopCommanderMCPServer } from '../src/core/mcp/desktopCommanderMcp.ts';
 import { FreeSearchMCPServer } from '../src/core/mcp/freeSearchMcp.ts';
 import { DiscoveryEngine } from '../src/core/mcp/discovery.ts';
@@ -8,8 +9,8 @@ import type { MCPTool } from '../src/core/types.ts';
 
 async function generateManifestMarkdown() {
   console.log('[Script] Inicializando servidores MCP y DiscoveryEngine...');
-  const dcServer = new DesktopCommanderMCPServer();
-  const fsServer = new FreeSearchMCPServer();
+  const dcServer = new DesktopCommanderMCPServer(() => ConfigManager.getConfig());
+  const fsServer = new FreeSearchMCPServer(() => ConfigManager.getConfig());
   const discovery = new DiscoveryEngine([dcServer, fsServer]);
 
   try {

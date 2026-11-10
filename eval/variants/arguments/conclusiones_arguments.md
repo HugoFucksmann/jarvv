@@ -20,4 +20,4 @@
     4. Separación con `;` en hashtables nativos (como `-FilterHashtable`).
 
 ## 3. Lo que se puede probar
-- **Promover a producción:** Aplicar las reglas de `args_ps_perfect` / `args_ps_elite` directamente en `src/core/reasoner/prompts.ts` (`ARGUMENTS_VIEW.SYSTEM`), ya que se alcanzó el 100% de efectividad en comandos de PowerShell y 98.8% global comprobado con múltiples repeticiones.
+- **Promover a producción:** Aplicar las reglas de `args_ps_perfect` / `args_ps_elite` directamente en `src/core/models/prompts.ts` (`ARGUMENTS_VIEW.SYSTEM`), ya que se alcanzó el 100% de efectividad en comandos de PowerShell y 98.8% global comprobado con múltiples repeticiones.

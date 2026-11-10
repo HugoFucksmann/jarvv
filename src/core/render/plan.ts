@@ -8,20 +8,19 @@
  */
 
 import type { PlanView } from "../ctx/index.ts";
-import { ContextOverflowError } from "./errors.ts";
 import {
-  effectEntry,
   clipMarked,
   currentStepLine,
-  factLine,
+  effectEntries,
   failureLine,
+  joinSections,
   lastCapped,
-  newestWithin,
   nextStepLine,
   obsBlock,
   oneLine,
+  stateBlock,
   stepDoneLine,
-  userInputLine,
+  userBlock,
 } from "./shared.ts";
 import type { Rendered, ViewCaps } from "./shared.ts";
 
@@ -42,10 +41,7 @@ export function renderPlan(view: PlanView, options: PlanRenderOptions): Rendered
         ? `step_failure (failed step: ${trigger.failedStepId})`
         : `user_feedback\n${obsBlock("FEEDBACK", [clipMarked(oneLine(trigger.feedback), feedbackMax)])}`;
 
-  const effects = view.effects.map(effectEntry);
-  const possible = view.possibleEffects.map(effectEntry);
-  const effectsChars = [...effects, ...possible].join("\n").length;
-  if (effectsChars > caps.effectsReserve) throw new ContextOverflowError("forPlan", caps.effectsReserve, effectsChars);
+  const { effects, possible } = effectEntries(view, caps, "forPlan");
 
   const sections = [
     `REQUEST: ${clipMarked(oneLine(view.request), caps.request)}`,
@@ -55,12 +51,12 @@ export function renderPlan(view: PlanView, options: PlanRenderOptions): Rendered
     obsBlock("CURRENT", view.steps.current === null ? [] : [currentStepLine(view.steps.current, caps)]),
     obsBlock("NEXT", view.steps.next.map((s) => nextStepLine(s, caps))),
     obsBlock("FAILURES", view.failures.map((c) => failureLine(c, caps))),
-    obsBlock("USER", newestWithin(view.userInput.map(userInputLine), caps.userInput)),
-    obsBlock("STATE", newestWithin(view.env.map(factLine), caps.env)),
+    userBlock(view.userInput, caps),
+    stateBlock(view.env, caps),
     obsBlock("EFFECTS", effects),
     obsBlock("POSSIBLE EFFECTS", possible),
   ];
 
-  const text = sections.filter((s): s is string => s !== null).join("\n\n");
+  const text = joinSections(sections);
   return { text, chars: text.length, overflow: false };
 }

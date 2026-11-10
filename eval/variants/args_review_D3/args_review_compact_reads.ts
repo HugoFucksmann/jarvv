@@ -1,6 +1,6 @@
-import type { ReviewDecisionInput } from "../../../src/core/engine/deps.ts";
-import { listBlock } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { ReviewDecisionInput } from "../../../src/core/contracts.ts";
+import { listBlock } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 1. args_review_compact_history + `Expected` y las últimas lecturas (para contrastar valores inventados con los datos). */

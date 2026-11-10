@@ -11,7 +11,7 @@ import path from "node:path";
 import { MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { StdioMcpServer } from "./stdioServer.ts";
-import { ConfigManager } from "../config.ts";
+import type { ConfigSource } from "../config.ts";
 
 /** Antepone al comando de PowerShell la salida en UTF-8; en otros sistemas, con otro shell o sin comando, lo deja igual. */
 export function utf8Command(args: Record<string, unknown>, platform: NodeJS.Platform = process.platform): Record<string, unknown> {
@@ -25,9 +25,9 @@ export class DesktopCommanderMCPServer extends StdioMcpServer {
   readonly version = "2.1.0";
   private readonly allowedDirectories: string[];
 
-  constructor(transport?: IMCPTransport, allowedDirs?: string[]) {
-    const config = ConfigManager.getConfig().desktopCommanderMcp;
-    super(transport ?? new StdioMcpTransport("desktop_commander", config));
+  constructor(getConfig: ConfigSource, transport?: IMCPTransport, allowedDirs?: string[]) {
+    const config = getConfig().desktopCommanderMcp;
+    super(transport ?? new StdioMcpTransport("desktop_commander", config, () => getConfig().mcpTimeoutMs));
     this.allowedDirectories = allowedDirs ?? config.allowedDirectories ?? [];
   }
 

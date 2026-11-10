@@ -121,7 +121,7 @@ El paso repite este ciclo hasta que termina:
 
 1. **Tope de llamadas**: si el paso ya hizo `maxCallsPerStep` llamadas (sin contar las rechazadas por el usuario), antes de fallar se le hace una pregunta al usuario, si todavía no se le hizo una en el paso; el paso falla igual y la respuesta queda a la vista de lo que siga (siguiente paso o replan).
 2. **Decisión 1**: en ambos modos. Ofrece las rutas con alguna herramienta utilizable (en deliberativo, solo la ruta del paso). Una ruta cuyos resultados Decisión 4 rechazó 2 veces como "no cumple lo pedido" (`not_accomplished`) en el paso (`ROUTE_EXHAUSTED_AFTER`) deja de ofrecerse en ese paso: cambiar los argumentos de la misma herramienta no resuelve lo que la ruta no puede dar; si no quedara otra, se ofrecen todas. Si no queda ninguna opción, el paso falla (`no_tools`). Con una sola opción disponible, el modelo de decisión no se consulta.
-3. **Llamada** (§5): si queda aprobada, el paso termina `completed`. Si el servidor deniega la herramienta, el paso falla. Una revisión que detecta `info_missing` hace una pregunta al usuario (una por paso): se genera con el modelo generativo, se espera la respuesta y se registra como hecho `answer_<paso>_<n>`. Una llamada bloqueada por el anti-bucle contra una llamada idéntica que la verificación ya aprobó da el paso por cumplido (`completed`: lo pedido ya está hecho); el segundo bloqueo del paso lo falla (`repeat_blocked`, `maxRepeatsPerStep`). Cualquier otro resultado (argumentos inválidos, referencias sin resolver, anti-bucle, revisión rechazada, rechazo del usuario o verificación rechazada) vuelve al inicio con lo ocurrido a la vista del modelo.
+3. **Llamada** (§5): si queda aprobada, el paso termina `completed`. Si el servidor deniega la herramienta, el paso falla. Una revisión que detecta `info_missing` hace una pregunta al usuario (una por paso): se genera con el modelo generativo, se espera la respuesta y se registra como hecho `answer_<paso>_<n>`. Una llamada bloqueada por el anti-bucle contra una llamada idéntica que la verificación ya aprobó da el paso por cumplido (`completed`: lo pedido ya está hecho); el segundo bloqueo del paso lo falla (`repeat_blocked`, `maxRepeatsPerStep`). El segundo rechazo del usuario en un paso también lo falla (`user_rejected`, `maxUserRejectionsPerStep`): la instrucción del usuario queda a la vista del reintento o del replan. Cualquier otro resultado (argumentos inválidos, referencias sin resolver, anti-bucle, revisión rechazada, rechazo del usuario o verificación rechazada) vuelve al inicio con lo ocurrido a la vista del modelo.
 4. **Rechazos de la revisión**: al segundo `args_invalid` (el pre-chequeo y D3 lo producen; `tool_rejected` ya no se ofrece) en el mismo paso, el paso falla (`review_rejected`) y la recuperación del modo lo reencauza.
 
 `ask_user` no es una opción de las decisiones: solo se pregunta en los dos casos de arriba (`info_missing` y tope de llamadas).
@@ -169,13 +169,13 @@ Cobertura real de esas barreras (revisada en el código):
 - **Seguridad**: una denegación de Guard cierra la tarea sin escalar ni replanificar. Un rechazo del usuario sobre una operación no cierra la tarea: queda como `user_rejected` y el flujo continúa.
 
 ## 7. Verificación del Resultado
-Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`engine/deps.ts`) sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface la instrucción del paso?). El criterio es siempre el paso: en reactivo, el primer pendiente.
+Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`contracts.ts`) sobre cada llamada ejecutada: `ok` (¿la llamada tuvo éxito y trajo datos utilizables?) y `cumple` (¿el resultado satisface la instrucción del paso?). El criterio es siempre el paso: en reactivo, el primer pendiente.
 
 - Aprueba solo si pasan todas, cada una con probabilidad de al menos 0,6 (`NOUL_APPROVE` en `engine/verify.ts`, `verdictOf`).
 - La razón es la de la primera pregunta que falla, en el orden de la tabla: si falla `ok`, `no_usable_data`; si falla solo `cumple`, `not_accomplished`.
 - `tool_error` y `exception` se rechazan sin consultar al modelo. `interrupted` y `denied` no se verifican y quedan sin veredicto.
 - Una respuesta inválida se repite una vez; si persiste, el servicio se considera no disponible.
-- **Llamadas previas (`recent`)**: `forVerify` entrega además las llamadas aprobadas anteriores a la evaluada, completas (argumentos y resumen), en ambos modos (`VerifyView.previous`). `verifyInput` (`engine/adapters.ts`) se queda con las últimas `caps.lastReads` (3) como `VerifyDecisionInput.recent`. `buildResultVerification` (`reasoner/prompts.ts`) lo agrega al prompt como el bloque `Previous approved calls` (la más reciente al final), antes de la llamada evaluada; sin llamadas previas el bloque se omite.
+- **Llamadas previas (`recent`)**: `forVerify` entrega además las llamadas aprobadas anteriores a la evaluada, completas (argumentos y resumen), en ambos modos (`VerifyView.previous`). `verifyInput` (`engine/adapters.ts`) se queda con las últimas `caps.lastReads` (3) como `VerifyDecisionInput.recent`. `buildResultVerification` (`models/prompts.ts`) lo agrega al prompt como el bloque `Previous approved calls` (la más reciente al final), antes de la llamada evaluada; sin llamadas previas el bloque se omite.
 
 ## 8. Cierre y Respuesta Final
 `finalize` escribe el estado terminal una sola vez y después la respuesta (`result`), con su origen:
@@ -217,6 +217,7 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 | Llamadas por paso (`maxCallsPerStep`) | 6 (sin contar rechazos del usuario) |
 | Bloqueos por repetición por paso (`maxRepeatsPerStep`) | 2 (el segundo falla el paso; si repetía una llamada ya aprobada, el paso se da por cumplido) |
 | Rechazos de la revisión por paso (`maxReviewRejectionsPerStep`) | 2 (el segundo falla el paso) |
+| Rechazos del usuario por paso (`maxUserRejectionsPerStep`) | 2 (el segundo falla el paso: `user_rejected`; no cuentan para `maxCallsPerStep`) |
 | Preguntas al usuario por paso (`maxQuestionsPerStep`) | 1 |
 | Salida de la lista de pendientes (`pending.maxTokens`) | 1024 tokens |
 | Reintentos de transporte | 1, tras 1 s |
@@ -238,6 +239,6 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 | Entrada y estrategia | `tasks.ts`, `engine/runTask.ts`, `engine/stepLoop.ts`, `engine/planner.ts`, `engine/pending.ts` |
 | Llamadas y verificación | `engine/callRunner.ts`, `engine/verify.ts`, `engine/ask.ts` |
 | Cierre y fallos | `engine/finalize.ts`, `engine/failures.ts`, `engine/runtime.ts` |
-| Modelos y transporte | `decision.ts`, `reasoner/qwen.ts`, `reasoner/prompts.ts`, `reasoner/stageRequests.ts`, `llmTransport.ts`, `budget.ts` |
+| Modelos y transporte | `models/decision.ts`, `models/qwen.ts`, `models/prompts.ts`, `models/stageRequests.ts`, `models/transport.ts`, `budget.ts` |
 | Etapas de modelo (ids de traza) | `types/stages.ts` |
 | Seguridad | `policy/guard.ts` |

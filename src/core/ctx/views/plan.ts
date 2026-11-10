@@ -6,11 +6,12 @@
  * Una llamada aparece una sola vez: efectos y posibles efectos > `failures`.
  */
 
-import { effectsOf, possibleEffectsOf, recentFailures, recentWindowSize } from "../derive.ts";
+import { recentFailures, recentWindowSize } from "../derive.ts";
 import { ContextError } from "../errors.ts";
 import type { ContextData, Step } from "../types.ts";
 import {
   callViewOf,
+  effectIdsOf,
   effectViewsOf,
   envViewsOf,
   possibleEffectViewsOf,
@@ -40,7 +41,7 @@ export function buildPlanView(data: ContextData, options: PlanViewOptions): Plan
   const current: Step | undefined = failed ?? running ?? pending[0];
   const next = pending.filter((s) => s.id !== current?.id);
 
-  const hidden = new Set<string>([...effectsOf(data.calls), ...possibleEffectsOf(data.calls)].map((c) => c.id));
+  const hidden = effectIdsOf(data);
   const done = stepsDoneViews(data, hidden);
 
   const size = recentWindowSize(data.steps, options.recentWindows);

@@ -17,8 +17,10 @@
 import { BUDGET } from "./budget.ts";
 import { create, terminalStateFor } from "./ctx/index.ts";
 import type { ContextData, ContextOptions, NormalizedOp, StopReason, TaskContext, TaskMode, TaskState } from "./ctx/index.ts";
-import type { EngineDeps, EngineLLM, EngineServices, IActionDecision, IDiscoveryEngine } from "./engine/deps.ts";
-import { createEngineServices } from "./engine/deps.ts";
+import type { EngineDeps, EngineLLM, IActionDecision, IDiscoveryEngine } from "./contracts.ts";
+import type { EngineServices } from "./engine/services.ts";
+import { createEngineServices } from "./engine/services.ts";
+import type { ConfigSource } from "./config.ts";
 import { runTask } from "./engine/runTask.ts";
 import { TaskRuntime } from "./engine/runtime.ts";
 import type { Waiting } from "./engine/runtime.ts";
@@ -86,7 +88,8 @@ export class TaskManager {
 
   constructor(
     private readonly deps: TaskManagerDeps,
-    private readonly services: EngineServices = createEngineServices(),
+    private readonly getConfig: ConfigSource,
+    private readonly services: EngineServices = createEngineServices(getConfig),
   ) { }
 
   addEventListener(listener: TaskListener): () => void {
@@ -102,7 +105,7 @@ export class TaskManager {
   start(message: string, mode: TaskMode): TaskDto {
     const id = newId("task");
     const ctx = create.context({ id, request: message, mode }, this.contextOptions);
-    const recorder = new TaskTraceRecorder(ctx);
+    const recorder = new TaskTraceRecorder(ctx, this.getConfig);
     const runtime = new TaskRuntime({
       onChange: (waiting) => {
         recorder.onWaiting(waiting);
@@ -146,7 +149,6 @@ export class TaskManager {
     return entry ? this.toDto(entry) : null;
   }
 
-  /** Tareas retenidas, de la más antigua a la más reciente. */
   /** Texto completo de una ref de la tarea. La ruta sale del contexto, nunca del pedido, y el almacén solo lee dentro de su carpeta. */
   async readRef(taskId: string, refId: string): Promise<{ readonly text: string } | "unknown_task" | "unknown_ref" | "unavailable"> {
     const entry = this.tasks.get(taskId);
@@ -161,6 +163,7 @@ export class TaskManager {
     }
   }
 
+  /** Tareas retenidas, de la más antigua a la más reciente. */
   list(): TaskSummary[] {
     return [...this.tasks.values()].map(({ ctx, runtime }) => ({
       id: ctx.task.id,

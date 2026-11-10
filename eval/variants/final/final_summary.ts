@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS, todayLine } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS, todayLine } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 const SYSTEM = `You are JARVIS. Compose the final summary response for the user based strictly on DATA and EFFECTS.

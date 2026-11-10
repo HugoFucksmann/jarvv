@@ -102,6 +102,11 @@ export function possibleEffectViewsOf(data: ContextData): EffectView[] {
   return possibleEffectsOf(data.calls).map((c) => callViewOf(data, c, true));
 }
 
+/** Ids de los efectos y posibles efectos: las vistas que los muestran aparte no repiten esas llamadas en otra sección. */
+export function effectIdsOf(data: ContextData): Set<string> {
+  return new Set<string>([...effectsOf(data.calls), ...possibleEffectsOf(data.calls)].map((c) => c.id));
+}
+
 // ───────────────────────── Partes comunes de `forArgs` y `forReview` ─────────────────────────
 
 export interface TaskParts {

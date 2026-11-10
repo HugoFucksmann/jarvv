@@ -10,14 +10,14 @@
 ## Para quien mejore prompts (leer primero)
 
 **Alcance.** Se trabaja solo en prompts y en variantes del eval. No se toca el flujo (`src/core/engine`), el contexto (`src/core/ctx`) ni el
-pre-chequeo (`engine/precheck.ts`); un cambio de flujo se propone aparte. Pasar una variante a `src/core/reasoner/prompts.ts` lo decide el
+pre-chequeo (`engine/precheck.ts`); un cambio de flujo se propone aparte. Pasar una variante a `src/core/models/prompts.ts` lo decide el
 dueño del flujo después de medirla (reglas en 7).
 
 **Qué prompt hace qué** (reactivo, que es el modo que se usa; `ask_user` ya no es opción de D1/D2):
 
 | Etapa | Modelo | Dónde está el prompt | Qué recibe |
 |---|---|---|---|
-| `pending` (lista de pendientes; el primero es la instrucción del paso) | qwen3.5:4b, sin thinking, JSON `{"pending":[…]}` | `PROMPTS.PENDING_VIEW` (`reasoner/prompts.ts`) | `REQUEST`, `PENDING`, `STATE`, `USER`, `DONE`, `FAIL` |
+| `pending` (lista de pendientes; el primero es la instrucción del paso) | qwen3.5:4b, sin thinking, JSON `{"pending":[…]}` | `PROMPTS.PENDING_VIEW` (`models/prompts.ts`) | `REQUEST`, `PENDING`, `STATE`, `USER`, `DONE`, `FAIL` |
 | D1 `route` (files, locate, terminal, web) | d3:2b, pregunta `choice` | `DECISION_PROMPTS.buildRouteChoice` + `DESTINATIONS[ruta].description` (`tools/manifest.ts`) + `ROUTE_HINTS` | `Step:` y los intentos del paso (no el pedido) |
 | D2 `tool_choice` | d3:2b, `choice` (se omite con una sola herramienta) | `DECISION_PROMPTS.buildToolChoice` + descripción de cada herramienta (manifest) | igual que D1 |
 | `arguments` | qwen3.5:4b, sin thinking, JSON conforme al schema | `PROMPTS.ARGUMENTS_VIEW` (`SYSTEM`, `osLine`, `READ_REFS_NOTE`, `buildUserPrompt`) | `ENV`, `TOOL`, `SCHEMA`, y la vista (`STATE`, `USER`, `DONE`, `REFS`, `DATA`, `EFFECTS`, `FAIL`, `TASK`) |

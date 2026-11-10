@@ -1,6 +1,6 @@
-import type { ToolDecisionInput } from "../../../src/core/engine/deps.ts";
-import { frameLines, lastFailedBy } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { ToolDecisionInput } from "../../../src/core/contracts.ts";
+import { frameLines, lastFailedBy } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 function buildToolChoice(data: ToolDecisionInput): DecisionInput {

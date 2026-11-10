@@ -1,4 +1,4 @@
-import { PROMPTS } from "../../../src/core/reasoner/prompts.ts";
+import { PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 1. Los rótulos de pending_focused_elite sin TODAY, pero con el SYSTEM de producción completo: aísla si la ganancia viene de los rótulos o del SYSTEM corto. */

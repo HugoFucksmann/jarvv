@@ -12,11 +12,11 @@
 import type { IMCPServer } from "../mcp/types.ts";
 import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-import type { EngineLLM, IActionDecision } from "./deps.ts";
-import type { CaptureSink } from "./sink.ts";
+import type { EngineLLM, IActionDecision } from "../contracts.ts";
+import type { CaptureSink } from "../trace/sink.ts";
 
-export { NULL_SINK } from "./sink.ts";
-export type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
+export { NULL_SINK } from "../trace/sink.ts";
+export type { CaptureSink, LlmCapture, ToolCapture } from "../trace/sink.ts";
 
 function safely(action: () => void): void {
   try {

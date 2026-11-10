@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test": "tsx --test --test-timeout=30000 tests/*.test.ts",
     "eval": "tsx eval/cli.ts",
     "eval:menu": "tsx eval/cli.ts --menu",
     "eval:cross": "tsx eval/cross.ts",

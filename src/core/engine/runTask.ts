@@ -24,7 +24,7 @@
 import { BUDGET } from "../budget.ts";
 import { planClosure } from "../ctx/index.ts";
 import type { StopReason, TaskContext } from "../ctx/index.ts";
-import type { EngineDeps } from "./deps.ts";
+import type { EngineDeps } from "../contracts.ts";
 import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";

@@ -3,7 +3,7 @@
  * transporte.
  */
 
-import { ConfigManager } from "../config.ts";
+import type { ConfigSource } from "../config.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { StdioMcpServer } from "./stdioServer.ts";
 
@@ -11,7 +11,7 @@ export class FreeSearchMCPServer extends StdioMcpServer {
   readonly name = "free_search";
   readonly version = "0.13.1";
 
-  constructor(transport?: IMCPTransport) {
-    super(transport ?? new StdioMcpTransport("free_search", ConfigManager.getConfig().freeSearchMcp));
+  constructor(getConfig: ConfigSource, transport?: IMCPTransport) {
+    super(transport ?? new StdioMcpTransport("free_search", getConfig().freeSearchMcp, () => getConfig().mcpTimeoutMs));
   }
 }

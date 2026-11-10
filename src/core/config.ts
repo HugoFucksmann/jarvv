@@ -63,6 +63,15 @@ export interface JarvisConfig {
   autoMode: boolean;
 }
 
+/** Origen de la configuración vigente: quien construye un motor se lo pasa (la raíz de composición decide de dónde sale). Se llama en cada uso, así un cambio en caliente se respeta. */
+export type ConfigSource = () => JarvisConfig;
+
+/**
+ * Campos de un servidor MCP que definen QUÉ proceso lanza Jarvis. Solo se cambian editando `jarvis-config.json` y reiniciando:
+ * la API HTTP (`POST /config`) los ignora, para que un cliente local no pueda fijar el ejecutable que se lanzará al arrancar.
+ */
+export const LAUNCH_ONLY_KEYS = ["command", "args", "env", "cwd"] as const;
+
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
 export type ConfigPatch = Partial<
   Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">

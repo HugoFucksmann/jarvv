@@ -6,9 +6,9 @@
  * - Pregunta `cumple` de d4_structured_checks (85.2% acc en d4_verify_hard, baja FPs de 12 a 7 detectando parciales).
  */
 
-import type { VerifyDecisionInput } from "../../../src/core/engine/deps.ts";
-import { listBlock } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { VerifyDecisionInput } from "../../../src/core/contracts.ts";
+import { listBlock } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 function buildResultVerification(data: VerifyDecisionInput): DecisionInput {

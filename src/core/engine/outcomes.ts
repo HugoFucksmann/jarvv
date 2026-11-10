@@ -31,7 +31,7 @@ export type CallOutcome =
   | { readonly kind: "cancelled"; readonly callId: string | null };
 
 /** Por qué un paso quedó `failed` (la recuperación del modo —escalación o replan— la resuelve la Fase 6). */
-export type StepFailureCause = "call_cap" | "repeat_blocked" | "review_rejected" | "server_denied" | "no_tools";
+export type StepFailureCause = "call_cap" | "repeat_blocked" | "review_rejected" | "user_rejected" | "server_denied" | "no_tools";
 
 /**
  * Qué devuelve `runStep` al proveedor de pasos.

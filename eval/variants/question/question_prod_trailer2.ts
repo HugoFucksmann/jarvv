@@ -1,5 +1,5 @@
-import { PROMPTS } from "../../../src/core/reasoner/prompts.ts";
-import type { QuestionPromptData } from "../../../src/core/reasoner/prompts.ts";
+import { PROMPTS } from "../../../src/core/models/prompts.ts";
+import type { QuestionPromptData } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 2. SYSTEM de producción; la entrada termina con el recordatorio del formato y de lo que no debe aparecer. */

@@ -1,8 +1,8 @@
 /**
  * JARVIS Core — Receptor de la captura para la traza: los tipos de los eventos y el receptor vacío.
  *
- * Vive aparte de `capture.ts` (los envoltorios) para que `deps.ts` pueda declarar `EngineServices.sink` sin importar un archivo que a su
- * vez importa de `deps.ts`.
+ * Vive aparte de `capture.ts` (los envoltorios) para que `contracts.ts` pueda declarar `EngineDeps.sink` sin importar un archivo que a su
+ * vez importa de `contracts.ts`.
  */
 
 import type { MCPCallResult, StageId } from "../types.ts";

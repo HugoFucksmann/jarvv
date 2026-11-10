@@ -30,13 +30,12 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 
-import { ConfigManager } from "../config.ts";
+import type { ConfigSource } from "../config.ts";
 import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
-import { NULL_SINK } from "../engine/sink.ts";
-import type { CaptureSink, LlmCapture, ToolCapture } from "../engine/sink.ts";
+import { NULL_SINK } from "./sink.ts";
+import type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
 import type { Waiting } from "../engine/runtime.ts";
 import type { ModelLink, ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
-import type { StageId } from "../types.ts";
 import { errorMessage } from "../utils.ts";
 import { TRACE_FORMAT_VERSION, buildMeta, buildSummary, folderName, indexEntry, refInfos, slimQuery, slimTool } from "./format.ts";
 import type { SummaryInput } from "./format.ts";
@@ -66,8 +65,8 @@ export class TaskTraceRecorder {
   private finished = false;
   private readonly enabled: boolean;
 
-  constructor(private readonly ctx: TaskContext) {
-    this.enabled = ConfigManager.getConfig().traceEnabled;
+  constructor(private readonly ctx: TaskContext, private readonly getConfig: ConfigSource) {
+    this.enabled = getConfig().traceEnabled;
     if (!this.enabled) {
       this.sink = NULL_SINK;
       this.unsubscribe = () => undefined;
@@ -187,7 +186,7 @@ export class TaskTraceRecorder {
     if (!this.enabled) return;
     this.closeWait();
     try {
-      const config = ConfigManager.getConfig();
+      const config = this.getConfig();
       const snapshot = this.ctx.snapshot();
       const startedAt = snapshot.task.startedAt;
       const endedAt = Date.now();

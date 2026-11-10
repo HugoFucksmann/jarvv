@@ -1,6 +1,6 @@
-import type { ToolDecisionInput } from "../../../src/core/engine/deps.ts";
-import { lastFailedBy, listBlock, shortDesc } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { ToolDecisionInput } from "../../../src/core/contracts.ts";
+import { lastFailedBy, listBlock, shortDesc } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 1. Estado sin `Expected` ni `Environment`; criterios e instrucción de producción. */

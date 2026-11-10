@@ -9,19 +9,19 @@
  */
 
 import type { CallView, FallbackView, FinalView } from "../ctx/index.ts";
-import { ContextOverflowError } from "./errors.ts";
 import { FALLBACK_STATE_TEXT, FALLBACK_STOP_TEXT } from "./messages.ts";
 import {
-  effectEntry,
   clipMarked,
+  effectEntries,
   evidenceEntry,
   factLine,
   finalStepLine,
-  newestWithin,
+  joinSections,
   obsBlock,
   oneLine,
   readEntry,
-  userInputLine,
+  stateBlock,
+  userBlock,
 } from "./shared.ts";
 import type { Rendered, ViewCaps } from "./shared.ts";
 
@@ -32,10 +32,7 @@ export interface FinalRenderOptions {
 export function renderFinal(view: FinalView, options: FinalRenderOptions): Rendered {
   const caps = options.caps;
 
-  const effects = view.effects.map(effectEntry);
-  const possible = view.possibleEffects.map(effectEntry);
-  const effectsChars = [...effects, ...possible].join("\n").length;
-  if (effectsChars > caps.effectsReserve) throw new ContextOverflowError("forFinal", caps.effectsReserve, effectsChars);
+  const { effects, possible } = effectEntries(view, caps, "forFinal");
 
   const sections = [
     `REQUEST: ${clipMarked(oneLine(view.request), caps.request)}`,
@@ -43,14 +40,14 @@ export function renderFinal(view: FinalView, options: FinalRenderOptions): Rende
     obsBlock("STEPS", view.steps.map((s) => finalStepLine(s, caps))),
     obsBlock("DATA", view.lastReads.map((c) => readEntry(c, caps))),
     obsBlock("EVIDENCE", view.evidence.map((c) => evidenceEntry(c, caps))),
-    obsBlock("USER", newestWithin(view.userInput.map(userInputLine), caps.userInput)),
-    obsBlock("STATE", newestWithin(view.env.map(factLine), caps.env)),
+    userBlock(view.userInput, caps),
+    stateBlock(view.env, caps),
     // Sin cambios, una línea explícita: si no, el modelo de la respuesta final no tiene con qué descartar que "guardó" o "abrió" algo.
     effects.length === 0 ? "EFFECTS: none — no call changed anything on the computer." : obsBlock("EFFECTS", effects),
     obsBlock("POSSIBLE EFFECTS", possible),
   ];
 
-  const text = sections.filter((s): s is string => s !== null).join("\n\n");
+  const text = joinSections(sections);
   return { text, chars: text.length, overflow: false };
 }
 
@@ -94,6 +91,6 @@ export function renderFallback(view: FallbackView): Rendered {
     view.env.length === 0 ? null : `Estado del entorno:\n${view.env.map((f) => `- ${factLine(f)}`).join("\n")}`,
     view.lastActions.length === 0 ? null : `Últimas acciones:\n${view.lastActions.map((c) => plainCall(c, false)).join("\n")}`,
   ];
-  const text = sections.filter((s): s is string => s !== null).join("\n\n");
+  const text = joinSections(sections);
   return { text, chars: text.length, overflow: false };
 }

@@ -12,13 +12,13 @@
  * las que no se modifican (el framework usará automáticamente la versión de producción).
  */
 
-import { ARGS_REVIEWS } from "../../src/core/engine/deps.ts";
+import { ARGS_REVIEWS } from "../../src/core/contracts.ts";
 import type {
   ReviewDecisionInput,
   RouteDecisionInput,
   ToolDecisionInput,
   VerifyDecisionInput,
-} from "../../src/core/engine/deps.ts";
+} from "../../src/core/contracts.ts";
 import {
   frameLines,
   lastFailedBy,
@@ -26,8 +26,8 @@ import {
   REVIEW_OPTIONS,
   shortDesc,
   VERIFY_QUESTIONS,
-} from "../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../src/core/reasoner/prompts.ts";
+} from "../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../src/core/models/prompts.ts";
 import { DESTINATIONS } from "../../src/core/tools/manifest.ts";
 import type { Variant } from "../core/variants/types.ts";
 

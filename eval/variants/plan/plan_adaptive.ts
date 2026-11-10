@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS, ROUTE_LIST } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS, ROUTE_LIST } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 const SYSTEM = `You are JARVIS's planner. Produce an actionable, stepwise plan for the given request.

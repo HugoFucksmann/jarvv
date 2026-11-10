@@ -8,7 +8,7 @@
 
 import { BUDGET } from "../budget.ts";
 import type { JarvisConfig } from "../config.ts";
-import type { ArgsFromViewInput, FinalFromViewInput, PendingFromViewInput, PlanFromViewInput, QuestionInput } from "../engine/deps.ts";
+import type { ArgsFromViewInput, FinalFromViewInput, PendingFromViewInput, PlanFromViewInput, QuestionInput } from "../contracts.ts";
 import { buildCompactCatalog } from "../tools/manifest.ts";
 import { EXECUTABLE_ROUTES, type PlanStepWire } from "../types.ts";
 import { PROMPTS } from "./prompts.ts";

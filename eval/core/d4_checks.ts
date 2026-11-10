@@ -9,8 +9,8 @@
  * Regla de D4 (producción): aprueba solo si `ok` y `cumple` superan 0,5. Aquí `ok` y `cumple` se arman en código.
  */
 
-import type { VerifyDecisionInput } from "../../src/core/engine/deps.ts";
-import { DECISION_PROMPTS, type DecisionInput } from "../../src/core/reasoner/prompts.ts";
+import type { VerifyDecisionInput } from "../../src/core/contracts.ts";
+import { DECISION_PROMPTS, type DecisionInput } from "../../src/core/models/prompts.ts";
 import type { ChoiceQ, NoulQ } from "./types.ts";
 
 export const OK_WITH_CRITERIA: NoulQ = {

@@ -17,12 +17,13 @@ import { DesktopCommanderMCPServer } from './src/core/mcp/desktopCommanderMcp.ts
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
 import type { IMCPServer } from './src/core/mcp/types.ts';
 import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
-import { Decision20Engine } from './src/core/decision.ts';
-import { QwenEngine } from './src/core/reasoner/qwen.ts';
+import { Decision20Engine } from './src/core/models/decision.ts';
+import { QwenEngine } from './src/core/models/qwen.ts';
 import { TaskManager } from './src/core/tasks.ts';
 import { createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
+import { ConfigManager } from './src/core/config.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,8 +57,10 @@ async function main() {
     next();
   });
 
-  const desktopServer = new DesktopCommanderMCPServer();
-  const freeSearchServer = new FreeSearchMCPServer();
+  const getConfig = () => ConfigManager.getConfig();
+
+  const desktopServer = new DesktopCommanderMCPServer(getConfig);
+  const freeSearchServer = new FreeSearchMCPServer(getConfig);
 
   const servers: Record<string, IMCPServer> = {
     desktop_commander: desktopServer,
@@ -65,10 +68,10 @@ async function main() {
   };
 
   const discoveryEngine = new DiscoveryEngine(servers);
-  const decisionEngine = new Decision20Engine();
-  const llm = new QwenEngine();
+  const decisionEngine = new Decision20Engine(getConfig);
+  const llm = new QwenEngine(getConfig);
 
-  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm });
+  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig);
 
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {

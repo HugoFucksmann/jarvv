@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 2. SYSTEM mínimo: tres frases. Mide cuánto del rendimiento de final_summary sale de la brevedad del prompt. */

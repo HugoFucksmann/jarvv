@@ -1,26 +1,22 @@
 /**
- * JARVIS Core — Dependencias del ejecutor de llamadas y del bucle de paso (Fase 5).
+ * JARVIS Core — Contratos del motor (Fase 5).
  *
- * Contratos mínimos, sin implementaciones (las conoce solo la raíz de composición): el descubrimiento de herramientas,
- * las decisiones (ruta, herramienta, revisión de argumentos y verificación) y el modelo generativo (argumentos, pregunta,
- * plan y respuesta final, todos desde las vistas del contexto).
- *
- * También compone, una sola vez, el almacén de refs y el alcance de la regla B del Guard (`createEngineServices`).
+ * Interfaces mínimas, sin implementaciones ni composición: el descubrimiento de herramientas, las decisiones (ruta,
+ * herramienta, revisión de argumentos y verificación) y el modelo generativo (argumentos, pregunta, plan y respuesta final,
+ * todos desde las vistas del contexto). Los motores (`models/`) los implementan y `engine/` los consume; ninguno de los
+ * dos lados importa del otro. La composición (`createEngineServices`) vive en `engine/services.ts`.
  */
 
-import path from "node:path";
-
-import { ConfigManager, type JarvisConfig } from "../config.ts";
-import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
-import type { IMCPServer } from "../mcp/types.ts";
-import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
-import { isPathInside, type ProtectedPaths } from "../policy/guard.ts";
-import { createRefVault, type RefVault } from "../refs/refVault.ts";
-import type { VerdictReason } from "../ctx/index.ts";
-import type { ArgumentsGenerationResult, MCPTool, TimeSpan } from "../types.ts";
-import type { ExecutableRoute } from "../types/routes.ts";
-import type { cleanInputSchema } from "../utils.ts";
-import type { CaptureSink } from "./sink.ts";
+import type { UserEnvironment } from "./environment.ts";
+import type { IMCPServer } from "./mcp/types.ts";
+import type { Blacklist } from "./policy/blacklist.ts";
+import type { ProtectedPaths } from "./policy/guard.ts";
+import type { RefVault } from "./refs/refVault.ts";
+import type { VerdictReason } from "./ctx/index.ts";
+import type { ArgumentsGenerationResult, MCPTool, TimeSpan } from "./types.ts";
+import type { ExecutableRoute } from "./types/routes.ts";
+import type { cleanInputSchema } from "./utils.ts";
+import type { CaptureSink } from "./trace/sink.ts";
 
 // ───────────────────────── Descubrimiento de herramientas ─────────────────────────
 
@@ -262,56 +258,4 @@ export interface EngineDeps {
   readonly autoMode: () => boolean;
   /** Receptor de la traza (D11). Sin él, no se captura nada. */
   readonly sink?: CaptureSink;
-}
-
-// ───────────────────────── Composición ─────────────────────────
-
-export interface EngineServices {
-  readonly vault: RefVault;
-  readonly guardScope: ProtectedPaths;
-  /** Lista negra de herramientas que modifican el sistema, compilada desde la configuración. */
-  readonly blacklist: Blacklist;
-  /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
-  readonly environment: () => Promise<UserEnvironment>;
-  readonly autoMode: () => boolean;
-}
-
-let coherenceWarned = false;
-
-/**
- * Aviso de coherencia: si Desktop Commander restringe los directorios (`allowedDirectories` no vacío; vacío = sin
- * restricción) y `refsDir` queda fuera, el modelo no podrá leer las refs con la lectura normal. Se avisa una sola vez.
- */
-function warnIfRefsOutsideAllowed(refsDir: string, allowedDirectories: readonly string[]): void {
-  if (coherenceWarned || allowedDirectories.length === 0) return;
-  if (allowedDirectories.some((dir) => isPathInside(path.resolve(dir), refsDir))) return;
-  coherenceWarned = true;
-  console.warn(
-    `[Engine] refsDir (${refsDir}) queda fuera de allowedDirectories de Desktop Commander: el modelo no podrá leer las refs ` +
-    "con la lectura de archivos. Agregue esa carpeta a allowedDirectories o cambie refsDir.",
-  );
-}
-
-/**
- * Crea una sola vez el almacén de refs (con `refsDir`) y el alcance de la regla B del Guard, y emite el aviso de
- * coherencia. La raíz de composición lo llama una vez y comparte el resultado entre tareas.
- *
- * Las rutas relativas que el modelo escriba se resuelven contra dos bases (D27): el directorio de trabajo de Jarvis y el
- * `cwd` de Desktop Commander si está configurado. No se comprobó contra qué base resuelve Desktop Commander las suyas.
- */
-export function createEngineServices(config: JarvisConfig = ConfigManager.getConfig()): EngineServices {
-  const refsDir = path.resolve(config.refsDir);
-  const desktop = config.desktopCommanderMcp;
-  warnIfRefsOutsideAllowed(refsDir, desktop.allowedDirectories ?? []);
-
-  const bases = new Set<string>([process.cwd()]);
-  if (desktop.cwd) bases.add(path.resolve(desktop.cwd));
-
-  return {
-    vault: createRefVault({ dir: refsDir }),
-    guardScope: { protectedDirs: [refsDir], relativeBases: [...bases] },
-    blacklist: compileBlacklist(config.blacklist),
-    environment: getUserEnvironment,
-    autoMode: () => ConfigManager.getConfig().autoMode,
-  };
 }

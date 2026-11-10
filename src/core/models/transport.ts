@@ -8,7 +8,7 @@
  * - El timeout es un presupuesto total de la llamada (incluye el reintento).
  */
 
-import { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES, type FailedAttempt, type TimeSpan } from "./types.ts";
+import { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES, type FailedAttempt, type TimeSpan } from "../types.ts";
 
 /** El usuario canceló (AbortSignal propio). Se propaga sin ser reclasificada. */
 export class RequestAbortedError extends Error {
@@ -32,7 +32,7 @@ export class TransportError extends Error {
 export class LLMServiceUnavailableError extends Error {
     readonly raw?: { rawInput: string; timing?: TimeSpan };
     constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }) {
-        super(`[Qwen Unavailable] ${message}`, { cause });
+        super(`[LLM Unavailable] ${message}`, { cause });
         this.name = "LLMServiceUnavailableError";
         this.raw = raw;
     }
@@ -52,7 +52,7 @@ export class LLMValidationError extends Error {
         attempts?: FailedAttempt[],
         overflow = false
     ) {
-        super(`[Qwen Validation] ${message}`);
+        super(`[LLM Validation] ${message}`);
         this.name = "LLMValidationError";
         this.raw = raw;
         this.attempts = attempts;

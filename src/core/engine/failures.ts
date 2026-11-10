@@ -25,7 +25,7 @@ import {
   LLMServiceUnavailableError,
   LLMValidationError,
   RequestAbortedError,
-} from "../llmTransport.ts";
+} from "../models/transport.ts";
 import { errorMessage } from "../utils.ts";
 
 export type ModelFailureKind = "cancelled" | "unavailable" | "overflow" | "invalid";

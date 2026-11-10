@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 1. pending_focused_elite con todas las secciones rotuladas (PENDING y USER además de DONE y FAIL). */

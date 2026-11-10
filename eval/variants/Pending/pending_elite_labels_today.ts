@@ -1,4 +1,4 @@
-import { DATA_NOTICE_EN, PROMPTS, todayLine } from "../../../src/core/reasoner/prompts.ts";
+import { DATA_NOTICE_EN, PROMPTS, todayLine } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
 /** Ronda 2. pending_elite_labels (la mejor de la ronda 1) con la línea TODAY: aísla si quitar la fecha aporta algo. */

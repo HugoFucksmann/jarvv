@@ -45,6 +45,8 @@ export const BUDGET = {
   maxRepeatsPerStep: 2,
   /** Llamadas rechazadas por la revisión (`args_invalid`) que fallan el paso: 2 = un solo reintento. */
   maxReviewRejectionsPerStep: 2,
+  /** Rechazos del usuario (`user_rejected`) que fallan el paso: 2 = el usuario ya dijo que no dos veces; no se le vuelve a pedir lo mismo. No cuentan para el tope de llamadas. */
+  maxUserRejectionsPerStep: 2,
   /**
    * Umbral de D3 para un comando del nivel 2 de la lista negra (`sensitive`) con `autoMode` encendido: aprueba solo si la
    * probabilidad de `approved` llega a este valor (el resto de las escrituras usa `REVIEW_APPROVE`, 0,6). Provisorio: medir con el eval.

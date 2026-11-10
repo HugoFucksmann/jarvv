@@ -131,7 +131,8 @@ const ArgsInput: React.FC<{
   placeholder: string;
   ariaLabel: string;
   onChange: (args: string[]) => void;
-}> = ({ args, placeholder, ariaLabel, onChange }) => {
+  readOnly?: boolean;
+}> = ({ args, placeholder, ariaLabel, onChange, readOnly }) => {
   const external = formatArgs(args || []);
   const [text, setText] = useState(external);
 
@@ -150,6 +151,7 @@ const ArgsInput: React.FC<{
       }}
       placeholder={placeholder}
       aria-label={ariaLabel}
+      readOnly={readOnly}
       className="col-span-2 px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px]"
     />
   );
@@ -182,6 +184,7 @@ const McpCommandField: React.FC<McpCommandFieldProps> = ({
         type="text"
         value={value?.command || ""}
         onChange={(e) => onChange({ command: e.target.value })}
+        readOnly
         placeholder={commandPlaceholder}
         className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-300 font-mono text-[11px]"
       />
@@ -190,6 +193,7 @@ const McpCommandField: React.FC<McpCommandFieldProps> = ({
         placeholder={argsPlaceholder}
         ariaLabel={`${label} argumentos`}
         onChange={(args) => onChange({ args })}
+        readOnly
       />
     </div>
   </div>
@@ -421,7 +425,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </SectionTitle>
               <div className="p-2.5 bg-slate-950/80 border border-slate-800 rounded text-[11px] text-slate-400 leading-relaxed font-sans">
                 <span className="text-amber-400 font-medium font-mono">Nota de proceso: </span>
-                Los comandos y argumentos se persisten en el servidor. La modificación de comandos de arranque stdio no reinicia automáticamente los procesos hijos ya en ejecución; para aplicar cambios en el comando base se requiere reiniciar el proceso del servidor backend (<code className="font-mono text-slate-300">node server.ts</code>).
+                El comando y los argumentos de arranque son de solo lectura aquí: la API no los acepta, para que ningún cliente local pueda cambiar el programa que se lanza. Para cambiarlos, edite <code className="font-mono text-slate-300">jarvis-config.json</code> y reinicie el servidor backend.
               </div>
 
               <div className="grid grid-cols-1 gap-3 pl-1">

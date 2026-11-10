@@ -15,21 +15,21 @@
 
 import type { ArgsView, CallView } from "../ctx/index.ts";
 import {
+  argsText,
   availableRefLine,
   callHead,
-  callLine,
   clipMarked,
   effectEntry,
-  factLine,
   failureLine,
+  joinSections,
   lastCapped,
   multiLine,
-  newestWithin,
   obsBlock,
   oneLine,
   readEntry,
+  stateBlock,
   stepDoneLine,
-  userInputLine,
+  userBlock,
 } from "./shared.ts";
 import type { Rendered, ViewCaps } from "./shared.ts";
 
@@ -43,7 +43,7 @@ const DETAILED_ATTEMPTS = 2;
 /** Llamada en una línea, sin el resultado: el encabezado y los argumentos (con su tope). */
 function bareCallLine(call: CallView, caps: ViewCaps, note?: string): string {
   const parts = [clipMarked(callHead(call), caps.line)];
-  if (call.args !== null) parts.push(`args=${clipMarked(oneLine(JSON.stringify(call.args)), caps.failureArgs)}`);
+  if (call.args !== null) parts.push(`args=${argsText(call.args, caps.failureArgs)}`);
   if (note !== undefined) parts.push(note);
   return parts.join(" ");
 }
@@ -76,7 +76,7 @@ function failureLines(failures: readonly CallView[], caps: ViewCaps): string[] {
 /** Último intento fallido de la herramienta: `L`, los argumentos que se probaron y lo que devolvió (en líneas, para conservar el mensaje de error). */
 function lastErrorEntry(call: CallView, caps: ViewCaps): string {
   const lines = [clipMarked(callHead(call), caps.line)];
-  if (call.args !== null) lines.push(`args=${clipMarked(oneLine(JSON.stringify(call.args)), caps.failureArgs)}`);
+  if (call.args !== null) lines.push(`args=${argsText(call.args, caps.failureArgs)}`);
   if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.lastErrorSummary));
   return lines.join("\n");
 }
@@ -93,8 +93,8 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
   const task = taskText === null || taskText === undefined ? null : `TASK: ${clipMarked(oneLine(taskText), caps.step)}`;
 
   const sections = [
-    obsBlock("STATE", newestWithin(view.env.map(factLine), caps.env)),
-    obsBlock("USER", newestWithin(view.userInput.map(userInputLine), caps.userInput)),
+    stateBlock(view.env, caps),
+    userBlock(view.userInput, caps),
     obsBlock("STEPS", lastCapped(view.stepsDone.map((s) => stepDoneLine(s, caps)), caps.stepsDone)),
     obsBlock("DONE", lastCapped(view.done.map((c) => clipMarked(callHead(c), caps.line)), caps.done)),
     obsBlock("REFS", view.refs.map((r) => clipMarked(availableRefLine(r), caps.refLine))),
@@ -105,6 +105,6 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
     task,
   ];
 
-  const text = sections.filter((s): s is string => s !== null).join("\n\n");
+  const text = joinSections(sections);
   return { text, chars: text.length, overflow: effectsChars > caps.effectsReserve };
 }

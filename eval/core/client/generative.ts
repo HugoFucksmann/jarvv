@@ -33,7 +33,7 @@ export function isTransportError(error: string): boolean {
  */
 export async function postJson(url: string, body: unknown, timeoutMs: number): Promise<PostResult> {
   const start = Date.now();
-  // Presupuesto total de la llamada: incluye el reintento y la espera (como `llmTransport.ts`).
+  // Presupuesto total de la llamada: incluye el reintento y la espera (como `models/transport.ts`).
   const signal = AbortSignal.timeout(timeoutMs);
   for (let attempt = 0; ; attempt++) {
     try {

@@ -6,7 +6,7 @@
  * código que usa Jarvis:
  *
  *   escenario → `create.context` + `apply` → `ctx.view.<vista>` → adaptadores (`engine/adapters.ts`) → constructores de
- *   prompts (`reasoner/prompts.ts`, `reasoner/stageRequests.ts`) → request del eval.
+ *   prompts (`models/prompts.ts`, `models/stageRequests.ts`) → request del eval.
  *
  * Así los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada
  * etapa llegan al modelo tal como en producción, y un cambio en `src/` se refleja solo en el eval.
@@ -36,7 +36,7 @@ import {
   verifyInput,
 } from "../../src/core/engine/adapters.ts";
 import { renderAsk, renderFinal } from "../../src/core/render/index.ts";
-import { DECISION_PROMPTS, PROMPTS } from "../../src/core/reasoner/prompts.ts";
+import { DECISION_PROMPTS, PROMPTS } from "../../src/core/models/prompts.ts";
 import {
   argumentsStageRequest,
   BASE_TEMPERATURE,
@@ -44,8 +44,8 @@ import {
   pendingStageRequest,
   planStageRequest,
   questionStageRequest,
-} from "../../src/core/reasoner/stageRequests.ts";
-import type { PromptSet, StageRequest } from "../../src/core/reasoner/stageRequests.ts";
+} from "../../src/core/models/stageRequests.ts";
+import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
 import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
 import type { CommandAnalyzer, PrecheckFinding } from "../../src/core/engine/precheck.ts";
 import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";

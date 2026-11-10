@@ -6,10 +6,11 @@
  * Una llamada aparece una sola vez: efectos y posibles efectos > `lastReads` > `evidence`.
  */
 
-import { effectsOf, isApproved, lastN, lastReadsWithData, possibleEffectsOf, recentWindowSize } from "../derive.ts";
+import { isApproved, lastN, lastReadsWithData, recentWindowSize } from "../derive.ts";
 import type { ContextData } from "../types.ts";
 import {
   callViewOf,
+  effectIdsOf,
   effectViewsOf,
   envViewsOf,
   lineViewOf,
@@ -21,7 +22,7 @@ import {
 import type { FallbackView, FinalView, FinalViewOptions, WindowOptions } from "./types.ts";
 
 export function buildFinalView(data: ContextData, options: FinalViewOptions): FinalView {
-  const shown = new Set<string>([...effectsOf(data.calls), ...possibleEffectsOf(data.calls)].map((c) => c.id));
+  const shown = effectIdsOf(data);
 
   const reads = lastReadsWithData(data.calls, options.lastReads).filter((c) => !shown.has(c.id));
   reads.forEach((c) => shown.add(c.id));
@@ -47,7 +48,7 @@ export function buildFinalView(data: ContextData, options: FinalViewOptions): Fi
 
 export function buildFallbackView(data: ContextData, options: WindowOptions): FallbackView {
   const size = recentWindowSize(data.steps, options.recentWindows);
-  const hidden = new Set<string>([...effectsOf(data.calls), ...possibleEffectsOf(data.calls)].map((c) => c.id));
+  const hidden = effectIdsOf(data);
   return {
     task: taskViewOf(data),
     lastActions: lastN(data.calls.filter((c) => !hidden.has(c.id)), size).map(lineViewOf),

@@ -5,12 +5,12 @@
  *
  * - Integración HTTP real contra la URL configurada; sin simulaciones. Si el servicio no está configurado o no
  *   responde, lanza DecisionServiceUnavailableError.
- * - `chooseRoute` y `chooseTool` (contrato `IActionDecision`, engine/deps.ts) reciben el marco de `forRoute`, `reviewArgs`
+ * - `chooseRoute` y `chooseTool` (contrato `IActionDecision`, contracts.ts) reciben el marco de `forRoute`, `reviewArgs`
  *   (Decisión 3) el de `forReview` y `verifyResult` (Decisión 4) el de `forVerify`.
  * - Tipos de pregunta implementados: `choice` y `noul`. El contrato también define `score`; no se usa ni se implementa.
  * - Validación de la respuesta en un solo punto (parseResponse); el resto del código confía en ella.
  * - Las respuestas `noul` se devuelven como probabilidades: el umbral y el veredicto son de `engine/verify.ts`.
- * - Transporte (reintento único en red/503, timeout, cancelación): llmTransport.ts.
+ * - Transporte (reintento único en red/503, timeout, cancelación): models/transport.ts.
  */
 
 import {
@@ -19,7 +19,7 @@ import {
   type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
-} from "./types.ts";
+} from "../types.ts";
 import type {
   DecisionTrace,
   IActionDecision,
@@ -32,23 +32,23 @@ import type {
   VerifyCheckKey,
   VerifyDecision,
   VerifyDecisionInput,
-} from "./engine/deps.ts";
-import { ARGS_REVIEWS, VERIFY_CHECKS } from "./engine/deps.ts";
-import { isExecutableRoute } from "./types/routes.ts";
-import { ConfigManager } from "./config.ts";
-import { DECISION_PROMPTS } from "./reasoner/prompts.ts";
+} from "../contracts.ts";
+import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";
+import { isExecutableRoute } from "../types/routes.ts";
+import type { ConfigSource, JarvisConfig } from "../config.ts";
+import { DECISION_PROMPTS } from "./prompts.ts";
 import {
   estimateTokens,
   postJson,
   DecisionServiceUnavailableError,
   DecisionValidationError,
   TransportError,
-} from "./llmTransport.ts";
-import { errorMessage, isRecord } from "./utils.ts";
+} from "./transport.ts";
+import { errorMessage, isRecord } from "../utils.ts";
 
 /** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
 function buildDecisionRequest(
-  config: ReturnType<typeof import("./config.ts").ConfigManager.getConfig>,
+  config: JarvisConfig,
   payload: { state: string; questions: Record<string, unknown> }
 ): { url: string; body: string } {
   const base = config.decisionUrl.replace(/\/+$/, "");
@@ -96,7 +96,10 @@ function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean
 
 export class Decision20Engine implements IActionDecision {
   /** `prompts`: los constructores de las preguntas de cada decisión; por defecto los de producción (el laboratorio de evaluación pasa otros). */
-  constructor(private readonly prompts: typeof DECISION_PROMPTS = DECISION_PROMPTS) { }
+  constructor(
+    private readonly getConfig: ConfigSource,
+    private readonly prompts: typeof DECISION_PROMPTS = DECISION_PROMPTS,
+  ) { }
 
   /**
    * Invoca `system_one` sobre el endpoint real. Devuelve las respuestas ya validadas contra `questions`
@@ -107,7 +110,7 @@ export class Decision20Engine implements IActionDecision {
     questions: Record<string, DecisionQuestion>,
     options?: { signal?: AbortSignal }
   ): Promise<DecisionResponse> {
-    const config = ConfigManager.getConfig();
+    const config = this.getConfig();
     if (!config.decisionUrl) {
       throw new DecisionServiceUnavailableError(
         "La URL de Decision 2.0 no está configurada. Configure la URL HTTP en la barra de configuración."
@@ -251,7 +254,7 @@ export class Decision20Engine implements IActionDecision {
 
     const probabilities = VERIFY_CHECKS.map(({ key }) => `${key}=${answers[key].toFixed(2)}`).join(" ");
     console.log(
-      `[Verification ${ConfigManager.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
+      `[Verification ${this.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
     );
     return { answers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }

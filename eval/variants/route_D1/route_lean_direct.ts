@@ -1,6 +1,6 @@
-import type { RouteDecisionInput } from "../../../src/core/engine/deps.ts";
-import { lastFailedBy, listBlock } from "../../../src/core/reasoner/prompts.ts";
-import type { DecisionInput } from "../../../src/core/reasoner/prompts.ts";
+import type { RouteDecisionInput } from "../../../src/core/contracts.ts";
+import { lastFailedBy, listBlock } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import { DESTINATIONS } from "../../../src/core/tools/manifest.ts";
 import type { Variant } from "../../core/variants/types.ts";
 

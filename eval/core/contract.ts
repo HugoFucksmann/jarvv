@@ -8,25 +8,25 @@
  */
 
 import { BUDGET } from "../../src/core/budget.ts";
-import type { DECISION_PROMPTS } from "../../src/core/reasoner/prompts.ts";
-import type { PromptSet } from "../../src/core/reasoner/stageRequests.ts";
-import { parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/reasoner/qwen.ts";
+import type { DECISION_PROMPTS } from "../../src/core/models/prompts.ts";
+import type { PromptSet } from "../../src/core/models/stageRequests.ts";
+import { parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/models/qwen.ts";
 import { schemaTypes as prodSchemaTypes } from "../../src/core/refs/refResolver.ts";
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
-export { parseAnswersObject, validateAnswer } from "../../src/core/decision.ts";
+export { parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
 export { NOUL_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
-export { ARGS_REVIEWS } from "../../src/core/engine/deps.ts";
-export { estimateTokens } from "../../src/core/llmTransport.ts";
-export { retryNote } from "../../src/core/reasoner/prompts.ts";
-export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/reasoner/qwen.ts";
+export { ARGS_REVIEWS } from "../../src/core/contracts.ts";
+export { estimateTokens } from "../../src/core/models/transport.ts";
+export { retryNote } from "../../src/core/models/prompts.ts";
+export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/models/qwen.ts";
 export {
   planViewSchema as buildPlanSchema,
   RETRY_TEMPERATURE,
   RETRY_TOKEN_FACTOR,
   TRUNCATED as TRUNCATED_ERROR,
-} from "../../src/core/reasoner/stageRequests.ts";
+} from "../../src/core/models/stageRequests.ts";
 export { isWholeRefToken } from "../../src/core/refs/refResolver.ts";
 export { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../../src/core/types/limits.ts";
 export const LLM_INVALID_OUTPUT_RETRIES = BUDGET.invalidResponseRetries;

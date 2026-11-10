@@ -7,7 +7,7 @@
  */
 
 import type { AskView } from "../ctx/index.ts";
-import { callHead, clipMarked, newestWithin, obsBlock, oneLine, readEntry, refText, userInputLine } from "./shared.ts";
+import { clipMarked, failureLine, joinSections, obsBlock, oneLine, readEntry, userBlock } from "./shared.ts";
 import type { ViewCaps } from "./shared.ts";
 
 export interface AskRenderOptions {
@@ -19,23 +19,16 @@ export function renderAsk(view: AskView, options: AskRenderOptions): string {
   const half = Math.floor(caps.step / 2);
   const step = view.step;
 
-  const rejected = view.rejectedCall;
-  const rejectedLines: string[] = [];
-  if (rejected !== null) {
-    const parts = [clipMarked(callHead(rejected), caps.line)];
-    if (rejected.args !== null) parts.push(`args=${clipMarked(oneLine(JSON.stringify(rejected.args)), caps.evaluatedArgs)}`);
-    if (rejected.summary !== null) parts.push(`| ${clipMarked(oneLine(rejected.summary), caps.rejectedSummary)}`);
-    if (rejected.ref !== null) parts.push(clipMarked(refText(rejected.ref), caps.refMark));
-    rejectedLines.push(parts.join(" "));
-  }
+  // La llamada rechazada es una línea de fallo con topes propios: los argumentos se ven casi enteros (son lo que se corrige).
+  const rejectedLines = view.rejectedCall === null ? [] : [failureLine(view.rejectedCall, caps, { args: caps.evaluatedArgs, summary: caps.rejectedSummary })];
 
   const sections = [
     view.request === null ? null : `GOAL: ${clipMarked(oneLine(view.request), caps.request)}`,
     step?.instruction == null ? null : `TASK: ${clipMarked(oneLine(step.instruction), half)}`,
     step?.expected == null ? null : `EXPECTED: ${clipMarked(oneLine(step.expected), half)}`,
-    obsBlock("USER", newestWithin(view.userInput.map(userInputLine), caps.userInput)),
+    userBlock(view.userInput, caps),
     obsBlock("REJECTED", rejectedLines),
     obsBlock("DATA", view.lastRead === null ? [] : [readEntry(view.lastRead, caps)]),
   ];
-  return sections.filter((s): s is string => s !== null).join("\n\n");
+  return joinSections(sections);
 }
