@@ -123,6 +123,17 @@ function pathClass(raw: string, homes: readonly string[]): PathClass | null {
   return null;
 }
 
+const USER_FOLDERS = /^\/(documents|desktop|downloads|pictures|videos|music|onedrive)(\/(\*|\*\.\*))?$/;
+
+/** ¿Es una carpeta de datos del usuario entera (`Documents`, `Desktop`...) o todo su contenido (`Documents\*`)? Borrarla pierde el trabajo del usuario. */
+function isUserFolder(raw: string, homes: readonly string[]): boolean {
+  let p = norm(raw.trim()).replace(/\/{2,}/g, "/");
+  for (const [re, to] of VARIABLES) p = p.replace(re, to);
+  p = p.replace(/\/+$/, "");
+  const home = p.startsWith(HOME_MARK) ? HOME_MARK : homes.find((h) => p.startsWith(`${h}/`));
+  return home !== undefined && USER_FOLDERS.test(p.slice(home.length));
+}
+
 // ───────────────────────── Tablas de comandos ─────────────────────────
 
 const DELETE_NAMES = new Set(["rm", "rmdir", "rd", "del", "erase", "ri", "remove-item", "unlink"]);
@@ -141,7 +152,20 @@ const COPY_NAMES = new Set(["cp", "copy", "copy-item", "cpi", "xcopy"]);
 const WRITE_NAMES = new Set(["set-content", "add-content", "ac", "out-file", "clear-content", "clc", "tee", "tee-object"]);
 const PERMISSION_NAMES = new Set(["chmod", "chown", "chgrp"]);
 const SHELL_NAMES = new Set(["cmd", "powershell", "pwsh", "bash", "sh", "zsh", "dash"]);
-const PKG_NAMES = new Set(["pip", "pip3", "winget", "choco", "scoop", "apt", "apt-get", "dnf", "yum", "pacman", "brew", "snap"]);
+/** Defender, firewall, red y energía: cambiar la seguridad o la configuración de la máquina. */
+const SECURITY_NAMES = new Set([
+  "set-mppreference", "add-mppreference", "remove-mppreference", "set-netfirewallrule", "new-netfirewallrule", "remove-netfirewallrule",
+  "disable-netfirewallrule", "set-netfirewallprofile", "disable-netadapter", "remove-netadapter", "set-netipaddress", "remove-netipaddress",
+  "powercfg", "disable-computerrestore", "disable-windowsoptionalfeature", "set-service",
+]);
+/** Descargas a disco y lanzadores indirectos: traen o ejecutan código que el comando no muestra. */
+const DOWNLOAD_NAMES = new Set(["iwr", "irm", "invoke-webrequest", "invoke-restmethod", "curl", "wget"]);
+const LAUNCHER_NAMES = new Set(["mshta", "rundll32", "regsvr32", "bitsadmin", "start-bitstransfer"]);
+/** Tareas programadas y ejecución remota; borrado de rastros; objetos WMI. */
+const PERSISTENCE_NAMES = new Set(["register-scheduledtask", "unregister-scheduledtask", "set-scheduledtask", "invoke-command", "icm", "enter-pssession", "enable-psremoting"]);
+const TRACE_NAMES = new Set(["clear-eventlog", "remove-eventlog", "clear-recyclebin"]);
+const WMI_NAMES = new Set(["remove-wmiobject", "remove-ciminstance", "invoke-wmimethod", "invoke-cimmethod"]);
+const PKG_NAMES =new Set(["pip", "pip3", "winget", "choco", "scoop", "apt", "apt-get", "dnf", "yum", "pacman", "brew", "snap"]);
 
 const isFlag = (t: string): boolean => t.startsWith("-");
 const isCmdSwitch = (t: string): boolean => /^\/[a-z?](:.*)?$/.test(t);
@@ -231,6 +255,20 @@ function analyzeSegment(tokens: string[], opts: ClassifyOptions, depth: number):
   if (name === "service" && rest.includes("stop")) return hit("sensitive", "service-stop", "Stopping a service can break the system.");
   if (name === "schtasks" || name === "crontab" || name === "at") return hit("sensitive", "scheduled-tasks", "Changing scheduled tasks.");
 
+  // Seguridad del sistema, descargas, tareas programadas, ejecución remota, rastros y WMI.
+  if (SECURITY_NAMES.has(name)) return hit("sensitive", "security-settings", `'${name}' changes the security or network configuration of the machine.`);
+  if (name === "netsh" && rest.some((t) => t === "advfirewall" || t === "firewall")) return hit("sensitive", "security-settings", "Changing the firewall configuration.");
+  if (DOWNLOAD_NAMES.has(name) && rest.some((t) => ["-o", "-outfile", "--output", "--output-document", "-out"].includes(t))) {
+    return hit("sensitive", "download-to-disk", "Downloading a file to disk brings content that is not verified.");
+  }
+  if (name === "certutil" && rest.some((t) => /^[-/](urlcache|urlcachesplit|decode|decodehex|encode)/.test(t))) return hit("sensitive", "download-to-disk", "certutil downloads or decodes files.");
+  if (LAUNCHER_NAMES.has(name)) return hit("sensitive", "indirect-execution", `'${name}' runs or downloads code that the command does not show.`);
+  if ((name === "start-process" || name === "saps") && rest.some((t) => t === "runas" || t === "-verb:runas")) return hit("sensitive", "elevation", "Running a program with administrator rights.");
+  if (PERSISTENCE_NAMES.has(name)) return hit("sensitive", "persistence-remote", `'${name}' schedules tasks or runs commands on another session or machine.`);
+  if (name === "wevtutil" && rest.some((t) => t === "cl" || t === "clear-log")) return hit("sensitive", "clear-logs", "Clearing event logs removes the system's records.");
+  if (TRACE_NAMES.has(name)) return hit("sensitive", "clear-logs", `'${name}' permanently removes records or files.`);
+  if (WMI_NAMES.has(name)) return hit("sensitive", "wmi-change", `'${name}' changes or deletes system objects.`);
+
   // Git, paquetes, instalaciones.
   if (name === "git") return analyzeGit(lc);
   if ((name === "npm" || name === "pnpm" || name === "yarn") && rest.some((t) => ["install", "i", "add", "uninstall", "remove", "update"].includes(t)) && rest.some((t) => t === "-g" || t === "--global" || t === "global")) {
@@ -264,6 +302,7 @@ function analyzeDelete(name: string, lc: string[], homes: readonly string[]): Ru
     const cls = pathClass(target, homes);
     if (cls === "root") found = worst(found, hit("guard", "delete-root", "Deleting a drive root or the Windows folder is not allowed."));
     else if (cls !== null) found = worst(found, hit("blocked", "delete-critical", "Deleting a system folder or a whole user folder is not allowed."));
+    else if (isUserFolder(target, homes)) found = worst(found, hit("blocked", "delete-user-folder", "Deleting Documents, Desktop, Downloads or another personal folder (or everything in it) is not allowed."));
   }
   if (lc.includes("--no-preserve-root")) found = worst(found, hit("guard", "delete-root", "Deleting the filesystem root is not allowed."));
   if (found !== null) return found;
@@ -324,6 +363,10 @@ const WHOLE_TEXT_RULES: readonly { re: RegExp; tier: RuleTier; id: string; reaso
     tier: "blocked", id: "pipe-to-shell", reason: "Running downloaded content directly is not allowed.",
   },
   { re: /\b(sh|bash)\s+-c\s+["']?\$\(\s*(curl|wget)\b/, tier: "blocked", id: "pipe-to-shell", reason: "Running downloaded content directly is not allowed." },
+  {
+    re: /\[(system\.)?io\.(file|directory|fileinfo|directoryinfo)\]::(delete|write\w*|move|copy|replace|append\w*)/,
+    tier: "sensitive", id: "dotnet-file", reason: "Direct .NET file calls change or delete files without the usual checks.",
+  },
   { re: /\/etc\/(shadow|sudoers)\b/, tier: "blocked", id: "auth-files", reason: "The system authentication files are off limits." },
   { re: /(>>?|\btee\b|\bsed\s+-\w*i\b)[^|;&]*\/etc\/passwd\b/, tier: "blocked", id: "auth-files", reason: "The system authentication files are off limits." },
 ];
