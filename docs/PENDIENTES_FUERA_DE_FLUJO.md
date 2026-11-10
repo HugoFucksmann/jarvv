@@ -1,6 +1,6 @@
 # Pendientes
 
-Lo que sigue abierto después del refactor del flujo (`PLAN_REFACTOR_FLUJO.md`), de la preparación del eval (`PLAN_EVAL.md`) y de los cambios del 2026-11-07. Lo resuelto se quitó: el detalle y la evidencia están en `conclusiones.md` y en los documentos de cada tema. **[V]** = visto en el código o en una traza.
+Lo que sigue abierto después del refactor del flujo, de la preparación del eval y de los cambios del 2026-11-07. Lo resuelto se quitó: el detalle y la evidencia están en `conclusiones.md` y en los documentos de cada tema. **[V]** = visto en el código o en una traza.
 
 ## Flujo y motor
 - **Pre-chequeo determinista** (`engine/precheck.ts`): falta probarlo en uso real (falsos rechazos). Es lo único que valida los argumentos antes de pedir la aprobación al usuario.

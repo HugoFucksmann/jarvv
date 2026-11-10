@@ -1,8 +1,0 @@
-{
-  "name": "Remix JARVIS Core v1.0",
-  "description": "Deterministic Core architecture with Decision 2.0 routing, dynamic MCP discovery, policy guard, and live MCP execution for Desktop Commander and Free Search.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
