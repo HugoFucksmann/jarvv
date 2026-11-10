@@ -164,6 +164,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { loopExempt: true, requires: "search" }),
 
   // Sin `verbose_timing`: con él la última línea de la salida pasa a ser un bloque de tiempos y el extractor pierde el fin del proceso y su exit code.
+  // Escritura por catálogo; un comando que `policy/readOnly.ts` demuestra de solo lectura se trata como lectura llamada por llamada.
   def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command.", {
     // Sin `shell`: el servidor usa powershell.exe por defecto y es lo que los prompts y el pre-chequeo asumen.
     params: ["command", "timeout_ms"],

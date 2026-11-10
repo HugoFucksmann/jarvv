@@ -17,7 +17,7 @@ Lo que sigue abierto en JARVIS v0.6.0: limitaciones conocidas, mediciones que fa
 
 - **Validación real pendiente (2026-11-09):** la ruta agotada tras dos `not_accomplished` (`availableRoutes`), la temperatura creciente por intento y el prompt de la respuesta final se midieron en el eval y en trazas, pero falta confirmarlos con varias tareas reales.
 - **Tareas largas:** con muchos pasos y reintentos el contexto crece y el modelo chico pierde calidad (hay compactación de EFFECTS y FAIL, pero sin medir en tareas de más de ~10 llamadas).
-- **`start_process` es siempre `write`** (aunque el comando solo lea): su salida va a EFFECTS y no a DATA, y con `autoMode` todo comando pasa por D3.
+- **Comandos de solo lectura** (`policy/readOnly.ts`): la lista de cmdlets es cerrada y conservadora (sin paréntesis, bloques, variables ni métodos), así que consultas con `(Get-Date).AddDays(-1)` o `ForEach-Object` siguen pidiendo confirmación. Medir en uso real cuántas consultas legítimas quedan fuera y ampliar la lista con casos medidos. Solo PowerShell: los comandos de Linux/macOS (`ls`, `cat`) siguen como escritura. `interact_with_process` sigue siempre como escritura.
 
 ## Backend general
 - **Retención sin límite:** `data/refs/` (resultados crudos) y `jarvis-traces/` crecen sin tope ni limpieza; solo las tareas en memoria se expulsan (`MAX_RETAINED_TASKS`). Definir una política (por antigüedad o por tamaño). [V]

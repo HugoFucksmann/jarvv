@@ -24,6 +24,7 @@ import { collectSources, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
+import { isReadOnlyCall } from "../policy/readOnly.ts";
 import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
 import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
@@ -303,11 +304,14 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return registered(callId, "refs_unresolved");
   }
   const resolved = resolution.resolvedArgs;
+  // Un comando de terminal que solo lee es una lectura aunque `start_process` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA,
+  // no pide confirmación y no pasa por D3. Desde acá la llamada se registra con este `kind`.
+  const kind: CallKind = isReadOnlyCall(mcp, tool.name, resolved) ? "read" : base.kind;
 
   // 5. Huella de los argumentos resueltos y anti-loop (un `denied` del servidor cuenta como ejecutada).
   const sig = computeSig(resolved);
   // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
-  const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, args: recorded, sig, status, summary, ref: null });
+  const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, kind, args: recorded, sig, status, summary, ref: null });
   const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summary), status);
   if (ctx.isRepeat(tool.name, sig, { exempt: policy.loopExempt })) return reject("loop_blocked");
 
@@ -325,7 +329,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   if (listed !== null && auto && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
-  const finding = await precheckCall({ tool: tool.name, kind: base.kind, args: resolved, sources: collectSources(ctx), environment });
+  const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources: collectSources(ctx), environment });
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (finding !== null) return reject(finding.review, summaryText(finding.reason));
 
@@ -351,7 +355,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
   // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
   // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  if (base.kind === "write" && !askUser) {
+  if (kind === "write" && !askUser) {
     const reviewView = ctx.view.forReview(reviewViewOptions());
     const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
@@ -430,7 +434,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
   const callId = register(
     ctx,
-    { ...base, args: recorded, sig, status: processed.status, summary: processed.summary, ref },
+    { ...base, kind, args: recorded, sig, status: processed.status, summary: processed.summary, ref },
     [...errorOps, ...factOps],
   );
   if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };

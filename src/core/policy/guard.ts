@@ -7,7 +7,8 @@
  *   escanean los de `free_search` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
  *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
  * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
- * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura).
+ * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura), salvo un comando de terminal que `readOnly.ts` demuestra de
+ *   solo lectura (pasó antes por todas las reglas anteriores: DENY de patrones y reglas de comando).
  * - Regla B (Fase 5): una escritura (FILE_WRITE) sobre una ruta dentro de las carpetas protegidas (`refsDir`: resultados
  *   crudos de las refs) => DENY siempre. Se revisan los argumentos de tipo texto, salvo `content` y `mode`; las rutas
  *   relativas se resuelven contra cada base conocida (D27); se compara sin seguir enlaces simbólicos. No cubre
@@ -22,6 +23,7 @@ import path from "node:path";
 import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
 import { classify, commandOf } from "./commandRules.ts";
+import { isReadOnlyCall } from "./readOnly.ts";
 
 // Se evalúan sobre el JSON de args en minúsculas, con "\\" -> "/" y espacios colapsados.
 // Los comandos de terminal (Windows y Linux) los analiza además `commandRules.ts` (comando y ruta juntos): `rm -rf /` o `Remove-Item -Recurse C:\`
@@ -93,7 +95,7 @@ export class Guard {
       };
     }
 
-    if (policy.requiresApproval) {
+    if (policy.requiresApproval && !isReadOnlyCall(mcp, tool, args)) {
       return { decision: "APPROVAL", reason: Guard.approvalReason(capability, tool, args), capability };
     }
 

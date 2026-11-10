@@ -154,3 +154,39 @@ test("modo automático: una escritura sin confirmación pasa por la revisión D3
   assert.equal(reviews, 1);
   assert.equal(dispatched.length, 1);
 });
+
+test("start_process de solo lectura: no pide confirmación, se registra como lectura y no pasa por D3", async () => {
+  let asked = false;
+  const { ctx, dispatched, reviews } = await run({
+    request: "Listar C:\Users\Ana\Documents con PowerShell",
+    tool: "start_process",
+    args: { command: "Get-ChildItem C:\Users\Ana\Documents" },
+    autoMode: true,
+    onWait: (waiting) => {
+      if (waiting.kind === "approval") asked = true;
+    },
+  });
+  assert.equal(asked, false);
+  assert.equal(reviews, 0);
+  assert.equal(dispatched.length, 1);
+  const call = ctx.find("calls", {})[0];
+  assert.equal(call.kind, "read");
+  assert.equal(call.status, "ok");
+});
+
+test("start_process que escribe: sigue siendo una escritura que pide confirmación", async () => {
+  let asked = false;
+  const { ctx, dispatched } = await run({
+    request: "Borrar C:\Users\Ana\Documents\viejo.txt",
+    tool: "start_process",
+    args: { command: "Remove-Item C:\Users\Ana\Documents\viejo.txt" },
+    onWait: (waiting, runtime) => {
+      if (waiting.kind !== "approval") return;
+      asked = true;
+      runtime.resolveApproval(waiting.request.id, true);
+    },
+  });
+  assert.equal(asked, true);
+  assert.equal(dispatched.length, 1);
+  assert.equal(ctx.find("calls", {})[0].kind, "write");
+});
