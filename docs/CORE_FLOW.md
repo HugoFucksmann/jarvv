@@ -188,6 +188,10 @@ Cuando la tarea termina `partial` o `failed`, la respuesta del modelo va precedi
 
 La respuesta de respaldo es texto fijo, sin modelo: estado de la tarea, motivo de detención, fallos, cambios aplicados al entorno y últimas acciones. Su origen (`model` o `fallback`) queda registrado. El estado terminal nunca depende de cómo se redactó la respuesta.
 
+**Después de la respuesta** (`runTask`, `engine/processes.ts`): si la tarea no terminó `completed` (cancelada, fallida, parcial o con un error interno), se cierran con `force_terminate` los procesos en segundo plano que lanzó `start_process` y siguen activos; una tarea completada los deja (pudo ser lo pedido). Luego `TaskManager` escribe la traza en segundo plano (la captura es inmediata; la escritura y la compresión son asíncronas y no bloquean el servidor).
+
+**Cierre del servidor** (`server.ts`): se cancelan las tareas, `TaskManager.drain` espera hasta 3 s a que cierren sus procesos y escriban su traza, y recién entonces se apagan los servidores MCP (el apagado total tiene un tope de 5 s).
+
 ## 9. Estados y Transiciones
 
 | Estado | Condición |
@@ -238,7 +242,7 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 |---|---|
 | Entrada y estrategia | `tasks.ts`, `engine/runTask.ts`, `engine/stepLoop.ts`, `engine/planner.ts`, `engine/pending.ts` |
 | Llamadas y verificación | `engine/callRunner.ts`, `engine/verify.ts`, `engine/ask.ts` |
-| Cierre y fallos | `engine/finalize.ts`, `engine/failures.ts`, `engine/runtime.ts` |
+| Cierre y fallos | `engine/finalize.ts`, `engine/failures.ts`, `engine/runtime.ts`, `engine/processes.ts` |
 | Modelos y transporte | `models/decision.ts`, `models/qwen.ts`, `models/prompts.ts`, `models/stageRequests.ts`, `models/transport.ts`, `budget.ts` |
 | Etapas de modelo (ids de traza) | `types/stages.ts` |
-| Seguridad | `policy/guard.ts` |
+| Seguridad | `policy/guard.ts`, `policy/readOnly.ts`, `policy/sensitivePaths.ts` |

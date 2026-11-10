@@ -39,6 +39,8 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 - **Entorno de la PC**: los datos de la máquina (sistema operativo y carpetas del usuario, `environment.ts`) no viven en el contexto, que solo guarda el estado de la tarea y no conoce el sistema. Se consultan una vez por proceso (el servidor las pide al arrancar) y llegan al motor por `EngineServices.environment` (`engine/services.ts`), de donde las toma la generación de argumentos. La fecha (con día de la semana y zona horaria) la escribe el constructor de cada prompt al armarlo.
 - **Reglas deterministas en el motor**: lo que se puede decidir sin modelo vive en funciones puras o con entradas explícitas dentro de `engine/`: el pre-chequeo de argumentos (`precheck.ts`), la lista de pendientes (`pendingList.ts`) y los topes del paso (`retries.ts`, con los números en `budget.ts`). Los modelos solo deciden lo que el código no puede comprobar.
 - **Configuración inyectada**: ningún motor lee `ConfigManager` por su cuenta. La raíz de composición (`server.ts`) pasa un `ConfigSource` (`() => JarvisConfig`, `config.ts`) a los modelos, los servidores MCP, `TaskManager` y la traza; se llama en cada uso, así los cambios en caliente se respetan. Solo `server/jarvisRouter.ts` usa `ConfigManager` directamente (es la API de la configuración).
+- **Cierre ordenado**: el apagado del servidor cancela las tareas y espera un momento (`TaskManager.drain`) a que cierren sus procesos en segundo plano y escriban su traza, antes de apagar los servidores MCP; la traza se escribe de forma asíncrona, fuera del flujo de la tarea.
+- **Retención**: `retention.ts` borra por antigüedad (`retentionDays`) las carpetas de refs y de trazas que Jarvis creó (por nombre), nunca las de otras cosas, y protege las refs de las tareas retenidas en memoria.
 - **Contratos**: `contracts.ts` define las interfaces que implementan los modelos (`models/qwen.ts`, `models/decision.ts`), por eso estos importan de él los tipos y las listas cerradas (`ARGS_REVIEWS`, `VERIFY_CHECKS`); no importan lógica del motor. No hay ciclos de imports: el receptor de la captura vive en `trace/sink.ts` (aparte de los envoltorios de `capture.ts`) y los registros de la traza en `trace/types.ts`.
 - **Prohibido**: que modelos, Guard, el catálogo o el procesador de resultados dependan del host, de la fachada o del motor. El backend tampoco depende de la interfaz ni del laboratorio de evaluación.
 
@@ -89,7 +91,8 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 - `src/core/models/qwen.ts`
 - `src/core/models/prompts.ts`
 - `src/core/render/`
-- `src/core/policy/guard.ts`
+- `src/core/policy/guard.ts`, `src/core/policy/readOnly.ts`, `src/core/policy/sensitivePaths.ts`
+- `src/core/retention.ts`, `src/core/engine/processes.ts`, `src/server/localOnly.ts`
 - `src/core/tools/manifest.ts`
 - `src/core/result/processResult.ts`
 - `src/core/refs/refVault.ts`
