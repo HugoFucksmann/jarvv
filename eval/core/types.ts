@@ -1,12 +1,13 @@
 /**
  * eval/core/types.ts
  *
- * Tipos del eval de prompts (esquema v3). Solo importa tipos de `contract.ts` (que los toma de `src/`).
+ * Tipos del eval de prompts (esquema v3). Importa tipos de `contract.ts` (que los toma de `src/`) y, directamente, `UserEnvironment` y `PrecheckSources` de `src/`.
  * Un solo formato de caso (el escenario, `scenario.ts`) y un solo formato de variante (prompts enteros, `Variant`).
  */
 
 import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
 import type { UserEnvironment } from "../../src/core/environment.ts";
+import type { PrecheckSources } from "../../src/core/engine/precheck.ts";
 
 /** Versión del esquema de salida. Incrementar al cambiar campos incompatibles. */
 export const SCHEMA_VERSION = 3 as const;
@@ -45,6 +46,11 @@ export interface GenerativeRequest {
   thinking: boolean;
   /** Gana sobre `thinking`. */
   reasoningEffort?: string;
+  /**
+   * `thinking` del reintento por salida inválida; sin él, el reintento conserva `thinking`. Producción lo fija en `final` (`false`:
+   * un final vacío suele ser thinking que agotó el presupuesto). No viaja al modelo.
+   */
+  retryThinking?: boolean;
 }
 
 /**
@@ -69,6 +75,13 @@ export interface Case {
     /** `arguments`: herramienta y entorno del escenario; con ellos el runner repite el pre-chequeo de producción (6b) sobre la salida. */
     toolName?: string;
     environment?: UserEnvironment;
+    /** `arguments`: `kind` de la herramienta y fuentes de la tarea, como los arma producción (`callRunner`); completan el pre-chequeo. */
+    precheck?: {
+      kind: "read" | "write";
+      sources: PrecheckSources;
+      /** Ids de las refs que existen en el escenario: usar otra es una ref inventada (`refs_unresolved` en producción). */
+      refIds: string[];
+    };
     origin?: { id: string; commit?: string };
   };
 }
@@ -270,7 +283,7 @@ export interface QuestionResult {
   type: "choice" | "noul";
   /** main = alimenta la salida canónica de la etapa; extra = pregunta adicional (caso o variante). */
   role: "main" | "extra";
-  /** `choice`: opción elegida. `noul`: "yes" o "no" (> 0.5). null = sin respuesta válida. */
+  /** `choice`: opción elegida. `noul`: "yes" o "no" (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6 en producción). null = sin respuesta válida. */
   answer: string | null;
   /** Valor `noul` en [0,1] (probabilidad de "sí"). */
   noul?: number;
@@ -310,15 +323,19 @@ export interface RunRecord {
   rawScore?: number | null;
   /** Decisión: una entrada por pregunta enviada, por clave. */
   questions?: Record<string, QuestionResult>;
+  /** Parámetros del último intento enviado (como `rawInput`). Con reintento difieren de los del primer request. */
   requestParams?: {
     temperature?: number;
     thinking?: boolean;
     maxTokens?: number;
     timeoutMs?: number;
   };
-  /** sha256 (16 hex) del request ya transformado. */
+  /**
+   * sha256 (16 hex) del PRIMER request ya transformado: identifica el prompt del caso y no cambia si el modelo necesitó un
+   * reintento (que es azaroso). En decisiones el reintento repite el mismo request.
+   */
   requestHash: string;
-  /** Request transformado (lo que se envió). */
+  /** Body del último intento enviado, el que produjo `rawOutput`. Con reintento generativo lleva la nota de error y los parámetros de reintento. */
   rawInput: unknown;
   rawOutput: string;
   parsedOutput?: unknown;

@@ -15,9 +15,8 @@ import { createGenerativeClient } from "./core/client/generative.ts";
 import { createMockDecisionClient } from "./core/client/mock.ts";
 import { createMockGenerativeClient } from "./core/client/mock.ts";
 import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/client/oracle.ts";
-import { DECISION_STAGES, GENERATIVE_STAGES } from "./core/case.ts";
 import { parseConfig } from "./core/config.ts";
-import { datasetName, listDatasetNames, loadDatasets, resolveDatasetPaths } from "./core/datasets.ts";
+import { loadDatasets } from "./core/datasets.ts";
 import type { InputCell } from "./core/report.ts";
 import {
   generateComparisonReport,
@@ -32,25 +31,17 @@ import { runDataset } from "./core/runner.ts";
 import { computeScoreSummary } from "./core/scoring.ts";
 import { allStageNames } from "./core/stages/index.ts";
 import type { RunRecord, StageName } from "./core/types.ts";
-import { listVariantNames, loadVariantSpec } from "./core/variants/load.ts";
+import { loadVariantSpec } from "./core/variants/load.ts";
 import type { Variant } from "./core/variants/types.ts";
-import { box, c, kv, padEnd, section, sym, WIDTH, wrapList } from "./ui.ts";
+import { c, fail, fmtPct, section } from "./ui.ts";
+import { printHelp } from "./views/help.ts";
+import { printList } from "./views/list.ts";
+import { printCellResult, printCellStart, printDryRunHeader, printGlobalSummary, printRunConfig, recordLine } from "./views/run.ts";
 import { runWizard } from "./wizard.ts";
 
 // ───────────────────────── Consola ─────────────────────────
 
 function log(...args: unknown[]) { console.log(...args); }
-function err(...args: unknown[]) { console.error(...args); }
-
-/** Error con el mismo formato en toda la CLI (línea en blanco previa, ✖ y texto en rojo). */
-function fail(msg: string) { err(`\n${sym.err} ${c.red(msg)}`); }
-
-function fmtPct(r: number) { return `${(r * 100).toFixed(1)}%`; }
-
-/** Verde si pasó todo, rojo si no pasó nada, amarillo en el medio. */
-function rateColor(rate: number, s: string): string {
-  return rate >= 1 ? c.green(s) : rate <= 0 ? c.red(s) : c.yellow(s);
-}
 
 /** Crea los clientes de un target (con sus modelos). Lanza si la URL generativa es inválida. */
 function makeClients(cfg: ReturnType<typeof parseConfig>): { genClient: GenerativeClient; decClient: DecisionClient } {
@@ -65,184 +56,6 @@ function makeClients(cfg: ReturnType<typeof parseConfig>): { genClient: Generati
     genClient: createGenerativeClient({ url: cfg.url, model: cfg.model }),
     decClient: createDecisionClient({ url: cfg.decisionUrl, model: cfg.decisionModel }),
   };
-}
-
-// ───────────────────────── Vistas ─────────────────────────
-
-function printHelp(): void {
-  log();
-  log(box([`${c.bold(c.cyan("Eval"))} ${c.gray("·")} ${c.bold("evaluación de modelos y variantes")}`], { color: c.violet }));
-
-  section("Uso");
-  log(`  ${c.bold("npm run eval -- [flags]")}`);
-
-  section("Opciones");
-  kv([
-    ["--menu", "asistente interactivo: elige modo, modelos, datasets, variantes y opciones, y ejecuta"],
-    ["--list", "muestra etapas, variantes y datasets disponibles"],
-    ["--help, -h", "muestra esta ayuda"],
-  ]);
-
-  section("Ejemplos");
-  log(`  ${c.cyan("▌")} npm run eval -- --menu`);
-  log(`  ${c.cyan("▌")} npm run eval -- --dataset=smoke --variant=prod,mi_variante`);
-  log(`  ${c.cyan("▌")} npm run eval -- --dataset=smoke --dry-run --ids=<caso>   ${c.gray("imprime el prompt que recibe el modelo (copiable para armar una variante)")}`);
-  log(`\n  ${c.gray("Datasets y variantes se pueden escribir solo por nombre.")}`);
-  log(`  ${c.gray("Referencia completa de flags:")} ${c.cyan("eval/INSTRUCCIONES.md")}\n`);
-}
-
-/** Lee un dataset para contar sus casos por etapa; `null` si no se puede cargar (no debe romper el listado). */
-function datasetInfo(name: string): { total: number; byStage: Array<[string, number]> } | null {
-  try {
-    const [ds] = loadDatasets([name], {});
-    if (!ds) return null;
-    const by = new Map<string, number>();
-    for (const k of ds.cases) by.set(k.stage, (by.get(k.stage) ?? 0) + 1);
-    return { total: ds.cases.length, byStage: [...by.entries()] };
-  } catch {
-    return null;
-  }
-}
-
-/** `--list`: etapas (agrupadas), variantes (con baseline) y datasets (con cantidad de casos). */
-function printList(baseline: string, datasetSpecs: string[]): void {
-  const stages = allStageNames() as string[];
-  const decisionSet = DECISION_STAGES as readonly string[];
-  const generativeSet = GENERATIVE_STAGES as readonly string[];
-  const decision = stages.filter((s) => decisionSet.includes(s));
-  const generative = stages.filter((s) => generativeSet.includes(s));
-  const other = stages.filter((s) => !decisionSet.includes(s) && !generativeSet.includes(s));
-  const variants = listVariantNames();
-  const names = listDatasetNames();
-  // Datasets que elige `--dataset`. Si elige todos, marcarlos no informa nada: en ese caso no se marca ninguno.
-  let selected = new Set<string>();
-  try {
-    selected = new Set(resolveDatasetPaths(datasetSpecs).map(datasetName));
-  } catch {
-    // Spec inválida: el listado no debe romper.
-  }
-  const markSelected = selected.size > 0 && names.some((n) => !selected.has(n));
-
-  log();
-  log(
-    box(
-      [
-        `${c.bold(c.cyan("Eval"))} ${c.gray("·")} ${c.bold("recursos disponibles")}`,
-        c.gray(`${stages.length} etapas  ·  ${variants.length} variantes  ·  ${names.length} datasets`),
-      ],
-      { color: c.violet },
-    ),
-  );
-
-  // Etapas
-  section("Etapas");
-  const groups: Array<[string, string[]]> = [
-    ["Decisión", decision],
-    ["Generativas", generative],
-    ["Otras", other],
-  ];
-  const labelW = 13;
-  for (const [label, items] of groups) {
-    if (items.length === 0) continue;
-    const lines = wrapList(items.map((s) => c.cyan(s)), WIDTH - 2 - labelW, c.gray(" · "));
-    lines.forEach((ln, i) => log(`  ${i === 0 ? c.gray(label.padEnd(labelW)) : " ".repeat(labelW)}${ln}`));
-  }
-
-  // Variantes
-  section("Variantes");
-  if (variants.length === 0) {
-    log(`  ${c.gray("(ninguna en eval/variants/)")}`);
-  } else if (variants.length <= 10) {
-    const w = Math.max(...variants.map((v) => v.length));
-    for (const v of variants) {
-      log(`  ${v === baseline ? sym.dot : sym.ring} ${c.cyan(v.padEnd(w))}${v === baseline ? `  ${c.green("baseline")}` : ""}`);
-    }
-  } else {
-    for (const ln of wrapList(variants.map((v) => (v === baseline ? c.green(v) : c.cyan(v))), WIDTH - 2, c.gray(" · "))) log(`  ${ln}`);
-  }
-  if (variants.length > 0) log(`\n  ${c.gray("Una variante es un archivo con prompts enteros (eval/variants/<nombre>.ts); no se componen.")}`);
-
-  // Datasets
-  section("Datasets");
-  if (names.length === 0) {
-    log(`  ${c.gray("(ninguno en eval/datasets/)")}`);
-  } else {
-    const infos = names.map((n) => datasetInfo(n));
-    const nameW = Math.max(...names.map((n) => n.length));
-    const totalW = Math.max(...infos.map((i) => (i ? String(i.total).length : 1)));
-    names.forEach((name, i) => {
-      const info = infos[i];
-      const isSel = markSelected && selected.has(name);
-      const count = info ? c.gray(`${String(info.total).padStart(totalW)} casos`) : c.gray(`${"—".padStart(totalW)} (no se pudo leer)`);
-      const tag = isSel ? `  ${c.green("seleccionado")}` : "";
-      const head = `  ${isSel ? sym.dot : sym.ring} ${c.cyan(name.padEnd(nameW))}  ${count}${tag}`;
-      log(head);
-      if (info && info.byStage.length > 0) {
-        const breakdown = info.byStage.map(([s, n]) => `${s} ${n}`).join(" · ");
-        for (const ln of wrapList([breakdown], WIDTH - nameW - 8)) log(`  ${" ".repeat(nameW + 4)}${c.gray(ln)}`);
-      }
-    });
-  }
-
-  if (markSelected) log(`\n  ${c.gray("seleccionado = lo que elige --dataset en este comando.")}`);
-
-  // Ejemplos
-  section("Ejemplo");
-  log(`  ${c.cyan("▌")} npm run eval -- --dataset=<dataset> --variant=prod,<variante> --stages=<etapa>`);
-  log(`  ${c.cyan("▌")} npm run eval -- --menu   ${c.gray("asistente interactivo")}\n`);
-}
-
-/** Imprime con qué configuración corre el eval (modelos, concurrencia, datasets, variantes, filtros). */
-function printRunConfig(
-  cfg: ReturnType<typeof parseConfig>,
-  datasets: Array<{ name: string; path: string; cases: unknown[] }>,
-  variants: Array<{ spec: string }>,
-): void {
-  const list = (v: string[]) => (v.length > 0 ? v.join(", ") : "todos");
-  const offline = cfg.client !== "real";
-  const where = (model: string, url: string) => (offline ? `${model}  ${c.gray("(sin red)")}` : `${model}  ${c.gray(`@ ${url}`)}`);
-  const rows: Array<[string, string]> = [
-    ["Cliente", cfg.client === "real" ? "real" : `${c.yellow(cfg.client)} ${c.gray("(simulado, no usa modelos)")}`],
-    ["Modelo generativo", where(cfg.model, cfg.url)],
-    ["Modelo de decisión", where(cfg.decisionModel, cfg.decisionUrl)],
-    ["Concurrencia", `${cfg.concurrency}${cfg.concurrency > 1 ? `  ${c.yellow("(la latencia p50/p95 no es comparable)")}` : ""}`],
-    ["Repeticiones", String(cfg.repeat)],
-    ["Thinking", cfg.thinking],
-    ["Timeout", cfg.timeoutMs !== undefined ? `${cfg.timeoutMs}ms` : "default por tipo"],
-    ["Variantes", variants.map((v) => v.spec).join(", ")],
-    ["Baseline", cfg.baseline],
-    ["Datasets", datasets.map((d) => `${d.name} ${c.gray(`(${d.cases.length} casos)`)}`).join(", ")],
-    ["Etapas", list(cfg.stages)],
-    ["Filtros", `tags: ${list(cfg.tags)} | ids: ${list(cfg.ids)} | limit: ${cfg.limit ?? "sin límite"}`],
-    ["Casos prod_shortcut", cfg.includeShortcut ? "incluidos" : "excluidos"],
-  ];
-  if (cfg.label) rows.push(["Label", cfg.label]);
-  if (cfg.minPassRate !== undefined) rows.push(["Umbral passRate", fmtPct(cfg.minPassRate)]);
-  section("Configuración");
-  kv(rows);
-}
-
-/** Tabla de resumen global: una fila por celda (variante × dataset). */
-function printGlobalSummary(cells: InputCell[]): void {
-  const rows = cells.map((cell) => {
-    const s = cell.scores;
-    return {
-      label: `${cell.variantSpec}/${cell.datasetName}`,
-      rate: s.passRate,
-      pct: fmtPct(s.passRate),
-      counts: `${s.passedRuns}/${s.totalRuns}`,
-      raw: s.rawTotalRuns > 0 ? `raw ${fmtPct(s.rawPassRate)} (${s.rawPassedRuns}/${s.rawTotalRuns})` : "",
-    };
-  });
-  const labelW = Math.max(...rows.map((r) => r.label.length));
-  const countW = Math.max(...rows.map((r) => r.counts.length));
-  section("Resumen");
-  for (const r of rows) {
-    log(
-      `  ${padEnd(c.bold(r.label), labelW)}  ${rateColor(r.rate, r.pct.padStart(6))}  ${c.gray(r.counts.padStart(countW))}` +
-      (r.raw ? `  ${c.gray(r.raw)}` : ""),
-    );
-  }
 }
 
 // ───────────────────────── Main ─────────────────────────
@@ -349,7 +162,7 @@ async function main(): Promise<number> {
     section("Dry run");
     for (const vr of variantResults) {
       for (const ds of datasetsByVariant.get(vr.spec) ?? []) {
-        log(`\n${c.cyan("#")} variant=${c.bold(vr.spec)} dataset=${c.bold(ds.name)}`);
+        printDryRunHeader(vr.spec, ds.name);
         await runDataset({
           cases: ds.cases,
           datasetName: ds.name,
@@ -388,10 +201,7 @@ async function main(): Promise<number> {
     for (const ds of datasetsByVariant.get(vr.spec) ?? []) {
       const cases = ds.cases;
 
-      log(
-        `\n${c.violet("▶")} ${c.bold(vr.spec)} ${c.gray("×")} ${c.bold(ds.name)}` +
-        `  ${c.gray(`${cases.length} casos`)}`,
-      );
+      printCellStart(vr.spec, ds.name, cases.length);
 
       const writer = createCellWriter(rootDir, vr.spec, ds.name);
       let runCount = 0;
@@ -425,11 +235,7 @@ async function main(): Promise<number> {
               runCount++;
               if (record.passed) passCount++;
             }
-            const icon = record.passed ? sym.ok : sym.err;
-            const id = record.passed ? c.dim(record.caseId) : record.caseId;
-            const iter = cfg.repeat > 1 ? c.gray(` iter=${record.iteration}`) : "";
-            const bucket = record.bucket === "raw" ? c.gray(" [raw]") : "";
-            log(`  ${icon} ${id} ${c.gray(`[${record.stageKey}]`)}${iter}${bucket}`);
+            log(recordLine(record, cfg.repeat));
           },
         });
       } finally {
@@ -443,13 +249,8 @@ async function main(): Promise<number> {
         allNetworkFailed = false;
       }
 
-      const rate = runCount > 0 ? passCount / runCount : 0;
-      const pct = runCount > 0 ? rateColor(rate, fmtPct(rate)) : c.gray("—");
-      log(`  ${c.gray("→")} ${c.bold(`${passCount}/${runCount}`)} pasados ${c.gray("(")}${pct}${c.gray(")")}`);
       const failedCalls = result.records.filter((r) => r.bucket === "canonical" && r.metrics.client_call_ok === false).length;
-      if (failedCalls > 0) {
-        log(`  ${sym.warn} ${c.yellow(`${failedCalls} de ${runCount} runs fallaron por el cliente (red/timeout/HTTP): cuentan como falla en el pass rate.`)}`);
-      }
+      printCellResult(passCount, runCount, failedCalls);
 
       comparisonCells.push({
         variantSpec: vr.spec,

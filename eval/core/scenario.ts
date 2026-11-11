@@ -11,7 +11,7 @@
  * Así los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada
  * etapa llegan al modelo tal como en producción, y un cambio en `src/` se refleja solo en el eval.
  *
- * Esto es lo único del eval que importa `src/` (el resto sigue aislado; ver `contract.ts`). Todas las entradas se arman con
+ * Es, con `contract.ts`, la vía declarada hacia `src/` (también importan `src/` `config.ts`, `runner.ts` —pre-chequeo—, `types.ts`, `client/*`, `cross.ts` y `psvalid.ts`). Todas las entradas se arman con
  * las mismas funciones que el motor (`planInput`, `renderArgsView`, `argsInput`, `routeInput`…, en `engine/adapters.ts`).
  */
 
@@ -47,7 +47,7 @@ import {
 } from "../../src/core/models/stageRequests.ts";
 import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
 import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
-import type { CommandAnalyzer, PrecheckFinding } from "../../src/core/engine/precheck.ts";
+import type { CommandAnalyzer, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
 import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
@@ -64,7 +64,7 @@ export function promptEnvironment(): { date: string; stageConfigHash: string } {
   const d = new Date();
   const two = (n: number): string => String(n).padStart(2, "0");
   const { qwenMaxTokens, thinking } = ConfigManager.getConfig();
-  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, askMaxTokens: BUDGET.ask.maxTokens });
+  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, askMaxTokens: BUDGET.ask.maxTokens, pendingMaxTokens: BUDGET.pending.maxTokens });
   return {
     date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`,
     stageConfigHash: createHash("sha256").update(stageConfig).digest("hex").slice(0, 16),
@@ -274,6 +274,8 @@ export interface Materialized {
   /** `arguments`: herramienta y entorno del caso, para repetir el pre-chequeo de producción sobre la salida. */
   toolName?: string;
   environment?: UserEnvironment;
+  /** `arguments`: `kind` de la herramienta y fuentes de la tarea, como los arma producción (`callRunner`); completan ese pre-chequeo. */
+  precheck?: { kind: "read" | "write"; sources: PrecheckSources; refIds: string[] };
 }
 
 const decision = (d: { state: string; questions: unknown }): Materialized => ({
@@ -288,8 +290,10 @@ function generative(r: StageRequest, schemaName?: string): GenerativeRequest {
     json: r.json,
     ...(r.schema ? { schema: r.schema, schemaName: schemaName ?? r.stage } : {}),
     maxTokens: r.maxTokens,
-    temperature: BASE_TEMPERATURE,
+    // Lo que fija producción en cada etapa (`arguments`: según los intentos previos); `BASE_TEMPERATURE` si no fija ninguna.
+    temperature: r.temperature ?? BASE_TEMPERATURE,
     thinking: r.thinking,
+    ...(r.retryThinking !== undefined ? { retryThinking: r.retryThinking } : {}),
   };
 }
 
@@ -302,6 +306,25 @@ function effectivePrompts(ov?: VariantPrompts): { P: PromptSet; D: typeof DECISI
 }
 
 /**
+ * Entradas del pre-chequeo de producción (`callRunner`) para una llamada del escenario: `kind` según la política de la herramienta,
+ * las fuentes de la tarea (`collectSources`) y el entorno del caso. Las usan `scenarioPrecheck` (`args_review`) y el caso
+ * `arguments`: una sola construcción, la misma que hace producción.
+ */
+function precheckBase(
+  ctx: TaskContext,
+  route: ExecutableRoute,
+  toolName: string,
+  atEnvironment: ScenarioAt["environment"],
+): { kind: "read" | "write"; sources: PrecheckSources; environment: UserEnvironment; refIds: string[] } {
+  return {
+    refIds: ctx.find("refs", {}).map((r) => r.id.toLowerCase()),
+    kind: getToolPolicy(serverOf(route), toolName).mutates ? "write" : "read",
+    sources: collectSources(ctx),
+    environment: atEnvironment ? { ...DEFAULT_ENVIRONMENT, ...atEnvironment } : DEFAULT_ENVIRONMENT,
+  };
+}
+
+/**
  * Pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre un caso `args_review`: el mismo código que corre `runCall`,
  * con las fuentes del contexto del escenario. No usa ningún modelo.
  */
@@ -310,9 +333,8 @@ export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer):
   const at = sc.at ?? {};
   const route = need(at.route, "route", "args_review");
   const tool = toolOf(route, need(at.tool, "tool", "args_review"), at.inputSchema);
-  const kind = getToolPolicy(serverOf(route), tool.name).mutates ? "write" : "read";
-  const environment = at.environment ? { ...DEFAULT_ENVIRONMENT, ...at.environment } : DEFAULT_ENVIRONMENT;
-  return precheckCall({ tool: tool.name, kind, args: at.args ?? {}, sources: collectSources(ctx), environment }, analyze);
+  const { kind, sources, environment } = precheckBase(ctx, route, tool.name, at.environment);
+  return precheckCall({ tool: tool.name, kind, args: at.args ?? {}, sources, environment }, analyze);
 }
 
 /**
@@ -363,9 +385,17 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
     case "arguments": {
       const route = need(at.route, "route", stage);
       const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      const env = at.environment ? { ...DEFAULT_ENVIRONMENT, ...at.environment } : DEFAULT_ENVIRONMENT;
+      // Misma construcción que `scenarioPrecheck`: `kind`, fuentes y entorno del pre-chequeo de producción.
+      const { kind, sources, environment: env, refIds } = precheckBase(ctx, route, tool.name, at.environment);
+      // Sin `priorAttempts`: un caso `arguments` es siempre el primer intento (`argsInput` aplica 0).
       const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), config, P);
-      return { request: generative(request), toolSchema: tool.inputSchema as ToolInputSchema, toolName: tool.name, environment: env };
+      return {
+        request: generative(request),
+        toolSchema: tool.inputSchema as ToolInputSchema,
+        toolName: tool.name,
+        environment: env,
+        precheck: { kind, sources, refIds },
+      };
     }
     case "pending": {
       return { request: generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), P), "pending") };

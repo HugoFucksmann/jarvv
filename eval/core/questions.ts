@@ -150,7 +150,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
 }
 
 /**
- * Evalúa las preguntas adicionales contra `expect.answers`. Un check por pregunta (`q_<clave>_match`), de modo que
+ * Evalúa las preguntas adicionales contra `expect.answers`. Un check por pregunta (`q_<clave>_match`, y `q_<clave>_min_probability` si trae `minProbability`), de modo que
  * cada una falla y se reporta por separado. La principal no se evalúa acá (la cubren los graders de la etapa).
  */
 export function gradeExtraQuestions(

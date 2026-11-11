@@ -86,7 +86,7 @@ const BASES: Base[] = [
     request: "lista los 10 procesos que más RAM consumen",
     steps: [{ state: "running", instruction: "listar los 10 procesos con más consumo de RAM" }],
     route: "terminal",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "Get-Process | Sort-Object WorkingSet -Descending | Select-Object -First 10 Name, WorkingSet", timeout_ms: 5000 },
     mutations: {
       linux_ps: { args: { command: "ps aux --sort=-%mem | head -n 10", timeout_ms: 5000 }, expected: "args_invalid" },
@@ -100,7 +100,7 @@ const BASES: Base[] = [
     request: "decime cuántos archivos hay en descargas",
     steps: [{ state: "running", instruction: "contar los archivos de la carpeta Descargas" }],
     route: "terminal",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: `(Get-ChildItem '${H}/Downloads' -File).Count`, timeout_ms: 5000 },
     mutations: {
       linux_ls: { args: { command: "ls ~/Downloads | wc -l", timeout_ms: 5000 }, expected: "args_invalid" },
@@ -113,7 +113,7 @@ const BASES: Base[] = [
     request: "decime qué procesos están corriendo",
     steps: [{ state: "running", instruction: "listar los procesos en ejecución" }],
     route: "terminal",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "tasklist", timeout_ms: 5000 },
     mutations: {
       linux_ps: { args: { command: "ps -ef", timeout_ms: 5000 }, expected: "args_invalid" },
@@ -126,7 +126,7 @@ const BASES: Base[] = [
     request: "mostrame los servicios de windows que están detenidos",
     steps: [{ state: "running", instruction: "listar los servicios detenidos" }],
     route: "terminal",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "Get-Service | Where-Object Status -eq 'Stopped' | Select-Object -First 20 Name, Status", timeout_ms: 5000 },
     mutations: {
       linux_systemctl: { args: { command: "systemctl list-units --state=failed", timeout_ms: 5000 }, expected: "args_invalid" },
@@ -139,7 +139,7 @@ const BASES: Base[] = [
     request: "mostrame el contenido del archivo hosts de windows",
     steps: [{ state: "running", instruction: "leer el archivo hosts de Windows" }],
     route: "terminal",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "Get-Content C:/Windows/System32/drivers/etc/hosts", timeout_ms: 5000 },
     mutations: {
       linux_cat: { args: { command: "cat /etc/hosts", timeout_ms: 5000 }, expected: "args_invalid" },

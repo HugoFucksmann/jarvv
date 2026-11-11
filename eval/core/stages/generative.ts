@@ -7,10 +7,12 @@
  */
 
 import {
+  argsProblemText,
   MAX_STEPS,
+  NOT_JSON_ERROR,
   parseJsonObject,
   parsePendingList,
-  parsePlanSteps,
+  parsePlanStepsResult,
   stripThink,
   validateArgs,
 } from "../contract.ts";
@@ -63,17 +65,14 @@ export const planStage: GenerativeStageEntry<PlanOutput, PlanExpect> = {
     sentReq: GenerativeRequest,
   ): PlanOutput {
     const obj = parseJsonObject(rawOutput);
-    if (!obj) throw new Error("No se pudo extraer un objeto JSON del plan.");
+    if (!obj) throw new Error(NOT_JSON_ERROR);
 
+    // Mismo orden y textos que `generatePlanFromView`: primero cada paso (y el tope `BUDGET.maxSteps`), luego el tope del input.
+    const result = parsePlanStepsResult(obj.steps, 1, false);
+    if ("error" in result) throw new Error(result.error);
+    const parsed = result.steps;
     const maxItems = maxItemsFromSchema(sentReq);
-    if (Array.isArray(obj.steps) && obj.steps.length > maxItems) {
-      throw new Error(`El plan tiene ${obj.steps.length} pasos pero el schema permite hasta ${maxItems}.`);
-    }
-    const parsed = parsePlanSteps(obj.steps, 1, false);
-    if (!parsed) throw new Error("El plan no tiene steps válidos (mcp, goal, expected_outcome).");
-    if (parsed.length > maxItems) {
-      throw new Error(`El plan tiene ${parsed.length} pasos pero el schema permite hasta ${maxItems}.`);
-    }
+    if (parsed.length > maxItems) throw new Error(`máximo ${maxItems} pasos; se recibieron ${parsed.length}`);
 
     // Convertir PlanStep interno a PlanStep de output (goal, suggested_mcp, expected_outcome)
     const steps: PlanStep[] = parsed.map((s) => ({
@@ -98,7 +97,7 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
     toolSchema?: ToolInputSchema,
   ): ArgumentsOutput {
     const obj = parseJsonObject(rawOutput);
-    if (!obj) throw new Error("No se pudo extraer un objeto JSON de argumentos.");
+    if (!obj) throw new Error(NOT_JSON_ERROR);
 
     // Eliminar null en parámetros no requeridos
     const required = new Set(toolSchema?.required ?? []);
@@ -113,7 +112,7 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
       throw new Error("El caso 'arguments' no trae meta.toolSchema: no se puede validar como lo hace producción.");
     }
     const errs = validateArgs(args, toolSchema);
-    if (errs.length > 0) throw new Error(`Argumentos inválidos: ${errs.join("; ")}`);
+    if (errs.length > 0) throw new Error(argsProblemText(errs));
 
     return { args };
   },
@@ -128,7 +127,7 @@ export const finalStage: GenerativeStageEntry<FinalOutput, FinalExpect> = {
   graders: [LatencyGrader, NotTruncatedGrader, FinalResponseGrader],
   parseOutput(rawOutput: string): FinalOutput {
     const response = stripThink(rawOutput).trim();
-    if (!response) throw new Error("La respuesta final está vacía después de stripThink.");
+    if (!response) throw new Error("salida vacía");
     return { response };
   },
   label: noLabel,
@@ -142,7 +141,7 @@ export const pendingStage: GenerativeStageEntry<PendingOutput, PendingExpect> = 
   graders: [LatencyGrader, NotTruncatedGrader, PendingGrader],
   parseOutput(rawOutput: string): PendingOutput {
     const obj = parseJsonObject(rawOutput);
-    if (!obj) throw new Error("No se pudo extraer un objeto JSON de la lista de pendientes.");
+    if (!obj) throw new Error(NOT_JSON_ERROR);
     // La misma validación que producción: arreglo de textos no vacíos (puede venir vacío).
     const parsed = parsePendingList(obj.pending);
     if ("error" in parsed) throw new Error(parsed.error);
@@ -159,7 +158,7 @@ export const questionStage: GenerativeStageEntry<QuestionOutput, QuestionExpect>
   graders: [LatencyGrader, NotTruncatedGrader, QuestionGrader],
   parseOutput(rawOutput: string): QuestionOutput {
     const question = stripThink(rawOutput).trim();
-    if (!question) throw new Error("La pregunta está vacía después de stripThink.");
+    if (!question) throw new Error("salida vacía");
     return { question };
   },
   label: noLabel,

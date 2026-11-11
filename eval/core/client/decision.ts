@@ -4,13 +4,14 @@
  * Cliente de las etapas de decisión (route, tool_choice, args_review, result_verification).
  */
 
+import { ConfigManager } from "../../../src/core/config.ts";
 import { estimateTokens } from "../contract.ts";
 import type { DecisionRequest } from "../types.ts";
 import { postJson } from "./generative.ts";
 import type { PreparedRequest } from "./generative.ts";
 
-/** `decisionMaxContext` de producción: tokens estimados máximos de `{state, questions}`. */
-export const DECISION_MAX_CONTEXT = 16384;
+/** `decisionMaxContext` de la configuración de producción: tokens estimados máximos de `{state, questions}`. */
+export const DECISION_MAX_CONTEXT = ConfigManager.getConfig().decisionMaxContext;
 
 export interface DecisionClientConfig {
   url: string;
@@ -47,7 +48,7 @@ export function estimateDecisionPromptTokens(req: DecisionRequest): number {
 }
 
 export function createDecisionClient(cfg: DecisionClientConfig): DecisionClient {
-  const base = cfg.url.replace(/\/+$/, "");
+  const base = cfg.url.trim().replace(/\/+$/, "");
 
   // Closure en vez de `this.prepare`: `const { call } = client` ya no rompe.
   const prepare = (req: DecisionRequest): PreparedRequest => {
@@ -58,6 +59,10 @@ export function createDecisionClient(cfg: DecisionClientConfig): DecisionClient 
   return {
     prepare,
     async call(req, timeoutMs) {
+      // Como `Decision20Engine.systemOne`: sin URL configurada no se envía nada (error de configuración, no de red).
+      if (!base) {
+        return { ok: false, error: "config: la URL de Decision 2.0 no está configurada (--decision-url o jarvis-config.json).", durationMs: 0 };
+      }
       const { url, body } = prepare(req);
       const res = await postJson(url, body, timeoutMs);
       if (!res.ok) return res;

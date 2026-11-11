@@ -67,7 +67,7 @@ type Role = "path" | "url" | "command" | "text";
 const PATH_KEYS = new Set(["path", "source", "src", "destination", "dest", "file", "directory", "dir", "folder", "cwd"]);
 const SOURCE_KEYS = new Set(["source", "src", "from"]);
 /** Claves cuyo valor puede ser vacío a propósito (un archivo vacío, una tecla Enter). */
-const MAY_BE_EMPTY = new Set(["content", "text", "data", "body", "input"]);
+export const MAY_BE_EMPTY = new Set(["content", "text", "data", "body", "input"]);
 
 function roleOf(key: string): Role {
   const k = key.toLowerCase();

@@ -12,7 +12,7 @@ El punto de entrada unificado es:
 npx tsx eval/cli.ts [flags]
 ```
 
-Atajos de `package.json`: `npm run eval -- [flags]` (equivale a lo anterior) y `npm run eval:smoke` (`smoke` con el mock en `--dry-run`, sin modelos).
+Atajos de `package.json`: `npm run eval -- [flags]` (equivale a lo anterior) `npm run eval:smoke` (`smoke` con el mock en `--dry-run`, sin modelos), `npm run eval:menu` (asistente), `npm run eval:cross` (cruza el pre-chequeo con una corrida de `args_review`; ver sección 9) y `npm run eval:psvalid` (mide cuántos `command` de `arguments` de una corrida son PowerShell válido; recibe la carpeta de la corrida).
 
 Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, la concurrencia, las repeticiones, el thinking, el timeout, las variantes, la baseline, los datasets (con cantidad de casos), las etapas y los filtros. No se imprime en `--dry-run`.
 
@@ -24,7 +24,7 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 |---|---|---|
 | Decisión | `route` | Ruta elegida (`files`, `locate`, `terminal` o `web`) y su probabilidad |
 | Decisión | `tool_choice` | Herramienta elegida y su probabilidad |
-| Decisión | `args_review` | `approved`, `args_invalid`, `tool_rejected` o `info_missing` |
+| Decisión | `args_review` | `approved`, `args_invalid` o `info_missing` (la herramienta la elige `tool_choice`; no hay `tool_rejected`) |
 | Decisión | `result_verification` | Veredictos `ok` y `cumple` |
 | Generativa | `plan` | Cantidad de pasos, rutas permitidas y requeridas, palabras clave |
 | Generativa | `arguments` | Campos requeridos, valores exactos, refs válidos, valores prohibidos |
@@ -42,7 +42,7 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 | Flag | Tipo | Descripción |
 |---|---|---|
 | `--list` | Booleano | Muestra las etapas registradas, variantes disponibles en `eval/variants/` y datasets por defecto, finalizando inmediatamente. |
-| `--menu` | Booleano | Asistente interactivo: elige modelos, datasets, variantes (prod siempre se incluye), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
+| `--menu` | Booleano | Asistente interactivo: elige modelos, datasets, variantes (`prod` como baseline es opcional), etapas y opciones avanzadas; muestra el comando equivalente y, tras confirmar, lo ejecuta. También `npm run eval:menu`. Necesita terminal interactiva. |
 | `--help` | Booleano | Resumen breve de uso. |
 | `--dry-run` | Booleano | Carga la configuración, datasets y variantes pero no invoca a los modelos ni evalúa. **Imprime el request (el prompt) de cada caso tal como se enviaría**: sirve para ver el prompt actual de una etapa (`--variant=prod --ids=<caso> --dry-run`) y copiarlo al escribir una variante. |
 
@@ -59,7 +59,7 @@ Cada corrida ejecuta **variante × dataset × caso × repetición**.
 ### Variantes y Baseline (Pruebas A/B)
 | Flag | Tipo / Formato | Default | Descripción |
 |---|---|---|---|
-| `--variant` | CSV de variantes | `prod` | Nombres de variantes en `eval/variants/`. Una variante por nombre (ej: `--variant=prod,route_min`); la composición con `+` ya no existe y da error. `prod` siempre se incluye como baseline de comparación. |
+| `--variant` | CSV de variantes | `prod` | Nombres de variantes en `eval/variants/`. Una variante por nombre (ej: `--variant=prod,route_min`); la composición con `+` ya no existe y da error. `prod` se agrega como baseline de comparación salvo con `--no-baseline`. |
 | `--baseline` | String | `prod` | Variante tomada como base para la comparación de métricas (delta/diff). Debe coincidir exactamente con una de las specs de `--variant`; si no, error de configuración. |
 | `--no-baseline` | Booleano | — | No agrega `prod` a las variantes: corre solo las que indiques en `--variant` (obligatorio). La baseline pasa a ser la primera variante, o la de `--baseline` si la pasas. No hay deltas contra `prod`; con dos o más variantes, se comparan contra la primera. Ejemplo: `--variant=jarvis_alt_v2 --no-baseline`. |
 
@@ -101,8 +101,8 @@ Si ya existe una carpeta con ese nombre (dos corridas en el mismo segundo) se ag
 Dentro del directorio se genera:
 - `<variante>__<dataset>/`:
   - `runs.jsonl`: Registro detallado de cada ejecución individual (request exacto, salida, graders, latencia, tokens). En las decisiones, `questions` trae una entrada por cada pregunta del request (ver "Decisiones con varias preguntas").
-  - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP) o cuya variante no se pudo aplicar cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; los deltas comparan solo casos medidos en ambos lados y el reporte avisa si alguno quedó afuera. `latencySamples` indica cuántas llamadas hay detrás de las latencias: con 0, no hay dato aunque figure 0. La accuracy se calcula sobre las decisiones con respuesta y cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
-  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `model` y `decisionModel` son los modelos de la corrida. `filters` (`tags`, `ids`, `source`, `limit`) y `cases` (cantidad y hash de los ids) dicen qué subconjunto del dataset corrió la celda: `datasetHash` es el del archivo completo, así que dos celdas solo son comparables si tienen el mismo `cases.hash`. `promptEnv` (fecha y hash de la configuración de etapas) explica por qué cambió el `requestHash` de un caso por escenario entre corridas aunque `src` sea el mismo.
+  - `scores.json`: Métricas agregadas de la celda (pass rate, accuracy, latencias, `clientFailedRuns`). Los runs cuya llamada falló (red, timeout, HTTP o prompt sin margen de contexto) cuentan como falla en el pass rate pero **no** entran en las latencias ni aparecen como regresión/mejora en `comparison.md`; los deltas comparan solo casos medidos en ambos lados y el reporte avisa si alguno quedó afuera. `latencySamples` indica cuántas llamadas hay detrás de las latencias: con 0, no hay dato aunque figure 0. La accuracy se calcula sobre las decisiones con respuesta y cuenta un parseo fallido como error (`(sin predicción)` en la matriz de confusión).
+  - `meta.json`: Configuración de la corrida, commit de Git, hashes de dataset y variante. `gitDirty` ignora `eval/results/`. `model` y `decisionModel` son los modelos de la corrida. `filters` (`tags`, `ids`, `limit`) y `cases` (cantidad y hash de los ids) dicen qué subconjunto del dataset corrió la celda: `datasetHash` es el del archivo completo, así que dos celdas solo son comparables si tienen el mismo `cases.hash`. `promptEnv` (fecha y hash de la configuración de etapas) explica por qué cambió el `requestHash` de un caso por escenario entre corridas aunque `src` sea el mismo.
 - `comparison.md`: Reporte markdown comparando variantes contra la baseline (`prod`). Secciones: **Resumen por variante** (una fila por variante y tipo de etapas —generativo y decisión, y un total mezclado cuando hay ambos, con la columna Tipo—: passRate agregado, Δ vs baseline, passRate macro por etapa, regresiones, mejoras, prueba de signos, runs sin medir, reintentos si los hubo, p50; si una variante mejora un tipo y empeora el otro agrega el aviso **Resultado mixto**, porque el total no sirve para decidir), resumen por etapa con las variantes lado a lado (el delta contra la baseline va entre paréntesis), regresiones, mejoras, casos raw y matrices de confusión. Con decisiones de varias preguntas agrega **Preguntas por Etapa**. La consola muestra el resumen por variante, el resumen por etapa (una línea por variante, con sus deltas), las preguntas por etapa y las regresiones y mejoras (también las de casos raw); las matrices de confusión y las tablas completas quedan solo en `comparison.md`.
 - `comparison.json`: Lo mismo en formato JSON (`variants`, `cells`, `deltas`, `regressions`, `improvements`, `rawRegressions`, `rawImprovements`, `warnings`).
 
@@ -110,7 +110,7 @@ Dentro del directorio se genera:
 Un request de decisión puede llevar varias preguntas (las que arma la variante: producción trae dos en `result_verification`, `ok` y `cumple`; una variante puede traer más) para cruzarlas en una sola pasada, por ejemplo para detectar falsos positivos y falsos negativos.
 
 - **Parseo por pregunta**: cada pregunta se parsea por separado. Una respuesta mal formada afecta solo a esa pregunta (`error` en su entrada), no a las demás.
-- **Registro sin pisarse**: `runs.jsonl` trae `questions`, indexado por la clave de la pregunta. Cada entrada tiene `type`, `role` (`main` = alimenta la salida canónica de la etapa; `extra` = adicional), `answer`, `probabilities` o `noul`, `expected` y `correct`. En `noul`, `answer` es `yes` o `no` (> 0.5). La principal es la de producción (`route`, `selected_tool`, `review`; `ok` y `cumple`).
+- **Registro sin pisarse**: `runs.jsonl` trae `questions`, indexado por la clave de la pregunta. Cada entrada tiene `type`, `role` (`main` = alimenta la salida canónica de la etapa; `extra` = adicional), `answer`, `probabilities` o `noul`, `expected` y `correct`. En `noul`, `answer` es `yes` o `no` (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6 en producción). La principal es la de producción (`route`, `selected_tool`, `review`; `ok` y `cumple`).
 - **Esperado por pregunta**: la principal se evalúa con el `expect` de la etapa. Las adicionales, con `expect.answers`:
   ```json
   "expect": {
@@ -124,22 +124,22 @@ Un request de decisión puede llevar varias preguntas (las que arma la variante:
   ```
   `choice` para preguntas `choice`, `yes` para `noul`. Las claves pueden ser de preguntas que solo agrega una variante: si el request no las trae no se evalúan (warning `q_<clave>_sent`). Cada una genera sus propios checks (`q_<clave>_match`, `q_<clave>_min_probability`) y, si falla, cuenta como falla del run con un mensaje que nombra la pregunta. Una pregunta enviada sin expectativa se registra pero no se evalúa.
 - **Scoring** (`scores.json` y `comparison.md`, solo en etapas con 2 o más preguntas evaluadas): por pregunta, accuracy, matriz de confusión y, por clase, TP/FP/FN, precisión y recall; y `questionCross`, que cruza cada par de preguntas (ambas bien, solo A, solo B, ambas mal). En `noul` la clase positiva es `yes`. En consola, las preguntas sí/no muestran FP, FN y sin respuesta (que suman los errores), y las demás muestran la cantidad de errores. Las tablas por clase de `comparison.md` usan la definición una-contra-resto: ahí un `yes` esperado sin respuesta también es FN.
-- **Oráculo**: responde las preguntas adicionales según `expect.answers`.
+- **Oráculo**: con `prod` solo hay preguntas principales; las responde según el `expect` del caso. `--client=oracle` con otra variante se rechaza al parsear la configuración.
 
 ### Códigos de salida
 | Código | Significado |
 |---|---|
 | `0` | Corrida correcta (y umbral cumplido, si se pidió). |
 | `1` | Alguna celda quedó por debajo de `--min-pass-rate`. |
-| `2` | Error de configuración, dataset inválido, filtros que no dejan casos, ninguna corrida canónica, todas las llamadas fallaron por el cliente (red, timeout o HTTP), o `--dry-run` con alguna variante que no se pudo aplicar. |
+| `2` | Error de configuración, dataset inválido, filtros que no dejan casos, ninguna corrida canónica, todas las llamadas fallaron por el cliente (red, timeout o HTTP), o una variante que no se pudo aplicar a algún caso (también en `--dry-run`). |
 
 ### Qué cuenta como "pasó"
-Un run pasa solo si no registró ningún error: llamada al cliente, aplicación de variante, parseo de la salida y todos los checks de los graders. Si la variante no se puede aplicar, el run falla sin llamar al modelo. Un caso donde ningún grader ejecuta checks falla (`graders_ran_checks`). Si el caso pide `minProbability`, la salida debe traer la probabilidad; si no la trae, falla.
+Un run pasa solo si no registró ningún error: llamada al cliente, aplicación de variante, parseo de la salida y todos los checks de los graders. Una variante que no se puede aplicar a un caso no genera runs: es error de carga (con el caso y la línea) y la CLI termina con código 2 antes de correr, también en `--dry-run`. Una consulta de decisión que excede `decisionMaxContext` o un prompt generativo sin margen de salida en `qwenNumCtx` no se envía y falla (`decision_context_ok` / `client_call_ok`), como en producción. El pre-chequeo de producción sobre `arguments` (`precheck_ok`) solo corre con `--client=real`: `mock` y `oracle` fabrican valores sin origen en la tarea. Un caso donde ningún grader ejecuta checks falla (`graders_ran_checks`). Si el caso pide `minProbability`, la salida debe traer la probabilidad; si no la trae, falla.
 
-### Reintentos (iguales a producción)
+### Reintentos (como producción)
 - **Transporte** (todas las etapas): ante error de red o HTTP 503 se reintenta una vez tras 1 s. El timeout es un presupuesto total que incluye el reintento y nunca se reintenta.
-- **Salida inválida o truncada** (solo `plan`, `arguments`, `final`, `question`, `pending`): un reintento con `ERROR_PREVIO` agregado al `user`, 1.5× `maxTokens` y temperatura 0.3. En `final` el reintento va sin thinking. En `final` y `question` una salida truncada en el último intento se acepta, aunque `not_truncated` igual la marca. Las etapas de decisión no tienen este reintento.
-- El run guarda `measurements.attempts` y un warning por cada reintento. `durationMs` y los tokens suman todos los intentos. Los mensajes de error del reintento son los del eval, que pueden diferir en el texto de los de producción.
+- **Salida inválida o truncada** (solo `plan`, `arguments`, `final`, `question`, `pending`): un reintento con `ERROR_PREVIO` agregado al `user`, 1.5× `maxTokens` y temperatura `max(0.3, la del request)`. En `final` el reintento va sin thinking. En `final` y `question` una salida truncada en el último intento se acepta, aunque `not_truncated` igual la marca. Las etapas de decisión no reintentan por truncado, pero sí repiten la consulta (mismo request, sin nota) hasta `invalidResponseRetries` veces cuando la respuesta no pasa la validación, como `queryModel`; un desborde de contexto no se repite.
+- El run guarda `measurements.attempts` y un warning por cada reintento. `durationMs` y los tokens suman todos los intentos. Los mensajes de error del reintento son los de producción (`NOT_JSON`, `salida vacía`, el error de `parsePlanSteps`, los problemas de `validateArgs`).
 
 ---
 
@@ -147,7 +147,7 @@ Un run pasa solo si no registró ningún error: llamada al cliente, aplicación 
 
 - Una línea por caso; las líneas vacías y las que empiezan con `#` se ignoran.
 - `expect` se valida con lista cerrada de claves por etapa: una clave desconocida, un `expect` sin ningún check o un valor inválido es error de carga (`archivo:línea: mensaje`). También se rechazan: rutas que no son ejecutables (`expectedRoute`, `firstRoute`, `allowedRoutes`, `requiredRoutes`), probabilidades fuera de 0–1, `minSteps` > `maxSteps`, `exactFieldValues` vacío y `minOkProb`/`minCumpleProb` con el veredicto esperado en `false`.
-- Los textos (`mustContainFacts`, keywords, etc.) se buscan por palabra o frase completa, sin distinguir mayúsculas ni acentos; un número no coincide dentro de otro (`12` no está en `12.5`, `12.000` ni `120`). Un término admite alternativas con `|` (`archivo|archivos` coincide con cualquiera de las dos; `\|` es un `|` literal); en las listas de lo prohibido, basta con que aparezca una.
+- Los textos (`mustContainFacts`, keywords, etc.) se buscan por palabra o frase completa, sin distinguir mayúsculas ni acentos; un número no coincide dentro de otro (`12` no está en `12.5`, `12.000` ni `120`). Un término admite alternativas con `|` (`archivo|archivos` coincide con cualquiera de las dos; `\|` es un `|` literal); en las listas de lo prohibido, basta con que aparezca una. Excepción: `forbiddenHardcodedValues` de `arguments` busca por subcadena sobre el valor normalizado (minúsculas, `\` → `/`), sin límite de palabra, sin quitar acentos y sin `|` (`12` aparece prohibido dentro de `120`); son rutas, URLs o comandos.
 - Etapa `arguments`: el caso debe traer `meta.toolSchema`; sin él falla (producción siempre valida contra el schema).
 - Los globs soportan `*`, `**` y `?` (no `{a,b}`).
 
@@ -306,6 +306,9 @@ eval/
 ├── INSTRUCCIONES.md              esta referencia
 ├── cli.ts                        punto de entrada
 ├── wizard.ts                     asistente interactivo (--menu)
+├── cross.ts                      cruce del pre-chequeo con una corrida de args_review (`eval:cross`)
+├── psvalid.ts                    validez PowerShell de los `command` de una corrida (`eval:psvalid`)
+├── gen/                          scripts que generan casos sintéticos en datasets/
 ├── datasets/                     casos (.jsonl): escenarios
 ├── variants/                     variantes: prompts enteros (prod, una subcarpeta por etapa, plantilla)
 ├── results/                      salidas de cada corrida
@@ -322,4 +325,8 @@ eval/
     └── contract.ts               helpers y constantes de producción reexportados de `src/` (parseo, validación, límites)
 ```
 
-Importan `src/` solo `core/scenario.ts` y `core/contract.ts` (la capa de reexportes); el resto del eval pasa por ellos. Un archivo de prompts de una variante también puede importar `src/core/models/prompts.ts`.
+`core/contract.ts` (reexportes) y `core/scenario.ts` son la vía declarada hacia `src/`, pero también importan `src/` directamente `core/config.ts` (configuración de producción), `core/runner.ts` y `core/types.ts` (pre-chequeo y tipos), `core/client/*` (configuración), `cross.ts` y `psvalid.ts`. Un archivo de prompts de una variante también puede importar `src/core/models/prompts.ts`.
+
+## 9. Cruce con el pre-chequeo (`eval:cross`)
+
+`npm run eval:cross -- --dataset=<a,b> [--runs=<carpeta de la corrida>] [--label=x]`. `--dataset` acepta nombres (`scenarios_args_review`), nombres con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs, a diferencia de la CLI; se busca en `eval/datasets/`). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y compara contra `prod`/`d3` (si la corrida no tiene `prod`, avisa y la comparación queda en —). También resume D4 con el umbral de aprobación de producción (`NOUL_APPROVE`). Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).

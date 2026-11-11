@@ -11,7 +11,7 @@ import { DEFAULT_DECISION_MODEL, DEFAULT_MODEL } from "./core/config.ts";
 import { listDatasetNames } from "./core/datasets.ts";
 import { allStageNames } from "./core/stages/index.ts";
 import { listVariantNames } from "./core/variants/load.ts";
-import { box, c, padEnd, sym, vlen, WIDTH } from "./ui.ts";
+import { box, c, columns, kvBox, say, stepHeader, sym } from "./ui.ts";
 
 class Cancelled extends Error { }
 
@@ -21,18 +21,8 @@ type Ask = (prompt: string) => Promise<string>;
 // Estilo
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 5;
-
-/** Encabezado de paso: "Paso 2/6 · Modelos" con barra de progreso. */
-function step(n: number, title: string): void {
-  const progress = Array.from({ length: TOTAL_STEPS }, (_, i) => (i < n ? c.cyan("▰") : c.gray("▱"))).join("");
-  console.log(`\n${c.violet(c.bold(`Paso ${n}/${TOTAL_STEPS}`))} ${c.gray("·")} ${c.bold(title)}   ${progress}`);
-  console.log(c.gray("─".repeat(WIDTH)));
-}
-
-const hint = (s: string): void => console.log(`  ${c.gray(s)}`);
-const warn = (s: string): void => console.log(`  ${sym.err} ${c.red(s)}`);
-const note = (s: string): void => console.log(`  ${sym.warn} ${c.yellow(s)}`);
+const STEPS = ["Modelos", "Datasets", "Variantes", "Etapas", "Avanzado"] as const;
+const { hint, warn, note, done } = say;
 
 const prompt = (label: string, def?: string): string =>
   `  ${sym.pointer} ${c.bold(label)}${def !== undefined && def !== "" ? ` ${c.gray(`[${def}]`)}` : ""}${c.gray(":")} `;
@@ -59,7 +49,7 @@ async function confirm(ask: Ask, label: string, def: boolean): Promise<boolean> 
 
 /** Elige una opción por número. */
 async function pickOne<T extends string>(ask: Ask, label: string, options: Array<{ value: T; text: string }>, def = 0): Promise<T> {
-  console.log(`\n  ${c.bold(label)}`);
+  console.log(`\n  ${c.bold(label)}\n`);
   options.forEach((o, i) => {
     const isDef = i === def;
     const num = isDef ? c.cyan(c.bold(`${i + 1}`)) : c.gray(`${i + 1}`);
@@ -75,25 +65,15 @@ async function pickOne<T extends string>(ask: Ask, label: string, options: Array
   }
 }
 
-/** Imprime una lista numerada; en dos columnas si es larga y entra. */
+/** Lista numerada en 2 columnas alineadas, ordenadas de arriba abajo (una sola si son pocas o no entran). */
 function printNumbered(items: string[]): void {
   const numW = String(items.length).length;
-  const cell = (it: string, i: number): string => `${c.cyan(String(i + 1).padStart(numW))} ${c.gray("·")} ${it}`;
-  const colW = Math.max(...items.map((it) => vlen(it))) + numW + 5;
-  if (items.length > 8 && colW * 2 + 4 <= WIDTH) {
-    const rows = Math.ceil(items.length / 2);
-    for (let r = 0; r < rows; r++) {
-      const left = cell(items[r], r);
-      const right = r + rows < items.length ? cell(items[r + rows], r + rows) : "";
-      console.log(`  ${padEnd(left, colW)}${right}`);
-    }
-  } else {
-    items.forEach((it, i) => console.log(`  ${cell(it, i)}`));
-  }
+  const cells = items.map((it, i) => `${c.cyan(String(i + 1).padStart(numW))} ${c.gray("│")} ${it}`);
+  for (const line of columns(cells)) console.log(line);
 }
 
 /**
- * Elige varios por número o nombre (separados por coma). `a` = todos. Enter devuelve `def` (nombres).
+ * Elige varios por número, rango (`2-5`) o nombre, separados por coma. `a` = todos. Enter devuelve `def` (nombres).
  */
 async function pickMany(
   ask: Ask,
@@ -101,15 +81,22 @@ async function pickMany(
   items: string[],
   opts: { def: string[]; defLabel?: string; hint: string },
 ): Promise<string[]> {
-  console.log(`\n  ${c.bold(label)}\n`);
+  console.log(`\n  ${c.bold(label)} ${c.gray(`(${items.length})`)}\n`);
   printNumbered(items);
   console.log();
-  hint(opts.hint);
+  hint(`${opts.hint}  ·  rangos: 1-3`);
   console.log();
-  const resolveOne = (tok: string): string | null => {
-    if (items.includes(tok)) return tok;
+  const resolveOne = (tok: string): string[] | null => {
+    if (items.includes(tok)) return [tok];
+    const range = /^(\d+)\s*-\s*(\d+)$/.exec(tok);
+    if (range) {
+      const from = Number(range[1]);
+      const to = Number(range[2]);
+      if (from < 1 || to > items.length || from > to) return null;
+      return items.slice(from - 1, to);
+    }
     const n = Number(tok);
-    return Number.isInteger(n) && n >= 1 && n <= items.length ? items[n - 1] : null;
+    return Number.isInteger(n) && n >= 1 && n <= items.length ? [items[n - 1]] : null;
   };
   for (; ;) {
     const a = (await ask(prompt("Selección", opts.defLabel ?? (opts.def.length > 0 ? opts.def.join(",") : "todos")))).trim();
@@ -118,12 +105,12 @@ async function pickMany(
     const out: string[] = [];
     let bad: string | null = null;
     for (const tok of a.split(",").map((t) => t.trim()).filter(Boolean)) {
-      const name = resolveOne(tok);
-      if (name === null) {
+      const names = resolveOne(tok);
+      if (names === null) {
         bad = tok;
         break;
       }
-      if (!out.includes(name)) out.push(name);
+      for (const name of names) if (!out.includes(name)) out.push(name);
     }
     if (bad !== null) {
       warn(`'${bad}' no es válido.`);
@@ -167,7 +154,7 @@ export async function runWizard(): Promise<string[] | null> {
       box(
         [
           `${c.bold(c.cyan("Eval"))} ${c.gray("·")} ${c.bold("asistente interactivo")}`,
-          c.gray("Enter acepta el valor entre corchetes  ·  Ctrl+C cancela"),
+          c.gray("Enter = valor por defecto  ·  Ctrl+C cancela"),
         ],
         { color: c.violet },
       ),
@@ -177,14 +164,16 @@ export async function runWizard(): Promise<string[] | null> {
     const summary: Array<[string, string]> = [];
 
     // 1. Modelos
-    step(1, "Modelos");
+    stepHeader(1, STEPS);
     hint("Formato: <generativo>+<decisión>");
+    console.log();
     const models = await text(ask, "Modelos", `${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL}`);
     if (models !== `${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL}`) argv.push(`--model=${models}`);
     summary.push(["Modelos", models]);
+    done("Modelos", models);
 
     // 2. Datasets
-    step(2, "Datasets");
+    stepHeader(2, STEPS);
     const datasets = listDatasetNames();
     let datasetSummary = "todos";
     if (datasets.length > 0) {
@@ -200,14 +189,16 @@ export async function runWizard(): Promise<string[] | null> {
       note("No hay datasets disponibles.");
     }
     summary.push(["Datasets", datasetSummary]);
+    done("Datasets", datasetSummary);
 
     // 3. Variantes (prod como baseline es opcional: --no-baseline)
-    step(3, "Variantes");
+    stepHeader(3, STEPS);
     const variants = listVariantNames();
     const others = variants.filter((v) => v !== "prod");
     let variantSummary = "solo prod";
     if (others.length > 0) {
       hint("prod es la baseline: las demás se comparan contra ella (deltas, regresiones, mejoras).");
+      console.log();
       const withProd = await confirm(ask, "¿Incluir prod como baseline? (si no, corre solo tus variantes)", true);
       let chosen: string[] = [];
       for (; ;) {
@@ -232,20 +223,25 @@ export async function runWizard(): Promise<string[] | null> {
       hint("Solo existe la variante prod.");
     }
     summary.push(["Variantes", variantSummary]);
+    done("Variantes", variantSummary);
 
     // 4. Etapas
-    step(4, "Etapas");
+    stepHeader(4, STEPS);
     const stagePool: string[] = allStageNames();
-    const stages = await pickMany(ask, "Etapas disponibles", stagePool, { def: [], hint: "Enter o 'a' = todas" });
+    const stages = await pickMany(ask, "Etapas disponibles", stagePool, {
+      def: [],
+      hint: "Números o nombres separados por coma  ·  Enter o 'a' = todas",
+    });
     let stageSummary = "todas";
     if (stages.length > 0 && stages.length < stagePool.length) {
       argv.push(`--stages=${stages.join(",")}`);
       stageSummary = stages.join(", ");
     }
     summary.push(["Etapas", stageSummary]);
+    done("Etapas", stageSummary);
 
     // 5. Opciones avanzadas
-    step(5, "Opciones avanzadas");
+    stepHeader(5, STEPS);
     if (await confirm(ask, "¿Configurar repeticiones, concurrencia, límite, thinking, cliente...?", false)) {
       const client = await pickOne(ask, "Cliente", [
         { value: "real", text: `real    ${c.gray("llama a los modelos")}` },
@@ -273,7 +269,7 @@ export async function runWizard(): Promise<string[] | null> {
       };
       await positiveInt("Repeticiones por caso", "1", "repeat", "Repeticiones");
       hint("Con concurrencia > 1 las latencias dejan de ser comparables.");
-      await positiveInt("Concurrencia", "1", "concurrency", "Concurrencia");
+      await positiveInt("Concurrencia", "3", "concurrency", "Concurrencia"); // 3 = default de la CLI (`config.ts`): solo se agrega el flag si difiere
 
       const limit = await text(ask, "Límite de casos por dataset (vacío = sin límite)", "");
       if (limit !== "") {
@@ -307,23 +303,20 @@ export async function runWizard(): Promise<string[] | null> {
         argv.push("--dry-run");
         summary.push(["Dry-run", "sí"]);
       }
+      done("Opciones", "personalizadas");
     } else {
       hint("Se usan los valores por defecto.");
+      done("Opciones", "por defecto");
     }
 
-    // 7. Resumen y confirmación
-    const keyW = Math.max(...summary.map(([k]) => k.length));
+    // Resumen y confirmación
     console.log();
-    console.log(
-      box(
-        summary.map(([k, v]) => `${c.gray(k.padEnd(keyW))}  ${c.bold(v)}`),
-        { title: "Resumen", color: c.violet },
-      ),
-    );
+    console.log();
+    console.log(kvBox(summary, { title: "Resumen", color: c.violet }));
 
     const cmd = `npm run eval -- ${argv.map(quoteArg).join(" ")}`.trimEnd();
     console.log(`\n  ${c.gray("Comando equivalente")}`);
-    console.log(`  ${c.cyan("▌")} ${c.bold(cmd)}\n`);
+    console.log(`  ${sym.bar} ${c.bold(cmd)}\n`);
 
     if (!(await confirm(ask, "¿Ejecutar ahora?", true))) {
       console.log(`\n  ${c.gray("Nada que ejecutar. Hasta luego.")}\n`);

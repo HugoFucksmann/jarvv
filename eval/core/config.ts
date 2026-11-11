@@ -65,10 +65,10 @@ export const DEFAULT_DECISION_URL = PROD.decisionUrl;
 export const DEFAULT_DECISION_MODEL = PROD.decisionModel;
 export const DEFAULT_DATASETS = "eval/datasets/";
 
-/** Timeout por tipo de llamada (ms). */
-export const TIMEOUT_GENERATIVE = 120_000;
-export const TIMEOUT_THINKING = 180_000;
-export const TIMEOUT_DECISION = 30_000;
+/** Timeout por tipo de llamada (ms): los de la configuración de producción. */
+export const TIMEOUT_GENERATIVE = PROD.qwenTimeoutMs;
+export const TIMEOUT_THINKING = PROD.qwenThinkingTimeoutMs;
+export const TIMEOUT_DECISION = PROD.decisionTimeoutMs;
 
 /** Resuelve el timeout real para una llamada generativa según si lleva thinking. */
 export function resolveGenerativeTimeout(cfg: EvalConfig, thinking: boolean): number {
@@ -203,13 +203,19 @@ export function parseConfig(argv: string[]): EvalConfig {
 
   const decisionUrl = str(flags, "decision-url") ?? DEFAULT_DECISION_URL;
 
-  // variants: `prod` se agrega si falta (la comparación usa spec exacta, `prod+x` no cuenta), sin duplicados
+  // variants: `prod` se agrega si falta (la comparación usa la spec exacta), sin duplicados
   // `--no-baseline`: no se agrega `prod`; sin `--baseline` explícito, la baseline es la primera variante.
   const noBaseline = bool(flags, "no-baseline");
   if (noBaseline && str(flags, "variant") === undefined) {
     throw new Error("--no-baseline requiere --variant con al menos una variante.");
   }
   const variantSpecs = parseVariantSpecs(str(flags, "variant") ?? "prod", !noBaseline);
+  if (clientRaw === "oracle") {
+    const other = variantSpecs.filter((v) => v !== "prod");
+    if (other.length > 0) {
+      throw new Error(`--client=oracle solo vale con la variante 'prod' (el oráculo responde en sus términos); no se puede con: ${other.join(", ")}.`);
+    }
+  }
   const baseline = str(flags, "baseline") ?? (noBaseline ? variantSpecs[0] : "prod");
   if (!variantSpecs.includes(baseline)) {
     throw new Error(`--baseline: '${baseline}' no está entre las variantes (${variantSpecs.join(", ")}).`);

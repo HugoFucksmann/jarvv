@@ -31,6 +31,7 @@ npm run eval -- --menu
 npm run eval -- --client=oracle --dataset=smoke
 npm run eval -- --dataset=smoke
 npm run eval -- --variant=prod,mi_variante --dataset=smoke --repeat=3
+npm run eval -- --variant=mi_variante --no-baseline --dataset=smoke   # sin prod como baseline
 ```
 
 | Comando | Qué hace |
@@ -56,7 +57,7 @@ flowchart LR
 Cada corrida ejecuta **variante × dataset × caso × repetición** y guarda el resultado en `eval/results/`:
 
 ```
-eval/results/<modelo>/<fecha>/
+eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval/results/_oracle/ y _mock/; una colisión en el mismo segundo agrega -2, -3)
 ├── comparison.md                  reporte para leer
 ├── comparison.json
 └── <variante>__<dataset>/
@@ -69,7 +70,7 @@ eval/results/<modelo>/<fecha>/
 
 ## Datasets generados y cruce con el pre-chequeo
 
-Los datasets de `eval/datasets/<etapa>/` se cargan a mano (casos por escenario, hoy con ayuda de otros modelos y revisión humana); no hay generación automática de casos. Los scripts de `eval/gen/` (`mutaciones.ts`, `ram_real.ts`, `ram_retry.ts`, `repeticiones.ts`) generan casos sintéticos puntuales y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md)). Resultados y conclusiones: [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las mejores variantes por etapa) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
+Los datasets de `eval/datasets/<etapa>/` se cargan a mano (casos por escenario, hoy con ayuda de otros modelos y revisión humana); no hay generación automática de casos. Los scripts de `eval/gen/` (`mutaciones.ts`, `ram_real.ts`, `ram_retry.ts`, `repeticiones.ts`) generan casos sintéticos puntuales y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md)). Resultados y conclusiones: [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las mejores variantes por etapa) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
 
 ## Documentación
 

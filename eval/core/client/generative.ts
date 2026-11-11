@@ -2,10 +2,28 @@
  * eval/core/client/generative.ts
  *
  * Cliente de las etapas generativas (plan, arguments, final, question, pending).
- * Envía exactamente el body que envía producción (orden de claves incluido).
+ * Envía exactamente el body que envía producción (orden de claves incluido), con su reserva de contexto: `max_tokens` se recorta
+ * a lo que cabe en `qwenNumCtx` y un prompt sin margen de salida no se envía (`reserveCompletionTokens`).
  */
 
-import { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../contract.ts";
+/** Margen mínimo de salida (`MIN_COMPLETION_TOKENS` de producción, que no lo exporta). */
+const MIN_COMPLETION_TOKENS = 256;
+
+/** Prefijo del error de un prompt que no deja margen de salida: no se envió nada y repetir no sirve. No es un fallo de transporte. */
+export const CONTEXT_OVERFLOW_PREFIX = "context_overflow:";
+
+/**
+ * `max_tokens` que producción pediría (`min(maxTokens, numCtx − tokens del prompt)`), o `null` si no queda margen de
+ * `MIN_COMPLETION_TOKENS` y producción lanzaría `LLMValidationError` sin enviar.
+ */
+export function reserveCompletionTokens(req: GenerativeRequest, numCtx: number): number | null {
+  const available = numCtx - (estimateTokens(req.system) + estimateTokens(req.user));
+  if (available < MIN_COMPLETION_TOKENS) return null;
+  return Math.min(req.maxTokens, available);
+}
+
+import { ConfigManager } from "../../../src/core/config.ts";
+import { estimateTokens, LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../contract.ts";
 import type { ToolInputSchema } from "../contract.ts";
 import type { GenerativeRequest } from "../types.ts";
 
@@ -69,9 +87,10 @@ export async function postJson(url: string, body: unknown, timeoutMs: number): P
   }
 }
 
-/** `resolveUrl` de producción. Lanza si la URL apunta a un endpoint no soportado. */
+/** `resolveUrl` de producción. Lanza si la URL está vacía o apunta a un endpoint no soportado. */
 export function resolveUrl(rawUrl: string): string {
-  const base = rawUrl.replace(/\/+$/, "");
+  const base = rawUrl.trim().replace(/\/+$/, "");
+  if (!base) throw new Error("La URL de Qwen no está configurada. Configúrela con --url o en jarvis-config.json.");
   if (base.endsWith("/v1/chat/completions")) return base;
   if (base.endsWith("/generate") || base.endsWith("/api/chat")) {
     throw new Error(
@@ -85,6 +104,8 @@ export function resolveUrl(rawUrl: string): string {
 export interface GenerativeClientConfig {
   url: string;
   model: string;
+  /** Contexto del servidor (`qwenNumCtx`); por defecto el de la configuración de producción. */
+  numCtx?: number;
 }
 
 /** Datos del caso que el cliente real ignora y el mock usa para fabricar una salida válida. */
@@ -114,7 +135,7 @@ export interface GenerativeClient {
 }
 
 /** Body de producción. Orden de claves: model, messages, temperature, max_tokens, stream, reasoning_effort, response_format. */
-export function buildGenerativeBody(model: string, req: GenerativeRequest): Record<string, unknown> {
+export function buildGenerativeBody(model: string, req: GenerativeRequest, maxTokens: number = req.maxTokens): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
     messages: [
@@ -122,7 +143,7 @@ export function buildGenerativeBody(model: string, req: GenerativeRequest): Reco
       { role: "user", content: req.user },
     ],
     temperature: req.temperature,
-    max_tokens: req.maxTokens,
+    max_tokens: maxTokens,
     stream: false,
     reasoning_effort: req.reasoningEffort ?? (req.thinking ? "low" : "none"),
   };
@@ -178,11 +199,23 @@ export function createGenerativeClient(cfg: GenerativeClientConfig): GenerativeC
   const url = resolveUrl(cfg.url);
 
   // Closure en vez de `this.prepare`: `const { call } = client` no rompe.
-  const prepare = (req: GenerativeRequest): PreparedRequest => ({ url, body: buildGenerativeBody(cfg.model, req) });
+  const numCtx = cfg.numCtx ?? ConfigManager.getConfig().qwenNumCtx;
+  // Sin margen de salida, el body conserva `maxTokens` (`call` no lo envía: ver `CONTEXT_OVERFLOW_PREFIX`).
+  const prepare = (req: GenerativeRequest): PreparedRequest => ({
+    url,
+    body: buildGenerativeBody(cfg.model, req, reserveCompletionTokens(req, numCtx) ?? req.maxTokens),
+  });
 
   return {
     prepare,
     async call(req, timeoutMs) {
+      if (reserveCompletionTokens(req, numCtx) === null) {
+        return {
+          ok: false,
+          error: `${CONTEXT_OVERFLOW_PREFIX} el prompt (~${estimateTokens(req.system) + estimateTokens(req.user)} tokens) no deja espacio de salida en el contexto de ${numCtx} tokens; producción no lo enviaría.`,
+          durationMs: 0,
+        };
+      }
       const { body } = prepare(req);
       const res = await postJson(url, body, timeoutMs);
       if (!res.ok) return res;

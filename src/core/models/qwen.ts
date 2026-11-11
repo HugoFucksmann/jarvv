@@ -266,7 +266,8 @@ type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 const ok = <T>(value: T): Validation<T> => ({ ok: true, value });
 const fail = (error: string): Validation<never> => ({ ok: false, error });
 
-const NOT_JSON = "la respuesta no es un objeto JSON válido";
+/** Error de reintento de toda salida JSON no extraíble (lo reutiliza el eval). */
+export const NOT_JSON = "la respuesta no es un objeto JSON válido";
 
 /** Primer filtro de toda salida JSON: sin truncar y con un objeto parseable. */
 const parseObjectOutput = (r: LlmDispatchResult): Validation<Record<string, unknown>> => {

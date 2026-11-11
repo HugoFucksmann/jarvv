@@ -38,7 +38,7 @@ for (const [key, hideArgs, hint] of [["a", false, false], ["b", true, false], ["
           calls: [
             {
               route: "terminal",
-              tool: "start_process",
+              tool: "run_command",
               kind: "write",
               status: "args_invalid",
               step: 0,
@@ -46,7 +46,7 @@ for (const [key, hideArgs, hint] of [["a", false, false], ["b", true, false], ["
               summary: REASON + (hint ? REWRITE : ""),
             },
           ],
-          at: { route: "terminal", tool: "start_process", inputSchema: SCHEMA },
+          at: { route: "terminal", tool: "run_command", inputSchema: SCHEMA },
         },
         expect: { requiredFields: ["command"], forbiddenHardcodedValues: ["@{Get-Member", "ps aux", "top -"] },
       }),

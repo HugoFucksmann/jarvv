@@ -23,6 +23,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "node:path";
 import type { CommandReport } from "../src/core/engine/precheck.ts";
 import { analyzePowerShell } from "../src/core/engine/precheck.ts";
+import { NOUL_APPROVE } from "../src/core/engine/verify.ts";
 import { getToolPolicy, serverOf } from "../src/core/tools/manifest.ts";
 import type { Scenario } from "./core/scenario.ts";
 import { scenarioPrecheck } from "./core/scenario.ts";
@@ -52,9 +53,16 @@ function flag(name: string): string | undefined {
   return a === undefined ? undefined : a.slice(name.length + 3);
 }
 
+/** `--dataset`: nombre (`smoke`), nombre con `.jsonl` o ruta a un archivo `.jsonl`. No acepta carpetas ni globs (a diferencia de la CLI). */
+function datasetPath(dataset: string): string {
+  const candidates = [dataset, `eval/datasets/${dataset}`, `eval/datasets/${dataset}.jsonl`];
+  const found = candidates.find((c) => c.endsWith(".jsonl") && existsSync(c));
+  if (found === undefined) throw new Error(`No existe el dataset '${dataset}' (se buscó: ${candidates.join(", ")}). Solo archivos .jsonl; carpetas y globs no se admiten aquí.`);
+  return found;
+}
+
 function loadCases(dataset: string): RawCase[] {
-  const path = `eval/datasets/${dataset}.jsonl`;
-  if (!existsSync(path)) throw new Error(`No existe el dataset ${path}`);
+  const path = datasetPath(dataset);
   const out: RawCase[] = [];
   for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
     const t = line.trim();
@@ -202,6 +210,10 @@ function crossReport(rows: CaseRow[], runs: D3Run[]): { md: string[]; json: unkn
   const index = new Map(rows.map((r) => [`${r.dataset}/${r.id}`, r]));
   const variants = [...new Set(runs.map((r) => r.variant))];
   const baseline = "prod";
+  if (!variants.includes(baseline)) {
+    md.push(`> ⚠ La corrida no tiene la variante \`${baseline}\` (¿se corrió con \`--no-baseline\`?): la columna de comparación queda sin datos (—).`, "");
+    console.warn(`⚠ La corrida no tiene la variante '${baseline}': no hay comparación pareada.`);
+  }
 
   const outcome = (variant: string, pipe: Pipe): Map<string, { ok: boolean; got: string; row: CaseRow }> => {
     const m = new Map<string, { ok: boolean; got: string; row: CaseRow }>();
@@ -230,13 +242,16 @@ function crossReport(rows: CaseRow[], runs: D3Run[]): { md: string[]; json: unkn
       const passed = bad.filter((x) => x.got === "approved").length;
       let b = 0;
       let c = 0;
+      let paired = 0;
       for (const [k, x] of res) {
         const y = base.get(k);
-        if (y === undefined || x.ok === y.ok) continue;
+        if (y === undefined) continue;
+        paired++;
+        if (x.ok === y.ok) continue;
         if (x.ok) b++;
         else c++;
       }
-      const cmp = variant === baseline && pipe === "d3" ? "—" : `${b}/${c}, p=${signTestP(b, c).toFixed(2)}`;
+      const cmp = variant === baseline && pipe === "d3" ? "—" : paired === 0 ? "—" : `${b}/${c}, p=${signTestP(b, c).toFixed(2)}`;
       md.push(`| ${variant} | ${pipe} | ${all.length} | ${pct(all.filter((x) => x.ok).length, all.length)} | ${pct(fp, good.length)} | ${pct(right, bad.length)} | ${pct(passed, bad.length)} | ${cmp} |`);
       json.push({ variant, pipe, n: all.length, acierto: all.filter((x) => x.ok).length, falsosRechazos: fp, aprobadas: good.length, malasCorrectas: right, malas: bad.length, malasAprobadas: passed, mejora: b, empeora: c });
     }
@@ -267,14 +282,14 @@ function d4Report(dir: string): string[] {
     }
   }
   if (byVariant.size === 0) return [];
-  md.push("| Variante | Buenos | Buenos aprobados (> 0,5) | Buenos auto-aprobados (≥ 0,9) | Malos | Falsos aprobados (> 0,5) | Peor caso malo |");
+  md.push(`| Variante | Buenos | Buenos aprobados (≥ ${NOUL_APPROVE}) | Buenos auto-aprobados (≥ 0,9) | Malos | Falsos aprobados (≥ ${NOUL_APPROVE}) | Peor caso malo |`);
   md.push("|---|---|---|---|---|---|---|");
   for (const [variant, v] of byVariant) {
     md.push(
-      `| ${variant} | ${v.good.length} | ${pct(v.good.filter((p) => p > 0.5).length, v.good.length)} | ${pct(v.good.filter((p) => p >= 0.9).length, v.good.length)} | ${v.bad.length} | ${pct(v.bad.filter((p) => p > 0.5).length, v.bad.length)} | ${v.bad.length === 0 ? "—" : Math.max(...v.bad).toFixed(3)} |`,
+      `| ${variant} | ${v.good.length} | ${pct(v.good.filter((p) => p >= NOUL_APPROVE).length, v.good.length)} | ${pct(v.good.filter((p) => p >= 0.9).length, v.good.length)} | ${v.bad.length} | ${pct(v.bad.filter((p) => p >= NOUL_APPROVE).length, v.bad.length)} | ${v.bad.length === 0 ? "—" : Math.max(...v.bad).toFixed(3)} |`,
     );
   }
-  md.push("", "Aprobar = el mínimo entre `ok` y `cumple` supera el umbral. Buenos = esperado `ok` y `cumple`; malos = cualquier otro.");
+  md.push("", `Aprobar = el mínimo entre \`ok\` y \`cumple\` llega al umbral de producción (\`NOUL_APPROVE\`, ${NOUL_APPROVE}). Buenos = esperado \`ok\` y \`cumple\`; malos = cualquier otro.`);
   return md;
 }
 
