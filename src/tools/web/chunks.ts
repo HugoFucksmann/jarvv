@@ -7,7 +7,7 @@
  */
 
 import { fold } from "../../core/text.ts";
-import type { Doc } from "./report.ts";
+import type { Doc, Source } from "./report.ts";
 
 export const CHUNK_MIN = 500;
 export const CHUNK_MAX = 800;
@@ -147,5 +147,18 @@ export function chunkLines(lines: readonly string[]): string[] {
 export function chunkDocs(docs: readonly Doc[]): Chunk[] {
   const out: Chunk[] = [];
   for (const { n, lines } of cleanDocs(docs)) for (const text of chunkLines(lines)) out.push({ id: out.length, n, text });
+  return out;
+}
+
+/**
+ * El extracto que el buscador mostró de cada fuente, con su título y su fecha de publicación, como un fragmento más: suele contener justo el dato corto
+ * (una fecha, una versión) que se perdería entre las páginas completas. Es texto del resultado de búsqueda, no de la página.
+ */
+export function snippetChunks(sources: readonly Source[], firstId: number): Chunk[] {
+  const out: Chunk[] = [];
+  for (const s of sources) {
+    if (s.snippet === undefined || s.snippet.length < CHUNK_FLOOR) continue;
+    out.push({ id: firstId + out.length, n: s.n, text: `${s.title} — ${s.snippet}${s.date === undefined ? "" : ` (published ${s.date})`}` });
+  }
   return out;
 }

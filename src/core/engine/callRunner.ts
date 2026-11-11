@@ -30,7 +30,7 @@ import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
 import type { ProcessedResult } from "../result/processResult.ts";
-import { applyDestination, getToolPolicy, isKnownTool, requirementOf, serverOf, timeoutOf } from "../tools/manifest.ts";
+import { applyDestination, getToolPolicy, isKnownTool, repeatPolicyOf, requirementOf, serverOf, timeoutOf } from "../tools/manifest.ts";
 import { createToolHost } from "../tools/host.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPTool } from "../types.ts";
@@ -313,7 +313,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
   const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, kind, args: recorded, sig, status, summary, ref: null });
   const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summary), status);
-  if (ctx.isRepeat(tool.name, sig, { policy: policy.repeat, stepId })) return reject("loop_blocked");
+  if (ctx.isRepeat(tool.name, sig, { policy: repeatPolicyOf(mcp, tool.name, resolved), stepId })) return reject("loop_blocked");
 
   // 6. Política (Guard). DENY: la llamada queda `denied` y la tarea cierra con `security_denied` (regla B incluida).
   const guard = Guard.evaluate(mcp, tool.name, resolved, deps.guardScope);

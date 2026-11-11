@@ -60,6 +60,8 @@ interface Tracked {
   /** Últimos caracteres de toda la salida: de ahí sale la línea sin terminar que se toma por prompt. */
   recentTail: string;
   lastOutputAt: number;
+  /** La tarea que lo lanzó se completó y lo dejó corriendo: ninguna otra tarea lo puede continuar, y es lo primero que se cierra si hace falta lugar. */
+  orphan: boolean;
   exitCode: number | null;
   /** El proceso terminó y sus flujos se cerraron (o venció el plazo de gracia). */
   done: boolean;
@@ -112,6 +114,8 @@ export interface TerminalOptions {
   readonly defaultCwd?: string;
   /** Solo para pruebas: otra plataforma. */
   readonly platform?: NodeJS.Platform;
+  /** Procesos vivos a la vez (por defecto `MAX_LIVE_PROCESSES`). */
+  readonly maxLive?: number;
 }
 
 export class TerminalProvider implements ToolProvider {
@@ -120,10 +124,12 @@ export class TerminalProvider implements ToolProvider {
   private readonly procs = new Map<number, Tracked>();
   private readonly defaultCwd: string;
   private readonly platform: NodeJS.Platform;
+  private readonly maxLive: number;
 
   constructor(options: TerminalOptions = {}) {
     this.defaultCwd = options.defaultCwd ?? os.homedir();
     this.platform = options.platform ?? process.platform;
+    this.maxLive = options.maxLive ?? MAX_LIVE_PROCESSES;
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -141,7 +147,10 @@ export class TerminalProvider implements ToolProvider {
   }
 
   async onTaskEnd(taskId: string, outcome: TaskEndOutcome): Promise<void> {
-    if (outcome === "completed") return;
+    if (outcome === "completed") {
+      for (const t of this.procs.values()) if (t.taskId === taskId && !t.done) t.orphan = true;
+      return;
+    }
     try {
       const closed = await this.killAll((t) => t.taskId === taskId);
       if (closed > 0) console.log(`[Terminal] ${closed} proceso(s) de la tarea ${taskId} cerrados (${outcome}).`);
@@ -151,28 +160,28 @@ export class TerminalProvider implements ToolProvider {
   }
 
   async callTool(name: string, args: Record<string, unknown>, options: ToolCallOptions = {}): Promise<MCPCallResult> {
-    if (name !== RUN_COMMAND) return fail(`Herramienta desconocida: '${name}'.`);
-    if (this.platform !== "win32") return fail("run_command solo funciona en Windows (PowerShell).");
+    if (name !== RUN_COMMAND) return fail(`Unknown tool: '${name}'.`);
+    if (this.platform !== "win32") return fail("run_command only works on Windows (PowerShell).");
     this.purge();
 
     const { command, pid, input } = args;
     const timeoutSec = args.timeoutSec;
-    if (command !== undefined && typeof command !== "string") return fail("'command' debe ser un texto.");
-    if (pid !== undefined && (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0)) return fail("'pid' debe ser un entero positivo.");
-    if (input !== undefined && typeof input !== "string") return fail("'input' debe ser un texto.");
-    if (timeoutSec !== undefined && (typeof timeoutSec !== "number" || !Number.isFinite(timeoutSec) || timeoutSec <= 0)) return fail("'timeoutSec' debe ser un número positivo.");
-    if ((command === undefined || command.trim() === "") === (pid === undefined)) return fail("Indica exactamente uno: 'command' (comando nuevo) o 'pid' (continuar un proceso).");
+    if (command !== undefined && typeof command !== "string") return fail("'command' must be a text.");
+    if (pid !== undefined && (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0)) return fail("'pid' must be a positive integer.");
+    if (input !== undefined && typeof input !== "string") return fail("'input' must be a text.");
+    if (timeoutSec !== undefined && (typeof timeoutSec !== "number" || !Number.isFinite(timeoutSec) || timeoutSec <= 0)) return fail("'timeoutSec' must be a positive number.");
+    if ((command === undefined || command.trim() === "") === (pid === undefined)) return fail("Give exactly one of: 'command' (a new command) or 'pid' (continue a process).");
 
     const requested = Math.min(Math.max(Math.round(typeof timeoutSec === "number" ? timeoutSec : DEFAULT_WAIT_SEC), 1), MAX_WAIT_SEC) * 1000;
     const ceiling = options.timeoutMs === undefined ? Infinity : Math.max(options.timeoutMs - SAFETY_MARGIN_MS, 1000);
     const waitMs = Math.min(requested, ceiling);
 
     if (command !== undefined && command.trim() !== "") {
-      if (command.length > MAX_COMMAND_CHARS) return fail(`El comando supera los ${MAX_COMMAND_CHARS} caracteres.`);
-      if (input !== undefined) return fail("'input' solo se usa junto con 'pid'.");
+      if (command.length > MAX_COMMAND_CHARS) return fail(`The command is longer than ${MAX_COMMAND_CHARS} characters.`);
+      if (input !== undefined) return fail("'input' is only used together with 'pid'.");
       return this.start(command, typeof args.cwd === "string" && args.cwd.trim() !== "" ? args.cwd : this.defaultCwd, waitMs, options);
     }
-    if (input !== undefined && input.length > MAX_INPUT_CHARS) return fail(`La respuesta supera los ${MAX_INPUT_CHARS} caracteres.`);
+    if (input !== undefined && input.length > MAX_INPUT_CHARS) return fail(`The input is longer than ${MAX_INPUT_CHARS} characters.`);
     return this.resume(pid as number, input, waitMs, options);
   }
 
@@ -180,20 +189,29 @@ export class TerminalProvider implements ToolProvider {
 
   private async start(command: string, cwd: string, waitMs: number, options: ToolCallOptions): Promise<MCPCallResult> {
     const taskId = options.taskId ?? "";
-    if ([...this.procs.values()].filter((p) => !p.done).length >= MAX_LIVE_PROCESSES) {
-      return fail(`Hay ${MAX_LIVE_PROCESSES} procesos en ejecución: espera a que alguno termine antes de lanzar otro.`);
+    const live = (): Tracked[] => [...this.procs.values()].filter((p) => !p.done);
+    if (live().length >= this.maxLive) {
+      // Lo que dejó una tarea ya completada no lo puede continuar nadie: se cierra el más antiguo para hacer lugar. Lo de una tarea en curso nunca se toca.
+      const oldest = live().filter((p) => p.orphan).sort((a, b) => a.startedAt - b.startedAt)[0];
+      if (oldest !== undefined) {
+        console.log(`[Terminal] se cierra el proceso ${oldest.pid} de la tarea ${oldest.taskId} (completada) para hacer lugar.`);
+        await this.dispose(oldest);
+      }
+    }
+    if (live().length >= this.maxLive) {
+      return fail(`${this.maxLive} processes are already running: wait for one to finish before starting another.`);
     }
     try {
-      if (!fs.statSync(cwd).isDirectory()) return fail(`'${cwd}' no es una carpeta.`);
+      if (!fs.statSync(cwd).isDirectory()) return fail(`'${cwd}' is not a folder.`);
     } catch {
-      return fail(`La carpeta de trabajo '${cwd}' no existe.`);
+      return fail(`The working folder '${cwd}' does not exist.`);
     }
 
     let tracked: Tracked;
     try {
       tracked = await this.spawnProcess(command, cwd, taskId);
     } catch (error) {
-      return fail(`No se pudo lanzar PowerShell: ${errorMessage(error)}`);
+      return fail(`Could not start PowerShell: ${errorMessage(error)}`);
     }
     return this.settle(tracked, waitMs, options.signal);
   }
@@ -216,6 +234,7 @@ export class TerminalProvider implements ToolProvider {
           events: new EventEmitter(),
           recentTail: "",
           lastOutputAt: Date.now(),
+          orphan: false,
           exitCode: null,
           done: false,
           endedAt: null,
@@ -251,12 +270,13 @@ export class TerminalProvider implements ToolProvider {
       t.endedAt = Date.now();
       t.events.emit("activity");
     };
+    // Sin código (el proceso lo cortó alguien desde fuera): -1, para que no se lea como una salida limpia.
     t.child.once("exit", (code) => {
-      t.exitCode = code;
+      t.exitCode = code ?? -1;
       setTimeout(finish, CLOSE_GRACE_MS).unref();
     });
     t.child.once("close", (code) => {
-      if (t.exitCode === null) t.exitCode = code;
+      if (t.exitCode === null) t.exitCode = code ?? -1;
       finish();
     });
   }
@@ -266,7 +286,7 @@ export class TerminalProvider implements ToolProvider {
   private async resume(pid: number, input: string | undefined, waitMs: number, options: ToolCallOptions): Promise<MCPCallResult> {
     const t = this.procs.get(pid);
     if (t === undefined || t.taskId !== (options.taskId ?? "")) {
-      return fail(`El proceso ${pid} no existe o no lo lanzó esta tarea.`, { pid, state: "unknown_pid" });
+      return fail(`Process ${pid} does not exist or was not started by this task.`, { pid, state: "unknown_pid" });
     }
     let ignoredInput = false;
     if (input !== undefined) {
@@ -298,8 +318,12 @@ export class TerminalProvider implements ToolProvider {
     const header = [`status: ${state}`, ...(exitCode !== null ? [`exit code: ${exitCode}`] : []), `duration: ${seconds(durationMs)}`, `pid: ${t.pid}`].join(" · ");
     const notes: string[] = [];
     if (ignoredInput) notes.push("The input was ignored: the process had already finished.");
-    if (state === "waiting_input") notes.push(`Waiting for input: "${prompt}". The user is asked for the answer.`);
-    if (state === "running") notes.push("The process is still running. Call run_command with its pid to read more output.");
+    // Frases llanas para los modelos chicos: el estado y el código de salida no alcanzan para que un verificador o un generador de argumentos entienda qué pasó o qué hacer.
+    if (state === "finished" && exitCode !== null) notes.push(exitCode === 0 ? "The command finished successfully." : `The command failed (exit code ${exitCode}).`);
+    if (state === "waiting_input") {
+      notes.push(`Waiting for input: "${prompt}". The user is asked for the answer; then continue THIS process with run_command { "pid": ${t.pid}, "input": <the answer> }. Do not start a new command.`);
+    }
+    if (state === "running") notes.push(`The process is still running. Call run_command with { "pid": ${t.pid} } to read more output.`);
 
     const cap = Math.max(BUDGET.summaryMax - HEADER_RESERVE, 400);
     const head = Math.floor(cap * 0.2);

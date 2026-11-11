@@ -21,7 +21,7 @@ import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 import { FRESHNESS, parseArgs, type WebArgs } from "./args.ts";
 import { CANDIDATES, pickCandidates, rank, type Ranked } from "./bm25.ts";
-import { chunkDocs } from "./chunks.ts";
+import { chunkDocs, snippetChunks } from "./chunks.ts";
 import { parseFetch, parseResearch, type Doc, type Material, type Source } from "./report.ts";
 
 export const WEB_SERVER = "jarvis_web";
@@ -38,13 +38,13 @@ export const DEFAULT_MAX_AGE_HOURS = 24;
 /** Con modelo: probabilidad desde la que un fragmento responde (`found`) o responde en parte (`partial`). */
 export const JUDGE_FOUND = 0.6;
 export const JUDGE_PARTIAL = 0.3;
-/** Sin modelo (o si falla): fracción de las palabras de la pregunta que debe tener el fragmento. */
-export const COVERAGE_FOUND = 0.6;
+/** Sin modelo (o si falla): fracción de las palabras de la pregunta que debe tener el fragmento. Coincidir en palabras no es responder: sin modelo el estado no pasa de `partial`. */
 export const COVERAGE_PARTIAL = 0.34;
 /** Fragmentos que se devuelven como máximo, y caracteres que ocupan entre todos. */
 export const RETURN_MAX = 4;
 const PASSAGES_BUDGET = 1700;
 const DEFAULT_TIMEOUT_MS = 150_000;
+const DEFAULT_JUDGE_TIMEOUT_MS = 20_000;
 const SAFETY_MARGIN_MS = 5000;
 /** Tiempo que debe quedar para el reintento sin filtros y para el modelo. */
 const RETRY_NEEDS_MS = 30_000;
@@ -99,6 +99,8 @@ export interface WebSearchOptions {
   /** Cliente del modelo de decisión para puntuar fragmentos; se consulta en cada llamada (la configuración puede cambiar). Sin él, solo BM25. */
   readonly judge?: () => FragmentJudge | undefined;
   readonly maxAgeHours?: number;
+  /** Plazo máximo del modelo en una búsqueda (por defecto 20 s); pasado ese plazo se sigue con el orden léxico. */
+  readonly judgeTimeoutMs?: number;
 }
 
 const textOf = (result: MCPCallResult): string =>
@@ -114,10 +116,12 @@ export class WebSearchProvider implements ToolProvider {
   readonly dependencies = WEB_DEPENDENCIES;
   private readonly getJudge: () => FragmentJudge | undefined;
   private readonly maxAgeHours: number;
+  private readonly judgeTimeoutMs: number;
 
   constructor(options: WebSearchOptions = {}) {
     this.getJudge = options.judge ?? (() => undefined);
     this.maxAgeHours = options.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
+    this.judgeTimeoutMs = options.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -231,15 +235,18 @@ export class WebSearchProvider implements ToolProvider {
   private async analyze(args: WebArgs, material: Material, remaining: () => number, signal?: AbortSignal): Promise<Analysis> {
     if (material.docs.length === 0) return { state: "no_results", passages: [], candidates: 0, judge: "off", judgeMeta: {} };
 
-    const chunks = chunkDocs(material.docs);
+    const pages = chunkDocs(material.docs);
+    const chunks = [...pages, ...snippetChunks(material.sources, pages.length)];
     const { ranked } = rank(chunks, [args.need, ...args.terms].join(" "));
     const candidates = pickCandidates(ranked, CANDIDATES);
     if (candidates.length === 0) return { state: "not_found", passages: [], candidates: 0, judge: "off", judgeMeta: { chunks: chunks.length } };
 
     const judge = this.getJudge();
     if (judge !== undefined && remaining() > JUDGE_NEEDS_MS) {
+      // El modelo no puede gastar más que el tiempo que queda: pasado ese plazo se sigue con el orden léxico.
+      const bounded = AbortSignal.any([AbortSignal.timeout(Math.min(Math.max(remaining() - 2000, 1000), this.judgeTimeoutMs)), ...(signal === undefined ? [] : [signal])]);
       try {
-        const scores = await judge.score(args.need, candidates.map((c) => c.chunk.text), signal);
+        const scores = await judge.score(args.need, candidates.map((c) => c.chunk.text), bounded);
         if (scores.probabilities.length === candidates.length) {
           const scored = candidates
             .map((c, i) => ({ c, p: scores.probabilities[i] }))
@@ -261,18 +268,16 @@ export class WebSearchProvider implements ToolProvider {
         }
         return this.byCoverage(candidates, "failed", { error: "el modelo no devolvió una probabilidad por fragmento" });
       } catch (error) {
-        if (signal?.aborted) throw error;
+        if (signal?.aborted) throw error; // cancelación de la tarea (no el plazo del modelo)
         return this.byCoverage(candidates, "failed", { error: errorMessage(error) });
       }
     }
     return this.byCoverage(candidates, "off", {});
   }
 
-  /** Estado y fragmentos por cobertura de palabras. Si el modelo falló, el estado no pasa de `partial`. */
+  /** Estado y fragmentos por cobertura de palabras (sin modelo, o con el modelo caído): coincidir en palabras no es responder, así que nunca `found`. */
   private byCoverage(candidates: readonly Ranked[], judge: "off" | "failed", judgeMeta: Record<string, unknown>): Analysis {
-    const best = candidates[0].coverage;
-    let state: State = best >= COVERAGE_FOUND ? "found" : best >= COVERAGE_PARTIAL ? "partial" : "not_found";
-    if (judge === "failed" && state === "found") state = "partial";
+    const state: State = candidates[0].coverage >= COVERAGE_PARTIAL ? "partial" : "not_found";
     const passages = candidates
       .filter((c) => c.coverage >= COVERAGE_PARTIAL)
       .slice(0, RETURN_MAX)
@@ -286,7 +291,7 @@ export class WebSearchProvider implements ToolProvider {
     const sourceOf = new Map(gathered.material.sources.map((s) => [s.n, s]));
     const sourceLine = (n: number): string => {
       const s = sourceOf.get(n);
-      return s === undefined ? `[${n}]` : `[${n}] ${clipAtWord(s.title, 90)} — ${s.url}`;
+      return s === undefined ? `[${n}]` : `[${n}] ${clipAtWord(s.title, 90)} — ${s.url}${s.date === undefined ? "" : ` (published ${s.date})`}`;
     };
 
     // Los fragmentos que caben en el presupuesto, en el orden de relevancia; siempre entra el primero (si no cabe entero, se recorta).
@@ -306,7 +311,13 @@ export class WebSearchProvider implements ToolProvider {
       case "found":
       case "partial":
         lines.push(`status: ${analysis.state} · ${shown.length} passage${shown.length === 1 ? "" : "s"} from ${cited.length} source${cited.length === 1 ? "" : "s"}`);
-        if (analysis.state === "partial") lines.push("Only part of the question may be answered by these passages.");
+        if (analysis.state === "partial") {
+          lines.push(
+            analysis.judge === "used"
+              ? "Only part of the question may be answered by these passages."
+              : "These passages match the keywords of the question; check that they really answer it.",
+          );
+        }
         lines.push(...shown.map((p) => `[${p.n}] ${p.text}`));
         break;
       case "not_found":
@@ -326,7 +337,7 @@ export class WebSearchProvider implements ToolProvider {
       data: {
         state: analysis.state,
         passages: shown.map((p) => ({ n: p.n, score: Number(p.score.toFixed(3)), ...(p.probability === undefined ? {} : { probability: Number(p.probability.toFixed(3)) }) })),
-        sources: gathered.material.sources.map((s) => ({ n: s.n, title: s.title, url: s.url })),
+        sources: gathered.material.sources.map((s) => ({ n: s.n, title: s.title, url: s.url, ...(s.date === undefined ? {} : { date: s.date }) })),
         candidates: analysis.candidates,
         judge: analysis.judge,
         retried: info.retried,

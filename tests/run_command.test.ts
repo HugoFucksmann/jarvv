@@ -8,7 +8,7 @@ import os from "node:os";
 import { after, test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
-import { applyDestination, SYSTEM_TOOL_MANIFEST } from "../src/core/tools/manifest.ts";
+import { applyDestination, repeatPolicyOf, SYSTEM_TOOL_MANIFEST } from "../src/core/tools/manifest.ts";
 import { readToolResult } from "../src/core/tools/result.ts";
 import { LineNormalizer, OutputBuffer, stripAnsi, UNREAD_HEAD_CAP, UNREAD_TAIL_CAP } from "../src/tools/terminal/output.ts";
 import { buildCommandLine, buildScript, EPILOGUE, MAX_COMMAND_CHARS, PROLOGUE, TerminalProvider } from "../src/tools/terminal/terminalProvider.ts";
@@ -88,7 +88,9 @@ test("el manifiesto expone exactamente los parámetros que declara el proveedor"
   assert.equal(def.server, provider.name);
   assert.deepEqual(Object.keys(offered[0].inputSchema.properties ?? {}).sort(), [...(def.params ?? [])].sort());
   assert.equal(def.policy.requiresApproval, true);
-  assert.equal(def.policy.repeat, "allow");
+  assert.equal(def.policy.repeat, "strict");
+  assert.equal(repeatPolicyOf(def.server, def.name, { command: "Get-Date" }), "strict", "repetir un comando idéntico pudo duplicar sus efectos");
+  assert.equal(repeatPolicyOf(def.server, def.name, { pid: 7 }), "allow", "esperar más salida de un pid repite los mismos argumentos");
 });
 
 // ───────────────────────── Procesos reales ─────────────────────────
@@ -101,12 +103,15 @@ test("un comando que termina: estado finished, salida completa en UTF-8 y códig
   assert.equal(typeof native.data.pid, "number");
   assert.match(native.text, /^status: finished · exit code: 0 · duration: /);
   assert.match(native.raw, /hola ñandú/);
+  assert.match(native.text, /The command finished successfully\./, "una frase llana para los modelos chicos");
   assert.equal(result.isError, false);
 });
 
 test("el código de salida es el real: exit explícito, programa externo que falla y cmdlet que falla", { skip: !windows }, async () => {
   const task = nextTask();
-  assert.equal(read(await run({ command: "exit 7" }, task)).data.exitCode, 7);
+  const seven = read(await run({ command: "exit 7" }, task));
+  assert.equal(seven.data.exitCode, 7);
+  assert.match(seven.text, /The command failed \(exit code 7\)\./);
   assert.equal(read(await run({ command: "cmd /c exit 3" }, task)).data.exitCode, 3);
   const failing = read(await run({ command: "Get-Item C:\\no_existe_xyz_jarvis" }, task));
   assert.equal(failing.data.exitCode, 1);
@@ -129,6 +134,7 @@ test("vence el plazo: running sin matar el proceso, y con {pid} se recoge el res
   const task = nextTask();
   const first = read(await run({ command: "Write-Output 'empiezo'; Start-Sleep 4; Write-Output 'listo'; exit 5", timeoutSec: 1 }, task));
   assert.equal(first.data.state, "running");
+  assert.match(first.text, new RegExp(`run_command with \\{ "pid": ${first.data.pid} \\}`));
   assert.match(first.raw, /empiezo/);
   assert.doesNotMatch(first.raw, /listo/);
   const pid = first.data.pid as number;
@@ -148,6 +154,8 @@ test("un prompt: waiting_input con el texto, y la respuesta llega por {pid, inpu
   assert.equal(waiting.data.state, "waiting_input");
   assert.equal(waiting.data.prompt, "Tu nombre:");
   assert.equal(waiting.data.exitCode, null);
+  assert.match(waiting.text, new RegExp(`run_command \\{ "pid": ${waiting.data.pid}, "input": <the answer> \\}`), "dice cómo continuar el mismo proceso");
+  assert.match(waiting.text, /Do not start a new command/);
 
   const answered = read(await run({ pid: waiting.data.pid, input: "Ana", timeoutSec: 20 }, task));
   assert.equal(answered.data.state, "finished");
@@ -217,8 +225,8 @@ test("validaciones: un solo modo, tipos, tope de largo, pid ajeno o inexistente 
   await errorText({ command: "Get-Date", timeoutSec: -1 });
   await errorText({ command: 42 });
   await errorText({ pid: 1.5 });
-  assert.match(await errorText({ command: "x".repeat(MAX_COMMAND_CHARS + 1) }), /caracteres/);
-  assert.match(await errorText({ pid: 999_999 }), /no existe/);
+  assert.match(await errorText({ command: "x".repeat(MAX_COMMAND_CHARS + 1) }), /characters/);
+  assert.match(await errorText({ pid: 999_999 }), /does not exist/);
 
   const started = read(await run({ command: "Start-Sleep 30", timeoutSec: 1 }, task));
   assert.equal(started.data.state, "running");
@@ -239,4 +247,39 @@ test("el plazo del manifiesto acota la espera de una llamada", { skip: !windows 
   assert.equal(native.data.state, "running");
   assert.ok(Date.now() - started < 8000, "esperó más de lo que el plazo permite");
   await provider.onTaskEnd(task, "failed");
+});
+
+test("un proceso cortado desde fuera no se lee como una salida limpia: código -1", { skip: !windows }, async () => {
+  const task = nextTask();
+  const started = read(await run({ command: "Start-Sleep 30", timeoutSec: 1 }, task));
+  const pid = started.data.pid as number;
+  process.kill(pid);
+  const ended = read(await run({ pid, timeoutSec: 10 }, task));
+  assert.equal(ended.data.state, "finished");
+  assert.notEqual(ended.data.exitCode, 0);
+  assert.equal(typeof ended.data.exitCode, "number");
+});
+
+test("con el tope de procesos vivos: lo que dejó una tarea completada se cierra para hacer lugar; lo de una tarea en curso no se toca", { skip: !windows }, async () => {
+  const small = new TerminalProvider({ defaultCwd: os.tmpdir(), maxLive: 2 });
+  const start = (taskId: string) => small.callTool("run_command", { command: "Start-Sleep 60", timeoutSec: 1 }, { taskId });
+  try {
+    const a = read(await start("A"));
+    const b = read(await start("A"));
+    // La tarea A sigue en curso: no hay lugar y no se cierra nada.
+    const refused = await start("B");
+    assert.equal(refused.isError, true);
+    assert.match(read(refused).text, /2 processes are already running/);
+    assert.ok(alive(a.data.pid as number) && alive(b.data.pid as number));
+
+    // La tarea A se completa y deja sus procesos: ya no los puede continuar nadie, y el más antiguo se cierra para dar lugar a B.
+    await small.onTaskEnd("A", "completed");
+    assert.ok(alive(a.data.pid as number) && alive(b.data.pid as number), "una tarea completada los deja");
+    const c = read(await start("B"));
+    assert.equal(c.data.state, "running");
+    assert.equal(await waitDead(a.data.pid as number), true, "el más antiguo se cerró");
+    assert.ok(alive(b.data.pid as number), "solo se cierra lo necesario");
+  } finally {
+    await small.close();
+  }
 });

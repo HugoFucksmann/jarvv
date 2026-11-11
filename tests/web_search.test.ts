@@ -17,7 +17,7 @@ import { egressFinding } from "../src/core/policy/egress.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
 import { parseArgs, isInternalHost } from "../src/tools/web/args.ts";
 import { pickCandidates, rank, tokenize } from "../src/tools/web/bm25.ts";
-import { chunkDocs, chunkLines, cleanDocs, cleanLines, CHUNK_MAX } from "../src/tools/web/chunks.ts";
+import { chunkDocs, chunkLines, cleanDocs, cleanLines, snippetChunks, CHUNK_MAX } from "../src/tools/web/chunks.ts";
 import { parseFetch, parseResearch } from "../src/tools/web/report.ts";
 import { WEB_DEPENDENCIES, WebSearchProvider } from "../src/tools/web/webSearchProvider.ts";
 
@@ -111,9 +111,34 @@ test("parseResearch: fuentes y páginas con su número; un texto sin la forma es
 
 test("parseFetch: título, fuente y el Markdown posterior a la procedencia", () => {
   const page = parseFetch(`# Un título\n<https://a.org/x>\n_a.org · published 2024-01-01_\n_fetched via http_ · ~120 tokens\n\nCuerpo de la página.`, "https://a.org/x", 3);
-  assert.deepEqual(page?.source, { n: 3, title: "Un título", url: "https://a.org/x" });
+  assert.deepEqual(page?.source, { n: 3, title: "Un título", url: "https://a.org/x", date: "2024-01-01" }, "la fecha de publicación viaja con la fuente");
   assert.equal(page?.doc.body, "Cuerpo de la página.");
   assert.equal(parseFetch("", "https://a.org/x", 1), null);
+});
+
+test("parseResearch: la fecha de publicación y el extracto de cada fuente se conservan", () => {
+  const report = [
+    "# Research brief: node",
+    "## Sources",
+    "- [1] **Node.js 22.0.0 (Current)** — <https://nodejs.org/en/blog/release/v22.0.0>",
+    "  _published 2024-04-24",
+    "  > Node.js 22 incluye require() de módulos ESM y un cliente WebSocket nativo en esta versión.",
+    "- [2] **Otra** — <https://example.org/b>",
+    "",
+    "## Documents",
+    "<https://nodejs.org/en/blog/release/v22.0.0> · ~10 tokens",
+    "texto",
+  ].join("\n");
+  const { sources } = parseResearch(report);
+  assert.equal(sources[0].date, "2024-04-24");
+  assert.match(sources[0].snippet ?? "", /require\(\) de módulos ESM/);
+  assert.equal(sources[1].date, undefined);
+  assert.equal(sources[1].snippet, undefined);
+
+  const chunks = snippetChunks(sources, 10);
+  assert.equal(chunks.length, 1, "solo el extracto con contenido (la fuente sin extracto no aporta fragmento)");
+  assert.deepEqual([chunks[0].id, chunks[0].n], [10, 1]);
+  assert.match(chunks[0].text, /^Node\.js 22\.0\.0 \(Current\) — Node\.js 22 incluye .* \(published 2024-04-24\)$/);
 });
 
 // ───────────────────────── Limpieza y fragmentos ─────────────────────────
@@ -295,15 +320,16 @@ test("ToolHost: solo deja pasar lo que el proveedor declara y las sub-llamadas l
 
 // ───────────────────────── Proveedor: sin modelo ─────────────────────────
 
-test("sin modelo: la respuesta sale de BM25; fragmentos literales con su fuente, estado found, el informe completo en raw y el texto dentro del tope", async () => {
+test("sin modelo: la respuesta sale de BM25; fragmentos literales con su fuente, estado partial (coincidir en palabras no es responder), el informe completo en raw y el texto dentro del tope", async () => {
   const { host, calls } = fakeHost(() => ok(REPORT));
   const result = await search(new WebSearchProvider(), { need: "¿Cuándo se publicó Node.js 22?" }, host);
   const native = read(result);
   assert.equal(result.isError, false);
-  assert.equal(native.data.state, "found");
+  assert.equal(native.data.state, "partial");
   assert.equal(native.data.judge, "off");
-  assert.match(native.text, /^status: found · \d+ passages? from 1 source/);
+  assert.match(native.text, /^status: partial · \d+ passages? from 1 source/);
   assert.match(native.text, /\[1\] .*24 de abril de 2024/s);
+  assert.match(native.text, /These passages match the keywords of the question; check that they really answer it\./, "sin modelo se avisa que no está verificado");
   assert.match(native.text, /Sources:\n\[1\] Node\.js 22 released — https:\/\/nodejs\.org/);
   assert.doesNotMatch(native.text, /Torta|harina/, "lo irrelevante no llega al modelo");
   assert.ok(native.text.length <= BUDGET.summaryMax, `el texto mide ${native.text.length}`);
@@ -311,6 +337,26 @@ test("sin modelo: la respuesta sale de BM25; fragmentos literales con su fuente,
   assert.deepEqual(calls.map((c) => [c.ref.server, c.ref.tool]), [["free_search", "research"]]);
   assert.deepEqual(calls[0].args, { question: "¿Cuándo se publicó Node.js 22?", max_age_hours: 24 }, "sin filtros, con la antigüedad máxima de la caché");
   assert.equal((native.meta.filters as { freshness: unknown }).freshness, null);
+});
+
+test("la fecha de publicación de la fuente llega al modelo: es la respuesta de un \"¿cuándo salió?\" aunque las páginas no la repitan", async () => {
+  const report = [
+    "# Research brief: node",
+    "## Sources",
+    "- [1] **Node.js 22.0.0 (Current)** — <" + NODE_URL + ">",
+    "  _published 2024-04-24",
+    "  > Node.js 22.0.0 (Current) es la primera versión de la línea 22 del proyecto, con novedades de rendimiento.",
+    "",
+    "## Documents",
+    "<" + NODE_URL + "> · ~10 tokens",
+    "# Node.js 22.0.0 (Current)",
+    "",
+    "Notable changes: " + "detalle de cambios internos de la versión sin fecha. ".repeat(8),
+  ].join("\n");
+  const native = read(await search(new WebSearchProvider(), { need: "¿Cuándo salió Node.js 22.0.0?" }, fakeHost(() => ok(report)).host));
+  assert.match(native.text, /Sources:\n\[1\] Node\.js 22\.0\.0 \(Current\) — https:\/\/nodejs\.org\/en\/blog\/release\/v22\.0\.0 \(published 2024-04-24\)/);
+  assert.equal((native.data.sources as { date?: string }[])[0].date, "2024-04-24");
+  assert.match(native.text, /\[1\] Node\.js 22\.0\.0 \(Current\) — Node\.js 22\.0\.0 \(Current\) es la primera versión.*\(published 2024-04-24\)/s, "el extracto de la fuente es un fragmento más");
 });
 
 test("filtros: freshness y dominios viajan a research; la antigüedad máxima de la caché se puede configurar", async () => {
@@ -324,7 +370,7 @@ test("el tope del texto se respeta con muchos fragmentos relevantes, y el primer
   const { host } = fakeHost(() => ok(research("node 22", [{ url: NODE_URL, title: "Node", body }])));
   const native = read(await search(new WebSearchProvider(), { need: "node versión 22 característica publicación" }, host));
   assert.ok(native.text.length <= BUDGET.summaryMax, `el texto mide ${native.text.length}`);
-  assert.equal(native.data.state, "found");
+  assert.equal(native.data.state, "partial");
   assert.match(native.text, /\[1\] /);
   assert.ok((native.data.passages as unknown[]).length >= 1);
 });
@@ -351,7 +397,7 @@ test("con filtros y sin resultado, se repite UNA vez sin ellos y se conserva lo 
   assert.equal(calls.length, 2);
   assert.equal("freshness" in calls[0].args && "include_domains" in calls[0].args, true);
   assert.equal("freshness" in calls[1].args || "include_domains" in calls[1].args, false, "el reintento va sin filtros");
-  assert.equal(native.data.state, "found");
+  assert.equal(native.data.state, "partial");
   assert.equal(native.data.retried, true);
 
   const stillNone = fakeHost(() => ok(unrelated));
@@ -380,7 +426,7 @@ test("con URLs se leen directamente con fetch (research no se usa); lo que no se
   const result = await search(new WebSearchProvider(), { need: "¿Cuándo se publicó Node.js 22?", urls: [NODE_URL, "https://example.org/roto"] }, host);
   const native = read(result);
   assert.deepEqual(calls.map((c) => [c.ref.tool, c.args.url]), [["fetch", NODE_URL], ["fetch", "https://example.org/roto"]]);
-  assert.equal(native.data.state, "found");
+  assert.equal(native.data.state, "partial");
   assert.match(native.text, /\[1\] .*24 de abril/s);
   assert.match(native.text, /Node\.js 22 released — https:\/\/nodejs\.org/);
   assert.deepEqual(native.meta.errors, ["https://example.org/roto: HTTP 404"]);
@@ -483,4 +529,24 @@ test("si Free Search falla, es un error de la herramienta; si se cancela la tare
   });
   const cancelled = await search(new WebSearchProvider(), { need: "algo" }, host, { signal: controller.signal });
   assert.equal(read(cancelled).data.state, "cancelled");
+});
+
+test("el modelo tiene un plazo: si no responde a tiempo se sigue con el orden léxico, sin cancelar la tarea", async () => {
+  let aborted = false;
+  const slow: FragmentJudge = {
+    score: (_need, _fragments, signal) =>
+      new Promise((_, reject) => {
+        signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("sin respuesta a tiempo"));
+        });
+      }),
+  };
+  const started = Date.now();
+  const native = read(await search(new WebSearchProvider({ judge: () => slow, judgeTimeoutMs: 300 }), { need: "¿Cuándo se publicó Node.js 22?" }, fakeHost(() => ok(REPORT)).host));
+  assert.ok(aborted, "el modelo recibió la señal de plazo");
+  assert.ok(Date.now() - started < 8000, "no esperó indefinidamente");
+  assert.equal(native.data.judge, "failed");
+  assert.equal(native.data.state, "partial");
+  assert.match((native.meta.judge as { error: string }).error, /sin respuesta a tiempo/);
 });

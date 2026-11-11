@@ -49,6 +49,8 @@ export interface ToolDefinition {
   readonly argCaps?: Readonly<Record<string, number>>;
   /** Plazo de la herramienta en milisegundos (techo de cuánto espera una llamada de un proveedor nativo); sin él, el del transporte. */
   readonly timeoutMs?: number;
+  /** Cuando la política de repetición depende de los argumentos de la llamada (`run_command`: esperar más salida de un `pid` repite los mismos argumentos). Gana a `policy.repeat`. */
+  readonly repeatByArgs?: (args: Readonly<Record<string, unknown>>) => RepeatPolicy;
   /** Solo la usa una tool compuesta por dentro: no entra en el catálogo de Decision ni del planificador. */
   readonly internal?: boolean;
   readonly policy: Readonly<ToolPolicy>;
@@ -102,6 +104,7 @@ interface ToolOptions {
   argCaps?: Readonly<Record<string, number>>;
   /** Plazo de la herramienta en milisegundos (proveedores nativos). */
   timeoutMs?: number;
+  repeatByArgs?: (args: Readonly<Record<string, unknown>>) => RepeatPolicy;
 }
 
 function def(
@@ -143,6 +146,7 @@ function def(
     requires: opts.requires,
     argCaps: opts.argCaps ? Object.freeze({ ...opts.argCaps }) : undefined,
     timeoutMs: opts.timeoutMs,
+    repeatByArgs: opts.repeatByArgs,
     internal: internal || undefined,
     policy: Object.freeze({
       capability,
@@ -183,9 +187,10 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
 
   // `run_command` (proveedor nativo `jarvis_terminal`): lanza un comando de PowerShell, o continúa uno que sigue vivo (`pid`, con `input` si esperaba entrada).
   // Escritura por catálogo; un comando que `policy/readOnly.ts` demuestra de solo lectura, y una continuación sin `input`, se tratan como lectura llamada por llamada.
-  // `repeat: "allow"`: esperar más salida de un `pid` repite los mismos argumentos; los topes del paso (`maxCallsPerStep`) acotan el resto.
+  // Repetición: un comando nuevo es `strict` (repetir una escritura idéntica pudo duplicar sus efectos); una continuación por `pid` es `allow`, porque esperar más
+  // salida repite los mismos argumentos (los topes del paso, `maxCallsPerStep`, acotan las vueltas).
   def("terminal", "run_command", "PROCESS_CONTROL", "Run a PowerShell command, or continue a running one by its pid.", {
-    repeat: "allow",
+    repeatByArgs: (args) => (typeof args.pid === "number" ? "allow" : "strict"),
     params: ["command", "pid", "input", "timeoutSec", "cwd"],
     notes: {
       command: "PowerShell command to run. Omit it when continuing a process (use pid).",
@@ -204,7 +209,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     repeat: "retry_failed",
     params: ["need", "terms", "urls", "freshness", "domains"],
     notes: {
-      need: "The question to answer, in natural language (max 300 characters). Never a URL.",
+      need: "A direct question, e.g. 'When was Node.js 22 released?' (not an instruction like 'find…'; never a URL). Max 300 characters.",
       terms: "Optional keywords in the language the sources are likely written in; helps when the question is in another language.",
       urls: "Optional pages to read directly instead of searching (max 5, http or https).",
       freshness: "Only for time-sensitive needs: day, week, month or year.",
@@ -248,6 +253,12 @@ export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy
 
 export function requirementOf(server: string, tool: string): "search" | undefined {
   return lookup(server, tool)?.requires;
+}
+
+/** Política de repetición de una llamada: la de sus argumentos si la herramienta la declara así (`repeatByArgs`); si no, la de su política. */
+export function repeatPolicyOf(server: string, tool: string, args: Readonly<Record<string, unknown>>): RepeatPolicy {
+  const def = lookup(server, tool);
+  return def?.repeatByArgs?.(args) ?? getToolPolicy(server, tool).repeat;
 }
 
 /** Plazo declarado de la herramienta en milisegundos, o `undefined` si no tiene (rige el del transporte). */
