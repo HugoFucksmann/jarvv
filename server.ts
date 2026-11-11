@@ -29,6 +29,9 @@ import { ConfigManager } from './src/core/config.ts';
 import { startRetention } from './src/core/retention.ts';
 import { TerminalProvider } from './src/tools/terminal/terminalProvider.ts';
 import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
+import { startTelegram } from './src/telegram/bot.ts';
+import { telegramConfigFromEnv } from './src/telegram/config.ts';
+import type { VoiceConfig } from './src/voice/tts.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +50,9 @@ function dotenvKeys(): string[] {
     return [];
   }
 }
+
+/** Secretos de voz y Telegram: los comandos de `run_command` no los heredan aunque vengan del entorno y no de `.env`. */
+const SECRET_KEYS = ['9058266149:AAHd6GC5YsSBP0Lbz2wTxiOYH0pIu2rKJc0', 'RootAgent_vbot', 'HF_TOKEN'];
 
 async function main() {
   const app = express();
@@ -67,7 +73,7 @@ async function main() {
     free_search: freeSearchServer,
     // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
     // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
-    jarvis_terminal: new TerminalProvider({ envRemove: dotenvKeys() }),
+    jarvis_terminal: new TerminalProvider({ envRemove: [...dotenvKeys(), ...SECRET_KEYS] }),
     jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined) }),
   };
 
@@ -79,6 +85,14 @@ async function main() {
   // Limpieza por antigüedad de las refs y las trazas (`retentionDays`): al arrancar y cada 6 horas.
   const stopRetention = startRetention(getConfig, () => tasks.taskIds());
 
+  // Voz: la configuración se lee en cada uso (se cambia en caliente desde la interfaz). `ui`: ¿la interfaz lee las respuestas?; `telegram`: ¿notas de voz?
+  const voiceFor = (target: 'ui' | 'telegram'): VoiceConfig | null => {
+    const cfg = getConfig();
+    if (!(target === 'ui' ? cfg.voiceEnabled : cfg.telegramVoice)) return null;
+    return { voice: cfg.voiceName, baseUrl: cfg.voiceUrl };
+  };
+
+  let stopTelegram: (() => void) | undefined;
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
@@ -90,6 +104,7 @@ async function main() {
     }, 5000).unref();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
     stopRetention();
+    stopTelegram?.();
     tasks.cancelAll();
     // Cada tarea cancelada cierra sus procesos en segundo plano (necesita los servidores vivos) y escribe su traza: se espera un momento.
     await tasks.drain(3000);
@@ -109,7 +124,7 @@ async function main() {
   process.on('SIGINT', () => cleanShutdown('SIGINT'));
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
 
-  app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine));
+  app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine, () => voiceFor('ui')));
   app.use(['/api/mcp', '/mcp'], createMcpRouter(discoveryEngine));
 
   // Lo que cuelga de un prefijo de API y no coincide con ninguna ruta nunca llega al frontend.
@@ -158,6 +173,15 @@ async function main() {
   app.listen(PORT, HOST, () => {
     console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);
   });
+
+  // Telegram (opcional): segunda vía de entrada de tareas desde un único chat privado. Habla con esta misma API por loopback.
+  const telegram = telegramConfigFromEnv(process.env, PORT);
+  if (telegram.config) {
+    telegram.warnings.forEach((warning) => console.warn(`[Telegram] ${warning}`));
+    stopTelegram = startTelegram({ cfg: telegram.config, getVoice: () => voiceFor('telegram') });
+  } else {
+    console.log(`[Telegram] Desactivado: ${telegram.reason}.`);
+  }
 
   // Arranque de los servidores MCP en paralelo desde ya: tardan unos 2-3 s en estar listos y, si esperan a la primera petición, la paga la
   // primera carga de la interfaz o la primera tarea. Un fallo no detiene nada: queda como servidor no disponible (se reintenta con un refresco).

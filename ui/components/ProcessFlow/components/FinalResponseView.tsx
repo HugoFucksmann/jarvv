@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckCheck, Info, Activity } from "lucide-react";
+import { CheckCheck, Info, Activity, Volume2, VolumeX, Loader2 } from "lucide-react";
 import type { TaskResult } from "../../../types/api.ts";
 import { MarkdownRenderer } from "../../Shared/MarkdownRenderer.tsx";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
@@ -7,9 +7,13 @@ import { CopyButton } from "../../Shared/CopyButton.tsx";
 interface FinalResponseViewProps {
   result: TaskResult;
   onOpenTrace?: () => void;
+  /** Leer la respuesta en voz alta / parar; solo se muestran con la voz activada. */
+  onSpeak?: (text: string) => void;
+  onStopSpeech?: () => void;
+  speechStatus?: "idle" | "loading" | "playing";
 }
 
-export const FinalResponseView: React.FC<FinalResponseViewProps> = ({ result, onOpenTrace }) => (
+export const FinalResponseView: React.FC<FinalResponseViewProps> = ({ result, onOpenTrace, onSpeak, onStopSpeech, speechStatus = "idle" }) => (
   <div className="flex flex-col gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-lg shadow-sm">
     {/* Cabecera con título y acciones de copiado */}
     <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 flex-wrap gap-2">
@@ -25,6 +29,31 @@ export const FinalResponseView: React.FC<FinalResponseViewProps> = ({ result, on
       </div>
 
       <div className="flex items-center gap-2">
+        {onSpeak && (
+          speechStatus === "idle" ? (
+            <button
+              type="button"
+              onClick={() => onSpeak(result.text)}
+              title="Leer la respuesta en voz alta"
+              aria-label="Leer la respuesta en voz alta"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-sky-300 hover:text-white bg-sky-950/50 hover:bg-sky-900/60 border border-sky-800/60 rounded transition-colors cursor-pointer"
+            >
+              <Volume2 className="w-3.5 h-3.5 text-sky-400" />
+              <span>Leer</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onStopSpeech}
+              title="Detener la lectura"
+              aria-label="Detener la lectura"
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-amber-300 hover:text-white bg-amber-950/50 hover:bg-amber-900/60 border border-amber-800/60 rounded transition-colors cursor-pointer"
+            >
+              {speechStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <VolumeX className="w-3.5 h-3.5" />}
+              <span>{speechStatus === "loading" ? "Preparando…" : "Detener"}</span>
+            </button>
+          )
+        )}
         {onOpenTrace && (
           <button
             type="button"

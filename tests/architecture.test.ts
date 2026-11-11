@@ -52,3 +52,17 @@ test("cada proveedor nativo vive en su carpeta y las demás no lo importan entre
     assert.deepEqual(offenders, []);
   }
 });
+
+test("el núcleo no conoce las vías de entrada y salida (Telegram, voz, servidor), y estas no dependen del servidor", () => {
+  const dir = (name: string) => path.join(SRC, name);
+  const offenders = (from: string, forbidden: string[]) =>
+    files(dir(from)).flatMap((file) =>
+      relativeImports(file)
+        .filter((target) => forbidden.some((name) => inside(dir(name), target)))
+        .map((target) => `${path.relative(SRC, file)} → ${path.relative(SRC, target)}`),
+    );
+  assert.deepEqual(offenders("core", ["telegram", "voice", "server"]), []);
+  assert.deepEqual(offenders("tools", ["telegram", "voice", "server"]), []);
+  assert.deepEqual(offenders("telegram", ["server"]), []);
+  assert.deepEqual(offenders("voice", ["server", "telegram"]), []);
+});

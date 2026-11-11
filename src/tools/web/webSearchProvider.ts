@@ -5,7 +5,7 @@
  * van enteras en `raw` (la ref en disco) y el modelo ve `text`.
  *
  * Pipeline: obtener el material con \`research\` (o \`fetch\` por URL) de Free Search, por el \`ToolHost\` → limpiar y partir en fragmentos → BM25 contra \`need\` y \`terms\`
- * (12 a 15 candidatos, máximo 3 por fuente) → el modelo de decisión (2B), si se inyectó, puntúa cada candidato → el código arma el resultado con un estado calculado por umbrales.
+ * (hasta 15 candidatos con cobertura mínima, máximo 3 por fuente, sin casi repetidos) → el modelo de decisión (2B), si se inyectó, puntúa cada candidato → el código arma el resultado con un estado calculado por umbrales.
  * No hay ningún modelo generativo: nadie redacta texto a partir de páginas no confiables, y lo único que sale de un fragmento hostil es una probabilidad.
  *
  * Estados (\`data.state\`): \`found\`, \`partial\`, \`not_found\` (se leyó material y nada responde) y \`no_results\` (no hubo material). Los dos últimos son "sin datos" para la
@@ -19,7 +19,7 @@ import { toolResult } from "../../core/tools/result.ts";
 import { clipAtWord } from "../../core/text.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
-import { FRESHNESS, parseArgs, type WebArgs } from "./args.ts";
+import { FRESHNESS, parseArgs, searchQuestion, type WebArgs } from "./args.ts";
 import { CANDIDATES, pickCandidates, rank, type Ranked } from "./bm25.ts";
 import { chunkDocs, snippetChunks } from "./chunks.ts";
 import { parseFetch, parseResearch, type Doc, type Material, type Source } from "./report.ts";
@@ -71,6 +71,14 @@ const TOOL: MCPTool = {
   },
 };
 
+/** Cómo dice Free Search que la búsqueda no encontró nada (lo informa como error de herramienta). */
+const NO_RESULTS = /\bno (?:results?|sources?|matches|pages?|documents?)\b|\bnothing (?:was )?found\b|\b0 (?:results|sources)\b/i;
+
+/** Marca de un extracto del buscador en `text`: el modelo debe saber que no es texto de la página (puede estar desactualizado). */
+const SNIPPET_MARK = "(search result snippet) ";
+
+const passageOf =(c: Ranked): Passage => ({ n: c.chunk.n, text: c.chunk.text, score: c.score, ...(c.chunk.kind === "snippet" ? { snippet: true } : {}) });
+
 const fail = (message: string): MCPCallResult => toolResult({ text: message, raw: message, data: { state: "error" }, isError: true });
 
 interface Passage {
@@ -78,6 +86,8 @@ interface Passage {
   readonly text: string;
   readonly score: number;
   readonly probability?: number;
+  /** El extracto del buscador, no texto de la página. */
+  readonly snippet?: boolean;
 }
 
 interface Analysis {
@@ -93,6 +103,8 @@ interface Gathered {
   /** Texto completo de lo obtenido (va a la ref). */
   readonly raw: string;
   readonly errors: string[];
+  /** Free Search falló por algo que no es "sin resultados" (caída, bloqueo, plazo): con este motivo, no hay datos no es lo mismo que no se pudo buscar. */
+  readonly unavailable?: string;
 }
 
 export interface WebSearchOptions {
@@ -139,6 +151,8 @@ export class WebSearchProvider implements ToolProvider {
     if (options.host === undefined) return fail("web_search only runs inside a task: it needs the tool host.");
     const parsed = parseArgs(args);
     if (!parsed.ok) return fail(parsed.message);
+    // La pregunta sin la orden que la envuelve ("Buscá en internet…"): es lo que va al buscador, a BM25 y al juez; `meta` guarda las dos.
+    const query: WebArgs = { ...parsed.args, need: searchQuestion(parsed.args.need) };
 
     const started = Date.now();
     const deadline = started + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS) - SAFETY_MARGIN_MS;
@@ -153,13 +167,13 @@ export class WebSearchProvider implements ToolProvider {
     let analysis: Analysis;
     try {
       let mark = Date.now();
-      gathered = await this.gather(host, parsed.args, filtered, signal);
+      gathered = await this.gather(host, query, filtered, signal);
       timings.fetchMs = Date.now() - mark;
       if (gathered.material.docs.length === 0 && gathered.errors.length > 0 && parsed.args.urls.length > 0) {
         return fail(`None of the URLs could be read: ${gathered.errors.join("; ")}`);
       }
       mark = Date.now();
-      analysis = await this.analyze(parsed.args, gathered.material, remaining, signal);
+      analysis = await this.analyze(query, gathered.material, remaining, signal);
       timings.rankMs = Date.now() - mark;
 
       // Sin resultado y con filtros: una sola vez más, sin ellos (si queda tiempo).
@@ -167,20 +181,22 @@ export class WebSearchProvider implements ToolProvider {
         retried = true;
         filtered = false;
         mark = Date.now();
-        const again = await this.gather(host, parsed.args, false, signal);
+        const again = await this.gather(host, query, false, signal);
         timings.retryFetchMs = Date.now() - mark;
-        const second = await this.analyze(parsed.args, again.material, remaining, signal);
+        const second = await this.analyze(query, again.material, remaining, signal);
         if (second.state === "found" || second.state === "partial" || again.material.docs.length > gathered.material.docs.length) {
-          gathered = { material: again.material, raw: again.raw, errors: [...gathered.errors, ...again.errors] };
+          gathered = { ...again, errors: [...gathered.errors, ...again.errors] };
           analysis = second;
         }
       }
+      // Sin material porque Free Search falló (no porque no haya resultados): es un fallo de la herramienta, no "no hay datos".
+      if (analysis.state === "no_results" && gathered.unavailable !== undefined) return fail(`The search service failed: ${gathered.unavailable}`);
     } catch (error) {
       if (signal?.aborted) return toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled" } });
       return fail(`Web search failed: ${errorMessage(error)}`);
     }
 
-    return this.compose(parsed.args, gathered, analysis, { retried, timings, durationMs: Date.now() - started });
+    return this.compose(parsed.args, query.need, gathered, analysis, { retried, timings, durationMs: Date.now() - started });
   }
 
   // ───────────────────────── Obtener el material ─────────────────────────
@@ -188,31 +204,32 @@ export class WebSearchProvider implements ToolProvider {
   private async gather(host: NonNullable<ToolCallOptions["host"]>, args: WebArgs, withFilters: boolean, signal?: AbortSignal): Promise<Gathered> {
     const errors: string[] = [];
     if (args.urls.length > 0) {
+      // Las URL se leen a la vez (son independientes); el número de cada fuente es su posición en la lista, y el orden del resultado no depende de cuál responde antes.
+      const unique = [...new Set(args.urls)];
+      const pages = await Promise.all(
+        unique.map(async (url, i): Promise<{ page?: { source: Source; doc: Doc }; text?: string; error?: string }> => {
+          try {
+            // La misma antigüedad máxima de la caché que `research` (sin ella, `fetch` usa la de Free Search: 7 días).
+            const result = await host.call({ server: "free_search", tool: "fetch" }, { url, max_age_hours: this.maxAgeHours }, { signal });
+            const text = textOf(result);
+            if (result.isError === true) return { error: `${url}: ${clipAtWord(text || "error", 120)}` };
+            const page = parseFetch(text, url, i + 1);
+            return page === null ? { error: `${url}: empty page` } : { page, text };
+          } catch (error) {
+            if (signal?.aborted) throw error;
+            return { error: `${url}: ${errorMessage(error)}` };
+          }
+        }),
+      );
       const sources: Source[] = [];
       const docs: Doc[] = [];
       const raws: string[] = [];
-      let n = 0;
-      for (const url of args.urls) {
-        if (signal?.aborted) break;
-        n++;
-        try {
-          const result = await host.call({ server: "free_search", tool: "fetch" }, { url }, { signal });
-          const text = textOf(result);
-          if (result.isError === true) {
-            errors.push(`${url}: ${clipAtWord(text || "error", 120)}`);
-            continue;
-          }
-          const page = parseFetch(text, url, n);
-          if (page === null) {
-            errors.push(`${url}: empty page`);
-            continue;
-          }
-          sources.push(page.source);
-          docs.push(page.doc);
-          raws.push(text);
-        } catch (error) {
-          errors.push(`${url}: ${errorMessage(error)}`);
-        }
+      for (const r of pages) {
+        if (r.error !== undefined) errors.push(r.error);
+        if (r.page === undefined) continue;
+        sources.push(r.page.source);
+        docs.push(r.page.doc);
+        raws.push(r.text ?? "");
       }
       return { material: { sources, docs }, raw: raws.join("\n\n---\n\n"), errors };
     }
@@ -223,9 +240,10 @@ export class WebSearchProvider implements ToolProvider {
     const result = await host.call({ server: "free_search", tool: "research" }, request, { signal });
     const text = textOf(result);
     if (result.isError === true) {
-      // Free Search informa "sin resultados" como error de herramienta: no se distingue de una caída, y para el modelo el efecto es el mismo (sin datos).
-      errors.push(clipAtWord(text || "research failed", 200));
-      return { material: { sources: [], docs: [] }, raw: text, errors };
+      // Free Search informa "sin resultados" como error de herramienta; el resto de sus errores (caída, bloqueo, plazo) es no haber podido buscar.
+      const message = clipAtWord(text || "research failed", 200);
+      errors.push(message);
+      return { material: { sources: [], docs: [] }, raw: text, errors, ...(NO_RESULTS.test(text) ? {} : { unavailable: message }) };
     }
     return { material: parseResearch(text), raw: text, errors };
   }
@@ -233,11 +251,11 @@ export class WebSearchProvider implements ToolProvider {
   // ───────────────────────── Analizar ─────────────────────────
 
   private async analyze(args: WebArgs, material: Material, remaining: () => number, signal?: AbortSignal): Promise<Analysis> {
-    if (material.docs.length === 0) return { state: "no_results", passages: [], candidates: 0, judge: "off", judgeMeta: {} };
-
+    // Sin páginas pero con extractos (Free Search no pudo leer ninguna), los extractos solos todavía pueden responder.
     const pages = chunkDocs(material.docs);
     const chunks = [...pages, ...snippetChunks(material.sources, pages.length)];
-    const { ranked } = rank(chunks, [args.need, ...args.terms].join(" "));
+    if (material.docs.length === 0 && chunks.length === 0) return { state: "no_results", passages: [], candidates: 0, judge: "off", judgeMeta: {} };
+    const { ranked } = rank(chunks, args.need, args.terms);
     const candidates = pickCandidates(ranked, CANDIDATES);
     if (candidates.length === 0) return { state: "not_found", passages: [], candidates: 0, judge: "off", judgeMeta: { chunks: chunks.length } };
 
@@ -255,7 +273,7 @@ export class WebSearchProvider implements ToolProvider {
           const state: State = best >= JUDGE_FOUND ? "found" : best >= JUDGE_PARTIAL ? "partial" : "not_found";
           return {
             state,
-            passages: scored.filter((s) => s.p >= JUDGE_PARTIAL).slice(0, RETURN_MAX).map((s) => ({ n: s.c.chunk.n, text: s.c.chunk.text, score: s.c.score, probability: s.p })),
+            passages: scored.filter((s) => s.p >= JUDGE_PARTIAL).slice(0, RETURN_MAX).map((s) => ({ ...passageOf(s.c), probability: s.p })),
             candidates: candidates.length,
             judge: "used",
             judgeMeta: {
@@ -277,17 +295,17 @@ export class WebSearchProvider implements ToolProvider {
 
   /** Estado y fragmentos por cobertura de palabras (sin modelo, o con el modelo caído): coincidir en palabras no es responder, así que nunca `found`. */
   private byCoverage(candidates: readonly Ranked[], judge: "off" | "failed", judgeMeta: Record<string, unknown>): Analysis {
-    const state: State = candidates[0].coverage >= COVERAGE_PARTIAL ? "partial" : "not_found";
+    // El estado lo decide cualquier candidato que llegue al umbral, no solo el primero (el orden es por puntaje, no por cobertura).
     const passages = candidates
       .filter((c) => c.coverage >= COVERAGE_PARTIAL)
       .slice(0, RETURN_MAX)
-      .map((c) => ({ n: c.chunk.n, text: c.chunk.text, score: c.score }));
-    return { state, passages, candidates: candidates.length, judge, judgeMeta };
+      .map(passageOf);
+    return { state: passages.length > 0 ? "partial" : "not_found", passages, candidates: candidates.length, judge, judgeMeta };
   }
 
   // ───────────────────────── Armar el resultado ─────────────────────────
 
-  private compose(args: WebArgs, gathered: Gathered, analysis: Analysis, info: { retried: boolean; timings: Record<string, number>; durationMs: number }): MCPCallResult {
+  private compose(args: WebArgs, question: string, gathered: Gathered, analysis: Analysis, info: { retried: boolean; timings: Record<string, number>; durationMs: number }): MCPCallResult {
     const sourceOf = new Map(gathered.material.sources.map((s) => [s.n, s]));
     const sourceLine = (n: number): string => {
       const s = sourceOf.get(n);
@@ -298,11 +316,13 @@ export class WebSearchProvider implements ToolProvider {
     const shown: Passage[] = [];
     let used = 0;
     for (const p of analysis.passages) {
-      const cost = p.text.length + 6;
+      const overhead = 6 + (p.snippet === true ? SNIPPET_MARK.length : 0);
+      const cost = p.text.length + overhead;
       if (shown.length > 0 && used + cost > PASSAGES_BUDGET) continue;
-      shown.push(shown.length === 0 && cost > PASSAGES_BUDGET ? { ...p, text: clipAtWord(p.text, PASSAGES_BUDGET - 6) } : p);
+      shown.push(shown.length === 0 && cost > PASSAGES_BUDGET ? { ...p, text: clipAtWord(p.text, PASSAGES_BUDGET - overhead) } : p);
       used += cost;
     }
+    const warnings = gathered.material.format === "unrecognized" ? ["Free Search answered in an unrecognized format: sources, titles and dates could not be read."] : [];
 
     const cited = [...new Set(shown.map((p) => p.n))];
     const listed = analysis.state === "found" || analysis.state === "partial" ? cited : gathered.material.sources.slice(0, SOURCES_LISTED).map((s) => s.n);
@@ -318,7 +338,7 @@ export class WebSearchProvider implements ToolProvider {
               : "These passages match the keywords of the question; check that they really answer it.",
           );
         }
-        lines.push(...shown.map((p) => `[${p.n}] ${p.text}`));
+        lines.push(...shown.map((p) => `[${p.n}] ${p.snippet === true ? SNIPPET_MARK : ""}${p.text}`));
         break;
       case "not_found":
         lines.push(`status: not_found · no passage answers the question (${gathered.material.sources.length || gathered.material.docs.length} sources read)`);
@@ -336,7 +356,12 @@ export class WebSearchProvider implements ToolProvider {
       raw: gathered.raw,
       data: {
         state: analysis.state,
-        passages: shown.map((p) => ({ n: p.n, score: Number(p.score.toFixed(3)), ...(p.probability === undefined ? {} : { probability: Number(p.probability.toFixed(3)) }) })),
+        passages: shown.map((p) => ({
+          n: p.n,
+          score: Number(p.score.toFixed(3)),
+          ...(p.probability === undefined ? {} : { probability: Number(p.probability.toFixed(3)) }),
+          ...(p.snippet === true ? { snippet: true } : {}),
+        })),
         sources: gathered.material.sources.map((s) => ({ n: s.n, title: s.title, url: s.url, ...(s.date === undefined ? {} : { date: s.date }) })),
         candidates: analysis.candidates,
         judge: analysis.judge,
@@ -344,6 +369,7 @@ export class WebSearchProvider implements ToolProvider {
       },
       meta: {
         need: args.need,
+        ...(question === args.need ? {} : { question }),
         terms: args.terms,
         filters: { freshness: args.freshness ?? null, domains: args.domains },
         maxAgeHours: this.maxAgeHours,
@@ -351,6 +377,7 @@ export class WebSearchProvider implements ToolProvider {
         timings: info.timings,
         judge: { mode: analysis.judge, ...analysis.judgeMeta },
         errors: gathered.errors,
+        warnings,
         budget: BUDGET.summaryMax,
       },
     });

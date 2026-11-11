@@ -118,7 +118,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `exception` | La ejecución lanzó una excepción |
 | | `interrupted` | La cancelación llegó con la herramienta ya despachada |
 | | `waiting_input` | El proceso que lanzó `run_command` sigue vivo y pide una respuesta del usuario; no se verifica y el paso se la pregunta |
-| | `denied` | La política del servidor la denegó (la denegación de Guard cierra la tarea) |
+| | `denied` | La política del servidor la denegó (`denied`); una denegación de Guard queda registrada como `tool_rejected` y no cierra la tarea |
 | No ejecutadas | `args_invalid` | Argumentos inválidos (validación, pre-chequeo o revisión; el pre-chequeo y la revisión dejan un motivo fijo como resumen) |
 | | `refs_unresolved` | Una referencia `rN` no se pudo resolver |
 | | `loop_blocked` | El anti-bucle bloqueó una repetición |
@@ -190,7 +190,6 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 5. **Estado terminal cerrado**: una tarea terminal rechaza toda escritura; ninguna respuesta tardía puede modificarla.
 
 ## 8. Limitaciones Conocidas
-- **Refs sin retención**: los archivos de refs no se borran nunca; tras expulsar la tarea o reiniciar el servidor quedan en disco sin tarea que las referencie.
 - **Timeouts de modelos**: un timeout durante un paso se registra como servicio no disponible, sin distinguirlo de una caída.
 
 ## 9. Archivos Base

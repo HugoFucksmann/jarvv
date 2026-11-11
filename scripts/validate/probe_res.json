@@ -1,0 +1,938 @@
+{
+  "1": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "capabilities": {
+        "completions": {},
+        "experimental": {},
+        "prompts": {
+          "listChanged": false
+        },
+        "resources": {
+          "listChanged": false,
+          "subscribe": false
+        },
+        "tools": {
+          "listChanged": false
+        }
+      },
+      "instructions": "Keyless multi-engine web search, page fetching and document reading. No API key is needed, so never ask the user for one. `search` finds URLs. Its snippets are summaries and may be out of date, so read dates, amounts, rules and other details from the page itself: `fetch` / `fetch_batch` for known URLs, `research` for search plus reading in one call, `read_doc` for paginated PDF/DOCX, and `extract_structured` for dates and prices as fields. Results say when they were retrieved, how old a cached copy is, and which results are undated. Check that before calling anything current, and pull again with `force_refresh=True` or `max_age_hours=0` when it matters. Every tool takes format='markdown' (default, compact) or format='json' (structured).",
+      "protocolVersion": "2024-11-05",
+      "serverInfo": {
+        "description": "Keyless multi-engine web search, page fetching and document reading. Runs locally; no account, no API key.",
+        "icons": [
+          {
+            "mimeType": "image/png",
+            "sizes": [
+              "128x128"
+            ],
+            "src": "https://raw.githubusercontent.com/sweetcornna/free-search-mcp/main/assets/icon.png"
+          }
+        ],
+        "name": "search-mcp",
+        "title": "Free Search",
+        "version": "0.18.0",
+        "websiteUrl": "https://github.com/sweetcornna/free-search-mcp"
+      }
+    }
+  },
+  "2": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "tools": [
+        {
+          "annotations": {
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Run a multi-engine web search and return a ranked, deduplicated link list.\n\nBest for:\n- Discovery queries (\"what is X\", \"find me X\", \"who is X\").\n- Getting a list of URLs you can hand to `fetch` / `fetch_batch` next.\n- Topics likely to be after your knowledge cutoff (use `freshness=\"week\"`).\n- Filtering to specific domains (`include_domains=[\"python.org\"]`) or\n  a kind of source (`category=\"paper\"` / `\"finance\"`, or a sub-group like\n  `category=\"paper.biomed\"` / `\"finance.filings\"`; see `engines()` for the\n  full tree).\n- Looking a fact up at its registry, with no category needed: a current\n  version or support end date (\"latest fastapi version\"), a CVE\n  (\"CVE-2024-3094\": NVD record, OSV advisories, CISA exploited status),\n  a forecast (\"\u4e0a\u6d77\u660e\u5929\u5929\u6c14\"), an exchange rate (\"100 usd to cny\": ECB, and\n  the PBOC parity for \u4eba\u6c11\u5e01), a coin price, a country indicator (\"china\n  gdp\", \"japan population\"), public holidays (\"2026\u5e74\u653e\u5047\u5b89\u6392\"), the current\n  time in a city, a domain's expiry, a company's legal entity, an iOS\n  app's version, Wikidata facts (\"Shanghai population\"). The source that\n  fits the words joins the search and its record arrives as the first\n  result with the publisher's date in `dated \u2026`, so it can be cited\n  without a fetch. Name the thing plainly. `category=` (\"software\",\n  \"security\", \"weather\", \"finance.fx\", \"stats\", \"calendar\", \"reference\",\n  \"docs\", \"gov\") asks the same sources explicitly.\n\nNot recommended for:\n- You already know the URL -> use `fetch` instead.\n- You want both links AND their full text in one call -> use `research`.\n- You want to query pages already in the local cache -> use `cache_search`.\n- Reading PDFs/DOCX from a known URL -> use `read_doc`.\n- Following one paper's references or citations -> use `paper_graph`.\n\nReturns:\n- markdown (default): numbered list of `n. title`, `<url>`, snippet. About 40%\n  fewer tokens than json. When an answer agent is configured\n  (`SEARCH_MCP_AGENT_BACKEND`), a short sourced `## Answer` block sits above\n  the list; it starts beside the engines and answers from the same result\n  set.\n- json: dict with `results` (list of {title,url,snippet,engines,score}),\n  `engines`, `cached`, optional `errors` map, optional `hint` string, and\n  `agent` ({answer, backend, model, sources, elapsed_seconds} or\n  {error}) when an answer agent is configured.\n  `engines` is what was actually ASKED for this answer; each result's own\n  `engines` is what found it. A default engine that failed recently is not\n  asked and appears under `benched_engines` instead; a rescue pass that\n  substituted a source appears as `rescued_via`. When the operator has\n  signed in to an agent engine (`codex`), it searches beside the keyless\n  engines and `agent_lane` reports it ({engines, answered, pending, errors,\n  rate_limited, benched, left_out}; `left_out` lists an answer dropped as\n  off-topic or unconfirmed);\n  one still searching when the links return is merged into the cached\n  result set, so the same call repeated later carries its results too.\n\nCommon mistakes:\n- Answering from snippets. A snippet is an engine's summary of a page as it\n  looked when crawled: it drops qualifiers and is often years old. Use\n  `search` to find the URL, then read the page (`fetch`, `research`) for\n  any date, amount, rule, deadline or number you will state.\n- Treating the `## Answer` block as verified. It is one small model's\n  reading of the few pages below; read the source page yourself before\n  acting on a deadline, price or rule.\n- Treating a result as recent because `freshness=` was set. The filter keeps\n  undated results; the header says how many could be dated (`dated: 3/10`)\n  and each result is marked `dated \u2026`, `\u2026 (from snippet text)` or `undated`.\n- Passing a URL as `query`: that is `fetch`'s job.\n- Cranking `max_results` up hoping for better recall; engines cap around\n  10-20 each, anything beyond is duplicate noise (and 50 is the ceiling).\n- Naming engines by default. The default pool is already the set that works\n  keylessly over plain HTTP, it benches an engine that starts failing and\n  seats a reserve when it gets thin, and naming engines switches all of\n  that, and `category=` routing, off. Name engines when you want a\n  specific index: `engines=[\"so360\",\"baidu\"]` for Chinese-language sites,\n  `engines=[\"brave\"]` (needs the browser) for a second opinion.\n- Using `category=\"news\"` for breaking news without also setting\n  `freshness=\"day\"`: the index lags by days.\n\nArgs:\n    query: Natural-language query (the same string a human would type).\n    engines: Subset of `engines()`. None (recommended) = the health-aware\n        default pool: duckduckgo, bing, yahoojp (Google's index) and\n        anysearch, plus googlenews when `freshness` is \"day\"/\"week\",\n        so360 and quark for a Chinese query and naver for a Korean one.\n    max_results: Merged result count after dedup, clamped to 1-50. It is\n        also the PER-ENGINE budget, so it multiplies across the fan-out;\n        5-20 is the useful range and anything past that is duplicate noise\n        bought with real latency. Omit it for the configured default.\n    use_cache: Reuse the last result for this exact (query, engines,\n        max_results, AND all active filters: freshness, include/exclude\n        domains, category, include/exclude text) within the cache TTL.\n        Changing any filter is a different cache entry. False forces a\n        re-fetch.\n    max_age_hours: Treat cached results older than this as a read miss; a\n        fresh result is ALWAYS written back to the cache regardless of this\n        value, so caching is never disabled. Use 0 to force-refresh while\n        keeping cache writes; None = use server default TTL (7 days).\n    freshness: \"day\"|\"week\"|\"month\"|\"year\". Restricts to recent results.\n        Best-effort: applied as an engine time-window param AND a client-side\n        date check, but most HTML-engine results carry no parseable date, so\n        undated results are kept rather than dropped (unknown != old). Treat\n        it as a strong hint, not a hard filter; googlenews dates are exact.\n    include_domains: List of domains to restrict to (e.g. [\"python.org\"]).\n    exclude_domains: List of domains to exclude.\n    category: Which KIND of source to search. The enum lists every value.\n        A bare group widens: \"paper\" adds one specialist per sub-group to the\n        default web pool. A dotted sub-group narrows to just the sources that\n        index it (\"paper.biomed\" => the biomedical indexes only). It also\n        RERANKS: engines that natively index the category count double in\n        the fusion, so the filing outranks the commentary about it, and a\n        record looked up by the query (a PyPI release, a CVE, an ECB rate,\n        a forecast) counts five times, so it leads the list. Call\n        `engines()` for the group -> sub-group -> engine tree with a line on\n        each source. Two behaviours worth knowing: \"image\"/\"dataset\" REPLACE\n        the web pool rather than augment it (a web engine cannot return an\n        image file), and \"news\"/\"paper\"/\"forum\"/\"github\"/\"blog\" also filter\n        general-web hits by hostname, so a strict category can thin those\n        engines out. The specialists it routes to are exempt.\n    include_text: Substring required in title or snippet (case-insensitive).\n    exclude_text: Substring forbidden in title or snippet.\n    format: \"markdown\" (default) or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "engines": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Engines"
+              },
+              "max_results": {
+                "default": 10,
+                "title": "Max Results",
+                "type": "integer"
+              },
+              "use_cache": {
+                "default": true,
+                "title": "Use Cache",
+                "type": "boolean"
+              },
+              "max_age_hours": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Max Age Hours"
+              },
+              "freshness": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "day",
+                      "week",
+                      "month",
+                      "year"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Freshness"
+              },
+              "include_domains": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Include Domains"
+              },
+              "exclude_domains": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Exclude Domains"
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "news",
+                      "pdf",
+                      "github",
+                      "paper",
+                      "forum",
+                      "blog",
+                      "image",
+                      "dataset",
+                      "finance",
+                      "software",
+                      "security",
+                      "reference",
+                      "weather",
+                      "docs",
+                      "gov",
+                      "stats",
+                      "calendar",
+                      "news.world",
+                      "paper.index",
+                      "paper.preprint",
+                      "paper.biomed",
+                      "paper.cs",
+                      "paper.math",
+                      "paper.openaccess",
+                      "paper.trial",
+                      "dataset.repository",
+                      "dataset.ml",
+                      "dataset.gov",
+                      "finance.filings",
+                      "finance.market",
+                      "finance.macro",
+                      "finance.fx",
+                      "finance.entity",
+                      "finance.crypto",
+                      "software.lifecycle",
+                      "software.github",
+                      "software.python",
+                      "software.node",
+                      "software.rust",
+                      "software.registry",
+                      "software.app",
+                      "security.cve",
+                      "security.package",
+                      "security.exploited",
+                      "reference.domain",
+                      "docs.web",
+                      "docs.rfc",
+                      "gov.us",
+                      "gov.uk",
+                      "stats.indicator",
+                      "calendar.holidays",
+                      "calendar.clock"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Category"
+              },
+              "include_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Include Text"
+              },
+              "exclude_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Exclude Text"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object",
+            "title": "searchArguments"
+          },
+          "name": "search",
+          "title": "Web search (multi-engine, no API key)"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Fetch one URL: page text, or a description of a non-text resource.\n\nHandles any http(s) resource, not just HTML:\n- HTML pages -> reader-mode Markdown (nav/footer/scripts stripped).\n- PDF/DOCX/XLSX/PPTX/EPUB/CSV/code/archives -> parsed text (same engine as\n  `read_doc`, which you should prefer when you need pagination).\n- Images, video, audio, fonts, opaque binaries -> a description\n  (media type, byte size, dimensions, sha256), NOT the bytes.\n\nBest for:\n- You already have a URL (from `search`, the user, or your own knowledge)\n  and need the actual page text.\n- Verifying a single claim by reading the source.\n- Checking what a resource IS before deciding to spend tokens on it.\n\nNot recommended for:\n- Multiple URLs at once -> use `fetch_batch` (concurrent, one round-trip).\n- \"Search then read top N\" -> use `research` (one call, not two).\n- Long documents you need to page through -> use `read_doc` (start/length).\n- You don't have a URL yet -> use `search` first.\n\nReturns:\n- markdown (default): a small header (URL, render method, token count)\n  plus the cleaned page body.\n- json: {url, title, content, method, truncated, tokens_estimated,\n  author, published_date, sitename}, plus {media_type, bytes_size, sha256,\n  width, height} for non-text resources.\n- With `inline=True` on an image: the image itself, viewable by a\n  vision-capable model.\n\nCommon mistakes:\n- Passing a search query instead of a URL.\n- Using `render=\"http\"` on a JS-only SPA: it returns near-empty content;\n  use \"auto\" (default) or \"browser\".\n- Setting `inline=True` on a large image out of habit. A 1MB image costs\n  well over a thousand tokens; fetch it plainly first and inline only if\n  the description says it's worth looking at.\n- Forgetting that results are cached 7 days: use `force_refresh=True`\n  or `max_age_hours=0` for a fresh pull. The header says `cached N days ago`\n  when you are not looking at the live page; for deadlines, prices and\n  anything else that moves, that is the cue to refresh.\n- Reading `no publication date found` as \"recent\". It means unknown.\n\nArgs:\n    url: Absolute http(s) URL.\n    render: \"auto\" (try HTTP, fall back to stealth Chromium), \"http\"\n        (fast, fails on JS), \"browser\" (slow, robust).\n    force_refresh: Bypass the page cache entirely.\n    max_age_hours: Treat cached pages older than this as a miss. 0 = same\n        as force_refresh. None = server default TTL (7 days).\n    inline: For images only. Returns the image itself instead of a\n        description, so a vision-capable model can see it. Ignored for\n        text resources.\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "url": {
+                "title": "Url",
+                "type": "string"
+              },
+              "render": {
+                "default": "auto",
+                "enum": [
+                  "auto",
+                  "http",
+                  "browser"
+                ],
+                "title": "Render",
+                "type": "string"
+              },
+              "force_refresh": {
+                "default": false,
+                "title": "Force Refresh",
+                "type": "boolean"
+              },
+              "max_age_hours": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Max Age Hours"
+              },
+              "inline": {
+                "default": false,
+                "title": "Inline",
+                "type": "boolean"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "title": "fetchArguments"
+          },
+          "name": "fetch",
+          "title": "Fetch a URL: page text, document, or resource"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Fetch a list of URLs in parallel. Per-URL failures do not raise.\n\nBest for:\n- 2+ URLs you want to read in one round-trip.\n- Reading the top N results of a previous `search` call.\n\nNot recommended for:\n- A single URL -> `fetch` (no list-wrapping overhead).\n- \"Search and then read\" -> `research` collapses both into one tool call.\n- PDFs/DOCX -> `read_doc` per file.\n\nReturns:\n- markdown (default): each page rendered as a Markdown section, separated\n  by horizontal rules; failed URLs become inline error notes.\n- json: list[dict], one entry per URL, with `error` set on failures.\n\nCommon mistakes:\n- Passing a single URL inside a 1-element list: use `fetch` directly.\n- Assuming an exception means the whole batch failed; check each item's\n  `error` field instead.\n\nArgs:\n    urls: List of absolute http(s) URLs (max 20 per call).\n    render: Same as `fetch`.\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "urls": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Urls",
+                "type": "array"
+              },
+              "render": {
+                "default": "auto",
+                "enum": [
+                  "auto",
+                  "http",
+                  "browser"
+                ],
+                "title": "Render",
+                "type": "string"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "urls"
+            ],
+            "type": "object",
+            "title": "fetch_batchArguments"
+          },
+          "name": "fetch_batch",
+          "title": "Fetch many URLs concurrently"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Read an http(s) document (or a sandboxed local file) into Markdown.\n\nBest for:\n- Remote PDFs and DOCX from an http(s) URL (parsed locally, no remote API).\n- Local PDF/DOCX/text/Markdown files, ONLY when local reads are enabled\n  (see Security below).\n- Paginating through a long document via `start` / `length`.\n\nNot recommended for:\n- Arbitrary HTML web pages -> `fetch` does reader-mode cleanup that this\n  tool does not.\n- Pages discovered through search -> `fetch` or `research`.\n\nSecurity (local files are sandboxed and OFF by default):\n- Local-file reads are DISABLED unless the server operator sets the\n  SEARCH_MCP_DOCUMENT_ROOT env var to a directory. With it unset, a local\n  path raises a \"local file reads are disabled\" error. Pass an http(s)\n  URL instead, or ask the operator to enable the sandbox.\n- When enabled, `source` must resolve INSIDE that root; relative paths\n  resolve against the root (not the process CWD) and any `..` traversal\n  that escapes the root is rejected. `file://` URLs are always rejected.\n- Remote http(s) sources are unaffected by this setting.\n\nReturns:\n- markdown (default): rendered document text with a small header.\n- json: {content, title, format, total_chars, start, returned_chars,\n  truncated}. Use `total_chars` and `returned_chars` to drive pagination.\n\nCommon mistakes:\n- Calling this on a normal article URL: you'll get raw HTML noise. Use\n  `fetch` instead.\n- Forgetting to advance `start` when paginating: next call should pass\n  `start = previous_start + returned_chars`.\n- Passing a negative `length` (raises an error) or a `start` past the end\n  (clamped to EOF: you'll get `returned_chars == 0`, `start == total_chars`,\n  and `truncated == False`, which is the signal you've paged off the end).\n\nArgs:\n    source: http(s) URL, or a local path UNDER SEARCH_MCP_DOCUMENT_ROOT when\n        local reads are enabled (disabled by default; see Security).\n    start: Character offset to begin reading from. Default 0. Clamped into\n        [0, total_chars]; a negative value is treated as 0.\n    length: Max characters to return; None = read to end (still capped by\n        the per-call max content size). Must be >= 0. A negative length\n        is rejected with a ValueError.\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "source": {
+                "title": "Source",
+                "type": "string"
+              },
+              "start": {
+                "default": 0,
+                "title": "Start",
+                "type": "integer"
+              },
+              "length": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Length"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source"
+            ],
+            "type": "object",
+            "title": "read_docArguments"
+          },
+          "name": "read_doc",
+          "title": "Read a remote (or sandboxed local) document"
+        },
+        {
+          "annotations": {
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "One-shot research: search the web, fetch the top results, return both.\n\nBest for:\n- Open-ended questions that need finding sources AND reading them\n  (\"what's new with X\", \"summarize the controversy around Y\").\n- Replacing a `search` + N x `fetch` chain with one call.\n- Producing a citable brief with [n]-style source references.\n\nNot recommended for:\n- You only need links -> `search` (cheaper, no fetching).\n- You only need to read one URL you already have -> `fetch`.\n- You want to query previously-fetched cached pages -> `cache_search`.\n- Checking or expanding one paper's citations -> `paper_graph`.\n\nReturns:\n- markdown (default): a \"Research brief\" with a Sources index then the\n  full Markdown body of each fetched document, separated by horizontal\n  rules; includes a token estimate.\n- json: {question, engines, sources:[{rank,title,url,snippet,...}],\n  documents:[...], tokens_estimated, errors}.\n\nCommon mistakes:\n- Using `depth=8` for a quick lookup: that's 8 page fetches, and 2-3 is\n  almost always enough.\n- Calling `research` for a known URL: that is what `fetch` is for.\n- Forgetting that `fetch=False` returns sources only (much cheaper if\n  the LLM only needs to pick which one to read).\n\nArgs:\n    question: What you want to know, in natural language.\n    depth: How many top results to fetch (1-8). 3 is a good default.\n    engines: Override the engine set (see `engines()` for names). Prefer\n        `category=`. Naming engines turns category routing off.\n    fetch: If False, return source list without reading them.\n    freshness: \"day\"|\"week\"|\"month\"|\"year\". Restricts to recent results.\n        Best-effort; undated results are kept rather than dropped.\n    include_domains: Restrict to these domains (e.g. [\"python.org\"]).\n    exclude_domains: Drop results from these domains.\n    category: Which KIND of source to search; a bare group widens, a dotted\n        sub-group narrows. Same values as `search`; see `engines()`.\n    include_text: Substring required in title or snippet (case-insensitive).\n    exclude_text: Substring forbidden in title or snippet.\n    use_cache: Reuse cached search/page data within TTL.\n    max_age_hours: Treat cached search results AND cached page bodies older\n        than this as a read miss; fresh data is always written back. 0 =\n        force-refresh both the engine search and every fetched page body;\n        None = server default TTL (7 days). A non-zero value is honored for\n        both halves (it used to be ignored for anything but 0).\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "question": {
+                "title": "Question",
+                "type": "string"
+              },
+              "depth": {
+                "default": 3,
+                "title": "Depth",
+                "type": "integer"
+              },
+              "engines": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Engines"
+              },
+              "fetch": {
+                "default": true,
+                "title": "Fetch",
+                "type": "boolean"
+              },
+              "use_cache": {
+                "default": true,
+                "title": "Use Cache",
+                "type": "boolean"
+              },
+              "max_age_hours": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Max Age Hours"
+              },
+              "freshness": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "day",
+                      "week",
+                      "month",
+                      "year"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Freshness"
+              },
+              "include_domains": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Include Domains"
+              },
+              "exclude_domains": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Exclude Domains"
+              },
+              "category": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "news",
+                      "pdf",
+                      "github",
+                      "paper",
+                      "forum",
+                      "blog",
+                      "image",
+                      "dataset",
+                      "finance",
+                      "software",
+                      "security",
+                      "reference",
+                      "weather",
+                      "docs",
+                      "gov",
+                      "stats",
+                      "calendar",
+                      "news.world",
+                      "paper.index",
+                      "paper.preprint",
+                      "paper.biomed",
+                      "paper.cs",
+                      "paper.math",
+                      "paper.openaccess",
+                      "paper.trial",
+                      "dataset.repository",
+                      "dataset.ml",
+                      "dataset.gov",
+                      "finance.filings",
+                      "finance.market",
+                      "finance.macro",
+                      "finance.fx",
+                      "finance.entity",
+                      "finance.crypto",
+                      "software.lifecycle",
+                      "software.github",
+                      "software.python",
+                      "software.node",
+                      "software.rust",
+                      "software.registry",
+                      "software.app",
+                      "security.cve",
+                      "security.package",
+                      "security.exploited",
+                      "reference.domain",
+                      "docs.web",
+                      "docs.rfc",
+                      "gov.us",
+                      "gov.uk",
+                      "stats.indicator",
+                      "calendar.holidays",
+                      "calendar.clock"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Category"
+              },
+              "include_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Include Text"
+              },
+              "exclude_text": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Exclude Text"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question"
+            ],
+            "type": "object",
+            "title": "researchArguments"
+          },
+          "name": "research",
+          "title": "Search and read in one call"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Follow the citations of ONE paper, and check whether it still stands.\n\n`search` finds papers that MENTION your words. This follows the edges\ninstead: what a specific paper built on, and what has built on it since.\n\nBest for:\n- Checking a citation before repeating it: is the DOI real, and has the\n  paper been retracted or corrected?\n- \"What happened after this result\": citing works come back ordered by how\n  much the field cited them, so a 2019 paper leads to the current state of\n  the art rather than to the most recent preprint about it.\n- Building a reading list backwards from one good paper.\n\nNot recommended for:\n- Finding papers by topic -> `search(category=\"paper\")`, or a sub-group\n  like `\"paper.biomed\"` / `\"paper.cs\"` / `\"paper.preprint\"`.\n- Reading the paper itself -> `read_doc` on the returned URL.\n\nReturns:\n- markdown (default): the paper with its retraction/correction notices,\n  then \"References\" and \"Cited by\" sections.\n- json: {paper, references, citations, notes}, where `paper.crossref`\n  carries `registered` and every post-publication `notices` entry.\n\nCommon mistakes:\n- Passing a topic instead of a paper. A title resolves to its single best\n  match; a phrase that names no specific paper resolves to the wrong one.\n- Reading an empty `citations` list as \"uncited\" when `notes` says the\n  lookup was truncated.\n\nArgs:\n    paper: DOI (`10.1145/1571941.1572114`, or a doi.org URL), an OpenAlex\n        ID (`W2148972377`), or the paper's exact title.\n    direction: \"both\", \"references\" (what it cites) or \"citations\" (what\n        cites it).\n    limit: Max neighbours per direction, 1-50.\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "paper": {
+                "title": "Paper",
+                "type": "string"
+              },
+              "direction": {
+                "default": "both",
+                "enum": [
+                  "both",
+                  "references",
+                  "citations"
+                ],
+                "title": "Direction",
+                "type": "string"
+              },
+              "limit": {
+                "default": 10,
+                "title": "Limit",
+                "type": "integer"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "paper"
+            ],
+            "type": "object",
+            "title": "paper_graphArguments"
+          },
+          "name": "paper_graph",
+          "title": "Walk a paper's citation graph"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+          },
+          "description": "Full-text search over pages already fetched into the local SQLite FTS5 index.\n\nBest for:\n- Recalling something the user/agent fetched earlier in the conversation\n  (\"what did that Wikipedia page say about X\").\n- Avoiding re-fetching content already in the local cache.\n- Quick keyword grep across the corpus you've built up.\n\nNot recommended for:\n- Discovering new pages on the open web -> use `search` or `research`.\n- When the cache is empty (fresh install) -> `search`/`research` first to\n  populate it.\n\nReturns:\n- markdown (default): a per-hit list of title, URL, and a `[bracket]`-\n  highlighted snippet around the matched terms.\n- json: list of {url, title, snippet, author, date, sitename}. The last\n  three are \"\" when the cached row predates metadata capture.\n\nCommon mistakes:\n- Treating this like web search: it ONLY hits pages already in the local\n  cache. If the user hasn't fetched anything, you'll get zero hits.\n- Using natural-language phrases without quoting them; FTS5 splits on\n  whitespace as AND. For an exact phrase use `\"like this\"`.\n\nArgs:\n    query: FTS5 query. Bare terms = AND. Supports OR / NOT, prefix\n        (`term*`), and phrase (`\"exact phrase\"`).\n    limit: Max hits to return.\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "query": {
+                "title": "Query",
+                "type": "string"
+              },
+              "limit": {
+                "default": 10,
+                "title": "Limit",
+                "type": "integer"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object",
+            "title": "cache_searchArguments"
+          },
+          "name": "cache_search",
+          "title": "Search local cache (FTS5)"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+          },
+          "description": "List the available sources, grouped by what they index.\n\nBest for:\n- Choosing a source deliberately: which one indexes filings, or preprints,\n  or Chinese-language pages.\n- Checking a name before passing it to `engines=` on `search` / `research`.\n\nNot recommended for:\n- Calling on every search: the list is static, so read it once.\n\nReturns (markdown): a `group -> sub-group -> engine` tree, one line of\ndescription per engine. `group=\"paper\"` restricts it to that group.\nReturns (json): `{\"engines\": [...names...], \"taxonomy\": {...},\n\"descriptions\": {...}}`.\n\nPrefer `category=` over `engines=`. `category=\"paper\"` WIDENS: it routes to\none specialist per sub-group. A dotted sub-group NARROWS: `\"paper.biomed\"`\nqueries only the biomedical indexes. Naming engines explicitly turns that\nrouting off entirely, so reach for it only to force a specific source.\n\nCommon mistakes:\n- Passing one of these names as `query`: they belong in `engines=`.\n- Passing a key-only engine with no key configured; it returns an\n  actionable error, not results.\n",
+          "inputSchema": {
+            "properties": {
+              "group": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "web",
+                      "news",
+                      "paper",
+                      "github",
+                      "forum",
+                      "image",
+                      "dataset",
+                      "finance",
+                      "software",
+                      "security",
+                      "reference",
+                      "weather",
+                      "docs",
+                      "gov",
+                      "stats",
+                      "calendar"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "enum": [
+                      "news",
+                      "pdf",
+                      "github",
+                      "paper",
+                      "forum",
+                      "blog",
+                      "image",
+                      "dataset",
+                      "finance",
+                      "software",
+                      "security",
+                      "reference",
+                      "weather",
+                      "docs",
+                      "gov",
+                      "stats",
+                      "calendar",
+                      "news.world",
+                      "paper.index",
+                      "paper.preprint",
+                      "paper.biomed",
+                      "paper.cs",
+                      "paper.math",
+                      "paper.openaccess",
+                      "paper.trial",
+                      "dataset.repository",
+                      "dataset.ml",
+                      "dataset.gov",
+                      "finance.filings",
+                      "finance.market",
+                      "finance.macro",
+                      "finance.fx",
+                      "finance.entity",
+                      "finance.crypto",
+                      "software.lifecycle",
+                      "software.github",
+                      "software.python",
+                      "software.node",
+                      "software.rust",
+                      "software.registry",
+                      "software.app",
+                      "security.cve",
+                      "security.package",
+                      "security.exploited",
+                      "reference.domain",
+                      "docs.web",
+                      "docs.rfc",
+                      "gov.us",
+                      "gov.uk",
+                      "stats.indicator",
+                      "calendar.holidays",
+                      "calendar.clock"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Group"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "type": "object",
+            "title": "enginesArguments"
+          },
+          "name": "engines",
+          "title": "List available search engines"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Fetch 2-5 URLs concurrently and return per-URL excerpts so the LLM can\ncompare them against a single question in one round trip.\n\nBest for:\n- Side-by-side product/feature/article comparisons.\n- \"Compare X to Y\" or \"How does A differ from B\" queries.\n- Triangulating a fact across multiple sources.\n\nNot recommended for:\n- >5 URLs -> use `fetch_batch`.\n- 1 URL -> use `fetch`.\n- Don't have URLs yet -> use `search` or `research` first.\n\nReturns:\n- markdown (default): a comparison brief with per-URL sections, each\n  containing title, sitename, published date, and a smart-truncated excerpt.\n- json: {question, urls, excerpts:[{url, title, excerpt, ...}],\n  tokens_estimated}.\n\nCommon mistakes:\n- Asking `compare` to actually answer the question: it returns material,\n  the LLM does the comparison.\n- Passing >5 URLs and expecting them all to fit in context: use\n  `fetch_batch` for bulk reads.\n\nArgs:\n    question: The comparison question the LLM will answer using the\n        returned excerpts.\n    urls: 2-5 absolute http(s) URLs.\n    format: \"markdown\" (default) or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "question": {
+                "title": "Question",
+                "type": "string"
+              },
+              "urls": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Urls",
+                "type": "array"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "question",
+              "urls"
+            ],
+            "type": "object",
+            "title": "compareArguments"
+          },
+          "name": "compare",
+          "title": "Compare URLs side-by-side"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          },
+          "description": "Pull JSON-LD, OpenGraph, Twitter cards, and microdata from a web page.\n\nBest for:\n- Product pages (price, currency, availability, brand, rating).\n- Article pages (author, publish date, image, headline).\n- Recipe / event / video pages where rich metadata IS the answer.\n- Cases where `fetch` returns prose but you need fields.\n\nNot recommended for:\n- Just reading a page -> use `fetch`.\n- PDFs / DOCX -> use `read_doc`.\n- Pages that don't publish schema.org metadata (most blogs): you'll get\n  empty lists; fall back to `fetch`.\n\nReturns:\n- json: {url, json_ld:[], microdata:[], opengraph:[], rdfa:[]}. Twitter\n  card meta tags are surfaced inside the `opengraph` list.\n- markdown (default): a flattened key/value view with each block printed\n  as a JSON code block under its syntax heading.\n\nCommon mistakes:\n- Calling on every URL \"just in case\": most sites have no structured\n  data, and `fetch` is what you actually want.\n\nArgs:\n    url: Absolute http(s) URL.\n    format: \"markdown\" (default) or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "url": {
+                "title": "Url",
+                "type": "string"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "title": "extract_structuredArguments"
+          },
+          "name": "extract_structured",
+          "title": "Extract structured data from a URL"
+        },
+        {
+          "annotations": {
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+          },
+          "description": "Save a file from a URL to a local, auto-expiring download directory.\n\nDownloads are enabled by default and saved under\n`SEARCH_MCP_CACHE_DIR/downloads`. Set `SEARCH_MCP_DOWNLOAD_ENABLED=false`\nto disable them or `SEARCH_MCP_DOWNLOAD_DIR` to override the destination.\n\nBest for:\n- Keeping an actual file (installer, dataset, archive, image) rather than\n  its text.\n- Handing a path to another tool that needs a real file on disk.\n\nNot recommended for:\n- Reading a document's contents -> use `read_doc`, which parses it without\n  touching the filesystem.\n- Looking at a web page -> use `fetch`.\n- Viewing an image -> use `fetch(inline=True)`.\n\nReturns:\n- markdown (default): where the file was saved, its size and type.\n- json: {url, saved_path, media_type, bytes_size, sha256, expires_in_hours}.\n  An expires_in_hours value of 0 means TTL cleanup is disabled.\n\nRetention: files older than SEARCH_MCP_DOWNLOAD_TTL_HOURS (default 24) are\ndeleted before the next download and at startup. A value of 0 disables TTL\ncleanup. Otherwise, treat the path as short-lived and copy it elsewhere if\nyou need to keep it.\n\nArgs:\n    url: Absolute http(s) URL of the file to save.\n    format: \"markdown\" or \"json\".\n",
+          "inputSchema": {
+            "properties": {
+              "url": {
+                "title": "Url",
+                "type": "string"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "json"
+                ],
+                "title": "Format",
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "type": "object",
+            "title": "downloadArguments"
+          },
+          "name": "download",
+          "title": "Download a file to disk"
+        }
+      ]
+    }
+  },
+  "3": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "result": {
+      "content": [
+        {
+          "text": "# Search: zxqjwv9876543210nonexistentquerywordxyz\n\n_engines: bing, yahoojp, anysearch_  _results: 10_  _dated: 1/10_\n_(requested but contributed nothing: duckduckgo)_\n_(retrieved 2026-11-11T20:53:16Z)_\n\n## 1. Summer Place Apartment Homes | Summer Place\n<https://summerplaceal.com>\n\n> Summer Place Apartments is conveniently located in Huntsville, Alabama, only minutes from shopping, dining, I- 565 and I-65. The \u2026\n\n_bing_ \u00b7 score 0.01639 \u00b7 undated\n\n## 2. Word search 9x9 - Descarga gratuita y reproducci\u00f3n en ...\n<https://www.microsoft.com/es-ar/p/word-search-9x9/9p6r3lf7fdc4>\n\n> Words in every direction. Can you find them? Your goal is to find the listed words hidden among the letters. Can you find them all?\n\n_yahoojp_ \u00b7 score 0.01639 \u00b7 undated\n\n## 3. PowerQuery error referencing non-existent step : r/excel\n<https://www.reddit.com/r/excel/comments/1dadfnk/powerquery_error_referencing_nonexistent_step>\n\n> I'm getting an error in my query but the step it's referencing doesn't seem to exist. \"Query 'XXX' (step 'AutoRemoveColumns1') references ...\n\n_anysearch_ \u00b7 score 0.01639 \u00b7 forum \u00b7 undated\n\n## 4. https://forhsa.uy/archivo/descargar.php?id=937\n<https://forhsa.uy/archivo/descargar.php?id=937>\n\n_yahoojp_ \u00b7 score 0.01613 \u00b7 undated\n\n## 5. The top four DNS response codes and what they mean\n<https://bluecatnetworks.com/blog/the-top-four-dns-response-codes-and-what-they-mean>\n\n> Learn about the four most common DNS response codes: NOERROR, NXDOMAIN, SERVFAIL, and REFUSED. And discover strategies to manage DNS issues.\n\n_anysearch_ \u00b7 score 0.01613 \u00b7 undated\n\n## 6. Login | Prisma - Summer Place Apartments\n<https://summerplaceal.com/portal>\n\n> Forgot Password? Sign In Create an account\n\n_bing_ \u00b7 score 0.01587 \u00b7 undated\n\n## 7. PowerProtect: Mostrar el n\u00famero de serie de la m\u00e1quina ...\n<https://www.dell.com/support/kbdoc/es-sv/000356019/powerprotect-mostrar-el-n%C3%BAmero-de-serie-de-la-m%C3%A1quina-virtual-de-cybersense-o-cyber-recovery>\n\n> 2025/8/25 -Resumen: El comando para recuperar el n\u00famero de serie de CyberSense o la m\u00e1quina virtual (VM) de Cyber Recovery sin credenciales ra\u00edz.\n\n_yahoojp_ \u00b7 score 0.01587 \u00b7 2025-08-25 (from snippet text)\n\n## 8. [Pdns-users] NOERROR instead of NXDOMAIN. pgsql ...\n<https://mailman.powerdns.com/pipermail/pdns-users/2012-November/021418.html>\n\n> any logging appearing on the slave during a request or a non-existing name) are no errors or warnings in the logfile.\n\n_anysearch_ \u00b7 score 0.01587 \u00b7 undated\n\n## 9. Herramientas \u00fatiles - Cronos\n<https://www.cronos.com.ar/herramientas-utiles>\n\n> Herramienta para migrar bases de Cronos Control de un motor a otro.\n\n_yahoojp_ \u00b7 score 0.01562 \u00b7 undated\n\n## 10. Error due to a query that doesn't exist\n<https://community.fabric.microsoft.com/t5/Service/Error-due-to-a-query-that-doesn-t-exist/m-p/2325977>\n\n> This happens when the data source you used, within Power BI Desktop, isn't supported for refresh.\n\n_anysearch_ \u00b7 score 0.01562 \u00b7 undated\n\n\n\u26a0\ufe0f **Gated engines:** duckduckgo needed a browser render that is unavailable. Install the browser with `uv run playwright install chromium` (source checkout) or `uvx --from free-search-mcp playwright install chromium` (uvx/PyPI install), then restart the server.\n\n_Snippets locate sources; they are not the source. Read dates, amounts, rules and other details from the page itself with fetch or research before relying on them._\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  }
+}

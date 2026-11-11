@@ -15,6 +15,8 @@ import type { TraceFile } from '../core/trace/files.ts';
 import type { ControlResult, TaskManager } from '../core/tasks.ts';
 import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { TASK_MODES } from '../core/ctx/index.ts';
+import { streamSpeech } from '../voice/tts.ts';
+import type { VoiceConfig } from '../voice/tts.ts';
 import type { TaskMode } from '../core/ctx/index.ts';
 
 /** Texto no vacío (recortado) o `undefined`. */
@@ -52,7 +54,13 @@ export function withoutLaunchFields(body: Record<string, unknown>): Record<strin
 /** Bytes que un cliente SSE puede tener pendientes de leer antes de que se lo desconecte. */
 const SSE_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 
-export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine): express.Router {
+/** Tope del texto que se sintetiza en un request (una respuesta final larga ya es mucho audio). */
+const TTS_MAX_CHARS = 20000;
+
+/**
+ * `getVoice`: la configuración de voz vigente (se lee en cada request) o `null` si está apagada. Sin ella `POST /tts` responde 503.
+ */
+export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine, getVoice: () => VoiceConfig | null = () => null): express.Router {
   const router = express.Router();
 
   /** `taskId` del cuerpo o, si falta, la última tarea retenida (compatibilidad con clientes de una sola tarea). */
@@ -216,6 +224,49 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       clearInterval(keepAlive);
       unsubscribe();
     });
+  });
+
+  // Voz: `{ text }` -> audio PCM 16-bit, mono, 24 kHz, en streaming (`audio/L16`).
+  router.post('/tts', async (req, res) => {
+    const input = text(req.body?.text);
+    if (!input) return void res.status(400).json({ error: 'Se requiere text.' });
+    if (input.length > TTS_MAX_CHARS) return void res.status(400).json({ error: `text supera ${TTS_MAX_CHARS} caracteres.` });
+    const voice = getVoice();
+    if (!voice) return void res.status(503).json({ error: 'La voz está desactivada (voiceEnabled).' });
+
+    const abort = new AbortController();
+    res.on('close', () => abort.abort());
+    try {
+      const stream = streamSpeech(input, voice, abort.signal);
+      // Se espera el primer fragmento antes de las cabeceras: si el servidor TTS falla, el cliente recibe un error y no un audio vacío.
+      let next = await stream.next();
+      if (next.done) return void res.status(422).json({ error: 'No hay texto que sintetizar.' });
+      res.setHeader('Content-Type', 'audio/L16;rate=24000;channels=1');
+      res.setHeader('Cache-Control', 'no-store');
+      while (!next.done && !abort.signal.aborted) {
+        if (!res.write(next.value)) {
+          // Espera el `drain`; el `close` también destraba (cliente que se fue). Cada espera retira el oyente que no se usó.
+          await new Promise<void>((resolve) => {
+            const done = (): void => {
+              res.off('drain', done);
+              res.off('close', done);
+              resolve();
+            };
+            res.on('drain', done);
+            res.on('close', done);
+          });
+        }
+        next = await stream.next();
+      }
+      res.end();
+    } catch (err: unknown) {
+      if (abort.signal.aborted) return;
+      // `fetch failed` esconde la causa real (ECONNREFUSED, timeout…) en `cause`.
+      const cause = err instanceof Error && err.cause instanceof Error ? ` (${(err.cause as NodeJS.ErrnoException).code ?? err.cause.message})` : '';
+      console.warn(`[TTS] ${err instanceof Error ? err.message : err}${cause}: ${voice.baseUrl}`);
+      if (!res.headersSent) res.status(502).json({ error: 'No se pudo conectar con el servidor de voz (voiceUrl). ¿Está corriendo scripts/phonon_server.py?' });
+      else res.destroy();
+    }
   });
 
   // Refrescar el catálogo de herramientas.

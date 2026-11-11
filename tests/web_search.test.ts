@@ -15,10 +15,10 @@ import { readToolResult } from "../src/core/tools/result.ts";
 import { Guard } from "../src/core/policy/guard.ts";
 import { egressFinding } from "../src/core/policy/egress.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
-import { parseArgs, isInternalHost } from "../src/tools/web/args.ts";
+import { parseArgs, isInternalHost, searchQuestion } from "../src/tools/web/args.ts";
 import { pickCandidates, rank, tokenize } from "../src/tools/web/bm25.ts";
 import { chunkDocs, chunkLines, cleanDocs, cleanLines, snippetChunks, CHUNK_MAX } from "../src/tools/web/chunks.ts";
-import { parseFetch, parseResearch } from "../src/tools/web/report.ts";
+import { parseFetch, parseResearch, plausibleDate } from "../src/tools/web/report.ts";
 import { WEB_DEPENDENCIES, WebSearchProvider } from "../src/tools/web/webSearchProvider.ts";
 
 // ───────────────────────── Material de prueba ─────────────────────────
@@ -209,6 +209,146 @@ test("candidatos: a lo sumo PER_SOURCE de cada fuente y un tope total", () => {
   assert.equal(pickCandidates(ranked, 2, 3).length, 2);
 });
 
+test("tokenización: los números se comparan enteros, una versión con puntos es un término propio y otros alfabetos no se pierden", () => {
+  assert.deepEqual(tokenize("Python 3"), ["pytho", "3"]);
+  assert.ok(tokenize("Node 22.0.1").includes("22.0.1"));
+  assert.ok(!tokenize("año 20241").includes("2024"), "2024 no coincide con el prefijo de 20241");
+  assert.ok(tokenize("версия").length === 1);
+});
+
+test("BM25: con terms en otro idioma la cobertura no se diluye; coincidir solo en palabras genéricas no es candidato", () => {
+  const chunks = [
+    { id: 0, n: 1, text: "Node.js 22 was released on April 24, 2024 and entered long-term support in October of that year." },
+    { id: 1, n: 1, text: "Node.js is a JavaScript runtime used to build servers. Node.js runs on Windows, macOS and Linux systems." },
+    { id: 2, n: 2, text: "Node.js has a large ecosystem of packages and a big community around the Node.js project." },
+    { id: 3, n: 2, text: "Node.js documentation covers the API of every Node.js module, with examples for each function." },
+  ];
+  const { ranked } = rank(chunks, "¿Cuándo se lanzó Node.js 22?", ["node.js 22 release date"]);
+  assert.equal(ranked[0].chunk.id, 0);
+  assert.ok(ranked[0].coverage >= 0.6, `cobertura ${ranked[0].coverage}`);
+  const picked = pickCandidates(ranked);
+  assert.ok(picked.every((r) => r.chunk.id === 0), "los que solo dicen 'Node.js' (en todos los fragmentos) no pasan");
+});
+
+test("candidatos: dos fragmentos casi iguales (un extracto que repite la página) cuentan una sola vez", () => {
+  const text = "Kubernetes 1.30 adds structured authorization configuration and node log queries for cluster operators.";
+  const chunks = [
+    { id: 0, n: 1, text },
+    { id: 1, n: 2, text: `${text} ` },
+    { id: 2, n: 3, text: "Kubernetes 1.30 removes several deprecated beta APIs and changes the default cluster networking." },
+  ];
+  const picked = pickCandidates(rank(chunks, "kubernetes 1.30 cluster").ranked);
+  assert.deepEqual(picked.map((r) => r.chunk.id).sort(), [0, 2]);
+});
+
+test("fragmentos: cada uno repite el título de su sección y una tabla partida repite su encabezado", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => `| ${i}.x | Nombre${i} | 20${10 + (i % 15)}-04-24 |`);
+  const chunks = chunkLines(["## Versiones", "", "| Versión | Nombre | Fecha |", "|---|---|---|", ...rows]);
+  assert.ok(chunks.length >= 2);
+  for (const chunk of chunks) {
+    assert.ok(chunk.length <= CHUNK_MAX);
+    assert.match(chunk, /^## Versiones\n\| Versión \| Nombre \| Fecha \|\n\|---\|---\|---\|\n\| \d+\.x/);
+  }
+  const all = chunks.join("\n");
+  assert.equal(rows.filter((row) => !all.includes(row)).length, 0, "no se pierde ninguna fila");
+
+  const long = paragraph("Una frase completa que ocupa algo de espacio dentro del párrafo.", 30);
+  const sections = chunkLines(["# Guía", "", "## Requisitos", "", long]);
+  assert.ok(sections.length >= 2);
+  assert.ok(sections[0].startsWith("# Guía\n## Requisitos\n"), "los títulos seguidos de la página quedan juntos");
+  assert.ok(sections.slice(1).every((c) => c.startsWith("## Requisitos\n")), "el título viaja con cada parte de su sección");
+});
+
+test("fragmentos: un bloque de código no se corta en sus comentarios '#' y conserva la sangría", () => {
+  const body = ["## Instalación", "", "```python", "# instalar", "def f():", "", "    return 1", "```"].join("\n");
+  const chunks = chunkLines(cleanLines(body));
+  assert.deepEqual(chunks, ["## Instalación\n```python\n# instalar\ndef f():\n    return 1\n```"]);
+});
+
+test("limpieza: los genéricos de un texto técnico, las entidades y los enlaces con paréntesis se conservan; las imágenes se quitan", () => {
+  assert.deepEqual(cleanLines("Usa Map<string, number> y &lt;T&gt; con <em>énfasis</em> ![logo](a.png) y [Foo](https://en.wikipedia.org/wiki/Foo_(bar)) fin."), [
+    "Usa Map<string, number> y <T> con énfasis y Foo fin.",
+  ]);
+});
+
+test("parseResearch: una página se empareja con su fuente aunque la URL difiera en www, barra final o fragmento; sin fuente, recibe una propia", () => {
+  const report = [
+    "# Research brief: x",
+    "## Sources",
+    "- [1] **Uno** — <https://www.example.org/a/>",
+    "",
+    "## Documents",
+    "<https://example.org/a#intro> · ~10 tokens",
+    "texto uno",
+    "<https://otro.org/b> · ~10 tokens",
+    "texto dos",
+  ].join("\n");
+  const material = parseResearch(report);
+  assert.deepEqual(material.docs.map((d) => d.n), [1, 2]);
+  assert.deepEqual(material.sources.map((s) => [s.n, s.url]), [[1, "https://www.example.org/a/"], [2, "https://otro.org/b"]]);
+});
+
+test("parseResearch: el '### título' de cada página es de la página siguiente (formato real), y una fecha imposible se descarta", () => {
+  const report = [
+    "# Research brief: x",
+    "## Sources",
+    "- [1] **Uno** — <https://a.org/1>",
+    "    _published 2001-01-01 · page cached_",
+    "- [2] **Dos** — <https://a.org/2>",
+    "    _published 2999-01-01_",
+    "## Documents",
+    "",
+    "### Uno - Sitio",
+    "<https://a.org/1> · ~10 tokens",
+    "texto uno",
+    "",
+    "### Tres - Otro",
+    "<https://b.org/3> · ~10 tokens",
+    "texto tres",
+  ].join("\n");
+  const material = parseResearch(report);
+  assert.equal(material.format, "brief");
+  assert.equal(material.docs[0].body, "texto uno", "el título de la página siguiente no queda al final de esta");
+  assert.equal(material.sources[0].date, "2001-01-01");
+  assert.equal(material.sources[1].date, undefined, "una fecha futura no es de publicación");
+  assert.deepEqual(material.sources[2], { n: 3, title: "Tres - Otro", url: "https://b.org/3" }, "la página sin fuente toma su título");
+  assert.equal(parseResearch("otro formato con texto").format, "unrecognized");
+  assert.equal(plausibleDate("1985-05-01"), undefined);
+  assert.equal(plausibleDate("2024-02-31"), undefined);
+  assert.equal(plausibleDate("2024-04-24"), "2024-04-24");
+});
+
+test("limpieza: un botón de navegación se quita, pero una instrucción que empieza igual se conserva", () => {
+  const lines = cleanLines(["Sign in", "Share on Twitter", "Sign in with the CLI first: az login", "Log in to the console with your account before continuing with the setup."].join("\n"));
+  assert.deepEqual(lines, ["Sign in with the CLI first: az login", "Log in to the console with your account before continuing with the setup."]);
+});
+
+test("tokenización: chino y japonés (sin espacios) por pares de caracteres, así una pregunta encuentra su fragmento", () => {
+  assert.deepEqual(tokenize("澳大利亚"), ["澳大", "大利", "利亚"]);
+  const chunks = [
+    { id: 0, n: 1, text: "澳大利亚的首都是堪培拉，位于澳大利亚首都领地。这座城市是一个规划城市。" },
+    { id: 1, n: 1, text: "悉尼是澳大利亚人口最多的城市，以歌剧院和海港大桥闻名于世界各地。" },
+  ];
+  const { ranked } = rank(chunks, "澳大利亚的首都是哪里");
+  assert.equal(ranked[0].chunk.id, 0);
+  assert.ok(tokenize("がいこく").length >= 2, "el dakuten no corta la palabra");
+});
+
+test("need: se quita la orden de búsqueda que envuelve la pregunta, sin tocar sustantivos", () => {
+  assert.equal(searchQuestion("Buscar la fecha de publicación de Node.js 22.0.0 en internet"), "la fecha de publicación de Node.js 22.0.0");
+  assert.equal(searchQuestion("Buscá en internet cuándo salió Node 22"), "cuándo salió Node 22");
+  assert.equal(searchQuestion("search for the latest Python release online"), "the latest Python release");
+  assert.equal(searchQuestion("¿Cuándo salió Node 22?"), "¿Cuándo salió Node 22?");
+  assert.equal(searchQuestion("Google Chrome última versión"), "Google Chrome última versión");
+  assert.equal(searchQuestion("Search Console no indexa mi sitio"), "Search Console no indexa mi sitio");
+  assert.equal(searchQuestion("Buscar"), "Buscar", "si no queda pregunta, va tal cual");
+});
+
+test("hosts internos: un nombre de una sola etiqueta, el punto final y las redes reservadas", () => {
+  for (const host of ["intranet", "nas", "localhost.", "router.home.arpa", "224.0.0.1", "198.18.0.5"]) assert.equal(isInternalHost(host), true, host);
+  for (const host of ["example.org", "nodejs.org.", "8.8.8.8"]) assert.equal(isInternalHost(host), false, host);
+});
+
 // ───────────────────────── Argumentos ─────────────────────────
 
 test("argumentos: lo válido pasa con sus valores por defecto", () => {
@@ -356,7 +496,12 @@ test("la fecha de publicación de la fuente llega al modelo: es la respuesta de 
   const native = read(await search(new WebSearchProvider(), { need: "¿Cuándo salió Node.js 22.0.0?" }, fakeHost(() => ok(report)).host));
   assert.match(native.text, /Sources:\n\[1\] Node\.js 22\.0\.0 \(Current\) — https:\/\/nodejs\.org\/en\/blog\/release\/v22\.0\.0 \(published 2024-04-24\)/);
   assert.equal((native.data.sources as { date?: string }[])[0].date, "2024-04-24");
-  assert.match(native.text, /\[1\] Node\.js 22\.0\.0 \(Current\) — Node\.js 22\.0\.0 \(Current\) es la primera versión.*\(published 2024-04-24\)/s, "el extracto de la fuente es un fragmento más");
+  assert.match(
+    native.text,
+    /\[1\] \(search result snippet\) Node\.js 22\.0\.0 \(Current\) — Node\.js 22\.0\.0 \(Current\) es la primera versión.*\(published 2024-04-24\)/s,
+    "el extracto de la fuente es un fragmento más, marcado como extracto del buscador",
+  );
+  assert.ok((native.data.passages as { snippet?: boolean }[]).some((p) => p.snippet === true));
 });
 
 test("filtros: freshness y dominios viajan a research; la antigüedad máxima de la caché se puede configurar", async () => {
@@ -408,6 +553,18 @@ test("con filtros y sin resultado, se repite UNA vez sin ellos y se conserva lo 
   const noFilters = fakeHost(() => ok(unrelated));
   await search(new WebSearchProvider(), { need: "¿Cuándo se publicó Node.js 22?" }, noFilters.host);
   assert.equal(noFilters.calls.length, 1, "sin filtros no hay reintento");
+});
+
+test("Free Search caído no es 'sin resultados': es un error de la herramienta; con una orden en el need, al buscador va la pregunta", async () => {
+  const down = await search(new WebSearchProvider(), { need: "algo" }, fakeHost(() => error("All search engines failed: timeout")).host);
+  assert.equal(down.isError, true);
+  assert.match(read(down).text, /The search service failed: All search engines failed/);
+
+  const { host, calls } = fakeHost(() => ok(REPORT));
+  const native = read(await search(new WebSearchProvider(), { need: "Buscar en internet cuándo se publicó Node.js 22" }, host));
+  assert.equal(calls[0].args.question, "cuándo se publicó Node.js 22");
+  assert.equal(native.meta.need, "Buscar en internet cuándo se publicó Node.js 22");
+  assert.equal(native.meta.question, "cuándo se publicó Node.js 22");
 });
 
 test("sin tiempo suficiente no se reintenta", async () => {

@@ -25,17 +25,42 @@ export type ArgsResult = { readonly ok: true; readonly args: WebArgs } | { reado
 
 const fail = (message: string): ArgsResult => ({ ok: false, message });
 
-/** Hosts que nunca se leen: la propia PC y las redes internas. Solo por nombre y por dirección literal: no se resuelve ningún nombre. */
+/**
+ * Hosts que nunca se leen: la propia PC y las redes internas. Solo por nombre y por dirección literal: no se resuelve ningún nombre (un dominio público que
+ * apunte a una IP privada lo frena la protección SSRF de Free Search, no esta función). Un nombre de una sola etiqueta (`intranet`, `nas`) solo existe en
+ * una red local; el punto final (`localhost.`) no cambia el host.
+ */
 export function isInternalHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".lan")) return true;
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.+$/, "");
+  if (host === "" || host === "localhost" || /\.(?:localhost|local|internal|lan|home\.arpa|intranet|corp)$/.test(host)) return true;
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])];
-    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+    return (
+      a === 0 || a === 10 || a === 127 || a >= 224 || // "esta red", privadas, loopback, multicast y reservadas
+      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) ||
+      (a === 198 && (b === 18 || b === 19)) // red de pruebas de equipos
+    );
   }
   if (host.includes(":")) return host === "::1" || host === "::" || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith("::ffff:");
-  return false;
+  return !host.includes("."); // una sola etiqueta: un nombre de la red local
+}
+
+/**
+ * La pregunta para buscar, sin la orden que la envuelve: "Buscá en internet cuándo salió Node 22" → "cuándo salió Node 22". Los modelos chicos escriben
+ * el `need` como instrucción a pesar de la nota, y "buscar", "internet" o "find" estorban al buscador, a BM25 y al juez. Es determinista y conservador:
+ * solo quita un verbo de búsqueda al comienzo y "en internet"/"online" al final; si no queda una pregunta razonable, se usa el `need` tal cual.
+ */
+export function searchQuestion(need: string): string {
+  const stripped = need
+    .replace(
+      // Solo verbos que no son también sustantivos de una consulta ("Google Chrome", "Search Console", "consulta SQL" quedan como están).
+      /^(?:(?:por favor|please)[\s,]+)?(?:busc(?:a|á|ar|ame|áme)|encontr(?:a|á|ar)|averigu(?:a|á|ar)|investig(?:a|á|ar)|search\s+for|search\s+(?:the\s+)?(?:web|internet)|find\s+out|look\s+up)(?![\p{L}\p{N}])[\s,:]*(?:(?:en|on|in)\s+(?:(?:la|the)\s+)?(?:internet|web|google)(?![\p{L}\p{N}])[\s,:]*)?/iu,
+      "",
+    )
+    .replace(/[\s,]+(?:(?:en|on|in)\s+(?:(?:la|the)\s+)?(?:internet|web|google)|online)\s*(?=[.?!]*$)/iu, "")
+    .trim();
+  return stripped.replace(/[\s.?!¿¡]/g, "").length >= 3 ? stripped : need;
 }
 
 function listOf(value: unknown, name: string, max: number): string[] | string {

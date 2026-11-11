@@ -43,5 +43,10 @@
   "refsDir": "data/refs",
   "retentionDays": 30,
   "blacklist": [],
-  "autoMode": true
+  "autoMode": true,
+  "webSearchUseJudge": false,
+  "voiceEnabled": true,
+  "telegramVoice": true,
+  "voiceUrl": "http://127.0.0.1:8880",
+  "voiceName": "default"
 }

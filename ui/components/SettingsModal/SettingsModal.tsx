@@ -14,6 +14,7 @@ import {
   Trash2,
   Activity,
   Laptop,
+  Volume2,
 } from "lucide-react";
 import type { JarvisConfig, BlacklistEntry, UserEnvironment, EngineLimits } from "../../types/api.ts";
 import { jarvisApi } from "../../services/jarvisApi.ts";
@@ -632,10 +633,57 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* SECCIÓN 5: REGISTRO DE TRAZAS Y ENTORNO */}
+            {/* SECCIÓN 5: VOZ */}
+            <div className="flex flex-col gap-3 border-t border-slate-800/80 pt-4">
+              <SectionTitle icon={<Volume2 className="w-3.5 h-3.5 text-sky-400" />}>
+                5. Voz (TTS local)
+              </SectionTitle>
+              <UrlField
+                id="cfg-voice-url"
+                label="Servidor de voz (scripts/phonon_server.py):"
+                value={config.voiceUrl}
+                placeholder="http://127.0.0.1:8880"
+                onChange={(voiceUrl) => update({ voiceUrl })}
+              />
+              <div className="flex flex-col gap-1">
+                <label htmlFor="cfg-voice-name" className="font-mono text-[11px] text-slate-400">
+                  Voz ("default" usa la predeterminada):
+                </label>
+                <input
+                  id="cfg-voice-name"
+                  type="text"
+                  value={config.voiceName || ""}
+                  onChange={(e) => update({ voiceName: e.target.value })}
+                  placeholder="default"
+                  className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded text-slate-200 font-mono text-[11px] focus:outline-none focus:border-sky-500"
+                />
+              </div>
+              <label className="flex items-center justify-between gap-4 p-3 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                <span className="text-[11px] text-slate-300 font-sans">Leer en voz alta la respuesta final en esta interfaz</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.voiceEnabled)}
+                  onChange={(e) => update({ voiceEnabled: e.target.checked })}
+                  className="w-4 h-4 accent-sky-500 shrink-0"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-4 p-3 rounded-lg bg-slate-950 border border-slate-800 cursor-pointer">
+                <span className="text-[11px] text-slate-300 font-sans">
+                  Telegram responde también con nota de voz (requiere <code>ffmpeg</code>; el bot se configura con TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en <code>.env</code>)
+                </span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.telegramVoice)}
+                  onChange={(e) => update({ telegramVoice: e.target.checked })}
+                  className="w-4 h-4 accent-sky-500 shrink-0"
+                />
+              </label>
+            </div>
+
+            {/* SECCIÓN 6: REGISTRO DE TRAZAS Y ENTORNO */}
             <div className="flex flex-col gap-3 border-t border-slate-800/80 pt-4">
               <SectionTitle icon={<Activity className="w-3.5 h-3.5 text-purple-400" />}>
-                5. Auditoría y Registro de Trazas
+                6. Auditoría y Registro de Trazas
               </SectionTitle>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-1">

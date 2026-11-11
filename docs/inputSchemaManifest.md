@@ -1103,6 +1103,269 @@ Args:
 
 ---
 
+## Tool: `research`
+
+### Descripción MCP
+```
+One-shot research: search the web, fetch the top results, return both.
+
+Best for:
+- Open-ended questions that need finding sources AND reading them
+  ("what's new with X", "summarize the controversy around Y").
+- Replacing a `search` + N x `fetch` chain with one call.
+- Producing a citable brief with [n]-style source references.
+
+Not recommended for:
+- You only need links -> `search` (cheaper, no fetching).
+- You only need to read one URL you already have -> `fetch`.
+- You want to query previously-fetched cached pages -> `cache_search`.
+- Checking or expanding one paper's citations -> `paper_graph`.
+
+Returns:
+- markdown (default): a "Research brief" with a Sources index then the
+  full Markdown body of each fetched document, separated by horizontal
+  rules; includes a token estimate.
+- json: {question, engines, sources:[{rank,title,url,snippet,...}],
+  documents:[...], tokens_estimated, errors}.
+
+Common mistakes:
+- Using `depth=8` for a quick lookup: that's 8 page fetches, and 2-3 is
+  almost always enough.
+- Calling `research` for a known URL: that is what `fetch` is for.
+- Forgetting that `fetch=False` returns sources only (much cheaper if
+  the LLM only needs to pick which one to read).
+
+Args:
+    question: What you want to know, in natural language.
+    depth: How many top results to fetch (1-8). 3 is a good default.
+    engines: Override the engine set (see `engines()` for names). Prefer
+        `category=`. Naming engines turns category routing off.
+    fetch: If False, return source list without reading them.
+    freshness: "day"|"week"|"month"|"year". Restricts to recent results.
+        Best-effort; undated results are kept rather than dropped.
+    include_domains: Restrict to these domains (e.g. ["python.org"]).
+    exclude_domains: Drop results from these domains.
+    category: Which KIND of source to search; a bare group widens, a dotted
+        sub-group narrows. Same values as `search`; see `engines()`.
+    include_text: Substring required in title or snippet (case-insensitive).
+    exclude_text: Substring forbidden in title or snippet.
+    use_cache: Reuse cached search/page data within TTL.
+    max_age_hours: Treat cached search results AND cached page bodies older
+        than this as a read miss; fresh data is always written back. 0 =
+        force-refresh both the engine search and every fetched page body;
+        None = server default TTL (7 days). A non-zero value is honored for
+        both halves (it used to be ignored for anything but 0).
+    format: "markdown" or "json".
+```
+
+### inputSchema
+```json
+{
+  "properties": {
+    "question": {
+      "title": "Question",
+      "type": "string"
+    },
+    "depth": {
+      "default": 3,
+      "title": "Depth",
+      "type": "integer"
+    },
+    "engines": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Engines"
+    },
+    "fetch": {
+      "default": true,
+      "title": "Fetch",
+      "type": "boolean"
+    },
+    "use_cache": {
+      "default": true,
+      "title": "Use Cache",
+      "type": "boolean"
+    },
+    "max_age_hours": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Age Hours"
+    },
+    "freshness": {
+      "anyOf": [
+        {
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "year"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Freshness"
+    },
+    "include_domains": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Include Domains"
+    },
+    "exclude_domains": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exclude Domains"
+    },
+    "category": {
+      "anyOf": [
+        {
+          "enum": [
+            "news",
+            "pdf",
+            "github",
+            "paper",
+            "forum",
+            "blog",
+            "image",
+            "dataset",
+            "finance",
+            "software",
+            "security",
+            "reference",
+            "weather",
+            "docs",
+            "gov",
+            "stats",
+            "calendar",
+            "news.world",
+            "paper.index",
+            "paper.preprint",
+            "paper.biomed",
+            "paper.cs",
+            "paper.math",
+            "paper.openaccess",
+            "paper.trial",
+            "dataset.repository",
+            "dataset.ml",
+            "dataset.gov",
+            "finance.filings",
+            "finance.market",
+            "finance.macro",
+            "finance.fx",
+            "finance.entity",
+            "finance.crypto",
+            "software.lifecycle",
+            "software.github",
+            "software.python",
+            "software.node",
+            "software.rust",
+            "software.registry",
+            "software.app",
+            "security.cve",
+            "security.package",
+            "security.exploited",
+            "reference.domain",
+            "docs.web",
+            "docs.rfc",
+            "gov.us",
+            "gov.uk",
+            "stats.indicator",
+            "calendar.holidays",
+            "calendar.clock"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Category"
+    },
+    "include_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Include Text"
+    },
+    "exclude_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Exclude Text"
+    },
+    "format": {
+      "default": "markdown",
+      "enum": [
+        "markdown",
+        "json"
+      ],
+      "title": "Format",
+      "type": "string"
+    }
+  },
+  "required": [
+    "question"
+  ],
+  "type": "object",
+  "title": "researchArguments"
+}
+```
+
+---
+
 ## Tool: `fetch`
 
 ### Descripción MCP

@@ -19,6 +19,9 @@ interface ProcessFlowProps {
   onModifyPlan?: (feedback: string) => ActionResult;
   onCancelTask: () => ActionResult;
   onOpenTrace?: () => void;
+  onSpeak?: (text: string) => void;
+  onStopSpeech?: () => void;
+  speechStatus?: "idle" | "loading" | "playing";
 }
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({
@@ -28,6 +31,9 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   onModifyPlan,
   onCancelTask,
   onOpenTrace: externalOpenTrace,
+  onSpeak,
+  onStopSpeech,
+  speechStatus,
 }) => {
   const [internalTraceOpen, setInternalTraceOpen] = useState(false);
   const [activeRefId, setActiveRefId] = useState<string | null>(null);
@@ -117,7 +123,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
 
       {/* Respuesta final si ya está sintetizada */}
       {task.result && (
-        <FinalResponseView result={task.result} onOpenTrace={handleOpenTrace} />
+        <FinalResponseView result={task.result} onOpenTrace={handleOpenTrace} onSpeak={onSpeak} onStopSpeech={onStopSpeech} speechStatus={speechStatus} />
       )}
 
       {/* Modal visor de referencia */}

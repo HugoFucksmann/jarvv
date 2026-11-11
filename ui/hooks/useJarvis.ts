@@ -22,6 +22,7 @@ import type {
 } from "../types/api.ts";
 import { jarvisApi } from "../services/jarvisApi.ts";
 import { getApiUrl } from "../utils/apiUrl.ts";
+import { useSpeakNewResults, useSpeech } from "./useSpeech.ts";
 
 export type { ExecutionMode, McpInitStatus } from "../types/ui.ts";
 
@@ -58,13 +59,9 @@ export function useJarvis() {
   const [environment, setEnvironment] = useState<UserEnvironment | null>(null);
   const [limits, setLimits] = useState<EngineLimits | null>(null);
   const [autoMode, setAutoMode] = useState<boolean>(false);
-
-  useEffect(() => {
-    taskRef.current = task;
-    if (task?.task.id) {
-      activeTaskIdRef.current = task.task.id;
-    }
-  }, [task]);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(false);
+  const { speak, stop: stopSpeech, status: speechStatus } = useSpeech(setError);
+  useSpeakNewResults(task?.task.id ?? null, task?.result?.text ?? null, voiceEnabled, speak, stopSpeech);
 
   const resolveTaskId = useCallback(
     (explicit?: string): string | undefined =>
@@ -185,7 +182,7 @@ export function useJarvis() {
     void fetchStateRef.current();
     void jarvisApi.getEnvironment().then(setEnvironment).catch(() => {});
     void jarvisApi.getLimits().then(setLimits).catch(() => {});
-    void jarvisApi.getConfig().then((cfg) => setAutoMode(Boolean(cfg.autoMode))).catch(() => {});
+    void jarvisApi.getConfig().then((cfg) => { setAutoMode(Boolean(cfg.autoMode)); setVoiceEnabled(Boolean(cfg.voiceEnabled)); }).catch(() => {});
 
     let eventSource: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -356,6 +353,7 @@ export function useJarvis() {
     try {
       const cfg = await jarvisApi.getConfig();
       setAutoMode(Boolean(cfg.autoMode));
+      setVoiceEnabled(Boolean(cfg.voiceEnabled));
     } catch (e) {
       console.warn("Failed to refresh config in hook:", e);
     }
@@ -436,6 +434,10 @@ export function useJarvis() {
     environment,
     limits,
     autoMode,
+    voiceEnabled,
+    speechStatus,
+    speak,
+    stopSpeech,
     toggleAutoMode,
     clearTaskView,
     selectHistoricalTask,

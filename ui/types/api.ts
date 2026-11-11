@@ -294,6 +294,11 @@ export interface JarvisConfig {
   retentionDays?: number;
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;
+  webSearchUseJudge?: boolean;
+  voiceEnabled?: boolean;
+  telegramVoice?: boolean;
+  voiceUrl?: string;
+  voiceName?: string;
 }
 
 export type ConfigPatch = Partial<

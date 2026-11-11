@@ -68,6 +68,14 @@ export interface JarvisConfig {
    * Empieza apagado: el modelo se suma cuando la línea base muestre que su ganancia justifica el costo.
    */
   webSearchUseJudge: boolean;
+  /** Voz (TTS local, servidor compatible con OpenAI: `scripts/phonon_server.py`). La interfaz lee en voz alta cada respuesta final. Se lee en cada respuesta. */
+  voiceEnabled: boolean;
+  /** Además de texto, Telegram responde con una nota de voz (necesita `ffmpeg` en el PATH). */
+  telegramVoice: boolean;
+  /** URL base del servidor TTS (solo http o https). */
+  voiceUrl: string;
+  /** Voz del servidor TTS (`GET /v1/audio/voices` las lista); "default" usa la predeterminada. */
+  voiceName: string;
 }
 
 /** Origen de la configuración vigente: quien construye un motor se lo pasa (la raíz de composición decide de dónde sale). Se llama en cada uso, así un cambio en caliente se respeta. */
@@ -133,6 +141,10 @@ const DEFAULT_CONFIG: JarvisConfig = {
   blacklist: [],
   autoMode: false,
   webSearchUseJudge: false,
+  voiceEnabled: false,
+  telegramVoice: false,
+  voiceUrl: "http://127.0.0.1:8880",
+  voiceName: "default",
 };
 
 /** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
@@ -167,6 +179,18 @@ function blacklistEntries(v: unknown): BlacklistEntry[] | undefined {
   }
   return out;
 }
+
+/** URL http(s) sin espacios; cualquier otra cosa (`file:`, vacío…) toma el valor de respaldo. */
+const httpUrl = (v: unknown, fallback: string): string => {
+  if (typeof v !== "string") return fallback;
+  const value = v.trim().replace(/\/+$/, "");
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? value : fallback;
+  } catch {
+    return fallback;
+  }
+};
 
 function normalizeServer(raw: unknown, base: StdioServerConfig): StdioServerConfig {
   const r = isRecord(raw) ? raw : {};
@@ -224,6 +248,10 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
     webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
+    voiceEnabled: typeof r.voiceEnabled === "boolean" ? r.voiceEnabled : d.voiceEnabled,
+    telegramVoice: typeof r.telegramVoice === "boolean" ? r.telegramVoice : d.telegramVoice,
+    voiceUrl: httpUrl(r.voiceUrl, d.voiceUrl),
+    voiceName: nonEmptyText(r.voiceName, d.voiceName),
   };
 }
 

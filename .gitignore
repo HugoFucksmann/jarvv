@@ -26,3 +26,6 @@ eval/results
 
 # Trazas por tarea (jarvis-traces/AAAAMMDD-HHMMSS_<id>/)
 /jarvis-traces/
+
+# Entorno de Python del servidor de voz
+/.venv-tts/

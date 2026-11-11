@@ -62,6 +62,10 @@ export default function App() {
     environment,
     limits,
     autoMode,
+    voiceEnabled,
+    speechStatus,
+    speak,
+    stopSpeech,
     clearTaskView,
     selectHistoricalTask,
   } = useJarvis();
@@ -163,6 +167,9 @@ export default function App() {
             onModifyPlan={modifyPlan}
             onCancelTask={handleCancel}
             onOpenTrace={openTrace}
+            onSpeak={voiceEnabled ? speak : undefined}
+            onStopSpeech={voiceEnabled ? stopSpeech : undefined}
+            speechStatus={speechStatus}
           />
         </div>
       </main>
