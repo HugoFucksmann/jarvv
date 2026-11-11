@@ -75,27 +75,30 @@ Las rutas del manifiesto son `files`, `locate`, `terminal` y `web` (`ExecutableR
 
 Lanza un comando de PowerShell y devuelve su resultado, o continúa un proceso que sigue vivo. Solo Windows.
 
-**Argumentos** (exactamente `command` o `pid`): `command` (texto, hasta 4000 caracteres), `pid` (proceso de la misma tarea), `input` (la respuesta a un proceso que esperaba entrada; solo con `pid`, hasta 1000 caracteres), `timeoutSec` (1 a 300, por defecto 30) y `cwd` (carpeta absoluta de un comando nuevo; por defecto, la carpeta personal).
+**Argumentos** (exactamente `command` o `pid`): `command` (texto, hasta 1000 caracteres: el mismo tope con el que se registra en el contexto), `pid` (proceso de la misma tarea), `input` (la respuesta a un proceso que esperaba entrada; solo con `pid`, hasta 1000 caracteres), `timeoutSec` (1 a 300, por defecto 30) y `cwd` (carpeta absoluta de un comando nuevo; por defecto, la carpeta personal).
 
 | Estado (`data.state`) | Cuándo | Qué pasa con el proceso |
 | --- | --- | --- |
 | `finished` | El proceso terminó; `exitCode` es el real | Nada |
 | `running` | Venció el plazo y sigue vivo | Sigue; se continúa con `{ pid }` |
-| `waiting_input` | Salida inactiva 1,5 s con una línea sin terminar (`data.prompt`) | Sigue; la respuesta llega por `{ pid, input }` |
+| `waiting_input` | La última línea parece un prompt y el proceso se calló lo que pide su clase (`[S/N]` o `Nombre: `: 1,5 s; otro texto sin salto: 5 s; un avance como `45%`: nunca) (`data.prompt`) | Sigue; la respuesta llega por `{ pid, input }` |
 | `cancelled` | Se canceló la tarea | Se corta el árbol |
 
-**Cómo corre.** `powershell.exe -NoProfile -NonInteractive -Command <script en base64>`: el script lleva el comando tal cual y una línea final que da el código de salida (0 si el último comando salió bien; si no, el del programa externo que falló, o 1). No se usa `-EncodedCommand` porque con él PowerShell escribe los errores en CLIXML. La salida (stdout y stderr juntos, en orden) se decodifica en UTF-8, se le quitan los colores y los saltos de línea se normalizan. Cada llamada devuelve **solo la salida nueva**. Lo no leído se guarda con un tope (500 000 caracteres del inicio y del final, con un marcador de lo omitido). Hasta 8 procesos vivos; un proceso terminado cuya salida nadie lee se olvida a los 10 minutos.
+**Cómo corre.** `powershell.exe -NoProfile -NonInteractive -Command <prólogo; ayudas; script en base64>` (`src/tools/terminal/powershell.ts`): el script lleva el comando tal cual, dentro de la función `script`, y una línea final que da el código de salida (0 si el último comando salió bien; si no, el del programa externo que falló, o 1). No se usa `-EncodedCommand` porque con él PowerShell escribe los errores en CLIXML. Las ayudas se leen de un archivo `.ps1` de la carpeta temporal (un bloque grande en base64 en la línea de comandos lo llegó a bloquear el antivirus): `Read-Host` y `pause` respondibles por `waiting_input`, y envoltorios de las herramientas del sistema (`ipconfig`, `ping`, `netsh`…) para que sus tildes no se pierdan cuando PowerShell recoge su salida; si no cargan, se relanza sin ellas. La salida se decodifica en UTF-8 (y, línea por línea, en la página OEM o ANSI lo que no sea UTF-8), sin escapes de terminal ni caracteres de control, con las barras de progreso en su última versión y stdout y stderr unidos por líneas enteras. Cada llamada devuelve **solo la salida nueva**. Lo no leído se guarda con un tope (500 000 caracteres del inicio y del final, con un marcador de lo omitido). Hasta 8 procesos vivos; un proceso terminado cuya salida nadie lee se olvida a los 10 minutos.
 
 **Detalles que importan.**
 - **Procesos huérfanos:** lo que deja una tarea completada no lo puede continuar nadie; si se llega al tope de 8 procesos vivos, se cierra el más antiguo de esos (nunca los de una tarea en curso) para hacer lugar.
 - **Código de salida:** el real; si alguien cortó el proceso desde fuera, `-1` (no se lee como una salida limpia).
+- **Entorno:** el de Jarvis sin las variables que cargó de `.env`; con `PYTHONIOENCODING=utf-8` y `PYTHONUNBUFFERED=1` si el usuario no los definió. La cabecera de un comando nuevo dice la carpeta en la que corrió (`cwd:`).
+- **Plazos duros:** 15 s para que arranque PowerShell y 5 s para `taskkill`. Si un programa lanzado se queda con la salida y el comando termina, se avisa (`data.detached`) y no se recoge más.
 - **Frases llanas en `text`:** `The command finished successfully.` o `The command failed (exit code N).`, y con `waiting_input` o `running`, cómo continuar (`run_command { "pid": N, "input": <la respuesta> }`). Los modelos chicos (el generador de argumentos y el verificador) no deducían qué hacer a partir del estado solo.
 - **Mensajes de error en inglés** (los lee el modelo, como los de las demás tools); la pregunta al usuario por un prompt, en español.
-- **Limitación de codificación:** PowerShell se fuerza a UTF-8, que es lo que hablan git, node, npm y los cmdlets. Los mensajes de las herramientas del sistema de Windows (`ipconfig`, `ping`, `chcp`, `net`) salen en la página OEM 850 y sus tildes llegan como `�`: ni `chcp 65001` lo arregla (esas herramientas usan la página OEM del sistema) y decodificar en 850 rompería lo que sí es UTF-8. Los datos (nombres, números, direcciones) no se pierden.
+- **Codificación:** PowerShell (salida y entrada) en UTF-8, que es lo que hablan git, node, npm y los cmdlets. Las herramientas del sistema de Windows escriben en la página OEM (850) o ANSI (1252): lo que no es UTF-8 se decodifica línea por línea con la que da letras (resuelto el 2026-11-11, `docs/REVISION_run_command.md` RC-10). Quedan fuera las invocadas con extensión (`ipconfig.exe`) cuando PowerShell recoge su salida y las páginas OEM sin tabla.
+- **PowerShell sin interacción:** `-Confirm`, `Get-Credential` y los parámetros obligatorios fallan en el acto y el texto dice cómo seguir (`-Confirm:$false`, `-Force`, pasar el valor); `Read-Host -AsSecureString` se rechaza (no se piden contraseñas por el chat).
 
 **Seguridad.** La tool valida tipos, largos, la carpeta, que el `pid` sea de la misma tarea y la plataforma. El Guard decide sobre la llamada: comandos catastróficos (DENY), rutas sensibles (confirmación obligatoria), y confirmación en toda escritura salvo un comando que `policy/readOnly.ts` demuestra de solo lectura y una continuación sin `input`. El pre-chequeo comprueba el comando como PowerShell. Repetición: un comando nuevo es `strict` (repetir una escritura idéntica pudo duplicar sus efectos) y una continuación por `pid` es `allow` (esperar más salida repite los mismos argumentos; acotan los topes del paso): `repeatByArgs` en el manifiesto.
 
-**Manifiesto.** Ruta `terminal`, servidor `jarvis_terminal`, capacidad `PROCESS_CONTROL`, plazo 315 s. **Fuera de 1.0:** REPL interactivos (sin PTY), procesos que sobreviven a la tarea para retomarlos luego.
+**Manifiesto.** Ruta `terminal`, servidor `jarvis_terminal`, capacidad `PROCESS_CONTROL`, plazo 315 s. **Fuera de 1.0:** PTY (ConPTY: evaluado el 2026-11-11 y descartado; un REPL que escribe su prompt, como `python -i`, ya se responde, una línea por paso), procesos que sobreviven a la tarea para retomarlos luego.
 
 ## 6. `web_search`
 
@@ -126,7 +129,7 @@ Busca en internet (o lee las URL dadas) y devuelve solo los fragmentos que respo
 - **Resultado** (`core/tools/result.ts`): `toolResult({ text, raw, data, meta, isError })` y `readToolResult`. `extractStructured` traduce `data` a las señales del procesador (código de salida, `pid` y vida del proceso, `waiting_input`, sin datos).
 - **`ToolHost`** (`core/tools/host.ts`): `call(ref, args, { signal })`, solo para lo declarado, con cada sub-llamada en la traza.
 - **Manifiesto** (`core/tools/manifest.ts`): `internal`, `timeoutMs` y `timeoutOf`; `internalDef` para las herramientas de otro servidor que una tool compuesta usa por dentro.
-- **Guard:** `policy/egress.ts` para lo que sale a internet; `policy/readOnly.ts` reconoce `run_command`.
+- **Guard:** `policy/egress.ts` para lo que sale a internet; `policy/readOnly.ts` reconoce `run_command` (cmdlets de consulta y, desde el 2026-11-11, programas con argumentos exactos de lectura: `node --version`, `npm ls`, `ipconfig /all`; no `git status`).
 - **Modelos dentro de una tool:** solo el puerto `FragmentJudge` (`core/tools/judge.ts`); no hay métodos generativos.
 
 ## 8. Pendientes

@@ -2,6 +2,8 @@
 
 Documento de referencia para un agente que vaya a revisar `run_command` en profundidad. Reúne lo que se encontró al construirla y validarla (2026-11-10), con el contexto necesario para entender cada punto sin haber visto cómo se construyó. No impone soluciones: cada hallazgo dice qué se observó, con qué evidencia y qué conviene investigar.
 
+> **Revisión del 2026-11-11.** Los hallazgos se verificaron contra el código y con PowerShell real, y se resolvió lo que se podía sin tocar prompts ni el núcleo grande. El **estado de cada hallazgo**, los hallazgos nuevos (`RC-31` en adelante), la evaluación de ConPTY, las decisiones a confirmar y los cambios en lo que leen los modelos están en la **§9**. Las secciones 1 a 8 describen el estado del 2026-11-10 y se dejan como estaban, salvo correcciones marcadas con *(corregido 2026-11-11)*.
+
 **Cómo leerlo.** Cada hallazgo lleva una etiqueta de **tipo** (Bug, Limitación, Riesgo, Falta, Inconsistencia), una **gravedad** (Alta, Media, Baja) y un **estado de verificación**:
 - **[Vivo]**: comprobado ejecutando PowerShell o el flujo real.
 - **[Test]**: cubierto por una prueba automática.
@@ -17,6 +19,7 @@ Documento de referencia para un agente que vaya a revisar `run_command` en profu
 | `src/tools/terminal/terminalProvider.ts` (~430 líneas) | El proveedor: validación, lanzamiento, espera por eventos, detección de prompts, continuación por `pid`, cierre |
 | `src/tools/terminal/output.ts` | `stripAnsi`, `LineNormalizer`, `OutputBuffer` (tope de memoria) |
 | `src/tools/terminal/processTree.ts` | `killTree`: `taskkill /PID n /T /F` |
+| *(2026-11-11)* `src/tools/terminal/powershell.ts`, `prompts.ts`, `codepages.ts` | Cómo se lanza PowerShell y sus ayudas; detección de prompts por clases; páginas de códigos del sistema (ver §9) |
 | `tests/run_command.test.ts` | 17 pruebas con procesos reales de PowerShell (solo Windows) |
 
 **Archivos del núcleo que la integran** (leerlos para entender el resto):
@@ -110,7 +113,7 @@ Lo que deja una tarea completada sigue vivo, y nadie lo puede continuar (otra ta
 `taskkill /T` corta por relación padre-hijo. `Start-Process app` (sin `-NoNewWindow`) deja un proceso cuyo padre puede desaparecer: si PowerShell ya salió, ese proceso no está en el árbol ni en el registro y nunca se cierra. Es deseable para "lanzar una aplicación", pero deja procesos que ninguna parte controla. Las pruebas del árbol usaron `-NoNewWindow` con `Wait-Process` para mantener al padre vivo.
 *Investigar:* qué debe pasar con las aplicaciones lanzadas a propósito (¿se rastrean por el pid que devuelve `-PassThru`?) y qué debe pasar al cancelar.
 
-**RC-07 · Riesgo · Media · [Código] — `/api/mcp/<servidor>/call` lanza procesos sin tarea.**
+**RC-07 · Riesgo · Media · [Código] — `/api/mcp/<servidor>/call` lanza procesos sin tarea.** *(corregido 2026-11-11: no ocurre. El endpoint rechaza toda herramienta con `policy.mutates`, y `run_command` lo es por catálogo, así que responde 403 aunque el Guard diga ALLOW. Lo fija una prueba en `tests/http.test.ts`.)*
 `src/server/mcpRouter.ts` deja pasar lo que el Guard permite sin confirmación. Un `run_command` de solo lectura (`Get-Process`) se ejecuta ahí sin `taskId`: nadie lo cierra al terminar una tarea; solo se olvida a los 10 minutos si ya terminó, o `close()` al apagar Jarvis. Un `{ pid }` sin tarea solo ve procesos sin tarea. No se probó por HTTP.
 *Investigar:* si `run_command` debe estar disponible por ese endpoint.
 
@@ -122,7 +125,7 @@ Tras el evento `exit` se espera 300 ms a `close`; si un proceso hijo conserva st
 
 ### Salida y codificación
 
-**RC-10 · Limitación · Media · [Vivo] — Las herramientas del sistema de Windows salen con las tildes rotas.**
+**RC-10 · Limitación · Media · [Vivo] — Las herramientas del sistema de Windows salen con las tildes rotas.** *(corregido 2026-11-11: no todas usan la OEM; `chcp` escribe en la ANSI 1252. Y hay dos caminos: si la salida va directo, los bytes OEM llegan a Node; si la recoge PowerShell (`| Select-Object`, `$x = …`), PowerShell los decodifica como UTF-8 y la `�` ya viene hecha. Resuelto: ver §9.)*
 `ipconfig | Select-Object -First 4` devolvió `Configuraci�n IP de Windows`; `chcp` devolvió `P�gina de c�digos activa: 850`. Esas herramientas escriben sus mensajes en la página OEM (850). El prólogo fija `[Console]::OutputEncoding = UTF8` (correcto para cmdlets, git, node, npm). Se probaron tres variantes: UTF-8 (actual), `chcp 65001` previo (no ayuda: `chcp` mismo sigue escribiendo bytes OEM aunque informe 65001) y dejar OEM (arregla las herramientas del sistema, pero rompe todo lo que es UTF-8 y pierde en los cmdlets los caracteres fuera de 850: `€`, comillas tipográficas, CJK). Los datos (nombres, números, direcciones) no se pierden.
 *Investigar:* si hay una forma de decodificar por comando o por herramienta, o de detectar `�` y avisar al modelo.
 
@@ -215,3 +218,111 @@ Para repartir el trabajo: **código** es lo que se resuelve cambiando la lógica
 | **Medición o prueba** | RC-10 (no tiene arreglo conocido; medir alternativas), RC-23 (aplicaciones gráficas), RC-30 (concurrencia) |
 
 En síntesis: de 30 hallazgos, **dos son de prompt y texto** (RC-12, RC-24), **dos mezclan código y texto** (RC-03, RC-18) y el resto es código, decisiones o pruebas. Lo que más pesa en la experiencia real (RC-12: que el modelo chico continúe por el `pid`) es una mejora de texto.
+
+## 9. Estado tras la revisión del 2026-11-11
+
+Verificado contra el código y con PowerShell real en la PC de desarrollo (Windows 11 en español, OEM 850, ANSI 1252, Windows PowerShell 5.1, Defender activo). Los prompts y textos del manifiesto, `DESTINATIONS`, `models/prompts.ts` y `eval/` no se tocaron.
+
+### 9.1 Qué cambió en el código
+
+- **`src/tools/terminal/output.ts`.** `OutputDecoder`: UTF-8 tal cual (también partido entre fragmentos); una línea que no es UTF-8 válido se decodifica con la página OEM o la ANSI del sistema, la que dé más letras acentuadas. `cleanTerminalText`: escapes ANSI (también partidos entre fragmentos), retrocesos aplicados y sin caracteres de control sueltos. `LineAssembler`, uno por flujo: `\r\n` es un salto, un `\r` suelto reescribe la línea (una barra de progreso queda en su última versión), la línea abierta se retiene hasta su salto y stdout y stderr se unen por líneas enteras.
+- **`src/tools/terminal/prompts.ts`.** La última línea se clasifica (`strong`: `[S/N]`, `Press any key`, `Contraseña`; `likely`: termina en `:`, `?`, `>`, `]`…; `weak`: otro texto; `none`: un avance como `progreso...`, `45%`, `[####  ]`) y cada clase pide su silencio: 1,5 s, 1,5 s, 5 s o nunca. Una elección o una tecla en una línea ya terminada cuenta tras 3 s.
+- **`src/tools/terminal/powershell.ts`.** La línea de `-Command`. Ayudas que se leen de un archivo `.ps1` (`%TEMP%\jarvis-terminal\helpers-<hash>.ps1`, como texto, sin directiva de ejecución): `Read-Host` respondible (escribe el prompt y lee la entrada estándar: `Read-Host` y `pause` llegan a `waiting_input`), y envoltorios de 31 herramientas del sistema (`ipconfig`, `ping`, `netsh`, `systeminfo`, `tasklist`, `chcp`…) que decodifican su salida línea por línea cuando la recoge PowerShell y conservan su código de salida. El comando corre como la función `script` (un `Write-Error` dice `script : boom` y no arrastra el texto del comando ni el epílogo). El prólogo pone también la entrada en UTF-8. Si las ayudas no cargan, el proceso sale sin correr el comando y el proveedor lo relanza sin ellas.
+- **`src/tools/terminal/terminalProvider.ts`.** Reserva de lugar antes del primer `await` (dos lanzamientos simultáneos no pasan el tope), plazo de 15 s para que arranque PowerShell, entorno filtrado (`envRemove`) con `PYTHONIOENCODING=utf-8` y `PYTHONUNBUFFERED=1` si el usuario no los definió, huérfanos sin búfer de salida, aviso cuando un programa lanzado se queda con la salida (`detached`), la respuesta a un prompt cierra la línea abierta, `meta` con el comando, la carpeta, los tiempos, la clase de prompt y los caracteres por flujo. `MAX_COMMAND_CHARS` sale del `argCaps` del manifiesto (1000).
+- **`src/tools/terminal/processTree.ts`.** `killTree` nunca espera más de 5 s; si `taskkill` no termina, corta al menos el proceso principal.
+- **`src/tools/terminal/codepages.ts`.** Páginas OEM y ANSI del registro, una vez (850 y 1252 si no se pueden leer).
+- **Núcleo (cambios chicos).** `engine/callRunner.ts`: un `waiting_input` no cuenta en `priorAttempts` (RC-04). `policy/readOnly.ts`: invocaciones de lectura con argumentos exactos (RC-22). `server.ts` (raíz de composición): `envRemove` con las variables cargadas de `.env` (RC-16).
+- **Pruebas.** `tests/run_command.test.ts` (de 17 a 29 pruebas: decodificación, líneas, clases de prompt, `Read-Host`, `python -i`, tildes de `ipconfig`/`chcp`/`ping`, códigos de salida de los envoltorios, entorno, concurrencia, salida heredada, ayudas que no cargan), `tests/readonly.test.ts` (RC-22, positivos y negativos), `tests/engine.test.ts` (RC-04), `tests/http.test.ts` (RC-07). Toda la suite: 211 de 211.
+- **Sondas.** `run_command_probe.ts` suma los casos nuevos; `powershell_launch_probe.mjs` suma la parte 4 (antivirus).
+
+### 9.2 Estado por hallazgo
+
+| Hallazgo | Estado (2026-11-11) | Cómo, y qué queda |
+| --- | --- | --- |
+| RC-01 Detección por inactividad | **Parcial** | Clases de prompt (`prompts.ts`). El falso positivo del documento (`progreso...` + 3 s) da `finished` [Vivo, prueba]. Un texto sin forma de prompt necesita 5 s en vez de 1,5. Queda: el falso negativo (`findstr`, `node` leyendo stdin sin prompt) sigue `running`; Node no puede saber si un proceso está bloqueado leyendo. ConPTY: ver 9.4 |
+| RC-02 Una pregunta por paso | **Pendiente** | Fuera de 1.0 (§7). Pesa más ahora que los REPL funcionan: en `python -i` cada línea nueva es otro prompt y en el mismo paso no se puede volver a preguntar (cae en `call_cap`). Necesita un tope propio en `limits.ts` y `canAskUser`; es una decisión del flujo |
+| RC-03 Prompts propios de PowerShell | **Parcial** | `Read-Host` y `pause` se responden por `waiting_input` [Vivo, prueba, con tildes]. `-Confirm`, `Get-Credential` y los parámetros obligatorios siguen fallando en el acto, y el texto ahora lo explica (`Pass the values as parameters, or add -Confirm:$false or -Force`). `Read-Host -AsSecureString` falla con un mensaje claro: no se piden contraseñas por el chat |
+| RC-04 `waiting_input` encarece los argumentos | **Resuelto** | `callRunner`: no cuenta en `priorAttempts` (la temperatura no sube al responder). Sigue contando como ejecución e intento (2 de 6 en el caso normal); no se midió efecto en calidad |
+| RC-05 Huérfanos | **Parcial** (decisión a confirmar) | Siguen vivos (pudo ser lo pedido: un servidor). Nuevo: se registra en consola qué dejó cada tarea, no se guarda su salida (antes acumulaban hasta ~1 M de caracteres cada uno) y, al terminar, se olvidan en el acto. Listarlos o pararlos desde la interfaz es RC-25 |
+| RC-06 Procesos fuera del árbol | **Pendiente** | Verificado: `Start-Process app` y una app gráfica lanzada directo quedan fuera del árbol y no se cortan al cancelar. Rastrearlos exigiría un Job Object (código nativo) o seguir el pid de `-PassThru`. Se deja así: lanzar una app es justamente que sobreviva |
+| RC-07 `/api/mcp` sin tarea | **Descartado** | No ocurre (ver la corrección en RC-07): 403 por `policy.mutates`. Prueba en `tests/http.test.ts` |
+| RC-08 Hijo que hereda las tuberías | **Resuelto** | A los 300 ms del `exit` se sueltan los flujos (no quedan escuchas ni memoria creciendo), `data.detached = true` y el texto lo dice [Vivo, prueba con `Start-Process -NoNewWindow`] |
+| RC-09 Sin plazo duro | **Resuelto** | 15 s para arrancar PowerShell; `killTree` con tope de 5 s y corte del principal; `dispose` ya tenía 2 s (y ahora no se queda esperando si llega salida antes del fin) |
+| RC-10 Tildes de las herramientas del sistema | **Resuelto** (con riesgo residual) | Directo: Node decodifica línea por línea en OEM o ANSI lo que no es UTF-8. Recogido por PowerShell: los envoltorios. `ipconfig`, `ipconfig \| Select-String`, `$x = ipconfig`, `chcp`, `ping \| Out-String`, `systeminfo \| Select-String` salen sin `�` [Vivo, prueba]. Queda: invocadas con extensión (`ipconfig.exe`, `tree.com`) no se envuelven; páginas OEM sin tabla (852, 857…) usan solo la ANSI; los dibujos de caja de `tree` sin `/A` pueden salir mal; elegir la página es una heurística (más letras acentuadas) |
+| RC-11 Mezcla de errores | **Parcial** | `Write-Error` ya no repite el comando ni el epílogo (`script : boom` y `+ script`). stdout y stderr se unen por líneas enteras (nunca a mitad de línea), pero entre tuberías el orden sigue siendo el de llegada |
+| RC-12 El modelo chico y el `pid` | **Fuera de alcance** (prompts) | No se tocaron descripción ni notas. Lo de la tool que puede ayudar: `(no output)` cuando un comando terminó sin escribir nada (antes `(no new output)`), que era lo que el verificador no entendía |
+| RC-13 Un desvío cierra la tarea | **Pendiente** (decisión, del motor) | Sin cambios |
+| RC-14 Un solo pid en el hecho `process` | **Pendiente** | Necesita cambiar el hecho en el contexto (`ctx/`, fuera de alcance). Cada resultado sigue diciendo su `pid` |
+| RC-15 Un normalizador para dos flujos | **Resuelto** | Un `LineAssembler` por flujo |
+| RC-16 Entorno heredado | **Resuelto** (decisión a confirmar) | `server.ts` pasa las variables de `.env` que siguen con el valor del archivo y el comando no las ve [prueba]. Queda: lo que traiga el entorno desde donde se lanzó Jarvis (otra terminal con tokens) se sigue heredando; un filtro por nombre rompería herramientas legítimas (`GITHUB_TOKEN` para `gh`) |
+| RC-17 `-NoProfile` | **Pendiente** (decisión) | Sin cambios |
+| RC-18 Carpeta por defecto | **Parcial** | La cabecera de un comando nuevo dice `cwd: <carpeta>`: el modelo la ve desde el primer resultado. La nota de `cwd` del manifiesto no dice cuál es la de por defecto (es prompt: queda para el usuario). El valor por defecto no cambió (la carpeta personal) |
+| RC-19 Recortado en el contexto, completo al ejecutar | **Resuelto** (decisión a confirmar) | El tope de `command` baja de 4000 a 1000, el mismo `argCaps` del manifiesto (lo fija una prueba). Antes, el usuario aprobaba y D3 revisaba un comando del que solo veían los primeros 1000 caracteres |
+| RC-20 Dos confirmaciones al responder | **Pendiente** (decisión de seguridad) | Opción conservadora: sin cambios. Propuesta lista para decidir: tratar como aprobado un `{ pid, input }` cuyo `input` es **exactamente** la última respuesta del usuario a la pregunta de ese proceso en el mismo paso (el usuario ya escribió ese texto para ese proceso; un texto inventado o sugerido por una salida no coincidiría). Se implementa en `callRunner` (o una función de `policy/`) leyendo el hecho `answer_<paso>_<n>` |
+| RC-21 Repetición estricta | **Pendiente** | La regla está en `ctx/derive.ts` (`isRepeat`: una escritura idéntica solo se repite tras una lectura). Relajarla tras una escritura distinta intermedia es un cambio en `ctx/`, fuera de alcance |
+| RC-22 Poco comando de lectura | **Parcial** | `READ_INVOCATIONS`: `node --version`, `npm ls/outdated/view/config get`, `git --version`, `python --version`, `dotnet --list-sdks`, `java -version`, `go version`, `where.exe`, `ipconfig [/all]`, `netstat -ano` y más `Get-*`; con argumentos exactos y fail-closed (pruebas de positivos y negativos). Fuera a propósito: `git status`/`git diff` (la configuración de un repositorio ajeno puede ejecutar programas: `core.fsmonitor`, `diff.external`), `npx`, `yarn`, `pnpm`, `pip` |
+| RC-23 Aplicaciones gráficas | **Resuelto** (verificado) | `charmap` lanzado directo y con `Start-Process` abre su ventana visible (`MainWindowHandle` distinto de 0 y título) aunque PowerShell va oculto [Vivo]. Lanzada directo, la llamada termina enseguida con el pid de PowerShell (el de la app no se conoce); con `Start-Process -PassThru` sí. No se probó una app de la Tienda (el Bloc de notas de Windows 11). Procedimiento para el usuario en 9.6 |
+| RC-24 D1 ignora "usando la terminal" | **Fuera de alcance** (prompts) | Sin cambios |
+| RC-25 Sin listar ni parar procesos | **Pendiente** (decisión) | Sin cambios |
+| RC-26 Constantes no configurables | **Parcial** | `TerminalOptions` acepta los silencios de prompt, el tope de procesos, el entorno excluido, las ayudas y las páginas de códigos. No pasan a `jarvis-config.json` (sería configuración visible para el usuario: decisión) |
+| RC-27 Poca observabilidad | **Resuelto** | `meta`: comando (300 caracteres), carpeta, `spawnMs`, `waitedMs`, clase de prompt, caracteres por flujo, líneas decodificadas con la página heredada. `meta` va a la traza, nunca a los modelos |
+| RC-28 Pruebas sensibles al tiempo | **Parcial** | Los silencios son opciones; las pruebas nuevas usan márgenes amplios (ninguna exige menos de 1,5 s de precisión). Las de procesos reales siguen dependiendo del reloj |
+| RC-29 Solo PowerShell 5.1 | **Pendiente** (decisión) | Sin cambios |
+| RC-30 Concurrencia | **Parcial** | Encontrado y arreglado RC-33. Sin prueba con tareas reales en paralelo |
+
+### 9.3 Hallazgos nuevos
+
+| Hallazgo | Tipo · gravedad · verificación | Qué se vio | Estado |
+| --- | --- | --- | --- |
+| **RC-31** | Bug · Media · [Vivo] | Una respuesta con tildes por `{ pid, input }` llegaba rota (`ñandú €` → `├▒and├║ Ôé¼`): PowerShell leía la entrada en la página OEM | **Resuelto**: el prólogo pone `[Console]::InputEncoding` en UTF-8 (prueba) |
+| **RC-32** | Bug · Media · [Vivo] | `python -c "print('añ €')"` salía `a� �`: Python escribe en la ANSI cuando la salida es una tubería. Además guarda la salida en un búfer hasta terminar | **Resuelto**: `PYTHONIOENCODING=utf-8` y `PYTHONUNBUFFERED=1` en el entorno del comando, si el usuario no los definió |
+| **RC-33** | Riesgo · Media · [Código] | El tope de procesos vivos se comprobaba y después se esperaba (`await`) el lanzamiento: varias llamadas simultáneas podían pasar juntas | **Resuelto**: reserva antes del primer `await` (prueba con dos lanzamientos simultáneos y tope 1) |
+| **RC-34** | Limitación · Media · [Vivo] | Una barra de progreso con `\r` (npm, pip, curl) se convertía en una línea por actualización: llenaba la salida y el resumen | **Resuelto**: un `\r` suelto reescribe la línea |
+| **RC-35** | Riesgo · Media · [Vivo] | Con las ayudas de PowerShell metidas en base64 en `-Command`, Defender (AMSI) bloqueó el comando entero ("Este script contiene elementos malintencionados"). El veredicto depende del contenido y de las firmas del día | **Resuelto**: las ayudas van en un archivo leído como texto; si no cargan, el proceso sale con un código propio sin correr el comando y se relanza sin ayudas (prueba). Restricción de diseño: no volver a meter bloques grandes en base64 en la línea de comandos |
+| **RC-36** | Bug · Baja · [Código] | Una secuencia de escape partida entre dos fragmentos no se quitaba; retrocesos y caracteres de control llegaban al modelo | **Resuelto** (`cleanTerminalText`, retención de escapes abiertos) |
+| **RC-37** | Bug · Baja · [Vivo] | En un REPL, tras responder, el prompt siguiente salía como `>>> >>>` (la línea abierta respondida seguía abierta) | **Resuelto** (`closeAnswered`; prueba con `python -i`) |
+| **RC-38** | Riesgo · Baja · [Código] | `dispose` esperaba el fin con un `once`: si llegaba salida antes del fin, esperaba los 2 s completos | **Resuelto** |
+| **RC-39** | Limitación · Baja · [Vivo] | `python -i` funciona sin PTY: escribe `>>> ` en stderr, se detecta como prompt y se responde línea por línea. Lo limita RC-02, no la falta de PTY | Informativo (ver 9.4) |
+| **RC-40** | Limitación · Baja · [Código] | Los envoltorios solo cubren el nombre corto (`ipconfig`); `ipconfig.exe` o `tree.com` recogidos por PowerShell siguen con `�` | **Pendiente** (menor; se podría envolver también `nombre.exe`/`.com`) |
+
+### 9.4 ConPTY (RC-01, reabierto): no se implementa
+
+- **No hace falta para lo que se buscaba.** `python -i` ya llega a `waiting_input` y se responde (RC-39); `Read-Host` y `pause` también (RC-03). Lo que sigue sin funcionar con un PTY tampoco se arreglaría: el falso negativo de RC-01 (un PTY no dice si el proceso está leyendo) y RC-02 (una pregunta por paso).
+- **Dependencia nativa.** Node no tiene ConPTY: hace falta `node-pty` (o un fork con binarios precompilados), que se compila o se baja por versión de Node; el proyecto evita justo eso (Desktop Commander se instaló con `--ignore-scripts` y sin red).
+- **Cambia la salida.** Un PTY entrega una pantalla: secuencias de cursor, líneas partidas al ancho de la terminal y redibujos. Para obtener texto fiel haría falta un emulador (`xterm-headless`), y las salidas grandes (400 000 caracteres en una línea, 300 000 líneas) se vuelven lentas. La entrada aparece con eco en la salida.
+- **`-NonInteractive`.** Con un PTY se podría quitar y `-Confirm` preguntaría, pero `PromptForChoice` dibuja menús que habría que detectar y responder, y vuelve el riesgo de procesos colgados que motivó `-NonInteractive`.
+- **Lo que sí ganaría:** programas que exigen una terminal (`isatty`) o leen la consola directamente (`choice.exe`, contraseñas de `ssh`/`getpass`; estas últimas no deberían pasar por el chat). Si alguna vez hace falta: una opción `TerminalOptions.pty` con una dependencia opcional y vuelta a tuberías si no carga, solo para comandos que la pidan.
+
+### 9.5 Cambios en lo que leen los modelos (para tener en cuenta al evaluar)
+
+Todo en `text` y en `raw` de `run_command`; el manifiesto no cambió.
+- Cabecera de un comando nuevo: `status · exit code · duration · pid · cwd: <carpeta>` (antes sin `cwd`).
+- `(no output)` cuando el comando terminó sin escribir nada; `(no new output)` sigue para una continuación sin novedades.
+- Notas nuevas: `PowerShell runs without interaction: …` cuando PowerShell quiso preguntar; `A program started by this command is still running in the background; its output is not captured.` con `detached`.
+- Error de largo: `The command is longer than 1000 characters. Use a shorter command, or split the work into several commands.` (antes 4000, sin la sugerencia).
+- `Read-Host` y `pause` dan `waiting_input` (antes fallaban con exit 1); `Read-Host -AsSecureString` falla con su propio mensaje.
+- Un `Write-Error` sale como `script : <mensaje>` con `+ script` de contexto (antes repetía el comando y el epílogo).
+- Las tildes de las herramientas del sistema y de Python llegan bien; las barras de progreso, en su última versión; sin caracteres de control.
+- Detección de prompts: menos `waiting_input` falsos (avances), y un texto sin forma de prompt tarda 5 s en contar.
+- Comandos de lectura nuevos (RC-22): no piden confirmación, su salida va a DATA y no pasan por D3.
+- Generación de `{ pid, input }` tras un `waiting_input`: `priorAttempts` ya no sube (temperatura más baja).
+
+### 9.6 Decisiones a confirmar
+
+1. **Tope de `command` en 1000 caracteres** (antes 4000), igual al recorte con que se registra (RC-19). Alternativa: subir `argCaps.command` a 4000 (más contexto por llamada).
+2. **Huérfanos vivos** al completarse la tarea, sin salida guardada (RC-05). Alternativa: cerrarlos tras un tiempo, con el riesgo de matar un servidor pedido.
+3. **Entorno sin las variables de `.env`** y con `PYTHONIOENCODING`/`PYTHONUNBUFFERED` (RC-16, RC-32).
+4. **`Read-Host` se responde por el chat** (lo que el usuario escribe queda en el hecho `answer_*` y en la traza); `-AsSecureString` se rechaza.
+5. **Lista de lectura ampliada** (RC-22), sin `git status`.
+6. **Archivo de ayudas en `%TEMP%\jarvis-terminal`**, que la misma cuenta puede modificar (quien puede, ya ejecuta lo que quiera con esa cuenta).
+7. **Código de salida de un envoltorio:** una herramienta del sistema que falla como último comando da su código, aun dentro de una tubería (`ipconfig /x | Out-String` sale con 1).
+8. **RC-20 sin cambios** (dos confirmaciones), con la propuesta de 9.2 lista.
+
+### 9.7 Qué queda por validar (usuario)
+
+1. **Tareas reales de punta a punta.** `npx tsx scripts/validate/tasks_e2e.ts --only=2` (y `--only=1`). Mirar: tras `cmd /c pause`, que el modelo continúe por el `pid` y que la cabecera nueva (`cwd:`) y `(no output)` no lo confundan. Funciona: la tarea cierra `completed`. Falló: un comando nuevo en vez de `{ pid, input }`, o el verificador rechaza el `finished`.
+2. **Efecto en `eval`.** Correr la evaluación habitual de `run_command`. Mirar los casos con comandos largos (>1000), con `Read-Host`/`pause` y con herramientas del sistema.
+3. **Aplicación de la Tienda.** En una tarea: "abrí el Bloc de notas". Mirar que la ventana aparezca y que la llamada termine `finished`. Funciona: ventana visible. Falló: la llamada queda `running` o no aparece nada.
+4. **Antivirus.** `node scripts/validate/powershell_launch_probe.mjs` (parte 4) después de usar la tool. Funciona: la línea "ayudas leídas del archivo" dice `corre`. Si dijera BLOQUEADO, la tool sigue funcionando sin ayudas (la consola de Jarvis avisa "no se pudieron cargar las ayudas") y hay que revisar `PS_HELPERS`.
+5. **Sonda completa.** `npx tsx scripts/validate/run_command_probe.ts`. Mirar: ningún `�` en `ipconfig`, `chcp`, `ping`; `Read-Host` y `python -i` en `waiting_input`; `progreso... listo` en `finished`.
+6. **Otra página de códigos.** En una PC con otro idioma de Windows (OEM 437, 852, 866): `ipconfig | Select-String IP`. Funciona: sin `�`. Con 852/857 se espera que falle (no hay tabla; queda como antes).

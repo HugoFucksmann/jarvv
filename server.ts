@@ -9,6 +9,7 @@
  */
 
 import 'dotenv/config';
+import { parse as parseDotenv } from 'dotenv';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -32,6 +33,21 @@ import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Variables que `dotenv/config` cargó de `.env` (las que tienen en el entorno el mismo valor que en el archivo): son de Jarvis, no del usuario, y los
+ * comandos de `run_command` no las heredan. Sin `.env`, ninguna.
+ */
+function dotenvKeys(): string[] {
+  try {
+    const file = path.resolve(process.cwd(), '.env');
+    if (!fs.existsSync(file)) return [];
+    const parsed = parseDotenv(fs.readFileSync(file));
+    return Object.keys(parsed).filter((key) => process.env[key] === parsed[key]);
+  } catch {
+    return [];
+  }
+}
+
 async function main() {
   const app = express();
   app.use(express.json());
@@ -50,7 +66,8 @@ async function main() {
     desktop_commander: desktopServer,
     free_search: freeSearchServer,
     // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
-    jarvis_terminal: new TerminalProvider(),
+    // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
+    jarvis_terminal: new TerminalProvider({ envRemove: dotenvKeys() }),
     jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined) }),
   };
 

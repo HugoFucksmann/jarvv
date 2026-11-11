@@ -36,6 +36,7 @@ test("lo que escribe, borra, ejecuta o lanza algo no es de lectura", () => {
     "python -c 1",
     "git status",
     "ipconfig /release",
+    "npm install",
   ]) assert.equal(isReadOnlyCommand(command), false, command);
 });
 
@@ -91,4 +92,63 @@ test("Guard: un comando de lectura se permite sin confirmación; uno que escribe
   assert.equal(Guard.evaluate(TERMINAL, "run_command", { command: "format c:" }).decision, "DENY");
   assert.equal(Guard.evaluate(TERMINAL, "run_command", { pid: 1 }).decision, "ALLOW", "esperar más salida de un proceso ya aprobado no vuelve a pedir confirmación");
   assert.equal(Guard.evaluate(TERMINAL, "run_command", { pid: 1, input: "Get-Process" }).decision, "APPROVAL");
+});
+
+test("RC-22: consultas de versión y lecturas de npm y del sistema con argumentos exactos son de lectura", () => {
+  for (const command of [
+    "node --version",
+    "node -v",
+    "npm -v",
+    "npm ls",
+    "npm ls --depth=0",
+    "npm outdated",
+    "npm view express version",
+    "npm config get prefix",
+    "git --version",
+    "python --version",
+    "py -0",
+    "dotnet --list-sdks",
+    "java -version",
+    "go version",
+    "where.exe node",
+    "ipconfig",
+    "ipconfig /all",
+    "netstat -ano",
+    "node --version; npm --version; git --version",
+    "Get-Module -ListAvailable | Select-Object -First 5 Name",
+    "Resolve-DnsName example.com",
+  ]) assert.equal(isReadOnlyCommand(command), true, command);
+});
+
+test("RC-22: los mismos programas con otros argumentos siguen siendo escrituras (fail-closed)", () => {
+  for (const command of [
+    "node -e \"require('fs').rmSync('x')\"",
+    "node script.js",
+    "node --version script.js",
+    "npm install",
+    "npm i lodash",
+    "npm run build",
+    "npm test",
+    "npm config set prefix C:\\x",
+    "npm exec rimraf x",
+    "npx rimraf x",
+    "npx --version",
+    "git status",
+    "git diff",
+    "git -c core.fsmonitor=calc status",
+    "python -c 1",
+    "python -v",
+    "python --version x.py",
+    "pip list",
+    "yarn --version",
+    "ipconfig /release",
+    "ipconfig /flushdns",
+    "netstat 5",
+    "getmac /s otra /u admin /p clave",
+    "where.exe",
+    "dotnet run",
+    "go env -w GOPATH=x",
+    "node --version > a.txt",
+    "node --version; Remove-Item x",
+  ]) assert.equal(isReadOnlyCommand(command), false, command);
 });

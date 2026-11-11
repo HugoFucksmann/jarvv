@@ -4,13 +4,28 @@
  */
 
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { after, test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
-import { applyDestination, repeatPolicyOf, SYSTEM_TOOL_MANIFEST } from "../src/core/tools/manifest.ts";
+import { applyDestination, argCapsOf, repeatPolicyOf, SYSTEM_TOOL_MANIFEST } from "../src/core/tools/manifest.ts";
 import { readToolResult } from "../src/core/tools/result.ts";
-import { LineNormalizer, OutputBuffer, stripAnsi, UNREAD_HEAD_CAP, UNREAD_TAIL_CAP } from "../src/tools/terminal/output.ts";
+import {
+  cleanTerminalText,
+  codePageDecoder,
+  LineAssembler,
+  legacyDecoder,
+  MAX_OPEN_LINE,
+  OutputBuffer,
+  OutputDecoder,
+  stripAnsi,
+  UNREAD_HEAD_CAP,
+  UNREAD_TAIL_CAP,
+} from "../src/tools/terminal/output.ts";
+import { ensureHelpersFile, helpersSource, LEGACY_TOOLS, PS_HELPERS } from "../src/tools/terminal/powershell.ts";
+import { classifyPrompt, promptIdleMs } from "../src/tools/terminal/prompts.ts";
 import { buildCommandLine, buildScript, EPILOGUE, MAX_COMMAND_CHARS, PROLOGUE, TerminalProvider } from "../src/tools/terminal/terminalProvider.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
 
@@ -44,11 +59,84 @@ const waitDead = async (pid: number): Promise<boolean> => {
 
 // ───────────────────────── Salida (sin procesos) ─────────────────────────
 
-test("stripAnsi y LineNormalizer: sin colores, y un \\r\\n partido entre dos fragmentos es un solo salto", () => {
+test("cleanTerminalText: sin colores, con los retrocesos aplicados y sin caracteres de control sueltos", () => {
   assert.equal(stripAnsi("\u001b[31mrojo\u001b[0m y \u001b[2K\u001b[1Gfin"), "rojo y fin");
-  const n = new LineNormalizer();
-  assert.equal(n.push("a\r") + n.push("\nb\rc\r\n") + n.flush(), "a\nb\nc\n");
-  assert.equal(new LineNormalizer().push("x\r") + "", "x");
+  assert.equal(cleanTerminalText("\u001b[32mok\u001b[0m"), "ok");
+  assert.equal(cleanTerminalText("cargando |\b/\b-\b\\ listo"), "cargando \\ listo", "un indicador giratorio deja su último carácter");
+  assert.equal(cleanTerminalText("a\u0000b\u0007c\td\ne\r"), "abc\td\ne\r", "se conservan \\t, \\n y \\r");
+});
+
+test("LineAssembler: un \\r\\n partido es un salto, un \\r suelto reescribe la línea y la línea abierta se retiene hasta su salto", () => {
+  const a = new LineAssembler();
+  assert.equal(a.push("a\r") + a.push("\nb\nc"), "a\nb\n");
+  assert.equal(a.current, "c");
+  assert.equal(a.end(), "c");
+
+  const bar = new LineAssembler();
+  assert.equal(bar.push("bajando 10%\rbajando 50%\rbajando 100%\n"), "bajando 100%\n", "la barra de progreso queda en su última versión");
+  assert.equal(bar.lastCompleted, "bajando 100%");
+
+  const prompt = new LineAssembler();
+  assert.equal(prompt.push("Tu nombre: "), "");
+  assert.equal(prompt.flushPartial(), "Tu nombre: ");
+  assert.equal(prompt.push("Ana\n"), "Ana\n", "lo ya entregado no se repite");
+  assert.equal(prompt.push("10%"), "");
+  assert.equal(prompt.flushPartial(), "10%");
+  assert.equal(prompt.push("\r20%\n"), "\n20%\n", "lo reescrito después de entregar una parte va en otra línea");
+
+  const long = new LineAssembler();
+  assert.equal(long.push("x".repeat(MAX_OPEN_LINE + 5)).length, MAX_OPEN_LINE + 5, "una línea sin salto enorme no se retiene sin tope");
+  assert.equal(long.currentIsLong, true);
+  long.push("y\n");
+  assert.equal(long.currentIsLong, false);
+});
+
+test("OutputDecoder: UTF-8 tal cual (aunque llegue partido) y las líneas OEM o ANSI con la página que da letras", () => {
+  const decoder = new OutputDecoder(legacyDecoder(850, 1252));
+  const utf8 = Buffer.from("ñandú € 😀\n", "utf8");
+  assert.equal(decoder.write(utf8.subarray(0, 2)) + decoder.write(utf8.subarray(2, 9)) + decoder.write(utf8.subarray(9)) + decoder.end(), "ñandú € 😀\n");
+  assert.equal(decoder.legacyChunks, 0);
+
+  // `ipconfig` en la página 850: "Configuración IP" (ó = 0xA2) y "inalámbrica" (á = 0xA0).
+  const oem = Buffer.from([...Buffer.from("Configuraci"), 0xa2, ...Buffer.from("n IP\r\nLAN inal"), 0xa0, ...Buffer.from("mbrica\r\n")]);
+  assert.equal(decoder.write(oem), "Configuración IP\r\nLAN inalámbrica\r\n");
+  // `chcp` en la página 1252: "Página de códigos" (á = 0xE1, ó = 0xF3).
+  const ansi = Buffer.from([...Buffer.from("P"), 0xe1, ...Buffer.from("gina de c"), 0xf3, ...Buffer.from("digos\r\n")]);
+  assert.equal(decoder.write(ansi), "Página de códigos\r\n");
+  // Una línea OEM y otra UTF-8 en el mismo fragmento: cada una con lo suyo.
+  assert.equal(decoder.write(Buffer.concat([Buffer.from([0x61, 0xa2, 0x0a]), Buffer.from("€\n", "utf8")])), "aó\n€\n");
+  assert.ok(decoder.legacyChunks > 0);
+  assert.equal(codePageDecoder(9999), null, "una página desconocida no se inventa");
+});
+
+test("classifyPrompt: lo que parece una pregunta necesita menos silencio; un avance no es un prompt", () => {
+  const idle = { prompt: 1, weak: 2, terminated: 3 };
+  const cases: Array<[string, boolean, string]> = [
+    ["Tu nombre: ", false, "likely"],
+    [">>> ", false, "likely"],
+    ["¿Continuar? ", false, "strong"],
+    ["Valor? ", false, "likely"],
+    ["Elija una opción [1-3]", false, "likely"],
+    ["Overwrite file? [y/N] ", false, "strong"],
+    ["¿Desea continuar? (S/N)", true, "strong"],
+    ["Presione una tecla para continuar . . . ", false, "strong"],
+    ["Press any key to continue", true, "strong"],
+    ["Contraseña", false, "strong"],
+    ["Ingrese un valor", false, "weak"],
+    ["progreso...", false, "none"],
+    ["Descargando 45%", false, "none"],
+    ["[#####     ]", false, "none"],
+    ["empiezo", true, "none"],
+    ["Tu nombre:", true, "none"],
+    ["", false, "none"],
+    ["x".repeat(400) + ":", false, "none"],
+  ];
+  for (const [line, terminated, kind] of cases) assert.equal(classifyPrompt(line, terminated), kind, JSON.stringify(line));
+  assert.equal(promptIdleMs("likely", false, idle), 1);
+  assert.equal(promptIdleMs("weak", false, idle), 2);
+  assert.equal(promptIdleMs("strong", true, idle), 3);
+  assert.equal(promptIdleMs("likely", true, idle), null);
+  assert.equal(promptIdleMs("none", false, idle), null);
 });
 
 test("OutputBuffer: conserva el inicio y el final de lo no leído, cuenta lo omitido y se vacía al leer", () => {
@@ -77,6 +165,15 @@ test("el script: el comando va tal cual y el cálculo del código de salida en o
   assert.ok(commandLine.startsWith(PROLOGUE));
   assert.doesNotMatch(commandLine, /comillas|barras/, "el comando no viaja en claro: no hay nada que escapar");
   assert.ok(!commandLine.includes('"'), "sin comillas dobles que rompan la línea de comandos");
+  assert.ok(commandLine.endsWith("& ([scriptblock]::Create('script'))"), "el comando corre como la función `script`");
+  assert.ok(commandLine.includes("JARVIS_TERMINAL_HELPERS") && !buildCommandLine("x", { helpers: false }).includes("JARVIS_TERMINAL_HELPERS"), "las ayudas se leen de un archivo, no viajan en la línea");
+  assert.ok(helpersSource(false).length < helpersSource(true).length && helpersSource(false).includes("Read-Host"), "sin envoltorios, las ayudas son solo Read-Host");
+  assert.ok(commandLine.length + MAX_COMMAND_CHARS * 3 < 32_000, "la línea de comandos de Windows tiene un tope de 32 767 caracteres");
+  assert.ok(LEGACY_TOOLS.includes("ipconfig") && !PS_HELPERS.includes("`"), "las ayudas no usan acentos graves (van en una plantilla)");
+});
+
+test("el tope de largo de command es el mismo con el que el manifiesto lo registra: lo que se ejecuta es lo que ven el usuario y los modelos", () => {
+  assert.equal(MAX_COMMAND_CHARS, argCapsOf("jarvis_terminal", "run_command").command);
 });
 
 test("el manifiesto expone exactamente los parámetros que declara el proveedor", async () => {
@@ -163,12 +260,25 @@ test("un prompt: waiting_input con el texto, y la respuesta llega por {pid, inpu
   assert.match(answered.raw, /hola Ana/);
 });
 
-test("Read-Host no cuelga el proceso: falla en el acto (PowerShell sin interacción)", { skip: !windows }, async () => {
+test("Read-Host se responde como cualquier prompt (también con tildes); -AsSecureString y -Confirm fallan en el acto y el texto dice cómo seguir", { skip: !windows }, async () => {
+  const task = nextTask();
+  const waiting = read(await run({ command: "$n = Read-Host 'Tu nombre'; Write-Output \"hola $n\"" }, task));
+  assert.equal(waiting.data.state, "waiting_input");
+  assert.equal(waiting.data.prompt, "Tu nombre:");
+  const answered = read(await run({ pid: waiting.data.pid, input: "Ñandú €", timeoutSec: 20 }, task));
+  assert.equal(answered.data.state, "finished");
+  assert.match(answered.raw, /hola Ñandú €/, "la respuesta llega en UTF-8");
+
   const started = Date.now();
-  const native = read(await run({ command: "Read-Host 'dato'" }, nextTask()));
-  assert.equal(native.data.state, "finished");
-  assert.notEqual(native.data.exitCode, 0);
-  assert.ok(Date.now() - started < 15_000);
+  const secure = read(await run({ command: "Read-Host 'clave' -AsSecureString" }, task));
+  assert.equal(secure.data.state, "finished");
+  assert.notEqual(secure.data.exitCode, 0);
+  assert.ok(Date.now() - started < 15_000, "no se cuelga esperando una contraseña");
+  assert.match(secure.text, /PowerShell runs without interaction/);
+
+  const confirm = read(await run({ command: "New-Item -ItemType Directory -Path (Join-Path $env:TEMP 'jv_confirm_test') -Confirm" }, task));
+  assert.notEqual(confirm.data.exitCode, 0);
+  assert.match(confirm.text, /-Confirm:\$false or -Force/);
 });
 
 test("la cancelación corta el proceso y devuelve cancelled", { skip: !windows }, async () => {
@@ -281,5 +391,112 @@ test("con el tope de procesos vivos: lo que dejó una tarea completada se cierra
     assert.ok(alive(b.data.pid as number), "solo se cierra lo necesario");
   } finally {
     await small.close();
+  }
+});
+
+// ───────────────────────── Mejoras de la revisión (RC-xx en docs/REVISION_run_command.md) ─────────────────────────
+
+test("RC-01: un avance sin salto de línea que se detiene no es un prompt", { skip: !windows }, async () => {
+  const native = read(await run({ command: "Write-Host -NoNewline 'progreso...'; Start-Sleep 3; Write-Host ' listo'", timeoutSec: 20 }, nextTask()));
+  assert.equal(native.data.state, "finished");
+  assert.match(native.raw, /progreso\.\.\. listo/);
+});
+
+test("RC-11 y RC-18: un Write-Error no arrastra el texto del comando ni el epílogo, la cabecera dice la carpeta y un comando mudo dice que no escribió nada", { skip: !windows }, async () => {
+  const task = nextTask();
+  const native = read(await run({ command: "Write-Error 'boom'; Write-Output 'sigue'" }, task));
+  assert.match(native.raw, /script : boom/);
+  assert.ok(!native.raw.includes("LASTEXITCODE"), "el epílogo no aparece como contexto del error");
+  assert.ok(native.text.toLowerCase().includes(`cwd: ${os.tmpdir().toLowerCase()}`), native.text.split("\n")[0]);
+  const silent = read(await run({ command: "$null = 1" }, task));
+  assert.match(silent.text, /\(no output\)$/);
+});
+
+test("RC-10: las herramientas del sistema salen sin �, por la tubería de PowerShell o directo, con su código de salida real", { skip: !windows }, async () => {
+  const task = nextTask();
+  for (const command of ["ipconfig", "ipconfig | Select-Object -First 6", "$x = ipconfig; $x", "chcp", "ping -n 1 127.0.0.1 | Out-String"]) {
+    const native = read(await run({ command, timeoutSec: 30 }, task));
+    assert.equal(native.data.exitCode, 0, command);
+    assert.ok(!native.raw.includes("�"), `${command}: ${native.raw.slice(0, 200)}`);
+  }
+  assert.equal(read(await run({ command: "ipconfig /opcion_que_no_existe" }, task)).data.exitCode, 1, "el envoltorio conserva el fallo");
+  assert.equal(read(await run({ command: "ipconfig /opcion_que_no_existe; Write-Output ok" }, task)).data.exitCode, 0, "solo cuenta si fue lo último");
+  const python = read(await run({ command: "python -c \"print('añ €')\"" }, task));
+  if (python.data.exitCode === 0) assert.match(python.raw, /añ €/, "Python escribe en UTF-8 (PYTHONIOENCODING)");
+});
+
+test("RC-16: el comando no hereda las variables excluidas", { skip: !windows }, async () => {
+  process.env.JARVIS_TEST_SECRET_RC16 = "no-debe-verse";
+  const filtered = new TerminalProvider({ defaultCwd: os.tmpdir(), envRemove: ["jarvis_test_secret_rc16"] });
+  try {
+    const native = read(await filtered.callTool("run_command", { command: "\"[$env:JARVIS_TEST_SECRET_RC16][$env:PYTHONIOENCODING]\"" }, { taskId: "env" }));
+    assert.match(native.raw, /\[\]\[utf-8\]/);
+  } finally {
+    delete process.env.JARVIS_TEST_SECRET_RC16;
+    await filtered.close();
+  }
+});
+
+test("RC-30: dos lanzamientos simultáneos no pasan juntos el tope de procesos vivos", { skip: !windows }, async () => {
+  const small = new TerminalProvider({ defaultCwd: os.tmpdir(), maxLive: 1 });
+  try {
+    const results = await Promise.all(["A", "B"].map((taskId) => small.callTool("run_command", { command: "Start-Sleep 30", timeoutSec: 1 }, { taskId })));
+    assert.deepEqual(results.map((r) => r.isError).sort(), [false, true]);
+  } finally {
+    await small.close();
+  }
+});
+
+test("RC-08: si un programa lanzado hereda la salida y sigue vivo, el comando termina igual y lo dice", { skip: !windows }, async () => {
+  const command = "$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 20' -PassThru -NoNewWindow; Write-Output $p.Id";
+  const native = read(await run({ command, timeoutSec: 20 }, nextTask()));
+  const childPid = Number(/^\d+$/m.exec(native.raw)?.[0]);
+  try {
+    assert.equal(native.data.state, "finished");
+    assert.equal(native.data.detached, true);
+    assert.match(native.text, /still running in the background/);
+  } finally {
+    if (childPid > 0) {
+      try {
+        process.kill(childPid);
+      } catch {
+        // ya terminó
+      }
+    }
+  }
+});
+
+test("si las ayudas de PowerShell no se pueden cargar, el comando corre igual (una sola vez) sin ellas", { skip: !windows }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jv_helpers_"));
+  const broken = new TerminalProvider({ defaultCwd: os.tmpdir(), helpersDir: dir });
+  try {
+    const first = read(await broken.callTool("run_command", { command: "Write-Output uno" }, { taskId: "h" }));
+    assert.match(first.raw, /uno/);
+    const file = ensureHelpersFile(true, dir);
+    assert.ok(file !== null);
+    fs.writeFileSync(file, "throw 'ayudas rotas'");
+    const marker = path.join(dir, "corrio.txt");
+    const second = read(await broken.callTool("run_command", { command: `Add-Content -Path '${marker}' -Value x; Write-Output dos` }, { taskId: "h" }));
+    assert.equal(second.data.exitCode, 0);
+    assert.match(second.raw, /dos/);
+    assert.doesNotMatch(second.raw, /JARVIS_HELPERS_UNAVAILABLE/);
+    assert.equal(fs.readFileSync(marker, "utf8").trim(), "x", "el comando corrió exactamente una vez");
+  } finally {
+    await broken.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("un REPL que vuelve a preguntar: el prompt nuevo no arrastra el ya respondido (python -i)", { skip: !windows }, async () => {
+  const task = nextTask();
+  const first = read(await run({ command: "python -i -q", timeoutSec: 15 }, task));
+  if (first.data.state !== "waiting_input") return; // sin Python en el PATH
+  try {
+    const second = read(await run({ pid: first.data.pid, input: "print(6*7)", timeoutSec: 15 }, task));
+    assert.equal(second.data.state, "waiting_input");
+    assert.equal(second.data.prompt, ">>>");
+    assert.match(second.raw, /42/);
+  } finally {
+    await provider.onTaskEnd(task, "failed");
   }
 });

@@ -1,6 +1,6 @@
 /**
  * Cómo lanzar PowerShell desde Node sin que se rompan los errores, el código de salida ni las tildes. Es la investigación que está detrás de
- * `buildCommandLine` en `src/tools/terminal/terminalProvider.ts`. Solo Windows, sin dependencias del proyecto.
+ * `buildCommandLine` en `src/tools/terminal/powershell.ts`. Solo Windows, sin dependencias del proyecto.
  *
  *   node scripts/validate/powershell_launch_probe.mjs
  *
@@ -8,10 +8,17 @@
  *          CLIXML (XML) aunque se pida `-OutputFormat Text` o `-InputFormat`; con `-Command`, en texto.
  * Parte 2: el código de salida, según dónde se calcule (`$?` después de un bloque no refleja lo que falló dentro).
  * Parte 3: la página de códigos. Las herramientas del sistema de Windows (`ipconfig`, `chcp`) escriben en la página OEM (850) aunque se fuerce UTF-8:
- *          ni `chcp 65001` lo arregla, y decodificar en 850 rompería lo que sí es UTF-8.
+ *          ni `chcp 65001` lo arregla, y decodificar en 850 rompería lo que sí es UTF-8. (Desde el 2026-11-11 run_command lo resuelve línea por línea:
+ *          Node decodifica en OEM/ANSI lo que no es UTF-8 válido, y unas ayudas de PowerShell envuelven esas herramientas cuando PowerShell recoge su salida.)
+ * Parte 4 (2026-11-11): el antivirus (AMSI). Un bloque grande en base64 dentro de `-Command` es el patrón de un script ofuscado: con las ayudas de
+ *          PowerShell metidas así, Defender llegó a bloquear el comando entero ("contiene elementos malintencionados"). Por eso las ayudas van en un archivo.
+ *          El resultado depende de las firmas del día: si la parte 4 deja de dar BLOQUEADO, no prueba que sea seguro volver al base64.
  */
 
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 if (process.platform !== "win32") {
   console.error("Solo Windows.");
@@ -23,9 +30,9 @@ const PROLOGUE = "[Console]::OutputEncoding=[Text.Encoding]::UTF8; $OutputEncodi
 const b64 = (text) => Buffer.from(text, "utf16le").toString("base64");
 const blockOf = (script) => `& ([scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(script)}'))))`;
 
-function launch(args, decode = "utf-8") {
+function launch(args, decode = "utf-8", env = {}) {
   return new Promise((resolve) => {
-    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", ...args], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", ...args], { windowsHide: true, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, ...env } });
     const out = [];
     const err = [];
     child.stdout.on("data", (chunk) => out.push(chunk));
@@ -59,3 +66,22 @@ const body = ["ipconfig | Select-Object -First 3", 'cmd /c "echo ñandú"', "Wri
 show("UTF-8 forzado (lo que hace run_command)", await launch(["-Command", `${PROLOGUE}; ${blockOf(body)}`]));
 show("chcp 65001 antes", await launch(["-Command", `chcp 65001 > $null; ${PROLOGUE}; ${blockOf(body)}`]));
 show("sin tocar la codificación, leído como windows-1252", await launch(["-Command", `$ProgressPreference='SilentlyContinue'; ${blockOf(body)}`], "windows-1252"));
+
+console.log("\n===== Parte 4: ¿bloquea el antivirus un bloque grande en base64? =====");
+// Las ayudas reales: run_command las escribe en %TEMP%\jarvis-terminal\helpers-*.ps1 la primera vez que lanza un comando.
+const helpersDir = path.join(os.tmpdir(), "jarvis-terminal");
+const helpersFile = fs.existsSync(helpersDir) ? fs.readdirSync(helpersDir).filter((f) => /^helpers-.*\.ps1$/.test(f)).map((f) => path.join(helpersDir, f)).sort((a, b) => fs.statSync(b).size - fs.statSync(a).size)[0] : undefined;
+if (helpersFile === undefined) {
+  console.log("  (no hay archivo de ayudas: correr antes un comando con run_command, por ejemplo la sonda run_command_probe.ts)");
+} else {
+  const helpers = fs.readFileSync(helpersFile, "utf8");
+  const loaded = (how, env = {}) => launch(["-Command", `${PROLOGUE}; ${how}; ${blockOf("Write-Output ok")}`], "utf-8", env);
+  for (const [label, how, env] of [
+    ["sin ayudas", "$null = 1", {}],
+    ["ayudas en base64 dentro de -Command", `. ([scriptblock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${b64(helpers)}'))))`, {}],
+    ["ayudas leídas del archivo (lo de hoy)", ". ([scriptblock]::Create([IO.File]::ReadAllText($env:JV_PROBE_HELPERS)))", { JV_PROBE_HELPERS: helpersFile }],
+  ]) {
+    const r = await loaded(how, env);
+    console.log(`  ${label.padEnd(40)} exit ${r.code}  ${/malintencionado|malicious/i.test(r.out + r.err) ? "BLOQUEADO por el antivirus" : "corre"}`);
+  }
+}

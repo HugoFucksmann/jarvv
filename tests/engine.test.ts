@@ -34,6 +34,8 @@ interface Scenario {
   readonly args: Record<string, unknown>;
   /** Argumentos de la `n`-ésima llamada (0, 1…); por defecto `args`. */
   readonly argsFor?: (n: number) => Record<string, unknown>;
+  /** Ve la entrada de cada generación de argumentos (p. ej. `priorAttempts`). */
+  readonly onArgs?: (input: { readonly priorAttempts?: number }) => void;
   readonly onWait?: (waiting: Waiting, runtime: TaskRuntime) => void;
   readonly autoMode?: boolean;
   /** Texto que devuelve la herramienta (por defecto, un listado de archivos). */
@@ -102,7 +104,7 @@ async function run(s: Scenario): Promise<Outcome> {
       },
     },
     llm: {
-      generateArgumentsFromView: async () => ({ args: s.argsFor?.(generated++) ?? s.args, rawInput: "", rawOutput: "", timing: TIMING }),
+      generateArgumentsFromView: async (input: { readonly priorAttempts?: number }) => ({ args: (s.onArgs?.(input), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
       generatePendingFromView: async () => ({ pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
@@ -244,7 +246,9 @@ test("proceso que espera entrada: no se verifica, se le pregunta al usuario lo q
   const questions: string[] = [];
   let verifications = 0;
   const waiting = native({ state: "waiting_input", pid: 4321, exitCode: null, prompt: "Continuar (s/n)?", durationMs: 1500 }, "status: waiting_input · pid: 4321");
+  const prior: Array<number | undefined> = [];
   const { ctx, dispatched } = await run({
+    onArgs: (input) => prior.push(input.priorAttempts),
     request: "Instalar el programa",
     tool: "run_command",
     args: {},
@@ -267,6 +271,7 @@ test("proceso que espera entrada: no se verifica, se le pregunta al usuario lo q
   assert.deepEqual(calls.map((c) => c.status), ["waiting_input", "ok"]);
   assert.equal(calls[0].verdict, null, "la llamada que espera entrada no se verifica");
   assert.equal(verifications, 1, "solo se verificó la llamada que terminó");
+  assert.deepEqual(prior, [0, 0], "RC-04: un waiting_input no es un intento fallido: no sube la temperatura de la respuesta");
   assert.equal(ctx.task.state, "completed");
 });
 

@@ -8,7 +8,8 @@
  *
  * Fail-closed: solo es de lectura lo que se puede demostrar leyendo el texto. Todo lo demás sigue siendo una escritura. Un comando es de
  * lectura si, a la vez:
- * - cada segmento (separado por `|`, `;` o salto de línea) empieza por un comando de la lista cerrada `READ_COMMANDS`;
+ * - cada segmento (separado por `|`, `;` o salto de línea) empieza por un comando de la lista cerrada `READ_COMMANDS`, o es una invocación de un
+ *   programa externo con argumentos exactos que solo leen (`READ_INVOCATIONS`: `node --version`, `npm ls`, `ipconfig /all`);
  * - no usa redirecciones (`>`, `<`), llamadas (`&`), subexpresiones, bloques, paréntesis, corchetes (métodos y llamadas .NET), acentos
  *   graves ni variables (salvo `$env:`), y sus comillas están balanceadas;
  * - no usa `-Wait` (dejaría un proceso corriendo);
@@ -37,7 +38,62 @@ const READ_COMMANDS: ReadonlySet<string> = new Set([
   "select-object", "select", "sort-object", "sort", "where-object", "where", "measure-object", "measure", "group-object", "group",
   "select-string", "sls", "format-table", "ft", "format-list", "fl", "format-wide", "fw", "out-string", "convertto-json", "convertto-csv",
   "write-output", "echo", "write-host",
+  // Más consultas del sistema y de PowerShell (RC-22)
+  "get-host", "get-module", "get-alias", "get-executionpolicy", "get-itempropertyvalue", "get-disk", "get-partition", "get-physicaldisk",
+  "get-netroute", "get-dnsclientserveraddress", "get-netconnectionprofile", "get-localuser", "get-localgroup", "get-printer",
+  "get-scheduledtask", "resolve-dnsname", "test-connection", "convertfrom-json", "get-unique",
 ]);
+
+/** `true` si `args` es exactamente uno de `flags` (con mayúsculas y minúsculas: en Python `-V` es la versión y `-v` otra cosa). */
+const only =
+  (...flags: string[]) =>
+  (args: readonly string[]): boolean =>
+    args.length === 1 && flags.includes(args[0]);
+
+/** Subcomandos de npm que solo leen (no instalan, no ejecutan scripts del paquete). */
+const NPM_READS = new Set(["ls", "list", "ll", "la", "outdated", "view", "v", "info", "show", "root", "prefix", "explain", "why"]);
+
+/**
+ * Programas externos que solo leen con ciertos argumentos (RC-22): nombre en minúsculas, sin `.exe`/`.cmd` → ¿estos argumentos son de lectura?
+ * Lista cerrada y por argumentos exactos: `node --version` sí, `node -e …` no. Fuera a propósito: `git` salvo `--version` (la configuración de un
+ * repositorio ajeno puede ejecutar programas en `git status`/`git diff`: `core.fsmonitor`, `diff.external`), `npx`, `yarn` y `pnpm` (pueden descargar
+ * y ejecutar paquetes), `pip` (importa código del entorno) y lo que acepte una interval (`netstat 5` no termina).
+ */
+const READ_INVOCATIONS: ReadonlyMap<string, (args: readonly string[]) => boolean> = new Map([
+  ["node", only("--version", "-v")],
+  ["git", only("--version")],
+  ["python", only("--version", "-V")],
+  ["py", only("--version", "-V", "-0", "--list")],
+  ["dotnet", only("--version", "--info", "--list-sdks", "--list-runtimes")],
+  ["java", only("-version", "--version")],
+  ["go", only("version")],
+  ["rustc", only("--version", "-V")],
+  ["cargo", only("--version", "-V")],
+  ["deno", only("--version", "-V")],
+  ["bun", only("--version", "-v")],
+  ["pwsh", only("--version", "-v")],
+  [
+    "npm",
+    (args: readonly string[]) =>
+      only("--version", "-v")(args) ||
+      (args.length > 0 && NPM_READS.has(args[0].toLowerCase())) ||
+      (args.length >= 2 && args[0].toLowerCase() === "config" && ["get", "list", "ls"].includes(args[1].toLowerCase())),
+  ],
+  ["where", (args: readonly string[]) => args.length > 0],
+  ["ipconfig", (args: readonly string[]) => args.every((a) => ["/all", "/displaydns", "-all"].includes(a.toLowerCase()))],
+  ["netstat", (args: readonly string[]) => args.every((a) => /^-[a-z]+$/i.test(a))],
+  ["getmac", (args: readonly string[]) => args.every((a) => a.toLowerCase() === "/v")],
+  ["driverquery", (args: readonly string[]) => args.every((a) => a.toLowerCase() === "/v")],
+]);
+
+/** ¿El segmento es una invocación de lectura de un programa externo (`READ_INVOCATIONS`)? `where` sin `.exe` es `Where-Object`: no cuenta acá. */
+function isReadInvocation(tokens: readonly string[]): boolean {
+  const raw = (tokens[0] ?? "").toLowerCase();
+  const name = raw.replace(/\.(exe|cmd)$/, "");
+  if (name === "where" && raw === "where") return false;
+  const check = READ_INVOCATIONS.get(name);
+  return check !== undefined && check(tokens.slice(1));
+}
 
 /** Cualquiera de estos fuera de comillas lo descarta: redirección, llamada, bloque, paréntesis, corchete o acento grave. */
 const FORBIDDEN_OUTSIDE_QUOTES = new Set([">", "<", "&", "{", "}", "(", ")", "[", "]", "`"]);
@@ -87,8 +143,9 @@ export function isReadOnlyCommand(command: string): boolean {
   const segments = segmentsOf(text);
   if (segments === null || segments.length === 0) return false;
   for (const segment of segments) {
-    const name = (segment.split(/\s+/)[0] ?? "").toLowerCase();
-    if (!READ_COMMANDS.has(name)) return false;
+    const tokens = segment.split(/\s+/);
+    const name = (tokens[0] ?? "").toLowerCase();
+    if (!READ_COMMANDS.has(name) && !isReadInvocation(tokens)) return false;
     if (WAIT_PARAM.test(segment)) return false;
   }
   return classify(text, { homeDirs: [os.homedir()] }) === null;

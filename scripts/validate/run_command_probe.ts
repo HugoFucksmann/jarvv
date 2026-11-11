@@ -5,7 +5,9 @@
  *   npx tsx scripts/validate/run_command_probe.ts          # los casos de siempre
  *   npx tsx scripts/validate/run_command_probe.ts --big    # además, 300 000 líneas de salida (~12 s)
  *
- * Qué mira cada caso está en `docs/REVISION_run_command.md` (hallazgos RC-xx).
+ * Qué mira cada caso está en `docs/REVISION_run_command.md` (hallazgos RC-xx). Actualizada el 2026-11-11 con lo que cambió en la revisión: tildes de las
+ * herramientas del sistema por la tubería de PowerShell, Python en UTF-8, `Read-Host` y `pause` respondibles, `python -i`, barras de progreso que se reescriben (retorno de carro),
+ * prompts por clases (un avance que se detiene ya no es un prompt) y una tubería cortada que no deja vivo al programa.
  */
 
 import fs from "node:fs";
@@ -50,8 +52,12 @@ const accentedDir = fs.mkdtempSync(path.join(os.tmpdir(), "carpeta con ñ y espa
 try {
   console.log("===== Codificación (RC-10) =====");
   await run("cmd /c echo con acentos", { command: 'cmd /c "echo ñandú áéíóú ü"' });
-  await run("ipconfig (mensajes nativos de Windows: salen en la página OEM 850)", { command: "ipconfig | Select-Object -First 4" });
-  await run("chcp", { command: "[Console]::OutputEncoding.CodePage; chcp" });
+  await run("ipconfig directo (página OEM: lo decodifica Node)", { command: "ipconfig | Select-Object -First 4" });
+  await run("ipconfig por la tubería de PowerShell (envoltorio)", { command: "ipconfig | Select-String 'IP'" });
+  await run("asignado a una variable (envoltorio)", { command: "$x = ipconfig; $x | Select-Object -First 3" });
+  await run("chcp (página ANSI 1252)", { command: "[Console]::OutputEncoding.CodePage; chcp" });
+  await run("Python escribe UTF-8 (PYTHONIOENCODING)", { command: `python -c "print('añ €')"` });
+  await run("ping -t cortado por Select-Object: termina y no deja ping vivo", { command: "ping -t 127.0.0.1 | Select-Object -First 3", timeoutSec: 15 });
   await run("node escribe UTF-8", { command: `node -e "console.log('añ ü €')"` });
   await run("emoji fuera del plano básico", { command: "[char]::ConvertFromUtf32(0x1F600) + ' fin'" });
   await run("colores ANSI", { command: '[char]27 + "[31mrojo" + [char]27 + "[0m normal"' });
@@ -70,7 +76,15 @@ try {
   await run("findstr lee stdin hasta el final: queda running", { command: "findstr x", timeoutSec: 2 });
   const pause = await run("cmd /c pause: waiting_input", { command: "cmd /c pause", timeoutSec: 10 });
   if (pause.state === "waiting_input") await run("…respuesta vacía", { pid: pause.pid, input: "", timeoutSec: 10 }, pause.taskId);
-  await run("FALSO POSITIVO: progreso sin salto de línea y una pausa de 3 s", { command: "Write-Host -NoNewline 'progreso...'; Start-Sleep 3; Write-Host ' listo'", timeoutSec: 10 });
+  await run("antes FALSO POSITIVO: progreso sin salto de línea y una pausa de 3 s (ahora finished)", { command: "Write-Host -NoNewline 'progreso...'; Start-Sleep 3; Write-Host ' listo'", timeoutSec: 10 });
+  await run("barra de progreso que se reescribe: queda la última versión", { command: "1..3 | % { Write-Host -NoNewline (\"`r{0}%\" -f ($_*33)); Start-Sleep -Milliseconds 200 }; Write-Host ''" });
+  const readHost = await run("Read-Host: waiting_input", { command: "$n = Read-Host 'Tu nombre'; \"hola $n\"", timeoutSec: 10 });
+  if (readHost.state === "waiting_input") await run("…respuesta con tildes", { pid: readHost.pid, input: "Ñandú €", timeoutSec: 10 }, readHost.taskId);
+  const repl = await run("python -i (REPL sin PTY): waiting_input con >>>", { command: "python -i -q", timeoutSec: 10 });
+  if (repl.state === "waiting_input") {
+    await run("…una línea de código", { pid: repl.pid, input: "print(6*7)", timeoutSec: 10 }, repl.taskId);
+    await run("…salir", { pid: repl.pid, input: "exit()", timeoutSec: 10 }, repl.taskId);
+  }
 
   console.log("\n===== Procesos en segundo plano (RC-05) =====");
   const server = await run("servidor HTTP de node: running", {
@@ -83,7 +97,8 @@ try {
 
   console.log("\n===== Límites y entorno =====");
   await run("cwd con tildes y espacios", { command: "(Get-Location).Path", cwd: accentedDir });
-  await run("comando de 3990 caracteres", { command: `Write-Output '${"a".repeat(3960)}'` });
+  await run("comando de 990 caracteres", { command: `Write-Output '${"a".repeat(960)}'` });
+  await run("comando de 1001 caracteres: error (el tope es el del manifiesto, RC-19)", { command: `Write-Output '${"a".repeat(971)}'` });
   await run("línea enorme sin salto de línea (400 000 caracteres): no es un prompt", { command: "[Console]::Out.Write('x' * 400000)", timeoutSec: 20 });
   await run("entorno heredado (RC-16)", { command: "if ($env:PATH) { 'PATH visible' }; $env:USERNAME" });
   if (big) {

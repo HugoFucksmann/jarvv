@@ -11,6 +11,7 @@ import type { TaskManager } from "../src/core/tasks.ts";
 import type { DiscoveryEngine } from "../src/core/mcp/discovery.ts";
 import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from "../src/core/types/limits.ts";
 import { createJarvisRouter, withoutLaunchFields } from "../src/server/jarvisRouter.ts";
+import { createMcpRouter } from "../src/server/mcpRouter.ts";
 import { localOnly } from "../src/server/localOnly.ts";
 
 const calls: string[] = [];
@@ -30,6 +31,13 @@ const fakeTasks = {
   answer: (id: string) => (calls.push(`answer ${id}`), "ok"),
 } as unknown as TaskManager;
 
+/** Un proveedor de terminal falso para `/api/mcp`: registra lo que le llega. */
+const terminalCalls: string[] = [];
+const fakeDiscovery = {
+  getServer: (name: string) =>
+    name === "jarvis_terminal" ? { callTool: async (tool: string) => (terminalCalls.push(tool), { content: [], isError: false }), isConnected: () => true } : undefined,
+} as unknown as DiscoveryEngine;
+
 let server: http.Server;
 let port = 0;
 
@@ -38,6 +46,7 @@ before(async () => {
   app.use(express.json());
   app.use(localOnly());
   app.use("/api/jarvis", createJarvisRouter(fakeTasks, {} as DiscoveryEngine));
+  app.use("/api/mcp", createMcpRouter(fakeDiscovery));
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   port = (server.address() as AddressInfo).port;
@@ -200,4 +209,12 @@ test("SSE: pasado el tope de conexiones abiertas responde 429, y al cerrarse una
   }
   assert.equal(again, 200);
   for (const c of clients) c.close();
+});
+
+test("RC-07: /api/mcp no ejecuta run_command, ni siquiera un comando de solo lectura (sin tarea nadie cerraría el proceso)", async () => {
+  for (const args of [{ command: "Get-Process" }, { command: "Remove-Item C:\\x" }, { pid: 4 }]) {
+    const reply = await request("POST", "/api/mcp/jarvis_terminal/call", { body: { name: "run_command", args } });
+    assert.equal(reply.status, 403, JSON.stringify(args));
+  }
+  assert.deepEqual(terminalCalls, [], "nada llegó al proveedor");
 });

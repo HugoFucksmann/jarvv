@@ -273,7 +273,8 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   }
   const environment = await deps.environment();
   // Intentos previos de esta herramienta en este paso que no se aprobaron (rechazados, bloqueados o con error): suben la temperatura.
-  const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved").length;
+  // Un `waiting_input` no es un intento fallido: el proceso pidió una respuesta y la llamada siguiente (`{ pid, input }`) necesita precisión, no variedad.
+  const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved" && c.status !== "waiting_input").length;
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
     () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
