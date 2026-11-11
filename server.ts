@@ -26,6 +26,8 @@ import { localOnly } from './src/server/localOnly.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { startRetention } from './src/core/retention.ts';
+import { TerminalProvider } from './src/tools/terminal/terminalProvider.ts';
+import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,13 +44,17 @@ async function main() {
   const desktopServer = new DesktopCommanderMCPServer(getConfig);
   const freeSearchServer = new FreeSearchMCPServer(getConfig);
 
+  // El 2B de las decisiones puntúa los fragmentos de `web_search` solo si la configuración lo enciende (se lee en cada llamada).
+  const decisionEngine = new Decision20Engine(getConfig);
   const servers: Record<string, IMCPServer> = {
     desktop_commander: desktopServer,
     free_search: freeSearchServer,
+    // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
+    jarvis_terminal: new TerminalProvider(),
+    jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined) }),
   };
 
   const discoveryEngine = new DiscoveryEngine(servers);
-  const decisionEngine = new Decision20Engine(getConfig);
   const llm = new QwenEngine(getConfig);
 
   const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig);

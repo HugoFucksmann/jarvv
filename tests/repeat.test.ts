@@ -172,9 +172,10 @@ test("una lectura ejecutada en el medio habilita repetir la escritura", () => {
 
 test("el catálogo asigna la política: sondeos allow, web retry_failed, el resto strict", async () => {
   const { getToolPolicy } = await import("../src/core/tools/manifest.ts");
-  assert.equal(getToolPolicy("desktop_commander", "read_process_output").repeat, "allow");
+  assert.equal(getToolPolicy("desktop_commander", "get_more_search_results").repeat, "allow");
+  assert.equal(getToolPolicy("jarvis_terminal", "run_command").repeat, "allow", "continuar un proceso repite los mismos argumentos");
   assert.equal(getToolPolicy("desktop_commander", "read_file").repeat, "strict");
-  assert.equal(getToolPolicy("desktop_commander", "start_process").repeat, "strict");
+  assert.equal(getToolPolicy("jarvis_web", "web_search").repeat, "retry_failed");
   assert.equal(getToolPolicy("free_search", "research").repeat, "retry_failed");
   assert.equal(getToolPolicy("free_search", "fetch").repeat, "retry_failed");
   assert.equal(getToolPolicy("desktop_commander", "herramienta_inventada").repeat, "strict");

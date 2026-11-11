@@ -10,6 +10,7 @@
  */
 
 import type { IMCPServer } from "../mcp/types.ts";
+import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
 import type { EngineLLM, IActionDecision } from "../contracts.ts";
@@ -86,11 +87,11 @@ export function captureDecision(
 export function captureCallTool(
   server: Pick<IMCPServer, "name" | "callTool">,
   sink: CaptureSink,
-): (tool: string, args: Record<string, unknown>) => Promise<MCPCallResult> {
-  return async (tool, args) => {
+): (tool: string, args: Record<string, unknown>, options?: ToolCallOptions) => Promise<MCPCallResult> {
+  return async (tool, args, options) => {
     const startedAt = Date.now();
     try {
-      const result = await server.callTool(tool, args);
+      const result = await server.callTool(tool, args, options);
       safely(() => sink.tool({ mcp: server.name, tool, args, startedAt, durationMs: Date.now() - startedAt, result, error: null }));
       return result;
     } catch (error) {

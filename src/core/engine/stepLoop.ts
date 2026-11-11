@@ -20,7 +20,8 @@
  * `BUDGET.maxCallsPerStep` (sin `user_rejected`), `BUDGET.maxRepeatsPerStep` y `BUDGET.maxUserRejectionsPerStep` (el segundo rechazo del usuario falla el paso).
  *
  * `ask_user` no es una opción de Decision: se pregunta aquí, una vez por paso (`BUDGET.maxQuestionsPerStep`), cuando la
- * revisión de argumentos registra `info_missing` o cuando el paso llegaría al tope de llamadas (antes de fallar). Se espera
+ * revisión de argumentos registra `info_missing`, cuando una llamada queda `waiting_input` (un proceso que pide una respuesta) o cuando el paso
+ * llegaría al tope de llamadas (antes de fallar). Se espera
  * la respuesta y el bucle sigue con el hecho `answer_<stepId>_<n>` ya escrito.
  *
  * Esta función NUNCA llama a `finish` ni escribe `result` (Fase 6): devuelve un `StepOutcome`. Ante un cierre, el paso
@@ -30,7 +31,7 @@
 import type { ExecutableRoute } from "../types/routes.ts";
 import { EXECUTABLE_ROUTES, isExecutableRoute } from "../types/routes.ts";
 import { routeInput, routeViewOptions } from "./adapters.ts";
-import { askUser } from "./ask.ts";
+import { askUser, processQuestion } from "./ask.ts";
 import { availableRoutes, runCall } from "./callRunner.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
@@ -72,9 +73,9 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
     return { kind: "failed", cause };
   };
 
-  /** Pregunta al usuario, espera y deja el hecho escrito; `null` si el bucle puede seguir. */
-  const ask = async (): Promise<StepOutcome | null> => {
-    const asked = await askUser(env, stepId);
+  /** Pregunta al usuario, espera y deja el hecho escrito; `null` si el bucle puede seguir. `literalQuestion`: pregunta ya armada (un proceso que espera entrada). */
+  const ask = async (literalQuestion?: string): Promise<StepOutcome | null> => {
+    const asked = await askUser(env, stepId, literalQuestion);
     if (asked.kind === "answered") return null;
     return asked.kind === "cancelled" ? CANCELLED : { kind: "close", stopReason: asked.stopReason };
   };
@@ -136,6 +137,12 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
     }
     if (outcome.status === "info_missing" && canAskUser(ctx, stepId)) {
       const stop = await ask();
+      if (stop !== null) return stop;
+    }
+    // Un proceso que sigue vivo y espera una respuesta: no hay resultado que verificar, se le pregunta al usuario lo que el proceso pide y la respuesta
+    // vuelve en la siguiente llamada. Una sola pregunta por paso: un segundo prompt en el mismo paso lo acaba el tope de llamadas.
+    if (outcome.status === "waiting_input" && outcome.prompt !== undefined && canAskUser(ctx, stepId)) {
+      const stop = await ask(processQuestion(outcome.prompt));
       if (stop !== null) return stop;
     }
     // Los demás topes (repeticiones, rechazos del usuario, argumentos inválidos, ejecuciones e intentos) los revisa `checkStepLimits` al volver al inicio.

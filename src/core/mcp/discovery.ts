@@ -6,6 +6,7 @@
 
 import type { MCPTool } from "../types.ts";
 import type { IMCPServer } from "./types.ts";
+import type { TaskEndOutcome } from "../tools/provider.ts";
 import { errorMessage } from "../utils.ts";
 
 const TOOLS_CACHE_TTL_MS = 30000;
@@ -80,6 +81,19 @@ export class DiscoveryEngine {
       Array.from(this.servers.values(), async (server) => [server.name, await this.getDiscoveredTools(server.name, forceRefresh)] as const)
     );
     return Object.fromEntries(entries);
+  }
+
+  /** Avisa a todos los proveedores que terminó una tarea (cierre de lo que dejó corriendo). Nunca lanza: un fallo se informa. */
+  async notifyTaskEnd(taskId: string, outcome: TaskEndOutcome): Promise<void> {
+    await Promise.allSettled(
+      Array.from(this.servers.values(), async (server) => {
+        try {
+          await server.onTaskEnd?.(taskId, outcome);
+        } catch (err) {
+          console.warn(`[Discovery] ${server.name}.onTaskEnd falló: ${errorMessage(err)}`);
+        }
+      }),
+    );
   }
 
   getUnavailableServers(): Record<string, { reason: string; since: number }> {

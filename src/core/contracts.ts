@@ -9,6 +9,7 @@
 
 import type { UserEnvironment } from "./environment.ts";
 import type { IMCPServer } from "./mcp/types.ts";
+import type { TaskEndOutcome } from "./tools/provider.ts";
 import type { Blacklist } from "./policy/blacklist.ts";
 import type { ProtectedPaths } from "./policy/guard.ts";
 import type { RefVault } from "./refs/refVault.ts";
@@ -25,6 +26,8 @@ export interface IDiscoveryEngine {
   getDiscoveredTools(serverName: string, forceRefresh?: boolean): Promise<MCPTool[]>;
   getUnavailableServers(): Record<string, { reason: string; since: number }>;
   validateToolExists(serverName: string, toolName: string): Promise<boolean>;
+  /** Avisa a los proveedores que terminó una tarea, para que cierren lo que dejó corriendo (los procesos de `run_command`). */
+  notifyTaskEnd?(taskId: string, outcome: TaskEndOutcome): Promise<void>;
 }
 
 // ───────────────────────── Decision: ruta y herramienta ─────────────────────────

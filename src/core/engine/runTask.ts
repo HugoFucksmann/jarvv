@@ -34,7 +34,6 @@ import { reconcileList } from "./pendingList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
 import type { TaskRuntime } from "./runtime.ts";
-import { terminateProcesses } from "./processes.ts";
 import { runStep } from "./stepLoop.ts";
 
 const COMPLETED: Closing = { stopReason: null };
@@ -60,8 +59,10 @@ export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: Engi
     const closing = ctx.task.mode === "reactive" ? await runReactive(env) : await runDeliberative(env);
     await finalize(env, closing);
   } finally {
-    // Cancelada, fallida, parcial o con un error interno: no se dejan procesos en segundo plano. Completada: se dejan (pudo ser lo pedido).
-    if (ctx.task.state !== "completed") await terminateProcesses(env);
+    // Cancelada, fallida, parcial o con un error interno: cada proveedor cierra lo que la tarea dejó corriendo (procesos en segundo plano).
+    // Completada: se conserva (pudo ser lo pedido).
+    const state = ctx.task.state;
+    await deps.discovery.notifyTaskEnd?.(ctx.task.id, state === "completed" ? "completed" : state === "cancelled" ? "cancelled" : "failed");
   }
 }
 

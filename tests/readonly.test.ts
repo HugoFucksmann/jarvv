@@ -66,19 +66,29 @@ test("una regla de comando de cualquier nivel lo descarta aunque empiece por un 
   assert.equal(isReadOnlyCommand("Get-Content /etc/shadow"), false);
 });
 
-test("isReadOnlyCall: solo start_process de Desktop Commander, con el shell por defecto o PowerShell", () => {
-  assert.equal(isReadOnlyCall(DC, "start_process", { command: "Get-Process" }), true);
-  assert.equal(isReadOnlyCall(DC, "start_process", { command: "Get-Process", shell: "powershell.exe" }), true);
-  assert.equal(isReadOnlyCall(DC, "start_process", { command: "Get-Process", shell: "cmd" }), false);
-  assert.equal(isReadOnlyCall(DC, "start_process", { command: 42 }), false);
-  assert.equal(isReadOnlyCall(DC, "interact_with_process", { command: "Get-Process" }), false);
-  assert.equal(isReadOnlyCall("otro_servidor", "start_process", { command: "Get-Process" }), false);
+const TERMINAL = "jarvis_terminal";
+
+test("isReadOnlyCall: solo run_command de jarvis_terminal: un comando de PowerShell de solo lectura, o una continuación sin respuesta", () => {
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { command: "Get-Process" }), true);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { command: "Remove-Item C:\\x\\a.txt" }), false);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { command: 42 }), false);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { command: "Get-Process", pid: 7 }), false, "un comando nuevo y un pid a la vez no es una lectura");
+  // Continuar un proceso ya aprobado solo espera más salida; enviarle texto es otra cosa.
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { pid: 7 }), true);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { pid: 7, timeoutSec: 60 }), true);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { pid: 7, input: "s" }), false);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", { pid: "7" }), false);
+  assert.equal(isReadOnlyCall(TERMINAL, "run_command", {}), false);
+  assert.equal(isReadOnlyCall(TERMINAL, "otra_herramienta", { command: "Get-Process" }), false);
+  assert.equal(isReadOnlyCall("otro_servidor", "run_command", { command: "Get-Process" }), false);
+  assert.equal(isReadOnlyCall(DC, "start_process", { command: "Get-Process" }), false, "las tools de proceso de Desktop Commander ya no están en el catálogo");
 });
 
 test("Guard: un comando de lectura se permite sin confirmación; uno que escribe sigue pidiéndola; lo catastrófico se deniega igual", () => {
-  assert.equal(Guard.evaluate(DC, "start_process", { command: "Get-ChildItem C:\\x" }).decision, "ALLOW");
-  assert.equal(Guard.evaluate(DC, "start_process", { command: "Remove-Item C:\\x\\a.txt" }).decision, "APPROVAL");
-  assert.equal(Guard.evaluate(DC, "start_process", { command: "Get-Process | Stop-Process" }).decision, "APPROVAL");
-  assert.equal(Guard.evaluate(DC, "start_process", { command: "format c:" }).decision, "DENY");
-  assert.equal(Guard.evaluate(DC, "interact_with_process", { pid: 1, input: "Get-Process" }).decision, "APPROVAL");
+  assert.equal(Guard.evaluate(TERMINAL, "run_command", { command: "Get-ChildItem C:\\x" }).decision, "ALLOW");
+  assert.equal(Guard.evaluate(TERMINAL, "run_command", { command: "Remove-Item C:\\x\\a.txt" }).decision, "APPROVAL");
+  assert.equal(Guard.evaluate(TERMINAL, "run_command", { command: "Get-Process | Stop-Process" }).decision, "APPROVAL");
+  assert.equal(Guard.evaluate(TERMINAL, "run_command", { command: "format c:" }).decision, "DENY");
+  assert.equal(Guard.evaluate(TERMINAL, "run_command", { pid: 1 }).decision, "ALLOW", "esperar más salida de un proceso ya aprobado no vuelve a pedir confirmación");
+  assert.equal(Guard.evaluate(TERMINAL, "run_command", { pid: 1, input: "Get-Process" }).decision, "APPROVAL");
 });

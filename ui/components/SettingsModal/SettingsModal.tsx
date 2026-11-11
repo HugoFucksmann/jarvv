@@ -554,7 +554,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input
                         type="text"
-                        placeholder="Herramienta (ej: start_process)"
+                        placeholder="Herramienta (ej: run_command)"
                         value={newTool}
                         onChange={(e) => setNewTool(e.target.value)}
                         className="px-2 py-1 bg-slate-900 border border-slate-800 rounded text-slate-200 text-xs font-mono"

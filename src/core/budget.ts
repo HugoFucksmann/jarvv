@@ -139,15 +139,7 @@ export const BUDGET = {
     /** `read_file`: líneas del inicio y del final que se muestran cuando el contenido es largo. */
     readFileHeadLines: 15,
     readFileTailLines: 15,
-    /** Procesos: últimas líneas de la salida que se muestran. */
-    processTailLines: 30,
-    /** `search`: resultados que se muestran. */
-    searchResultsShown: 10,
-    /** `search`: largos de snippet que se intentan, de mayor a menor; gana el mayor que quepa en todos. */
-    searchSnippetLengths: [240, 160, 100, 60, 40],
-    /** `search`: largo máximo del lead. */
-    searchLeadChars: 300,
-    /** Texto largo sin extractor propio (genérico, `fetch`): caracteres del inicio y del final que se conservan. */
+    /** Texto largo sin extractor propio (genérico): caracteres del inicio y del final que se conservan. */
     textHeadChars: 750,
     textTailChars: 750,
   },

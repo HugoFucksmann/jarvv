@@ -1,11 +1,7 @@
-import type { MCPTool, MCPCallResult } from "../types.ts";
+import type { ToolProvider } from "../tools/provider.ts";
 
-export interface IMCPServer {
-  readonly name: string;
-  readonly version: string;
-  listTools(): Promise<MCPTool[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult>;
-  isConnected(): boolean;
-  reconnect(): Promise<void>;
-  close?(): Promise<void>;
-}
+/**
+ * Lo que el núcleo consume para ejecutar herramientas. Es `ToolProvider` (`tools/provider.ts`): un servidor MCP por stdio o un módulo nativo.
+ * El nombre se conserva para los adaptadores MCP y los tests existentes.
+ */
+export type IMCPServer = ToolProvider;

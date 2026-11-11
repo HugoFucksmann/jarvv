@@ -8,6 +8,8 @@
  * ejecutor. El orquestador (`processResult`) hace lo común: leer el MCP y clasificar.
  */
 
+import type { NativeResult } from "../../tools/result.ts";
+
 export interface ExtractorInput {
     mcp: string;
     tool: string;
@@ -18,6 +20,8 @@ export interface ExtractorInput {
     fullText: string;
     /** Resultado del MCP más el JSON embebido en su texto (si lo hay). */
     mergedData: Record<string, any>;
+    /** Solo si el resultado es de un proveedor nativo (`tools/result.ts`): `text`, `raw`, `data` y `meta` ya separados. */
+    native?: NativeResult;
 }
 
 /** Señales que un extractor aporta al procesador (el resto se deriva del resultado MCP). */
@@ -26,6 +30,8 @@ export interface ExtractorSignals {
     exit_code?: number;
     /** El resultado existe pero no tiene datos (archivo vacío, búsqueda sin resultados). */
     empty_output?: boolean;
+    /** El proceso sigue vivo y pide una respuesta del usuario; `prompt` es lo que pide. */
+    waiting_input?: { prompt: string };
 }
 
 /** Proceso en segundo plano: el ejecutor lo convierte en el hecho `process` (Fase 5). */

@@ -34,7 +34,7 @@ Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
 
 **Política de rutas y comandos**
 - **Rutas sensibles** (`policy/sensitivePaths.ts`): listas cerradas y sin medir en uso real (falsos positivos: confirmaciones de más; falsos negativos: rutas que no figuren). Miran el texto de las rutas y del comando, no lo que un comando arma por variables. Cubren claves, credenciales, historiales de shell, tokens de CLI (`gh`, `terraform`, `vault`) y datos de navegadores; las plantillas `.env.example` no se marcan. No resuelven enlaces simbólicos o uniones, nombres cortos 8.3 (`PROGRA~1`), prefijos `\\?\` ni rutas UNC. La regla B de las carpetas protegidas (`refsDir`) tampoco sigue enlaces simbólicos. [V]
-- **`allowedDirectories`** viene vacío (sin restricción) y solo valida los argumentos de ruta de las herramientas de archivos: no restringe lo que haga un `start_process`. [V]
+- **`allowedDirectories`** viene vacío (sin restricción) y solo valida los argumentos de ruta de las herramientas de archivos: no restringe lo que haga un comando de `run_command`. [V]
 - **`autoMode` descansa en un modelo de 2B** para lo que las reglas no marcan: sin medir cuántas escrituras peligrosas aprobaría. Encendido, el único control humano son las rutas sensibles.
 
 **Datos y modelos**
@@ -43,7 +43,7 @@ Modelo de amenaza: un solo usuario en su PC. Lo que sigue abierto:
 - **Datos en reposo sin protección:** las refs y las trazas (`full.json.gz` con los prompts y resultados crudos) quedan en texto plano durante `retentionDays` y pueden incluir lo que el usuario aprobó leer (claves incluidas). No hay cifrado ni redacción de secretos. [V]
 
 **Procesos y dependencias**
-- **Procesos en segundo plano:** al terminar una tarea que no se completó se cierran (`engine/processes.ts`); si se cancela mientras `start_process` está en vuelo, el resultado tardío se descarta y su `pid` no se conoce. Una tarea completada los deja (puede ser lo pedido).
+- **Procesos en segundo plano:** al terminar una tarea que no se completó, `run_command` cierra su árbol de procesos (`onTaskEnd`); si se cancela mientras espera, corta el proceso en ese momento. Una tarea completada los deja (puede ser lo pedido) y se cierran al apagar Jarvis. Un proceso que sigue vivo solo se continúa dentro de la misma tarea.
 - **Dependencias de los servidores MCP:** Desktop Commander es una dependencia del proyecto, fijada en `0.3.2` con `package-lock.json` (versión y dependencias transitivas), y arranca con `node` directo en ~0,7 s. Free Search está fijado en `0.18.0` con `uvx` (arranca en ~1,8-2,5 s; con versiones exactas no consulta la red), y sus ~90 dependencias transitivas quedan fijadas en `mcp/free-search/constraints.txt` (`--constraints`: fija versiones, no verifica hashes). Los servidores MCP se lanzan sin shell (`node`, `uvx`); solo un `.cmd`/`.bat` como `npx` lo usa en Windows (`needsShell`), y ahí Node avisa con `DEP0190`: los argumentos no se escapan y solo vienen de `jarvis-config.json`. Subir cualquiera de los dos es una decisión que se prueba antes (`config.ts` y `jarvis-config.json`). [V]
 
 ## Catálogo de herramientas

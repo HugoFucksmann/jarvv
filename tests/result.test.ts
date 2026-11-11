@@ -7,10 +7,15 @@ import { BUDGET } from "../src/core/budget.ts";
 import { createRefLookup, isWholeRefToken, resolveRefs, schemaTypes } from "../src/core/refs/refResolver.ts";
 import type { RefLookup } from "../src/core/refs/refResolver.ts";
 import { processResult } from "../src/core/result/processResult.ts";
+import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
 
 const DC = "desktop_commander";
+const TERMINAL = "jarvis_terminal";
+const WEB = "jarvis_web";
 const text = (t: string, extra: Partial<MCPCallResult> = {}): MCPCallResult => ({ content: [{ type: "text", text: t }], ...extra });
+/** Resultado de un proveedor nativo: `text` es lo que ve el modelo y `raw` el texto completo (por defecto, el mismo). */
+const native = (data: Record<string, unknown>, shown: string, raw = shown, isError = false): MCPCallResult => toolResult({ text: shown, raw, data, isError });
 
 // ───────────────────────── processResult ─────────────────────────
 
@@ -34,8 +39,8 @@ test("not_found: marcador al inicio, o error con 'not found' / ENOENT", () => {
 test("tool_error: error, success=false, tiempo agotado o código de salida distinto de 0", () => {
   assert.equal(processResult(DC, "read_file", text("falló", { isError: true }), {}).status, "tool_error");
   assert.equal(processResult(DC, "read_file", text("x", { success: false }), {}).status, "tool_error");
-  assert.equal(processResult(DC, "start_process", text('{"exit_code": 2, "pid": 9}'), {}).status, "tool_error");
-  assert.equal(processResult(DC, "start_process", text("Process started with PID 7\nboom\nProcess completed with exit code 1 (runtime: 1s)"), {}).status, "tool_error");
+  assert.equal(processResult(DC, "read_file", text('{"exit_code": 2, "pid": 9}'), {}).status, "tool_error");
+  assert.equal(processResult(TERMINAL, "run_command", native({ state: "finished", pid: 7, exitCode: 1 }, "boom"), {}).status, "tool_error", "un proceso nativo que termina con código distinto de 0");
 });
 
 test("no_data: una herramienta que no admite salida vacía y devuelve vacío", () => {
@@ -50,11 +55,33 @@ test("un resumen nunca supera el tope y marca truncated; el texto completo se co
   assert.equal(r.fullText, big.trim());
 });
 
-test("start_process: señal de proceso activo con el pid; con 'finished' queda inactivo", () => {
-  const active = processResult(DC, "start_process", text("Process started with PID 4321 (shell: powershell)\nesperando..."), { command: "x" });
-  assert.deepEqual(active.process, { pid: "4321", active: true });
-  const done = processResult(DC, "start_process", text("Process started with PID 4321 (shell: powershell)\nlisto\n✅ Process 4321 has finished execution"), { command: "x" });
+test("resultado nativo: lo que ve el modelo, el texto completo aparte, el pid y el estado del proceso", () => {
+  const running = processResult(TERMINAL, "run_command", native({ state: "running", pid: 4321, exitCode: null }, "status: running", "salida completa y larga"), { command: "x" });
+  assert.deepEqual(running.process, { pid: "4321", active: true });
+  assert.equal(running.status, "ok");
+  assert.equal(running.summary, "status: running");
+  assert.equal(running.fullText, "salida completa y larga", "lo que va a la ref es raw");
+  assert.equal(running.truncated, true);
+
+  const done = processResult(TERMINAL, "run_command", native({ state: "finished", pid: 4321, exitCode: 0 }, "listo"), { command: "x" });
   assert.deepEqual(done.process, { pid: "4321", active: false });
+  assert.equal(done.status, "ok");
+  assert.equal(done.truncated, false, "si raw es igual a text no hay ref");
+
+  const unknown = processResult(TERMINAL, "run_command", native({ state: "unknown_pid", pid: 9 }, "no existe", "no existe", true), { pid: 9 });
+  assert.equal(unknown.status, "tool_error");
+  assert.deepEqual(unknown.process, { pid: "9", active: false }, "un pid que no existe da de baja el hecho process");
+});
+
+test("resultado nativo: waiting_input trae el prompt y no es un fallo; sin resultados es no_data", () => {
+  const waiting = processResult(TERMINAL, "run_command", native({ state: "waiting_input", pid: 5, exitCode: null, prompt: "Continuar (s/n)?" }, "status: waiting_input"), { command: "x" });
+  assert.equal(waiting.status, "waiting_input");
+  assert.equal(waiting.prompt, "Continuar (s/n)?");
+  assert.deepEqual(waiting.process, { pid: "5", active: true });
+
+  assert.equal(processResult(WEB, "web_search", native({ state: "not_found" }, "status: not_found"), {}).status, "no_data");
+  assert.equal(processResult(WEB, "web_search", native({ state: "no_results" }, "status: no_results"), {}).status, "no_data");
+  assert.equal(processResult(WEB, "web_search", native({ state: "found" }, "status: found"), {}).status, "ok");
 });
 
 test("un resultado de error nunca usa un extractor específico (no hay resumen de éxito de algo que falló)", () => {

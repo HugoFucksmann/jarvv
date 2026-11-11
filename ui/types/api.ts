@@ -52,6 +52,7 @@ export type CallStatus =
   | "tool_error"
   | "exception"
   | "interrupted"
+  | "waiting_input"
   | "denied"
   | "args_invalid"
   | "refs_unresolved"

@@ -71,7 +71,7 @@ export const FailureAnalysis: React.FC<FailureAnalysisProps> = ({ task }) => {
   const potentialPartialWrites = task.calls.filter(
     (c) =>
       c.kind === "write" &&
-      (c.status === "tool_error" || c.status === "exception" || c.status === "interrupted")
+      (c.status === "tool_error" || c.status === "exception" || c.status === "interrupted" || c.status === "waiting_input")
   );
 
   return (

@@ -1,7 +1,7 @@
 /**
  * JARVIS Core — Comandos de terminal que solo leen.
  *
- * `start_process` es, por política del catálogo, una escritura (un comando puede hacer cualquier cosa). Pero la mayoría de los comandos que
+ * `run_command` es, por política del catálogo, una escritura (un comando puede hacer cualquier cosa). Pero la mayoría de los comandos que
  * pide el modelo solo consultan (`Get-ChildItem`, `Get-Process | Sort-Object …`): tratarlos como escritura los manda a EFFECTS (no a DATA),
  * les pide confirmación al usuario en cada uno y, con `autoMode`, los pasa por D3. Aquí se decide, llamada por llamada, si un comando es
  * de solo lectura.
@@ -95,14 +95,12 @@ export function isReadOnlyCommand(command: string): boolean {
 }
 
 /**
- * ¿Esta llamada es de solo lectura aunque la herramienta, por catálogo, sea una escritura? Hoy solo `start_process` con un comando de
- * PowerShell que `isReadOnlyCommand` reconoce (con el shell por defecto o `powershell`/`pwsh`).
+ * ¿Esta llamada es de solo lectura aunque la herramienta, por catálogo, sea una escritura? Hoy solo `run_command` (proveedor `jarvis_terminal`):
+ * - un comando nuevo que `isReadOnlyCommand` reconoce como de PowerShell de solo lectura;
+ * - una continuación (`pid`) sin `input`: solo espera más salida de un proceso que ya se aprobó. Con `input` se le envía texto a un proceso: no es lectura.
  */
 export function isReadOnlyCall(mcp: string, tool: string, args: Record<string, unknown>): boolean {
-  if (mcp.toLowerCase() !== "desktop_commander" || tool.toLowerCase() !== "start_process") return false;
-  const command = args.command;
-  if (typeof command !== "string") return false;
-  const shell = typeof args.shell === "string" ? args.shell.toLowerCase().replace(/\.exe$/, "") : undefined;
-  if (shell !== undefined && shell !== "powershell" && shell !== "pwsh") return false;
-  return isReadOnlyCommand(command);
+  if (mcp.toLowerCase() !== "jarvis_terminal" || tool.toLowerCase() !== "run_command") return false;
+  if (typeof args.command === "string") return args.pid === undefined && isReadOnlyCommand(args.command);
+  return typeof args.pid === "number" && args.input === undefined;
 }

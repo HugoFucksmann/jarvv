@@ -12,6 +12,9 @@
  * - Lookup insensible a mayúsculas, políticas inmutables, claves duplicadas = error al arrancar.
  * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al planificador (ver
  *   `applyDestination`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
+ * - Los proveedores nativos (`jarvis_terminal`, `jarvis_web`) son módulos en proceso de `src/tools/`: una tool propia por ruta (`run_command`, `web_search`).
+ *   Las herramientas de otros servidores que una tool compuesta usa por dentro (`research` y `fetch` de Free Search) figuran como `internal`: tienen política
+ *   y Guard como las demás, pero no se ofrecen a Decision ni al planificador.
  * - Sin herramientas de interfaz gráfica (clic, teclado, portapapeles, capturas, esperas de UI) ni meta (feedback,
  *   prompts, estadísticas): decisión de diseño vigente.
  * - Las descripciones están en inglés: son la fuente única para Decision (criterios) y para el catálogo del
@@ -41,9 +44,13 @@ export interface ToolDefinition {
   readonly params?: readonly string[];
   /** Formato de parámetros que el esquema del servidor no expresa (parámetro -> nota en inglés). */
   readonly notes?: Readonly<Record<string, string>>;
-  readonly requires?: "process" | "search";
+  readonly requires?: "search";
   /** Excepciones al recorte por defecto de los strings de `args` al registrar la llamada (parámetro -> caracteres). */
   readonly argCaps?: Readonly<Record<string, number>>;
+  /** Plazo de la herramienta en milisegundos (techo de cuánto espera una llamada de un proveedor nativo); sin él, el del transporte. */
+  readonly timeoutMs?: number;
+  /** Solo la usa una tool compuesta por dentro: no entra en el catálogo de Decision ni del planificador. */
+  readonly internal?: boolean;
   readonly policy: Readonly<ToolPolicy>;
 }
 
@@ -72,12 +79,12 @@ export const DESTINATIONS: Readonly<
     description: "Find files by name or by text inside files when the location is unknown.",
   },
   terminal: {
-    server: "desktop_commander",
+    server: "jarvis_terminal",
     description:
       "Run a command or program (including launching apps), and read its output or send it input while it runs. Also for information about files that a plain listing does not give: sizes, dates, sorting, filtering or totals.",
   },
   web: {
-    server: "free_search",
+    server: "jarvis_web",
     description: "Look up information online and read the content of web pages, including known URLs.",
   },
 };
@@ -89,10 +96,12 @@ interface ToolOptions {
   repeat?: RepeatPolicy;
   params?: readonly string[];
   notes?: Readonly<Record<string, string>>;
-  /** Estado que la tarea debe tener para ofrecer la herramienta: un proceso en ejecución o una búsqueda iniciada. */
-  requires?: "process" | "search";
+  /** Estado que la tarea debe tener para ofrecer la herramienta: una búsqueda iniciada. */
+  requires?: "search";
   /** Excepciones al recorte por defecto de los strings de `args` (parámetro -> caracteres); ver `argCapsOf`. */
   argCaps?: Readonly<Record<string, number>>;
+  /** Plazo de la herramienta en milisegundos (proveedores nativos). */
+  timeoutMs?: number;
 }
 
 function def(
@@ -100,7 +109,9 @@ function def(
   name: string,
   capability: Capability,
   description: string,
-  opts: ToolOptions = {}
+  opts: ToolOptions = {},
+  server: McpServerName = DESTINATIONS[route].server,
+  internal = false,
 ): ToolDefinition {
   if (description.length > MAX_TOOL_DESC_CHARS) {
     throw new Error(`[Manifest] descripción de '${route}:${name}' excede ${MAX_TOOL_DESC_CHARS} caracteres.`);
@@ -125,12 +136,14 @@ function def(
   return Object.freeze({
     name,
     route,
-    server: DESTINATIONS[route].server,
+    server,
     description,
     params: opts.params,
     notes: opts.notes ? Object.freeze({ ...opts.notes }) : undefined,
     requires: opts.requires,
     argCaps: opts.argCaps ? Object.freeze({ ...opts.argCaps }) : undefined,
+    timeoutMs: opts.timeoutMs,
+    internal: internal || undefined,
     policy: Object.freeze({
       capability,
       requiresApproval: NEEDS_APPROVAL.has(capability),
@@ -140,6 +153,10 @@ function def(
     }),
   });
 }
+
+/** Herramienta de otro servidor que una tool compuesta usa por dentro: política y Guard como las demás, fuera del catálogo de Decision. */
+const internalDef = (server: McpServerName, route: ExecutableRoute, name: string, capability: Capability, description: string, opts: ToolOptions = {}): ToolDefinition =>
+  def(route, name, capability, description, opts, server, true);
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // Sin `isUrl`: las URL las cubre `fetch`. `offset` y `length` cuentan líneas en archivos de texto (observado); en PDF o Excel no se verificó.
@@ -164,38 +181,40 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   }),
   def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { repeat: "allow", requires: "search" }),
 
-  // Sin `verbose_timing`: con él la última línea de la salida pasa a ser un bloque de tiempos y el extractor pierde el fin del proceso y su exit code.
-  // Escritura por catálogo; un comando que `policy/readOnly.ts` demuestra de solo lectura se trata como lectura llamada por llamada.
-  def("terminal", "start_process", "PROCESS_CONTROL", "Start a terminal process or background command.", {
-    // Sin `shell`: el servidor usa powershell.exe por defecto y es lo que los prompts y el pre-chequeo asumen.
-    params: ["command", "timeout_ms"],
-    argCaps: { command: 1000 },
-  }),
-  def("terminal", "read_process_output", "READ", "Read the accumulated output of a running process.", {
+  // `run_command` (proveedor nativo `jarvis_terminal`): lanza un comando de PowerShell, o continúa uno que sigue vivo (`pid`, con `input` si esperaba entrada).
+  // Escritura por catálogo; un comando que `policy/readOnly.ts` demuestra de solo lectura, y una continuación sin `input`, se tratan como lectura llamada por llamada.
+  // `repeat: "allow"`: esperar más salida de un `pid` repite los mismos argumentos; los topes del paso (`maxCallsPerStep`) acotan el resto.
+  def("terminal", "run_command", "PROCESS_CONTROL", "Run a PowerShell command, or continue a running one by its pid.", {
     repeat: "allow",
-    requires: "process",
-    params: ["pid", "timeout_ms", "offset", "length"],
-  }),
-  def("terminal", "interact_with_process", "PROCESS_CONTROL", "Send interactive stdin to a process or REPL.", {
-    requires: "process",
-    params: ["pid", "input", "timeout_ms", "wait_for_prompt"],
+    params: ["command", "pid", "input", "timeoutSec", "cwd"],
+    notes: {
+      command: "PowerShell command to run. Omit it when continuing a process (use pid).",
+      pid: "Process id from an earlier run_command that is still running or waiting for input.",
+      input: "Answer for a process that was waiting for input; only with pid.",
+      timeoutSec: "Seconds to wait for the result (default 30, max 300). The process is not killed when it expires.",
+      cwd: "Absolute working directory for a new command.",
+    },
+    argCaps: { command: 1000 },
+    timeoutMs: 315_000,
   }),
 
-  // `search` y `fetch_batch` no se ofrecen: `research` busca y lee en una sola llamada (sin la cadena buscar-y-leer que producía pasos
-  // sin herramienta y bucles), y `fetch_batch` era una segunda firma para la misma página que esquivaba el anti-loop.
-  // Solo `question`: `depth` queda en el valor del servidor (3 páginas) y los filtros no se exponen.
-  def("web", "research", "READ", "Search the web and read the top pages in one call. Use it for any lookup.", {
-    emptyIsError: true,
+  // `web_search` (proveedor nativo `jarvis_web`): busca o lee las URLs dadas y devuelve fragmentos literales con su fuente y un estado. Por dentro usa `research` y
+  // `fetch` de Free Search (internas). `no_data` (sin resultados o sin fragmentos relevantes) permite un reintento con otros argumentos (`retry_failed`).
+  def("web", "web_search", "READ", "Search the web, or read given URLs, and return the relevant passages.", {
     repeat: "retry_failed",
-    params: ["question"],
-    notes: { question: "What to look up, in natural language. Never a URL." },
+    params: ["need", "terms", "urls", "freshness", "domains"],
+    notes: {
+      need: "The question to answer, in natural language (max 300 characters). Never a URL.",
+      terms: "Optional keywords in the language the sources are likely written in; helps when the question is in another language.",
+      urls: "Optional pages to read directly instead of searching (max 5, http or https).",
+      freshness: "Only for time-sensitive needs: day, week, month or year.",
+      domains: "Only if the user named a site: domains to restrict the search to.",
+    },
+    timeoutMs: 150_000,
   }),
-  // Sin `render` (la palabra "navegador" lo activaba y el valor `auto` ya recurre al navegador si HTTP falla), sin
-  // `max_age_hours` (con 0 equivale a `force_refresh`; su tipo `anyOf` complica el schema) ni `format` ni `inline`: el extractor asume Markdown.
-  def("web", "fetch", "READ", "Download ONE known URL as Markdown. To find pages, use research.", {
-    repeat: "retry_failed",
-    params: ["url", "force_refresh"],
-  }),
+  // Internas de `web_search` (Free Search). `research` busca y lee en una sola llamada; `fetch` descarga UNA URL como Markdown.
+  internalDef("free_search", "web", "research", "READ", "Search the web and read the top pages in one call.", { emptyIsError: true, repeat: "retry_failed" }),
+  internalDef("free_search", "web", "fetch", "READ", "Download ONE known URL as Markdown.", { repeat: "retry_failed" }),
 ];
 
 /** Clave canónica de una herramienta (servidor + nombre, sin distinguir mayúsculas); la usan el catálogo y el registro de extractores. */
@@ -227,8 +246,13 @@ export function getToolPolicy(server: string, tool: string): Readonly<ToolPolicy
   return lookup(server, tool)?.policy ?? UNKNOWN_TOOL_POLICY;
 }
 
-export function requirementOf(server: string, tool: string): "process" | "search" | undefined {
+export function requirementOf(server: string, tool: string): "search" | undefined {
   return lookup(server, tool)?.requires;
+}
+
+/** Plazo declarado de la herramienta en milisegundos, o `undefined` si no tiene (rige el del transporte). */
+export function timeoutOf(server: string, tool: string): number | undefined {
+  return lookup(server, tool)?.timeoutMs;
 }
 
 const NO_ARG_CAPS: Readonly<Record<string, number>> = Object.freeze({});
@@ -313,7 +337,7 @@ export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool
 export function buildCompactCatalog(): string {
   const sections: string[] = [];
   for (const route of EXECUTABLE_ROUTES) {
-    const defs = SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route);
+    const defs = SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route && d.internal !== true);
     const lines = defs.map((d) => `• ${d.name} [${d.policy.capability}]: ${d.description}`);
     sections.push(`[SUBSYSTEM ${route} - ${DESTINATIONS[route].description}]:\n${lines.join("\n")}`);
   }

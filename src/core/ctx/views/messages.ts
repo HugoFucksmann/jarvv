@@ -13,6 +13,7 @@ export const STATUS_NOTES: { readonly [S in CallStatus]: string | null } = {
   tool_error: "The tool returned an error.",
   exception: "The execution failed with an exception.",
   interrupted: "The execution was interrupted before finishing.",
+  waiting_input: "The process is waiting for an answer from the user, who is being asked; it is still running.",
   args_invalid: "The arguments were not valid; not executed.",
   refs_unresolved: "A reference could not be resolved; not executed.",
   loop_blocked: "Repetition blocked: the same call was already made; not executed. Change the arguments (for a search, use other keywords).",

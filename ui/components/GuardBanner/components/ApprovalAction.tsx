@@ -87,8 +87,9 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
   const handleDeny = () => runAction(() => onDeny("Rechazado manualmente por el usuario"));
 
   const rawArgs = request.args || {};
-  const isStartProcess = request.tool === "start_process" || Boolean(rawArgs.command);
-  const isInteractWithProcess = request.tool === "interact_with_process" || Boolean(rawArgs.input);
+  // `run_command`: un comando nuevo (`command`) o la respuesta a un proceso que esperaba entrada (`pid` e `input`).
+  const isStartProcess = Boolean(rawArgs.command);
+  const isInteractWithProcess = Boolean(rawArgs.input);
 
   let primaryType: "command" | "input" | null = null;
   let primaryContent: string | null = null;
@@ -116,7 +117,7 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
     }
   }
 
-  const processId = rawArgs.process_id !== undefined ? String(rawArgs.process_id) : null;
+  const processId = rawArgs.pid !== undefined ? String(rawArgs.pid) : rawArgs.process_id !== undefined ? String(rawArgs.process_id) : null;
 
   return (
     <div className="flex flex-col gap-3 p-3.5 bg-amber-950/50 border border-amber-900/80 rounded-lg text-amber-200 shadow-md">

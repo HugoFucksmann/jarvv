@@ -63,6 +63,11 @@ export interface JarvisConfig {
    * argumentos (Decisión 3). Lo prohibido (Guard, lista negra) sigue rechazado. Se lee en cada llamada: se puede cambiar con la tarea en curso.
    */
   autoMode: boolean;
+  /**
+   * `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada.
+   * Empieza apagado: el modelo se suma cuando la línea base muestre que su ganancia justifica el costo.
+   */
+  webSearchUseJudge: boolean;
 }
 
 /** Origen de la configuración vigente: quien construye un motor se lo pasa (la raíz de composición decide de dónde sale). Se llama en cada uso, así un cambio en caliente se respeta. */
@@ -127,6 +132,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   retentionDays: 30,
   blacklist: [],
   autoMode: false,
+  webSearchUseJudge: false,
 };
 
 /** Cadena recortada; "" es válido (p. ej. URL sin configurar). */
@@ -217,6 +223,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     retentionDays: nonNegativeInt(r.retentionDays, d.retentionDays),
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
+    webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
   };
 }
 

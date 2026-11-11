@@ -16,13 +16,14 @@ import { isRecord } from "../utils.ts";
 import { fitToCap } from "../text.ts";
 import { selectExtractor } from "./extractors/index.ts";
 import type { ExtractorInput, ProcessSignal } from "./extractors/types.ts";
+import { readToolResult } from "../tools/result.ts";
 import { BUDGET } from "../budget.ts";
 
 
 export type { ProcessSignal } from "./extractors/types.ts";
 
 /** Estados que puede producir el procesador (los de una llamada que terminó de ejecutarse, más `denied` del servidor). */
-export type ProcessedStatus = Extract<CallStatus, "ok" | "no_data" | "not_found" | "tool_error" | "denied">;
+export type ProcessedStatus = Extract<CallStatus, "ok" | "no_data" | "not_found" | "tool_error" | "denied" | "waiting_input">;
 
 export interface ProcessedResult {
   status: ProcessedStatus;
@@ -34,6 +35,8 @@ export interface ProcessedResult {
   fullText: string;
   /** Solo en las herramientas de procesos y solo si el pid se conoce. */
   process?: ProcessSignal;
+  /** Solo con `waiting_input`: lo que el proceso pide. */
+  prompt?: string;
 }
 
 interface CollectedContent {
@@ -106,28 +109,42 @@ export function processResult(
   const isError = Boolean(rawResult.isError);
   const success = rawResult.success !== undefined ? Boolean(rawResult.success) : !isError;
 
-  const { text: fullText, embeddedPayload } = collectContent(rawResult.content || []);
+  const { text, embeddedPayload } = collectContent(rawResult.content || []);
+  // Un resultado nativo trae aparte lo que ve el modelo (`text`) y el texto completo (`raw`): este último es el que va a la ref.
+  const native = readToolResult(rawResult);
+  const fullText = native === null ? text : native.raw.trim();
   // Forma libre: los extractores leen los campos propios de cada servidor (process_id, exit_code…).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mergedData: Record<string, any> = { ...rawResult, ...embeddedPayload };
   const policy = getToolPolicy(mcp, tool);
 
-  const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData };
-  const extracted = selectExtractor(mcp, tool, isError)(input);
+  const input: ExtractorInput = { mcp, tool, args, isError, success, fullText, mergedData, ...(native === null ? {} : { native }) };
+  const extracted = selectExtractor(mcp, tool, isError, native !== null)(input);
 
-  const lowerText = fullText.toLowerCase();
-  const denied = isError && (fullText.includes("[DENIED]") || lowerText.includes("access denied"));
+  // Los marcadores de error se buscan en lo que ve el modelo (en un resultado nativo, `raw` puede ser una página cualquiera).
+  const lowerText = text.toLowerCase();
+  const denied = isError && (text.includes("[DENIED]") || lowerText.includes("access denied"));
   const notFound =
-    fullText.startsWith("[NOT_FOUND]") ||
-    (isError &&
-      (fullText.includes("[NOT_FOUND]") || lowerText.includes("not found") || /\benoent\b|no such file or directory/.test(lowerText)));
+    text.startsWith("[NOT_FOUND]") ||
+    (isError && (text.includes("[NOT_FOUND]") || lowerText.includes("not found") || /\benoent\b|no such file or directory/.test(lowerText)));
 
   const control = controlFieldsOf(mergedData);
   const exitCode = control.exitCode ?? extracted.signals?.exit_code;
   const failed = isError || !success || control.timedOut || (exitCode !== undefined && exitCode !== 0);
-  const noData = (policy.emptyIsError === true && fullText.length === 0) || extracted.signals?.empty_output === true;
+  const noData = (policy.emptyIsError === true && text.length === 0) || extracted.signals?.empty_output === true;
+  const waiting = extracted.signals?.waiting_input;
 
-  const status: ProcessedStatus = denied ? "denied" : notFound ? "not_found" : failed ? "tool_error" : noData ? "no_data" : "ok";
+  const status: ProcessedStatus = denied
+    ? "denied"
+    : notFound
+      ? "not_found"
+      : failed
+        ? "tool_error"
+        : waiting !== undefined
+          ? "waiting_input"
+          : noData
+            ? "no_data"
+            : "ok";
 
   // Nunca `""` (5.2). Red de seguridad: ningún extractor puede dejar pasar un resumen mayor que el tope.
   let summary = extracted.summary !== null && extracted.summary.trim().length > 0 ? extracted.summary : null;
@@ -143,5 +160,6 @@ export function processResult(
     truncated,
     fullText,
     ...(extracted.process ? { process: extracted.process } : {}),
+    ...(status === "waiting_input" && waiting !== undefined ? { prompt: waiting.prompt } : {}),
   };
 }

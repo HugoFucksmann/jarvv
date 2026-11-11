@@ -36,8 +36,11 @@ export type StepState = (typeof STEP_STATES)[number];
 export const CALL_KINDS = ["read", "write"] as const;
 export type CallKind = (typeof CALL_KINDS)[number];
 
-/** Llamadas ejecutadas: llegaron a despacharse a la herramienta (5.3). */
-export const EXECUTED_CALL_STATUSES = ["ok", "no_data", "not_found", "tool_error", "exception", "interrupted"] as const;
+/**
+ * Llamadas ejecutadas: llegaron a despacharse a la herramienta (5.3). `waiting_input`: el proceso que lanzó sigue vivo y pide una respuesta del usuario; no se verifica
+ * (no hay resultado que juzgar) y el bucle de paso se la pregunta al usuario.
+ */
+export const EXECUTED_CALL_STATUSES = ["ok", "no_data", "not_found", "tool_error", "exception", "interrupted", "waiting_input"] as const;
 
 /** Llamadas no ejecutadas, sin `denied`, que tiene dos orígenes (5.3). */
 export const NOT_EXECUTED_CALL_STATUSES = [
@@ -52,7 +55,7 @@ export const NOT_EXECUTED_CALL_STATUSES = [
 export const CALL_STATUSES = [...EXECUTED_CALL_STATUSES, ...NOT_EXECUTED_CALL_STATUSES, "denied"] as const;
 export type CallStatus = (typeof CALL_STATUSES)[number];
 
-/** Estados cuyo resultado se verifica: toda llamada ejecutada salvo `interrupted`, y nunca `denied` (5.3). */
+/** Estados cuyo resultado se verifica: toda llamada ejecutada salvo `interrupted` y `waiting_input`, y nunca `denied` (5.3). */
 export const VERIFIABLE_CALL_STATUSES = ["ok", "no_data", "not_found", "tool_error", "exception"] as const;
 
 export const CALL_VERDICTS = ["approved", "rejected"] as const;

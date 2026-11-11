@@ -17,19 +17,23 @@ import type { Waiting } from "../src/core/engine/runtime.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
 import { createRefVault } from "../src/core/refs/refVault.ts";
+import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../src/core/types.ts";
 import { newContext } from "./fixtures.ts";
 
 const TIMING = { start: 0, end: 0, durationMs: 0 } as never;
 const schema = { type: "object", properties: { path: { type: "string" }, content: { type: "string" }, mode: { type: "string" }, command: { type: "string" } } };
 const tool = (name: string): MCPTool => ({ name, description: name, inputSchema: schema });
-const TOOLS = ["list_directory", "write_file", "start_process"].map(tool);
+const FILE_TOOLS = ["list_directory", "write_file"].map(tool);
+const TERMINAL_TOOLS = ["run_command"].map(tool);
 
 interface Scenario {
   readonly request: string;
   /** Herramienta que el doble de Decisión 2 elige y los argumentos que el doble del modelo propone. */
   readonly tool: string;
   readonly args: Record<string, unknown>;
+  /** Argumentos de la `n`-ésima llamada (0, 1…); por defecto `args`. */
+  readonly argsFor?: (n: number) => Record<string, unknown>;
   readonly onWait?: (waiting: Waiting, runtime: TaskRuntime) => void;
   readonly autoMode?: boolean;
   /** Texto que devuelve la herramienta (por defecto, un listado de archivos). */
@@ -48,6 +52,8 @@ interface Outcome {
   readonly ctx: TaskContext;
   readonly dispatched: { readonly tool: string; readonly args: Record<string, unknown> }[];
   readonly reviews: number;
+  /** Cómo terminó la tarea, según el aviso del motor a los proveedores (`notifyTaskEnd`). */
+  readonly ended: string[];
 }
 
 async function run(s: Scenario): Promise<Outcome> {
@@ -57,29 +63,34 @@ async function run(s: Scenario): Promise<Outcome> {
   let pendingCalls = 0;
   let verified = 0;
 
-  const server: IMCPServer = {
-    name: "desktop_commander",
+  const ended: string[] = [];
+  let generated = 0;
+  const provider = (name: string, tools: MCPTool[]): IMCPServer => ({
+    name,
     version: "test",
-    listTools: async () => TOOLS,
-    callTool: async (name, args): Promise<MCPCallResult> => {
-      const n = dispatched.filter((d) => d.tool === name).length;
-      dispatched.push({ tool: name, args });
-      if (s.resultFor !== undefined && name !== "force_terminate") return s.resultFor(n);
-      return { content: [{ type: "text", text: name === "force_terminate" ? "terminated" : (s.result ?? "[FILE] a.txt\n[FILE] b.txt") }] };
+    listTools: async () => tools,
+    callTool: async (toolName, args): Promise<MCPCallResult> => {
+      const n = dispatched.filter((d) => d.tool === toolName).length;
+      dispatched.push({ tool: toolName, args });
+      if (s.resultFor !== undefined) return s.resultFor(n);
+      return { content: [{ type: "text", text: s.result ?? "[FILE] a.txt\n[FILE] b.txt" }] };
     },
     isConnected: () => true,
     reconnect: async () => undefined,
-  };
+  });
+  const servers: Record<string, IMCPServer> = { desktop_commander: provider("desktop_commander", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS) };
+  const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? TERMINAL_TOOLS : name === "desktop_commander" ? FILE_TOOLS : []);
 
   const deps: EngineDeps = {
     discovery: {
-      getServer: (name) => (name === "desktop_commander" ? server : undefined),
-      getDiscoveredTools: async () => TOOLS,
+      getServer: (name) => servers[name],
+      getDiscoveredTools: async (name) => catalog(name),
       getUnavailableServers: () => ({}),
       validateToolExists: async () => true,
+      notifyTaskEnd: async (_taskId, outcome) => void ended.push(outcome),
     },
     decision: {
-      chooseRoute: async (input) => ({ action: "route", route: input.routes.includes("terminal") && s.tool === "start_process" ? "terminal" : "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+      chooseRoute: async (input) => ({ action: "route", route: input.routes.includes("terminal") && s.tool === "run_command" ? "terminal" : "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       chooseTool: async (input) => ({ action: "tool", tool: input.tools.find((t) => t.name === s.tool) ?? input.tools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       reviewArgs: async () => {
         reviews++;
@@ -91,7 +102,7 @@ async function run(s: Scenario): Promise<Outcome> {
       },
     },
     llm: {
-      generateArgumentsFromView: async () => ({ args: s.args, rawInput: "", rawOutput: "", timing: TIMING }),
+      generateArgumentsFromView: async () => ({ args: s.argsFor?.(generated++) ?? s.args, rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
       generatePendingFromView: async () => ({ pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
@@ -112,7 +123,7 @@ async function run(s: Scenario): Promise<Outcome> {
   runtime = new TaskRuntime({ onChange: (waiting) => waiting !== null && s.onWait !== undefined && queueMicrotask(() => s.onWait!(waiting, runtime)) });
   await runTask(ctx, runtime, deps);
   fs.rmSync(dir, { recursive: true, force: true });
-  return { ctx, dispatched, reviews };
+  return { ctx, dispatched, reviews, ended };
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
@@ -127,7 +138,7 @@ test("lectura: se despacha, se verifica y la tarea se completa con respuesta del
 });
 
 test("Guard: un comando catastrófico cierra la tarea con security_denied y no se despacha", async () => {
-  const { ctx, dispatched } = await run({ request: "Formatear el disco", tool: "start_process", args: { command: "format c:" } });
+  const { ctx, dispatched } = await run({ request: "Formatear el disco", tool: "run_command", args: { command: "format c:" } });
   assert.equal(ctx.task.stopReason, "security_denied");
   assert.equal(dispatched.length, 0);
   assert.equal(ctx.find("calls", {})[0].status, "denied");
@@ -171,11 +182,11 @@ test("modo automático: una escritura sin confirmación pasa por la revisión D3
   assert.equal(dispatched.length, 1);
 });
 
-test("start_process de solo lectura: no pide confirmación, se registra como lectura y no pasa por D3", async () => {
+test("run_command de solo lectura: no pide confirmación, se registra como lectura y no pasa por D3", async () => {
   let asked = false;
   const { ctx, dispatched, reviews } = await run({
     request: "Listar C:\Users\Ana\Documents con PowerShell",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "Get-ChildItem C:\Users\Ana\Documents" },
     autoMode: true,
     onWait: (waiting) => {
@@ -190,11 +201,11 @@ test("start_process de solo lectura: no pide confirmación, se registra como lec
   assert.equal(call.status, "ok");
 });
 
-test("start_process que escribe: sigue siendo una escritura que pide confirmación", async () => {
+test("run_command que escribe: sigue siendo una escritura que pide confirmación", async () => {
   let asked = false;
   const { ctx, dispatched } = await run({
     request: "Borrar C:\Users\Ana\Documents\viejo.txt",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "Remove-Item C:\Users\Ana\Documents\viejo.txt" },
     onWait: (waiting, runtime) => {
       if (waiting.kind !== "approval") return;
@@ -207,26 +218,56 @@ test("start_process que escribe: sigue siendo una escritura que pide confirmaci�
   assert.equal(ctx.find("calls", {})[0].kind, "write");
 });
 
-const STARTED = "Process started with PID 4321 (shell: powershell)\nesperando...";
 const READ_CMD = { command: "Get-Date" };
+const native = (data: Record<string, unknown>, text: string): MCPCallResult => toolResult({ text, raw: text, data });
+const RUNNING = native({ state: "running", pid: 4321, exitCode: null, durationMs: 1000 }, "status: running · duration: 1.0s · pid: 4321");
+const FINISHED = native({ state: "finished", pid: 4321, exitCode: 0, durationMs: 1000 }, "status: finished · exit code: 0 · duration: 1.0s · pid: 4321\nlisto");
 
-test("procesos: si la tarea se cancela con un proceso en segundo plano activo, se cierra (force_terminate)", async () => {
-  const { dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: STARTED, onVerify: (runtime) => runtime.cancel() });
-  const closed = dispatched.filter((d) => d.tool === "force_terminate");
-  assert.equal(closed.length, 1);
-  assert.deepEqual(closed[0].args, { pid: 4321 });
+test("procesos: al cancelarse la tarea, el motor avisa a los proveedores (cancelled) para que cierren lo que dejó corriendo", async () => {
+  const { ended } = await run({ request: "Mostrar la fecha", tool: "run_command", args: READ_CMD, resultFor: () => RUNNING, onVerify: (runtime) => runtime.cancel() });
+  assert.deepEqual(ended, ["cancelled"]);
 });
 
-test("procesos: si la tarea se completa, el proceso en segundo plano se deja (puede ser lo pedido)", async () => {
-  const { ctx, dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: STARTED });
+test("procesos: al completarse la tarea se avisa (completed): el proveedor deja el proceso, pudo ser lo pedido", async () => {
+  const { ctx, ended } = await run({ request: "Mostrar la fecha", tool: "run_command", args: READ_CMD, resultFor: () => RUNNING });
   assert.equal(ctx.task.state, "completed");
-  assert.equal(dispatched.filter((d) => d.tool === "force_terminate").length, 0);
+  assert.deepEqual(ended, ["completed"]);
+  assert.equal(ctx.find("calls", {})[0].status, "ok", "un proceso que sigue corriendo es una llamada ok");
 });
 
-test("procesos: un proceso que ya terminó no se vuelve a cerrar", async () => {
-  const done = "Process started with PID 4321 (shell: powershell)\nlisto\n✅ Process 4321 has finished execution";
-  const { dispatched } = await run({ request: "Mostrar la fecha", tool: "start_process", args: READ_CMD, result: done, onVerify: (runtime) => runtime.cancel() });
-  assert.equal(dispatched.filter((d) => d.tool === "force_terminate").length, 0);
+test("procesos: una tarea fallida se avisa como failed", async () => {
+  const { ended } = await run({ request: "Mostrar la fecha", tool: "run_command", args: READ_CMD, resultFor: () => RUNNING, verifyFor: () => ({ ok: 0.01, cumple: 0.01 }), pendingAlways: true, onWait: (w, runtime) => w.kind === "question" && runtime.answer("sigue") });
+  assert.ok(ended.length === 1 && ended[0] !== "completed", `se avisó ${ended.join(",")}`);
+});
+
+test("proceso que espera entrada: no se verifica, se le pregunta al usuario lo que el proceso pide y la respuesta vuelve en la llamada siguiente", async () => {
+  const questions: string[] = [];
+  let verifications = 0;
+  const waiting = native({ state: "waiting_input", pid: 4321, exitCode: null, prompt: "Continuar (s/n)?", durationMs: 1500 }, "status: waiting_input · pid: 4321");
+  const { ctx, dispatched } = await run({
+    request: "Instalar el programa",
+    tool: "run_command",
+    args: {},
+    argsFor: (n) => (n === 0 ? { command: "Read-Host 'Continuar (s/n)?'" } : { pid: 4321, input: "s" }),
+    resultFor: (n) => (n === 0 ? waiting : FINISHED),
+    onVerify: () => void verifications++,
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") runtime.resolveApproval(w.request.id, true);
+      if (w.kind === "question") {
+        questions.push(w.question.question);
+        runtime.answer("s");
+      }
+    },
+  });
+  assert.equal(questions.length, 1);
+  assert.match(questions[0], /Continuar \(s\/n\)\?/, "la pregunta es el prompt del proceso, sin paráfrasis");
+  assert.notEqual(questions[0], "¿cuál?", "no se pidió al modelo que redactara la pregunta");
+  assert.deepEqual(dispatched.map((d) => d.args), [{ command: "Read-Host 'Continuar (s/n)?'" }, { pid: 4321, input: "s" }]);
+  const calls = ctx.find("calls", {});
+  assert.deepEqual(calls.map((c) => c.status), ["waiting_input", "ok"]);
+  assert.equal(calls[0].verdict, null, "la llamada que espera entrada no se verifica");
+  assert.equal(verifications, 1, "solo se verificó la llamada que terminó");
+  assert.equal(ctx.task.state, "completed");
 });
 
 test("ruta sensible: pide confirmación aunque esté encendido el modo automático, y si se rechaza no se despacha", async () => {
@@ -259,11 +300,11 @@ test("ruta sensible aprobada por el usuario: se despacha", async () => {
   assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1);
 });
 
-test("start_process de solo lectura sobre una ruta sensible: ya no se permite sin confirmar", async () => {
+test("run_command de solo lectura sobre una ruta sensible: ya no se permite sin confirmar", async () => {
   let asked = false;
   const { dispatched } = await run({
     request: "Leer C:\\Users\\Ana\\.ssh\\config",
-    tool: "start_process",
+    tool: "run_command",
     args: { command: "Get-Content C:\\Users\\Ana\\.ssh\\config" },
     autoMode: true,
     onWait: (waiting, runtime) => {

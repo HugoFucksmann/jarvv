@@ -14,7 +14,7 @@ import type { Call, CallStatus, ContextData, Fact, Plan, Step } from "./types.ts
 // ───────────────────────── Predicados de llamada ─────────────────────────
 
 /** Estados de una escritura que pudo dejar cambios parciales (5.4, posibles efectos). */
-const POSSIBLE_EFFECT_STATUSES: readonly CallStatus[] = ["tool_error", "exception", "interrupted"];
+const POSSIBLE_EFFECT_STATUSES: readonly CallStatus[] = ["tool_error", "exception", "interrupted", "waiting_input"];
 
 /** Fallo transitorio: la herramienta pudo fallar por algo pasajero, o la ejecución no terminó. */
 export function isTransientFailure(call: Call): boolean {

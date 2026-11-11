@@ -254,7 +254,7 @@ export function checkCallPatch(raw: unknown): CallPatch {
   return { verdict, reason };
 }
 
-/** 5.3: se verifica toda llamada ejecutada salvo `interrupted` y `denied`. */
+/** 5.3: se verifica toda llamada ejecutada salvo `interrupted`, `waiting_input` y `denied`. */
 export function assertVerifiable(callId: string, status: CallStatus): void {
   if (!(VERIFIABLE_CALL_STATUSES as readonly string[]).includes(status)) {
     violation("transition", 6, `la llamada ${callId} (status = ${status}) no se verifica: su \`verdict\` queda null`);

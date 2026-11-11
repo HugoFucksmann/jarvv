@@ -25,6 +25,8 @@ export type CallOutcome =
     readonly status: CallStatus;
     readonly verdict: CallVerdict | null;
     readonly reason: VerdictReason | null;
+    /** Solo con `waiting_input`: lo que el proceso pide, tal como lo detectó la herramienta; el bucle de paso se lo pregunta al usuario. */
+    readonly prompt?: string;
   }
   | { readonly kind: "no_tools" }
   | { readonly kind: "close"; readonly stopReason: StopReason; readonly callId: string | null }

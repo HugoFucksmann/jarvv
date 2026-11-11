@@ -30,7 +30,9 @@ import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
 import type { ProcessedResult } from "../result/processResult.ts";
-import { applyDestination, getToolPolicy, isKnownTool, requirementOf, serverOf } from "../tools/manifest.ts";
+import { applyDestination, getToolPolicy, isKnownTool, requirementOf, serverOf, timeoutOf } from "../tools/manifest.ts";
+import { createToolHost } from "../tools/host.ts";
+import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPTool } from "../types.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
 import { errorMessage } from "../utils.ts";
@@ -43,7 +45,6 @@ import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
 import { factValue } from "./retries.ts";
 import { routeExhausted } from "./limits.ts";
-import { trackProcess } from "./processes.ts";
 import { reviewOutcome, verifyCall } from "./verify.ts";
 
 export interface RunCallParams {
@@ -72,7 +73,8 @@ const registered = (
   status: CallStatus,
   verdict: "approved" | "rejected" | null = null,
   reason: "no_usable_data" | "not_accomplished" | null = null,
-): CallOutcome => ({ kind: "registered", callId, status, verdict, reason });
+  prompt?: string,
+): CallOutcome => ({ kind: "registered", callId, status, verdict, reason, ...(prompt === undefined ? {} : { prompt }) });
 
 /** Fallo de un modelo o de la infraestructura → cierre (o cancelación) con la llamada registrada, si la hay. */
 function fromFailure(ctx: TaskContext, stepId: string, failure: ModelFailureKind, detail: unknown, callId: string | null = null): CallOutcome {
@@ -111,12 +113,10 @@ type Discovery =
  * bloqueó por repetición sigue disponible: el anti-bucle solo bloquea la llamada idéntica, y con otros argumentos pasa.
  */
 function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[], blacklist: Blacklist): MCPTool[] {
-  const processActive = factValue(ctx, "process") !== null;
   const searchActive = ctx.find("calls", { tool: "start_search", status: "ok" }).length > 0;
   return cataloged.filter((t) => {
     if (isBlacklistedTool(blacklist, mcp, t.name, getToolPolicy(mcp, t.name).mutates)) return false;
-    const required = requirementOf(mcp, t.name);
-    return required === undefined || (required === "process" ? processActive : searchActive);
+    return requirementOf(mcp, t.name) === undefined || searchActive;
   });
 }
 
@@ -213,19 +213,19 @@ function raceCancel<T>(promise: Promise<T>, signal: AbortSignal): Promise<Raced<
 const setProcessFact = (value: string | null, stepId: string): Op => ({ op: "set", target: "facts.process", value: { value, stepId } });
 
 /**
- * Operaciones del hecho `process` a partir de la señal del procesador (5.2): alta al terminar `ok` la mutación que lanza el
- * proceso; baja (`value = null`) cuando el proceso ya no existe o una interacción devuelve `not_found`; con otros errores
- * el hecho se conserva.
+ * Operaciones del hecho `process` a partir de la señal del resultado (`ProcessSignal`): alta cuando la mutación que lanza el proceso termina `ok` o queda
+ * esperando entrada (el generador de argumentos necesita el `pid` para continuar); baja (`value = null`) cuando el proceso ya no existe. Con otros
+ * errores el hecho se conserva.
  */
-function processFactOps(ctx: TaskContext, stepId: string, mcp: string, tool: string, policy: Policy, processed: ProcessedResult): Op[] {
+function processFactOps(ctx: TaskContext, stepId: string, policy: Policy, processed: ProcessedResult): Op[] {
   const current = factValue(ctx, "process");
   const signal = processed.process;
-  if (signal === undefined) {
-    const interactionLost = processed.status === "not_found" && requirementOf(mcp, tool) === "process";
-    return interactionLost && current !== null ? [setProcessFact(null, stepId)] : [];
-  }
+  if (signal === undefined) return [];
   const pid = String(signal.pid);
-  if (signal.active) return processed.status === "ok" && policy.mutates && current !== pid ? [setProcessFact(pid, stepId)] : [];
+  if (signal.active) {
+    const started = processed.status === "ok" || processed.status === "waiting_input";
+    return started && policy.mutates && current !== pid ? [setProcessFact(pid, stepId)] : [];
+  }
   return current === pid ? [setProcessFact(null, stepId)] : [];
 }
 
@@ -375,7 +375,13 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // 9. Despacho: compite contra la cancelación.
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   console.log(`[MCP → SEND] server=${mcp} tool=${tool.name} args=${JSON.stringify(resolved).slice(0, 300)}`);
-  const raced = await raceCancel(captureCallTool(server, env.sink)(tool.name, resolved), runtime.signal);
+  const callOptions: ToolCallOptions = {
+    signal: runtime.signal,
+    taskId: ctx.task.id,
+    timeoutMs: timeoutOf(mcp, tool.name),
+    ...(server.dependencies === undefined ? {} : { host: createToolHost(deps.discovery, server.dependencies, env.sink, ctx.task.id) }),
+  };
+  const raced = await raceCancel(captureCallTool(server, env.sink)(tool.name, resolved, callOptions), runtime.signal);
 
   if (raced.kind === "cancelled") {
     if (ctx.isClosed()) return CANCELLED;
@@ -385,13 +391,13 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   }
   if (ctx.isClosed()) return CANCELLED;
 
-  const finishWithVerification = async (callId: string, status: CallStatus): Promise<CallOutcome> => {
+  const finishWithVerification = async (callId: string, status: CallStatus, prompt?: string): Promise<CallOutcome> => {
     const verification = await verifyCall(env, callId);
     switch (verification.kind) {
       case "verified":
-        return registered(callId, status, verification.verdict, verification.reason);
+        return registered(callId, status, verification.verdict, verification.reason, prompt);
       case "skipped":
-        return registered(callId, status);
+        return registered(callId, status, null, null, prompt);
       case "close":
         return { kind: "close", stopReason: verification.stopReason, callId };
       case "cancelled":
@@ -431,8 +437,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   }
   if (ctx.isClosed()) return CANCELLED;
 
-  trackProcess(env.processes, processed, policy.mutates, resolved);
-  const factOps = processFactOps(ctx, stepId, mcp, tool.name, policy, processed);
+  const factOps = processFactOps(ctx, stepId, policy, processed);
   const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
   const callId = register(
     ctx,
@@ -442,5 +447,5 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };
 
   // 12. Verificar (segundo `apply`: `verdict` y `reason` juntos).
-  return finishWithVerification(callId, processed.status);
+  return finishWithVerification(callId, processed.status, processed.prompt);
 }

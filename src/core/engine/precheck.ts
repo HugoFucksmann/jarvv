@@ -88,11 +88,6 @@ const PLACEHOLDER = /<[A-Za-z][\w-]*>|\byour[_ -]|\bexample\.(com|org|net)\b|\/p
 /** Ruta de Linux dentro de un comando (`/etc/hosts`, `/usr/bin/…`): no existe en Windows. */
 const LINUX_PATH = /(^|[\s'"=])\/(etc|usr|var|home|bin|opt|tmp|proc|sys|dev|mnt)\//;
 const SYSTEM_USER_DIRS = new Set(["public", "default", "all users", "default user"]);
-const CMD_BUILTINS = new Set([
-  "dir", "echo", "type", "copy", "move", "del", "erase", "ren", "rename", "md", "mkdir", "rd", "rmdir", "cd", "chdir", "cls", "date",
-  "time", "ver", "vol", "set", "path", "start", "find", "findstr", "more", "sort", "tree", "attrib", "assoc", "call", "exit", "for",
-  "if", "pause", "title", "color", "where", "tasklist", "taskkill", "ipconfig", "ping", "systeminfo", "wmic", "powershell", "pwsh",
-]);
 
 // ───────────────────────── Fuentes ─────────────────────────
 
@@ -314,23 +309,6 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
   }
 };
 
-/** Cada comando de una tubería de `cmd`: se acepta lo interno del intérprete o un programa que exista. */
-async function checkCmdShell(command: string, analyze: CommandAnalyzer, platform: Platform): Promise<PrecheckFinding | null> {
-  if (platform !== "windows") return null;
-  const segments = command.split(/\|\||&&|[|&]/).map((x) => x.trim()).filter(Boolean);
-  for (const segment of segments) {
-    const first = segment.split(/\s+/)[0]?.toLowerCase() ?? "";
-    if (first === "" || CMD_BUILTINS.has(first) || /[\\/.%]/.test(first)) continue;
-    const report = await analyze(first);
-    const only = report?.commands[0];
-    if (report === null || only === undefined) continue;
-    if (only.kind === "None" || /Alias|Cmdlet|Function/.test(only.kind)) {
-      return { review: "args_invalid", reason: `The command '${first}' is not a program on this computer (Windows, cmd). Use a Windows command or program.` };
-    }
-  }
-  return null;
-}
-
 // ───────────────────────── Entrada ─────────────────────────
 
 /**
@@ -341,26 +319,17 @@ export async function precheckCall(input: PrecheckInput, analyze: CommandAnalyze
   const values = checkValues(input);
   if (values !== null) return values;
 
-  if (input.tool === "start_process" && typeof input.args.command === "string") {
-    if (input.environment.platform === "windows" && LINUX_PATH.test(input.args.command)) {
-      return { review: "args_invalid", reason: "The command uses a Linux path (such as /etc/... or /usr/...), which does not exist on this computer (Windows). Use a Windows path." };
-    }
-    const shell = typeof input.args.shell === "string" ? input.args.shell.toLowerCase() : undefined;
+  // `run_command` ejecuta siempre PowerShell (no tiene un argumento `shell`): se comprueba el comando como PowerShell.
+  if (input.tool === "run_command" && typeof input.args.command === "string") {
+    const command = input.args.command;
     if (input.environment.platform === "windows") {
-      if (shell === undefined || shell === "powershell" || shell === "pwsh") {
-        const inner = unwrapPowerShellCommand(input.args.command);
-        if (inner !== null) return checkWrappedCommand(inner, analyze, input.environment.platform);
-        const found = checkCommand(await analyze(input.args.command), input.environment.platform);
-        if (found !== null) return found;
-      } else if (shell === "cmd") {
-        const found = await checkCmdShell(input.args.command, analyze, input.environment.platform);
-        if (found !== null) return found;
-      } else {
-        const report = await analyze(shell);
-        if (report?.commands[0]?.kind === "None") {
-          return { review: "args_invalid", reason: `The shell '${shell}' is not available on this computer (Windows). Use "powershell".` };
-        }
+      if (LINUX_PATH.test(command)) {
+        return { review: "args_invalid", reason: "The command uses a Linux path (such as /etc/... or /usr/...), which does not exist on this computer (Windows). Use a Windows path." };
       }
+      const inner = unwrapPowerShellCommand(command);
+      if (inner !== null) return checkWrappedCommand(inner, analyze, input.environment.platform);
+      const found = checkCommand(await analyze(command), input.environment.platform);
+      if (found !== null) return found;
     }
   }
 

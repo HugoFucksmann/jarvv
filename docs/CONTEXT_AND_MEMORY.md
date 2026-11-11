@@ -117,6 +117,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `tool_error` | Error, timeout o código de salida distinto de 0 |
 | | `exception` | La ejecución lanzó una excepción |
 | | `interrupted` | La cancelación llegó con la herramienta ya despachada |
+| | `waiting_input` | El proceso que lanzó `run_command` sigue vivo y pide una respuesta del usuario; no se verifica y el paso se la pregunta |
 | | `denied` | La política del servidor la denegó (la denegación de Guard cierra la tarea) |
 | No ejecutadas | `args_invalid` | Argumentos inválidos (validación, pre-chequeo o revisión; el pre-chequeo y la revisión dejan un motivo fijo como resumen) |
 | | `refs_unresolved` | Una referencia `rN` no se pudo resolver |
@@ -125,7 +126,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `info_missing` | La revisión detectó información faltante |
 | | `user_rejected` | El usuario rechazó la operación |
 
-- **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted` y `denied`. Un rechazo lleva un motivo: `no_usable_data` o `not_accomplished`.
+- **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted`, `waiting_input` y `denied`. Un rechazo lleva un motivo: `no_usable_data` o `not_accomplished`.
 - **Efecto**: una escritura con `status = ok`, con cualquier veredicto. Una escritura que terminó en `tool_error`, `exception` o `interrupted` se registra como **posible efecto**: pudo dejar cambios parciales y se muestra aparte.
 - **Texto fijo**: lo que se le dice a los modelos sobre un estado o un motivo son frases fijas, nunca prosa de un modelo.
 

@@ -7,7 +7,8 @@
 export const EXECUTABLE_ROUTES = ["files", "locate", "terminal", "web"] as const;
 export type ExecutableRoute = (typeof EXECUTABLE_ROUTES)[number];
 
-export const MCP_SERVERS = ["desktop_commander", "free_search"] as const;
+/** Proveedores de herramientas: los dos servidores MCP de terceros y los nativos (`jarvis_*`, en `src/tools/`). */
+export const MCP_SERVERS = ["desktop_commander", "free_search", "jarvis_terminal", "jarvis_web"] as const;
 export type McpServerName = (typeof MCP_SERVERS)[number];
 
 export function isExecutableRoute(route: unknown): route is ExecutableRoute {

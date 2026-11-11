@@ -21,8 +21,6 @@ export interface EngineEnv {
   /** LLM con la captura aplicada (sin `sink`, es el de `deps`). */
   readonly llm: EngineLLM;
   readonly sink: CaptureSink;
-  /** `pid` de los procesos en segundo plano que lanzó la tarea y siguen activos (`processes.ts`). */
-  readonly processes: Set<string>;
 }
 
 export function createEngineEnv(ctx: TaskContext, runtime: TaskRuntime, deps: EngineDeps): EngineEnv {
@@ -33,7 +31,6 @@ export function createEngineEnv(ctx: TaskContext, runtime: TaskRuntime, deps: En
     runtime,
     deps,
     sink,
-    processes: new Set<string>(),
     decision: deps.sink ? captureDecision(deps.decision, sink, version) : deps.decision,
     llm: deps.sink ? captureLlm(deps.llm, sink, version) : deps.llm,
   };

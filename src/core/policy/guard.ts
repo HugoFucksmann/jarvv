@@ -4,10 +4,11 @@
  * Invariantes:
  * - Ningún modelo puede eludir Guard.
  * - Patrones destructivos sobre el SO y comandos catastróficos (nivel `guard` de `commandRules.ts`: discos, raíz del sistema) => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
- *   escanean los de `free_search` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
+ *   escanean los de `free_search` ni `jarvis_web` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
  *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
  * - Ruta sensible (`sensitivePaths.ts`: claves, credenciales, navegadores, lugares de inicio automático, el sistema) => APPROVAL obligatorio,
  *   también con `autoMode`: `GuardDecision.mandatory`. Se mira antes que el modo de solo lectura de un comando.
+ * - Datos sensibles en lo que `web_search` envía a internet (`egress.ts`: claves, tokens, rutas del usuario) => APPROVAL obligatorio, también con `autoMode`.
  * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
  * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura), salvo un comando de terminal que `readOnly.ts` demuestra de
  *   solo lectura (pasó antes por todas las reglas anteriores: DENY de patrones y reglas de comando).
@@ -26,6 +27,7 @@ import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
 import { classify, commandOf } from "./commandRules.ts";
 import { isReadOnlyCall } from "./readOnly.ts";
+import { egressFinding } from "./egress.ts";
 import { sensitivePathFinding } from "./sensitivePaths.ts";
 
 // Se evalúan sobre el JSON de args en minúsculas, con "\\" -> "/" y espacios colapsados.
@@ -98,6 +100,12 @@ export class Guard {
       }
     }
 
+    // Lo que una herramienta envía a internet (la consulta de `web_search`): un dato sensible exige confirmación también con `autoMode`.
+    const egress = egressFinding(mcp, tool, args);
+    if (egress !== null) {
+      return { decision: "APPROVAL", mandatory: true, reason: `La consulta a internet lleva datos sensibles (${egress.id}): ${egress.reason}.`, capability };
+    }
+
     if (!isKnownTool(mcp, tool)) {
       return {
         decision: "APPROVAL",
@@ -117,7 +125,7 @@ export class Guard {
   private static denyScanArgs(mcp: string, tool: string, args: Record<string, unknown>): Record<string, unknown> | null {
     const server = mcp.toLowerCase();
     const name = tool.toLowerCase();
-    if (server === "free_search") return null;
+    if (server === "free_search" || server === "jarvis_web") return null;
     if (server === "desktop_commander" && name === "write_file") {
       const rest = { ...args };
       delete rest.content;

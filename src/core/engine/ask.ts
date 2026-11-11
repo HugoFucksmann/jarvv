@@ -10,10 +10,14 @@
  *    al tope de un hecho con `clipWithin` (D23). Si se recortó, el texto completo va al almacén y a `refs` en el mismo
  *    `apply` (D13). Un fallo del almacén conserva el hecho recortado, registra `service_unavailable` y cierra la tarea (D7).
  *
+ * Un proceso que espera entrada (`waiting_input`) usa el mismo mecanismo con la pregunta ya armada por el código (`processQuestion`): el usuario ve
+ * exactamente lo que el proceso pide, sin paráfrasis ni una llamada al modelo.
+ *
  * No se registra ninguna llamada. Una pregunta por paso (`BUDGET.maxQuestionsPerStep`, `canAskUser`).
  */
 
 import { BUDGET } from "../budget.ts";
+import { clipAtWord, flatten } from "../text.ts";
 import type { Op } from "../ctx/index.ts";
 import { RefVaultError } from "../refs/refVault.ts";
 import { renderAsk } from "../render/index.ts";
@@ -29,21 +33,34 @@ export type AskOutcome =
 
 const UNRECOVERABLE: AskOutcome = { kind: "close", stopReason: "unrecoverable" };
 
-export async function askUser(env: EngineEnv, stepId: string): Promise<AskOutcome> {
+/** Tope de caracteres del prompt del proceso dentro de la pregunta. */
+const PROMPT_MAX = 200;
+
+/** La pregunta al usuario cuando un proceso espera entrada: el prompt detectado, en una línea y recortado. */
+export function processQuestion(prompt: string): string {
+  return `El proceso está esperando una entrada: "${clipAtWord(flatten(prompt), PROMPT_MAX)}". ¿Qué debo responder?`;
+}
+
+/** `literalQuestion`: texto ya armado por el código; sin él, el LLM redacta la pregunta a partir de `forAsk`. */
+export async function askUser(env: EngineEnv, stepId: string, literalQuestion?: string): Promise<AskOutcome> {
   const { ctx, runtime, deps } = env;
 
-  // `forAsk` no muestra efectos: no desborda.
-  const view = renderAsk(ctx.view.forAsk(), askRenderOptions());
+  let question: string;
+  if (literalQuestion !== undefined) {
+    question = literalQuestion;
+  } else {
+    // `forAsk` no muestra efectos: no desborda.
+    const view = renderAsk(ctx.view.forAsk(), askRenderOptions());
 
-  // El LLM ya reintentó una vez una salida inválida (Qwen): aquí no se repite (D29).
-  const generated = await queryModel(() => env.llm.generateQuestion({ view }, runtime.signal), 0);
-  if (!generated.ok) {
-    const closure = closeOnFailure(ctx, stepId, generated.failure, generated.error);
-    return closure.kind === "cancelled" ? { kind: "cancelled" } : UNRECOVERABLE;
+    // El LLM ya reintentó una vez una salida inválida (Qwen): aquí no se repite (D29).
+    const generated = await queryModel(() => env.llm.generateQuestion({ view }, runtime.signal), 0);
+    if (!generated.ok) {
+      const closure = closeOnFailure(ctx, stepId, generated.failure, generated.error);
+      return closure.kind === "cancelled" ? { kind: "cancelled" } : UNRECOVERABLE;
+    }
+    if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
+    question = generated.value.question;
   }
-  if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
-
-  const question = generated.value.question;
   const outcome = await runtime.askUser({ stepId, question });
   if (outcome.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
 

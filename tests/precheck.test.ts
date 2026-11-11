@@ -56,7 +56,7 @@ test("una escritura solo se comprueba en sus rutas de origen (source), no en el 
 });
 
 test("comandos en Windows: ruta Linux, sintaxis, comando inexistente y opciones estilo Linux", async () => {
-  const run = (command: string, analyzer: CommandAnalyzer) => precheckCall(input({ tool: "start_process", kind: "write", args: { command } }), analyzer);
+  const run = (command: string, analyzer: CommandAnalyzer) => precheckCall(input({ tool: "run_command", kind: "write", args: { command } }), analyzer);
   assert.match((await run("cat /etc/hosts", noAnalyzer))?.reason ?? "", /Linux path/);
   assert.match((await run("Get-Process -", async () => ({ syntaxErrors: ["Missing argument"], commands: [] })))?.reason ?? "", /syntax error/);
   assert.match((await run("ps aux", async () => ({ syntaxErrors: [], commands: [{ name: "aux", kind: "None", dashOptions: [] }] })))?.reason ?? "", /does not exist/);
@@ -65,7 +65,7 @@ test("comandos en Windows: ruta Linux, sintaxis, comando inexistente y opciones 
 });
 
 test("si el analizador falla (null), el comando no se rechaza", async () => {
-  assert.equal(await precheckCall(input({ tool: "start_process", kind: "write", args: { command: "Get-Process" } }), noAnalyzer), null);
+  assert.equal(await precheckCall(input({ tool: "run_command", kind: "write", args: { command: "Get-Process" } }), noAnalyzer), null);
 });
 
 test("unwrapPowerShellCommand extrae el texto interior de powershell -Command", () => {

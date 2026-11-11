@@ -37,6 +37,8 @@ function callVerdictLabel(call: CallDto): string {
       return "EXCEPCIÓN";
     case "interrupted":
       return "INTERRUMPIDO";
+    case "waiting_input":
+      return "ESPERANDO RESPUESTA";
     case "denied":
       return "DENEGADO";
     case "user_rejected":
