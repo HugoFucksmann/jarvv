@@ -27,20 +27,22 @@ export type CallOutcome =
     readonly reason: VerdictReason | null;
     /** Solo con `waiting_input`: lo que el proceso pide, tal como lo detectó la herramienta; el bucle de paso se lo pregunta al usuario. */
     readonly prompt?: string;
+    /** Solo con `waiting_input`: el proceso que espera (para que la pregunta y la respuesta digan a cuál va). */
+    readonly pid?: string;
   }
   | { readonly kind: "no_tools" }
   | { readonly kind: "close"; readonly stopReason: StopReason; readonly callId: string | null }
   | { readonly kind: "cancelled"; readonly callId: string | null };
 
 /** Por qué un paso quedó `failed` (la recuperación del modo —escalación o replan— la resuelve la Fase 6). */
-export type StepFailureCause = "call_cap" | "repeat_blocked" | "review_rejected" | "user_rejected" | "server_denied" | "no_tools";
+export type StepFailureCause = "call_cap" | "repeat_blocked" | "review_rejected" | "user_rejected" | "denied" | "no_tools";
 
 /**
  * Qué devuelve `runStep` al proveedor de pasos.
  *
  * - `completed`: el paso quedó `completed` con una llamada `approved`.
  * - `failed`: el paso quedó `failed`.
- * - `close`: la tarea debe cerrar con `stopReason` (`security_denied`, `unrecoverable`). El paso queda como estaba.
+ * - `close`: la tarea debe cerrar con `stopReason` (`unrecoverable`, por ejemplo). El paso queda como estaba.
  * - `cancelled`: el usuario canceló; el paso queda como estaba (tras `finish` el contexto queda congelado).
  */
 export type StepOutcome =

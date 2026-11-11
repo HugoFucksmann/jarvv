@@ -37,7 +37,9 @@ export const LIMIT_SCOPES = {
   maxRepeatsPerStep: "step",
   maxReviewRejectionsPerStep: "step",
   maxUserRejectionsPerStep: "step",
+  maxDeniedPerStep: "step",
   maxQuestionsPerStep: "step",
+  maxProcessPromptsPerStep: "step",
   maxNotAccomplishedPerRoute: "step",
 } as const satisfies Record<string, LimitScope>;
 
@@ -78,6 +80,8 @@ export interface StepCounters {
   readonly argsInvalid: number;
   /** `user_rejected`. */
   readonly userRejected: number;
+  /** `tool_rejected` (Guard o lista negra) y `denied` (servidor). */
+  readonly denied: number;
 }
 
 /** Los contadores del paso, en una sola pasada por sus llamadas. */
@@ -87,14 +91,16 @@ export function countStep(calls: readonly Call[]): StepCounters {
   let blocked = 0;
   let argsInvalid = 0;
   let userRejected = 0;
+  let denied = 0;
   for (const c of calls) {
     if (isExecuted(c)) executions++;
     if (c.status === "user_rejected") userRejected++;
     else attempts++;
     if (c.status === "loop_blocked") blocked++;
     else if (c.status === "args_invalid") argsInvalid++;
+    else if (c.status === "tool_rejected" || c.status === "denied") denied++;
   }
-  return { executions, attempts, blocked, argsInvalid, userRejected };
+  return { executions, attempts, blocked, argsInvalid, userRejected, denied };
 }
 
 /** Una regla del paso: cuando `counter` llega a `BUDGET[limit]`, el paso falla con `cause`. */
@@ -110,6 +116,7 @@ interface StepRule {
 const STEP_RULES: readonly StepRule[] = [
   { limit: "maxRepeatsPerStep", counter: "blocked", cause: "repeat_blocked", askFirst: false },
   { limit: "maxUserRejectionsPerStep", counter: "userRejected", cause: "user_rejected", askFirst: false },
+  { limit: "maxDeniedPerStep", counter: "denied", cause: "denied", askFirst: false },
   { limit: "maxReviewRejectionsPerStep", counter: "argsInvalid", cause: "review_rejected", askFirst: false },
   { limit: "maxCallsPerStep", counter: "executions", cause: "call_cap", askFirst: true },
   { limit: "maxAttemptsPerStep", counter: "attempts", cause: "call_cap", askFirst: true },

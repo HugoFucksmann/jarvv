@@ -134,21 +134,31 @@ function segmentsOf(command: string): string[] | null {
   return segments.map((s) => s.trim()).filter((s) => s !== "");
 }
 
+/**
+ * Los segmentos de un comando que se puede analizar con seguridad (ver la cabecera: sin redirecciones, llamadas, bloques ni variables), o `null`.
+ * Lo comparten `isReadOnlyCommand` y `policy/rerun.ts`.
+ */
+export function analyzableSegments(command: string): string[] | null {
+  const text = command.trim();
+  if (text === "" || text.length > MAX_LENGTH || FORBIDDEN_ANYWHERE.test(text)) return null;
+  const segments = segmentsOf(text);
+  return segments === null || segments.length === 0 ? null : segments;
+}
+
+/** ¿Este segmento (ya separado) solo lee? */
+export function isReadOnlySegment(segment: string): boolean {
+  const tokens = segment.split(/\s+/);
+  const name = (tokens[0] ?? "").toLowerCase();
+  return (READ_COMMANDS.has(name) || isReadInvocation(tokens)) && !WAIT_PARAM.test(segment);
+}
+
+/** ¿Ninguna regla de comando (`commandRules.ts`) marca el texto, en ningún nivel? */
+export const noCommandRule = (command: string): boolean => classify(command.trim(), { homeDirs: [os.homedir()] }) === null;
+
 /** ¿El comando solo lee? Ver el criterio en la cabecera del archivo. */
 export function isReadOnlyCommand(command: string): boolean {
-  const text = command.trim();
-  if (text === "" || text.length > MAX_LENGTH) return false;
-  if (FORBIDDEN_ANYWHERE.test(text)) return false;
-
-  const segments = segmentsOf(text);
-  if (segments === null || segments.length === 0) return false;
-  for (const segment of segments) {
-    const tokens = segment.split(/\s+/);
-    const name = (tokens[0] ?? "").toLowerCase();
-    if (!READ_COMMANDS.has(name) && !isReadInvocation(tokens)) return false;
-    if (WAIT_PARAM.test(segment)) return false;
-  }
-  return classify(text, { homeDirs: [os.homedir()] }) === null;
+  const segments = analyzableSegments(command);
+  return segments !== null && segments.every(isReadOnlySegment) && noCommandRule(command);
 }
 
 /**

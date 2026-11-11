@@ -180,3 +180,18 @@ test("el catálogo asigna la política: sondeos allow, web retry_failed, el rest
   assert.equal(getToolPolicy("free_search", "fetch").repeat, "retry_failed");
   assert.equal(getToolPolicy("desktop_commander", "herramienta_inventada").repeat, "strict");
 });
+
+// ───────────────────────── Política `rerun` (RC-21) ─────────────────────────
+
+test("RC-21: con rerun, una escritura idéntica se repite si hubo un cambio en el medio, aunque la anterior se haya aprobado", () => {
+  const scene = new Scene().call("run_command", "TEST", "ok", { kind: "write", verdict: "approved" }).call("write_file", "W1", "ok", { kind: "write", verdict: "approved" });
+  assert.equal(scene.blocks("run_command", "TEST", "rerun"), false, "correr las pruebas otra vez tras el cambio");
+  assert.equal(scene.blocks("run_command", "TEST", "strict"), true, "con strict seguía bloqueada (y el paso se daba por hecho sin correrla)");
+});
+
+test("RC-21: con rerun, sin un cambio en el medio sigue bloqueada (no es un bucle legítimo), y un intento fallido no cuenta como cambio", () => {
+  const nothing = new Scene().call("run_command", "TEST", "ok", { kind: "write", verdict: "approved" });
+  assert.equal(nothing.blocks("run_command", "TEST", "rerun"), true);
+  const failedWrite = new Scene().call("run_command", "TEST", "ok", { kind: "write", verdict: "rejected" }).call("write_file", "W1", "tool_error", { kind: "write" });
+  assert.equal(failedWrite.blocks("run_command", "TEST", "rerun"), true, "una escritura que falló no es un cambio confirmado");
+});

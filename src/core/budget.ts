@@ -53,12 +53,22 @@ export const BUDGET = {
   /** Rechazos del usuario (`user_rejected`) que fallan el paso: 2 = el usuario ya dijo que no dos veces; no se le vuelve a pedir lo mismo. No cuentan para el tope de llamadas. */
   maxUserRejectionsPerStep: 2,
   /**
+   * Denegaciones que fallan el paso: llamadas que la política no deja ejecutar (Guard o lista negra: `tool_rejected`) o que el servidor de la
+   * herramienta rechaza (`denied`). 2 = el modelo ve el motivo y prueba otro camino una vez; si vuelve a chocar, el paso falla (no la tarea).
+   */
+  maxDeniedPerStep: 2,
+  /**
    * Umbral de D3 para un comando del nivel 2 de la lista negra (`sensitive`) con `autoMode` encendido: aprueba solo si la
    * probabilidad de `approved` llega a este valor (el resto de las escrituras usa `REVIEW_APPROVE`, 0,6). Provisorio: medir con el eval.
    */
   sensitiveApprove: 0.65,
-  /** Preguntas al usuario (`ask_user`) por paso. */
+  /** Preguntas al usuario (`ask_user`) por paso: las que redacta el modelo (falta un dato, el paso se atascó). */
   maxQuestionsPerStep: 1,
+  /**
+   * Preguntas al usuario por paso con lo que pide un proceso (`waiting_input` de `run_command`): no gastan `maxQuestionsPerStep`. 3 = un instalador
+   * que pregunta dos o tres veces; cada respuesta es además una ejecución, así que `maxCallsPerStep` sigue acotando el paso.
+   */
+  maxProcessPromptsPerStep: 3,
   /** Tamaño de las ventanas recientes con 0, 1 y 2 o más escalaciones (9). */
   recentWindows: [2, 5, 10],
 

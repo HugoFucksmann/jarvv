@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { after, test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
@@ -176,18 +177,26 @@ test("el tope de largo de command es el mismo con el que el manifiesto lo regist
   assert.equal(MAX_COMMAND_CHARS, argCapsOf("jarvis_terminal", "run_command").command);
 });
 
-test("el manifiesto expone exactamente los parámetros que declara el proveedor", async () => {
+test("el manifiesto expone exactamente los parámetros que declara el proveedor, para sus tres herramientas", async () => {
   const tools = await provider.listTools();
   const offered = applyDestination("terminal", tools);
-  assert.deepEqual(offered.map((t) => t.name), ["run_command"]);
+  assert.deepEqual(offered.map((t) => t.name), ["run_command", "list_processes", "stop_process"]);
+  for (const tool of offered) {
+    const d = SYSTEM_TOOL_MANIFEST.find((m) => m.name === tool.name);
+    assert.ok(d, tool.name);
+    assert.equal(d.server, provider.name);
+    assert.deepEqual(Object.keys(tool.inputSchema.properties ?? {}).sort(), [...(d.params ?? [])].sort(), tool.name);
+  }
+  assert.equal(SYSTEM_TOOL_MANIFEST.find((m) => m.name === "list_processes")?.policy.requiresApproval, false, "listar es una lectura");
+  assert.equal(SYSTEM_TOOL_MANIFEST.find((m) => m.name === "stop_process")?.policy.requiresApproval, true, "cortar un proceso se confirma");
   const def = SYSTEM_TOOL_MANIFEST.find((d) => d.name === "run_command");
   assert.ok(def);
-  assert.equal(def.server, provider.name);
-  assert.deepEqual(Object.keys(offered[0].inputSchema.properties ?? {}).sort(), [...(def.params ?? [])].sort());
   assert.equal(def.policy.requiresApproval, true);
   assert.equal(def.policy.repeat, "strict");
   assert.equal(repeatPolicyOf(def.server, def.name, { command: "Get-Date" }), "strict", "repetir un comando idéntico pudo duplicar sus efectos");
   assert.equal(repeatPolicyOf(def.server, def.name, { pid: 7 }), "allow", "esperar más salida de un pid repite los mismos argumentos");
+  assert.equal(repeatPolicyOf(def.server, def.name, { command: "npm test" }), "rerun", "correr las pruebas otra vez tras un cambio (RC-21)");
+  assert.equal(repeatPolicyOf(def.server, def.name, { command: "Add-Content notas.txt cambio" }), "strict");
 });
 
 // ───────────────────────── Procesos reales ─────────────────────────
@@ -346,6 +355,7 @@ test("validaciones: un solo modo, tipos, tope de largo, pid ajeno o inexistente 
 
   const linux = new TerminalProvider({ platform: "linux" });
   assert.equal(linux.isConnected(), false);
+  assert.deepEqual(await linux.listTools(), [], "RC-29: fuera de Windows no ofrece herramientas");
   assert.equal((await linux.callTool("run_command", { command: "ls" })).isError, true);
   assert.equal((await provider.callTool("otra_cosa", {})).isError, true);
 });
@@ -498,5 +508,148 @@ test("un REPL que vuelve a preguntar: el prompt nuevo no arrastra el ya respondi
     assert.match(second.raw, /42/);
   } finally {
     await provider.onTaskEnd(task, "failed");
+  }
+});
+
+test("un pid que ya terminó y cuya salida se entregó sigue terminado: finished con su código, no 'no existe' (solo en su tarea)", { skip: !windows }, async () => {
+  const task = nextTask();
+  const first = read(await run({ command: "Write-Output hecho; exit 3" }, task));
+  assert.equal(first.data.exitCode, 3);
+  const again = read(await run({ pid: first.data.pid, input: "ok" }, task));
+  assert.equal(again.data.state, "finished");
+  assert.equal(again.data.exitCode, 3);
+  assert.equal(again.data.alreadyReported, true);
+  assert.match(again.text, /The input was ignored/);
+  assert.match(again.text, /already finished; its output was returned by an earlier call/);
+  assert.equal(again.raw, "", "la salida no se repite");
+  const other = await run({ pid: first.data.pid }, nextTask());
+  assert.equal(other.isError, true, "otra tarea no lo ve");
+});
+
+test("RC-40: las herramientas del sistema escritas con extensión también se envuelven", { skip: !windows }, async () => {
+  const task = nextTask();
+  for (const command of ["ipconfig.exe | Select-Object -First 6", "$x = chcp.com; $x"]) {
+    const native = read(await run({ command }, task));
+    assert.equal(native.data.exitCode, 0, command);
+    assert.ok(!native.raw.includes("�"), `${command}: ${native.raw.slice(0, 200)}`);
+  }
+});
+
+test("RC-30: cuatro tareas a la vez: cada una ve solo su salida y sus procesos; cancelar una no toca a las demás", { skip: !windows }, async () => {
+  const tasks = ["A", "B", "C", "D"].map((name) => `${nextTask()}_${name}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 1500);
+  const results = await Promise.all([
+    run({ command: "1..50 | % { 'salida-A ' + $_ }" }, tasks[0]),
+    run({ command: "$n = Read-Host 'Nombre B'; \"hola-B $n\"" }, tasks[1]),
+    run({ command: "Start-Sleep 30" }, tasks[2], { signal: controller.signal }),
+    run({ command: "Write-Output salida-D; Start-Sleep 30", timeoutSec: 3 }, tasks[3]),
+  ]);
+  clearTimeout(timer);
+  const [a, b, c, d] = results.map(read);
+  try {
+    assert.equal(a.data.state, "finished");
+    assert.ok(a.raw.includes("salida-A 50") && !a.raw.includes("salida-D") && !a.raw.includes("Nombre B"));
+    assert.equal(b.data.state, "waiting_input");
+    assert.equal(c.data.state, "cancelled");
+    assert.equal(d.data.state, "running");
+    assert.ok(d.raw.includes("salida-D") && !d.raw.includes("salida-A"));
+    assert.equal((await run({ pid: b.data.pid, input: "x" }, tasks[3])).isError, true, "una tarea no responde el proceso de otra");
+    const answered = read(await run({ pid: b.data.pid, input: "Ana", timeoutSec: 15 }, tasks[1]));
+    assert.match(answered.raw, /hola-B Ana/);
+  } finally {
+    for (const t of tasks) await provider.onTaskEnd(t, "failed");
+  }
+});
+
+// ───────────────────────── list_processes y stop_process (RC-25) ─────────────────────────
+
+test("RC-25: list_processes muestra los procesos de run_command de la tarea y los que dejó una tarea completada, no los de otra tarea en curso", { skip: !windows }, async () => {
+  const mine = nextTask();
+  const earlier = nextTask();
+  const other = nextTask();
+  const a = read(await run({ command: "Start-Sleep 60", timeoutSec: 1 }, mine));
+  const b = read(await run({ command: "$n = Read-Host 'Nombre'", timeoutSec: 10 }, mine));
+  const c = read(await run({ command: "Start-Sleep 61", timeoutSec: 1 }, earlier));
+  const d = read(await run({ command: "Start-Sleep 62", timeoutSec: 1 }, other));
+  try {
+    await provider.onTaskEnd(earlier, "completed");
+    const listed = read(await provider.callTool("list_processes", {}, { taskId: mine }));
+    assert.equal(listed.data.state, "listed");
+    assert.match(listed.text, new RegExp(`pid ${a.data.pid} · running · .* · this task · Start-Sleep 60`));
+    assert.match(listed.text, new RegExp(`pid ${b.data.pid} · waiting for input: "Nombre:"`));
+    assert.match(listed.text, new RegExp(`pid ${c.data.pid} · running · .* · left running by an earlier task`));
+    assert.ok(!listed.text.includes(`pid ${d.data.pid}`), "lo de otra tarea en curso no se ve");
+
+    const all = read(await provider.callTool("list_processes", { all: true }, { taskId: mine }));
+    assert.equal(all.data.scope, "system");
+    assert.ok((all.data.count as number) > 10);
+    assert.match(all.raw, new RegExp(`pid ${process.pid} · node`, "i"));
+  } finally {
+    for (const t of [mine, earlier, other]) await provider.onTaskEnd(t, "failed");
+  }
+});
+
+test("RC-25: stop_process corta un proceso de run_command con todo su árbol y devuelve lo que tenía sin leer; después, continuarlo dice que se cortó", { skip: !windows }, async () => {
+  const task = nextTask();
+  const command = "Write-Output antes; $p = Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 60' -PassThru -NoNewWindow; Write-Output $p.Id; Wait-Process -Id $p.Id";
+  const started = read(await run({ command, timeoutSec: 3 }, task));
+  const childPid = Number(/^\d+$/m.exec(started.raw)?.[0]);
+  assert.ok(childPid > 0 && alive(childPid));
+  const stopped = read(await provider.callTool("stop_process", { pid: started.data.pid }, { taskId: task }));
+  assert.equal(stopped.data.state, "stopped");
+  assert.equal(stopped.data.scope, "run_command");
+  assert.equal(await waitDead(started.data.pid as number), true);
+  assert.equal(await waitDead(childPid), true, "el árbol completo");
+  const again = read(await run({ pid: started.data.pid }, task));
+  assert.equal(again.data.state, "stopped");
+  assert.match(again.text, /stopped with stop_process/);
+  const twice = read(await provider.callTool("stop_process", { pid: started.data.pid }, { taskId: task }));
+  assert.equal(twice.data.state, "not_running");
+});
+
+test("RC-25: stop_process corta un proceso cualquiera de la PC, pero nunca Jarvis, lo que cuelga de Jarvis, un crítico de Windows ni lo de otra tarea en curso", { skip: !windows }, async () => {
+  const outsider = spawn("powershell.exe", ["-NoProfile", "-Command", "Start-Sleep 60"], { windowsHide: true, stdio: "ignore" });
+  const task = nextTask();
+  const other = nextTask();
+  try {
+    // Un proceso que lanzó Jarvis por su cuenta (como sus servidores de herramientas) está protegido; uno ajeno, no.
+    const own = read(await provider.callTool("stop_process", { pid: outsider.pid }, { taskId: task }));
+    assert.equal(own.data.state, "protected", "lo lanzó este mismo proceso de Node: cuelga de Jarvis");
+    for (const pid of [process.pid, 4]) {
+      const refused = read(await provider.callTool("stop_process", { pid }, { taskId: task }));
+      assert.equal(refused.data.state, "protected", String(pid));
+    }
+    const foreign = read(await run({ command: "Start-Sleep 60", timeoutSec: 1 }, other));
+    const notYours = await provider.callTool("stop_process", { pid: foreign.data.pid }, { taskId: task });
+    assert.equal(notYours.isError, true);
+    assert.match(read(notYours).text, /another task that is still running/);
+    assert.equal((await provider.callTool("stop_process", { pid: 999_999 }, { taskId: task })).isError, true);
+  } finally {
+    try {
+      process.kill(outsider.pid as number);
+    } catch {
+      // ya terminó
+    }
+    await provider.onTaskEnd(other, "failed");
+  }
+});
+
+test("RC-25: un proceso ajeno a Jarvis (lanzado aparte, sin padre vivo) se corta solo, sin su árbol", { skip: !windows }, async () => {
+  const task = nextTask();
+  const launched = read(await run({ command: "(Start-Process powershell -ArgumentList '-NoProfile','-Command','Start-Sleep 60' -WindowStyle Hidden -PassThru).Id" }, task));
+  const pid = Number(/^\d+$/m.exec(launched.raw)?.[0]);
+  assert.ok(pid > 0 && alive(pid));
+  try {
+    const stopped = read(await provider.callTool("stop_process", { pid }, { taskId: task }));
+    assert.equal(stopped.data.state, "stopped");
+    assert.equal(stopped.data.scope, "system");
+    assert.equal(await waitDead(pid), true);
+  } finally {
+    try {
+      process.kill(pid);
+    } catch {
+      // ya terminó
+    }
   }
 });

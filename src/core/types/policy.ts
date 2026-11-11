@@ -24,7 +24,7 @@ export interface GuardDecision {
 }
 
 /** Política de repetición de una herramienta (ver `RepeatPolicy` en `ctx/derive.ts`, que el contexto define por su cuenta). */
-export type RepeatPolicy = "strict" | "retry_failed" | "allow";
+export type RepeatPolicy = "strict" | "retry_failed" | "rerun" | "allow";
 
 export interface ToolPolicy {
   capability: Capability;

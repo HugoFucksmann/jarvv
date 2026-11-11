@@ -18,7 +18,7 @@
  * `replans_exhausted`. Todos los pasos vigentes `completed` cierran con `completed` (`planClosure`).
  *
  * Un plan inicial inválido o un servicio caído cierran con `unrecoverable`; la cancelación en cualquier punto, con
- * `user_cancelled`. `security_denied` viene del Guard (`runStep`).
+ * `user_cancelled`. Una denegación del Guard ya no cierra la tarea (falla, a lo sumo, el paso): `security_denied` queda solo para leer trazas anteriores.
  */
 
 import { planClosure } from "../ctx/index.ts";

@@ -15,11 +15,12 @@ import {
   questionsAsked as questionsAskedOf,
   nextAnswerKey as nextAnswerKeyOf,
   isRepeat as isRepeatOf,
+  answersOf,
   possibleEffectsOf,
   recentWindowSize,
   replansDone as replansDoneOf,
 } from "./derive.ts";
-import type { RepeatOptions } from "./derive.ts";
+import type { AnswerEntry, RepeatOptions } from "./derive.ts";
 import { ContextError } from "./errors.ts";
 import { currentOf, findElements, getElement } from "./query.ts";
 import { cloneData } from "./snapshot.ts";
@@ -218,6 +219,11 @@ export class TaskContext {
   /** Preguntas ya hechas al usuario en el paso (hechos `answer_*` del paso). */
   questionsAsked(stepId: string): number {
     return questionsAskedOf(this.data.facts, stepId);
+  }
+
+  /** Respuestas del usuario en el paso (clave, valor y momento), en orden. Quien hace la pregunta puede agregarle un sufijo a la clave (`nextAnswerKey`). */
+  answers(stepId: string): readonly AnswerEntry[] {
+    return answersOf(this.data.facts, stepId);
   }
 
   /** Clave del hecho de la siguiente respuesta del paso: `answer_<stepId>_<n>`. */

@@ -34,6 +34,7 @@ import {
   type RepeatPolicy,
   type ToolPolicy,
 } from "../types.ts";
+import { isRerunnableCommand } from "../policy/rerun.ts";
 
 export interface ToolDefinition {
   readonly name: string;
@@ -187,20 +188,32 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
 
   // `run_command` (proveedor nativo `jarvis_terminal`): lanza un comando de PowerShell, o continúa uno que sigue vivo (`pid`, con `input` si esperaba entrada).
   // Escritura por catálogo; un comando que `policy/readOnly.ts` demuestra de solo lectura, y una continuación sin `input`, se tratan como lectura llamada por llamada.
-  // Repetición: un comando nuevo es `strict` (repetir una escritura idéntica pudo duplicar sus efectos); una continuación por `pid` es `allow`, porque esperar más
-  // salida repite los mismos argumentos (los topes del paso, `maxCallsPerStep`, acotan las vueltas).
+  // Repetición: un comando nuevo es `strict` (repetir una escritura idéntica pudo duplicar sus efectos), salvo uno de comprobación o compilación que
+  // `policy/rerun.ts` reconoce (`npm test`, `dotnet build`…): `rerun`, que se puede repetir tras un cambio intermedio (RC-21). Una continuación por `pid` es
+  // `allow`, porque esperar más salida repite los mismos argumentos (los topes del paso, `maxCallsPerStep`, acotan las vueltas).
   def("terminal", "run_command", "PROCESS_CONTROL", "Run a PowerShell command, or continue a running one by its pid.", {
-    repeatByArgs: (args) => (typeof args.pid === "number" ? "allow" : "strict"),
+    repeatByArgs: (args) => (typeof args.pid === "number" ? "allow" : typeof args.command === "string" && isRerunnableCommand(args.command) ? "rerun" : "strict"),
     params: ["command", "pid", "input", "timeoutSec", "cwd"],
     notes: {
       command: "PowerShell command to run. Omit it when continuing a process (use pid).",
       pid: "Process id from an earlier run_command that is still running or waiting for input.",
       input: "Answer for a process that was waiting for input; only with pid.",
       timeoutSec: "Seconds to wait for the result (default 30, max 300). The process is not killed when it expires.",
-      cwd: "Absolute working directory for a new command.",
+      cwd: "Absolute working directory for a new command. Default: the user's home folder.",
     },
     argCaps: { command: 1000 },
     timeoutMs: 315_000,
+  }),
+  // `list_processes` y `stop_process` (mismo proveedor; RC-25): lo que Desktop Commander hacía con `list_sessions`, `list_processes`, `force_terminate` y
+  // `kill_process`. Listar es una lectura. Cortar es control de procesos (confirmación): uno de `run_command` con todo su árbol; otro proceso de la PC, solo
+  // ese, nunca los críticos de Windows, Jarvis y lo suyo, ni lo de otra tarea en curso (lo decide el proveedor).
+  def("terminal", "list_processes", "READ", "List the processes started with run_command, or every process on the computer.", {
+    params: ["all"],
+    notes: { all: "true to list every process on the computer (pid, name, memory); omit it for the processes started with run_command." },
+  }),
+  def("terminal", "stop_process", "PROCESS_CONTROL", "Stop a running process by its pid.", {
+    params: ["pid"],
+    notes: { pid: "Process id to stop: one started with run_command (it stops everything that command started) or any other process." },
   }),
 
   // `web_search` (proveedor nativo `jarvis_web`): busca o lee las URLs dadas y devuelve fragmentos literales con su fuente y un estado. Por dentro usa `research` y

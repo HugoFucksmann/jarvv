@@ -56,7 +56,7 @@ JARVIS 1.0 reemplaza dos herramientas que antes eran envoltorios de servidores M
 | D-27 | Nombre y modelos | `web_search`. Puerto `FragmentJudge.score(need, fragmentos)` → probabilidades, que implementa `Decision20Engine.score` (preguntas `noul` en lotes de 5); la traza va en `meta`. Se enciende con `webSearchUseJudge`. | Implementada |
 | D-28 | Consulta como canal de salida | La herramienta rechaza lo inválido (esquema, credenciales en la URL, hosts de la PC o redes internas, límites de tamaño); el Guard (`policy/egress.ts`) exige confirmación obligatoria, también con `autoMode`, si hay claves, tokens, contraseñas o rutas del usuario. Que cada URL provenga del usuario o de un resultado previo ya lo hace el pre-chequeo para `url` y `urls`. | Implementada |
 | D-29 | Saltear D2 | Con una sola tool en el grupo no se consulta a D2 (ya existía). | Implementada |
-| D-30 | `waiting_input` con `ask_user` | Estado de llamada nuevo: ejecutado y no verificable (como `interrupted`). `stepLoop` llama a `askUser` con la pregunta armada por el código a partir del prompt, sin modelo. El hecho `process` se activa también con `waiting_input`. Límite: `maxQuestionsPerStep` es 1, así que un segundo prompt en el mismo paso lo acaba el tope de llamadas. | Implementada |
+| D-30 | `waiting_input` con `ask_user` | Estado de llamada nuevo: ejecutado y no verificable (como `interrupted`). `stepLoop` llama a `askUser` con la pregunta armada por el código a partir del prompt, sin modelo. El hecho `process` se activa también con `waiting_input`. Desde el 2026-11-11: las preguntas de procesos tienen su tope (`maxProcessPromptsPerStep`, 3), la respuesta queda atada al proceso por la clave de su hecho (`answer_<paso>_<n>_p<pid>`), la respuesta enviada tal cual a ese proceso no pide otra confirmación, y el hecho `process` lista todos los procesos vivos de la tarea (`4321, 5678`). | Implementada |
 
 ## 4. Grupos de herramientas
 
@@ -88,7 +88,8 @@ Lanza un comando de PowerShell y devuelve su resultado, o continúa un proceso q
 
 **Detalles que importan.**
 - **Procesos huérfanos:** lo que deja una tarea completada no lo puede continuar nadie; si se llega al tope de 8 procesos vivos, se cierra el más antiguo de esos (nunca los de una tarea en curso) para hacer lugar.
-- **Código de salida:** el real; si alguien cortó el proceso desde fuera, `-1` (no se lee como una salida limpia).
+- **Código de salida:** el real; si alguien cortó el proceso desde fuera, `-1` (no se lee como una salida limpia). Continuar un proceso que ya terminó y cuya salida ya se entregó responde `finished` con su código (`data.alreadyReported`), no un error.
+- **Preguntas de procesos:** hasta 3 por paso (`maxProcessPromptsPerStep`); la respuesta enviada tal cual a ese proceso no pide otra confirmación.
 - **Entorno:** el de Jarvis sin las variables que cargó de `.env`; con `PYTHONIOENCODING=utf-8` y `PYTHONUNBUFFERED=1` si el usuario no los definió. La cabecera de un comando nuevo dice la carpeta en la que corrió (`cwd:`).
 - **Plazos duros:** 15 s para que arranque PowerShell y 5 s para `taskkill`. Si un programa lanzado se queda con la salida y el comando termina, se avisa (`data.detached`) y no se recoge más.
 - **Frases llanas en `text`:** `The command finished successfully.` o `The command failed (exit code N).`, y con `waiting_input` o `running`, cómo continuar (`run_command { "pid": N, "input": <la respuesta> }`). Los modelos chicos (el generador de argumentos y el verificador) no deducían qué hacer a partir del estado solo.
@@ -152,9 +153,9 @@ Evidencia de la validación en vivo (2026-11-10, Free Search real y `d3:2b` real
 | Tema | Detalle |
 | --- | --- |
 | Lecturas preparatorias dentro del paso | Leer antes de editar en un mismo paso. Exige que el contexto distinga llamadas de apoyo (un veredicto `skipped`: se ejecutan, su resultado es dato visible para los argumentos, no pasan por D4 ni cuentan para `not_accomplished`), un rol `main` o `support` por ruta, varias rutas por tool, el cierre del paso solo con una llamada `main` aprobada y topes propios. Alternativa más simple: prelectura automática antes de generar los argumentos de `edit_block`. |
-| REPL interactivos con PTY | `python -i` y similares, que `child_process` sin PTY no maneja bien. |
+| PTY (ConPTY) | Programas que exigen una terminal (`isatty`) o leen la consola directamente (`choice.exe`), `-Confirm` y menús de PowerShell, orden exacto entre stdout y stderr, y saber si un proceso está bloqueado leyendo (el falso negativo de los prompts). Un REPL que escribe su prompt (`python -i`) ya funciona sin PTY (2026-11-11). Ver `docs/REVISION_run_command.md` §9.4. |
 | Exponer las tools nativas por MCP | Empaquetado en stdio si aparece otro cliente que las quiera. |
 | Paralelismo de procesos | Varios procesos corriendo a la vez como parte de un mismo trabajo. |
 | Seguir trabajando con procesos corriendo | Dejar un proceso largo en marcha, seguir usando JARVIS, recibir el aviso al terminar y consultar los procesos de otras tareas. Requiere un registro persistente de procesos. |
 | Entrada generada por LLM en procesos | Generar la entrada que pide un proceso. Exige pasar por el Guard (es ejecución) y tratar el prompt como dato no confiable. |
-| Más de un prompt por paso | Hoy `maxQuestionsPerStep` es 1; un proceso con dos prompts en un mismo paso lo acaba el tope de llamadas. |
+| Rastrear lo lanzado fuera del árbol | `Start-Process app` y las apps gráficas quedan fuera del árbol de procesos y no se cortan al cancelar (a propósito: lanzar una app es que sobreviva). Rastrearlas exige un Job Object (código nativo). |

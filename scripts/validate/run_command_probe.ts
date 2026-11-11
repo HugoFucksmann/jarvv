@@ -97,8 +97,8 @@ try {
 
   console.log("\n===== Límites y entorno =====");
   await run("cwd con tildes y espacios", { command: "(Get-Location).Path", cwd: accentedDir });
-  await run("comando de 990 caracteres", { command: `Write-Output '${"a".repeat(960)}'` });
-  await run("comando de 1001 caracteres: error (el tope es el del manifiesto, RC-19)", { command: `Write-Output '${"a".repeat(971)}'` });
+  await run("comando de 990 caracteres", { command: `Write-Output '${"a".repeat(975)}'` });
+  await run("comando de 1001 caracteres: error (el tope es el del manifiesto, RC-19)", { command: `Write-Output '${"a".repeat(986)}'` });
   await run("línea enorme sin salto de línea (400 000 caracteres): no es un prompt", { command: "[Console]::Out.Write('x' * 400000)", timeoutSec: 20 });
   await run("entorno heredado (RC-16)", { command: "if ($env:PATH) { 'PATH visible' }; $env:USERNAME" });
   if (big) {

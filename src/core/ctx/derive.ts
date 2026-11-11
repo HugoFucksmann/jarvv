@@ -27,8 +27,8 @@ export function isPossibleEffect(call: Call): boolean {
 }
 
 /**
- * Ejecutada (5.3): llegó a despacharse a la herramienta. Un `denied` cuenta como ejecutada: si fue del Guard la tarea
- * ya cerró con `security_denied`, así que el único `denied` que sigue vivo es el del servidor.
+ * Ejecutada (5.3): llegó a despacharse a la herramienta. Un `denied` cuenta como ejecutada: es siempre del servidor de la herramienta (lo que
+ * deniega el Guard queda `tool_rejected`, no ejecutada).
  */
 export function isExecuted(call: Call): boolean {
   return call.status === "denied" || (EXECUTED_CALL_STATUSES as readonly string[]).includes(call.status);
@@ -129,6 +129,22 @@ export function questionsAsked(facts: { readonly [key: string]: Fact }, stepId: 
   return count;
 }
 
+/** Una respuesta del usuario: la clave de su hecho y su valor (`null` si se retiró). */
+export interface AnswerEntry {
+  readonly key: string;
+  readonly value: string | null;
+  readonly at: number;
+}
+
+/** Las respuestas del usuario en un paso (hechos `answer_*` del paso, incluidos los retirados), en el orden en que se escribieron. */
+export function answersOf(facts: { readonly [key: string]: Fact }, stepId: string): AnswerEntry[] {
+  const out: AnswerEntry[] = [];
+  for (const key of Object.keys(facts)) {
+    if (isAnswerKey(key) && facts[key].stepId === stepId) out.push({ key, value: facts[key].value, at: facts[key].at });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
 /** Clave del hecho con la respuesta a la siguiente pregunta del paso: `answer_<stepId>_<n>` (5.2). */
 export function nextAnswerKey(facts: { readonly [key: string]: Fact }, stepId: string): string {
   return `${ANSWER_FACT_PREFIX}${stepId}_${questionsAsked(facts, stepId) + 1}`;
@@ -205,9 +221,12 @@ export function recentWindowSize(steps: readonly Step[], windows: readonly numbe
  * - `strict` (por defecto): una lectura idéntica a una ya hecha se bloquea (ver `isRepeat` para las excepciones).
  * - `retry_failed`: además, tras un resultado fallido (`tool_error`, `no_data`, `not_found`...) se permite un reintento idéntico por paso.
  *   Para herramientas cuyo resultado puede cambiar entre dos llamadas iguales (la web).
+ * - `rerun`: como `strict`, pero una ESCRITURA idéntica también se permite si hubo un efecto en el medio (algo cambió). Para lo que repetir no
+ *   acumula y es justamente lo pedido tras un cambio: correr las pruebas o compilar otra vez. Quién la merece lo decide quien ejecuta
+ *   (`policy/rerun.ts`, para los comandos de `run_command`).
  * - `allow`: nunca se bloquea (sondeos repetidos de una misma salida).
  */
-export type RepeatPolicy = "strict" | "retry_failed" | "allow";
+export type RepeatPolicy = "strict" | "retry_failed" | "rerun" | "allow";
 
 export interface RepeatOptions {
   readonly policy: RepeatPolicy;
@@ -233,6 +252,7 @@ function latestAnswerAt(facts: { readonly [key: string]: Fact }): number {
  * Primero, el orden (igual para cualquier política):
  * - Lectura idéntica: se bloquea salvo una escritura `ok` intermedia (cambió el mundo).
  * - Escritura idéntica: se bloquea salvo una lectura ejecutada intermedia; vale también si la anterior falló, porque pudo dejar cambios parciales.
+ *   Con `rerun`, también la habilita un efecto intermedio (una escritura `ok` distinta), aunque la anterior se haya aprobado.
  * - Un hecho `answer_*` escrito después de la idéntica (`fact.at > previous.at`) cuenta como intermedio en ambos casos.
  *
  * Después, y solo para LECTURAS (una escritura que falló no se reintenta a ciegas), qué resultado previo permite repetir:
@@ -258,7 +278,7 @@ export function isRepeat(
     const c = calls[i];
     if (c.tool === tool && c.sig === sig && isExecuted(c)) {
       if (latestAnswerAt(data.facts) > c.at) return false;
-      const blockedByOrder = c.kind === "read" ? !sawEffect : !sawRead;
+      const blockedByOrder = c.kind === "read" ? !sawEffect : !sawRead && !(options.policy === "rerun" && sawEffect);
       if (!blockedByOrder) return false;
       return c.kind === "read" ? !mayRepeatRead(data.steps, calls, c, tool, sig, options) : true;
     }

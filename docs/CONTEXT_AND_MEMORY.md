@@ -61,7 +61,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
   }],
 
   "facts": {
-    [key: string]: {                       // "process" | "answer_<paso>_<n>"
+    [key: string]: {                       // "process" | "answer_<paso>_<n>" | "answer_<paso>_<n>_p<pid>"
       "value": string | null,              // null = retirado
       "stepId": string,
       "at": number
@@ -89,7 +89,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
 | `steps` | Pasos; en reactivo la instrucción es el primer pendiente y el plan, la ruta y el resultado esperado quedan vacíos | Bucle de pasos y planificador |
 | `calls` | Una por llamada a herramienta | Ejecutor de llamadas (alta) y verificación (veredicto) |
 | `errors` | Fallos de infraestructura asociados a un paso | Motor |
-| `facts` | `process` (proceso activo, como texto) y `answer_<paso>_<n>` (`pregunta -> respuesta`; si excede 500 caracteres, el texto completo va a una ref) | Motor |
+| `facts` | `process` (procesos vivos de la tarea, como texto: `4321` o `4321, 5678`) y `answer_<paso>_<n>` (`pregunta -> respuesta`; si excede 500 caracteres, el texto completo va a una ref). La respuesta a la pregunta de un proceso agrega `_p<pid>` a la clave (las vistas muestran el texto, nunca la clave); `ctx.answers(paso)` lista las respuestas de un paso con su clave | Motor |
 | `refs` | Resultados completos en disco: etiqueta, tamaño, ruta | Ejecutor de llamadas |
 | `result` | Respuesta final y origen | Cierre |
 

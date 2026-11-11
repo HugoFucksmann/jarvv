@@ -152,3 +152,49 @@ test("RC-22: los mismos programas con otros argumentos siguen siendo escrituras 
     "node --version; Remove-Item x",
   ]) assert.equal(isReadOnlyCommand(command), false, command);
 });
+
+// ───────────────────────── Comandos que se pueden volver a correr (RC-21) ─────────────────────────
+
+test("RC-21: pruebas, compilaciones y chequeos (con cambios de carpeta y lecturas alrededor) se pueden volver a correr tras un cambio", async () => {
+  const { isRerunnableCommand } = await import("../src/core/policy/rerun.ts");
+  for (const command of [
+    "npm test",
+    "npm t",
+    "npm run build",
+    "npm run test:unit",
+    "cd C:\\Users\\Ana\\proyecto; npm test",
+    "Set-Location C:\\proyecto; npm run lint; git status",
+    "npx tsc --noEmit",
+    "yarn test",
+    "pnpm build",
+    "pytest -q",
+    "python -m pytest tests",
+    "dotnet test",
+    "cargo build --release",
+    "go test ./...",
+    "node --test",
+    "npm test | Select-String fail",
+  ]) assert.equal(isRerunnableCommand(command), true, command);
+});
+
+test("RC-21: lo que acumula, registra, publica, instala o borra sigue sin repetirse (fail-closed)", async () => {
+  const { isRerunnableCommand } = await import("../src/core/policy/rerun.ts");
+  for (const command of [
+    "Add-Content notas.txt cambio",
+    "echo cambio >> notas.txt",
+    "npm test > salida.txt",
+    "git commit -m arreglo",
+    "git push",
+    "npm install",
+    "npm publish",
+    "npm run deploy",
+    "npm test; Remove-Item dist -Recurse",
+    "npm test; Add-Content log.txt ok",
+    "cd C:\\x",
+    "Get-ChildItem",
+    "npx rimraf dist",
+    "python script.py",
+    "& npm test",
+    "npm test $env:X; $y = 1",
+  ]) assert.equal(isRerunnableCommand(command), false, command);
+});

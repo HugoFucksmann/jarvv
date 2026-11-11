@@ -4,14 +4,14 @@
  *
  * Necesita: Ollama con los modelos de `jarvis-config.json` (`qwen3.5:4b` y `d3:2b`), `uvx` y red (Free Search) y Windows.
  *
- *   npx tsx scripts/validate/tasks_e2e.ts                    # los cinco pedidos
+ *   npx tsx scripts/validate/tasks_e2e.ts                    # todos los pedidos (nueve)
  *   npx tsx scripts/validate/tasks_e2e.ts --only=2           # solo el que empieza con "2"
  *   npx tsx scripts/validate/tasks_e2e.ts --only=2 --judge   # con el 2B puntuando los fragmentos de `web_search`
  *
  * Qué se encontró con este arnés está en `docs/REVISION_run_command.md` y `docs/REVISION_web_search.md`.
  *
  * Lo que fija el arnés: `autoMode` apagado (así se ven las confirmaciones), la traza apagada y las refs en una carpeta temporal. Las confirmaciones se
- * aprueban o rechazan según el pedido, y a una pregunta al usuario se responde con un texto fijo. Los pedidos 5 y 6 crean carpetas en `%TEMP%`; al final se borran.
+ * aprueban o rechazan según el pedido, y a una pregunta al usuario se responde con un texto fijo. Los pedidos 5 y 6 crean carpetas en `%TEMP%`, y el arnés crea un proyecto temporal para el 8; al final se borran.
  * Los registros de los modelos (`[Qwen …]`, `[Decision …]`) salen mezclados con el resumen: el resumen de cada tarea empieza en una línea de `====`.
  */
 
@@ -115,6 +115,15 @@ async function runTask(label: string, message: string, next: Policy): Promise<vo
   console.log(`  respuesta: ${JSON.stringify(snapshot.result ?? "(sin respuesta)").slice(0, 420)}`);
 }
 
+/** Proyecto temporal del pedido 8: `npm test` imprime cuántas líneas tiene notas.txt. */
+const npmProject = path.join(os.tmpdir(), "jarvis_validacion_npm");
+fs.mkdirSync(npmProject, { recursive: true });
+fs.writeFileSync(
+  path.join(npmProject, "package.json"),
+  JSON.stringify({ name: "jarvis-validacion", private: true, scripts: { test: "node -e \"console.log('pruebas ok, lineas: ' + require('fs').readFileSync('notas.txt','utf8').trim().split('\\n').length)\"" } }, null, 2),
+);
+fs.writeFileSync(path.join(npmProject, "notas.txt"), "primera\n");
+
 const requests: readonly [label: string, message: string, policy: Policy][] = [
   ["1 terminal de solo lectura", "¿Qué versión de Node.js tengo instalada en esta PC? Usá la terminal.", { approve: true, answer: "x" }],
   ["2 búsqueda en internet", "Buscá en internet en qué fecha se publicó Node.js 22.0.0 y decime la fecha.", { approve: true, answer: "x" }],
@@ -124,6 +133,25 @@ const requests: readonly [label: string, message: string, policy: Policy][] = [
   [
     "6 escritura por la terminal (D1 puede elegir la ruta de archivos: RC-24)",
     String.raw`En PowerShell ejecutá exactamente: New-Item -ItemType Directory -Path $env:TEMP\jarvis_validacion2 -Force`,
+    { approve: true, answer: "x" },
+  ],
+  // 2026-11-11: un proceso que pregunta dos veces en el mismo paso (RC-02) y respuestas que no piden otra confirmación (RC-20).
+  [
+    "7 proceso que pregunta dos veces",
+    String.raw`Ejecutá en PowerShell: $a = Read-Host 'Nombre'; $b = Read-Host 'Ciudad'; "$a de $b"`,
+    { approve: true, answer: "ok" },
+  ],
+  // 2026-11-11: correr las pruebas, cambiar algo y volver a correrlas (RC-21). El `npm test` del proyecto temporal cuenta las líneas de notas.txt: la
+  // segunda corrida solo es real si muestra una línea más.
+  [
+    "8 pruebas, cambio y pruebas otra vez",
+    `En la carpeta ${npmProject} corré npm test, después agregá la línea "cambio" al final del archivo notas.txt y volvé a correr npm test. Decime qué mostró cada corrida.`,
+    { approve: true, answer: "x" },
+  ],
+  // 2026-11-11: listar los procesos lanzados y parar uno (RC-25: `list_processes` y `stop_process`).
+  [
+    "9 listar y parar un proceso",
+    "Ejecutá en PowerShell Start-Sleep 600 (va a quedar corriendo), después mostrame qué procesos lanzaste y pará ese.",
     { approve: true, answer: "x" },
   ],
 ];
@@ -138,7 +166,7 @@ try {
   tasks.cancelAll();
   await tasks.drain(4000);
   for (const provider of providers) await provider.close?.();
-  for (const leftover of ["jarvis_validacion", "jarvis_validacion2"]) fs.rmSync(path.join(os.tmpdir(), leftover), { recursive: true, force: true });
+  for (const leftover of ["jarvis_validacion", "jarvis_validacion2", "jarvis_validacion_npm"]) fs.rmSync(path.join(os.tmpdir(), leftover), { recursive: true, force: true });
   fs.rmSync(refsDir, { recursive: true, force: true });
   process.exit(0);
 }

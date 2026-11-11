@@ -38,7 +38,7 @@ function stepWith(calls: Partial<Record<CallStatus, number>>): { ctx: TaskContex
 
 test("countStep: ejecución es lo que llegó a la herramienta; intento, todo menos el rechazo del usuario; lo bloqueado no ejecuta", () => {
   const { ctx, stepId } = stepWith({ ok: 2, tool_error: 1, loop_blocked: 2, args_invalid: 1, refs_unresolved: 1, info_missing: 1, tool_rejected: 1, user_rejected: 3 });
-  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 9, blocked: 2, argsInvalid: 1, userRejected: 3 });
+  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 9, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1 });
 });
 
 test("countStep: un denied del servidor y una llamada interrumpida cuentan como ejecutadas", () => {
@@ -51,6 +51,7 @@ test("countStep: un denied del servidor y una llamada interrumpida cuentan como 
 const CASES: { name: string; calls: Partial<Record<CallStatus, number>>; limit: string; cause: string; askFirst: boolean }[] = [
   { name: "repeticiones bloqueadas", calls: { loop_blocked: BUDGET.maxRepeatsPerStep }, limit: "maxRepeatsPerStep", cause: "repeat_blocked", askFirst: false },
   { name: "rechazos del usuario", calls: { user_rejected: BUDGET.maxUserRejectionsPerStep }, limit: "maxUserRejectionsPerStep", cause: "user_rejected", askFirst: false },
+  { name: "denegaciones (Guard, lista negra o servidor)", calls: { tool_rejected: 1, denied: BUDGET.maxDeniedPerStep - 1 }, limit: "maxDeniedPerStep", cause: "denied", askFirst: false },
   { name: "argumentos inválidos", calls: { args_invalid: BUDGET.maxReviewRejectionsPerStep }, limit: "maxReviewRejectionsPerStep", cause: "review_rejected", askFirst: false },
   { name: "ejecuciones", calls: { ok: BUDGET.maxCallsPerStep }, limit: "maxCallsPerStep", cause: "call_cap", askFirst: true },
   { name: "intentos sin ejecución", calls: { refs_unresolved: BUDGET.maxAttemptsPerStep }, limit: "maxAttemptsPerStep", cause: "call_cap", askFirst: true },

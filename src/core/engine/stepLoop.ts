@@ -19,7 +19,7 @@
  * `loop_blocked`, `user_rejected`, veredicto `rejected`) → vuelve a Decisión 1 con lo ocurrido a la vista. Topes del paso:
  * `BUDGET.maxCallsPerStep` (sin `user_rejected`), `BUDGET.maxRepeatsPerStep` y `BUDGET.maxUserRejectionsPerStep` (el segundo rechazo del usuario falla el paso).
  *
- * `ask_user` no es una opción de Decision: se pregunta aquí, una vez por paso (`BUDGET.maxQuestionsPerStep`), cuando la
+ * `ask_user` no es una opción de Decision: se pregunta aquí (`BUDGET.maxQuestionsPerStep` las del modelo, `BUDGET.maxProcessPromptsPerStep` las de procesos), cuando la
  * revisión de argumentos registra `info_missing`, cuando una llamada queda `waiting_input` (un proceso que pide una respuesta) o cuando el paso
  * llegaría al tope de llamadas (antes de fallar). Se espera
  * la respuesta y el bucle sigue con el hecho `answer_<stepId>_<n>` ya escrito.
@@ -31,13 +31,13 @@
 import type { ExecutableRoute } from "../types/routes.ts";
 import { EXECUTABLE_ROUTES, isExecutableRoute } from "../types/routes.ts";
 import { routeInput, routeViewOptions } from "./adapters.ts";
-import { askUser, processQuestion } from "./ask.ts";
+import { askUser, processAnswerSuffix, processQuestion } from "./ask.ts";
 import { availableRoutes, runCall } from "./callRunner.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { CallOutcome, StepFailureCause, StepOutcome } from "./outcomes.ts";
 import { checkStepLimits } from "./limits.ts";
-import { canAskUser, repeatsApprovedCall } from "./retries.ts";
+import { canAskProcessPrompt, canAskUser, repeatsApprovedCall } from "./retries.ts";
 
 /** Cómo empieza el paso: reactivo lo crea; deliberativo promueve el `pending` que indica el proveedor. */
 export type StepSeed = { readonly kind: "reactive"; readonly instruction: string } | { readonly kind: "planned"; readonly stepId: string };
@@ -74,8 +74,8 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
   };
 
   /** Pregunta al usuario, espera y deja el hecho escrito; `null` si el bucle puede seguir. `literalQuestion`: pregunta ya armada (un proceso que espera entrada). */
-  const ask = async (literalQuestion?: string): Promise<StepOutcome | null> => {
-    const asked = await askUser(env, stepId, literalQuestion);
+  const ask = async (literalQuestion?: string, keySuffix?: string): Promise<StepOutcome | null> => {
+    const asked = await askUser(env, stepId, literalQuestion, keySuffix);
     if (asked.kind === "answered") return null;
     return asked.kind === "cancelled" ? CANCELLED : { kind: "close", stopReason: asked.stopReason };
   };
@@ -120,14 +120,13 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
         break;
     }
 
-    // ── Qué sigue tras una llamada registrada: aprobada cierra el paso; `denied` del servidor lo falla; `info_missing`
-    // pregunta al usuario (si todavía se puede); el resto vuelve a Decisión 1 (solo cuenta el tope de llamadas, que se
-    // revisa al inicio de la vuelta).
+    // ── Qué sigue tras una llamada registrada: aprobada cierra el paso; `info_missing` pregunta al usuario (si todavía se puede); el resto, incluidas
+    // las denegaciones (Guard o lista negra: `tool_rejected`; servidor: `denied`), vuelve a Decisión 1 con el motivo a la vista. Los topes (también
+    // `maxDeniedPerStep`) se revisan al inicio de la vuelta.
     if (outcome.verdict === "approved") {
       finishStep("completed");
       return { kind: "completed" };
     }
-    if (outcome.status === "denied") return failStep("server_denied");
     if (outcome.status === "loop_blocked") {
       // Pedir otra vez lo que ya salió bien es haberlo terminado; pedir otra vez lo que falló, dos veces, es un atasco.
       if (repeatsApprovedCall(ctx, outcome.callId)) {
@@ -140,9 +139,9 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
       if (stop !== null) return stop;
     }
     // Un proceso que sigue vivo y espera una respuesta: no hay resultado que verificar, se le pregunta al usuario lo que el proceso pide y la respuesta
-    // vuelve en la siguiente llamada. Una sola pregunta por paso: un segundo prompt en el mismo paso lo acaba el tope de llamadas.
-    if (outcome.status === "waiting_input" && outcome.prompt !== undefined && canAskUser(ctx, stepId)) {
-      const stop = await ask(processQuestion(outcome.prompt));
+    // vuelve en la siguiente llamada. Con su propio tope (`maxProcessPromptsPerStep`): un prompt más allá de él lo acaba el tope de llamadas.
+    if (outcome.status === "waiting_input" && outcome.prompt !== undefined && outcome.pid !== undefined && canAskProcessPrompt(ctx, stepId)) {
+      const stop = await ask(processQuestion(outcome.prompt), processAnswerSuffix(outcome.pid));
       if (stop !== null) return stop;
     }
     // Los demás topes (repeticiones, rechazos del usuario, argumentos inválidos, ejecuciones e intentos) los revisa `checkStepLimits` al volver al inicio.

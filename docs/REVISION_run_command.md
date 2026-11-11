@@ -2,7 +2,7 @@
 
 Documento de referencia para un agente que vaya a revisar `run_command` en profundidad. Reúne lo que se encontró al construirla y validarla (2026-11-10), con el contexto necesario para entender cada punto sin haber visto cómo se construyó. No impone soluciones: cada hallazgo dice qué se observó, con qué evidencia y qué conviene investigar.
 
-> **Revisión del 2026-11-11.** Los hallazgos se verificaron contra el código y con PowerShell real, y se resolvió lo que se podía sin tocar prompts ni el núcleo grande. El **estado de cada hallazgo**, los hallazgos nuevos (`RC-31` en adelante), la evaluación de ConPTY, las decisiones a confirmar y los cambios en lo que leen los modelos están en la **§9**. Las secciones 1 a 8 describen el estado del 2026-11-10 y se dejan como estaban, salvo correcciones marcadas con *(corregido 2026-11-11)*.
+> **Revisión del 2026-11-11.** Los hallazgos se verificaron contra el código y con PowerShell real, y se resolvió lo que se podía sin tocar prompts ni el núcleo grande. El **estado de cada hallazgo**, los hallazgos nuevos (`RC-31` en adelante), la evaluación de ConPTY, las decisiones a confirmar y los cambios en lo que leen los modelos están en la **§9**. Una segunda tanda el mismo día (con las propuestas de la §9 aceptadas) resolvió más pendientes, incluido el núcleo: su estado, **que reemplaza al de la §9.2 donde lo nombra**, y todo lo que se corrió con su resultado están en la **§10**. Las secciones 1 a 8 describen el estado del 2026-11-10 y se dejan como estaban, salvo correcciones marcadas con *(corregido 2026-11-11)*.
 
 **Cómo leerlo.** Cada hallazgo lleva una etiqueta de **tipo** (Bug, Limitación, Riesgo, Falta, Inconsistencia), una **gravedad** (Alta, Media, Baja) y un **estado de verificación**:
 - **[Vivo]**: comprobado ejecutando PowerShell o el flujo real.
@@ -307,7 +307,7 @@ Todo en `text` y en `raw` de `run_command`; el manifiesto no cambió.
 - Comandos de lectura nuevos (RC-22): no piden confirmación, su salida va a DATA y no pasan por D3.
 - Generación de `{ pid, input }` tras un `waiting_input`: `priorAttempts` ya no sube (temperatura más baja).
 
-### 9.6 Decisiones a confirmar
+### 9.6 Decisiones a confirmar (aceptadas por el usuario el 2026-11-11)
 
 1. **Tope de `command` en 1000 caracteres** (antes 4000), igual al recorte con que se registra (RC-19). Alternativa: subir `argCaps.command` a 4000 (más contexto por llamada).
 2. **Huérfanos vivos** al completarse la tarea, sin salida guardada (RC-05). Alternativa: cerrarlos tras un tiempo, con el riesgo de matar un servidor pedido.
@@ -326,3 +326,120 @@ Todo en `text` y en `raw` de `run_command`; el manifiesto no cambió.
 4. **Antivirus.** `node scripts/validate/powershell_launch_probe.mjs` (parte 4) después de usar la tool. Funciona: la línea "ayudas leídas del archivo" dice `corre`. Si dijera BLOQUEADO, la tool sigue funcionando sin ayudas (la consola de Jarvis avisa "no se pudieron cargar las ayudas") y hay que revisar `PS_HELPERS`.
 5. **Sonda completa.** `npx tsx scripts/validate/run_command_probe.ts`. Mirar: ningún `�` en `ipconfig`, `chcp`, `ping`; `Read-Host` y `python -i` en `waiting_input`; `progreso... listo` en `finished`.
 6. **Otra página de códigos.** En una PC con otro idioma de Windows (OEM 437, 852, 866): `ipconfig | Select-String IP`. Funciona: sin `�`. Con 852/857 se espera que falle (no hay tabla; queda como antes).
+
+## 10. Segunda tanda (2026-11-11): pendientes y parciales
+
+Con las propuestas de la §9 aceptadas, se revisó cada hallazgo que quedaba Pendiente o Parcial (y RC-40) para resolverlo de fondo, incluido lo que pide tocar el núcleo o `ctx/`. Regla: solo soluciones completas; lo que no se puede resolver bien queda con su motivo. **Esta tabla reemplaza el estado de la §9.2 para los hallazgos que nombra.**
+
+### 10.1 Estado vigente
+
+| Hallazgo | Estado | Cómo, o por qué no |
+| --- | --- | --- |
+| RC-01 Falso negativo de prompts | **Para Jarvis 2.0** | El falso positivo está resuelto (§9). Saber si un proceso está bloqueado leyendo su entrada (`findstr`, `node` leyendo stdin sin prompt) exige consultar la tubería con código nativo (`NtQueryInformationFile`) o un PTY; Node no lo expone. Mientras tanto queda `running` y se le puede responder con `{ pid, input }` |
+| RC-02 Una pregunta por paso | **Resuelto** | Tope propio para las preguntas de procesos: `BUDGET.maxProcessPromptsPerStep` (3), en `engine/limits.ts` y `GET /limits`. `retries.ts`: `canAskProcessPrompt` y `canAskUser` (que ya no cuenta las de procesos); se distinguen por la clave del hecho de la respuesta (`answer_<paso>_<n>_p<pid>`, ver RC-20) y una lectura nueva del contexto, `ctx.answers(paso)` (clave, valor y momento de cada respuesta del paso; sin campos ni reglas nuevas en `ctx/`). `stepLoop` usa el tope propio. Pruebas: un proceso que pregunta dos veces (las dos se preguntan), uno que pregunta sin fin (3 por paso y la pregunta del modelo sigue disponible) |
+| RC-03 Prompts propios de PowerShell | **Resuelto en lo que se puede; el resto para Jarvis 2.0** | `Read-Host` y `pause` se responden (§9). `-Confirm`, `ShouldProcess` y `Get-Credential` pasan por el host de PowerShell (`PromptForChoice`), que sin interacción falla: responderlos exige un host propio o un PTY. El texto le dice al modelo cómo seguir |
+| RC-05 Huérfanos | **Resuelto** (decisión confirmada) | Siguen vivos, se registran en consola, no guardan salida y se olvidan al terminar. Verlos o pararlos desde la interfaz es RC-25 (decisión de producto) |
+| RC-06 Procesos fuera del árbol | **Cerrado por diseño; rastrearlos, para Jarvis 2.0** | Lanzar una app es que sobreviva a la tarea: no se cortan al cancelar. Rastrearlas exige un Job Object (código nativo) |
+| RC-11 Mezcla de errores | **Resuelto en lo que se puede; el orden exacto, para Jarvis 2.0** | Sin ruido de `Write-Error` y con líneas enteras (§9). El orden exacto entre stdout y stderr exige que los dos sean el mismo handle del sistema (un PTY, o un `SetStdHandle` con código nativo): dos tuberías no lo dan |
+| RC-14 Un solo pid en el hecho `process` | **Resuelto** | `callRunner.processFactOps`: el hecho lista los procesos vivos de la tarea en el orden en que se lanzaron (`1111, 2222`) y quita los que terminan. Sin cambio en `ctx/`. Prueba con dos servidores |
+| RC-16 Entorno heredado | **Resuelto** | Sin las variables de `.env` (§9). Lo que trae el entorno desde donde se lanzó Jarvis es el entorno del usuario: un comando en su propia terminal lo vería igual |
+| RC-18 Carpeta por defecto | **Resuelto en el código; la nota la decide el usuario** | La cabecera dice `cwd:`. Que la nota de `cwd` del manifiesto diga cuál es la de por defecto es un cambio de texto del manifiesto |
+| RC-20 Dos confirmaciones al responder | **Resuelto** | `retries.inputAnswersProcess` + `callRunner`: un `{ pid, input }` cuyo `input` es exactamente la respuesta del usuario a la pregunta de ESE proceso en este paso no pide confirmación ni pasa por D3. El `pid` va en la **clave** del hecho de la respuesta (`askUser(…, keySuffix)` → `answer_<paso>_<n>_p<pid>`; `processOfAnswerKey`), no en el texto: los modelos ven el texto, nunca la clave. Una primera versión lo ponía en el texto de la pregunta y el A/B con el verificador real lo descartó (10.4). La respuesta es lo que sigue a la última aparición del cierre de la pregunta (`processAnswerText`: un prompt hostil no la cambia). Cada respuesta autoriza un envío; un hecho que pudo recortarse no autoriza nada; no vale con una ruta sensible ni con la lista negra. Pruebas: envío autorizado, segundo envío, otro texto, modo automático, `processAnswerText` con un prompt que imita el cierre, la clave con el `pid` y la pregunta sin cambios |
+| RC-21 Repetición estricta | **Decide el usuario** | Una regla global en `ctx/derive.ts` ("una escritura idéntica se repite tras un cambio intermedio") volvería a ejecutar escrituras ya aprobadas de cualquier herramienta (un `Add-Content` duplicado), y limitarla a las no aprobadas deja fuera el caso real (volver a correr pruebas que pasaron, después de un cambio). Lo correcto es una política propia: `RepeatPolicy` nueva en `ctx/derive.ts` ("repetir tras un efecto intermedio") que `run_command` declare para comandos nuevos en `repeatByArgs` del **manifiesto** |
+| RC-22 Poco comando de lectura | **Resuelto** | Lista ampliada (§9). `git status` queda fuera a propósito |
+| RC-26 Constantes no configurables | **Resuelto en el código; pasar a `jarvis-config.json` lo decide el usuario** | Todo es `TerminalOptions`. Llevarlo a la configuración es cambiar `jarvis-config.json` |
+| RC-28 Pruebas sensibles al tiempo | **Aceptado** | Las pruebas de procesos reales dependen del reloj por naturaleza; ninguna exige menos de 1,5 s de precisión. Las de la lógica (líneas, decodificación, clases de prompt, motor) no usan relojes |
+| RC-30 Concurrencia | **Resuelto** | Reserva de lugar (RC-33) y una prueba con cuatro tareas a la vez: cada una ve su salida, un prompt, una cancelación y un `running` no se cruzan, y una tarea no puede responder el proceso de otra |
+| RC-40 Envoltorios solo por nombre corto | **Resuelto** | También `nombre.exe` y `nombre.com` (`ipconfig.exe`, `chcp.com`). Por ruta completa, no (prueba) |
+| RC-12, RC-24 | **Deciden el usuario** (prompts) | Sin cambios |
+| RC-13, RC-17, RC-25, RC-29 | **Deciden el usuario** (producto) | Sin cambios |
+
+### 10.2 Hallazgo nuevo
+
+**RC-41 · Bug · Media · [Vivo] — Continuar un proceso que ya terminó daba "no existe".** En la tarea real de `cmd /c pause` (línea base, 10.4), después de que el proceso terminó y su salida se entregó, el modelo volvió a mandar `{ pid, input: "ok" }`: la tool respondía `Process N does not exist or was not started by this task.` (error), el verificador rechazaba, y el modelo terminó lanzando otro `pause`. **Resuelto:** la tool guarda una lápida por proceso terminado (tarea, código, duración; hasta 64 y 10 minutos) y una continuación tardía de la misma tarea responde `finished` con su código, sin salida nueva, `data.alreadyReported: true` y la frase `This process had already finished; its output was returned by an earlier call.` (prueba).
+
+### 10.3 Cambios en lo que leen los modelos (además de la §9.5)
+
+- La pregunta de un proceso **no cambió** (se probó ponerle el `pid` y empeoró la verificación: 10.4).
+- El hecho `process` puede listar varios `pid` (`1111, 2222`).
+- Continuar un proceso ya terminado responde `finished` con la frase de 10.2 (antes, un error).
+- Hasta 3 preguntas de procesos por paso (antes 1, compartida con el modelo), y la respuesta tal cual no pide confirmación.
+
+### 10.4 Qué se corrió y qué dio
+
+Todo en la PC de desarrollo (Windows 11 en español, Ollama con `qwen3.5:4b` y `d3:2b`), el 2026-11-11.
+
+**Pruebas y tipos.**
+- `npx tsc --noEmit`: limpio.
+- `npm test`: **220 de 220** (antes de la revisión, 196). `tests/run_command.test.ts` 32 (de 17), `tests/engine.test.ts` 23, `tests/readonly.test.ts` 9, `tests/http.test.ts` 11, `tests/limits.test.ts` con el tope nuevo.
+
+**Sondas.**
+- `npx tsx scripts/validate/run_command_probe.ts`: 32 casos, ninguno con `�`. `ipconfig` directo, por la tubería y asignado; `chcp`, Python y `ping -t | Select-Object -First 3` correctos, sin `ping` vivo al final. `Read-Host` y `python -i` en `waiting_input` y respondidos; `progreso...` + 3 s da `finished`. La sonda tenía mal contado el caso de largo: el de "1001 caracteres" medía 986. Corregida, da error a los 1001 y corre a los 990.
+- `node scripts/validate/powershell_launch_probe.mjs` (primera tanda): partes 1 a 3 como antes; parte 4, las ayudas actuales "corren" en base64 y desde el archivo. La versión que AMSI bloqueó era la que pasaba `-AsSecureString` al `Read-Host` original (RC-35).
+
+**A/B con el verificador real (D4, `d3:2b`).** Mismo contexto, solo cambia el texto; `cumple` aprueba desde 0,6.
+
+| Caso | Antes | Ahora | Lectura |
+| --- | --- | --- | --- |
+| Tarea `cmd /c pause`, `finished` tras responder: pregunta **con** el `pid` en el texto | cumple 0,63–0,65 (sin `pid`) | **0,35** | El `pid` en la pregunta hacía rechazar un resultado correcto: se descartó y el `pid` pasó a la clave del hecho |
+| Carpeta creada con un comando mudo: cabecera con `cwd:` y `(no output)` | 0,92 | 0,93 | Neutro |
+| `node --version` con `cwd:` | 0,99 | 0,99 | Neutro |
+| `cmd /c exit 3` con `cwd:` y `(no output)` | ok 0,72 | ok 0,82 | Neutro (un `tool_error` se rechaza sin modelo igual) |
+
+**Tareas de punta a punta** (`npx tsx scripts/validate/tasks_e2e.ts --only=N`; se agregó el pedido 7, un proceso que pregunta dos veces).
+
+| Corrida | 1 `node --version` | 3 `cmd /c pause` | 5 y 6 carpetas | 7 dos preguntas |
+| --- | --- | --- | --- | --- |
+| Línea base (código de la primera tanda) | `completed`, **sin confirmación** (RC-22) | `completed`, con 3 confirmaciones de más del mismo `{ pid, input: "ok" }` y un `pause` de más tras errores "no existe" (RC-20, RC-41) | `completed` (las dos por `create_directory`: RC-24) | — |
+| Segunda tanda con el `pid` en la pregunta (descartada) | `completed` | 3 de 3 `failed (security_denied)`: el verificador rechaza el `finished` (A/B de arriba) y el modelo termina en un `write_file` a refs (RC-13) | `completed` | 3 de 3 `partial` |
+| Segunda tanda final | — | 6 corridas: 3 `completed`, 2 `failed (security_denied)`, 1 `partial`. La respuesta del usuario se envía sin confirmación la primera vez; un segundo envío, otro proceso u otro paso piden confirmación | — | `partial` |
+
+**Qué muestran las tareas, más allá de la tool** (todo es del lado de los modelos; queda para el usuario):
+- El verificador está en el límite con un `finished` sin salida tras responder (`cumple` ≈ 0,63 contra el umbral de 0,6): la tarea 3 sale bien o mal según la corrida.
+- El generador de argumentos **inventa la entrada** en vez de usar la respuesta del usuario (`"hugof"`, `"Madrid"` cuando el usuario respondió `ok`). La tool y el motor lo tratan bien: un texto que el usuario no escribió pide confirmación. Pero el modelo no usa la respuesta (prompt del generador, RC-12).
+- El generador manda `{ "command": "", "pid": N, "input": … }` (`info_missing`) antes de acertar con `{ pid, input }`, y reescribe el script pedido (pedido 7: en vez del comando con dos `Read-Host`, lanza uno solo varias veces). Por eso el pedido 7 nunca llega a la segunda pregunta en la tarea real; RC-02 lo cubren las pruebas del motor.
+- Tras completar el paso, la lista de pendientes agrega pasos de más ("confirmar que terminó") y el modelo insiste con el `pid` ya terminado. Ahora la tool responde `finished` en vez de un error (RC-41), pero el verificador lo rechaza igual como "no cumple".
+- Un desvío termina en `write_file` dentro de la carpeta de refs y cierra la tarea con `security_denied` (RC-13, decisión del motor).
+
+**Solo razonado, sin correr:** otras páginas de códigos (437, 852, 866); apps de la Tienda; el efecto en `eval/` (no se corrió, por regla); el hecho `process` con varios `pid` frente al generador de argumentos (no hubo dos procesos vivos en las tareas reales).
+
+### 10.5 Qué queda para el usuario
+
+1. **Prompts (RC-12):** que el generador use la respuesta del usuario como `input` y no mande `command: ""` junto con `pid`; que el verificador acepte un `finished` sin salida tras responder un prompt (`cumple` ≈ 0,63 en el límite). El A/B de 10.4 deja armado cómo medirlo.
+2. **RC-21:** decidir la política de repetición de `run_command` (ver 10.1).
+3. **Manifiesto:** la nota de `cwd` (RC-18) y, si se quiere, que `command` admita más de 1000 caracteres subiendo también `argCaps` (RC-19).
+4. **`jarvis-config.json`:** si las constantes de `TerminalOptions` deben ser configurables (RC-26).
+5. **Producto:** RC-13, RC-17, RC-25, RC-29.
+6. **`eval`:** correrlo con la tanda completa. Lo que más puede moverlo: `Read-Host`/`pause` respondibles, hasta 3 preguntas de procesos por paso, la respuesta sin confirmación, `finished` en vez de error para un `pid` ya terminado, `cwd:` y `(no output)` (§9.5 y 10.3).
+7. Lo de la §9.7 que sigue en pie: app de la Tienda, otra página de códigos, antivirus tras actualizar firmas.
+
+### 10.6 Cambios en el núcleo y en `ctx/` (segunda tanda)
+
+- `ctx/derive.ts` y `ctx/context.ts`: lectura nueva `ctx.answers(paso)` (clave, valor y momento de cada respuesta del paso). Sin campos, reglas ni validaciones nuevas; los contratos de `Call` y `Fact` no cambian.
+- `engine/ask.ts`: `askUser(…, keySuffix)` y, para procesos, la clave `answer_<paso>_<n>_p<pid>`; `processOfAnswerKey` y `processAnswerText`. El texto de la pregunta no cambió.
+- `engine/retries.ts`: `processPromptsAsked`, `canAskProcessPrompt`, `canAskUser` sin las preguntas de procesos, `inputAnswersProcess`.
+- `engine/stepLoop.ts`: el tope propio para la pregunta de un proceso, con el `pid` en la clave.
+- `engine/callRunner.ts`: la respuesta del usuario sin confirmación ni D3 (RC-20); el hecho `process` como lista (RC-14); `CallOutcome` lleva el `pid` del proceso que espera.
+- `engine/outcomes.ts`: `pid` opcional en el resultado `registered`.
+- `budget.ts` y `engine/limits.ts`: `maxProcessPromptsPerStep` (3), también en `GET /limits`.
+
+## 11. Tercera tanda (2026-11-11): pendientes de producto
+
+**Reemplaza el estado de RC-13, RC-17, RC-18, RC-21, RC-25 y RC-29.** `npx tsc --noEmit` limpio; `npm test` 233 de 233.
+
+| Hallazgo | Estado | Cómo |
+| --- | --- | --- |
+| RC-13 | **Resuelto** | Un DENY del Guard ya no cierra la tarea: queda `tool_rejected` (no ejecutada) con el motivo en inglés (`policyDenialNote`) y el modelo prueba otro camino. Las denegaciones (Guard, lista negra o servidor) tienen su tope: `maxDeniedPerStep` (2) falla el paso, no la tarea. Un `denied` del servidor tampoco falla el paso en el acto. `security_denied` queda en `StopReason` solo para leer trazas anteriores. Archivos: `callRunner.ts`, `stepLoop.ts`, `limits.ts`, `budget.ts`, `outcomes.ts` (causa `denied`). Pruebas en `engine.test.ts` y `limits.test.ts` |
+| RC-17 | **Decisión: se mantiene `-NoProfile`** | Motivos: el perfil es código del usuario que correría en cada comando (seguridad); puede imprimir textos, cambiar alias o funciones (`ls`, `cd`) y alterar el resultado; puede tardar segundos (por ejemplo, `conda init`) o pedir interacción, que con `-NonInteractive` falla; y lo hace imprevisible entre PCs. Para lo que inicializa el perfil, usar la ruta completa o `conda run -n <entorno> <comando>` |
+| RC-18 | **Resuelto** | La nota de `cwd` del manifiesto dice que por defecto es la carpeta personal del usuario |
+| RC-21 | **Resuelto** | Reproducido en una tarea real (pedido 8 de `tasks_e2e.ts`), con **dos fallas**: (1) la lista de pendientes descartaba el segundo "npm test" por duplicado (`reconcileList`), y la tarea cerraba `completed` sin correrlo; (2) aunque llegara, `strict` lo bloqueaba y daba el paso por cumplido. Arreglos: (1) `pendingList.ts` solo descarta duplicados seguidos, y un pendiente que el código ya tenía no se pierde por parecerse a uno cumplido; (2) política nueva `rerun` (`ctx/derive.ts`): una escritura idéntica se repite si hubo un efecto en el medio. **Cómo distingue lo legítimo de lo dañino:** `policy/rerun.ts` lee el texto (fail-closed, el mismo análisis que `readOnly.ts`) y solo acepta comandos cuyos segmentos son pruebas, linters, chequeos o compilaciones de una lista cerrada (`npm test`, `npm run build|lint|test`, `tsc`, `pytest`, `dotnet build|test`, `cargo`, `go`, `git status|diff`…), más cambios de carpeta y lecturas: repetirlos reescribe sus salidas, no acumula. `Add-Content`, `>>`, `git commit`, `npm install`, `npm run deploy` o cualquier redirección quedan `strict`. Y aun así, sin un cambio en el medio sigue bloqueado. El manifiesto lo declara en `repeatByArgs`. Pruebas: `logic.test.ts`, `repeat.test.ts`, `readonly.test.ts` |
+| RC-25 | **Resuelto** | Relevamiento de Desktop Commander 0.3.2: `start_process`, `read_process_output` e `interact_with_process` ya los cubría `run_command`. Faltaban `list_sessions` y `list_processes` (ahora `list_processes`: los procesos de `run_command` que ve la tarea, con su estado, o con `all` todos los de la PC con pid, nombre y memoria, sin línea de comandos), `force_terminate` y `kill_process` (ahora `stop_process`: uno de `run_command` se corta con su árbol y devuelve la salida sin leer; otro proceso de la PC, solo ese). Nunca se cortan los críticos de Windows, Jarvis, lo que cuelga de Jarvis (sus servidores) ni lo de otra tarea en curso (`processTree.ts`, `protectedReason`). Manifiesto: `list_processes` (READ) y `stop_process` (PROCESS_CONTROL, con confirmación). Pruebas en `run_command.test.ts` |
+| RC-29 | **Solo Windows (Linux: para Jarvis 2.0)** | `listTools()` devuelve `[]` fuera de Windows, y el motor ya no ofrece un destino cuyo servidor respondió sin herramientas (`routesWithTools`). Un servidor caído se sigue ofreciendo, como antes. Motivo de no hacer Linux: el pre-chequeo, `readOnly.ts`, las ayudas, `killTree` y la detección de la plataforma están hechos para PowerShell y Windows (con `pwsh` en Linux podría reusarse casi todo), y no hay un Linux donde probarlo. No se declara soporte |
+
+**Cambios que leen los modelos (para `eval`):** en el destino `terminal` D2 ahora elige entre tres herramientas (antes no había elección), con sus descripciones y notas nuevas; los motivos de denegación del Guard llegan al modelo; hay hasta 2 denegaciones por paso en vez de cerrar la tarea; la lista de pendientes conserva ítems repetidos no seguidos; y `npm test` y similares se repiten tras un cambio.
+
+**Tareas reales (`tasks_e2e.ts`), después de los cambios:**
+- Pedido 8 (RC-21), 2 de 2 `completed`: `npm test` corrió dos veces de verdad (antes, una: el segundo se perdía). El modelo escribió `notas.txt` en otra carpeta (`Documents`): es un error del generador, no de la política.
+- Pedido 3 (RC-13), 3 de 3 `completed`. En dos corridas, el `write_file` a la carpeta de refs que antes cerraba la tarea con `security_denied` quedó `tool_rejected` y la tarea siguió hasta completarse.
+- Pedido 9 (RC-25): 1 `completed` (usó `list_processes`; luego lo repitió y lo frenó el anti-bucle); 1 `partial (unrecoverable)`, que cerró por un servicio caído justo después de lanzar el proceso. No se vio `stop_process` usado en el pedido 9; sí apareció en una corrida del pedido 3 (sobre un proceso ya terminado: respondió `not_running`).
+- Para revisar: la corrida `unrecoverable` del pedido 9 ("Falló un servicio necesario") no se investigó.

@@ -33,12 +33,14 @@ import { systemCodePages, type CodePages } from "./codepages.ts";
 import { cleanTerminalText, LineAssembler, legacyDecoder, OutputBuffer, OutputDecoder } from "./output.ts";
 import { buildCommandLine, ensureHelpersFile, HELPERS_ENV, HELPERS_UNAVAILABLE, HELPERS_UNAVAILABLE_EXIT, POWERSHELL_ARGS } from "./powershell.ts";
 import { classifyPrompt, PROMPT_IDLE_MS, promptIdleMs, TERMINATED_PROMPT_IDLE_MS, WEAK_PROMPT_IDLE_MS, type PromptKind } from "./prompts.ts";
-import { killTree } from "./processTree.ts";
+import { killProcess, killTree, protectedReason, systemProcesses, type RootOwner, type SystemProcess } from "./processTree.ts";
 
 export { buildCommandLine, buildScript, EPILOGUE, PROLOGUE } from "./powershell.ts";
 
 export const TERMINAL_SERVER = "jarvis_terminal";
 export const RUN_COMMAND = "run_command";
+export const LIST_PROCESSES = "list_processes";
+export const STOP_PROCESS = "stop_process";
 
 export const DEFAULT_WAIT_SEC = 30;
 export const MAX_WAIT_SEC = 300;
@@ -54,7 +56,9 @@ export const MAX_INPUT_CHARS = 1000;
 const CLOSE_GRACE_MS = 300;
 /** Plazo para que el sistema arranque PowerShell. */
 const SPAWN_TIMEOUT_MS = 15_000;
-/** Un proceso terminado cuya salida nadie leyó se olvida pasado este tiempo. */
+/** Lápidas de procesos terminados que se recuerdan a la vez (ver `ended`). */
+const MAX_ENDED = 64;
+/** Un proceso terminado cuya salida nadie leyó, o su lápida, se olvida pasado este tiempo. */
 const RETAIN_FINISHED_MS = 10 * 60 * 1000;
 const SAFETY_MARGIN_MS = 5000;
 /** Reserva de la cabecera y las notas dentro del tope del resumen. */
@@ -107,6 +111,18 @@ interface Tracked {
   readonly usesHelpers: boolean;
   /** Las ayudas no se pudieron cargar y el proceso salió sin correr el comando (`HELPERS_UNAVAILABLE_EXIT`). */
   helpersUnavailable: boolean;
+  /** El prompt que se devolvió en `waiting_input` y que todavía no se respondió (nada escrito después): lo muestra `list_processes`. */
+  waitingPrompt: string | null;
+}
+
+/** Lo que se recuerda de un proceso terminado cuya salida ya se entregó. */
+interface Ended {
+  readonly taskId: string;
+  readonly exitCode: number;
+  readonly durationMs: number;
+  readonly endedAt: number;
+  /** Lo cortó `stop_process` (no terminó solo). */
+  readonly stopped: boolean;
 }
 
 interface PromptCandidate {
@@ -114,7 +130,7 @@ interface PromptCandidate {
   readonly terminated: boolean;
 }
 
-const TOOL: MCPTool = {
+const RUN_COMMAND_TOOL: MCPTool = {
   name: RUN_COMMAND,
   description: "Run a PowerShell command, or continue a running one by its pid.",
   inputSchema: {
@@ -129,6 +145,31 @@ const TOOL: MCPTool = {
     additionalProperties: false,
   },
 };
+
+const LIST_PROCESSES_TOOL: MCPTool = {
+  name: LIST_PROCESSES,
+  description: "List the processes started with run_command, or with all=true every process on the computer.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      all: { type: "boolean", description: "List every process on the computer (name, pid, memory) instead of the ones started with run_command." },
+    },
+    additionalProperties: false,
+  },
+};
+
+const STOP_PROCESS_TOOL: MCPTool = {
+  name: STOP_PROCESS,
+  description: "Stop a running process by its pid.",
+  inputSchema: {
+    type: "object",
+    properties: { pid: { type: "integer", description: "Process id to stop." } },
+    required: ["pid"],
+    additionalProperties: false,
+  },
+};
+
+const TOOLS: readonly MCPTool[] = [RUN_COMMAND_TOOL, LIST_PROCESSES_TOOL, STOP_PROCESS_TOOL];
 
 const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
   toolResult({ text: message, raw: message, data: { state: "error", ...data }, isError: true });
@@ -172,6 +213,8 @@ export class TerminalProvider implements ToolProvider {
   readonly name = TERMINAL_SERVER;
   readonly version = "1.1.0";
   private readonly procs = new Map<number, Tracked>();
+  /** Procesos terminados cuya salida ya se entregó (por `pid`, del más viejo al más nuevo): una continuación tardía responde `finished`, no "no existe". */
+  private readonly ended = new Map<number, Ended>();
   private readonly defaultCwd: string;
   private readonly platform: NodeJS.Platform;
   private readonly maxLive: number;
@@ -203,8 +246,9 @@ export class TerminalProvider implements ToolProvider {
     };
   }
 
+  /** Solo en Windows: en otra plataforma no hay herramientas que ofrecer (el destino `terminal` no se ofrece; ver `routesWithTools` en el motor). */
   async listTools(): Promise<MCPTool[]> {
-    return [TOOL];
+    return this.platform === "win32" ? [...TOOLS] : [];
   }
 
   isConnected(): boolean {
@@ -242,9 +286,11 @@ export class TerminalProvider implements ToolProvider {
   }
 
   async callTool(name: string, args: Record<string, unknown>, options: ToolCallOptions = {}): Promise<MCPCallResult> {
-    if (name !== RUN_COMMAND) return fail(`Unknown tool: '${name}'.`);
-    if (this.platform !== "win32") return fail("run_command only works on Windows (PowerShell).");
+    if (!TOOLS.some((t) => t.name === name)) return fail(`Unknown tool: '${name}'.`);
+    if (this.platform !== "win32") return fail(`${name} only works on Windows (PowerShell).`);
     this.purge();
+    if (name === LIST_PROCESSES) return this.listProcesses(args, options);
+    if (name === STOP_PROCESS) return this.stopProcess(args, options);
 
     const { command, pid, input } = args;
     const timeoutSec = args.timeoutSec;
@@ -390,6 +436,7 @@ export class TerminalProvider implements ToolProvider {
           endedAt: null,
           usesHelpers: helpers !== null,
           helpersUnavailable: false,
+          waitingPrompt: null,
         };
         this.procs.set(pid, t);
         this.collect(t);
@@ -419,6 +466,7 @@ export class TerminalProvider implements ToolProvider {
       s.chars += clean.length;
       t.totalChars += clean.length;
       if (!t.orphan) t.buffer.append(ready);
+      t.waitingPrompt = null;
       t.lastOutputAt = Date.now();
       t.events.emit("activity");
     };
@@ -461,8 +509,12 @@ export class TerminalProvider implements ToolProvider {
   // ───────────────────────── Continuar ─────────────────────────
 
   private async resume(pid: number, input: string | undefined, waitMs: number, options: ToolCallOptions): Promise<MCPCallResult> {
+    const taskId = options.taskId ?? "";
     const t = this.procs.get(pid);
-    if (t === undefined || t.taskId !== (options.taskId ?? "")) {
+    if (t === undefined || t.taskId !== taskId) {
+      // Ya terminó y su salida se entregó en una llamada anterior de esta tarea: sigue terminado (no es un pid desconocido).
+      const ended = this.ended.get(pid);
+      if (ended !== undefined && ended.taskId === taskId) return this.endedResult(pid, ended, input !== undefined);
       return fail(`Process ${pid} does not exist or was not started by this task.`, { pid, state: "unknown_pid" });
     }
     let ignoredInput = false;
@@ -472,6 +524,7 @@ export class TerminalProvider implements ToolProvider {
       } else {
         // Lo escrito hasta acá era el prompt que se está respondiendo: no puede volver a tomarse por uno nuevo.
         t.answeredSeq = t.seq;
+        t.waitingPrompt = null;
         for (const s of t.streams) {
           const rest = s.lines.closeAnswered();
           if (!t.orphan) t.buffer.append(rest);
@@ -496,9 +549,10 @@ export class TerminalProvider implements ToolProvider {
     if (!t.done) for (const s of t.streams) t.buffer.append(s.lines.flushPartial());
     const { text: output, omitted } = t.buffer.take();
     const prompt = state === "waiting_input" ? waited.prompt?.text.trim() : undefined;
+    if (prompt !== undefined) t.waitingPrompt = prompt;
     const durationMs = (t.endedAt ?? Date.now()) - t.startedAt;
     const exitCode = state === "finished" ? t.exitCode : null;
-    if (state === "finished") this.procs.delete(t.pid);
+    if (state === "finished") this.forget(t);
     if (state === "finished" && t.usesHelpers && exitCode === HELPERS_UNAVAILABLE_EXIT && output.includes(HELPERS_UNAVAILABLE)) {
       t.helpersUnavailable = true;
     }
@@ -624,11 +678,170 @@ export class TerminalProvider implements ToolProvider {
     return targets.length;
   }
 
-  /** Olvida los procesos terminados que nadie volvió a leer (los huérfanos, en cuanto terminan). */
+  /** Un proceso terminado cuya salida ya se entregó deja de seguirse; queda su lápida (tarea, código, duración) para responder una continuación tardía. */
+  private forget(t: Tracked, stopped = false): void {
+    this.procs.delete(t.pid);
+    this.ended.delete(t.pid);
+    this.ended.set(t.pid, {
+      taskId: t.taskId,
+      exitCode: t.exitCode ?? -1,
+      durationMs: (t.endedAt ?? Date.now()) - t.startedAt,
+      endedAt: t.endedAt ?? Date.now(),
+      stopped,
+    });
+    for (const oldest of this.ended.keys()) {
+      if (this.ended.size <= MAX_ENDED) break;
+      this.ended.delete(oldest);
+    }
+  }
+
+  // ───────────────────────── list_processes y stop_process ─────────────────────────
+
+  /**
+   * Los procesos de `run_command` que ve una tarea: los suyos y los que dejaron corriendo tareas ya completadas (huérfanos). Los de otra tarea en curso
+   * no se ven.
+   */
+  private visibleTo(taskId: string): Tracked[] {
+    return [...this.procs.values()].filter((t) => t.taskId === taskId || t.orphan).sort((a, b) => a.startedAt - b.startedAt);
+  }
+
+  /** `list_processes`: los procesos de `run_command` (con su estado) o, con `all`, todos los de la PC. */
+  private async listProcesses(args: Record<string, unknown>, options: ToolCallOptions): Promise<MCPCallResult> {
+    if (args.all !== undefined && typeof args.all !== "boolean") return fail("'all' must be true or false.");
+    const taskId = options.taskId ?? "";
+    if (args.all === true) {
+      let table: SystemProcess[];
+      try {
+        table = await systemProcesses();
+      } catch (error) {
+        return fail(`Could not read the list of processes: ${errorMessage(error)}`);
+      }
+      const rows = [...table].sort((a, b) => b.memoryBytes - a.memoryBytes);
+      const lines = rows.map((p) => `pid ${p.pid} · ${p.name} · ${Math.round(p.memoryBytes / 1048576)} MB`);
+      const header = `status: listed · ${rows.length} processes on this computer, by memory in use`;
+      const cap = Math.max(BUDGET.summaryMax - HEADER_RESERVE, 400);
+      return toolResult({
+        text: [header, headTailNeutral(lines.join("\n"), cap - 50, 0).text].join("\n"),
+        raw: [header, ...lines].join("\n"),
+        data: { state: "listed", scope: "system", count: rows.length },
+      });
+    }
+    const now = Date.now();
+    const visible = this.visibleTo(taskId);
+    const describe = (t: Tracked): string => {
+      const state = t.done
+        ? `finished (exit code ${t.exitCode ?? -1}), output not read yet`
+        : t.waitingPrompt !== null
+          ? `waiting for input: "${t.waitingPrompt}"`
+          : "running";
+      const owner = t.taskId === taskId ? "this task" : "left running by an earlier task";
+      return `pid ${t.pid} · ${state} · ${seconds((t.endedAt ?? now) - t.startedAt)} · ${owner} · ${t.command.replace(/\s+/g, " ").slice(0, 120)}`;
+    };
+    const header = `status: listed · ${visible.length} process(es) started with run_command`;
+    const body = visible.length === 0 ? "No process started with run_command is running." : visible.map(describe).join("\n");
+    return toolResult({
+      text: `${header}\n${body}`,
+      raw: `${header}\n${body}`,
+      data: {
+        state: "listed",
+        scope: "run_command",
+        count: visible.length,
+        processes: visible.map((t) => ({ pid: t.pid, done: t.done, waiting: t.waitingPrompt !== null, ownTask: t.taskId === taskId, command: t.command.slice(0, 300) })),
+      },
+    });
+  }
+
+  /**
+   * `stop_process`: corta un proceso. Uno de `run_command` que la tarea ve (suyo o huérfano) se corta con todo lo que lanzó y se devuelve lo que había
+   * escrito sin leer. Cualquier otro proceso de la PC se corta solo (sin su árbol), salvo los protegidos (`protectedReason`): críticos de Windows,
+   * Jarvis y lo suyo, y lo de otra tarea en curso.
+   */
+  private async stopProcess(args: Record<string, unknown>, options: ToolCallOptions): Promise<MCPCallResult> {
+    const pid = args.pid;
+    if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) return fail("'pid' must be a positive integer.");
+    const taskId = options.taskId ?? "";
+    const tracked = this.procs.get(pid);
+    if (tracked !== undefined) {
+      if (tracked.taskId !== taskId && !tracked.orphan) return fail(`Process ${pid} belongs to another task that is still running.`, { pid });
+      if (tracked.done) {
+        const exit = tracked.exitCode ?? -1;
+        this.forget(tracked);
+        return toolResult({
+          text: `status: not_running · pid: ${pid}\nThe process had already finished (exit code ${exit}); there was nothing to stop.`,
+          raw: "",
+          data: { state: "not_running", pid, scope: "run_command" },
+        });
+      }
+      await this.dispose(tracked);
+      for (const s of tracked.streams) tracked.buffer.append(s.lines.flushPartial());
+      const { text: output } = tracked.buffer.take();
+      if (tracked.taskId === taskId) this.forget(tracked, true);
+      const cap = Math.max(BUDGET.summaryMax - HEADER_RESERVE, 400);
+      const lines = [
+        `status: stopped · duration: ${seconds(Date.now() - tracked.startedAt)} · pid: ${pid}`,
+        `The process and everything it started were stopped: ${tracked.command.replace(/\s+/g, " ").slice(0, 120)}`,
+        output.trim() === "" ? "(no unread output)" : `Unread output:\n${headTailNeutral(output, Math.floor(cap * 0.2), Math.floor(cap * 0.6)).text}`,
+      ];
+      return toolResult({ text: lines.join("\n"), raw: output, data: { state: "stopped", pid, scope: "run_command" } });
+    }
+    const ended = this.ended.get(pid);
+    if (ended !== undefined && ended.taskId === taskId) {
+      return toolResult({
+        text: `status: not_running · pid: ${pid}\nThe process had already ${ended.stopped ? "been stopped" : `finished (exit code ${ended.exitCode})`}; there was nothing to stop.`,
+        raw: "",
+        data: { state: "not_running", pid, scope: "run_command" },
+      });
+    }
+    let table: SystemProcess[];
+    try {
+      table = await systemProcesses();
+    } catch (error) {
+      return fail(`Could not read the list of processes to check ${pid}: ${errorMessage(error)}`, { pid });
+    }
+    const target = table.find((p) => p.pid === pid);
+    if (target === undefined) return fail(`No process with pid ${pid} is running.`, { pid, state: "unknown_pid" });
+    const roots = new Map<number, RootOwner>();
+    for (const t of this.procs.values()) if (!t.done) roots.set(t.pid, t.taskId === taskId || t.orphan ? "caller" : "other_task");
+    const refusal = protectedReason(target, table, roots);
+    if (refusal !== null) return fail(`Process ${pid} (${target.name}) cannot be stopped: ${refusal}`, { pid, state: "protected" });
+    if (!(await killProcess(pid))) return fail(`Could not stop process ${pid} (${target.name}): it may need administrator rights.`, { pid });
+    return toolResult({
+      text: `status: stopped · pid: ${pid}\nThe process ${target.name} was stopped (only that process, not the programs it started).`,
+      raw: "",
+      data: { state: "stopped", pid, name: target.name, scope: "system" },
+    });
+  }
+
+  /** Una continuación de un proceso que ya terminó y cuya salida ya se entregó: `finished` con su código, sin salida nueva. */
+  private endedResult(pid: number, ended: Ended, withInput: boolean): MCPCallResult {
+    if (ended.stopped) {
+      const text = [
+        `status: stopped · duration: ${seconds(ended.durationMs)} · pid: ${pid}`,
+        ...(withInput ? ["The input was ignored: the process is not running."] : []),
+        "This process was stopped with stop_process; there is nothing to continue.",
+      ].join("\n");
+      return toolResult({ text, raw: "", data: { state: "stopped", pid, durationMs: ended.durationMs, alreadyReported: true }, meta: { waitLimitMs: 0, waitedMs: 0 } });
+    }
+    const header = `status: finished · exit code: ${ended.exitCode} · duration: ${seconds(ended.durationMs)} · pid: ${pid}`;
+    const notes = [
+      ...(withInput ? ["The input was ignored: the process had already finished."] : []),
+      ended.exitCode === 0 ? "The command finished successfully." : `The command failed (exit code ${ended.exitCode}).`,
+      "This process had already finished; its output was returned by an earlier call.",
+    ];
+    return toolResult({
+      text: [header, ...notes, "(no new output)"].join("\n"),
+      raw: "",
+      data: { state: "finished", pid, exitCode: ended.exitCode, durationMs: ended.durationMs, rawTruncated: false, alreadyReported: true },
+      meta: { waitLimitMs: 0, waitedMs: 0 },
+    });
+  }
+
+  /** Olvida los procesos terminados que nadie volvió a leer (los huérfanos, en cuanto terminan) y las lápidas viejas. */
   private purge(): void {
     const now = Date.now();
     for (const t of this.procs.values()) {
       if (t.done && t.endedAt !== null && (t.orphan || now - t.endedAt > RETAIN_FINISHED_MS)) this.procs.delete(t.pid);
     }
+    for (const [pid, ended] of this.ended) if (now - ended.endedAt > RETAIN_FINISHED_MS) this.ended.delete(pid);
   }
 }

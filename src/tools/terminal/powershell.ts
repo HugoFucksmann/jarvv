@@ -22,7 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-/** Herramientas del sistema que escriben en la página OEM/ANSI y que se envuelven (ver arriba). Solo por su nombre corto: `ipconfig.exe` no se envuelve. */
+/** Herramientas del sistema que escriben en la página OEM/ANSI y que se envuelven (ver arriba). Por su nombre corto y con extensión (`ipconfig`, `ipconfig.exe`, `tree.com`); por la ruta completa, no. */
 export const LEGACY_TOOLS: readonly string[] = [
   "arp", "attrib", "certutil", "chcp", "cmdkey", "driverquery", "fsutil", "getmac", "gpresult", "icacls", "ipconfig", "net", "netsh", "netstat",
   "nslookup", "pathping", "ping", "powercfg", "query", "quser", "robocopy", "route", "sc", "schtasks", "systeminfo", "taskkill", "tasklist",
@@ -112,7 +112,8 @@ function global:__jvRun([string] $name, [object[]] $argv, [bool] $piped, $pipedI
   }
 }
 foreach ($__jvName in @(${quoted(LEGACY_TOOLS)})) {
-  Set-Item -Path "function:global:$__jvName" -Value ([scriptblock]::Create(('__jvRun ''{0}'' $args $MyInvocation.ExpectingInput $input' -f $__jvName)))
+  $__jvBody = [scriptblock]::Create(('__jvRun ''{0}'' $args $MyInvocation.ExpectingInput $input' -f $__jvName))
+  foreach ($__jvAs in @($__jvName, "$__jvName.exe", "$__jvName.com")) { Set-Item -Path "function:global:$__jvAs" -Value $__jvBody }
 }
 `;
 

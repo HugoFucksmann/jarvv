@@ -43,7 +43,7 @@ import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
 import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
-import { factValue } from "./retries.ts";
+import { factValue, inputAnswersProcess } from "./retries.ts";
 import { routeExhausted } from "./limits.ts";
 import { reviewOutcome, verifyCall } from "./verify.ts";
 
@@ -64,6 +64,11 @@ function summaryText(text: string | null | undefined): string | null {
   return clean ? clipWithin(clean, BUDGET.summaryMax) : null;
 }
 
+/** Lo que ve el modelo cuando el Guard deniega una llamada: que no se ejecutó, el motivo de la regla y que siga por otro camino. */
+export function policyDenialNote(reason: string | undefined): string {
+  return `Denied by the security policy; it was not performed. ${reason ?? ""} Do not try this operation again: take a different approach, or leave this part out.`.replace(/\s+/g, " ").trim();
+}
+
 /** Motivo fijo de un `args_invalid` de la revisión (D3): el modelo de decisión solo elige la opción, no dice qué argumento falla. */
 export const REVIEW_ARGS_INVALID_NOTE =
   "The review found a wrong argument: a value is invented, copied incorrectly, or contradicts the task or the data read. Write the arguments again from the task and the data.";
@@ -73,8 +78,16 @@ const registered = (
   status: CallStatus,
   verdict: "approved" | "rejected" | null = null,
   reason: "no_usable_data" | "not_accomplished" | null = null,
-  prompt?: string,
-): CallOutcome => ({ kind: "registered", callId, status, verdict, reason, ...(prompt === undefined ? {} : { prompt }) });
+  waiting?: { readonly prompt?: string; readonly pid?: string },
+): CallOutcome => ({
+  kind: "registered",
+  callId,
+  status,
+  verdict,
+  reason,
+  ...(waiting?.prompt === undefined ? {} : { prompt: waiting.prompt }),
+  ...(waiting?.pid === undefined ? {} : { pid: waiting.pid }),
+});
 
 /** Fallo de un modelo o de la infraestructura → cierre (o cancelación) con la llamada registrada, si la hay. */
 function fromFailure(ctx: TaskContext, stepId: string, failure: ModelFailureKind, detail: unknown, callId: string | null = null): CallOutcome {
@@ -122,7 +135,8 @@ function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[
 
 /**
  * Rutas que se ofrecen a Decisión 1: las que tienen al menos una herramienta usable. Una ruta cuyo servidor o catálogo no
- * se puede consultar NO se descarta: el fallo aparece al ejecutar y cierra la tarea como infraestructura caída.
+ * se puede consultar NO se descarta: el fallo aparece al ejecutar y cierra la tarea como infraestructura caída. Una cuyo servidor respondió
+ * sin herramientas (una herramienta que no existe en esta plataforma) sí se descarta.
  */
 export async function availableRoutes(env: EngineEnv, stepId: string, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const out = await routesWithTools(env, routes);
@@ -145,7 +159,11 @@ async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[
       } catch {
         cataloged = [];
       }
-      return cataloged.length === 0 || usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0 ? route : null;
+      if (cataloged.length > 0) return usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0 ? route : null;
+      // Sin catálogo: si el servidor existe, respondió y no lo marcaron caído, no tiene herramientas para este destino (`jarvis_terminal` fuera de
+      // Windows): no se ofrece. Si falló o no está, se ofrece igual y el fallo cierra la tarea como infraestructura caída al ejecutar.
+      const answeredEmpty = deps.discovery.getServer(mcp) !== undefined && deps.discovery.getUnavailableServers()[mcp] === undefined;
+      return answeredEmpty ? null : route;
     }),
   );
   return checked.filter((route): route is ExecutableRoute => route !== null);
@@ -212,21 +230,32 @@ function raceCancel<T>(promise: Promise<T>, signal: AbortSignal): Promise<Raced<
 
 const setProcessFact = (value: string | null, stepId: string): Op => ({ op: "set", target: "facts.process", value: { value, stepId } });
 
+/** Separador de los `pid` del hecho `process`. */
+const PROCESS_SEPARATOR = ", ";
+
+/** Los `pid` del hecho `process`, en el orden en que se lanzaron. */
+export function processPids(value: string | null): string[] {
+  return value === null ? [] : value.split(",").map((p) => p.trim()).filter((p) => p !== "");
+}
+
 /**
- * Operaciones del hecho `process` a partir de la señal del resultado (`ProcessSignal`): alta cuando la mutación que lanza el proceso termina `ok` o queda
- * esperando entrada (el generador de argumentos necesita el `pid` para continuar); baja (`value = null`) cuando el proceso ya no existe. Con otros
- * errores el hecho se conserva.
+ * Operaciones del hecho `process` a partir de la señal del resultado (`ProcessSignal`). El hecho lista los procesos vivos de la tarea (`4321, 5678`, en
+ * el orden en que se lanzaron): el generador de argumentos necesita el `pid` para continuar uno, y con dos procesos en segundo plano el último no alcanza
+ * (RC-14). Alta cuando la mutación que lanza el proceso termina `ok` o queda esperando entrada; baja cuando el proceso ya no existe (sin ninguno,
+ * `value = null`). Con otros errores el hecho se conserva.
  */
 function processFactOps(ctx: TaskContext, stepId: string, policy: Policy, processed: ProcessedResult): Op[] {
-  const current = factValue(ctx, "process");
+  const current = processPids(factValue(ctx, "process"));
   const signal = processed.process;
   if (signal === undefined) return [];
   const pid = String(signal.pid);
   if (signal.active) {
     const started = processed.status === "ok" || processed.status === "waiting_input";
-    return started && policy.mutates && current !== pid ? [setProcessFact(pid, stepId)] : [];
+    return started && policy.mutates && !current.includes(pid) ? [setProcessFact([...current, pid].join(PROCESS_SEPARATOR), stepId)] : [];
   }
-  return current === pid ? [setProcessFact(null, stepId)] : [];
+  if (!current.includes(pid)) return [];
+  const rest = current.filter((p) => p !== pid);
+  return [setProcessFact(rest.length > 0 ? rest.join(PROCESS_SEPARATOR) : null, stepId)];
 }
 
 // ───────────────────────── runCall ─────────────────────────
@@ -316,11 +345,10 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summary), status);
   if (ctx.isRepeat(tool.name, sig, { policy: repeatPolicyOf(mcp, tool.name, resolved), stepId })) return reject("loop_blocked");
 
-  // 6. Política (Guard). DENY: la llamada queda `denied` y la tarea cierra con `security_denied` (regla B incluida).
+  // 6. Política (Guard). DENY (comando catastrófico, regla B de las carpetas protegidas): no se ejecuta y queda `tool_rejected` con la razón, como
+  // un rechazo de la lista negra. La tarea NO cierra: el modelo ve el motivo en FAIL y prueba otro camino; `maxDeniedPerStep` corta el paso si insiste.
   const guard = Guard.evaluate(mcp, tool.name, resolved, deps.guardScope);
-  if (guard.decision === "DENY") {
-    return { kind: "close", stopReason: "security_denied", callId: record("denied", summaryText(guard.reason)) };
-  }
+  if (guard.decision === "DENY") return reject("tool_rejected", summaryText(policyDenialNote(guard.reason)));
 
   // 6a. Lista negra (reglas de comando integradas + configuración). Solo escrituras. Nivel 1 (`blocked`) con modo automático: se rechaza aquí con la razón
   // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
@@ -337,7 +365,10 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // Una ruta sensible (`guard.mandatory`) pide confirmación también en modo automático.
   // Modo automático: una herramienta del catálogo que pedía aprobación no se la pide al usuario y pasa por D3 (si escribe). Una no catalogada
   // (Guard la manda a aprobación por defecto) sigue pidiéndola. Sin modo automático, una coincidencia con la lista negra siempre se pregunta.
-  const askUser = (guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto);
+  // La respuesta del usuario a un proceso, enviada tal cual a ese proceso, ya la escribió él: no se le pide aprobarla ni la revisa D3 (RC-20). No vale con una
+  // ruta sensible ni con una coincidencia de la lista negra, que siguen su camino.
+  const userAuthored = guard.mandatory !== true && listed === null && inputAnswersProcess(ctx, stepId, tool.name, resolved, recorded.input);
+  const askUser = !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto));
 
   // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
   if (askUser) {
@@ -357,7 +388,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
   // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
   // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  if (kind === "write" && !askUser) {
+  if (kind === "write" && !askUser && !userAuthored) {
     const reviewView = ctx.view.forReview(reviewViewOptions());
     const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
@@ -392,13 +423,13 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   }
   if (ctx.isClosed()) return CANCELLED;
 
-  const finishWithVerification = async (callId: string, status: CallStatus, prompt?: string): Promise<CallOutcome> => {
+  const finishWithVerification = async (callId: string, status: CallStatus, waiting?: { readonly prompt?: string; readonly pid?: string }): Promise<CallOutcome> => {
     const verification = await verifyCall(env, callId);
     switch (verification.kind) {
       case "verified":
-        return registered(callId, status, verification.verdict, verification.reason, prompt);
+        return registered(callId, status, verification.verdict, verification.reason, waiting);
       case "skipped":
-        return registered(callId, status, null, null, prompt);
+        return registered(callId, status, null, null, waiting);
       case "close":
         return { kind: "close", stopReason: verification.stopReason, callId };
       case "cancelled":
@@ -448,5 +479,5 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };
 
   // 12. Verificar (segundo `apply`: `verdict` y `reason` juntos).
-  return finishWithVerification(callId, processed.status, processed.prompt);
+  return finishWithVerification(callId, processed.status, { prompt: processed.prompt, pid: processed.process?.pid });
 }

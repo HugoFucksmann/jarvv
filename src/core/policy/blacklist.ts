@@ -1,8 +1,8 @@
 /**
  * JARVIS Core — Lista negra de herramientas (editable en `jarvis-config.json`, clave `blacklist`) y reglas de comandos.
  *
- * Es una regla determinista, aparte de Guard: Guard deniega lo catastrófico y cierra la tarea (`security_denied`); un acierto de
- * la lista negra no cierra la tarea. Las lecturas nunca se miran: la lista solo se mira en herramientas que modifican el sistema.
+ * Es una regla determinista, aparte de Guard: Guard deniega lo catastrófico (`tool_rejected` con su motivo, sin cerrar la tarea:
+ * el modelo prueba otro camino hasta `maxDeniedPerStep`); un acierto de la lista negra tampoco cierra la tarea. Las lecturas nunca se miran: la lista solo se mira en herramientas que modifican el sistema.
  *
  * Dos niveles (`level`), con efecto distinto según `autoMode` (lo aplica `callRunner.ts`, fases 6a, 7 y 8):
  * - `blocked` (nivel 1): manual, se pregunta al usuario; automático, `tool_rejected` con la razón escrita (el modelo sigue con otro

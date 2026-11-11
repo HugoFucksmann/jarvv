@@ -18,6 +18,22 @@ test("pendientes: los ítems que venían detrás se conservan si el modelo no lo
   assert.equal(next.filter((i) => sameItem(i, "Leer el informe")).length, 1);
 });
 
+test("RC-21: un ítem que vuelve después de otro distinto es un pedido (correr las pruebas, cambiar algo, correrlas otra vez); uno seguido es un duplicado", () => {
+  const list = ["Ejecutar npm test en la carpeta", "Agregar la línea cambio a notas.txt", "Ejecutar npm test en la carpeta otra vez"];
+  assert.deepEqual(reconcileList(list, [], []), list);
+  assert.deepEqual(reconcileList(["Ejecutar npm test", "Ejecutar npm test de nuevo", "Agregar la línea"], [], []), ["Ejecutar npm test", "Agregar la línea"]);
+});
+
+test("RC-21: un pendiente que el código ya tenía no se pierde por parecerse a uno cumplido; lo que el modelo agrega de nuevo, sí", () => {
+  const settled = ["Ejecutar npm test en la carpeta"];
+  const previous = ["Agregar la línea cambio a notas.txt", "Ejecutar npm test en la carpeta otra vez"];
+  // Falló el paso del medio: el modelo reescribe su ítem y repite el de las pruebas (que se parece al cumplido): queda el que tenía el código.
+  const next = reconcileList(["Agregar la línea cambio al final de notas.txt", "Ejecutar npm test en la carpeta"], previous, settled);
+  assert.deepEqual(next, ["Agregar la línea cambio al final de notas.txt", "Ejecutar npm test en la carpeta otra vez"]);
+  // Al vaciarse la lista, el modelo no puede volver a meter lo ya hecho.
+  assert.deepEqual(reconcileList(["Ejecutar npm test en la carpeta"], [], settled), []);
+});
+
 test("pendientes: cifras distintas no son el mismo ítem", () => {
   assert.equal(sameItem("Abrir 10 archivos grandes", "Abrir 20 archivos grandes"), false);
 });

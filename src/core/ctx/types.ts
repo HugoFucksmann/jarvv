@@ -20,6 +20,7 @@ export type TerminalTaskState = (typeof TERMINAL_TASK_STATES)[number];
 export const STOP_REASONS = [
   "max_steps",
   "no_alternatives",
+  /** Desde el 2026-11-11 el motor ya no cierra una tarea por una denegación del Guard (falla, a lo sumo, el paso); el valor queda para leer trazas y contextos anteriores. */
   "security_denied",
   "user_cancelled",
   "replans_exhausted",
