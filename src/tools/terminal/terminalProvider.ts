@@ -21,6 +21,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 
 import { BUDGET } from "../../core/budget.ts";
 import type { ToolCallOptions, ToolProvider, TaskEndOutcome } from "../../core/tools/provider.ts";
@@ -54,6 +55,8 @@ export const MAX_COMMAND_CHARS = argCapsOf(TERMINAL_SERVER, RUN_COMMAND).command
 export const MAX_INPUT_CHARS = 1000;
 /** Cuánto se espera a que cierren los flujos de un proceso que ya terminó (un hijo puede heredarlos). */
 const CLOSE_GRACE_MS = 300;
+/** Veces que se intenta escribir el archivo de ayudas antes de seguir sin ellas el resto de la sesión. */
+const MAX_HELPERS_ATTEMPTS = 3;
 /** Plazo para que el sistema arranque PowerShell. */
 const SPAWN_TIMEOUT_MS = 15_000;
 /** Lápidas de procesos terminados que se recuerdan a la vez (ver `ended`). */
@@ -226,6 +229,8 @@ export class TerminalProvider implements ToolProvider {
   private starting = 0;
   /** Ruta del archivo de ayudas (`undefined`: todavía no se escribió; `null`: no se pudo). */
   private helpersFile: string | null | undefined;
+  /** Veces que no se pudo escribir el archivo de ayudas; al llegar a `MAX_HELPERS_ATTEMPTS` se deja de intentar. */
+  private helpersWriteFailures = 0;
   /** Las ayudas fallaron al cargarse una vez: no se vuelven a intentar en esta sesión. */
   private helpersDisabled: boolean;
   private readonly helpersDir: string | undefined;
@@ -255,7 +260,7 @@ export class TerminalProvider implements ToolProvider {
     return this.platform === "win32";
   }
 
-  async reconnect(): Promise<void> {}
+  async reconnect(): Promise<void> { }
 
   async close(): Promise<void> {
     await this.killAll(() => true);
@@ -309,7 +314,12 @@ export class TerminalProvider implements ToolProvider {
         return fail(`The command is longer than ${MAX_COMMAND_CHARS} characters. Use a shorter command, or split the work into several commands.`);
       }
       if (input !== undefined) return fail("'input' is only used together with 'pid'.");
-      return this.start(command, typeof args.cwd === "string" && args.cwd.trim() !== "" ? args.cwd : this.defaultCwd, waitMs, options);
+      const cwdArg = args.cwd;
+      // `undefined` y `null` (un parámetro opcional sin valor) valen como ausentes; un texto en blanco también.
+      if (cwdArg !== undefined && cwdArg !== null && typeof cwdArg !== "string") return fail("'cwd' must be a text.");
+      const cwd = typeof cwdArg === "string" && cwdArg.trim() !== "" ? cwdArg : undefined;
+      if (cwd !== undefined && !path.isAbsolute(cwd)) return fail(`'cwd' must be an absolute path: '${cwd}'.`);
+      return this.start(command, cwd ?? this.defaultCwd, waitMs, options);
     }
     if (input !== undefined && input.length > MAX_INPUT_CHARS) return fail(`The input is longer than ${MAX_INPUT_CHARS} characters.`);
     return this.resume(pid as number, input, waitMs, options);
@@ -366,7 +376,16 @@ export class TerminalProvider implements ToolProvider {
   /** Archivo de ayudas de PowerShell (`powershell.ts`), o `null` si están apagadas o no se pudo escribir. */
   private helpersPath(): string | null {
     if (this.helpersDisabled) return null;
-    if (this.helpersFile === undefined) this.helpersFile = ensureHelpersFile(this.legacyTools, this.helpersDir);
+    if (this.helpersFile === undefined || (this.helpersFile === null && this.helpersWriteFailures < MAX_HELPERS_ATTEMPTS)) {
+      this.helpersFile = ensureHelpersFile(this.legacyTools, this.helpersDir);
+      if (this.helpersFile === null) {
+        this.helpersWriteFailures++;
+        const left = MAX_HELPERS_ATTEMPTS - this.helpersWriteFailures;
+        console.warn(
+          `[Terminal] no se pudo escribir el archivo de ayudas de PowerShell (Read-Host, herramientas del sistema): el comando corre sin ellas${left > 0 ? `; se reintenta (${left} más)` : "; no se vuelve a intentar en esta sesión"}.`,
+        );
+      }
+    }
     return this.helpersFile;
   }
 
@@ -399,7 +418,7 @@ export class TerminalProvider implements ToolProvider {
         reject(new Error(`el sistema no arrancó PowerShell en ${SPAWN_TIMEOUT_MS / 1000} s.`));
       }, SPAWN_TIMEOUT_MS);
       timer.unref();
-      child.stdin.on("error", () => {});
+      child.stdin.on("error", () => { });
       child.once("error", (error) => {
         if (settled) return;
         settled = true;
@@ -831,7 +850,9 @@ export class TerminalProvider implements ToolProvider {
     return toolResult({
       text: [header, ...notes, "(no new output)"].join("\n"),
       raw: "",
-      data: { state: "finished", pid, exitCode: ended.exitCode, durationMs: ended.durationMs, rawTruncated: false, alreadyReported: true },
+      // Sin `exitCode` en `data`: el código ya lo señaló la llamada que entregó la salida (con él, el núcleo registraría un segundo `tool_error` por el mismo
+      // fallo). Queda en el texto, para que el modelo lo vea.
+      data: { state: "finished", pid, durationMs: ended.durationMs, rawTruncated: false, alreadyReported: true },
       meta: { waitLimitMs: 0, waitedMs: 0 },
     });
   }

@@ -3,7 +3,7 @@
  * procesos no se cortan nunca.
  *
  * Corte de un árbol: `taskkill /T /F` es lo que baja también los programas que lanzó el comando;
- * si `taskkill` no se puede ejecutar o no termina a tiempo, se cierra al menos el proceso principal. Nunca espera más de `KILL_TIMEOUT_MS`.
+ * si `taskkill` no se puede ejecutar, no termina a tiempo o termina con error (salvo 128: el proceso ya no existía), se cierra al menos el proceso principal. Nunca espera más de `KILL_TIMEOUT_MS`.
  */
 
 import { spawn } from "node:child_process";
@@ -35,7 +35,8 @@ export function killTree(pid: number, timeoutMs = KILL_TIMEOUT_MS): Promise<void
     }, timeoutMs);
     timer.unref();
     killer.once("error", () => finish(true));
-    killer.once("close", () => finish(false));
+    // Código 128: el proceso ya no existía (no hay nada que cerrar). Cualquier otro código distinto de 0 (o ninguno): taskkill falló.
+    killer.once("close", (code) => finish(code !== 0 && code !== 128));
   });
 }
 
@@ -61,7 +62,8 @@ export function systemProcesses(timeoutMs = 15_000): Promise<SystemProcess[]> {
   return new Promise((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", PROCESS_TABLE_COMMAND], {
       windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
+      // stderr se descarta: no se lee, y un pipe sin consumidor puede llenarse y bloquear a PowerShell.
+      stdio: ["ignore", "pipe", "ignore"],
     });
     const chunks: Buffer[] = [];
     child.stdout.on("data", (c: Buffer) => chunks.push(c));

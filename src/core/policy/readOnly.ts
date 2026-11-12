@@ -47,8 +47,8 @@ const READ_COMMANDS: ReadonlySet<string> = new Set([
 /** `true` si `args` es exactamente uno de `flags` (con mayúsculas y minúsculas: en Python `-V` es la versión y `-v` otra cosa). */
 const only =
   (...flags: string[]) =>
-  (args: readonly string[]): boolean =>
-    args.length === 1 && flags.includes(args[0]);
+    (args: readonly string[]): boolean =>
+      args.length === 1 && flags.includes(args[0]);
 
 /** Subcomandos de npm que solo leen (no instalan, no ejecutan scripts del paquete). */
 const NPM_READS = new Set(["ls", "list", "ll", "la", "outdated", "view", "v", "info", "show", "root", "prefix", "explain", "why"]);
@@ -101,7 +101,11 @@ const FORBIDDEN_OUTSIDE_QUOTES = new Set([">", "<", "&", "{", "}", "(", ")", "["
 /** Subexpresiones, variables (salvo `$env:`) y acentos graves: se descartan estén o no entre comillas (dentro de comillas dobles se expanden). */
 const FORBIDDEN_ANYWHERE = /`|\$\(|\$\{|\$(?!env:)/i;
 
-const WAIT_PARAM = /(^|\s)-wait\b/i;
+/**
+ * `-Wait` y su abreviatura válida `-Wai`: PowerShell acepta cualquier prefijo único de un parámetro. `-W` y `-Wa` son ambiguos con los parámetros comunes
+ * (`-WarningAction`, `-WarningVariable`, `-WhatIf`) y fallan, así que no cuelgan; `-Wai` ya no lo es.
+ */
+const WAIT_PARAM = /(^|\s)-wai(?:t)?\b/i;
 
 /** Largo máximo de un comando que se analiza: lo más largo no es una consulta simple. */
 const MAX_LENGTH = 600;
@@ -168,6 +172,7 @@ export function isReadOnlyCommand(command: string): boolean {
  */
 export function isReadOnlyCall(mcp: string, tool: string, args: Record<string, unknown>): boolean {
   if (mcp.toLowerCase() !== "jarvis_terminal" || tool.toLowerCase() !== "run_command") return false;
-  if (typeof args.command === "string") return args.pid === undefined && isReadOnlyCommand(args.command);
+  // Un `command` vacío o en blanco no cuenta como comando (igual que en el proveedor): con `pid` es una continuación.
+  if (typeof args.command === "string" && args.command.trim() !== "") return args.pid === undefined && isReadOnlyCommand(args.command);
   return typeof args.pid === "number" && args.input === undefined;
 }

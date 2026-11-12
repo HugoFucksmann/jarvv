@@ -165,7 +165,7 @@ const LAUNCHER_NAMES = new Set(["mshta", "rundll32", "regsvr32", "bitsadmin", "s
 const PERSISTENCE_NAMES = new Set(["register-scheduledtask", "unregister-scheduledtask", "set-scheduledtask", "invoke-command", "icm", "enter-pssession", "enable-psremoting"]);
 const TRACE_NAMES = new Set(["clear-eventlog", "remove-eventlog", "clear-recyclebin"]);
 const WMI_NAMES = new Set(["remove-wmiobject", "remove-ciminstance", "invoke-wmimethod", "invoke-cimmethod"]);
-const PKG_NAMES =new Set(["pip", "pip3", "winget", "choco", "scoop", "apt", "apt-get", "dnf", "yum", "pacman", "brew", "snap"]);
+const PKG_NAMES = new Set(["pip", "pip3", "winget", "choco", "scoop", "apt", "apt-get", "dnf", "yum", "pacman", "brew", "snap"]);
 
 const isFlag = (t: string): boolean => t.startsWith("-");
 const isCmdSwitch = (t: string): boolean => /^\/[a-z?](:.*)?$/.test(t);
@@ -371,8 +371,8 @@ const WHOLE_TEXT_RULES: readonly { re: RegExp; tier: RuleTier; id: string; reaso
   { re: /(>>?|\btee\b|\bsed\s+-\w*i\b)[^|;&]*\/etc\/passwd\b/, tier: "blocked", id: "auth-files", reason: "The system authentication files are off limits." },
 ];
 
-/** `>` o `>>` hacia un archivo (no `2>&1`, ni `>$null`, `>/dev/null`, `>nul`). */
-const FILE_REDIRECT = /(^|[^0-9&>])>>?\s*(?!&)(?!\$null\b)(?!\/dev\/null\b)(?!nul\b)\S/i;
+/** `>` o `>>` hacia un archivo, también con descriptor (`1>f`, `2>f`, `2>>f`); no `2>&1` (`splitSegments` ya lo parte por `&`), ni `>$null`, `>/dev/null`, `>nul`. */
+const FILE_REDIRECT = /(^|[^&>])>>?\s*(?!&)(?!\$null\b)(?!\/dev\/null\b)(?!nul\b)\S/i;
 
 // ───────────────────────── API ─────────────────────────
 

@@ -11,7 +11,7 @@
  *   - Envoltorios de las herramientas del sistema que escriben en la página OEM o ANSI (`LEGACY_TOOLS`): cuando su salida la recoge PowerShell
  *     (`ipconfig | Select-String …`, `$x = ipconfig`), PowerShell la decodificaba como UTF-8 y las tildes se perdían (`Configuraci�n`). El envoltorio
  *     lanza el `.exe` con `Process`, decodifica cada línea (UTF-8 si lo es; si no, la página que da más letras acentuadas) y deja el código de salida en
- *     `$LASTEXITCODE`. Si algo falla antes de lanzarlo, o recibe entrada por la tubería, o es una consola interactiva sin argumentos, llama al `.exe` como siempre.
+ *     `$LASTEXITCODE` (`robocopy` 0–7 cuenta como éxito para el código de salida del proceso). Si algo falla antes de lanzarlo, o recibe entrada por la tubería, o es una consola interactiva sin argumentos, llama al `.exe` como siempre.
  * - El comando del modelo va en base64 dentro de la función `script`, con una última línea que da el código de salida (`EPILOGUE`). Una función (y no un
  *   bloque anónimo) para que un `Write-Error` diga `script : <mensaje>` y no repita como contexto el texto entero del comando y del epílogo.
  * No se usa `-EncodedCommand` porque con él PowerShell escribe los errores en CLIXML. El comando no viaja en claro: no hay comillas que escapar.
@@ -106,7 +106,10 @@ function global:__jvRun([string] $name, [object[]] $argv, [bool] $piped, $pipedI
     if (-not $p.HasExited) { try { $p.Kill() } catch {} }
   }
   $global:LASTEXITCODE = $p.ExitCode
-  if ($p.ExitCode -ne 0) {
+  # robocopy: 0–7 son éxitos (copió, hubo extras o diferencias); solo 8 o más es un error. El código real queda en $LASTEXITCODE.
+  $failed = $p.ExitCode -ne 0
+  if ($name -eq 'robocopy' -and $p.ExitCode -ge 0 -and $p.ExitCode -lt 8) { $failed = $false }
+  if ($failed) {
     $global:__jvFail = $true
     $ExecutionContext.InvokeCommand.PostCommandLookupAction = { $global:__jvFail = $false; $ExecutionContext.InvokeCommand.PostCommandLookupAction = $null }
   }
