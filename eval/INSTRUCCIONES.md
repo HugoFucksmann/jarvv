@@ -26,6 +26,7 @@ Al iniciar, la CLI imprime un bloque **Configuración** con los modelos y URLs, 
 | Decisión | `tool_choice` | Herramienta elegida y su probabilidad |
 | Decisión | `args_review` | `approved`, `args_invalid` o `info_missing` (la herramienta la elige `tool_choice`; no hay `tool_rejected`) |
 | Decisión | `result_verification` | Veredictos `ok` y `cumple` |
+| Decisión | `fragment_judge` | Juez de fragmentos de `web_search` (`Decision20Engine.score`): por cada fragmento, si responde la pregunta (probabilidad `>= JUDGE_FOUND`, 0.6 en producción) |
 | Generativa | `plan` | Cantidad de pasos, rutas permitidas y requeridas, palabras clave |
 | Generativa | `arguments` | Campos requeridos, valores exactos, refs válidos, valores prohibidos |
 | Generativa | `final` | Datos y efectos que debe mencionar, alucinaciones prohibidas |
@@ -126,6 +127,13 @@ Un request de decisión puede llevar varias preguntas (las que arma la variante:
 - **Scoring** (`scores.json` y `comparison.md`, solo en etapas con 2 o más preguntas evaluadas): por pregunta, accuracy, matriz de confusión y, por clase, TP/FP/FN, precisión y recall; y `questionCross`, que cruza cada par de preguntas (ambas bien, solo A, solo B, ambas mal). En `noul` la clase positiva es `yes`. En consola, las preguntas sí/no muestran FP, FN y sin respuesta (que suman los errores), y las demás muestran la cantidad de errores. Las tablas por clase de `comparison.md` usan la definición una-contra-resto: ahí un `yes` esperado sin respuesta también es FN.
 - **Oráculo**: con `prod` solo hay preguntas principales; las responde según el `expect` del caso. `--client=oracle` con otra variante se rechaza al parsear la configuración.
 
+### Etapa `fragment_judge` (guía para una etapa de decisión nueva)
+Es el ejemplo de cómo se agrega una etapa que producción usa dentro de una herramienta. El caso describe solo la necesidad y los fragmentos (no hay tarea ni contexto):
+```json
+{"id":"fj-005","stage":"fragment_judge","scenario":{"mode":"reactive","request":"…","at":{"need":"¿Cuál es la velocidad de la luz?","fragments":["…","…","…"]}},"expect":{"expectedRelevant":[true,false,true]}}
+```
+`at.fragments` lleva de 1 a `JUDGE_BATCH` (5) fragmentos y `expectedRelevant` un booleano por fragmento, en orden. El request lo arma `DECISION_PROMPTS.buildFragmentJudge` (una pregunta `noul` por fragmento, claves `f0`, `f1`…, todas principales) y una variante reemplaza ese constructor entero. Checks: `fragment_<i>_match` por fragmento, `fragment_<i>_min_probability` si el caso pide `minProbability` (solo en los esperados como relevantes) y `fragment_count_match`. Ejemplo: `eval/variants/fragment_judge/fragment_judge_strict.ts` y `eval/datasets/fragment_judge/fragment_judge_6_cases.jsonl`. Para sumar otra etapa de decisión hay que tocar: el tipo `DecisionStage` y su `expect` (`types.ts`), `DECISION_STAGES` y el esquema de `expect` (`case.ts`), el parser (`variants/labels.ts`), el grader (`graders/label.ts`), la entrada del registro (`stages/decision.ts` e `index.ts`), el armado del request (`scenario.ts`), las preguntas principales (`questions.ts`) y el oráculo (`client/oracle.ts`).
+
 ### Códigos de salida
 | Código | Significado |
 |---|---|
@@ -167,7 +175,7 @@ Hay un solo formato de caso: el **escenario**. Un caso es una línea de un `.jso
 | Campo | Descripción |
 |---|---|
 | `id` | Único dentro del dataset |
-| `stage` | Una de las nueve etapas |
+| `stage` | Una de las diez etapas |
 | `scenario` | La situación y el punto de decisión (abajo). Un caso con `request` (prompt armado a mano) es error de carga |
 | `expect` | Lo que debe cumplir la salida. Claves cerradas por etapa; un typo falla al cargar con `archivo:línea` |
 | `tags`, `description` | Opcionales. Los tags sirven con `--tags=` |
@@ -245,7 +253,7 @@ Qué se reemplaza, siempre completo:
 
 | Etapa | Qué escribe la variante |
 |---|---|
-| `route`, `tool_choice`, `args_review`, `result_verification` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`) |
+| `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`) |
 | `plan`, `arguments`, `final`, `question`, `pending` | La vista entera en `prompts.PROMPTS` (`PLAN_VIEW`, `ARGUMENTS_VIEW`, `FINAL_VIEW`, `QUESTION`, `PENDING_VIEW`), con todas sus piezas (`SYSTEM`, `buildUserPrompt`…) |
 
 Lo que la variante no nombra (otras etapas, otras vistas) usa producción, para poder comparar etapa por etapa. Una vista o un constructor que sí se nombra se escribe entero: el tipo no admite piezas sueltas y nada se fusiona con producción.

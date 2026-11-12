@@ -1,15 +1,14 @@
 /**
- * eval/views/list.ts
+ * eval/ui/views/list.ts
  *
  * Vista de `--list`: etapas (agrupadas), variantes (con baseline) y datasets (con casos por etapa).
  * Separada en dos pasos: `collectListData` lee del disco y `renderList` solo arma texto (sin I/O).
  */
 
-import { DECISION_STAGES, GENERATIVE_STAGES } from "../core/case.ts";
-import { datasetName, listDatasetNames, loadDatasets, resolveDatasetPaths } from "../core/datasets.ts";
-import { allStageNames } from "../core/stages/index.ts";
-import { listVariantNames } from "../core/variants/load.ts";
-import { box, c, clip, columns, heading, padEnd, sym, WIDTH, wrapList } from "../ui.ts";
+import { datasetName, listDatasetNames, loadDatasets, resolveDatasetPaths } from "../../core/datasets.ts";
+import { listVariantNames } from "../../core/variants/load.ts";
+import { baselineFirst, groupStages } from "../order.ts";
+import { box, c, clip, columns, heading, padEnd, sym, WIDTH, wrapList } from "../style.ts";
 
 interface DatasetInfo {
   total: number;
@@ -42,10 +41,8 @@ function datasetInfo(name: string): DatasetInfo | null {
 }
 
 function collectListData(baseline: string, datasetSpecs: string[]): ListData {
-  const stages = allStageNames() as string[];
-  const decisionSet = DECISION_STAGES as readonly string[];
-  const generativeSet = GENERATIVE_STAGES as readonly string[];
-  const names = [...listDatasetNames()].sort((a, b) => a.localeCompare(b));
+  const stageGroups = groupStages();
+  const names = listDatasetNames();
 
   let selected = new Set<string>();
   try {
@@ -56,16 +53,12 @@ function collectListData(baseline: string, datasetSpecs: string[]): ListData {
   if (!(selected.size > 0 && names.some((n) => !selected.has(n)))) selected = new Set();
 
   // La baseline va primero (arriba a la izquierda); el resto, alfabético.
-  const variants = [...listVariantNames()].sort((a, b) => (a === baseline ? -1 : b === baseline ? 1 : a.localeCompare(b)));
+  const variants = baselineFirst(listVariantNames(), baseline);
 
   return {
     baseline,
-    stageGroups: [
-      ["Decisión", stages.filter((s) => decisionSet.includes(s))],
-      ["Generativas", stages.filter((s) => generativeSet.includes(s))],
-      ["Otras", stages.filter((s) => !decisionSet.includes(s) && !generativeSet.includes(s))],
-    ],
-    stageCount: stages.length,
+    stageGroups,
+    stageCount: stageGroups.reduce((n, [, items]) => n + items.length, 0),
     variants,
     datasets: names.map((name) => ({ name, info: datasetInfo(name) })),
     selected,

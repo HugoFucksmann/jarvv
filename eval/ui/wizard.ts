@@ -1,17 +1,17 @@
 /**
- * eval/wizard.ts
+ * eval/ui/wizard.ts
  *
  * Menú interactivo de consola (`--menu`): guía la elección de modelos, datasets, variantes y opciones, arma el
  * `argv` equivalente y, tras confirmar, lo devuelve para que la CLI lo ejecute como si se hubiera escrito a mano.
- * Sin dependencias: solo `node:readline`; el estilo de consola vive en `ui.ts`.
+ * Sin dependencias: solo `node:readline`; el estilo de consola vive en `style.ts`.
  */
 
 import { createInterface } from "node:readline/promises";
-import { DEFAULT_DECISION_MODEL, DEFAULT_MODEL } from "./core/config.ts";
-import { listDatasetNames } from "./core/datasets.ts";
-import { allStageNames } from "./core/stages/index.ts";
-import { listVariantNames } from "./core/variants/load.ts";
-import { box, c, columns, kvBox, say, stepHeader, sym } from "./ui.ts";
+import { DEFAULT_DECISION_MODEL, DEFAULT_MODEL } from "../core/config.ts";
+import { listDatasetNames } from "../core/datasets.ts";
+import { listVariantNames } from "../core/variants/load.ts";
+import { orderedStages } from "./order.ts";
+import { box, c, columns, kvBox, say, stepHeader, sym } from "./style.ts";
 
 class Cancelled extends Error { }
 
@@ -227,7 +227,7 @@ export async function runWizard(): Promise<string[] | null> {
 
     // 4. Etapas
     stepHeader(4, STEPS);
-    const stagePool: string[] = allStageNames();
+    const stagePool = orderedStages();
     const stages = await pickMany(ask, "Etapas disponibles", stagePool, {
       def: [],
       hint: "Números o nombres separados por coma  ·  Enter o 'a' = todas",

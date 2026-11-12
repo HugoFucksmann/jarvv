@@ -18,14 +18,7 @@ import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/clien
 import { parseConfig } from "./core/config.ts";
 import { loadDatasets } from "./core/datasets.ts";
 import type { InputCell } from "./core/report.ts";
-import {
-  generateComparisonReport,
-  printComparisonSummary,
-  printQuestionSummary,
-  printStageSummary,
-  printVariantSummary,
-  writeComparison,
-} from "./core/report.ts";
+import { generateComparisonReport, writeComparison } from "./core/report.ts";
 import { buildRunMeta, createCellWriter, newRunId, runRootDir, timestampDir } from "./core/results.ts";
 import { runDataset } from "./core/runner.ts";
 import { computeScoreSummary } from "./core/scoring.ts";
@@ -33,11 +26,13 @@ import { allStageNames } from "./core/stages/index.ts";
 import type { RunRecord, StageName } from "./core/types.ts";
 import { loadVariantSpec } from "./core/variants/load.ts";
 import type { Variant } from "./core/variants/types.ts";
-import { c, fail, fmtPct, section } from "./ui.ts";
-import { printHelp } from "./views/help.ts";
-import { printList } from "./views/list.ts";
-import { printCellResult, printCellStart, printDryRunHeader, printGlobalSummary, printRunConfig, recordLine } from "./views/run.ts";
-import { runWizard } from "./wizard.ts";
+import { fmtPct } from "./core/report-format.ts";
+import { c, fail, section } from "./ui/style.ts";
+import { printHelp } from "./ui/views/help.ts";
+import { printList } from "./ui/views/list.ts";
+import { printComparisonSummary, printQuestionSummary, printStageSummary, printVariantSummary } from "./ui/views/comparison.ts";
+import { printCellResult, printCellStart, printDryRunHeader, printGlobalSummary, printRunConfig, recordLine } from "./ui/views/run.ts";
+import { runWizard } from "./ui/wizard.ts";
 
 // ───────────────────────── Consola ─────────────────────────
 

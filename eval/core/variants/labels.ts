@@ -12,6 +12,7 @@ import {
   ARGS_REVIEWS,
   EXECUTABLE_ROUTES,
   isExecutableRoute,
+  JUDGE_FOUND,
   NOUL_APPROVE,
   parseAnswersObject,
   reviewOutcome,
@@ -20,6 +21,7 @@ import {
 import type {
   ArgsReviewOutput,
   ChoiceQ,
+  FragmentJudgeOutput,
   DecisionRequest,
   ResultVerificationOutput,
   RouteOutput,
@@ -44,7 +46,14 @@ export const MAIN_QUESTIONS: Record<string, readonly string[]> = {
   tool_choice: ["selected_tool"],
   args_review: ["review"],
   result_verification: ["ok", "cumple"],
+  // Una pregunta por fragmento (`f0`, `f1`…): las claves dependen del caso, ver `fragmentKeys`.
+  fragment_judge: [],
 };
+
+/** Claves de las preguntas por fragmento (`f0`, `f1`…) que trae un request, en orden. */
+export function fragmentKeys(req: DecisionRequest): string[] {
+  return Object.keys(req.questions).filter((k) => /^f\d+$/.test(k)).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+}
 
 // ───────────────────────── Parseo de la respuesta cruda ─────────────────────────
 
@@ -164,4 +173,33 @@ export function parseResultVerificationDecision(
     cumple = extractNoul(answers, "cumple");
   }
   return { ok: ok >= NOUL_APPROVE, cumple: cumple >= NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
+}
+
+/**
+ * Parsea la respuesta del juez de fragmentos (`Decision20Engine.score`): una probabilidad por pregunta `f<i>` enviada, en orden.
+ * Con `read` (la variante cambió las preguntas a choice/múltiples), traduce las respuestas a probabilities y relevant.
+ * Sin él, lee las preguntas `noul` de producción y `relevant` aplica `JUDGE_FOUND`.
+ */
+export function parseFragmentJudgeDecision(
+  rawOutput: string,
+  sentReq: DecisionRequest,
+  read?: DecisionReaders["fragment_judge"],
+): FragmentJudgeOutput {
+  const answers = parseAnswers(rawOutput);
+  const keys = fragmentKeys(sentReq);
+  if (keys.length === 0) throw new DecisionParseError("El request no trae preguntas de fragmento (f0, f1…).");
+
+  if (read) {
+    const values: Record<string, ReadAnswer> = {};
+    for (const [key, q] of Object.entries(sentReq.questions)) {
+      values[key] =
+        q.type === "noul"
+          ? { noul: extractNoul(answers, key) }
+          : { probabilities: extractChoice(answers, key, (q as ChoiceQ).criteria).probabilities };
+    }
+    return read(values);
+  }
+
+  const probabilities = keys.map((k) => extractNoul(answers, k));
+  return { probabilities, relevant: probabilities.map((p) => p >= JUDGE_FOUND) };
 }

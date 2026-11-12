@@ -1,0 +1,226 @@
+is_error: False
+structured_content: {
+  "question": "cuándo salió Node 22",
+  "engines": [
+    "duckduckgo",
+    "yahoojp",
+    "anysearch"
+  ],
+  "sources": [
+    {
+      "rank": 1,
+      "title": "Node.js 22 is now available!",
+      "url": "https://nodejs.org/en/blog/announcements/v22-release-announce",
+      "snippet": "Node.js® is a free, open-source, cross-platform JavaScript runtime environment that lets developers create servers, web apps, command line tools and scripts.",
+      "engines": [
+        "anysearch",
+        "youcom"
+      ],
+      "score": 0.03279,
+      "published_age": "2024-04-24",
+      "date_source": "snippet"
+    },
+    {
+      "rank": 2,
+      "title": "El cambio en la gestión de memoria en Node.js 22, el ... - Reddit",
+      "url": "https://www.reddit.com/r/node/comments/1skrx17/the_memory_management_change_in_nodejs_22_the/?tl=es-419",
+      "snippet": "2026/4/13 -Un matiz esencial en la gestión de memoria de V8 surgió alrededor del ciclo de lanzamiento de Node.js v22 con respecto a cómo se determina ...",
+      "engines": [
+        "anysearch",
+        "yahoojp"
+      ],
+      "score": 0.03128,
+      "published_age": "2026-04-13",
+      "date_source": "snippet",
+      "source_type": "forum"
+    },
+    {
+      "rank": 3,
+      "title": "What's New in Node.js 22 - AppSignal Blog",
+      "url": "https://blog.appsignal.com/2024/05/07/whats-new-in-nodejs-22.html",
+      "snippet": "2024/5/7 -Node.js 22 has been released, offering a compelling upgrade for developers. It takes over the 'Current' release line, while v21 transitions ...",
+      "engines": [
+        "anysearch",
+        "yahoojp"
+      ],
+      "score": 0.03128,
+      "published_age": "2024-05-07",
+      "date_source": "snippet"
+    }
+  ],
+  "documents": [
+    {
+      "url": "https://nodejs.org/en/blog/announcements/v22-release-announce",
+      "title": "Node.js — Node.js 22 is now available!",
+      "content": "# Node.js 22 is now available!\n\nThe Node.js Project\n\nWe're excited to announce the release of Node.js 22! Highlights include require()ing ES modules, a WebSocket client, updates of the V8 JavaScript engine, and more!\n\nNode.js 22 will enter long-term support (LTS) in October, but until then, it will be the \"Current\" release for the next six months. We encourage you to explore the new features and benefits offered by this latest release and evaluate their potential impact on your applications.\n\nThe project continues to make progress across a number of areas, with many new features and fixes flowing into existing LTS releases.\nFor that reason, the changes outlined in the [changelog](https://github.com/nodejs/node/releases/tag/v22.0.0) for Node.js 22 only represent a small subset of the features and\nwork since the last major release. This blog post will add some additional context on the larger body of work in relation to those changes.\n\nYou can read more about our release policy at [https://github.com/nodejs/release](https://github.com/nodejs/release).\n\nTo download Node.js 22.0.0, visit: [https://nodejs.org/download/current/](https://nodejs.org/en/download/current/). You can find the release post at [https://nodejs.org/blog/release/v22.0.0](https://nodejs.org/en/blog/release/v22.0.0),\nwhich contains the full list of commits included in this release.\n\nThe V8 release 12.4 includes new features like WebAssembly Garbage Collection, [Array.fromAsync](https://tc39.es/proposal-array-from-async/), [Set methods](https://tc39.es/proposal-set-methods/) and [iterator helpers](https://tc39.es/proposal-iterator-helpers/).\n\nContributed by Michaël Zasso in [#52465](https://github.com/nodejs/node/pull/52465)\n\nV8's Maglev Compiler is now enabled by default on supported architectures ([https://v8.dev/blog/maglev](https://v8.dev/blog/maglev)).\nMaglev improves performance for short-lived CLI programs.\n\nContributed by Keyhan Vakil in [#51360](https://github.com/nodejs/node/pull/51360)\n\nThis release adds `require()` support for synchronous ESM graphs under\nthe flag `--experimental-require-module`.\n\nIf `--experimental-require-module` is enabled, and the ECMAScript\nmodule being loaded by `require()` meets the following requirements:\n\n- Explicitly marked as an ES module with a \"type\": \"module\" field in the closest package.json or a .mjs extension.\n- Fully synchronous (contains no top-level await).\n\n`require()` will load the requested module as an ES Module, and return\nthe module name space object. In this case it is similar to dynamic\n`import()` but is run synchronously and returns the name space object\ndirectly.\nWe intend to eventually enable `require(esm)` by default in the future, without\nthe flag.\n\nContributed by Joyee Cheung in [#51977](https://github.com/nodejs/node/pull/51977)\n\nNode.js 22 includes a new experimental feature for the execution of scripts from the `package.json` with the cli flag `node --run <script-in-package-json>`.\nIt also supports `node --run test` which executes the test command inside `package.json` scripts.\n\nContributed by Yagiz Nizipli [#52190](https://github.com/nodejs/node/pull/52190)\n\nIncreased the default High Water Mark for streams from 16KiB to 64KiB.\nThis provides a performance boost across the board at the cost of slightly higher memory usage.\nUsers in memory sensitive environments are encouraged to explicitly set `setDefaultHighWaterMark`.\n\nContributed by Robert Nagy in [#52037](https://github.com/nodejs/node/pull/52037)\n\nFrom this release Watch Mode is considered stable. When in watch mode, changes in the watched files cause the Node.js process to restart.\n\nContributed by Moshe Atlow [#52074](https://github.com/nodejs/node/pull/52074)\n\nThe browser-compatible implementation of WebSocket, previously behind the flag `--experimental-websocket`, will be enabled by default.\nThis provides a WebSocket client to Node.js without external dependencies.\n\nContributed by the Undici team and Aras Abbasi in [#51594](https://github.com/nodejs/node/pull/51594)\n\nThis release adds to the `node:fs`module the functions `glob` and `globSync` for pattern matching.\nDevelopers can now utilize these functions for matching file paths based on specified patterns.\n\nContributed by Moshe Atlow [#51912](https://github.com/nodejs/node/pull/51912)\n\nThis release enhances the efficiency of creating `AbortSignal` instances, leading to significantly improved performance in `fetch` and the test runner.\n\nContributed by Raz Luvaton in [#52505](https://github.com/nodejs/node/pull/52505)\n\nTry out the new Node.js 22 release! We’re always happy to hear your feedback. Testing your applications and modules with Node.js 22 helps to ensure the future compatibility of your project with the latest Node.js changes and features.\n\nAlso of note is that Node.js 18 will go End-of-Life in April 2025, so we advise you to start planning to upgrade to Node.js 20 (LTS) or Node.js 22 (soon to be LTS).\n\nLooking to the future, the [Next-10](https://github.com/nodejs/next-10) team is running a survey to gather info from the ecosystem. Help shape the future of Node.js by participating. Submit your feedback [here](https://linuxfoundation.surveymonkey.com/r/nodenext10survey24).",
+      "method": "cache",
+      "truncated": false,
+      "tokens_estimated": 1304,
+      "author": "",
+      "published_date": "2024-04-24",
+      "sitename": "Node.js",
+      "retrieved_at": "2026-11-12T03:07:06Z",
+      "cache_age_seconds": 2
+    },
+    {
+      "url": "https://www.reddit.com/r/node/comments/1skrx17/the_memory_management_change_in_nodejs_22_the/?tl=es-419",
+      "title": "Prove your humanity",
+      "content": "# Prove your humanity\n\nWe’re committed to safety and security. But not for bots. Complete the challenge below and let us know you’re a real person.",
+      "method": "cache",
+      "truncated": false,
+      "tokens_estimated": 36,
+      "author": "",
+      "published_date": "2026-01-01",
+      "sitename": "",
+      "retrieved_at": "2026-11-12T03:07:05Z",
+      "cache_age_seconds": 3
+    },
+    {
+      "url": "https://blog.appsignal.com/2024/05/07/whats-new-in-nodejs-22.html",
+      "title": "What's New in Node.js 22 | AppSignal Blog",
+      "content": "[Node.js 22](https://nodejs.org/en/blog/release/v22.0.0) has been released,\noffering a compelling upgrade for developers. It takes over the 'Current'\nrelease line, while v21 transitions into maintenance mode until its end-of-life\nin June.\n\nThis release delivers advances like a stabilized Watch mode, pattern matching\nsupport in the `fs` module, a default-enabled WebSocket client, and a new\n`--run` flag for script execution. It also offers some performance improvements\nand the usual V8 engine upgrade.\n\nLet's dive in and explore all that Node.js v22 brings to the table!\n\n[Node.js 18.11.0](https://nodejs.org/en/blog/release/v18.11.0) introduced an\nincredibly useful `--watch` flag that allowed the\nNode.js process to automatically restart any time an imported file was changed.\n\nTo use this functionality, you execute a command like this:\n\nThe command would watch your `server.js` file and restart the process when it\ndetected changes were made to the file or any of its imported modules.\n\nYou could also use the companion `--watch-path` flag (supported on macOS and\nWindows only) to specify the exact paths that should be monitored for changes,\nlike this:\n\nHowever, because watch mode was marked as experimental, the below warning resulted whenever it was used:\n\nWith the release of Node.js 22, this feature has been stabilized, so this warning\nno longer appears. While you could previously use a third-party tool like\n[nodemon](https://www.npmjs.com/package/nodemon), this update removes the need\nfor a dependency by adding it directly to Node.js core.\n\nIn the\n[previous Node 21 release](https://blog.appsignal.com/2023/10/25/whats-new-in-nodejs-21.html),\na built-in browser-compatible\n[WebSocket client](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket),\nas standardized by WHATWG, was added under the `--experimental-websocket` flag.\n\nTo use it, you had to run:\n\nIn Node.js 22, you no longer need to use the `--experimental-websocket` flag as\nthe `WebSocket` global is now enabled by default. This means you can now open\nbidirectional communication channels between client and server without\ninstalling external dependencies.\n\nThis release introduces an experimental `--run` flag, which provides a faster\nalternative to `npm run` for executing scripts defined in `package.json` files.\nAssuming you have a `test` script in your `package.json`, you can now execute it\nwith:\n\nOn my machine, this runs twice as fast as `npm run test`:\n\nNote that the goal of `--run` isn't to match all the behaviors of `npm run`, but\nto provide better performance in the most common cases. You can see a summary of\nits limitations in the\n[Node docs](https://nodejs.org/docs/latest/api/cli.html#intentional-limitations).\n\nTo improve interoperability between ES Modules and the older CommonJS system, a\nnew `--experimental-require-module` has been added to import ES\nModules through `require()`. Here's how it works:\n\nWhen you execute the `index.js` file with the `--experimental-require-module`:\n\nYou will observe the following output:\n\nFor this to work, the following requirements must be met by the imported ES module:\n\n- It must be explicitly marked as an ES module through the `.mjs` extension, or\nwith `\"type\": \"module\"` in the closest `package.json` file.\n- It must be fully synchronous, without a top-level `await`.\n\nThe goal is to eventually enable this behavior by default in a future release.\n\nNode.js 22 also introduces new APIs to the `node:fs` module for pattern\nmatching. These are the `glob` and `globSync` methods that can be used for\nmatching file paths based on the supplied\n[glob pattern](https://man7.org/linux/man-pages/man7/glob.7.html).\n\nYou can use it via `node:fs` or `node:fs/promises`:\n\nNote that this feature is currently marked as experimental, so you may see the following warning message when the API is used:\n\nCreating `AbortSignal` instances is now significantly faster in Node.js 22. This\nclass is used to notify observers when the `abortController.abort()` method is\ncalled. These enhancements directly benefit high-level APIs that utilize this\nclass, such as `fetch` and the Node.js test runner.\n\nThe `highWaterMark` parameter, which controls the internal buffer size for\nstreams, has been increased from 16KiB to 64KiB in Node.js 22. This change\noffers potential performance improvements across the board. However, the\nincrease might lead to slightly higher memory consumption. For memory-sensitive\napplications, explicitly setting the buffer size with `setDefaultHighWaterMark`\nis recommended.\n\nNode.js 22 ships with a customary upgrade to the V8 JavaScript engine, which brings several enhancements:\n\n- [WebAssembly Garbage Collection](https://developer.chrome.com/blog/wasmgc) for\nimproved memory management.\n- Support for new JavaScript features, including\n[Array.fromAsync()](https://tc39.es/proposal-array-from-async/), [Set methods](https://tc39.es/proposal-set-methods/), and [Iterator helpers](https://tc39.es/proposal-iterator-helpers/).\n- The [Maglev](https://v8.dev/blog/maglev) compiler is enabled by default for\nsupported architectures, bringing performance boosts for short-lived CLI\nprograms.\n\nNode.js 22, as an even-numbered release, is on track to become a Long-Term Support (LTS) version in October. This means guaranteed support and security updates until April 2027. However, until its LTS promotion, it will remain as the 'Current' release.\n\nIt's not necessary to upgrade to Node.js 22 in your production environment on day one. However, we advise that you explore the new features and improvements this version offers and its potential impact on your applications before performing the upgrade at a convenient time.\n\nReady to experience the latest features in Node.js 22? Here's how to upgrade:\n\n- Visit the official\n[Node.js download page](https://nodejs.org/en/download/current/)\n- Choose the installer that matches your operating system and architecture, and install it as you normally would.\n\nFor greater flexibility in managing multiple versions of Node.js simultaneously,\nconsider a version management tool like [Volta](https://volta.sh/):\n\n- Install the Volta CLI (refer to the\n[Volta documentation](https://docs.volta.sh/guide/getting-started)).\n- Use the following command to install or upgrade to Node.js 22:\n\nThis output confirms the installation is successful:\n\nNode.js v22 introduces numerous improvements in tooling, language features, standard library additions, and performance optimizations. These enhancements further solidify its position as the premier JavaScript runtime for modern web development.\n\nFor a complete breakdown of bug fixes, new features, and other changes, refer to\nthe official\n[Node.js v22 release notes](https://nodejs.org/en/blog/release/v22.0.0).\n\nIf you're interested in getting involved with its development, explore\n[Node's open issues](https://github.com/nodejs/node/issues?q=is%3Aissue+is%3Aopen+sort%3Aupdated-desc)\nand the\n[Node contribution guidelines](https://github.com/nodejs/node/blob/main/CONTRIBUTING.md)\non GitHub.\n\nThanks for reading!\n\n**P.S. If you liked this post, [subscribe to our JavaScript Sorcery list](https://blog.appsignal.com/javascript-sorcery) for a monthly deep dive into more magical JavaScript tips and tricks.**\n\n**P.P.S. If you need an APM for your Node.js app, go and [check out the AppSignal APM for Node.js](https://www.appsignal.com/nodejs).**\n\nPublished\n\n## Wondering what you can do next?\n\n## AppSignal monitors your apps\n\nAppSignal provides insights for Ruby, Rails, Elixir, Phoenix, Node.js, Express and many other frameworks and libraries. We are located in beautiful Amsterdam. We love [stroopwafels](https://www.appsignal.com/waffles). If you do too, [let us know](mailto:contact@appsignal.com). We might send you some!\n\n[Discover AppSignal](https://www.appsignal.com)",
+      "method": "cache",
+      "truncated": false,
+      "tokens_estimated": 1952,
+      "author": "Damilola Olatunji",
+      "published_date": "2024-05-07",
+      "sitename": "AppSignal",
+      "retrieved_at": "2026-11-11T01:03:48Z",
+      "cache_age_seconds": 93800
+    }
+  ],
+  "tokens_estimated": 3292,
+  "errors": null,
+  "retrieved_at": "2026-11-12T03:07:05Z",
+  "search_cache_age_seconds": 3,
+  "date_note": "Dated sources span 2024-04-24 to 2026-01-01. Where they disagree, prefer the newer one and say which you used.",
+  "gated_engines": {
+    "duckduckgo": {
+      "reason": "browser_unavailable",
+      "fallback": "youcom"
+    }
+  },
+  "gated_hint": "duckduckgo needed a browser render that is unavailable → served via youcom. Install the browser with `uv run playwright install chromium` (source checkout) or `uvx --from free-search-mcp playwright install chromium` (uvx/PyPI install), then restart the server.",
+  "benched_engines": {
+    "bing": {
+      "reason": "off_topic",
+      "retry_in_seconds": 542,
+      "substitute": null
+    }
+  },
+  "benched_hint": "bing is benched (off_topic; retried in ~9 min). A benched engine failed recently and was not asked this time. Name it in `engines=` to force an attempt.",
+  "rescued_via": "youcom"
+}
+--- content ---
+{
+  "question": "cuándo salió Node 22",
+  "engines": [
+    "duckduckgo",
+    "yahoojp",
+    "anysearch"
+  ],
+  "sources": [
+    {
+      "rank": 1,
+      "title": "Node.js 22 is now available!",
+      "url": "https://nodejs.org/en/blog/announcements/v22-release-announce",
+      "snippet": "Node.js® is a free, open-source, cross-platform JavaScript runtime environment that lets developers create servers, web apps, command line tools and scripts.",
+      "engines": [
+        "anysearch",
+        "youcom"
+      ],
+      "score": 0.03279,
+      "published_age": "2024-04-24",
+      "date_source": "snippet"
+    },
+    {
+      "rank": 2,
+      "title": "El cambio en la gestión de memoria en Node.js 22, el ... - Reddit",
+      "url": "https://www.reddit.com/r/node/comments/1skrx17/the_memory_management_change_in_nodejs_22_the/?tl=es-419",
+      "snippet": "2026/4/13 -Un matiz esencial en la gestión de memoria de V8 surgió alrededor del ciclo de lanzamiento de Node.js v22 con respecto a cómo se determina ...",
+      "engines": [
+        "anysearch",
+        "yahoojp"
+      ],
+      "score": 0.03128,
+      "published_age": "2026-04-13",
+      "date_source": "snippet",
+      "source_type": "forum"
+    },
+    {
+      "rank": 3,
+      "title": "What's New in Node.js 22 - AppSignal Blog",
+      "url": "https://blog.appsignal.com/2024/05/07/whats-new-in-nodejs-22.html",
+      "snippet": "2024/5/7 -Node.js 22 has been released, offering a compelling upgrade for developers. It takes over the 'Current' release line, while v21 transitions ...",
+      "engines": [
+        "anysearch",
+        "yahoojp"
+      ],
+      "score": 0.03128,
+      "published_age": "2024-05-07",
+      "date_source": "snippet"
+    }
+  ],
+  "documents": [
+    {
+      "url": "https://nodejs.org/en/blog/announcements/v22-release-announce",
+      "title": "Node.js — Node.js 22 is now available!",
+      "content": "# Node.js 22 is now available!\n\nThe Node.js Project\n\nWe're excited to announce the release of Node.js 22! Highlights include require()ing ES modules, a WebSocket client, updates of the V8 JavaScript engine, and more!\n\nNode.js 22 will enter long-term support (LTS) in October, but until then, it will be the \"Current\" release for the next six months. We encourage you to explore the new features and benefits offered by this latest release and evaluate their potential impact on your applications.\n\nThe project continues to make progress across a number of areas, with many new features and fixes flowing into existing LTS releases.\nFor that reason, the changes outlined in the [changelog](https://github.com/nodejs/node/releases/tag/v22.0.0) for Node.js 22 only represent a small subset of the features and\nwork since the last major release. This blog post will add some additional context on the larger body of work in relation to those changes.\n\nYou can read more about our release policy at [https://github.com/nodejs/release](https://github.com/nodejs/release).\n\nTo download Node.js 22.0.0, visit: [https://nodejs.org/download/current/](https://nodejs.org/en/download/current/). You can find the release post at [https://nodejs.org/blog/release/v22.0.0](https://nodejs.org/en/blog/release/v22.0.0),\nwhich contains the full list of commits included in this release.\n\nThe V8 release 12.4 includes new features like WebAssembly Garbage Collection, [Array.fromAsync](https://tc39.es/proposal-array-from-async/), [Set methods](https://tc39.es/proposal-set-methods/) and [iterator helpers](https://tc39.es/proposal-iterator-helpers/).\n\nContributed by Michaël Zasso in [#52465](https://github.com/nodejs/node/pull/52465)\n\nV8's Maglev Compiler is now enabled by default on supported architectures ([https://v8.dev/blog/maglev](https://v8.dev/blog/maglev)).\nMaglev improves performance for short-lived CLI programs.\n\nContributed by Keyhan Vakil in [#51360](https://github.com/nodejs/node/pull/51360)\n\nThis release adds `require()` support for synchronous ESM graphs under\nthe flag `--experimental-require-module`.\n\nIf `--experimental-require-module` is enabled, and the ECMAScript\nmodule being loaded by `require()` meets the following requirements:\n\n- Explicitly marked as an ES module with a \"type\": \"module\" field in the closest package.json or a .mjs extension.\n- Fully synchronous (contains no top-level await).\n\n`require()` will load the requested module as an ES Module, and return\nthe module name space object. In this case it is similar to dynamic\n`import()` but is run synchronously and returns the name space object\ndirectly.\nWe intend to eventually enable `require(esm)` by default in the future, without\nthe flag.\n\nContributed by Joyee Cheung in [#51977](https://github.com/nodejs/node/pull/51977)\n\nNode.js 22 includes a new experimental feature for the execution of scripts from the `package.json` with the cli flag `node --run <script-in-package-json>`.\nIt also supports `node --run test` which executes the test command inside `package.json` scripts.\n\nContributed by Yagiz Nizipli [#52190](https://github.com/nodejs/node/pull/52190)\n\nIncreased the default High Water Mark for streams from 16KiB to 64KiB.\nThis provides a performance boost across the board at the cost of slightly higher memory usage.\nUsers in memory sensitive environments are encouraged to explicitly set `setDefaultHighWaterMark`.\n\nContributed by Robert Nagy in [#52037](https://github.com/nodejs/node/pull/52037)\n\nFrom this release Watch Mode is considered stable. When in watch mode, changes in the watched files cause the Node.js process to restart.\n\nContributed by Moshe Atlow [#52074](https://github.com/nodejs/node/pull/52074)\n\nThe browser-compatible implementation of WebSocket, previously behind the flag `--experimental-websocket`, will be enabled by default.\nThis provides a WebSocket client to Node.js without external dependencies.\n\nContributed by the Undici team and Aras Abbasi in [#51594](https://github.com/nodejs/node/pull/51594)\n\nThis release adds to the `node:fs`module the functions `glob` and `globSync` for pattern matching.\nDevelopers can now utilize these functions for matching file paths based on specified patterns.\n\nContributed by Moshe Atlow [#51912](https://github.com/nodejs/node/pull/51912)\n\nThis release enhances the efficiency of creating `AbortSignal` instances, leading to significantly improved performance in `fetch` and the test runner.\n\nContributed by Raz Luvaton in [#52505](https://github.com/nodejs/node/pull/52505)\n\nTry out the new Node.js 22 release! We’re always happy to hear your feedback. Testing your applications and modules with Node.js 22 helps to ensure the future compatibility of your project with the latest Node.js changes and features.\n\nAlso of note is that Node.js 18 will go End-of-Life in April 2025, so we advise you to start planning to upgrade to Node.js 20 (LTS) or Node.js 22 (soon to be LTS).\n\nLooking to the future, the [Next-10](https://github.com/nodejs/next-10) team is running a survey to gather info from the ecosystem. Help shape the future of Node.js by participating. Submit your feedback [here](https://linuxfoundation.surveymonkey.com/r/nodenext10survey24).",
+      "method": "cache",
+      "truncated": false,
+      "tokens_estimated": 1304,
+      "author": "",
+      "published_date": "2024-04-24",
+      "sitename": "Node.js",
+      "retrieved_at": "2026-11-12T03:07:06Z",
+      "cache_age_seconds": 2
+    },
+    {
+      "url": "https://www.reddit.com/r/node/comments/1skrx17/the_memory_management_change_in_nodejs_22_the/?tl=es-419",
+      "title": "Prove your humanity",
+      "content": "# Prove your humanity\n\nWe’re committed to safety and security. But not for bots. Complete the challenge below and let us know you’re a real person.",
+      "method": "cache",
+      "truncated": false,
+      "tokens_estimated": 36,
+      "author": "",
+      "published_date": "2026-01-01",
+      "sitename": "",
+      "retrieved_at": "2026-11-12T03:07:05Z",
+      "cache_age_seconds": 3
+    },
+    {
+      "url": "https://blog.appsignal.com/2024/05/07/whats-new-in-nodejs-22.html",
+      "title": "What's New in Node.js 22 | AppSignal Blog",
+      "content": "[Node.js 22](https://nodejs.org/en/blog/release/v22.0.0) has been released,\noffering a compelling upgrade for developers. It takes over the 'Current'\nrelease line, while v21 transitions into maintenance mode until its end-of-life\nin June.\n\nThis release delivers advances like a stabilized Watch mode, pattern matching\nsupport in the `fs` module, a default-enabled WebSocket client, and a new\n`--run` flag for script execution. It also offers some performance improvements\nand the usual V8 engine upgrade.\n\nLet's dive in and explore all that Node.js v22 brings to the table!\n\n[Node.js 18.11.0](https://nodejs.org/en/blog/release/v18.11.0) introduced an\nincredibly useful `--watch` flag that allowed the\nNode.js process to automatically restart any time an imported file was changed.\n\nTo use this functionality, you execute a command like this:\n\nThe command would watch your `server.js` file and restart the process when it\ndetected changes were made to the file or any of its imported modules.\n\nYou could also use the companion `--watch-path` flag (supported on macOS and\nWindows only) to specify the exact paths that should be monitored for changes,\nlike this:\n\nHowever, because watch mode was marked as experimental, the below warning resulted whenever it was used:\n\nWith the release of Node.js 22, this feature has been stabilized, so this warning\nno longer appears. While you could previously use a third-party tool like\n[nodemon](https://www.npmjs.com/package/nodemon), this update removes the need\nfor a dependency by adding it directly to Node.js core.\n\nIn the\n[previous Node 21 release](https://blog.appsignal.com/2023/10/25/whats-new-in-nodejs-21.html),\na built-in browser-compatible\n[WebSocket client](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket),\nas standardized by WHATWG, was added under the `--experimental-websocket` flag.\n\nTo use it, you had to run:\n\nIn Node.js 22, you no longer need to use the `--experimental-websocket` flag as\nthe `WebSocket` global is now enabled by default. This means you can now open\nbidirectional communication channels between client and server without\ninstalling external dependencies.\n\nThis release introduces an experimental `--run` flag, which provides a faster\nalternative to `npm run` for executing scripts defined in `package.json` files.\nAssuming you have a `test` script in your `package.json`, you can now execute it\nwith:\n\nOn my machine, this runs twice as fast as `npm run test`:\n\nNote that the goal of `--run` isn't to match all the behaviors of `npm run`, but\nto provide better performance in the most common cases. You can see a summary of\nits limitations in the\n[Node docs](https://nodejs.org/docs/latest/api/cli.html#intentional-limitations).\n\nTo improve interoperability between ES Modules and the older CommonJS system, a\nnew `--experimental-require-module` has been added to import ES\nModules through `require()`. Here's how it works:\n\nWhen you execute the `index.js` file with the `--experimental-require-module`:\n\nYou will observe the following output:\n\nFor this to work, the following requirements must be met by the imported ES module:\n\n- It must be explicitly marked as an ES module through the `.mjs` extension, or\nwith `\"type\": \"module\"` in the closest `package.json` file.\n- It must be fully synchronous, without a top-level `await`.\n\nThe goal is to eventually enable this behavior by default in a future release.\n\nNode.js 22 also introduces new APIs to the `node:fs` module for pattern\nmatching. These are the `glob` and `globSync` methods that can be used for\nmatching file paths based on the supplied\n[glob pattern](https://man7.org/linux/man-pages/man7/glob.7.html).\n\nYou can use it via `node:fs` or `node:fs/promises`:\n\nNote that this feature is currently marked as experimental, so you may see the following warning message when the API is used:\n\nCreating `AbortSignal` instances is now significantly faster in Node.js 22. This\nclass is used to notify observers when the `abortController.abort()` method is\ncalled. These enhancements directly benefit high-level APIs that utilize this\nclass, such as `fetch` and the Node.js test runner.\n\nThe `highWaterMark` parameter, which controls the internal buffer size for\nstreams, has been increased from 16KiB to 64KiB in Node.js 22. This change\noffers potential performance improvements across the board. However, the\nincrease might lead to slightly higher memory consumption. For memory-sensitive\napplications, explicitly setting the buffer size with `setDefaultHighWaterMark`\nis recommended.\n\nNode.js 22 ships with a customary upgrade to the V8 JavaScript engine, which brings several enhancements:\n\n- [WebAssembly Garbage Collection](https://developer.chrome.com/blog/wasmgc) for\nimproved memory management.\n- Support for new JavaScript features, including\n[Array.fromAsync()](https://tc39.es/proposal-array-from-async/), [Set methods](https://tc39.es/proposal-set-methods/), and [Iterator helpers](https://tc39.es/proposal-iterator-helpers/).\n- The [Maglev](https://v8.dev/blog/maglev) compiler is enabled by default for\nsupported architectures, bringing performance boosts for short-lived CLI\nprograms.\n\nNode.js 22, as an even-numbered release, is on track to become a Long-Term Support (LTS) version in October. This means guaranteed support and security updates until April 2027. However, until its LTS promotion, it will remain as the 'Current' release.\n\nIt's not necessary to upgrade to Node.js 22 in your production environment on day one. However, we advise that you explore the new features and improvements this version offers and its potential impact on your applications before performing the upgrade at a convenient time.\n\nReady to experience the latest features in Node.js 22? Here's how to upgrade:\n\n- Visit the official\n[Node.js download page](https://nodejs.org/en/download/current/)\n- Choose the installer that matches your operating system and architecture, and install it as you normally would.\n\nFor greater flexibility in managing multiple versions of Node.js simultaneously,\nconsider a version management tool like [Volta](https://volta.sh/):\n\n- Install the Volta CLI (refer to the\n[Volta documentation](https://docs.volta.sh/guide/getting-started)).\n- Use the following command to install or upgrade to Node.js 22:\n\nThis output confirms the installation is successful:\n\nNode.js v22 introduces numerous improvements in tooling, language features, standard library additions, and performance optimizations. These enhancements further solidify its position as the premier JavaScript runtime for modern web development.\n\nFor a complete breakdown of bug fixes, new features, and other changes, refer to\nthe official\n[Node.js v22 release notes](https://nodejs.org/en/blog/release/v22.0.0).\n\nIf you're interested in getting involved with its development, explore\n[Node's open issues](https://github.com/nodejs/node/issues?q=is%3Aissue+is%3Aopen+sort%3Aupdated-desc)\nand the\n[Node contribution guidelines](https://github.com/nodejs/node/blob/main/CONTRIBUTING.md)\non GitHub.\n\nThanks for reading!\n\n**P.S. If you liked this post, [subscribe to our JavaScript Sorcery list](https://blog.appsignal.com/javascript-sorcery) for a monthly deep dive into more magical JavaScript tips and tricks.**\n\n**P.P.S. If you need an APM for your Node.js app, go and [check out the AppSignal APM for Node.js](https://www.appsignal.com/nodejs).**\n\nPublished\n\n## Wondering what you can do next?\n\n## AppSignal monitors your apps\n\nAppSignal provides insights for Ruby, Rails, Elixir, Phoenix, Node.js, Express and many other frameworks and libraries. We are located in beautiful Amsterdam. We love [stroopwafels](https://www.appsignal.com/waffles). If you do too, [let us know](mailto:contact@appsignal.com). We might send you some!\n\n[Discover AppSignal](https://www.appsignal.com)",
+      "method": "cache",
+      "truncated": false,
+      "tokens_estimated": 1952,
+      "author": "Damilola Olatunji",
+      "published_date": "2024-05-07",
+      "sitename": "AppSignal",
+      "retrieved_at": "2026-11-11T01:03:48Z",
+      "cache_age_seconds": 93800
+    }
+  ],
+  "tokens_estimated": 3292,
+  "errors": null,
+  "retrieved_at": "2026-11-12T03:07:05Z",
+  "search_cache_age_seconds": 3,
+  "date_note": "Dated sources span 2024-04-24 to 2026-01-01. Where they disagree, prefer the newer one and say which you used.",
+  "gated_engines": {
+    "duckduckgo": {
+      "reason": "browser_unavailable",
+      "fallback": "youcom"
+    }
+  },
+  "gated_hint": "duckduckgo needed a browser render that is unavailable → served via youcom. Install the browser with `uv run playwright install chromium` (source checkout) or `uvx --from free-search-mcp playwright install chromium` (uvx/PyPI install), then restart the server.",
+  "benched_engines": {
+    "bing": {
+      "reason": "off_topic",
+      "retry_in_seconds": 542,
+      "substitute": null
+    }
+  },
+  "benched_hint": "bing is benched (off_topic; retried in ~9 min). A benched engine failed recently and was not asked this time. Name it in `engines=` to force an attempt.",
+  "rescued_via": "youcom"
+}

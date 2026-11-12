@@ -1,10 +1,10 @@
 /**
- * eval/views/help.ts
+ * eval/ui/views/help.ts
  *
  * Vista de `--help`.
  */
 
-import { box, c, kv, section, sym } from "../ui.ts";
+import { box, c, kv, section, sym } from "../style.ts";
 
 export function printHelp(): void {
   console.log();

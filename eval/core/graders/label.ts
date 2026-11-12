@@ -7,6 +7,8 @@
 import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
+  FragmentJudgeExpect,
+  FragmentJudgeOutput,
   Grader,
   GraderCollector,
   ResultVerificationExpect,
@@ -126,5 +128,31 @@ export const ResultVerificationGrader: Grader<ResultVerificationOutput, ResultVe
     if (expect.minCumpleProb !== undefined) {
       checkMinProbability(col, "min_cumple_prob_met", "cumple", output.cumpleProbability, expect.minCumpleProb);
     }
+  },
+};
+
+export const FragmentJudgeGrader: Grader<FragmentJudgeOutput, FragmentJudgeExpect> = {
+  name: "fragment_judge",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("judge_valid", false, "No se pudo obtener el puntaje de los fragmentos.");
+      return;
+    }
+    col.check(
+      "fragment_count_match",
+      output.relevant.length === expect.expectedRelevant.length,
+      `El juez puntuó ${output.relevant.length} fragmentos y el caso espera ${expect.expectedRelevant.length}.`,
+    );
+    expect.expectedRelevant.forEach((want, i) => {
+      const p = output.probabilities[i];
+      if (p === undefined) return;
+      col.measure(`f${i}_prob`, p);
+      col.check(
+        `fragment_${i}_match`,
+        output.relevant[i] === want,
+        `Fragmento ${i}: el juez dice ${output.relevant[i] ? "relevante" : "no relevante"} (p=${p.toFixed(3)}) y se esperaba ${want ? "relevante" : "no relevante"}.`,
+      );
+      if (want) checkMinProbability(col, `fragment_${i}_min_probability`, `f${i}`, p, expect.minProbability);
+    });
   },
 };

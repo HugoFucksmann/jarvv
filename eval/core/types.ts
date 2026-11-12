@@ -14,7 +14,7 @@ export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
-export type DecisionStage = "route" | "tool_choice" | "args_review" | "result_verification";
+export type DecisionStage = "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge";
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
@@ -148,6 +148,21 @@ export interface ResultVerificationOutput {
   cumpleProbability: number;
 }
 
+// fragment_judge (juez de fragmentos de `web_search`)
+export interface FragmentJudgeExpect {
+  /** Un valor por fragmento, en orden: ¿responde el fragmento la pregunta? (probabilidad >= `JUDGE_FOUND`, como el estado `found` de producción). */
+  expectedRelevant: boolean[];
+  /** Probabilidad mínima de "sí" en los fragmentos esperados como relevantes. */
+  minProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface FragmentJudgeOutput {
+  /** Probabilidad de "sí" de cada fragmento, en el orden enviado. */
+  probabilities: number[];
+  /** `probabilities[i] >= JUDGE_FOUND`. */
+  relevant: boolean[];
+}
+
 // plan
 export interface PlanStep {
   goal: string;
@@ -224,6 +239,7 @@ export type StageExpect =
   | ToolChoiceExpect
   | ArgsReviewExpect
   | ResultVerificationExpect
+  | FragmentJudgeExpect
   | PlanExpect
   | ArgumentsExpect
   | FinalExpect
@@ -253,6 +269,8 @@ export interface DecisionReaders {
   args_review?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
   /** `result_verification`: de las respuestas de todas las preguntas enviadas a las probabilidades de `ok` y `cumple`. */
   result_verification?: (answers: Record<string, ReadAnswer>) => { ok: number; cumple: number };
+  /** `fragment_judge`: de las respuestas enviadas por pregunta a las probabilidades o relevancia por fragmento. */
+  fragment_judge?: (answers: Record<string, ReadAnswer>) => { probabilities: number[]; relevant: boolean[] };
 }
 
 /**

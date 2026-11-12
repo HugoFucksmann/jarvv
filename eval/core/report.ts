@@ -1,18 +1,16 @@
 /**
  * eval/core/report.ts
  *
- * Genera comparison.json y comparison.md, y el resumen en consola.
- * Sección 9 del plan de implementación.
+ * Calcula el reporte de comparación y escribe comparison.json y comparison.md.
+ * El formato compartido vive en `report-format.ts`; el resumen en consola, en `ui/views/comparison.ts`.
  */
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DECISION_STAGES } from "./case.ts";
 import { hasLatency, isDecisionCorrect, percentile } from "./scoring.ts";
+import { fmtDeltaMs, fmtDeltaPct, fmtMs, fmtP95, fmtPct, MIN_P95_SAMPLES, variantTableHead, variantTableRows } from "./report-format.ts";
 import type { GlobalScoreSummary, QuestionCross, QuestionScore, RunRecord, StageName } from "./types.ts";
-
-/** Por debajo de esto, el p95 por rango más cercano es el máximo de la muestra: no se publica su delta. */
-const MIN_P95_SAMPLES = 20;
 
 export interface InputCell {
   variantSpec: string;
@@ -208,30 +206,11 @@ function pairedSummary(pairs: PairedCase[]): { delta?: number; better: number; w
   return { ...(pairs.length > 0 ? { delta: mean(deltas) } : {}), better, worse, ...(p !== undefined ? { signTestP: p } : {}) };
 }
 
-function fmtP(p: number | undefined): string {
-  if (p === undefined) return "—";
-  return p < 0.001 ? "<0.001" : p.toFixed(3);
-}
-
 /** Latencias de los runs con llamada completada. */
 function latencies(records: RunRecord[]): { p50?: number; p95?: number; samples: number } {
   const durations = records.filter(hasLatency).map((r) => r.durationMs).sort((a, b) => a - b);
   if (durations.length === 0) return { samples: 0 };
   return { p50: percentile(durations, 50), p95: percentile(durations, 95), samples: durations.length };
-}
-
-function fmtPct(r: number): string {
-  return `${(r * 100).toFixed(1)}%`;
-}
-
-function fmtDeltaPct(r: number): string {
-  const sign = r > 0 ? "+" : "";
-  return `${sign}${(r * 100).toFixed(1)}%`;
-}
-
-function fmtDeltaMs(n: number): string {
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n}ms`;
 }
 
 /**
@@ -386,7 +365,7 @@ export function generateComparisonReport(opts: {
   for (const [variant, count] of unpairedByVariant) {
     warnings.push(
       `\`${variant}\`: ${count} caso(s) sin medición comparable contra la baseline (llamada fallida o etapa distinta). ` +
-        "Cuentan como falla en su passRate pero quedan fuera de Δ, regresiones y mejoras: passRate y Δ pueden no cuadrar.",
+      "Cuentan como falla en su passRate pero quedan fuera de Δ, regresiones y mejoras: passRate y Δ pueden no cuadrar.",
     );
   }
   if ((opts.concurrency ?? 1) > 1 && deltas.length > 0) {
@@ -413,23 +392,9 @@ export function generateComparisonReport(opts: {
 
 const r3 = (x: number): number => Math.round(x * 1000) / 1000;
 
-/** FP/FN de una pregunta sí/no (positiva = "yes"), sin contar las no respondidas. undefined si tiene otras clases. */
-function yesNoFpFn(q: QuestionScore): { fp: number; fn: number } | undefined {
-  const keys = Object.keys(q.perClass);
-  if (keys.length === 0 || !keys.every((k) => k === "yes" || k === "no")) return undefined;
-  return { fp: q.confusionMatrix["no"]?.["yes"] ?? 0, fn: q.confusionMatrix["yes"]?.["no"] ?? 0 };
-}
-
-/** "FP 1, FN 2, sin respuesta 1" para preguntas sí/no (suman los errores); "errores N" para el resto. */
-function errorSummary(q: { errors: number; unanswered: number }, fpfn: { fp: number; fn: number } | undefined): string {
-  if (!fpfn) return `errores ${q.errors}`;
-  return `FP ${fpfn.fp}, FN ${fpfn.fn}${q.unanswered > 0 ? `, sin respuesta ${q.unanswered}` : ""}`;
-}
-
 type SummaryKind = NonNullable<VariantSummary["kind"]>;
 
 const KIND_ORDER: SummaryKind[] = ["generative", "decision", "total"];
-const KIND_LABEL: Record<SummaryKind, string> = { generative: "generativo", decision: "decisión", total: "total (mezcla)" };
 
 /** Tipo de modelo que corre una etapa. `stageKey` puede traer sufijo de thinking (`final[think=on]`). */
 function kindOfStage(stageOrKey: string): "generative" | "decision" {
@@ -527,78 +492,12 @@ function mixedVerdictWarnings(rows: VariantSummary[]): string[] {
     if ((gen > EPS && dec < -EPS) || (gen < -EPS && dec > EPS)) {
       out.push(
         `Resultado mixto en \`${total.variant}\`: generativo ${fmtDeltaPct(gen)}, ` +
-          `decisión ${fmtDeltaPct(dec)}; el total (${fmtDeltaPct(total.deltaPassRate as number)}) mezcla ambos y no es representativo. ` +
-          "Decidir con el desglose por tipo.",
+        `decisión ${fmtDeltaPct(dec)}; el total (${fmtDeltaPct(total.deltaPassRate as number)}) mezcla ambos y no es representativo. ` +
+        "Decidir con el desglose por tipo.",
       );
     }
   }
   return out;
-}
-
-/** Hay fila `total`: la corrida tiene ambos tipos de etapas y se agrega la columna Tipo. */
-const hasKinds = (report: ComparisonReport): boolean => report.variants.some((v) => v.kind === "total");
-
-const hasRetries = (report: ComparisonReport): boolean => report.variants.some((v) => v.retriedRuns > 0);
-
-function variantTableHead(report: ComparisonReport): string[] {
-  return [
-    ...(hasKinds(report) ? ["Tipo"] : []),
-    "Variante",
-    "passRate",
-    "Δ vs baseline",
-    "Macro por etapa",
-    "Regresiones",
-    "Mejoras",
-    "p (signos)",
-    "Sin medir",
-    ...(hasRetries(report) ? ["Reintentos"] : []),
-    "p50",
-  ];
-}
-
-function variantTableRows(report: ComparisonReport): string[][] {
-  const withKind = hasKinds(report);
-  const withRetries = hasRetries(report);
-  return report.variants.map((v) => {
-    const isBase = v.variant === report.baseline;
-    const macroDelta = v.deltaMacroPassRate === undefined ? "" : ` (${fmtDeltaPct(v.deltaMacroPassRate)})`;
-    return [
-      ...(withKind ? [KIND_LABEL[v.kind ?? "total"]] : []),
-      isBase ? `${v.variant} (baseline)` : v.variant,
-      `${fmtPct(v.passRate)} (${v.passedRuns}/${v.totalRuns})`,
-      v.deltaPassRate === undefined ? "—" : fmtDeltaPct(v.deltaPassRate),
-      `${fmtPct(v.macroPassRate)}${macroDelta}`,
-      isBase ? "—" : String(v.regressions),
-      isBase ? "—" : String(v.improvements),
-      fmtP(v.signTestP),
-      String(v.clientFailedRuns),
-      ...(withRetries ? [String(v.retriedRuns)] : []),
-      fmtMs(v.p50DurationMs),
-    ];
-  });
-}
-
-/** Tabla de una fila por variante, para la consola. */
-export function printVariantSummary(report: ComparisonReport): void {
-  if (report.variants.length === 0) return;
-  const head = variantTableHead(report);
-  const rows = [head, ...variantTableRows(report)];
-  const widths = head.map((_, i) => Math.max(...rows.map((r) => r[i].length)));
-  console.log("\n── Resumen por variante ──");
-  rows.forEach((r, idx) => {
-    console.log("  " + r.map((c, i) => c.padEnd(widths[i])).join("  "));
-    if (idx === 0) console.log("  " + widths.map((w) => "-".repeat(w)).join("  "));
-  });
-}
-
-function fmtMs(n: number | undefined, delta = false): string {
-  if (n === undefined) return "—";
-  return delta ? fmtDeltaMs(n) : `${n}ms`;
-}
-
-/** `†`: con pocas muestras el p95 es el máximo de la muestra (en la práctica, a menudo la carga en frío del modelo). */
-function fmtP95(n: number | undefined, samples: number): string {
-  return n !== undefined && samples < MIN_P95_SAMPLES ? `${n}ms†` : fmtMs(n);
 }
 
 const P95_NOTE = `\`†\` = menos de ${MIN_P95_SAMPLES} muestras: el p95 es el máximo, suele ser la carga en frío del modelo y no se publica su delta.`;
@@ -747,7 +646,7 @@ function renderStageTable(report: ComparisonReport): string[] {
   lines.push(...mdTable(head, body), "");
   lines.push(
     "Entre paréntesis, el delta contra la baseline" +
-      (report.cells.some((c) => c.variant === report.baseline) ? ", solo sobre casos medidos en ambos lados." : " (la baseline no se ejecutó: sin deltas)."),
+    (report.cells.some((c) => c.variant === report.baseline) ? ", solo sobre casos medidos en ambos lados." : " (la baseline no se ejecutó: sin deltas)."),
     "`final[think=on]` y `final[think=off]` son el mismo caso corrido dos veces: ambos suman en los totales. En \"Macro por etapa\" cuentan como una sola etapa.",
     P95_NOTE,
   );
@@ -873,108 +772,6 @@ export function renderComparisonMarkdown(report: ComparisonReport): string {
   lines.push(...renderQuestionsMarkdown(report, section));
 
   return lines.join("\n") + "\n";
-}
-
-/**
- * Resumen por etapa en consola: por cada (dataset, etapa), una línea por variante con su pass rate, accuracy y p50, y
- * el delta contra la baseline. Es lo mismo que la tabla por etapa de comparison.md, en un formato que entra en la terminal.
- */
-export function printStageSummary(report: ComparisonReport): void {
-  if (report.cells.length === 0) return;
-  const key = (variant: string, c: { dataset: string; stageKey: string }): string =>
-    `${variant}\u0000${c.dataset}\u0000${c.stageKey}`;
-  const deltas = new Map(report.deltas.map((d) => [key(d.variant, d), d]));
-  const groups = new Map<string, CellStageReport[]>();
-  for (const c of report.cells) {
-    const k = `${c.dataset}\u0000${c.stageKey}`;
-    groups.set(k, [...(groups.get(k) ?? []), c]);
-  }
-  const labelOf = (c: CellStageReport): string => (c.variant === report.baseline ? `${c.variant} (base)` : c.variant);
-  const nameW = Math.max(...report.cells.map((c) => labelOf(c).length));
-  console.log("\n── Resumen por etapa ──");
-  for (const cells of groups.values()) {
-    const f = cells[0];
-    console.log(`  ${f.dataset} · ${f.stageKey}`);
-    for (const c of cells) {
-      const d = deltas.get(key(c.variant, c));
-      const pass = c.totalRuns > 0 ? `${fmtPct(c.passRate)} (${c.passedRuns}/${c.totalRuns})` : "—";
-      const acc = c.accuracy !== undefined ? `acc ${fmtPct(c.accuracy)}` : "";
-      const delta = d ? `Δ pass ${fmtDeltaPct(d.deltaPassRate)}${d.deltaAccuracy !== undefined ? `, Δ acc ${fmtDeltaPct(d.deltaAccuracy)}` : ""}` : "";
-      console.log(`    ${labelOf(c).padEnd(nameW)}  ${pass.padEnd(15)}  ${acc.padEnd(10)}  p50 ${fmtMs(c.p50DurationMs).padEnd(8)}  ${delta}`.trimEnd());
-    }
-  }
-}
-
-/** Una línea por pregunta de las etapas con varias preguntas: accuracy y FP/FN totales. */
-export function printQuestionSummary(report: ComparisonReport): void {
-  const withQ = report.cells.filter((c) => c.questions && Object.keys(c.questions).length > 0);
-  if (withQ.length === 0) return;
-  console.log("\n── Preguntas por etapa ──");
-  for (const c of withQ) {
-    console.log(`  ${c.variant} ${c.dataset}/${c.stageKey}`);
-    for (const [k, q] of Object.entries(c.questions as Record<string, QuestionScore>)) {
-      console.log(
-        `    ${k.padEnd(14)} ${fmtPct(q.accuracy).padStart(6)} (${q.correct}/${q.graded})  ${errorSummary({ errors: q.graded - q.correct, unanswered: q.unanswered }, yesNoFpFn(q))}${q.role === "main" ? "  [principal]" : ""}`,
-      );
-    }
-    for (const x of c.questionCross ?? []) {
-      console.log(`    ${x.a} × ${x.b}: ambas bien ${x.bothCorrect}, solo ${x.a} ${x.onlyA}, solo ${x.b} ${x.onlyB}, ambas mal ${x.bothWrong}`);
-    }
-  }
-}
-
-export function printComparisonSummary(report: ComparisonReport): void {
-  const warnings = report.warnings ?? [];
-  if (
-    report.deltas.length === 0 &&
-    report.regressions.length === 0 &&
-    report.improvements.length === 0 &&
-    report.rawRegressions.length === 0 &&
-    report.rawImprovements.length === 0 &&
-    warnings.length === 0
-  ) {
-    return;
-  }
-
-  console.log("\n── Comparación vs Baseline (`" + report.baseline + "`) ──");
-  for (const w of warnings) console.log(`  ⚠ ${w}`);
-
-  if (report.deltas.length > 0) {
-    for (const d of report.deltas) {
-      const deltaAccStr = d.deltaAccuracy !== undefined ? ` | Δ acc: ${fmtDeltaPct(d.deltaAccuracy)}` : "";
-      console.log(
-        `  ${d.variant} [${d.dataset}/${d.stageKey}]: Δ pass: ${fmtDeltaPct(d.deltaPassRate)}${deltaAccStr} | Δ p50: ${fmtMs(d.deltaP50Ms, true)}`,
-      );
-    }
-  }
-
-  if (report.regressions.length > 0) {
-    console.log(`\n  ⚠ Regresiones (${report.regressions.length}):`);
-    for (const r of report.regressions) {
-      console.log(`    - ${r.caseId} [${r.stageKey}] (${r.variant}): ${r.diff}`);
-    }
-  }
-
-  if (report.improvements.length > 0) {
-    console.log(`\n  ★ Mejoras (${report.improvements.length}):`);
-    for (const im of report.improvements) {
-      console.log(`    + ${im.caseId} [${im.stageKey}] (${im.variant}): ${im.diff}`);
-    }
-  }
-
-  if (report.rawRegressions.length > 0) {
-    console.log(`\n  ⚠ Regresiones en casos raw (${report.rawRegressions.length}, fuera de passRate):`);
-    for (const r of report.rawRegressions) {
-      console.log(`    - ${r.caseId} [${r.stageKey}] (${r.variant}): ${r.diff}`);
-    }
-  }
-
-  if (report.rawImprovements.length > 0) {
-    console.log(`\n  ★ Mejoras en casos raw (${report.rawImprovements.length}, fuera de passRate):`);
-    for (const im of report.rawImprovements) {
-      console.log(`    + ${im.caseId} [${im.stageKey}] (${im.variant}): ${im.diff}`);
-    }
-  }
 }
 
 /**

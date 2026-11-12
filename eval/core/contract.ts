@@ -15,7 +15,8 @@ import { schemaTypes as prodSchemaTypes } from "../../src/core/refs/refResolver.
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
-export { parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
+export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
+export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvider.ts";
 export { NOUL_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
 export { ARGS_REVIEWS } from "../../src/core/contracts.ts";
 export { estimateTokens } from "../../src/core/models/transport.ts";

@@ -41,7 +41,7 @@ import { analyzePowerShell, precheckCall } from "../../src/core/engine/precheck.
 import type { CommandAnalyzer } from "../../src/core/engine/precheck.ts";
 import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
 import type { Variant } from "./variants/types.ts";
-import { PROD_SHORTCUT_TAG } from "./case.ts";
+import { DECISION_STAGES, PROD_SHORTCUT_TAG } from "./case.ts";
 
 // ───────────────────────── Helpers ─────────────────────────
 
@@ -85,8 +85,7 @@ function expandThinking(
   variantFixedThinking?: boolean,
 ): ThinkingExpansion[] {
   // Decisión: stageKey = stage, no se expande
-  const decisionStages: StageName[] = ["route", "tool_choice", "args_review", "result_verification"];
-  if (decisionStages.includes(stage)) {
+  if ((DECISION_STAGES as readonly string[]).includes(stage)) {
     return [{ thinking: false, stageKey: stage }];
   }
 
@@ -182,7 +181,7 @@ async function runOne(
 
   // El caso ya trae el request final: el cargador lo armó con los prompts de la variante.
   const stage = fc.stage;
-  const isDecision = ["route", "tool_choice", "args_review", "result_verification"].includes(stage);
+  const isDecision = (DECISION_STAGES as readonly string[]).includes(stage);
 
   // ── Base del record ──
   const baseRecord: Omit<RunRecord, "rawInput" | "rawOutput" | "requestHash" | "durationMs" | "passed" | "errors" | "warnings" | "metrics" | "measurements" | "model"> = {
@@ -667,7 +666,7 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
   for (const fc of filtered) {
     // Determinar si la variante fija thinking (para generativas)
     let variantFixedThinking: boolean | undefined;
-    if (!["route", "tool_choice", "args_review", "result_verification"].includes(fc.stage)) {
+    if (!(DECISION_STAGES as readonly string[]).includes(fc.stage)) {
       variantFixedThinking = variant.params?.[fc.stage as GenerativeStage]?.thinking;
     }
 

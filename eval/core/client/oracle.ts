@@ -90,7 +90,10 @@ export function oracleDecisionResponder(_prepared: PreparedRequest, req: Decisio
     // Pregunta adicional con respuesta esperada explícita (`expect.answers`): se responde eso.
     const ex = rec(extra[key]);
     if (q.type === "noul") {
-      const want = typeof ex.yes === "boolean" ? ex.yes : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
+      // Juez de fragmentos: la pregunta `f<i>` se responde con `expectedRelevant[i]`.
+      const frag = ctx?.stage === "fragment_judge" ? /^f(\d+)$/.exec(key) : null;
+      const fragWant = frag && Array.isArray(expect.expectedRelevant) ? expect.expectedRelevant[Number(frag[1])] : undefined;
+      const want = typeof fragWant === "boolean" && typeof ex.yes !== "boolean" ? fragWant : typeof ex.yes === "boolean" ? ex.yes : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
       answers[key] = { noul: want === false ? MISS : HIT };
       continue;
     }

@@ -1,14 +1,15 @@
 /**
- * eval/views/run.ts
+ * eval/ui/views/run.ts
  *
  * Vistas de la corrida: configuración, avance por celda (variante × dataset) y resumen global.
  * Solo formatean y imprimen; no leen disco ni calculan métricas.
  */
 
-import type { parseConfig } from "../core/config.ts";
-import type { InputCell } from "../core/report.ts";
-import type { RunRecord } from "../core/types.ts";
-import { c, fmtPct, kv, padEnd, rateColor, section, sym } from "../ui.ts";
+import type { parseConfig } from "../../core/config.ts";
+import type { InputCell } from "../../core/report.ts";
+import type { RunRecord } from "../../core/types.ts";
+import { fmtPct } from "../../core/report-format.ts";
+import { c, kv, padEnd, rateColor, section, sym } from "../style.ts";
 
 /** Imprime con qué configuración corre el eval (modelos, concurrencia, datasets, variantes, filtros). */
 export function printRunConfig(

@@ -51,7 +51,7 @@ import type { CommandAnalyzer, PrecheckFinding, PrecheckSources } from "../../sr
 import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
-import { EXECUTABLE_ROUTES } from "./contract.ts";
+import { EXECUTABLE_ROUTES, JUDGE_BATCH } from "./contract.ts";
 import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
 import type { DecisionRequest, GenerativeRequest, GenerativeStage, Variant } from "./types.ts";
 import type { UserEnvironment } from "../../src/core/environment.ts";
@@ -118,6 +118,9 @@ export interface ScenarioAt {
   feedback?: string;
   // pending: la lista de pendientes de la vuelta anterior (vacía o ausente en la primera vuelta).
   previous?: string[];
+  // fragment_judge: la necesidad (la pregunta de `web_search`) y los fragmentos a puntuar (hasta `JUDGE_BATCH`). No usa el resto del escenario.
+  need?: string;
+  fragments?: string[];
   // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC).
   environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
 }
@@ -350,6 +353,13 @@ export function materializeScenario(stage: string, sc: Scenario, variant?: Varia
 }
 
 function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Materialized {
+  if (stage === "fragment_judge") {
+    // No hay tarea ni contexto: el juez recibe solo la necesidad y los fragmentos (como `Decision20Engine.score`).
+    const at = sc.at ?? {};
+    const fragments = at.fragments ?? [];
+    if (fragments.length === 0 || fragments.length > JUDGE_BATCH) throw new Error(`etapa 'fragment_judge': at.fragments debe traer entre 1 y ${JUDGE_BATCH} fragmentos.`);
+    return decision(effectivePrompts(ov).D.buildFragmentJudge({ need: need(at.need, "need", stage), fragments }));
+  }
   if (stage === "pending" && sc.mode !== "reactive") throw new Error("etapa 'pending': la lista de pendientes solo existe en modo reactivo.");
   const { ctx, callIds } = buildContext(sc);
   const at = sc.at ?? {};

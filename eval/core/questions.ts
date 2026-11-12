@@ -18,11 +18,12 @@ import type {
   ChoiceQ,
   DecisionRequest,
   DecisionStage,
+  FragmentJudgeExpect,
   GraderCollector,
   QuestionResult,
   ResultVerificationExpect,
 } from "./types.ts";
-import { MAIN_QUESTIONS, parseAnswers } from "./variants/labels.ts";
+import { fragmentKeys, MAIN_QUESTIONS, parseAnswers } from "./variants/labels.ts";
 import type { ParsedAnswer } from "./variants/labels.ts";
 
 const YES = "yes";
@@ -46,6 +47,13 @@ function mainBindings(
 ): MainBinding[] {
   const keys = MAIN_QUESTIONS[stage];
   let out: MainBinding[];
+  if (stage === "fragment_judge") {
+    // Si f<i> es choice (variantes con ranking/clasificación), f<i> es extra o no se mapea a YES/NO salvo que sea noul.
+    const wants = (expect as unknown as FragmentJudgeExpect).expectedRelevant ?? [];
+    return fragmentKeys(req)
+      .filter((k) => req.questions[k]?.type === "noul")
+      .map((question, i) => ({ question, expected: wants[i] === undefined ? null : wants[i] ? YES : NO }));
+  }
   if (stage === "result_verification") {
     const rv = expect as unknown as ResultVerificationExpect;
     const wants = [rv.expectedOk, rv.expectedCumple];

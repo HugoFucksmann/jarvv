@@ -9,7 +9,7 @@ import { ARGS_REVIEWS, EXECUTABLE_ROUTES, isExecutableRoute } from "./contract.t
 import type { DecisionStage, Case, GenerativeStage, StageName } from "./types.ts";
 
 /** Etapas conocidas por el eval. Deben coincidir con el registro `stages/index.ts` (`allStageNames()`). */
-export const DECISION_STAGES: readonly DecisionStage[] = ["route", "tool_choice", "args_review", "result_verification"];
+export const DECISION_STAGES: readonly DecisionStage[] = ["route", "tool_choice", "args_review", "result_verification", "fragment_judge"];
 export const GENERATIVE_STAGES: readonly GenerativeStage[] = ["plan", "arguments", "final", "question", "pending"];
 export const ALL_STAGES: readonly StageName[] = [...DECISION_STAGES, ...GENERATIVE_STAGES];
 
@@ -83,7 +83,7 @@ function validateGenerativeRequest(r: Record<string, unknown>, errs: string[]): 
 
 // ───────────────────────── Validación de `expect` por etapa ─────────────────────────
 
-type ExpectKind = "string" | "number" | "boolean" | "string[]" | "object";
+type ExpectKind = "string" | "number" | "boolean" | "string[]" | "boolean[]" | "object";
 interface ExpectSpec {
   keys: Record<string, ExpectKind>;
   /** Al menos una de estas claves debe estar presente (un `expect` sin ningún check no es válido). */
@@ -107,6 +107,10 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
   result_verification: {
     keys: { expectedOk: "boolean", expectedCumple: "boolean", minOkProb: "number", minCumpleProb: "number", answers: "object" },
     required: ["expectedOk", "expectedCumple"],
+  },
+  fragment_judge: {
+    keys: { expectedRelevant: "boolean[]", minProbability: "number", answers: "object" },
+    required: ["expectedRelevant"],
   },
   plan: {
     keys: {
@@ -148,6 +152,7 @@ function matchesKind(v: unknown, kind: ExpectKind): boolean {
     case "number": return typeof v === "number" && Number.isFinite(v);
     case "boolean": return typeof v === "boolean";
     case "string[]": return Array.isArray(v) && v.every((x) => typeof x === "string");
+    case "boolean[]": return Array.isArray(v) && v.every((x) => typeof x === "boolean");
     case "object": return isObj(v);
   }
 }
@@ -272,6 +277,12 @@ function validateExpect(stage: StageName, expectObj: Record<string, unknown>, er
     }
     if (expectObj.minCumpleProb !== undefined && expectObj.expectedCumple === false) {
       errs.push("expect.minCumpleProb contradice expectedCumple=false (la probabilidad medida es la de 'sí').");
+    }
+  }
+  if (stage === "fragment_judge" && Array.isArray(expectObj.expectedRelevant) && isObj(request) && isObj(request.questions)) {
+    const n = Object.keys(request.questions).filter((k) => /^f\d+$/.test(k)).length;
+    if (expectObj.expectedRelevant.length !== n) {
+      errs.push(`expect.expectedRelevant tiene ${expectObj.expectedRelevant.length} valores y el request trae ${n} fragmentos.`);
     }
   }
   validateAnswers(expectObj.answers, request, errs);

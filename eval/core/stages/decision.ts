@@ -2,13 +2,14 @@
  * eval/core/stages/decision.ts
  *
  * Entradas del registro para las etapas de decisión
- * (route, tool_choice, args_review, result_verification).
+ * (route, tool_choice, args_review, result_verification, fragment_judge).
  * Secciones 3 y 7.6.
  */
 
 import { LatencyGrader } from "../graders/common.ts";
 import {
   ArgsReviewLabelGrader,
+  FragmentJudgeGrader,
   ResultVerificationGrader,
   RouteLabelGrader,
   ToolChoiceLabelGrader,
@@ -17,6 +18,8 @@ import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
   DecisionRequest,
+  FragmentJudgeExpect,
+  FragmentJudgeOutput,
   ResultVerificationExpect,
   ResultVerificationOutput,
   RouteExpect,
@@ -26,6 +29,7 @@ import type {
 } from "../types.ts";
 import {
   parseArgsReviewDecision,
+  parseFragmentJudgeDecision,
   parseResultVerificationDecision,
   parseRouteDecision,
   parseToolChoiceDecision,
@@ -150,6 +154,32 @@ export const resultVerificationStage: DecisionStageEntry<
       probabilities: output
         ? { ok: output.okProbability, cumple: output.cumpleProbability }
         : null,
+    };
+  },
+};
+
+// ───────────────────────── fragment_judge ─────────────────────────
+
+/** Etiqueta del juez de fragmentos: un `true`/`false` por fragmento (`f0=true,f1=false`). */
+const judgeLabel = (flags: readonly boolean[]): string => flags.map((v, i) => `f${i}=${v}`).join(",");
+
+export const fragmentJudgeStage: DecisionStageEntry<FragmentJudgeOutput, FragmentJudgeExpect> = {
+  stageName: "fragment_judge",
+  requestType: "decision",
+  graders: [LatencyGrader, FragmentJudgeGrader],
+  parseOutput(
+    rawOutput: string,
+    sentReq: DecisionRequest,
+    read: DecisionReaders | undefined,
+  ): FragmentJudgeOutput {
+    return parseFragmentJudgeDecision(rawOutput, sentReq, read?.fragment_judge);
+  },
+  label(output: FragmentJudgeOutput | undefined, expect: FragmentJudgeExpect | undefined): LabelInfo {
+    return {
+      predicted: output ? judgeLabel(output.relevant) : null,
+      expected: expect ? judgeLabel(expect.expectedRelevant) : null,
+      rawScore: output?.probabilities[0] ?? null,
+      probabilities: output ? Object.fromEntries(output.probabilities.map((p, i) => [`f${i}`, p])) : null,
     };
   },
 };
