@@ -2,16 +2,16 @@
  * JARVIS Core — Lectura de la traza ya escrita de una tarea (solo lectura, para la API).
  *
  * `recorder.ts` escribe una carpeta por tarea terminada (`<base>/AAAAMMDD-HHMMSS_<id>/`); aquí se busca por el id y se devuelve
- * el texto de uno de sus archivos pequeños. `full.json.gz` no se sirve: es grande y es para análisis fuera de la UI. El backend
- * nunca usa estos archivos para decidir nada.
+ * el texto de uno de sus archivos. `full.json.gz` (entradas y salidas crudas de los modelos) se descomprime al leerlo, para el
+ * visor de la UI. El backend nunca usa estos archivos para decidir nada.
  */
 
 import fs from "node:fs";
 import path from "node:path";
-
+import zlib from "node:zlib";
 
 /** Archivos que se pueden leer: nombre en la API → archivo en la carpeta. */
-export const TRACE_FILES = { summary: "summary.md", json: "trace.json" } as const;
+export const TRACE_FILES = { summary: "summary.md", json: "trace.json", full: "full.json.gz" } as const;
 export type TraceFile = keyof typeof TRACE_FILES;
 
 /** Mismo saneado del id que `folderName` (`format.ts`). */
@@ -37,7 +37,9 @@ export function readTraceFile(tracePath: string, taskId: string, which: TraceFil
       .filter((name) => /^\d{8}-\d{6}_/.test(name) && name.slice(STAMP_CHARS) === id)
       .sort()
       .pop();
-    return folder === undefined ? null : fs.readFileSync(path.join(base, folder, TRACE_FILES[which]), "utf-8");
+    if (folder === undefined) return null;
+    const file = path.join(base, folder, TRACE_FILES[which]);
+    return which === "full" ? zlib.gunzipSync(fs.readFileSync(file)).toString("utf-8") : fs.readFileSync(file, "utf-8");
   } catch {
     return null;
   }

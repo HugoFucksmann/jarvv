@@ -1,5 +1,5 @@
 import React, { memo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert } from "lucide-react";
+import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree } from "lucide-react";
 import type { CallDto, StepDto } from "../../../types/api.ts";
 import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
@@ -13,6 +13,8 @@ interface StepItemProps {
   isCurrent: boolean;
   isLast?: boolean;
   onViewRef?: (refId: string) => void;
+  /** Abre el inspector de consultas a modelos de esa llamada (solo con la tarea terminada). */
+  onViewQueries?: (callId: string) => void;
 }
 
 function callStatusTone(status?: string): string {
@@ -91,6 +93,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
   isCurrent,
   isLast = false,
   onViewRef,
+  onViewQueries,
 }) => {
   const [showCalls, setShowCalls] = useState(false);
   const callsCount = calls.length;
@@ -217,6 +220,17 @@ const StepItemBase: React.FC<StepItemProps> = ({
                             <FileText className="w-2.5 h-2.5" />
                             <span>{c.ref}</span>
                             <span className="text-[9px] underline">ver</span>
+                          </button>
+                        )}
+                        {onViewQueries && (
+                          <button
+                            type="button"
+                            onClick={() => onViewQueries(c.id)}
+                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded bg-violet-950/70 hover:bg-violet-900 text-violet-300 border border-violet-800/60 transition-colors cursor-pointer"
+                            title="Ver entradas y salidas de los modelos de esta llamada"
+                          >
+                            <ListTree className="w-2.5 h-2.5" />
+                            <span>modelos</span>
                           </button>
                         )}
                         {c.at && (

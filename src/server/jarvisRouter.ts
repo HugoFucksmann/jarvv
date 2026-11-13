@@ -176,13 +176,13 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     res.type('text/plain').send(result.text);
   });
 
-  // Traza de una tarea terminada: `?format=summary` (Markdown, por defecto) o `json`.
+  // Traza de una tarea terminada: `?format=summary` (Markdown, por defecto), `json` (liviana) o `full` (con entradas y salidas crudas).
   router.get('/tasks/:taskId/trace', (req, res) => {
     const format = text(req.query.format) ?? 'summary';
     if (!Object.hasOwn(TRACE_FILES, format)) return void res.status(400).json({ error: `format inválido; use ${Object.keys(TRACE_FILES).join(' o ')}.` });
     const body = readTraceFile(ConfigManager.getConfig().tracePath, req.params.taskId, format as TraceFile);
     if (body === null) return void res.status(404).json({ error: 'No hay traza para esa tarea (sigue en curso o la traza está desactivada).' });
-    res.type(format === 'json' ? 'application/json' : 'text/markdown').send(body);
+    res.type(format === 'summary' ? 'text/markdown' : 'application/json').send(body);
   });
 
   // Datos de esta PC (sistema operativo y carpetas del usuario) y la hora del servidor.

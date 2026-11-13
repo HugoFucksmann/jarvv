@@ -7,6 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import type { JarvisConfig } from "../src/core/config.ts";
+import { readTraceFile } from "../src/core/trace/files.ts";
 import { TaskTraceRecorder } from "../src/core/trace/recorder.ts";
 import { buildContext, newContext } from "./fixtures.ts";
 
@@ -100,4 +101,15 @@ test("con ref, la traza guarda la referencia y no el texto del resultado, pero r
   assert.equal(trace.tools[0].resultHead, null);
   assert.equal(trace.tools[0].resultChars, JSON.stringify(big).length);
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("readTraceFile devuelve full.json.gz descomprimido, con las entradas y salidas crudas de los modelos", async () => {
+  const { root, recorder } = setup();
+  recorder.sink.llm({ stage: "args", n: 1, startedAt: 1, durationMs: 2, input: "prompt largo", output: "respuesta", error: null });
+  await recorder.finish();
+  const id = (recorder as unknown as { ctx: { task: { id: string } } }).ctx.task.id;
+  const full = JSON.parse(readTraceFile(path.join(root, "traces.jsonl"), id, "full") ?? "null") as { kind: string; models: { input: string; output: string }[] };
+  assert.equal(full.kind, "full");
+  assert.deepEqual(full.models.map((m) => [m.input, m.output]), [["prompt largo", "respuesta"]]);
+  assert.equal(readTraceFile(path.join(root, "traces.jsonl"), "otra", "full"), null);
 });

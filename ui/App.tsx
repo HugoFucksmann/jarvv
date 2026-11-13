@@ -80,7 +80,15 @@ export default function App() {
   const closeSettings = useCallback(() => setIsSettingsOpen(false), []);
   const openEnvironment = useCallback(() => setIsEnvironmentOpen(true), []);
   const closeEnvironment = useCallback(() => setIsEnvironmentOpen(false), []);
-  const openTrace = useCallback(() => setIsTraceOpen(true), []);
+  const [traceCallId, setTraceCallId] = useState<string | null>(null);
+  const openTrace = useCallback(() => {
+    setTraceCallId(null);
+    setIsTraceOpen(true);
+  }, []);
+  const openCallTrace = useCallback((callId: string) => {
+    setTraceCallId(callId);
+    setIsTraceOpen(true);
+  }, []);
   const closeTrace = useCallback(() => setIsTraceOpen(false), []);
   const dismissNewTask = useCallback(() => setIsNewTaskConfirmOpen(false), []);
 
@@ -167,6 +175,7 @@ export default function App() {
             onModifyPlan={modifyPlan}
             onCancelTask={handleCancel}
             onOpenTrace={openTrace}
+            onOpenCallTrace={openCallTrace}
             onSpeak={voiceEnabled ? speak : undefined}
             onStopSpeech={voiceEnabled ? stopSpeech : undefined}
             speechStatus={speechStatus}
@@ -202,6 +211,7 @@ export default function App() {
         <TraceViewerModal
           taskId={task.task.id}
           taskRequest={task.task.request}
+          initialCallId={traceCallId}
           onClose={closeTrace}
         />
       )}

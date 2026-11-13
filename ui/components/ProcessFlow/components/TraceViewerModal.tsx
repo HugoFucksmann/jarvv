@@ -1,32 +1,37 @@
 import React, { useEffect, useState } from "react";
-import { X, Activity, Loader2, AlertCircle, Copy, Check, FileCode, FileText } from "lucide-react";
+import { X, Activity, Loader2, AlertCircle, Copy, Check, FileCode, FileText, ListTree } from "lucide-react";
 import { jarvisApi } from "../../../services/jarvisApi.ts";
 import { MarkdownRenderer } from "../../Shared/MarkdownRenderer.tsx";
+import { TraceInspector } from "../../TraceInspector/TraceInspector.tsx";
 
 interface TraceViewerModalProps {
   taskId: string;
   taskRequest?: string;
+  /** Abre en «Consultas» filtrado a las consultas de esa llamada. */
+  initialCallId?: string | null;
   onClose: () => void;
 }
 
 export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
   taskId,
   taskRequest,
+  initialCallId = null,
   onClose,
 }) => {
-  const [format, setFormat] = useState<"summary" | "json">("summary");
+  const [format, setFormat] = useState<"queries" | "summary" | "json">("queries");
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (format === "queries") return;
     let isMounted = true;
     setLoading(true);
     setError(null);
 
     jarvisApi
-      .getTrace(taskId, format)
+      .getTrace(taskId, format as "summary" | "json")
       .then((data) => {
         if (isMounted) {
           setContent(data);
@@ -75,7 +80,7 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
       aria-labelledby="trace-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4"
     >
-      <div className="w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden text-slate-100 animate-in fade-in zoom-in-95 duration-150">
+      <div className="w-full max-w-[96vw] 2xl:max-w-[1800px] h-[92vh] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden text-slate-100 animate-in fade-in zoom-in-95 duration-150">
         {/* Cabecera */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 px-5 py-3.5 bg-slate-950/70 gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -104,6 +109,18 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
             <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs font-mono">
               <button
                 type="button"
+                onClick={() => setFormat("queries")}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors cursor-pointer ${
+                  format === "queries"
+                    ? "bg-purple-900/60 text-purple-200 font-medium"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <ListTree className="w-3.5 h-3.5" />
+                <span>Consultas</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => setFormat("summary")}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded transition-colors cursor-pointer ${
                   format === "summary"
@@ -128,7 +145,7 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
               </button>
             </div>
 
-            {content && (
+            {format !== "queries" && content && (
               <button
                 type="button"
                 onClick={handleCopy}
@@ -152,8 +169,10 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
         </div>
 
         {/* Cuerpo */}
-        <div className="flex-1 p-6 overflow-y-auto bg-slate-950/40">
-          {loading ? (
+        <div className={`flex-1 min-h-0 bg-slate-950/40 ${format === "queries" ? "overflow-hidden" : "p-6 overflow-y-auto"}`}>
+          {format === "queries" ? (
+            <TraceInspector taskId={taskId} initialCallId={initialCallId} />
+          ) : loading ? (
             <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-2">
               <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
               <span className="text-xs font-mono">Consultando traza registrada de la tarea…</span>
@@ -185,7 +204,9 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
         {/* Pie */}
         <div className="flex items-center justify-between border-t border-slate-800 px-5 py-3 bg-slate-950/80 text-xs">
           <span className="text-[11px] font-mono text-slate-500">
-            {format === "summary"
+            {format === "queries"
+              ? "Entrada y salida de cada consulta a los modelos, con probabilidades de decisión, tokens y latencias"
+              : format === "summary"
               ? "Línea de tiempo con decisiones D1 (herramienta), D2 (argumentos), D3 (revisión) y D4 (verificación)"
               : "Snapshot técnico de auditoría con tiempos y opciones de llamadas"}
           </span>

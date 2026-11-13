@@ -19,6 +19,7 @@ interface ProcessFlowProps {
   onModifyPlan?: (feedback: string) => ActionResult;
   onCancelTask: () => ActionResult;
   onOpenTrace?: () => void;
+  onOpenCallTrace?: (callId: string) => void;
   onSpeak?: (text: string) => void;
   onStopSpeech?: () => void;
   speechStatus?: "idle" | "loading" | "playing";
@@ -31,11 +32,13 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   onModifyPlan,
   onCancelTask,
   onOpenTrace: externalOpenTrace,
+  onOpenCallTrace: externalOpenCallTrace,
   onSpeak,
   onStopSpeech,
   speechStatus,
 }) => {
   const [internalTraceOpen, setInternalTraceOpen] = useState(false);
+  const [internalCallId, setInternalCallId] = useState<string | null>(null);
   const [activeRefId, setActiveRefId] = useState<string | null>(null);
   const [activeRefMeta, setActiveRefMeta] = useState<RefDto | undefined>(undefined);
 
@@ -55,9 +58,21 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
     if (externalOpenTrace) {
       externalOpenTrace();
     } else {
+      setInternalCallId(null);
       setInternalTraceOpen(true);
     }
   };
+
+  const isTerminalTask = task.task.state !== "running";
+  const handleViewQueries = isTerminalTask
+    ? (callId: string) => {
+        if (externalOpenCallTrace) externalOpenCallTrace(callId);
+        else {
+          setInternalCallId(callId);
+          setInternalTraceOpen(true);
+        }
+      }
+    : undefined;
 
   const handleViewRef = (refId: string, meta?: RefDto) => {
     const foundMeta = meta || task.refs?.find((r) => r.id === refId);
@@ -80,6 +95,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       taskState={task.task.state}
       mode={task.task.mode}
       onViewRef={handleViewRef}
+      onViewQueries={handleViewQueries}
     />
   );
 
@@ -144,6 +160,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
         <TraceViewerModal
           taskId={task.task.id}
           taskRequest={task.task.request}
+          initialCallId={internalCallId}
           onClose={() => setInternalTraceOpen(false)}
         />
       )}

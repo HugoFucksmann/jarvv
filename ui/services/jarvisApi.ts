@@ -184,7 +184,7 @@ export const jarvisApi = {
   },
 
   /** Obtiene la traza de auditoría de una tarea terminada (formato summary Markdown o json). */
-  getTrace(taskId: string, format: "summary" | "json" = "summary"): Promise<string> {
+  getTrace(taskId: string, format: "summary" | "json" | "full" = "summary"): Promise<string> {
     return requestText(
       `/api/jarvis/tasks/${encodeURIComponent(taskId)}/trace?format=${encodeURIComponent(format)}`,
       "Error al obtener la traza de la tarea"
