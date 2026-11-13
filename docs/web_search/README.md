@@ -1,6 +1,6 @@
 # `web_search`: índice de la documentación (2026-11-13)
 
-La tool busca en internet con Free Search (`search` + `fetch` + `read_doc`) y devuelve fragmentos literales con su fuente y un estado; un modelo de decisión (2B) puntúa extractos y fragmentos. Código: `src/tools/web/`. Pruebas: `tests/web_search.test.ts` (71) y `scripts/validate/web_eval/`.
+La tool busca en internet con Free Search (`search` + `fetch` + `read_doc`) y devuelve fragmentos literales con su fuente y un estado; un modelo de decisión (2B) puntúa extractos y fragmentos. Código: `src/tools/web/`. Pruebas: `tests/web_search.test.ts` (74) y `scripts/validate/web_eval/`.
 
 | Documento | Qué contiene |
 |---|---|
@@ -15,7 +15,7 @@ La tool busca en internet con Free Search (`search` + `fetch` + `read_doc`) y de
 
 - **Medido (Free Search y el 2B reales, 41 casos):** 34 de 36 aciertos, 1 de 5 preguntas sin respuesta contestadas sin base, 0,41 páginas leídas por caso.
 - **Decisiones con evidencia:** `search` + una página por vez en lugar de `research`; `terms` eliminado; juez 2B encendido por defecto; `per_source`, `depth` 5 y `compare` descartados.
-- **Hecho recientemente:** campo `stage`, aviso de página cortada, hasta 6 candidatos por página y lectura del resto de una página cortada con `read_doc` como último recurso.
+- **Hecho recientemente:** guarda de versión (un pasaje sin la versión con puntos de la pregunta no basta para `found`) y etiqueta de fecha `dated`; campo `stage`, aviso de página cortada, hasta 6 candidatos por página y lectura del resto de una página cortada con `read_doc` como último recurso.
 
 ## Hallazgos abiertos (para cuando se retome)
 

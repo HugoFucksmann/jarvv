@@ -169,7 +169,7 @@ test("parseSearch: fechas — la del extracto se califica, 'none' es sin fecha y
   assert.equal(plausibleDate("2024-04-24"), "2024-04-24");
   // el texto que llega al modelo dice de dónde sale la fecha
   const chunks = snippetChunks([{ n: 1, title: "T", url: "https://a.org", snippet: "Node.js 22 incluye require() de módulos ESM y un cliente WebSocket nativo en esta versión.", date: "2024-04-24", dateSource: "snippet" }], 10);
-  assert.match(chunks[0].text, /\(published 2024-04-24, from the search snippet\)$/);
+  assert.match(chunks[0].text, /\((dated 2024-04-24), from the search snippet\)$/);
 });
 
 test("el prefijo de fecha del buscador se quita del extracto y sus números no cuentan como términos", () => {
@@ -547,11 +547,11 @@ test("la fecha de publicación de la fuente llega al modelo: es la respuesta de 
     documents: [{ url: NODE_URL, content: "# Node.js 22.0.0 (Current)\n\nNotable changes: " + "detalle de cambios internos de la versión sin fecha. ".repeat(8) }],
   });
   const native = read(await search(new WebSearchProvider(), { need: "¿Cuándo salió Node.js 22.0.0?" }, fakeHost(asWeb(report)).host));
-  assert.match(native.text, /Sources:\n\[1\] Node\.js 22\.0\.0 \(Current\) — https:\/\/nodejs\.org\/en\/blog\/release\/v22\.0\.0 \(published 2024-04-24\)/);
+  assert.match(native.text, /Sources:\n\[1\] Node\.js 22\.0\.0 \(Current\) — https:\/\/nodejs\.org\/en\/blog\/release\/v22\.0\.0 \((dated 2024-04-24)\)/);
   assert.equal((native.data.sources as { date?: string }[])[0].date, "2024-04-24");
   assert.match(
     native.text,
-    /\[1\] \(search result snippet\) Node\.js 22\.0\.0 \(Current\) — Node\.js 22\.0\.0 \(Current\) es la primera versión.*\(published 2024-04-24\)/s,
+    /\[1\] \(search result snippet\) Node\.js 22\.0\.0 \(Current\) — Node\.js 22\.0\.0 \(Current\) es la primera versión.*\((dated 2024-04-24)\)/s,
     "el extracto de la fuente es un fragmento más, marcado como extracto del buscador",
   );
   assert.ok((native.data.passages as { snippet?: boolean }[]).some((p) => p.snippet === true));
@@ -772,7 +772,7 @@ test("el texto del resultado no trae el prefijo de fecha del buscador ni cuenta 
   });
   const native = read(await search(new WebSearchProvider(), { need: "¿Cuándo salió Node.js 22?" }, fakeHost(asWeb(report)).host));
   assert.doesNotMatch(native.text, /2024\/5\/22/);
-  assert.match(native.text, /\(published 2024-05-22, from the search snippet\)/, "la fecha del extracto se dice como tal");
+  assert.match(native.text, /\((dated 2024-05-22, from the search snippet)\)/, "la fecha del extracto se dice como tal");
 });
 
 test("formato no reconocido: error visible con la ruta del problema, lo recibido en raw, y nunca se toma por una página", async () => {
@@ -889,7 +889,7 @@ test("con modelo: si un extracto ya responde, se devuelve SIN leer ninguna pági
   assert.equal(native.data.state, "found");
   assert.deepEqual((native.data.passages as { n: number }[]).map((p) => p.n), [2, 3], "ordenados por probabilidad, una por fuente");
   assert.match(native.text, /\[2\] \(search result snippet\) .*Argon/s);
-  assert.match(native.text, /\[2\] Fuente 2 — https:\/\/s2\.example\/p \(published 2026-10-13, from the search snippet\)/);
+  assert.match(native.text, /\[2\] Fuente 2 — https:\/\/s2\.example\/p \((dated 2026-10-13, from the search snippet)\)/);
   assert.equal((native.meta.judge as { pagesRead: number }).pagesRead, 0);
 });
 
@@ -1045,4 +1045,43 @@ test("página cortada: sin tiempo suficiente no se lee el resto, y un documento 
   assert.equal(toolsOf(huge.calls, "read_doc").length, 12, "tope de 12 tramos (600 000 caracteres)");
   assert.equal((native.meta.judge as { fullRead: { complete: boolean } }).fullRead.complete, false);
   assert.equal(native.data.cutShort, 1, "no se leyó completa: el aviso sigue");
+});
+
+// ───────────────────────── Guarda de versión y etiqueta de fecha ─────────────────────────
+
+test("guarda de versión: un extracto de otra versión no basta para found aunque el juez lo apruebe; se lee la página y responde esa", async () => {
+  const registry = hit(1, "Latest release 26.13.1 on 2026-11-11 (cycle 26). Cycles: 26: LTS; 24: LTS; 22: LTS, supported until 2027-04-30.", { published_age: "2026-11-11", date_source: "structured" });
+  const other = hit(2, "Otro tema sin relación con la pregunta.");
+  const web = (c: Call): MCPCallResult => {
+    if (c.ref.tool === "search") return ok(JSON.stringify({ query: "q", engines: [], results: [registry, other] }));
+    return ok(JSON.stringify({ url: c.args.url, title: "Node.js 22.0.0 (Current)", content: `# Node.js 22.0.0\n\nNode.js 22.0.0 was released on 2024-04-24 by the release team. ${filler(31)}`, truncated: false }));
+  };
+  const judge = judgeOf((f) => (f.includes("Latest release 26.13.1") ? 0.93 : f.includes("22.0.0 was released") ? 0.95 : 0.05));
+  const { host, calls } = fakeHost(web);
+  const native = read(await search(new WebSearchProvider({ judge: () => judge }), { need: "When was Node.js 22.0.0 released?" }, host));
+  assert.equal(native.data.state, "found");
+  assert.equal(native.data.stage, "pages", "no alcanzó con el extracto: se leyó una página");
+  assert.match(native.text, /22\.0\.0 was released on 2024-04-24/);
+  assert.doesNotMatch(native.text, /Latest release 26\.13\.1/);
+  assert.equal(toolsOf(calls, "fetch").length >= 1, true);
+  assert.deepEqual((native.meta.judge as { versionGuard: string[] }).versionGuard, ["22.0.0"]);
+});
+
+test("guarda de versión: sin versión en la pregunta no actúa; con ella, un extracto que la contiene sigue siendo found", async () => {
+  const results = [hit(1, "Node.js 22.0.0 was released on 2024-04-24 with require of ESM modules."), hit(2, "Sin relación.")];
+  const judge = judgeOf((f) => (f.includes("22.0.0 was released") ? 0.95 : 0.05));
+  const withVersion = fakeHost(searchOnly(results));
+  const a = read(await search(new WebSearchProvider({ judge: () => judge }), { need: "When was Node.js 22.0.0 released?" }, withVersion.host));
+  assert.equal(a.data.state, "found");
+  assert.equal(a.data.stage, "snippets");
+  assert.deepEqual(toolsOf(withVersion.calls, "fetch"), [], "no hizo falta leer nada");
+  const registry = [hit(1, "Latest release 26.13.1 (cycle 26). 22: LTS, supported until 2027-04-30.", { published_age: "2026-11-11", date_source: "structured" })];
+  const b = read(await search(new WebSearchProvider({ judge: () => judgeOf(() => 0.93) }), { need: "¿Hasta cuándo tiene soporte Node.js 22?" }, fakeHost(searchOnly(registry)).host));
+  assert.equal(b.data.state, "found", "sin versión con puntos la guarda no actúa");
+});
+
+test("fecha: la lista de fuentes dice 'dated' (fecha de la página), no 'published'", async () => {
+  const native = read(await search(new WebSearchProvider({ judge: () => judgeOf(() => 0.95) }), { need: "¿Cuál es la última versión?" }, fakeHost(searchOnly([hit(1, "La versión 9 es la última.", { published_age: "2026-11-11", date_source: "structured" })])).host));
+  assert.match(native.text, /\[1\] Fuente 1 — https:\/\/s1\.example\/p \(dated 2026-11-11\)/);
+  assert.doesNotMatch(native.text, /published 2026/);
 });

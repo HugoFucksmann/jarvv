@@ -55,5 +55,7 @@ export const CASES: readonly Case[] = [
   { id: "lastclaude", need: "what is the latest Claude model from Anthropic?", terms: [], gold: /(?:Opus|Sonnet|Haiku|Mythos)[ -]5[.-][15]|claude-(?:opus|sonnet|haiku|mythos)-5-/i, note: "recencia" },
   { id: "lastpython", need: "what is the latest stable version of Python?", terms: [], gold: /3\.15(?:\.\d+)?/, note: "recencia" },
   { id: "lastnodelts", need: "¿cuál es la versión LTS actual de Node.js?", terms: [], gold: /(?:Node(?:\.js)?|v)\s?26\b|\b26\.\d/i, note: "recencia" },
+  // ── Regresión de una prueba de punta a punta (2026-11-13): el extracto de un registro de ciclos de vida («Latest release 26.13.1 on 2026-11-11 … 22: LTS») se aprobó para «¿cuándo salió la 22.0.0?».
+  { id: "node2200", need: "When was Node.js 22.0.0 released?", terms: [], gold: /2024-04-24|April 24,? 2024|24 de abril de 2024/i, bad: /2026-11-11/, note: "regresión e2e: registro con otra versión" },
   { id: "dog", need: "¿cómo se llama el perro de Ryan Dahl, el creador de Node.js?", terms: ["Ryan Dahl", "dog name"], gold: null, note: "no existe: lo correcto es no encontrar" },
 ];

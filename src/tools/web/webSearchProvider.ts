@@ -155,6 +155,13 @@ const internalUrl = (url: string): boolean => {
     return true;
   }
 };
+/** Las versiones con puntos que nombra la pregunta (`22.0.0`, `3.12`): un pasaje que no las contiene habla de otra versión. */
+const versionsOf = (need: string): string[] => [...new Set([...need.matchAll(/\d+(?:\.\d+)+/g)].map((m) => m[0]))];
+/**
+ * Guarda de versión: si la pregunta nombra una versión exacta y el pasaje no la contiene, el juez no puede afirmar que responde (un extracto de «Latest release 26.13.1 … 22: LTS»
+ * se aprobó para «¿cuándo salió la 22.0.0?»). Se limita la probabilidad justo por debajo del umbral de `found`: queda como mucho `partial` y se sigue leyendo páginas.
+ */
+const guardVersions = (versions: readonly string[], text: string, p: number): number => (versions.every((v) => text.includes(v)) ? p : Math.min(p, JUDGE_FOUND - 0.01));
 /** El fragmento con la fecha de su fuente delante: el juez la usa para distinguir lo reciente de lo viejo. */
 const dated = (source: Source | undefined, text: string): string => `[source date: ${source?.date ?? "unknown"}] ${text}`;
 /** `AAAA-MM-DD` en la zona horaria del sistema (la fecha que ve el usuario). */
@@ -432,6 +439,7 @@ export class WebSearchProvider implements ToolProvider {
     const trace: { calls: number; ms: number; snippetProbabilities: number[]; pagesRead: number; raw?: { input: string; output: string }; fullRead?: Record<string, unknown>; fullReadError?: string } = { calls: 0, ms: 0, snippetProbabilities: [], pagesRead: 0 };
     const today = localDate(this.now());
     const need = this.judgeNeed(args.need, today);
+    const versions = versionsOf(args.need);
     const sourceOf = new Map(hits.map((h) => [h.n, h]));
     const score = async (texts: string[]): Promise<number[]> => {
       const r = await judge.score(need, texts, this.judgeSignal(remaining, signal));
@@ -447,7 +455,7 @@ export class WebSearchProvider implements ToolProvider {
         passages: chosen.slice(0, RETURN_MAX).map((c) => ({ n: c.n, text: c.text, score: c.score, probability: c.p, ...(c.snippet ? { snippet: true } : {}) })),
         candidates,
         judge: "used",
-        judgeMeta: { durationMs: trace.ms, calls: trace.calls, snippetProbabilities: trace.snippetProbabilities.map((p) => Number(p.toFixed(3))), pagesRead: trace.pagesRead, today, ...(trace.fullRead === undefined ? {} : { fullRead: trace.fullRead }), ...(trace.fullReadError === undefined ? {} : { fullReadError: trace.fullReadError }), ...(trace.raw === undefined ? {} : { rawInput: trace.raw.input, rawOutput: trace.raw.output }) },
+        judgeMeta: { durationMs: trace.ms, calls: trace.calls, snippetProbabilities: trace.snippetProbabilities.map((p) => Number(p.toFixed(3))), pagesRead: trace.pagesRead, today, ...(versions.length > 0 ? { versionGuard: versions } : {}), ...(trace.fullRead === undefined ? {} : { fullRead: trace.fullRead }), ...(trace.fullReadError === undefined ? {} : { fullReadError: trace.fullReadError }), ...(trace.raw === undefined ? {} : { rawInput: trace.raw.input, rawOutput: trace.raw.output }) },
       }, pageErrors);
 
     try {
@@ -455,8 +463,8 @@ export class WebSearchProvider implements ToolProvider {
       const snippets: Scored[] = snippetChunks(hits, 0).map((c) => ({ n: c.n, text: c.text, snippet: true, score: 0, p: 0 }));
       if (snippets.length > 0) {
         const p = await score(snippets.map((c) => dated(sourceOf.get(c.n), c.text)));
-        snippets.forEach((c, i) => { c.p = p[i]; });
-        trace.snippetProbabilities = p;
+        snippets.forEach((c, i) => { c.p = guardVersions(versions, c.text, p[i]); });
+        trace.snippetProbabilities = snippets.map((c) => c.p);
         pool.push(...snippets);
       }
       const byP = (a: Scored, b: Scored): number => b.p - a.p || a.n - b.n;
@@ -480,7 +488,7 @@ export class WebSearchProvider implements ToolProvider {
         const cands = pickCandidates(rank(chunkDocs([read.page.doc]), args.need).ranked, PAGE_CANDIDATES, PAGE_CANDIDATES);
         if (cands.length === 0) continue;
         const p = await score(cands.map((c) => dated(hit, c.chunk.text)));
-        const scored: Scored[] = cands.map((c, i) => ({ n: hit.n, text: c.chunk.text, score: c.score, p: p[i] })).sort(byP);
+        const scored: Scored[] = cands.map((c, i) => ({ n: hit.n, text: c.chunk.text, score: c.score, p: guardVersions(versions, c.chunk.text, p[i]) })).sort(byP);
         pool.push(...scored);
         if (scored[0].p >= JUDGE_FOUND) return done("found", scored.filter((c) => c.p >= JUDGE_PARTIAL).slice(0, PAGE_RETURN_MAX), pool.length);
       }
@@ -494,7 +502,7 @@ export class WebSearchProvider implements ToolProvider {
             const cands = pickCandidates(rank(chunkDocs([{ ...cut, body: whole.text }]), args.need).ranked, FULL_PAGE_CANDIDATES, FULL_PAGE_CANDIDATES);
             if (cands.length > 0) {
               const p = await score(cands.map((c) => dated(sourceOf.get(cut.n), c.chunk.text)));
-              const scored: Scored[] = cands.map((c, i) => ({ n: cut.n, text: c.chunk.text, score: c.score, p: p[i] })).sort(byP);
+              const scored: Scored[] = cands.map((c, i) => ({ n: cut.n, text: c.chunk.text, score: c.score, p: guardVersions(versions, c.chunk.text, p[i]) })).sort(byP);
               pool.push(...scored);
               if (scored[0].p >= JUDGE_FOUND) return done("found", scored.filter((c) => c.p >= JUDGE_PARTIAL).slice(0, PAGE_RETURN_MAX), pool.length);
             }
@@ -535,8 +543,9 @@ export class WebSearchProvider implements ToolProvider {
       try {
         const scores = await judge.score(this.judgeNeed(args.need, localDate(this.now())), candidates.map((c) => dated(sourceOf.get(c.chunk.n), c.chunk.text)), this.judgeSignal(remaining, signal));
         if (scores.probabilities.length === candidates.length) {
+          const versions = versionsOf(args.need);
           const scored = candidates
-            .map((c, i) => ({ c, p: scores.probabilities[i] }))
+            .map((c, i) => ({ c, p: guardVersions(versions, c.chunk.text, scores.probabilities[i]) }))
             .sort((a, b) => b.p - a.p || b.c.score - a.c.score);
           const best = scored[0].p;
           const state: State = best >= JUDGE_FOUND ? "found" : best >= JUDGE_PARTIAL ? "partial" : "not_found";

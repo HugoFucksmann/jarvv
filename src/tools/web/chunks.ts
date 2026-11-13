@@ -289,7 +289,7 @@ export function chunkDocs(docs: readonly Doc[]): Chunk[] {
  * (una fecha, una versión) que se perdería entre las páginas completas. Es texto del resultado de búsqueda, no de la página.
  */
 /** La fecha de una fuente con su origen: la del extracto del buscador es menos fiable que la que dio la página. */
-export const dateLabel = (s: Source): string => `published ${s.date}${s.dateSource === "snippet" ? ", from the search snippet" : ""}`;
+export const dateLabel = (s: Source): string => `dated ${s.date}${s.dateSource === "snippet" ? ", from the search snippet" : ""}`;
 
 export function snippetChunks(sources: readonly Source[], firstId: number): Chunk[] {
   const out: Chunk[] = [];
