@@ -114,6 +114,8 @@ export interface ScenarioAt {
   args?: JsonObject;
   // result_verification: índice de la llamada evaluada en `calls` (default: la última).
   call?: number;
+  /** result_verification: el ítem verificado es el último; la variante recibe `request` (la solicitud completa). */
+  lastItem?: boolean;
   // plan: instrucción del usuario (replan por feedback).
   feedback?: string;
   // pending: la lista de pendientes de la vuelta anterior (vacía o ausente en la primera vuelta).
@@ -387,7 +389,19 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
     case "result_verification": {
       const id = callIds[at.call ?? callIds.length - 1];
       if (id === undefined) throw new Error("etapa 'result_verification': el escenario no tiene la llamada a evaluar (scenario.calls / at.call).");
-      return decision(D.buildResultVerification(verifyInput(ctx.view.forVerify(id))));
+      const input = verifyInput(ctx.view.forVerify(id));
+      // En reactivo el contexto exige `expected: null` en el paso (validate.ts): el `expected` del escenario se inyecta aquí, solo en eval.
+      const steps = sc.steps ?? [];
+      const ci = at.call ?? callIds.length - 1;
+      const si = sc.calls?.[ci]?.step ?? steps.length - 1;
+      const expected = steps[Math.min(Math.max(si, 0), steps.length - 1)]?.expected ?? null;
+      return decision(
+        D.buildResultVerification({
+          ...input,
+          criterion: expected === null ? input.criterion : { ...input.criterion, expected },
+          request: at.lastItem ? sc.request : null,
+        }),
+      );
     }
     case "plan": {
       return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config, P), "plan") };

@@ -12,8 +12,8 @@ import {
   type DecisionQuestionNoul,
   type MCPTool,
 } from "../types.ts";
-import { ARGS_REVIEWS } from "../contracts.ts";
-import type { ArgsReview, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../contracts.ts";
+import { ARGS_REVIEWS, COMPLETION_KEY } from "../contracts.ts";
+import type { ArgsReview, CompletionDecisionInput, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../contracts.ts";
 import type { Platform } from "../environment.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
 import { clip, clipTail } from "../utils.ts";
@@ -215,6 +215,7 @@ Reply only with JSON: {"pending":["..."]}
 - Each item is one goal in the language of REQUEST: what to obtain or change, never how (no commands, tools or code). Keep the user's constraints.
 - Keep the unfinished items of PENDING with the same wording, drop those DONE accomplished, add what is missing. First item = next action.
 - An item that FAIL shows as failed: replace it with a new goal in plain words (not found: find it first; approach failed: same result another way).
+- Greetings, thanks, small talk, jokes and questions about general knowledge or about what you can do need no computer: reply with an empty list.
 Follow USER.
 ${DATA_NOTICE_EN}`,
 
@@ -350,6 +351,21 @@ const ROUTE_HINTS: Record<string, string> = {
   locate: "Also use it after a file was not found at the path that was tried.",
 };
 
+/**
+ * Pasos que piden mover o renombrar (español e inglés). Solo a ellos D4 les suma "A copy is not a move.": sin esa condición la frase subía `cumple` en casos ajenos
+ * (eval 2026-11-12: la frase sin condición dio -3 casos en 164 ajenos; con la condición, 0 regresiones; en los 8 casos de copiar y mover, de 2/8 a 5/8).
+ */
+export const MOVE_STEP = /\b(mov[eéi]|mover|renombr|pas[aá]|move|rename)/i;
+
+/**
+ * Pregunta de Decisión 1. Con "Which route should handle the next action?" las solicitudes con "en la terminal" y un comando llegaban a `files` (10/16 acertadas); con esta
+ * pregunta y la regla de seguir lo que el paso diga sobre dónde o cómo hacerlo, más la línea `Request` (el primer pendiente suele perder esa pista), la cadena solicitud -> pending -> D1
+ * acertó 23/26 de las solicitudes con terminal explícita contra 11/26 (eval/exp/select_tools.ts, 82 solicitudes: 77 contra 61). Costo medido: 3 a 4 casos de los 32 de
+ * route_16_cases y route_gemai (ambiguos: "últimas 80 líneas del log", "rastreá archivos .gz > 100MB") y una búsqueda de CVE que pasa a terminal.
+ */
+export const ROUTE_QUESTION =
+  "Where should this step run? If the step says where or how to do it (the terminal, a command, the web, a file path), follow it.";
+
 export const DECISION_PROMPTS = {
   /**
    * Juez de fragmentos (`FragmentJudge`, lo usa `web_search`): una pregunta `noul` por fragmento (`f0`, `f1`…), con la necesidad como estado.
@@ -376,6 +392,28 @@ Does the PASSAGE contain information that answers the QUESTION?`,
   },
 
   /**
+   * Decisión 5 (cierre del reactivo): con la lista vacía, una sola pregunta `noul`: ¿lo hecho (DONE) cumple toda la solicitud (REQUEST)? El estado es el mismo texto que ve
+   * `PENDING_VIEW` (secciones rotuladas), así el modelo ve la solicitud y todas las llamadas hechas. Pregunta mínima: una versión más detallada (revisar cada objetivo,
+   * cantidad y valores) subió los falsos "sí" (eval 2026-11-12, `eval/exp/close_check.ts`, 36 casos nuevos: a 0,6 dio 5 falsos "sí" en lugar de 2).
+   * Con umbral 0,75 (`COMPLETION_APPROVE`) acertó 31/36; la confirmación del LLM de antes, 26/36 y en ~942 ms contra ~49 ms.
+   */
+  buildCompletionCheck(data: CompletionDecisionInput): DecisionInput {
+    return {
+      state: PROMPTS.PENDING_VIEW.buildUserPrompt({ view: data.view }),
+      questions: {
+        [COMPLETION_KEY]: {
+          type: "noul",
+          instructions: "Using only what DONE shows, is every part of REQUEST already done? False if any part is missing or was never done.",
+          criteria: {
+            true: "Every part of the REQUEST is done.",
+            false: "Some part of the REQUEST is missing or not done yet.",
+          },
+        },
+      },
+    };
+  },
+
+  /**
    * Decisión 1 (FLUJO 2): las opciones son las rutas con alguna herramienta usable (`routes`). Las rutas salen de las
    * constantes, no del texto.
    */
@@ -391,8 +429,8 @@ Does the PASSAGE contain information that answers the QUESTION?`,
     }
 
     return {
-      state: frameLines(data).filter(Boolean).join("\n"),
-      questions: { route: { type: "choice", instructions: "Which route should handle the next action?", criteria } },
+      state: [data.request ? `Request: ${data.request}` : null, ...frameLines(data)].filter(Boolean).join("\n"),
+      questions: { route: { type: "choice", instructions: ROUTE_QUESTION, criteria } },
     };
   },
 
@@ -489,9 +527,7 @@ Does the PASSAGE contain information that answers the QUESTION?`,
         },
         cumple: {
           type: "noul",
-          instructions: c.expected
-            ? "Does the result meet the expected outcome?"
-            : "Does the result accomplish the step?",
+          instructions: `${c.expected ? "Does the result meet the expected outcome?" : "Does the result accomplish the step?"}${MOVE_STEP.test(c.instruction) ? " A copy is not a move." : ""}`,
           criteria: {
             true: "Fully meets what was requested.",
             false: "Incomplete, failed, or different from request.",

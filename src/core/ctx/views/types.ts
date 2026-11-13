@@ -185,6 +185,8 @@ export interface PlanView {
  * y el último intento no aprobado, que llevan su resumen. Una llamada aparece una sola vez: `lastResult` no se repite en `done`.
  */
 export interface RouteView {
+  /** Solo en reactivo: la solicitud del usuario. El paso (primer pendiente) puede haber perdido lo que el usuario dijo sobre dónde o cómo hacerlo ("en la terminal", un comando). */
+  readonly request: string | null;
   /** El paso actual. */
   readonly step: StepView | null;
   /** Solo en reactivo: la última llamada aprobada que no es efecto. */

@@ -65,7 +65,7 @@ export function captureLlm(llm: EngineLLM, sink: CaptureSink, version: () => num
 }
 
 /**
- * Envuelve Decision: `chooseRoute` (`route`), `chooseTool` (`tool`), `reviewArgs` (`review`) y `verifyResult` (`verify`).
+ * Envuelve Decision: `chooseRoute` (`route`), `chooseTool` (`tool`), `reviewArgs` (`review`), `verifyResult` (`verify`) y `checkCompletion` (`completion`).
  */
 export function captureDecision(
   decision: IActionDecision,
@@ -77,6 +77,7 @@ export function captureDecision(
     chooseTool: (input, signal) => observe("tool", sink, version, () => decision.chooseTool(input, signal)),
     reviewArgs: (input, signal) => observe("review", sink, version, () => decision.reviewArgs(input, signal)),
     verifyResult: (input, signal) => observe("verify", sink, version, () => decision.verifyResult(input, signal)),
+    checkCompletion: (input, signal) => observe("completion", sink, version, () => decision.checkCompletion(input, signal)),
   };
 }
 

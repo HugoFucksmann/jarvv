@@ -90,6 +90,7 @@
     "env": [
       "process=4321"
     ],
+    "request": "Busca los informes de ventas y guarda un resumen en resumen.txt",
     "routes": [
       "files",
       "terminal"
@@ -311,6 +312,7 @@
     "env": [
       "process=4321"
     ],
+    "request": null,
     "routes": [
       "files",
       "terminal"
@@ -442,6 +444,7 @@
   "deliberative/closed/statusNote": "⚠ La tarea quedó incompleta: se logró solo una parte. No quedaron alternativas para continuar.\nNo se logró: Guardar el resumen en resumen.txt.\nCambios realizados en la computadora:\n- c12 files/write_file ok (approved)\n- c13 files/write_file ok (approved)\n- c14 files/write_file ok (approved)\n- c15 files/write_file ok (approved)",
   "caps": {
     "request": 4000,
+    "routeRequest": 1000,
     "step": 4000,
     "line": 300,
     "pendingEntry": 600,

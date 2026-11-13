@@ -49,6 +49,9 @@ function manager(root: string, pending: EngineLLM["generatePendingFromView"]): T
     verifyResult: async () => {
       throw new Error("no se usa");
     },
+    checkCompletion: async () => {
+      throw new Error("no se usa");
+    },
   };
   return new TaskManager({ decision, discovery, llm }, getConfig, services);
 }

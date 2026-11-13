@@ -96,6 +96,8 @@ export const BUDGET = {
    */
   caps: {
     request: 4000,
+    /** Solicitud completa que ve Decisión 1 (reactivo): la pista de dónde o cómo hacerlo suele estar al principio; el resto cuesta tokens de decisión. */
+    routeRequest: 1000,
     step: 4000,
     /** Línea de llamada `L`. */
     line: 300,

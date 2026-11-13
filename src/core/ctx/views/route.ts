@@ -21,6 +21,7 @@ export function buildRouteView(data: ContextData, options: RouteViewOptions): Ro
 
   const last = reactive ? lastResultOf(data.calls) : null;
   return {
+    request: reactive ? data.task.request : null,
     step: step === null ? null : stepViewOf(step),
     lastResult: last === null ? null : callViewOf(data, last, false),
     done: reactive ? doneCalls(data.calls).filter((c) => c.id !== last?.id).map(lineViewOf) : [],

@@ -222,7 +222,10 @@ export interface QuestionExpect {
 
 // pending (lista de pendientes del reactivo)
 export interface PendingOutput {
+  /** Textos de los pendientes (en la variante con objetos, el `goal` de cada ítem que lo trae). */
   pending: string[];
+  /** Solo si el modelo devolvió objetos (variante `pending2`): los ítems tal cual, para validar su estructura. */
+  rich?: unknown[];
 }
 export interface PendingExpect {
   /** `true`: la lista debe venir vacía (nada por hacer); `false`: debe tener al menos un pendiente. */

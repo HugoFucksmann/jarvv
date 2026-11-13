@@ -30,7 +30,7 @@ import { READ_ARG_KEYS } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import type { ArgsFromViewInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "../contracts.ts";
+import type { ArgsFromViewInput, CompletionDecisionInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "../contracts.ts";
 
 // ───────────────────────── Opciones de vistas y renderizadores ─────────────────────────
 
@@ -79,6 +79,14 @@ export function finalRenderOptions(): FinalRenderOptions {
 /** Entrada de la lista de pendientes desde `forPending`: el texto de la vista con la lista anterior. */
 export function pendingInput(ctx: TaskContext, previous: readonly string[]): PendingFromViewInput {
   return { view: renderPending(ctx.view.forPending(previous, windowOptions()), { caps: BUDGET.caps }) };
+}
+
+/**
+ * Entrada de Decisión 5 (cierre): la vista de `forPending` con la lista vacía, o sea lo mismo que ve el LLM al confirmar que no falta nada
+ * (REQUEST, STATE, USER, DONE completo, FAIL).
+ */
+export function completionInput(ctx: TaskContext): CompletionDecisionInput {
+  return pendingInput(ctx, []);
 }
 
 // ───────────────────────── LLM 1 (plan) y argumentos ─────────────────────────
@@ -162,7 +170,8 @@ export interface RouteChoiceFlags {
 }
 
 export function routeInput(view: RouteView, flags: RouteChoiceFlags): RouteDecisionInput {
-  return { ...decisionFrame(view), ...flags };
+  const request = view.request === null ? null : clipMarked(oneLine(view.request), caps.routeRequest);
+  return { ...decisionFrame(view), request, ...flags };
 }
 
 /** `view` es `forRoute` con `route`: los intentos ya están filtrados a la ruta elegida. */

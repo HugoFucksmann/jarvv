@@ -21,6 +21,8 @@ import {
   type DecisionResponse,
 } from "../types.ts";
 import type {
+  CompletionDecision,
+  CompletionDecisionInput,
   DecisionTrace,
   IActionDecision,
   ReviewDecision,
@@ -33,7 +35,7 @@ import type {
   VerifyDecision,
   VerifyDecisionInput,
 } from "../contracts.ts";
-import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";
+import { ARGS_REVIEWS, COMPLETION_KEY, VERIFY_CHECKS } from "../contracts.ts";
 import { isExecutableRoute } from "../types/routes.ts";
 import type { ConfigSource, JarvisConfig } from "../config.ts";
 import { DECISION_PROMPTS } from "./prompts.ts";
@@ -262,6 +264,20 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
       `[Verification ${this.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
     );
     return { answers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+  }
+
+  /**
+   * Decisión 5: con la lista de pendientes vacía, ¿la solicitud completa ya está cumplida? Una pregunta `noul` (`COMPLETION_KEY`); devuelve su probabilidad sin umbral:
+   * el cierre lo decide `confirmCompletion` (`engine/completion.ts`).
+   */
+  async checkCompletion(input: CompletionDecisionInput, signal?: AbortSignal): Promise<CompletionDecision> {
+    const { state, questions } = this.prompts.buildCompletionCheck(input);
+
+    const t0 = Date.now();
+    const response = await this.ask("Completion", state, questions, signal);
+    const requestComplete = noulAnswer(response, COMPLETION_KEY).noul;
+    console.log(`[Completion ${this.getConfig().decisionModel}] ${COMPLETION_KEY}=${requestComplete.toFixed(2)} duration=${Date.now() - t0}ms`);
+    return { requestComplete, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /**

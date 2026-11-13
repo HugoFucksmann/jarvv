@@ -7,7 +7,7 @@
  * Reactivo: cada vuelta es un paso nuevo cuya instrucción es el primer pendiente de una lista que mantiene el código
  * (`pendingList.ts`; el modelo la genera al empezar y se le consulta de nuevo solo tras un fallo o al vaciarse). Un paso que
  * termina bien quita su ítem; un ítem con `BUDGET.maxItemFailures` pasos fallidos seguidos se abandona si quedan otros, y la tarea
- * cierra `no_alternatives` (parcial) cuando se vacía. Una lista vacía confirmada por el modelo cierra `completed` o
+ * cierra `no_alternatives` (parcial) cuando se vacía. Al terminar bien el último ítem, Decisión 5 (`completion.ts`) puede cerrar `completed` sin consultar al LLM. Una lista vacía confirmada por el modelo cierra `completed` o
  * `no_alternatives`, según `canFinish()`; `max_steps` al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); un paso `failed`
  * es una escalación: al tercero, `no_alternatives`.
  *
@@ -27,6 +27,7 @@ import type { EngineDeps } from "../contracts.ts";
 import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
+import { confirmCompletion } from "./completion.ts";
 import { escalationsExceeded, itemFailuresReached, replansExhausted, stepsExhausted } from "./limits.ts";
 import type { Closing } from "./finalize.ts";
 import { generatePending } from "./pending.ts";
@@ -117,8 +118,10 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
         pending = pending.slice(1);
         headFailures = 0;
         if (pending.length === 0) {
-          // Hecho todo lo previsto: si se abandonó algo, la tarea es parcial; si no, se confirma con el modelo que no falta nada.
+          // Hecho todo lo previsto: si se abandonó algo, la tarea es parcial; si no, Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
+          // y, si no lo asegura, se confirma con el LLM que no falta nada.
           if (abandoned > 0) return stop("no_alternatives");
+          if (await confirmCompletion(env)) return COMPLETED;
           askModel = true;
         }
         continue;

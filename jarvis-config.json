@@ -43,7 +43,7 @@
   "refsDir": "data/refs",
   "retentionDays": 30,
   "blacklist": [],
-  "autoMode": true,
+  "autoMode": false,
   "webSearchUseJudge": false,
   "voiceEnabled": true,
   "telegramVoice": true,

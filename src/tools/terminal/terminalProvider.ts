@@ -27,7 +27,7 @@ import { BUDGET } from "../../core/budget.ts";
 import type { ToolCallOptions, ToolProvider, TaskEndOutcome } from "../../core/tools/provider.ts";
 import { argCapsOf } from "../../core/tools/manifest.ts";
 import { toolResult } from "../../core/tools/result.ts";
-import { headTailNeutral } from "../../core/text.ts";
+import { headTailNeutral, omissionMarker } from "../../core/text.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 import { systemCodePages, type CodePages } from "./codepages.ts";
@@ -739,8 +739,15 @@ export class TerminalProvider implements ToolProvider {
       const lines = rows.map((p) => `pid ${p.pid} · ${p.name} · ${Math.round(p.memoryBytes / 1048576)} MB`);
       const header = `status: listed · ${rows.length} processes on this computer, by memory in use`;
       const cap = Math.max(BUDGET.summaryMax - HEADER_RESERVE, 400);
+      // Solo filas completas: cortar por caracteres dejaba una última fila con la cifra truncada (`node.exe · 7` en vez de `· 72 MB`).
+      let shown = 0;
+      for (let used = 0; shown < lines.length; shown++) {
+        used += lines[shown].length + (shown > 0 ? 1 : 0);
+        if (used > cap - 50) break;
+      }
+      const omitted = lines.length - shown;
       return toolResult({
-        text: [header, headTailNeutral(lines.join("\n"), cap - 50, 0).text].join("\n"),
+        text: [header, ...lines.slice(0, shown), ...(omitted > 0 ? [omissionMarker(omitted, "procesos")] : [])].join("\n"),
         raw: [header, ...lines].join("\n"),
         data: { state: "listed", scope: "system", count: rows.length },
       });

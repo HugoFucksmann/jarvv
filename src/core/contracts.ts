@@ -75,6 +75,8 @@ export interface DecisionFrame {
 export interface RouteDecisionInput extends DecisionFrame {
   /** Rutas con alguna herramienta usable: son las opciones de ruta. */
   readonly routes: readonly ExecutableRoute[];
+  /** La solicitud del usuario (reactivo), ya saneada y recortada; `null` o ausente en deliberativo. Solo la usa Decisión 1. */
+  readonly request?: string | null;
 }
 
 export interface ToolDecisionInput extends DecisionFrame {
@@ -134,6 +136,8 @@ export interface VerifyDecisionInput {
   readonly userInput: readonly string[];
   /** Llamadas aprobadas previas a la evaluada, ya renderizadas como texto, la más reciente al final. */
   readonly recent: readonly string[];
+  /** La solicitud completa del usuario. Solo cuando el ítem verificado es el último; `null` o ausente en el resto. */
+  readonly request?: string | null;
 }
 
 /**
@@ -150,6 +154,20 @@ export type VerifyCheckKey = (typeof VERIFY_CHECKS)[number]["key"];
 /** Decisión 4: la probabilidad de la afirmativa de cada pregunta de `VERIFY_CHECKS`, sin umbral aplicado. */
 export type VerifyDecision = Omit<DecisionTrace, "probabilities"> & { readonly answers: Readonly<Record<VerifyCheckKey, number>> };
 
+/**
+ * Decisión 5: lo que recibe la consulta de cierre. Es el texto de `renderPending` con la lista vacía (REQUEST, STATE, USER, DONE completo y FAIL): la misma vista que hoy
+ * recibe el LLM al confirmar que no falta nada, pero la responde el modelo de decisión con una sola pregunta.
+ */
+export interface CompletionDecisionInput {
+  readonly view: string;
+}
+
+/** Clave de la pregunta `noul` de Decisión 5. */
+export const COMPLETION_KEY = "request_complete";
+
+/** Decisión 5: probabilidad de que la solicitud completa ya esté cumplida con lo hecho, sin umbral aplicado: el cierre es de `confirmCompletion` (`engine/completion.ts`). */
+export type CompletionDecision = Omit<DecisionTrace, "probabilities"> & { readonly requestComplete: number };
+
 export interface IActionDecision {
   chooseRoute(input: RouteDecisionInput, signal?: AbortSignal): Promise<RouteDecision>;
   chooseTool(input: ToolDecisionInput, signal?: AbortSignal): Promise<ToolDecision>;
@@ -157,6 +175,8 @@ export interface IActionDecision {
   reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision>;
   /** Decisión 4: verifica el resultado de una llamada ejecutada (las preguntas de `VERIFY_CHECKS`). */
   verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<VerifyDecision>;
+  /** Decisión 5: con la lista de pendientes vacía, ¿la solicitud completa ya está cumplida? (reactivo; reemplaza a la confirmación del LLM cuando responde que sí) */
+  checkCompletion(input: CompletionDecisionInput, signal?: AbortSignal): Promise<CompletionDecision>;
 }
 
 // ───────────────────────── LLM: argumentos y pregunta (D17) ─────────────────────────
@@ -246,7 +266,7 @@ export interface EngineLLM {
 // ───────────────────────── Dependencias del motor ─────────────────────────
 
 export interface EngineDeps {
-  /** Elección de ruta y herramienta (`chooseRoute`, `chooseTool`), revisión (`reviewArgs`) y verificación (`verifyResult`). */
+  /** Elección de ruta y herramienta (`chooseRoute`, `chooseTool`), revisión (`reviewArgs`), verificación (`verifyResult`) y cierre (`checkCompletion`). */
   readonly decision: IActionDecision;
   readonly discovery: IDiscoveryEngine;
   readonly llm: EngineLLM;

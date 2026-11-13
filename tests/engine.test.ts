@@ -15,6 +15,7 @@ import type { TaskContext } from "../src/core/ctx/index.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
 import type { Waiting } from "../src/core/engine/runtime.ts";
+import { DecisionServiceUnavailableError } from "../src/core/models/transport.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
 import { createRefVault } from "../src/core/refs/refVault.ts";
@@ -47,6 +48,10 @@ interface Scenario {
   readonly resultFor?: (n: number) => MCPCallResult;
   /** Respuestas de la verificación (D4) para la `n`-ésima llamada verificada; por defecto aprueba. */
   readonly verifyFor?: (n: number) => { ok: number; cumple: number };
+  /** Probabilidad que Decisión 5 (cierre) da a `request_complete`; por defecto 0 (no asegura el cierre y se confirma con el LLM, como antes). */
+  readonly completion?: number;
+  /** Decisión 5 falla (servicio caído): el cierre cae a la confirmación del LLM. */
+  readonly completionFails?: boolean;
   /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): el reactivo reintenta con pasos nuevos del mismo criterio. */
   readonly pendingAlways?: boolean;
   /** El proveedor de terminal responde sin herramientas (una plataforma donde no existe: RC-29). */
@@ -61,6 +66,9 @@ interface Outcome {
   readonly reviews: number;
   /** Cómo terminó la tarea, según el aviso del motor a los proveedores (`notifyTaskEnd`). */
   readonly ended: string[];
+  /** Consultas al LLM de pendientes (la inicial y las confirmaciones) y a Decisión 5. */
+  readonly pendingQueries: number;
+  readonly completionChecks: number;
 }
 
 async function run(s: Scenario): Promise<Outcome> {
@@ -68,6 +76,8 @@ async function run(s: Scenario): Promise<Outcome> {
   const dispatched: { tool: string; args: Record<string, unknown> }[] = [];
   let reviews = 0;
   let pendingCalls = 0;
+  let pendingQueries = 0;
+  let completionChecks = 0;
   let verified = 0;
 
   const ended: string[] = [];
@@ -108,12 +118,17 @@ async function run(s: Scenario): Promise<Outcome> {
         s.onVerify?.(runtime);
         return { answers: s.verifyFor?.(verified++) ?? { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
       },
+      checkCompletion: async () => {
+        completionChecks++;
+        if (s.completionFails === true) throw new DecisionServiceUnavailableError("Decisión caída (prueba)");
+        return { requestComplete: s.completion ?? 0, rawInput: "", rawOutput: "" };
+      },
     },
     llm: {
       generateArgumentsFromView: async (input: { readonly priorAttempts?: number }) => ({ args: (s.onArgs?.(input), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
-      generatePendingFromView: async () => ({ pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
+      generatePendingFromView: async () => (pendingQueries++, { pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
       generatePlanFromView: async () => {
         throw new Error("no se usa en reactivo");
       },
@@ -131,7 +146,7 @@ async function run(s: Scenario): Promise<Outcome> {
   runtime = new TaskRuntime({ onChange: (waiting) => waiting !== null && s.onWait !== undefined && queueMicrotask(() => s.onWait!(waiting, runtime)) });
   await runTask(ctx, runtime, deps);
   fs.rmSync(dir, { recursive: true, force: true });
-  return { ctx, dispatched, reviews, ended };
+  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks };
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
@@ -143,6 +158,29 @@ test("lectura: se despacha, se verifica y la tarea se completa con respuesta del
   assert.equal(calls.length, 1);
   assert.equal(calls[0].status, "ok");
   assert.equal(calls[0].verdict, "approved");
+});
+
+test("cierre: Decisión 5 con probabilidad suficiente completa la tarea sin confirmar con el LLM de pendientes", async () => {
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completion: 0.9 });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(ctx.task.stopReason, null);
+  assert.equal(completionChecks, 1);
+  assert.equal(pendingQueries, 1, "solo la consulta inicial: no se pidió la confirmación al LLM");
+});
+
+test("cierre: Decisión 5 por debajo del umbral (0,75) no cierra: se confirma con el LLM como antes", async () => {
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completion: 0.74 });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(completionChecks, 1);
+  assert.equal(pendingQueries, 2, "la confirmación del LLM sí ocurrió");
+});
+
+test("cierre: si Decisión 5 falla, la tarea no se cierra por eso: se confirma con el LLM", async () => {
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails: true });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(ctx.task.stopReason, null);
+  assert.equal(completionChecks, 1);
+  assert.equal(pendingQueries, 2);
 });
 
 test("RC-13: un comando que el Guard deniega no se despacha ni cierra la tarea: el modelo ve el motivo y prueba otro camino", async () => {
