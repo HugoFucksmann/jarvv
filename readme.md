@@ -15,7 +15,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React_19-20232a?logo=react&logoColor=61dafb)
 ![Tailwind](https://img.shields.io/badge/Tailwind_4-0f172a?logo=tailwindcss&logoColor=38bdf8)
-![Node](https://img.shields.io/badge/Node.js_20+-339933?logo=nodedotjs&logoColor=white)
+![Node](https://img.shields.io/badge/Node.js_22.12+-339933?logo=nodedotjs&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)
 
 </div>
@@ -55,7 +55,7 @@ Los modelos corren en tu equipo con [Ollama](https://ollama.com). Tus instruccio
 ### 🧭 Dos modos, según la tarea
 **`reactive`**: elige y ejecuta paso a paso, verificando cada resultado.
 **`deliberative`**: planifica primero y **te pide confirmar el plan**; podés aceptarlo, rechazarlo o pedir cambios.
-Si un paso falla, se recupera con un plan nuevo (hasta dos veces) o te pregunta lo que le falta.
+Si un paso falla, se recupera con un plan nuevo (hasta tres veces) o te pregunta lo que le falta.
 
 </td>
 <td width="50%" valign="top">
@@ -92,7 +92,7 @@ JARVIS solo ofrece a los modelos las herramientas catalogadas, agrupadas en cuat
 | ⌨️ | `terminal` | Ejecutar comandos y programas, leer su salida y enviarles entrada |
 | 🌐 | `web` | Buscar información en línea y leer páginas web |
 
-Se ejecutan mediante el protocolo [MCP](https://modelcontextprotocol.io) con [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP) y [Free Search](https://pypi.org/project/free-search-mcp/).
+Los archivos y la búsqueda local se ejecutan mediante el protocolo [MCP](https://modelcontextprotocol.io) con [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP); `run_command` (con `list_processes` y `stop_process`) y `web_search` son herramientas propias de JARVIS (`src/tools/`), y `web_search` usa por dentro [Free Search](https://pypi.org/project/free-search-mcp/).
 
 ### 📏 Y se puede medir
 
@@ -148,11 +148,15 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 | `npm test` | Pruebas del núcleo (`tests/`): Guard y reglas de comando, lógica pura, `runTask` con dobles y foto dorada del texto de los prompts (`UPDATE_GOLDEN=1 npm test` la regenera) |
 | `npm run eval` | Laboratorio de evaluación de prompts (`-- --menu` abre el asistente) |
 | `npm run eval:smoke` | Prueba rápida del eval sin modelos (cliente `mock`, `--dry-run`) |
+| `npm run eval:cross` | Cruza el pre-chequeo determinista con los resultados de una corrida del eval |
+| `npm run eval:psvalid` | Mide la validez PowerShell de los `command` de una corrida del eval |
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `PORT` | `3000` | Puerto del servidor |
 | `HOST` | `127.0.0.1` | Interfaz de red. Con `0.0.0.0` se expone a la red; como no hay autenticación, daría control de tu PC a quien llegue al servidor, así que no lo uses en redes que no controlás |
+| `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `TELEGRAM_MODE` | — | Telegram, opcional (se leen del entorno o de `.env`; ver `.env.example` y [`TELEGRAM_Y_VOZ`](docs/TELEGRAM_Y_VOZ.md)). Sin token o sin `TELEGRAM_CHAT_ID` el bot no arranca |
+| `HF_TOKEN` | — | Solo para `scripts/phonon_server.py` (modelo de voz *gated* en Hugging Face) |
 
 </details>
 
@@ -174,13 +178,17 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos |
+| `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
+| `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |
 | `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción). Solo valida los argumentos de ruta de las herramientas de archivos: **no restringe lo que haga un comando** de `run_command` |
 | `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
 | `retentionDays` | `30` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar nada). Las refs de una tarea retenida en memoria no se tocan |
 | `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
 | `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
-| `webSearchUseJudge` | `false` | `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada. Empieza apagado: el modelo se suma cuando la línea base muestre que su ganancia justifica el costo |
+| `webSearchUseJudge` | `true` | `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada |
+| `voiceEnabled` · `telegramVoice` | `false` · `false` | Voz: la interfaz lee en voz alta cada respuesta final; Telegram suma una nota de voz (necesita `ffmpeg`). Ver [`TELEGRAM_Y_VOZ`](docs/TELEGRAM_Y_VOZ.md) |
+| `voiceUrl` · `voiceName` | `http://127.0.0.1:8880` · `default` | Servidor TTS (`scripts/phonon_server.py`) y su voz |
 
 </details>
 
@@ -193,12 +201,16 @@ jarvis/
 ├── server.ts            Servidor Express: composición, API local y eventos en vivo
 ├── src/
 │   ├── core/            Núcleo: motor, modelos (`models/`), Guard, MCP, contexto, refs y contratos
-│   └── server/          Rutas HTTP (/api/jarvis y /api/mcp)
-├── ui/                  Interfaz React: componentes, hooks y cliente de la API
+│   ├── server/          Rutas HTTP (/api/jarvis y /api/mcp)
+│   ├── tools/           Herramientas propias: `run_command` (terminal) y `web_search` (web)
+│   ├── telegram/        Bot de Telegram (opcional)
+│   └── voice/           Voz: cliente TTS y conversión a Opus
+├── ui/                  Interfaz React: componentes, hooks, servicios (cliente de la API), tipos y utilidades
 ├── tests/               Pruebas del núcleo (`npm test`)
 ├── eval/                Laboratorio de evaluación: datasets, variantes de prompt y resultados
 ├── docs/                Documentación técnica
-├── scripts/             Utilidades (volcado de los esquemas de herramientas)
+├── scripts/             Utilidades: volcado de esquemas de herramientas, servidor de voz (`phonon_server.py`) y sondas de validación (`validate/`)
+├── mcp/                 Dependencias fijadas de Free Search (`free-search/`)
 ├── data/                Datos locales de ejecución (resultados completos de las herramientas)
 └── jarvis-config.json   Configuración
 ```
@@ -217,7 +229,7 @@ Esta es una **versión temprana ([v0.6.0](CHANGELOG.md))**: el flujo completo fu
 | **Evaluación** | ⚠️ El laboratorio funciona, pero los datasets y las variantes se cargan a mano: no es 100 % autónomo y aún no evalúa tareas completas de punta a punta |
 | **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` viene apagado; encendido, los comandos no piden aprobación y los valida un modelo de 2B, salvo las rutas sensibles (claves, credenciales, inicio automático, sistema), que siempre piden confirmación. La API no tiene autenticación: solo acepta `Host` y `Origin` locales y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Los servidores MCP se lanzan con versión fija (Desktop Commander `0.3.2`). **No expongas el servidor fuera de `localhost`** |
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
-| **Herramientas** | 13 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
+| **Herramientas** | 12 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 
 Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES_FUERA_DE_FLUJO`](docs/PENDIENTES_FUERA_DE_FLUJO.md).
 

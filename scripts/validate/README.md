@@ -21,7 +21,7 @@ npx tsx scripts/validate/tasks_e2e.ts --only=2 --judge
 node scripts/validate/powershell_launch_probe.mjs
 ```
 
-**Efectos secundarios.** `run_command_probe.ts` lanza procesos reales (`node`, `cmd /c pause`, `python -i`, `ping`, un servidor HTTP en el puerto 8765, `findstr`); los cierra al terminar. `run_command` (y por lo tanto la sonda y las pruebas) deja sus ayudas de PowerShell en `%TEMP%jarvis-terminalhelpers-*.ps1`: es a propósito, se reutilizan entre arranques. `tasks_e2e.ts` crea carpetas en `%TEMP%` (`jarvis_validacion*`) y una carpeta de refs temporal, y las borra al final. Ninguno toca `jarvis-config.json` (el arnés sobrescribe la configuración en memoria).
+**Efectos secundarios.** `run_command_probe.ts` lanza procesos reales (`node`, `cmd /c pause`, `python -i`, `ping`, un servidor HTTP en el puerto 8765, `findstr`); los cierra al terminar. `run_command` (y por lo tanto la sonda y las pruebas) deja sus ayudas de PowerShell en `%TEMP%\jarvis-terminal\helpers-<hash>.ps1`: es a propósito, se reutilizan entre arranques. `tasks_e2e.ts` crea carpetas en `%TEMP%` (`jarvis_validacion*`) y una carpeta de refs temporal, y las borra al final. Ninguno toca `jarvis-config.json` (el arnés sobrescribe la configuración en memoria).
 
 **Ruido.** Los modelos registran cada consulta en la consola (`[Qwen …]`, `[Decision …]`): en `tasks_e2e.ts` el resumen de cada tarea empieza en una línea de `====`.
 

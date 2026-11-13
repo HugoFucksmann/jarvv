@@ -52,7 +52,7 @@ function dotenvKeys(): string[] {
 }
 
 /** Secretos de voz y Telegram: los comandos de `run_command` no los heredan aunque vengan del entorno y no de `.env`. */
-const SECRET_KEYS = ['9058266149:AAHd6GC5YsSBP0Lbz2wTxiOYH0pIu2rKJc0', 'RootAgent_vbot', 'HF_TOKEN'];
+const SECRET_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'HF_TOKEN'];
 
 async function main() {
   const app = express();

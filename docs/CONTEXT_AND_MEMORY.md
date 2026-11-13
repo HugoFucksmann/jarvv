@@ -122,7 +122,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | No ejecutadas | `args_invalid` | Argumentos inválidos (validación, pre-chequeo o revisión; el pre-chequeo y la revisión dejan un motivo fijo como resumen) |
 | | `refs_unresolved` | Una referencia `rN` no se pudo resolver |
 | | `loop_blocked` | El anti-bucle bloqueó una repetición |
-| | `tool_rejected` | La lista negra de la configuración vetó la herramienta o el comando |
+| | `tool_rejected` | Guard, la lista negra o una regla de comando vetó la herramienta o el comando (no cierra la tarea) |
 | | `info_missing` | La revisión detectó información faltante |
 | | `user_rejected` | El usuario rechazó la operación |
 
@@ -147,7 +147,7 @@ Todo lo que no es un dato primario se recalcula desde `calls`, `steps`, `plans` 
 | Ventana reciente | Los últimos 2, 5 o 10 elementos según haya 0, 1 o 2 o más escalaciones |
 | Anti-bucle | Ver abajo |
 
-**Anti-bucle**: una llamada se bloquea si repite herramienta y huella de argumentos con la última llamada ejecutada idéntica. Una lectura idéntica se permite solo si hubo una escritura exitosa en el medio; una escritura idéntica, solo si hubo una lectura ejecutada en el medio. Una respuesta del usuario posterior también cuenta como intermedia. Las herramientas marcadas como exentas en el catálogo no se controlan.
+**Anti-bucle**: una llamada se bloquea si repite herramienta y huella de argumentos con la última llamada ejecutada idéntica. Una lectura idéntica se permite solo si hubo una escritura exitosa en el medio; una escritura idéntica, solo si hubo una lectura ejecutada en el medio. Una respuesta del usuario posterior también cuenta como intermedia. Las herramientas marcadas como exentas en el catálogo no se controlan. Para las lecturas, además, cuenta lo que pasó con la anterior (aprobada, rechazada, fallo pasajero, `no_data`); el detalle está en `CORE_FLOW.md`.
 
 ## 4. Vistas y Prompts
 Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de solo lectura y determinista. El texto lo arma después un renderizador, fuera del contexto.
@@ -169,7 +169,7 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 - **Guarda de contexto**: antes de cada llamada al modelo generativo se estima el prompt (3 caracteres por token); si no deja margen mínimo para la salida, la llamada se rechaza. `qwenNumCtx` debe coincidir con el contexto real del servidor.
 
 ## 5. Resultados Voluminosos y Referencias
-1. **Procesamiento**: el resultado crudo de la herramienta se convierte en un estado, un resumen (hasta 2 500 caracteres) y el texto completo. Extractores por herramienta condensan listados de carpetas (40 entradas), lecturas largas (primeras y últimas 15 líneas), procesos (últimas 30 líneas) y búsquedas (10 resultados). Una herramienta sin extractor usa el genérico (inicio y final del texto).
+1. **Procesamiento**: el resultado crudo de la herramienta se convierte en un estado, un resumen (hasta 2 500 caracteres) y el texto completo. Solo `list_directory` (40 entradas) y `read_file` (primeras y últimas 15 líneas) de Desktop Commander tienen extractor propio. Los resultados de las herramientas propias (`jarvis_*`) los lee el extractor estructurado: el texto que el proveedor ya preparó para el modelo más las señales (código de salida, `pid` y estado, espera de entrada). El resto usa el genérico (inicio y final del texto, 750 caracteres cada uno).
 2. **Almacén**: si el resumen no contiene todo el resultado, el texto completo se guarda en disco en `<refsDir>/<tarea>/<uuid>.txt` (UTF-8, nunca se sobrescribe) y la llamada lleva una `ref` con su etiqueta, tamaño y ruta. La retención (`retention.ts`) las borra por antigüedad (`retentionDays`, 30 por defecto; `0` la desactiva) al arrancar y cada 6 horas; solo toca carpetas con el nombre de una tarea de Jarvis y nunca las de una tarea retenida en memoria.
 3. **Uso por los modelos**: un modelo nunca ve el contenido completo. Para usarlo, escribe `{{ref:rN}}` (o `ref:rN` como valor completo de un argumento) y el resolutor lo sustituye por el contenido real **antes de Guard y del despacho**; o lee la ruta del archivo con la herramienta de archivos, por tramos. La vista de argumentos le indica qué tramos de cada ref ya leyó.
 4. **Resolución segura**: solo se aceptan ids `rN` de la propia tarea, la sustitución es de una sola pasada (el contenido inyectado no se vuelve a analizar) y una ref desconocida o ilegible nunca llega a la herramienta: la llamada queda `refs_unresolved`.

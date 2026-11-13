@@ -60,8 +60,9 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 |---|---|---|
 | Modelo de decisión | Cuatro decisiones del motor mediante preguntas `choice` y `noul` | `POST /v1/systemone` sobre `decisionUrl` con el campo `model` (`decisionModel`). Hoy es Ollama local; a futuro puede ser una URL remota con el mismo contrato |
 | Modelo generativo | Plan, replan, argumentos, pregunta al usuario y respuesta final | Ollama en `qwenUrl` (modelo `qwenModel`) |
-| `desktop_commander` | Herramientas de archivos, búsqueda local y terminal | MCP por stdio (`desktopCommanderMcp`) |
-| `free_search` | Búsqueda y lectura web | MCP por stdio (`freeSearchMcp`) |
+| `desktop_commander` | Herramientas de archivos y búsqueda local | MCP por stdio (`desktopCommanderMcp`) |
+| `free_search` | Búsqueda y lectura web, que usa por dentro la herramienta propia `web_search` | MCP por stdio (`freeSearchMcp`) |
+| Herramientas propias | `run_command`, `list_processes` y `stop_process` (proveedor `jarvis_terminal`) y `web_search` (proveedor `jarvis_web`) | Proveedores nativos en `src/tools/terminal/` y `src/tools/web/` |
 
 - La configuración vive en `jarvis-config.json`. Toda lectura y escritura pasa por una normalización que descarta claves desconocidas y valores inválidos.
 - Define endpoints, timeouts, tope de tokens de salida por etapa, servidores MCP, la traza y la carpeta de refs. `qwenNumCtx` y `decisionMaxContext` deben coincidir con el contexto real de cada servicio.
@@ -81,6 +82,11 @@ Base `/api/jarvis`, solo local. El detalle de cada ruta y el formato de la tarea
 | `/events` | GET | Flujo SSE de eventos de la tarea |
 | `/refresh-discovery` | Cualquiera | Refresca el catálogo de herramientas de los servidores MCP |
 | `/config` | GET, POST | Lee o actualiza la configuración |
+| `/tasks/:taskId/refs/:refId` | GET | Texto completo de una ref de la tarea |
+| `/tasks/:taskId/trace` | GET | Traza de una tarea terminada (`format`: `summary`, `json` o `full`) |
+| `/environment` | GET | Datos de la PC (sistema, carpetas del usuario, fecha y zona horaria) |
+| `/limits` | GET | Topes del motor |
+| `/tts` | POST | Voz: audio sintetizado por el servidor TTS |
 
 Además, `/api/mcp` expone el descubrimiento y la invocación directa de los servidores MCP (`/discover-all`, `/:server/tools`, `/:server/call`, `/:server/reconnect`, `/:server/status`).
 
@@ -96,7 +102,7 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 - `src/core/models/prompts.ts`
 - `src/core/render/`
 - `src/core/policy/guard.ts`, `src/core/policy/readOnly.ts`, `src/core/policy/sensitivePaths.ts`
-- `src/core/retention.ts`, `src/core/engine/limits.ts`, `src/core/engine/processes.ts`, `src/server/localOnly.ts`
+- `src/core/retention.ts`, `src/core/engine/limits.ts`, `src/server/localOnly.ts`
 - `src/core/tools/manifest.ts`
 - `src/core/result/processResult.ts`
 - `src/core/refs/refVault.ts`
