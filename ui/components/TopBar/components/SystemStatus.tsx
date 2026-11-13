@@ -32,7 +32,7 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
   switch (status) {
     case "loading":
       return (
-        <span className="flex items-center gap-1.5 text-sky-400 animate-pulse font-medium">
+        <span className="flex items-center gap-1.5 text-accent-400 animate-pulse font-medium">
           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
           <span>Inicializando MCP…</span>
         </span>
@@ -42,7 +42,7 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
         <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
           <CheckCircle2 className="w-3 h-3 shrink-0" />
           <span>
-            {count} MCP{plural} Listos
+            {count} MCP{plural} listos
           </span>
         </span>
       );
@@ -52,7 +52,7 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
           type="button"
           onClick={onToggleDetails}
           title="Ver detalle de servidores MCP no disponibles"
-          className="flex items-center gap-1.5 text-amber-400 font-medium hover:text-amber-300 transition-colors cursor-pointer bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-800/60"
+          className="flex items-center gap-1.5 text-yellow-300 font-medium hover:text-yellow-200 transition-colors cursor-pointer bg-yellow-950/30 px-1.5 py-0.5 rounded border border-yellow-800/50"
         >
           <AlertTriangle className="w-3 h-3 shrink-0" />
           <span>
@@ -66,7 +66,7 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
           type="button"
           onClick={onToggleDetails}
           title="Ver detalle de servidores MCP no disponibles"
-          className="flex items-center gap-1.5 text-rose-400 font-medium hover:text-rose-300 transition-colors cursor-pointer bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-800/60"
+          className="flex items-center gap-1.5 text-rose-300 font-medium hover:text-rose-200 transition-colors cursor-pointer bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-800/60"
         >
           <XCircle className="w-3 h-3 shrink-0" />
           <span>MCPs no disponibles</span>
@@ -94,20 +94,20 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
 
   if (isExecuting) {
     statusType = "running";
-    statusLabel = "Ejecutando Tarea";
-    statusColorClass = "text-sky-300 font-medium";
+    statusLabel = "Ejecutando tarea";
+    statusColorClass = "text-accent-300 font-medium";
   } else if (isWaitingInput) {
     statusType = "approval";
     statusLabel = getWaitingReasonLabel(waitingReason);
-    statusColorClass = "text-amber-300 font-medium animate-pulse";
+    statusColorClass = "text-yellow-300 font-medium animate-pulse";
   } else {
     statusType = unavailableCount > 0 ? "unverified" : "completed";
-    statusLabel = "Core Listo";
+    statusLabel = "Core listo";
     statusColorClass = "text-slate-300 font-medium";
   }
 
   return (
-    <div className="relative hidden md:flex items-center gap-2 text-xs text-slate-400 font-mono">
+    <div className="relative hidden md:flex items-center gap-2.5 text-xs text-slate-400">
       <StatusDot status={statusType} />
       <span className={statusColorClass}>{statusLabel}</span>
 
@@ -118,9 +118,9 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
           type="button"
           onClick={onOpenEnvironment}
           title="Ver datos de la PC (carpetas resueltas) y límites del motor"
-          className="flex items-center gap-1 text-slate-300 hover:text-sky-300 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 text-slate-300 hover:text-accent-300 transition-colors cursor-pointer"
         >
-          <Laptop className="w-3 h-3 text-sky-400" />
+          <Laptop className="w-3 h-3 text-accent-400" />
           <span>Entorno PC</span>
         </button>
       )}
@@ -149,14 +149,13 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
             ? "Modo Automático activo: Las escrituras y comandos no piden aprobación interactiva (validadas por Decisión 3)."
             : "Modo Interactivo: Las operaciones de modificación en el sistema requieren aprobación manual antes de actuar."
         }
-        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
-          autoMode
-            ? "bg-amber-950/60 text-amber-300 border border-amber-800/80 font-bold"
+        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${autoMode
+            ? "bg-yellow-950/30 text-yellow-300 border border-yellow-800/50 font-semibold"
             : "text-slate-400 hover:text-slate-300"
-        }`}
+          }`}
       >
         {autoMode ? (
-          <ShieldCheck className="w-3 h-3 text-amber-400" />
+          <ShieldCheck className="w-3 h-3 text-yellow-400" />
         ) : (
           <Shield className="w-3 h-3 text-slate-400" />
         )}

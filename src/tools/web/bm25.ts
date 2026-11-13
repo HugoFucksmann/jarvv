@@ -6,8 +6,7 @@
  * para que la versión exacta pese más que sus partes sueltas.
  *
  * `coverage` es la fracción de la pregunta que aparece en el fragmento, ponderada por lo que distingue cada término dentro del material (IDF): coincidir solo
- * en las palabras que tienen todos los fragmentos no es cubrir la pregunta. Es lo que decide el estado cuando no hay modelo. `need` y `terms` se miden por
- * separado y vale la mejor de las dos: los `terms` suelen ser la misma pregunta en el idioma de las fuentes, y juntarlos diluiría la cobertura a la mitad.
+ * en las palabras que tienen todos los fragmentos no es cubrir la pregunta. Es lo que decide el estado cuando no hay modelo.
  */
 
 import { fold } from "../../core/text.ts";
@@ -23,14 +22,14 @@ export const PER_SOURCE = 3;
 export const MIN_COVERAGE = 0.15;
 /** Dos candidatos con esta similitud de vocabulario (Jaccard) o más dicen lo mismo: queda el mejor. */
 const NEAR_DUPLICATE = 0.8;
+/** Un extracto del buscador cuyo vocabulario está al menos en esta fracción dentro de un fragmento de la misma fuente se cuenta como repetido. */
+const SNIPPET_CONTAINED = 0.85;
 /** Un fragmento muy corto (un extracto) no gana puntos solo por ser corto: su largo cuenta como mínimo esta fracción del promedio. */
 const MIN_LENGTH_RATIO = 0.5;
-/** Los `terms` cuentan como pregunta aparte solo si tienen al menos este número de términos (una palabra suelta no es una pregunta). */
-const TERMS_MIN_TOKENS = 2;
 
 const STOP = new Set(
   (
-    "que cual cuales como donde cuando para por con una uno unos unas del los las sus sobre hay esta este ese esa esto eso estos estas son ser sea fue era " +
+    "que cual cuales como donde cuando para por con una uno unos unas del los las sus sobre hay esta este ese esa esto eso estos estas son ser fue " +
     "han mas pero muy ya no si el la lo le les de al en un se su es me te mi tu nos sin entre desde hasta cada otro otra tambien " +
     "the and for with what which how are you was were this that from has have had about into not but all can will its their there than then who whom why " +
     "when where does did an of to in on at is it be as by or if so do we he she they"
@@ -105,14 +104,9 @@ function coverageOf(doc: Indexed, group: ReadonlyMap<string, number>): number {
   return total > 0 ? matched / total : 0;
 }
 
-/**
- * Todos los fragmentos con puntaje, del mayor al menor (los de puntaje 0 no se devuelven). `terms` son palabras clave opcionales: suman al puntaje y su
- * cobertura se mide aparte de la de `need`.
- */
-export function rank(chunks: readonly Chunk[], need: string, terms: readonly string[] = []): { ranked: Ranked[]; terms: number } {
-  const needTerms = [...new Set(tokenize(need))];
-  const extraTerms = [...new Set(tokenize(terms.join(" ")))];
-  const query = [...new Set([...needTerms, ...extraTerms])];
+/** Todos los fragmentos con puntaje, del mayor al menor (los de puntaje 0 no se devuelven). */
+export function rank(chunks: readonly Chunk[], need: string): { ranked: Ranked[]; terms: number } {
+  const query = [...new Set(tokenize(need))];
   if (query.length === 0 || chunks.length === 0) return { ranked: [], terms: query.length };
 
   const docs: Indexed[] = chunks.map((chunk) => {
@@ -129,8 +123,7 @@ export function rank(chunks: readonly Chunk[], need: string, terms: readonly str
     df.set(term, n);
     idf.set(term, Math.log(1 + (docs.length - n + 0.5) / (n + 0.5)));
   }
-  const groups = [weights(needTerms.length > 0 ? needTerms : query, idf, df)];
-  if (extraTerms.length >= TERMS_MIN_TOKENS) groups.push(weights(extraTerms, idf, df));
+  const group = weights(query, idf, df);
 
   const ranked: Ranked[] = [];
   for (const d of docs) {
@@ -141,12 +134,28 @@ export function rank(chunks: readonly Chunk[], need: string, terms: readonly str
       if (f > 0) bm25 += ((idf.get(term) ?? 0) * f * (K1 + 1)) / (f + norm);
     }
     if (bm25 <= 0) continue;
-    const coverage = Math.max(...groups.map((g) => coverageOf(d, g)));
+    const coverage = coverageOf(d, group);
     // A igual BM25, el fragmento que cubre más de la pregunta va antes que el que repite una sola palabra.
     ranked.push({ chunk: d.chunk, score: bm25 * (0.5 + 0.5 * coverage), coverage, terms: new Set(d.tf.keys()) });
   }
   ranked.sort((a, b) => b.score - a.score || b.coverage - a.coverage || a.chunk.id - b.chunk.id);
   return { ranked, terms: query.length };
+}
+
+/** Fracción del más chico que está en el otro: un extracto corto dentro de un fragmento largo da Jaccard bajo, pero es lo mismo dicho dos veces. */
+function containment(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  if (small.size === 0) return 0;
+  let shared = 0;
+  for (const t of small) if (large.has(t)) shared++;
+  return shared / small.size;
+}
+
+/** Dos candidatos dicen lo mismo: casi el mismo vocabulario, o un extracto del buscador contenido casi entero en un fragmento de la misma fuente. */
+function repeats(a: Ranked, b: Ranked): boolean {
+  if (jaccard(a.terms, b.terms) >= NEAR_DUPLICATE) return true;
+  const oneIsSnippet = a.chunk.kind === "snippet" || b.chunk.kind === "snippet";
+  return oneIsSnippet && a.chunk.n === b.chunk.n && containment(a.terms, b.terms) >= SNIPPET_CONTAINED;
 }
 
 function jaccard(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
@@ -164,7 +173,12 @@ export function pickCandidates(ranked: readonly Ranked[], limit = CANDIDATES, pe
     if (r.coverage < minCoverage) continue;
     const count = taken.get(r.chunk.n) ?? 0;
     if (count >= perSource) continue;
-    if (out.some((o) => jaccard(o.terms, r.terms) >= NEAR_DUPLICATE)) continue;
+    const same = out.findIndex((o) => repeats(o, r));
+    if (same >= 0) {
+      // Un extracto que la página repite: queda el texto de la página (más completo y literal), en el lugar que ocupaba el extracto.
+      if (out[same].chunk.kind === "snippet" && r.chunk.kind !== "snippet" && out[same].chunk.n === r.chunk.n) out[same] = r;
+      continue;
+    }
     taken.set(r.chunk.n, count + 1);
     out.push(r);
     if (out.length >= limit) break;

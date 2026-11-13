@@ -45,6 +45,8 @@ const ACTION = startsWith([
 const ACTION_MAX_WORDS = 4;
 /** Etiquetas de navegación que, solas en una línea, no son contenido. */
 const NAV_LABEL = /^(?:menu|men[uú]|search|buscar|newsletter|bolet[ií]n|back to top|volver arriba|advertisement|publicidad|cookies)[\s:.]*$/i;
+/** Títulos que solo pueden ser navegación o publicidad. */
+const PURE_NAV_HEADING = /^(?:menu|men[uú]|back to top|volver arriba|advertisement|publicidad)[\s:.]*$/i;
 const SYMBOLS_ONLY = /^[\W_]+$/u;
 const FENCE = /^\s*(?:```|~~~)/;
 const HEADING = /^#{1,6}\s/;
@@ -67,7 +69,10 @@ export interface Chunk {
 /** El texto visible de una línea: sin notas al pie, etiquetas HTML ni imágenes; de los enlaces queda el texto. */
 function visibleText(line: string): string {
   return line
-    .replace(/<sup\b[^>]*>.*?<\/sup>/gi, "") // notas al pie y llamadas de cita
+    // `<sup>`: pegado a un número o a un paréntesis es un exponente u ordinal (`10<sup>9</sup>` → `10^9`, `1<sup>st</sup>` → `1st`) y se conserva; en otro lugar es una
+    // nota al pie o una llamada de cita y se quita.
+    .replace(/(?<=[\d)])<sup\b[^>]*>([^<]*)<\/sup>/gi, (_, inner: string) => (/^[a-z]+$/i.test(inner.trim()) ? inner.trim() : `^${inner.trim()}`))
+    .replace(/<sup\b[^>]*>.*?<\/sup>/gi, "")
     .replace(HTML_TAG, "")
     .replace(/!\[(?:\\.|[^\]\\])*\]\((?:[^()]|\([^()]*\))*\)/g, "") // imágenes: su texto alternativo casi siempre es ruido ("logo", "image")
     .replace(/\[((?:\\.|[^\]\\])*)\]\((?:[^()]|\([^()]*\))*\)/g, "$1") // [texto](destino), también con paréntesis o corchetes escapados dentro
@@ -100,9 +105,10 @@ export function cleanLines(body: string): string[] {
     if (text === "") continue;
     if (SYMBOLS_ONLY.test(text) && !TABLE_SEPARATOR.test(text)) continue;
     const label = text.replace(/^#+\s*/, "");
-    if (NAV_LABEL.test(label)) continue;
-    if (text.length <= BOILERPLATE_MAX && NOTICE.test(label)) continue;
-    if (ACTION.test(label) && label.split(/\s+/).length <= ACTION_MAX_WORDS) continue;
+    // Un título es contenido ("## Search" en la documentación de una API, "# Cookies" en una página sobre cookies): solo se descartan los que son navegación sin duda.
+    if (HEADING.test(text) ? PURE_NAV_HEADING.test(label) : NAV_LABEL.test(label)) continue;
+    if (!HEADING.test(text) && text.length <= BOILERPLATE_MAX && NOTICE.test(label)) continue;
+    if (!HEADING.test(text) && ACTION.test(label) && label.split(/\s+/).length <= ACTION_MAX_WORDS) continue;
     out.push(text);
   }
   if (inFence) out.push("```"); // un bloque sin cerrar se cierra para que no se trague el resto
@@ -243,11 +249,11 @@ export function chunkLines(lines: readonly string[]): string[] {
 
   for (const paragraph of paragraphsOf(lines)) {
     if (paragraph.heading) {
-      if (content && length >= CHUNK_MIN) flush([]);
+      // Un título colgado al final (sin contenido detrás) pasa al fragmento siguiente en vez de perderse.
+      if (content && length >= CHUNK_MIN) flush(trailing > 0 ? carry() : []);
       else if (seedOnly) flush([]);
       const line = paragraph.lines[0];
       heading = line.length > HEADING_MAX ? `${line.slice(0, HEADING_MAX).trimEnd()}…` : line;
-      if (content && length + 1 + heading.length > CHUNK_MAX) flush([]);
       append(heading);
       trailing++;
       continue;
@@ -282,11 +288,14 @@ export function chunkDocs(docs: readonly Doc[]): Chunk[] {
  * El extracto que el buscador mostró de cada fuente, con su título y su fecha de publicación, como un fragmento más: suele contener justo el dato corto
  * (una fecha, una versión) que se perdería entre las páginas completas. Es texto del resultado de búsqueda, no de la página.
  */
+/** La fecha de una fuente con su origen: la del extracto del buscador es menos fiable que la que dio la página. */
+export const dateLabel = (s: Source): string => `published ${s.date}${s.dateSource === "snippet" ? ", from the search snippet" : ""}`;
+
 export function snippetChunks(sources: readonly Source[], firstId: number): Chunk[] {
   const out: Chunk[] = [];
   for (const s of sources) {
     if (s.snippet === undefined || s.snippet.length < CHUNK_FLOOR) continue;
-    out.push({ id: firstId + out.length, n: s.n, kind: "snippet", text: `${s.title} — ${s.snippet}${s.date === undefined ? "" : ` (published ${s.date})`}` });
+    out.push({ id: firstId + out.length, n: s.n, kind: "snippet", text: `${s.title} — ${s.snippet}${s.date === undefined ? "" : ` (${dateLabel(s)})`}` });
   }
   return out;
 }

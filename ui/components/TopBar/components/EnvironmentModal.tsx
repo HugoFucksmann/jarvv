@@ -10,47 +10,47 @@ interface EnvironmentModalProps {
 
 const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> = {
   maxSteps: {
-    label: "Tope de Pasos",
+    label: "Tope de pasos",
     desc: "Cantidad máxima de iteraciones o pasos antes de detener la tarea.",
   },
   maxCallsPerStep: {
-    label: "Ejecuciones por Paso",
+    label: "Ejecuciones por paso",
     desc: "Máximo de llamadas que llegan a una herramienta en un solo paso.",
   },
   maxAttemptsPerStep: {
-    label: "Intentos por Paso",
+    label: "Intentos por paso",
     desc: "Techo de intentos del modelo en un paso, incluidos los que no llegaron a la herramienta (repetidos, argumentos inválidos).",
   },
   maxNotAccomplishedPerRoute: {
-    label: "Rechazos por Ruta",
+    label: "Rechazos por ruta",
     desc: "Veces que la verificación puede decir 'no cumple lo pedido' sobre una ruta en un paso antes de dejar de ofrecerla.",
   },
   maxReplans: {
-    label: "Tope de Replanificaciones",
+    label: "Tope de replanificaciones",
     desc: "Límite de nuevos planes automáticos tras fallas consecutivas.",
   },
   maxEscalations: {
-    label: "Escalaciones de Modelo",
+    label: "Escalaciones de modelo",
     desc: "Límite de cambios de estrategia o nivel de modelo.",
   },
   maxItemFailures: {
-    label: "Fallos por Ítem",
+    label: "Fallos por ítem",
     desc: "Intentos fallidos seguidos sobre una misma acción antes de abandonarla.",
   },
   maxRepeatsPerStep: {
-    label: "Repeticiones en Bucle",
+    label: "Repeticiones en bucle",
     desc: "Llamadas repetidas bloqueadas (loop_blocked) permitidas antes de fallar.",
   },
   maxReviewRejectionsPerStep: {
-    label: "Rechazos de Revisión",
+    label: "Rechazos de revisión",
     desc: "Argumentos inválidos rechazados por Decisión 3 permitidos antes de fallar.",
   },
   maxUserRejectionsPerStep: {
-    label: "Rechazos del Usuario",
+    label: "Rechazos del usuario",
     desc: "Veces que el usuario puede rechazar una operación en un paso antes de que el paso falle.",
   },
   maxQuestionsPerStep: {
-    label: "Preguntas por Paso",
+    label: "Preguntas por paso",
     desc: "Máximo de aclaraciones solicitadas al usuario por iteración.",
   },
 };
@@ -92,14 +92,14 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         {/* Cabecera */}
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-3.5 bg-slate-950/70">
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-md bg-sky-950 text-sky-400 border border-sky-800/60">
+            <div className="p-1.5 rounded-md bg-accent-500/10 text-accent-400 border border-accent-500/30">
               <Laptop className="w-4 h-4" />
             </div>
             <div className="flex flex-col">
-              <h2 id="env-modal-title" className="text-sm font-semibold tracking-wide text-sky-200">
-                Entorno del Sistema y Límites del Motor
+              <h2 id="env-modal-title" className="text-sm font-semibold text-slate-100">
+                Entorno del sistema y límites del motor
               </h2>
-              <span className="text-[11px] font-mono text-slate-400">
+              <span className="text-xs text-slate-400">
                 Rutas locales de esta PC y presupuesto operativo de JARVIS
               </span>
             </div>
@@ -115,35 +115,35 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
         </div>
 
         {/* Cuerpo */}
-        <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-5 text-xs bg-slate-950/40">
+        <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-6 text-xs bg-slate-950/40">
           {/* SECCIÓN 1: DATOS DE LA PC */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-slate-200 font-mono font-semibold text-xs border-b border-slate-800/60 pb-1.5">
-              <Globe className="w-3.5 h-3.5 text-sky-400" />
-              <span>1. Identidad de la PC y Carpetas Conocidas</span>
+            <div className="flex items-center gap-2 text-slate-100 font-semibold text-[13px] border-b border-slate-800 pb-2">
+              <Globe className="w-3.5 h-3.5 text-accent-400" />
+              <span>Identidad de la PC y carpetas conocidas</span>
             </div>
 
             {environment ? (
-              <div className="flex flex-col gap-2 pl-1">
+              <div className="flex flex-col gap-2">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase">Sistema Operativo</span>
-                    <p className="text-sm font-bold text-sky-300 font-mono capitalize mt-0.5">
+                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                    <span className="text-[11px] text-slate-500 uppercase tracking-wide">Sistema operativo</span>
+                    <p className="text-sm font-semibold text-slate-100 capitalize mt-0.5">
                       {environment.platform}
                     </p>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase">Zona Horaria</span>
-                    <p className="text-xs font-semibold text-slate-200 font-mono mt-0.5 truncate" title={environment.timeZone}>
+                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                    <span className="text-[11px] text-slate-500 uppercase tracking-wide">Zona horaria</span>
+                    <p className="text-sm font-semibold text-slate-100 mt-0.5 truncate" title={environment.timeZone}>
                       {environment.timeZone}
                     </p>
                   </div>
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 col-span-2 sm:col-span-1">
-                    <span className="text-[10px] font-mono text-slate-500 uppercase flex items-center gap-1">
-                      <Clock className="w-3 h-3 text-slate-400" />
-                      <span>Hora Servidor</span>
+                  <div className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 col-span-2 sm:col-span-1">
+                    <span className="text-[11px] text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-slate-500" />
+                      <span>Hora del servidor</span>
                     </span>
-                    <p className="text-xs font-mono text-slate-200 mt-0.5">
+                    <p className="text-sm font-semibold text-slate-100 mt-0.5 tabular-nums">
                       {new Date(environment.now).toLocaleTimeString()}
                     </p>
                   </div>
@@ -151,31 +151,31 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
 
                 {/* Rutas conocidas */}
                 <div className="flex flex-col gap-1.5 mt-2">
-                  <span className="text-[11px] font-mono text-slate-400 font-medium">
+                  <span className="text-xs text-slate-400 font-medium">
                     Carpetas locales resueltas para las herramientas:
                   </span>
 
                   {[
-                    { key: "home", label: "Directorio Personal (HOME)", path: environment.home },
+                    { key: "home", label: "Directorio personal (HOME)", path: environment.home },
                     { key: "desktop", label: "Escritorio (Desktop)", path: environment.desktop },
                     { key: "documents", label: "Documentos (Documents)", path: environment.documents },
                     { key: "downloads", label: "Descargas (Downloads)", path: environment.downloads },
                   ].map(({ key, label, path }) => (
                     <div
                       key={key}
-                      className="flex items-center justify-between gap-2 p-2 rounded bg-slate-950/70 border border-slate-800/80 text-[11px] font-mono"
+                      className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0">
-                        <Folder className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                        <Folder className="w-3.5 h-3.5 text-accent-400 shrink-0" />
                         <span className="text-slate-400 shrink-0">{label}:</span>
-                        <span className="text-slate-200 truncate select-all">{path || "No disponible"}</span>
+                        <span className="text-slate-200 truncate select-all font-mono">{path || "No disponible"}</span>
                       </div>
                       {path && (
                         <button
                           type="button"
                           onClick={() => copyPath(key, path)}
                           title="Copiar ruta"
-                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                         >
                           {copiedKey === key ? (
                             <Check className="w-3 h-3 text-emerald-400" />
@@ -190,32 +190,32 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                 </div>
               </div>
             ) : (
-              <p className="text-slate-500 font-mono text-xs pl-1">Cargando información del entorno…</p>
+              <p className="text-slate-500 text-xs">Cargando información del entorno…</p>
             )}
           </div>
 
           {/* SECCIÓN 2: LÍMITES Y PRESUPUESTO */}
-          <div className="flex flex-col gap-3 border-t border-slate-800/80 pt-4">
-            <div className="flex items-center gap-2 text-slate-200 font-mono font-semibold text-xs border-b border-slate-800/60 pb-1.5">
-              <Gauge className="w-3.5 h-3.5 text-amber-400" />
-              <span>2. Presupuesto Operativo del Motor (BUDGET Limits)</span>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 text-slate-100 font-semibold text-[13px] border-b border-slate-800 pb-2">
+              <Gauge className="w-3.5 h-3.5 text-accent-400" />
+              <span>Presupuesto operativo del motor</span>
             </div>
 
             {limits ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {(Object.keys(LIMIT_LABELS) as Array<keyof EngineLimits>).map((k) => {
                   const val = limits[k];
                   const info = LIMIT_LABELS[k];
                   return (
                     <div
                       key={k}
-                      className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800"
+                      className="flex items-start justify-between gap-2 p-2.5 rounded-lg bg-slate-950 border border-slate-800"
                     >
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-mono font-semibold text-slate-300 text-xs">{info.label}</span>
-                        <span className="text-[10px] text-slate-500 font-sans leading-tight">{info.desc}</span>
+                        <span className="font-semibold text-slate-200 text-xs">{info.label}</span>
+                        <span className="text-[11px] text-slate-500 leading-snug">{info.desc}</span>
                       </div>
-                      <span className="text-sm font-bold font-mono text-amber-400 px-2 py-0.5 bg-amber-950/40 border border-amber-800/40 rounded shrink-0">
+                      <span className="text-sm font-semibold font-mono text-accent-300 px-2 py-0.5 bg-accent-500/10 border border-accent-500/25 rounded shrink-0 tabular-nums">
                         {val}
                       </span>
                     </div>
@@ -223,21 +223,24 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                 })}
               </div>
             ) : (
-              <p className="text-slate-500 font-mono text-xs pl-1">Consultando límites del motor…</p>
+              <p className="text-slate-500 text-xs">Consultando límites del motor…</p>
             )}
           </div>
         </div>
 
         {/* Pie */}
         <div className="flex items-center justify-between border-t border-slate-800 px-5 py-3 bg-slate-950/80 text-xs">
-          <span className="text-[11px] font-mono text-slate-500 flex items-center gap-1.5">
+          <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
             <Shield className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Datos provistos directamente por /api/jarvis/environment y /limits</span>
+            <span>
+              Datos provistos por <span className="font-mono">/api/jarvis/environment</span> y{" "}
+              <span className="font-mono">/limits</span>
+            </span>
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="px-3.5 py-1.5 text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded transition-colors cursor-pointer"
+            className="px-3.5 py-1.5 text-xs text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-md transition-colors cursor-pointer"
           >
             Cerrar
           </button>
@@ -246,4 +249,3 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     </div>
   );
 };
-

@@ -3,9 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { TraceQuery } from "../../types/trace.ts";
 import { formatMs, stageInfo } from "../../utils/traceStages.ts";
 import { CopyButton } from "../Shared/CopyButton.tsx";
-import { ProbBars } from "./ProbBars.tsx";
-
-type Answers = Record<string, { choice?: string; p?: Record<string, number> | null; noul?: number }>;
+import { ProbBars, type Answers } from "./ProbBars.tsx";
 
 function tryParse(text: string | null): unknown {
   if (text === null) return null;
@@ -20,29 +18,49 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 
 const pretty = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v, null, 2));
 
-const Block: React.FC<{ title: string; text: string; defaultOpen?: boolean }> = ({ title, text, defaultOpen = true }) => {
+const fmtInt = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString());
+
+/** Finalizaciones que indican respuesta cortada por límite de tokens. */
+const TRUNCATED = new Set(["length", "max_tokens"]);
+
+/**
+ * Sección plegable sin caja: cabecera ligera y contenido con una guía vertical.
+ * `prose` usa tipografía de texto (prompts, mensajes); sin él, monoespaciada (JSON, salidas crudas).
+ */
+const Block: React.FC<{ title: string; text: string; defaultOpen?: boolean; prose?: boolean }> = ({
+  title,
+  text,
+  defaultOpen = true,
+  prose = false,
+}) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border border-slate-800 rounded-lg bg-slate-950/60 overflow-hidden">
-      <div className="flex items-center justify-between px-2.5 py-1.5 bg-slate-900/60">
+    <div className="group/block">
+      <div className="flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1 text-[11px] font-mono text-slate-300 hover:text-white cursor-pointer"
+          aria-expanded={open}
+          className="flex items-center gap-1.5 rounded py-0.5 text-xs text-slate-400 hover:text-slate-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/60"
         >
-          {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span>{title}</span>
-          <span className="text-slate-600">· {text.length.toLocaleString()} car.</span>
+          {open ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          <span className="font-medium text-slate-300">{title}</span>
+          <span className="font-mono text-[11px] text-slate-500">{text.length.toLocaleString()} car.</span>
         </button>
-        <CopyButton
-          text={text}
-          title={`Copiar ${title}`}
-          iconSize="w-3 h-3"
-          className="gap-1 text-[10px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800"
-        />
+        <div className="opacity-0 transition-opacity group-hover/block:opacity-100 focus-within:opacity-100">
+          <CopyButton
+            text={text}
+            title={`Copiar ${title}`}
+            iconSize="w-3 h-3"
+            className="gap-1 text-[11px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800"
+          />
+        </div>
       </div>
       {open && (
-        <pre className="p-2.5 text-[11px] leading-relaxed font-mono text-slate-300 whitespace-pre-wrap break-words max-h-[55vh] overflow-y-auto">
+        <pre
+          className={`mt-1 ml-[7px] border-l border-slate-800 pl-4 whitespace-pre-wrap break-words ${prose ? "font-sans text-[13px] leading-6 text-slate-200" : "font-mono text-xs leading-relaxed text-slate-300"
+            }`}
+        >
           {text}
         </pre>
       )}
@@ -54,16 +72,28 @@ const Block: React.FC<{ title: string; text: string; defaultOpen?: boolean }> = 
 const InputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
   const parsed = useMemo(() => tryParse(query.rawInput), [query.rawInput]);
   if (query.rawInput === null) {
-    return <p className="text-xs text-slate-500 font-mono">Entrada no disponible (solo se registró su huella: {query.inputHash ?? "—"}).</p>;
+    return (
+      <p className="text-xs text-slate-500">
+        Entrada no disponible: solo se registró su huella <span className="font-mono">{query.inputHash ?? "—"}</span>.
+      </p>
+    );
   }
   if (isRecord(parsed) && Array.isArray(parsed.messages)) {
-    const { messages, ...params } = parsed as { messages: unknown[]; [k: string]: unknown };
+    const { messages, ...params } = parsed as { messages: unknown[];[k: string]: unknown };
     return (
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         {messages.map((m, i) => {
           const msg = isRecord(m) ? m : {};
           const role = typeof msg.role === "string" ? msg.role : `mensaje ${i + 1}`;
-          return <Block key={i} title={role} text={pretty(msg.content ?? "")} defaultOpen={role !== "system" || messages.length === 1} />;
+          return (
+            <Block
+              key={i}
+              title={role}
+              text={pretty(msg.content ?? "")}
+              prose={typeof msg.content === "string"}
+              defaultOpen={role !== "system" || messages.length === 1}
+            />
+          );
         })}
         {Object.keys(params).length > 0 && <Block title="parámetros" text={pretty(params)} defaultOpen={false} />}
       </div>
@@ -72,7 +102,7 @@ const InputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
   if (isRecord(parsed) && ("state" in parsed || "questions" in parsed)) {
     const { state, questions, ...rest } = parsed;
     return (
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         {state !== undefined && <Block title="state" text={pretty(state)} />}
         {questions !== undefined && <Block title="questions" text={pretty(questions)} />}
         {Object.keys(rest).length > 0 && <Block title="otros" text={pretty(rest)} defaultOpen={false} />}
@@ -87,61 +117,78 @@ const OutputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
   const answers = stageInfo(query.stage).kind === "decision" && isRecord(out) ? (out as Answers) : null;
   const hasInterpreted = answers === null && out !== null && out !== undefined;
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {query.error && (
-        <div className="p-2.5 rounded-lg border border-rose-900/60 bg-rose-950/30 text-xs font-mono text-rose-300 whitespace-pre-wrap">
-          Error: {query.error}
+        <div className="border-l-2 border-rose-500 pl-3 text-xs leading-relaxed text-rose-300 whitespace-pre-wrap break-words">
+          <span className="font-semibold">Error</span>
+          <br />
+          {query.error}
         </div>
       )}
-      {answers && (
-        <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/60">
-          <ProbBars answers={answers} offered={query.offered} />
-        </div>
-      )}
-      {hasInterpreted && <Block title="salida interpretada" text={pretty(out)} />}
+      {answers && <ProbBars answers={answers} offered={query.offered} />}
+      {hasInterpreted && <Block title="salida interpretada" text={pretty(out)} prose={typeof out === "string"} />}
       {query.rawOutput !== null && <Block title="salida cruda" text={query.rawOutput} defaultOpen={!answers && !hasInterpreted} />}
     </div>
   );
 };
 
-const Stat: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+const Stat: React.FC<{ label: string; value: React.ReactNode; muted?: boolean; warn?: boolean }> = ({
+  label,
+  value,
+  muted = false,
+  warn = false,
+}) => (
   <div className="flex flex-col">
-    <span className="text-[9px] uppercase tracking-wider text-slate-600 font-mono">{label}</span>
-    <span className="text-xs font-mono text-slate-200 tabular-nums">{value}</span>
+    <span className="text-[11px] text-slate-500">{label}</span>
+    <span
+      className={`font-mono tabular-nums ${muted ? "text-xs text-slate-400" : warn ? "text-sm font-medium text-yellow-300" : "text-sm font-medium text-slate-100"
+        }`}
+    >
+      {value}
+    </span>
   </div>
 );
 
 export const QueryDetail: React.FC<{ query: TraceQuery }> = ({ query }) => {
   const info = stageInfo(query.stage);
+  const isDecision = info.kind === "decision";
   const link = query.link.call ?? query.link.plan ?? query.link.fact ?? (query.link.result ? "respuesta" : null);
+  const truncated = query.finishReason != null && TRUNCATED.has(query.finishReason);
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex flex-wrap items-end gap-x-6 gap-y-2 px-4 py-3 border-b border-slate-800 bg-slate-950/50">
-        <div className="flex flex-col mr-2">
-          <span className="text-sm font-semibold text-slate-100">
-            #{query.seq} · {info.code ? `${info.code} ` : ""}
+      <header className="flex flex-col gap-3 px-5 pt-4 pb-3 border-b border-slate-800">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h3 className="flex items-baseline gap-2 text-base font-semibold text-slate-50">
+            <span className="font-mono text-xs font-normal text-slate-500">#{query.seq}</span>
+            {info.code && (
+              <span className={`font-mono text-sm ${isDecision ? "text-accent-400" : "text-slate-400"}`}>{info.code}</span>
+            )}
             {info.label}
-          </span>
-          <span className="text-[11px] font-mono text-slate-500">
-            {query.model ?? "modelo desconocido"} · {info.kind === "decision" ? "decisión" : "generativo"}
+          </h3>
+          {query.error && <span className="text-xs font-medium text-rose-400">Con error</span>}
+          <span className="text-xs text-slate-500 sm:ml-auto">
+            <span className="font-mono">{query.model ?? "modelo desconocido"}</span>, {isDecision ? "decisión" : "generativo"}
           </span>
         </div>
-        <Stat label="latencia" value={formatMs(query.durationMs)} />
-        <Stat label="tokens in" value={query.tokens?.input ?? "—"} />
-        <Stat label="tokens out" value={query.tokens?.output ?? "—"} />
-        {query.finishReason && <Stat label="fin" value={query.finishReason} />}
-        <Stat label="paso" value={query.step ?? "—"} />
-        <Stat label="enlace" value={link ?? "—"} />
-        <Stat label="n" value={query.n} />
-        <Stat label="hash" value={query.inputHash ?? "—"} />
-      </div>
+        <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
+          <Stat label="Latencia" value={formatMs(query.durationMs)} />
+          <Stat label="Tokens (entrada → salida)" value={`${fmtInt(query.tokens?.input)} → ${fmtInt(query.tokens?.output)}`} />
+          {query.finishReason && <Stat label="Fin" value={query.finishReason} warn={truncated} />}
+          <div className="flex flex-wrap items-end gap-x-5 gap-y-2 sm:ml-auto">
+            <Stat muted label="Paso" value={query.step ?? "—"} />
+            <Stat muted label="Enlace" value={link ?? "—"} />
+            <Stat muted label="n" value={query.n} />
+            <Stat muted label="Hash" value={query.inputHash ?? "—"} />
+          </div>
+        </div>
+      </header>
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-2 xl:divide-x divide-slate-800 overflow-y-auto xl:overflow-hidden">
-        <section className="min-h-0 xl:overflow-y-auto p-4 flex flex-col gap-2">
-          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-mono">Entrada</h3>
+        <section className="min-h-0 xl:overflow-y-auto px-5 py-4 flex flex-col gap-3">
+          <h4 className="text-xs font-medium text-slate-500">Entrada</h4>
           <InputPanel query={query} />
         </section>
-        <section className="min-h-0 xl:overflow-y-auto p-4 flex flex-col gap-2">
-          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-mono">Salida</h3>
+        <section className="min-h-0 xl:overflow-y-auto px-5 py-4 flex flex-col gap-3">
+          <h4 className="text-xs font-medium text-slate-500">Salida</h4>
           <OutputPanel query={query} />
         </section>
       </div>

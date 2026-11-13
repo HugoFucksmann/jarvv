@@ -64,12 +64,12 @@ const PromptInputBase: React.FC<PromptInputProps> = ({
           placeholder={getPlaceholder(mode, isExecuting, isWaitingInput)}
           aria-label="Instrucción u objetivo para JARVIS"
           disabled={isBusy}
-          className="w-full pl-5 pr-36 py-3 bg-slate-900/80 border border-slate-800 rounded-xl text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-sky-600/60 focus:ring-2 focus:ring-sky-500/20 transition-colors disabled:opacity-60"
+          className="w-full pl-5 pr-36 py-3 bg-slate-900 border border-slate-800 rounded-xl text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-accent-500/60 focus:ring-2 focus:ring-accent-500/20 transition-colors disabled:opacity-60"
         />
 
         <div className="absolute right-2 flex items-center gap-1.5">
           {!isBusy && !value && (
-            <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-500 bg-slate-950/80 border border-slate-800 rounded">
+            <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-500 bg-slate-950 border border-slate-800 rounded">
               {FOCUS_SHORTCUT_LABEL}
             </kbd>
           )}
@@ -79,7 +79,7 @@ const PromptInputBase: React.FC<PromptInputProps> = ({
               type="button"
               onClick={onCancel}
               aria-label="Cancelar ejecución actual"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-400 bg-rose-950/60 border border-rose-900/60 rounded-md hover:bg-rose-900/40 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-300 bg-rose-950/50 border border-rose-900/60 rounded-md hover:bg-rose-900/40 transition-colors cursor-pointer"
             >
               <XCircle className="w-3.5 h-3.5" />
               <span>Cancelar</span>
@@ -89,10 +89,10 @@ const PromptInputBase: React.FC<PromptInputProps> = ({
               type="submit"
               disabled={!value.trim()}
               aria-label="Ejecutar instrucción"
-              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 rounded-md transition-colors cursor-pointer disabled:cursor-not-allowed shadow-xs"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer bg-accent-500 text-slate-950 hover:bg-accent-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 disabled:hover:bg-slate-800"
             >
               <span>Ejecutar</span>
-              <CornerDownLeft className="w-3 h-3 text-slate-400" />
+              <CornerDownLeft className="w-3 h-3" />
             </button>
           )}
         </div>

@@ -1,13 +1,16 @@
 /**
- * `web_search`: lectura de lo que devuelve Free Search.
+ * `web_search`: lectura de lo que devuelve Free Search, pedido con `format: "json"` (más datos que el Markdown y un contrato, no una presentación para humanos).
  *
- * - `research`: el "Research brief": `## Sources` (una línea `- [n] **título** — <url>` por fuente, con `_published AAAA-MM-DD` y un extracto `> …` debajo) y
- *   `## Documents` (por cada página, una línea `### título`, otra `<url> · ~N tokens` y su texto completo; muestra real en `scripts/validate/samples/`).
- * - `fetch`: `# título`, `<url>`, líneas de procedencia y, tras `_fetched via …_`, el Markdown de la página.
- * Un resultado que no tiene esa forma se trata como una sola página de texto (nunca se descarta contenido por no reconocer el formato), pero queda marcado
- * (`format: "unrecognized"`) para que el resultado lo avise: sin eso, un cambio de formato de Free Search degradaría la tool en silencio.
+ * - `search`: `{ query, engines, results: [{ title, url, snippet, published_age?, date_source, engines, score, source_type? }], … }` (`parseSearch`).
+ * - `fetch`: `{ url, title, content, method, truncated, published_date, … }` (`parseFetch`).
  *
- * Las fechas de publicación imposibles (futuras o anteriores a la web) se descartan: es mejor no dar fecha que dar una mal inferida.
+ * Contrato: lo que se lee (y de qué tipo) está en este archivo; una respuesta que no es JSON, o a la que le falta lo que se lee, se RECHAZA con la ruta del
+ * problema (`Parsed.ok === false`): nunca se confunde con "sin resultados" ni se toma como una página. Los campos nuevos se ignoran.
+ *
+ * Fechas: la de cada fuente es `published_age` (`AAAA-MM-DD`) calificada por `date_source` (`structured` = la dio la página, `snippet` = se leyó del extracto); `none` es
+ * "sin fecha". Una fecha imposible (futura, anterior a la web) se descarta: es mejor no dar fecha que dar una mal inferida. De `fetch` se usa `published_date`.
+ *
+ * Los desafíos anti-bot (Free Search los devuelve como si fueran páginas, sin marcarlos) se detectan por heurística acotada y no cuentan como páginas leídas.
  */
 
 export interface Source {
@@ -16,7 +19,9 @@ export interface Source {
   readonly url: string;
   /** Fecha de publicación (`AAAA-MM-DD`) si la fuente la informa: suele ser la respuesta a "¿cuándo salió…?". */
   readonly date?: string;
-  /** Extracto que el buscador mostró para la fuente. */
+  /** De dónde salió la fecha: `structured` (la página) o `snippet` (el extracto del buscador, menos fiable). */
+  readonly dateSource?: "structured" | "snippet";
+  /** Extracto que el buscador mostró para la fuente (sin el prefijo de fecha del buscador). */
   readonly snippet?: string;
 }
 
@@ -25,14 +30,22 @@ export interface Doc {
   readonly n: number;
   readonly url: string;
   readonly body: string;
+  /** `fetch` informó que Free Search cortó la página. */
+  readonly truncated?: boolean;
 }
 
 export interface Material {
   readonly sources: readonly Source[];
   readonly docs: readonly Doc[];
-  /** `unrecognized`: el texto no tenía la forma esperada y se tomó entero como una página (sin fuentes, títulos ni fechas). */
-  readonly format?: "brief" | "unrecognized";
+  /** Páginas que Free Search devolvió pero eran un desafío anti-bot: no se leyeron. */
+  readonly blocked: number;
+  /** Datos de Free Search útiles para diagnosticar (no se muestran al modelo). */
+  readonly diagnostics: Record<string, unknown>;
 }
+
+export type Parsed<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly detail: string };
+
+const bad = (detail: string): { ok: false; detail: string } => ({ ok: false, detail });
 
 /** La primera página web es de 1991: una fecha anterior, o posterior a mañana, es un dato mal inferido por el buscador. */
 const FIRST_WEB_DATE = "1991-08-06";
@@ -46,88 +59,103 @@ export function plausibleDate(date: string | undefined, now = new Date()): strin
   return date >= FIRST_WEB_DATE && date <= tomorrow ? date : undefined;
 }
 
-/** Clave para emparejar la URL de una página con la de su fuente: sin esquema, `www.`, fragmento ni barra final, y el host en minúsculas. */
-export function urlKey(url: string): string {
+/** El buscador antepone la fecha al extracto (`2024/5/7 -Node.js 22 …`): se quita para que sus números no cuenten como términos. Solo la forma verificada. */
+export function cleanSnippet(snippet: string): string {
+  const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})\s*-\s*/.exec(snippet);
+  if (m === null || Number(m[2]) < 1 || Number(m[2]) > 12 || Number(m[3]) < 1 || Number(m[3]) > 31) return snippet.trim();
+  return snippet.slice(m[0].length).trim();
+}
+
+/** Un desafío anti-bot (no el contenido): cuerpo corto con la frase propia de un desafío. Heurística: el JSON no trae ningún indicador de bloqueo. */
+const BLOCK_PHRASE = /prove your humanity|client challenge|just a moment|verify you are (?:a )?human|enable javascript and cookies|checking your browser|access denied|attention required|are you a robot|unusual traffic/i;
+const BLOCK_MAX_CHARS = 600;
+export function isBlockPage(body: string): boolean {
+  return body.length <= BLOCK_MAX_CHARS && BLOCK_PHRASE.test(body);
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function parseJson(text: string): Parsed<Record<string, unknown>> {
+  let data: unknown;
   try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase().replace(/^www\./, "");
-    return `${host}${u.port === "" ? "" : `:${u.port}`}${u.pathname.replace(/\/+$/, "")}${u.search}`;
+    data = JSON.parse(text);
   } catch {
-    return url.trim().replace(/#.*$/, "").replace(/\/+$/, "");
+    return bad(`not JSON (starts with ${JSON.stringify(text.trim().slice(0, 40))})`);
   }
+  return isRecord(data) ? { ok: true, value: data } : bad("JSON is not an object");
 }
 
-const SOURCE_HEAD = /^- \[(\d+)\]\s+\*\*(.+?)\*\*\s+—\s+<([^>]+)>/;
-const DOC_HEAD = /^<(https?:\/\/[^>]+)>\s+·\s+~\d+\s+tokens\s*$/;
-const DOC_TITLE = /^###\s+(\S.*)$/;
+const DIAGNOSTIC_KEYS = [
+  "engines", "tokens_estimated", "errors", "retrieved_at", "search_cache_age_seconds", "date_note",
+  "gated_engines", "gated_hint", "benched_engines", "benched_hint", "rescued_via",
+];
 
-export function parseResearch(text: string): Material {
-  const sourcesAt = text.indexOf("## Sources");
-  if (!text.startsWith("# Research brief") || sourcesAt < 0) {
-    return text.trim() === "" ? { sources: [], docs: [] } : { sources: [], docs: [{ n: 1, url: "", body: text }], format: "unrecognized" };
-  }
-
-  const docsAt = text.indexOf("\n## Documents");
-  const sources: Source[] = [];
-  let open: { -readonly [K in keyof Source]: Source[K] } | undefined;
-  for (const line of text.slice(sourcesAt, docsAt < 0 ? undefined : docsAt).split("\n")) {
-    const head = SOURCE_HEAD.exec(line);
-    if (head) {
-      open = { n: Number(head[1]), title: head[2].trim(), url: head[3].trim() };
-      sources.push(open);
-      continue;
-    }
-    if (open === undefined) continue;
-    const date = plausibleDate(/_published\s+(\d{4}-\d{2}-\d{2})/.exec(line)?.[1]);
-    if (date !== undefined && open.date === undefined) open.date = date;
-    const snippet = /^\s+>\s*(.+)$/.exec(line)?.[1];
-    if (snippet !== undefined && open.snippet === undefined) open.snippet = snippet.trim();
-  }
-
-  const byUrl = new Map(sources.map((s) => [urlKey(s.url), s.n]));
-  let next = sources.reduce((max, s) => Math.max(max, s.n), 0) + 1;
-  const docs: Doc[] = [];
-  let current: { url: string; title?: string; lines: string[] } | undefined;
-  const close = (): void => {
-    if (current) {
-      const body = current.lines.join("\n").trim();
-      let n = byUrl.get(urlKey(current.url));
-      if (n === undefined) {
-        // Una página sin fuente en la lista recibe un número propio (que no choca con ninguno) y una fuente con su título y URL, para poder citarla.
-        n = next++;
-        byUrl.set(urlKey(current.url), n);
-        sources.push({ n, title: current.title ?? current.url, url: current.url });
-      }
-      if (body !== "") docs.push({ n, url: current.url, body });
-    }
-    current = undefined;
+/** Una página de `fetch`: su título (si lo trae) y su contenido. `null` si no tiene texto o es un desafío anti-bot (`blocked`). */
+export function parseFetch(text: string, url: string, n: number): Parsed<{ source: Source; doc: Doc } | { blocked: true } | null> {
+  if (text.trim() === "") return { ok: true, value: null };
+  const json = parseJson(text);
+  if (!json.ok) return json;
+  const raw = json.value;
+  if (typeof raw.content !== "string") return bad("content: missing or not a text");
+  const body = raw.content.trim();
+  if (body === "") return { ok: true, value: null };
+  if (isBlockPage(body)) return { ok: true, value: { blocked: true } };
+  const title = typeof raw.title === "string" && raw.title.trim() !== "" ? raw.title.trim() : url;
+  const date = typeof raw.published_date === "string" ? plausibleDate(raw.published_date.slice(0, 10)) : undefined;
+  return {
+    ok: true,
+    value: {
+      source: { n, title, url, ...(date === undefined ? {} : { date, dateSource: "structured" as const }) },
+      doc: { n, url, body, ...(raw.truncated === true ? { truncated: true } : {}) },
+    },
   };
-  if (docsAt >= 0) {
-    const lines = text.slice(docsAt).split("\n");
-    lines.forEach((line, i) => {
-      // El `### título` de una página va justo antes de su línea `<url> · ~N tokens`: es de la página siguiente, no el final de la anterior.
-      if (DOC_TITLE.test(line) && DOC_HEAD.test(lines[i + 1] ?? "")) return;
-      const head = DOC_HEAD.exec(line);
-      if (head) {
-        close();
-        const title = DOC_TITLE.exec(lines[i - 1] ?? "")?.[1]?.trim();
-        current = { url: head[1], ...(title === undefined ? {} : { title }), lines: [] };
-      } else if (current) {
-        current.lines.push(line);
-      }
-    });
-    close();
-  }
-  return { sources, docs, format: "brief" };
 }
 
-/** Una página de `fetch`: su título (si lo trae) y el Markdown posterior a las líneas de procedencia. */
-export function parseFetch(text: string, url: string, n: number): { source: Source; doc: Doc } | null {
-  if (text.trim() === "") return null;
-  const lines = text.split("\n");
-  const title = /^#\s+(.+)$/.exec(lines[0] ?? "")?.[1]?.trim() ?? url;
-  const fetched = lines.findIndex((line) => line.startsWith("_fetched via"));
-  const body = (fetched >= 0 ? lines.slice(fetched + 1) : lines).join("\n").trim();
-  const date = plausibleDate(/published\s+(\d{4}-\d{2}-\d{2})/.exec(lines.slice(0, fetched >= 0 ? fetched : 4).join("\n"))?.[1]);
-  return body === "" ? null : { source: { n, title, url, ...(date === undefined ? {} : { date }) }, doc: { n, url, body } };
+/**
+ * `search`: `{ query, engines, results: [{ title, url, snippet, published_age?, date_source, engines, score, source_type? }], errors?, … }`. Cada resultado es una fuente, numerada por
+ * su posición (`n` = 1, 2, …); no trae el texto de las páginas (eso es `fetch`).
+ */
+export function parseSearch(text: string): Parsed<{ sources: Source[]; diagnostics: Record<string, unknown> }> {
+  if (text.trim() === "") return bad("empty answer");
+  const json = parseJson(text);
+  if (!json.ok) return json;
+  const raw = json.value;
+  if (!Array.isArray(raw.results)) return bad("results: missing or not a list");
+  const sources: Source[] = [];
+  for (const [i, r] of raw.results.entries()) {
+    const at = `results[${i}]`;
+    if (!isRecord(r)) return bad(`${at}: not an object`);
+    if (typeof r.url !== "string" || r.url === "") return bad(`${at}.url: missing or not a text`);
+    if (typeof r.title !== "string") return bad(`${at}.title: missing or not a text`);
+    if (r.snippet !== undefined && r.snippet !== null && typeof r.snippet !== "string") return bad(`${at}.snippet: not a text`);
+    const dateSource = r.date_source === "structured" || r.date_source === "snippet" ? r.date_source : undefined;
+    const date = dateSource === undefined || typeof r.published_age !== "string" ? undefined : plausibleDate(r.published_age);
+    const snippet = typeof r.snippet === "string" ? cleanSnippet(r.snippet) : "";
+    sources.push({
+      n: i + 1,
+      title: r.title.trim(),
+      url: r.url.trim(),
+      ...(date === undefined ? {} : { date, dateSource: dateSource as "structured" | "snippet" }),
+      ...(snippet === "" ? {} : { snippet }),
+    });
+  }
+  const diagnostics = Object.fromEntries(
+    [...DIAGNOSTIC_KEYS, "auto_routed", "timed_out_engines", "filter_diagnostics", "freshness_note", "dated_results", "hint"].filter((k) => raw[k] !== undefined && raw[k] !== null).map((k) => [k, raw[k]]),
+  );
+  return { ok: true, value: { sources, diagnostics } };
+}
+
+/**
+ * `read_doc`: `{ source, format, title, content, truncated, pages, tokens_estimated, total_chars, start, returned_chars }`. Entrega un documento o una página larga por tramos
+ * (`start`, `length`; unos 50 000 caracteres por llamada): `total_chars` es el largo completo.
+ */
+export function parseReadDoc(text: string): Parsed<{ content: string; totalChars: number; start: number }> {
+  if (text.trim() === "") return bad("empty answer");
+  const json = parseJson(text);
+  if (!json.ok) return json;
+  const raw = json.value;
+  if (typeof raw.content !== "string") return bad("content: missing or not a text");
+  if (typeof raw.total_chars !== "number" || !Number.isInteger(raw.total_chars) || raw.total_chars < 0) return bad("total_chars: missing or not a non-negative integer");
+  if (typeof raw.start !== "number" || !Number.isInteger(raw.start) || raw.start < 0) return bad("start: missing or not a non-negative integer");
+  return { ok: true, value: { content: raw.content, totalChars: raw.total_chars, start: raw.start } };
 }

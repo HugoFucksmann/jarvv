@@ -383,8 +383,8 @@ ${fragment}
 """
 Does the PASSAGE contain information that answers the QUESTION?`,
         criteria: {
-          true: "The passage states facts that answer the question, even partially.",
-          false: "The passage is about something else, or only mentions the topic without answering.",
+          true: "The passage states facts that answer the question, even partially. If the question asks for the latest or current information, the passage must state the most recent one as of TODAY (when the question has a TODAY line).",
+          false: "The passage is about something else, only mentions the topic without answering, or (for a latest/current question) describes something older that has since been superseded.",
         },
       };
     });

@@ -1,5 +1,7 @@
 # Revisión de `web_search`: hallazgos, inconsistencias y faltantes
 
+> **Histórico (2026-11-10/11).** Describe la primera versión de `web_search` (`research` + Markdown, con `terms`). La tool actual usa `search` + `fetch` en JSON: ver `docs/web_search/` y `scripts/validate/web_eval/RESULTADOS.md`.
+
 Documento de referencia para un agente que vaya a revisar `web_search` en profundidad. Reúne lo que se encontró al construirla y validarla (2026-11-10) y, desde el 2026-11-11, el estado de cada hallazgo tras la revisión de BM25 y fragmentos (línea **Estado** en cada uno; resumen en §9), con el contexto necesario para entender cada punto sin haber visto cómo se construyó. No impone soluciones: cada hallazgo dice qué se observó, con qué evidencia y qué conviene investigar.
 
 **Cómo leerlo.** Cada hallazgo lleva una etiqueta de **tipo** (Bug, Limitación, Riesgo, Falta, Inconsistencia), una **gravedad** (Alta, Media, Baja) y un **estado de verificación**:

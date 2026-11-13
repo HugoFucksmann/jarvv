@@ -10,15 +10,15 @@ import {
 } from "../../../utils/taskStatus.ts";
 
 const SEGMENT_TONE: Record<StepState, string> = {
-  pending: "bg-slate-800",
-  running: "bg-sky-400 animate-pulse",
+  pending: "bg-slate-700",
+  running: "bg-accent-400 animate-pulse",
   completed: "bg-emerald-500",
   failed: "bg-rose-500",
 };
 
 const ACTIVITY_TONE: Record<ActivityStateGroup, string> = {
-  working: "text-sky-200",
-  waiting: "text-amber-200",
+  working: "text-slate-200",
+  waiting: "text-yellow-200",
   finished: "text-slate-300",
 };
 
@@ -27,18 +27,17 @@ const ActivityIcon: React.FC<{ group: ActivityStateGroup; state: TaskState }> = 
   state,
 }) => {
   if (group === "working")
-    return <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin shrink-0" />;
+    return <Loader2 className="w-3.5 h-3.5 text-accent-400 animate-spin shrink-0" />;
   if (group === "waiting")
-    return <AlertCircle className="w-3.5 h-3.5 text-amber-400 animate-pulse shrink-0" />;
+    return <AlertCircle className="w-3.5 h-3.5 text-yellow-400 animate-pulse shrink-0" />;
   if (state === "completed")
     return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />;
   if (state === "partial")
-    return <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />;
+    return <AlertCircle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />;
   return (
     <XCircle
-      className={`w-3.5 h-3.5 shrink-0 ${
-        state === "failed" ? "text-rose-400" : "text-slate-400"
-      }`}
+      className={`w-3.5 h-3.5 shrink-0 ${state === "failed" ? "text-rose-400" : "text-slate-400"
+        }`}
     />
   );
 };
@@ -62,9 +61,8 @@ function getProgressText(task: TaskDto, limits?: EngineLimits | null): string {
 
   switch (task.task.state) {
     case "completed":
-      return `${completedSteps} de ${totalSteps} ${
-        totalSteps === 1 ? "paso completado" : "pasos completados"
-      }`;
+      return `${completedSteps} de ${totalSteps} ${totalSteps === 1 ? "paso completado" : "pasos completados"
+        }`;
     case "failed":
       return `Falló en paso ${runningStepIdx >= 0 ? runningStepIdx + 1 : totalSteps} (${completedSteps} completados)`;
     case "cancelled":
@@ -108,7 +106,7 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
         <span className="hidden md:inline shrink-0 text-xs text-slate-400 tabular-nums">
           {MODE_LABELS[task.task.mode]} · {progress}
           {replans > 0 && (
-            <span className="text-amber-300">
+            <span className="text-yellow-300">
               {" "}
               · {replans}{maxReplans} {replans === 1 ? "replanificación" : "replanificaciones"}
             </span>
@@ -117,10 +115,10 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
 
         {hasActiveProcess && (
           <span
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/80 text-[10px] font-mono shrink-0"
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 text-[10px] font-mono shrink-0"
             title={`Proceso en segundo plano activo (PID: ${String(task.facts.process.value)})`}
           >
-            <Cpu className="w-3 h-3 text-emerald-400 animate-pulse" />
+            <Cpu className="w-3 h-3 text-accent-400 animate-pulse" />
             <span>PID: {String(task.facts.process.value)}</span>
           </span>
         )}
@@ -132,9 +130,9 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
               onClick={onOpenTrace}
               title="Ver traza de auditoría (decisiones D1 a D4 y duraciones)"
               aria-label="Ver traza de auditoría"
-              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-300 hover:text-white hover:bg-purple-950/60 rounded-md transition-colors cursor-pointer border border-transparent hover:border-purple-800/60 font-mono"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer border border-transparent hover:border-slate-700 font-mono"
             >
-              <Activity className="w-3.5 h-3.5 text-purple-400" />
+              <Activity className="w-3.5 h-3.5 text-slate-400" />
               <span className="hidden sm:inline">Traza</span>
             </button>
           )}
@@ -147,7 +145,7 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
               aria-label="Iniciar nueva consulta"
               className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5 text-sky-400" />
+              <Plus className="w-3.5 h-3.5 text-accent-400" />
               <span className="hidden sm:inline">Nueva</span>
             </button>
           )}
@@ -161,7 +159,7 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
               <span
                 key={`${s.id}-${i}`}
                 title={`${i + 1}. ${s.instruction || "Paso"}`}
-                className={`h-1 flex-1 rounded-full ${SEGMENT_TONE[s.state] || "bg-slate-800"}`}
+                className={`h-1 flex-1 rounded-full ${SEGMENT_TONE[s.state] || "bg-slate-700"}`}
               />
             ))}
           </div>
@@ -170,9 +168,8 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
           role="status"
           aria-live="polite"
           title={activity.label}
-          className={`flex items-center gap-2 min-w-0 text-xs ${
-            ACTIVITY_TONE[activity.stateGroup]
-          }`}
+          className={`flex items-center gap-2 min-w-0 text-xs ${ACTIVITY_TONE[activity.stateGroup]
+            }`}
         >
           <ActivityIcon group={activity.stateGroup} state={task.task.state} />
           <span className="truncate">{activity.label}</span>

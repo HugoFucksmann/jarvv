@@ -1,28 +1,157 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+/*
+ * Sistema de color
+ * - Grises neutros (reemplazan la escala slate, que era azulada): todos los
+ *   componentes que usan `slate-*` pasan a grises sin editarse.
+ * - Acento naranja: usar `accent-*` (bg-accent-500, text-accent-400, ring-accent-500/40, etc.)
+ *   Es el color de "activo": en ejecución, acciones primarias, foco.
+ * - Éxito: usar `success-*`. Es un durazno claro y desaturado: se distingue del naranja vivo
+ *   por luminosidad (más pálido = ya terminado, más intenso = en curso), sin chocar con él.
+ * - Atención / parcial: `yellow-*`. Error: `rose-*`.
+ */
+@theme {
+  --color-slate-50: #fafafa;
+  --color-slate-100: #f2f2f3;
+  --color-slate-200: #e4e4e6;
+  --color-slate-300: #cfcfd3;
+  --color-slate-400: #a1a1a8;
+  --color-slate-500: #75757d;
+  --color-slate-600: #55555c;
+  --color-slate-700: #3b3b41;
+  --color-slate-800: #28282d;
+  --color-slate-900: #1a1a1e;
+  --color-slate-950: #111113;
+
+  --color-accent-50: #fff7ed;
+  --color-accent-100: #ffedd5;
+  --color-accent-200: #fed7aa;
+  --color-accent-300: #fdba74;
+  --color-accent-400: #fb923c;
+  --color-accent-500: #f97316;
+  --color-accent-600: #ea580c;
+  --color-accent-700: #c2410c;
+  --color-accent-800: #9a3412;
+  --color-accent-900: #7c2d12;
+  --color-accent-950: #431407;
+
+  --color-success-50: #fff8f0;
+  --color-success-100: #fdeedc;
+  --color-success-200: #f9e0c6;
+  --color-success-300: #f6d2b0;
+  --color-success-400: #efbe92;
+  --color-success-500: #e3a672;
+  --color-success-600: #c98a55;
+  --color-success-700: #9c6a40;
+  --color-success-800: #6f4a2f;
+  --color-success-900: #4a3222;
+  --color-success-950: #2c1f16;
+
+  /*
+   * Compatibilidad: los componentes que ya usaban `emerald-*` (verde) siguen la escala `success`.
+   * En código nuevo conviene usar `success-*`; cuando se quiera, estas líneas se pueden borrar
+   * una vez renombradas las clases `emerald-*` en los componentes.
+   */
+  --color-emerald-50: var(--color-success-50);
+  --color-emerald-100: var(--color-success-100);
+  --color-emerald-200: var(--color-success-200);
+  --color-emerald-300: var(--color-success-300);
+  --color-emerald-400: var(--color-success-400);
+  --color-emerald-500: var(--color-success-500);
+  --color-emerald-600: var(--color-success-600);
+  --color-emerald-700: var(--color-success-700);
+  --color-emerald-800: var(--color-success-800);
+  --color-emerald-900: var(--color-success-900);
+  --color-emerald-950: var(--color-success-950);
+}
+
+/*
+ * Entrada de modales. Los modales usan la clase `animate-in`, que pertenece a un plugin
+ * (tailwindcss-animate / tw-animate-css) que el proyecto no tiene instalado; se define aquí
+ * para que la animación exista sin añadir dependencias. Las clases `fade-in` y `zoom-in-95`
+ * que acompañan a `animate-in` no hacen falta: esta animación ya combina ambos efectos.
+ */
+@keyframes jarvis-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
   }
-  
-  code, pre, .font-mono {
-    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-variant-numeric: tabular-nums;
+
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
-/* Custom scrollbars for clean minimal consoles */
+@utility animate-in {
+  animation: jarvis-modal-in 150ms ease-out both;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--color-slate-950);
+    color: var(--color-slate-100);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background: rgba(249, 115, 22, 0.35);
+    color: #fff;
+  }
+
+  /* Foco visible y consistente para navegación con teclado */
+  :focus-visible {
+    outline: 2px solid var(--color-accent-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+/* Scrollbars discretos */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(161, 161, 168, 0.25) transparent;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: rgba(161, 161, 168, 0.25);
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.35);
+  background: rgba(249, 115, 22, 0.55);
+}
+
+/* Respeta la preferencia de movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

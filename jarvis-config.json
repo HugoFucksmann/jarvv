@@ -44,7 +44,7 @@
   "retentionDays": 30,
   "blacklist": [],
   "autoMode": false,
-  "webSearchUseJudge": false,
+  "webSearchUseJudge": true,
   "voiceEnabled": true,
   "telegramVoice": true,
   "voiceUrl": "http://127.0.0.1:8880",

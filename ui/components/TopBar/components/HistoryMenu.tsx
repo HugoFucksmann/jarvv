@@ -49,17 +49,19 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
         aria-label="Abrir historial de tareas"
         aria-haspopup="true"
         aria-expanded={isOpen}
-        className="flex items-center gap-1.5 px-2 py-1 text-xs font-mono text-slate-300 hover:text-white bg-slate-900/80 hover:bg-slate-800 border border-slate-800 rounded transition-colors cursor-pointer"
+        className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-md transition-colors cursor-pointer"
       >
-        <History className="w-3.5 h-3.5 text-sky-400" />
+        <History className="w-3.5 h-3.5 text-accent-400" />
         <span className="hidden sm:inline">Historial</span>
-        <span className="text-[11px] text-slate-500">({tasks.length})</span>
-        <ChevronDown className="w-3 h-3 text-slate-500" />
+        <span className="text-xs text-slate-500 tabular-nums">({tasks.length})</span>
+        <ChevronDown
+          className={`w-3 h-3 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+        />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 mt-1.5 w-72 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-1 z-50 flex flex-col gap-0.5 text-xs font-mono max-h-64 overflow-y-auto">
-          <div className="px-2.5 py-1.5 text-[10px] text-slate-500 font-semibold border-b border-slate-800/80 mb-0.5">
+        <div className="absolute left-0 mt-1.5 w-80 bg-slate-900 border border-slate-800 rounded-lg shadow-2xl p-1 z-50 flex flex-col gap-0.5 text-xs max-h-72 overflow-y-auto">
+          <div className="px-2.5 py-1.5 text-[11px] text-slate-500 font-semibold tracking-wide border-b border-slate-800 mb-0.5">
             TAREAS RECIENTES DE LA SESIÓN
           </div>
           {[...tasks].reverse().map((t) => {
@@ -72,29 +74,24 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   onSelectTask(t.id);
                   setIsOpen(false);
                 }}
-                className={`flex items-start gap-2 p-2 rounded text-left transition-colors cursor-pointer ${
-                  isSelected
-                    ? "bg-slate-800 text-white font-medium"
-                    : "text-slate-300 hover:bg-slate-800/50 hover:text-white"
-                }`}
+                className={`flex items-start gap-2.5 p-2 rounded-md text-left transition-colors cursor-pointer ${isSelected
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-300 hover:bg-slate-800/60 hover:text-white"
+                  }`}
               >
-                <div className="mt-1">
+                <div className="mt-1.5">
                   <StatusDot status={getTaskStatusType(t.state)} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
-                  <span className="truncate text-xs font-sans text-slate-200">
-                    {t.request}
-                  </span>
-                  <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+                  <span className="truncate text-[13px] text-slate-100">{t.request}</span>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
                     <span>{MODE_LABELS[t.mode]}</span>
                     {t.state === "running" && (
-                      <span className="text-sky-400 font-semibold animate-pulse">
-                        [En curso]
-                      </span>
+                      <span className="text-accent-400 font-semibold animate-pulse">En curso</span>
                     )}
                   </div>
                 </div>
-                {isSelected && <Check className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />}
+                {isSelected && <Check className="w-3.5 h-3.5 text-accent-400 shrink-0 mt-0.5" />}
               </button>
             );
           })}

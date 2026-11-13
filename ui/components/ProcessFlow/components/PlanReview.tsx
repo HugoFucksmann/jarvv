@@ -51,16 +51,14 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-3 p-4 bg-slate-900/90 border border-slate-700/80 rounded-lg shadow-md">
+    <div className="flex flex-col gap-3 p-4 bg-slate-900 border border-slate-800 rounded-xl shadow-md">
       {/* Encabezado */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="flex items-center gap-2 flex-wrap">
-          <Sparkles className="w-4 h-4 text-sky-400" />
-          <span className="text-xs font-mono font-semibold tracking-wider text-sky-300">
-            PLAN PROPUESTO POR EL MODELO
-          </span>
-          <span className="text-xs text-slate-500 font-mono">({steps.length} etapas)</span>
-          <span className="text-[11px] font-sans px-1.5 py-0.2 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80">
+          <Sparkles className="w-4 h-4 text-accent-400" />
+          <span className="text-sm font-semibold text-slate-100">Plan propuesto por el modelo</span>
+          <span className="text-xs text-slate-500">({steps.length} etapas)</span>
+          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-950/30 text-yellow-300 border border-yellow-800/50">
             Confirmación requerida antes de actuar
           </span>
         </div>
@@ -93,7 +91,7 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
               type="button"
               disabled={isSubmitting}
               onClick={() => setShowModifyPanel((v) => !v)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-sky-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-200 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-md transition-colors cursor-pointer disabled:opacity-50"
             >
               <Edit3 className="w-3 h-3" />
               <span>Modificar</span>
@@ -104,21 +102,21 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
             type="button"
             disabled={isSubmitting}
             onClick={handleConfirm}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-sky-400 hover:bg-sky-300 rounded-md transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-accent-500 hover:bg-accent-400 rounded-md transition-colors cursor-pointer disabled:opacity-50"
           >
             {isSubmitting ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Check className="w-3.5 h-3.5" />
             )}
-            <span>Aceptar y Ejecutar</span>
+            <span>Aceptar y ejecutar</span>
           </button>
         </div>
       </div>
 
       {showModifyPanel && (
-        <div className="p-3 rounded-lg border flex flex-col gap-2 bg-slate-950 border-sky-800/80">
-          <div className="flex items-center justify-between text-xs font-medium text-sky-300">
+        <div className="p-3 rounded-lg border flex flex-col gap-2 bg-slate-950 border-accent-500/40">
+          <div className="flex items-center justify-between text-xs font-medium text-slate-200">
             <span>Indica los cambios o instrucciones para re-planificar:</span>
             <button
               type="button"
@@ -138,14 +136,14 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
                 if (e.key === "Enter" && feedbackText.trim() && !isSubmitting) handleSendModify();
               }}
               placeholder="Ej: Omitir la búsqueda web y usar Desktop Commander directamente..."
-              className="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-700 focus:border-sky-400 rounded text-xs text-white placeholder-slate-500 focus:outline-none font-mono"
+              className="flex-1 min-w-0 px-3 py-2 bg-slate-900 border border-slate-700 focus:border-accent-500/70 focus:ring-2 focus:ring-accent-500/20 rounded-md text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors"
               autoFocus
             />
             <button
               type="button"
               disabled={!feedbackText.trim() || isSubmitting}
               onClick={handleSendModify}
-              className="px-3 py-1.5 font-semibold text-xs rounded transition-colors flex items-center gap-1 bg-sky-500 hover:bg-sky-400 text-slate-950 disabled:opacity-50 cursor-pointer"
+              className="px-3 py-2 font-semibold text-xs rounded-md transition-colors flex items-center gap-1.5 bg-accent-500 hover:bg-accent-400 text-slate-950 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 disabled:hover:bg-slate-800"
             >
               {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
               <span>Re-planificar</span>
@@ -157,18 +155,14 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
       {/* Lista de etapas del plan */}
       <div className="flex flex-col divide-y divide-slate-800 border-t border-slate-800 pt-2">
         {steps.map((step, idx) => (
-          <div key={`plan-step-${step.id || idx}`} className="flex items-start gap-3 py-2.5 text-xs">
-            <span className="font-mono text-slate-500 w-5 tabular-nums mt-0.5">{idx + 1}.</span>
-            <div className="flex flex-col gap-1 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono text-sky-400 font-medium">
-                  [{getRouteLabel(step.route)}]
-                </span>
-              </div>
-              <span className="text-slate-200">{step.instruction}</span>
+          <div key={`plan-step-${step.id || idx}`} className="flex items-start gap-3 py-2.5 text-sm">
+            <span className="font-mono text-xs text-slate-500 w-5 tabular-nums mt-0.5">{idx + 1}.</span>
+            <div className="flex flex-col gap-1 flex-1 min-w-0">
+              <span className="text-xs text-accent-400 font-medium">{getRouteLabel(step.route)}</span>
+              <span className="text-slate-100">{step.instruction}</span>
               {step.expected && (
-                <span className="text-emerald-400/90 text-[11px] font-mono">
-                  Esperado: {step.expected}
+                <span className="text-slate-400 text-xs">
+                  <span className="text-slate-500">Esperado:</span> {step.expected}
                 </span>
               )}
             </div>

@@ -22,7 +22,7 @@ import { NULL_SINK } from "../../src/core/trace/sink.ts";
 import { isInternalHost } from "../../src/tools/web/args.ts";
 import { tokenize } from "../../src/tools/web/bm25.ts";
 import { chunkDocs, cleanLines } from "../../src/tools/web/chunks.ts";
-import { parseFetch, parseResearch } from "../../src/tools/web/report.ts";
+import { parseFetch, parseSearch } from "../../src/tools/web/report.ts";
 import { WEB_DEPENDENCIES, WebSearchProvider } from "../../src/tools/web/webSearchProvider.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -36,18 +36,20 @@ for (const question of ["Какая столица Австралии?", "澳大
   console.log(`  ${JSON.stringify(question)} → ${JSON.stringify(tokenize(question))}`);
 }
 
-console.log("\n### Informe real de Free Search 0.18.0 (muestra recortada en samples/)");
-const research = fs.readFileSync(path.join(here, "samples", "free_search_0.18.0_research.md"), "utf8");
-const material = parseResearch(research);
-console.log(`  fuentes: ${material.sources.length}, páginas: ${material.docs.length}, fragmentos de página: ${chunkDocs(material.docs).length}`);
-for (const source of material.sources) console.log(`  [${source.n}] ${source.title} | fecha=${source.date ?? "-"} | extracto=${source.snippet === undefined ? "no" : "sí"}`);
-console.log("  (WS-27: la fecha `published` de una página de Wikipedia es la de su creación, no una señal de frescura)");
-const fetched = parseFetch(fs.readFileSync(path.join(here, "samples", "free_search_0.18.0_fetch.md"), "utf8"), "https://example.com", 1);
-console.log(`  fetch de ejemplo: título=${JSON.stringify(fetched?.source.title)} fecha=${fetched?.source.date ?? "-"} cuerpo=${fetched?.doc.body.length} caracteres`);
+console.log("\n### Captura real de `search` de Free Search 0.18.0 en JSON (web_eval/captures2/)");
+const capture = JSON.parse(fs.readFileSync(path.join(here, "web_eval", "captures2", "node22.json"), "utf8")) as { search: { text: string }; fetches: { url: string; text: string }[] };
+const parsed = parseSearch(capture.search.text);
+if (!parsed.ok) throw new Error(`la captura no se reconoce: ${parsed.detail}`);
+console.log(`  fuentes: ${parsed.value.sources.length}`);
+for (const source of parsed.value.sources) console.log(`  [${source.n}] ${source.title.slice(0, 60)} | fecha=${source.date ?? "-"} (${source.dateSource ?? "-"}) | extracto=${source.snippet === undefined ? "no" : "sí"}`);
+const page = capture.fetches.map((f, i) => parseFetch(f.text, f.url, i + 1)).find((p) => p.ok && p.value !== null && !("blocked" in p.value));
+if (page?.ok && page.value !== null && "doc" in page.value) console.log(`  página leída: ${page.value.doc.url.slice(0, 60)} → ${chunkDocs([page.value.doc]).length} fragmentos`);
 
-console.log("\n### Si Free Search cambiara el formato del informe (WS-05): se degrada en silencio");
-const drift = parseResearch("## Research\n\n### Fuentes\n1. Titulo — https://a.org\n\n### Documentos\ntexto de la pagina con bastante contenido para ser un fragmento util y largo");
-console.log(`  fuentes: ${drift.sources.length}, páginas: ${drift.docs.length}, n: ${JSON.stringify(drift.docs.map((d) => d.n))}, url: ${JSON.stringify(drift.docs.map((d) => d.url))}`);
+console.log("\n### Si Free Search cambiara el formato (WS-05): se rechaza con la ruta, no se degrada en silencio");
+for (const text of ["# Research brief: x\n## Sources\n- [1] **T** — <https://a.org>", JSON.stringify({ results: [{ title: "x" }] })]) {
+  const drift = parseSearch(text);
+  console.log(`  ${drift.ok ? "ACEPTADO (mal)" : `rechazado: ${drift.detail}`}`);
+}
 
 console.log("\n### Líneas que la limpieza descarta (WS-06)");
 for (const line of [
@@ -99,7 +101,7 @@ async function ask(label: string, provider: WebSearchProvider, args: Record<stri
 }
 
 const questions: [string, Record<string, unknown>][] = [
-  ["fecha de Node 22", { need: "¿En qué fecha se publicó Node.js 22.0.0?", terms: ["Node.js 22", "release date", "April 2024"] }],
+  ["fecha de Node 22", { need: "¿En qué fecha se publicó Node.js 22.0.0?" }],
   ["respuesta que no está en las fuentes", { need: "¿Cuál es el nombre del perro del creador de Node.js, Ryan Dahl?" }],
   ["URL concreta", { need: "¿Cuál es la capital de Australia?", urls: ["https://es.wikipedia.org/wiki/Australia"] }],
 ];

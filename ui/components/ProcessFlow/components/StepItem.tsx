@@ -19,7 +19,7 @@ interface StepItemProps {
 
 function callStatusTone(status?: string): string {
   if (status === "ok") return "text-emerald-400";
-  if (status === "no_data" || status === "not_found") return "text-amber-400";
+  if (status === "no_data" || status === "not_found") return "text-yellow-400";
   return status ? "text-rose-400" : "text-slate-400";
 }
 
@@ -65,7 +65,7 @@ const OutputViewer: React.FC<{ text: string; copyTitle: string; className?: stri
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300 cursor-pointer font-mono"
+          className="flex items-center gap-1 text-[11px] text-accent-400 hover:text-accent-300 cursor-pointer"
         >
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           <span>Salida completa ({text.length} caracteres)</span>
@@ -74,11 +74,11 @@ const OutputViewer: React.FC<{ text: string; copyTitle: string; className?: stri
           text={text}
           title={copyTitle}
           iconSize="w-2.5 h-2.5"
-          className="gap-1 text-[10px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800"
+          className="gap-1 text-[11px] text-slate-400 hover:text-white px-1.5 py-0.5 rounded hover:bg-slate-800"
         />
       </div>
       {expanded && (
-        <div className="p-2 bg-slate-950/70 rounded text-[11px] font-mono text-slate-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+        <div className="p-2 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
           {text}
         </div>
       )}
@@ -109,13 +109,12 @@ const StepItemBase: React.FC<StepItemProps> = ({
 
   return (
     <div
-      className={`relative flex flex-col gap-2 py-3 px-3.5 rounded-xl transition-colors ${
-        step.superseded
+      className={`relative flex flex-col gap-2 py-3 px-3.5 rounded-xl transition-colors ${step.superseded
           ? "opacity-50"
           : isCurrent
-          ? "bg-slate-900/60"
-          : "hover:bg-slate-900/30"
-      }`}
+            ? "bg-slate-900 ring-1 ring-inset ring-accent-500/20"
+            : "hover:bg-slate-900/40"
+        }`}
     >
       {!isLast && (
         <span
@@ -125,48 +124,47 @@ const StepItemBase: React.FC<StepItemProps> = ({
       )}
 
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 min-w-0">
           <div className="mt-0.5">
             <StepStatusIcon state={step.state} />
           </div>
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="font-mono text-slate-500 tabular-nums">#{index + 1}</span>
               {effectiveRoute && (
-                <span className="font-mono text-slate-400 font-medium">
+                <span className="text-slate-400 font-medium">
                   {getRouteLabel(effectiveRoute)}
                 </span>
               )}
               {step.at && (
-                <span className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                <span className="text-[11px] text-slate-500 flex items-center gap-1 tabular-nums">
                   <Clock className="w-2.5 h-2.5" />
                   <span>{new Date(step.at).toLocaleTimeString()}</span>
                 </span>
               )}
               {step.superseded && (
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-rose-950/50 text-rose-400 border border-rose-900/50">
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-rose-950/50 text-rose-400 border border-rose-900/50">
                   Descartado (replan)
                 </span>
               )}
             </div>
 
             <p
-              className={`text-sm ${
-                step.superseded ? "line-through text-slate-500" : "text-slate-200"
-              }`}
+              className={`text-sm ${step.superseded ? "line-through text-slate-500" : "text-slate-100"
+                }`}
             >
               {displayInstruction}
             </p>
 
             {step.expected && !step.superseded && (
-              <p className="text-xs text-emerald-400/70 font-mono mt-0.5">
-                Esperado: {step.expected}
+              <p className="text-xs text-slate-400 mt-0.5">
+                <span className="text-slate-500">Esperado:</span> {step.expected}
               </p>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-mono shrink-0">
+        <div className="flex items-center gap-2 text-xs shrink-0">
           <span className="text-slate-400">{STEP_STATE_LABELS[step.state] || step.state}</span>
         </div>
       </div>
@@ -177,7 +175,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
           <button
             type="button"
             onClick={() => setShowCalls((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-sky-400/90 hover:text-sky-300 font-mono transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-xs text-accent-400 hover:text-accent-300 transition-colors cursor-pointer"
           >
             {showCalls ? (
               <ChevronDown className="w-3.5 h-3.5" />
@@ -196,17 +194,16 @@ const StepItemBase: React.FC<StepItemProps> = ({
                 const verdict = callVerdictLabel(c);
 
                 return (
-                  <div key={`call-${c.id || cIdx}`} className="py-2.5 text-xs font-mono">
-                    <div className="flex items-center justify-between text-slate-400 mb-1 flex-wrap gap-1">
-                      <div className="flex items-center gap-1.5 text-sky-300 font-semibold flex-wrap">
-                        <Terminal className="w-3 h-3 text-sky-400" />
-                        <span>{c.tool}</span>
+                  <div key={`call-${c.id || cIdx}`} className="py-2.5 text-xs">
+                    <div className="flex items-center justify-between text-slate-400 mb-1 flex-wrap gap-1.5">
+                      <div className="flex items-center gap-1.5 text-slate-100 font-semibold flex-wrap">
+                        <Terminal className="w-3 h-3 text-accent-400" />
+                        <span className="font-mono">{c.tool}</span>
                         <span
-                          className={`text-[10px] px-1 py-0.2 rounded ${
-                            c.kind === "write"
-                              ? "bg-amber-950/70 text-amber-300 border border-amber-800/60"
+                          className={`text-[11px] font-mono font-normal px-1.5 py-0.5 rounded ${c.kind === "write"
+                              ? "bg-yellow-950/40 text-yellow-300 border border-yellow-800/50"
                               : "bg-slate-800 text-slate-300"
-                          }`}
+                            }`}
                         >
                           {c.kind}
                         </span>
@@ -214,40 +211,40 @@ const StepItemBase: React.FC<StepItemProps> = ({
                           <button
                             type="button"
                             onClick={() => onViewRef?.(c.ref!)}
-                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/60 transition-colors cursor-pointer"
+                            className="flex items-center gap-1 text-[11px] font-normal px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
                             title={`Ver contenido completo de referencia ${c.ref}`}
                           >
-                            <FileText className="w-2.5 h-2.5" />
-                            <span>{c.ref}</span>
-                            <span className="text-[9px] underline">ver</span>
+                            <FileText className="w-2.5 h-2.5 text-accent-400" />
+                            <span className="font-mono">{c.ref}</span>
+                            <span className="text-[10px] underline text-slate-400">ver</span>
                           </button>
                         )}
                         {onViewQueries && (
                           <button
                             type="button"
                             onClick={() => onViewQueries(c.id)}
-                            className="flex items-center gap-1 text-[10px] px-1.5 py-0.2 rounded bg-violet-950/70 hover:bg-violet-900 text-violet-300 border border-violet-800/60 transition-colors cursor-pointer"
+                            className="flex items-center gap-1 text-[11px] font-normal px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
                             title="Ver entradas y salidas de los modelos de esta llamada"
                           >
-                            <ListTree className="w-2.5 h-2.5" />
+                            <ListTree className="w-2.5 h-2.5 text-accent-400" />
                             <span>modelos</span>
                           </button>
                         )}
                         {c.at && (
-                          <span className="text-[10px] text-slate-500 font-normal">
+                          <span className="text-[11px] text-slate-500 font-normal tabular-nums">
                             {new Date(c.at).toLocaleTimeString()}
                           </span>
                         )}
                       </div>
                       <div className="flex items-center gap-1.5">
                         {c.verdict === "approved" && (
-                          <span className="flex items-center gap-0.5 text-[10px] text-emerald-400 font-semibold bg-emerald-950/50 px-1 py-0.2 rounded border border-emerald-800/50">
+                          <span className="flex items-center gap-0.5 text-[11px] text-emerald-400 font-semibold bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/50">
                             <ShieldCheck className="w-2.5 h-2.5" />
                             <span>D4 Verificado</span>
                           </span>
                         )}
                         {c.verdict === "rejected" && (
-                          <span className="flex items-center gap-0.5 text-[10px] text-rose-400 font-semibold bg-rose-950/50 px-1 py-0.2 rounded border border-rose-800/50">
+                          <span className="flex items-center gap-0.5 text-[11px] text-rose-400 font-semibold bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-800/50">
                             <ShieldAlert className="w-2.5 h-2.5" />
                             <span>D4 Rechazado</span>
                           </span>
@@ -259,27 +256,27 @@ const StepItemBase: React.FC<StepItemProps> = ({
                     </div>
 
                     {c.args && Object.keys(c.args).length > 0 && (
-                      <div className="text-[11px] text-slate-400 truncate mb-1">
+                      <div className="text-xs font-mono text-slate-400 truncate mb-1">
                         <span className="text-slate-500">args: </span>
                         {JSON.stringify(c.args)}
                       </div>
                     )}
 
                     {c.sig && (
-                      <div className="text-[10px] text-slate-500 font-mono truncate mb-1">
+                      <div className="text-[11px] text-slate-500 font-mono truncate mb-1">
                         <span className="text-slate-600">sig: </span>
                         {c.sig}
                       </div>
                     )}
 
                     {c.summary && (
-                      <p className="text-[12px] text-slate-300 font-sans line-clamp-3">
+                      <p className="text-[13px] text-slate-300 line-clamp-3">
                         {c.summary}
                       </p>
                     )}
 
                     {c.reason && (
-                      <p className="text-[11px] text-amber-300/80 font-mono mt-0.5">
+                      <p className="text-xs text-yellow-300/80 mt-0.5">
                         Motivo: {c.reason}
                       </p>
                     )}

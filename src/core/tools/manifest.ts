@@ -13,7 +13,7 @@
  * - Lista cerrada: lo que un servidor MCP exponga y no figure aquí NO se ofrece a Decision ni al planificador (ver
  *   `applyDestination`). `UNKNOWN_TOOL_POLICY` queda solo como defensa en profundidad en Guard.
  * - Los proveedores nativos (`jarvis_terminal`, `jarvis_web`) son módulos en proceso de `src/tools/`: una tool propia por ruta (`run_command`, `web_search`).
- *   Las herramientas de otros servidores que una tool compuesta usa por dentro (`research` y `fetch` de Free Search) figuran como `internal`: tienen política
+ *   Las herramientas de otros servidores que una tool compuesta usa por dentro (`search`, `fetch` y `read_doc` de Free Search) figuran como `internal`: tienen política
  *   y Guard como las demás, pero no se ofrecen a Decision ni al planificador.
  * - Sin herramientas de interfaz gráfica (clic, teclado, portapapeles, capturas, esperas de UI) ni meta (feedback,
  *   prompts, estadísticas): decisión de diseño vigente.
@@ -216,21 +216,22 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     notes: { pid: "Process id to stop: one started with run_command (it stops everything that command started) or any other process." },
   }),
 
-  // `web_search` (proveedor nativo `jarvis_web`): busca o lee las URLs dadas y devuelve fragmentos literales con su fuente y un estado. Por dentro usa `research` y
+  // `web_search` (proveedor nativo `jarvis_web`): busca o lee las URLs dadas y devuelve fragmentos literales con su fuente y un estado. Por dentro usa `search` y
   // `fetch` de Free Search (internas). `no_data` (sin resultados o sin fragmentos relevantes) permite un reintento con otros argumentos (`retry_failed`).
   def("web", "web_search", "READ", "Search the web, or read given URLs, and return the relevant passages.", {
     repeat: "retry_failed",
-    params: ["need", "terms", "urls", "freshness", "domains"],
+    params: ["need", "urls", "freshness", "domains"],
     notes: {
       need: "A direct question, e.g. 'When was Node.js 22 released?' (not an instruction like 'find…'; never a URL). Max 300 characters.",
-      terms: "Optional keywords in the language the sources are likely written in; helps when the question is in another language.",
       urls: "Optional pages to read directly instead of searching (max 5, http or https).",
       freshness: "Only for time-sensitive needs: day, week, month or year.",
-      domains: "Only if the user named a site: domains to restrict the search to.",
+      domains: "Only if the user named a site: domains to restrict the search to (max 5).",
     },
     timeoutMs: 150_000,
   }),
-  // Internas de `web_search` (Free Search). `research` busca y lee en una sola llamada; `fetch` descarga UNA URL como Markdown.
+  // Internas de `web_search` (Free Search). `search` devuelve enlaces con extractos (es lo que usa `web_search`); `research` busca y lee en una sola llamada; `fetch` descarga UNA URL como Markdown.
+  internalDef("free_search", "web", "search", "READ", "Search the web and return a list of links with snippets.", { emptyIsError: true, repeat: "retry_failed" }),
+  internalDef("free_search", "web", "read_doc", "READ", "Read a long page or document in windows (start, length).", { repeat: "retry_failed" }),
   internalDef("free_search", "web", "research", "READ", "Search the web and read the top pages in one call.", { emptyIsError: true, repeat: "retry_failed" }),
   internalDef("free_search", "web", "fetch", "READ", "Download ONE known URL as Markdown.", { repeat: "retry_failed" }),
 ];

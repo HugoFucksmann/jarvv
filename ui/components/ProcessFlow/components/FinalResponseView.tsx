@@ -13,32 +13,44 @@ interface FinalResponseViewProps {
   speechStatus?: "idle" | "loading" | "playing";
 }
 
-export const FinalResponseView: React.FC<FinalResponseViewProps> = ({ result, onOpenTrace, onSpeak, onStopSpeech, speechStatus = "idle" }) => (
-  <div className="flex flex-col gap-3 p-4 bg-slate-900/60 border border-slate-800 rounded-lg shadow-sm">
-    {/* Cabecera con título y acciones de copiado */}
-    <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 flex-wrap gap-2">
-      <div className="flex items-center gap-2 text-xs font-mono font-medium text-emerald-400">
-        <CheckCheck className="w-4 h-4 shrink-0" />
-        <span>RESPUESTA FINAL SINTETIZADA</span>
+/** Acción secundaria: sin borde ni fondo hasta pasar el ratón, para no competir con la respuesta. */
+const ACTION =
+  "gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500/60";
+
+export const FinalResponseView: React.FC<FinalResponseViewProps> = ({
+  result,
+  onOpenTrace,
+  onSpeak,
+  onStopSpeech,
+  speechStatus = "idle",
+}) => (
+  <section aria-label="Respuesta final" className="flex flex-col gap-4 border-t border-slate-800 pt-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <CheckCheck className="h-4 w-4 shrink-0 text-emerald-400" />
+        <h3 className="text-sm font-semibold text-slate-100">Respuesta final</h3>
         {result.origin === "fallback" && (
-          <span className="flex items-center gap-1 text-[11px] font-sans px-1.5 py-0.2 rounded bg-amber-950/70 text-amber-300 border border-amber-800/60 font-normal">
-            <Info className="w-3 h-3" />
-            <span>Respaldo automático (sin modelo)</span>
+          <span
+            className="flex items-center gap-1 text-sm text-yellow-300"
+            title="La respuesta se generó sin consultar un modelo"
+          >
+            <Info className="h-3.5 w-3.5" />
+            Respaldo automático
           </span>
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        {onSpeak && (
-          speechStatus === "idle" ? (
+      <div className="flex items-center gap-0.5">
+        {onSpeak &&
+          (speechStatus === "idle" ? (
             <button
               type="button"
               onClick={() => onSpeak(result.text)}
               title="Leer la respuesta en voz alta"
               aria-label="Leer la respuesta en voz alta"
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-sky-300 hover:text-white bg-sky-950/50 hover:bg-sky-900/60 border border-sky-800/60 rounded transition-colors cursor-pointer"
+              className={`flex items-center ${ACTION}`}
             >
-              <Volume2 className="w-3.5 h-3.5 text-sky-400" />
+              <Volume2 className="h-4 w-4" />
               <span>Leer</span>
             </button>
           ) : (
@@ -47,37 +59,34 @@ export const FinalResponseView: React.FC<FinalResponseViewProps> = ({ result, on
               onClick={onStopSpeech}
               title="Detener la lectura"
               aria-label="Detener la lectura"
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-amber-300 hover:text-white bg-amber-950/50 hover:bg-amber-900/60 border border-amber-800/60 rounded transition-colors cursor-pointer"
+              className={`flex items-center ${ACTION} !text-accent-300`}
             >
-              {speechStatus === "loading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <VolumeX className="w-3.5 h-3.5" />}
+              {speechStatus === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <VolumeX className="h-4 w-4" />}
               <span>{speechStatus === "loading" ? "Preparando…" : "Detener"}</span>
             </button>
-          )
-        )}
+          ))}
         {onOpenTrace && (
           <button
             type="button"
             onClick={onOpenTrace}
-            title="Ver traza completa de auditoría (decisiones D1 a D4 y duraciones)"
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono text-purple-300 hover:text-white bg-purple-950/50 hover:bg-purple-900/60 border border-purple-800/60 rounded transition-colors cursor-pointer"
+            title="Ver la traza de auditoría: decisiones D1 a D4, consultas y duraciones"
+            className={`flex items-center ${ACTION}`}
           >
-            <Activity className="w-3.5 h-3.5 text-purple-400" />
-            <span>Ver Traza</span>
+            <Activity className="h-4 w-4" />
+            <span>Ver traza</span>
           </button>
         )}
         <CopyButton
           text={result.text}
-          label="Copiar todo"
-          title="Copiar respuesta completa en formato Markdown al portapapeles"
+          label="Copiar"
+          title="Copiar la respuesta completa en Markdown"
           ariaLabel="Copiar respuesta completa"
-          iconSize="w-3.5 h-3.5"
-          iconColor="text-slate-400"
-          className="gap-1.5 px-2.5 py-1 text-xs font-mono text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700/80 border border-slate-700/60 rounded"
+          iconSize="w-4 h-4"
+          className={ACTION}
         />
       </div>
     </div>
 
-    {/* Markdown de alta fidelidad */}
-    <MarkdownRenderer content={result.text} />
-  </div>
+    <MarkdownRenderer content={result.text} large />
+  </section>
 );

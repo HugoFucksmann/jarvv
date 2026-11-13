@@ -1,10 +1,13 @@
 import React, { useMemo } from "react";
 import { Terminal } from "lucide-react";
 import { CopyButton } from "./CopyButton.tsx";
+import { JsonText } from "./JsonView.tsx";
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  /** Texto algo mayor y más aireado, para respuestas que se leen de corrido. */
+  large?: boolean;
 }
 
 type Block =
@@ -43,7 +46,7 @@ function renderInline(text: string): React.ReactNode[] {
       nodes.push(
         <code
           key={key}
-          className="px-1.5 py-0.5 text-xs font-mono bg-slate-800/90 text-sky-300 rounded border border-slate-700/60"
+          className="px-1.5 py-0.5 text-[13px] font-mono bg-slate-800 text-accent-300 rounded border border-slate-700/60"
         >
           {token.slice(1, -1)}
         </code>
@@ -81,7 +84,7 @@ function renderInline(text: string): React.ReactNode[] {
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
+            className="text-accent-400 hover:text-accent-300 underline underline-offset-2 transition-colors"
           >
             {linkMatch[1]}
           </a>
@@ -249,22 +252,26 @@ function parseBlocks(markdown: string): Block[] {
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   content,
   className = "",
+  large = false,
 }) => {
   const blocks = useMemo(() => parseBlocks(content), [content]);
 
   return (
-    <div className={`flex flex-col gap-3 text-slate-200 text-sm leading-relaxed ${className}`}>
+    <div
+      className={`flex flex-col text-slate-200 leading-relaxed ${large ? "gap-4 text-[15px]" : "gap-3 text-sm"
+        } ${className}`}
+    >
       {blocks.map((block, idx) => {
         switch (block.type) {
           case "code": {
             return (
               <div
                 key={idx}
-                className="flex flex-col rounded-md border border-slate-800 bg-slate-950 overflow-hidden font-mono text-xs my-1"
+                className="flex flex-col rounded-lg border border-slate-800 bg-slate-950 overflow-hidden font-mono text-xs my-1"
               >
-                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-slate-800/80 text-[11px] text-slate-400">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] text-slate-400">
                   <div className="flex items-center gap-1.5">
-                    <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                    <Terminal className="w-3.5 h-3.5 text-accent-400" />
                     <span className="font-semibold text-slate-300 uppercase">{block.language}</span>
                   </div>
                   <CopyButton
@@ -273,9 +280,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     className="gap-1 text-slate-400 hover:text-slate-200"
                   />
                 </div>
-                <pre className="p-3 overflow-x-auto text-slate-200 text-xs leading-relaxed font-mono whitespace-pre">
-                  <code>{block.code}</code>
-                </pre>
+                {block.language.toLowerCase() === "json" ? (
+                  <div className="p-3 overflow-x-auto">
+                    <JsonText text={block.code} defaultDepth={4} />
+                  </div>
+                ) : (
+                  <pre className="p-3 overflow-x-auto text-slate-200 text-[13px] leading-relaxed font-mono whitespace-pre">
+                    <code>{block.code}</code>
+                  </pre>
+                )}
               </div>
             );
           }
@@ -285,7 +298,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               return (
                 <h1
                   key={idx}
-                  className="text-base font-bold text-slate-100 border-b border-slate-800 pb-1.5 mt-2 text-sky-400"
+                  className="text-lg font-bold text-slate-50 border-b border-slate-800 pb-2 mt-3"
                 >
                   {renderInline(block.text)}
                 </h1>
@@ -293,23 +306,20 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             }
             if (block.level === 2) {
               return (
-                <h2 key={idx} className="text-sm font-semibold text-sky-300 mt-2">
+                <h2 key={idx} className="text-base font-semibold text-slate-50 mt-3">
                   {renderInline(block.text)}
                 </h2>
               );
             }
             if (block.level === 3) {
               return (
-                <h3
-                  key={idx}
-                  className="text-xs font-semibold text-slate-300 uppercase tracking-wider mt-1.5"
-                >
+                <h3 key={idx} className="text-sm font-semibold text-accent-300 mt-2">
                   {renderInline(block.text)}
                 </h3>
               );
             }
             return (
-              <h4 key={idx} className="text-xs font-medium text-slate-400 mt-1">
+              <h4 key={idx} className="text-sm font-medium text-slate-400 mt-1">
                 {renderInline(block.text)}
               </h4>
             );
@@ -317,24 +327,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
 
           case "table": {
             return (
-              <div key={idx} className="overflow-x-auto my-2 rounded border border-slate-800 bg-slate-950/60">
-                <table className="w-full text-left text-xs font-mono divide-y divide-slate-800">
-                  <thead className="bg-slate-900/90 text-sky-300 font-semibold">
+              <div key={idx} className="overflow-x-auto my-2 rounded-lg border border-slate-800 bg-slate-950">
+                <table className="w-full text-left text-[13px] divide-y divide-slate-800">
+                  <thead className="bg-slate-900 text-slate-100 font-semibold">
                     <tr>
                       {block.headers.map((h, hIdx) => (
-                        <th key={hIdx} className="px-3 py-2 border-r border-slate-800/80 last:border-r-0">
+                        <th key={hIdx} className="px-3 py-2 border-r border-slate-800 last:border-r-0">
                           {renderInline(h)}
                         </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/50 text-slate-300">
+                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
                     {block.rows.map((row, rIdx) => (
-                      <tr key={rIdx} className="hover:bg-slate-900/40 transition-colors">
+                      <tr key={rIdx} className="hover:bg-slate-900/50 transition-colors">
                         {row.map((cell, cIdx) => (
                           <td
                             key={cIdx}
-                            className="px-3 py-1.5 border-r border-slate-800/40 last:border-r-0"
+                            className="px-3 py-2 border-r border-slate-800/50 last:border-r-0 align-top"
                           >
                             {renderInline(cell)}
                           </td>
@@ -351,8 +361,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             return (
               <ul key={idx} className="flex flex-col gap-1.5 pl-2 my-0.5">
                 {block.items.map((item, itemIdx) => (
-                  <li key={itemIdx} className="flex items-start gap-2 text-slate-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0 mt-2" />
+                  <li key={itemIdx} className="flex items-start gap-2.5 text-slate-200">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent-400 shrink-0 mt-2.5" />
                     <span className="flex-1">{renderInline(item)}</span>
                   </li>
                 ))}
@@ -364,8 +374,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             return (
               <ol key={idx} className="flex flex-col gap-1.5 pl-2 my-0.5">
                 {block.items.map((item, itemIdx) => (
-                  <li key={itemIdx} className="flex items-start gap-2 text-slate-200">
-                    <span className="font-mono text-slate-500 text-xs tabular-nums shrink-0 mt-0.5">
+                  <li key={itemIdx} className="flex items-start gap-2.5 text-slate-200">
+                    <span className="font-mono text-accent-400 text-xs tabular-nums shrink-0 mt-1 w-4 text-right">
                       {itemIdx + 1}.
                     </span>
                     <span className="flex-1">{renderInline(item)}</span>
@@ -379,7 +389,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
             return (
               <blockquote
                 key={idx}
-                className="border-l-2 border-sky-500/80 bg-slate-950/50 pl-3 py-1.5 text-slate-300 italic text-xs rounded-r my-1"
+                className="border-l-2 border-accent-500/70 bg-slate-900/60 pl-3 py-2 pr-2 text-slate-300 italic text-[13px] rounded-r my-1"
               >
                 {renderInline(block.text)}
               </blockquote>

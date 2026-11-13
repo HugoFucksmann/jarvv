@@ -25,15 +25,15 @@ export const StepStatusIcon: React.FC<StepStatusIconProps> = ({ state, size = "m
     case "completed":
       return <CheckCircle2 className={`${base} text-emerald-400`} />;
     case "running":
-      return <Loader2 className={`${base} text-sky-400 animate-spin`} />;
+      return <Loader2 className={`${base} text-accent-400 animate-spin`} />;
     case "failed":
       return <AlertCircle className={`${base} text-rose-500`} />;
     case "unverified":
-      return <HelpCircle className={`${base} text-amber-400`} />;
+      return <HelpCircle className={`${base} text-yellow-400`} />;
     case "blocked":
-      return <ShieldX className={`${base} text-orange-500`} />;
+      return <ShieldX className={`${base} text-rose-400`} />;
     case "pending":
-      return <Clock className={`${base} text-slate-600`} />;
+      return <Clock className={`${base} text-slate-500`} />;
     default:
       return <Layers className={`${base} text-slate-400`} />;
   }

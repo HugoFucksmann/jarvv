@@ -18,10 +18,10 @@ JARVIS 1.0 reemplaza dos herramientas que antes eran envoltorios de servidores M
 | Contrato de proveedores, resultados y `ToolHost` (D-01, D-07, D-09 a D-11) | Implementado | `src/core/tools/` (`provider.ts`, `result.ts`, `host.ts`, `judge.ts`), `result/extractors/structured.ts` |
 | Manifiesto: servidores nativos, marca `internal`, plazo por tool (D-12) | Implementado | `src/core/tools/manifest.ts`, `src/core/types/routes.ts` |
 | `run_command` (D-03 a D-05, D-08, D-13, D-18 a D-20, D-30) | Implementado | `src/tools/terminal/`, `tests/run_command.test.ts` |
-| `web_search` (D-21 a D-28) | Implementado; el modelo (2B) viene **apagado** | `src/tools/web/`, `src/core/policy/egress.ts`, `tests/web_search.test.ts` |
+| `web_search` (D-21 a D-28) | Implementado; el modelo (2B) viene **encendido** (`webSearchUseJudge`) | `src/tools/web/`, `src/core/policy/egress.ts`, `tests/web_search.test.ts` |
 | Tools de archivos nativas y reagrupación en consultar y modificar (D-15 a D-17) | **Pendiente** | — |
 | Salida de escape `wrong_group` (punto 23) | Para más adelante | — |
-| Línea base de `web_search` y calibración de umbrales (D-24) | **Pendiente** | — |
+| Línea base de `web_search` y calibración de umbrales (D-24) | Línea base hecha (41 casos reales, `scripts/validate/web_eval/RESULTADOS.md`); umbrales sin calibrar | `scripts/validate/web_eval/` |
 
 ## 3. Decisiones
 
@@ -49,11 +49,11 @@ JARVIS 1.0 reemplaza dos herramientas que antes eran envoltorios de servidores M
 | D-20 | Formato de salida | `text`: cabecera `status · exit code · duration · pid` y cuerpo con prioridad a la cola, dentro de `BUDGET.summaryMax`; `raw`: completo; `data`: `{ state, pid, exitCode, durationMs, prompt?, rawTruncated }`. | Implementada |
 | D-21 | `download` | Fuera de 1.0 (escribe en disco y no encaja en una tool de lectura). `web_search` no lo declara. | Cerrada |
 | D-22 | Pipeline de `web_search` | Una sola llamada de modelo, no generativa: el código arma el resultado con fragmentos **literales** y un estado calculado por umbrales. Sin revisor generativo: no hay texto que alucinar ni superficie de inyección sobre texto redactado. La síntesis la hace el LLM final de JARVIS. | Implementada |
-| D-23 | Costo del clasificador | BM25 propio antes del 2B: 15 candidatos, máximo 3 por fuente. Sin modelo (o si el 2B falla o no responde en 20 s): orden de BM25 y estado **como mucho `partial`**, con la causa en `meta`: coincidir en palabras no es responder. `terms` cubre pregunta y fuentes en idiomas distintos. | Implementada |
-| D-24 | Línea base | Medir primero la parte sin modelo contra unas 25 preguntas (y contra `compare`, `ask` y `research` truncado); sumar el 2B solo si la ganancia lo justifica. Una validación en vivo (2026-11-10, sección 8) ya muestra una ganancia clara del 2B; falta el conjunto formal. | **Pendiente** (hay evidencia a favor de encenderlo) |
+| D-23 | Costo del clasificador | El 2B puntúa primero los **extractos** de `search` (8 como máximo, con la fecha de hoy y la de cada fuente); si uno responde (≥ 0,6) no se lee ninguna página. Si no, se lee **una página por vez** (la del mejor extracto, hasta 3), BM25 propio elige 6 candidatos de esa página y el 2B los puntúa. Sin modelo (o si falla o no responde en 20 s): se leen las primeras 3 páginas a la vez, orden de BM25 y estado **como mucho `partial`**, con la causa en `meta`: coincidir en palabras no es responder. | Implementada |
+| D-24 | Línea base | Medida (2026-11-12/13, 41 casos reales, `scripts/validate/web_eval/RESULTADOS.md`): sin el 2B la tool responde algo en 4 de 5 preguntas sin respuesta; con él, 1 de 5. El 2B no reemplaza a BM25 (sin él pierde casos). `terms` no mejoró y se eliminó. Enviar `terms` al MCP empeora (−5). `research`, `per_source`, `depth` 5 y `compare` no aportaron frente a `search` + una página por vez. | Hecha (umbrales sin calibrar) |
 | D-25 | Dividir `need` | No en 1.0. Con filtros y sin resultado, un único reintento determinista sin ellos. | Implementada |
-| D-26 | Argumentos de `web_search` | `need` (obligatorio), `terms`, `urls` (hasta 5), `freshness`, `domains`. Sin `category`. `max_age_hours` de 24 h. | Implementada |
-| D-27 | Nombre y modelos | `web_search`. Puerto `FragmentJudge.score(need, fragmentos)` → probabilidades, que implementa `Decision20Engine.score` (preguntas `noul` en lotes de 5); la traza va en `meta`. Se enciende con `webSearchUseJudge`. | Implementada |
+| D-26 | Argumentos de `web_search` | `need` (obligatorio), `urls` (hasta 5), `freshness`, `domains`. Sin `terms` ni `category`. `max_age_hours` de 24 h. | Implementada |
+| D-27 | Nombre y modelos | `web_search`. Puerto `FragmentJudge.score(need, fragmentos)` → probabilidades, que implementa `Decision20Engine.score` (preguntas `noul` en lotes de 5); la traza va en `meta`. Se enciende con `webSearchUseJudge` (por defecto, encendido). | Implementada |
 | D-28 | Consulta como canal de salida | La herramienta rechaza lo inválido (esquema, credenciales en la URL, hosts de la PC o redes internas, límites de tamaño); el Guard (`policy/egress.ts`) exige confirmación obligatoria, también con `autoMode`, si hay claves, tokens, contraseñas o rutas del usuario. Que cada URL provenga del usuario o de un resultado previo ya lo hace el pre-chequeo para `url` y `urls`. | Implementada |
 | D-29 | Saltear D2 | Con una sola tool en el grupo no se consulta a D2 (ya existía). | Implementada |
 | D-30 | `waiting_input` con `ask_user` | Estado de llamada nuevo: ejecutado y no verificable (como `interrupted`). `stepLoop` llama a `askUser` con la pregunta armada por el código a partir del prompt, sin modelo. El hecho `process` se activa también con `waiting_input`. Desde el 2026-11-11: las preguntas de procesos tienen su tope (`maxProcessPromptsPerStep`, 3), la respuesta queda atada al proceso por la clave de su hecho (`answer_<paso>_<n>_p<pid>`), la respuesta enviada tal cual a ese proceso no pide otra confirmación, y el hecho `process` lista todos los procesos vivos de la tarea (`4321, 5678`). | Implementada |
@@ -105,24 +105,24 @@ Lanza un comando de PowerShell y devuelve su resultado, o continúa un proceso q
 
 Busca en internet (o lee las URL dadas) y devuelve solo los fragmentos que responden, literales y con su fuente.
 
-**Argumentos:** `need` (obligatorio, hasta 300 caracteres), `terms` (hasta 10 palabras clave, en el idioma probable de las fuentes), `urls` (hasta 5, solo http o https, sin credenciales ni hosts de la PC o redes internas), `freshness` (`day`, `week`, `month`, `year`) y `domains` (hasta 5).
+**Argumentos:** `need` (obligatorio, hasta 300 caracteres), `urls` (hasta 5, solo http o https, sin credenciales ni hosts de la PC o redes internas), `freshness` (`day`, `week`, `month`, `year`) y `domains` (hasta 5).
 
 **Pipeline.**
 
-1. Material: `research` de Free Search (con `max_age_hours` de 24, y `freshness` y `include_domains` si se pidieron) o, con `urls`, un `fetch` por URL. El informe completo va en `raw`.
-2. Limpieza: fuera los enlaces sueltos, la navegación y los banners, las notas al pie y las líneas largas que ya aparecieron en otra fuente.
-3. Fragmentos de 500 a 800 caracteres por títulos y párrafos (una tabla o lista se parte entre filas).
-4. BM25 contra `need` y `terms`: 15 candidatos, máximo 3 por fuente.
-5. Si `webSearchUseJudge` está encendido, el 2B puntúa los candidatos (con un plazo de 20 s). Estado: `found` desde 0,6, `partial` desde 0,3, `not_found` por debajo. Sin modelo (o si falla) se usa la cobertura de palabras de la pregunta: `partial` desde 0,34, `not_found` por debajo, y **nunca `found`** (el texto avisa que los fragmentos coinciden en palabras y hay que comprobar que respondan).
-6. Resultado: hasta 4 fragmentos (unos 1700 caracteres) y las fuentes citadas. `no_results` si no hubo material. Con filtros y sin resultado, se repite **una vez** sin ellos (si queda tiempo).
+1. Búsqueda: `search` de Free Search en JSON (8 resultados, `max_age_hours` de 24, y `freshness` e `include_domains` si se pidieron). Cada resultado trae título, URL, extracto y fecha con su origen (`structured` o `snippet`). Con `urls` no se busca: se lee un `fetch` por URL.
+2. Extractos: el 2B los puntúa viendo `TODAY: <fecha de hoy>` y la fecha de cada fuente. Si alguno responde (≥ 0,6) se devuelven hasta 3, de fuentes distintas, sin leer ninguna página.
+3. Si ninguno responde: se lee **una página por vez** (`fetch`, la del mejor extracto primero, hasta 3) y se corta al encontrar una que responda. Cada página se limpia (fuera enlaces sueltos, navegación, banners, notas al pie), se parte en fragmentos de 500 a 800 caracteres, BM25 elige 6 candidatos de esa página y el 2B los puntúa. **Último recurso:** si ninguna respondió y una página leída venía cortada por Free Search (~50 000 caracteres), se lee el resto con `read_doc` por tramos a la vez (hasta 12 tramos), se puntúan 12 fragmentos y, si falla `read_doc`, se conserva lo anterior.
+4. Estado: `found` desde 0,6, `partial` desde 0,3, `not_found` por debajo. Sin modelo (o si falla, con un plazo de 20 s) se leen las primeras 3 páginas a la vez y se usa la cobertura de palabras: `partial` desde 0,34, `not_found` por debajo, y **nunca `found`**.
+5. Resultado: hasta 4 fragmentos (unos 1700 caracteres) y las fuentes citadas con su fecha. `no_results` si no hubo material. Con filtros y sin resultado, se repite **una vez** sin ellos (si queda tiempo) y el texto lo avisa (`note: nothing matched the requested …`).
+6. Lectura de Free Search: un contrato explícito (`report.ts`); una respuesta que no es JSON o no cumple el contrato es un error visible con la ruta del campo (`reason: "formato no reconocido"`), nunca "sin resultados". Las páginas bloqueadas por anti-bot no cuentan como leídas. Cada llamada tiene plazo (145 s efectivos) y «Tool budget used up» se informa como `reason: "tool_budget"`.
 
-**Fechas y extractos de las fuentes.** El informe de Free Search trae, por fuente, la fecha de publicación y el extracto que mostró el buscador. La lista `Sources:` los muestra (`[n] título — url (published AAAA-MM-DD)`) y cada extracto es un fragmento más (título, extracto y fecha). Suelen contener justo el dato corto que las páginas no repiten (en una prueba real, la fecha de publicación de una versión).
+**Fechas y extractos.** La lista `Sources:` muestra `[n] título — url (published AAAA-MM-DD)`, y `, from the search snippet` cuando la fecha salió del extracto y no de la página. Un extracto que responde sale marcado `(search result snippet)`. La fecha del extracto es la de la página, no la de cada entrada que cita: por eso la recencia no se decide con una regla, la compara el modelo final con las fechas que ve.
 
-**Resultado.** `text` empieza con `status: <estado> · …`, trae los fragmentos como `[n] texto` y la lista `Sources:`; nunca pasa de `BUDGET.summaryMax`. `data`: `state`, `passages`, `sources`, `candidates`, `judge` (`off`, `used`, `failed`), `retried`. `meta`: tiempos, filtros, probabilidades y entrada y salida del modelo, errores. `not_found` y `no_results` llegan al motor como sin datos (`no_data`) y permiten un reintento con otros argumentos.
+**Resultado.** `text` empieza con `status: <estado> · …`, trae los fragmentos como `[n] texto` y la lista `Sources:`; nunca pasa de `BUDGET.summaryMax`. `data`: `state`, `passages`, `sources`, `candidates`, `judge` (`off`, `used`, `failed`), `stage` (hasta dónde se llegó: `snippets`, `pages`, `urls` o `none`), `retried`, `relaxed`, `read`, `blocked`, `cutShort` (páginas que Free Search cortó a ~50 000 caracteres y no se leyeron completas; sin respuesta firme el texto avisa que quedó contenido sin leer), `fullRead` (se leyó el resto de una página cortada). `meta`: tiempos, filtros, páginas leídas, probabilidades de los extractos, entrada y salida del modelo, diagnóstico de Free Search, errores. `not_found` y `no_results` llegan al motor como sin datos (`no_data`) y permiten un reintento con otros argumentos.
 
 **Seguridad.** El Guard pide confirmación obligatoria, aun con `autoMode`, si la consulta lleva claves, tokens, contraseñas o rutas del usuario. Las páginas son datos no confiables: ningún modelo redacta a partir de ellas y lo único que sale de un fragmento hostil es una probabilidad.
 
-**Manifiesto.** Ruta `web`, servidor `jarvis_web`, capacidad `READ`, plazo 150 s. Dependencias: `research` y `fetch` de Free Search, marcadas `internal`.
+**Manifiesto.** Ruta `web`, servidor `jarvis_web`, capacidad `READ`, plazo 150 s. Dependencias: `search`, `fetch` y `read_doc` de Free Search, marcadas `internal`.
 
 ## 7. Infraestructura
 

@@ -1,4 +1,5 @@
 import React, { memo } from "react";
+import { Loader2 } from "lucide-react";
 import type { CallDto, ExecutionMode, StepDto, TaskState } from "../../../types/api.ts";
 import { StepItem } from "./StepItem.tsx";
 
@@ -29,10 +30,11 @@ const StepTimelineBase: React.FC<StepTimelineProps> = ({
   if (steps.length === 0) {
     if (!isTaskActive) return null;
     return (
-      <div className="py-8 text-center text-xs font-mono text-slate-500">
+      <div role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
+        <Loader2 className="h-4 w-4 animate-spin text-accent-400" />
         {mode === "deliberative"
-          ? "Generando plan estratégico de ejecución…"
-          : "Iniciando pipeline y ejecutando primer paso…"}
+          ? "Generando el plan de ejecución…"
+          : "Iniciando y ejecutando el primer paso…"}
       </div>
     );
   }

@@ -65,7 +65,7 @@ export interface JarvisConfig {
   autoMode: boolean;
   /**
    * `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada.
-   * Empieza apagado: el modelo se suma cuando la línea base muestre que su ganancia justifica el costo.
+   * Empieza encendido: en la evaluación (scripts/validate/web_eval/RESULTADOS.md) sin el modelo la tool responde algo en 4 de 5 preguntas sin respuesta; con él, en 1 de 5.
    */
   webSearchUseJudge: boolean;
   /** Voz (TTS local, servidor compatible con OpenAI: `scripts/phonon_server.py`). La interfaz lee en voz alta cada respuesta final. Se lee en cada respuesta. */
@@ -140,7 +140,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   retentionDays: 30,
   blacklist: [],
   autoMode: false,
-  webSearchUseJudge: false,
+  webSearchUseJudge: true,
   voiceEnabled: false,
   telegramVoice: false,
   voiceUrl: "http://127.0.0.1:8880",

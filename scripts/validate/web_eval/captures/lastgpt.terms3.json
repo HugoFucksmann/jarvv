@@ -1,0 +1,7 @@
+{
+ "ms": 1902,
+ "isError": true,
+ "question": "",
+ "depth": 3,
+ "text": "Error executing tool research: question must not be empty"
+}

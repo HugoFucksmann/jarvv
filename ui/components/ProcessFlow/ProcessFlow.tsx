@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { History } from "lucide-react";
+import { History, Terminal } from "lucide-react";
 import type { TaskDto, RefDto } from "../../types/api.ts";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
@@ -44,12 +44,20 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
 
   if (!task) {
     return (
-      <div className="flex flex-col items-center justify-center gap-1.5 py-20 text-center">
-        <p className="text-base font-medium text-slate-300">Todavía no hay tareas</p>
-        <p className="text-sm text-slate-500 max-w-sm">
-          Escribe una instrucción arriba y pulsa Enter. Con {FOCUS_SHORTCUT_LABEL} vuelves al
-          campo desde cualquier lugar.
-        </p>
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+        <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900 border border-slate-800">
+          <Terminal className="w-5 h-5 text-accent-400" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-base font-medium text-slate-200">Todavía no hay tareas</p>
+          <p className="text-sm text-slate-500 max-w-sm">
+            Escribe una instrucción arriba y pulsa Enter. Con{" "}
+            <kbd className="px-1.5 py-0.5 text-[11px] font-mono text-slate-300 bg-slate-900 border border-slate-800 rounded">
+              {FOCUS_SHORTCUT_LABEL}
+            </kbd>{" "}
+            vuelves al campo desde cualquier lugar.
+          </p>
+        </div>
       </div>
     );
   }
@@ -66,12 +74,12 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   const isTerminalTask = task.task.state !== "running";
   const handleViewQueries = isTerminalTask
     ? (callId: string) => {
-        if (externalOpenCallTrace) externalOpenCallTrace(callId);
-        else {
-          setInternalCallId(callId);
-          setInternalTraceOpen(true);
-        }
+      if (externalOpenCallTrace) externalOpenCallTrace(callId);
+      else {
+        setInternalCallId(callId);
+        setInternalTraceOpen(true);
       }
+    }
     : undefined;
 
   const handleViewRef = (refId: string, meta?: RefDto) => {
@@ -112,11 +120,11 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
           />
 
           {(hasExecutedSteps || isMaterialReplan) && (
-            <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-slate-800">
-              <div className="flex items-center gap-2 text-xs font-mono text-slate-400 px-1">
-                <History className="w-3.5 h-3.5 text-sky-400" />
-                <span className="font-semibold text-slate-300">
-                  Pasos Previos Ejecutados y En Curso ({executedCount} ejecutados)
+            <div className="flex flex-col gap-2 mt-2 pt-3 border-t border-slate-800">
+              <div className="flex items-center gap-2 text-xs text-slate-400 px-1">
+                <History className="w-3.5 h-3.5 text-accent-400" />
+                <span className="font-semibold text-slate-200">
+                  Pasos previos ({executedCount} ejecutados)
                 </span>
                 <Separator />
                 <span className="text-slate-500">

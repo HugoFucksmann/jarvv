@@ -7,15 +7,12 @@ export const FRESHNESS = ["day", "week", "month", "year"] as const;
 export type Freshness = (typeof FRESHNESS)[number];
 
 export const MAX_NEED_CHARS = 300;
-export const MAX_TERMS = 10;
-export const MAX_TERM_CHARS = 60;
 export const MAX_URLS = 5;
 export const MAX_URL_CHARS = 500;
 export const MAX_DOMAINS = 5;
 
 export interface WebArgs {
   readonly need: string;
-  readonly terms: readonly string[];
   readonly urls: readonly string[];
   readonly freshness?: Freshness;
   readonly domains: readonly string[];
@@ -46,20 +43,28 @@ export function isInternalHost(hostname: string): boolean {
   return !host.includes("."); // una sola etiqueta: un nombre de la red local
 }
 
+/** Verbo de búsqueda al inicio. Solo verbos que no son también sustantivos de una consulta ("Google Chrome", "Search Console", "consulta SQL" quedan como están). */
+const SEARCH_VERB =
+  /^(?:(?:por favor|please)[\s,]+)?(?:busc(?:a|á|ar|ame|áme)|encontr(?:a|á|ar)|averigu(?:a|á|ar)|investig(?:a|á|ar)|search\s+for|search\s+(?:the\s+)?(?:web|internet)|find\s+out|look\s+up)(?![\p{L}\p{N}])[\s,:]*/iu;
+/** El medio mencionado justo después del verbo ("en internet", "on the web", "en Google"). */
+const MEDIUM = /^(?:en|on|in)\s+(?:(?:la|the)\s+)?(?:internet|web|google)(?![\p{L}\p{N}])[\s,:]*/iu;
+/** El medio al final de la orden ("… en internet", "… online"). */
+const TRAILING_MEDIUM = /[\s,]+(?:(?:en|on|in)\s+(?:(?:la|the)\s+)?(?:internet|web|google)|online)\s*(?=[.?!]*$)/iu;
+
 /**
  * La pregunta para buscar, sin la orden que la envuelve: "Buscá en internet cuándo salió Node 22" → "cuándo salió Node 22". Los modelos chicos escriben
- * el `need` como instrucción a pesar de la nota, y "buscar", "internet" o "find" estorban al buscador, a BM25 y al juez. Es determinista y conservador:
- * solo quita un verbo de búsqueda al comienzo y "en internet"/"online" al final; si no queda una pregunta razonable, se usa el `need` tal cual.
+ * el `need` como instrucción a pesar de la nota, y "buscar", "internet" o "find" estorban al buscador, a BM25 y al juez. Es determinista y conservador: solo actúa
+ * si el `need` EMPIEZA con un verbo de búsqueda (una pregunta como "How do cookies work on the web?" o "free JSON formatter online" no se toca); entonces quita el
+ * verbo, el medio que lo sigue ("en internet") y el medio al final. "en Google" seguido de una palabra con mayúscula inicial es un producto ("en Google Maps"), no
+ * el medio, y se conserva. Si no queda una pregunta razonable, se usa el `need` tal cual.
  */
 export function searchQuestion(need: string): string {
-  const stripped = need
-    .replace(
-      // Solo verbos que no son también sustantivos de una consulta ("Google Chrome", "Search Console", "consulta SQL" quedan como están).
-      /^(?:(?:por favor|please)[\s,]+)?(?:busc(?:a|á|ar|ame|áme)|encontr(?:a|á|ar)|averigu(?:a|á|ar)|investig(?:a|á|ar)|search\s+for|search\s+(?:the\s+)?(?:web|internet)|find\s+out|look\s+up)(?![\p{L}\p{N}])[\s,:]*(?:(?:en|on|in)\s+(?:(?:la|the)\s+)?(?:internet|web|google)(?![\p{L}\p{N}])[\s,:]*)?/iu,
-      "",
-    )
-    .replace(/[\s,]+(?:(?:en|on|in)\s+(?:(?:la|the)\s+)?(?:internet|web|google)|online)\s*(?=[.?!]*$)/iu, "")
-    .trim();
+  const verb = SEARCH_VERB.exec(need);
+  if (verb === null) return need;
+  let rest = need.slice(verb[0].length);
+  const medium = MEDIUM.exec(rest);
+  if (medium !== null && !(/google/i.test(medium[0]) && /^\p{Lu}/u.test(rest.slice(medium[0].length)))) rest = rest.slice(medium[0].length);
+  const stripped = rest.replace(TRAILING_MEDIUM, "").trim();
   return stripped.replace(/[\s.?!¿¡]/g, "").length >= 3 ? stripped : need;
 }
 
@@ -74,10 +79,6 @@ export function parseArgs(raw: Record<string, unknown>): ArgsResult {
   const need = typeof raw.need === "string" ? raw.need.trim() : "";
   if (need === "") return fail("'need' is required: the question to answer, in natural language.");
   if (need.length > MAX_NEED_CHARS) return fail(`'need' is too long (${need.length} characters, max ${MAX_NEED_CHARS}). Make it shorter.`);
-
-  const terms = listOf(raw.terms, "terms", MAX_TERMS);
-  if (typeof terms === "string") return fail(terms);
-  if (terms.some((t) => t.length > MAX_TERM_CHARS)) return fail(`Each item of 'terms' must be at most ${MAX_TERM_CHARS} characters.`);
 
   const urls = listOf(raw.urls, "urls", MAX_URLS);
   if (typeof urls === "string") return fail(urls);
@@ -103,5 +104,5 @@ export function parseArgs(raw: Record<string, unknown>): ArgsResult {
     if (typeof raw.freshness !== "string" || !(FRESHNESS as readonly string[]).includes(raw.freshness)) return fail(`'freshness' must be one of: ${FRESHNESS.join(", ")}.`);
     freshness = raw.freshness as Freshness;
   }
-  return { ok: true, args: { need, terms, urls, freshness, domains } };
+  return { ok: true, args: { need, urls, freshness, domains } };
 }
