@@ -443,3 +443,19 @@ Todo en la PC de desarrollo (Windows 11 en español, Ollama con `qwen3.5:4b` y `
 - Pedido 3 (RC-13), 3 de 3 `completed`. En dos corridas, el `write_file` a la carpeta de refs que antes cerraba la tarea con `security_denied` quedó `tool_rejected` y la tarea siguió hasta completarse.
 - Pedido 9 (RC-25): 1 `completed` (usó `list_processes`; luego lo repitió y lo frenó el anti-bucle); 1 `partial (unrecoverable)`, que cerró por un servicio caído justo después de lanzar el proceso. No se vio `stop_process` usado en el pedido 9; sí apareció en una corrida del pedido 3 (sobre un proceso ya terminado: respondió `not_running`).
 - Para revisar: la corrida `unrecoverable` del pedido 9 ("Falló un servicio necesario") no se investigó.
+
+## 12. Revisión estática y parches deterministas (2026-11-14)
+
+La auditoría estática detallada de los hallazgos `H-01` a `H-24` sobre la implementación de `src/tools/terminal/` se mantiene en `src/tools/terminal/Revisión de la tool run_command (Jarvis).md` (documento separado del histórico `RC-xx` de arriba). De esos hallazgos, se resolvieron y cubrieron con pruebas unitarias los siguientes puntos deterministas:
+
+| Hallazgo | Estado | Dónde y qué falta |
+|---|---|---|
+| `H-01` (`tree` y caracteres de caja) | **Resuelto en código y test TS** | `output.ts` (`accentScore`) y `powershell.ts` (`__jvDecode`) suman puntuación por caracteres de dibujo de caja consecutivos (`U+2500–U+257F`), evitando que `tree` en OEM 850 se decodifique como CP1252. Test en `tests/run_command.test.ts` (`OutputDecoder`). Falta probar `__jvDecode` con `powershell.exe` vivo en Windows. |
+| `H-02` (`\r\r\n` en `LineAssembler`) | **Resuelto [Test]** | `output.ts` (`LineAssembler.push`) conserva la línea abierta ante secuencias `\r+\n`. |
+| `H-05` (`[n/a]` y `(n/a)` en `CHOICE_OR_KEY`) | **Resuelto [Test]** | `prompts.ts` (`CHOICE_OR_KEY`) excluye `[n/a]` y `(n/a)` para que una línea ya terminada no dispare `TERMINATED_PROMPT_IDLE_MS` como `strong`. |
+| `H-06` (`stderr` en `systemProcesses`) | **Ya estaba resuelto** | `processTree.ts:66` abre `stdio: ["ignore", "pipe", "ignore"]` para no llenar un pipe sin lector. |
+| `H-07` (comentario `legacyChunks`) | **Resuelto** | `output.ts` documenta correctamente que cuenta fragmentos recibidos, no líneas. |
+| `H-08` (re-disparo de prompt ya respondido) | **Resuelto en código y test TS** | `output.ts` (`LineAssembler.closeAnswered`) limpia `lastCompleted` para que líneas en blanco posteriores no reevalúen el prompt anterior. Falta validar el proveedor completo en Windows con un proceso vivo. |
+
+Quedan abiertos (para decisión o validación en Windows/modelos): `H-03` (prompts parciales en herramientas envueltas), `H-04` (`...` en REPL frente a `PROGRESS_END`), `H-09`..`H-12` (mensajes/descripciones vistas por modelos), `H-13`..`H-24` (extractor `truncated`, comillas tipográficas en `readOnly`, `-Wai`, `--watch` en `rerun`, etc.).
+

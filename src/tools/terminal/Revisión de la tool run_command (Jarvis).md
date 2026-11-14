@@ -2,6 +2,8 @@
 
 **Estado:** cerrada salvo un pendiente menor (séptima pasada: Guard, lista negra, rutas sensibles y manifest leídos; comparación con Desktop Commander hecha en lo que la documentación pública permite) · **Archivos revisados:** `codepages.ts`, `output.ts`, `powershell.ts`, `processTree.ts`, `prompts.ts`, `terminalProvider.ts`, `manifest.ts`, `text.ts`, `result.ts`, `provider.ts`, `readOnly.ts`, `rerun.ts`, `processResult.ts`, `structured.ts`, `budget.ts`, `commandRules.ts`, `callRunner.ts`, `guard.ts`, `blacklist.ts`, `sensitivePaths.ts`, `extractors/types.ts`, `extractors/index.ts`, `extractors/shared.ts`, `extractors/generic.ts`, `extractors/files.ts` (solo como contraste: es de `desktop_commander`, no de la tool) · **Pendiente:** solo quién aplica `timeoutMs` en el proveedor nativo (ver al final)
 
+> **Actualización (2026-11-14):** la copia canónica en `docs/REVISION_run_command.md` (§12) documenta la resolución determinista de los hallazgos `H-01`, `H-02`, `H-05`, `H-06`, `H-07` y `H-08` (con tests unitarios en `tests/run_command.test.ts`); la ejecución viva de `__jvDecode` en `powershell.exe` queda pendiente de verificación en `win32`.
+
 ## Alcance y método
 
 Revisión estática del código fuente de la tool (`run_command`, `list_processes`, `stop_process`). No se ejecutó ningún test ni se modificó código. Solo se documentan problemas respaldados por el código; lo que depende de archivos que aún no vi queda en la sección «Pendiente de confirmar».

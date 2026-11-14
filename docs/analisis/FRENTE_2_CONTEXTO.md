@@ -208,3 +208,7 @@ Cuatro variantes quedaron en `eval/variants/ctx/`. No cambian `src`.
 - No medí DN-2.4 (la solicitud original en argumentos): una variante del laboratorio no puede hacerlo, porque el prompt de argumentos recibe la vista ya renderizada sin la solicitud; hace falta tocar `src`. Tampoco DN-2.10 (idioma): el grader de la respuesta final no mira el idioma.
 - La excepción de DN-2.5 se midió con 12 preguntas de hechos que escribí yo y una sola corrida de 8 de charla; el laboratorio la mide con `--repeat=2`.
 - Plan, replan y pregunta al usuario no se auditaron con datos reales.
+
+## Validación pendiente en laboratorio (V) y bloqueados (C)
+- **[V]** DN-2.10 idioma en respuesta final (el grader actual no evalúa idioma); DN-2.7 (`signals + data + note`) y DN-2.8 (secciones declaradas por herramienta) requieren validación completa de prompts con el laboratorio.
+- **[C]** DN-2.5 (`PENDING_FACTS_LOOKUP = false` en `prompts.ts`) espera autorización explícita de producto; DN-2.9 requiere alinear la configuración al arranque real de Ollama (`8192` / `4096`).

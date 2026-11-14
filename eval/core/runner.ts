@@ -278,36 +278,10 @@ async function runDecision(
   const callCtx = { stage: fc.stage, expect: fc.expect };
   const entry = getStage(fc.stage as StageName) as DecisionStageEntry<unknown, unknown>;
 
-  // Como producción (`queryModel`): una respuesta que no pasa la validación se consulta de nuevo, hasta
-  // `LLM_INVALID_OUTPUT_RETRIES` veces y con el mismo request (sin nota de error ni cambio de parámetros). Las fallas de
-  // transporte no entran aquí (las reintenta `postJson`).
-  let result = await client.call(sentReq, timeoutMs, callCtx);
-  let durationMs = result.durationMs; // mismo criterio que las etapas generativas: suma de los intentos
-  let parsed: unknown;
-  let parseError: string | undefined;
-  const retryErrors: string[] = [];
-  let tokens: { prompt: number; completion: number; total: number } | undefined;
-
-  for (let attempt = 0; ; attempt++) {
-    if (!result.ok) break;
-    tokens = {
-      prompt: (tokens?.prompt ?? 0) + result.tokens.prompt,
-      completion: (tokens?.completion ?? 0) + result.tokens.completion,
-      total: (tokens?.total ?? 0) + result.tokens.total,
-    };
-    parsed = undefined;
-    parseError = undefined;
-    try {
-      parsed = entry.parseOutput(result.rawOutput, sentReq, variant.read);
-    } catch (e) {
-      parseError = e instanceof Error ? e.message : String(e);
-    }
-    if (parseError === undefined || attempt >= LLM_INVALID_OUTPUT_RETRIES) break;
-    retryErrors.push(parseError);
-    result = await client.call(sentReq, timeoutMs, callCtx);
-    durationMs += result.durationMs;
-  }
-  retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por respuesta inválida: ${e}`));
+  // Como producción (DN-3.4): las etapas de decisión usan 0 reintentos ante respuesta inválida.
+  // Las fallas de transporte tampoco entran aquí (las reintenta `postJson`).
+  const result = await client.call(sentReq, timeoutMs, callCtx);
+  const durationMs = result.durationMs;
 
   if (!result.ok) {
     collector.check("client_call_ok", false, result.error);
@@ -326,14 +300,23 @@ async function runDecision(
     });
   }
 
+  const tokens = { ...result.tokens };
+  let parsed: unknown;
+  let parseError: string | undefined;
+  try {
+    parsed = entry.parseOutput(result.rawOutput, sentReq, variant.read);
+  } catch (e) {
+    parseError = e instanceof Error ? e.message : String(e);
+  }
+
   collector.check("client_call_ok", true, "");
   const rawOutput = result.rawOutput;
 
-  // Parse (ya hecho en el bucle de arriba; aquí queda el resultado del último intento)
+  // Parse
   const parseOk = parseError === undefined;
   if (!parseOk) collector.check("output_parse_ok", false, parseError as string);
   if (parseOk) collector.check("output_parse_ok", true, "");
-  measurements.attempts = retryErrors.length + 1;
+  measurements.attempts = 1;
 
   // Labels (7.8)
   const labelInfo = entry.label(parsed, fc.expect as never);

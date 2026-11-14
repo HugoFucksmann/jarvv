@@ -6,6 +6,18 @@ Fuente de verdad: el código de `src`. Si el desacuerdo es entre el eval y `src`
 
 Archivos revisados: `src` (`qwen.ts`, `stageRequests.ts`, `precheck.ts`, `adapters.ts`, `budget.ts`, `config.ts`, `verify.ts`, `contracts.ts`, `prompts.ts`, `refResolver.ts`, `models/decision.ts`, `models/transport.ts`, `engine/failures.ts`, y la línea de llamada a `precheckCall` en `engine/callRunner.ts`) y el eval completo salvo variantes y datasets (ver "Cobertura").
 
+## Estado tras revisión y parches (2026-11-14)
+
+El cuerpo histórico de D1–D30 se conserva abajo tal como se relevó originalmente; su estado actual frente al código del repo es:
+
+| Grupo de ítems | Estado actual | Detalle |
+|---|---|---|
+| `D1–D5`, `D7–D15`, `D17–D24`, `D26–D27`, `D29–D30` | ✅ Resueltos en código / docs previas | Ya corregidos en `eval/` (existe `eval/variants/prod.ts`, `retryThinking` y `Math.max(RETRY_TEMPERATURE, ...)`, `precheckCall` completo con `sources`, reserva de tokens en `generative.ts`, `decision_context_ok` corta antes de enviar, `isTransportError` usado en `runner.ts`, `cross.ts` con `NOUL_APPROVE` 0,6 y baseline configurable, `wizard.ts` actualizado, etc.). |
+| `D16` (reintentos de Decisión) | ✅ Alineado (**V**) | Antes figuraba invertido: `src/` pasó a `0` reintentos en Decisión (`DN-3.4`) mientras `eval/core/runner.ts` seguía reintentando `1` vez. Desde el 2026-11-14 `runDecision` en `runner.ts` usa `0` reintentos (`attempts = 1`). **Requiere validación en el laboratorio** con modelos reales (`output_parse_ok`). |
+| `D6`, `D25`, `D28` | ✅ Documentación sincronizada | `D28` (`eval/core/config.ts:206`) ya estaba limpio sin `prod+x`; `D6` (lista real de imports `src/` desde `eval/`) y `D25` (`eval:cross`, `eval:psvalid`, `eval/gen/`, `_cross/`) quedaron reflejados en `eval/INSTRUCCIONES.md`, `eval/README.md` y `eval/core/scenario.ts`. |
+
+---
+
 ## Índice
 
 Prioridad: **A** cambia lo que el eval mide o impide ejecutarlo; **M** produce resultados engañosos o difíciles de rastrear; **B** documentación o comentario. "Qué lado" indica qué artefacto está desalineado según la regla de arriba.

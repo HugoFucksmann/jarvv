@@ -73,9 +73,18 @@ export function codePageDecoder(codePage: number): BytesToText | null {
   }
 }
 
-/** Letras latinas acentuadas (À–ÿ salvo × y ÷): cuántas da una decodificación es la señal de que la página es la correcta. */
-const ACCENTED = /[À-ÖØ-öø-ÿ]/g;
-export const accentScore = (text: string): number => text.match(ACCENTED)?.length ?? 0;
+/**
+ * Puntuación de legibilidad de una decodificación heredada: letras acentuadas minúsculas (2 pts), mayúsculas aisladas (1 pt; `ÃÄÄÄ` de `tree`
+ * en 1252 puntúa poco) y trazos de caja consecutivos (2 pts cada carácter `U+2500–U+257F`, típicos de `tree` OEM).
+ */
+const ACCENTED_LOWER = /[à-öø-ÿ]/g;
+const ACCENTED_SINGLE_UPPER = /[À-ÖØ-Þ](?![À-ÖØ-Þ])/g;
+const BOX_DRAWING_RUN = /[\u2500-\u257F](?=[\u2500-\u257F])|(?<=[\u2500-\u257F])[\u2500-\u257F]/g;
+
+export const accentScore = (text: string): number =>
+  (text.match(ACCENTED_LOWER)?.length ?? 0) * 2 +
+  (text.match(ACCENTED_SINGLE_UPPER)?.length ?? 0) +
+  (text.match(BOX_DRAWING_RUN)?.length ?? 0) * 2;
 
 /**
  * Decodificador de un tramo que no es UTF-8: prueba la página OEM y la ANSI del sistema y se queda con la que da más letras acentuadas (`ipconfig` escribe
@@ -130,7 +139,7 @@ export function decodeBytes(bytes: Uint8Array, fallback: BytesToText): string {
 /** Decodificador de un flujo de bytes: retiene una secuencia UTF-8 partida entre dos fragmentos y decodifica lo demás con `decodeBytes`. */
 export class OutputDecoder {
   private carry: Uint8Array = new Uint8Array(0);
-  /** Líneas que no eran UTF-8 y se decodificaron con la página heredada (diagnóstico). */
+  /** Fragmentos que no eran UTF-8 y se decodificaron con la página heredada (diagnóstico). */
   legacyChunks = 0;
 
   constructor(private readonly fallback: BytesToText) {}
@@ -178,6 +187,10 @@ export class LineAssembler {
     let i = 0;
     while (i < text.length) {
       if (this.pendingCr) {
+        if (text[i] === "\r") {
+          i++;
+          continue;
+        }
         this.pendingCr = false;
         if (text[i] === "\n") {
           out += this.complete();
@@ -232,7 +245,7 @@ export class LineAssembler {
    */
   closeAnswered(): string {
     const part = this.flushPartial();
-    if (this.line.trim() !== "") this.lastCompleted = this.line;
+    this.lastCompleted = "";
     this.line = "";
     this.flushed = 0;
     this.long = false;

@@ -219,9 +219,17 @@ export class WebSearchProvider implements ToolProvider {
     return `${need}\nTODAY: ${today}`;
   }
 
-  /** El modelo no puede gastar más que el tiempo que queda: pasado ese plazo se sigue con el orden léxico. */
-  private judgeSignal(remaining: () => number, signal?: AbortSignal): AbortSignal {
-    return AbortSignal.any([AbortSignal.timeout(Math.min(Math.max(remaining() - 2000, 1000), this.judgeTimeoutMs)), ...(signal === undefined ? [] : [signal])]);
+  /** Ejecuta una consulta al juez con límite de tiempo propio y limpieza explícita del timer. */
+  private async withJudgeTimeout<T>(remaining: () => number, signal: AbortSignal | undefined, call: (judgeSignal: AbortSignal) => Promise<T>): Promise<T> {
+    const ms = Math.min(Math.max(remaining() - 2000, 1000), this.judgeTimeoutMs);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")), ms);
+    const merged = signal === undefined ? ctrl.signal : AbortSignal.any([ctrl.signal, signal]);
+    try {
+      return await call(merged);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -442,7 +450,7 @@ export class WebSearchProvider implements ToolProvider {
     const versions = versionsOf(args.need);
     const sourceOf = new Map(hits.map((h) => [h.n, h]));
     const score = async (texts: string[]): Promise<number[]> => {
-      const r = await judge.score(need, texts, this.judgeSignal(remaining, signal));
+      const r = await this.withJudgeTimeout(remaining, signal, (judgeSignal) => judge.score(need, texts, judgeSignal));
       if (r.probabilities.length !== texts.length) throw new Error("el modelo no devolvió una probabilidad por fragmento");
       trace.calls += Math.ceil(texts.length / 5);
       trace.ms += r.durationMs;
@@ -541,7 +549,9 @@ export class WebSearchProvider implements ToolProvider {
     if (judge !== undefined && remaining() > JUDGE_NEEDS_MS) {
       const sourceOf = new Map(material.sources.map((x) => [x.n, x]));
       try {
-        const scores = await judge.score(this.judgeNeed(args.need, localDate(this.now())), candidates.map((c) => dated(sourceOf.get(c.chunk.n), c.chunk.text)), this.judgeSignal(remaining, signal));
+        const scores = await this.withJudgeTimeout(remaining, signal, (judgeSignal) =>
+          judge.score(this.judgeNeed(args.need, localDate(this.now())), candidates.map((c) => dated(sourceOf.get(c.chunk.n), c.chunk.text)), judgeSignal),
+        );
         if (scores.probabilities.length === candidates.length) {
           const versions = versionsOf(args.need);
           const scored = candidates

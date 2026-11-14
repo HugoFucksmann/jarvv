@@ -187,7 +187,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
 | `retentionDays` | `30` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar nada). Las refs de una tarea retenida en memoria no se tocan |
-| `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
+| `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "run_command", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
 | `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
 | `webSearchUseJudge` | `true` | `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada |
 | `voiceEnabled` · `telegramVoice` | `false` · `false` | Voz: la interfaz lee en voz alta cada respuesta final; Telegram suma una nota de voz (necesita `ffmpeg`). Ver [`TELEGRAM_Y_VOZ`](docs/TELEGRAM_Y_VOZ.md) |
@@ -203,9 +203,9 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 jarvis/
 ├── server.ts            Servidor Express: composición, API local y eventos en vivo
 ├── src/
-│   ├── core/            Núcleo: motor, modelos (`models/`), Guard, MCP, contexto, refs y contratos
+│   ├── core/            Núcleo: motor (D0, sondas, poscondiciones, memoria), modelos, Guard y tiers, MCP, contexto, refs y contratos
 │   ├── server/          Rutas HTTP (/api/jarvis y /api/mcp)
-│   ├── tools/           Herramientas propias: `run_command` (terminal) y `web_search` (web)
+│   ├── tools/           Herramientas propias: `terminal/` (`run_command`, `list_processes`, `stop_process`) y `web/` (`web_search`)
 │   ├── telegram/        Bot de Telegram (opcional)
 │   └── voice/           Voz: cliente TTS y conversión a Opus
 ├── ui/                  Interfaz React: componentes, hooks, servicios (cliente de la API), tipos y utilidades

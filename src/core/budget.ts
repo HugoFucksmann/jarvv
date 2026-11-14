@@ -75,7 +75,7 @@ export const BUDGET = {
   recentWindows: [2, 5, 10],
 
   // ── Ejecutor (Fase 5) ──
-  /** Repeticiones de una consulta a un modelo ante una respuesta inválida o truncada (no ante desborde): LLM (Qwen) y Decision (D4). */
+  /** Repeticiones de una consulta al LLM (Qwen) ante una respuesta inválida o truncada (no ante desborde). Decision usa 0 reintentos (DN-3.4). */
   invalidResponseRetries: 1,
   /** Largo máximo del argumento principal dentro del `label` de una ref (D8). */
   refLabelChars: 200,

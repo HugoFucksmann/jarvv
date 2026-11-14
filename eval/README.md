@@ -2,7 +2,7 @@
 
 > Mide cómo decide y responde Jarvis, y valida cada cambio de prompt contra producción antes de tocar `src`.
 
-Evalúa las diez etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
+Evalúa las once etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
 
 ---
 
@@ -11,10 +11,10 @@ Evalúa las diez etapas del flujo, compara variantes de prompt y deja cada resul
 | | |
 |---|---|
 | **Contexto real de Jarvis** | Los casos por escenario describen la situación y el eval arma el prompt con el mismo código que usa Jarvis: vistas, mensajes fijos, renderizadores y parámetros de cada etapa. Si `src` cambia, el eval se actualiza solo. |
-| **Cobertura completa** | Cinco etapas de decisión (cuatro del flujo y el juez de fragmentos de `web_search`) y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
+| **Cobertura completa** | Seis etapas de decisión (cinco del flujo —`d0`, `route`, `tool_choice`, `args_review`, `result_verification`— y el juez de fragmentos de `web_search`) y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
 | **A/B de prompts sin riesgo** | Las variantes se aplican en memoria y se comparan contra la baseline `prod`: deltas, regresiones y mejoras caso por caso, prueba de signos y promedio por etapa. No modifica `src` ni los casos. |
 | **Lectura por tipo de modelo** | El resumen separa etapas generativas y de decisión, y avisa cuando una variante mejora un tipo y empeora el otro, para que el total no engañe. |
-| **Fiel a producción** | Mismos reintentos, mismos criterios de validación y un `pass` estricto: un run solo pasa si no registra ningún error. |
+| **Fiel a producción** | Mismos reintentos (1 en generativas, 0 en decisión ante salidas inválidas), mismos criterios de validación y un `pass` estricto: un run solo pasa si no registra ningún error. Los datasets con 0 casos tras el filtro de etapa se omiten sin crear carpetas vacías. |
 | **Verificable sin GPU** | El cliente `oracle` responde lo que pide cada caso y debe dar 100 %: si falla, el problema no es el modelo. `mock` y `--dry-run` prueban la maquinaria sin red. |
 | **Trazable** | Cada celda guarda cada ejecución, sus métricas y su configuración: commit, hashes de dataset y variante, filtros y casos corridos. |
 | **Listo para CI** | `--min-pass-rate` y códigos de salida definidos. También incluye un asistente interactivo (`--menu`). |

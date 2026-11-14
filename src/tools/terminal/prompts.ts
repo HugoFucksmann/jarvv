@@ -25,7 +25,7 @@ const CHOICE = String.raw`(?:y|n|s|a|q|yes|no|si|sí|all|todo)`;
 /** Una elección (`[S/N]`, `(y/n)`, `yes/no`) o una tecla (`Press any key`, `Presione una tecla`). Vale también con salto de línea. */
 const CHOICE_OR_KEY = new RegExp(
   [
-    String.raw`[\[(]\s*${CHOICE}(?:\s*/\s*${CHOICE})+\s*[\])]`,
+    String.raw`(?![\[(]\s*n\s*/\s*a\s*[\])])[\[(]\s*${CHOICE}(?:\s*/\s*${CHOICE})+\s*[\])]`,
     String.raw`\b(?:y/n|s/n|yes/no|s[ií]/no)\b`,
     String.raw`\b(?:press|hit)\s+(?:any\s+key|enter|return)`,
     String.raw`\b(?:presione|presiona|pulse|pulsa|oprima)\s+(?:una\s+tecla|cualquier\s+tecla|entrar|enter|intro)`,

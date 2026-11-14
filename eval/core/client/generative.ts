@@ -46,44 +46,50 @@ export function isTransportError(error: string): boolean {
 }
 
 /**
- * POST JSON con `fetch` + `AbortSignal.timeout`. Reintento único en red o 503 (como producción), sin `Authorization`.
+ * POST JSON con `fetch` + `AbortController` (`setTimeout` ref'd). Reintento único en red o 503 (como producción), sin `Authorization`.
  * Errores: `timeout` / `network: …` / `http_<status>` (ver `isTransportError`).
  */
 export async function postJson(url: string, body: unknown, timeoutMs: number): Promise<PostResult> {
   const start = Date.now();
   // Presupuesto total de la llamada: incluye el reintento y la espera (como `models/transport.ts`).
-  const signal = AbortSignal.timeout(timeoutMs);
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
-        signal,
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")), timeoutMs);
+  const signal = ctrl.signal;
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(body),
+          signal,
+        });
+        const text = await res.text();
+        if (!(res.status === 503 && attempt < LLM_TRANSPORT_RETRIES)) {
+          const durationMs = Date.now() - start;
+          if (!res.ok) return { ok: false, error: `http_${res.status}`, durationMs };
+          return { ok: true, text, durationMs };
+        }
+        // 503: cae al backoff y reintenta.
+      } catch (e) {
+        if (signal.aborted || (e as { name?: string } | null)?.name === "TimeoutError") {
+          return { ok: false, error: "timeout", durationMs: Date.now() - start };
+        }
+        if (attempt >= LLM_TRANSPORT_RETRIES) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return { ok: false, error: `network: ${msg}`, durationMs: Date.now() - start };
+        }
+      }
+      // Reintento único (red o HTTP 503) tras 1 s; el timeout nunca se reintenta.
+      await new Promise<void>((resolve) => {
+        // Con el presupuesto ya agotado el evento `abort` no se repite: sin esto se esperaba el backoff entero y se inflaba la latencia.
+        if (signal.aborted) return resolve();
+        const t = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
+        signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
       });
-      const text = await res.text();
-      if (!(res.status === 503 && attempt < LLM_TRANSPORT_RETRIES)) {
-        const durationMs = Date.now() - start;
-        if (!res.ok) return { ok: false, error: `http_${res.status}`, durationMs };
-        return { ok: true, text, durationMs };
-      }
-      // 503: cae al backoff y reintenta.
-    } catch (e) {
-      if (signal.aborted || (e as { name?: string } | null)?.name === "TimeoutError") {
-        return { ok: false, error: "timeout", durationMs: Date.now() - start };
-      }
-      if (attempt >= LLM_TRANSPORT_RETRIES) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { ok: false, error: `network: ${msg}`, durationMs: Date.now() - start };
-      }
     }
-    // Reintento único (red o HTTP 503) tras 1 s; el timeout nunca se reintenta.
-    await new Promise<void>((resolve) => {
-      // Con el presupuesto ya agotado el evento `abort` no se repite: sin esto se esperaba el backoff entero y se inflaba la latencia.
-      if (signal.aborted) return resolve();
-      const t = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
-      signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
-    });
+  } finally {
+    clearTimeout(timer);
   }
 }
 

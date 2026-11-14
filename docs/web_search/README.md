@@ -6,10 +6,8 @@ La tool busca en internet con Free Search (`search` + `fetch` + `read_doc`) y de
 |---|---|
 | [`../JARVIS_1_0_Grupos_y_herramientas_v2.md`](../JARVIS_1_0_Grupos_y_herramientas_v2.md) §6 y D-21 a D-28 | Diseño vigente: argumentos, pipeline, estados, resultado, seguridad, manifiesto |
 | [`../../scripts/validate/web_eval/RESULTADOS.md`](../../scripts/validate/web_eval/RESULTADOS.md) | Evaluación con datos reales (41 casos): todas las rondas, tablas y límites |
-| [`REVISION_hallazgos.md`](REVISION_hallazgos.md) | Hallazgos de la revisión de código (H-01 a H-21) y su estado |
 | [`DEEP_RESEARCH.md`](DEEP_RESEARCH.md) | Idea de un modo «Deep Research» (**en pausa**): pilotos, debilidades frente a búsquedas intensas, qué hacen los grandes, plan y fuentes |
-| [`free-search-mcp-guia.md`](free-search-mcp-guia.md) | Guía de Free Search 0.18.0 (herramientas, parámetros, motores, categorías) |
-| [`../REVISION_web_search.md`](../REVISION_web_search.md) | Histórico de la primera versión (`research` + Markdown) |
+| *(Referencias históricas sin archivo en el repo)* | Documentos externos ya retirados: `REVISION_hallazgos.md`, `free-search-mcp-guia.md` y `../REVISION_web_search.md` |
 
 ## Estado de la tool (modo rápido)
 

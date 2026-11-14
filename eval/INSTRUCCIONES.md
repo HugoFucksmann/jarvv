@@ -40,7 +40,26 @@ Atajos de `package.json`:
 | Generativa | `question` | Largo, una sola pregunta, sin fugas de identificadores internos |
 | Generativa | `pending` | Primer pendiente, palabras prohibidas, lista vacía cuando no queda nada por hacer |
 
-Cada corrida ejecuta **variante × dataset × caso × repetición**.
+Cada corrida ejecuta **variante × dataset × caso × repetición** (omitiendo datasets que queden con 0 casos tras `--stages`, `--tags` o `--ids`).
+
+### Equivalencia de etapas (`eval` vs. traza en `src/core/types/stages.ts`)
+
+| `eval` (`stage`) | Traza (`STAGES`) | Tipo (`STAGE_KIND`) | Notas |
+|---|---|---|---|
+| `d0` | `first_query` | `decision` | Primera consulta reactiva (charla / una / varias) |
+| `route` | `route` | `decision` | Decisión 1 |
+| `tool_choice` | `tool` | `decision` | Decisión 2 |
+| `args_review` | `review` | `decision` | Decisión 3 |
+| `result_verification` | `verify` | `decision` | Decisión 4 |
+| `fragment_judge` | — | `decision` (juez interno `web_search`) | Sin etapa homónima en `STAGES`; evalúa el juez 2B de `web_search` |
+| — | `continuation` | `decision` | Hilo con tarea anterior (sin etapa propia en `eval` aún) |
+| — | `probe` | `decision` | Sondas por herramienta (`tools/probes.ts`, sin dataset `eval` aún; experimentos en `eval/exp/`) |
+| — | `completion` | `decision` | Decisión 5 (`request_complete`; casos experimentales en `eval/exp/close_check.ts`) |
+| `plan` | `plan` | `generative` | Plan inicial / replan |
+| `arguments` | `args` | `generative` | Generación de argumentos |
+| `final` | `final` | `generative` | Respuesta final |
+| `question` | `question` | `generative` | Pregunta al usuario |
+| `pending` | `pending` | `generative` | Lista de pendientes reactiva |
 
 ---
 
@@ -115,7 +134,7 @@ Los defaults salen de `jarvis-config.json` (sin él, de los valores por defecto 
 | `<variante>__<dataset>/scores.json` | Métricas agregadas de la celda. |
 | `<variante>__<dataset>/meta.json` | Configuración, commit, hashes de dataset y variante, `filters` y `cases`. |
 
-Un run **pasa** solo si no registró ningún error (llamada al cliente, aplicación de la variante, parseo y todos los checks). Las llamadas fallidas (red, timeout, HTTP, prompt sin margen de contexto) cuentan como falla pero no entran en latencias ni aparecen como regresión o mejora.
+Un run **pasa** solo si no registró ningún error (llamada al cliente, aplicación de la variante, parseo y todos los checks). Las llamadas fallidas (red, timeout, HTTP, prompt sin margen de contexto) cuentan como falla pero no entran en latencias ni aparecen como regresión o mejora. Las etapas **generativas** reintentan 1 vez ante salida inválida o truncada (`BUDGET.invalidResponseRetries`); las etapas de **decisión** usan `0` reintentos ante salidas inválidas, igual que producción (`DN-3.4`). *(Cambio de paridad aplicado en `eval/core/runner.ts`: requiere validación en laboratorio para medir impacto en `output_parse_ok`.)*
 
 ---
 
@@ -134,7 +153,7 @@ Una línea por caso; las vacías y las que empiezan con `#` se ignoran. Un caso 
 | Campo | Descripción |
 |---|---|
 | `id` | Único dentro del dataset |
-| `stage` | Una de las diez etapas |
+| `stage` | Una de las once etapas |
 | `scenario` | La situación y el punto de decisión (abajo) |
 | `expect` | Lo que debe cumplir la salida; claves cerradas por etapa |
 | `tags`, `description` | Opcionales; los tags sirven con `--tags=` |
@@ -281,3 +300,7 @@ npm run eval:cross -- --dataset=<a,b> [--runs=<carpeta de la corrida>] [--label=
 ```
 
 `--dataset` acepta nombres (`args_review_D3/args_review_16_cases`), con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y las compara contra `prod`/`d3`, y resume D4 con `NOUL_APPROVE`. Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).
+
+### Puente de imports con `src/`
+Las constantes y helpers compartidos con producción se centralizan en `eval/core/contract.ts` (incluyendo `MAX_STEPS` y `LLM_INVALID_OUTPUT_RETRIES` derivados de `BUDGET`), además de los imports directos de tipos/motores que consumen el cargador de escenarios y los runners (`eval/core/scenario.ts`, `eval/core/runner.ts`, `eval/core/d4_checks.ts`, `eval/core/config.ts`, `eval/core/types.ts`, `eval/core/variants/labels.ts`, `eval/core/client/{decision,generative}.ts`, `eval/cross.ts`, `eval/psvalid.ts`).
+

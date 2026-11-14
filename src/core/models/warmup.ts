@@ -22,12 +22,16 @@ export function chatUrl(base: string): string {
 
 async function ping(label: string, url: string, body: string, timeoutMs: number, fetchFn: FetchFn): Promise<void> {
   const t0 = Date.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")), timeoutMs);
   try {
-    const res = await fetchFn(url, { method: "POST", headers: JSON_HEADERS, body, signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetchFn(url, { method: "POST", headers: JSON_HEADERS, body, signal: ctrl.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     console.log(`[Warmup] ${label} listo (${Date.now() - t0} ms).`);
   } catch (error) {
     console.warn(`[Warmup] ${label} no se pudo precalentar: ${errorMessage(error)}`);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

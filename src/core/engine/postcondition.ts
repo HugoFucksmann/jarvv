@@ -8,7 +8,7 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
+import { pathApiFor } from "../policy/guard.ts";
 
 export type Postcondition = "met" | "unmet" | null;
 
@@ -30,7 +30,7 @@ function absolutePath(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const p = value.trim();
   if (p === "" || p.includes("{{") || p.includes("\0")) return null;
-  return path.isAbsolute(p) ? p : null;
+  return pathApiFor(p).isAbsolute(p) ? p : null;
 }
 
 export function postconditionOf(tool: string, args: Readonly<Record<string, unknown>> | null, disk: DiskView = REAL_DISK): Postcondition {
@@ -49,7 +49,8 @@ export function postconditionOf(tool: string, args: Readonly<Record<string, unkn
         if (disk.exists(source)) return "unmet";
         if (disk.exists(destination)) {
           // Mover «a una carpeta» deja el archivo dentro de ella.
-          if (disk.isDirectory(destination)) return disk.exists(path.join(destination, path.basename(source))) ? "met" : "unmet";
+          const api = pathApiFor(source, destination);
+          if (disk.isDirectory(destination)) return disk.exists(api.join(destination, api.basename(source))) ? "met" : "unmet";
           return "met";
         }
         return "unmet";

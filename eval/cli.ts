@@ -157,6 +157,7 @@ async function main(): Promise<number> {
     section("Dry run");
     for (const vr of variantResults) {
       for (const ds of datasetsByVariant.get(vr.spec) ?? []) {
+        if (ds.cases.every((k) => !stageFilter.includes(k.stage as StageName))) continue;
         printDryRunHeader(vr.spec, ds.name);
         await runDataset({
           cases: ds.cases,
@@ -194,7 +195,8 @@ async function main(): Promise<number> {
   // ── Correr (variante × dataset) ──
   for (const vr of variantResults) {
     for (const ds of datasetsByVariant.get(vr.spec) ?? []) {
-      const cases = ds.cases;
+      const cases = ds.cases.filter((k) => stageFilter.includes(k.stage as StageName));
+      if (cases.length === 0) continue;
 
       printCellStart(vr.spec, ds.name, cases.length);
 

@@ -15,7 +15,7 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | 4a. D3 aprueba rutas inventadas; el pre-chequeo solo mira lecturas | ✅ el pre-chequeo rechaza el destino de una escritura fuera de las carpetas del usuario que no sale de ningún lado (`engine/precheck.ts`). En los datasets de D3: recall de llamadas malas 41 % → 47 %, 0 falsos rechazos. D3 sigue sin ser una barrera contra rutas inventadas: lo es el código |
 | 4b. Ninguna pregunta de hechos abre un paso | ⚠ D0 «una acción» las manda a búsqueda; DN-2.5 sigue apagada |
 | 5. Relleno de la respuesta final | ✅ por código (`finalClean.ts`) |
-| 6. Laboratorio (thinking `auto`, carpetas vacías, latencias, sin etapa D5, dos corridas a la vez) | ⚠ etapa `d0` agregada; el resto ⏸ |
+| 6. Laboratorio (thinking `auto`, carpetas vacías, latencias, sin etapa D5, dos corridas a la vez) | ⚠ etapa `d0` agregada y carpetas vacías por filtro corregidas en `eval/cli.ts` (`2026-11-14`); el resto ⏸ |
 | 7. Archivos dejados en el repositorio | actualizado abajo |
 | 8. Menores | ⏸. El comentario de `buildResultVerification` ya no es falso: D4 dejó de recibir `Previous approved calls` |
 
@@ -61,7 +61,7 @@ Medido con 12 preguntas («cuál es el último modelo de Claude», «quién gan�
 ## 6. Laboratorio de evaluación
 
 - **Corre con pensamiento encendido si no se le indica lo contrario.** `--thinking` vale `auto` por defecto. Para corridas rápidas: `--thinking=off`.
-- **Crea una carpeta por cada dataset aunque el filtro de etapa lo deje en 0 casos.** Una corrida de una etapa deja unas 50 carpetas vacías en `eval/results/`.
+- ~~**Crea una carpeta por cada dataset aunque el filtro de etapa lo deje en 0 casos.**~~ *(Resuelto 2026-11-14: `eval/cli.ts` omite datasets con 0 casos tras filtrar tanto en `dryRun` como en ejecución real.)*
 - **Sus latencias no representan producción** (ya anotado en `JARVIS_EVALUACION.md`): mide con concurrencia y sin alternar modelos.
 - **No hay etapa para D5 ni para D0.** Los casos de cierre viven en `eval/exp/close_check.ts`, fuera de los datasets.
 - **Dos corridas a la vez se estorban.** Una corrida de la respuesta final que quedó viva en segundo plano llevó cada llamada de la siguiente de 1,5 s a 20 s. Si una corrida se interrumpe, hay que comprobar que el proceso terminó.
@@ -80,3 +80,7 @@ Medido con 12 preguntas («cuál es el último modelo de Claude», «quién gan�
 - `ERROR_PREVIO: tu respuesta anterior fue inválida…` está en español dentro de prompts en inglés (`retryNote`).
 - El comentario de `buildResultVerification` dice «sin contexto de llamadas previas», pero el código agrega `Previous approved calls`.
 - Durante las pruebas había un servidor de JARVIS corriendo (`npm run dev`); no lo toqué. Comparte la GPU con cualquier corrida del laboratorio.
+
+## Validación pendiente en laboratorio (V) y bloqueados (C)
+- **[V]** Evaluar impacto de fecha de fuente / recencia en respuestas «último X» (§3) y ampliar casos de D5 (§4).
+- **[C]** `list_directory` con `depth: 0` devolviendo «Directorio vacío.» proviene del servidor MCP Desktop Commander (§1).

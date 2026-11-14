@@ -248,7 +248,7 @@ function buildContext(sc: Scenario): Built {
     ctx.apply({ op: "set", target: `facts.${key}`, value: { value, stepId: lastStepId } });
   }
   (sc.userInput ?? []).forEach((text, i) => {
-    ctx.apply({ op: "set", target: `facts.answer_${i + 1}`, value: { value: text, stepId: lastStepId } });
+    ctx.apply({ op: "set", target: `facts.answer_${lastStepId}_${i + 1}`, value: { value: text, stepId: lastStepId } });
   });
 
   if (sc.finish) {

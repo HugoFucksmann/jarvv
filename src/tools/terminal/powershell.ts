@@ -63,8 +63,13 @@ function global:__jvDecode([byte[]] $b) {
   try { return $global:__jvUtf8.GetString($b, 0, $n) } catch {}
   $o = $global:__jvOem.GetString($b, 0, $n)
   $a = $global:__jvAnsi.GetString($b, 0, $n)
-  $letters = '[À-ÖØ-öø-ÿ]'
-  if (([regex]::Matches($a, $letters)).Count -gt ([regex]::Matches($o, $letters)).Count) { $a } else { $o }
+  $score = {
+    param([string] $t)
+    (([regex]::Matches($t, '[à-öø-ÿ]')).Count * 2) +
+    ([regex]::Matches($t, '[À-ÖØ-Þ](?![À-ÖØ-Þ])')).Count +
+    (([regex]::Matches($t, '[\u2500-\u257F](?=[\u2500-\u257F])|(?<=[\u2500-\u257F])[\u2500-\u257F]')).Count * 2)
+  }
+  if ((& $score $a) -gt (& $score $o)) { $a } else { $o }
 }
 function global:__jvRun([string] $name, [object[]] $argv, [bool] $piped, $pipedInput) {
   $exe = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1

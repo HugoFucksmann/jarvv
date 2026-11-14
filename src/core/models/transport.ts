@@ -72,11 +72,17 @@ export class DecisionServiceUnavailableError extends Error {
  * envió nada y repetir no sirve (D15).
  */
 export class DecisionValidationError extends Error {
+    readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
     readonly overflow: boolean;
-    constructor(message: string, overflow = false) {
+    constructor(
+        message: string,
+        overflow = false,
+        raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan },
+    ) {
         super(`[Decision 2.0 Validation] ${message}`);
         this.name = "DecisionValidationError";
         this.overflow = overflow;
+        this.raw = raw;
     }
 }
 
@@ -112,7 +118,9 @@ function describe(err: unknown): string {
 }
 
 export async function postJson(o: PostJsonOptions): Promise<PostJsonResult> {
-    const timeout = AbortSignal.timeout(o.timeoutMs);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError")), o.timeoutMs);
+    const timeout = ctrl.signal;
     const signal = o.signal ? AbortSignal.any([o.signal, timeout]) : timeout;
 
     /** Cancelación o timeout => error terminal; cualquier otra cosa => null (reintentable). */
@@ -122,26 +130,30 @@ export async function postJson(o: PostJsonOptions): Promise<PostJsonResult> {
         return null;
     };
 
-    for (let attempt = 0; ; attempt++) {
-        let reason: string;
-        try {
-            const response = await fetch(o.url, { method: "POST", headers: { ...REQUEST_HEADERS, ...o.headers }, body: o.body, signal });
-            const text = await response.text();
-            if (response.status !== 503 || attempt >= LLM_TRANSPORT_RETRIES) {
-                return { ok: response.ok, status: response.status, statusText: response.statusText, text };
+    try {
+        for (let attempt = 0; ; attempt++) {
+            let reason: string;
+            try {
+                const response = await fetch(o.url, { method: "POST", headers: { ...REQUEST_HEADERS, ...o.headers }, body: o.body, signal });
+                const text = await response.text();
+                if (response.status !== 503 || attempt >= LLM_TRANSPORT_RETRIES) {
+                    return { ok: response.ok, status: response.status, statusText: response.statusText, text };
+                }
+                reason = "HTTP 503";
+            } catch (err) {
+                const stop = interrupted(err);
+                if (stop) throw stop;
+                if (attempt >= LLM_TRANSPORT_RETRIES) throw new TransportError("network", describe(err), err);
+                reason = `error de red: ${describe(err)}`;
             }
-            reason = "HTTP 503";
-        } catch (err) {
-            const stop = interrupted(err);
-            if (stop) throw stop;
-            if (attempt >= LLM_TRANSPORT_RETRIES) throw new TransportError("network", describe(err), err);
-            reason = `error de red: ${describe(err)}`;
-        }
 
-        console.warn(`[Transport] ${reason}; reintento ${attempt + 1}/${LLM_TRANSPORT_RETRIES} en ${LLM_TRANSPORT_BACKOFF_MS}ms (${o.url})`);
-        await new Promise<void>((resolve, reject) => {
-            const timer = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
-            signal.addEventListener("abort", () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
-        }).catch((err) => { throw interrupted(err) ?? err; });
+            console.warn(`[Transport] ${reason}; reintento ${attempt + 1}/${LLM_TRANSPORT_RETRIES} en ${LLM_TRANSPORT_BACKOFF_MS}ms (${o.url})`);
+            await new Promise<void>((resolve, reject) => {
+                const backoff = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
+                signal.addEventListener("abort", () => { clearTimeout(backoff); reject(signal.reason); }, { once: true });
+            }).catch((err) => { throw interrupted(err) ?? err; });
+        }
+    } finally {
+        clearTimeout(timer);
     }
 }

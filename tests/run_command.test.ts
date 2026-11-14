@@ -85,6 +85,21 @@ test("LineAssembler: un \\r\\n partido es un salto, un \\r suelto reescribe la l
   assert.equal(prompt.flushPartial(), "10%");
   assert.equal(prompt.push("\r20%\n"), "\n20%\n", "lo reescrito después de entregar una parte va en otra línea");
 
+  // H-02: múltiples \r antes de \n no borran la línea
+  const crlf = new LineAssembler();
+  assert.equal(crlf.push("hola\r\r\n"), "hola\n");
+  assert.equal(crlf.push("uno\r") + crlf.push("\r\n"), "uno\n");
+  assert.equal(crlf.push("viejo\r\rnuevo\n"), "nuevo\n");
+
+  // H-08: closeAnswered limpia lastCompleted para que una línea en blanco posterior no repita el prompt respondido
+  const answered = new LineAssembler();
+  answered.push("Overwrite? [y/n]\n");
+  assert.equal(answered.lastCompleted, "Overwrite? [y/n]");
+  answered.closeAnswered();
+  assert.equal(answered.lastCompleted, "");
+  assert.equal(answered.push("\n"), "\n");
+  assert.equal(answered.lastCompleted, "");
+
   const long = new LineAssembler();
   assert.equal(long.push("x".repeat(MAX_OPEN_LINE + 5)).length, MAX_OPEN_LINE + 5, "una línea sin salto enorme no se retiene sin tope");
   assert.equal(long.currentIsLong, true);
@@ -104,6 +119,11 @@ test("OutputDecoder: UTF-8 tal cual (aunque llegue partido) y las líneas OEM o 
   // `chcp` en la página 1252: "Página de códigos" (á = 0xE1, ó = 0xF3).
   const ansi = Buffer.from([...Buffer.from("P"), 0xe1, ...Buffer.from("gina de c"), 0xf3, ...Buffer.from("digos\r\n")]);
   assert.equal(decoder.write(ansi), "Página de códigos\r\n");
+  // H-01: `tree` en 850 (`├───carpeta` = 0xC3 0xC4 0xC4 0xC4) no se confunde con `ÃÄÄÄ` en 1252; ANSI con mayúscula inicial (`Árbol`) sigue siendo ANSI.
+  const tree = Buffer.from([0xc3, 0xc4, 0xc4, 0xc4, ...Buffer.from("carpeta\r\n")]);
+  assert.equal(decoder.write(tree), "├───carpeta\r\n");
+  const arbol = Buffer.from([0xc1, ...Buffer.from("rbol\r\n")]);
+  assert.equal(decoder.write(arbol), "Árbol\r\n");
   // Una línea OEM y otra UTF-8 en el mismo fragmento: cada una con lo suyo.
   assert.equal(decoder.write(Buffer.concat([Buffer.from([0x61, 0xa2, 0x0a]), Buffer.from("€\n", "utf8")])), "aó\n€\n");
   assert.ok(decoder.legacyChunks > 0);
@@ -124,6 +144,9 @@ test("classifyPrompt: lo que parece una pregunta necesita menos silencio; un ava
     ["Press any key to continue", true, "strong"],
     ["Contraseña", false, "strong"],
     ["Ingrese un valor", false, "weak"],
+    ["Estado: [n/a]", true, "none"],
+    ["Fecha (N/A)", true, "none"],
+    ["Fecha (N/A)", false, "likely"],
     ["progreso...", false, "none"],
     ["Descargando 45%", false, "none"],
     ["[#####     ]", false, "none"],
@@ -178,14 +201,19 @@ test("el tope de largo de command es el mismo con el que el manifiesto lo regist
 });
 
 test("el manifiesto expone exactamente los parámetros que declara el proveedor, para sus tres herramientas", async () => {
-  const tools = await provider.listTools();
-  const offered = applyDestination("terminal", tools);
-  assert.deepEqual(offered.map((t) => t.name), ["run_command", "list_processes", "stop_process"]);
-  for (const tool of offered) {
-    const d = SYSTEM_TOOL_MANIFEST.find((m) => m.name === tool.name);
-    assert.ok(d, tool.name);
-    assert.equal(d.server, provider.name);
-    assert.deepEqual(Object.keys(tool.inputSchema.properties ?? {}).sort(), [...(d.params ?? [])].sort(), tool.name);
+  const winProvider = new TerminalProvider({ defaultCwd: os.tmpdir(), platform: "win32" });
+  try {
+    const tools = await winProvider.listTools();
+    const offered = applyDestination("terminal", tools);
+    assert.deepEqual(offered.map((t) => t.name), ["run_command", "list_processes", "stop_process"]);
+    for (const tool of offered) {
+      const d = SYSTEM_TOOL_MANIFEST.find((m) => m.name === tool.name);
+      assert.ok(d, tool.name);
+      assert.equal(d.server, winProvider.name);
+      assert.deepEqual(Object.keys(tool.inputSchema.properties ?? {}).sort(), [...(d.params ?? [])].sort(), tool.name);
+    }
+  } finally {
+    await winProvider.close();
   }
   assert.equal(SYSTEM_TOOL_MANIFEST.find((m) => m.name === "list_processes")?.policy.requiresApproval, false, "listar es una lectura");
   assert.equal(SYSTEM_TOOL_MANIFEST.find((m) => m.name === "stop_process")?.policy.requiresApproval, true, "cortar un proceso se confirma");

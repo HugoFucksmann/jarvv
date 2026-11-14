@@ -1,6 +1,6 @@
 # Scripts de validación de `run_command` y `web_search`
 
-Sondas y un arnés con los que se validaron las dos herramientas propias (2026-11-10). **No son pruebas automáticas** (esas están en `tests/`): no afirman nada, ejecutan casos reales y muestran lo que ocurre, para mirarlo a ojo. Los hallazgos que salieron de ellas están en [`docs/REVISION_run_command.md`](../../docs/REVISION_run_command.md) y [`docs/REVISION_web_search.md`](../../docs/REVISION_web_search.md); cada sonda cita los números de hallazgo (`RC-xx`, `WS-xx`) que mira.
+Sondas y un arnés con los que se validaron las dos herramientas propias (2026-11-10). **No son pruebas automáticas** (esas están en `tests/`): no afirman nada, ejecutan casos reales y muestran lo que ocurre, para mirarlo a ojo. Los hallazgos de `run_command` están en [`docs/REVISION_run_command.md`](../../docs/REVISION_run_command.md) y el índice vigente de `web_search` en [`docs/web_search/README.md`](../../docs/web_search/README.md); cada sonda cita los números de hallazgo (`RC-xx`, `WS-xx`) que mira.
 
 Se ejecutan desde la raíz del proyecto, con `tsx` (ya es dependencia). `npx tsc --noEmit` revisa los `.ts`.
 

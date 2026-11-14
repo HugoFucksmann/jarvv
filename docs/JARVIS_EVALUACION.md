@@ -581,3 +581,8 @@ Descartadas o en pausa: reordenar prompts para la caché (ahorra unos 100 ms), d
 10. Dependencia de Windows y PowerShell.
 11. Documentación desactualizada (cuatro vs cinco decisiones).
 12. Sin confirmar: arranque de modelos, salida estructurada y caché de prefijo.
+
+### Validación pendiente en laboratorio (V) y bloqueados (C) — cierre 2026-11-14
+- **[V] Paridad `eval/core/runner.ts` (`DN-3.4`):** el corredor del eval pasó a `0` reintentos en etapas de decisión igual que `src/`; queda medir su efecto real en `output_parse_ok` contra `d3:2b`.
+- **[V] Experimentos y calibraciones abiertas:** calibración de umbrales (`NOUL_APPROVE`, `REVIEW_APPROVE`, `JUDGE_FOUND`), `autoMode` / `approvalTiers` sobre trazas y tareas reales, herramientas básicas T5 (generación de argumentos y proveedor), N1/N3 en GPU real y caché de prefijo/arranque.
+- **[C] Decisión de producto o entorno externo:** habilitar `PENDING_FACTS_LOOKUP`, `repeatByArgs` en `run_command`, regenerar `inputSchemaManifest.md` con servidores MCP activos y ejecutar las pruebas vivas de PowerShell en Windows (`win32`).

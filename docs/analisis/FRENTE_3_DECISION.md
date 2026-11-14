@@ -13,7 +13,7 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | DN-3.1 | Reintento de D1: quitar la ruta fallida | ❌ revertido. La regla para lecturas quitaba la ruta correcta en un test (lectura de terminal con resultado dudoso) y en las trazas no había evidencia a favor. **Vigente la original**: 2 rechazos `not_accomplished` agotan la ruta, y D1 marca `[the last attempt on this route failed]`. Mecanismo nuevo en debate | `engine/limits.ts`, `models/prompts.ts` |
 | DN-3.2 | Reintento de D2: quitar la herramienta con `loop_blocked` | ❌ revertido: forzaba otra herramienta, a veces de escritura con aprobación del usuario. Vigente `[FAILED - AVOID]` | `models/prompts.ts` |
 | DN-3.3 | Entrada de decisión repetida | ⚠ reutiliza la respuesta ✅; contarla como «sin avance» y fallar el paso ⏸ | `engine/env.ts` (`memoizeDecision`) |
-| DN-3.4 | Sin repetición por respuesta inválida (Decision) | ✅ D1 a D5 y D0 | `engine/*` (`queryModel(…, 0)`) |
+| DN-3.4 | Sin repetición por respuesta inválida (Decision) | ✅ `src/` (`queryModel(…, 0)`); `eval/core/runner.ts` alineado el 2026-11-14 (**V**) | `engine/*`, `eval/core/runner.ts` |
 | DN-3.5 | Caché | ⚠ B (por tarea) ✅ en `memoizeDecision`; C (LRU entre tareas) ⏸ | `engine/env.ts` |
 | DN-3.6 | Quitar datos volátiles de las vistas de decisión | ⏸ (con los modelos sin visión las decisiones cuestan 20 a 130 ms: bajó la prioridad) | — |
 | DN-3.7 | Orden de las opciones de D2 | ✅ orden del catálogo | `tools/manifest.ts` (`sortByCatalog`) |
@@ -159,3 +159,7 @@ Vistos en los prompts reales de las trazas:
 - Una máquina y una sesión. Las pruebas A a G usan entradas reales pero pocas (60 a 137).
 - El experimento de reintento usa los 18 errores de los datasets de D1, que escribió una sola persona; el intento fallido se simuló con una línea fija.
 - No medí R2 ni R5 con casos propios: se apoyan en lo visto en las trazas.
+
+## Validación pendiente en laboratorio (V) y bloqueados (C)
+- **[V]** Medir con `d3:2b` real la corrida completa tras alinear `eval/core/runner.ts` a 0 reintentos en decisiones (`DN-3.4`, verificar variación en `output_parse_ok`).
+- **[V / C]** DN-3.3 segunda parte (contar entrada repetida como «sin avance»), DN-3.5 C (LRU entre tareas), DN-3.6 (quitar datos volátiles de vistas de decisión) y DN-3.8 (zona de duda ±0,03) quedan pendientes de medición empírica o decisión.

@@ -33,9 +33,15 @@ const fakeTasks = {
 
 /** Un proveedor de terminal falso para `/api/mcp`: registra lo que le llega. */
 const terminalCalls: string[] = [];
+let refreshCalls = 0;
 const fakeDiscovery = {
   getServer: (name: string) =>
     name === "jarvis_terminal" ? { callTool: async (tool: string) => (terminalCalls.push(tool), { content: [], isError: false }), isConnected: () => true } : undefined,
+  discoverAll: async () => {
+    refreshCalls++;
+    return {};
+  },
+  getUnavailableServers: () => [],
 } as unknown as DiscoveryEngine;
 
 let server: http.Server;
@@ -45,7 +51,7 @@ before(async () => {
   const app = express();
   app.use(express.json());
   app.use(localOnly());
-  app.use("/api/jarvis", createJarvisRouter(fakeTasks, {} as DiscoveryEngine));
+  app.use("/api/jarvis", createJarvisRouter(fakeTasks, fakeDiscovery));
   app.use("/api/mcp", createMcpRouter(fakeDiscovery));
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -217,4 +223,14 @@ test("RC-07: /api/mcp no ejecuta run_command, ni siquiera un comando de solo lec
     assert.equal(reply.status, 403, JSON.stringify(args));
   }
   assert.deepEqual(terminalCalls, [], "nada llegó al proveedor");
+});
+
+test("P-13: /refresh-discovery solo acepta POST y rechaza GET", async () => {
+  refreshCalls = 0;
+  const getReply = await request("GET", "/api/jarvis/refresh-discovery");
+  assert.equal(getReply.status, 404);
+  assert.equal(refreshCalls, 0);
+  const postReply = await request("POST", "/api/jarvis/refresh-discovery");
+  assert.equal(postReply.status, 200);
+  assert.equal(refreshCalls, 1);
 });

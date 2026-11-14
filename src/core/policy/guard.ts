@@ -5,7 +5,7 @@
  * - Ningún modelo puede eludir Guard.
  * - Patrones destructivos sobre el SO y comandos catastróficos (nivel `guard` de `commandRules.ts`: discos, raíz del sistema) => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
  *   escanean los de `free_search` ni `jarvis_web` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
- *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
+ *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `run_command`, que siempre pide aprobación).
  * - Ruta sensible (`sensitivePaths.ts`: claves, credenciales, navegadores, lugares de inicio automático, el sistema) => APPROVAL obligatorio,
  *   también con `autoMode`: `GuardDecision.mandatory`. Se mira antes que el modo de solo lectura de un comando.
  * - Datos sensibles en lo que `web_search` envía a internet (`egress.ts`: claves, tokens, rutas del usuario) => APPROVAL obligatorio, también con `autoMode`.
@@ -15,7 +15,7 @@
  * - Regla B (Fase 5): una escritura (FILE_WRITE) sobre una ruta dentro de las carpetas protegidas (`refsDir`: resultados
  *   crudos de las refs) => DENY siempre. Se revisan los argumentos de tipo texto, salvo `content` y `mode`; las rutas
  *   relativas se resuelven contra cada base conocida (D27); se compara sin seguir enlaces simbólicos. No cubre
- *   `start_process` (un comando puede tocar esas rutas; ya pide aprobación) ni un directorio que CONTENGA a la protegida.
+ *   `run_command` (un comando puede tocar esas rutas; ya pide aprobación) ni un directorio que CONTENGA a la protegida.
  * - Resto => ALLOW (lecturas).
  * - La política sale únicamente del manifest (tools/manifest.ts); no hay otra fuente.
  */
@@ -49,13 +49,21 @@ export interface ProtectedPaths {
   readonly relativeBases: readonly string[];
 }
 
+const WIN_PATH_RE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
+
+/** Usa semántica Win32 cuando alguna ruta tiene formato Windows (unidad o UNC), incluso corriendo sobre Linux. */
+export function pathApiFor(...paths: string[]): typeof path.posix {
+  return paths.some((p) => WIN_PATH_RE.test(p.trim())) ? path.win32 : path;
+}
+
 /**
  * ¿`child` es `parent` o está dentro de `parent`? Ambas se resuelven con `path.resolve`; en Windows la comparación no
  * distingue mayúsculas (lo hace `path.relative` de Node). No sigue enlaces simbólicos ni uniones.
  */
 export function isPathInside(parent: string, child: string): boolean {
-  const relative = path.relative(path.resolve(parent), path.resolve(child));
-  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+  const api = pathApiFor(parent, child);
+  const relative = api.relative(api.resolve(parent), api.resolve(child));
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${api.sep}`) && !api.isAbsolute(relative));
 }
 
 /** Argumentos de las herramientas de escritura que no son rutas (texto que se escribe, modo de escritura). */
@@ -139,8 +147,8 @@ export class Guard {
     const text = value.trim();
     if (text.length === 0 || text.includes("\0")) return [];
     if (text === "~" || text.startsWith("~/") || text.startsWith("~\\")) return [path.join(os.homedir(), text.slice(1))];
-    if (path.isAbsolute(text)) return [text];
-    return scope.relativeBases.map((base) => path.resolve(base, text));
+    if (pathApiFor(text).isAbsolute(text)) return [text];
+    return scope.relativeBases.map((base) => pathApiFor(base, text).resolve(base, text));
   }
 
   /** Regla B: ¿algún argumento de texto (salvo `content` y `mode`) nombra una ruta dentro de las carpetas protegidas? */

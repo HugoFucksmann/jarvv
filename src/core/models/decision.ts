@@ -19,6 +19,7 @@ import {
   type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
+  type TimeSpan,
 } from "../types.ts";
 import type {
   CompletionDecision,
@@ -72,18 +73,33 @@ const pct = (probabilities: Record<string, number>): string =>
     .map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`)
     .join(", ");
 
+const DECISION_VALIDATION_PREFIX = "[Decision 2.0 Validation] ";
+type DecisionRaw = { rawInput: string; rawOutput: string; timing: TimeSpan };
+
+function rawFromResponse(response: DecisionResponse): DecisionRaw {
+  return { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+}
+
+function rethrowWithRaw(err: unknown, raw: DecisionRaw): never {
+  if (err instanceof DecisionValidationError && err.raw === undefined) {
+    const msg = err.message.startsWith(DECISION_VALIDATION_PREFIX) ? err.message.slice(DECISION_VALIDATION_PREFIX.length) : err.message;
+    throw new DecisionValidationError(msg, err.overflow, raw);
+  }
+  throw err;
+}
+
 /**
  * Respuesta de `key` con el tipo esperado. `parseResponse` ya garantizó la forma: el chequeo solo estrecha el tipo.
  */
 function choiceAnswer(response: DecisionResponse, key: string): DecisionAnswerChoice {
   const answer = response.answers[key];
-  if (!("choice" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'choice'.`);
+  if (!("choice" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'choice'.`, false, rawFromResponse(response));
   return answer;
 }
 
 function noulAnswer(response: DecisionResponse, key: string): DecisionAnswerNoul {
   const answer = response.answers[key];
-  if (!("noul" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'noul'.`);
+  if (!("noul" in answer)) throw new DecisionValidationError(`Respuesta '${key}' inesperada: se esperaba tipo 'noul'.`, false, rawFromResponse(response));
   return answer;
 }
 
@@ -99,7 +115,11 @@ function shortcutTrace(choice: string, state: string): DecisionTrace {
 /** La opción elegida de Decisión 1 como decisión del motor. `choice` ya es una de las ofrecidas. */
 function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean): RouteDecision {
   if (!isExecutableRoute(choice)) {
-    throw new DecisionValidationError(`Decision #1: opción '${choice}' no es una ruta ejecutable.`);
+    throw new DecisionValidationError(
+      `Decision #1: opción '${choice}' no es una ruta ejecutable.`,
+      false,
+      { rawInput: trace.rawInput, rawOutput: trace.rawOutput, ...(trace.timing ? { timing: trace.timing } : {}) },
+    );
   }
   return shortcut ? { action: "route", route: choice, shortcut: true, ...trace } : { action: "route", route: choice, ...trace };
 }
@@ -168,12 +188,18 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     }
     console.log(`[Decision ← RECV] ${result.text.slice(0, 600)}`);
 
-    return {
-      answers: parseResponse(result.text, questions),
+    const raw: DecisionRaw = {
       rawInput: JSON.stringify(payload, null, 2), // el mismo payload, legible
       rawOutput: result.text,
       timing: { startedAt, durationMs: Date.now() - startedAt },
     };
+    let answers: Record<string, DecisionAnswer>;
+    try {
+      answers = parseResponse(result.text, questions);
+    } catch (err) {
+      rethrowWithRaw(err, raw);
+    }
+    return { answers, ...raw };
   }
 
   /**
@@ -233,7 +259,7 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     const selected = tools.find((t) => t.name === choice);
-    if (!selected) throw new DecisionValidationError(`Decision #2: la herramienta '${choice}' no está entre las candidatas.`);
+    if (!selected) throw new DecisionValidationError(`Decision #2: la herramienta '${choice}' no está entre las candidatas.`, false, rawFromResponse(response));
     return { action: "tool", tool: selected, ...trace };
   }
 
@@ -251,7 +277,7 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     // `parseResponse` validó la pertenencia a `criteria`; aquí solo se estrecha el tipo.
     const review = ARGS_REVIEWS.find((r) => r === choice);
-    if (review === undefined) throw new DecisionValidationError(`Decision #3: resultado '${choice}' desconocido.`);
+    if (review === undefined) throw new DecisionValidationError(`Decision #3: resultado '${choice}' desconocido.`, false, rawFromResponse(response));
     return { review, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
@@ -393,23 +419,31 @@ export function validateAnswer(key: string, question: DecisionQuestion, ans: unk
   if (!isRecord(ans)) {
     throw new DecisionValidationError(`La respuesta no incluye la pregunta '${key}'.`);
   }
-  if (question.type === "choice") {
-    const choice = ans.choice;
-    if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
-      throw new DecisionValidationError(
-        `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
-      );
+  switch (question.type) {
+    case "choice": {
+      const choice = ans.choice;
+      if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
+        throw new DecisionValidationError(
+          `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
+        );
+      }
+      const probabilities = isRecord(ans.probabilities)
+        ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
+        : {};
+      return { choice, probabilities };
     }
-    const probabilities = isRecord(ans.probabilities)
-      ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
-      : {};
-    return { choice, probabilities };
+    case "noul": {
+      const noul = ans.noul;
+      if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
+        throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
+      }
+      return { noul };
+    }
+    default: {
+      const exhaustive: never = question;
+      throw new DecisionValidationError(`'${key}': tipo de pregunta no soportado ('${String((exhaustive as { type?: unknown }).type)}').`);
+    }
   }
-  const noul = ans.noul;
-  if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
-    throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
-  }
-  return { noul };
 }
 
 /** Único punto de validación de una consulta completa: todas las preguntas enviadas deben venir bien respondidas. */

@@ -242,7 +242,7 @@ El motivo de detención es una lista cerrada: `max_steps`, `no_alternatives`, `s
 
 ## 10. Errores y Límites
 - **Transporte hacia modelos**: los fallos de red o HTTP 503 se reintentan una vez tras 1 s. El timeout y la cancelación nunca se reintentan.
-- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez inyectando el motivo del error en el prompt; el modelo de decisión repite la consulta una vez. Si persiste: en argumentos es `args_invalid`; en la lista de pendientes, `unrecoverable`; en decisión y verificación, servicio no disponible.
+- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez inyectando el motivo del error en el prompt; el modelo de decisión usa 0 reintentos ante salidas inválidas (`DN-3.4`; el transporte sigue reintentando fallos transitorios de red o 503). Si persiste: en argumentos es `args_invalid`; en la lista de pendientes, `unrecoverable`; en decisión y verificación, servicio no disponible.
 - **Servicio no disponible**: se registra el error `service_unavailable` (si ya hay un paso) y la tarea se cierra con `unrecoverable`.
 - **Desborde de contexto**: si un prompt no deja margen para la salida, o una vista no entra en su límite, la tarea se cierra con `unrecoverable` sin registrar error y sin repetir.
 - **Cancelación cooperativa**: la señal de aborto llega a las esperas y a las llamadas en vuelo, y la tarea concluye sin tratarse como error. Una herramienta ya despachada queda `interrupted`.
@@ -266,7 +266,7 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 | Preguntas de procesos por paso (`maxProcessPromptsPerStep`) | 3 (lo que pide un proceso de `run_command`; no gastan la anterior) |
 | Salida de la lista de pendientes (`pending.maxTokens`) | 1024 tokens |
 | Reintentos de transporte | 1, tras 1 s |
-| Reintentos por salida inválida (`invalidResponseRetries`) | 1 |
+| Reintentos por salida inválida (`invalidResponseRetries`) | 1 (solo modelo generativo; decisión usa 0) |
 | Tareas retenidas | 20 |
 | Timeouts | Modelo generativo 120 s (180 s con razonamiento extendido); modelo de decisión 30 s; herramientas MCP 60 s (las propias fijan su plazo en el catálogo: `run_command` 315 s, `web_search` 150 s) |
 | Contexto configurado | 16 384 tokens para ambos modelos |

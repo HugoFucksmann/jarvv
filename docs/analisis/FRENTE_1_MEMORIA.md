@@ -219,3 +219,7 @@ Pregunta `noul` al decisor: «¿el pedido nuevo depende de la tarea anterior: la
 - No probé el hilo dentro de `pending` ni la ejecución de recetas (ambos requieren cambios en `src`).
 - La prueba de D3 usa 10 llamadas que escribí yo.
 - La selección por código se probó con 5 hechos; con cientos habría que medir falsas coincidencias.
+
+## Validación pendiente en laboratorio (V) y bloqueados (C)
+- **[V]** Probar hilo y hechos de punta a punta con tareas reales encadenadas y modelos vivos (`qwen3.5:4b` + `d3:2b`), especialmente `CONTINUATION_APPROVE` (0,3) en sesiones largas.
+- **[C]** DN-1.3 / DN-1.4 / DN-1.7: guardar respuestas del usuario o rutas de `locate` como hechos persistentes, comando «recordá que…», interfaz para editar hechos y recetas (`ok ≥ 2, fail = 0`) requieren decisión de producto/UX y aprobación por niveles.

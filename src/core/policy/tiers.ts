@@ -13,10 +13,9 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 
 import type { UserEnvironment } from "../environment.ts";
-import { isPathInside } from "./guard.ts";
+import { isPathInside, pathApiFor } from "./guard.ts";
 
 export type ApprovalTier = "green" | "yellow" | "red";
 
@@ -29,7 +28,7 @@ function absolute(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const p = value.trim();
   if (p === "" || p.includes("{{") || p.includes("\0")) return null;
-  return path.isAbsolute(p) ? p : null;
+  return pathApiFor(p).isAbsolute(p) ? p : null;
 }
 
 /** ¿La ruta está dentro de una carpeta del usuario (inicio, escritorio, documentos, descargas)? */
@@ -48,7 +47,7 @@ export function approvalTierOf(tool: string, args: Readonly<Record<string, unkno
       case "write_file": {
         const file = absolute(args.path);
         if (file === null || !underUserFolder(file, env)) return "yellow";
-        if (!disk.exists(file)) return disk.exists(path.dirname(file)) ? "green" : "yellow"; // sin la carpeta contenedora la escritura falla: no es verde
+        if (!disk.exists(file)) return disk.exists(pathApiFor(file).dirname(file)) ? "green" : "yellow"; // sin la carpeta contenedora la escritura falla: no es verde
         return args.mode === "append" ? "yellow" : "red"; // agregar es amarillo; reescribir un archivo que existe es sobrescribir
       }
       case "move_file": {
@@ -56,7 +55,7 @@ export function approvalTierOf(tool: string, args: Readonly<Record<string, unkno
         const destination = absolute(args.destination);
         if (source === null || destination === null || !underUserFolder(source, env) || !underUserFolder(destination, env)) return "yellow";
         if (disk.exists(destination)) return "red";
-        return disk.exists(path.dirname(destination)) ? "green" : "yellow";
+        return disk.exists(pathApiFor(destination).dirname(destination)) ? "green" : "yellow";
       }
       case "run_command": // un comando que modifica puede hacer cualquier cosa
       case "stop_process":

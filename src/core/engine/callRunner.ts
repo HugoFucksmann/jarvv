@@ -343,7 +343,7 @@ ${stepText}`, deps.memory?.() ?? []);
     return registered(callId, "refs_unresolved");
   }
   const resolved = resolution.resolvedArgs;
-  // Un comando de terminal que solo lee es una lectura aunque `start_process` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA,
+  // Un comando de terminal que solo lee es una lectura aunque `run_command` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA,
   // no pide confirmación y no pasa por D3. Desde acá la llamada se registra con este `kind`.
   const kind: CallKind = isReadOnlyCall(mcp, tool.name, resolved) ? "read" : base.kind;
 

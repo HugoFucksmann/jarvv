@@ -270,7 +270,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   });
 
   // Refrescar el catálogo de herramientas.
-  router.all('/refresh-discovery', async (_req, res) => {
+  router.post('/refresh-discovery', async (_req, res) => {
     try {
       const tools = await discoveryEngine.discoverAll(true);
       res.json({ tools, unavailableServers: discoveryEngine.getUnavailableServers() });

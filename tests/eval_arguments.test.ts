@@ -97,14 +97,14 @@ for (const [id, salida] of buenos) {
   });
 }
 
-const malos: Array<[string, string, string]> = [
+const malos: Array<[string, string, string, boolean?]> = [
   ["cmd", "falta un campo requerido", JSON.stringify({ command: "Get-Process" })],
   ["cmd", "tipo equivocado (timeout_ms texto)", JSON.stringify({ command: "Get-Process", timeout_ms: "mucho" })],
   ["cmd", "comando de Linux prohibido", JSON.stringify({ command: "ps aux | head -n 10", timeout_ms: 30000 })],
   ["cmd", "comando vacío", JSON.stringify({ command: "", timeout_ms: 30000 })],
   ["cmd", "marcador N/A", JSON.stringify({ command: "N/A", timeout_ms: 30000 })],
-  ["cmd", "sintaxis PowerShell inválida", JSON.stringify({ command: "Get-Process | Sort-Object -Property {", timeout_ms: 30000 })],
-  ["cmd", "comando que no existe", JSON.stringify({ command: "Obtener-Procesos-Inventado -Top 10", timeout_ms: 30000 })],
+  ["cmd", "sintaxis PowerShell inválida", JSON.stringify({ command: "Get-Process | Sort-Object -Property {", timeout_ms: 30000 }), true],
+  ["cmd", "comando que no existe", JSON.stringify({ command: "Obtener-Procesos-Inventado -Top 10", timeout_ms: 30000 }), true],
   ["cmd", "no es JSON", "claro, aquí tienes el comando: Get-Process"],
   ["cmd", "salida vacía", ""],
   ["leer", "ruta inventada que no sale de la solicitud", JSON.stringify({ path: INVENTADA })],
@@ -116,8 +116,8 @@ const malos: Array<[string, string, string]> = [
   ["leer", "ruta de otro usuario", JSON.stringify({ path: "C:\\Users\\ana\\Documents\\informe.txt" })],
 ];
 
-for (const [id, motivo, salida] of malos) {
-  test(`arguments: DEBE fallar — ${motivo} (${id})`, async () => {
+for (const [id, motivo, salida, needsPowershell] of malos) {
+  test(`arguments: DEBE fallar — ${motivo} (${id})`, { skip: needsPowershell && process.platform !== "win32" }, async () => {
     const r = await correr(id, salida);
     assert.equal(r.passed, false, `el eval aprobó una salida mala (${motivo}): ${salida}`);
     assert.ok(r.errors.length > 0, "falló sin registrar ningún error");

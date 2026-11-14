@@ -65,6 +65,7 @@ export const linesBlock = (label: string, lines: readonly string[] | undefined, 
 export const join = (parts: (string | null | undefined)[]): string =>
   parts.filter((p): p is string => !!p).join("\n\n");
 
+/** Primera oración de la descripción; `clip` actúa como guarda defensiva para herramientas de servidores MCP externos (fuera de `manifest.ts`). */
 export const shortDesc = (d: string | undefined, fallback: string): string => {
   if (!d) return fallback;
   const first = d.trim().split(/(?<=[.!?])\s/)[0];
