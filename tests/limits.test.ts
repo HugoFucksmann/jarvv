@@ -38,7 +38,7 @@ function stepWith(calls: Partial<Record<CallStatus, number>>): { ctx: TaskContex
 
 test("countStep: ejecución es lo que llegó a la herramienta; intento, todo menos el rechazo del usuario; lo bloqueado no ejecuta", () => {
   const { ctx, stepId } = stepWith({ ok: 2, tool_error: 1, loop_blocked: 2, args_invalid: 1, refs_unresolved: 1, info_missing: 1, tool_rejected: 1, user_rejected: 3 });
-  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 9, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1 });
+  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 9, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1, rejected: 0 });
 });
 
 test("countStep: un denied del servidor y una llamada interrumpida cuentan como ejecutadas", () => {
@@ -159,4 +159,33 @@ test("limitValues: expone todos los topes del catálogo con su valor de BUDGET, 
     assert.equal(values[id as keyof typeof values], BUDGET[id as keyof typeof BUDGET], id);
   }
   assert.deepEqual([...new Set(Object.values(LIMIT_SCOPES))].sort(), ["item", "step", "task"]);
+});
+
+// ───────────────────────── Corte tras rechazos de la verificación ─────────────────────────
+
+test("tope del paso: dos llamadas rechazadas por la verificación fallan el paso con verify_rejected; una sola no", () => {
+  const ctx = newContext("reactive");
+  const stepId = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "paso", route: null, expected: null } }).ids[0];
+  const reject = (i: number): void => {
+    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "research", kind: "read", args: {}, sig: `s${i}`, status: "ok", summary: null, ref: null } }).ids[0];
+    ctx.apply({ op: "update", target: id, value: { verdict: "rejected", reason: "not_accomplished" } });
+  };
+  reject(0);
+  assert.equal(checkStepLimits(ctx, stepId), null, "un rechazo: se permite un reintento");
+  reject(1);
+  assert.deepEqual(checkStepLimits(ctx, stepId), { limit: "maxVerifyRejectionsPerStep", cause: "verify_rejected", askFirst: false });
+});
+
+test("los rechazos de la verificación son por paso", () => {
+  const ctx = newContext("reactive");
+  const add = (instruction: string) => ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction, route: null, expected: null } }).ids[0];
+  const a = add("uno");
+  ctx.apply({ op: "update", target: a, value: { state: "failed" } });
+  const b = add("dos");
+  for (const stepId of [a, b]) {
+    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "research", kind: "read", args: {}, sig: stepId, status: "ok", summary: null, ref: null } }).ids[0];
+    ctx.apply({ op: "update", target: id, value: { verdict: "rejected", reason: "no_usable_data" } });
+  }
+  assert.equal(checkStepLimits(ctx, a), null);
+  assert.equal(checkStepLimits(ctx, b), null);
 });

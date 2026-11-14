@@ -4,7 +4,7 @@
  * `denied` cubre los dos orígenes (Guard y servidor de la herramienta), que el contexto no distingue.
  */
 
-import type { CallStatus, StopReason, TaskState, VerdictReason } from "../types.ts";
+import type { CallKind, CallStatus, StopReason, TaskState, VerdictReason } from "../types.ts";
 
 export const STATUS_NOTES: { readonly [S in CallStatus]: string | null } = {
   ok: null,
@@ -23,9 +23,26 @@ export const STATUS_NOTES: { readonly [S in CallStatus]: string | null } = {
   denied: "The operation was denied; not performed.",
 };
 
+/**
+ * `not_found` en una escritura no es «no se halló lo pedido»: la ruta o la carpeta no existe y NO se escribió nada. Con el texto genérico el generador de la respuesta
+ * final daba por hecho que algo se había hecho o no entendía qué faltaba.
+ */
+const WRITE_NOT_FOUND_NOTE = "The write failed: the folder or path does not exist, so nothing was written. Create the folder first or use a path that exists.";
+
+/** La frase fija de una llamada: la de su `status`, salvo en una escritura con `not_found` (`WRITE_NOT_FOUND_NOTE`). */
+export function statusNoteOf(status: CallStatus, kind: CallKind): string | null {
+  return status === "not_found" && kind === "write" ? WRITE_NOT_FOUND_NOTE : STATUS_NOTES[status];
+}
+
 export const REASON_NOTES: { readonly [R in VerdictReason]: string } = {
   no_usable_data: "The result has no usable data.",
   not_accomplished: "The result does not accomplish what was asked.",
+  // Sondas por herramienta (`tools/probes.ts`): el texto le dice al generador qué corregir.
+  wrong_place: "It was saved in a different place than the one the user asked for. Use the place the user named.",
+  wrong_position: "The text was put in a different position than the step asks (for example appended at the end instead of the start). Rewrite the file with the text where the step says.",
+  wrong_scope: "The search leaves out some of the items that were asked for. Use a broader pattern.",
+  wrong_item: "A default or a different item was used instead of the one the step names (for example another sheet). Name that item in the arguments.",
+  missing_attribute: "The result does not show the property needed to answer (such as dates or sizes). Use a tool that returns it.",
 };
 
 /** Fallos que muestran lo que se quiso ejecutar (herramienta y `args`) además de la frase (sección 8). */

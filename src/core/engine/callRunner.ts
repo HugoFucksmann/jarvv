@@ -19,8 +19,9 @@
  */
 
 import { BUDGET } from "../budget.ts";
-import type { CallKind, CallStatus, JsonObject, Op, TaskContext } from "../ctx/index.ts";
+import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason } from "../ctx/index.ts";
 import { factLines, selectFacts } from "../memory.ts";
+import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
 import { threadMemoryLines } from "./thread.ts";
 import { collectSources, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
@@ -79,7 +80,7 @@ const registered = (
   callId: string,
   status: CallStatus,
   verdict: "approved" | "rejected" | null = null,
-  reason: "no_usable_data" | "not_accomplished" | null = null,
+  reason: VerdictReason | null = null,
   waiting?: { readonly prompt?: string; readonly pid?: string },
 ): CallOutcome => ({
   kind: "registered",
@@ -362,8 +363,11 @@ ${stepText}`, deps.memory?.() ?? []);
   // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
   // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
   const auto = deps.autoMode();
+  // Aprobación por niveles (`policy/tiers.ts`, opt-in `approvalTiers`): reemplaza al `autoMode` binario en las escrituras. Una herramienta no catalogada es roja.
+  const tiered = deps.approvalTiers?.() === true;
+  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment) : "red") : null;
   const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
-  if (listed !== null && auto && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
+  if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
   const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources: collectSources(ctx, [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])]), environment });
@@ -376,7 +380,10 @@ ${stepText}`, deps.memory?.() ?? []);
   // La respuesta del usuario a un proceso, enviada tal cual a ese proceso, ya la escribió él: no se le pide aprobarla ni la revisa D3 (RC-20). No vale con una
   // ruta sensible ni con una coincidencia de la lista negra, que siguen su camino.
   const userAuthored = guard.mandatory !== true && listed === null && inputAnswersProcess(ctx, stepId, tool.name, resolved, recorded.input);
-  const askUser = !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto));
+  // Por niveles: pide el usuario lo obligatorio de Guard, lo rojo y toda coincidencia de la lista negra; lo verde y lo amarillo no.
+  const askUser = tiered
+    ? !userAuthored && (guard.mandatory === true || tier === "red" || listed !== null)
+    : !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto));
 
   // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
   if (askUser) {
@@ -396,17 +403,17 @@ ${stepText}`, deps.memory?.() ?? []);
   // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
   // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
   // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  if (kind === "write" && !askUser && !userAuthored) {
+  if (kind === "write" && !askUser && !userAuthored && tier !== "green") {
     const reviewView = ctx.view.forReview(reviewViewOptions());
     const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal), 0);
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
     // Nivel 2 de la lista negra (solo llega aquí en automático): umbral estricto. Si el comando habría pasado con el umbral normal y solo lo frena la
     // exigencia extra, no es un argumento inválido: se rechaza como `tool_rejected` (no cuenta contra el tope de rechazos de D3) y el modelo prueba otro camino.
-    const strict = listed?.level === "sensitive";
+    const strict = listed?.level === "sensitive" || tier === "yellow";
     const reviewed = reviewOutcome(review.value, strict ? BUDGET.sensitiveApprove : undefined);
     if (reviewed !== "approved" && strict && reviewOutcome(review.value) === "approved") {
-      const note = `${listed?.reason ?? "Sensitive command."} The safety review was not confident enough to run it automatically. Use a safer command or a different approach.`;
+      const note = `${listed?.reason ?? "This change is not trivially reversible."} The safety review was not confident enough to run it automatically. Use a safer command or a different approach.`;
       return reject("tool_rejected", summaryText(note));
     }
     if (reviewed !== "approved") return reject(reviewed, reviewed === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null);

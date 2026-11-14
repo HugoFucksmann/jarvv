@@ -17,9 +17,13 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | DN-3.5 | Caché | ⚠ B (por tarea) ✅ en `memoizeDecision`; C (LRU entre tareas) ⏸ | `engine/env.ts` |
 | DN-3.6 | Quitar datos volátiles de las vistas de decisión | ⏸ (con los modelos sin visión las decisiones cuestan 20 a 130 ms: bajó la prioridad) | — |
 | DN-3.7 | Orden de las opciones de D2 | ✅ orden del catálogo | `tools/manifest.ts` (`sortByCatalog`) |
-| DN-3.8 | Zona de duda en umbrales | ⏸ | — |
+| DN-3.8 | Zona de duda en umbrales | ⚠ «dudar = rechazar» ✅ en las sondas de herramienta (umbral 0,6, tope de 2 rechazos); zona de duda general ⏸ | `engine/probes.ts` |
+| DN-3.9 | Sondas de verificación por herramienta (D4): ubicación, posición, alcance, ítem, atributo | ✅ 2026-11-14. 52 casos de producción: 0 buenas rechazadas, 30/34 malas rechazadas; D4 184: 149 → 153. Residuo: 4 malas se escapan (ubicación 0,64, alcance 0,71, ítem 0,99, atributo con compuerta) | `tools/probes.ts`, `tools/manifest.ts`, `engine/probes.ts`, `engine/verify.ts` |
+| DN-3.10 | Aviso por código de lo escrito en el lugar equivocado | ✅ `renderPlaceNote` (no mueve ni borra) | `render/final.ts`, `engine/finalize.ts` |
 
-**Mecanismo propuesto por el usuario para el reintento (sin implementar):** tras el segundo rechazo de D4 en un mismo paso, cortar el paso y volver a `pending` → D1 (D0 corre solo al empezar la tarea). Hoy un paso no tiene tope por rechazos de D4: solo lo acotan 6 ejecuciones o 10 intentos. Sería una fila nueva en `STEP_RULES` (`engine/limits.ts`) con causa propia.
+**Mecanismo del usuario para el reintento: ✅ implementado (2026-11-14).** Tras el segundo rechazo de D4 en un mismo paso, el paso falla con `verify_rejected` y la recuperación del modo vuelve a `pending` → D1 (D0 corre solo al empezar la tarea). Es `maxVerifyRejectionsPerStep` = 2, una fila nueva de `STEP_RULES` (`engine/limits.ts`); no quita ninguna opción. Antes un paso solo lo acotaban 6 ejecuciones o 10 intentos. Cambia el comportamiento de un fallo pasajero repetido: el segundo `tool_error` falla el paso sin un tercer intento (un reintento por paso).
+
+**Rutas (DN-3.1 y 3.2):** siguen sin implementarse como se proponían; el mecanismo anterior de corte las reemplaza en la práctica.
 
 **Evidencia de las trazas (2026-11-14):** en las 38 trazas con detalle hay 6 rechazos de D4 y ninguno tuvo después una llamada aprobada. De 22 tareas con `loop_blocked` en el índice, 9 completaron (8 con un solo bloqueo): no se puede afirmar que cortar al primer bloqueo sea seguro.
 

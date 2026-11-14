@@ -27,7 +27,7 @@ import type { EngineDeps } from "../contracts.ts";
 import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
-import { confirmCompletion } from "./completion.ts";
+import { COMPLETION_INCOMPLETE_BELOW, confirmCompletion } from "./completion.ts";
 import { escalationsExceeded, itemFailuresReached, replansExhausted, stepsExhausted } from "./limits.ts";
 import type { Closing } from "./finalize.ts";
 import { classifyRequest, detectContinuation } from "./classify.ts";
@@ -68,6 +68,9 @@ export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: Engi
   }
 }
 
+/** Reaperturas de la lista por tarea cuando Decisión 5 dice con seguridad que falta algo. */
+const MAX_REOPENS = 2;
+
 async function runReactive(env: EngineEnv): Promise<Closing> {
   const { ctx, runtime } = env;
   // La lista la mantiene el código (ver `pendingList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem,
@@ -77,6 +80,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   const settled: string[] = []; // ítems cumplidos o abandonados: el modelo no los vuelve a agregar
   let abandoned = 0;
   let headFailures = 0; // pasos fallidos seguidos sobre el ítem de adelante
+  let reopens = 0; // veces que Decisión 5 reabrió la lista tras vaciarla `reconcileList`
 
   // Cierre con la lista vacía: abandonar un ítem deja la tarea incompleta; si no, decide `canFinish()`.
   const finishEmpty = (closure: "completed" | "no_alternatives" | null): Closing =>
@@ -102,11 +106,25 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
 
     if (askModel) {
       const previous = pending;
+      // Lo que Decisión 5 dijo justo antes de esta consulta (si fue ella la que la provocó); se consume acá para que no valga en una consulta posterior.
+      const completionBefore = env.completion.last;
+      env.completion.last = null;
       const next = await generatePending(env, previous);
       switch (next.kind) {
-        case "next":
+        case "next": {
           pending = reconcileList(next.list, previous, settled);
+          // Decisión 5 dijo con seguridad que falta algo y pendientes lo propone, pero `reconcileList` lo descartó por parecerse a un ítem ya cumplido (p. ej. un ítem
+          // compuesto «crear la carpeta y luego el archivo» del que solo se hizo la primera parte): cerrar acá sería dar por hecho lo que no se hizo. Se ejecutan los ítems
+          // propuestos que no repiten el texto exacto de uno ya cumplido, como máximo `MAX_REOPENS` veces por tarea.
+          if (pending.length === 0 && next.list.length > 0 && reopens < MAX_REOPENS && completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW) {
+            const fresh = next.list.filter((item) => !settled.includes(item));
+            if (fresh.length > 0) {
+              pending = fresh;
+              reopens++;
+            }
+          }
           break;
+        }
         case "done":
           // El modelo dice que no queda nada; si el código tiene ítems detrás del que falló, siguen.
           pending = reconcileList([], previous, settled);

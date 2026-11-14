@@ -12,13 +12,15 @@
  * - El veredicto y la razón se escriben juntos en un único `apply` (regla 4).
  */
 
-import type { CallVerdict, VerdictReason } from "../ctx/index.ts";
+import type { Call, CallVerdict, VerdictReason } from "../ctx/index.ts";
 import { VERIFIABLE_CALL_STATUSES } from "../ctx/index.ts";
 import { verifyInput } from "./adapters.ts";
 import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";
 import type { ArgsReview, ReviewDecision, VerifyCheckKey } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
+import { codeAnswersOk, postconditionOf } from "./postcondition.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
+import { runProbes } from "./probes.ts";
 
 export type VerifyOutcome =
   | { readonly kind: "verified"; readonly verdict: CallVerdict; readonly reason: VerdictReason | null }
@@ -66,10 +68,30 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
     return { kind: "verified", verdict, reason };
   };
 
+  // Un veredicto base aprobado pasa por las sondas de la herramienta (`tools/probes.ts`): si una falla, la llamada se rechaza con su motivo.
+  const withProbes = async (verdict: CallVerdict, reason: VerdictReason | null): Promise<VerifyOutcome> => {
+    if (verdict !== "approved") return record(verdict, reason);
+    const probed = await runProbes(env, call);
+    if (probed.kind === "cancelled") return { kind: "cancelled" };
+    if (probed.kind === "close") return { kind: "close", stopReason: probed.stopReason };
+    return probed.kind === "fail" ? record("rejected", probed.reason) : record("approved", null);
+  };
+
   // D3: sin consulta al modelo.
   if (call.status === "tool_error" || call.status === "exception") return record("rejected", "no_usable_data");
+  // Sin datos (`no_data`: la herramienta dice que no hubo resultado; en las de lectura, un resultado vacío es un error por política): tampoco hace falta preguntar.
+  if (call.status === "no_data") return record("rejected", "no_usable_data");
 
-  const input = verifyInput(ctx.view.forVerify(callId));
+  // N5: lo que el código puede comprobar no se le pregunta al modelo. Una escritura del catálogo se verifica en el disco: cumplida, se aprueba; no cumplida, se rechaza.
+  if (call.status === "ok" && call.kind === "write") {
+    const post = postconditionOf(call.tool, call.args);
+    if (post === "unmet") return record("rejected", "not_accomplished");
+    if (post === "met") return withProbes("approved", null);
+  }
+
+  const view = verifyInput(ctx.view.forVerify(callId));
+  // Una lectura determinista con contenido (listado, archivo, procesos) ya tiene `ok` resuelto: el modelo solo juzga si cumple lo pedido.
+  const input = codeAnswersOk(call.tool, call.status, call.summary) ? { ...view, known: { ok: 1 } } : view;
   const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), 0);
 
   if (!query.ok) {
@@ -80,5 +102,5 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
   if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
 
   const { verdict, reason } = verdictOf(query.value.answers);
-  return record(verdict, reason);
+  return withProbes(verdict, reason);
 }

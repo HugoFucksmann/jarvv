@@ -66,7 +66,7 @@ export type CallVerdict = (typeof CALL_VERDICTS)[number];
  * Razones de rechazo del verificador (5.3, lista cerrada en 10.1). El contexto guarda solo la clave; el mensaje fijo de
  * cada razón lo arman las vistas. Si se dan ambas, gana `no_usable_data`.
  */
-export const VERDICT_REASONS = ["no_usable_data", "not_accomplished"] as const;
+export const VERDICT_REASONS = ["no_usable_data", "not_accomplished", "wrong_place", "wrong_position", "wrong_scope", "wrong_item", "missing_attribute"] as const;
 export type VerdictReason = (typeof VERDICT_REASONS)[number];
 
 export const ERROR_KINDS = ["service_unavailable"] as const;

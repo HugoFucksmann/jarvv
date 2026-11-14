@@ -9,7 +9,7 @@
 import type { TaskContext } from "../ctx/index.ts";
 import { captureDecision, captureLlm } from "./capture.ts";
 import { NULL_SINK, type CaptureSink } from "../trace/sink.ts";
-import type { ContinuationInput, EngineDeps, EngineLLM, FirstQueryInput, IActionDecision, PreviousTask } from "../contracts.ts";
+import type { ContinuationInput, EngineDeps, EngineLLM, FirstQueryInput, IActionDecision, PreviousTask, ProbeQuery } from "../contracts.ts";
 import type { TaskRuntime } from "./runtime.ts";
 
 export interface EngineEnv {
@@ -23,6 +23,8 @@ export interface EngineEnv {
   readonly sink: CaptureSink;
   /** La tarea anterior si el pedido la continúa (`detectContinuation`); la fija `runReactive` al empezar y la leen `pending`, los argumentos y la respuesta final. */
   readonly follow: { thread: PreviousTask | null };
+  /** Lo último que dijo Decisión 5 (`confirmCompletion`): la probabilidad de `request_complete`, o `null` si no respondió. */
+  readonly completion: { last: number | null };
 }
 
 /**
@@ -51,6 +53,7 @@ export function memoizeDecision(decision: IActionDecision): IActionDecision {
     reviewArgs: memo("review", (i, s) => decision.reviewArgs(i, s)),
     verifyResult: memo("verify", (i, s) => decision.verifyResult(i, s)),
     checkCompletion: memo("completion", (i, s) => decision.checkCompletion(i, s)),
+    ...(decision.probe === undefined ? {} : { probe: memo("probe", (i: ProbeQuery, s?: AbortSignal) => decision.probe!(i, s)) }),
     ...(decision.continuation === undefined ? {} : { continuation: memo("continuation", (i: ContinuationInput, s?: AbortSignal) => decision.continuation!(i, s)) }),
     ...(decision.firstQuery === undefined ? {} : { firstQuery: memo("first_query", (i: FirstQueryInput, s?: AbortSignal) => decision.firstQuery!(i, s)) }),
   };
@@ -65,6 +68,7 @@ export function createEngineEnv(ctx: TaskContext, runtime: TaskRuntime, deps: En
     deps,
     sink,
     follow: { thread: null },
+    completion: { last: null },
     decision: memoizeDecision(deps.sink ? captureDecision(deps.decision, sink, version) : deps.decision),
     llm: deps.sink ? captureLlm(deps.llm, sink, version) : deps.llm,
   };

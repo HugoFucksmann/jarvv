@@ -18,7 +18,7 @@ import {
 import { parseId } from "../ids.ts";
 import { currentOf } from "../query.ts";
 import type { Call, ContextData, Ref, Step } from "../types.ts";
-import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STATUS_NOTES, STOP_REASON_NOTES } from "./messages.ts";
+import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, statusNoteOf } from "./messages.ts";
 import type { CallView, EffectView, FactView, RefView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
 
 export function refToView(ref: Ref): RefView {
@@ -56,7 +56,7 @@ export function lineViewOf(call: Call): CallView {
     status: call.status,
     verdict: call.verdict,
     reason: call.reason,
-    statusNote: STATUS_NOTES[call.status],
+    statusNote: statusNoteOf(call.status, call.kind),
     reasonNote: call.reason === null ? null : REASON_NOTES[call.reason],
     failed: isFailure(call),
     args: null,

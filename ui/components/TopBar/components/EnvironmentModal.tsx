@@ -45,6 +45,10 @@ const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> 
     label: "Rechazos de revisión",
     desc: "Argumentos inválidos rechazados por Decisión 3 permitidos antes de fallar.",
   },
+  maxVerifyRejectionsPerStep: {
+    label: "Rechazos de verificación",
+    desc: "Resultados rechazados por Decisión 4 permitidos en un paso antes de que el paso falle y se reescriba la tarea.",
+  },
   maxUserRejectionsPerStep: {
     label: "Rechazos del usuario",
     desc: "Veces que el usuario puede rechazar una operación en un paso antes de que el paso falle.",

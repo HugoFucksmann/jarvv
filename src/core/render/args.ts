@@ -91,6 +91,9 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
   // La tarea es la instrucción del paso.
   const taskText = view.step?.instruction;
   const task = taskText === null || taskText === undefined ? null : `TASK: ${clipMarked(oneLine(taskText), caps.step)}`;
+  // La solicitud completa (solo reactivo): el paso es el primer pendiente y a veces perdió el valor exacto que el usuario dio. Si es igual al paso, no se repite.
+  const request =
+    view.request === null || view.request === undefined || oneLine(view.request) === oneLine(taskText ?? "") ? null : `REQUEST: ${clipMarked(oneLine(view.request), caps.routeRequest)}`;
 
   const sections = [
     stateBlock(view.env, caps),
@@ -102,6 +105,7 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
     obsBlock("EFFECTS", effects),
     obsBlock("FAIL", failureLines(view.stepFailures, caps)),
     obsBlock("LAST ERROR", view.lastError === null ? [] : [lastErrorEntry(view.lastError, caps)]),
+    request,
     task,
   ];
 

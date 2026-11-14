@@ -212,6 +212,8 @@ export interface StepDoneView {
  * refs ya mostradas en otra sección no se repiten en `refs`.
  */
 export interface ArgsView {
+  /** Solo en reactivo: la solicitud completa del usuario. El primer pendiente puede perder lo que dijo sobre dónde o cómo hacerlo («ejecutá en la terminal: …», una ruta). */
+  readonly request: string | null;
   /** Solo en reactivo: llamadas aprobadas como línea `L`, sin las que ya muestran `effects` o `lastReads`. */
   readonly done: readonly CallView[];
   /** El paso actual. */

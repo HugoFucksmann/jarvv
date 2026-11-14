@@ -269,6 +269,7 @@ export interface EngineLimits {
   maxNotAccomplishedPerRoute: number;
   maxRepeatsPerStep: number;
   maxReviewRejectionsPerStep: number;
+  maxVerifyRejectionsPerStep: number;
   maxUserRejectionsPerStep: number;
   maxQuestionsPerStep: number;
 }

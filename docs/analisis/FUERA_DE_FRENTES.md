@@ -11,8 +11,8 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | 1. Cadena que produce los bucles | ⏸. La causa de las trazas del 12 de noviembre (`pending` perdía «en la terminal») está atenuada por D0 «una acción». Sigue abierto `list_directory` con `depth: 0` («Directorio vacío.»: lo devuelve el servidor de Desktop Commander, no está en nuestro código) |
 | 2. Regla de `shell` en argumentos | ✅ (DN-2.3) |
 | 3. Información desactualizada presentada como actual | ⏸ (visto otra vez el 14/11 con «Gemini 4 Carbon») |
-| 4. D5 cierra tareas incompletas | ⏸ |
-| 4a. D3 aprueba rutas inventadas; el pre-chequeo solo mira lecturas | ⏸ (el punto de seguridad más claro que queda) |
+| 4. D5 cierra tareas incompletas | ⏸ (la verificación por código de las escrituras reduce el caso de escrituras, no el de lecturas) |
+| 4a. D3 aprueba rutas inventadas; el pre-chequeo solo mira lecturas | ✅ el pre-chequeo rechaza el destino de una escritura fuera de las carpetas del usuario que no sale de ningún lado (`engine/precheck.ts`). En los datasets de D3: recall de llamadas malas 41 % → 47 %, 0 falsos rechazos. D3 sigue sin ser una barrera contra rutas inventadas: lo es el código |
 | 4b. Ninguna pregunta de hechos abre un paso | ⚠ D0 «una acción» las manda a búsqueda; DN-2.5 sigue apagada |
 | 5. Relleno de la respuesta final | ✅ por código (`finalClean.ts`) |
 | 6. Laboratorio (thinking `auto`, carpetas vacías, latencias, sin etapa D5, dos corridas a la vez) | ⚠ etapa `d0` agregada; el resto ⏸ |
@@ -56,7 +56,7 @@ Medido con 12 preguntas («cuál es el último modelo de Claude», «quién gan�
 
 ## 5. La respuesta final abre con una frase de relleno
 
-«No changes were made to the system» aparece al principio de respuestas a simples preguntas. La causa es la regla «Clearly report any changes … or specify that no changes were made» junto con la línea `EFFECTS: none`. Ver DN-2.10.
+«No changes were made to the system» aparece al principio de respuestas a simples preguntas. La causa es la regla «Clearly report any changes … or specify that no changes were made» junto con la línea `EFFECTS: none`. Ver DN-2.10. **Estado: ✅** la frase la escribe el modelo (no el código); `stripNoChangesFiller` la quita por código, y con efectos también (es falsa). El `not_found` de una escritura ya no sugiere «no se halló» sino «no se escribió nada».
 
 ## 6. Laboratorio de evaluación
 

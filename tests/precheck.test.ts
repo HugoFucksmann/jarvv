@@ -50,8 +50,9 @@ test("si hay resultados guardados aparte (fuentes incompletas) no se rechaza por
   assert.equal(await precheckCall(input({ tool: "read_file", args: { path: "C:\\Datos\\otro.txt" }, sources }), noAnalyzer), null);
 });
 
-test("una escritura solo se comprueba en sus rutas de origen (source), no en el destino", async () => {
-  assert.equal(await precheckCall(input({ tool: "write_file", kind: "write", args: { path: "C:\\Nuevo\\resumen.txt", content: "x" } }), noAnalyzer), null);
+test("una escritura comprueba sus rutas de origen (source) y un destino fuera de las carpetas del usuario que no sale de ningún lado", async () => {
+  assert.equal((await precheckCall(input({ tool: "write_file", kind: "write", args: { path: "C:\\Nuevo\\resumen.txt", content: "x" } }), noAnalyzer))?.review, "args_invalid");
+  assert.equal(await precheckCall(input({ tool: "write_file", kind: "write", args: { path: "C:\\Users\\Ana\\Documents\\resumen.txt", content: "x" } }), noAnalyzer), null);
   assert.equal((await precheckCall(input({ tool: "move_file", kind: "write", args: { source: "C:\\Fantasma\\a.txt", destination: "C:\\Nuevo\\a.txt" } }), noAnalyzer))?.review, "args_invalid");
 });
 
@@ -80,4 +81,60 @@ test("collectSources: solo lo ejecutado bien da origen, y una ref ilegible vuelv
   assert.ok(sources.text.includes("informe_ventas.txt"), "los args de una llamada ok son fuente");
   assert.ok(!sources.text.includes("no_existe.txt"), "los args de un intento fallido no lo son");
   assert.equal(sources.complete, false, "la ref del fixture no existe en disco");
+});
+
+// ───────────────────────── Destino de una escritura con origen ─────────────────────────
+
+test("escritura: un destino fuera de las carpetas del usuario que no sale de ningún lado se rechaza; con origen o dentro de ENV, no", async () => {
+  const write = (args: Record<string, unknown>, tool = "create_directory", request = "creá la carpeta backup") =>
+    precheckCall(input({ tool, kind: "write", args, sources: { text: normalizeText(request), complete: true } }), noAnalyzer);
+
+  // Inventados: no están en el pedido ni en ENV.
+  for (const path of ["D:\\proyectos\\facturacion\\backup", "E:\\datos\\reportes\\Reportes", "F:\\trabajo\\clientes"]) {
+    assert.equal((await write({ path }))?.review, "args_invalid", path);
+  }
+  assert.equal((await write({ source: "C:\\Users\\Ana\\Documents\\a.txt", destination: "D:\\archivo\\a.txt" }, "move_file", "mové C:\\Users\\Ana\\Documents\\a.txt"))?.review, "args_invalid", "destino de move_file");
+
+  // Con origen o dentro de las carpetas del usuario: se aceptan.
+  assert.equal(await write({ path: "C:\\Users\\Ana\\Documents\\backup" }), null, "dentro de ENV");
+  assert.equal(await write({ path: "D:\\proyectos\\backup" }, "create_directory", "creá la carpeta D:\\proyectos\\backup"), null, "la ruta está en el pedido");
+  assert.equal(await write({ path: "notas.txt", content: "x" }, "write_file", "guardá en notas.txt"), null, "una ruta relativa no se juzga");
+  assert.equal(await write({ source: "C:\\Users\\Ana\\Documents\\a.txt", destination: "C:\\Users\\Ana\\Documents\\b.txt" }, "move_file", "renombrá a.txt"), null);
+});
+
+test("escritura: la comprobación del destino se omite si hay resultados guardados aparte (fuentes incompletas)", async () => {
+  const finding = await precheckCall(input({ tool: "create_directory", kind: "write", args: { path: "D:\\x\\y" }, sources: { text: "x", complete: false } }), noAnalyzer);
+  assert.equal(finding, null);
+});
+
+// ───────────────────────── La carpeta que contiene al archivo tiene que existir ─────────────────────────
+
+import fsForParent from "node:fs";
+import osForParent from "node:os";
+import pathForParent from "node:path";
+
+test("write_file y move_file: si la carpeta contenedora no existe se rechaza con una razón útil; create_directory no entra", async () => {
+  const home = fsForParent.mkdtempSync(pathForParent.join(osForParent.tmpdir(), "jarvis-parent-"));
+  try {
+    fsForParent.mkdirSync(pathForParent.join(home, "existe"));
+    const env = { platform: "windows" as const, home };
+    const run = (tool: string, args: Record<string, unknown>) =>
+      precheckCall(input({ tool, kind: "write", args, environment: env, sources: { text: normalizeText(JSON.stringify(args)), complete: true } }), noAnalyzer);
+
+    const missing = await run("write_file", { path: pathForParent.join(home, "jarvis", "nota.md"), content: "x" });
+    assert.equal(missing?.review, "args_invalid");
+    assert.match(missing?.reason ?? "", /does not exist.*create the folder first/i);
+    assert.equal(await run("write_file", { path: pathForParent.join(home, "existe", "nota.md"), content: "x" }), null, "la carpeta existe");
+    assert.equal((await run("move_file", { source: pathForParent.join(home, "existe", "a.txt"), destination: pathForParent.join(home, "nueva", "a.txt") }))?.review, "args_invalid");
+    assert.equal(await run("create_directory", { path: pathForParent.join(home, "a", "b", "c") }), null, "create_directory crea las intermedias");
+    assert.equal(await run("write_file", { path: "nota.md", content: "x" }), null, "una ruta relativa no se juzga");
+  } finally {
+    fsForParent.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("la comprobación de la carpeta contenedora se omite si la carpeta de inicio del entorno no existe en esta PC (entornos inventados)", async () => {
+  const env = { platform: "windows" as const, home: pathForParent.join(osForParent.tmpdir(), "no-existe-jarvis-home") };
+  const args = { path: pathForParent.join(env.home, "x", "nota.md"), content: "x" };
+  assert.equal(await precheckCall(input({ tool: "write_file", kind: "write", args, environment: env, sources: { text: normalizeText(args.path), complete: true } }), noAnalyzer), null);
 });

@@ -69,6 +69,11 @@ export interface JarvisConfig {
    */
   autoMode: boolean;
   /**
+   * Aprobación por niveles (`policy/tiers.ts`): verde sin confirmación ni revisión, amarillo con Decisión 3 estricta, rojo siempre confirma el usuario. Si está encendida
+   * reemplaza a `autoMode` en las escrituras. Opt-in: por defecto apagada (el comportamiento de `autoMode` no cambia).
+   */
+  approvalTiers: boolean;
+  /**
    * `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada.
    * Empieza encendido: en la evaluación (scripts/validate/web_eval/RESULTADOS.md) sin el modelo la tool responde algo en 4 de 5 preguntas sin respuesta; con él, en 1 de 5.
    */
@@ -150,6 +155,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   retentionDays: 30,
   blacklist: [],
   autoMode: false,
+  approvalTiers: false,
   webSearchUseJudge: true,
   voiceEnabled: false,
   telegramVoice: false,
@@ -258,6 +264,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     retentionDays: nonNegativeInt(r.retentionDays, d.retentionDays),
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
+    approvalTiers: typeof r.approvalTiers === "boolean" ? r.approvalTiers : d.approvalTiers,
     webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
     voiceEnabled: typeof r.voiceEnabled === "boolean" ? r.voiceEnabled : d.voiceEnabled,
     telegramVoice: typeof r.telegramVoice === "boolean" ? r.telegramVoice : d.telegramVoice,

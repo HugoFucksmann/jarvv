@@ -16,7 +16,7 @@
 
 import type { ResultEntry, StopReason } from "../ctx/index.ts";
 import { terminalStateFor } from "../ctx/index.ts";
-import { ContextOverflowError, renderFallback, renderFinal, renderStatusNote } from "../render/index.ts";
+import { ContextOverflowError, renderFallback, renderFinal, renderPlaceNote, renderStatusNote } from "../render/index.ts";
 import { finalRenderOptions, finalViewOptions, windowOptions } from "./adapters.ts";
 import { stripNoChangesFiller } from "./finalClean.ts";
 import type { EngineEnv } from "./env.ts";
@@ -42,7 +42,15 @@ export async function finalize(env: EngineEnv, closing: Closing): Promise<void> 
 
 async function answer(env: EngineEnv): Promise<ResultEntry> {
   const { ctx, runtime } = env;
-  const fallback = (): ResultEntry => ({ text: renderFallback(ctx.view.forFallback(windowOptions())).text, origin: "fallback" });
+  // Lo que quedó escrito en un lugar rechazado por la sonda de ubicación se avisa por código, con o sin modelo.
+  const placeNote = (): string | null => renderPlaceNote(ctx.view.forFallback(windowOptions()), ctx.task.request);
+  const withPlace = (text: string): string => {
+    const note = placeNote();
+    return note === null ? text : `${text}
+
+${note}`;
+  };
+  const fallback = (): ResultEntry => ({ text: withPlace(renderFallback(ctx.view.forFallback(windowOptions())).text), origin: "fallback" });
 
   if (ctx.task.state === "cancelled" || isLlmDown(ctx)) return fallback();
 
@@ -67,5 +75,5 @@ async function answer(env: EngineEnv): Promise<ResultEntry> {
   const note = renderStatusNote(fallbackView, failed);
   // DN-2.10: sin cambios en la computadora, se quita la frase de relleno «no se realizaron cambios…» (salvo que el pedido pregunte por cambios).
   const response = stripNoChangesFiller(query.value.response, ctx.task.request, fallbackView.effects.length > 0);
-  return { text: note === null ? response : `${note}\n\n${response}`, origin: "model" };
+  return { text: withPlace(note === null ? response : `${note}\n\n${response}`), origin: "model" };
 }

@@ -13,13 +13,13 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | DN-2.1 | Sin `Last result` en D1 y D2 | ✅ | `models/prompts.ts` (`frameLines`) |
 | DN-2.2 | Sin `Previous approved calls` en D4 | ✅ (`forVerify` y `verifyInput` lo siguen calculando) | `models/prompts.ts` (`buildResultVerification`) |
 | DN-2.3 | Reglas de comando solo si la herramienta tiene `command` | ✅ (corrige el `shell` inválido en `list_directory`) | `models/prompts.ts` (`ARGUMENTS_VIEW.buildSystemPrompt`) |
-| DN-2.4 | Solicitud original en argumentos | ⏸ D0 «una acción» ya entrega el pedido literal al paso; el resto sin medir | — |
+| DN-2.4 | Solicitud original en argumentos | ✅ línea `REQUEST:` en la vista de argumentos (solo reactivo, salvo que sea igual al paso). Datasets de argumentos del laboratorio, 3 repeticiones: 309/345 → 323/345 (90,3 → 93,6 %), ningún dataset empeoró (21 corridas mejores, 7 peores; medido junto con el cambio del pre-chequeo) | `render/args.ts`, `ctx/views/args.ts` |
 | DN-2.5 | `pending` busca ante preguntas de hechos | ⚠ implementada pero **apagada** (`PENDING_FACTS_LOOKUP = false`), esperando autorización. Con D0, esas preguntas ya van a búsqueda por la ruta de una acción | `models/prompts.ts` |
 | DN-2.6 | Formato de lo hecho en `pending` y D5 | ❌ cerrada: no mejoraba | — |
 | DN-2.7 | Estructura `signals` + `data` + `note` | ⏸ | — |
 | DN-2.8 | Secciones por herramienta | ⏸ (la parte de reglas de comando está cubierta por DN-2.3) | — |
 | DN-2.9 | Topes al contexto real | ⏸ depende de cómo se arranca Ollama (`OLLAMA_CONTEXT_LENGTH=8192`; `d3` usa 4096) | `jarvis-config.json` |
-| DN-2.10 | Idioma y relleno de la respuesta final | ⚠ relleno ✅ por código (`engine/finalClean.ts`). Idioma ⏸ (lo prueba el usuario) | `engine/finalClean.ts`, `engine/finalize.ts` |
+| DN-2.10 | Idioma y relleno de la respuesta final | ⚠ relleno ✅ por código (`engine/finalClean.ts`, también con efectos). `not_found` de escrituras con texto propio ✅. Idioma ⏸ (lo prueba el usuario) | `engine/finalClean.ts`, `engine/finalize.ts` |
 
 **Medido en esta etapa (2026-11-14)**
 - **Relleno «No se realizaron cambios…»:** cambiar la regla del prompt lo bajó de 77 a 10 de 98 respuestas pero también bajó el acierto de `final` (−3, luego −6 y −8 puntos en los datasets gemai, dos corridas). Se descartó (variante `eval/variants/ctx/ctx_final_nofiller.ts`, conservada como evidencia) y se resolvió quitando la frase por código de la respuesta ya generada.

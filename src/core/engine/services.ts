@@ -24,6 +24,8 @@ export interface EngineServices {
   /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
   readonly environment: () => Promise<UserEnvironment>;
   readonly autoMode: () => boolean;
+  /** Aprobación por niveles (`approvalTiers` de la configuración, leída en cada llamada). */
+  readonly approvalTiers?: () => boolean;
   /** Hechos del usuario de `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
   readonly memory?: () => readonly MemoryFact[];
 }
@@ -66,6 +68,7 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     blacklist: compileBlacklist(config.blacklist),
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
+    approvalTiers: () => getConfig().approvalTiers,
     memory: createMemoryReader(path.join(path.dirname(refsDir), "memory.json")),
   };
 }

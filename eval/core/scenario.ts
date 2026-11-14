@@ -47,6 +47,7 @@ import {
 } from "../../src/core/models/stageRequests.ts";
 import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
 import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
+import { codeAnswersOk } from "../../src/core/engine/postcondition.ts";
 import type { CommandAnalyzer, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
 import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import type { MCPTool } from "../../src/core/types.ts";
@@ -395,6 +396,9 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
       const id = callIds[at.call ?? callIds.length - 1];
       if (id === undefined) throw new Error("etapa 'result_verification': el escenario no tiene la llamada a evaluar (scenario.calls / at.call).");
       const input = verifyInput(ctx.view.forVerify(id));
+      // Como producción (`verifyCall`): en una lectura determinista con contenido, `ok` lo responde el código y no se le pregunta al modelo.
+      const evaluated = ctx.find("calls", { id })[0];
+      const known = evaluated !== undefined && codeAnswersOk(evaluated.tool, evaluated.status, evaluated.summary) ? { ok: 1 } : undefined;
       // En reactivo el contexto exige `expected: null` en el paso (validate.ts): el `expected` del escenario se inyecta aquí, solo en eval.
       const steps = sc.steps ?? [];
       const ci = at.call ?? callIds.length - 1;
@@ -403,6 +407,7 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
       return decision(
         D.buildResultVerification({
           ...input,
+          ...(known === undefined ? {} : { known }),
           criterion: expected === null ? input.criterion : { ...input.criterion, expected },
           request: at.lastItem ? sc.request : null,
         }),

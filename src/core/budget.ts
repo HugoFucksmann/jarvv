@@ -50,6 +50,8 @@ export const BUDGET = {
   maxRepeatsPerStep: 2,
   /** Llamadas rechazadas por la revisión (`args_invalid`) que fallan el paso: 2 = un solo reintento. */
   maxReviewRejectionsPerStep: 2,
+  /** Llamadas rechazadas por la verificación (Decisión 4, `verdict = rejected`) que fallan el paso: 2 = un solo reintento. Tras eso la recuperación del modo reescribe el ítem (reactivo) o replanifica (deliberativo). */
+  maxVerifyRejectionsPerStep: 2,
   /** Rechazos del usuario (`user_rejected`) que fallan el paso: 2 = el usuario ya dijo que no dos veces; no se le vuelve a pedir lo mismo. No cuentan para el tope de llamadas. */
   maxUserRejectionsPerStep: 2,
   /**

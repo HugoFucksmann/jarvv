@@ -71,6 +71,7 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
   const lastError = lastErrorOf(data.calls, options.tool, new Set(parts.failures.map((c) => c.id)));
 
   return {
+    request: data.task.mode === "reactive" ? data.task.request : null,
     done: parts.done.map(lineViewOf),
     step: parts.step === null ? null : stepViewOf(parts.step),
     stepsDone: parts.stepsDone,

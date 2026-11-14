@@ -79,6 +79,25 @@ export function renderStatusNote(view: FallbackView, notAchieved: readonly strin
   return lines.join("\n");
 }
 
+/**
+ * Aviso fijo (sin modelo) de lo que quedó escrito en un lugar que la sonda de ubicación rechazó (`wrong_place`): el archivo o la carpeta existe en el disco y el usuario
+ * debe saberlo, aunque un reintento haya escrito bien después. El código no sabe cuál era el lugar pedido (sin palabras clave), así que cita el pedido tal cual, no mueve
+ * ni borra nada. Una ruta que una llamada aprobada también escribió no cuenta. `null` si no hay ninguna.
+ */
+export function renderPlaceNote(view: FallbackView, request: string): string | null {
+  const pathOf = (c: CallView): string | null => {
+    const value = c.tool === "move_file" ? c.args?.destination : c.args?.path;
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+  };
+  const approved = new Set(view.effects.filter((c) => c.verdict === "approved").map(pathOf));
+  const wrong = [...new Set(view.effects.filter((c) => c.reason === "wrong_place" && c.verdict === "rejected").map(pathOf))].filter((p): p is string => p !== null && !approved.has(p));
+  if (wrong.length === 0) return null;
+  return [
+    `⚠ ${wrong.length === 1 ? "Quedó escrito en" : "Quedaron escritos en"}: ${wrong.map((p) => oneLine(p)).join("; ")}`,
+    `${wrong.length === 1 ? "Ese lugar no coincide" : "Esos lugares no coinciden"} con el que pediste («${oneLine(request)}»). No lo moví ni lo borré: decime si lo muevo o lo elimino.`,
+  ].join("\n");
+}
+
 export function renderFallback(view: FallbackView): Rendered {
   const task = view.task;
   const sections = [

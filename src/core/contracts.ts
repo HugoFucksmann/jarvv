@@ -140,6 +140,8 @@ export interface VerifyDecisionInput {
   readonly recent: readonly string[];
   /** La solicitud completa del usuario. Solo cuando el ítem verificado es el último; `null` o ausente en el resto. */
   readonly request?: string | null;
+  /** Preguntas que el código ya respondió (`engine/postcondition.ts`): no se le hacen al modelo y su valor entra al veredicto. */
+  readonly known?: Partial<Readonly<Record<VerifyCheckKey, number>>>;
 }
 
 /**
@@ -176,6 +178,14 @@ export interface PreviousTask {
   readonly answer: string;
 }
 
+/** Una consulta `noul` de una sonda de verificación (`tools/probes.ts`): el estado ya armado y la pregunta con sus criterios. */
+export interface ProbeQuery {
+  readonly state: string;
+  readonly question: { readonly instructions: string; readonly criteria: { readonly true: string; readonly false: string } };
+}
+/** `probability` es la de la afirmativa; la sonda decide qué es «bien» (`badWhenTrue`). */
+export type ProbeAnswer = Omit<DecisionTrace, "probabilities"> & { readonly probability: number };
+
 /** Continuación: ¿el pedido nuevo depende de la tarea anterior? */
 export interface ContinuationInput {
   readonly previous: PreviousTask;
@@ -208,6 +218,8 @@ export interface IActionDecision {
    * D0, primera consulta de una tarea reactiva: ¿charla, una acción o varias? Opcional: una implementación sin ella deja la tarea en el flujo de siempre.
    */
   firstQuery?(input: FirstQueryInput, signal?: AbortSignal): Promise<FirstQueryDecision>;
+  /** Una pregunta de una sonda de verificación (`tools/probes.ts`) sobre una llamada. Opcional: sin ella no se comprueban las sondas. */
+  probe?(input: ProbeQuery, signal?: AbortSignal): Promise<ProbeAnswer>;
   /** Hilo: ¿el pedido nuevo continúa la tarea anterior? Opcional: sin ella no hay hilo. */
   continuation?(input: ContinuationInput, signal?: AbortSignal): Promise<ContinuationDecision>;
 }
@@ -318,6 +330,8 @@ export interface EngineDeps {
   readonly environment: () => Promise<UserEnvironment>;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */
   readonly autoMode: () => boolean;
+  /** ¿Aprobación por niveles (`policy/tiers.ts`)? Opt-in; si está encendida reemplaza a `autoMode` en las escrituras. Omitida = apagada. */
+  readonly approvalTiers?: () => boolean;
   /** Hechos guardados por el usuario (`data/memory.json`); omitido = sin memoria. */
   readonly memory?: () => readonly MemoryFact[];
   /** La tarea anterior vigente (menos de `THREAD_TTL_MS`) cuando esta tarea empezó; `null` u omitida = sin hilo. */

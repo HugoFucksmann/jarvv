@@ -180,7 +180,8 @@ export function parseResultVerificationDecision(
     }
     ({ ok, cumple } = read(values));
   } else {
-    ok = extractNoul(answers, "ok");
+    // Producción responde `ok` por código en lecturas deterministas con contenido (`known`): la pregunta no se envía y vale 1.
+    ok = sentReq.questions.ok === undefined ? 1 : extractNoul(answers, "ok");
     cumple = extractNoul(answers, "cumple");
   }
   return { ok: ok >= NOUL_APPROVE, cumple: cumple >= NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };

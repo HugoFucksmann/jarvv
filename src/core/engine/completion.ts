@@ -18,9 +18,16 @@ import { queryModel } from "./failures.ts";
 /** Probabilidad mínima de `request_complete` para cerrar sin consultar al LLM (eval/exp/close_check.ts: 31/36 a 0,75; a 0,9 los falsos "no" se multiplican). */
 export const COMPLETION_APPROVE = 0.75;
 
+/**
+ * Decisión 5 está segura de que falta algo con una probabilidad de `request_complete` por debajo de esto. Con esa seguridad, una lista de pendientes que el código vació por
+ * parecerse a lo ya cumplido (`reconcileList`) no cierra la tarea: lo que pendientes propone se ejecuta (ver `runReactive`).
+ */
+export const COMPLETION_INCOMPLETE_BELOW = 0.25;
+
 /** ¿La solicitud está cumplida con lo hecho? `false` ante la duda o un fallo: la tarea sigue con la confirmación del LLM. */
 export async function confirmCompletion(env: EngineEnv): Promise<boolean> {
   const { ctx, runtime } = env;
+  env.completion.last = null;
   if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return false;
 
   const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0);
@@ -29,5 +36,6 @@ export async function confirmCompletion(env: EngineEnv): Promise<boolean> {
     return false;
   }
   if (runtime.cancelled || ctx.isClosed()) return false;
+  env.completion.last = query.value.requestComplete;
   return query.value.requestComplete >= COMPLETION_APPROVE;
 }

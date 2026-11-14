@@ -15,6 +15,7 @@
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { TaskContext } from "../ctx/index.ts";
 import type { Platform, UserEnvironment } from "../environment.ts";
@@ -151,6 +152,29 @@ function baseName(path: string): string {
   return parts.length === 0 ? path : parts[parts.length - 1];
 }
 
+/** Ruta absoluta de Windows (`C:/…`, ya normalizada) o de Linux/macOS (`/…`). Una ruta relativa depende de la base de cada herramienta y no se juzga. */
+const isAbsolutePath = (normalized: string): boolean => /^[a-z]:\//.test(normalized) || normalized.startsWith("/");
+
+/**
+ * ¿El destino de una escritura sale de algo que la tarea sabe? La ruta completa o alguno de sus ancestros (con al menos un segmento tras la unidad) aparece en las
+ * fuentes. A diferencia de una lectura, no basta con que aparezca el nombre final: «creá la carpeta backup» no da `D:/proyectos/facturacion` como lugar.
+ */
+function writeDestinationHasSource(path: string, input: PrecheckInput): boolean {
+  let p = normalizeText(path).replace(/\/+$/, "");
+  while (p.includes("/")) {
+    if (input.sources.text.includes(p)) return true;
+    p = p.slice(0, p.lastIndexOf("/"));
+    if (p === "" || /^[a-z]:$/.test(p)) break;
+  }
+  return false;
+}
+
+/** ¿La ruta está dentro de una carpeta conocida del usuario (inicio, escritorio, documentos, descargas)? */
+function isUnderKnownFolder(path: string, env: UserEnvironment): boolean {
+  const p = normalizeText(path).replace(/\/+$/, "");
+  return knownFolders(env).some((f) => p === f || p.startsWith(`${f}/`));
+}
+
 /** Ruta de lectura "con origen": aparece completa, es una carpeta conocida (o su ancestro) o su nombre de archivo aparece. */
 function pathHasSource(path: string, input: PrecheckInput): boolean {
   const p = normalizeText(path).replace(/\/+$/, "");
@@ -198,12 +222,22 @@ function checkSources(input: PrecheckInput): PrecheckFinding | null {
   for (const [key, raw] of Object.entries(input.args)) {
     const role = roleOf(key);
     const readsIt = role === "path" && (input.kind === "read" || SOURCE_KEYS.has(key.toLowerCase()));
-    if (role !== "url" && !readsIt) continue;
+    // Destino de una escritura (`path` de `write_file` o `create_directory`, `destination` de `move_file`): si no es una carpeta del usuario, tiene que salir
+    // de algún lado. D3 aprobó 5 de 5 destinos inventados (`D:\proyectos\facturacion\backup`…) y con `autoMode` no hay otra barrera.
+    const writesIt = role === "path" && input.kind === "write" && !readsIt;
+    if (role !== "url" && !readsIt && !writesIt) continue;
     for (const value of stringsOf(raw)) {
       if (value.trim() === "") continue;
       if (role === "url") {
         if (!input.sources.text.includes(normalizeUrl(value))) {
           return { review: "args_invalid", reason: `The URL '${value}' does not appear in the request or in earlier results. Use a URL from the results, or search first.` };
+        }
+      } else if (writesIt) {
+        if (isAbsolutePath(normalizeText(value)) && !isUnderKnownFolder(value, input.environment) && !writeDestinationHasSource(value, input)) {
+          return {
+            review: "args_invalid",
+            reason: `The destination '${value}' is not under your folders (see ENV) and does not appear in the request or in earlier results. Use a path under ENV or the one the user gave.`,
+          };
         }
       } else if (!pathHasSource(value, input)) {
         return {
@@ -316,9 +350,33 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
  * Primer problema comprobable de la llamada, o null. Orden: vacíos y `N/A`, marcadores y rutas de otro usuario, comando,
  * rutas y URLs sin origen.
  */
+/**
+ * `write_file` y `move_file` no crean carpetas: si la que contendría al archivo no existe, la herramienta falla (`ENOENT`) y el modelo repetía la misma ruta. El destino
+ * se comprueba en el disco solo si la carpeta de inicio del entorno existe en esta PC (un entorno inventado, como el de un caso de prueba, no se juzga) y solo con rutas
+ * absolutas. `create_directory` sí crea las carpetas intermedias y no entra acá.
+ */
+function checkParentFolder(input: PrecheckInput): PrecheckFinding | null {
+  const key = input.tool === "write_file" ? "path" : input.tool === "move_file" ? "destination" : null;
+  const value = key === null ? undefined : input.args[key];
+  if (typeof value !== "string" || !isAbsolutePath(normalizeText(value))) return null;
+  try {
+    if (!fs.existsSync(input.environment.home)) return null;
+    const parent = path.dirname(value);
+    if (parent === value || fs.existsSync(parent)) return null;
+    return {
+      review: "args_invalid",
+      reason: `The folder '${parent}' does not exist, so '${value}' cannot be written there. Create the folder first with create_directory, or use a folder that exists (ENV lists the user's folders; the folder the user means may be inside one of them).`,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function precheckCall(input: PrecheckInput, analyze: CommandAnalyzer = analyzePowerShell): Promise<PrecheckFinding | null> {
   const values = checkValues(input);
   if (values !== null) return values;
+  const parent = checkParentFolder(input);
+  if (parent !== null) return parent;
 
   // `run_command` ejecuta siempre PowerShell (no tiene un argumento `shell`): se comprueba el comando como PowerShell.
   if (input.tool === "run_command" && typeof input.args.command === "string") {

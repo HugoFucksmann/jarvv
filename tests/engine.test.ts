@@ -45,6 +45,20 @@ interface Scenario {
   readonly result?: string;
   /** Se invoca al verificar el resultado de la llamada (para cancelar la tarea en ese punto). */
   readonly onVerify?: (runtime: TaskRuntime) => void;
+  /** Carpeta de inicio del entorno del escenario (por defecto `C:\Users\Ana`). */
+  readonly home?: string;
+  /** Aprobación por niveles encendida (`approvalTiers`). */
+  readonly tiers?: boolean;
+  /** Probabilidad que da toda pregunta de sonda (`probe`); sin ella el doble no la implementa. */
+  readonly place?: number;
+  /** Probabilidad por pregunta de sonda (según su texto); gana sobre `place`. */
+  readonly probeBy?: (instructions: string) => number;
+  /** Lista que devuelve el modelo de pendientes en su `n`-ésima consulta (0, 1…); por defecto la solicitud y después vacía. */
+  readonly pendingFor?: (n: number) => string[];
+  /** Probabilidad de `request_complete` de Decisión 5 en su `n`-ésima consulta (0, 1…); por defecto `completion`. */
+  readonly completionFor?: (n: number) => number;
+  /** Ve la entrada que recibe Decisión 4 (p. ej. `known`). */
+  readonly onVerifyInput?: (input: { readonly known?: Record<string, number> }) => void;
   /** Resultado de la herramienta en su `n`-ésima ejecución (0, 1…); por defecto `result`. */
   readonly resultFor?: (n: number) => MCPCallResult;
   /** Respuestas de la verificación (D4) para la `n`-ésima llamada verificada; por defecto aprueba. */
@@ -123,7 +137,8 @@ async function run(s: Scenario): Promise<Outcome> {
         reviews++;
         return { review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" };
       },
-      verifyResult: async () => {
+      verifyResult: async (input) => {
+        s.onVerifyInput?.(input);
         s.onVerify?.(runtime);
         return { answers: s.verifyFor?.(verified++) ?? { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
       },
@@ -135,18 +150,19 @@ async function run(s: Scenario): Promise<Outcome> {
               return { kind: s.first as "chat" | "single" | "multi", probabilities: {}, multi: 0, rawInput: "", rawOutput: "" };
             },
           }),
+      ...(s.place === undefined && s.probeBy === undefined ? {} : { probe: async (q: { question: { instructions: string } }) => ({ probability: s.probeBy === undefined ? (s.place as number) : s.probeBy(q.question.instructions), rawInput: "", rawOutput: "" }) }),
       ...(s.follows === undefined ? {} : { continuation: async () => ({ follows: s.follows as number, rawInput: "", rawOutput: "" }) }),
       checkCompletion: async () => {
         completionChecks++;
         if (s.completionFails === true) throw new DecisionServiceUnavailableError("Decisión caída (prueba)");
-        return { requestComplete: s.completion ?? 0, rawInput: "", rawOutput: "" };
+        return { requestComplete: s.completionFor !== undefined ? s.completionFor(completionChecks - 1) : (s.completion ?? 0), rawInput: "", rawOutput: "" };
       },
     },
     llm: {
       generateArgumentsFromView: async (input: { readonly priorAttempts?: number; readonly memory?: readonly string[] }) => ({ args: (s.onArgs?.(input), input.memory === undefined || threads.memory.push(input.memory), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
-      generatePendingFromView: async (input: { readonly thread?: unknown }) => (pendingQueries++, threads.pending.push(input.thread), { pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
+      generatePendingFromView: async (input: { readonly thread?: unknown }) => (pendingQueries++, threads.pending.push(input.thread), { pending: s.pendingFor !== undefined ? s.pendingFor(pendingQueries - 1) : s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
       generatePlanFromView: async () => {
         throw new Error("no se usa en reactivo");
       },
@@ -155,8 +171,9 @@ async function run(s: Scenario): Promise<Outcome> {
     vault: createRefVault({ dir }),
     guardScope: { protectedDirs: [path.join(dir, "protegida")], relativeBases: [dir] },
     blacklist: EMPTY_BLACKLIST,
-    environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
+    environment: async () => ({ platform: "windows", home: s.home ?? "C:\\Users\\Ana" }),
     autoMode: () => s.autoMode ?? false,
+    approvalTiers: () => s.tiers ?? false,
     previousTask: s.previous ?? null,
   };
 
@@ -448,7 +465,8 @@ test("repetición: un segundo fallo pasajero idéntico en el mismo paso ya no se
   });
   const first = ctx.find("steps", {})[0];
   const statuses = ctx.find("calls", { stepId: first.id }).map((c) => c.status);
-  assert.deepEqual(statuses.slice(0, 3), ["tool_error", "tool_error", "loop_blocked"], "ejecución, un reintento y después bloqueo");
+  // Un reintento por paso: el segundo `tool_error` es el segundo rechazo de la verificación (`maxVerifyRejectionsPerStep`) y falla el paso antes de un tercer intento.
+  assert.deepEqual(statuses.slice(0, 3), ["tool_error", "tool_error"], "ejecución y un reintento; el paso falla con el segundo rechazo");
 });
 
 // ───────────────────────── Procesos que preguntan (RC-02, RC-20, RC-14) ─────────────────────────
@@ -653,4 +671,256 @@ test("Hilo: sin el hilo, la misma ruta (que solo aparece en la respuesta anterio
   const path = "C:\Users\Ana\Documents\Proyectos";
   const { dispatched } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.1, completion: 1 });
   assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 0, "el pre-chequeo la rechaza: no hay hilo y la ruta no está en el pedido");
+});
+
+// ───────────────────────── Verificación por código (N5) ─────────────────────────
+
+test("verificación: una escritura cuya poscondición se cumple en el disco se aprueba sin consultar a Decisión 4", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-post-"));
+  const file = path.join(dir, "nota.txt");
+  fs.writeFileSync(file, "hola");
+  let verifications = 0;
+  const { ctx } = await run({
+    request: `Guardá hola en ${file}`,
+    tool: "write_file",
+    args: { path: file, content: "hola" },
+    first: "single",
+    home: os.homedir(),
+    completion: 1,
+    onVerify: () => void verifications++,
+    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(verifications, 0, "el modelo de verificación no se consultó");
+  const call = ctx.find("calls", {})[0];
+  assert.equal(call.verdict, "approved");
+  assert.equal(ctx.task.state, "completed");
+});
+
+test("verificación: una escritura que dice ok pero no dejó nada en el disco se rechaza por código (not_accomplished)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-post-"));
+  const file = path.join(dir, "no_se_escribio.txt");
+  let verifications = 0;
+  const { ctx } = await run({
+    request: `Guardá hola en ${file}`,
+    tool: "write_file",
+    args: { path: file, content: "hola" },
+    first: "single",
+    home: os.homedir(),
+    onVerify: () => void verifications++,
+    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(verifications, 0);
+  const call = ctx.find("calls", {})[0];
+  assert.equal(call.verdict, "rejected");
+  assert.equal(call.reason, "not_accomplished");
+});
+
+test("verificación: una lectura determinista con contenido llega a Decisión 4 con `ok` ya resuelto por el código", async () => {
+  const inputs: { readonly known?: Record<string, number> }[] = [];
+  await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", completion: 1, onVerifyInput: (i) => inputs.push(i) });
+  assert.deepEqual(inputs[0].known, { ok: 1 });
+});
+
+test("verificación: un resultado sin datos (no_data) se rechaza por código sin consultar a Decisión 4", async () => {
+  let verifications = 0;
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    first: "single",
+    resultFor: () => ({ content: [{ type: "text", text: "" }] }),
+    onVerify: () => void verifications++,
+  });
+  const call = ctx.find("calls", {})[0];
+  assert.ok(["no_data", "ok"].includes(call.status));
+  if (call.status === "no_data") {
+    assert.equal(verifications, 0);
+    assert.equal(call.verdict, "rejected");
+    assert.equal(call.reason, "no_usable_data");
+  }
+});
+
+// ───────────────────────── Aprobación por niveles ─────────────────────────
+
+/** Escribe `args` con `write_file` en una carpeta temporal que es el «inicio» del entorno, con la aprobación por niveles encendida. Cuenta aprobaciones pedidas y revisiones de Decisión 3. */
+async function tiered(setup: (dir: string) => { file: string; args: Record<string, unknown> }, extra: Partial<Scenario> = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-tier-"));
+  const { file, args } = setup(dir);
+  let approvals = 0;
+  const out = await run({
+    request: `Guardá hola en ${file}`,
+    tool: "write_file",
+    args,
+    first: "single",
+    home: dir,
+    tiers: true,
+    completion: 1,
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") {
+        approvals++;
+        runtime.resolveApproval(w.request.id, true);
+      }
+    },
+    ...extra,
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return { ...out, approvals };
+}
+
+test("niveles: verde (archivo nuevo en carpetas del usuario) no pide confirmación ni pasa por Decisión 3", async () => {
+  const { approvals, reviews, ctx } = await tiered((dir) => {
+    const file = path.join(dir, "nueva.txt"); // no existe: la herramienta de prueba no la crea, así que la poscondición (disco) rechazará después, pero la aprobación ya fue verde
+    return { file, args: { path: file, content: "hola" } };
+  });
+  assert.equal(approvals, 0);
+  assert.equal(reviews, 0);
+  assert.equal(ctx.find("calls", {})[0].status, "ok");
+});
+
+test("niveles: rojo (sobrescribir un archivo que existe) siempre pide confirmación al usuario", async () => {
+  const { approvals, ctx } = await tiered((dir) => {
+    const file = path.join(dir, "existe.txt");
+    fs.writeFileSync(file, "viejo");
+    return { file, args: { path: file, content: "nuevo" } };
+  });
+  assert.equal(approvals, 1);
+  assert.equal(ctx.find("calls", {})[0].status, "ok");
+});
+
+test("niveles: amarillo (agregar a un archivo) no pide confirmación y pasa por Decisión 3", async () => {
+  const { approvals, reviews } = await tiered((dir) => {
+    const file = path.join(dir, "existe.txt");
+    fs.writeFileSync(file, "viejo");
+    return { file, args: { path: file, content: "más", mode: "append" } };
+  });
+  assert.equal(approvals, 0);
+  assert.equal(reviews, 1);
+});
+
+test("niveles apagados (por defecto): el comportamiento de `autoMode` no cambia, una escritura del catálogo pide confirmación", async () => {
+  const { approvals } = await tiered(
+    (dir) => {
+      const file = path.join(dir, "nueva.txt");
+      return { file, args: { path: file, content: "hola" } };
+    },
+    { tiers: false },
+  );
+  assert.equal(approvals, 1);
+});
+
+// ───────────────────────── Decisión 5 segura de que falta algo ─────────────────────────
+
+const COMPOUND = "Crear la carpeta jarvis y luego crear el archivo gpt_info.md con información sobre GPT";
+const REST = "Crear el archivo gpt_info.md con información sobre GPT dentro de la carpeta jarvis";
+const PATHS = "Rutas: C:\\Users\\Ana\\Documents y C:\\Users\\Ana\\Desktop";
+
+test("cierre: si Decisión 5 dice con seguridad que falta algo y pendientes lo propone, no se cierra aunque se parezca a un ítem ya cumplido", async () => {
+  const { ctx, dispatched } = await run({
+    request: `${COMPOUND}. ${PATHS}`,
+    tool: "list_directory",
+    args: {},
+    argsFor: (n) => ({ path: n === 0 ? "C:\\Users\\Ana\\Documents" : "C:\\Users\\Ana\\Desktop" }),
+    first: "multi",
+    pendingFor: (n) => (n === 0 ? [COMPOUND] : n === 1 ? [REST] : []),
+    completionFor: (n) => (n === 0 ? 0.01 : 0.95),
+  });
+  assert.equal(dispatched.length, 2, "el ítem que faltaba se ejecutó");
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(ctx.find("steps", {}).length, 2);
+});
+
+test("cierre: con Decisión 5 dudando (no segura de que falta algo) se conserva el comportamiento de siempre: lo que se parece a lo cumplido se descarta", async () => {
+  const { dispatched, ctx } = await run({
+    request: `${COMPOUND}. ${PATHS}`,
+    tool: "list_directory",
+    args: { path: "C:\\Users\\Ana\\Documents" },
+    first: "multi",
+    pendingFor: (n) => (n === 0 ? [COMPOUND] : n === 1 ? [REST] : []),
+    completionFor: () => 0.5,
+  });
+  assert.equal(dispatched.length, 1);
+  assert.equal(ctx.task.state, "completed");
+});
+
+// ───────────────────────── Ubicación de lo escrito ─────────────────────────
+
+async function writeWithPlace(place: number | undefined) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-place-"));
+  const file = path.join(dir, "nota.txt");
+  fs.writeFileSync(file, "hola");
+  const out = await run({
+    request: `Guardá hola en ${file}`,
+    tool: "write_file",
+    args: { path: file, content: "hola" },
+    first: "single",
+    home: os.homedir(),
+    completion: 1,
+    place,
+    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return out.ctx.find("calls", {})[0];
+}
+
+test("ubicación: una escritura que existe pero la sonda de lugar rechaza queda rechazada por wrong_place", async () => {
+  const call = await writeWithPlace(0.1);
+  assert.equal(call.verdict, "rejected");
+  assert.equal(call.reason, "wrong_place");
+});
+
+test("ubicación: si la pregunta de lugar aprueba, la escritura se aprueba; sin la pregunta (decisión que no la implementa) también", async () => {
+  assert.equal((await writeWithPlace(0.9)).verdict, "approved");
+  assert.equal((await writeWithPlace(undefined)).verdict, "approved");
+});
+
+async function writeWithProbes(probeBy: (instructions: string) => number, args: Record<string, unknown> = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-probe-"));
+  const file = path.join(dir, "nota.txt");
+  fs.writeFileSync(file, "hola");
+  const out = await run({
+    request: `Agregá hola al principio de ${file}`,
+    tool: "write_file",
+    args: { path: file, content: "hola", ...args },
+    first: "single",
+    home: os.homedir(),
+    completion: 1,
+    probeBy,
+    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  return out.ctx.find("calls", {})[0];
+}
+
+test("sondas: la de posición rechaza con wrong_position aunque la de lugar apruebe", async () => {
+  const call = await writeWithProbes((q) => (q.includes("START of the file") ? 0.1 : 0.9));
+  assert.equal(call.verdict, "rejected");
+  assert.equal(call.reason, "wrong_position");
+});
+
+test("sondas: dudar es rechazar (0,55 < umbral 0,6) y todas en 0,9 aprueban", async () => {
+  assert.equal((await writeWithProbes(() => 0.55)).reason, "wrong_place");
+  assert.equal((await writeWithProbes(() => 0.9)).verdict, "approved");
+});
+
+test("sondas: lo escrito en un lugar rechazado se avisa por código en la respuesta final, sin mover ni borrar", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-notice-"));
+  const file = path.join(dir, "nota.txt");
+  fs.writeFileSync(file, "hola");
+  const out = await run({
+    request: `Guardá hola en ${file}`,
+    tool: "write_file",
+    args: { path: file, content: "hola", mode: "rewrite" },
+    first: "single",
+    home: os.homedir(),
+    completion: 1,
+    probeBy: () => 0.1,
+    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
+  });
+  const exists = fs.existsSync(file);
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.ok(exists, "no se borra nada");
+  assert.ok(out.ctx.result?.text.includes(`Quedó escrito en: ${file}`), out.ctx.result?.text);
+  assert.ok(out.ctx.result?.text.includes("No lo moví ni lo borré"));
 });

@@ -17,12 +17,14 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | **N1** modelos en la VRAM | ✅ resuelto de otra forma: variantes sin proyector de visión (`docs/OLLAMA_MODELOS_TEXTO.md`); tarea simulada de 4 659 a 1 071 ms. Reducir el tamaño de los modelos sigue en pausa |
 | **N2** modelos siempre calientes | ✅ `keep_alive` (`modelKeepAlive`) y `warmUpModels` al arrancar |
 | **N3** contexto configurado = real | ⏸ (depende de cómo se arranca Ollama) |
-| **N4** cortes de repeticiones | ⏸ no se cortó: el generador ya cambia los argumentos 25 de 30 veces. Mecanismo de rutas en debate (`docs/analisis/FRENTE_3_DECISION.md`) |
-| **N5** verificación por código antes que D4 | ⏸ |
-| **N6** respuesta final en streaming · **N7** literal al argumento · **N9** progreso visible | ⏸ |
-| **N8** idioma y relleno de la respuesta final | ⚠ relleno ✅ por código; idioma ⏸ |
+| **N4** cortes de repeticiones | ⚠ el generador ya cambia los argumentos 25 de 30 veces (R5 no hace falta). Se implementó el corte del usuario: dos rechazos de D4 por paso fallan el paso (`maxVerifyRejectionsPerStep`). Faltan «ítem reescrito idéntico» y «no volver a preguntar tras un rechazo del usuario» |
+| **N5** verificación por código antes que D4 | ✅ parcial: `tool_error`/`exception`/`no_data` y las escrituras `write_file`/`create_directory`/`move_file` (en el disco) por código, y `ok` por código en lecturas deterministas con contenido. Datasets `d4/`: 141/184 → 145/184, 0 regresiones. ⏸ comandos y búsquedas (siguen con el modelo). **Sondas por herramienta ✅ (2026-11-14):** ubicación, posición, alcance, ítem y atributo, en el catálogo (`tools/probes.ts`, `engine/probes.ts`); dudar rechaza con motivo cerrado. D4 + sondas: 149 → 153 de 184, falsos positivos 18 → 13, 1 falso negativo nuevo (artefacto de medición). Aviso por código «escrito en X» para lo que quedó en el lugar equivocado ✅ (`renderPlaceNote`) |
+| **N6** respuesta final en streaming · **N9** progreso visible | ⏸ |
+| **N7** literal de la solicitud directo al argumento | ⚠ la solicitud original llega a la generación de argumentos (`REQUEST:`); copiar el literal por código sin generativo ⏸ |
+| **N8** idioma y relleno de la respuesta final | ⚠ relleno ✅ por código (también con efectos: «no se realizaron cambios» es falso si hubo un cambio); idioma ⏸. `not_found` en una escritura ya dice «no se escribió nada» ✅ |
 | **Idea 1** (atajo inicial con una decisión D0) | ✅ implementada como D0 (T1) |
-| **Idea 4** (respuesta final sin generativo) · **idea 5** (aprobación escalonada) · el resto de las ideas originales | ⏸ sin cambios |
+| **Idea 5** (aprobación escalonada por riesgo) | ✅ implementada **opt-in y apagada** (`approvalTiers`, `policy/tiers.ts`: verde / amarillo / rojo por código). Sin la lista de permitidos ni «no volver a preguntar lo mismo» tras un rechazo del usuario |
+| **Idea 4** (respuesta final sin generativo) · el resto de las ideas originales | ⏸ sin cambios |
 | **Memoria entre tareas** | ⚠ hechos y hilo ✅; recetas ⏸ (`docs/analisis/FRENTE_1_MEMORIA.md`) |
 
 Los tres frentes de análisis (`docs/analisis/`) llevan su propio estado por decisión.

@@ -12,8 +12,13 @@ test("stripNoChangesFiller: quita la frase de relleno cuando no hubo cambios", (
 
 test("stripNoChangesFiller: no toca la respuesta si hubo cambios, si el pedido pregunta por cambios o si quedaría vacía", () => {
   const text = "Listo. No se realizaron cambios adicionales.";
-  assert.equal(strip(text, "creá una carpeta", true), text, "hubo efectos");
+  assert.equal(strip(text, "creá una carpeta", true), text, "hubo efectos: «cambios adicionales» es verdad");
   assert.equal(strip("No se realizaron cambios en el sistema.", "¿se cambió algo en mi PC?", false), "No se realizaron cambios en el sistema.", "el pedido pregunta por cambios");
   assert.equal(strip("No se realizaron cambios en el sistema.", "hola", false), "No se realizaron cambios en el sistema.", "no se deja una respuesta vacía");
   assert.equal(strip("El cambio de hora es mañana.", "cuándo es el próximo feriado", false), "El cambio de hora es mañana.", "una frase que solo menciona un cambio no es el relleno");
+});
+
+test("stripNoChangesFiller: con efectos quita «no se realizaron cambios» porque es falso, aunque el pedido hable de cambios", () => {
+  assert.equal(strip("Se creó la carpeta jarvis. No se realizaron cambios en el sistema.", "creá la carpeta jarvis y guardá un md", true), "Se creó la carpeta jarvis.");
+  assert.equal(strip("La carpeta quedó creada. No changes were made to the system.", "make a folder and change the notes", true), "La carpeta quedó creada.");
 });

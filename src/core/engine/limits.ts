@@ -36,6 +36,7 @@ export const LIMIT_SCOPES = {
   maxAttemptsPerStep: "step",
   maxRepeatsPerStep: "step",
   maxReviewRejectionsPerStep: "step",
+  maxVerifyRejectionsPerStep: "step",
   maxUserRejectionsPerStep: "step",
   maxDeniedPerStep: "step",
   maxQuestionsPerStep: "step",
@@ -82,6 +83,8 @@ export interface StepCounters {
   readonly userRejected: number;
   /** `tool_rejected` (Guard o lista negra) y `denied` (servidor). */
   readonly denied: number;
+  /** Llamadas con veredicto `rejected` de la verificación (incluye `tool_error` y `exception`, que se rechazan sin modelo). */
+  readonly rejected: number;
 }
 
 /** Los contadores del paso, en una sola pasada por sus llamadas. */
@@ -92,6 +95,7 @@ export function countStep(calls: readonly Call[]): StepCounters {
   let argsInvalid = 0;
   let userRejected = 0;
   let denied = 0;
+  let rejected = 0;
   for (const c of calls) {
     if (isExecuted(c)) executions++;
     if (c.status === "user_rejected") userRejected++;
@@ -99,8 +103,9 @@ export function countStep(calls: readonly Call[]): StepCounters {
     if (c.status === "loop_blocked") blocked++;
     else if (c.status === "args_invalid") argsInvalid++;
     else if (c.status === "tool_rejected" || c.status === "denied") denied++;
+    if (c.verdict === "rejected") rejected++;
   }
-  return { executions, attempts, blocked, argsInvalid, userRejected, denied };
+  return { executions, attempts, blocked, argsInvalid, userRejected, denied, rejected };
 }
 
 /** Una regla del paso: cuando `counter` llega a `BUDGET[limit]`, el paso falla con `cause`. */
@@ -118,6 +123,7 @@ const STEP_RULES: readonly StepRule[] = [
   { limit: "maxUserRejectionsPerStep", counter: "userRejected", cause: "user_rejected", askFirst: false },
   { limit: "maxDeniedPerStep", counter: "denied", cause: "denied", askFirst: false },
   { limit: "maxReviewRejectionsPerStep", counter: "argsInvalid", cause: "review_rejected", askFirst: false },
+  { limit: "maxVerifyRejectionsPerStep", counter: "rejected", cause: "verify_rejected", askFirst: false },
   { limit: "maxCallsPerStep", counter: "executions", cause: "call_cap", askFirst: true },
   { limit: "maxAttemptsPerStep", counter: "attempts", cause: "call_cap", askFirst: true },
 ];

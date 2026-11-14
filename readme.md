@@ -179,6 +179,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos |
 | `data/memory.json` (archivo opcional) | ausente | Hechos del usuario `[{ "key", "value" }]` que Jarvis pasa a la generación de argumentos cuando el pedido los menciona (`docs/CONTEXT_AND_MEMORY.md` §10) |
+| `approvalTiers` | `false` | Aprobación por niveles (verde sin confirmación, amarillo con Decisión 3 estricta, rojo siempre pide al usuario). Si está encendida reemplaza a `autoMode` en las escrituras. Ver `docs/CORE_FLOW.md` |
 | `modelKeepAlive` | `30m` | `keep_alive` de Ollama que se manda con cada consulta a los dos modelos (`30m`, `2h`, `-1` = sin límite). Ver `docs/OLLAMA_MODELOS_TEXTO.md` |
 | `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
 | `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |

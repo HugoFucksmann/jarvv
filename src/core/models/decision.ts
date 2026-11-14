@@ -27,6 +27,8 @@ import type {
   ContinuationInput,
   DecisionTrace,
   FirstQueryDecision,
+  ProbeAnswer,
+  ProbeQuery,
   FirstQueryInput,
   IActionDecision,
   ReviewDecision,
@@ -262,7 +264,8 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Verification", state, questions, signal);
-    const answers = Object.fromEntries(VERIFY_CHECKS.map(({ key }) => [key, noulAnswer(response, key).noul])) as Record<VerifyCheckKey, number>;
+    const known = input.known ?? {};
+    const answers = Object.fromEntries(VERIFY_CHECKS.map(({ key }) => [key, known[key] ?? noulAnswer(response, key).noul])) as Record<VerifyCheckKey, number>;
 
     const probabilities = VERIFY_CHECKS.map(({ key }) => `${key}=${answers[key].toFixed(2)}`).join(" ");
     console.log(
@@ -299,6 +302,18 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     const kind = firstQueryKind(probabilities.chat, multi);
     console.log(`[First query ${this.getConfig().decisionModel}] kind=${kind} probabilities=[${pct(probabilities)}] multi=${multi.toFixed(2)} duration=${Date.now() - t0}ms`);
     return { kind, probabilities, multi, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+  }
+
+  /**
+   * Una pregunta de una sonda de verificación (`tools/probes.ts`): una consulta `noul` con el estado y los criterios que la sonda armó. Devuelve la probabilidad de la afirmativa;
+   * qué es «bien» y el umbral los decide `engine/probes.ts`.
+   */
+  async probe(input: ProbeQuery, signal?: AbortSignal): Promise<ProbeAnswer> {
+    const t0 = Date.now();
+    const response = await this.ask("Probe", input.state, { probe: { type: "noul", instructions: input.question.instructions, criteria: input.question.criteria } }, signal);
+    const probability = noulAnswer(response, "probe").noul;
+    console.log(`[Probe ${this.getConfig().decisionModel}] p=${probability.toFixed(2)} duration=${Date.now() - t0}ms | ${input.question.instructions.slice(0, 60)}`);
+    return { probability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /**

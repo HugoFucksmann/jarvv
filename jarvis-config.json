@@ -9,6 +9,7 @@
     "replan": 4096,
     "final": 2048
   },
+  "modelKeepAlive": "30m",
   "qwenTimeoutMs": 120000,
   "qwenThinkingTimeoutMs": 180000,
   "decisionUrl": "http://127.0.0.1:11434",
@@ -43,10 +44,11 @@
   "refsDir": "data/refs",
   "retentionDays": 30,
   "blacklist": [],
-  "autoMode": false,
+  "autoMode": true,
+  "approvalTiers": true,
   "webSearchUseJudge": true,
-  "voiceEnabled": true,
-  "telegramVoice": true,
+  "voiceEnabled": false,
+  "telegramVoice": false,
   "voiceUrl": "http://127.0.0.1:8880",
   "voiceName": "default"
 }

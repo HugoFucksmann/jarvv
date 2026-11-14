@@ -13,7 +13,7 @@ import type { IMCPServer } from "../mcp/types.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-import type { ContinuationInput, EngineLLM, FirstQueryInput, IActionDecision } from "../contracts.ts";
+import type { ContinuationInput, EngineLLM, FirstQueryInput, IActionDecision, ProbeQuery } from "../contracts.ts";
 import type { CaptureSink } from "../trace/sink.ts";
 
 export { NULL_SINK } from "../trace/sink.ts";
@@ -78,6 +78,7 @@ export function captureDecision(
     reviewArgs: (input, signal) => observe("review", sink, version, () => decision.reviewArgs(input, signal)),
     verifyResult: (input, signal) => observe("verify", sink, version, () => decision.verifyResult(input, signal)),
     checkCompletion: (input, signal) => observe("completion", sink, version, () => decision.checkCompletion(input, signal)),
+    ...(decision.probe === undefined ? {} : { probe: (input: ProbeQuery, signal?: AbortSignal) => observe("probe", sink, version, () => decision.probe!(input, signal)) }),
     ...(decision.continuation === undefined ? {} : { continuation: (input: ContinuationInput, signal?: AbortSignal) => observe("continuation", sink, version, () => decision.continuation!(input, signal)) }),
     ...(decision.firstQuery === undefined ? {} : { firstQuery: (input: FirstQueryInput, signal?: AbortSignal) => observe("first_query", sink, version, () => decision.firstQuery!(input, signal)) }),
   };

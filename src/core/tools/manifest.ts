@@ -23,6 +23,7 @@
  *   (`notes`), que se inyecta en el esquema que ve el modelo que genera los argumentos.
  */
 
+import { ATTRIBUTE_PROBE, ITEM_PROBE, PLACE_PROBE, POSITION_PROBE, SCOPE_PROBE, type Probe } from "./probes.ts";
 import {
   EXECUTABLE_ROUTES,
   MAX_PARAM_NOTE_CHARS,
@@ -52,6 +53,8 @@ export interface ToolDefinition {
   readonly timeoutMs?: number;
   /** Cuando la política de repetición depende de los argumentos de la llamada (`run_command`: esperar más salida de un `pid` repite los mismos argumentos). Gana a `policy.repeat`. */
   readonly repeatByArgs?: (args: Readonly<Record<string, unknown>>) => RepeatPolicy;
+  /** Sondas de verificación de esta herramienta (`tools/probes.ts`): preguntas a Decisión que solo corren cuando la llamada es de esta herramienta. */
+  readonly probes?: readonly Probe[];
   /** Solo la usa una tool compuesta por dentro: no entra en el catálogo de Decision ni del planificador. */
   readonly internal?: boolean;
   readonly policy: Readonly<ToolPolicy>;
@@ -106,6 +109,7 @@ interface ToolOptions {
   /** Plazo de la herramienta en milisegundos (proveedores nativos). */
   timeoutMs?: number;
   repeatByArgs?: (args: Readonly<Record<string, unknown>>) => RepeatPolicy;
+  probes?: readonly Probe[];
 }
 
 function def(
@@ -148,6 +152,7 @@ function def(
     argCaps: opts.argCaps ? Object.freeze({ ...opts.argCaps }) : undefined,
     timeoutMs: opts.timeoutMs,
     repeatByArgs: opts.repeatByArgs,
+    probes: opts.probes ? Object.freeze([...opts.probes]) : undefined,
     internal: internal || undefined,
     policy: Object.freeze({
       capability,
@@ -167,21 +172,24 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // Sin `isUrl`: las URL las cubre `fetch`. `offset` y `length` cuentan líneas en archivos de texto (observado); en PDF o Excel no se verificó.
   def("files", "read_file", "FILE_READ", "Read a local text/PDF/Excel file (offset, sheet, range).", {
     emptyIsError: true,
+    probes: [ITEM_PROBE],
     params: ["path", "offset", "length", "sheet", "range"],
   }),
   def("files", "read_multiple_files", "FILE_READ", "Read several files in parallel.", { emptyIsError: true }),
   def("files", "write_file", "FILE_WRITE", "Create or overwrite a file on disk.", {
+    probes: [PLACE_PROBE, POSITION_PROBE],
     params: ["path", "content", "mode"],
     notes: {
       content:
         'Text of the file. For .xlsx/.xls/.xlsm: a JSON string of a 2D array of rows, e.g. [["Name","Age"],["Alice",30]], or of an object {"SheetName": [[...]]}.',
     },
   }),
-  def("files", "create_directory", "FILE_WRITE", "Create a directory or ensure it exists."),
-  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path (names only: no sizes or dates).", { params: ["path", "depth"] }),
-  def("files", "move_file", "FILE_WRITE", "Move or rename files or directories."),
+  def("files", "create_directory", "FILE_WRITE", "Create a directory or ensure it exists.", { probes: [PLACE_PROBE] }),
+  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path (names only: no sizes or dates).", { params: ["path", "depth"], probes: [ATTRIBUTE_PROBE] }),
+  def("files", "move_file", "FILE_WRITE", "Move or rename files or directories.", { probes: [PLACE_PROBE] }),
 
   def("locate", "start_search", "FILE_READ", "Start a streaming file search.", {
+    probes: [SCOPE_PROBE],
     params: ["path", "pattern", "searchType", "filePattern", "ignoreCase", "maxResults"],
   }),
   def("locate", "get_more_search_results", "FILE_READ", "Page through the results of an active file search.", { repeat: "allow", requires: "search" }),
@@ -268,6 +276,11 @@ export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
 });
 
 const lookup = (server: string, tool: string): ToolDefinition | undefined => INDEX.get(toolKey(server, tool));
+
+/** Las sondas de verificación declaradas para la herramienta (ninguna si no tiene o no está catalogada). */
+export function probesOf(server: string, tool: string): readonly Probe[] {
+  return lookup(server, tool)?.probes ?? [];
+}
 
 export function isKnownTool(server: string, tool: string): boolean {
   return lookup(server, tool) !== undefined;
