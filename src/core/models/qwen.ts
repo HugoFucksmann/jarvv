@@ -398,6 +398,8 @@ export class QwenEngine implements EngineLLM {
       max_tokens: maxTokens,
       stream: false,
       reasoning_effort: o.thinking ? "low" : "none",
+      // Mantiene el modelo cargado entre tareas (Ollama lo acepta también en /v1/chat/completions).
+      keep_alive: this.getConfig().modelKeepAlive,
     };
     if (o.schema) {
       body.response_format = {

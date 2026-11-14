@@ -10,6 +10,7 @@ import { RefViewerModal } from "./components/RefViewerModal.tsx";
 import { TraceViewerModal } from "./components/TraceViewerModal.tsx";
 import { Separator } from "../Shared/Separator.tsx";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
+import type { SpeechStatus } from "../../hooks/useSpeech.ts";
 import type { ActionResult } from "../../types/ui.ts";
 
 interface ProcessFlowProps {
@@ -22,7 +23,7 @@ interface ProcessFlowProps {
   onOpenCallTrace?: (callId: string) => void;
   onSpeak?: (text: string) => void;
   onStopSpeech?: () => void;
-  speechStatus?: "idle" | "loading" | "playing";
+  speechStatus?: SpeechStatus;
 }
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({

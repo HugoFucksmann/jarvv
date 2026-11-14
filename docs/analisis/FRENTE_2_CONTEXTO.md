@@ -1,6 +1,29 @@
 # Frente 2 — Contexto: qué recibe cada modelo y cómo mejorarlo
 
-> 2026-11-13. Revisado sobre el código (`ctx/views/`, `render/`, `engine/adapters.ts`, `models/prompts.ts`, `budget.ts`) y sobre los prompts reales guardados en las trazas. Las propuestas marcadas «medido» se probaron en el laboratorio o contra los modelos. No se tocó `src`.
+> 2026-11-13. Revisado sobre el código (`ctx/views/`, `render/`, `engine/adapters.ts`, `models/prompts.ts`, `budget.ts`) y sobre los prompts reales guardados en las trazas. Las propuestas marcadas «medido» se probaron en el laboratorio o contra los modelos. Cuando se escribió no se había tocado `src`.
+>
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales.
+
+## Estado de implementación (2026-11-14)
+
+Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
+
+| # | Decisión | Estado | Dónde está |
+|---|---|---|---|
+| DN-2.1 | Sin `Last result` en D1 y D2 | ✅ | `models/prompts.ts` (`frameLines`) |
+| DN-2.2 | Sin `Previous approved calls` en D4 | ✅ (`forVerify` y `verifyInput` lo siguen calculando) | `models/prompts.ts` (`buildResultVerification`) |
+| DN-2.3 | Reglas de comando solo si la herramienta tiene `command` | ✅ (corrige el `shell` inválido en `list_directory`) | `models/prompts.ts` (`ARGUMENTS_VIEW.buildSystemPrompt`) |
+| DN-2.4 | Solicitud original en argumentos | ⏸ D0 «una acción» ya entrega el pedido literal al paso; el resto sin medir | — |
+| DN-2.5 | `pending` busca ante preguntas de hechos | ⚠ implementada pero **apagada** (`PENDING_FACTS_LOOKUP = false`), esperando autorización. Con D0, esas preguntas ya van a búsqueda por la ruta de una acción | `models/prompts.ts` |
+| DN-2.6 | Formato de lo hecho en `pending` y D5 | ❌ cerrada: no mejoraba | — |
+| DN-2.7 | Estructura `signals` + `data` + `note` | ⏸ | — |
+| DN-2.8 | Secciones por herramienta | ⏸ (la parte de reglas de comando está cubierta por DN-2.3) | — |
+| DN-2.9 | Topes al contexto real | ⏸ depende de cómo se arranca Ollama (`OLLAMA_CONTEXT_LENGTH=8192`; `d3` usa 4096) | `jarvis-config.json` |
+| DN-2.10 | Idioma y relleno de la respuesta final | ⚠ relleno ✅ por código (`engine/finalClean.ts`). Idioma ⏸ (lo prueba el usuario) | `engine/finalClean.ts`, `engine/finalize.ts` |
+
+**Medido en esta etapa (2026-11-14)**
+- **Relleno «No se realizaron cambios…»:** cambiar la regla del prompt lo bajó de 77 a 10 de 98 respuestas pero también bajó el acierto de `final` (−3, luego −6 y −8 puntos en los datasets gemai, dos corridas). Se descartó (variante `eval/variants/ctx/ctx_final_nofiller.ts`, conservada como evidencia) y se resolvió quitando la frase por código de la respuesta ya generada.
+- **Prompt con argumentos bloqueados explícitos (R5):** el generador ya cambia los argumentos 25 de 30 veces con el prompt actual (dataset `args_blocked_repeat`); lo único que repite es un comando que es la respuesta correcta. R5 no hace falta.
 
 ## Resumen
 
@@ -14,7 +37,8 @@ Cambios por impacto:
 | 2 | D4 sin `Previous approved calls` | Medido en el laboratorio: 3 mejoras, 1 regresión, ningún dataset peor | En un caso real, de 2 009 a 935 tokens |
 | 3 | Argumentos: reglas de PowerShell solo si la herramienta recibe un comando | Medido en el laboratorio: 2 mejoras, 0 regresiones | Unos 330 tokens menos por llamada; quita un error inducido (ver F7) |
 | 4 | La solicitud original llega a la generación de argumentos | Traza: `Write-Output hola` se ejecutó como `echo hola` | Fidelidad |
-| 5 | Lo hecho se muestra por ítem cumplido, no por llamada | D5 cambia de 0,34 a 0,93 según el texto del resultado | D5 y `pending` más estables; de 271 a 71 tokens |
+| 5 | ~~Lo hecho por ítem cumplido~~ **descartado** | Medido en los 36 casos de cierre: 29 a 30 de 36 contra 31 de 36 del formato actual | No se hace; el ahorro era de 18 tokens |
+| 5b | `pending`: excepción para preguntas de hechos cambiantes | Medido: de 0/12 a 11/12 preguntas de hechos abren un paso; charla vacía 8/8. En el laboratorio, 2 casos ajenos regresan (−5,2 en `llm_pending_hard`) y 1 mejora | **Necesita tu decisión** (DN-2.5) |
 | 6 | Separar en el resultado los datos, las señales y los avisos | Diseño (F1) | Base de 5, del Frente 3 y de la verificación por código |
 | 7 | Topes calculados contra el contexto real | El peor caso de D4 supera los 4 096 tokens reales | Evita el recorte silencioso |
 
@@ -28,7 +52,7 @@ Tamaño máximo visto en las trazas, en tokens de entrada: `pending` 1 185 · D1
 - **Estorba:**
   - La regla «questions about general knowledge … reply with an empty list». Con ella, «¿Cuándo se estrena Avengers Doomsday?» se respondió dos veces sin buscar. Un 4B no tiene conocimiento fiable.
   - El texto del resultado. En una traza, con las dos búsquedas ya hechas, `pending` volvió a listar los dos ítems cumplidos (los salvó `reconcileList`).
-- **Cambio:** `DONE` por ítem (propuesta 5). Quitar «questions about general knowledge» de la regla de lista vacía.
+- **Cambio (medido, ver DN-2.5):** agregar una excepción al final de la regla de lista vacía. El formato de `DONE` por ítem se probó y se descartó (§4).
 
 ### D1, ruta
 - **Recibe:** `Request` (reactivo), `Step`, `Expected`, `Done`, `Last result` (el resultado anterior entero, hasta 2 500 caracteres), `Attempts not approved`, `User input`, `Environment`.
@@ -67,7 +91,7 @@ Tamaño máximo visto en las trazas, en tokens de entrada: `pending` 1 185 · D1
 ### D5, cierre
 - **Recibe:** `REQUEST` y `DONE` con el mismo formato que `pending`.
 - **Problema:** muy sensible al texto del resultado. Sobre 18 cierres reales, el mismo caso da 0,34 con el resultado entero y 0,93 sin él; otro baja de 0,85 a 0,21 con un recorte de 300 caracteres. La cantidad de cierres aprobados no cambia (12 de 18 en las tres variantes) y los falsos cierres tampoco (2 de 6 al quitar la última llamada).
-- **Cambio:** `DONE` por ítem (propuesta 5), medido antes sobre los 36 casos de `eval/exp/close_check.ts`. No cambiar a ciegas.
+- **Cambio:** ninguno en el formato. Se midió `DONE` por ítem sobre los 36 casos de `eval/exp/close_check.ts` y no mejora (§4).
 
 ### Respuesta final (generativo)
 - **Recibe:** `TODAY`, `REQUEST`, estado de la tarea, `STEPS`, `DATA` (3 últimas lecturas completas con cabecera, `args` y línea de ref), `EVIDENCE`, `USER`, `STATE`, `EFFECTS`.
@@ -133,6 +157,8 @@ Y se entrega en uno de tres niveles:
 | D5 | Sí | — | Ítems cumplidos, `line` | — | — | — | — |
 | Final | Sí | — | — | — | `full` | Motivo | Efectos, idioma |
 
+> Nota (medido, §4): en las columnas «Hecho» de `pending` y D5 donde dice «Ítems cumplidos», **se mantiene el formato de hoy** (llamadas con resultado). El formato por ítem no mejoró el cierre. El resto de la matriz no cambia.
+
 «Según la herramienta» se declara en el catálogo, junto a `params` y `notes`: por ejemplo `web_search` no necesita `ENV` ni lecturas previas; `write_file` necesita lecturas previas y `REFS`; `run_command` necesita `ENV`, estado y las reglas de comando.
 
 ### 3.4 Topes
@@ -148,8 +174,11 @@ Cada consulta recibe un presupuesto en tokens derivado del contexto real de su m
 | Final sin ids y con idioma fijado (`ctx_final_clean`) | Laboratorio, 47 casos | 1 mejora, 2 regresiones: sin efecto medible |
 | D1 sin `Last result` | 7 consultas reales | Misma ruta en 7 de 7; estado de 360 a 26 tokens |
 | D5 con `DONE` compacto | 18 cierres reales + 6 negativos | Mismos cierres (12) y mismos falsos cierres (2); probabilidades muy distintas caso a caso; de 271 a 71 tokens |
+| D5 con `DONE` por ítem cumplido (3 formatos) | 36 casos de `eval/exp/close_check.ts`, umbral 0,75 | Actual 31/36 (1 falso sí, 4 falsos no). Por ítem sin resultado 29/36 (2 falsos sí); con 150 o 300 caracteres de resultado 29/36 (1 falso sí, 6 falsos no). Tokens 230 → 197 a 212. **No mejora** |
+| `pending` con excepción para hechos cambiantes (`ctx_pending_facts`) | 12 preguntas de hechos + 8 de charla, y 53 casos del laboratorio ×2 | Hechos que abren un paso: 0/12 → 11/12. Charla vacía: 8/8. Laboratorio: 0 en `llm_gemai` y `llm_pending`, −5,2 en `llm_pending_hard`; regresan `pending-hard-008` (pierde la URL literal) y `pending-hard-026` (lista vacía), mejora `pending-hard-022` |
+| `pending` reescribiendo la regla entera | Mismos casos | Hechos 12/12 pero charla 5/8 y −6,2 / +3,1 / −10,3 en el laboratorio: descartada |
 
-Las tres variantes quedaron en `eval/variants/ctx/`. No cambian `src`.
+Cuatro variantes quedaron en `eval/variants/ctx/`. No cambian `src`.
 
 ## DECISIONES NUEVAS
 
@@ -159,8 +188,8 @@ Las tres variantes quedaron en `eval/variants/ctx/`. No cambian `src`.
 | DN-2.2 | `Previous approved calls` en D4 | A dejar · B quitar | **B** |
 | DN-2.3 | Reglas de comando en el prompt de argumentos | A siempre (hoy) · B solo si la herramienta tiene `command` | **B** |
 | DN-2.4 | Solicitud original en argumentos (reactivo) | A no (hoy) · B línea `REQUEST` recortada, como en D1 | **B**, midiendo en el laboratorio con los datasets de argumentos |
-| DN-2.5 | Regla de lista vacía de `pending` | A dejar «general knowledge» · B quitarla (los hechos se buscan) | **B**. Cambia el comportamiento ante preguntas: hoy responde sin buscar |
-| DN-2.6 | Formato de lo hecho en `pending` y D5 | A por llamada con resultado (hoy) · B por ítem cumplido | **B**, previo dataset de cierre en el laboratorio |
+| DN-2.5 | Regla de lista vacía de `pending` ante preguntas de hechos | A dejar (hoy: 0/12 buscan) · B agregar una excepción de una frase (11/12 buscan; 2 casos ajenos regresan) · C reescribir la regla (descartada) | **B**, pero es tuya: cambia el comportamiento ante preguntas («¿cuándo sale X?» pasa de responder de memoria a buscar) y la prueba es chica. Los 2 casos que regresan son inestabilidad del prompt, no del efecto buscado |
+| DN-2.6 | Formato de lo hecho en `pending` y D5 | A por llamada con resultado (hoy) · B por ítem cumplido | **A**. Medido: B no mejora (29 a 30 de 36 contra 31 de 36). Queda cerrada |
 | DN-2.7 | Estructura del resultado en el contexto | A `summary` único (hoy) · B `signals` + `data` + `note` | **B**. Cambia el formato del snapshot (`v: 2`) |
 | DN-2.8 | Secciones por herramienta | A todas a todas (hoy) · B declaradas en el catálogo | **B** |
 | DN-2.9 | Topes | A caracteres fijos (hoy) · B presupuesto por consulta según el contexto real | **B**; como mínimo, bajar la configuración al contexto real |
@@ -169,12 +198,13 @@ Las tres variantes quedaron en `eval/variants/ctx/`. No cambian `src`.
 ## Orden de implementación
 
 1. DN-2.1, DN-2.2 y DN-2.3: cambios de una función cada uno, ya medidos.
-2. DN-2.5 y DN-2.4: prompt y una línea de vista; medir en el laboratorio.
+2. DN-2.5 (ya medido, falta tu decisión) y DN-2.4 (pide un cambio en `src`: la vista de argumentos no recibe la solicitud).
 3. DN-2.9 mínimo (configuración) y DN-2.10.
-4. DN-2.7, DN-2.6 y DN-2.8: el rediseño de la entrega. DN-2.7 primero, porque los otros dos se apoyan en él.
+4. DN-2.7 y DN-2.8: el rediseño de la entrega. DN-2.7 primero, porque DN-2.8 se apoya en él. DN-2.6 queda descartada.
 
 ## Límites
 
 - Las muestras reales son pocas (7 consultas de D1 con resultado previo, 18 cierres). Las diferencias de 1 a 3 casos en el laboratorio están dentro del ruido que el propio laboratorio documenta.
-- No medí DN-2.4, DN-2.5, DN-2.6 ni DN-2.10 con sus datasets.
+- No medí DN-2.4 (la solicitud original en argumentos): una variante del laboratorio no puede hacerlo, porque el prompt de argumentos recibe la vista ya renderizada sin la solicitud; hace falta tocar `src`. Tampoco DN-2.10 (idioma): el grader de la respuesta final no mira el idioma.
+- La excepción de DN-2.5 se midió con 12 preguntas de hechos que escribí yo y una sola corrida de 8 de charla; el laboratorio la mide con `--repeat=2`.
 - Plan, replan y pregunta al usuario no se auditaron con datos reales.

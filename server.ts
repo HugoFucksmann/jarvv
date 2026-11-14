@@ -26,6 +26,7 @@ import { createMcpRouter } from './src/server/mcpRouter.ts';
 import { localOnly } from './src/server/localOnly.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
+import { warmUpModels } from './src/core/models/warmup.ts';
 import { startRetention } from './src/core/retention.ts';
 import { TerminalProvider } from './src/tools/terminal/terminalProvider.ts';
 import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
@@ -169,6 +170,8 @@ async function main() {
   const HOST = process.env.HOST || '127.0.0.1';
   // Datos de esta PC (carpetas del usuario): se consultan ahora y no en la primera tarea; la primera tarea espera la misma promesa.
   void getUserEnvironment();
+  // Precalienta los dos modelos (carga en GPU + `keep_alive`) sin bloquear el arranque; un fallo solo se registra.
+  void warmUpModels(getConfig);
 
   app.listen(PORT, HOST, () => {
     console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);

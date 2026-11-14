@@ -37,6 +37,11 @@ export interface JarvisConfig {
   /** Debe coincidir con el contexto real del motor (num_ctx / OLLAMA_CONTEXT_LENGTH). */
   qwenNumCtx: number;
   qwenMaxTokens: QwenMaxTokens;
+  /**
+   * Cuánto conserva Ollama cargados los modelos desde la última consulta (`keep_alive` de cada request: duración como `30m` o `2h`, `-1` = sin límite, `0` = descargar
+   * al terminar). Sin esto rige el valor del servidor (5 minutos por defecto): la primera tarea tras una pausa paga la carga en frío. Se manda a los dos modelos.
+   */
+  modelKeepAlive: string;
   qwenTimeoutMs: number;
   qwenThinkingTimeoutMs: number;
   decisionUrl: string;
@@ -102,6 +107,10 @@ export type ConfigPatch = Partial<
   qwenMaxTokens?: Partial<QwenMaxTokens>;
 };
 
+/** `keep_alive` válido para Ollama: `-1`, `0` o una duración con unidad (`30m`, `2h`, `90s`); lo demás cae al valor por defecto. */
+export const isKeepAlive = (v: unknown): v is string => typeof v === "string" && /^(?:-1|0|\d+(?:\.\d+)?(?:ms|s|m|h))$/.test(v.trim());
+const keepAlive = (v: unknown, fallback: string): string => (isKeepAlive(v) ? v.trim() : fallback);
+
 const CONFIG_FILE_PATH = path.resolve(process.cwd(), "jarvis-config.json");
 
 const DEFAULT_CONFIG: JarvisConfig = {
@@ -110,6 +119,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   thinking: false,
   qwenNumCtx: 16384,
   qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, final: 2048 },
+  modelKeepAlive: "30m",
   qwenTimeoutMs: 120000,
   qwenThinkingTimeoutMs: 180000,
   decisionUrl: "http://127.0.0.1:11434",
@@ -232,6 +242,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
       replan: positiveInt(t.replan, d.qwenMaxTokens.replan),
       final: positiveInt(t.final, d.qwenMaxTokens.final),
     },
+    modelKeepAlive: keepAlive(r.modelKeepAlive, d.modelKeepAlive),
     qwenTimeoutMs: positiveInt(r.qwenTimeoutMs, d.qwenTimeoutMs),
     qwenThinkingTimeoutMs: positiveInt(r.qwenThinkingTimeoutMs, d.qwenThinkingTimeoutMs),
     decisionUrl: text(r.decisionUrl, d.decisionUrl),

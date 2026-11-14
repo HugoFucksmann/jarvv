@@ -107,7 +107,7 @@ JARVIS trae su propio laboratorio de evaluación: mide prompts y modelos contra 
 | | Requisito | Para qué |
 |:-:|---|---|
 | 🟢 | [Node.js](https://nodejs.org) 22.12 o superior | Servidor, interfaz y Desktop Commander (que se instala con `npm install` y se lanza con `node`) |
-| 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b` |
+| 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b`. En 8 GB de VRAM conviene usar las variantes sin visión `qwen3.5:4b-text` y `d3:2b-text` (`docs/OLLAMA_MODELOS_TEXTO.md`) |
 | 🐍 | [uv](https://docs.astral.sh/uv/) (`uvx`) | Free Search, la herramienta de la ruta `web` |
 
 ### Instalación
@@ -178,6 +178,8 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos |
+| `data/memory.json` (archivo opcional) | ausente | Hechos del usuario `[{ "key", "value" }]` que Jarvis pasa a la generación de argumentos cuando el pedido los menciona (`docs/CONTEXT_AND_MEMORY.md` §10) |
+| `modelKeepAlive` | `30m` | `keep_alive` de Ollama que se manda con cada consulta a los dos modelos (`30m`, `2h`, `-1` = sin límite). Ver `docs/OLLAMA_MODELOS_TEXTO.md` |
 | `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
 | `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |
 | `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción). Solo valida los argumentos de ruta de las herramientas de archivos: **no restringe lo que haga un comando** de `run_command` |

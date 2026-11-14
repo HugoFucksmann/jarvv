@@ -17,7 +17,8 @@
 import { BUDGET } from "./budget.ts";
 import { create, terminalStateFor } from "./ctx/index.ts";
 import type { ContextData, ContextOptions, NormalizedOp, StopReason, TaskContext, TaskMode, TaskState } from "./ctx/index.ts";
-import type { EngineDeps, EngineLLM, IActionDecision, IDiscoveryEngine } from "./contracts.ts";
+import type { EngineDeps, EngineLLM, IActionDecision, IDiscoveryEngine, PreviousTask } from "./contracts.ts";
+import { previousTaskOf, THREAD_TTL_MS } from "./engine/thread.ts";
 import type { EngineServices } from "./engine/services.ts";
 import { createEngineServices } from "./engine/services.ts";
 import type { ConfigSource } from "./config.ts";
@@ -78,6 +79,8 @@ export class TaskManager {
   private readonly listeners = new Set<TaskListener>();
   /** Ejecuciones en curso (con la escritura de su traza). */
   private readonly inFlight = new Set<Promise<void>>();
+  /** Hilo (`engine/thread.ts`): la última tarea completada con respuesta del modelo, en RAM; vence a los `THREAD_TTL_MS`. */
+  private previous: { readonly task: PreviousTask; readonly at: number } | null = null;
   private readonly contextOptions: ContextOptions = {
     now: Date.now,
     summaryMax: BUDGET.summaryMax,
@@ -129,15 +132,24 @@ export class TaskManager {
     this.emit({ type: "created", taskId: id, n: ctx.n });
 
     console.log(`[Task] start id=${id} mode=${mode}`);
-    const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink };
+    const previousTask = this.previous !== null && Date.now() - this.previous.at < THREAD_TTL_MS ? this.previous.task : null;
+    const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink, previousTask };
     // La ejecución incluye la escritura de la traza (asíncrona, después de la respuesta): `drain` espera a ambas al apagar el servidor.
     const run: Promise<void> = runTask(ctx, runtime, deps)
       .catch((error: unknown) => this.closeOnDefect(entry, error))
+      .then(() => this.remember(ctx))
       .finally(() => recorder.finish())
       .finally(() => void this.inFlight.delete(run));
     this.inFlight.add(run);
 
     return this.toDto(entry);
+  }
+
+  /** Guarda la tarea para el hilo si terminó completada con una respuesta del modelo (no la de respaldo, que es texto fijo). */
+  private remember(ctx: TaskContext): void {
+    const result = ctx.result;
+    if (ctx.task.state !== "completed" || result === null || result.origin !== "model") return;
+    this.previous = { task: previousTaskOf(ctx.task.request, result.text), at: Date.now() };
   }
 
   /** Cancela la tarea: aborta lo que esté en curso y resuelve la espera. El cierre (`user_cancelled`) lo escribe `runTask`. */

@@ -70,7 +70,7 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
   if (call.status === "tool_error" || call.status === "exception") return record("rejected", "no_usable_data");
 
   const input = verifyInput(ctx.view.forVerify(callId));
-  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal));
+  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), 0);
 
   if (!query.ok) {
     const closure = closeOnFailure(ctx, call.stepId, query.failure, query.error);

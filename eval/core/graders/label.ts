@@ -13,6 +13,8 @@ import type {
   GraderCollector,
   ResultVerificationExpect,
   ResultVerificationOutput,
+  D0Expect,
+  D0Output,
   RouteExpect,
   RouteOutput,
   ToolChoiceExpect,
@@ -37,6 +39,26 @@ function checkMinProbability(
   }
   col.check(key, prob >= min, `Probabilidad ${prob.toFixed(3)} de '${label}' menor al mínimo ${min}.`);
 }
+
+export const D0LabelGrader: Grader<D0Output, D0Expect> = {
+  name: "d0_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("d0_valid", false, "No se pudo obtener la decisión D0.");
+      return;
+    }
+    col.check("kind_match", output.kind === expect.expectedKind, `D0 decidió '${output.kind}' y se esperaba '${expect.expectedKind}'.`);
+    const chat = output.probabilities.chat;
+    if (expect.minChatProbability !== undefined) checkMinProbability(col, "min_chat_probability_met", "chat", chat, expect.minChatProbability);
+    if (expect.maxChatProbability !== undefined) {
+      col.check(
+        "max_chat_probability_met",
+        typeof chat === "number" && chat <= expect.maxChatProbability,
+        `Probabilidad ${typeof chat === "number" ? chat.toFixed(3) : "?"} de 'chat' mayor al máximo ${expect.maxChatProbability}.`,
+      );
+    }
+  },
+};
 
 export const RouteLabelGrader: Grader<RouteOutput, RouteExpect> = {
   name: "route_label",

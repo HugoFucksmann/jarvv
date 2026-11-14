@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-export type SpeechStatus = "idle" | "loading" | "playing";
+export type SpeechStatus = "idle" | "loading" | "playing" | "disconnected";
 
 const SAMPLE_RATE = 24000;
 
@@ -61,8 +61,12 @@ export function useSpeech(onError?: (message: string) => void) {
           if (abortRef.current === ac) {
             abortRef.current = null;
             streamDoneRef.current = true;
-            setStatus("idle");
-            onError?.(`Voz: ${reason}`);
+            if (res.status === 502 || res.status === 503) {
+              setStatus("disconnected");
+            } else {
+              setStatus("idle");
+              onError?.(`Voz: ${reason}`);
+            }
           }
           return;
         }

@@ -30,6 +30,7 @@ eval/results/
 
 # ── Referencias locales de JARVIS ──────────────────────────────────────────────
 data/refs/
+data/memory.json
 
 # ── Entorno de Python del servidor de voz ──────────────────────────────────────
 /.venv-tts/

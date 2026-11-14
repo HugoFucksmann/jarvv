@@ -114,8 +114,9 @@ function readRefText(where: string): string | null {
  * llamadas, incluido el contenido de sus refs (una búsqueda o una página larga queda casi siempre en una ref: sin leerla, las
  * URLs y rutas que aparecen solo ahí se darían por inventadas, o habría que apagar la comprobación en toda la tarea).
  */
-export function collectSources(ctx: TaskContext): PrecheckSources {
-  const parts: string[] = [ctx.task.request];
+export function collectSources(ctx: TaskContext, extra: readonly string[] = []): PrecheckSources {
+  // `extra`: valores de los hechos de la memoria del usuario que se pasaron a la generación (sin esto, una ruta que viene de un hecho se rechazaría como inventada).
+  const parts: string[] = [ctx.task.request, ...extra];
   for (const step of ctx.find("steps", {})) if (step.instruction) parts.push(step.instruction);
   parts.push(JSON.stringify(ctx.view.forReview(reviewViewOptions()).userInput));
   let complete = true;

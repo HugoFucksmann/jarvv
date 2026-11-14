@@ -13,7 +13,7 @@ import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
 import { createRefVault } from "../src/core/refs/refVault.ts";
 import { TaskManager } from "../src/core/tasks.ts";
 
-function manager(root: string, pending: EngineLLM["generatePendingFromView"]): TaskManager {
+function manager(root: string, pending: EngineLLM["generatePendingFromView"], extraDecision: object = {}): TaskManager {
   const getConfig = (): JarvisConfig => ({ traceEnabled: true, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
   const services: EngineServices = {
     vault: createRefVault({ dir: path.join(root, "refs") }),
@@ -37,6 +37,7 @@ function manager(root: string, pending: EngineLLM["generatePendingFromView"]): T
   };
   const discovery = { getServer: () => undefined, getDiscoveredTools: async () => [], getUnavailableServers: () => ({}), validateToolExists: async () => false };
   const decision = {
+    ...extraDecision,
     chooseRoute: async () => {
       throw new Error("no se usa");
     },
@@ -85,6 +86,8 @@ test("drain no espera más que el plazo a una tarea colgada, aunque se la cancel
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-tm-"));
   const tasks = manager(root, () => new Promise(() => undefined));
   const dto = tasks.start("se cuelga", "reactive");
+  // Deja que la tarea llegue a la consulta colgada: la primera espera (D0) cede el turno y una cancelación inmediata cerraría la tarea antes de colgarse.
+  await new Promise((resolve) => setTimeout(resolve, 20));
   tasks.cancelAll();
   const t0 = Date.now();
   await tasks.drain(300);
@@ -103,5 +106,23 @@ test("cancel y las decisiones sobre tareas o esperas inexistentes devuelven el c
   await tasks.drain(3000);
   assert.equal(tasks.approveCall(dto.task.id, "w1"), "not_waiting");
   assert.equal(tasks.answer(dto.task.id, "algo"), "not_waiting");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("hilo: una tarea completada con respuesta del modelo queda como tarea anterior de la siguiente; una cancelada o con respaldo, no", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-tm-"));
+  const seen: unknown[] = [];
+  const tasks = manager(root, async () => ({ pending: [], rawInput: "", rawOutput: "" }), {
+    continuation: async (input: { previous: unknown }) => {
+      seen.push(input.previous);
+      return { follows: 0, rawInput: "", rawOutput: "" };
+    },
+  });
+  tasks.start("primera tarea", "reactive");
+  await tasks.drain(3000);
+  assert.equal(seen.length, 0, "la primera tarea no tiene tarea anterior");
+  tasks.start("segunda tarea", "reactive");
+  await tasks.drain(3000);
+  assert.deepEqual(seen, [{ request: "primera tarea", answer: "Listo." }], "la segunda ve la primera, con su respuesta");
   fs.rmSync(root, { recursive: true, force: true });
 });

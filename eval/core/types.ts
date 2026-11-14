@@ -14,7 +14,7 @@ export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
-export type DecisionStage = "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge";
+export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge";
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
@@ -99,6 +99,24 @@ export interface AnswerExpect {
   minProbability?: number;
 }
 export type AnswerExpects = Record<string, AnswerExpect>;
+
+// d0 (primera consulta de la tarea reactiva: charla, una acción o varias; `src/core/engine/firstQuery.ts`)
+export interface D0Expect {
+  expectedKind: "chat" | "single" | "multi";
+  /** Probabilidad mínima de `chat` (casos de charla: el umbral de producción es 0,7). */
+  minChatProbability?: number;
+  /** Probabilidad máxima de `chat` (casos que NO son charla pero se parecen: no deben acercarse al umbral). */
+  maxChatProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface D0Output {
+  /** Lo que decide el código con los umbrales de producción (`firstQueryKind`). */
+  kind: "chat" | "single" | "multi";
+  /** Probabilidades de la pregunta `kind`. */
+  probabilities: Record<string, number>;
+  /** Probabilidad de "sí" de la pregunta `multi`. */
+  multi: number;
+}
 
 // route
 export interface RouteExpect {
@@ -238,6 +256,7 @@ export interface PendingExpect {
 }
 
 export type StageExpect =
+  | D0Expect
   | RouteExpect
   | ToolChoiceExpect
   | ArgsReviewExpect

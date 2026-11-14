@@ -9,6 +9,7 @@ import path from "node:path";
 
 import type { ConfigSource } from "../config.ts";
 import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
+import { createMemoryReader, type MemoryFact } from "../memory.ts";
 import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
 import { isPathInside, type ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
@@ -23,6 +24,8 @@ export interface EngineServices {
   /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
   readonly environment: () => Promise<UserEnvironment>;
   readonly autoMode: () => boolean;
+  /** Hechos del usuario de `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
+  readonly memory?: () => readonly MemoryFact[];
 }
 
 let coherenceWarned = false;
@@ -63,5 +66,6 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     blacklist: compileBlacklist(config.blacklist),
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
+    memory: createMemoryReader(path.join(path.dirname(refsDir), "memory.json")),
   };
 }

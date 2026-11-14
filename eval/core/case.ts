@@ -5,11 +5,12 @@
  * ubicación: `datasets.ts` les antepone `archivo:línea:`.
  */
 
+import { FIRST_QUERY_KINDS } from "../../src/core/engine/firstQuery.ts";
 import { ARGS_REVIEWS, EXECUTABLE_ROUTES, isExecutableRoute } from "./contract.ts";
 import type { DecisionStage, Case, GenerativeStage, StageName } from "./types.ts";
 
 /** Etapas conocidas por el eval. Deben coincidir con el registro `stages/index.ts` (`allStageNames()`). */
-export const DECISION_STAGES: readonly DecisionStage[] = ["route", "tool_choice", "args_review", "result_verification", "fragment_judge"];
+export const DECISION_STAGES: readonly DecisionStage[] = ["d0", "route", "tool_choice", "args_review", "result_verification", "fragment_judge"];
 export const GENERATIVE_STAGES: readonly GenerativeStage[] = ["plan", "arguments", "final", "question", "pending"];
 export const ALL_STAGES: readonly StageName[] = [...DECISION_STAGES, ...GENERATIVE_STAGES];
 
@@ -108,6 +109,10 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
     keys: { expectedOk: "boolean", expectedCumple: "boolean", minOkProb: "number", minCumpleProb: "number", answers: "object" },
     required: ["expectedOk", "expectedCumple"],
   },
+  d0: {
+    keys: { expectedKind: "string", minChatProbability: "number", maxChatProbability: "number", answers: "object" },
+    required: ["expectedKind"],
+  },
   fragment_judge: {
     keys: { expectedRelevant: "boolean[]", minProbability: "number", answers: "object" },
     required: ["expectedRelevant"],
@@ -144,6 +149,7 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
 /** Valores cerrados por clave. Las etiquetas de `args_review` salen de producción (`ARGS_REVIEWS`), no se copian a mano. */
 const ENUM_VALUES: Partial<Record<StageName, Record<string, readonly string[]>>> = {
   args_review: { expectedReview: ARGS_REVIEWS as readonly string[] },
+  d0: { expectedKind: FIRST_QUERY_KINDS as readonly string[] },
 };
 
 function matchesKind(v: unknown, kind: ExpectKind): boolean {

@@ -71,6 +71,8 @@ function allAlts(terms: string[]): string[] {
 /** Opción de `criteria` que satisface el expect de la etapa (o undefined si el caso no la fija). */
 function targetChoice(stage: string | undefined, expect: Rec, options: string[]): string | undefined {
   switch (stage) {
+    case "d0":
+      return expect.expectedKind as string | undefined;
     case "route":
       return expect.expectedRoute as string | undefined;
     case "tool_choice":
@@ -93,7 +95,7 @@ export function oracleDecisionResponder(_prepared: PreparedRequest, req: Decisio
       // Juez de fragmentos: la pregunta `f<i>` se responde con `expectedRelevant[i]`.
       const frag = ctx?.stage === "fragment_judge" ? /^f(\d+)$/.exec(key) : null;
       const fragWant = frag && Array.isArray(expect.expectedRelevant) ? expect.expectedRelevant[Number(frag[1])] : undefined;
-      const want = typeof fragWant === "boolean" && typeof ex.yes !== "boolean" ? fragWant : typeof ex.yes === "boolean" ? ex.yes : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : true;
+      const want = typeof fragWant === "boolean" && typeof ex.yes !== "boolean" ? fragWant : typeof ex.yes === "boolean" ? ex.yes : key === "ok" ? expect.expectedOk : key === "cumple" ? expect.expectedCumple : ctx?.stage === "d0" && key === "multi" ? expect.expectedKind === "multi" : true;
       answers[key] = { noul: want === false ? MISS : HIT };
       continue;
     }

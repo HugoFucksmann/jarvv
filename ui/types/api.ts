@@ -21,12 +21,12 @@ export interface TaskInfo {
   request: string;
   state: TaskState;
   stopReason?: StopReason;
-  startedAt: string;
+  startedAt: string | number;
 }
 
 export interface PlanDto {
   id: string;
-  at: string;
+  at: string | number;
   trigger: "initial" | "user_feedback" | "step_failure";
   feedback?: string;
   stepId?: string;
@@ -36,7 +36,7 @@ export type StepState = "pending" | "running" | "completed" | "failed";
 
 export interface StepDto {
   id: string;
-  at: string;
+  at: string | number;
   planId: string | null;
   instruction: string | null;
   route: string | null;
@@ -65,7 +65,7 @@ export type CallStatus =
 export interface CallDto {
   id: string;
   stepId: string;
-  at: string;
+  at: string | number;
   route: string;
   tool: string;
   kind: "read" | "write";
@@ -81,20 +81,20 @@ export interface CallDto {
 export interface ErrorDto {
   id: string;
   stepId: string;
-  at: string;
+  at: string | number;
   kind: "service_unavailable";
 }
 
 export interface FactEntry {
   value: unknown;
   stepId: string;
-  at: string;
+  at: string | number;
 }
 
 export interface RefDto {
   id: string;
   stepId: string;
-  at: string;
+  at: string | number;
   label: string;
   size: number;
   where: string;

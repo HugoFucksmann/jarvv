@@ -18,6 +18,7 @@
  * todavía: el fallo no registra `error`.
  */
 
+import type { PreviousTask } from "../contracts.ts";
 import { pendingInput } from "./adapters.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, queryModel } from "./failures.ts";
@@ -43,9 +44,12 @@ async function listPending(env: EngineEnv, input: ReturnType<typeof pendingInput
   return { kind: "listed", list: query.value.pending };
 }
 
+/** La entrada de `pending` con la tarea anterior, si el pedido la continúa. */
+const withThread = (input: ReturnType<typeof pendingInput>, thread: PreviousTask | null): ReturnType<typeof pendingInput> => (thread === null ? input : { ...input, thread });
+
 export async function generatePending(env: EngineEnv, previous: readonly string[]): Promise<PendingOutcome> {
   const { ctx } = env;
-  const input = pendingInput(ctx, previous);
+  const input = withThread(pendingInput(ctx, previous), env.follow.thread);
 
   let listed = await listPending(env, input);
   if (listed.kind !== "listed") return listed;

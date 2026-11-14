@@ -1,7 +1,8 @@
-import React from "react";
-import { AlertCircle, CheckCircle2, Loader2, Plus, XCircle, Activity, Cpu } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Loader2, Plus, XCircle, Activity, Cpu, Clock } from "lucide-react";
 import type { StepState, TaskDto, TaskState, EngineLimits } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
+import { formatDuration } from "../../../utils/timeFormat.ts";
 import {
   getActivityPhrase,
   getTaskStatusType,
@@ -93,6 +94,37 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
   const hasActiveProcess = task.facts?.process && task.facts.process.value !== null && task.facts.process.value !== undefined;
   const isTerminal = task.task.state !== "running";
 
+  const startedAtMs = typeof task.task.startedAt === "number"
+    ? task.task.startedAt
+    : Date.parse(task.task.startedAt);
+
+  // Momento de finalización calculado a partir del último evento si ya terminó
+  const lastEventAtMs = isTerminal
+    ? Math.max(
+        startedAtMs || 0,
+        ...task.steps.map((s) => (typeof s.at === "number" ? s.at : Date.parse(s.at) || 0)),
+        ...task.calls.map((c) => (typeof c.at === "number" ? c.at : Date.parse(c.at) || 0)),
+        ...task.plans.map((p) => (typeof p.at === "number" ? p.at : Date.parse(p.at) || 0)),
+        ...task.refs.map((r) => (typeof r.at === "number" ? r.at : Date.parse(r.at) || 0))
+      )
+    : 0;
+
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (isTerminal || !startedAtMs) return;
+    const interval = setInterval(() => {
+      setNowMs(Date.now());
+    }, 250);
+    return () => clearInterval(interval);
+  }, [isTerminal, startedAtMs]);
+
+  const totalDurationMs = startedAtMs
+    ? isTerminal
+      ? Math.max(0, lastEventAtMs - startedAtMs)
+      : Math.max(0, nowMs - startedAtMs)
+    : 0;
+
   return (
     <header className="flex flex-col gap-1.5">
       <div className="flex items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
@@ -120,6 +152,16 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
           >
             <Cpu className="w-3 h-3 text-accent-400 animate-pulse" />
             <span>PID: {String(task.facts.process.value)}</span>
+          </span>
+        )}
+
+        {startedAtMs > 0 && (
+          <span
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800 text-[11px] font-mono shrink-0 tabular-nums"
+            title={isTerminal ? `Tiempo total transcurrido: ${formatDuration(totalDurationMs)}` : "Tiempo transcurrido en ejecución"}
+          >
+            <Clock className={`w-3 h-3 text-slate-400 ${!isTerminal ? "text-accent-400 animate-spin" : ""}`} />
+            <span>{formatDuration(totalDurationMs)}</span>
           </span>
         )}
 

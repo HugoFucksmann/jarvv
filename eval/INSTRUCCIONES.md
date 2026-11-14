@@ -28,6 +28,7 @@ Atajos de `package.json`:
 
 | Tipo | Etapa | Qué se evalúa |
 |---|---|---|
+| Decisión | `d0` | Primera consulta de la tarea: `chat`, `single` o `multi`, decidido por código con los umbrales de producción (`engine/firstQuery.ts`: `chat` ≥ 0,7, `multi` ≥ 0,5), y la probabilidad de `chat` |
 | Decisión | `route` | Ruta elegida (`files`, `locate`, `terminal` o `web`) y su probabilidad |
 | Decisión | `tool_choice` | Herramienta elegida y su probabilidad |
 | Decisión | `args_review` | `approved`, `args_invalid` o `info_missing` |
@@ -167,6 +168,14 @@ Una variante puede enviar más de una pregunta por request. La principal (`route
 
 `choice` para preguntas `choice`, `yes` para `noul` (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6). Si el request no trae la pregunta no se evalúa (warning `q_<clave>_sent`); una pregunta sin expectativa se registra pero no se evalúa. Cada una genera `q_<clave>_match` y `q_<clave>_min_probability`, y cada pregunta se parsea por separado.
 
+### Etapa `d0` (primera consulta de la tarea reactiva)
+
+```json
+{"id":"d0-001","stage":"d0","scenario":{"mode":"reactive","request":"Busca el ultimo modelo de GPT y guardalo en un md en el escritorio"},"expect":{"expectedKind":"multi"}}
+```
+
+`expect.expectedKind` es `chat`, `single` o `multi`. Opcionales: `minChatProbability` (casos de charla: el umbral de producción es 0,7) y `maxChatProbability` (casos que NO son charla pero se parecen, p. ej. una pregunta de hechos: no deben acercarse al umbral). Checks: `kind_match`, `min_chat_probability_met`, `max_chat_probability_met`. Solo modo `reactive`. El `kind` evaluado lo decide el código (`firstQueryKind`), no el `choice` del modelo. Dataset: `eval/datasets/D0/d0_casos_ejemplo.jsonl` (35 casos, 31 pasan; los 4 que fallan caen en el flujo de siempre y no son falsos «charla»). En esa carpeta también está `route_D1_hard.jsonl`, un dataset de la etapa `route`.
+
 ### Etapa `fragment_judge` (modelo para una etapa de decisión nueva)
 El caso trae solo la necesidad y los fragmentos:
 
@@ -219,7 +228,7 @@ Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es
 
 | Etapa | Qué escribe la variante |
 |---|---|
-| `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`). |
+| `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildFirstQuery`, `buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`). |
 | `plan`, `arguments`, `final`, `question`, `pending` | La vista entera en `prompts.PROMPTS` (`PLAN_VIEW`, `ARGUMENTS_VIEW`, `FINAL_VIEW`, `QUESTION`, `PENDING_VIEW`), con todas sus piezas. |
 
 ```ts

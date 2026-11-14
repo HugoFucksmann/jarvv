@@ -18,12 +18,14 @@ import {
   reviewOutcome,
   validateAnswer,
 } from "../contract.ts";
+import { firstQueryKind } from "../../../src/core/engine/firstQuery.ts";
 import type {
   ArgsReviewOutput,
   ChoiceQ,
   FragmentJudgeOutput,
   DecisionRequest,
   ResultVerificationOutput,
+  D0Output,
   RouteOutput,
   ToolChoiceOutput,
 } from "../types.ts";
@@ -42,6 +44,7 @@ export class DecisionParseError extends Error {
 
 /** Pregunta (o preguntas) de producción que alimentan la salida de cada etapa. */
 export const MAIN_QUESTIONS: Record<string, readonly string[]> = {
+  d0: ["kind"],
   route: ["route"],
   tool_choice: ["selected_tool"],
   args_review: ["review"],
@@ -109,6 +112,14 @@ function mainChoice(stage: string, rawOutput: string, sentReq: DecisionRequest):
     throw new DecisionParseError(`La pregunta '${questionKey}' de la etapa '${stage}' no es choice o no existe.`);
   }
   return extractChoice(answers, questionKey, (q as ChoiceQ).criteria);
+}
+
+/** Parsea la respuesta y produce `D0Output`: `kind` lo decide el código con los umbrales de producción (`firstQueryKind`), no el `choice` del modelo. */
+export function parseD0Decision(rawOutput: string, sentReq: DecisionRequest): D0Output {
+  const answers = parseAnswers(rawOutput);
+  const { probabilities } = mainChoice("d0", rawOutput, sentReq);
+  const multi = sentReq.questions.multi?.type === "noul" ? extractNoul(answers, "multi") : 0;
+  return { kind: firstQueryKind(probabilities.chat, multi), probabilities, multi };
 }
 
 /** Parsea la respuesta y produce `RouteOutput`. Implementa la lógica de `chooseRoute`. */

@@ -30,6 +30,7 @@ import { finalize } from "./finalize.ts";
 import { confirmCompletion } from "./completion.ts";
 import { escalationsExceeded, itemFailuresReached, replansExhausted, stepsExhausted } from "./limits.ts";
 import type { Closing } from "./finalize.ts";
+import { classifyRequest, detectContinuation } from "./classify.ts";
 import { generatePending } from "./pending.ts";
 import { reconcileList } from "./pendingList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
@@ -80,6 +81,20 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   // Cierre con la lista vacía: abandonar un ítem deja la tarea incompleta; si no, decide `canFinish()`.
   const finishEmpty = (closure: "completed" | "no_alternatives" | null): Closing =>
     abandoned > 0 || closure !== "completed" ? stop("no_alternatives") : COMPLETED;
+
+  // D0: una consulta de decisión sobre la solicitud antes de `pending`. Charla: sin llamadas, la tarea cierra completada y la respuesta final contesta (hoy cuesta
+  // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o D0 no disponible: el flujo de siempre.
+  // Hilo: si el pedido continúa la tarea anterior («guardalo en un md»), esa tarea entra a `pending`, a los argumentos y a la respuesta final. Con hilo, una acción no toma
+  // el atajo (la solicitud literal dice «eso»): `pending` la reescribe con la tarea anterior a la vista. Una charla sí cierra directo: la respuesta final ve el hilo.
+  env.follow.thread = await detectContinuation(env);
+  if (runtime.cancelled) return CANCELLED;
+  const first = await classifyRequest(env);
+  if (runtime.cancelled) return CANCELLED;
+  if (first === "chat") return COMPLETED;
+  if (first === "single" && env.follow.thread === null) {
+    pending = [ctx.task.request];
+    askModel = false;
+  }
 
   for (;;) {
     if (runtime.cancelled) return CANCELLED;

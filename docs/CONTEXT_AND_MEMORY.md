@@ -1,7 +1,7 @@
 # Contexto, Memoria y Persistencia
 
 ## 1. El Contexto de Tarea
-Todo lo que el sistema sabe de una tarea vive en un único objeto, el **contexto** (`TaskContext`). No hay memorias paralelas: el estado que ve la interfaz, lo que leen los modelos y lo que audita la traza salen de las mismas secciones.
+Todo lo que el sistema sabe de una tarea vive en un único objeto, el **contexto** (`TaskContext`). No hay memorias paralelas dentro de una tarea: el estado que ve la interfaz, lo que leen los modelos y lo que audita la traza salen de las mismas secciones. Lo que se recuerda **entre** tareas (hechos del usuario y la tarea anterior) vive fuera del contexto y entra a los prompts por el motor: ver §10.
 
 ### Cómo se ve
 Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no existen en el JSON real.
@@ -182,6 +182,8 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 - **Traza por tarea** (`src/core/trace/`): si `traceEnabled` está activo, al terminar cada tarea se escribe, en segundo plano, una carpeta `jarvis-traces/AAAAMMDD-HHMMSS_<id>/` (junto a `tracePath`, sin la extensión) y una línea en `jarvis-traces/index.jsonl`. Es de consumo externo (auditoría y laboratorio de evaluación) y el backend nunca la lee. La carpeta tiene: `summary.md` (lo que se lee o se pega a un agente: alertas, línea de tiempo de pasos y llamadas con lo que decidieron D1 a D4, esperas, refs con un fragmento y la respuesta final); `trace.json` (el snapshot final del contexto, las consultas a modelos con la salida ya interpretada y las opciones que se ofrecieron, las herramientas con un fragmento del resultado, las esperas y un bloque `meta` con modelos, versión del código, entorno y schemas de las herramientas); y `full.json.gz` (todo lo anterior más la entrada y la salida crudas de cada consulta, comprimido). Los resultados grandes no se copian: viven en las refs de `data/refs` y la traza guarda su id (`rN`), tamaño y un fragmento. La traza no registra refs nuevas en el contexto. El archivo único `jarvis-traces.jsonl` de la versión 2 ya no se escribe.
 - **Pensamiento de los modelos**: la salida cruda de los modelos se reduce a una lista blanca de campos (identificador, modelo, motivo de fin, contenido y uso de tokens); el razonamiento interno no se registra.
 
+- **Cambios de prompt de 2026-11-14:** D1 y D2 ya no reciben `Last result`; D4 ya no recibe `Previous approved calls` (la vista `forVerify` y `verifyInput` lo siguen calculando); el prompt de argumentos lleva las reglas de comando solo si la herramienta tiene `command`, y un bloque `MEMORY` si hay hechos o hilo (§10).
+
 ## 7. Invariantes de Acceso a Memoria
 1. **Escritura solo por el motor**: los modelos nunca escriben en el contexto ni en las refs; todo pasa por `apply` (§1).
 2. **Sin prosa de modelos en el contexto**: lo que un modelo razona o justifica solo viaja en eventos y trazas. Motivos de rechazo y de detención son claves cerradas con texto fijo.
@@ -197,6 +199,20 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 |---|---|
 | Contexto (`apply`, validación, derivaciones, cierre, snapshot, vistas) | `ctx/` |
 | Renderizado de prompts y topes | `render/`, `budget.ts` |
+| Memoria entre tareas | `memory.ts`, `engine/thread.ts`, `tasks.ts` |
 | Resultados y refs | `result/processResult.ts`, `result/extractors/`, `refs/refVault.ts`, `refs/refResolver.ts` |
 | Escritura desde el motor | `engine/callRunner.ts`, `engine/args.ts` |
 | Tareas, traza y configuración | `tasks.ts`, `trace/recorder.ts`, `config.ts` |
+
+
+## 10. Memoria entre tareas (fuera del contexto)
+El contexto de una tarea nace vacío y no conoce a nadie. Dos fuentes de memoria entran a los prompts por el motor, nunca por `apply`, y no cambian ni se escriben en el contexto (se mantienen los invariantes de §7):
+
+| Memoria | Qué guarda | Dónde | Cuándo entra a un prompt |
+|---|---|---|---|
+| **Hechos del usuario** (`memory.ts`) | Pares `clave → valor` que el usuario escribió a mano, p. ej. `carpeta jarvis` → su ruta | `data/memory.json` (junto a `refsDir`, ignorado por git; se relee si cambia la fecha del archivo) | Solo los que coinciden con el pedido o el paso: todas las palabras de la clave (prefijo de 5 letras), hasta 3. Van como bloque `MEMORY` a la generación de argumentos y sus valores son fuente del pre-chequeo |
+| **Hilo** (`engine/thread.ts`) | La última tarea `completed` con respuesta del modelo: pedido y 500 caracteres de respuesta | RAM de `TaskManager`, 10 minutos | Solo si una consulta `noul` a `d3` (`follow`, umbral 0,3) dice que el pedido nuevo la continúa: a `pending`, a la respuesta final, a los argumentos (líneas `previous request/answer` del bloque `MEMORY`) y como fuente del pre-chequeo |
+
+- **Regla:** solo entra lo que escribió el usuario o la respuesta que ya vio; nunca prosa nueva de un modelo. Sin coincidencia no hay bloque y no cambia ningún token.
+- **Formato del archivo:** `[{ "key": "carpeta jarvis", "value": "C:\\Users\\Ana\\Desktop\\jarvis" }]` (también `{ "facts": [...] }`). Archivo ausente o inválido = memoria vacía.
+- **Sin hacer:** frase «recordá que…» y pantalla para ver y borrar hechos, respuestas del usuario como hechos, recetas por pedido repetido. Diseño completo y mediciones: `docs/analisis/FRENTE_1_MEMORIA.md`.

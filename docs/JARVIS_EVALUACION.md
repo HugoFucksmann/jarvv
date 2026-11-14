@@ -4,6 +4,29 @@
 > Primera evaluación: hecha solo sobre la documentación. Las estimaciones debían confirmarse con las trazas.
 > **Segunda revisión (2026-11-13):** contrastada con el código, con las trazas guardadas (`jarvis-traces/`: 116 tareas en el índice, 35 con detalle) y con pruebas directas contra Ollama. Lo medido está en «Mediciones reales»; cada idea previa lleva una línea **Revisión** con el veredicto; las ideas nuevas están en «Ideas nuevas (segunda revisión)». No se editó código.
 
+## Estado de implementación (2026-11-14)
+
+Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
+
+| Punto | Estado |
+|---|---|
+| **T1** D0 (charla / una acción / varias) | ✅ integrado en `runReactive`. Laboratorio: etapa `d0`, dataset `eval/datasets/D0/`, 31/35 y 0 falsos «charla» |
+| **T2** tarea larga por el largo de la lista | ⏸ |
+| **T3** fusionar D1 y D2 · **T4** paralelismo en decisión | ❌ descartados con medición |
+| **T5** herramientas básicas | ⏸ (elección probada; falta el proveedor y la generación de argumentos con Qwen) |
+| **N1** modelos en la VRAM | ✅ resuelto de otra forma: variantes sin proyector de visión (`docs/OLLAMA_MODELOS_TEXTO.md`); tarea simulada de 4 659 a 1 071 ms. Reducir el tamaño de los modelos sigue en pausa |
+| **N2** modelos siempre calientes | ✅ `keep_alive` (`modelKeepAlive`) y `warmUpModels` al arrancar |
+| **N3** contexto configurado = real | ⏸ (depende de cómo se arranca Ollama) |
+| **N4** cortes de repeticiones | ⏸ no se cortó: el generador ya cambia los argumentos 25 de 30 veces. Mecanismo de rutas en debate (`docs/analisis/FRENTE_3_DECISION.md`) |
+| **N5** verificación por código antes que D4 | ⏸ |
+| **N6** respuesta final en streaming · **N7** literal al argumento · **N9** progreso visible | ⏸ |
+| **N8** idioma y relleno de la respuesta final | ⚠ relleno ✅ por código; idioma ⏸ |
+| **Idea 1** (atajo inicial con una decisión D0) | ✅ implementada como D0 (T1) |
+| **Idea 4** (respuesta final sin generativo) · **idea 5** (aprobación escalonada) · el resto de las ideas originales | ⏸ sin cambios |
+| **Memoria entre tareas** | ⚠ hechos y hilo ✅; recetas ⏸ (`docs/analisis/FRENTE_1_MEMORIA.md`) |
+
+Los tres frentes de análisis (`docs/analisis/`) llevan su propio estado por decisión.
+
 **Rol de JARVIS:** agente root coordinador. El usuario habla con JARVIS; JARVIS se mueve en la PC, ejecuta herramientas y, a futuro, llamará a agentes especializados. Esos agentes en sí no forman parte de este análisis.
 
 **Alcance de este documento:** mejorar lo que JARVIS hace hoy (velocidad, eficiencia y autonomía con modelos chicos). Todo lo que sea **agregar** capacidades nuevas va aparte, en «Mejoras futuras».
@@ -351,7 +374,7 @@ Pedido: reducir pasos, elegir entre flujos, distinguir tareas cortas de largas, 
 
 - **Efecto esperado en uso real:** de las 116 tareas del índice, 14 son charla y 61 de un paso: el 65 % deja de llamar a `pending`. Además, en «una acción» el paso recibe la solicitud literal, sin la reescritura de `pending`.
 - **Límites:** los umbrales se ajustaron sobre el mismo conjunto de 122; la reserva solo valida los falsos `chat`. Antes de integrar, convertir estos casos en un dataset del laboratorio (`eval/datasets/d0/`).
-- **Estado:** [x] probado · [ ] dataset en el laboratorio · [ ] integrar
+- **Estado:** [x] probado · [x] dataset en el laboratorio (`eval/datasets/D0/`, etapa `d0`: 31/35, 0 falsos charla) · [x] integrado en `runReactive` (`engine/classify.ts`)
 
 ### T2. Tarea larga: por código, no por modelo
 - **Probado:** una `noul` «¿necesita tres o más acciones, o reorganizar muchos archivos?». En las 12 tareas largas reales dio entre 0,08 y 0,46: no las detecta.
@@ -424,7 +447,7 @@ Pedido: reducir pasos, elegir entre flujos, distinguir tareas cortas de largas, 
 Ideas que suman capacidades nuevas; no son prioridad frente a lo anterior.
 
 1. **Delegación a agentes especializados:** un destino `agent` en el catálogo. JARVIS solo decide a quién delegar (D1), entrega un encargo acotado y recibe el resultado como ref; el progreso llega por eventos, con el mismo Guard y aprobaciones. Incluye, si hace falta, escalar a un modelo de frontera ante las señales de fracaso que ya existen (`replans_exhausted`, `review_rejected`, `not_accomplished` ×2, tercera escalación). Extender `egress.ts` a todo lo que salga hacia la nube.
-2. **Memoria entre tareas:** hoy cada tarea nace de cero y el backend nunca lee la traza. Sin romper el principio: un archivo de playbooks y hechos del usuario en config, generado fuera de línea desde trazas aprobadas o confirmado por el usuario. Usos: ejemplos para generar argumentos, y atajos que se ejecutan sin generativo tras N éxitos. Habilita continuidad («abrí lo de ayer»).
+2. **Memoria entre tareas:** *(2026-11-14: hechos del usuario e hilo con la tarea anterior ya implementados, ver `docs/CONTEXT_AND_MEMORY.md` §10; la traza sigue sin leerse)*. Texto original: hoy cada tarea nace de cero y el backend nunca lee la traza. Sin romper el principio: un archivo de playbooks y hechos del usuario en config, generado fuera de línea desde trazas aprobadas o confirmado por el usuario. Usos: ejemplos para generar argumentos, y atajos que se ejecutan sin generativo tras N éxitos. Habilita continuidad («abrí lo de ayer»).
 3. **Contexto vivo de la PC, inyectado por código:** ventana activa, portapapeles, carpeta de trabajo, archivos recientes, apps abiertas. Resuelve «este archivo» sin llamada generativa.
 4. **Aprobaciones y respuestas en lenguaje natural** (Telegram y voz), clasificadas por el modelo de decisión (`aprobar` / `rechazar` / `modificar`).
 5. **Modelo generativo distinto por etapa** (argumentos, plan, respuesta final).
@@ -531,7 +554,7 @@ Descartadas o en pausa: reordenar prompts para la caché (ahorra unos 100 ms), d
 
 ### Mejoras futuras
 1. Delegación a agentes especializados y escalada a modelos de frontera.
-2. Memoria entre tareas (playbooks y hechos del usuario).
+2. Memoria entre tareas (playbooks y hechos del usuario). *(Hechos e hilo ✅ 2026-11-14; playbooks ⏸.)*
 3. Contexto vivo de la PC.
 4. Aprobaciones y respuestas en lenguaje natural.
 5. Modelo generativo por etapa.
@@ -551,7 +574,7 @@ Descartadas o en pausa: reordenar prompts para la caché (ahorra unos 100 ms), d
 5. Contexto de 16k con efectos no recortables: cierre brusco en tareas largas.
 6. Un timeout se trata como caída y puede cerrar la tarea.
 7. Sin recuperación guiada por código: el modelo corrige a ciegas tras un fallo.
-8. Cada tarea empieza de cero, sin memoria ni continuidad.
+8. ~~Cada tarea empieza de cero, sin memoria ni continuidad.~~ (2026-11-14: hay hechos del usuario e hilo con la tarea anterior; faltan recetas y la frase «recordá que…»).
 9. Sin salida hacia modelos o agentes más capaces cuando la tarea excede al 4B.
 10. Dependencia de Windows y PowerShell.
 11. Documentación desactualizada (cuatro vs cinco decisiones).

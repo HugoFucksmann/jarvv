@@ -8,6 +8,8 @@
  */
 
 import type { UserEnvironment } from "./environment.ts";
+import type { FirstQueryKind } from "./engine/firstQuery.ts";
+import type { MemoryFact } from "./memory.ts";
 import type { IMCPServer } from "./mcp/types.ts";
 import type { TaskEndOutcome } from "./tools/provider.ts";
 import type { Blacklist } from "./policy/blacklist.ts";
@@ -168,6 +170,31 @@ export const COMPLETION_KEY = "request_complete";
 /** Decisión 5: probabilidad de que la solicitud completa ya esté cumplida con lo hecho, sin umbral aplicado: el cierre es de `confirmCompletion` (`engine/completion.ts`). */
 export type CompletionDecision = Omit<DecisionTrace, "probabilities"> & { readonly requestComplete: number };
 
+/** La tarea anterior para el hilo (`engine/thread.ts`): su pedido y el comienzo de su respuesta. */
+export interface PreviousTask {
+  readonly request: string;
+  readonly answer: string;
+}
+
+/** Continuación: ¿el pedido nuevo depende de la tarea anterior? */
+export interface ContinuationInput {
+  readonly previous: PreviousTask;
+  readonly request: string;
+}
+export type ContinuationDecision = Omit<DecisionTrace, "probabilities"> & { readonly follows: number };
+
+/** D0: la solicitud con la que empieza una tarea reactiva. */
+export interface FirstQueryInput {
+  readonly request: string;
+}
+
+/** D0: charla, una acción o varias. `kind` lo decide el código con los umbrales de `engine/firstQuery.ts`; `probabilities` son las de la pregunta `kind` y `multi` la de "sí". */
+export type FirstQueryDecision = Omit<DecisionTrace, "probabilities"> & {
+  readonly kind: FirstQueryKind;
+  readonly probabilities: Record<string, number>;
+  readonly multi: number;
+};
+
 export interface IActionDecision {
   chooseRoute(input: RouteDecisionInput, signal?: AbortSignal): Promise<RouteDecision>;
   chooseTool(input: ToolDecisionInput, signal?: AbortSignal): Promise<ToolDecision>;
@@ -177,6 +204,12 @@ export interface IActionDecision {
   verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<VerifyDecision>;
   /** Decisión 5: con la lista de pendientes vacía, ¿la solicitud completa ya está cumplida? (reactivo; reemplaza a la confirmación del LLM cuando responde que sí) */
   checkCompletion(input: CompletionDecisionInput, signal?: AbortSignal): Promise<CompletionDecision>;
+  /**
+   * D0, primera consulta de una tarea reactiva: ¿charla, una acción o varias? Opcional: una implementación sin ella deja la tarea en el flujo de siempre.
+   */
+  firstQuery?(input: FirstQueryInput, signal?: AbortSignal): Promise<FirstQueryDecision>;
+  /** Hilo: ¿el pedido nuevo continúa la tarea anterior? Opcional: sin ella no hay hilo. */
+  continuation?(input: ContinuationInput, signal?: AbortSignal): Promise<ContinuationDecision>;
 }
 
 // ───────────────────────── LLM: argumentos y pregunta (D17) ─────────────────────────
@@ -189,6 +222,8 @@ export interface ArgsFromViewInput {
   readonly view: string;
   /** Intentos previos de esta herramienta en este paso que no se aprobaron; sube la temperatura (`argsTemperature`). Por defecto 0. */
   readonly priorAttempts?: number;
+  /** Hechos del usuario que coinciden con el pedido (`memory.ts`), como líneas `clave: valor`; vacío u omitido = sin bloque. */
+  readonly memory?: readonly string[];
 }
 
 export interface QuestionInput {
@@ -230,6 +265,8 @@ export interface PlanGenerationResult {
 export interface FinalFromViewInput {
   /** Texto de `renderFinal(ctx.view.forFinal(...))`. */
   readonly view: string;
+  /** La tarea anterior, si el pedido la continúa. */
+  readonly thread?: PreviousTask;
 }
 
 export interface FinalGenerationResult {
@@ -242,6 +279,8 @@ export interface FinalGenerationResult {
 export interface PendingFromViewInput {
   /** Texto de `renderPending(ctx.view.forPending(...))`. */
   readonly view: string;
+  /** La tarea anterior, si el pedido la continúa. */
+  readonly thread?: PreviousTask;
 }
 
 /** Lista de pendientes ya validada (textos no vacíos): el primero es la instrucción del paso; vacía = nada por hacer. */
@@ -279,6 +318,10 @@ export interface EngineDeps {
   readonly environment: () => Promise<UserEnvironment>;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */
   readonly autoMode: () => boolean;
+  /** Hechos guardados por el usuario (`data/memory.json`); omitido = sin memoria. */
+  readonly memory?: () => readonly MemoryFact[];
+  /** La tarea anterior vigente (menos de `THREAD_TTL_MS`) cuando esta tarea empezó; `null` u omitida = sin hilo. */
+  readonly previousTask?: PreviousTask | null;
   /** Receptor de la traza (D11). Sin él, no se captura nada. */
   readonly sink?: CaptureSink;
 }

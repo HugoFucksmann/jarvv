@@ -11,6 +11,7 @@ import { test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
 import type { EngineDeps } from "../src/core/contracts.ts";
+import { create } from "../src/core/ctx/index.ts";
 import type { TaskContext } from "../src/core/ctx/index.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
@@ -58,6 +59,11 @@ interface Scenario {
   readonly noTerminalTools?: boolean;
   /** Ve los destinos que se ofrecen a Decisión 1 en cada vuelta. */
   readonly onRoutes?: (routes: readonly string[]) => void;
+  /** D0 (primera consulta): lo que decide; `"fail"` = el servicio de decisión falla. Sin esto, el doble no implementa `firstQuery` (flujo de siempre). */
+  readonly first?: "chat" | "single" | "multi" | "fail";
+  /** Hilo: la tarea anterior vigente al empezar y la probabilidad de `follow` que da la consulta de continuación. */
+  readonly previous?: { readonly request: string; readonly answer: string };
+  readonly follows?: number;
 }
 
 interface Outcome {
@@ -69,6 +75,8 @@ interface Outcome {
   /** Consultas al LLM de pendientes (la inicial y las confirmaciones) y a Decisión 5. */
   readonly pendingQueries: number;
   readonly completionChecks: number;
+  /** Lo que recibió cada consulta que lleva la tarea anterior (`thread`), por etapa. */
+  readonly threads: { readonly pending: unknown[]; readonly final: unknown[]; readonly memory: unknown[] };
 }
 
 async function run(s: Scenario): Promise<Outcome> {
@@ -79,6 +87,7 @@ async function run(s: Scenario): Promise<Outcome> {
   let pendingQueries = 0;
   let completionChecks = 0;
   let verified = 0;
+  const threads = { pending: [] as unknown[], final: [] as unknown[], memory: [] as unknown[] };
 
   const ended: string[] = [];
   let generated = 0;
@@ -118,6 +127,15 @@ async function run(s: Scenario): Promise<Outcome> {
         s.onVerify?.(runtime);
         return { answers: s.verifyFor?.(verified++) ?? { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
       },
+      ...(s.first === undefined
+        ? {}
+        : {
+            firstQuery: async () => {
+              if (s.first === "fail") throw new DecisionServiceUnavailableError("Decisión caída (prueba)");
+              return { kind: s.first as "chat" | "single" | "multi", probabilities: {}, multi: 0, rawInput: "", rawOutput: "" };
+            },
+          }),
+      ...(s.follows === undefined ? {} : { continuation: async () => ({ follows: s.follows as number, rawInput: "", rawOutput: "" }) }),
       checkCompletion: async () => {
         completionChecks++;
         if (s.completionFails === true) throw new DecisionServiceUnavailableError("Decisión caída (prueba)");
@@ -125,28 +143,34 @@ async function run(s: Scenario): Promise<Outcome> {
       },
     },
     llm: {
-      generateArgumentsFromView: async (input: { readonly priorAttempts?: number }) => ({ args: (s.onArgs?.(input), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
+      generateArgumentsFromView: async (input: { readonly priorAttempts?: number; readonly memory?: readonly string[] }) => ({ args: (s.onArgs?.(input), input.memory === undefined || threads.memory.push(input.memory), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
-      generatePendingFromView: async () => (pendingQueries++, { pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
+      generatePendingFromView: async (input: { readonly thread?: unknown }) => (pendingQueries++, threads.pending.push(input.thread), { pending: s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
       generatePlanFromView: async () => {
         throw new Error("no se usa en reactivo");
       },
-      generateFinalFromView: async () => ({ response: "Listo.", rawInput: "", rawOutput: "" }),
+      generateFinalFromView: async (input: { readonly thread?: unknown }) => (threads.final.push(input.thread), { response: "Listo.", rawInput: "", rawOutput: "" }),
     },
     vault: createRefVault({ dir }),
     guardScope: { protectedDirs: [path.join(dir, "protegida")], relativeBases: [dir] },
     blacklist: EMPTY_BLACKLIST,
     environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
     autoMode: () => s.autoMode ?? false,
+    previousTask: s.previous ?? null,
   };
 
-  const ctx = newContext("reactive");
+  // Con D0 el paso recibe `ctx.task.request` (no la lista del doble de `pending`): la tarea nace con la solicitud del escenario.
+  let clock = 1_700_000_000_000;
+  const ctx =
+    s.first === undefined && s.follows === undefined
+      ? newContext("reactive")
+      : create.context({ id: "task_d0", request: s.request, mode: "reactive" }, { now: () => (clock += 1000), summaryMax: 2500, argsStringMax: 2000, factValueMax: 500, feedbackMax: 1500, jsonMaxDepth: 6 });
   let runtime!: TaskRuntime;
   runtime = new TaskRuntime({ onChange: (waiting) => waiting !== null && s.onWait !== undefined && queueMicrotask(() => s.onWait!(waiting, runtime)) });
   await runTask(ctx, runtime, deps);
   fs.rmSync(dir, { recursive: true, force: true });
-  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks };
+  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads };
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
@@ -561,4 +585,72 @@ test("RC-29: un proveedor que responde sin herramientas (la terminal fuera de Wi
   assert.equal(ctx.task.state, "completed");
   assert.ok(offered.length > 0 && offered.every((routes) => !routes.includes("terminal")), JSON.stringify(offered));
   assert.ok(offered[0].includes("web"), "jarvis_web no está registrado en este arnés: se sigue ofreciendo (falla al ejecutar como infraestructura caída)");
+});
+
+// ───────────────────────── D0: primera consulta ─────────────────────────
+
+test("D0 charla: la tarea cierra completada sin consultar pendientes ni llamar herramientas, y la respuesta final contesta", async () => {
+  const { ctx, dispatched, pendingQueries } = await run({ request: "Hola, ¿cómo andás?", tool: "list_directory", args: {}, first: "chat" });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(ctx.result?.origin, "model");
+  assert.equal(dispatched.length, 0);
+  assert.equal(pendingQueries, 0, "se salta la lista de pendientes");
+});
+
+test("D0 una acción: la lista es la solicitud literal, sin consultar pendientes, y el paso corre y cierra", async () => {
+  const { ctx, dispatched, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", completion: 1 });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(pendingQueries, 0);
+  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1);
+  assert.equal(ctx.find("steps", {})[0].instruction, DOCS, "el paso recibe la solicitud sin reescritura");
+});
+
+test("D0 varias acciones o D0 caído: el flujo de siempre (la lista de pendientes la genera el modelo)", async () => {
+  for (const first of ["multi", "fail"] as const) {
+    const { ctx, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first });
+    assert.equal(ctx.task.state, "completed", first);
+    assert.ok(pendingQueries >= 1, `${first}: consulta pendientes`);
+  }
+});
+
+// ───────────────────────── Hilo con la tarea anterior ─────────────────────────
+
+const PREV = { request: "decime qué hay en mi escritorio", answer: "En tu escritorio está la carpeta C:\\Users\\Ana\\Documents\\Proyectos y el archivo notas.txt." };
+const FOLLOW_UP = "mostrame qué hay dentro de eso";
+
+test("Hilo: continuación detectada: pending recibe la tarea anterior sin atajo, los argumentos la reciben como memoria, el pre-chequeo la acepta como fuente y la final también la ve", async () => {
+  const path = "C:\\Users\\Ana\\Documents\\Proyectos";
+  const { ctx, dispatched, threads } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.8, completion: 1 });
+  assert.equal(ctx.task.state, "completed");
+  assert.deepEqual(threads.pending[0], PREV, "pending ve la tarea anterior");
+  assert.deepEqual(threads.final[0], PREV, "la respuesta final la ve");
+  assert.ok(threads.memory.length > 0 && (threads.memory[0] as string[]).some((l) => l.startsWith("previous answer:")), "los argumentos reciben líneas de memoria");
+  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1, "la ruta del hilo pasó el pre-chequeo");
+});
+
+test("Hilo: sin continuación (follow bajo) no hay hilo en ningún prompt y la acción única toma el atajo", async () => {
+  const { ctx, threads, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", previous: PREV, follows: 0.1, completion: 1 });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(pendingQueries, 0, "atajo de D0");
+  assert.deepEqual([threads.pending, threads.final, threads.memory].map((t) => t.filter((x) => x !== undefined).length), [0, 0, 0]);
+});
+
+test("Hilo: una charla que continúa la tarea anterior cierra sin llamadas y la respuesta final recibe el hilo", async () => {
+  const { ctx, dispatched, threads } = await run({ request: "traducilo al inglés", tool: "list_directory", args: {}, first: "chat", previous: PREV, follows: 0.5 });
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(dispatched.length, 0);
+  assert.deepEqual(threads.final[0], PREV);
+});
+
+test("Hilo: sin tarea anterior vigente no se consulta la continuación", async () => {
+  let asked = 0;
+  const { threads } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", follows: 0.9, completion: 1, onArgs: () => void asked++ });
+  assert.equal(threads.pending.filter((x) => x !== undefined).length, 0);
+  assert.equal(asked, 1);
+});
+
+test("Hilo: sin el hilo, la misma ruta (que solo aparece en la respuesta anterior) se rechaza como inventada", async () => {
+  const path = "C:\Users\Ana\Documents\Proyectos";
+  const { dispatched } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.1, completion: 1 });
+  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 0, "el pre-chequeo la rechaza: no hay hilo y la ruta no está en el pedido");
 });

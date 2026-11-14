@@ -1,8 +1,9 @@
-import React, { memo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree } from "lucide-react";
-import type { CallDto, StepDto } from "../../../types/api.ts";
+import React, { memo, useState, useEffect } from "react";
+import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree, Timer } from "lucide-react";
+import type { CallDto, StepDto, TaskState } from "../../../types/api.ts";
 import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
+import { formatDuration } from "../../../utils/timeFormat.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
 import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
 
@@ -15,6 +16,8 @@ interface StepItemProps {
   onViewRef?: (refId: string) => void;
   /** Abre el inspector de consultas a modelos de esa llamada (solo con la tarea terminada). */
   onViewQueries?: (callId: string) => void;
+  allCalls?: CallDto[];
+  taskState?: TaskState;
 }
 
 function callStatusTone(status?: string): string {
@@ -94,9 +97,29 @@ const StepItemBase: React.FC<StepItemProps> = ({
   isLast = false,
   onViewRef,
   onViewQueries,
+  allCalls,
+  taskState,
 }) => {
   const [showCalls, setShowCalls] = useState(false);
   const callsCount = calls.length;
+
+  const isTerminal =
+    taskState === "completed" ||
+    taskState === "partial" ||
+    taskState === "failed" ||
+    taskState === "cancelled";
+
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    if (isTerminal) return;
+    const interval = setInterval(() => {
+      setNowMs(Date.now());
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isTerminal]);
+
+  const globalCalls = allCalls || calls;
 
   // En modo reactivo instruction suele ser null: inferimos del contenido de las llamadas
   const displayInstruction =
@@ -193,6 +216,26 @@ const StepItemBase: React.FC<StepItemProps> = ({
                 const tone = callStatusTone(c.status);
                 const verdict = callVerdictLabel(c);
 
+                const currentCallAtMs = typeof c.at === "number" ? c.at : Date.parse(c.at) || 0;
+                let durationMs: number | null = null;
+
+                const globalIndex = globalCalls.findIndex((gc) => gc.id === c.id);
+                if (globalIndex !== -1 && globalIndex < globalCalls.length - 1) {
+                  const nextCall = globalCalls[globalIndex + 1];
+                  const nextCallAtMs = typeof nextCall.at === "number" ? nextCall.at : Date.parse(nextCall.at) || 0;
+                  if (nextCallAtMs && currentCallAtMs) {
+                    durationMs = Math.max(0, nextCallAtMs - currentCallAtMs);
+                  }
+                } else if (currentCallAtMs) {
+                  if (isTerminal) {
+                    // Si la tarea terminó y es la última llamada
+                    durationMs = Math.max(0, nowMs - currentCallAtMs);
+                  } else {
+                    // Sigue ejecutándose en este momento
+                    durationMs = Math.max(0, nowMs - currentCallAtMs);
+                  }
+                }
+
                 return (
                   <div key={`call-${c.id || cIdx}`} className="py-2.5 text-xs">
                     <div className="flex items-center justify-between text-slate-400 mb-1 flex-wrap gap-1.5">
@@ -233,6 +276,15 @@ const StepItemBase: React.FC<StepItemProps> = ({
                         {c.at && (
                           <span className="text-[11px] text-slate-500 font-normal tabular-nums">
                             {new Date(c.at).toLocaleTimeString()}
+                          </span>
+                        )}
+                        {durationMs !== null && durationMs >= 0 && (
+                          <span
+                            className="flex items-center gap-0.5 text-[11px] text-slate-400 font-mono font-normal tabular-nums bg-slate-800/80 px-1 py-0.5 rounded border border-slate-700/60"
+                            title={`Duración aproximada de esta acción: ${formatDuration(durationMs)}`}
+                          >
+                            <Timer className="w-2.5 h-2.5 text-slate-400" />
+                            <span>{formatDuration(durationMs)}</span>
                           </span>
                         )}
                       </div>

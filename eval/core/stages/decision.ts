@@ -11,6 +11,7 @@ import {
   ArgsReviewLabelGrader,
   FragmentJudgeGrader,
   ResultVerificationGrader,
+  D0LabelGrader,
   RouteLabelGrader,
   ToolChoiceLabelGrader,
 } from "../graders/label.ts";
@@ -22,6 +23,8 @@ import type {
   FragmentJudgeOutput,
   ResultVerificationExpect,
   ResultVerificationOutput,
+  D0Expect,
+  D0Output,
   RouteExpect,
   RouteOutput,
   ToolChoiceExpect,
@@ -31,11 +34,32 @@ import {
   parseArgsReviewDecision,
   parseFragmentJudgeDecision,
   parseResultVerificationDecision,
+  parseD0Decision,
   parseRouteDecision,
   parseToolChoiceDecision,
 } from "../variants/labels.ts";
 import type { DecisionReaders } from "../types.ts";
 import type { DecisionStageEntry, LabelInfo } from "./index.ts";
+
+// ───────────────────────── d0 ─────────────────────────
+
+export const d0Stage: DecisionStageEntry<D0Output, D0Expect> = {
+  stageName: "d0",
+  requestType: "decision",
+  graders: [LatencyGrader, D0LabelGrader],
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): D0Output {
+    return parseD0Decision(rawOutput, sentReq);
+  },
+  label(output: D0Output | undefined, expect: D0Expect | undefined): LabelInfo {
+    const predicted = output?.kind ?? null;
+    return {
+      predicted,
+      expected: expect?.expectedKind ?? null,
+      rawScore: output ? (output.probabilities.chat ?? null) : null,
+      probabilities: output?.probabilities ?? null,
+    };
+  },
+};
 
 // ───────────────────────── route ─────────────────────────
 

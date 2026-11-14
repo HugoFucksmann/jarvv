@@ -1,6 +1,27 @@
 # Frente 3 — Decision: determinismo, reintentos, caché y datos volátiles
 
-> 2026-11-13. Medido contra `d3:2b` real (`/v1/systemone`, Ollama 0.40.13) con las 137 entradas de decisión únicas de las trazas guardadas y los 196 casos de los datasets de D1. No se tocó `src`.
+> 2026-11-13. Medido contra `d3:2b` real (`/v1/systemone`, Ollama 0.40.13) con las 137 entradas de decisión únicas de las trazas guardadas y los 196 casos de los datasets de D1. Cuando se escribió no se había tocado `src`.
+>
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales.
+
+## Estado de implementación (2026-11-14)
+
+Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
+
+| # | Decisión | Estado | Dónde está |
+|---|---|---|---|
+| DN-3.1 | Reintento de D1: quitar la ruta fallida | ❌ revertido. La regla para lecturas quitaba la ruta correcta en un test (lectura de terminal con resultado dudoso) y en las trazas no había evidencia a favor. **Vigente la original**: 2 rechazos `not_accomplished` agotan la ruta, y D1 marca `[the last attempt on this route failed]`. Mecanismo nuevo en debate | `engine/limits.ts`, `models/prompts.ts` |
+| DN-3.2 | Reintento de D2: quitar la herramienta con `loop_blocked` | ❌ revertido: forzaba otra herramienta, a veces de escritura con aprobación del usuario. Vigente `[FAILED - AVOID]` | `models/prompts.ts` |
+| DN-3.3 | Entrada de decisión repetida | ⚠ reutiliza la respuesta ✅; contarla como «sin avance» y fallar el paso ⏸ | `engine/env.ts` (`memoizeDecision`) |
+| DN-3.4 | Sin repetición por respuesta inválida (Decision) | ✅ D1 a D5 y D0 | `engine/*` (`queryModel(…, 0)`) |
+| DN-3.5 | Caché | ⚠ B (por tarea) ✅ en `memoizeDecision`; C (LRU entre tareas) ⏸ | `engine/env.ts` |
+| DN-3.6 | Quitar datos volátiles de las vistas de decisión | ⏸ (con los modelos sin visión las decisiones cuestan 20 a 130 ms: bajó la prioridad) | — |
+| DN-3.7 | Orden de las opciones de D2 | ✅ orden del catálogo | `tools/manifest.ts` (`sortByCatalog`) |
+| DN-3.8 | Zona de duda en umbrales | ⏸ | — |
+
+**Mecanismo propuesto por el usuario para el reintento (sin implementar):** tras el segundo rechazo de D4 en un mismo paso, cortar el paso y volver a `pending` → D1 (D0 corre solo al empezar la tarea). Hoy un paso no tiene tope por rechazos de D4: solo lo acotan 6 ejecuciones o 10 intentos. Sería una fila nueva en `STEP_RULES` (`engine/limits.ts`) con causa propia.
+
+**Evidencia de las trazas (2026-11-14):** en las 38 trazas con detalle hay 6 rechazos de D4 y ninguno tuvo después una llamada aprobada. De 22 tareas con `loop_blocked` en el índice, 9 completaron (8 con un solo bloqueo): no se puede afirmar que cortar al primer bloqueo sea seguro.
 
 ## Resumen
 

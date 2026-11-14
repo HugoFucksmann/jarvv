@@ -23,7 +23,11 @@ import {
 import type {
   CompletionDecision,
   CompletionDecisionInput,
+  ContinuationDecision,
+  ContinuationInput,
   DecisionTrace,
+  FirstQueryDecision,
+  FirstQueryInput,
   IActionDecision,
   ReviewDecision,
   ReviewDecisionInput,
@@ -36,6 +40,7 @@ import type {
   VerifyDecisionInput,
 } from "../contracts.ts";
 import { ARGS_REVIEWS, COMPLETION_KEY, VERIFY_CHECKS } from "../contracts.ts";
+import { firstQueryKind } from "../engine/firstQuery.ts";
 import { isExecutableRoute } from "../types/routes.ts";
 import type { ConfigSource, JarvisConfig } from "../config.ts";
 import { DECISION_PROMPTS } from "./prompts.ts";
@@ -50,13 +55,13 @@ import { errorMessage, isRecord } from "../utils.ts";
 import type { FragmentJudge, FragmentScores } from "../tools/judge.ts";
 
 /** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
-function buildDecisionRequest(
+export function buildDecisionRequest(
   config: JarvisConfig,
   payload: { state: string; questions: Record<string, unknown> }
 ): { url: string; body: string } {
   const base = config.decisionUrl.replace(/\/+$/, "");
   const url = base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
-  return { url, body: JSON.stringify({ model: config.decisionModel, ...payload }) };
+  return { url, body: JSON.stringify({ model: config.decisionModel, ...payload, keep_alive: config.modelKeepAlive }) };
 }
 
 const pct = (probabilities: Record<string, number>): string =>
@@ -278,6 +283,36 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     const requestComplete = noulAnswer(response, COMPLETION_KEY).noul;
     console.log(`[Completion ${this.getConfig().decisionModel}] ${COMPLETION_KEY}=${requestComplete.toFixed(2)} duration=${Date.now() - t0}ms`);
     return { requestComplete, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+  }
+
+  /**
+   * D0, primera consulta de una tarea reactiva: ¿charla, una acción o varias? Dos preguntas sobre la solicitud (`kind` y `multi`); el código decide con los
+   * umbrales de `engine/firstQuery.ts` (`firstQueryKind`), no con el `choice` del modelo.
+   */
+  async firstQuery(input: FirstQueryInput, signal?: AbortSignal): Promise<FirstQueryDecision> {
+    const { state, questions } = this.prompts.buildFirstQuery(input);
+
+    const t0 = Date.now();
+    const response = await this.ask("First query", state, questions, signal);
+    const { probabilities } = choiceAnswer(response, "kind");
+    const multi = noulAnswer(response, "multi").noul;
+    const kind = firstQueryKind(probabilities.chat, multi);
+    console.log(`[First query ${this.getConfig().decisionModel}] kind=${kind} probabilities=[${pct(probabilities)}] multi=${multi.toFixed(2)} duration=${Date.now() - t0}ms`);
+    return { kind, probabilities, multi, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+  }
+
+  /**
+   * Hilo: ¿el pedido nuevo continúa la tarea anterior? Una pregunta `noul` (`follow`); devuelve su probabilidad sin umbral: lo decide `detectContinuation` (`engine/classify.ts`)
+   * con `CONTINUATION_APPROVE`.
+   */
+  async continuation(input: ContinuationInput, signal?: AbortSignal): Promise<ContinuationDecision> {
+    const { state, questions } = this.prompts.buildContinuation(input);
+
+    const t0 = Date.now();
+    const response = await this.ask("Continuation", state, questions, signal);
+    const follows = noulAnswer(response, "follow").noul;
+    console.log(`[Continuation ${this.getConfig().decisionModel}] follow=${follows.toFixed(2)} duration=${Date.now() - t0}ms`);
+    return { follows, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
   }
 
   /**

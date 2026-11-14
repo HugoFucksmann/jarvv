@@ -246,6 +246,18 @@ for (const t of SYSTEM_TOOL_MANIFEST) {
   INDEX.set(k, t);
 }
 
+/**
+ * Ordena las herramientas como el catálogo (`SYSTEM_TOOL_MANIFEST`); las que no están en él van al final, en su orden. Frente 3, DN-3.7: el orden en que
+ * un servidor MCP las descubre cambia entre arranques y movía 2 de 82 elecciones de Decisión 2.
+ */
+export function sortByCatalog<T extends { readonly name: string }>(server: string, tools: readonly T[]): T[] {
+  const rank = (t: T): number => {
+    const i = SYSTEM_TOOL_MANIFEST.findIndex((d) => toolKey(d.server, d.name) === toolKey(server, t.name));
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  return tools.map((t, i) => ({ t, i, r: rank(t) })).sort((a, b) => a.r - b.r || a.i - b.i).map((x) => x.t);
+}
+
 /** Política para herramientas no catalogadas: tratadas como acción sensible. */
 export const UNKNOWN_TOOL_POLICY: Readonly<ToolPolicy> = Object.freeze({
   capability: "COMMAND_EXECUTION",

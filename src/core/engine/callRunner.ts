@@ -20,6 +20,8 @@
 
 import { BUDGET } from "../budget.ts";
 import type { CallKind, CallStatus, JsonObject, Op, TaskContext } from "../ctx/index.ts";
+import { factLines, selectFacts } from "../memory.ts";
+import { threadMemoryLines } from "./thread.ts";
 import { collectSources, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
@@ -30,7 +32,7 @@ import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
 import type { ProcessedResult } from "../result/processResult.ts";
-import { applyDestination, getToolPolicy, isKnownTool, repeatPolicyOf, requirementOf, serverOf, timeoutOf } from "../tools/manifest.ts";
+import { applyDestination, getToolPolicy, isKnownTool, repeatPolicyOf, requirementOf, serverOf, sortByCatalog, timeoutOf } from "../tools/manifest.ts";
 import { createToolHost } from "../tools/host.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPTool } from "../types.ts";
@@ -275,7 +277,9 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
 
   // 2. Elegir la herramienta (Decision #2). Los intentos de la vista van filtrados a la ruta elegida.
   const routeView = ctx.view.forRoute(routeViewOptions(route));
-  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, tools), runtime.signal));
+  // DN-3.7: orden del catálogo, no el del descubrimiento del servidor.
+  const options = sortByCatalog(mcp, tools);
+  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, options), runtime.signal), 0); // DN-3.4: Decision es determinista, repetir da lo mismo
   if (!toolQuery.ok) return fromFailure(ctx, stepId, toolQuery.failure, toolQuery.error);
   if (runtime.cancelled) return CANCELLED;
   const tool = toolQuery.value.tool;
@@ -301,12 +305,16 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return { kind: "close", stopReason: "unrecoverable", callId: null };
   }
   const environment = await deps.environment();
+  // Memoria del usuario: solo los hechos cuya clave aparece en el pedido o en el paso (hasta 3); sus valores también son fuente del pre-chequeo.
+  const stepText = ctx.find("steps", {}).find((s) => s.id === stepId)?.instruction ?? "";
+  const facts = selectFacts(`${ctx.task.request}
+${stepText}`, deps.memory?.() ?? []);
   // Intentos previos de esta herramienta en este paso que no se aprobaron (rechazados, bloqueados o con error): suben la temperatura.
   // Un `waiting_input` no es un intento fallido: el proceso pidió una respuesta y la llamada siguiente (`{ pid, input }`) necesita precisión, no variedad.
   const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved" && c.status !== "waiting_input").length;
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
-    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
+    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts, [...factLines(facts), ...(env.follow.thread === null ? [] : threadMemoryLines(env.follow.thread))]), runtime.signal),
     0,
   );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
@@ -358,7 +366,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   if (listed !== null && auto && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
-  const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources: collectSources(ctx), environment });
+  const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources: collectSources(ctx, [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])]), environment });
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (finding !== null) return reject(finding.review, summaryText(finding.reason));
 
@@ -390,7 +398,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
   if (kind === "write" && !askUser && !userAuthored) {
     const reviewView = ctx.view.forReview(reviewViewOptions());
-    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal));
+    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal), 0);
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
     // Nivel 2 de la lista negra (solo llega aquí en automático): umbral estricto. Si el comando habría pasado con el umbral normal y solo lo frena la

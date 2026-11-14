@@ -97,7 +97,7 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
     if (routes.length === 0) return failStep("no_tools");
 
     const input = routeInput(ctx.view.forRoute(routeViewOptions()), { routes });
-    const query = await queryModel(() => env.decision.chooseRoute(input, runtime.signal));
+    const query = await queryModel(() => env.decision.chooseRoute(input, runtime.signal), 0);
     if (!query.ok) {
       const closure = closeOnFailure(ctx, stepId, query.failure, query.error);
       return closure.kind === "cancelled" ? CANCELLED : { kind: "close", stopReason: closure.stopReason };

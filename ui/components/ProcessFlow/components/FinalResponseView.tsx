@@ -1,6 +1,7 @@
 import React from "react";
 import { CheckCheck, Info, Activity, Volume2, VolumeX, Loader2 } from "lucide-react";
 import type { TaskResult } from "../../../types/api.ts";
+import type { SpeechStatus } from "../../../hooks/useSpeech.ts";
 import { MarkdownRenderer } from "../../Shared/MarkdownRenderer.tsx";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
 
@@ -10,7 +11,7 @@ interface FinalResponseViewProps {
   /** Leer la respuesta en voz alta / parar; solo se muestran con la voz activada. */
   onSpeak?: (text: string) => void;
   onStopSpeech?: () => void;
-  speechStatus?: "idle" | "loading" | "playing";
+  speechStatus?: SpeechStatus;
 }
 
 /** Acción secundaria: sin borde ni fondo hasta pasar el ratón, para no competir con la respuesta. */
@@ -42,7 +43,18 @@ export const FinalResponseView: React.FC<FinalResponseViewProps> = ({
 
       <div className="flex items-center gap-0.5">
         {onSpeak &&
-          (speechStatus === "idle" ? (
+          (speechStatus === "disconnected" ? (
+            <button
+              type="button"
+              disabled
+              title="Servidor de voz desconectado"
+              aria-label="Servidor de voz desconectado"
+              className={`flex items-center ${ACTION} !cursor-not-allowed opacity-50`}
+            >
+              <Volume2 className="h-4 w-4" />
+              <span>Desconectado</span>
+            </button>
+          ) : speechStatus === "idle" ? (
             <button
               type="button"
               onClick={() => onSpeak(result.text)}

@@ -13,7 +13,7 @@ import type { IMCPServer } from "../mcp/types.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
 import type { MCPCallResult, StageId } from "../types.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-import type { EngineLLM, IActionDecision } from "../contracts.ts";
+import type { ContinuationInput, EngineLLM, FirstQueryInput, IActionDecision } from "../contracts.ts";
 import type { CaptureSink } from "../trace/sink.ts";
 
 export { NULL_SINK } from "../trace/sink.ts";
@@ -65,7 +65,7 @@ export function captureLlm(llm: EngineLLM, sink: CaptureSink, version: () => num
 }
 
 /**
- * Envuelve Decision: `chooseRoute` (`route`), `chooseTool` (`tool`), `reviewArgs` (`review`), `verifyResult` (`verify`) y `checkCompletion` (`completion`).
+ * Envuelve Decision: `chooseRoute` (`route`), `chooseTool` (`tool`), `reviewArgs` (`review`), `verifyResult` (`verify`), `checkCompletion` (`completion`) y `firstQuery` (`first_query`, si existe).
  */
 export function captureDecision(
   decision: IActionDecision,
@@ -78,6 +78,8 @@ export function captureDecision(
     reviewArgs: (input, signal) => observe("review", sink, version, () => decision.reviewArgs(input, signal)),
     verifyResult: (input, signal) => observe("verify", sink, version, () => decision.verifyResult(input, signal)),
     checkCompletion: (input, signal) => observe("completion", sink, version, () => decision.checkCompletion(input, signal)),
+    ...(decision.continuation === undefined ? {} : { continuation: (input: ContinuationInput, signal?: AbortSignal) => observe("continuation", sink, version, () => decision.continuation!(input, signal)) }),
+    ...(decision.firstQuery === undefined ? {} : { firstQuery: (input: FirstQueryInput, signal?: AbortSignal) => observe("first_query", sink, version, () => decision.firstQuery!(input, signal)) }),
   };
 }
 

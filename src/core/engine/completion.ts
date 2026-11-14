@@ -23,7 +23,7 @@ export async function confirmCompletion(env: EngineEnv): Promise<boolean> {
   const { ctx, runtime } = env;
   if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return false;
 
-  const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal));
+  const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0);
   if (!query.ok) {
     console.warn(`[Engine] cierre por Decisión 5 no disponible (${query.failure}); se confirma con el LLM.`);
     return false;

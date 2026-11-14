@@ -1,6 +1,25 @@
 # Hallazgos fuera de los tres frentes
 
-> 2026-11-13. Detectados al revisar trazas, prompts y código para los frentes 1 a 3. Ordenados por impacto. Ninguno se corrigió.
+> 2026-11-13. Detectados al revisar trazas, prompts y código para los frentes 1 a 3. Ordenados por impacto.
+
+## Estado (2026-11-14)
+
+Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
+
+| Punto | Estado |
+|---|---|
+| 1. Cadena que produce los bucles | ⏸. La causa de las trazas del 12 de noviembre (`pending` perdía «en la terminal») está atenuada por D0 «una acción». Sigue abierto `list_directory` con `depth: 0` («Directorio vacío.»: lo devuelve el servidor de Desktop Commander, no está en nuestro código) |
+| 2. Regla de `shell` en argumentos | ✅ (DN-2.3) |
+| 3. Información desactualizada presentada como actual | ⏸ (visto otra vez el 14/11 con «Gemini 4 Carbon») |
+| 4. D5 cierra tareas incompletas | ⏸ |
+| 4a. D3 aprueba rutas inventadas; el pre-chequeo solo mira lecturas | ⏸ (el punto de seguridad más claro que queda) |
+| 4b. Ninguna pregunta de hechos abre un paso | ⚠ D0 «una acción» las manda a búsqueda; DN-2.5 sigue apagada |
+| 5. Relleno de la respuesta final | ✅ por código (`finalClean.ts`) |
+| 6. Laboratorio (thinking `auto`, carpetas vacías, latencias, sin etapa D5, dos corridas a la vez) | ⚠ etapa `d0` agregada; el resto ⏸ |
+| 7. Archivos dejados en el repositorio | actualizado abajo |
+| 8. Menores | ⏸. El comentario de `buildResultVerification` ya no es falso: D4 dejó de recibir `Previous approved calls` |
+
+**Hallazgo nuevo (2026-11-14), de la VRAM:** los dos modelos traen un proyector de visión (676 y 671 MB) que no se usa; con ellos no caben residentes a la vez en 8 GB y cada cambio de modelo costaba ~1 s. Variantes sin proyector: tarea simulada de 4 659 a 1 071 ms. Ver `docs/OLLAMA_MODELOS_TEXTO.md`.
 
 ## 1. La cadena que produce las tareas en bucle
 
@@ -27,6 +46,14 @@ En «Busca el ultimo modelo de GPT y gemini», `web_search` devolvió para Gemin
 
 Al quitar la última llamada de 6 cierres reales de dos o más llamadas, D5 siguió aprobando 2 de 6 con el umbral de 0,75. Son pocos casos, pero es un falso cierre silencioso. Refuerza medir D5 con un dataset propio antes de ampliarlo.
 
+## 4a. D3 aprueba rutas inventadas, y el pre-chequeo solo mira lecturas
+
+Medido sobre el formato de producción de D3 con 5 escrituras cuya ruta no sale de ningún lado (`D:\proyectos\facturacion\backup`, `C:\Users\Juan\Documents\Fotos`, `E:\datos\reportes\Reportes`…): `approved` entre 0,93 y 0,95 en todas (0/5 rechazadas). El pre-chequeo sí rechaza rutas sin origen, pero `checkSources` (`precheck.ts`) solo comprueba las URLs, las rutas de herramientas de **lectura** y las claves de origen (`source`); el destino de una escritura no se comprueba. Con `autoMode` encendido, la única barrera de una escritura con una ruta inventada es D3, que no la detecta. Con `autoMode` apagado la salva la confirmación del usuario. Propuesta de código, sin modelos: extender la comprobación de «ruta con origen» a las escrituras cuyo destino esté fuera de las carpetas conocidas (se relaciona con la aprobación por niveles, idea 5 de `JARVIS_EVALUACION.md`).
+
+## 4b. Con la regla de hoy, ninguna pregunta de hechos abre un paso de búsqueda
+
+Medido con 12 preguntas («cuál es el último modelo de Claude», «quién ganó el mundial 2022», «cuánto está el dólar hoy», «cuál es la capital de Australia»…): `pending` devolvió lista vacía en las 12 (0/12 abren un paso), porque su regla manda a lista vacía «questions about general knowledge». Un 4B no tiene conocimiento fiable ni actual: responde de memoria. Propuesta y medición en `FRENTE_2_CONTEXTO.md` (DN-2.5).
+
 ## 5. La respuesta final abre con una frase de relleno
 
 «No changes were made to the system» aparece al principio de respuestas a simples preguntas. La causa es la regla «Clearly report any changes … or specify that no changes were made» junto con la línea `EFFECTS: none`. Ver DN-2.10.
@@ -41,9 +68,12 @@ Al quitar la última llamada de 6 cierres reales de dos o más llamadas, D5 sigu
 
 ## 7. Archivos que dejé en el repositorio
 
-- `eval/variants/ctx/ctx_args_by_tool.ts`, `ctx_d4_norecent.ts` y `ctx_final_clean.ts`: variantes del laboratorio usadas en el Frente 2. No tocan `src`.
-- Cuatro carpetas de resultados en `eval/results/qwen3.5_4b/2026-11-13_*`.
-- `docs/analisis/`: estos cuatro documentos.
+- `eval/variants/ctx/ctx_args_by_tool.ts`, `ctx_d4_norecent.ts`, `ctx_final_clean.ts` y `ctx_pending_facts.ts`: variantes del laboratorio usadas en el Frente 2. No tocan `src`.
+- Carpetas de resultados en `eval/results/qwen3.5_4b/2026-11-13_*` y `2026-11-14_*` (están ignoradas por git).
+- `docs/analisis/`: estos cuatro documentos y `d0_casos_ejemplo.jsonl`.
+- Pruebas nuevas: `tests/memory.test.ts`, `tests/thread.test.ts`, `tests/decision_memo.test.ts`, `tests/final_clean.test.ts`, `tests/warmup.test.ts`.
+- Laboratorio: `eval/datasets/D0/` (de otro agente), `eval/datasets/arguments/args_blocked_repeat.jsonl` y `eval/variants/ctx/ctx_final_nofiller.ts`.
+- En Ollama: `d3:2b-text-cpu` (solo sirvió para una prueba; `ollama rm d3:2b-text-cpu`).
 
 ## 8. Menores
 

@@ -355,6 +355,11 @@ export function materializeScenario(stage: string, sc: Scenario, variant?: Varia
 }
 
 function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Materialized {
+  if (stage === "d0") {
+    // La primera consulta de la tarea: solo la solicitud, sin contexto (como `Decision20Engine.firstQuery`).
+    if (sc.mode !== "reactive") throw new Error("etapa 'd0': la primera consulta solo existe en modo reactivo.");
+    return decision(effectivePrompts(ov).D.buildFirstQuery({ request: sc.request }));
+  }
   if (stage === "fragment_judge") {
     // No hay tarea ni contexto: el juez recibe solo la necesidad y los fragmentos (como `Decision20Engine.score`).
     const at = sc.at ?? {};

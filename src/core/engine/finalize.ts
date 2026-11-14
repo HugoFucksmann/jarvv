@@ -18,6 +18,7 @@ import type { ResultEntry, StopReason } from "../ctx/index.ts";
 import { terminalStateFor } from "../ctx/index.ts";
 import { ContextOverflowError, renderFallback, renderFinal, renderStatusNote } from "../render/index.ts";
 import { finalRenderOptions, finalViewOptions, windowOptions } from "./adapters.ts";
+import { stripNoChangesFiller } from "./finalClean.ts";
 import type { EngineEnv } from "./env.ts";
 import { isLlmDown, queryModel } from "./failures.ts";
 
@@ -55,13 +56,16 @@ async function answer(env: EngineEnv): Promise<ResultEntry> {
   }
 
   // Qwen ya repite una vez una salida inválida: aquí no se repite.
-  const query = await queryModel(() => env.llm.generateFinalFromView({ view }, runtime.signal), 0);
+  const query = await queryModel(() => env.llm.generateFinalFromView(env.follow.thread === null ? { view } : { view, thread: env.follow.thread }, runtime.signal), 0);
   if (!query.ok) {
     console.error(`[Engine] LLM 3 falló (${query.failure}); respuesta de respaldo.`);
     return fallback();
   }
   // Con la tarea incompleta, el encabezado fijo va antes de lo que redactó el modelo.
   const failed = [...new Set(ctx.find("steps", { state: "failed", superseded: false }).map((x) => x.instruction ?? ctx.task.request))];
-  const note = renderStatusNote(ctx.view.forFallback(windowOptions()), failed);
-  return { text: note === null ? query.value.response : `${note}\n\n${query.value.response}`, origin: "model" };
+  const fallbackView = ctx.view.forFallback(windowOptions());
+  const note = renderStatusNote(fallbackView, failed);
+  // DN-2.10: sin cambios en la computadora, se quita la frase de relleno «no se realizaron cambios…» (salvo que el pedido pregunte por cambios).
+  const response = stripNoChangesFiller(query.value.response, ctx.task.request, fallbackView.effects.length > 0);
+  return { text: note === null ? response : `${note}\n\n${response}`, origin: "model" };
 }

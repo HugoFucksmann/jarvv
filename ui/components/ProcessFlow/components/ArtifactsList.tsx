@@ -33,7 +33,7 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+    <div className="flex flex-col gap-3 pt-2 text-xs">
       {/* A. Proceso en segundo plano activo */}
       {backgroundProcess && (
         <div className="flex items-start gap-3 p-3 rounded-lg bg-accent-500/5 border border-accent-500/30 text-slate-200">
@@ -99,7 +99,7 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
 
       {/* D. Archivos y Referencias generadas (refs) */}
       {hasRefs && (
-        <div className="flex flex-col gap-2 pt-1 border-t border-slate-800">
+        <div className="flex flex-col gap-2 pt-4 border-t border-slate-800">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-slate-200 font-semibold text-[13px]">
               <FileText className="w-3.5 h-3.5 text-accent-400" />
@@ -120,7 +120,7 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
               return (
                 <div
                   key={r.id}
-                  className="flex flex-col justify-between p-2.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-accent-500/40 transition-colors"
+                  className="flex flex-col justify-between p-2.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-accent-500/40 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
