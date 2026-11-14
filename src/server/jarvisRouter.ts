@@ -209,8 +209,10 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
+    let closed = false;
     // Un cliente que no lee no puede hacer crecer la memoria del servidor: pasado el tope de bytes sin enviar, se lo desconecta.
     const send = (chunk: string): void => {
+      if (closed || res.writableEnded) return;
       if (res.writableLength > SSE_MAX_BUFFERED_BYTES) {
         res.destroy();
         return;
@@ -220,7 +222,9 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     const unsubscribe = tasks.addEventListener((event) => send(`data: ${JSON.stringify(event)}\n\n`));
     const keepAlive = setInterval(() => send(': ping\n\n'), 15000);
     req.on('close', () => {
-      sseClients--;
+      if (closed) return;
+      closed = true;
+      sseClients = Math.max(0, sseClients - 1);
       clearInterval(keepAlive);
       unsubscribe();
     });

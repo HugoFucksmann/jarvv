@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { X, Laptop, Folder, Clock, Globe, Shield, Gauge, Copy, Check } from "lucide-react";
+import { useClipboardCopy } from "../../../hooks/useClipboardCopy.ts";
 import type { UserEnvironment, EngineLimits } from "../../../types/api.ts";
 
 interface EnvironmentModalProps {
@@ -64,7 +65,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   limits,
   onClose,
 }) => {
-  const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
+  const { copy, copiedKey } = useClipboardCopy(1500);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -74,15 +75,9 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const copyPath = async (key: string, path?: string) => {
+  const copyPath = (key: string, path?: string) => {
     if (!path) return;
-    try {
-      await navigator.clipboard.writeText(path);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 1500);
-    } catch (e) {
-      console.warn("Failed to copy:", e);
-    }
+    void copy(path, key);
   };
 
   return (

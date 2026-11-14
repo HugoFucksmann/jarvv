@@ -37,6 +37,8 @@ interface TaskState {
   lastFlush: number;
   dirty: boolean;
   timer?: ReturnType<typeof setTimeout>;
+  /** Espera acotada del resultado final si el evento de respuesta tarda en llegar. */
+  settleTimer?: ReturnType<typeof setTimeout>;
   /** Aviso "escribiendo…" mientras la tarea trabaja. */
   typing?: ReturnType<typeof setInterval>;
   /** Serializa las ediciones del mensaje de progreso. */
@@ -49,6 +51,7 @@ const TYPING_INTERVAL_MS = 4500; // el aviso "escribiendo…" dura 5 s en Telegr
 const RESULT_WAIT_MS = 30000; // espera máxima del resultado tras el fin de la tarea
 const VOICE_MAX_CHARS = 1500; // la nota de voz lee solo el comienzo de una respuesta larga
 const APPROVAL_ARGS_MAX = 1500; // más largo no se puede revisar en el chat
+const MAX_EARLY_EVENTS = 200; // tope del buffer temporal durante el arranque de una tarea
 
 const FINISH_TITLE: Record<string, string> = {
   completed: "✅ Tarea completada",
@@ -94,11 +97,12 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   }
 
   async function sendVoice(text: string, voice: VoiceConfig): Promise<void> {
+    if (abort.signal.aborted) return;
     const spoken = speechExcerpt(text, VOICE_MAX_CHARS);
     if (!spoken) return;
     const pcm: Buffer[] = [];
-    for await (const part of streamSpeech(spoken, voice)) pcm.push(Buffer.from(part));
-    if (!pcm.length) return;
+    for await (const part of streamSpeech(spoken, voice, abort.signal)) pcm.push(Buffer.from(part));
+    if (abort.signal.aborted || !pcm.length) return;
     await bot.api.sendVoice(cfg.chatId, new InputFile(await pcmToOggOpus(Buffer.concat(pcm)), "jarvis.ogg"));
   }
 
@@ -169,7 +173,8 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   function stopTimers(t: TaskState): void {
     if (t.typing) clearInterval(t.typing);
     if (t.timer) clearTimeout(t.timer);
-    t.typing = t.timer = undefined;
+    if (t.settleTimer) clearTimeout(t.settleTimer);
+    t.typing = t.timer = t.settleTimer = undefined;
   }
 
   function flushStatus(t: TaskState, header = "⏳ Trabajando…"): Promise<void> {
@@ -199,11 +204,13 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
 
   /** Pasado el plazo, si la respuesta no llegó por evento se la pide a la API y se da la tarea por cerrada. */
   async function settle(id: string, t: TaskState): Promise<void> {
-    if (tasks.get(id) !== t) return;
+    t.settleTimer = undefined;
+    if (abort.signal.aborted || tasks.get(id) !== t) return;
     if (!t.resultSent) {
       const text = await api.resultText(id);
-      if (text) await sendResult(t, text);
+      if (!abort.signal.aborted && text) await sendResult(t, text);
     }
+    stopTimers(t);
     tasks.delete(id);
   }
 
@@ -219,15 +226,16 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
     await flushStatus(t, `${FINISH_TITLE[finish.state] ?? "ℹ️ Tarea finalizada"}${reason}`);
     // La respuesta se escribe después del fin de la tarea: se espera su evento, con tope.
     if (t.resultSent) tasks.delete(id);
-    else setTimeout(() => void settle(id, t), RESULT_WAIT_MS).unref();
+    else t.settleTimer = setTimeout(() => void settle(id, t), RESULT_WAIT_MS).unref();
   }
 
   // ---------- eventos de la API ----------
 
   async function handle(event: TaskEvent): Promise<void> {
+    if (abort.signal.aborted) return;
     const t = tasks.get(event.taskId);
     if (!t) {
-      if (starting) early.push(event);
+      if (starting && early.length < MAX_EARLY_EVENTS) early.push(event);
       return;
     }
 
@@ -245,7 +253,10 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
       if (t.progress.apply(op)) changed = true;
       if (op.op === "set" && op.target === "result" && op.value.text) {
         await sendResult(t, op.value.text);
-        if (t.finished) tasks.delete(event.taskId);
+        if (t.finished) {
+          stopTimers(t);
+          tasks.delete(event.taskId);
+        }
       }
       if (op.op === "finish") await onFinish(event.taskId, t, op.value);
     }
@@ -449,6 +460,8 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
 
   return () => {
     for (const t of tasks.values()) stopTimers(t);
+    tasks.clear();
+    early.length = 0;
     abort.abort();
     void bot.stop();
   };

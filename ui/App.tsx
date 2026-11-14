@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
@@ -32,8 +32,13 @@ export default function App() {
   const [isTraceOpen, setIsTraceOpen] = useState(false);
   const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useFocusShortcut(inputRef);
+
+  useEffect(() => {
+    return () => clearTimeout(focusTimerRef.current);
+  }, []);
 
   const {
     task,
@@ -72,9 +77,10 @@ export default function App() {
 
   const isTaskActive = Boolean(task && !isTerminalState(task.task.state));
 
-  const focusInput = () => {
-    setTimeout(() => inputRef.current?.focus(), 50);
-  };
+  const focusInput = useCallback(() => {
+    clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
 
   const openSettings = useCallback(() => setIsSettingsOpen(true), []);
   const closeSettings = useCallback(() => setIsSettingsOpen(false), []);

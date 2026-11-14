@@ -76,17 +76,11 @@ test("Decision20Engine + captureDecision: adjunta rawInput/rawOutput cuando la s
     candidate: {
       route: "files",
       tool: "write_file",
-      description: "Write a file",
-      schema: '{"type":"object"}',
       args: '{"path":"C:\\\\tmp\\\\a.txt"}',
     },
     step: { instruction: "Escribir archivo", expected: null },
     userInput: [],
     stepFailures: [],
-    stepsDone: [],
-    done: [],
-    lastReads: [],
-    env: [],
   };
 
   for (const badBody of [

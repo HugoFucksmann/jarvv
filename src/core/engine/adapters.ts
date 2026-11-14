@@ -23,7 +23,6 @@ import {
   readEntry,
   refText,
   stateLines,
-  stepDoneLine,
   userLines,
 } from "../render/shared.ts";
 import { READ_ARG_KEYS } from "../tools/manifest.ts";
@@ -44,11 +43,11 @@ export function routeViewOptions(route?: ExecutableRoute): RouteViewOptions {
 }
 
 export function reviewViewOptions(): ReviewViewOptions {
-  return { recentWindows: BUDGET.recentWindows, lastReads: BUDGET.caps.lastReads };
+  return windowOptions();
 }
 
 export function argsViewOptions(tool?: string): ArgsViewOptions {
-  return { ...reviewViewOptions(), readArgKeys: READ_ARG_KEYS, refs: BUDGET.caps.refs, tool };
+  return { ...windowOptions(), lastReads: BUDGET.caps.lastReads, readArgKeys: READ_ARG_KEYS, refs: BUDGET.caps.refs, tool };
 }
 
 export function argsRenderOptions(): ArgsRenderOptions {
@@ -182,15 +181,13 @@ export function toolInput(view: RouteView, route: ExecutableRoute, tools: MCPToo
 // ───────────────────────── Decision #3 ─────────────────────────
 
 /**
- * La llamada candidata (8.3, parámetro de `forReview`, ≤ `caps.candidate`): ruta, herramienta, descripción del catálogo y
- * `args` tal como los propuso el modelo. La descripción toma a lo sumo un cuarto del tope; los `args` el resto.
+ * La llamada candidata (8.3, parámetro de `forReview`, ≤ `caps.candidate`): ruta, herramienta y `args` tal como los
+ * propuso el modelo.
  */
 function candidateOf(route: ExecutableRoute, tool: MCPTool, args: JsonObject): ReviewCandidate {
   const name = `${route}/${tool.name}`;
-  const description = clipMarked(oneLine(tool.description ?? ""), Math.floor(caps.candidate / 4));
-  const room = Math.max(0, caps.candidate - name.length - description.length);
-  const schema = clipMarked(oneLine(JSON.stringify(cleanInputSchema(tool.inputSchema))), caps.candidateSchema);
-  return { route, tool: tool.name, description, schema, args: argsText(args, room) };
+  const room = Math.max(0, caps.candidate - name.length);
+  return { route, tool: tool.name, args: argsText(args, room) };
 }
 
 /** `args`: los registrados (refs sin resolver, strings recortados): lo que ve el modelo y queda en el contexto. */
@@ -198,12 +195,8 @@ export function reviewInput(view: ReviewView, route: ExecutableRoute, tool: MCPT
   return {
     candidate: candidateOf(route, tool, args),
     step: view.step === null ? null : stepText(view.step),
-    stepsDone: lastCapped(view.stepsDone.map((s) => stepDoneLine(s, caps)), caps.stepsDone),
-    done: lastCapped(view.done.map(lineText), caps.done),
-    lastReads: view.lastReads.map((c) => readEntry(c, caps)),
     stepFailures: view.stepFailures.map((c) => failureLine(c, caps)),
     userInput: userLines(view.userInput, caps),
-    env: stateLines(view.env, caps),
   };
 }
 

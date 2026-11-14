@@ -451,23 +451,29 @@ export class StdioMcpTransport implements IMCPTransport {
     this.stdoutBuffer = "";
     this.rejectAllPending(new MCPTransportError(this.serverName, "Transporte cerrado por reconexión o terminación."));
 
-    if (this.childProcess && !this.childProcess.killed) {
-      const pid = this.childProcess.pid;
+    const child = this.childProcess;
+    if (child && !child.killed) {
+      const pid = child.pid;
       if (pid && process.platform === "win32") {
         try {
           // En Windows, termina el árbol de procesos completo (/T) forzadamente (/F) para evitar huérfanos de cmd.exe
-          spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"], {
+          const killer = spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"], {
             stdio: "ignore",
             windowsHide: true,
           });
+          killer.once("error", () => {
+            try {
+              child.kill("SIGKILL");
+            } catch { }
+          });
         } catch {
           try {
-            this.childProcess.kill("SIGKILL");
+            child.kill("SIGKILL");
           } catch { }
         }
       } else {
         try {
-          this.childProcess.kill("SIGTERM");
+          child.kill("SIGTERM");
         } catch {
           // El fallo al terminar el proceso se ignora.
         }

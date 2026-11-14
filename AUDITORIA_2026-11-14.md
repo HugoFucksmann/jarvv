@@ -171,4 +171,29 @@ Criterio de clasificación:
 - **`P-12` (`H-01` en `powershell.ts` / `H-08` vivo):** `__jvDecode` se actualizó por paridad estática con `output.ts`; requiere verificación en vivo bajo `win32` / `powershell.exe`.
 
 ### Bloqueados (**C**) o fuera de esta misión
-- `P-14` (`ReviewView` usada por variantes/golden tests), `P-16` (generador desde trazas), `P-17` (`internalDef` `"research"` referenciado por tests/datasets), `P-18` a `P-27` (decisiones de producto como `DN-2.5` o `repeatByArgs`, cambios en prompts/umbrales, servidores MCP vivos para `dumpManifestInputSchemas.ts`, entorno Ollama/GPU y Windows vivo).
+- `P-16` (generador desde trazas), `P-18` a `P-27` (decisiones de producto como `DN-2.5` o `repeatByArgs`, cambios en prompts/umbrales, servidores MCP vivos para `dumpManifestInputSchemas.ts`, entorno Ollama/GPU y Windows vivo).
+
+---
+
+## 8. Cierre de Retiros (`P-14`, `P-17`) y Revisión General de Calidad
+
+### Retiros ejecutados
+- **`P-14` (`ReviewView` / `ReviewDecisionInput`):** `buildReviewView`, `reviewInput`, `ReviewDecisionInput`, `ReviewCandidate`, `ReviewViewOptions`, `candidateOf` y `BUDGET.caps.candidateSchema` eliminan los campos no usados en producción (`stepsDone`, `done`, `lastReads`, `env`, `candidate.description`, `candidate.schema`). Los prompts generados en producción no cambian; se retiraron las 4 variantes D3 experimentales que leían esos campos (`eval/variants/args_review_D3/args_review_{compact_desc,compact_schema,compact_reads,permissive}.ts`), dejando constancia en `conclusiones_D3.md` sin alterar métricas históricas, y se alinearon `eval/variants/decision_all_stages_example.ts`, `tests/decision.test.ts` y `tests/__golden__/render.json`.
+- **`P-17` (`free_search:research`):** retirada del catálogo de producción (`src/core/tools/manifest.ts`) la definición interna `research` y la referencia obsoleta en `stemsOf` (`text.ts`). Actualizados `tests/repeat.test.ts` y `tests/sensitive.test.ts` hacia `free_search:search`. En `eval/core/scenario.ts` (`toolOf`) se agregó `LEGACY_EVAL_TOOLS["web:research"]` exclusivamente para compatibilidad de datasets históricos (`tool_choice_16_cases`, `llm_arguments*`) sin modificarlos ni reintroducirla en producción.
+
+### Correcciones seguras de fugas, duplicidad y código muerto
+- **Código muerto eliminado:** archivo vacío `tests/render.test.ts` (0 bytes).
+- **Bot y cliente Telegram (`src/telegram/bot.ts`, `src/telegram/api.ts`):** `settleTimer` guardado en `TaskState` y cancelado en `stopTimers`/`settle`/recepción temprana de resultado; `tasks.clear()` y limpieza de `early` en `stop()`; tope `MAX_EARLY_EVENTS = 200` durante `/process`; comprobaciones `abort.signal.aborted` en `sendVoice`/`settle`/`handle`; espera de reconexión `RECONNECT_MS` en `JarvisApi.listen` cancelable al instante mediante `AbortSignal` (con test en `tests/telegram.test.ts`).
+- **Servidor HTTP y SSE (`server.ts`, `src/server/jarvisRouter.ts`):** `cleanShutdown` ahora cierra el servidor HTTP y sus conexiones activas (`httpServer.close()` + `closeAllConnections?.()`); el endpoint `/events` protege `req.on('close')` con bandera idempotente `closed` para evitar doble decremento de `sseClients` o escrituras sobre respuestas cerradas.
+- **Procesos hijos y transporte (`src/core/mcp/transport.ts`, `src/tools/terminal/terminalProvider.ts`):** manejador `killer.once("error", ...)` en `spawn("taskkill")` de Windows para evitar excepciones no capturadas; limpieza explícita de `graceTimer` al completar `finish()` en `attach()` y limpieza de `this.ended.clear()` en `TerminalProvider.close()`.
+- **Cliente eval (`eval/core/client/generative.ts`):** limpieza del listener `abort` cuando el backoff de reintento concluye normalmente.
+- **UI React (`ui/`):** cierre de `AudioContext` al desmontar `useSpeech` y guarda `cancelled` en `useSpeakNewResults` durante `claimSpeech`; limpieza de `focusTimerRef` en `App.tsx`; reutilización de `useClipboardCopy` en `RefViewerModal.tsx` y `EnvironmentModal.tsx` eliminando lógica y temporizadores duplicados sin limpiar.
+
+### Inconsistencias y mejoras de núcleo / flujo / contexto anotadas para decidir (sin modificar)
+Quedaron registradas en `docs/PENDIENTES_FUERA_DE_FLUJO.md` para decisión explícita:
+1. **`VerifyView` / `VerifyDecisionInput` (`done`, `recent`, `request`) y `DecisionFrame.lastResult`:** campos sin uso en los prompts de producción (`DN-2.1` / `DN-2.2`) que siguen calculándose para compatibilidad con variantes legadas en `eval/variants/{d4,route_D1,tool_choice_D2}/`.
+2. **`precheck.ts` (`collectSources`):** consulta `ctx.view.forReview(...).userInput` en lugar de contar con una lectura directa en `ctx/views/`.
+3. **Higiene en `core/models/transport.ts` y `core/engine/services.ts`:** listener `abort` de backoff no desregistrado en `transport.ts:153` y bandera global de módulo `coherenceWarned` compartida entre instancias/tests en `services.ts:33`.
+4. **Semántica de estado HTTP:** `mcpRouter.ts` y `POST /api/jarvis/refresh-discovery` devuelven HTTP `200` con `{ error }` en fallos (acoplado a `ui/services/jarvisApi.ts`).
+5. **Ya rastreados:** `DecisionQuestion.score` no implementado en `validateAnswer` y nombres heredados `Decision20Engine` / `"Decision 2.0"`.
+

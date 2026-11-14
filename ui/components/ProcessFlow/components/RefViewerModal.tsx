@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { X, FileText, Loader2, AlertCircle, Copy, Check, HardDrive, Hash, Clock } from "lucide-react";
+import { useClipboardCopy } from "../../../hooks/useClipboardCopy.ts";
 import type { RefDto } from "../../../types/api.ts";
 import { jarvisApi } from "../../../services/jarvisApi.ts";
 
@@ -19,7 +20,8 @@ export const RefViewerModal: React.FC<RefViewerModalProps> = ({
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copy, isCopied } = useClipboardCopy();
+  const copied = isCopied();
 
   useEffect(() => {
     let isMounted = true;
@@ -54,15 +56,9 @@ export const RefViewerModal: React.FC<RefViewerModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     if (!content) return;
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.warn("Failed to copy:", e);
-    }
+    void copy(content);
   };
 
   const formattedSize = refMeta?.size

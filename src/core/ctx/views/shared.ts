@@ -19,7 +19,7 @@ import { parseId } from "../ids.ts";
 import { currentOf } from "../query.ts";
 import type { Call, ContextData, Ref, Step } from "../types.ts";
 import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, statusNoteOf } from "./messages.ts";
-import type { CallView, EffectView, FactView, RefView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
+import type { ArgsViewOptions, CallView, EffectView, FactView, RefView, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
 
 export function refToView(ref: Ref): RefView {
   return { id: ref.id, size: ref.size, where: ref.where, label: ref.label };
@@ -107,7 +107,7 @@ export function effectIdsOf(data: ContextData): Set<string> {
   return new Set<string>([...effectsOf(data.calls), ...possibleEffectsOf(data.calls)].map((c) => c.id));
 }
 
-// ───────────────────────── Partes comunes de `forArgs` y `forReview` ─────────────────────────
+// ───────────────────────── Partes comunes de `forArgs` ─────────────────────────
 
 export interface TaskParts {
   /** Paso vigente en curso, si hay. */
@@ -123,10 +123,10 @@ export interface TaskParts {
 }
 
 /**
- * Lo que `forArgs` y `forReview` comparten (8.3). Una llamada aparece una sola vez, con este orden de prioridad:
- * `excluded` (efectos, donde la vista los muestra) > `reads` > `done` / `stepsDone` > `failures`.
+ * Piezas de `forArgs` (8.3). Una llamada aparece una sola vez, con este orden de prioridad:
+ * `excluded` (efectos) > `reads` > `done` / `stepsDone` > `failures`.
  */
-export function taskPartsOf(data: ContextData, options: ReviewViewOptions, excluded: readonly Call[]): TaskParts {
+export function taskPartsOf(data: ContextData, options: Pick<ArgsViewOptions, "recentWindows" | "lastReads">, excluded: readonly Call[]): TaskParts {
   const reactive = data.task.mode === "reactive";
   const size = recentWindowSize(data.steps, options.recentWindows);
   const step = currentOf(data).step;

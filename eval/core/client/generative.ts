@@ -84,8 +84,15 @@ export async function postJson(url: string, body: unknown, timeoutMs: number): P
       await new Promise<void>((resolve) => {
         // Con el presupuesto ya agotado el evento `abort` no se repite: sin esto se esperaba el backoff entero y se inflaba la latencia.
         if (signal.aborted) return resolve();
-        const t = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
-        signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+        const onAbort = (): void => {
+          clearTimeout(t);
+          resolve();
+        };
+        const t = setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, LLM_TRANSPORT_BACKOFF_MS);
+        signal.addEventListener("abort", onAbort, { once: true });
       });
     }
   } finally {

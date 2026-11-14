@@ -237,10 +237,9 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 150_000,
   }),
-  // Internas de `web_search` (Free Search). `search` devuelve enlaces con extractos (es lo que usa `web_search`); `research` busca y lee en una sola llamada; `fetch` descarga UNA URL como Markdown.
+  // Internas de `web_search` (Free Search): `search` devuelve enlaces con extractos, `fetch` descarga UNA URL como Markdown y `read_doc` lee un documento largo en ventanas.
   internalDef("free_search", "web", "search", "READ", "Search the web and return a list of links with snippets.", { emptyIsError: true, repeat: "retry_failed" }),
   internalDef("free_search", "web", "read_doc", "READ", "Read a long page or document in windows (start, length).", { repeat: "retry_failed" }),
-  internalDef("free_search", "web", "research", "READ", "Search the web and read the top pages in one call.", { emptyIsError: true, repeat: "retry_failed" }),
   internalDef("free_search", "web", "fetch", "READ", "Download ONE known URL as Markdown.", { repeat: "retry_failed" }),
 ];
 

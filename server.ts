@@ -94,6 +94,7 @@ async function main() {
   };
 
   let stopTelegram: (() => void) | undefined;
+  let httpServer: ReturnType<typeof app.listen> | undefined;
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
@@ -118,6 +119,8 @@ async function main() {
       }
     });
 
+    httpServer?.close();
+    httpServer?.closeAllConnections?.();
     console.log('[Host] Todos los subprocesos MCP han finalizado limpiamente.');
     process.exit(0);
   };
@@ -173,7 +176,7 @@ async function main() {
   // Precalienta los dos modelos (carga en GPU + `keep_alive`) sin bloquear el arranque; un fallo solo se registra.
   void warmUpModels(getConfig);
 
-  app.listen(PORT, HOST, () => {
+  httpServer = app.listen(PORT, HOST, () => {
     console.log(`JARVIS Core authoritative full-stack host running on http://${HOST}:${PORT}`);
   });
 

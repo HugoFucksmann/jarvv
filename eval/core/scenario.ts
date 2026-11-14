@@ -259,11 +259,20 @@ function buildContext(sc: Scenario): Built {
 
 // ───────────────────────── Herramientas del manifest ─────────────────────────
 
+/**
+ * Herramientas retiradas del manifiesto de producción que aún figuran en datasets históricos (`tool_choice_16_cases`,
+ * `llm_arguments*`). Se conservan solo aquí para no mutar datasets medidos tras retirar P-17.
+ */
+const LEGACY_EVAL_TOOLS: Record<string, string> = {
+  "web:research": "Search the web and read the top pages in one call.",
+};
+
 /** Herramienta con la descripción real del manifest y el schema del escenario (el del servidor no es estático). */
 function toolOf(route: ExecutableRoute, name: string, inputSchema?: ToolInputSchema): MCPTool {
   const def = SYSTEM_TOOL_MANIFEST.find((d) => d.name === name && d.route === route);
-  if (!def) throw new Error(`la herramienta '${name}' no está en el manifest de la ruta '${route}'.`);
-  return { name, description: def.description, inputSchema: inputSchema ?? { type: "object", properties: {} } } as MCPTool;
+  const description = def?.description ?? LEGACY_EVAL_TOOLS[`${route}:${name}`];
+  if (!description) throw new Error(`la herramienta '${name}' no está en el manifest de la ruta '${route}'.`);
+  return { name, description, inputSchema: inputSchema ?? { type: "object", properties: {} } } as MCPTool;
 }
 
 function need<T>(value: T | undefined, what: string, stage: string): T {

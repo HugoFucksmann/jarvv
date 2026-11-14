@@ -97,31 +97,20 @@ export type ArgsReview = (typeof ARGS_REVIEWS)[number];
 export interface ReviewCandidate {
   readonly route: string;
   readonly tool: string;
-  /** Descripción de la herramienta en el catálogo. */
-  readonly description: string;
-  /** Schema limpio de la herramienta (JSON en una línea): los tipos y requeridos contra los que se contrastan los `args`. */
-  readonly schema: string;
   /** `args` tal como los propuso el modelo (refs sin resolver, strings recortados), en una línea. */
   readonly args: string;
 }
 
 /**
- * Lo que Decisión 3 recibe de `forReview` (8.3), ya saneado y recortado a los topes de 8.2: una línea por llamada, por
- * paso y por entrada del usuario; cada lectura es un bloque de varias líneas.
+ * Lo que Decisión 3 recibe de `forReview` (8.3), ya saneado y recortado a los topes de 8.2: el paso actual, la entrada
+ * del usuario, los intentos fallidos del paso y la llamada candidata.
  */
 export interface ReviewDecisionInput {
   readonly candidate: ReviewCandidate;
   /** Paso actual. */
   readonly step: { readonly instruction: string; readonly expected: string | null } | null;
-  /** Pasos completados: solo en deliberativo. */
-  readonly stepsDone: readonly string[];
-  /** Llamadas hechas (aprobadas) que no son lecturas mostradas: solo en reactivo. */
-  readonly done: readonly string[];
-  /** Las mismas lecturas que vio LLM 2. */
-  readonly lastReads: readonly string[];
   readonly stepFailures: readonly string[];
   readonly userInput: readonly string[];
-  readonly env: readonly string[];
 }
 
 export type ReviewDecision = DecisionTrace & { readonly review: ArgsReview };

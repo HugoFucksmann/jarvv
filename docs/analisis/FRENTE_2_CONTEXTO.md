@@ -79,8 +79,8 @@ Tamaño máximo visto en las trazas, en tokens de entrada: `pending` 1 185 · D1
 
 ### D3, revisión
 - **Recibe:** `Target`, `User Input`, `Previous Errors`, `Call`, `Args`. Es compacto.
-- **Sobra (en código):** `forReview` y `reviewInput` siguen calculando `stepsDone`, `done`, `lastReads`, `env` y el schema, que el prompt ya no usa (lo dice el comentario de `buildArgsReview`).
-- **Cambio:** dejar de calcularlos. Con solo 2 consultas en las trazas no hay datos para más.
+- **Sobra (en código):** ~~`forReview` y `reviewInput` siguen calculando `stepsDone`, `done`, `lastReads`, `env` y el schema, que el prompt ya no usa~~ *(retirado 2026-11-14 — P-14: `ReviewView` y `ReviewDecisionInput` quedaron limitados a `step`, `stepFailures`, `userInput` y `candidate.{route,tool,args}`)*.
+- **Cambio:** hecho. Con solo 2 consultas en las trazas no hay datos para más.
 
 ### D4, verificación
 - **Recibe:** `Step`, `Expected`, `User input`, la llamada evaluada (cabecera con ids, `args` hasta 2 000, resultado hasta 2 500, línea de ref) y `Previous approved calls` (hasta 3 llamadas anteriores completas).
@@ -114,7 +114,7 @@ Sin muestras suficientes en las trazas (2 planes, 0 preguntas). No se auditaron 
 - **F6. Identificadores internos en texto para modelos** (`c1 s1`, `verdict=approved`, `read`/`write`, rutas con uuid). A la respuesta final se le pide que no los mencione.
 - **F7. Reglas que valen para una herramienta, dichas a todas** (PowerShell, `shell`).
 - **F8. Rótulos de `pending` puestos con expresiones regulares** sobre el texto ya renderizado. Lo anota el propio código.
-- **F9. Vistas que calculan campos que nadie usa** (`forReview`).
+- **F9. Vistas que calculan campos que nadie usa** ~~(`forReview`)~~ *(resuelto 2026-11-14 en `forReview`/`reviewInput` — P-14; sigue abierto en `forVerify`/`verifyInput` y `lastResult` en `frameLines`)*.
 
 ## 3. Cómo armarlo
 

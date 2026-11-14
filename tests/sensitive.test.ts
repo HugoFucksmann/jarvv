@@ -92,7 +92,7 @@ test("Guard: una ruta sensible exige confirmación obligatoria, incluso de solo 
   assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Windows\\evil.dll", content: "x" }).mandatory, true);
   assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Users\\Ana\\Documents\\n.txt", content: "x" }).mandatory, undefined);
   assert.equal(Guard.evaluate(DC, "read_file", { path: "C:\\Users\\Ana\\Documents\\n.txt" }).decision, "ALLOW");
-  assert.equal(Guard.evaluate("free_search", "research", { query: "qué es .ssh y ~/.aws/credentials" }).decision, "ALLOW");
+  assert.equal(Guard.evaluate("free_search", "search", { query: "qué es .ssh y ~/.aws/credentials" }).decision, "ALLOW");
   assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Users\\Ana\\Documents\\notas.txt", content: "mi clave está en ~/.ssh/id_rsa" }).mandatory, undefined);
 });
 

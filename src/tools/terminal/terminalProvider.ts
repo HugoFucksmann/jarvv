@@ -264,6 +264,7 @@ export class TerminalProvider implements ToolProvider {
 
   async close(): Promise<void> {
     await this.killAll(() => true);
+    this.ended.clear();
   }
 
   async onTaskEnd(taskId: string, outcome: TaskEndOutcome): Promise<void> {
@@ -495,9 +496,12 @@ export class TerminalProvider implements ToolProvider {
     });
 
     let finished = false;
+    let graceTimer: NodeJS.Timeout | undefined;
     const finish = (): void => {
       if (finished) return;
       finished = true;
+      clearTimeout(graceTimer);
+      graceTimer = undefined;
       for (const s of t.streams) {
         receive(s, s.decoder.end(), true);
         const rest = s.lines.end();
@@ -510,14 +514,16 @@ export class TerminalProvider implements ToolProvider {
     // Sin código (el proceso lo cortó alguien desde fuera): -1, para que no se lea como una salida limpia.
     t.child.once("exit", (code) => {
       t.exitCode = code ?? -1;
-      setTimeout(() => {
+      if (finished) return;
+      graceTimer = setTimeout(() => {
         if (finished) return;
         // Los flujos siguen abiertos: un proceso que lanzó el comando los heredó y sigue vivo. Se sueltan (no se recoge más) y se avisa.
         t.detached = true;
         t.child.stdout.destroy();
         t.child.stderr.destroy();
         finish();
-      }, CLOSE_GRACE_MS).unref();
+      }, CLOSE_GRACE_MS);
+      graceTimer.unref();
     });
     t.child.once("close", (code) => {
       if (t.exitCode === null) t.exitCode = code ?? -1;

@@ -133,8 +133,6 @@ export const BUDGET = {
     /** Reserva común de efectos y posibles efectos: nunca se recortan; si no entran, la vista falla en voz alta. */
     effectsReserve: 12000,
     candidate: 6000,
-    /** Schema limpio de la herramienta candidata (`forReview`, Decisión 3). */
-    candidateSchema: 3000,
     previousFeedback: 4,
     finalNote: 600,
     finalStepInstruction: 300,

@@ -83,7 +83,18 @@ export class JarvisApi {
       } catch {
         if (signal.aborted) return;
       }
-      await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) return resolve();
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        }, RECONNECT_MS);
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
     }
   }
 }

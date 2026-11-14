@@ -34,6 +34,14 @@ export function useSpeech(onError?: (message: string) => void) {
     setStatus("idle");
   }, []);
 
+  useEffect(() => {
+    return () => {
+      stop();
+      void ctxRef.current?.close().catch(() => {});
+      ctxRef.current = null;
+    };
+  }, [stop]);
+
   const speak = useCallback(
     async (text: string) => {
       stop();
@@ -158,11 +166,14 @@ export function useSpeakNewResults(
     }
     if (resultText === null || prev.hadResult) return;
     seen.current = { id: taskId, hadResult: true };
-    if (enabled && taskId !== null) {
-      void claimSpeech(taskId).then((mine) => {
-        if (mine) void speak(resultText);
-      });
-    }
+    if (!enabled || taskId === null) return;
+    let cancelled = false;
+    void claimSpeech(taskId).then((mine) => {
+      if (!cancelled && mine) void speak(resultText);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [taskId, resultText, enabled, speak, stop]);
 
   useEffect(() => () => stop(), [stop]);

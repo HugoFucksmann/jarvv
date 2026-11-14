@@ -21,3 +21,5 @@ Datasets: `args_review_16_cases`, `args_review_gemai`, `args_review_gemaiL` (47 
 - R1: `prod` 62,5 %; `compact_history` 72,9 %; `compact_reads` 72,9 % (idéntica: las lecturas no cambian nada); `compact_prodopts` 58,3 % (estado compacto con los criterios de prod).
 - R2: `compact_schema` 70,8 %; `compact_grounded` 54,2 % (-8,3 % vs prod).
 - Conclusión: lo que ayuda a d3:2b son los **criterios cortos** de `compact` (con los de prod cae a 58,3 %); el estado compacto solo no alcanza. Criterios centrados en "origen del valor" (`grounded`) empeoran mucho, y sumar `Expected`, lecturas o schema no mejora. Toda la ganancia está en `args_review_16_cases` (56,3 → 87,5 %); en `gemai` y `gemaiL` no cambia nada. Mejor: `args_review_compact_history`.
+
+> **Nota (retiro P-14):** Al retirar los campos no usados de `ReviewView` / `ReviewDecisionInput` (`stepsDone`, `done`, `lastReads`, `env`, `candidate.description`, `candidate.schema`), se retiraron los archivos experimentales `args_review_{compact_desc,compact_schema,compact_reads,permissive}.ts` que solo servían para medir esos campos descartados. Sus métricas históricas registradas arriba permanecen intactas como evidencia.

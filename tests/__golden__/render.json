@@ -159,24 +159,12 @@
     "candidate": {
       "route": "files",
       "tool": "write_file",
-      "description": "Write or append to a file.",
-      "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"},\"mode\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}",
       "args": "{\"path\":\"C:\\\\x\\\\resumen.txt\",\"content\":\"hola\",\"mode\":\"rewrite\"}"
     },
     "step": {
       "instruction": "Leer el informe y guardar un resumen en resumen.txt",
       "expected": null
     },
-    "stepsDone": [],
-    "done": [
-      "c12 s1 files/write_file write ok verdict=approved",
-      "c13 s1 files/write_file write ok verdict=approved",
-      "c14 s1 files/write_file write ok verdict=approved"
-    ],
-    "lastReads": [
-      "c1 s1 files/list_directory read ok verdict=approved\nargs={\"path\":\"C:\\\\Users\\\\Ana\\\\Documentos\"}\n[FILE] informe_ventas.txt\n[FILE] notas.md\n[DIR] fotos",
-      "c3 s2 files/read_file read ok verdict=approved\nargs={\"path\":\"C:\\\\Users\\\\Ana\\\\Documentos\\\\informe_ventas.txt\",\"offset\":0,\"length\":100}\nInforme de ventas 2026\nQ1: 120.000\nQ2: 135.500\nQ3: 98.250\n(truncado)\nref:r1 (48213, data/refs/task_fixture/r1.txt)"
-    ],
     "stepFailures": [
       "c10 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data. | ENOENT: no such file or directory",
       "c11 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data. | ENOENT: no such file or directory"
@@ -184,9 +172,6 @@
     "userInput": [
       "rejection s2: no crees carpetas nuevas",
       "answer s2: usá la carpeta Documentos"
-    ],
-    "env": [
-      "process=4321"
     ]
   },
   "reactive/running/verifyInput": {
@@ -376,22 +361,12 @@
     "candidate": {
       "route": "files",
       "tool": "write_file",
-      "description": "Write or append to a file.",
-      "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"},\"mode\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}",
       "args": "{\"path\":\"C:\\\\x\\\\resumen.txt\",\"content\":\"hola\",\"mode\":\"rewrite\"}"
     },
     "step": {
       "instruction": "Leer el informe y guardar un resumen en resumen.txt",
       "expected": "resumen.txt creado"
     },
-    "stepsDone": [
-      "s1 Listar la carpeta Documentos"
-    ],
-    "done": [],
-    "lastReads": [
-      "c1 s1 files/list_directory read ok verdict=approved\nargs={\"path\":\"C:\\\\Users\\\\Ana\\\\Documentos\"}\n[FILE] informe_ventas.txt\n[FILE] notas.md\n[DIR] fotos",
-      "c3 s2 files/read_file read ok verdict=approved\nargs={\"path\":\"C:\\\\Users\\\\Ana\\\\Documentos\\\\informe_ventas.txt\",\"offset\":0,\"length\":100}\nInforme de ventas 2026\nQ1: 120.000\nQ2: 135.500\nQ3: 98.250\n(truncado)\nref:r1 (48213, data/refs/task_fixture/r1.txt)"
-    ],
     "stepFailures": [
       "c10 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data. | ENOENT: no such file or directory",
       "c11 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data. | ENOENT: no such file or directory"
@@ -399,9 +374,6 @@
     "userInput": [
       "rejection s2: no crees carpetas nuevas",
       "answer s2: usá la carpeta Documentos"
-    ],
-    "env": [
-      "process=4321"
     ]
   },
   "deliberative/running/verifyInput": {
@@ -470,7 +442,6 @@
     "env": 1000,
     "effectsReserve": 12000,
     "candidate": 6000,
-    "candidateSchema": 3000,
     "previousFeedback": 4,
     "finalNote": 600,
     "finalStepInstruction": 300,

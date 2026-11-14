@@ -176,8 +176,9 @@ test("el catálogo asigna la política: sondeos allow, web retry_failed, el rest
   assert.equal(getToolPolicy("jarvis_terminal", "run_command").repeat, "strict", "un comando idéntico pudo duplicar sus efectos");
   assert.equal(getToolPolicy("desktop_commander", "read_file").repeat, "strict");
   assert.equal(getToolPolicy("jarvis_web", "web_search").repeat, "retry_failed");
-  assert.equal(getToolPolicy("free_search", "research").repeat, "retry_failed");
+  assert.equal(getToolPolicy("free_search", "search").repeat, "retry_failed");
   assert.equal(getToolPolicy("free_search", "fetch").repeat, "retry_failed");
+  assert.equal(getToolPolicy("free_search", "research").repeat, "strict", "retirada del manifiesto: cae a la política por defecto");
   assert.equal(getToolPolicy("desktop_commander", "herramienta_inventada").repeat, "strict");
 });
 

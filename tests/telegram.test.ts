@@ -134,3 +134,22 @@ test("comandos: modo se abrevia con la inicial", () => {
   assert.equal(parseMode("r"), "reactive");
   assert.equal(parseMode("D"), "deliberative");
 });
+
+test("JarvisApi.listen: cancela inmediatamente el temporizador de reconexión al abortar", async () => {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(503).end();
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/jarvis`;
+  const api = new JarvisApi(base);
+
+  const abort = new AbortController();
+  const started = Date.now();
+  setTimeout(() => abort.abort(), 30);
+  await api.listen(() => {}, abort.signal);
+  const elapsed = Date.now() - started;
+
+  server.closeAllConnections();
+  server.close();
+  assert.ok(elapsed < 1000, `debió abortar antes de RECONNECT_MS (2000 ms), tardó ${elapsed} ms`);
+});
