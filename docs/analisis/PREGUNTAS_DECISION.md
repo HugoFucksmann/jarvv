@@ -130,7 +130,7 @@ Scripts: `eval/exp/hard_cases.ts` (dataset y políticas), `polar_wordings.ts` (r
 
 ## Tercera parte: sondas implementadas y medidas con criterios y casos de producción (2026-11-14)
 
-Implementadas en `src/core/tools/probes.ts` (declaradas en `tools/manifest.ts`, ejecutadas por `engine/probes.ts`). `eval/exp/probe_eval.ts` arma el estado y la pregunta con las mismas funciones `stages()` que usa el motor (criterios `true`/`false` incluidos), con pedidos en español, argumentos como los mandaría el generador y resúmenes como los deja la herramienta; compone el resultado como el motor (compuerta, `badWhenTrue`, umbral). `d3:2b-text`, 52 casos (18 ubicación, 12 posición, 12 alcance, 12 ítem, 12 atributo; la mitad buenos):
+Implementadas en `src/core/tools/probes.ts` (declaradas en `tools/manifest.ts`, ejecutadas por `engine/probes.ts`). `eval/exp/probe_eval.ts` arma el estado y la pregunta con las mismas funciones `stages()` que usa el motor (criterios `true`/`false` incluidos), con pedidos en español, argumentos como los mandaría el generador y resúmenes como los deja la herramienta; compone el resultado como el motor (compuerta, `badWhenTrue`, umbral). `d3:2b-text`, 66 casos (18 ubicación, 12 posición, 12 alcance, 12 ítem, 12 atributo; la mitad buenos):
 
 | sonda | a 0,5 (buenas / malas) | a 0,6 (umbral) | a 0,7 | a 0,8 |
 |---|---|---|---|---|
