@@ -7,25 +7,29 @@ coverage/
 .env*
 !.env.example
 
-# Trazas locales con datos de ejecución
+# ── Trazas locales con datos de ejecución ──────────────────────────────────────
 /jarvis-traces.jsonl
 jarvis-traces.jsonl
+/jarvis-traces/
+/jarvis-refs/
 jarvis-refs/*
 .jsonjarvis-traces.jsonl
-# Borradores y resultados generados por el laboratorio
+
+# ── Resultados de evaluación ───────────────────────────────────────────────────
+eval/results/
+/scripts/eval-next/results/
+
+# ── Resultados de scripts de validación (web_eval captures) ───────────────────
+/scripts/validate/web_eval/captures/
+/scripts/validate/web_eval/captures2/
+/scripts/validate/web_eval/RESULTADOS.md
+
+# ── Borradores y resultados del laboratorio ────────────────────────────────────
 /lab/cases/*/_drafts/
 /lab/results/
 
-# Referencias locales de JARVIS
-/jarvis-refs/
+# ── Referencias locales de JARVIS ──────────────────────────────────────────────
 data/refs/
 
-# Resultados de evaluación
-/scripts/eval-next/results/
-eval/results
-
-# Trazas por tarea (jarvis-traces/AAAAMMDD-HHMMSS_<id>/)
-/jarvis-traces/
-
-# Entorno de Python del servidor de voz
+# ── Entorno de Python del servidor de voz ──────────────────────────────────────
 /.venv-tts/
