@@ -4,20 +4,7 @@
 
 ## Estado (2026-11-14)
 
-Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
-
-| Punto | Estado |
-|---|---|
-| 1. Cadena que produce los bucles | ⏸. La causa de las trazas del 12 de noviembre (`pending` perdía «en la terminal») está atenuada por D0 «una acción». Sigue abierto `list_directory` con `depth: 0` («Directorio vacío.»: lo devuelve el servidor de Desktop Commander, no está en nuestro código) |
-| 2. Regla de `shell` en argumentos | ✅ (DN-2.3) |
-| 3. Información desactualizada presentada como actual | ⏸ (visto otra vez el 14/11 con «Gemini 4 Carbon») |
-| 4. D5 cierra tareas incompletas | ⏸ (la verificación por código de las escrituras reduce el caso de escrituras, no el de lecturas) |
-| 4a. D3 aprueba rutas inventadas; el pre-chequeo solo mira lecturas | ✅ el pre-chequeo rechaza el destino de una escritura fuera de las carpetas del usuario que no sale de ningún lado (`engine/precheck.ts`). En los datasets de D3: recall de llamadas malas 41 % → 47 %, 0 falsos rechazos. D3 sigue sin ser una barrera contra rutas inventadas: lo es el código |
-| 4b. Ninguna pregunta de hechos abre un paso | ⚠ D0 «una acción» las manda a búsqueda; DN-2.5 sigue apagada |
-| 5. Relleno de la respuesta final | ✅ por código (`finalClean.ts`) |
-| 6. Laboratorio (thinking `auto`, carpetas vacías, latencias, sin etapa D5, dos corridas a la vez) | ⚠ etapa `d0` agregada y carpetas vacías por filtro corregidas en `eval/cli.ts` (`2026-11-14`); el resto ⏸ |
-| 7. Archivos dejados en el repositorio | actualizado abajo |
-| 8. Menores | ⏸. El comentario de `buildResultVerification` ya no es falso: D4 dejó de recibir `Previous approved calls` |
+> El estado de cada decisión (hecho, parcial, pendiente) y lo que falta se llevan **solo** en [`docs/PENDIENTES.md`](../PENDIENTES.md); lo ya hecho está en `CHANGELOG.md`. Este documento conserva el análisis, las mediciones y los motivos de lo descartado.
 
 **Hallazgo nuevo (2026-11-14), de la VRAM:** los dos modelos traen un proyector de visión (676 y 671 MB) que no se usa; con ellos no caben residentes a la vez en 8 GB y cada cambio de modelo costaba ~1 s. Variantes sin proyector: tarea simulada de 4 659 a 1 071 ms. Ver `docs/OLLAMA_MODELOS_TEXTO.md`.
 
@@ -80,7 +67,3 @@ Medido con 12 preguntas («cuál es el último modelo de Claude», «quién gan�
 - `ERROR_PREVIO: tu respuesta anterior fue inválida…` está en español dentro de prompts en inglés (`retryNote`).
 - El comentario de `buildResultVerification` dice «sin contexto de llamadas previas», pero el código agrega `Previous approved calls`.
 - Durante las pruebas había un servidor de JARVIS corriendo (`npm run dev`); no lo toqué. Comparte la GPU con cualquier corrida del laboratorio.
-
-## Validación pendiente en laboratorio (V) y bloqueados (C)
-- **[V]** Evaluar impacto de fecha de fuente / recencia en respuestas «último X» (§3) y ampliar casos de D5 (§4).
-- **[C]** `list_directory` con `depth: 0` devolviendo «Directorio vacío.» proviene del servidor MCP Desktop Commander (§1).

@@ -1,24 +1,11 @@
 # Frente 1 — Memoria entre tareas
 
 > 2026-11-13. Diseño propuesto, con pruebas contra `qwen3.5:4b` y `d3:2b` reales (pensamiento apagado).
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto del documento es el diseño y las mediciones originales y no se reescribió.
+> **2026-11-14: implementado en parte.** El estado y lo pendiente están en `docs/PENDIENTES.md`; el resto del documento es el diseño y las mediciones originales y no se reescribió.
 
-## Estado de implementación (2026-11-14)
+## Estado y pendientes
 
-Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
-
-| # | Decisión | Estado | Dónde está |
-|---|---|---|---|
-| DN-1.1 | Qué capas construir | ⚠ hechos ✅ e hilo ✅; recetas ⏸ | — |
-| DN-1.2 | Dónde persiste | ✅ `data/memory.json` (junto a `refsDir`; está en `.gitignore`) | `src/core/memory.ts` |
-| DN-1.3 | Quién escribe hechos | ⚠ solo el usuario, editando el archivo a mano. Respuestas del usuario como hechos ⏸; rutas encontradas ⏸ | — |
-| DN-1.4 | Cómo dicta un hecho | ⏸ frase «recordá que…» y pantalla para ver y borrar (se eligió el primer corte «solo archivo editable») | — |
-| DN-1.5 | Duración del hilo | ✅ 1 tarea y 10 minutos | `engine/thread.ts` (`THREAD_TTL_MS`), `tasks.ts` |
-| DN-1.6 | Umbral de continuación | ✅ 0,3. Con el prompt de producción: 28/28 seguimientos y 0/28 falsos | `engine/thread.ts` (`CONTINUATION_APPROVE`) |
-| DN-1.7 | Condición de recetas | ⏸ | — |
-| DN-1.8 | Hechos en consultas web | ✅ ya cubierto por `egress.ts` para rutas de usuario (pide confirmación); un hecho que no es ruta sale tal cual | `policy/egress.ts` |
-| DN-1.9 | Tope de hechos por prompt | ✅ 3 | `memory.ts` (`MAX_FACTS_PER_PROMPT`) |
-| DN-1.10 | Pre-chequeo ante rutas de memoria | ✅ los valores de los hechos (y la tarea anterior) son fuente | `engine/precheck.ts` (`collectSources(ctx, extra)`) |
+> El estado de cada decisión (hecho, parcial, pendiente) y lo que falta se llevan **solo** en [`docs/PENDIENTES.md`](../PENDIENTES.md); lo ya hecho está en `CHANGELOG.md`. Este documento conserva el análisis, las mediciones y los motivos de lo descartado.
 
 **Cómo funciona hoy**
 - **Hechos:** el archivo es `[{ "key": "carpeta jarvis", "value": "C:\\…" }]`. Un hecho entra si todas las palabras de su clave aparecen en el pedido o en el paso (prefijo de 5 letras); sin coincidencia, cero tokens. Va como bloque `MEMORY` a la generación de argumentos y como fuente del pre-chequeo.
@@ -219,7 +206,3 @@ Pregunta `noul` al decisor: «¿el pedido nuevo depende de la tarea anterior: la
 - No probé el hilo dentro de `pending` ni la ejecución de recetas (ambos requieren cambios en `src`).
 - La prueba de D3 usa 10 llamadas que escribí yo.
 - La selección por código se probó con 5 hechos; con cientos habría que medir falsas coincidencias.
-
-## Validación pendiente en laboratorio (V) y bloqueados (C)
-- **[V]** Probar hilo y hechos de punta a punta con tareas reales encadenadas y modelos vivos (`qwen3.5:4b` + `d3:2b`), especialmente `CONTINUATION_APPROVE` (0,3) en sesiones largas.
-- **[C]** DN-1.3 / DN-1.4 / DN-1.7: guardar respuestas del usuario o rutas de `locate` como hechos persistentes, comando «recordá que…», interfaz para editar hechos y recetas (`ok ≥ 2, fail = 0`) requieren decisión de producto/UX y aprobación por niveles.

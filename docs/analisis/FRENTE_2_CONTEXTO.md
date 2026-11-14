@@ -2,24 +2,11 @@
 
 > 2026-11-13. Revisado sobre el código (`ctx/views/`, `render/`, `engine/adapters.ts`, `models/prompts.ts`, `budget.ts`) y sobre los prompts reales guardados en las trazas. Las propuestas marcadas «medido» se probaron en el laboratorio o contra los modelos. Cuando se escribió no se había tocado `src`.
 >
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales.
+> **2026-11-14: implementado en parte.** El estado y lo pendiente están en `docs/PENDIENTES.md`; el resto es el análisis y las mediciones originales.
 
-## Estado de implementación (2026-11-14)
+## Estado y pendientes
 
-Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
-
-| # | Decisión | Estado | Dónde está |
-|---|---|---|---|
-| DN-2.1 | Sin `Last result` en D1 y D2 | ✅ | `models/prompts.ts` (`frameLines`) |
-| DN-2.2 | Sin `Previous approved calls` en D4 | ✅ (`forVerify` y `verifyInput` lo siguen calculando) | `models/prompts.ts` (`buildResultVerification`) |
-| DN-2.3 | Reglas de comando solo si la herramienta tiene `command` | ✅ (corrige el `shell` inválido en `list_directory`) | `models/prompts.ts` (`ARGUMENTS_VIEW.buildSystemPrompt`) |
-| DN-2.4 | Solicitud original en argumentos | ✅ línea `REQUEST:` en la vista de argumentos (solo reactivo, salvo que sea igual al paso). Datasets de argumentos del laboratorio, 3 repeticiones: 309/345 → 323/345 (90,3 → 93,6 %), ningún dataset empeoró (21 corridas mejores, 7 peores; medido junto con el cambio del pre-chequeo) | `render/args.ts`, `ctx/views/args.ts` |
-| DN-2.5 | `pending` busca ante preguntas de hechos | ⚠ implementada pero **apagada** (`PENDING_FACTS_LOOKUP = false`), esperando autorización. Con D0, esas preguntas ya van a búsqueda por la ruta de una acción | `models/prompts.ts` |
-| DN-2.6 | Formato de lo hecho en `pending` y D5 | ❌ cerrada: no mejoraba | — |
-| DN-2.7 | Estructura `signals` + `data` + `note` | ⏸ | — |
-| DN-2.8 | Secciones por herramienta | ⏸ (la parte de reglas de comando está cubierta por DN-2.3) | — |
-| DN-2.9 | Topes al contexto real | ⏸ depende de cómo se arranca Ollama (`OLLAMA_CONTEXT_LENGTH=8192`; `d3` usa 4096) | `jarvis-config.json` |
-| DN-2.10 | Idioma y relleno de la respuesta final | ⚠ relleno ✅ por código (`engine/finalClean.ts`, también con efectos). `not_found` de escrituras con texto propio ✅. Idioma ⏸ (lo prueba el usuario) | `engine/finalClean.ts`, `engine/finalize.ts` |
+> El estado de cada decisión (hecho, parcial, pendiente) y lo que falta se llevan **solo** en [`docs/PENDIENTES.md`](../PENDIENTES.md); lo ya hecho está en `CHANGELOG.md`. Este documento conserva el análisis, las mediciones y los motivos de lo descartado.
 
 **Medido en esta etapa (2026-11-14)**
 - **Relleno «No se realizaron cambios…»:** cambiar la regla del prompt lo bajó de 77 a 10 de 98 respuestas pero también bajó el acierto de `final` (−3, luego −6 y −8 puntos en los datasets gemai, dos corridas). Se descartó (variante `eval/variants/ctx/ctx_final_nofiller.ts`, conservada como evidencia) y se resolvió quitando la frase por código de la respuesta ya generada.
@@ -208,7 +195,3 @@ Cuatro variantes quedaron en `eval/variants/ctx/`. No cambian `src`.
 - No medí DN-2.4 (la solicitud original en argumentos): una variante del laboratorio no puede hacerlo, porque el prompt de argumentos recibe la vista ya renderizada sin la solicitud; hace falta tocar `src`. Tampoco DN-2.10 (idioma): el grader de la respuesta final no mira el idioma.
 - La excepción de DN-2.5 se midió con 12 preguntas de hechos que escribí yo y una sola corrida de 8 de charla; el laboratorio la mide con `--repeat=2`.
 - Plan, replan y pregunta al usuario no se auditaron con datos reales.
-
-## Validación pendiente en laboratorio (V) y bloqueados (C)
-- **[V]** DN-2.10 idioma en respuesta final (el grader actual no evalúa idioma); DN-2.7 (`signals + data + note`) y DN-2.8 (secciones declaradas por herramienta) requieren validación completa de prompts con el laboratorio.
-- **[C]** DN-2.5 (`PENDING_FACTS_LOOKUP = false` en `prompts.ts`) espera autorización explícita de producto; DN-2.9 requiere alinear la configuración al arranque real de Ollama (`8192` / `4096`).

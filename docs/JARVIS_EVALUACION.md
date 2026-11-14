@@ -4,28 +4,9 @@
 > Primera evaluación: hecha solo sobre la documentación. Las estimaciones debían confirmarse con las trazas.
 > **Segunda revisión (2026-11-13):** contrastada con el código, con las trazas guardadas (`jarvis-traces/`: 116 tareas en el índice, 35 con detalle) y con pruebas directas contra Ollama. Lo medido está en «Mediciones reales»; cada idea previa lleva una línea **Revisión** con el veredicto; las ideas nuevas están en «Ideas nuevas (segunda revisión)». No se editó código.
 
-## Estado de implementación (2026-11-14)
+## Estado y pendientes
 
-Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido.
-
-| Punto | Estado |
-|---|---|
-| **T1** D0 (charla / una acción / varias) | ✅ integrado en `runReactive`. Laboratorio: etapa `d0`, dataset `eval/datasets/D0/`, 31/35 y 0 falsos «charla» |
-| **T2** tarea larga por el largo de la lista | ⏸ |
-| **T3** fusionar D1 y D2 · **T4** paralelismo en decisión | ❌ descartados con medición |
-| **T5** herramientas básicas | ⏸ (elección probada; falta el proveedor y la generación de argumentos con Qwen) |
-| **N1** modelos en la VRAM | ✅ resuelto de otra forma: variantes sin proyector de visión (`docs/OLLAMA_MODELOS_TEXTO.md`); tarea simulada de 4 659 a 1 071 ms. Reducir el tamaño de los modelos sigue en pausa |
-| **N2** modelos siempre calientes | ✅ `keep_alive` (`modelKeepAlive`) y `warmUpModels` al arrancar |
-| **N3** contexto configurado = real | ⏸ (depende de cómo se arranca Ollama) |
-| **N4** cortes de repeticiones | ⚠ el generador ya cambia los argumentos 25 de 30 veces (R5 no hace falta). Se implementó el corte del usuario: dos rechazos de D4 por paso fallan el paso (`maxVerifyRejectionsPerStep`). Faltan «ítem reescrito idéntico» y «no volver a preguntar tras un rechazo del usuario» |
-| **N5** verificación por código antes que D4 | ✅ parcial: `tool_error`/`exception`/`no_data` y las escrituras `write_file`/`create_directory`/`move_file` (en el disco) por código, y `ok` por código en lecturas deterministas con contenido. Datasets `d4/`: 141/184 → 145/184, 0 regresiones. ⏸ comandos y búsquedas (siguen con el modelo). **Sondas por herramienta ✅ (2026-11-14):** ubicación, posición, alcance, ítem y atributo, en el catálogo (`tools/probes.ts`, `engine/probes.ts`); dudar rechaza con motivo cerrado. D4 + sondas: 149 → 153 de 184, falsos positivos 18 → 13, 1 falso negativo nuevo (artefacto de medición). Aviso por código «escrito en X» para lo que quedó en el lugar equivocado ✅ (`renderPlaceNote`) |
-| **N6** respuesta final en streaming · **N9** progreso visible | ⏸ |
-| **N7** literal de la solicitud directo al argumento | ⚠ la solicitud original llega a la generación de argumentos (`REQUEST:`); copiar el literal por código sin generativo ⏸ |
-| **N8** idioma y relleno de la respuesta final | ⚠ relleno ✅ por código (también con efectos: «no se realizaron cambios» es falso si hubo un cambio); idioma ⏸. `not_found` en una escritura ya dice «no se escribió nada» ✅ |
-| **Idea 1** (atajo inicial con una decisión D0) | ✅ implementada como D0 (T1) |
-| **Idea 5** (aprobación escalonada por riesgo) | ✅ implementada **opt-in y apagada** (`approvalTiers`, `policy/tiers.ts`: verde / amarillo / rojo por código). Sin la lista de permitidos ni «no volver a preguntar lo mismo» tras un rechazo del usuario |
-| **Idea 4** (respuesta final sin generativo) · el resto de las ideas originales | ⏸ sin cambios |
-| **Memoria entre tareas** | ⚠ hechos y hilo ✅; recetas ⏸ (`docs/analisis/FRENTE_1_MEMORIA.md`) |
+> El estado de cada decisión (hecho, parcial, pendiente) y lo que falta se llevan **solo** en [`docs/PENDIENTES.md`](PENDIENTES.md); lo ya hecho está en `CHANGELOG.md`. Este documento conserva el análisis, las mediciones y los motivos de lo descartado.
 
 Los tres frentes de análisis (`docs/analisis/`) llevan su propio estado por decisión.
 
@@ -579,10 +560,5 @@ Descartadas o en pausa: reordenar prompts para la caché (ahorra unos 100 ms), d
 8. ~~Cada tarea empieza de cero, sin memoria ni continuidad.~~ (2026-11-14: hay hechos del usuario e hilo con la tarea anterior; faltan recetas y la frase «recordá que…»).
 9. Sin salida hacia modelos o agentes más capaces cuando la tarea excede al 4B.
 10. Dependencia de Windows y PowerShell.
-11. Documentación desactualizada (cuatro vs cinco decisiones).
-12. Sin confirmar: arranque de modelos, salida estructurada y caché de prefijo.
-
-### Validación pendiente en laboratorio (V) y bloqueados (C) — cierre 2026-11-14
-- **[V] Paridad `eval/core/runner.ts` (`DN-3.4`):** el corredor del eval pasó a `0` reintentos en etapas de decisión igual que `src/`; queda medir su efecto real en `output_parse_ok` contra `d3:2b`.
-- **[V] Experimentos y calibraciones abiertas:** calibración de umbrales (`NOUL_APPROVE`, `REVIEW_APPROVE`, `JUDGE_FOUND`), `autoMode` / `approvalTiers` sobre trazas y tareas reales, herramientas básicas T5 (generación de argumentos y proveedor), N1/N3 en GPU real y caché de prefijo/arranque.
-- **[C] Decisión de producto o entorno externo:** habilitar `PENDING_FACTS_LOOKUP`, `repeatByArgs` en `run_command`, regenerar `inputSchemaManifest.md` con servidores MCP activos y ejecutar las pruebas vivas de PowerShell en Windows (`win32`).
+11. ~~Documentación desactualizada (cuatro vs cinco decisiones).~~ (2026-11-14: actualizada)
+12. ~~Sin confirmar: arranque de modelos, salida estructurada y caché de prefijo.~~ (2026-11-14: medido, ver N1 a N3)

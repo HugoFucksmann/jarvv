@@ -154,6 +154,3 @@ A 0,6: **0 buenas rechazadas y 30 de 34 malas rechazadas**. Las cuatro que se es
 | difíciles + sondas | 2/7 | 0/7 | 12/14 |
 
 Un falso negativo nuevo en D4: `verify-105` (posición, 0,60 justo bajo el umbral), que se midió con el pedido de tres pasos y no con la instrucción del paso (en deliberativo producción usa el paso). La primera corrida tuvo otro: un renombrado en la misma carpeta que la sonda de ubicación rechazaba con 0,20; ahora `move_file` con origen y destino en la misma carpeta no pasa por ella. Por sonda, las que más aportan: alcance (rechaza bien 2), ítem (1), atributo (1), posición (1); ubicación no cambia D4 (sus casos malos de D4 no son de lugar) pero separa 13/14 en los casos difíciles.
-
-## Validación pendiente en laboratorio (V)
-- Las cuatro mejoras propuestas en este documento (D5 con dos preguntas, estado intermedio «dudar», polares en D3 y `cumple` multi-vista) y las 4 sondas con escape residual siguen pendientes de validación con `d3:2b` real y datasets ampliados antes de editar `src/core/models/prompts.ts` o umbrales.

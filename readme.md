@@ -234,7 +234,7 @@ Esta es una **versión temprana ([v0.6.0](CHANGELOG.md))**: el flujo completo fu
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
 | **Herramientas** | 12 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 
-Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES_FUERA_DE_FLUJO`](docs/PENDIENTES_FUERA_DE_FLUJO.md).
+Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES_FUERA_DE_FLUJO`](docs/PENDIENTES.md).
 
 ---
 
@@ -249,7 +249,7 @@ Si te interesa entender cómo está construido por dentro:
 | 🧠 [CONTEXT_AND_MEMORY](docs/CONTEXT_AND_MEMORY.md) | Cómo se arma el contexto, la memoria y el manejo de resultados |
 | 🔌 [JARVIS_API](docs/JARVIS_API.md) | La API HTTP local y los eventos en vivo que consume la interfaz |
 | 📏 [Eval](eval/README.md) | El laboratorio de evaluación de prompts: uso, variantes y [mejores resultados](eval/MEJORES_VARIANTES.md) |
-| 🚧 [PENDIENTES](docs/PENDIENTES_FUERA_DE_FLUJO.md) | Limitaciones conocidas y trabajo abierto |
+| 🚧 [PENDIENTES](docs/PENDIENTES.md) | Limitaciones conocidas y trabajo abierto |
 | 📝 [CHANGELOG](CHANGELOG.md) | Qué trae cada versión y la historia del desarrollo |
 
 ---
