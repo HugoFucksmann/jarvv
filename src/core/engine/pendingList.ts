@@ -25,6 +25,41 @@ const STOP = new Set(
   ),
 );
 
+/** Rutas OS (Windows/POSIX) y URLs (estas últimas se dejan intactas). */
+const URL_OR_PATH = /(https?:\/\/\S+)|((?:[A-Za-z]:[\\/]|[\\/])[^\s"'`<>|*?]+|[^\s"'`<>|*?\\/]+(?:[\\/][^\s"'`<>|*?\\/]+)+)/g;
+/** Nombres de archivo con extensión alfabética (excluye decimales como 3.5). */
+const FILE_NAME = /\b[A-Za-z0-9_-]+\.[A-Za-z][A-Za-z0-9]{0,5}\b/g;
+
+function pathBasename(pathToken: string): string | null {
+  const trimmed = pathToken.replace(/[\\/.,;:!?)]+$/, "");
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : null;
+}
+
+/** Quita los directorios previos de las rutas para que el prefijo compartido o carpetas capitalizadas no inflen la similitud. */
+function stripPathDirs(text: string): string {
+  return text.replace(URL_OR_PATH, (all, url: string | undefined, pathToken: string | undefined) => {
+    if (url !== undefined || pathToken === undefined) return all;
+    const trimmed = pathToken.replace(/[\\/.,;:!?)]+$/, "");
+    const suffix = pathToken.slice(trimmed.length);
+    const base = pathBasename(pathToken);
+    return base ? `${base}${suffix}` : all;
+  });
+}
+
+function fileRefs(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of text.matchAll(URL_OR_PATH)) {
+    if (!m[2]) continue;
+    const base = pathBasename(m[2]);
+    if (base) out.add(fold(base));
+  }
+  for (const m of text.matchAll(FILE_NAME)) {
+    out.add(fold(m[0]));
+  }
+  return out;
+}
+
 const stems = (text: string): Set<string> => stemsOf(text, STOP);
 
 /** Nombres propios y cifras del ítem (sin contar la primera palabra, que va en mayúscula por ser el verbo). */
@@ -41,14 +76,19 @@ const normalized = (s: string): string => fold(s).replace(/[^a-z0-9]+/g, " ").tr
 
 /** ¿Dos ítems piden lo mismo? */
 export function sameItem(a: string, b: string): boolean {
-  const sa = stems(a);
-  const sb = stems(b);
+  const ca = stripPathDirs(a);
+  const cb = stripPathDirs(b);
+  const sa = stems(ca);
+  const sb = stems(cb);
   if (sa.size === 0 || sb.size === 0) return normalized(a) === normalized(b);
   const na = new Set(a.match(/\d+/g) ?? []);
   const nb = new Set(b.match(/\d+/g) ?? []);
   if (na.size > 0 && nb.size > 0 && ![...na].some((n) => nb.has(n))) return false;
-  const pa = proper(a);
-  const pb = proper(b);
+  const fa = fileRefs(a);
+  const fb = fileRefs(b);
+  if (fa.size > 0 && fb.size > 0 && ![...fa].some((f) => fb.has(f))) return false;
+  const pa = proper(ca);
+  const pb = proper(cb);
   if (pa.size > 0 && pb.size > 0 && ![...pa].some((p) => pb.has(p))) return false;
   const shared = [...sa].filter((s) => sb.has(s)).length;
   return shared / Math.min(sa.size, sb.size) >= 0.6;

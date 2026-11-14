@@ -15,7 +15,6 @@ import { materializeScenario } from "../core/scenario.ts";
 import { parseJsonObject } from "../core/contract.ts";
 import { PendingGrader } from "../core/graders/pending.ts";
 import { createCollector, norm } from "../core/graders/common.ts";
-import pending2_exp from "../variants/Pending/pending2_exp.ts";
 
 const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
 const CONC = Number(arg("concurrency", "3"));
@@ -61,8 +60,6 @@ const ROUTE_HINTS: Record<string, string> = {
 };
 const catalog = ROUTES.map((r) => `  - ${r}: ${DESTINATIONS[r].description}${ROUTE_HINTS[r] ? " " + ROUTE_HINTS[r] : ""}`).join("\n");
 
-const OBJ_SYSTEM = pending2_exp.prompts!.PROMPTS!.PENDING_VIEW!.SYSTEM as string;
-const OBJ_SCHEMA = pending2_exp.params!.pending!.schema as any;
 const KIND = { type: "string", enum: ["search", "read", "write", "execute", "other"] };
 const schemaOf = (props: Record<string, unknown>) => ({
   type: "object",
@@ -70,7 +67,12 @@ const schemaOf = (props: Record<string, unknown>) => ({
   required: ["pending"],
   additionalProperties: false,
 });
-/** Inserta reglas antes de `Follow USER.` del prompt de pending2_exp y, si se pasa, cambia la forma del JSON de ejemplo. */
+const OBJ_SCHEMA = schemaOf({ kind: KIND, goal: { type: "string" }, done_when: { type: "string" } });
+const OBJ_SYSTEM = PROMPTS.PENDING_VIEW.SYSTEM.replace(
+  /\{"pending":\[[^\n]*\]\}/,
+  '{"pending":[{"kind":"search|read|write|execute|other","goal":"...","done_when":"..."}]}',
+);
+/** Inserta reglas antes de `Follow USER.` del prompt de objetos y, si se pasa, cambia la forma del JSON de ejemplo. */
 const withRules = (rules: string, shape?: string): string => {
   let s = OBJ_SYSTEM.replace("Follow USER.", `${rules}\nFollow USER.`);
   if (shape) s = s.replace(/\{"pending":\[\{[^\n]*\}\]\}/, shape);
@@ -188,11 +190,8 @@ for (const m of methods) {
     const list = o.items;
     const goals = list.map(goalOf).filter((g: string) => g.trim());
     items += goals.length;
-    const rich = list.some((x: any) => typeof x !== "string")
-      ? list.map((x: any) => (typeof x === "object" && x ? { kind: x.kind, goal: x.goal, done_when: x.done_when } : x))
-      : undefined;
     const { collector, errors } = createCollector();
-    PendingGrader.grade({ pending: goals, ...(rich ? { rich } : {}) } as any, c.expect, { rawOutput: o.raw, durationMs: o.ms }, collector);
+    PendingGrader.grade({ pending: goals }, c.expect, { rawOutput: o.raw, durationMs: o.ms }, collector);
     if (errors.length === 0) graderPass++; else fails.push(`${c.id}: ${errors[0].slice(0, 90)}`);
     const n = goals.length;
     if (c.gold[1] > 0) {

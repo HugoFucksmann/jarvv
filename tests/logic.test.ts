@@ -38,6 +38,18 @@ test("pendientes: cifras distintas no son el mismo ítem", () => {
   assert.equal(sameItem("Abrir 10 archivos grandes", "Abrir 20 archivos grandes"), false);
 });
 
+test("pendientes: rutas largas en la misma carpeta hacia archivos distintos no colisionan, y la versión corta sigue coincidiendo", () => {
+  const leer = "Leer /tmp/eval_v2_probe/workspace/Documents/ventas.txt";
+  const escribir = "Guardar el resumen en /tmp/eval_v2_probe/workspace/Documents/resumen.txt";
+  assert.equal(sameItem(leer, escribir), false);
+  assert.equal(
+    sameItem("Actualizar C:\\Users\\hugof\\Documents\\ventas.txt con el total mensual", "Actualizar C:\\Users\\hugof\\Documents\\resumen.txt con el total mensual"),
+    false,
+  );
+  assert.equal(sameItem("Leer C:\\Users\\hugof\\Documents\\ventas.txt", "Leer el archivo ventas.txt"), true);
+  assert.deepEqual(reconcileList([], [leer, escribir], [leer]), [escribir]);
+});
+
 test("contexto: rechaza una operación inválida sin dejar rastro", () => {
   const ctx = newContext("reactive");
   assert.throws(() => ctx.apply({ op: "add", target: "calls", value: { stepId: "s99", route: "files", tool: "x", kind: "read", args: null, sig: null, status: "ok", summary: null, ref: null } }), ContextError);

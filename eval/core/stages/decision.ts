@@ -38,7 +38,6 @@ import {
   parseRouteDecision,
   parseToolChoiceDecision,
 } from "../variants/labels.ts";
-import type { DecisionReaders } from "../types.ts";
 import type { DecisionStageEntry, LabelInfo } from "./index.ts";
 
 // ───────────────────────── d0 ─────────────────────────
@@ -67,11 +66,7 @@ export const routeStage: DecisionStageEntry<RouteOutput, RouteExpect> = {
   stageName: "route",
   requestType: "decision",
   graders: [LatencyGrader, RouteLabelGrader],
-  parseOutput(
-    rawOutput: string,
-    sentReq: DecisionRequest,
-    read: DecisionReaders | undefined,
-  ): RouteOutput {
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): RouteOutput {
     return parseRouteDecision(rawOutput, sentReq);
   },
   label(output: RouteOutput | undefined, expect: RouteExpect | undefined): LabelInfo {
@@ -95,11 +90,7 @@ export const toolChoiceStage: DecisionStageEntry<ToolChoiceOutput, ToolChoiceExp
   stageName: "tool_choice",
   requestType: "decision",
   graders: [LatencyGrader, ToolChoiceLabelGrader],
-  parseOutput(
-    rawOutput: string,
-    sentReq: DecisionRequest,
-    read: DecisionReaders | undefined,
-  ): ToolChoiceOutput {
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): ToolChoiceOutput {
     return parseToolChoiceDecision(rawOutput, sentReq);
   },
   label(output: ToolChoiceOutput | undefined, expect: ToolChoiceExpect | undefined): LabelInfo {
@@ -124,12 +115,8 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
   stageName: "args_review",
   requestType: "decision",
   graders: [LatencyGrader, ArgsReviewLabelGrader],
-  parseOutput(
-    rawOutput: string,
-    sentReq: DecisionRequest,
-    read: DecisionReaders | undefined,
-  ): ArgsReviewOutput {
-    return parseArgsReviewDecision(rawOutput, sentReq, read?.args_review);
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): ArgsReviewOutput {
+    return parseArgsReviewDecision(rawOutput, sentReq);
   },
   label(output: ArgsReviewOutput | undefined, expect: ArgsReviewExpect | undefined): LabelInfo {
     const predicted = output?.review ?? null;
@@ -156,12 +143,8 @@ export const resultVerificationStage: DecisionStageEntry<
   stageName: "result_verification",
   requestType: "decision",
   graders: [LatencyGrader, ResultVerificationGrader],
-  parseOutput(
-    rawOutput: string,
-    sentReq: DecisionRequest,
-    read: DecisionReaders | undefined,
-  ): ResultVerificationOutput {
-    return parseResultVerificationDecision(rawOutput, sentReq, read?.result_verification);
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): ResultVerificationOutput {
+    return parseResultVerificationDecision(rawOutput, sentReq);
   },
   label(
     output: ResultVerificationOutput | undefined,
@@ -191,12 +174,8 @@ export const fragmentJudgeStage: DecisionStageEntry<FragmentJudgeOutput, Fragmen
   stageName: "fragment_judge",
   requestType: "decision",
   graders: [LatencyGrader, FragmentJudgeGrader],
-  parseOutput(
-    rawOutput: string,
-    sentReq: DecisionRequest,
-    read: DecisionReaders | undefined,
-  ): FragmentJudgeOutput {
-    return parseFragmentJudgeDecision(rawOutput, sentReq, read?.fragment_judge);
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): FragmentJudgeOutput {
+    return parseFragmentJudgeDecision(rawOutput, sentReq);
   },
   label(output: FragmentJudgeOutput | undefined, expect: FragmentJudgeExpect | undefined): LabelInfo {
     return {

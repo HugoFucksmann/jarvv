@@ -1,8 +1,7 @@
 /**
  * eval/core/variants/labels.ts
  *
- * Parser de decisión: produce la salida canónica (*Output de 5.2) desde la respuesta cruda. Con las preguntas de producción
- * usa la lectura de producción; una variante que cambia las preguntas aporta `read` (ver `DecisionReaders`).
+ * Parser de decisión: produce la salida canónica (*Output de 5.2) desde la respuesta cruda usando las preguntas de producción.
  *
  * Implementa `Decision20Engine.parseResponse` y los mapeos de `chooseRoute`,
  * `chooseTool`, `reviewArgs`, `runVerification`.
@@ -29,7 +28,6 @@ import type {
   RouteOutput,
   ToolChoiceOutput,
 } from "../types.ts";
-import type { DecisionReaders, ReadAnswer } from "../types.ts";
 
 // ───────────────────────── Error de parseo ─────────────────────────
 
@@ -136,22 +134,9 @@ export function parseToolChoiceDecision(rawOutput: string, sentReq: DecisionRequ
   return { selected: choice, probabilities };
 }
 
-/**
- * Parsea la respuesta y produce `ArgsReviewOutput`. Implementa la lógica de `reviewArgs`. Con `read` (la variante cambió las
- * preguntas), todas las preguntas `noul` enviadas se cruzan con esa función; sin él, se lee la pregunta `review` de producción.
- */
-export function parseArgsReviewDecision(rawOutput: string, sentReq: DecisionRequest, read?: DecisionReaders["args_review"]): ArgsReviewOutput {
-  let result: { choice: string; probabilities: Record<string, number> };
-  if (read) {
-    const answers = parseAnswers(rawOutput);
-    const values: Record<string, number> = {};
-    for (const [key, q] of Object.entries(sentReq.questions)) {
-      if (q.type === "noul") values[key] = extractNoul(answers, key);
-    }
-    result = read(values);
-  } else {
-    result = mainChoice("args_review", rawOutput, sentReq);
-  }
+/** Parsea la respuesta y produce `ArgsReviewOutput`. Implementa la lógica de `reviewArgs`. */
+export function parseArgsReviewDecision(rawOutput: string, sentReq: DecisionRequest): ArgsReviewOutput {
+  const result = mainChoice("args_review", rawOutput, sentReq);
   if (!(ARGS_REVIEWS as readonly string[]).includes(result.choice)) {
     throw new DecisionParseError(`'${result.choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`);
   }
@@ -160,57 +145,20 @@ export function parseArgsReviewDecision(rawOutput: string, sentReq: DecisionRequ
   return { review, probabilities: result.probabilities };
 }
 
-/**
- * Parsea la respuesta y produce `ResultVerificationOutput`. Implementa la lógica de `runVerification`. Con `read`, todas las
- * preguntas enviadas (choice con sus probabilidades, noul con su valor) se cruzan con esa función; sin él, se leen las dos
- * preguntas `noul` de producción, `ok` y `cumple`.
- */
-export function parseResultVerificationDecision(
-  rawOutput: string,
-  sentReq: DecisionRequest,
-  read?: DecisionReaders["result_verification"],
-): ResultVerificationOutput {
+/** Parsea la respuesta y produce `ResultVerificationOutput`. Implementa la lógica de `runVerification`. */
+export function parseResultVerificationDecision(rawOutput: string, sentReq: DecisionRequest): ResultVerificationOutput {
   const answers = parseAnswers(rawOutput);
-  let ok: number;
-  let cumple: number;
-  if (read) {
-    const values: Record<string, ReadAnswer> = {};
-    for (const [key, q] of Object.entries(sentReq.questions)) {
-      values[key] = q.type === "noul" ? { noul: extractNoul(answers, key) } : { probabilities: extractChoice(answers, key, (q as ChoiceQ).criteria).probabilities };
-    }
-    ({ ok, cumple } = read(values));
-  } else {
-    // Producción responde `ok` por código en lecturas deterministas con contenido (`known`): la pregunta no se envía y vale 1.
-    ok = sentReq.questions.ok === undefined ? 1 : extractNoul(answers, "ok");
-    cumple = extractNoul(answers, "cumple");
-  }
+  // Producción responde `ok` por código en lecturas deterministas con contenido (`known`): la pregunta no se envía y vale 1.
+  const ok = sentReq.questions.ok === undefined ? 1 : extractNoul(answers, "ok");
+  const cumple = extractNoul(answers, "cumple");
   return { ok: ok >= NOUL_APPROVE, cumple: cumple >= NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
 }
 
-/**
- * Parsea la respuesta del juez de fragmentos (`Decision20Engine.score`): una probabilidad por pregunta `f<i>` enviada, en orden.
- * Con `read` (la variante cambió las preguntas a choice/múltiples), traduce las respuestas a probabilities y relevant.
- * Sin él, lee las preguntas `noul` de producción y `relevant` aplica `JUDGE_FOUND`.
- */
-export function parseFragmentJudgeDecision(
-  rawOutput: string,
-  sentReq: DecisionRequest,
-  read?: DecisionReaders["fragment_judge"],
-): FragmentJudgeOutput {
+/** Parsea la respuesta del juez de fragmentos (`Decision20Engine.score`): una probabilidad por pregunta `f<i>` enviada, en orden. */
+export function parseFragmentJudgeDecision(rawOutput: string, sentReq: DecisionRequest): FragmentJudgeOutput {
   const answers = parseAnswers(rawOutput);
   const keys = fragmentKeys(sentReq);
   if (keys.length === 0) throw new DecisionParseError("El request no trae preguntas de fragmento (f0, f1…).");
-
-  if (read) {
-    const values: Record<string, ReadAnswer> = {};
-    for (const [key, q] of Object.entries(sentReq.questions)) {
-      values[key] =
-        q.type === "noul"
-          ? { noul: extractNoul(answers, key) }
-          : { probabilities: extractChoice(answers, key, (q as ChoiceQ).criteria).probabilities };
-    }
-    return read(values);
-  }
 
   const probabilities = keys.map((k) => extractNoul(answers, k));
   return { probabilities, relevant: probabilities.map((p) => p >= JUDGE_FOUND) };

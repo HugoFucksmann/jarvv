@@ -240,10 +240,8 @@ export interface QuestionExpect {
 
 // pending (lista de pendientes del reactivo)
 export interface PendingOutput {
-  /** Textos de los pendientes (en la variante con objetos, el `goal` de cada ítem que lo trae). */
+  /** Textos de los pendientes. */
   pending: string[];
-  /** Solo si el modelo devolvió objetos (variante `pending2`): los ítems tal cual, para validar su estructura. */
-  rich?: unknown[];
 }
 export interface PendingExpect {
   /** `true`: la lista debe venir vacía (nada por hacer); `false`: debe tener al menos un pendiente. */
@@ -279,22 +277,6 @@ export interface ParamsOverride {
   reasoningEffort?: string;
 }
 
-/** Respuesta de una pregunta enviada, tal como la lee el eval: `noul` con su valor, `choice` con sus probabilidades. */
-export type ReadAnswer = { probabilities?: Record<string, number>; noul?: number };
-
-/**
- * Cómo interpretar las respuestas cuando la variante cambia el conjunto de preguntas de la etapa. Opcional: si la variante conserva
- * las preguntas de producción (`review`; `ok` y `cumple`, ambas `noul`), se usa la lectura de producción y no hace falta escribir nada.
- */
-export interface DecisionReaders {
-  /** `args_review`: de las respuestas `noul` enviadas (clave → probabilidad de sí) a la etiqueta y sus probabilidades. */
-  args_review?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
-  /** `result_verification`: de las respuestas de todas las preguntas enviadas a las probabilidades de `ok` y `cumple`. */
-  result_verification?: (answers: Record<string, ReadAnswer>) => { ok: number; cumple: number };
-  /** `fragment_judge`: de las respuestas enviadas por pregunta a las probabilidades o relevancia por fragmento. */
-  fragment_judge?: (answers: Record<string, ReadAnswer>) => { probabilities: number[]; relevant: boolean[] };
-}
-
 /**
  * Una variante es un archivo `variants/<nombre>.ts` con prompts ENTEROS (ver `VariantPrompts`). No hay ediciones sobre el prompt de
  * producción ni composición de variantes: el texto que se prueba es el que está escrito en el archivo.
@@ -306,8 +288,6 @@ export interface Variant {
   prompts?: VariantPrompts;
   /** Parámetros por etapa generativa (única perilla que no es texto). */
   params?: Partial<Record<GenerativeStage, ParamsOverride>>;
-  /** Lectura de las respuestas si cambia el conjunto de preguntas. */
-  read?: DecisionReaders;
 }
 
 // ───────────────────────── Resultados ─────────────────────────

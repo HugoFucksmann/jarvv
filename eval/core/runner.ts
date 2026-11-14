@@ -236,7 +236,7 @@ async function runDecision(
   dryRun: boolean,
   baseRecord: ReturnType<typeof buildBase>,
 ): Promise<RunResult> {
-  const { fc, variant } = task;
+  const { fc } = task;
   const sentReq = fc.request as DecisionRequest;
   const prepared = client.prepare(sentReq);
   const hash = requestHash(prepared.body);
@@ -304,7 +304,7 @@ async function runDecision(
   let parsed: unknown;
   let parseError: string | undefined;
   try {
-    parsed = entry.parseOutput(result.rawOutput, sentReq, variant.read);
+    parsed = entry.parseOutput(result.rawOutput, sentReq);
   } catch (e) {
     parseError = e instanceof Error ? e.message : String(e);
   }
@@ -616,7 +616,7 @@ async function runWithConcurrency<T>(
 export interface RunnerInput {
   cases: Case[];
   datasetName: string;
-  /** La variante: aporta cómo leer las respuestas (`read`) y los parámetros; los casos ya traen sus prompts. */
+  /** La variante: aporta los parámetros; los casos ya traen sus prompts. */
   variant: Variant;
   variantSpec: string;
   cfg: EvalConfig;
