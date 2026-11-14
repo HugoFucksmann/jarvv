@@ -316,6 +316,109 @@ Ordenadas por retorno esperado. Las tres primeras son de configuración o de muy
 - **Esfuerzo:** 🟢 · **Sin código:** 🧪 para ver en las trazas en qué etapa se cancela; 🔧 para integrarlo
 - **Estado:** [ ]
 
+## Tercera revisión: menos pasos, flujos, paralelismo y menos terminal (pruebas directas, 2026-11-13)
+
+Pedido: reducir pasos, elegir entre flujos, distinguir tareas cortas de largas, paralelismo (solo en decisión) y depender menos de la terminal con herramientas para lo básico. **N1 (tamaño de los modelos) queda en pausa por decisión del usuario.** Todo lo de esta sección se probó contra `d3:2b` real con `/v1/systemone`. Los conjuntos de casos los etiqueté yo y son chicos: sirven para decidir qué construir, no como medida final.
+
+| Prueba | Resultado | Veredicto |
+|---|---|---|
+| T1: D0, corta o larga (`chat` / `single` / `multi`) | 109/122 (89,3 %), sin ningún falso `chat`; reserva: 0 falsos `chat` en 189 | ✅ funciona, implementable |
+| T2: tarea «larga» (3 o más acciones) por decisión | Probabilidad de 0,08 a 0,46 en las largas reales: no separa | ❌ por decisión; ✅ por código (largo de la lista) |
+| T3: D1 y D2 fusionadas en una sola consulta | 172/196 (87,8 %) contra 178/196 (90,8 %); ahorra unos 32 ms | ❌ no vale |
+| T4: consultas de decisión en paralelo | Mismo tiempo que en serie (unos 28 ms por pregunta en todos los formatos) | ❌ no acelera |
+| T5: herramientas básicas en lugar de terminal | 55/58 (94,8 %) eligiendo entre 18 herramientas; el uso de terminal baja de 63 a 15 sobre 101 (ponderado por uso real) | ✅ funciona, implementable |
+
+### T1. Decisión D0: tarea corta o larga, y qué flujo usar
+- **Diseño probado:** una sola consulta de decisión (p50 42 ms) con dos preguntas sobre la solicitud:
+  - `kind` (`choice`: `chat` / `single` / `multi`), de la que solo se usa la probabilidad de `chat`.
+  - `multi` (`noul`): «¿pide dos o más acciones separadas (por ejemplo buscar y después guardar)?».
+  - Regla: `chat` ≥ 0,5 → charla; si no, `multi` ≥ 0,5 → varias acciones; si no → una acción.
+- **Datos:** 122 solicitudes etiquetadas a mano (72 únicas reales del índice de trazas, que representan 116 tareas, más 50 de los datasets de `pending`).
+- **Resultado:** 109/122 (89,3 %); ponderado por frecuencia real, 151/166 (91 %).
+  - `chat`: 12 de 12, y **ninguna** solicitud con herramientas tomada por charla.
+  - 10 tareas de varias acciones tomadas por una (error barato: D5 no cierra y se consulta `pending`, como hoy).
+  - 3 tareas de una acción tomadas por varias (sin costo: flujo actual).
+- **Reserva** (189 solicitudes de otros datasets, todas con herramientas, no usadas para ajustar): 0 falsos `chat`. Charla nueva: 12/12. Preguntas de hechos: 3 de 10 tomadas por charla, con probabilidad 0,51 a 0,65 («¿cuál es el último modelo de Claude?» entre ellas). Por eso **el umbral de `chat` debe ser 0,7**: con 0,7 no pasa ninguna, y lo que queda entre 0,5 y 0,7 sigue el flujo de hoy.
+- **Variantes que no funcionaron:** una sola `choice` con tres opciones (70 % y 78 % según la redacción: confunde «listá los 10 procesos» con varias acciones) y una `noul` «¿necesita herramientas?» (da cerca de 0,4 para todo; 34 %).
+- **Flujos que salen de D0** (ninguno es una estrategia nueva: son entradas distintas al reactivo):
+
+| D0 | Qué hace el código | Consultas hoy → después |
+|---|---|---|
+| `chat` ≥ 0,7 | Va directo a la respuesta final | 3 generativas → 1 |
+| una acción | Crea la lista con la solicitud como único ítem; el paso corre igual y D5 cierra | 3 generativas → 2 (sin `pending`) |
+| varias acciones | Flujo reactivo actual | Igual |
+| lista de 3 o más ítems (ver T2) | Tarea larga: mostrar la lista como plan o pasar a deliberativo, según el nivel de autonomía | Igual, con aviso |
+
+- **Efecto esperado en uso real:** de las 116 tareas del índice, 14 son charla y 61 de un paso: el 65 % deja de llamar a `pending`. Además, en «una acción» el paso recibe la solicitud literal, sin la reescritura de `pending`.
+- **Límites:** los umbrales se ajustaron sobre el mismo conjunto de 122; la reserva solo valida los falsos `chat`. Antes de integrar, convertir estos casos en un dataset del laboratorio (`eval/datasets/d0/`).
+- **Estado:** [x] probado · [ ] dataset en el laboratorio · [ ] integrar
+
+### T2. Tarea larga: por código, no por modelo
+- **Probado:** una `noul` «¿necesita tres o más acciones, o reorganizar muchos archivos?». En las 12 tareas largas reales dio entre 0,08 y 0,46: no las detecta.
+- **Alternativa sin modelo:** el largo de la primera lista de `pending` ya lo dice. Tres ítems o más es una tarea larga; el motor lo sabe gratis. Sirve para avisar al usuario, mostrar la lista como plan o cambiar el nivel de confirmación.
+- **Estado:** [x] descartado por decisión · [ ] usar el largo de la lista
+
+### T3. Fusionar D1 y D2 en una sola consulta: descartado
+- **Probado:** una `choice` directa entre las 11 herramientas del catálogo en lugar de ruta y después herramienta, sobre los 196 casos de los datasets de D1.
+- **Resultado:** 172/196 (87,8 %) contra 178/196 (90,8 %) de la D1 actual. Ahorra una consulta de unos 32 ms. No compensa.
+- **Matiz:** con las herramientas básicas de T5 agregadas, la elección directa acertó más que las dos etapas (55/58 contra 50/58). Si se implementa T5, conviene comparar las dos formas en el laboratorio antes de elegir.
+
+### T4. Paralelismo en decisión: no acelera
+- **Probado:** 15 preguntas `noul` con pasajes reales de 600 caracteres (el caso del juez de `web_search`), en cuatro formatos.
+
+| Formato | Tiempo |
+|---|---|
+| 3 lotes de 5, en serie (como hoy) | 410 a 419 ms |
+| 3 lotes de 5, en paralelo | 399 a 411 ms |
+| 1 consulta con las 15 | 395 a 419 ms |
+| 15 consultas de 1, en paralelo | 448 a 451 ms |
+| D1 para 4 pasos: en serie / en paralelo | 94 a 99 ms / 82 ms |
+
+- **Lectura:** el servidor atiende las preguntas de decisión una por una, a unos 28 ms cada una, sin importar cómo lleguen. Repetí la prueba en una instancia temporal de Ollama con `OLLAMA_NUM_PARALLEL=4` (el modelo ya carga con 16 ranuras): mismo resultado.
+- **Conclusión:** paralelizar consultas de decisión no baja la latencia y agrega complejidad. Las probabilidades tampoco cambian (diferencia máxima 0,013), así que no hay ganancia de calidad. La decisión ya es el tramo barato: 30 a 50 ms por consulta.
+- **Estado:** [x] descartado
+
+### T5. Herramientas básicas para no depender de la terminal
+- **Por qué:** hoy todo lo que no es archivo, búsqueda local o web cae en `run_command`, es decir, en un 4B escribiendo PowerShell, con confirmación del usuario y Guard parseando el comando. En el uso real (116 tareas) los pedidos que más se repiten son de ese tipo: procesos por memoria (unos 25), abrir una aplicación (6), abrir una página o reproducir algo (4), archivos más pesados (2).
+- **Catálogo probado** (7 herramientas, con una descripción escrita una sola vez, sin ajustar):
+
+| Herramienta | Qué hace | Tipo | Argumentos |
+|---|---|---|---|
+| `top_processes` | Procesos que más memoria o CPU usan, o los de un programa | Lectura | `by`, `count`, `name` |
+| `system_info` | Fecha y hora, disco libre, RAM, tiempo encendida, IP local | Lectura | `what` (lista cerrada) |
+| `disk_usage` | Tamaño de una carpeta, o los archivos o carpetas más grandes | Lectura | `path`, `count`, `kind` |
+| `open_app` | Abrir una aplicación por nombre | Acción reversible | `name` |
+| `open_url` | Abrir una página en el navegador | Acción reversible | `url` |
+| `copy_file` | Copiar un archivo o carpeta | Escritura | `source`, `destination` |
+| `delete_file` | Borrar un archivo o carpeta (a la papelera) | Escritura, con confirmación | `path` |
+
+- **Resultado, elección directa entre las 18 herramientas:** 55/58 correctas (94,8 %); ponderado por uso real, 98/101. La proporción de pedidos que termina en `run_command` baja de 63/101 (hoy van a la ruta `terminal`) a **15/101**.
+- **Resultado, dos etapas con una ruta nueva `system`** (y `copy_file` y `delete_file` en `files`): 50/58 (86,2 %); ponderado, 91/101; terminal 20/101. Sin regresión en los datasets de D1: 175/196 contra 178/196, y los casos que pasan de `terminal` a `system` son los esperados («cuánto pesa Downloads», «qué IP tengo», «abrí la calculadora»).
+- **Fallos vistos** (orientan las descripciones):
+  - «bajá https://… a Descargas» → `copy_file`; «comprimí la carpeta…» → `write_file`. Cuando ninguna básica sirve, el modelo no siempre vuelve a `run_command`.
+  - Servicios y puertos → `list_processes`. Esa herramienta ya existe y compite con `top_processes`: conviene unificarlas.
+  - «abrí el bloc de notas» → `files/write_file` en dos etapas (el error conocido de D1).
+- **Qué se gana por herramienta básica usada:**
+  - Sin PowerShell generado: los argumentos son una lista cerrada, un número o un nombre.
+  - Las tres de lectura no piden confirmación ni pasan por D3 ni por el parseo de comandos. `open_app` y `open_url` entran en el nivel verde de la idea 5 (hoy «abrí la calculadora» esperó 12,7 s de confirmación).
+  - El resultado sale en un formato fijo que el código puede resumir, y habilita la respuesta por plantilla de la idea 4.
+- **Requisito:** «ejecutá en la terminal: X» tiene que resolverse por código antes de D2 (idea N7). Si no, una herramienta básica puede quedarse con un pedido donde el usuario dio el comando exacto.
+- **No probado:** la generación de argumentos de estas herramientas con Qwen (es el caso fácil, pero hay que medirlo) y la ejecución real.
+- **Esfuerzo:** 🟡 (un proveedor nativo como `jarvis_terminal` y una línea por herramienta en el catálogo) · **Estado:** [x] elección probada · [ ] dataset en el laboratorio · [ ] proveedor
+
+### Cómo queda una tarea de una acción
+
+| Etapa | Hoy | Con T1 + T5 + idea 4 o N6 |
+|---|---|---|
+| Clasificar | — | D0 (42 ms) |
+| Lista de pendientes | Generativo | Código |
+| Ruta y herramienta | D1, D2 | D1, D2 |
+| Argumentos | Generativo, PowerShell libre | Generativo, lista cerrada o nombre (código cuando hay literal: N7) |
+| Confirmación | Sí, si es comando | No, si es lectura o nivel verde |
+| Verificación y cierre | D4, D5 | D4, D5 (código donde alcance: N5) |
+| Respuesta | Generativo | Plantilla, o generativo en streaming |
+| Llamadas generativas | 3 | 1 a 2 |
+
 ## Mejoras futuras (agregar capacidades)
 
 Ideas que suman capacidades nuevas; no son prioridad frente a lo anterior.
@@ -327,7 +430,7 @@ Ideas que suman capacidades nuevas; no son prioridad frente a lo anterior.
 5. **Modelo generativo distinto por etapa** (argumentos, plan, respuesta final).
 6. **Lecturas independientes en paralelo** dentro de una tarea larga.
 7. **Deshacer:** copia de seguridad antes de sobrescribir y papelera en lugar de borrar. Reduce el riesgo de `autoMode`.
-8. **Herramientas nuevas** (apps, ventanas, portapapeles, calendario…): cada una es una línea en el catálogo.
+8. **Herramientas nuevas** (apps, ventanas, portapapeles, calendario…): cada una es una línea en el catálogo. Pedidos reales que hoy no tienen herramienta: «bajá el volumen un 10 %», «sacá una captura de pantalla», «reproducí … en YouTube». (Las herramientas básicas de T5 no entran acá: reemplazan lo que hoy se hace por terminal.)
 9. **Tareas programadas o recurrentes** y avisos proactivos.
 10. **Reanudar tareas tras reiniciar** (existe el snapshot `v1` pero no la restauración) y una cola con prioridad cuando Telegram, voz y la interfaz compiten por los mismos modelos.
 11. **Afinar el modelo de decisión** con trazas etiquetadas (por un modelo mayor o por correcciones del usuario).
@@ -382,6 +485,11 @@ Mismo conjunto de tareas, una variable por vez. Medir: éxito, latencia total y 
 - 2026-11-13 · Contexto real · Ollama carga 8 192 (Qwen) y 4 096 (`d3:2b`); la configuración dice 16 384 · decisión propuesta: alinear la configuración (N3).
 - 2026-11-13 · Caché de prefijo · funciona (760 de 764 tokens), ahorra unos 100 ms · reordenar prompts para la caché queda descartado.
 - 2026-11-13 · Índice de 116 tareas · 72 `loop_blocked` y 46 `args_invalid` contra 6 `tool_error`; 21 canceladas · el modelo repite más de lo que la herramienta falla (N4).
+- 2026-11-13 · T1, D0 con `d3:2b` · 109/122 con `chat` (choice) + `multi` (noul); 0 falsos `chat` en 189 de reserva; 3/10 preguntas de hechos entre 0,51 y 0,65 · implementable con umbral de `chat` en 0,7.
+- 2026-11-13 · T3, D1 y D2 fusionadas · 87,8 % contra 90,8 % · descartado.
+- 2026-11-13 · T4, decisión en paralelo · sin ganancia (28 ms por pregunta en cualquier formato, también con `OLLAMA_NUM_PARALLEL=4`) · descartado.
+- 2026-11-13 · T5, siete herramientas básicas · 55/58 en elección directa, 50/58 en dos etapas con ruta `system`; terminal de 63/101 a 15 o 20/101 · implementable; falta medir argumentos.
+- 2026-11-13 · N1 (tamaño de modelos) · en pausa por decisión del usuario.
 - **Límites de estas mediciones:** una sola máquina y una sola sesión; las 35 trazas con detalle son sobre todo búsquedas web y comandos de terminal, con pocas escrituras de archivos; el modelo sustituto de la prueba de VRAM no es `d3:2b` (prueba que el problema es el espacio, no que un `d3:2b` liviano mantenga la precisión).
 
 ## Resumen final
@@ -390,7 +498,9 @@ Mismo conjunto de tareas, una variable por vez. Medir: éxito, latencia total y 
 
 | # | Idea | Qué ataca | Ganancia estimada | Esfuerzo |
 |---|---|---|---|---|
-| 1 | N1: los dos modelos con margen en la VRAM | 1 s por cambio de modelo | Unos 4 s por tarea de una acción | 🟢 🧪 |
+| — | N1: los dos modelos con margen en la VRAM (**en pausa**) | 1 s por cambio de modelo | Unos 4 s por tarea de una acción | 🟢 🧪 |
+| ★ | T5: herramientas básicas (probado) | PowerShell libre y confirmaciones | Terminal de 62 % a 15–20 % del uso real | 🟡 |
+| ★ | T1: D0 corta/larga con `chat` ≥ 0,7 (probado) | `pending` en el 65 % de las tareas | 1 a 2 llamadas generativas menos y 1 cambio de modelo menos | 🟡 |
 | 2 | N2: modelos siempre calientes | Arranque en frío | Unos 12 s en la primera tarea tras una pausa | 🟢 |
 | 3 | N3: contexto configurado = contexto real | Recorte silencioso del prompt | Corrección, no velocidad | 🟢 🧪 |
 | 4 | 5: aprobación por niveles y lista de permitidos | Espera del usuario | 5 a 13 s por confirmación evitada | 🟡 |
@@ -402,7 +512,9 @@ Mismo conjunto de tareas, una variable por vez. Medir: éxito, latencia total y 
 | 10 | 2 y 2b: argumentos por candidatos | `args_invalid` | Fiabilidad; unos 200 ms por llamada | 🟡 a 🔴 |
 | 11 | N8, N9 y menores | Idioma, progreso, topes | Calidad percibida | 🟢 |
 
-Descartadas o en pausa: reordenar prompts para la caché (ahorra unos 100 ms), decisor más grande (agrava N1), subir el contexto a 32k (ídem).
+Las filas ★ son de la tercera revisión y ya tienen prueba directa; con N1 en pausa, cada cambio de modelo evitado vale cerca de 1 s, lo que sube el valor de T1. La fila 9 (atajo D0) queda reemplazada por T1.
+
+Descartadas o en pausa: reordenar prompts para la caché (ahorra unos 100 ms), decisor más grande (agrava N1), subir el contexto a 32k (ídem), fusionar D1 y D2 (T3), paralelismo en decisión (T4), detectar tareas largas con el modelo (T2).
 
 ### Mejoras sobre lo actual (lista original)
 1. Medir primero: llamadas, latencia por etapa y márgenes de decisión.
