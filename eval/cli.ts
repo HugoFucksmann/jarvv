@@ -17,6 +17,8 @@ import { createMockGenerativeClient } from "./core/client/mock.ts";
 import { oracleDecisionResponder, oracleGenerativeResponder } from "./core/client/oracle.ts";
 import { parseConfig } from "./core/config.ts";
 import { loadDatasets } from "./core/datasets.ts";
+import { loadRealStageDatasets } from "./real/realStageLoader.ts";
+import { runRealTaskCli } from "./real/realTaskRunner.ts";
 import type { InputCell } from "./core/report.ts";
 import { generateComparisonReport, writeComparison } from "./core/report.ts";
 import { buildRunMeta, createCellWriter, newRunId, runRootDir, timestampDir } from "./core/results.ts";
@@ -84,6 +86,21 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  // ── --source=real-task: suite encadenada de extremo a extremo en sandbox ──
+  if (cfg.source === "real-task") {
+    const variantResults: Array<{ spec: string; hash: string; variant: Variant }> = [];
+    for (const spec of cfg.variantSpecs) {
+      try {
+        const r = await loadVariantSpec(spec);
+        variantResults.push({ spec, ...r });
+      } catch (e) {
+        fail(`Error cargando variante '${spec}': ${e instanceof Error ? e.message : String(e)}`);
+        return 2;
+      }
+    }
+    return runRealTaskCli(cfg, variantResults);
+  }
+
   // ── Cargar datasets ──
   const datasetFilters = {
     stages: cfg.stages.length > 0 ? cfg.stages : undefined,
@@ -91,9 +108,27 @@ async function main(): Promise<number> {
     ids: cfg.ids.length > 0 ? cfg.ids : undefined,
     limit: cfg.limit,
   };
+
+  // ── Cargar variantes ──
+  const variantResults: Array<{ spec: string; hash: string; variant: Variant }> = [];
+  if (cfg.source === "real-stage") {
+    for (const spec of cfg.variantSpecs) {
+      try {
+        const r = await loadVariantSpec(spec);
+        variantResults.push({ spec, ...r });
+      } catch (e) {
+        fail(`Error cargando variante '${spec}': ${e instanceof Error ? e.message : String(e)}`);
+        return 2;
+      }
+    }
+  }
+
   let datasets;
   try {
-    datasets = loadDatasets(cfg.datasetSpecs, datasetFilters);
+    datasets =
+      cfg.source === "real-stage"
+        ? await loadRealStageDatasets(cfg.datasetSpecs, datasetFilters, variantResults[0]?.variant, cfg.dryRun)
+        : loadDatasets(cfg.datasetSpecs, datasetFilters);
   } catch (e) {
     fail(`Error de dataset: ${e instanceof Error ? e.message : String(e)}`);
     return 2;
@@ -115,23 +150,29 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  // ── Cargar variantes ──
-  const variantResults: Array<{ spec: string; hash: string; variant: Variant }> = [];
-  for (const spec of cfg.variantSpecs) {
-    try {
-      const r = await loadVariantSpec(spec);
-      variantResults.push({ spec, ...r });
-    } catch (e) {
-      fail(`Error cargando variante '${spec}': ${e instanceof Error ? e.message : String(e)}`);
-      return 2;
+  if (cfg.source === "dataset") {
+    for (const spec of cfg.variantSpecs) {
+      try {
+        const r = await loadVariantSpec(spec);
+        variantResults.push({ spec, ...r });
+      } catch (e) {
+        fail(`Error cargando variante '${spec}': ${e instanceof Error ? e.message : String(e)}`);
+        return 2;
+      }
     }
   }
 
   // ── Casos de cada variante: se arman una vez con los prompts de la variante (los escenarios + sus prompts enteros); el runner solo envía ──
   const datasetsByVariant = new Map<string, typeof datasets>();
-  for (const vr of variantResults) {
+  for (let i = 0; i < variantResults.length; i++) {
+    const vr = variantResults[i];
     try {
-      const own = loadDatasets(cfg.datasetSpecs, datasetFilters, vr.variant);
+      const own =
+        cfg.source === "real-stage"
+          ? i === 0
+            ? datasets
+            : await loadRealStageDatasets(cfg.datasetSpecs, datasetFilters, vr.variant, cfg.dryRun)
+          : loadDatasets(cfg.datasetSpecs, datasetFilters, vr.variant);
       if (own.every((d) => d.cases.length === 0)) {
         fail(`La variante '${vr.spec}' no dejó ningún caso para correr.`);
         return 2;

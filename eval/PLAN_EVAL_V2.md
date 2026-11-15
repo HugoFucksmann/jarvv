@@ -26,33 +26,33 @@ Este plan extiende el laboratorio de evaluación de JARVIS con dos capacidades n
   - [x] Corregir `sameItem` en `src/core/engine/pendingList.ts` y agregar tests en `tests/logic.test.ts`.
   - *Verificación:* `npm run lint`, `npm test` y smoke run en modo dataset.
 
-- [ ] **Etapa 1 — Costuras genéricas en el núcleo (`disk`, `analyzeCommand`, `now`, helpers)**
-  - [ ] Agregar `disk?: DiskView` y `analyzeCommand?: CommandAnalyzer` opcionales en `EngineDeps` y propagarlos a `verify.ts`, `callRunner.ts` y `precheck.ts` (incluyendo lectura de refs sin romper defaults).
-  - [ ] Reexportar `parseSnapshot` en `src/core/ctx/index.ts` e inyectar reloj opcional (`now`) para constructores de prompts dependientes de fecha (`TODAY`).
-  - [ ] Exportar helpers puros (`MIN_COMPLETION_TOKENS`, `reserveCompletionTokens`, `buildGenerativeBody`) y soporte opcional de parámetros por etapa (`StageParamsOverride`) sin alterar comportamiento por defecto ni tocar `eval/core/client/*`.
+- [x] **Etapa 1 — Costuras genéricas en el núcleo (`disk`, `analyzeCommand`, `now`, helpers)**
+  - [x] Agregar `disk?: DiskView` y `analyzeCommand?: CommandAnalyzer` opcionales en `EngineDeps` y propagarlos a `verify.ts`, `callRunner.ts` y `precheck.ts` (incluyendo lectura de refs sin romper defaults).
+  - [x] Reexportar `parseSnapshot` en `src/core/ctx/index.ts` e inyectar reloj opcional (`now`) para constructores de prompts dependientes de fecha (`TODAY`).
+  - [x] Exportar helpers puros (`MIN_COMPLETION_TOKENS`, `reserveCompletionTokens`, `buildGenerativeBody`) y soporte opcional de parámetros por etapa (`StageParamsOverride`) sin alterar comportamiento por defecto ni tocar `eval/core/client/*`.
   - *Verificación:* `npm run lint` y `npm test` (incluyendo `tests/architecture.test.ts`).
 
-- [ ] **Etapa 2 — Integración de `fragment_judge` y etapas faltantes (`probe`, `continuation`, `completion`)**
-  - [ ] Incorporar `fragment_judge` a `STAGES`/`STAGE_KIND` y cablear un receptor opcional en `WebSearchProvider` para capturar sus llamadas en `TaskTraceRecorder` respetando las fronteras de arquitectura.
-  - [ ] Registrar `probe`, `continuation` y `completion` en `eval/core/` (tipos, registro, parsers, extractores de etiquetas y graders base).
+- [x] **Etapa 2 — Integración de `fragment_judge` y etapas faltantes (`probe`, `continuation`, `completion`)**
+  - [x] Incorporar `fragment_judge` a `STAGES`/`STAGE_KIND` y cablear un receptor opcional en `WebSearchProvider` para capturar sus llamadas en `TaskTraceRecorder` respetando las fronteras de arquitectura.
+  - [x] Registrar `probe`, `continuation` y `completion` en `eval/core/` (tipos, registro, parsers, extractores de etiquetas y graders base).
   - *Verificación:* Compilación exhaustiva de etapas (`npm run lint`) y prueba dedicada de captura de `fragment_judge` + etapas nuevas en `npm test`.
 
-- [ ] **Etapa 3 — Fusión unificada de variantes y pruebas de paridad (sin tocar `eval/core/client/*`)**
-  - [ ] Extraer helper compartido de fusión de prompts (`applyVariantPrompts`) consumido por `scenario.ts` y por los motores reales del modo real.
-  - [ ] Agregar pruebas deterministas de paridad (sin red) entre los builders/validadores de `eval/` y los motores reales `QwenEngine` / `Decision20Engine` de `src/`.
+- [x] **Etapa 3 — Fusión unificada de variantes y pruebas de paridad (sin tocar `eval/core/client/*`)**
+  - [x] Extraer helper compartido de fusión de prompts (`applyVariantPrompts`) consumido por `scenario.ts` y por los motores reales del modo real.
+  - [x] Agregar pruebas deterministas de paridad (sin red) entre los builders/validadores de `eval/` y los motores reales `QwenEngine` / `Decision20Engine` de `src/`.
   - *Verificación:* Tests de paridad en verde y cero cambios en `eval/core/client/*`.
 
-- [ ] **Etapa 4 — Modo real aislado por etapa (`--source=real-stage`)**
-  - [ ] Implementar cargador dual para trazas reales (reconstrucción al evento `n`) y escenarios ejecutables (ejecución controlada hasta un punto de captura).
-  - [ ] Materializar casos reales usando las vistas y adaptadores reales de `src/`, ejecutarlos sin alterar el comportamiento por defecto del CLI de datasets y emitir `RunRecord` / reportes bajo `--source=real-stage`.
+- [x] **Etapa 4 — Modo real aislado por etapa (`--source=real-stage`)**
+  - [x] Implementar cargador dual para trazas reales (reconstrucción al evento `n`) y escenarios ejecutables (ejecución controlada hasta un punto de captura).
+  - [x] Materializar casos reales usando las vistas y adaptadores reales de `src/`, ejecutarlos sin alterar el comportamiento por defecto del CLI de datasets y emitir `RunRecord` / reportes bajo `--source=real-stage`.
   - *Verificación:* Smoke tests del modo real por etapa y comprobación de salida idéntica en modo dataset.
 
-- [ ] **Etapa 5 — Modo real encadenado (`--source=real-task`) con Sandbox y Seguridad**
-  - [ ] Implementar sandbox temporal auto-limpiable (`home`, `desktop`, `documents`, `downloads`, `DiskView` acotado, `guardScope` y registro de los 3 servidores MCP con fixtures).
-  - [ ] Configurar `autoMode: true` con lista negra reforzada en nivel `blocked` prohibiendo determinísticamente eliminaciones peligrosas.
-  - [ ] Implementar ejecutor encadenado con `QwenEngine`, `Decision20Engine`, `TaskTraceRecorder` y graders/métricas de tarea completa bajo `--source=real-task`.
+- [x] **Etapa 5 — Modo real encadenado (`--source=real-task`) con Sandbox y Seguridad**
+  - [x] Implementar sandbox temporal auto-limpiable (`home`, `desktop`, `documents`, `downloads`, `DiskView` acotado, `guardScope` y registro de los 3 servidores MCP con fixtures).
+  - [x] Configurar `autoMode: true` con lista negra reforzada en nivel `blocked` prohibiendo determinísticamente eliminaciones peligrosas.
+  - [x] Implementar ejecutor encadenado con `QwenEngine`, `Decision20Engine`, `TaskTraceRecorder` y graders/métricas de tarea completa bajo `--source=real-task`.
   - *Verificación:* Smoke tests end-to-end en `tests/` (reactivo multi-paso con refs, deliberativo en sandbox y rechazo determinista de borrados peligrosos con `autoMode: true`).
 
-- [ ] **Etapa 6 — Documentación de uso y verificación integral final**
-  - [ ] Documentar los modos `--source=real-stage` y `--source=real-task` en `eval/README.md` y marcar este checklist completo en `[x]`.
-  - [ ] Correr verificación final: `npm run lint`, `npm test`, dry-run/smoke del modo dataset clásico y smoke de ambos modos reales.
+- [x] **Etapa 6 — Documentación de uso y verificación integral final**
+  - [x] Documentar los modos `--source=real-stage` y `--source=real-task` en `eval/README.md` y marcar este checklist completo en `[x]`.
+  - [x] Correr verificación final: `npm run lint`, `npm test`, dry-run/smoke del modo dataset clásico y smoke de ambos modos reales.

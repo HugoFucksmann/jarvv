@@ -48,6 +48,36 @@ export interface StageRequest {
   retryThinking?: boolean;
   /** Temperatura del primer intento; por defecto `BASE_TEMPERATURE`. */
   temperature?: number;
+  /** Nivel de esfuerzo de razonamiento explícito; por defecto se deriva de `thinking`. */
+  reasoningEffort?: string;
+}
+
+/** Sobrescritura opcional de parámetros por etapa (sin tocar los prompts ni la política por defecto). */
+export interface StageParamsOverride {
+  thinking?: boolean;
+  maxTokens?: number;
+  temperature?: number;
+  schema?: JsonSchema;
+  reasoningEffort?: string;
+}
+
+/** Opciones compartidas para materializar peticiones de etapa con reloj o parámetros reproducibles. */
+export interface StageRequestOptions {
+  now?: Date;
+  params?: StageParamsOverride;
+}
+
+/** Aplica sobrescrituras definidas de `StageParamsOverride` manteniendo el `StageRequest` base intacto si se omite. */
+export function applyStageParams(req: StageRequest, params?: StageParamsOverride): StageRequest {
+  if (!params) return req;
+  return {
+    ...req,
+    ...(params.thinking !== undefined ? { thinking: params.thinking } : {}),
+    ...(params.maxTokens !== undefined ? { maxTokens: params.maxTokens } : {}),
+    ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
+    ...(params.schema !== undefined ? { schema: params.schema } : {}),
+    ...(params.reasoningEffort !== undefined ? { reasoningEffort: params.reasoningEffort } : {}),
+  };
 }
 
 /** Parte de la configuración que fija tokens y thinking por etapa. */
@@ -82,47 +112,72 @@ export function planViewSchema(maxSteps: number): JsonSchema {
 }
 
 /** LLM 1: plan y replan. Thinking siempre activo. */
-export function planStageRequest(input: PlanFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
+export function planStageRequest(
+  input: PlanFromViewInput,
+  config: StageConfig,
+  prompts: PromptSet = PROMPTS,
+  options?: StageRequestOptions,
+): StageRequest {
   const tokens = config.qwenMaxTokens;
-  return {
+  const userData = {
+    view: input.view,
+    maxSteps: input.maxSteps,
+    catalog: buildCompactCatalog(),
+    ...(options?.now !== undefined ? { now: options.now } : {}),
+  };
+  return applyStageParams({
     stage: "plan",
     system: prompts.PLAN_VIEW.SYSTEM,
-    user: prompts.PLAN_VIEW.buildUserPrompt({ view: input.view, maxSteps: input.maxSteps, catalog: buildCompactCatalog() }),
+    user: prompts.PLAN_VIEW.buildUserPrompt(userData),
     json: true,
     schema: planViewSchema(input.maxSteps),
     maxTokens: input.trigger === "initial" ? tokens.plan : tokens.replan,
     thinking: true,
-  };
+  }, options?.params);
 }
 
 /** Argumentos de la herramienta: `json_object` (los schemas de las herramientas son dinámicos), sin thinking. */
-export function argumentsStageRequest(input: ArgsFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
-  return {
+export function argumentsStageRequest(
+  input: ArgsFromViewInput,
+  config: StageConfig,
+  prompts: PromptSet = PROMPTS,
+  options?: StageRequestOptions,
+): StageRequest {
+  const userData = options?.now !== undefined ? { ...input, now: options.now } : input;
+  return applyStageParams({
     stage: "arguments",
     system: prompts.ARGUMENTS_VIEW.buildSystemPrompt(input.tool, input.environment.platform),
-    user: prompts.ARGUMENTS_VIEW.buildUserPrompt(input),
+    user: prompts.ARGUMENTS_VIEW.buildUserPrompt(userData),
     json: true,
     maxTokens: config.qwenMaxTokens.arguments,
     thinking: false,
     temperature: argsTemperature(input.priorAttempts ?? 0),
-  };
+  }, options?.params);
 }
 
 /** Pregunta al usuario (`ask_user`): texto libre, sin thinking. */
-export function questionStageRequest(input: QuestionInput, prompts: PromptSet = PROMPTS): StageRequest {
-  return {
+export function questionStageRequest(
+  input: QuestionInput,
+  prompts: PromptSet = PROMPTS,
+  params?: StageParamsOverride,
+): StageRequest {
+  return applyStageParams({
     stage: "question",
     system: prompts.QUESTION.SYSTEM,
     user: prompts.QUESTION.buildUserPrompt(input),
     json: false,
     maxTokens: BUDGET.ask.maxTokens,
     thinking: false,
-  };
+  }, params);
 }
 
 /** Lista de pendientes del reactivo: `{ pending: string[] }` (puede venir vacía), sin thinking. */
-export function pendingStageRequest(input: PendingFromViewInput, prompts: PromptSet = PROMPTS): StageRequest {
-  return {
+export function pendingStageRequest(
+  input: PendingFromViewInput,
+  prompts: PromptSet = PROMPTS,
+  params?: StageParamsOverride,
+): StageRequest {
+  return applyStageParams({
     stage: "pending",
     system: prompts.PENDING_VIEW.SYSTEM,
     user: prompts.PENDING_VIEW.buildUserPrompt(input),
@@ -135,18 +190,24 @@ export function pendingStageRequest(input: PendingFromViewInput, prompts: Prompt
     },
     maxTokens: BUDGET.pending.maxTokens,
     thinking: false,
-  };
+  }, params);
 }
 
 /** LLM 3: respuesta final. Thinking según la configuración; el reintento lo apaga (un final vacío suele ser thinking agotado). */
-export function finalStageRequest(input: FinalFromViewInput, config: StageConfig, prompts: PromptSet = PROMPTS): StageRequest {
-  return {
+export function finalStageRequest(
+  input: FinalFromViewInput,
+  config: StageConfig,
+  prompts: PromptSet = PROMPTS,
+  options?: StageRequestOptions,
+): StageRequest {
+  const userData = options?.now !== undefined ? { ...input, now: options.now } : input;
+  return applyStageParams({
     stage: "final_response",
     system: prompts.FINAL_VIEW.SYSTEM,
-    user: prompts.FINAL_VIEW.buildUserPrompt(input),
+    user: prompts.FINAL_VIEW.buildUserPrompt(userData),
     json: false,
     maxTokens: config.qwenMaxTokens.final,
     thinking: config.thinking,
     retryThinking: false,
-  };
+  }, options?.params);
 }

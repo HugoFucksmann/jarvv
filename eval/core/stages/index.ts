@@ -59,7 +59,17 @@ export type StageEntry<TOutput = unknown, TExpect = unknown, TReq = unknown> =
 
 // ───────────────────────── Registro ─────────────────────────
 
-import { argsReviewStage, d0Stage, fragmentJudgeStage, resultVerificationStage, routeStage, toolChoiceStage } from "./decision.ts";
+import {
+  argsReviewStage,
+  completionStage,
+  continuationStage,
+  d0Stage,
+  fragmentJudgeStage,
+  probeStage,
+  resultVerificationStage,
+  routeStage,
+  toolChoiceStage,
+} from "./decision.ts";
 import { argumentsStage, finalStage, pendingStage, planStage, questionStage } from "./generative.ts";
 
 /** Registro indexado por nombre de etapa. */
@@ -71,6 +81,9 @@ const REGISTRY = new Map<StageName, DecisionStageEntry<any, any> | GenerativeSta
   ["args_review", argsReviewStage],
   ["result_verification", resultVerificationStage],
   ["fragment_judge", fragmentJudgeStage],
+  ["probe", probeStage],
+  ["continuation", continuationStage],
+  ["completion", completionStage],
   ["plan", planStage],
   ["arguments", argumentsStage],
   ["final", finalStage],

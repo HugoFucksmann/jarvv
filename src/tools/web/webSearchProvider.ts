@@ -15,7 +15,7 @@
  */
 
 import { BUDGET } from "../../core/budget.ts";
-import type { FragmentJudge } from "../../core/tools/judge.ts";
+import type { FragmentJudge, FragmentScores, JudgeTraceEvent } from "../../core/tools/judge.ts";
 import type { ToolCallOptions, ToolProvider, ToolRef } from "../../core/tools/provider.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import { clipAtWord } from "../../core/text.ts";
@@ -183,6 +183,8 @@ export interface WebSearchOptions {
   readonly now?: () => Date;
   /** Plazo máximo del modelo en una búsqueda (por defecto 20 s); pasado ese plazo se sigue con el orden léxico. */
   readonly judgeTimeoutMs?: number;
+  /** Receptor opcional de cada llamada al juez de fragmentos (además del `options.recordJudge` del motor). */
+  readonly onJudge?: (event: JudgeTraceEvent) => void;
 }
 
 const EMPTY: Material = { sources: [], docs: [], blocked: 0, diagnostics: {} };
@@ -203,6 +205,7 @@ export class WebSearchProvider implements ToolProvider {
   private readonly pages: number;
   private readonly now: () => Date;
   private readonly judgeTimeoutMs: number;
+  private readonly onJudge?: (event: JudgeTraceEvent) => void;
 
   constructor(options: WebSearchOptions = {}) {
     this.getJudge = options.judge ?? (() => undefined);
@@ -212,11 +215,55 @@ export class WebSearchProvider implements ToolProvider {
     if (!Number.isInteger(pages) || pages < 1 || pages > 8) throw new RangeError(`web_search pages must be an integer from 1 to 8 (got ${String(pages)})`);
     this.pages = pages;
     this.now = options.now ?? (() => new Date());
+    this.onJudge = options.onJudge;
   }
 
   /** La pregunta que ve el juez: con la fecha de hoy, para que distinga lo reciente. */
   private judgeNeed(need: string, today: string): string {
     return `${need}\nTODAY: ${today}`;
+  }
+
+  /** Ejecuta una consulta al juez con límite de tiempo propio, captura segura de traza y limpieza del timer. */
+  private async invokeJudge(
+    judge: FragmentJudge,
+    need: string,
+    texts: readonly string[],
+    remaining: () => number,
+    signal: AbortSignal | undefined,
+    recordJudge?: (event: JudgeTraceEvent) => void,
+  ): Promise<FragmentScores> {
+    const emit = (event: JudgeTraceEvent): void => {
+      for (const hook of [recordJudge, this.onJudge]) {
+        if (hook === undefined) continue;
+        try {
+          hook(event);
+        } catch (err) {
+          console.error("[WebSearch] el receptor de juez falló:", err);
+        }
+      }
+    };
+    const startedAt = Date.now();
+    try {
+      const result = await this.withJudgeTimeout(remaining, signal, (judgeSignal) => judge.score(need, texts, judgeSignal));
+      emit({
+        startedAt,
+        durationMs: Date.now() - startedAt,
+        input: result.rawInput || null,
+        output: result.rawOutput || null,
+        error: null,
+      });
+      return result;
+    } catch (error) {
+      const raw = (error as { raw?: { rawInput?: unknown; rawOutput?: unknown } } | null)?.raw;
+      emit({
+        startedAt,
+        durationMs: Date.now() - startedAt,
+        input: typeof raw?.rawInput === "string" ? raw.rawInput : null,
+        output: typeof raw?.rawOutput === "string" ? raw.rawOutput : null,
+        error: errorMessage(error),
+      });
+      throw error;
+    }
   }
 
   /** Ejecuta una consulta al juez con límite de tiempo propio y limpieza explícita del timer. */
@@ -268,7 +315,7 @@ export class WebSearchProvider implements ToolProvider {
     let analysis: Analysis;
     try {
       let mark = Date.now();
-      ({ gathered, analysis } = await this.attempt(host, query, hasFilters, limits, remaining, signal));
+      ({ gathered, analysis } = await this.attempt(host, query, hasFilters, limits, remaining, signal, options.recordJudge));
       timings.lookupMs = Date.now() - mark;
       if (gathered.material.docs.length === 0 && gathered.errors.length > 0 && parsed.args.urls.length > 0) {
         return fail(`None of the URLs could be read: ${gathered.errors.join("; ")}`);
@@ -279,7 +326,7 @@ export class WebSearchProvider implements ToolProvider {
         retried = true;
         try {
           mark = Date.now();
-          const { gathered: again, analysis: second } = await this.attempt(host, query, false, limits, remaining, signal);
+          const { gathered: again, analysis: second } = await this.attempt(host, query, false, limits, remaining, signal, options.recordJudge);
           timings.retryMs = Date.now() - mark;
           if (second.state === "found" || second.state === "partial" || again.material.docs.length > gathered.material.docs.length) {
             gathered = { ...again, errors: [...gathered.errors, ...again.errors] };
@@ -319,12 +366,12 @@ export class WebSearchProvider implements ToolProvider {
   // ───────────────────────── Obtener el material ─────────────────────────
 
   /** Una pasada: con `urls`, las lee; si no, busca y decide qué leer. Devuelve el material y el análisis. */
-  private async attempt(host: Host, args: WebArgs, withFilters: boolean, limits: Deadline, remaining: () => number, signal?: AbortSignal): Promise<{ gathered: Gathered; analysis: Analysis }> {
+  private async attempt(host: Host, args: WebArgs, withFilters: boolean, limits: Deadline, remaining: () => number, signal?: AbortSignal, recordJudge?: (event: JudgeTraceEvent) => void): Promise<{ gathered: Gathered; analysis: Analysis }> {
     if (args.urls.length > 0) {
       const gathered = await this.gatherUrls(host, args, limits);
-      return { gathered, analysis: await this.analyze(args, gathered.material, remaining, signal) };
+      return { gathered, analysis: await this.analyze(args, gathered.material, remaining, signal, true, recordJudge) };
     }
-    return this.lookup(host, args, withFilters, limits, remaining, signal);
+    return this.lookup(host, args, withFilters, limits, remaining, signal, recordJudge);
   }
 
   private async gatherUrls(host: Host, args: WebArgs, limits: Deadline): Promise<Gathered> {
@@ -406,7 +453,7 @@ export class WebSearchProvider implements ToolProvider {
    * lee UNA página (la del mejor extracto), la puntúa y se detiene en cuanto una responde, hasta `pages` páginas. Sin juez (o sin tiempo para él): lee las primeras
    * páginas a la vez y ordena por palabras. Evaluación: scripts/validate/web_eval/RESULTADOS.md (Ronda 3).
    */
-  private async lookup(host: Host, args: WebArgs, withFilters: boolean, limits: Deadline, remaining: () => number, signal?: AbortSignal): Promise<{ gathered: Gathered; analysis: Analysis }> {
+  private async lookup(host: Host, args: WebArgs, withFilters: boolean, limits: Deadline, remaining: () => number, signal?: AbortSignal, recordJudge?: (event: JudgeTraceEvent) => void): Promise<{ gathered: Gathered; analysis: Analysis }> {
     const errors: string[] = [];
     const request: Record<string, unknown> = { query: args.need, max_results: SEARCH_RESULTS, max_age_hours: this.maxAgeHours, format: "json" };
     if (withFilters && args.freshness !== undefined) request.freshness = args.freshness;
@@ -450,7 +497,7 @@ export class WebSearchProvider implements ToolProvider {
     const versions = versionsOf(args.need);
     const sourceOf = new Map(hits.map((h) => [h.n, h]));
     const score = async (texts: string[]): Promise<number[]> => {
-      const r = await this.withJudgeTimeout(remaining, signal, (judgeSignal) => judge.score(need, texts, judgeSignal));
+      const r = await this.invokeJudge(judge, need, texts, remaining, signal, recordJudge);
       if (r.probabilities.length !== texts.length) throw new Error("el modelo no devolvió una probabilidad por fragmento");
       trace.calls += Math.ceil(texts.length / 5);
       trace.ms += r.durationMs;
@@ -535,7 +582,7 @@ export class WebSearchProvider implements ToolProvider {
 
   // ───────────────────────── Analizar ─────────────────────────
 
-  private async analyze(args: WebArgs, material: Material, remaining: () => number, signal?: AbortSignal, useJudge = true): Promise<Analysis> {
+  private async analyze(args: WebArgs, material: Material, remaining: () => number, signal?: AbortSignal, useJudge = true, recordJudge?: (event: JudgeTraceEvent) => void): Promise<Analysis> {
     // Sin páginas pero con extractos (Free Search no pudo leer ninguna), los extractos solos todavía pueden responder.
     const pages = chunkDocs(material.docs);
     const chunks = [...pages, ...snippetChunks(material.sources, pages.length)];
@@ -549,8 +596,13 @@ export class WebSearchProvider implements ToolProvider {
     if (judge !== undefined && remaining() > JUDGE_NEEDS_MS) {
       const sourceOf = new Map(material.sources.map((x) => [x.n, x]));
       try {
-        const scores = await this.withJudgeTimeout(remaining, signal, (judgeSignal) =>
-          judge.score(this.judgeNeed(args.need, localDate(this.now())), candidates.map((c) => dated(sourceOf.get(c.chunk.n), c.chunk.text)), judgeSignal),
+        const scores = await this.invokeJudge(
+          judge,
+          this.judgeNeed(args.need, localDate(this.now())),
+          candidates.map((c) => dated(sourceOf.get(c.chunk.n), c.chunk.text)),
+          remaining,
+          signal,
+          recordJudge,
         );
         if (scores.probabilities.length === candidates.length) {
           const versions = versionsOf(args.need);

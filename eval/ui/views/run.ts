@@ -21,6 +21,7 @@ export function printRunConfig(
   const offline = cfg.client !== "real";
   const where = (model: string, url: string) => (offline ? `${model}  ${c.gray("(sin red)")}` : `${model}  ${c.gray(`@ ${url}`)}`);
   const rows: Array<[string, string]> = [
+    ...(cfg.source !== "dataset" ? ([["Origen", cfg.source]] as Array<[string, string]>) : []),
     ["Cliente", cfg.client === "real" ? "real" : `${c.yellow(cfg.client)} ${c.gray("(simulado, no usa modelos)")}`],
     ["Modelo generativo", where(cfg.model, cfg.url)],
     ["Modelo de decisión", where(cfg.decisionModel, cfg.decisionUrl)],

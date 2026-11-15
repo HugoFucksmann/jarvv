@@ -7,6 +7,7 @@
  */
 
 import type { MCPCallResult, MCPTool } from "../types.ts";
+import type { JudgeTraceEvent } from "./judge.ts";
 
 /** Cómo terminó una tarea, para el gancho de cierre por tarea (`ToolProvider.onTaskEnd`). */
 export type TaskEndOutcome = "completed" | "failed" | "cancelled";
@@ -35,6 +36,8 @@ export interface ToolCallOptions {
   readonly taskId?: string;
   /** Solo si el proveedor declara `dependencies`. */
   readonly host?: ToolHost;
+  /** Receptor opcional para consultas al juez de fragmentos (p. ej. `web_search` → traza `fragment_judge`). */
+  readonly recordJudge?: (event: JudgeTraceEvent) => void;
 }
 
 export interface ToolProvider {

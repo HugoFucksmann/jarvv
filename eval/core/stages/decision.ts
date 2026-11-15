@@ -9,7 +9,10 @@
 import { LatencyGrader } from "../graders/common.ts";
 import {
   ArgsReviewLabelGrader,
+  CompletionLabelGrader,
+  ContinuationLabelGrader,
   FragmentJudgeGrader,
+  ProbeLabelGrader,
   ResultVerificationGrader,
   D0LabelGrader,
   RouteLabelGrader,
@@ -18,9 +21,15 @@ import {
 import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
+  CompletionExpect,
+  CompletionOutput,
+  ContinuationExpect,
+  ContinuationOutput,
   DecisionRequest,
   FragmentJudgeExpect,
   FragmentJudgeOutput,
+  ProbeExpect,
+  ProbeOutput,
   ResultVerificationExpect,
   ResultVerificationOutput,
   D0Expect,
@@ -32,7 +41,10 @@ import type {
 } from "../types.ts";
 import {
   parseArgsReviewDecision,
+  parseCompletionDecision,
+  parseContinuationDecision,
   parseFragmentJudgeDecision,
+  parseProbeDecision,
   parseResultVerificationDecision,
   parseD0Decision,
   parseRouteDecision,
@@ -183,6 +195,66 @@ export const fragmentJudgeStage: DecisionStageEntry<FragmentJudgeOutput, Fragmen
       expected: expect ? judgeLabel(expect.expectedRelevant) : null,
       rawScore: output?.probabilities[0] ?? null,
       probabilities: output ? Object.fromEntries(output.probabilities.map((p, i) => [`f${i}`, p])) : null,
+    };
+  },
+};
+
+// ───────────────────────── probe ─────────────────────────
+
+export const probeStage: DecisionStageEntry<ProbeOutput, ProbeExpect> = {
+  stageName: "probe",
+  requestType: "decision",
+  graders: [LatencyGrader, ProbeLabelGrader],
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): ProbeOutput {
+    return parseProbeDecision(rawOutput, sentReq);
+  },
+  label(output: ProbeOutput | undefined, expect: ProbeExpect | undefined): LabelInfo {
+    const p = output?.probability;
+    return {
+      predicted: output ? (output.yes ? "yes" : "no") : null,
+      expected: expect ? (expect.expectedYes ? "yes" : "no") : null,
+      rawScore: p ?? null,
+      probabilities: p !== undefined ? { yes: p, no: 1 - p } : null,
+    };
+  },
+};
+
+// ───────────────────────── continuation ─────────────────────────
+
+export const continuationStage: DecisionStageEntry<ContinuationOutput, ContinuationExpect> = {
+  stageName: "continuation",
+  requestType: "decision",
+  graders: [LatencyGrader, ContinuationLabelGrader],
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): ContinuationOutput {
+    return parseContinuationDecision(rawOutput, sentReq);
+  },
+  label(output: ContinuationOutput | undefined, expect: ContinuationExpect | undefined): LabelInfo {
+    const p = output?.probability;
+    return {
+      predicted: output ? (output.follows ? "yes" : "no") : null,
+      expected: expect ? (expect.expectedFollows ? "yes" : "no") : null,
+      rawScore: p ?? null,
+      probabilities: p !== undefined ? { yes: p, no: 1 - p } : null,
+    };
+  },
+};
+
+// ───────────────────────── completion ─────────────────────────
+
+export const completionStage: DecisionStageEntry<CompletionOutput, CompletionExpect> = {
+  stageName: "completion",
+  requestType: "decision",
+  graders: [LatencyGrader, CompletionLabelGrader],
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): CompletionOutput {
+    return parseCompletionDecision(rawOutput, sentReq);
+  },
+  label(output: CompletionOutput | undefined, expect: CompletionExpect | undefined): LabelInfo {
+    const p = output?.probability;
+    return {
+      predicted: output ? (output.complete ? "yes" : "no") : null,
+      expected: expect ? (expect.expectedComplete ? "yes" : "no") : null,
+      rawScore: p ?? null,
+      probabilities: p !== undefined ? { yes: p, no: 1 - p } : null,
     };
   },
 };

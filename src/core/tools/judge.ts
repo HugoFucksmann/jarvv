@@ -15,6 +15,14 @@ export interface FragmentScores {
   readonly durationMs: number;
 }
 
+export interface JudgeTraceEvent {
+  readonly startedAt: number;
+  readonly durationMs: number;
+  readonly input: string | null;
+  readonly output: string | null;
+  readonly error: string | null;
+}
+
 export interface FragmentJudge {
   score(need: string, fragments: readonly string[], signal?: AbortSignal): Promise<FragmentScores>;
 }

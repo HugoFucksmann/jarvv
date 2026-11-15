@@ -12,14 +12,17 @@
  * etapa; acá solo se registra, para poder cruzarla con las demás.
  */
 
-import { NOUL_APPROVE, validateAnswer } from "./contract.ts";
+import { COMPLETION_APPROVE, CONTINUATION_APPROVE, GATE_MIN, JUDGE_FOUND, NOUL_APPROVE, validateAnswer } from "./contract.ts";
 import type {
   AnswerExpects,
   ChoiceQ,
+  CompletionExpect,
+  ContinuationExpect,
   DecisionRequest,
   DecisionStage,
   FragmentJudgeExpect,
   GraderCollector,
+  ProbeExpect,
   QuestionResult,
   ResultVerificationExpect,
 } from "./types.ts";
@@ -58,10 +61,28 @@ function mainBindings(
     const rv = expect as unknown as ResultVerificationExpect;
     const wants = [rv.expectedOk, rv.expectedCumple];
     out = keys.map((question, i) => ({ question, expected: wants[i] === undefined ? null : wants[i] ? YES : NO }));
+  } else if (stage === "probe") {
+    const p = expect as unknown as ProbeExpect;
+    out = [{ question: keys[0], expected: p.expectedYes === undefined ? null : p.expectedYes ? YES : NO }];
+  } else if (stage === "continuation") {
+    const c = expect as unknown as ContinuationExpect;
+    out = [{ question: keys[0], expected: c.expectedFollows === undefined ? null : c.expectedFollows ? YES : NO }];
+  } else if (stage === "completion") {
+    const cm = expect as unknown as CompletionExpect;
+    out = [{ question: keys[0], expected: cm.expectedComplete === undefined ? null : cm.expectedComplete ? YES : NO }];
   } else {
     out = [{ question: keys[0], expected: canonicalExpected }];
   }
   return out.filter((b) => req.questions[b.question] !== undefined);
+}
+
+function noulThresholdFor(stage: DecisionStage, role: "main" | "extra"): number {
+  if (role !== "main") return NOUL_APPROVE;
+  if (stage === "continuation") return CONTINUATION_APPROVE;
+  if (stage === "completion") return COMPLETION_APPROVE;
+  if (stage === "probe") return GATE_MIN;
+  if (stage === "fragment_judge") return JUDGE_FOUND;
+  return NOUL_APPROVE;
 }
 
 /** Valida una pregunta `choice` con el código de producción; devuelve el motivo si la respuesta no sirve. */
@@ -146,7 +167,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
         res.error = r;
       } else {
         res.noul = r;
-        res.answer = r >= NOUL_APPROVE ? YES : NO;
+        res.answer = r >= noulThresholdFor(stage, role) ? YES : NO;
       }
     }
 

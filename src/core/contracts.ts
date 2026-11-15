@@ -20,6 +20,8 @@ import type { ArgumentsGenerationResult, MCPTool, TimeSpan } from "./types.ts";
 import type { ExecutableRoute } from "./types/routes.ts";
 import type { cleanInputSchema } from "./utils.ts";
 import type { CaptureSink } from "./trace/sink.ts";
+import type { DiskView } from "./engine/postcondition.ts";
+import type { CommandAnalyzer } from "./engine/precheck.ts";
 
 // ───────────────────────── Descubrimiento de herramientas ─────────────────────────
 
@@ -327,4 +329,8 @@ export interface EngineDeps {
   readonly previousTask?: PreviousTask | null;
   /** Receptor de la traza (D11). Sin él, no se captura nada. */
   readonly sink?: CaptureSink;
+  /** Vista del disco para poscondiciones, tiers y pre-chequeo; omitido = disco real (`REAL_DISK`). */
+  readonly disk?: DiskView;
+  /** Analizador de comandos para el pre-chequeo (`run_command`); omitido = `analyzePowerShell`. */
+  readonly analyzeCommand?: CommandAnalyzer;
 }

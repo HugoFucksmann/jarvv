@@ -23,6 +23,7 @@ import type { CallStatus, JsonObject, Op, StepState, StopReason, TaskContext, Te
 import {
   argsInput,
   askRenderOptions,
+  completionInput,
   finalRenderOptions,
   finalViewOptions,
   pendingInput,
@@ -36,7 +37,6 @@ import {
   verifyInput,
 } from "../../src/core/engine/adapters.ts";
 import { renderAsk, renderFinal } from "../../src/core/render/index.ts";
-import { DECISION_PROMPTS, PROMPTS } from "../../src/core/models/prompts.ts";
 import {
   argumentsStageRequest,
   BASE_TEMPERATURE,
@@ -45,17 +45,23 @@ import {
   planStageRequest,
   questionStageRequest,
 } from "../../src/core/models/stageRequests.ts";
-import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
+import type { StageRequest } from "../../src/core/models/stageRequests.ts";
 import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
 import { codeAnswersOk } from "../../src/core/engine/postcondition.ts";
 import type { CommandAnalyzer, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
-import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+import { argsMax, getToolPolicy, probesOf, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+import type { ProbeCall } from "../../src/core/tools/probes.ts";
+import type { PreviousTask, ProbeQuery } from "../../src/core/contracts.ts";
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
 import { EXECUTABLE_ROUTES, JUDGE_BATCH } from "./contract.ts";
-import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
-import type { DecisionRequest, GenerativeRequest, GenerativeStage, Variant } from "./types.ts";
+import type { ToolInputSchema } from "./contract.ts";
+import { applyVariantPrompts } from "./variants/prompts.ts";
+import type { AppliedVariantPrompts } from "./variants/prompts.ts";
+import type { DecisionRequest, GenerativeRequest, Variant } from "./types.ts";
 import type { UserEnvironment } from "../../src/core/environment.ts";
+
+export { applyVariantPrompts };
 
 /**
  * Lo que, además de `src/`, cambia los prompts de los casos por escenario: la fecha (`TODAY`) y la configuración que fija
@@ -124,6 +130,12 @@ export interface ScenarioAt {
   // fragment_judge: la necesidad (la pregunta de `web_search`) y los fragmentos a puntuar (hasta `JUDGE_BATCH`). No usa el resto del escenario.
   need?: string;
   fragments?: string[];
+  // continuation: tarea anterior para evaluar si el pedido nuevo la continúa.
+  previousTask?: PreviousTask;
+  // probe: consulta directa (`probeQuery`) o sonda del catálogo (`probe` + `probeStage` sobre la llamada evaluada).
+  probeQuery?: ProbeQuery;
+  probe?: string;
+  probeStage?: number;
   // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC).
   environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
 }
@@ -308,16 +320,9 @@ function generative(r: StageRequest, schemaName?: string): GenerativeRequest {
     // Lo que fija producción en cada etapa (`arguments`: según los intentos previos); `BASE_TEMPERATURE` si no fija ninguna.
     temperature: r.temperature ?? BASE_TEMPERATURE,
     thinking: r.thinking,
+    ...(r.reasoningEffort !== undefined ? { reasoningEffort: r.reasoningEffort } : {}),
     ...(r.retryThinking !== undefined ? { retryThinking: r.retryThinking } : {}),
   };
-}
-
-/**
- * Los prompts con que se arma un caso: los de producción, con las vistas y los constructores ENTEROS que la variante define (nada se
- * fusiona por pieza). Lo que la variante no nombra usa el prompt de producción.
- */
-function effectivePrompts(ov?: VariantPrompts): { P: PromptSet; D: typeof DECISION_PROMPTS } {
-  return { P: { ...PROMPTS, ...ov?.PROMPTS } as PromptSet, D: { ...DECISION_PROMPTS, ...ov?.DECISION_PROMPTS } };
 }
 
 /**
@@ -357,31 +362,34 @@ export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer):
  * parámetros de la variante (`params`: temperatura, tokens, thinking…). Lanza `Error` con el motivo si el escenario no sirve.
  */
 export function materializeScenario(stage: string, sc: Scenario, variant?: Variant): Materialized {
-  const built = buildFromScenario(stage, sc, variant?.prompts);
-  const params = variant?.params?.[stage as GenerativeStage];
-  if (params === undefined || built.request.type !== "generative") return built;
-  const defined = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
-  return { ...built, request: { ...built.request, ...defined } };
+  return buildFromScenario(stage, sc, applyVariantPrompts(variant));
 }
 
-function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Materialized {
+function buildFromScenario(stage: string, sc: Scenario, applied: AppliedVariantPrompts): Materialized {
+  const { prompts: P, decisionPrompts: D, stageParams } = applied;
   if (stage === "d0") {
     // La primera consulta de la tarea: solo la solicitud, sin contexto (como `Decision20Engine.firstQuery`).
     if (sc.mode !== "reactive") throw new Error("etapa 'd0': la primera consulta solo existe en modo reactivo.");
-    return decision(effectivePrompts(ov).D.buildFirstQuery({ request: sc.request }));
+    return decision(D.buildFirstQuery({ request: sc.request }));
   }
   if (stage === "fragment_judge") {
     // No hay tarea ni contexto: el juez recibe solo la necesidad y los fragmentos (como `Decision20Engine.score`).
     const at = sc.at ?? {};
     const fragments = at.fragments ?? [];
     if (fragments.length === 0 || fragments.length > JUDGE_BATCH) throw new Error(`etapa 'fragment_judge': at.fragments debe traer entre 1 y ${JUDGE_BATCH} fragmentos.`);
-    return decision(effectivePrompts(ov).D.buildFragmentJudge({ need: need(at.need, "need", stage), fragments }));
+    return decision(D.buildFragmentJudge({ need: need(at.need, "need", stage), fragments }));
   }
-  if (stage === "pending" && sc.mode !== "reactive") throw new Error("etapa 'pending': la lista de pendientes solo existe en modo reactivo.");
+  if (stage === "continuation") {
+    if (sc.mode !== "reactive") throw new Error("etapa 'continuation': la continuación solo existe en modo reactivo.");
+    const at = sc.at ?? {};
+    return decision(D.buildContinuation({ previous: need(at.previousTask, "previousTask", stage), request: sc.request }));
+  }
+  if ((stage === "pending" || stage === "completion") && sc.mode !== "reactive") {
+    throw new Error(`etapa '${stage}': solo existe en modo reactivo.`);
+  }
   const { ctx, callIds } = buildContext(sc);
   const at = sc.at ?? {};
   const config = ConfigManager.getConfig();
-  const { P, D } = effectivePrompts(ov);
 
   switch (stage) {
     case "route": {
@@ -423,7 +431,7 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
       );
     }
     case "plan": {
-      return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config, P), "plan") };
+      return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config, P, { params: stageParams.plan }), "plan") };
     }
     case "arguments": {
       const route = need(at.route, "route", stage);
@@ -431,7 +439,7 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
       // Misma construcción que `scenarioPrecheck`: `kind`, fuentes y entorno del pre-chequeo de producción.
       const { kind, sources, environment: env, refIds } = precheckBase(ctx, route, tool.name, at.environment);
       // Sin `priorAttempts`: un caso `arguments` es siempre el primer intento (`argsInput` aplica 0).
-      const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), config, P);
+      const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), config, P, { params: stageParams.arguments });
       return {
         request: generative(request),
         toolSchema: tool.inputSchema as ToolInputSchema,
@@ -441,13 +449,53 @@ function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Ma
       };
     }
     case "pending": {
-      return { request: generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), P), "pending") };
+      return { request: generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), P, stageParams.pending), "pending") };
+    }
+    case "completion": {
+      return decision(D.buildCompletionCheck(completionInput(ctx)));
+    }
+    case "probe": {
+      let query: ProbeQuery;
+      if (at.probeQuery) {
+        query = at.probeQuery;
+      } else {
+        const id = callIds[at.call ?? callIds.length - 1];
+        if (id === undefined) throw new Error("etapa 'probe': falta at.probeQuery o una llamada a evaluar (scenario.calls / at.call).");
+        const evaluated = ctx.find("calls", { id })[0];
+        if (!evaluated) throw new Error("etapa 'probe': no se encontró la llamada evaluada en el contexto.");
+        const step = ctx.find("steps", { id: evaluated.stepId })[0];
+        const stepText = step?.instruction ?? ctx.task.request;
+        const probeCall: ProbeCall = {
+          tool: evaluated.tool,
+          args: evaluated.args,
+          summary: evaluated.summary,
+          request: ctx.task.mode === "reactive" ? ctx.task.request : stepText,
+          step: ctx.task.mode === "reactive" ? ctx.task.request : stepText,
+        };
+        const server = serverOf(evaluated.route as ExecutableRoute);
+        const applicable = probesOf(server, evaluated.tool).filter((p) => p.applies(probeCall));
+        const selected = at.probe ? applicable.find((p) => p.id === at.probe) : applicable[0];
+        if (!selected) {
+          throw new Error(`etapa 'probe': no hay ninguna sonda aplicable${at.probe ? ` con id '${at.probe}'` : ""} para ${evaluated.tool}.`);
+        }
+        const stages = selected.stages(probeCall);
+        const stageIdx = at.probeStage ?? 0;
+        const picked = stages[stageIdx];
+        if (!picked) throw new Error(`etapa 'probe': probeStage=${stageIdx} fuera de rango (0..${stages.length - 1}) en sonda '${selected.id}'.`);
+        query = { state: picked.state, question: picked.question };
+      }
+      return decision({
+        state: query.state,
+        questions: { probe: { type: "noul", instructions: query.question.instructions, criteria: query.question.criteria } },
+      });
     }
     case "question":
-      return { request: generative(questionStageRequest({ view: renderAsk(ctx.view.forAsk(), askRenderOptions()) }, P)) };
+      return { request: generative(questionStageRequest({ view: renderAsk(ctx.view.forAsk(), askRenderOptions()) }, P, stageParams.question)) };
     case "final":
       return {
-        request: generative(finalStageRequest({ view: renderFinal(ctx.view.forFinal(finalViewOptions()), finalRenderOptions()).text }, config, P)),
+        request: generative(
+          finalStageRequest({ view: renderFinal(ctx.view.forFinal(finalViewOptions()), finalRenderOptions()).text }, config, P, { params: stageParams.final }),
+        ),
       };
     default:
       throw new Error(`etapa '${stage}' desconocida para un escenario.`);

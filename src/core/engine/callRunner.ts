@@ -365,12 +365,17 @@ ${stepText}`, deps.memory?.() ?? []);
   const auto = deps.autoMode();
   // Aprobación por niveles (`policy/tiers.ts`, opt-in `approvalTiers`): reemplaza al `autoMode` binario en las escrituras. Una herramienta no catalogada es roja.
   const tiered = deps.approvalTiers?.() === true;
-  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment) : "red") : null;
+  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, deps.disk) : "red") : null;
   const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
-  const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources: collectSources(ctx, [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])]), environment });
+  const sources = collectSources(
+    ctx,
+    [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])],
+    deps.disk,
+  );
+  const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources, environment }, deps.analyzeCommand, deps.disk);
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (finding !== null) return reject(finding.review, summaryText(finding.reason));
 
@@ -426,6 +431,7 @@ ${stepText}`, deps.memory?.() ?? []);
     signal: runtime.signal,
     taskId: ctx.task.id,
     timeoutMs: timeoutOf(mcp, tool.name),
+    recordJudge: (event) => env.sink.llm({ stage: "fragment_judge", n: ctx.n, ...event }),
     ...(server.dependencies === undefined ? {} : { host: createToolHost(deps.discovery, server.dependencies, env.sink, ctx.task.id) }),
   };
   const raced = await raceCancel(captureCallTool(server, env.sink)(tool.name, resolved, callOptions), runtime.signal);

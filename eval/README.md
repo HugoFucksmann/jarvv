@@ -68,10 +68,37 @@ eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval
 
 ---
 
+## Modos reales (`--source=real-stage` y `--source=real-task`)
+
+Además del modo `--source=dataset` (por defecto, sin cambios en CLI, clientes ni formatos), el evaluador permite probar etapas y tareas completas directamente sobre el núcleo de JARVIS (`src/core`):
+
+| Modo | Qué ejecuta | Entradas (`--dataset=…`) |
+|---|---|---|
+| `--source=dataset` *(default)* | Casos sintéticos por escenario con los clientes históricos del evaluador | Datasets de `eval/datasets/` |
+| `--source=real-stage` | Etapas aisladas reconstruidas o congeladas y materializadas con vistas reales y variantes (`applyVariantPrompts`), generando `RunRecord` y reportes estándar | `.jsonl` con specs `trace` / `frozen` / `executable` (o carpeta/traza directa `trace.json` / `full.json.gz` en `--dry-run`) |
+| `--source=real-task` | Tareas completas de extremo a extremo (`runTask`) usando `QwenEngine`, `Decision20Engine`, `TaskTraceRecorder` y el pipeline completo de seguridad y refs | `.jsonl` con casos `RealTaskCaseSpec` (`request`, `mode`, `files`, `commands`, `webSearches`, `expect`) |
+
+```bash
+# Modo real por etapa (reconstrucción de traza o escenario ejecutable)
+npm run eval -- --source=real-stage --dataset=ruta/suite.jsonl --variant=prod,mi_variante
+npm run eval -- --source=real-stage --dataset=ruta/traza/trace.json --dry-run
+
+# Modo real encadenado en sandbox temporal aislado
+npm run eval -- --source=real-task --dataset=ruta/tareas.jsonl --variant=prod,mi_variante
+npm run eval -- --source=real-task --dataset=ruta/tareas.jsonl --dry-run
+```
+
+**Sandbox y seguridad en `--source=real-task`:**
+- Cada ejecución corre en un directorio temporal aislado (`home`, `Desktop`, `Documents`, `Downloads`, carpeta de refs y servidores MCP acotados al sandbox) que se limpia automáticamente al terminar la tarea, tras extraer las métricas de traza.
+- Corre con `autoMode: true`, `homeDirs` fijados al sandbox y lista negra compilada en nivel `blocked` para rechazar de forma determinista comandos o herramientas de borrado peligroso (`tool_rejected`, sin delegar a D3 ni ejecutarlos).
+- `VerifyDecisionInput.request` no se inyecta sintéticamente en ninguno de los dos modos reales, respetando la firma de producción.
+
+---
+
 ## Datasets generados y cruce con el pre-chequeo
 
 Los datasets de `eval/datasets/<etapa>/` se cargan a mano (casos por escenario, hoy con ayuda de otros modelos y revisión humana); no hay generación automática de casos. Los scripts de `eval/gen/` (`mutaciones.ts`, `ram_real.ts`, `ram_retry.ts`, `repeticiones.ts`) generan casos sintéticos puntuales y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md)). Resultados y conclusiones: [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las mejores variantes por etapa) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
 
 ## Documentación
 
-Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas y estructura del código.
+Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas y estructura del código. La hoja de ruta y checklist de la extensión al modo real está en [`PLAN_EVAL_V2.md`](./PLAN_EVAL_V2.md).

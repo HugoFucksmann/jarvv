@@ -7,10 +7,16 @@
 import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
+  CompletionExpect,
+  CompletionOutput,
+  ContinuationExpect,
+  ContinuationOutput,
   FragmentJudgeExpect,
   FragmentJudgeOutput,
   Grader,
   GraderCollector,
+  ProbeExpect,
+  ProbeOutput,
   ResultVerificationExpect,
   ResultVerificationOutput,
   D0Expect,
@@ -38,6 +44,21 @@ function checkMinProbability(
     return;
   }
   col.check(key, prob >= min, `Probabilidad ${prob.toFixed(3)} de '${label}' menor al mínimo ${min}.`);
+}
+
+function checkMaxProbability(
+  col: GraderCollector,
+  key: string,
+  label: string,
+  prob: number | undefined,
+  max: number | undefined,
+): void {
+  if (max === undefined) return;
+  if (prob === undefined || !Number.isFinite(prob)) {
+    col.check(key, false, `Se pidió probabilidad máxima ${max} para '${label}' pero la salida no trae su probabilidad.`);
+    return;
+  }
+  col.check(key, prob <= max, `Probabilidad ${prob.toFixed(3)} de '${label}' mayor al máximo ${max}.`);
 }
 
 export const D0LabelGrader: Grader<D0Output, D0Expect> = {
@@ -176,5 +197,59 @@ export const FragmentJudgeGrader: Grader<FragmentJudgeOutput, FragmentJudgeExpec
       );
       if (want) checkMinProbability(col, `fragment_${i}_min_probability`, `f${i}`, p, expect.minProbability);
     });
+  },
+};
+
+export const ProbeLabelGrader: Grader<ProbeOutput, ProbeExpect> = {
+  name: "probe_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("probe_valid", false, "No se pudo obtener la decisión de la sonda.");
+      return;
+    }
+    col.measure("probe_prob", output.probability);
+    col.check(
+      "probe_match",
+      output.yes === expect.expectedYes,
+      `Sonda respondió ${output.yes ? "sí" : "no"} (p=${output.probability.toFixed(3)}) y se esperaba ${expect.expectedYes ? "sí" : "no"}.`,
+    );
+    checkMinProbability(col, "min_probability_met", "probe", output.probability, expect.minProbability);
+    checkMaxProbability(col, "max_probability_met", "probe", output.probability, expect.maxProbability);
+  },
+};
+
+export const ContinuationLabelGrader: Grader<ContinuationOutput, ContinuationExpect> = {
+  name: "continuation_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("continuation_valid", false, "No se pudo obtener la decisión de continuación.");
+      return;
+    }
+    col.measure("follow_prob", output.probability);
+    col.check(
+      "continuation_match",
+      output.follows === expect.expectedFollows,
+      `Continuación respondió ${output.follows ? "sí" : "no"} (p=${output.probability.toFixed(3)}) y se esperaba ${expect.expectedFollows ? "sí" : "no"}.`,
+    );
+    checkMinProbability(col, "min_probability_met", "follow", output.probability, expect.minProbability);
+    checkMaxProbability(col, "max_probability_met", "follow", output.probability, expect.maxProbability);
+  },
+};
+
+export const CompletionLabelGrader: Grader<CompletionOutput, CompletionExpect> = {
+  name: "completion_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("completion_valid", false, "No se pudo obtener la decisión de cierre (Decisión 5).");
+      return;
+    }
+    col.measure("completion_prob", output.probability);
+    col.check(
+      "completion_match",
+      output.complete === expect.expectedComplete,
+      `Cierre respondió ${output.complete ? "sí" : "no"} (p=${output.probability.toFixed(3)}) y se esperaba ${expect.expectedComplete ? "sí" : "no"}.`,
+    );
+    checkMinProbability(col, "min_probability_met", "request_complete", output.probability, expect.minProbability);
+    checkMaxProbability(col, "max_probability_met", "request_complete", output.probability, expect.maxProbability);
   },
 };

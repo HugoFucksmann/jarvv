@@ -10,7 +10,17 @@ import { ARGS_REVIEWS, EXECUTABLE_ROUTES, isExecutableRoute } from "./contract.t
 import type { DecisionStage, Case, GenerativeStage, StageName } from "./types.ts";
 
 /** Etapas conocidas por el eval. Deben coincidir con el registro `stages/index.ts` (`allStageNames()`). */
-export const DECISION_STAGES: readonly DecisionStage[] = ["d0", "route", "tool_choice", "args_review", "result_verification", "fragment_judge"];
+export const DECISION_STAGES: readonly DecisionStage[] = [
+  "d0",
+  "route",
+  "tool_choice",
+  "args_review",
+  "result_verification",
+  "fragment_judge",
+  "probe",
+  "continuation",
+  "completion",
+];
 export const GENERATIVE_STAGES: readonly GenerativeStage[] = ["plan", "arguments", "final", "question", "pending"];
 export const ALL_STAGES: readonly StageName[] = [...DECISION_STAGES, ...GENERATIVE_STAGES];
 
@@ -116,6 +126,18 @@ const EXPECT_SPECS: Record<StageName, ExpectSpec> = {
   fragment_judge: {
     keys: { expectedRelevant: "boolean[]", minProbability: "number", answers: "object" },
     required: ["expectedRelevant"],
+  },
+  probe: {
+    keys: { expectedYes: "boolean", minProbability: "number", maxProbability: "number", answers: "object" },
+    required: ["expectedYes"],
+  },
+  continuation: {
+    keys: { expectedFollows: "boolean", minProbability: "number", maxProbability: "number", answers: "object" },
+    required: ["expectedFollows"],
+  },
+  completion: {
+    keys: { expectedComplete: "boolean", minProbability: "number", maxProbability: "number", answers: "object" },
+    required: ["expectedComplete"],
   },
   plan: {
     keys: {
@@ -255,11 +277,17 @@ function validateExpect(stage: StageName, expectObj: Record<string, unknown>, er
     checkRouteList("allowedRoutes", expectObj.allowedRoutes);
     checkRouteList("requiredRoutes", expectObj.requiredRoutes);
   }
-  for (const key of ["minProbability", "minOkProb", "minCumpleProb"]) {
+  for (const key of ["minProbability", "maxProbability", "minChatProbability", "maxChatProbability", "minOkProb", "minCumpleProb"]) {
     const v = expectObj[key];
     if (typeof v === "number" && Number.isFinite(v) && (v < 0 || v > 1)) {
       errs.push(`expect.${key} debe estar entre 0 y 1 (recibido: ${v}).`);
     }
+  }
+  if (
+    typeof expectObj.minProbability === "number" && typeof expectObj.maxProbability === "number" &&
+    expectObj.minProbability > expectObj.maxProbability
+  ) {
+    errs.push(`expect.minProbability (${expectObj.minProbability}) no puede ser mayor que expect.maxProbability (${expectObj.maxProbability}).`);
   }
   for (const key of ["minSteps", "maxSteps", "maxChars", "maxItems"]) {
     const v = expectObj[key];

@@ -14,7 +14,16 @@ export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
-export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge";
+export type DecisionStage =
+  | "d0"
+  | "route"
+  | "tool_choice"
+  | "args_review"
+  | "result_verification"
+  | "fragment_judge"
+  | "probe"
+  | "continuation"
+  | "completion";
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
@@ -181,6 +190,45 @@ export interface FragmentJudgeOutput {
   relevant: boolean[];
 }
 
+// probe (sonda de verificación de herramientas)
+export interface ProbeExpect {
+  expectedYes: boolean;
+  minProbability?: number;
+  maxProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface ProbeOutput {
+  /** `probability >= GATE_MIN`. */
+  yes: boolean;
+  probability: number;
+}
+
+// continuation (hilo: ¿el pedido nuevo continúa la tarea anterior?)
+export interface ContinuationExpect {
+  expectedFollows: boolean;
+  minProbability?: number;
+  maxProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface ContinuationOutput {
+  /** `probability >= CONTINUATION_APPROVE`. */
+  follows: boolean;
+  probability: number;
+}
+
+// completion (Decisión 5: con la lista vacía, ¿la solicitud completa ya está cumplida?)
+export interface CompletionExpect {
+  expectedComplete: boolean;
+  minProbability?: number;
+  maxProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface CompletionOutput {
+  /** `probability >= COMPLETION_APPROVE`. */
+  complete: boolean;
+  probability: number;
+}
+
 // plan
 export interface PlanStep {
   goal: string;
@@ -260,6 +308,9 @@ export type StageExpect =
   | ArgsReviewExpect
   | ResultVerificationExpect
   | FragmentJudgeExpect
+  | ProbeExpect
+  | ContinuationExpect
+  | CompletionExpect
   | PlanExpect
   | ArgumentsExpect
   | FinalExpect

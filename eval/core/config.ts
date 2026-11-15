@@ -13,7 +13,12 @@ import { parseVariantSpecs } from "./variants/load.ts";
 
 // ───────────────────────── Tipos ─────────────────────────
 
+export type EvalSource = "dataset" | "real-stage" | "real-task";
+
 export interface EvalConfig {
+  // Origen
+  source: EvalSource;
+
   // Datasets
   datasetSpecs: string[];     // specs crudas (archivo|carpeta|glob separadas por coma)
 
@@ -83,7 +88,7 @@ export function resolveDecisionTimeout(cfg: EvalConfig): number {
 // ───────────────────────── Flags conocidos ─────────────────────────
 
 const KNOWN_FLAGS = new Set([
-  "dataset", "variant", "baseline", "stages", "tags", "ids", "limit",
+  "source", "dataset", "variant", "baseline", "stages", "tags", "ids", "limit",
   "repeat", "concurrency", "model", "url", "decision-url",
   "thinking", "timeout", "client",
   "dry-run", "list", "label", "min-pass-rate", "include-shortcut", "no-baseline",
@@ -177,6 +182,13 @@ function csvList(flags: Map<string, string | true>, key: string): string[] {
 export function parseConfig(argv: string[]): EvalConfig {
   const flags = parseArgs(argv);
 
+  // source
+  const sourceRaw = str(flags, "source") ?? "dataset";
+  if (sourceRaw !== "dataset" && sourceRaw !== "real-stage" && sourceRaw !== "real-task") {
+    throw new Error(`--source: debe ser 'dataset', 'real-stage' o 'real-task', recibido: '${sourceRaw}'.`);
+  }
+  const source: EvalSource = sourceRaw;
+
   // stages
   const stageNames = allStageNames();
   const stagesRaw = csvList(flags, "stages");
@@ -230,10 +242,15 @@ export function parseConfig(argv: string[]): EvalConfig {
   const modelRaw = str(flags, "model");
   const { model, decisionModel } = modelRaw !== undefined ? parseModel(modelRaw) : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
 
+  const list = bool(flags, "list");
   const datasetList = csvList(flags, "dataset");
+  if (source !== "dataset" && !list && datasetList.length === 0) {
+    throw new Error(`--source=${source} requiere --dataset=<ruta|archivo.jsonl|glob>.`);
+  }
   const datasetSpecs = datasetList.length > 0 ? datasetList : [DEFAULT_DATASETS];
 
   return {
+    source,
     datasetSpecs,
     variantSpecs,
     baseline,
@@ -251,7 +268,7 @@ export function parseConfig(argv: string[]): EvalConfig {
     timeoutMs: int(flags, "timeout", 1),
     client: clientRaw as "real" | "mock" | "oracle",
     dryRun: bool(flags, "dry-run"),
-    list: bool(flags, "list"),
+    list,
     includeShortcut: bool(flags, "include-shortcut"),
     label: str(flags, "label"),
     minPassRate,

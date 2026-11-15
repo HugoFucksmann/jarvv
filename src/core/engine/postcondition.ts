@@ -17,12 +17,26 @@ export interface DiskView {
   exists(p: string): boolean;
   isDirectory(p: string): boolean;
   size(p: string): number;
+  readFile?(p: string, maxBytes?: number): string | null;
 }
 
 export const REAL_DISK: DiskView = {
   exists: (p) => fs.existsSync(p),
   isDirectory: (p) => fs.statSync(p).isDirectory(),
   size: (p) => fs.statSync(p).size,
+  readFile: (p, maxBytes = 400_000) => {
+    try {
+      const fd = fs.openSync(p, "r");
+      try {
+        const buffer = Buffer.alloc(maxBytes);
+        return buffer.subarray(0, fs.readSync(fd, buffer, 0, buffer.length, 0)).toString("utf8");
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return null;
+    }
+  },
 };
 
 /** El valor es una ruta absoluta sin referencias `{{ref:…}}` sin resolver. */

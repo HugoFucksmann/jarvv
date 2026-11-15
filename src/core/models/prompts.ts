@@ -148,7 +148,7 @@ ${DATA_NOTICE_EN}`,
     buildUserPrompt(data: ArgsViewPromptData): string {
       const desc = shortDesc(data.tool.description, "");
       return join([
-        todayLine(),
+        todayLine(data.now),
         linesBlock("ENV", Object.entries(data.environment).filter(([k]) => k !== "platform").map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
         `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
         `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
@@ -199,10 +199,10 @@ STEPS DONE lists the completed steps and what each returned: they stay valid, do
 USER holds what the user answered or instructed: follow it. STATE lists facts about the environment, such as the active process id. EFFECTS are changes already applied to the computer, even if their step failed: do not repeat them and take them into account. POSSIBLE EFFECTS are operations that failed or were interrupted and may have left partial changes.
 ${DATA_NOTICE_EN}`,
 
-    buildUserPrompt(data: { readonly view: string; readonly maxSteps: number; readonly catalog?: string }): string {
+    buildUserPrompt(data: { readonly view: string; readonly maxSteps: number; readonly catalog?: string; readonly now?: Date }): string {
       return join([
         data.catalog ? `CATALOG OF CAPABILITIES:\n${data.catalog}` : null,
-        todayLine(),
+        todayLine(data.now),
         `MAX_STEPS: ${data.maxSteps}`,
         data.view,
       ]);
@@ -266,9 +266,9 @@ ${DATA_NOTICE_EN}`,
 - Start directly with the answer, without a greeting. Do not mention internal call ids (such as c1, s2 or r3), tools, process numbers or internal statuses (such as loop_blocked).
 ${DATA_NOTICE_EN}`,
 
-    buildUserPrompt(data: { readonly view: string; readonly thread?: PreviousTask }): string {
+    buildUserPrompt(data: { readonly view: string; readonly thread?: PreviousTask; readonly now?: Date }): string {
       if (!data.view.trim()) return "(no context available)";
-      return data.thread === undefined ? `${todayLine()}\n\n${data.view}` : `${todayLine()}\n\n${threadBlock(data.thread)}\n\n${data.view}`;
+      return data.thread === undefined ? `${todayLine(data.now)}\n\n${data.view}` : `${todayLine(data.now)}\n\n${threadBlock(data.thread)}\n\n${data.view}`;
     },
   },
 
@@ -284,6 +284,8 @@ export interface ArgsViewPromptData {
   view: string;
   /** Hechos guardados por el usuario que coinciden con el pedido (`clave: valor`). */
   memory?: readonly string[];
+  /** Fecha de referencia para `TODAY`; omitido = `new Date()`. */
+  now?: Date;
 }
 
 /** Datos del prompt de la pregunta al usuario (Fase 5). */

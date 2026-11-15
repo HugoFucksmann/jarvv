@@ -50,7 +50,7 @@ import {
   RETRY_TOKEN_FACTOR,
   TRUNCATED,
 } from "./stageRequests.ts";
-import type { PromptSet, StageRequest } from "./stageRequests.ts";
+import type { PromptSet, StageParamsOverride, StageRequest, StageRequestOptions } from "./stageRequests.ts";
 import { isWholeRefToken, schemaTypes } from "../refs/refResolver.ts";
 import {
   estimateTokens,
@@ -276,7 +276,63 @@ const parseObjectOutput = (r: LlmDispatchResult): Validation<Record<string, unkn
   return parsed ? ok(parsed) : fail(NOT_JSON);
 };
 
-const MIN_COMPLETION_TOKENS = 256;
+export const MIN_COMPLETION_TOKENS = 256;
+
+export function reserveCompletionTokens(o: { system: string; user: string; maxTokens: number }, numCtx: number): number | null {
+  const available = numCtx - (estimateTokens(o.system) + estimateTokens(o.user));
+  if (available < MIN_COMPLETION_TOKENS) return null;
+  return Math.min(o.maxTokens, available);
+}
+
+export interface GenerativeBodyInput {
+  stage?: string;
+  system: string;
+  user: string;
+  json: boolean;
+  schema?: JsonSchema;
+  schemaName?: string;
+  maxTokens: number;
+  thinking: boolean;
+  temperature?: number;
+  reasoningEffort?: string;
+}
+
+/** Body para `/v1/chat/completions` compatible con Ollama/OpenAI, preservando el orden de claves de producción. */
+export function buildGenerativeBody(
+  model: string,
+  o: GenerativeBodyInput,
+  maxTokens: number = o.maxTokens,
+  keepAlive?: string,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model,
+    messages: [
+      { role: "system", content: o.system },
+      { role: "user", content: o.user },
+    ],
+    temperature: o.temperature ?? BASE_TEMPERATURE,
+    max_tokens: maxTokens,
+    stream: false,
+    reasoning_effort: o.reasoningEffort ?? (o.thinking ? "low" : "none"),
+    ...(keepAlive !== undefined ? { keep_alive: keepAlive } : {}),
+  };
+  if (o.schema) {
+    body.response_format = {
+      type: "json_schema",
+      json_schema: { name: o.schemaName ?? o.stage ?? "plan", strict: false, schema: o.schema },
+    };
+  } else if (o.json) {
+    body.response_format = { type: "json_object" };
+  }
+  return body;
+}
+
+export type QwenStageKey = "plan" | "arguments" | "question" | "pending" | "final";
+
+export interface QwenEngineOptions {
+  now?: () => Date;
+  stageParams?: Partial<Record<QwenStageKey, StageParamsOverride>>;
+}
 
 interface DispatchOptions {
   stage: string;
@@ -288,6 +344,7 @@ interface DispatchOptions {
   maxTokens: number;
   thinking: boolean;
   temperature: number;
+  reasoningEffort?: string;
   signal?: AbortSignal;
 }
 
@@ -329,7 +386,15 @@ export class QwenEngine implements EngineLLM {
   constructor(
     private readonly getConfig: ConfigSource,
     private readonly prompts: PromptSet = PROMPTS,
+    private readonly options?: QwenEngineOptions,
   ) { }
+
+  private stageOptions(stage: QwenStageKey): StageRequestOptions | undefined {
+    const now = this.options?.now?.();
+    const params = this.options?.stageParams?.[stage];
+    if (now === undefined && params === undefined) return undefined;
+    return { ...(now !== undefined ? { now } : {}), ...(params !== undefined ? { params } : {}) };
+  }
 
   /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
   private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
@@ -370,9 +435,9 @@ export class QwenEngine implements EngineLLM {
    * puede perder el SYSTEM, así que un prompt sin margen de salida se rechaza antes de enviarlo.
    */
   private reserveCompletionTokens(o: DispatchOptions, numCtx: number): number {
-    const promptEstimate = estimateTokens(o.system) + estimateTokens(o.user);
-    const available = numCtx - promptEstimate;
-    if (available < MIN_COMPLETION_TOKENS) {
+    const maxTokens = reserveCompletionTokens(o, numCtx);
+    if (maxTokens === null) {
+      const promptEstimate = estimateTokens(o.system) + estimateTokens(o.user);
       throw new LLMValidationError(
         `El prompt de '${o.stage}' (~${promptEstimate} tokens) no deja espacio de salida en el contexto de ${numCtx} tokens.`,
         undefined,
@@ -380,7 +445,6 @@ export class QwenEngine implements EngineLLM {
         true // desborde: no se envió nada y repetir no sirve (D15)
       );
     }
-    const maxTokens = Math.min(o.maxTokens, available);
     if (maxTokens < o.maxTokens) {
       console.warn(`[Qwen] stage=${o.stage} max_tokens reducido ${o.maxTokens} -> ${maxTokens} por límite de contexto (${numCtx}).`);
     }
@@ -388,28 +452,7 @@ export class QwenEngine implements EngineLLM {
   }
 
   private buildRequestBody(o: DispatchOptions, model: string, maxTokens: number): Record<string, unknown> {
-    const body: Record<string, unknown> = {
-      model,
-      messages: [
-        { role: "system", content: o.system },
-        { role: "user", content: o.user },
-      ],
-      temperature: o.temperature,
-      max_tokens: maxTokens,
-      stream: false,
-      reasoning_effort: o.thinking ? "low" : "none",
-      // Mantiene el modelo cargado entre tareas (Ollama lo acepta también en /v1/chat/completions).
-      keep_alive: this.getConfig().modelKeepAlive,
-    };
-    if (o.schema) {
-      body.response_format = {
-        type: "json_schema",
-        json_schema: { name: o.stage, strict: false, schema: o.schema },
-      };
-    } else if (o.json) {
-      body.response_format = { type: "json_object" };
-    }
-    return body;
+    return buildGenerativeBody(model, o, maxTokens, this.getConfig().modelKeepAlive);
   }
 
   /** Una petición de inferencia. No valida el contenido. */
@@ -493,6 +536,7 @@ export class QwenEngine implements EngineLLM {
         maxTokens: retry ? Math.ceil(o.maxTokens * RETRY_TOKEN_FACTOR) : o.maxTokens,
         thinking: retry ? (o.retryThinking ?? o.thinking) : o.thinking,
         temperature: retry ? Math.max(RETRY_TEMPERATURE, o.temperature ?? 0) : (o.temperature ?? BASE_TEMPERATURE),
+        ...(o.reasoningEffort !== undefined ? { reasoningEffort: o.reasoningEffort } : {}),
         signal: o.signal,
       });
       last = res;
@@ -515,7 +559,7 @@ export class QwenEngine implements EngineLLM {
   /** Argumentos desde la vista estructurada: validados contra el schema de la herramienta, con un reintento. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
     return this.executeStage("generateArgumentsFromView", () =>
-      this.runArguments(input.tool, argumentsStageRequest(input, this.getConfig(), this.prompts), signal)
+      this.runArguments(input.tool, argumentsStageRequest(input, this.getConfig(), this.prompts, this.stageOptions("arguments")), signal)
     );
   }
 
@@ -523,7 +567,7 @@ export class QwenEngine implements EngineLLM {
   async generateQuestion(input: QuestionInput, signal?: AbortSignal): Promise<QuestionGenerationResult> {
     return this.executeStage("generateQuestion", async () => {
       const { value, res } = await this.dispatchValidated<string>({
-        ...questionStageRequest(input, this.prompts),
+        ...questionStageRequest(input, this.prompts, this.options?.stageParams?.question),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content).trim();
@@ -544,7 +588,7 @@ export class QwenEngine implements EngineLLM {
   async generatePendingFromView(input: PendingFromViewInput, signal?: AbortSignal): Promise<PendingGenerationResult> {
     return this.executeStage("generatePendingFromView", async () => {
       const { value, res } = await this.dispatchValidated<string[]>({
-        ...pendingStageRequest(input, this.prompts),
+        ...pendingStageRequest(input, this.prompts, this.options?.stageParams?.pending),
         signal,
         validate: (r) => {
           const out = parseObjectOutput(r);
@@ -564,7 +608,7 @@ export class QwenEngine implements EngineLLM {
   async generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult> {
     return this.executeStage("generatePlanFromView", async () => {
       const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
-        ...planStageRequest(input, this.getConfig(), this.prompts),
+        ...planStageRequest(input, this.getConfig(), this.prompts, this.stageOptions("plan")),
         signal,
         validate: (r) => {
           const out = parseObjectOutput(r);
@@ -583,7 +627,7 @@ export class QwenEngine implements EngineLLM {
   async generateFinalFromView(input: FinalFromViewInput, signal?: AbortSignal): Promise<FinalGenerationResult> {
     return this.executeStage("generateFinalFromView", async () => {
       const { value, res } = await this.dispatchValidated<string>({
-        ...finalStageRequest(input, this.getConfig(), this.prompts),
+        ...finalStageRequest(input, this.getConfig(), this.prompts, this.stageOptions("final")),
         signal,
         validate: (r, isLast) => {
           const text = stripThink(r.content);

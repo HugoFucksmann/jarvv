@@ -20,6 +20,7 @@ import { promisify } from "node:util";
 import type { TaskContext } from "../ctx/index.ts";
 import type { Platform, UserEnvironment } from "../environment.ts";
 import { reviewViewOptions } from "./adapters.ts";
+import { REAL_DISK, type DiskView } from "./postcondition.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,12 +111,14 @@ function readRefText(where: string): string | null {
   }
 }
 
+export type PrecheckDisk = Pick<DiskView, "exists" | "readFile">;
+
 /**
  * Fuentes de la tarea para las comprobaciones "esto no aparece en nada": pedido, pasos, respuestas del usuario y todas las
  * llamadas, incluido el contenido de sus refs (una búsqueda o una página larga queda casi siempre en una ref: sin leerla, las
  * URLs y rutas que aparecen solo ahí se darían por inventadas, o habría que apagar la comprobación en toda la tarea).
  */
-export function collectSources(ctx: TaskContext, extra: readonly string[] = []): PrecheckSources {
+export function collectSources(ctx: TaskContext, extra: readonly string[] = [], disk: PrecheckDisk = REAL_DISK): PrecheckSources {
   // `extra`: valores de los hechos de la memoria del usuario que se pasaron a la generación (sin esto, una ruta que viene de un hecho se rechazaría como inventada).
   const parts: string[] = [ctx.task.request, ...extra];
   for (const step of ctx.find("steps", {})) if (step.instruction) parts.push(step.instruction);
@@ -127,7 +130,7 @@ export function collectSources(ctx: TaskContext, extra: readonly string[] = []):
     if (call.status === "ok" && call.summary !== null) parts.push(call.summary);
     if (call.ref !== null) {
       const ref = ctx.find("refs", {}).find((r) => r.id === call.ref);
-      const text = ref === undefined ? null : readRefText(ref.where);
+      const text = ref === undefined ? null : (disk.readFile ? disk.readFile(ref.where, REF_SOURCE_MAX_BYTES) : readRefText(ref.where));
       // Una ref ilegible (archivo borrado) puede contener lo que se busca: sin ella la comprobación no es concluyente.
       if (text === null) complete = false;
       else if (call.status === "ok") parts.push(text);
@@ -355,14 +358,14 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
  * se comprueba en el disco solo si la carpeta de inicio del entorno existe en esta PC (un entorno inventado, como el de un caso de prueba, no se juzga) y solo con rutas
  * absolutas. `create_directory` sí crea las carpetas intermedias y no entra acá.
  */
-function checkParentFolder(input: PrecheckInput): PrecheckFinding | null {
+function checkParentFolder(input: PrecheckInput, disk: Pick<DiskView, "exists"> = REAL_DISK): PrecheckFinding | null {
   const key = input.tool === "write_file" ? "path" : input.tool === "move_file" ? "destination" : null;
   const value = key === null ? undefined : input.args[key];
   if (typeof value !== "string" || !isAbsolutePath(normalizeText(value))) return null;
   try {
-    if (!fs.existsSync(input.environment.home)) return null;
+    if (!disk.exists(input.environment.home)) return null;
     const parent = path.dirname(value);
-    if (parent === value || fs.existsSync(parent)) return null;
+    if (parent === value || disk.exists(parent)) return null;
     return {
       review: "args_invalid",
       reason: `The folder '${parent}' does not exist, so '${value}' cannot be written there. Create the folder first with create_directory, or use a folder that exists (ENV lists the user's folders; the folder the user means may be inside one of them).`,
@@ -372,10 +375,14 @@ function checkParentFolder(input: PrecheckInput): PrecheckFinding | null {
   }
 }
 
-export async function precheckCall(input: PrecheckInput, analyze: CommandAnalyzer = analyzePowerShell): Promise<PrecheckFinding | null> {
+export async function precheckCall(
+  input: PrecheckInput,
+  analyze: CommandAnalyzer = analyzePowerShell,
+  disk: Pick<DiskView, "exists"> = REAL_DISK,
+): Promise<PrecheckFinding | null> {
   const values = checkValues(input);
   if (values !== null) return values;
-  const parent = checkParentFolder(input);
+  const parent = checkParentFolder(input, disk);
   if (parent !== null) return parent;
 
   // `run_command` ejecuta siempre PowerShell (no tiene un argumento `shell`): se comprueba el comando como PowerShell.

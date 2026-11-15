@@ -9,7 +9,11 @@
 
 import {
   ARGS_REVIEWS,
+  COMPLETION_APPROVE,
+  COMPLETION_KEY,
+  CONTINUATION_APPROVE,
   EXECUTABLE_ROUTES,
+  GATE_MIN,
   isExecutableRoute,
   JUDGE_FOUND,
   NOUL_APPROVE,
@@ -21,8 +25,11 @@ import { firstQueryKind } from "../../../src/core/engine/firstQuery.ts";
 import type {
   ArgsReviewOutput,
   ChoiceQ,
+  CompletionOutput,
+  ContinuationOutput,
   FragmentJudgeOutput,
   DecisionRequest,
+  ProbeOutput,
   ResultVerificationOutput,
   D0Output,
   RouteOutput,
@@ -49,6 +56,9 @@ export const MAIN_QUESTIONS: Record<string, readonly string[]> = {
   result_verification: ["ok", "cumple"],
   // Una pregunta por fragmento (`f0`, `f1`…): las claves dependen del caso, ver `fragmentKeys`.
   fragment_judge: [],
+  probe: ["probe"],
+  continuation: ["follow"],
+  completion: [COMPLETION_KEY],
 };
 
 /** Claves de las preguntas por fragmento (`f0`, `f1`…) que trae un request, en orden. */
@@ -162,4 +172,32 @@ export function parseFragmentJudgeDecision(rawOutput: string, sentReq: DecisionR
 
   const probabilities = keys.map((k) => extractNoul(answers, k));
   return { probabilities, relevant: probabilities.map((p) => p >= JUDGE_FOUND) };
+}
+
+function mainNoul(stage: string, rawOutput: string, sentReq: DecisionRequest): number {
+  const answers = parseAnswers(rawOutput);
+  const questionKey = MAIN_QUESTIONS[stage][0];
+  const q = sentReq.questions[questionKey];
+  if (!q || q.type !== "noul") {
+    throw new DecisionParseError(`La pregunta '${questionKey}' de la etapa '${stage}' no es noul o no existe.`);
+  }
+  return extractNoul(answers, questionKey);
+}
+
+/** Parsea la respuesta de una sonda (`Decision20Engine.probe`). Umbral: `GATE_MIN` (0.6). */
+export function parseProbeDecision(rawOutput: string, sentReq: DecisionRequest): ProbeOutput {
+  const probability = mainNoul("probe", rawOutput, sentReq);
+  return { yes: probability >= GATE_MIN, probability };
+}
+
+/** Parsea la respuesta de continuación (`Decision20Engine.continuation`). Umbral: `CONTINUATION_APPROVE` (0.3). */
+export function parseContinuationDecision(rawOutput: string, sentReq: DecisionRequest): ContinuationOutput {
+  const probability = mainNoul("continuation", rawOutput, sentReq);
+  return { follows: probability >= CONTINUATION_APPROVE, probability };
+}
+
+/** Parsea la respuesta de cierre Decisión 5 (`Decision20Engine.checkCompletion`). Umbral: `COMPLETION_APPROVE` (0.75). */
+export function parseCompletionDecision(rawOutput: string, sentReq: DecisionRequest): CompletionOutput {
+  const probability = mainNoul("completion", rawOutput, sentReq);
+  return { complete: probability >= COMPLETION_APPROVE, probability };
 }

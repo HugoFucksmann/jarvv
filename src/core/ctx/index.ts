@@ -7,6 +7,7 @@
 
 export { create } from "./create.ts";
 export type { CreateContextParams } from "./create.ts";
+export { parseSnapshot } from "./snapshot.ts";
 export { TaskContext } from "./context.ts";
 export type { ChangeListener } from "./context.ts";
 export { ContextError } from "./errors.ts";
