@@ -185,7 +185,11 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
   }),
   def("files", "create_directory", "FILE_WRITE", "Create a directory or ensure it exists.", { probes: [PLACE_PROBE] }),
-  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path (names only: no sizes or dates).", { params: ["path", "depth"], probes: [ATTRIBUTE_PROBE] }),
+  def("files", "list_directory", "FILE_READ", "List files and subdirectories of a path (names only: no sizes or dates).", {
+    params: ["path", "depth"],
+    notes: { depth: "Traversal depth (integer >= 1; omit for 1)." },
+    probes: [ATTRIBUTE_PROBE],
+  }),
   def("files", "move_file", "FILE_WRITE", "Move or rename files or directories.", { probes: [PLACE_PROBE] }),
 
   def("locate", "start_search", "FILE_READ", "Start a streaming file search.", {
@@ -237,10 +241,9 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 150_000,
   }),
-  // Internas de `web_search` (Free Search). `search` devuelve enlaces con extractos (es lo que usa `web_search`); `research` busca y lee en una sola llamada; `fetch` descarga UNA URL como Markdown.
+  // Internas de `web_search` (Free Search). `search` devuelve enlaces con extractos (es lo que usa `web_search`); `read_doc` lee un documento por ventanas; `fetch` descarga UNA URL como Markdown.
   internalDef("free_search", "web", "search", "READ", "Search the web and return a list of links with snippets.", { emptyIsError: true, repeat: "retry_failed" }),
   internalDef("free_search", "web", "read_doc", "READ", "Read a long page or document in windows (start, length).", { repeat: "retry_failed" }),
-  internalDef("free_search", "web", "research", "READ", "Search the web and read the top pages in one call.", { emptyIsError: true, repeat: "retry_failed" }),
   internalDef("free_search", "web", "fetch", "READ", "Download ONE known URL as Markdown.", { repeat: "retry_failed" }),
 ];
 

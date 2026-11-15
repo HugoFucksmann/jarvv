@@ -26,7 +26,7 @@ interface SettingsModalProps {
 }
 
 type McpKey = "desktopCommanderMcp" | "freeSearchMcp";
-type McpPatch = { command?: string; args?: string[] };
+type McpPatch = { command?: string; args?: string[]; allowedDirectories?: string[] };
 
 const SAVED_FEEDBACK_MS = 600;
 
@@ -88,14 +88,15 @@ interface NumberFieldProps {
   id: string;
   label: string;
   value: number;
+  min?: number;
   onChange: (value: number) => void;
 }
 
 /**
- * Entero positivo, como lo exige el back (`positiveInt`: otro valor se descarta en silencio y se conserva el anterior).
+ * Entero >= `min` (por defecto 1, como `positiveInt`; `min={0}` para topes que permiten desactivar con 0).
  * Mantiene el texto tal como se escribe y solo propaga valores válidos; el formulario no se envía mientras sea inválido.
  */
-const NumberField: React.FC<NumberFieldProps> = ({ id, label, value, onChange }) => {
+const NumberField: React.FC<NumberFieldProps> = ({ id, label, value, min = 1, onChange }) => {
   const [text, setText] = useState(String(value));
 
   // Re-sincroniza solo cuando el valor externo cambia por otra vía (p. ej. tras guardar)
@@ -112,14 +113,14 @@ const NumberField: React.FC<NumberFieldProps> = ({ id, label, value, onChange })
         id={id}
         type="number"
         required
-        min={1}
+        min={min}
         step={1}
         inputMode="numeric"
         value={text}
         onChange={(e) => {
           setText(e.target.value);
           const n = Number(e.target.value);
-          if (Number.isInteger(n) && n >= 1) onChange(n);
+          if (Number.isInteger(n) && n >= min) onChange(n);
         }}
         className={`w-full px-2.5 py-1.5 ${INPUT_BASE} font-mono text-xs tabular-nums invalid:border-rose-700`}
       />
@@ -221,11 +222,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Estado para formulario de nueva regla en lista negra
+  // Estado para formulario de nueva regla en lista negra y directorios permitidos
   const [showBlacklistForm, setShowBlacklistForm] = useState(false);
   const [newTool, setNewTool] = useState("");
   const [newPattern, setNewPattern] = useState("");
   const [newReason, setNewReason] = useState("");
+  const [newAllowedDir, setNewAllowedDir] = useState("");
 
   const loadConfig = useCallback(async () => {
     setIsLoading(true);
@@ -274,6 +276,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleRemoveBlacklist = (index: number) => {
     const list = (config?.blacklist || []).filter((_, i) => i !== index);
     update({ blacklist: list });
+  };
+
+  const handleAddAllowedDir = () => {
+    const dir = newAllowedDir.trim();
+    if (!dir) return;
+    const current = config?.desktopCommanderMcp?.allowedDirectories || [];
+    if (!current.includes(dir)) {
+      updateMcp("desktopCommanderMcp", { allowedDirectories: [...current, dir] });
+    }
+    setNewAllowedDir("");
+  };
+
+  const handleRemoveAllowedDir = (index: number) => {
+    const current = config?.desktopCommanderMcp?.allowedDirectories || [];
+    updateMcp("desktopCommanderMcp", { allowedDirectories: current.filter((_, i) => i !== index) });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -509,7 +526,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed">
-                    Con el modo automático activado, las operaciones de escritura y comandos del catálogo <strong className="text-slate-200">no generarán espera de aprobación manual</strong>; serán validadas directamente por la revisión de argumentos de Decisión 3. Guard destructivo y la lista negra continuarán bloqueando amenazas.
+                    Con el modo automático activado y niveles de riesgo encendidos, las operaciones amarillas pasan por Decisión 3 sin pedirte aprobación manual, mientras que las operaciones rojas (sobrescribir, eliminar, comandos destructivos, procesos) y rutas sensibles <strong className="text-slate-200">siguen pidiendo confirmación</strong>. Guard destructivo y la lista negra continúan bloqueando amenazas.
                   </p>
                 </div>
                 <input
@@ -519,6 +536,96 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   aria-label="Activar o desactivar modo automático"
                   className="w-4 h-4 accent-yellow-500 rounded cursor-pointer mt-1 shrink-0"
                 />
+              </div>
+
+              {/* Aprobación por niveles */}
+              <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-slate-950 border border-slate-800">
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-slate-200">
+                      Niveles de riesgo <span className="font-mono font-normal text-slate-500">(approvalTiers)</span>
+                    </span>
+                    <span
+                      className={`text-[11px] px-1.5 py-0.5 rounded font-semibold ${config.approvalTiers
+                          ? "bg-emerald-950/40 text-emerald-300 border border-emerald-800/50"
+                          : "bg-slate-800 text-slate-400"
+                        }`}
+                    >
+                      {config.approvalTiers ? "Activado" : "Desactivado"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Verde (lecturas y creaciones reversibles en carpetas del usuario) ejecuta sin D3 ni confirmación; amarillo usa D3 estricto con modo automático; rojo (sobrescribir, eliminar, ejecutar o detener comandos/procesos) siempre pide aprobación al usuario.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.approvalTiers)}
+                  onChange={(e) => update({ approvalTiers: e.target.checked })}
+                  aria-label="Activar o desactivar niveles de riesgo"
+                  className="w-4 h-4 accent-emerald-500 rounded cursor-pointer mt-1 shrink-0"
+                />
+              </div>
+
+              {/* Directorios permitidos */}
+              <div className="flex flex-col gap-2 pt-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-200 text-xs font-medium">
+                    Carpetas permitidas <span className="font-mono font-normal text-slate-500">(allowedDirectories)</span>
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Aplica en vivo a todas las herramientas, incluido <code className="font-mono text-slate-300">run_command</code> (valida <code className="font-mono text-slate-300">cwd</code> y rutas del comando). Lista vacía = sin restricción; rutas que no puedan resolverse piden confirmación.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ruta absoluta o ~ (ej: C:\\Users\\Ana\\Proyectos)"
+                    aria-label="Nueva carpeta permitida"
+                    value={newAllowedDir}
+                    onChange={(e) => setNewAllowedDir(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddAllowedDir();
+                      }
+                    }}
+                    className={`flex-1 px-2.5 py-1.5 ${INPUT_BASE} text-xs font-mono`}
+                  />
+                  <button
+                    type="button"
+                    disabled={!newAllowedDir.trim()}
+                    onClick={handleAddAllowedDir}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-slate-200 bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Agregar</span>
+                  </button>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {config.desktopCommanderMcp?.allowedDirectories && config.desktopCommanderMcp.allowedDirectories.length > 0 ? (
+                    config.desktopCommanderMcp.allowedDirectories.map((dir, idx) => (
+                      <div
+                        key={`${dir}-${idx}`}
+                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-xs"
+                      >
+                        <span className="font-mono text-slate-300 truncate">{dir}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAllowedDir(idx)}
+                          aria-label={`Quitar carpeta permitida ${dir}`}
+                          className="p-1 text-slate-500 hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-slate-500 text-xs italic pl-1">
+                      Sin carpetas configuradas (sin restricción de directorios).
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Lista Negra */}
@@ -727,6 +834,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="px-2.5 py-1.5 bg-slate-950/60 border border-slate-800 rounded-md text-slate-400 font-mono text-xs focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-1">
+                <NumberField
+                  id="cfg-retention-days"
+                  label="Retención máxima (días; 0 = sin límite)"
+                  value={config.retentionDays ?? 0}
+                  min={0}
+                  onChange={(retentionDays) => update({ retentionDays })}
+                />
+                <NumberField
+                  id="cfg-retention-max-mb"
+                  label="Tope de disco refs + trazas (MB; 0 = sin tope)"
+                  value={config.retentionMaxMb ?? 500}
+                  min={0}
+                  onChange={(retentionMaxMb) => update({ retentionMaxMb })}
+                />
               </div>
 
               {onOpenEnvironment && (

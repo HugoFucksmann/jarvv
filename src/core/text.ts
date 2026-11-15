@@ -107,7 +107,7 @@ export const fold = (s: string): string => s.normalize("NFD").replace(/[\u0300-\
 
 /**
  * Prefijos de 5 letras (o la palabra entera si es más corta) de las palabras que distinguen un texto, sin las de `stop` (se compara la
- * palabra y su prefijo). Sirve en español e inglés sin listas por idioma. Lo usan la lista de pendientes y el extractor de `research`.
+ * palabra y su prefijo). Sirve en español e inglés sin listas por idioma. Lo usa la lista de pendientes.
  */
 export function stemsOf(text: string, stop: ReadonlySet<string>): Set<string> {
     const out = new Set<string>();

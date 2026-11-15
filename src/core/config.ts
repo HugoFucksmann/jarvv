@@ -59,6 +59,8 @@ export interface JarvisConfig {
   tracePath: string;
   /** Días que se conservan los resultados crudos (`refsDir`) y las trazas; lo más viejo se borra al arrancar y cada 6 horas. 0 = no se borra nada. Las refs de una tarea retenida en memoria no se tocan. */
   retentionDays: number;
+  /** Tope de tamaño total en disco (en MB) entre `refsDir` y las trazas; si se supera, se borran las carpetas más viejas hasta bajar del límite. 0 = sin tope por tamaño. */
+  retentionMaxMb: number;
   /** Carpeta de los resultados crudos de las refs; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   refsDir: string;
   /** Lista negra de herramientas que modifican el sistema (rechazo `tool_rejected`; ver `policy/blacklist.ts`). */
@@ -69,8 +71,8 @@ export interface JarvisConfig {
    */
   autoMode: boolean;
   /**
-   * Aprobación por niveles (`policy/tiers.ts`): verde sin confirmación ni revisión, amarillo con Decisión 3 estricta, rojo siempre confirma el usuario. Si está encendida
-   * reemplaza a `autoMode` en las escrituras. Opt-in: por defecto apagada (el comportamiento de `autoMode` no cambia).
+   * Aprobación por niveles (`policy/tiers.ts`): verde sin confirmación ni revisión, amarillo con Decisión 3 estricta, rojo siempre confirma el usuario.
+   * Activa por defecto: el nivel amarillo respeta `autoMode` para pedir o no al usuario antes de Decisión 3.
    */
   approvalTiers: boolean;
   /**
@@ -153,9 +155,10 @@ const DEFAULT_CONFIG: JarvisConfig = {
   tracePath: "jarvis-traces.jsonl",
   refsDir: "data/refs",
   retentionDays: 30,
+  retentionMaxMb: 500,
   blacklist: [],
   autoMode: false,
-  approvalTiers: false,
+  approvalTiers: true,
   webSearchUseJudge: true,
   voiceEnabled: false,
   telegramVoice: false,
@@ -262,6 +265,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     tracePath: nonEmptyText(r.tracePath, d.tracePath),
     refsDir: nonEmptyText(r.refsDir, d.refsDir),
     retentionDays: nonNegativeInt(r.retentionDays, d.retentionDays),
+    retentionMaxMb: nonNegativeInt(r.retentionMaxMb, d.retentionMaxMb),
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
     approvalTiers: typeof r.approvalTiers === "boolean" ? r.approvalTiers : d.approvalTiers,

@@ -65,11 +65,7 @@ export const linesBlock = (label: string, lines: readonly string[] | undefined, 
 export const join = (parts: (string | null | undefined)[]): string =>
   parts.filter((p): p is string => !!p).join("\n\n");
 
-export const shortDesc = (d: string | undefined, fallback: string): string => {
-  if (!d) return fallback;
-  const first = d.trim().split(/(?<=[.!?])\s/)[0];
-  return clip(first, MAX_TOOL_DESC_CHARS);
-};
+export const shortDesc = (d: string | undefined, fallback: string): string => (!d ? fallback : clip(d.trim(), MAX_TOOL_DESC_CHARS));
 
 /**
  * Frente 2, DN-2.5 (APAGADO): con `true`, `pending` abre un paso de búsqueda ante preguntas de hechos cambiantes (medido: 0/12 → 11/12; en el laboratorio

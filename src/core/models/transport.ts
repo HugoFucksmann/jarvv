@@ -73,10 +73,12 @@ export class DecisionServiceUnavailableError extends Error {
  */
 export class DecisionValidationError extends Error {
     readonly overflow: boolean;
-    constructor(message: string, overflow = false) {
+    readonly raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan };
+    constructor(message: string, overflow = false, raw?: { rawInput: string; rawOutput: string; timing?: TimeSpan }) {
         super(`[Decision 2.0 Validation] ${message}`);
         this.name = "DecisionValidationError";
         this.overflow = overflow;
+        this.raw = raw;
     }
 }
 

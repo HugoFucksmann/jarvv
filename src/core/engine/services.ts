@@ -11,7 +11,8 @@ import type { ConfigSource } from "../config.ts";
 import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
 import { createMemoryReader, type MemoryFact } from "../memory.ts";
 import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
-import { isPathInside, type ProtectedPaths } from "../policy/guard.ts";
+import { isPathInsideCanonical } from "../policy/allowedDirs.ts";
+import type { ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
 
 // ───────────────────────── Composición ─────────────────────────
@@ -26,6 +27,8 @@ export interface EngineServices {
   readonly autoMode: () => boolean;
   /** Aprobación por niveles (`approvalTiers` de la configuración, leída en cada llamada). */
   readonly approvalTiers?: () => boolean;
+  /** Directorios permitidos leídos en vivo desde la configuración en cada llamada. */
+  readonly allowedDirectories?: () => readonly string[];
   /** Hechos del usuario de `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
   readonly memory?: () => readonly MemoryFact[];
 }
@@ -38,7 +41,7 @@ let coherenceWarned = false;
  */
 function warnIfRefsOutsideAllowed(refsDir: string, allowedDirectories: readonly string[]): void {
   if (coherenceWarned || allowedDirectories.length === 0) return;
-  if (allowedDirectories.some((dir) => isPathInside(path.resolve(dir), refsDir))) return;
+  if (allowedDirectories.some((dir) => isPathInsideCanonical(path.resolve(dir), refsDir))) return;
   coherenceWarned = true;
   console.warn(
     `[Engine] refsDir (${refsDir}) queda fuera de allowedDirectories de Desktop Commander: el modelo no podrá leer las refs ` +
@@ -69,6 +72,7 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
     approvalTiers: () => getConfig().approvalTiers,
+    allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
     memory: createMemoryReader(path.join(path.dirname(refsDir), "memory.json")),
   };
 }

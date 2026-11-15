@@ -95,19 +95,126 @@ export async function pruneTraceIndex(base: string): Promise<void> {
   await fs.rename(tmp, file);
 }
 
+async function folderSizeBytes(dir: string): Promise<number> {
+  let total = 0;
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      total += await folderSizeBytes(full);
+    } else if (entry.isFile()) {
+      try {
+        total += (await fs.lstat(full)).size;
+      } catch {
+        // Ignora archivos que desaparecieron en carrera.
+      }
+    }
+  }
+  return total;
+}
+
+interface SizedFolder {
+  readonly kind: "refs" | "trace";
+  readonly full: string;
+  readonly mtimeMs: number;
+  readonly size: number;
+  readonly protected: boolean;
+}
+
+async function collectSizedFolders(
+  dir: string,
+  owned: RegExp,
+  kind: "refs" | "trace",
+  keep: (name: string) => boolean = () => false,
+): Promise<SizedFolder[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: SizedFolder[] = [];
+  for (const name of names) {
+    if (!owned.test(name)) continue;
+    const full = path.join(dir, name);
+    try {
+      const info = await fs.lstat(full);
+      if (!info.isDirectory()) continue;
+      out.push({
+        kind,
+        full,
+        mtimeMs: info.mtimeMs,
+        size: await folderSizeBytes(full),
+        protected: keep(name),
+      });
+    } catch {
+      // Ignora entradas ilegibles.
+    }
+  }
+  return out;
+}
+
 /** Una pasada sobre las refs y las trazas, con la configuración vigente. `protectedTaskIds`: tareas cuyas refs no se borran. */
 export async function runRetention(getConfig: ConfigSource, protectedTaskIds: () => readonly string[], now: number = Date.now()): Promise<void> {
   const config = getConfig();
-  if (config.retentionDays <= 0) return;
-  const maxAgeMs = config.retentionDays * DAY_MS;
+  const maxDays = config.retentionDays;
+  const maxMb = config.retentionMaxMb ?? 0;
+  if (maxDays <= 0 && maxMb <= 0) return;
 
   const kept = new Set(protectedTaskIds().map(taskFolderName));
-  const refs = await pruneFolders(path.resolve(config.refsDir), REFS_FOLDER, maxAgeMs, now, (name) => kept.has(name));
+  const refsDir = path.resolve(config.refsDir);
   const traceBase = traceBaseDir(config.tracePath);
-  const traces = await pruneFolders(traceBase, TRACE_FOLDER, maxAgeMs, now);
-  if (traces.length > 0) await pruneTraceIndex(traceBase).catch((error: unknown) => console.warn(`[Retention] no se pudo limpiar index.jsonl: ${errorMessage(error)}`));
-  if (refs.length + traces.length > 0) {
-    console.log(`[Retention] se borraron ${refs.length} carpeta(s) de refs y ${traces.length} de trazas con más de ${config.retentionDays} días.`);
+
+  let refsByAge = 0;
+  let tracesByAge = 0;
+  if (maxDays > 0) {
+    const maxAgeMs = maxDays * DAY_MS;
+    const refs = await pruneFolders(refsDir, REFS_FOLDER, maxAgeMs, now, (name) => kept.has(name));
+    const traces = await pruneFolders(traceBase, TRACE_FOLDER, maxAgeMs, now);
+    refsByAge = refs.length;
+    tracesByAge = traces.length;
+  }
+
+  let refsBySize = 0;
+  let tracesBySize = 0;
+  if (maxMb > 0) {
+    const maxBytes = maxMb * 1024 * 1024;
+    const folders = [
+      ...(await collectSizedFolders(refsDir, REFS_FOLDER, "refs", (name) => kept.has(name))),
+      ...(await collectSizedFolders(traceBase, TRACE_FOLDER, "trace")),
+    ];
+    let totalBytes = folders.reduce((sum, f) => sum + f.size, 0);
+    if (totalBytes > maxBytes) {
+      const deletable = folders.filter((f) => !f.protected).sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const folder of deletable) {
+        if (totalBytes <= maxBytes) break;
+        try {
+          await fs.rm(folder.full, { recursive: true, force: true });
+          totalBytes -= folder.size;
+          if (folder.kind === "refs") refsBySize++;
+          else tracesBySize++;
+        } catch (error) {
+          console.warn(`[Retention] no se pudo borrar '${folder.full}': ${errorMessage(error)}`);
+        }
+      }
+    }
+  }
+
+  if (tracesByAge + tracesBySize > 0) {
+    await pruneTraceIndex(traceBase).catch((error: unknown) => console.warn(`[Retention] no se pudo limpiar index.jsonl: ${errorMessage(error)}`));
+  }
+  const totalRefs = refsByAge + refsBySize;
+  const totalTraces = tracesByAge + tracesBySize;
+  if (totalRefs + totalTraces > 0) {
+    console.log(
+      `[Retention] se borraron ${totalRefs} carpeta(s) de refs y ${totalTraces} de trazas (antigüedad: ${refsByAge + tracesByAge}, tamaño: ${refsBySize + tracesBySize}).`,
+    );
   }
 }
 

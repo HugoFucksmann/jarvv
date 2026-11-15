@@ -33,6 +33,9 @@ const RULES: readonly EgressRule[] = [
   { id: "user-path", reason: "nombra una ruta de una carpeta del usuario de esta PC", re: /(?:^|[\s"'(=])(?:[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s]+|\/home\/[^/\s]+|~[\\/])/i, inUrls: false },
 ];
 
+const LONG_BLOB_TOKENS = /[A-Za-z0-9+/]{38,}={0,2}/g;
+const HEX_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64}|[0-9a-f]{128})$/i;
+
 const isUrlArg = (key: string): boolean => key === "urls";
 
 /** Textos de los argumentos de una llamada (un texto o los textos de una lista), con su clave. */
@@ -51,6 +54,13 @@ export function egressFinding(mcp: string, tool: string, args: Readonly<Record<s
   for (const { key, text } of texts(args)) {
     for (const rule of RULES) {
       if (isUrlArg(key) && !rule.inUrls) continue;
+      if (rule.id === "long-blob") {
+        const tokens = text.match(LONG_BLOB_TOKENS);
+        if (tokens && tokens.some((tok) => tok.length >= 40 && !HEX_SHA_RE.test(tok))) {
+          return { id: rule.id, reason: rule.reason };
+        }
+        continue;
+      }
       if (rule.re.test(text)) return { id: rule.id, reason: rule.reason };
     }
   }

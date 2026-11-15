@@ -316,12 +316,12 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
     usage: "/auto on o /auto off",
     name: "Modo automático de Guard",
     states: ["desactivado (pide aprobación)", "activado"],
-    // Encenderlo quita la aprobación humana de escrituras y comandos: se confirma.
+    // Encenderlo delega escrituras amarillas en Decision 3; lo rojo (borrar/sobrescribir/comandos/procesos), rutas sensibles y lista negra siguen pidiendo aprobación.
     confirmOn: {
-      text: "Con el modo automático JARVIS ejecuta escrituras y comandos SIN pedirte aprobación (solo los revisa la validación de argumentos; lo prohibido sigue bloqueado). ¿Activarlo?",
+      text: "Con el modo automático (con niveles de riesgo activos), las operaciones amarillas pasan por revisión automática en lugar de pedirte confirmación; lo rojo (eliminar, sobrescribir, comandos o procesos), las rutas sensibles y la lista negra siguen pidiéndote confirmación o bloqueándose. ¿Activarlo?",
       callback: "ao",
     },
-    done: ["🔒 Modo automático desactivado: vuelve a pedir aprobación.", "⚡ Modo automático activado. Desactívalo con /auto off."],
+    done: ["🔒 Modo automático desactivado.", "⚡ Modo automático activado (amarillo revisado por Decision 3; rojo sigue pidiendo confirmación). Desactívalo con /auto off."],
   } as const;
 
   bot.command(["auto", "a"], (ctx) => runSwitch(ctx, AUTO_SPEC, ctx.match.trim()));

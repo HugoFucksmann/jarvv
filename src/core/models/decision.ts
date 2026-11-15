@@ -19,6 +19,7 @@ import {
   type DecisionAnswerNoul,
   type DecisionQuestion,
   type DecisionResponse,
+  type TimeSpan,
 } from "../types.ts";
 import type {
   CompletionDecision,
@@ -104,6 +105,17 @@ function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean
   return shortcut ? { action: "route", route: choice, shortcut: true, ...trace } : { action: "route", route: choice, ...trace };
 }
 
+type RawCallTrace = { rawInput: string; rawOutput: string; timing?: TimeSpan };
+const DECISION_VALIDATION_PREFIX = "[Decision 2.0 Validation] ";
+
+function withRaw(err: unknown, raw: RawCallTrace): never {
+  if (err instanceof DecisionValidationError && err.raw === undefined) {
+    const msg = err.message.startsWith(DECISION_VALIDATION_PREFIX) ? err.message.slice(DECISION_VALIDATION_PREFIX.length) : err.message;
+    throw new DecisionValidationError(msg, err.overflow, raw);
+  }
+  throw err;
+}
+
 /** Fragmentos que se puntúan en una misma consulta al modelo (una pregunta `noul` por fragmento). */
 /** Fragmentos por consulta del juez (una pregunta `noul` cada uno). */
 export const JUDGE_BATCH = 5;
@@ -168,11 +180,19 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     }
     console.log(`[Decision ← RECV] ${result.text.slice(0, 600)}`);
 
+    const rawInput = JSON.stringify(payload, null, 2);
+    const timing: TimeSpan = { startedAt, durationMs: Date.now() - startedAt };
+    let answers: Record<string, DecisionAnswer>;
+    try {
+      answers = parseResponse(result.text, questions);
+    } catch (err) {
+      withRaw(err, { rawInput, rawOutput: result.text, timing });
+    }
     return {
-      answers: parseResponse(result.text, questions),
-      rawInput: JSON.stringify(payload, null, 2), // el mismo payload, legible
+      answers,
+      rawInput,
       rawOutput: result.text,
-      timing: { startedAt, durationMs: Date.now() - startedAt },
+      timing,
     };
   }
 
@@ -195,12 +215,16 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #1", state, questions, signal);
-    const { choice, probabilities } = choiceAnswer(response, "route");
-    console.log(`[Decision #1] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+    try {
+      const { choice, probabilities } = choiceAnswer(response, "route");
+      console.log(`[Decision #1] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
-    const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
-    // `parseResponse` validó la pertenencia a `criteria`; `routeDecisionOf` solo estrecha el tipo.
-    return routeDecisionOf(choice, trace, false);
+      const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+      // `parseResponse` validó la pertenencia a `criteria`; `routeDecisionOf` solo estrecha el tipo.
+      return routeDecisionOf(choice, trace, false);
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -228,13 +252,17 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #2", state, questions, signal);
-    const { choice, probabilities } = choiceAnswer(response, "selected_tool");
-    console.log(`[Decision] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+    try {
+      const { choice, probabilities } = choiceAnswer(response, "selected_tool");
+      console.log(`[Decision] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
-    const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
-    const selected = tools.find((t) => t.name === choice);
-    if (!selected) throw new DecisionValidationError(`Decision #2: la herramienta '${choice}' no está entre las candidatas.`);
-    return { action: "tool", tool: selected, ...trace };
+      const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+      const selected = tools.find((t) => t.name === choice);
+      if (!selected) throw new DecisionValidationError(`Decision #2: la herramienta '${choice}' no está entre las candidatas.`);
+      return { action: "tool", tool: selected, ...trace };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -246,13 +274,17 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Decision #3", state, questions, signal);
-    const { choice, probabilities } = choiceAnswer(response, "review");
-    console.log(`[Decision #3] review=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+    try {
+      const { choice, probabilities } = choiceAnswer(response, "review");
+      console.log(`[Decision #3] review=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
-    // `parseResponse` validó la pertenencia a `criteria`; aquí solo se estrecha el tipo.
-    const review = ARGS_REVIEWS.find((r) => r === choice);
-    if (review === undefined) throw new DecisionValidationError(`Decision #3: resultado '${choice}' desconocido.`);
-    return { review, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+      // `parseResponse` validó la pertenencia a `criteria`; aquí solo se estrecha el tipo.
+      const review = ARGS_REVIEWS.find((r) => r === choice);
+      if (review === undefined) throw new DecisionValidationError(`Decision #3: resultado '${choice}' desconocido.`);
+      return { review, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -264,14 +296,18 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Verification", state, questions, signal);
-    const known = input.known ?? {};
-    const answers = Object.fromEntries(VERIFY_CHECKS.map(({ key }) => [key, known[key] ?? noulAnswer(response, key).noul])) as Record<VerifyCheckKey, number>;
+    try {
+      const known = input.known ?? {};
+      const answers = Object.fromEntries(VERIFY_CHECKS.map(({ key }) => [key, known[key] ?? noulAnswer(response, key).noul])) as Record<VerifyCheckKey, number>;
 
-    const probabilities = VERIFY_CHECKS.map(({ key }) => `${key}=${answers[key].toFixed(2)}`).join(" ");
-    console.log(
-      `[Verification ${this.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
-    );
-    return { answers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+      const probabilities = VERIFY_CHECKS.map(({ key }) => `${key}=${answers[key].toFixed(2)}`).join(" ");
+      console.log(
+        `[Verification ${this.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
+      );
+      return { answers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -283,9 +319,13 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Completion", state, questions, signal);
-    const requestComplete = noulAnswer(response, COMPLETION_KEY).noul;
-    console.log(`[Completion ${this.getConfig().decisionModel}] ${COMPLETION_KEY}=${requestComplete.toFixed(2)} duration=${Date.now() - t0}ms`);
-    return { requestComplete, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    try {
+      const requestComplete = noulAnswer(response, COMPLETION_KEY).noul;
+      console.log(`[Completion ${this.getConfig().decisionModel}] ${COMPLETION_KEY}=${requestComplete.toFixed(2)} duration=${Date.now() - t0}ms`);
+      return { requestComplete, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -297,11 +337,15 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("First query", state, questions, signal);
-    const { probabilities } = choiceAnswer(response, "kind");
-    const multi = noulAnswer(response, "multi").noul;
-    const kind = firstQueryKind(probabilities.chat, multi);
-    console.log(`[First query ${this.getConfig().decisionModel}] kind=${kind} probabilities=[${pct(probabilities)}] multi=${multi.toFixed(2)} duration=${Date.now() - t0}ms`);
-    return { kind, probabilities, multi, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    try {
+      const { probabilities } = choiceAnswer(response, "kind");
+      const multi = noulAnswer(response, "multi").noul;
+      const kind = firstQueryKind(probabilities.chat, multi);
+      console.log(`[First query ${this.getConfig().decisionModel}] kind=${kind} probabilities=[${pct(probabilities)}] multi=${multi.toFixed(2)} duration=${Date.now() - t0}ms`);
+      return { kind, probabilities, multi, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -311,9 +355,13 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async probe(input: ProbeQuery, signal?: AbortSignal): Promise<ProbeAnswer> {
     const t0 = Date.now();
     const response = await this.ask("Probe", input.state, { probe: { type: "noul", instructions: input.question.instructions, criteria: input.question.criteria } }, signal);
-    const probability = noulAnswer(response, "probe").noul;
-    console.log(`[Probe ${this.getConfig().decisionModel}] p=${probability.toFixed(2)} duration=${Date.now() - t0}ms | ${input.question.instructions.slice(0, 60)}`);
-    return { probability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    try {
+      const probability = noulAnswer(response, "probe").noul;
+      console.log(`[Probe ${this.getConfig().decisionModel}] p=${probability.toFixed(2)} duration=${Date.now() - t0}ms | ${input.question.instructions.slice(0, 60)}`);
+      return { probability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -325,9 +373,13 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const t0 = Date.now();
     const response = await this.ask("Continuation", state, questions, signal);
-    const follows = noulAnswer(response, "follow").noul;
-    console.log(`[Continuation ${this.getConfig().decisionModel}] follow=${follows.toFixed(2)} duration=${Date.now() - t0}ms`);
-    return { follows, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    try {
+      const follows = noulAnswer(response, "follow").noul;
+      console.log(`[Continuation ${this.getConfig().decisionModel}] follow=${follows.toFixed(2)} duration=${Date.now() - t0}ms`);
+      return { follows, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
   }
 
   /**
@@ -343,7 +395,11 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
       const batch = fragments.slice(start, start + JUDGE_BATCH);
       const { state, questions } = this.prompts.buildFragmentJudge({ need, fragments: batch });
       const response = await this.ask("Judge", state, questions, signal);
-      batch.forEach((_, i) => probabilities.push(noulAnswer(response, `f${i}`).noul));
+      try {
+        batch.forEach((_, i) => probabilities.push(noulAnswer(response, `f${i}`).noul));
+      } catch (err) {
+        withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+      }
       inputs.push(response.rawInput);
       outputs.push(response.rawOutput);
     }
@@ -393,23 +449,31 @@ export function validateAnswer(key: string, question: DecisionQuestion, ans: unk
   if (!isRecord(ans)) {
     throw new DecisionValidationError(`La respuesta no incluye la pregunta '${key}'.`);
   }
-  if (question.type === "choice") {
-    const choice = ans.choice;
-    if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
-      throw new DecisionValidationError(
-        `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
-      );
+  switch (question.type) {
+    case "choice": {
+      const choice = ans.choice;
+      if (typeof choice !== "string" || !Object.hasOwn(question.criteria, choice)) {
+        throw new DecisionValidationError(
+          `'${key}': opción ${JSON.stringify(choice)} fuera de las permitidas (${Object.keys(question.criteria).join(", ")}).`
+        );
+      }
+      const probabilities = isRecord(ans.probabilities)
+        ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
+        : {};
+      return { choice, probabilities };
     }
-    const probabilities = isRecord(ans.probabilities)
-      ? Object.fromEntries(Object.entries(ans.probabilities).filter((e): e is [string, number] => typeof e[1] === "number"))
-      : {};
-    return { choice, probabilities };
+    case "noul": {
+      const noul = ans.noul;
+      if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
+        throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
+      }
+      return { noul };
+    }
+    default: {
+      const _exhaustive: never = question;
+      throw new DecisionValidationError(`Tipo de pregunta desconocido en '${key}': ${String((_exhaustive as { type?: unknown }).type)}`);
+    }
   }
-  const noul = ans.noul;
-  if (typeof noul !== "number" || !(noul >= 0 && noul <= 1)) {
-    throw new DecisionValidationError(`'${key}': 'noul' debe ser un número en [0, 1].`);
-  }
-  return { noul };
 }
 
 /** Único punto de validación de una consulta completa: todas las preguntas enviadas deben venir bien respondidas. */

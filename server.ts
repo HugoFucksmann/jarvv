@@ -23,7 +23,7 @@ import { QwenEngine } from './src/core/models/qwen.ts';
 import { TaskManager } from './src/core/tasks.ts';
 import { apiErrorHandler, createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
-import { localOnly } from './src/server/localOnly.ts';
+import { isLoopbackHost, localOnly } from './src/server/localOnly.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { warmUpModels } from './src/core/models/warmup.ts';
@@ -56,6 +56,15 @@ function dotenvKeys(): string[] {
 const SECRET_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'HF_TOKEN'];
 
 async function main() {
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || '127.0.0.1';
+  if (!isLoopbackHost(HOST)) {
+    throw new Error(
+      `[Security] HOST='${HOST}' no es loopback (use 127.0.0.1, localhost o ::1). ` +
+      'La API local no tiene autenticación; no se permite escuchar fuera de loopback.',
+    );
+  }
+
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
@@ -74,7 +83,10 @@ async function main() {
     free_search: freeSearchServer,
     // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
     // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
-    jarvis_terminal: new TerminalProvider({ envRemove: [...dotenvKeys(), ...SECRET_KEYS] }),
+    jarvis_terminal: new TerminalProvider({
+      envRemove: [...dotenvKeys(), ...SECRET_KEYS],
+      allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+    }),
     jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined) }),
   };
 
@@ -162,9 +174,7 @@ async function main() {
     });
   }
 
-  // Solo loopback por defecto: sin autenticación, exponerlo a la red local daría control de la PC. HOST=0.0.0.0 lo abre.
-  const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '127.0.0.1';
+  // Loopback validado al arranque: sin autenticación, no se permite exponer el servidor fuera de loopback.
   // Datos de esta PC (carpetas del usuario): se consultan ahora y no en la primera tarea; la primera tarea espera la misma promesa.
   void getUserEnvironment();
   // Precalienta los dos modelos (carga en GPU + `keep_alive`) sin bloquear el arranque; un fallo solo se registra.

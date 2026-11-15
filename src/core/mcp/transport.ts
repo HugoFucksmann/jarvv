@@ -16,6 +16,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { StdioServerConfig } from "../config.ts";
+import { RequestAbortedError } from "../models/transport.ts";
+import type { ToolCallOptions } from "../tools/provider.ts";
 import { errorMessage } from "../utils.ts";
 
 /** Tope de una línea de salida del servidor sin salto de línea: un mensaje JSON-RPC es una línea; más que esto no es una respuesta, es un servidor descontrolado. */
@@ -58,7 +60,7 @@ export interface IMCPTransport {
   readonly serverName: string;
   readonly config: StdioServerConfig;
   listTools(): Promise<MCPTool[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult>;
+  callTool(name: string, args: Record<string, unknown>, options?: Pick<ToolCallOptions, "signal">): Promise<MCPCallResult>;
   isConnected(): boolean;
   reconnect(): Promise<void>;
   close?(): Promise<void>;
@@ -78,6 +80,7 @@ export class StdioMcpTransport implements IMCPTransport {
       reject: (reason: unknown) => void;
       timer: ReturnType<typeof setTimeout>;
       method: string;
+      cleanup?: () => void;
     }
   >();
   private stderrLines: string[] = [];
@@ -317,6 +320,7 @@ export class StdioMcpTransport implements IMCPTransport {
 
         if (pending) {
           clearTimeout(pending.timer);
+          pending.cleanup?.();
           this.pendingRequests.delete(reqId);
           this.pendingRequests.delete(typeof reqId === "string" ? Number(reqId) : String(reqId));
 
@@ -342,6 +346,7 @@ export class StdioMcpTransport implements IMCPTransport {
   private rejectAllPending(error: Error): void {
     for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
+      pending.cleanup?.();
       pending.reject(error);
     }
     this.pendingRequests.clear();
@@ -363,7 +368,10 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   }
 
-  private async rawRpcCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  private async rawRpcCall<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) {
+      throw new RequestAbortedError();
+    }
     if (!this.childProcess || !this.childProcess.stdin || this.childProcess.stdin.destroyed) {
       throw new MCPTransportError(this.serverName, "El stream stdin del proceso MCP no está disponible o fue cerrado.");
     }
@@ -378,8 +386,24 @@ export class StdioMcpTransport implements IMCPTransport {
     const currentTimeoutMs = this.getTimeoutMs();
 
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const onAbort = () => {
+        const entry = this.pendingRequests.get(id);
+        if (!entry) return;
         this.pendingRequests.delete(id);
+        clearTimeout(entry.timer);
+        this.sendNotification("notifications/cancelled", { requestId: id, reason: "Cancelled by client" });
+        reject(new RequestAbortedError());
+      };
+
+      const cleanup = () => {
+        signal?.removeEventListener("abort", onAbort);
+      };
+
+      const timer = setTimeout(() => {
+        const entry = this.pendingRequests.get(id);
+        this.pendingRequests.delete(id);
+        entry?.cleanup?.();
+        this.sendNotification("notifications/cancelled", { requestId: id, reason: "Request timeout" });
         const lastStderr = this.getLastStderr();
         if (lastStderr) {
           console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -392,28 +416,33 @@ export class StdioMcpTransport implements IMCPTransport {
         );
       }, currentTimeoutMs);
 
-      this.pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, method });
+      this.pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, method, cleanup });
+      signal?.addEventListener("abort", onAbort, { once: true });
 
       try {
         const line = JSON.stringify(payload) + "\n";
         this.childProcess!.stdin!.write(line, "utf8", (err) => {
           if (err) {
             clearTimeout(timer);
+            cleanup();
             this.pendingRequests.delete(id);
             reject(new MCPTransportError(this.serverName, `Error escribiendo a stdin: ${err.message}`, err));
           }
         });
       } catch (err) {
         clearTimeout(timer);
+        cleanup();
         this.pendingRequests.delete(id);
         reject(new MCPTransportError(this.serverName, `Error enviando mensaje por stdio: ${errorMessage(err)}`, err));
       }
     });
   }
 
-  private async rpcCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  private async rpcCall<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw new RequestAbortedError();
     await this.startProcess();
-    return await this.rawRpcCall<T>(method, params);
+    if (signal?.aborted) throw new RequestAbortedError();
+    return await this.rawRpcCall<T>(method, params, signal);
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -424,11 +453,11 @@ export class StdioMcpTransport implements IMCPTransport {
     return result.tools;
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
+  async callTool(name: string, args: Record<string, unknown>, options?: Pick<ToolCallOptions, "signal">): Promise<MCPCallResult> {
     const result = await this.rpcCall<MCPCallResult>("tools/call", {
       name,
       arguments: args,
-    });
+    }, options?.signal);
     if (!result || typeof result !== "object") {
       throw new MCPTransportError(this.serverName, `tools/call a '${name}' devolvió un resultado malformado.`);
     }

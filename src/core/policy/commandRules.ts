@@ -367,6 +367,10 @@ const WHOLE_TEXT_RULES: readonly { re: RegExp; tier: RuleTier; id: string; reaso
     re: /\[(system\.)?io\.(file|directory|fileinfo|directoryinfo)\]::(delete|write\w*|move|copy|replace|append\w*)/,
     tier: "sensitive", id: "dotnet-file", reason: "Direct .NET file calls change or delete files without the usual checks.",
   },
+  {
+    re: /(?:\)|[a-z0-9_\]"'])\s*\.\s*(?:delete|moveto|copyto)\s*\(/,
+    tier: "sensitive", id: "dotnet-file", reason: "Direct .NET file calls change or delete files without the usual checks.",
+  },
   { re: /\/etc\/(shadow|sudoers)\b/, tier: "blocked", id: "auth-files", reason: "The system authentication files are off limits." },
   { re: /(>>?|\btee\b|\bsed\s+-\w*i\b)[^|;&]*\/etc\/passwd\b/, tier: "blocked", id: "auth-files", reason: "The system authentication files are off limits." },
 ];

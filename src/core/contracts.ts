@@ -330,8 +330,17 @@ export interface EngineDeps {
   readonly environment: () => Promise<UserEnvironment>;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */
   readonly autoMode: () => boolean;
-  /** ¿Aprobación por niveles (`policy/tiers.ts`)? Opt-in; si está encendida reemplaza a `autoMode` en las escrituras. Omitida = apagada. */
+  /** Aprobación por niveles (`policy/tiers.ts`); activa por defecto. Omitida = apagada (en pruebas heredadas). */
   readonly approvalTiers?: () => boolean;
+  /** Directorios permitidos leídos en vivo en cada llamada; vacío u omitido = sin restricción. */
+  readonly allowedDirectories?: () => readonly string[];
+  /** Analizador de comandos inyectable (por defecto PowerShell AST en Windows). */
+  readonly analyzeCommand?: (command: string) => Promise<{
+    readonly syntaxErrors: readonly string[];
+    readonly commands: readonly { readonly name: string; readonly kind: string; readonly dashOptions: readonly string[] }[];
+    readonly detectedPaths?: readonly string[];
+    readonly unresolvablePaths?: readonly string[];
+  } | null>;
   /** Hechos guardados por el usuario (`data/memory.json`); omitido = sin memoria. */
   readonly memory?: () => readonly MemoryFact[];
   /** La tarea anterior vigente (menos de `THREAD_TTL_MS`) cuando esta tarea empezó; `null` u omitida = sin hilo. */

@@ -14,6 +14,16 @@ import type express from 'express';
 export const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 export const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
+export function isLoopbackHost(host: string): boolean {
+  const clean = host.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  return (
+    clean === 'localhost' ||
+    clean === 'localhost.' ||
+    clean === '::1' ||
+    /^127(?:\.(?:25[0-5]|2[0-4]\d|1?\d\d?)){3}$/.test(clean)
+  );
+}
+
 export function localOnly(): express.RequestHandler {
   return (req, res, next) => {
     if (!LOCAL_HOST.test(req.headers.host ?? '')) {

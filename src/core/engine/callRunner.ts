@@ -22,8 +22,9 @@ import { BUDGET } from "../budget.ts";
 import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason } from "../ctx/index.ts";
 import { factLines, selectFacts } from "../memory.ts";
 import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
+import { checkAllowedDirectory } from "../policy/allowedDirs.ts";
 import { threadMemoryLines } from "./thread.ts";
-import { collectSources, precheckCall } from "./precheck.ts";
+import { analyzePowerShell, collectSources, precheckCall, type CommandReport } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
@@ -60,6 +61,24 @@ type Policy = ReturnType<typeof getToolPolicy>;
 
 const CANCELLED: CallOutcome = { kind: "cancelled", callId: null };
 const kindOf = (policy: Policy): CallKind => (policy.mutates ? "write" : "read");
+const ALLOWED_DIR_PATH_KEYS = ["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder", "cwd"] as const;
+
+function toolPathArgs(toolName: string, args: Readonly<Record<string, unknown>>): string[] {
+  const paths: string[] = [];
+  for (const key of ALLOWED_DIR_PATH_KEYS) {
+    const val = args[key];
+    if (typeof val === "string" && val.trim() !== "") {
+      if (toolName === "read_file" && args.isUrl === true && /^https?:\/\//i.test(val.trim())) continue;
+      paths.push(val);
+    }
+  }
+  if (Array.isArray(args.paths)) {
+    for (const item of args.paths) {
+      if (typeof item === "string" && item.trim() !== "") paths.push(item);
+    }
+  }
+  return paths;
+}
 
 /** Resumen de un texto fijo o de un error: recortado al tope; `null` si no hay texto (nunca `""`). */
 function summaryText(text: string | null | undefined): string | null {
@@ -363,35 +382,105 @@ ${stepText}`, deps.memory?.() ?? []);
   // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
   // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
   const auto = deps.autoMode();
-  // Aprobación por niveles (`policy/tiers.ts`, opt-in `approvalTiers`): reemplaza al `autoMode` binario en las escrituras. Una herramienta no catalogada es roja.
+  // Aprobación por niveles (`policy/tiers.ts`, activa por defecto `approvalTiers`): clasifica las escrituras en green / yellow / red.
+  // Con `autoMode`: verde omite usuario y D3; amarillo omite usuario y pasa por D3 estricto; rojo siempre confirma el usuario.
   const tiered = deps.approvalTiers?.() === true;
   const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment) : "red") : null;
   const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
+  // Analizador AST por llamada (lo comparten precheckCall y el chequeo de rutas de run_command en allowedDirectories).
+  const rawAnalyzer = deps.analyzeCommand ?? analyzePowerShell;
+  let cachedCmdReport: Promise<CommandReport | null> | null = null;
+  let cachedCmdText: string | null = null;
+  const analyzeCmd = (cmd: string): Promise<CommandReport | null> => {
+    if (cachedCmdReport === null || cachedCmdText !== cmd) {
+      cachedCmdText = cmd;
+      cachedCmdReport = rawAnalyzer(cmd);
+    }
+    return cachedCmdReport;
+  };
+
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
-  const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources: collectSources(ctx, [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])]), environment });
+  const finding = await precheckCall(
+    { tool: tool.name, kind, args: resolved, sources: collectSources(ctx, [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])]), environment },
+    analyzeCmd,
+  );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (finding !== null) return reject(finding.review, summaryText(finding.reason));
 
-  // Una ruta sensible (`guard.mandatory`) pide confirmación también en modo automático.
-  // Modo automático: una herramienta del catálogo que pedía aprobación no se la pide al usuario y pasa por D3 (si escribe). Una no catalogada
-  // (Guard la manda a aprobación por defecto) sigue pidiéndola. Sin modo automático, una coincidencia con la lista negra siempre se pregunta.
+  // 6c. allowedDirectories en vivo para todas las herramientas, incluido run_command (cwd + rutas del AST de PowerShell).
+  // Lo fuera de alcance se rechaza; lo que no se puede resolver obliga a pedir confirmación al usuario.
+  const allowedDirs = (deps.allowedDirectories?.() ?? []).map((d) => d.trim()).filter(Boolean);
+  let allowedUnresolvableReason: string | null = null;
+  if (allowedDirs.length > 0) {
+    const effectiveCwd = typeof resolved.cwd === "string" && resolved.cwd.trim() !== "" ? resolved.cwd.trim() : environment.home;
+    const pathArgs = toolPathArgs(tool.name, resolved);
+    for (const p of pathArgs) {
+      const res = checkAllowedDirectory(p, allowedDirs, {
+        home: environment.home,
+        ...(tool.name === "run_command" ? { cwdBase: effectiveCwd } : {}),
+      });
+      if (!res.allowed) {
+        if (res.reason === "outside") {
+          return reject("tool_rejected", summaryText(policyDenialNote(`La ruta '${p}' está fuera de allowedDirectories.`)));
+        }
+        allowedUnresolvableReason ??= `La ruta '${p}' no se pudo resolver contra allowedDirectories.`;
+      }
+    }
+    if (tool.name === "run_command" && typeof resolved.command === "string") {
+      const cwdCheck = checkAllowedDirectory(effectiveCwd, allowedDirs, { home: environment.home });
+      if (!cwdCheck.allowed) {
+        if (cwdCheck.reason === "outside") {
+          return reject("tool_rejected", summaryText(policyDenialNote(`La carpeta de trabajo '${effectiveCwd}' está fuera de allowedDirectories.`)));
+        }
+        allowedUnresolvableReason ??= `La carpeta de trabajo '${effectiveCwd}' no se pudo resolver contra allowedDirectories.`;
+      }
+      const cmdReport = environment.platform === "windows" || deps.analyzeCommand !== undefined ? await analyzeCmd(resolved.command) : null;
+      if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
+      if (cmdReport === null) {
+        allowedUnresolvableReason ??= "No se pudieron analizar todas las rutas del comando contra allowedDirectories.";
+      } else {
+        for (const dp of cmdReport.detectedPaths ?? []) {
+          const dpCheck = checkAllowedDirectory(dp, allowedDirs, { cwdBase: effectiveCwd, home: environment.home });
+          if (!dpCheck.allowed) {
+            if (dpCheck.reason === "outside") {
+              return reject("tool_rejected", summaryText(policyDenialNote(`La ruta '${dp}' detectada en el comando está fuera de allowedDirectories.`)));
+            }
+            allowedUnresolvableReason ??= `La ruta '${dp}' detectada en el comando no se pudo resolver contra allowedDirectories.`;
+          }
+        }
+        if ((cmdReport.unresolvablePaths?.length ?? 0) > 0) {
+          allowedUnresolvableReason ??= `El comando usa rutas o variables sin resolver (${cmdReport.unresolvablePaths![0]}) que no pueden verificarse contra allowedDirectories.`;
+        }
+      }
+    }
+  }
+
+  // Una ruta sensible (`guard.mandatory`) o no resoluble en `allowedDirectories` pide confirmación también en modo automático.
   // La respuesta del usuario a un proceso, enviada tal cual a ese proceso, ya la escribió él: no se le pide aprobarla ni la revisa D3 (RC-20). No vale con una
   // ruta sensible ni con una coincidencia de la lista negra, que siguen su camino.
-  const userAuthored = guard.mandatory !== true && listed === null && inputAnswersProcess(ctx, stepId, tool.name, resolved, recorded.input);
-  // Por niveles: pide el usuario lo obligatorio de Guard, lo rojo y toda coincidencia de la lista negra; lo verde y lo amarillo no.
-  const askUser = tiered
-    ? !userAuthored && (guard.mandatory === true || tier === "red" || listed !== null)
-    : !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto));
+  const userAuthored = guard.mandatory !== true && listed === null && allowedUnresolvableReason === null && inputAnswersProcess(ctx, stepId, tool.name, resolved, recorded.input);
+  // Por niveles: pide el usuario lo obligatorio de Guard, lo rojo, lo no resoluble para allowedDirectories y toda coincidencia de la lista negra; lo verde y lo amarillo no.
+  const askUser =
+    allowedUnresolvableReason !== null ||
+    (tiered
+      ? !userAuthored && (guard.mandatory === true || tier === "red" || listed !== null)
+      : !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto)));
 
   // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
   if (askUser) {
+    const approvalReason =
+      listed !== null
+        ? `Lista de seguridad (${listed.id}): ${listed.reason}`
+        : guard.mandatory === true
+          ? (guard.reason ?? "Operación sensible")
+          : allowedUnresolvableReason ?? (guard.reason ?? "Operación sensible");
     const approval = await runtime.requestApproval({
       mcp,
       tool: tool.name,
       capability: guard.capability,
-      reason: listed !== null ? `Lista de seguridad (${listed.id}): ${listed.reason}` : (guard.reason ?? "Operación sensible"),
+      reason: approvalReason,
       args: recorded,
     });
     if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;

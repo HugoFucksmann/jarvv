@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { BUDGET } from "../../core/budget.ts";
+import { checkAllowedDirectory } from "../../core/policy/allowedDirs.ts";
 import type { ToolCallOptions, ToolProvider, TaskEndOutcome } from "../../core/tools/provider.ts";
 import { argCapsOf } from "../../core/tools/manifest.ts";
 import { toolResult } from "../../core/tools/result.ts";
@@ -210,6 +211,8 @@ export interface TerminalOptions {
   readonly promptIdleMs?: number;
   readonly weakPromptIdleMs?: number;
   readonly terminatedPromptIdleMs?: number;
+  /** Directorios permitidos leídos en vivo: valida `cwd` de un comando nuevo (vacío = sin restricción). */
+  readonly allowedDirectories?: () => readonly string[];
 }
 
 export class TerminalProvider implements ToolProvider {
@@ -234,6 +237,7 @@ export class TerminalProvider implements ToolProvider {
   /** Las ayudas fallaron al cargarse una vez: no se vuelven a intentar en esta sesión. */
   private helpersDisabled: boolean;
   private readonly helpersDir: string | undefined;
+  private readonly getAllowedDirectories: () => readonly string[];
 
   constructor(options: TerminalOptions = {}) {
     this.defaultCwd = options.defaultCwd ?? os.homedir();
@@ -244,6 +248,7 @@ export class TerminalProvider implements ToolProvider {
     this.helpersDisabled = options.helpers === false;
     this.helpersDir = options.helpersDir;
     this.codePages = options.codePages;
+    this.getAllowedDirectories = options.allowedDirectories ?? (() => []);
     this.idle = {
       prompt: options.promptIdleMs ?? PROMPT_IDLE_MS,
       weak: options.weakPromptIdleMs ?? WEAK_PROMPT_IDLE_MS,
@@ -319,7 +324,15 @@ export class TerminalProvider implements ToolProvider {
       if (cwdArg !== undefined && cwdArg !== null && typeof cwdArg !== "string") return fail("'cwd' must be a text.");
       const cwd = typeof cwdArg === "string" && cwdArg.trim() !== "" ? cwdArg : undefined;
       if (cwd !== undefined && !path.isAbsolute(cwd)) return fail(`'cwd' must be an absolute path: '${cwd}'.`);
-      return this.start(command, cwd ?? this.defaultCwd, waitMs, options);
+      const targetCwd = cwd ?? this.defaultCwd;
+      const allowedDirs = this.getAllowedDirectories().map((d) => d.trim()).filter(Boolean);
+      if (allowedDirs.length > 0) {
+        const res = checkAllowedDirectory(targetCwd, allowedDirs, { home: os.homedir() });
+        if (!res.allowed) {
+          return fail(`[DENIED] Working directory '${targetCwd}' is outside allowedDirectories (${allowedDirs.join(", ")}).`);
+        }
+      }
+      return this.start(command, targetCwd, waitMs, options);
     }
     if (input !== undefined && input.length > MAX_INPUT_CHARS) return fail(`The input is longer than ${MAX_INPUT_CHARS} characters.`);
     return this.resume(pid as number, input, waitMs, options);

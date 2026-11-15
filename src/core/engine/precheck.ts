@@ -51,6 +51,8 @@ export interface PrecheckInput {
 export interface CommandReport {
   readonly syntaxErrors: readonly string[];
   readonly commands: readonly { readonly name: string; readonly kind: string; readonly dashOptions: readonly string[] }[];
+  readonly detectedPaths?: readonly string[];
+  readonly unresolvablePaths?: readonly string[];
 }
 
 /** Analiza un comando de PowerShell. Devuelve null si no se pudo analizar (no se rechaza por eso). */
@@ -92,7 +94,7 @@ const SYSTEM_USER_DIRS = new Set(["public", "default", "all users", "default use
 
 // ───────────────────────── Fuentes ─────────────────────────
 
-/** Tope de bytes que se leen de cada ref como fuente: las páginas de `research` pueden ser largas y esto se corre en cada llamada. */
+/** Tope de bytes que se leen de cada ref como fuente: las páginas largas superan varios cientos de KB y esto corre en cada llamada. */
 const REF_SOURCE_MAX_BYTES = 400_000;
 
 /** Texto de una ref (el resultado crudo guardado aparte), o `null` si el archivo ya no se puede leer. */
@@ -188,6 +190,15 @@ function normalizeUrl(url: string): string {
 }
 
 function checkValues(input: PrecheckInput): PrecheckFinding | null {
+  if (input.tool === "list_directory" && input.args.depth !== undefined && input.args.depth !== null) {
+    const d = input.args.depth;
+    if (typeof d !== "number" || !Number.isInteger(d) || d < 1) {
+      return {
+        review: "args_invalid",
+        reason: "The 'depth' argument of list_directory must be an integer >= 1 (use 1 or omit for a single level).",
+      };
+    }
+  }
   const home = userSegment(normalizeText(input.environment.home));
   for (const [key, raw] of Object.entries(input.args)) {
     const role = roleOf(key);
@@ -312,14 +323,50 @@ const ANALYZER_SCRIPT = [
   "$ast = [System.Management.Automation.Language.Parser]::ParseInput($env:JARVIS_COMMAND, [ref]$tok, [ref]$err)",
   "$cmds = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)",
   "$list = @()",
+  "$paths = New-Object System.Collections.Generic.List[string]",
+  "$unres = New-Object System.Collections.Generic.List[string]",
+  "$pathPattern = '^([A-Za-z]:([\\\\/]|$)|\\\\\\\\|//[^/]+/[^/]+|~([\\\\/]|$)|\\.\\.?([\\\\/]|$)|.*/\\.\\.(?:[\\\\/]|$)|/[^/\\s]+/[^/\\s]+)'",
+  "$dynPattern = '^(\\$env:|~|\\$[A-Za-z_{]|[A-Za-z]:|\\\\\\\\|\\.\\.?[\\\\/]|.*[/\\\\])'",
+  "$autoSafeVars = @('true','false','null','_','psitem','args','host','error','myinvocation','lastexitcode','?')",
   "foreach ($c in $cmds) {",
   "  $name = $c.GetCommandName(); if (-not $name) { continue }",
   "  $info = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1",
   "  $kind = if ($info) { [string]$info.CommandType } else { 'None' }",
   "  $dash = @($c.CommandElements | Where-Object { $_.Extent.Text -like '--?*' } | ForEach-Object { $_.Extent.Text })",
   "  $list += [pscustomobject]@{ name = $name; kind = $kind; dashOptions = $dash }",
+  "  for ($i = 0; $i -lt $c.CommandElements.Count; $i++) {",
+  "    $el = $c.CommandElements[$i]",
+  "    if ($i -eq 0 -and $el.Extent.Text -notmatch $pathPattern) { continue }",
+  "    if ($el -is [System.Management.Automation.Language.CommandParameterAst]) { $el = $el.Argument; if (-not $el) { continue } }",
+  "    if ($el -is [System.Management.Automation.Language.VariableExpressionAst]) {",
+  "      $vname = $el.VariablePath.UserPath.ToLowerInvariant()",
+  "      if ($autoSafeVars -notcontains $vname) { $unres.Add($el.Extent.Text) }",
+  "    } elseif ($el -is [System.Management.Automation.Language.SubExpressionAst] -or $el -is [System.Management.Automation.Language.ParenExpressionAst] -or $el -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -or $el -is [System.Management.Automation.Language.MemberExpressionAst]) {",
+  "      $unres.Add($el.Extent.Text)",
+  "    }",
+  "  }",
   "}",
-  "[pscustomobject]@{ syntaxErrors = @($err | ForEach-Object { $_.Message }); commands = $list } | ConvertTo-Json -Compress -Depth 4",
+  "foreach ($s in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true)) {",
+  "  $v = $s.Value",
+  "  if ($v -and ($v -notmatch '^[A-Za-z]{2,}:') -and (($v -match $pathPattern) -or ($v -notmatch '^-' -and $v -match '^[^\\s*?]+\\\\[^\\s*?]+'))) {",
+  "    $paths.Add($v)",
+  "  }",
+  "}",
+  "foreach ($e in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExpandableStringExpressionAst] }, $true)) {",
+  "  if ($e.NestedExpressions.Count -gt 0 -and $e.Value -notmatch '^[A-Za-z]{2,}:' -and $e.Value -match $dynPattern) {",
+  "    $unres.Add($e.Extent.Text)",
+  "  }",
+  "}",
+  "foreach ($r in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FileRedirectionAst] }, $true)) {",
+  "  $loc = $r.Location",
+  "  if ($loc -is [System.Management.Automation.Language.StringConstantExpressionAst]) {",
+  "    $lv = $loc.Value",
+  "    if ($lv -and $lv -notmatch '^(?:nul|/dev/null)$') { $paths.Add($lv) }",
+  "  } elseif ($loc -and $loc.Extent.Text -ne '$null') {",
+  "    $unres.Add($loc.Extent.Text)",
+  "  }",
+  "}",
+  "[pscustomobject]@{ syntaxErrors = @($err | ForEach-Object { $_.Message }); commands = $list; detectedPaths = @($paths | Select-Object -Unique); unresolvablePaths = @($unres | Select-Object -Unique) } | ConvertTo-Json -Compress -Depth 4",
 ].join("\n");
 
 export const analyzePowerShell: CommandAnalyzer = async (command) => {
@@ -329,8 +376,10 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
       windowsHide: true,
       env: { ...process.env, JARVIS_COMMAND: command },
     });
-    const parsed = JSON.parse(stdout) as { syntaxErrors?: unknown; commands?: unknown };
+    const parsed = JSON.parse(stdout) as { syntaxErrors?: unknown; commands?: unknown; detectedPaths?: unknown; unresolvablePaths?: unknown };
     const asArray = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : v === undefined || v === null ? [] : [v as T]);
+    const detectedPaths = asArray<string>(parsed.detectedPaths).filter((s): s is string => typeof s === "string");
+    const unresolvablePaths = asArray<string>(parsed.unresolvablePaths).filter((s): s is string => typeof s === "string");
     return {
       syntaxErrors: asArray<string>(parsed.syntaxErrors),
       commands: asArray<{ name: string; kind: string; dashOptions?: unknown }>(parsed.commands).map((c) => ({
@@ -338,6 +387,8 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
         kind: c.kind,
         dashOptions: asArray<string>(c.dashOptions),
       })),
+      ...(detectedPaths.length > 0 ? { detectedPaths } : {}),
+      ...(unresolvablePaths.length > 0 ? { unresolvablePaths } : {}),
     };
   } catch {
     return null;
