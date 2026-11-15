@@ -24,8 +24,8 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Modelo de decisión** | Decisiones mediante preguntas `choice` y `noul`: D0 (`first_query`), continuación de hilo (`continuation`), ruta (Decisión 1), herramienta (2), revisión de argumentos (3), verificación del resultado (4), sondas por herramienta (`probe`), cierre de tarea (5) y juez de fragmentos de `web_search`. | No genera texto libre, planes ni argumentos. | `models/decision.ts` |
 | **Modelo generativo** | Plan y replan, lista de pendientes (reactivo), argumentos conforme al esquema de la herramienta, pregunta al usuario y respuesta final. | No despacha comandos ni accede al entorno local. | `models/qwen.ts`, `models/prompts.ts` |
 | **Renderizadores** | Convierten las vistas estructuradas del contexto en el texto de los prompts, saneando todo texto externo. | No leen el contexto directamente ni aplican topes de negocio. | `render/` |
-| **Compuerta de seguridad (Guard)** | Evalúa los argumentos resueltos: deniega patrones destructivos y escrituras sobre las carpetas protegidas, y exige aprobación humana para las operaciones sensibles (un comando de terminal que `policy/readOnly.ts` demuestra de solo lectura no la necesita, salvo que toque una ruta sensible: `policy/sensitivePaths.ts`, aprobación obligatoria también con `autoMode`). Si el usuario aprueba, la llamada no pasa por la revisión de Decisión 3. Con `autoMode` no se pide aprobación y la revisión de Decisión 3 valida las escrituras del catálogo; con `approvalTiers: true` (opt-in) `policy/tiers.ts` clasifica las escrituras en verde, amarillo y rojo. | No modifica argumentos ni negocia alternativas con los modelos. | `policy/guard.ts`, `policy/tiers.ts` |
-| **Lista negra y reglas de comando** | Reglas deterministas sobre las herramientas que modifican el sistema, en dos niveles (`blocked`, `sensitive`): las reglas de comando integradas (`commandRules.ts`: Windows y Linux, comando y ruta juntos, siempre activas) y las entradas editables de `blacklist` en `jarvis-config.json`. Las lecturas pasan siempre. Sin `autoMode` toda coincidencia se pregunta al usuario; con `autoMode`, `blocked` se rechaza (recuperable, `tool_rejected`) y `sensitive` pasa a D3 con umbral estricto. | No cierra la tarea (eso es de Guard, con el nivel `guard` de las mismas reglas) ni consulta modelos. | `policy/blacklist.ts`, `policy/commandRules.ts` |
+| **Compuerta de seguridad (Guard)** | Evalúa los argumentos resueltos: deniega patrones destructivos y escrituras sobre las carpetas protegidas, y exige aprobación humana para las operaciones sensibles (un comando de terminal que `policy/readOnly.ts` demuestra de solo lectura no la necesita, salvo que toque una ruta sensible: `policy/sensitivePaths.ts`, aprobación obligatoria también con `autoMode`; lo mismo para datos sensibles en `web_search` hacia internet: `policy/egress.ts`). Si el usuario aprueba, la llamada no pasa por la revisión de Decisión 3. Con `autoMode` no se pide aprobación y la revisión de Decisión 3 valida las escrituras del catálogo; con `approvalTiers: true` `policy/tiers.ts` clasifica las escrituras en verde, amarillo y rojo. | No modifica argumentos ni negocia alternativas con los modelos. | `policy/guard.ts`, `policy/tiers.ts`, `policy/egress.ts` |
+| **Lista negra y reglas de comando** | Reglas deterministas sobre las herramientas que modifican el sistema, en dos niveles (`blocked`, `sensitive`): las reglas de comando integradas (`commandRules.ts`: Windows y Linux, comando y ruta juntos, siempre activas) y las entradas editables de `blacklist` en `jarvis-config.json`. Las lecturas pasan siempre. Sin `autoMode` (ni `approvalTiers`) toda coincidencia se pregunta al usuario; con `autoMode`, `blocked` se rechaza (recuperable, `tool_rejected`) y `sensitive` pasa a D3 con umbral estricto; con `approvalTiers: true`, `blocked` también se rechaza (`tool_rejected`) y `sensitive` pide confirmación al usuario. | No cierra la tarea (eso es de Guard, con el nivel `guard` de las mismas reglas) ni consulta modelos. | `policy/blacklist.ts`, `policy/commandRules.ts` |
 | **Catálogo de herramientas** | Lista cerrada de herramientas autorizadas, con su destino, capacidad, política (aprobación, anti-bucle) y notas de parámetros. Es la única fuente de políticas. | No ejecuta llamadas ni guarda estado dinámico. | `tools/manifest.ts` |
 | **Procesador de resultados** | Convierte el resultado crudo de una herramienta en un estado (`ok`, `no_data`, `not_found`, `tool_error`, `denied`), un resumen acotado y el texto completo para la ref; incluye extractores por herramienta. | No guarda nada, no conoce tareas ni refs y no sanea. | `result/processResult.ts`, `result/extractors/` |
 | **Almacén y resolutor de refs** | Guarda el resultado crudo en disco y sustituye los tokens `{{ref:rN}}` de los argumentos por su contenido antes de Guard y del despacho. | El almacén no conoce el contexto; el resolutor no toca el disco ni las herramientas. | `refs/refVault.ts`, `refs/refResolver.ts` |
@@ -39,8 +39,8 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 - **Traza desacoplada**: `trace/` depende del contexto (se suscribe a sus cambios) y de los puntos de captura del motor (`engine/capture.ts`), nunca a la inversa.
 - **Entorno de la PC**: los datos de la máquina (sistema operativo y carpetas del usuario, `environment.ts`) no viven en el contexto, que solo guarda el estado de la tarea y no conoce el sistema. Se consultan una vez por proceso (el servidor las pide al arrancar) y llegan al motor por `EngineServices.environment` (`engine/services.ts`), de donde las toma la generación de argumentos. La fecha (con día de la semana y zona horaria) la escribe el constructor de cada prompt al armarlo.
 - **Reglas deterministas en el motor**: lo que se puede decidir sin modelo vive en funciones puras o con entradas explícitas dentro de `engine/`: el pre-chequeo de argumentos (`precheck.ts`), la lista de pendientes (`pendingList.ts`) y los topes del paso (`retries.ts`, con los números en `budget.ts`). Los modelos solo deciden lo que el código no puede comprobar.
-- **Configuración inyectada**: ningún motor lee `ConfigManager` por su cuenta. La raíz de composición (`server.ts`) pasa un `ConfigSource` (`() => JarvisConfig`, `config.ts`) a los modelos, los servidores MCP, `TaskManager` y la traza; se llama en cada uso, así los cambios en caliente se respetan. Solo `server/jarvisRouter.ts` usa `ConfigManager` directamente (es la API de la configuración).
-- **Arranque de los servidores MCP**: `server.ts` los inicia en paralelo apenas escucha (`DiscoveryEngine.discoverAll`), porque tardan en estar listos (Desktop Commander ~0,7 s lanzado con `node` directo desde `node_modules`; Free Search ~1,8-2,5 s con `uvx`); si esperaran a la primera petición, la pagaría la primera carga de la interfaz o la primera tarea. Un servidor que falla queda como no disponible hasta un refresco.
+- **Configuración inyectada**: ningún motor lee `ConfigManager` por su cuenta. La raíz de composición (`server.ts`) pasa un `ConfigSource` (`() => JarvisConfig`, `config.ts`) a los modelos, los servidores MCP, `TaskManager` y la traza. Los campos editables en caliente (`autoMode`, `approvalTiers`, `blacklist`, timeouts, endpoints, modelos, juez web y voz) se leen en cada uso; en cambio, `refsDir`, el alcance del Guard (`guardScope`) y la ruta de `data/memory.json` se fijan una sola vez al crear `TaskManager` (`createEngineServices`, coherente con `FILE_ONLY_KEYS`/`LAUNCH_ONLY_KEYS` que requieren reiniciar). Solo `server/jarvisRouter.ts` usa `ConfigManager` directamente (es la API de la configuración).
+- **Arranque de los servidores MCP**: `server.ts` los inicia en paralelo apenas escucha (`DiscoveryEngine.discoverAll`), porque tardan en estar listos (Desktop Commander ~1,4 s lanzado con `node` directo desde `node_modules`, contra ~2,7 s con `npx`; Free Search ~1,8-2,5 s con `uvx`); si esperaran a la primera petición, la pagaría la primera carga de la interfaz o la primera tarea. Un servidor que falla queda como no disponible hasta un refresco.
 - **Cierre ordenado**: el apagado del servidor cancela las tareas y espera un momento (`TaskManager.drain`) a que cierren sus procesos en segundo plano y escriban su traza, antes de apagar los servidores MCP; la traza se escribe de forma asíncrona, fuera del flujo de la tarea.
 - **Topes en un solo lugar**: `engine/limits.ts` define qué cuenta cada tope (ejecuciones, intentos, bloqueos, rechazos), a qué alcance (tarea, ítem, paso) y qué pasa al llegar; `runStep` consulta un único punto de control y `GET /limits` sale de la misma tabla. El anti-bucle (`ctx/derive.ts`) aplica la política de repetición de cada herramienta.
 - **Retención**: `retention.ts` borra por antigüedad (`retentionDays`) las carpetas de refs y de trazas que Jarvis creó (por nombre), nunca las de otras cosas, y protege las refs de las tareas retenidas en memoria.
@@ -61,19 +61,19 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | Modelo de decisión | Decisiones del motor (`choice`/`noul`): D0, continuación, D1–D5, sondas (`probe`) y juez de fragmentos (`web_search`) | `POST /v1/systemone` sobre `decisionUrl` con el campo `model` (`decisionModel`). Hoy es Ollama local; a futuro puede ser una URL remota con el mismo contrato |
 | Modelo generativo | Plan, replan, argumentos, pregunta al usuario y respuesta final | Ollama en `qwenUrl` (modelo `qwenModel`) |
 | `desktop_commander` | Herramientas de archivos y búsqueda local | MCP por stdio (`desktopCommanderMcp`) |
-| `free_search` | Búsqueda y lectura web, que usa por dentro la herramienta propia `web_search` | MCP por stdio (`freeSearchMcp`) |
-| Herramientas propias | `run_command`, `list_processes` y `stop_process` (proveedor `jarvis_terminal`) y `web_search` (proveedor `jarvis_web`) | Proveedores nativos en `src/tools/terminal/` y `src/tools/web/` |
+| `free_search` | Búsqueda y lectura web (`search`, `read_doc`, `fetch`: herramientas internas que usa por dentro `web_search`) | MCP por stdio (`freeSearchMcp`) |
+| Herramientas propias | `run_command`, `list_processes` y `stop_process` (proveedor `jarvis_terminal`) y `web_search` (proveedor `jarvis_web`, que usa por dentro `free_search`) | Proveedores nativos en `src/tools/terminal/` y `src/tools/web/` |
 
-- La configuración vive en `jarvis-config.json`. Toda lectura y escritura pasa por una normalización que descarta claves desconocidas y valores inválidos.
+- La configuración vive en `jarvis-config.json`. Al cargar o guardar en disco pasa por `normalize`, que descarta claves desconocidas y cae al valor base ante valores inválidos; en `POST /api/jarvis/config`, los campos editables se validan con `validateConfigPatch` y un valor inválido responde HTTP `400 { error }` sin aplicar ningún cambio (las claves desconocidas, `FILE_ONLY_KEYS` y `LAUNCH_ONLY_KEYS` se siguen ignorando sin error).
 - Define endpoints, timeouts, tope de tokens de salida por etapa, servidores MCP, la traza y la carpeta de refs. `qwenNumCtx` y `decisionMaxContext` deben coincidir con el contexto real de cada servicio.
-- Si falta el archivo de configuración, rigen los valores por defecto del código, que coinciden con los del archivo incluido.
+- Si falta el archivo de configuración, rigen los valores por defecto del código (`DEFAULT_CONFIG`: `qwen3.5:4b`, `d3:2b`, `autoMode: false`, `approvalTiers: false`), mientras que el `jarvis-config.json` incluido activa variantes de texto y seguridad por niveles (`qwen3.5:4b-text`, `d3:2b-text`, `autoMode: true`, `approvalTiers: true`).
 
 ## 7. Interfaz Externa
 Base `/api/jarvis`, solo local. El detalle de cada ruta y el formato de la tarea están en `JARVIS_API.md`.
 
 | Ruta | Método | Función |
 |---|---|---|
-| `/process` | POST | Crea y lanza una tarea (`message`, `mode`: `reactive` o `deliberative`) |
+| `/process` | POST | Crea y lanza una tarea (`message`, `mode`: `reactive` o `deliberative`, `sessionKey` opcional para aislar el hilo por sesión) |
 | `/cancel` | POST | Cancela una tarea |
 | `/confirm-plan`, `/modify-plan`, `/reject-plan` | POST | Responden a la confirmación del plan (modo deliberativo) |
 | `/approve`, `/deny` | POST | Resuelven la aprobación de una operación sensible |
@@ -96,21 +96,15 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 - `src/core/tasks.ts`
 - `src/core/ctx/` (`context.ts`, `apply.ts`, `derive.ts`, `closure.ts`, `views/`)
 - `src/core/contracts.ts`
-- `src/core/engine/` (`runTask.ts`, `stepLoop.ts`, `callRunner.ts`, `services.ts`)
-- `src/core/models/decision.ts`
-- `src/core/models/qwen.ts`
-- `src/core/models/prompts.ts`
+- `src/core/engine/` (`runTask.ts`, `stepLoop.ts`, `callRunner.ts`, `services.ts`, `adapters.ts`, `classify.ts`, `firstQuery.ts`, `completion.ts`, `thread.ts`, `postcondition.ts`, `probes.ts`, `pendingList.ts`, `precheck.ts`, `retries.ts`, `limits.ts`)
+- `src/core/models/decision.ts`, `src/core/models/qwen.ts`, `src/core/models/prompts.ts`, `src/core/models/stageRequests.ts`, `src/core/models/transport.ts`, `src/core/models/warmup.ts`
 - `src/core/render/`
-- `src/core/policy/guard.ts`, `src/core/policy/readOnly.ts`, `src/core/policy/sensitivePaths.ts`
-- `src/core/retention.ts`, `src/core/engine/limits.ts`, `src/server/localOnly.ts`
-- `src/core/tools/manifest.ts`
+- `src/core/policy/` (`guard.ts`, `tiers.ts`, `blacklist.ts`, `commandRules.ts`, `readOnly.ts`, `rerun.ts`, `sensitivePaths.ts`, `egress.ts`)
+- `src/core/retention.ts`, `src/core/memory.ts`, `src/server/localOnly.ts`
+- `src/core/tools/` (`manifest.ts`, `probes.ts`, `provider.ts`, `host.ts`)
 - `src/core/result/processResult.ts`
-- `src/core/refs/refVault.ts`
-- `src/core/refs/refResolver.ts`
-- `src/core/mcp/discovery.ts`
-- `src/core/trace/recorder.ts`, `src/core/trace/format.ts`, `src/core/trace/types.ts`
-- `src/core/policy/blacklist.ts`, `src/core/policy/commandRules.ts`, `src/core/trace/sink.ts`, `src/core/text.ts` (saneado y comparación de textos por raíz, común al motor y a los extractores)
-- `src/core/engine/pendingList.ts`, `src/core/engine/precheck.ts`, `src/core/engine/retries.ts`
-- `src/core/budget.ts`
-- `src/core/config.ts`
-- `src/core/models/transport.ts`
+- `src/core/refs/refVault.ts`, `src/core/refs/refResolver.ts`
+- `src/core/mcp/` (`discovery.ts`, `transport.ts`)
+- `src/core/trace/` (`recorder.ts`, `format.ts`, `files.ts`, `types.ts`, `sink.ts`)
+- `src/core/text.ts` (saneado y comparación de textos por raíz, común al motor y a los extractores)
+- `src/core/budget.ts`, `src/core/config.ts`

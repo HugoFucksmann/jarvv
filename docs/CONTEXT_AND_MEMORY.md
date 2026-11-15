@@ -48,7 +48,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
     "sig": string | null,                  // huella de args resueltos
     "status": CallStatus,                  // §2
     "verdict": "approved" | "rejected" | null,
-    "reason": "no_usable_data" | "not_accomplished" | null,   // solo con rejected
+    "reason": "no_usable_data" | "not_accomplished" | "wrong_place" | "wrong_position" | "wrong_scope" | "wrong_item" | "missing_attribute" | null, // solo con rejected
     "summary": string | null,
     "ref": string | null                   // id de ref si el resumen no es completo
   }],
@@ -126,8 +126,8 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `info_missing` | La revisión detectó información faltante |
 | | `user_rejected` | El usuario rechazó la operación |
 
-- **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted`, `waiting_input` y `denied`. Un rechazo lleva un motivo: `no_usable_data` o `not_accomplished`.
-- **Efecto**: una escritura con `status = ok`, con cualquier veredicto. Una escritura que terminó en `tool_error`, `exception` o `interrupted` se registra como **posible efecto**: pudo dejar cambios parciales y se muestra aparte.
+- **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted`, `waiting_input` y `denied`. Un rechazo lleva un motivo: `no_usable_data`, `not_accomplished`, o uno de los motivos de sonda (`wrong_place`, `wrong_position`, `wrong_scope`, `wrong_item`, `missing_attribute`).
+- **Efecto**: una escritura con `status = ok`, con cualquier veredicto. Una escritura que terminó en `tool_error`, `exception`, `interrupted` o `waiting_input` se registra como **posible efecto**: pudo dejar cambios parciales y se muestra aparte.
 - **Texto fijo**: lo que se le dice a los modelos sobre un estado o un motivo son frases fijas, nunca prosa de un modelo.
 
 ## 3. Se Deriva, No se Guarda
@@ -135,7 +135,7 @@ Todo lo que no es un dato primario se recalcula desde `calls`, `steps`, `plans` 
 
 | Derivación | Definición |
 |---|---|
-| Efectos / posibles efectos | Escrituras `ok` / escrituras con `tool_error`, `exception` o `interrupted`. Sin tope |
+| Efectos / posibles efectos | Escrituras `ok` / escrituras con `tool_error`, `exception`, `interrupted` o `waiting_input`. Sin tope |
 | Hechas | Llamadas con veredicto `approved` |
 | Intentos | Llamadas sin veredicto `approved` (fallos, rechazos y no ejecutadas) |
 | Último resultado | Última llamada aprobada que no es un efecto |
@@ -179,7 +179,7 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 - **Tareas en memoria**: el estado de las tareas vive solo en RAM. Se retienen como máximo 20; al excederse, se expulsan las terminales más antiguas y, si aun así se supera, se cancela la tarea en espera más antigua.
 - **Sin restauración**: al reiniciar el servidor no se recuperan tareas; el sistema arranca limpio.
 - **En disco**: la configuración (`jarvis-config.json`), los resultados crudos de las refs y la traza.
-- **Traza por tarea** (`src/core/trace/`): si `traceEnabled` está activo, al terminar cada tarea se escribe, en segundo plano, una carpeta `jarvis-traces/AAAAMMDD-HHMMSS_<id>/` (junto a `tracePath`, sin la extensión) y una línea en `jarvis-traces/index.jsonl`. Es de consumo externo (auditoría y laboratorio de evaluación) y el backend nunca la lee. La carpeta tiene: `summary.md` (lo que se lee o se pega a un agente: alertas, línea de tiempo de pasos y llamadas con lo que decidieron D1 a D4, esperas, refs con un fragmento y la respuesta final); `trace.json` (el snapshot final del contexto, las consultas a modelos con la salida ya interpretada y las opciones que se ofrecieron, las herramientas con un fragmento del resultado, las esperas y un bloque `meta` con modelos, versión del código, entorno y schemas de las herramientas); y `full.json.gz` (todo lo anterior más la entrada y la salida crudas de cada consulta, comprimido). Los resultados grandes no se copian: viven en las refs de `data/refs` y la traza guarda su id (`rN`), tamaño y un fragmento. La traza no registra refs nuevas en el contexto. El archivo único `jarvis-traces.jsonl` de la versión 2 ya no se escribe.
+- **Traza por tarea** (`src/core/trace/`): si `traceEnabled` está activo, al terminar cada tarea se escribe, en segundo plano, una carpeta dentro de la carpeta homónima a `tracePath` sin extensión (`jarvis-traces/AAAAMMDD-HHMMSS_<id>/` con el valor por defecto `jarvis-traces.jsonl`) y una línea en `jarvis-traces/index.jsonl`. Es de consumo externo (auditoría y laboratorio de evaluación) y el backend nunca la lee. La carpeta tiene: `summary.md` (lo que se lee o se pega a un agente: alertas, línea de tiempo de pasos y llamadas con lo que decidieron D1 a D4, esperas, refs con un fragmento y la respuesta final); `trace.json` (el snapshot final del contexto, las consultas a modelos con la salida ya interpretada y las opciones que se ofrecieron, las herramientas con un fragmento del resultado, las esperas y un bloque `meta` con modelos, versión del código, entorno y schemas de las herramientas); y `full.json.gz` (todo lo anterior más la entrada y la salida crudas de cada consulta, comprimido). Los resultados grandes no se copian: viven en las refs de `data/refs` y la traza guarda su id (`rN`), tamaño y un fragmento. La traza no registra refs nuevas en el contexto. El archivo único `jarvis-traces.jsonl` de la versión 2 ya no se escribe.
 - **Pensamiento de los modelos**: la salida cruda de los modelos se reduce a una lista blanca de campos (identificador, modelo, motivo de fin, contenido y uso de tokens); el razonamiento interno no se registra.
 
 - **Cambios de prompt de 2026-11-14:** D1 y D2 ya no reciben `Last result`; D4 ya no recibe `Previous approved calls` (la vista `forVerify` y `verifyInput` lo siguen calculando); el prompt de argumentos lleva las reglas de comando solo si la herramienta tiene `command`, y un bloque `MEMORY` si hay hechos o hilo (§10).
@@ -211,7 +211,7 @@ El contexto de una tarea nace vacío y no conoce a nadie. Dos fuentes de memoria
 | Memoria | Qué guarda | Dónde | Cuándo entra a un prompt |
 |---|---|---|---|
 | **Hechos del usuario** (`memory.ts`) | Pares `clave → valor` que el usuario escribió a mano, p. ej. `carpeta jarvis` → su ruta | `data/memory.json` (junto a `refsDir`, ignorado por git; se relee si cambia la fecha del archivo) | Solo los que coinciden con el pedido o el paso: todas las palabras de la clave (prefijo de 5 letras), hasta 3. Van como bloque `MEMORY` a la generación de argumentos y sus valores son fuente del pre-chequeo |
-| **Hilo** (`engine/thread.ts`) | La última tarea `completed` con respuesta del modelo: pedido y 500 caracteres de respuesta | RAM de `TaskManager`, 10 minutos | Solo si una consulta `noul` a `d3` (`follow`, umbral 0,3) dice que el pedido nuevo la continúa: a `pending`, a la respuesta final, a los argumentos (líneas `previous request/answer` del bloque `MEMORY`) y como fuente del pre-chequeo |
+| **Hilo** (`engine/thread.ts`) | La última tarea `completed` con respuesta del modelo por sesión: pedido y 500 caracteres de respuesta | RAM de `TaskManager` (`previousBySession`), 10 minutos, tope de 20 sesiones (`telegram:<chatId>`, `ui:<clientId>`, fallback `"default"`) | Solo si una consulta `noul` a `d3` (`follow`, umbral 0,3) dice que el pedido nuevo la continúa: a `pending`, a la respuesta final, a los argumentos (líneas `previous request/answer` del bloque `MEMORY`) y como fuente del pre-chequeo |
 
 - **Regla:** solo entra lo que escribió el usuario o la respuesta que ya vio; nunca prosa nueva de un modelo. Sin coincidencia no hay bloque y no cambia ningún token.
 - **Formato del archivo:** `[{ "key": "carpeta jarvis", "value": "C:\\Users\\Ana\\Desktop\\jarvis" }]` (también `{ "facts": [...] }`). Archivo ausente o inválido = memoria vacía.
