@@ -9,7 +9,7 @@
 ![Local first](https://img.shields.io/badge/100%25-local-2ea44f?style=for-the-badge)
 ![Guard](https://img.shields.io/badge/seguridad-determinista-0969da?style=for-the-badge)
 ![MCP](https://img.shields.io/badge/herramientas-MCP-8250df?style=for-the-badge)
-![Versión](https://img.shields.io/badge/versi%C3%B3n-0.6.0-orange?style=for-the-badge)
+![Versión](https://img.shields.io/badge/versi%C3%B3n-0.7.0-orange?style=for-the-badge)
 ![Licencia](https://img.shields.io/badge/licencia-MIT-lightgrey?style=for-the-badge)
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?logo=typescript&logoColor=white)
@@ -60,8 +60,8 @@ Si un paso falla, se recupera con un plan nuevo (hasta tres veces) o te pregunta
 </td>
 <td width="50%" valign="top">
 
-### 🧩 Modelos chicos, cada uno en lo suyo
-Un modelo de **decisión** (`d3:2b`) elige rutas y herramientas y verifica resultados. Un modelo **generativo** (`qwen3.5:4b`) planifica, arma los argumentos y redacta la respuesta. Ambos con contextos acotados de 16 384 tokens.
+### 🧩 Modelos optimizados para 8 GB de VRAM
+Un modelo de **decisión** (`d3:2b`) elige rutas y herramientas y verifica resultados. Un modelo **generativo** (`qwen3.5:4b`) planifica, arma los argumentos y redacta la respuesta. En esta versión se segmentaron quitando el proyector de visión innecesario, ahorrando **~1.7 GB** de VRAM para que convivan en memoria sin perder calidad ni sufrir demoras al alternar.
 
 </td>
 </tr>
@@ -81,18 +81,20 @@ Cada tarea termina en un estado explícito (`completed`, `partial`, `failed` o `
 </tr>
 </table>
 
-### 🧰 Un catálogo cerrado de herramientas
+### 🧰 Tools y Features: Terminal, Buscador Web, Telegram y Voz
 
-JARVIS solo ofrece a los modelos las herramientas catalogadas, agrupadas en cuatro destinos. Lo que un servidor MCP exponga y no figure en el catálogo, no se ofrece.
+JARVIS incluye herramientas nativas de alto rendimiento y canales de interacción por voz y mensajería:
 
-| | Destino | Para qué |
+| | Destino / Canal | Para qué |
 |:-:|---|---|
-| 📁 | `files` | Leer, crear, guardar y mover archivos y carpetas; listar una carpeta |
-| 🔎 | `locate` | Encontrar archivos por nombre o por texto interno cuando no sabés dónde están |
-| ⌨️ | `terminal` | Ejecutar comandos y programas, leer su salida y enviarles entrada |
-| 🌐 | `web` | Buscar información en línea y leer páginas web |
+| ⌨️ | `terminal` (`run_command`) | Ejecución robusta de comandos PowerShell, detección de prompts interactivos y control de procesos en segundo plano |
+| 🌐 | `web` (`web_search`) | Búsqueda en internet en tiempo real y lectura de páginas (respaldada por Free Search y BM25) |
+| 💬 | **Telegram** | Control total de tareas, autorizaciones interactivas con botones y progreso en vivo desde el chat |
+| 🎙️ | **Voz** | Lectura en voz alta por síntesis local (TTS) y notas de voz en Telegram |
+| 📁 | `files` | Leer, crear, guardar y mover archivos y carpetas |
+| 🔎 | `locate` | Encontrar archivos por nombre o por contenido |
 
-Los archivos y la búsqueda local se ejecutan mediante el protocolo [MCP](https://modelcontextprotocol.io) con [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP); `run_command` (con `list_processes` y `stop_process`) y `web_search` son herramientas propias de JARVIS (`src/tools/`), y `web_search` usa por dentro [Free Search](https://pypi.org/project/free-search-mcp/).
+Los archivos y la búsqueda local se ejecutan mediante [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP); `run_command` y `web_search` son herramientas propias y nativas en proceso. Telegram y la voz operan de forma desacoplada y opcional.
 
 ### 📏 Y se puede medir
 
@@ -222,7 +224,7 @@ jarvis/
 
 ## 🧪 Estado actual y limitaciones
 
-Esta es una **versión temprana ([v0.6.0](CHANGELOG.md))**: el flujo completo funciona y ejecuta tareas de forma correcta, pero todavía hay cosas por mejorar. Lo que hay que saber antes de probarlo:
+Esta es una **versión temprana ([v0.7.0](CHANGELOG.md))**: el flujo completo funciona y ejecuta tareas de forma correcta, pero todavía hay cosas por mejorar. Lo que hay que saber antes de probarlo:
 
 | Área | Estado |
 |---|---|
