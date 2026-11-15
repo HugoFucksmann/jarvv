@@ -53,9 +53,17 @@ const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> 
     label: "Rechazos del usuario",
     desc: "Veces que el usuario puede rechazar una operación en un paso antes de que el paso falle.",
   },
+  maxDeniedPerStep: {
+    label: "Denegaciones de seguridad",
+    desc: "Rechazos de Guard, lista negra o servidor permitidos en un paso antes de que falle.",
+  },
   maxQuestionsPerStep: {
     label: "Preguntas por paso",
     desc: "Máximo de aclaraciones solicitadas al usuario por iteración.",
+  },
+  maxProcessPromptsPerStep: {
+    label: "Entradas a procesos",
+    desc: "Veces que un comando interactivo en ejecución puede pedir datos al usuario en un paso.",
   },
 };
 

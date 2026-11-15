@@ -239,7 +239,6 @@ export interface QwenMaxTokens {
   arguments: number;
   plan: number;
   replan: number;
-  verify: number;
   final: number;
 }
 
@@ -271,7 +270,9 @@ export interface EngineLimits {
   maxReviewRejectionsPerStep: number;
   maxVerifyRejectionsPerStep: number;
   maxUserRejectionsPerStep: number;
+  maxDeniedPerStep: number;
   maxQuestionsPerStep: number;
+  maxProcessPromptsPerStep: number;
 }
 
 export interface JarvisConfig {
@@ -280,6 +281,7 @@ export interface JarvisConfig {
   thinking: boolean;
   qwenNumCtx: number;
   qwenMaxTokens: QwenMaxTokens;
+  modelKeepAlive?: string;
   qwenTimeoutMs: number;
   qwenThinkingTimeoutMs: number;
   decisionUrl: string;
@@ -295,6 +297,7 @@ export interface JarvisConfig {
   retentionDays?: number;
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;
+  approvalTiers?: boolean;
   webSearchUseJudge?: boolean;
   voiceEnabled?: boolean;
   telegramVoice?: boolean;

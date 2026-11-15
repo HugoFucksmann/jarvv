@@ -8,7 +8,7 @@
 import express from 'express';
 import { limitValues } from '../core/engine/limits.ts';
 import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from '../core/types/limits.ts';
-import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS } from '../core/config.ts';
+import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS, type JarvisConfig, type StdioServerConfig } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
 import type { TraceFile } from '../core/trace/files.ts';
@@ -50,6 +50,39 @@ export function withoutLaunchFields(body: Record<string, unknown>): Record<strin
   }
   return patch;
 }
+
+function omitServerEnv(server: StdioServerConfig): StdioServerConfig {
+  const { env: _env, ...rest } = server;
+  return rest;
+}
+
+/**
+ * Quita `env` de los servidores MCP antes de enviar la configuración por HTTP (`GET/POST /config`): evita exponer variables
+ * de entorno o credenciales configuradas para subprocesos. La UI no lee `env`, y `POST /config` lo conserva en disco vía `withoutLaunchFields`.
+ */
+export function sanitizeConfigForHttp(config: JarvisConfig): JarvisConfig {
+  return {
+    ...config,
+    desktopCommanderMcp: omitServerEnv(config.desktopCommanderMcp),
+    freeSearchMcp: omitServerEnv(config.freeSearchMcp),
+  };
+}
+
+/**
+ * Manejador de errores de `/api` y `/mcp`: traduce errores de `express.json()` (`entity.too.large` -> 413,
+ * JSON malformado -> 400) en lugar de devolver 500.
+ */
+export const apiErrorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {
+  const type = typeof err === 'object' && err !== null && 'type' in err ? (err as { type?: unknown }).type : undefined;
+  if (type === 'entity.too.large') {
+    return void res.status(413).json({ error: 'El cuerpo JSON supera el límite permitido.' });
+  }
+  if (err instanceof SyntaxError || type === 'entity.parse.failed') {
+    return void res.status(400).json({ error: 'JSON inválido en el cuerpo de la petición.' });
+  }
+  console.error('[API Error]', err);
+  res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Error interno en API' });
+};
 
 /** Bytes que un cliente SSE puede tener pendientes de leer antes de que se lo desconecte. */
 const SSE_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
@@ -281,13 +314,13 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
 
   // Configuración de los endpoints externos.
   router.get('/config', (_req, res) => {
-    res.json(ConfigManager.getConfig());
+    res.json(sanitizeConfigForHttp(ConfigManager.getConfig()));
   });
   router.post('/config', (req, res) => {
     if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
       return void res.status(400).json({ error: 'Se requiere un objeto JSON con las claves a cambiar.' });
     }
-    res.json(ConfigManager.updateConfig(withoutLaunchFields(req.body) as Parameters<typeof ConfigManager.updateConfig>[0]));
+    res.json(sanitizeConfigForHttp(ConfigManager.updateConfig(withoutLaunchFields(req.body) as Parameters<typeof ConfigManager.updateConfig>[0])));
   });
 
   return router;

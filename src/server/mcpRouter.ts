@@ -48,7 +48,7 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
         content: [{ type: 'text', text: `Servidor MCP '${req.params.server}' no encontrado.` }],
       });
     }
-    const { name, args } = req.body ?? {};
+    const { name, args } = (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {}) as { name?: unknown; args?: unknown };
     if (!name || typeof name !== 'string') {
       return res.status(400).json({
         isError: true,
@@ -56,7 +56,14 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
         content: [{ type: 'text', text: 'Falta el nombre de la herramienta.' }],
       });
     }
-    const toolArgs: Record<string, unknown> = args && typeof args === 'object' && !Array.isArray(args) ? args : {};
+    if (args !== undefined && (typeof args !== 'object' || args === null || Array.isArray(args))) {
+      return res.status(400).json({
+        isError: true,
+        success: false,
+        content: [{ type: 'text', text: "'args' debe ser un objeto JSON." }],
+      });
+    }
+    const toolArgs: Record<string, unknown> = (args as Record<string, unknown> | undefined) ?? {};
 
     const policy = getToolPolicy(req.params.server, name);
     const verdict = Guard.evaluate(req.params.server, name, toolArgs);

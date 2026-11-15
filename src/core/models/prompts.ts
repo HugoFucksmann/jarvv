@@ -129,7 +129,7 @@ ${DATA_NOTICE_EN}`,
     /** Línea del sistema operativo: va tras la primera línea del SYSTEM. Sin ella el modelo escribe comandos de Linux en Windows. */
     osLine(platform: Platform): string {
       return platform === "windows"
-        ? `This computer runs Windows. Whenever you write a command, it runs in PowerShell: use PowerShell cmdlets or programs that exist on Windows, and Windows paths as ENV shows them. If the tool has a shell parameter, set it to "powershell". If TASK names a Linux command, write the Windows equivalent that gets the same result.`
+        ? `This computer runs Windows. Whenever you write a command, it runs in PowerShell: use PowerShell cmdlets or programs that exist on Windows, and Windows paths as ENV shows them. If TASK names a Linux command, write the Windows equivalent that gets the same result.`
         : `This computer runs ${platform === "macos" ? "macOS" : "Linux"}. Whenever you write a command, it runs in a POSIX shell (bash): use programs that exist on this system, and paths as ENV shows them. If TASK names a command of another operating system, write the equivalent for this one.`;
     },
 

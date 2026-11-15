@@ -21,7 +21,7 @@ import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
 import { Decision20Engine } from './src/core/models/decision.ts';
 import { QwenEngine } from './src/core/models/qwen.ts';
 import { TaskManager } from './src/core/tasks.ts';
-import { createJarvisRouter } from './src/server/jarvisRouter.ts';
+import { apiErrorHandler, createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
 import { localOnly } from './src/server/localOnly.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
@@ -57,7 +57,7 @@ const SECRET_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'HF_TOKEN'];
 
 async function main() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '256kb' }));
 
   // Acceso solo local (Host y Origin): ver `src/server/localOnly.ts`.
   app.use(localOnly());
@@ -133,10 +133,7 @@ async function main() {
     res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
   });
 
-  app.use(['/api', '/mcp'], (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error('[API Error]', err);
-    res.status(500).json({ error: err instanceof Error && err.message ? err.message : 'Error interno en API' });
-  });
+  app.use(['/api', '/mcp'], apiErrorHandler);
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');

@@ -9,8 +9,9 @@ import express from "express";
 
 import type { TaskManager } from "../src/core/tasks.ts";
 import type { DiscoveryEngine } from "../src/core/mcp/discovery.ts";
+import { ConfigManager } from "../src/core/config.ts";
 import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from "../src/core/types/limits.ts";
-import { createJarvisRouter, withoutLaunchFields } from "../src/server/jarvisRouter.ts";
+import { apiErrorHandler, createJarvisRouter, sanitizeConfigForHttp, withoutLaunchFields } from "../src/server/jarvisRouter.ts";
 import { createMcpRouter } from "../src/server/mcpRouter.ts";
 import { localOnly } from "../src/server/localOnly.ts";
 
@@ -43,10 +44,11 @@ let port = 0;
 
 before(async () => {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "256kb" }));
   app.use(localOnly());
   app.use("/api/jarvis", createJarvisRouter(fakeTasks, {} as DiscoveryEngine));
   app.use("/api/mcp", createMcpRouter(fakeDiscovery));
+  app.use(["/api", "/mcp"], apiErrorHandler);
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   port = (server.address() as AddressInfo).port;
@@ -217,4 +219,50 @@ test("RC-07: /api/mcp no ejecuta run_command, ni siquiera un comando de solo lec
     assert.equal(reply.status, 403, JSON.stringify(args));
   }
   assert.deepEqual(terminalCalls, [], "nada llegó al proveedor");
+});
+
+test("POST /api/mcp/:server/call rechaza args que no sean un objeto JSON con 400", async () => {
+  for (const args of ["texto", 123, ["a"], null]) {
+    const reply = await request("POST", "/api/mcp/jarvis_terminal/call", { body: { name: "list_processes", args } });
+    assert.equal(reply.status, 400, JSON.stringify(args));
+  }
+});
+
+test("GET /config omite env de los servidores MCP y sanitizeConfigForHttp no muta el origen", async () => {
+  const original = ConfigManager.getConfig();
+  const sample = {
+    ...original,
+    desktopCommanderMcp: { ...original.desktopCommanderMcp, env: { SECRET: "token" } },
+    freeSearchMcp: { ...original.freeSearchMcp, env: { SEARCH_MCP_AGENT_ENGINES: "off" } },
+  };
+  const sanitized = sanitizeConfigForHttp(sample);
+  assert.equal("env" in sanitized.desktopCommanderMcp, false);
+  assert.equal("env" in sanitized.freeSearchMcp, false);
+  assert.equal(sample.desktopCommanderMcp.env?.SECRET, "token");
+
+  const reply = await request("GET", "/api/jarvis/config");
+  assert.equal(reply.status, 200);
+  const parsed = JSON.parse(reply.body) as { desktopCommanderMcp: Record<string, unknown>; freeSearchMcp: Record<string, unknown> };
+  assert.equal("env" in parsed.desktopCommanderMcp, false);
+  assert.equal("env" in parsed.freeSearchMcp, false);
+});
+
+test("API JSON: un payload mayor a 256kb responde 413 y un JSON malformado responde 400", async () => {
+  const oversized = await request("POST", "/api/jarvis/process", { body: { message: "a".repeat(300 * 1024) } });
+  assert.equal(oversized.status, 413);
+
+  const malformed = await new Promise<Reply>((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, method: "POST", path: "/api/jarvis/process", headers: { "Content-Type": "application/json" } },
+      (res) => {
+        let body = "";
+        res.on("data", (c: Buffer) => (body += c.toString()));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
+      },
+    );
+    req.on("error", reject);
+    req.write("{malformed");
+    req.end();
+  });
+  assert.equal(malformed.status, 400);
 });
