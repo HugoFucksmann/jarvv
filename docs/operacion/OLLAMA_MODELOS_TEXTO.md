@@ -33,7 +33,7 @@ FROM C:\Users\<usuario>\.ollama\models\blobs\sha256-<modelo de d3:2b>
 TEMPLATE {{ .Prompt }}
 RENDERER d3
 PARAMETER num_batch 4096
-PARAMETER num_ctx 4096
+PARAMETER num_ctx 16384
 ```
 
 3. Crealas (no se duplican los pesos: reutilizan los blobs):
@@ -43,8 +43,9 @@ ollama create qwen3.5:4b-text -f Modelfile.qwen-text
 ollama create d3:2b-text -f Modelfile.d3-text
 ```
 
-4. En `jarvis-config.json`: `"qwenModel": "qwen3.5:4b-text"` y `"decisionModel": "d3:2b-text"`. El laboratorio (`eval/`) toma los mismos nombres de esa configuración. Para volver: poner los nombres originales; las variantes se borran con `ollama rm`.
+4. En `jarvis-config.json`: `"qwenModel": "qwen3.5:4b-text"` y `"decisionModel": "d3:2b-text"` (ver [`../configuracion/CONFIGURACION.md`](../configuracion/CONFIGURACION.md)). El laboratorio (`eval/`) toma los mismos nombres de esa configuración. Para volver: poner los nombres originales; las variantes se borran con `ollama rm`.
 
-## Mantener los modelos cargados
+## Ventana de contexto (`num_ctx`) y `keep_alive`
 
-`modelKeepAlive` (por defecto `30m`) se manda como `keep_alive` en cada consulta a los dos modelos, y al arrancar el servidor `warmUpModels` hace una consulta mínima a cada uno. Así la primera tarea tras una pausa no paga la carga en frío. `-1` los deja cargados sin límite; `0` los descarga al terminar cada consulta. No depende de cómo se arranque `ollama serve`.
+- **Contexto de 16k (`16384`)**: `jarvis-config.json` configura `qwenNumCtx: 16384` y `decisionMaxContext: 16384`. En Ollama ese tamaño real se define en el entorno del servidor (`OLLAMA_CONTEXT_LENGTH`) o en el `Modelfile` (`PARAMETER num_ctx 16384`); si en tu PC Ollama carga 8192 o 4096 por defecto, conviene alinear ambos valores para que la guarda de contexto proteja antes de recortar prompts.
+- **Mantener los modelos cargados**: `modelKeepAlive` (por defecto `30m`) se manda como `keep_alive` en cada consulta a los dos modelos, y al arrancar el servidor `warmUpModels` hace una consulta mínima a cada uno. Así la primera tarea tras una pausa no paga la carga en frío. `-1` los deja cargados sin límite; `0` los descarga al terminar cada consulta. No depende de cómo se arranque `ollama serve`.

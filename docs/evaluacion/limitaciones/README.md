@@ -1,5 +1,7 @@
 # Limitaciones de los modelos de Jarvis
 
+> **Nota histórica (2026-11-13):** mediciones de referencia previas a la integración de D0, poscondiciones y sondas. Para el flujo vigente, ver [`CORE_FLOW.md`](../../arquitectura/CORE_FLOW.md).
+
 Una ficha por modelo, porque intervienen dos y no responden lo mismo:
 
 | Ficha | Modelo | Qué hace en el flujo |

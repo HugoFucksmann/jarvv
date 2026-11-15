@@ -8,7 +8,7 @@
  *   npx tsx scripts/validate/tasks_e2e.ts --only=2           # solo el que empieza con "2"
  *   npx tsx scripts/validate/tasks_e2e.ts --only=2 --judge   # con el 2B puntuando los fragmentos de `web_search`
  *
- * Qué se encontró con este arnés está en `docs/REVISION_run_command.md` y `docs/REVISION_web_search.md`.
+ * Qué se encontró con este arnés está en `docs/operacion/REVISION_run_command.md` (y `docs/REVISION_web_search.md`, histórico externo).
  *
  * Lo que fija el arnés: `autoMode` apagado (así se ven las confirmaciones), la traza apagada y las refs en una carpeta temporal. Las confirmaciones se
  * aprueban o rechazan según el pedido, y a una pregunta al usuario se responde con un texto fijo. Los pedidos 5 y 6 crean carpetas en `%TEMP%`, y el arnés crea un proyecto temporal para el 8; al final se borran.

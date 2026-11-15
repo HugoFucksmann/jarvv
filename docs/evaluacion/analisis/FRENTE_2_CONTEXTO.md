@@ -2,7 +2,7 @@
 
 > 2026-11-13. Revisado sobre el código (`ctx/views/`, `render/`, `engine/adapters.ts`, `models/prompts.ts`, `budget.ts`) y sobre los prompts reales guardados en las trazas. Las propuestas marcadas «medido» se probaron en el laboratorio o contra los modelos. Cuando se escribió no se había tocado `src`.
 >
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales.
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales. **Documento histórico** — el estado vigente de contexto y pendientes está en [`CONTEXT_AND_MEMORY.md`](../../arquitectura/CONTEXT_AND_MEMORY.md) y [`PENDIENTES.md`](../../pendientes/PENDIENTES.md).
 
 ## Estado de implementación (2026-11-14)
 
@@ -123,7 +123,7 @@ Sin muestras suficientes en las trazas (2 planes, 0 preguntas). No se auditaron 
 | Alternativa | Idea | A favor | En contra |
 |---|---|---|---|
 | A. Recortar los topes de `budget.ts` | Mismo diseño, números más chicos | Mínimo esfuerzo | No quita el reenvío ni el ruido; sigue ciego a qué necesita cada consulta |
-| B. Que un modelo resuma cada resultado | Un «digest» escrito por el 4B | Texto corto | Otra llamada generativa por resultado y prosa de modelo dentro del contexto (rompe la invariante 2 de `CONTEXT_AND_MEMORY.md`) |
+| B. Que un modelo resuma cada resultado | Un «digest» escrito por el 4B | Texto corto | Otra llamada generativa por resultado y prosa de modelo dentro del contexto (rompe la invariante 2 de [`CONTEXT_AND_MEMORY.md`](../../arquitectura/CONTEXT_AND_MEMORY.md)) |
 | **C. Ficha de llamada con niveles y matriz por consulta** | El código arma tres niveles de detalle y cada consulta declara cuál recibe | Determinista, sin modelos, se mide por consulta | Cambia renderizadores y adaptadores; pide separar `summary` (F1) |
 
 **Recomendación: C.**

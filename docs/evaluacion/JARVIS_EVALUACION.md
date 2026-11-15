@@ -1,6 +1,6 @@
 # JARVIS — Evaluación y banco de ideas
 
-> Documento vivo. Base: `ARCHITECTURE.md`, `CORE_FLOW.md`, `CONTEXT_AND_MEMORY.md`.
+> **Documento histórico de evaluación (2026-11-13 / 2026-11-14).** Para el flujo vigente, ver [`ARCHITECTURE.md`](../arquitectura/ARCHITECTURE.md) y [`CORE_FLOW.md`](../arquitectura/CORE_FLOW.md); para el estado abierto actual, [`PENDIENTES.md`](../pendientes/PENDIENTES.md). Base original: `ARCHITECTURE.md`, `CORE_FLOW.md`, `CONTEXT_AND_MEMORY.md`.
 > Primera evaluación: hecha solo sobre la documentación. Las estimaciones debían confirmarse con las trazas.
 > **Segunda revisión (2026-11-13):** contrastada con el código, con las trazas guardadas (`jarvis-traces/`: 116 tareas en el índice, 35 con detalle) y con pruebas directas contra Ollama. Lo medido está en «Mediciones reales»; cada idea previa lleva una línea **Revisión** con el veredicto; las ideas nuevas están en «Ideas nuevas (segunda revisión)». No se editó código.
 
@@ -14,7 +14,7 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | **T2** tarea larga por el largo de la lista | ⏸ |
 | **T3** fusionar D1 y D2 · **T4** paralelismo en decisión | ❌ descartados con medición |
 | **T5** herramientas básicas | ⏸ (elección probada; falta el proveedor y la generación de argumentos con Qwen) |
-| **N1** modelos en la VRAM | ✅ resuelto de otra forma: variantes sin proyector de visión (`docs/OLLAMA_MODELOS_TEXTO.md`); tarea simulada de 4 659 a 1 071 ms. Reducir el tamaño de los modelos sigue en pausa |
+| **N1** modelos en la VRAM | ✅ resuelto de otra forma: variantes sin proyector de visión (`docs/operacion/OLLAMA_MODELOS_TEXTO.md`); tarea simulada de 4 659 a 1 071 ms. Reducir el tamaño de los modelos sigue en pausa |
 | **N2** modelos siempre calientes | ✅ `keep_alive` (`modelKeepAlive`) y `warmUpModels` al arrancar |
 | **N3** contexto configurado = real | ⏸ (depende de cómo se arranca Ollama) |
 | **N4** cortes de repeticiones | ⚠ el generador ya cambia los argumentos 25 de 30 veces (R5 no hace falta). Se implementó el corte del usuario: dos rechazos de D4 por paso fallan el paso (`maxVerifyRejectionsPerStep`). Faltan «ítem reescrito idéntico» y «no volver a preguntar tras un rechazo del usuario» |
@@ -25,9 +25,9 @@ Leyenda: ✅ hecho · ⚠ parcial · ⏸ pendiente · ❌ descartado o revertido
 | **Idea 1** (atajo inicial con una decisión D0) | ✅ implementada como D0 (T1) |
 | **Idea 5** (aprobación escalonada por riesgo) | ✅ implementada **opt-in y apagada** (`approvalTiers`, `policy/tiers.ts`: verde / amarillo / rojo por código). Sin la lista de permitidos ni «no volver a preguntar lo mismo» tras un rechazo del usuario |
 | **Idea 4** (respuesta final sin generativo) · el resto de las ideas originales | ⏸ sin cambios |
-| **Memoria entre tareas** | ⚠ hechos y hilo ✅; recetas ⏸ (`docs/analisis/FRENTE_1_MEMORIA.md`) |
+| **Memoria entre tareas** | ⚠ hechos y hilo ✅; recetas ⏸ (`docs/evaluacion/analisis/FRENTE_1_MEMORIA.md`) |
 
-Los tres frentes de análisis (`docs/analisis/`) llevan su propio estado por decisión.
+Los tres frentes de análisis (`docs/evaluacion/analisis/`) llevan su propio estado por decisión.
 
 **Rol de JARVIS:** agente root coordinador. El usuario habla con JARVIS; JARVIS se mueve en la PC, ejecuta herramientas y, a futuro, llamará a agentes especializados. Esos agentes en sí no forman parte de este análisis.
 
@@ -187,7 +187,7 @@ Entorno: Ollama 0.40.13, RTX 3070 Ti de 8 GB, `qwen3.5:4b` (Q4_K_M, 3,36 GB en V
 - **Elegir cuáles:** por frecuencia real en las trazas.
 - **Esfuerzo:** 🟡 a 🔴 (incremental, una receta por vez) · **Sin código:** 🧪 para medir qué % de los comandos de las trazas cubren las N recetas más frecuentes
 - **Estado:** [ ] medir cobertura · [ ] primera receta piloto
-- **Revisión:** ✅ válida. Las trazas la respaldan: «los N procesos que más RAM consumen» aparece 4 veces en 35 trazas y «abrí la calculadora» terminó en `Start-Process calc`, tratado como escritura con confirmación (12,7 s de espera). Una receta «abrir aplicación» y otra «procesos por memoria» cubren esos casos, sin PowerShell libre y sin pregunta. Además `docs/limitaciones/d3-2b.md` muestra que D1 manda a `files` pedidos que necesitan terminal («los 5 archivos más grandes»): una receta con descripción propia le da a D2 una opción que hoy no existe.
+- **Revisión:** ✅ válida. Las trazas la respaldan: «los N procesos que más RAM consumen» aparece 4 veces en 35 trazas y «abrí la calculadora» terminó en `Start-Process calc`, tratado como escritura con confirmación (12,7 s de espera). Una receta «abrir aplicación» y otra «procesos por memoria» cubren esos casos, sin PowerShell libre y sin pregunta. Además `docs/evaluacion/limitaciones/d3-2b.md` muestra que D1 manda a `files` pedidos que necesitan terminal («los 5 archivos más grandes»): una receta con descripción propia le da a D2 una opción que hoy no existe.
 
 ### 4. Respuesta final sin generativo cuando no hace falta redactar
 - **Qué:** si la tarea terminó `completed` y todas sus llamadas son escrituras (crear carpeta, mover archivo), la respuesta se arma por código con una plantilla por herramienta («Listo: creé la carpeta X»). El generativo solo redacta cuando hay contenido que interpretar (lecturas, búsquedas) o la tarea no terminó bien.
@@ -256,7 +256,7 @@ Entorno: Ollama 0.40.13, RTX 3070 Ti de 8 GB, `qwen3.5:4b` (Q4_K_M, 3,36 GB en V
 - **Estado:** [ ] calibrar · [ ] probar decisor mayor para D3/D4
 - **Revisión:** ⚠️ parte válida, parte a corregir.
   - ❌ **Decisor más grande:** va en contra de lo medido. La GPU ya está al límite y cada GB extra agrava la penalización de cambio (N1). La dirección a probar es la contraria: un `d3:2b` más liviano.
-  - ⚠️ **Dividir D3 en varias `noul`:** ya hay evidencia en contra para D1 y D2 (`docs/limitaciones/d3-2b.md`): una `noul` por opción fue peor (20/22 contra 22/22) y 3 veces más lenta. Para D3 no está medido; vale el experimento E14, sin darlo por ganado.
+  - ⚠️ **Dividir D3 en varias `noul`:** ya hay evidencia en contra para D1 y D2 (`docs/evaluacion/limitaciones/d3-2b.md`): una `noul` por opción fue peor (20/22 contra 22/22) y 3 veces más lenta. Para D3 no está medido; vale el experimento E14, sin darlo por ganado.
   - ⚠️ **Más preguntas a D4:** D4 ya es el punto débil (sigue un `Expected` malo, confunde copiar con mover, rechaza movimientos correctos). Antes que más preguntas al 2B, sacar del modelo lo que el código puede comprobar (N5).
   - ✅ Calibrar umbrales, registrar márgenes y armar por plantilla las preguntas al usuario: válidas.
 
@@ -311,7 +311,7 @@ Ordenadas por retorno esperado. Las tres primeras son de configuración o de muy
   - La pregunta `ok` la responde el código cuando el estado ya es concluyente (`ok` con código de salida 0, o `no_data`).
   - Las escrituras del catálogo llevan una **poscondición** que el código comprueba en el disco: `create_directory` → la carpeta existe; `move_file` → el origen ya no está y el destino sí; `write_file` → el archivo existe y tiene el tamaño esperado.
   - D4 queda para lo que el código no puede saber: si lo leído responde a lo pedido (`cumple` en lecturas y búsquedas).
-- **Evidencia** (`docs/limitaciones/d3-2b.md`): D4 aprueba una copia donde se pidió mover (`cumple` 0,97 a 0,99), rechaza movimientos correctos (`ok` 0,51 con `Move-Item` y `Test-Path`) y sigue un `Expected` mal escrito (3/18). Las tres fallas son sobre hechos comprobables en el disco.
+- **Evidencia** (`docs/evaluacion/limitaciones/d3-2b.md`): D4 aprueba una copia donde se pidió mover (`cumple` 0,97 a 0,99), rechaza movimientos correctos (`ok` 0,51 con `Move-Item` y `Test-Path`) y sigue un `Expected` mal escrito (3/18). Las tres fallas son sobre hechos comprobables en el disco.
 - **Beneficio:** menos rechazos falsos (cada uno es una vuelta completa de modelos), menos aprobaciones falsas en escrituras, y una barrera real para `autoMode`, donde hoy D4 llega tarde y no deshace nada.
 - **Esfuerzo:** 🟡 · **Sin código:** 🧪 con los datasets `verify_copy_move` y `d4_verify`: cuántos casos decide el código solo
 - **Estado:** [ ]
@@ -324,7 +324,7 @@ Ordenadas por retorno esperado. Las tres primeras son de configuración o de muy
 
 ### N7. Literal de la solicitud directo al argumento
 - **Qué:** cuando la solicitud trae el valor exacto (un comando tras «ejecutá en la terminal:», una ruta completa, una URL), el código lo copia tal cual al argumento. Es el primer piloto natural de los puntos 2 y 2b.
-- **Evidencia:** «ejecutá en la terminal: Write-Output hola» se ejecutó como `echo hola`. Acá no cambió el resultado; con `robocopy` o `ren` (los casos de `route_terminal_explicit`) sí importa. `docs/limitaciones/qwen-3.5-4b.md` muestra que `pending` además cambia de idioma con comandos en inglés.
+- **Evidencia:** «ejecutá en la terminal: Write-Output hola» se ejecutó como `echo hola`. Acá no cambió el resultado; con `robocopy` o `ren` (los casos de `route_terminal_explicit`) sí importa. `docs/evaluacion/limitaciones/qwen-3.5-4b.md` muestra que `pending` además cambia de idioma con comandos en inglés.
 - **Beneficio:** el comando que corre es el que escribió el usuario, sin `pending` ni `args` generativos (dos llamadas y dos cambios de modelo menos). Guard, lista negra y pre-chequeo corren igual.
 - **Esfuerzo:** 🟢 a 🟡 · **Sin código:** 🧪 para medir sobre `route_terminal_explicit` qué porcentaje se extrae con una regla
 - **Estado:** [ ]
@@ -449,7 +449,7 @@ Pedido: reducir pasos, elegir entre flujos, distinguir tareas cortas de largas, 
 Ideas que suman capacidades nuevas; no son prioridad frente a lo anterior.
 
 1. **Delegación a agentes especializados:** un destino `agent` en el catálogo. JARVIS solo decide a quién delegar (D1), entrega un encargo acotado y recibe el resultado como ref; el progreso llega por eventos, con el mismo Guard y aprobaciones. Incluye, si hace falta, escalar a un modelo de frontera ante las señales de fracaso que ya existen (`replans_exhausted`, `review_rejected`, `not_accomplished` ×2, tercera escalación). Extender `egress.ts` a todo lo que salga hacia la nube.
-2. **Memoria entre tareas:** *(2026-11-14: hechos del usuario e hilo con la tarea anterior ya implementados, ver `docs/CONTEXT_AND_MEMORY.md` §10; la traza sigue sin leerse)*. Texto original: hoy cada tarea nace de cero y el backend nunca lee la traza. Sin romper el principio: un archivo de playbooks y hechos del usuario en config, generado fuera de línea desde trazas aprobadas o confirmado por el usuario. Usos: ejemplos para generar argumentos, y atajos que se ejecutan sin generativo tras N éxitos. Habilita continuidad («abrí lo de ayer»).
+2. **Memoria entre tareas:** *(2026-11-14: hechos del usuario e hilo con la tarea anterior ya implementados, ver `docs/arquitectura/CONTEXT_AND_MEMORY.md` §10; la traza sigue sin leerse)*. Texto original: hoy cada tarea nace de cero y el backend nunca lee la traza. Sin romper el principio: un archivo de playbooks y hechos del usuario en config, generado fuera de línea desde trazas aprobadas o confirmado por el usuario. Usos: ejemplos para generar argumentos, y atajos que se ejecutan sin generativo tras N éxitos. Habilita continuidad («abrí lo de ayer»).
 3. **Contexto vivo de la PC, inyectado por código:** ventana activa, portapapeles, carpeta de trabajo, archivos recientes, apps abiertas. Resuelve «este archivo» sin llamada generativa.
 4. **Aprobaciones y respuestas en lenguaje natural** (Telegram y voz), clasificadas por el modelo de decisión (`aprobar` / `rechazar` / `modificar`).
 5. **Modelo generativo distinto por etapa** (argumentos, plan, respuesta final).

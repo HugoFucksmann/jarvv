@@ -109,7 +109,7 @@ JARVIS trae su propio laboratorio de evaluación: mide prompts y modelos contra 
 | | Requisito | Para qué |
 |:-:|---|---|
 | 🟢 | [Node.js](https://nodejs.org) 22.12 o superior | Servidor, interfaz y Desktop Commander (que se instala con `npm install` y se lanza con `node`) |
-| 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b`. En 8 GB de VRAM conviene usar las variantes sin visión `qwen3.5:4b-text` y `d3:2b-text` (`docs/OLLAMA_MODELOS_TEXTO.md`) |
+| 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b`. En 8 GB de VRAM conviene usar las variantes sin visión `qwen3.5:4b-text` y `d3:2b-text` ([`OLLAMA_MODELOS_TEXTO`](docs/operacion/OLLAMA_MODELOS_TEXTO.md)) |
 | 🐍 | [uv](https://docs.astral.sh/uv/) (`uvx`) | Free Search, la herramienta de la ruta `web` |
 
 ### Instalación
@@ -157,7 +157,7 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 |---|---|---|
 | `PORT` | `3000` | Puerto del servidor |
 | `HOST` | `127.0.0.1` | Interfaz de red. Con `0.0.0.0` se expone a la red; como no hay autenticación, daría control de tu PC a quien llegue al servidor, así que no lo uses en redes que no controlás |
-| `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `TELEGRAM_MODE` | — | Telegram, opcional (se leen del entorno o de `.env`; ver `.env.example` y [`TELEGRAM_Y_VOZ`](docs/TELEGRAM_Y_VOZ.md)). Sin token o sin `TELEGRAM_CHAT_ID` el bot no arranca |
+| `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `TELEGRAM_MODE` | — | Telegram, opcional (se leen del entorno o de `.env`; ver `.env.example` y [`TELEGRAM_Y_VOZ`](docs/operacion/TELEGRAM_Y_VOZ.md)). Sin token o sin `TELEGRAM_CHAT_ID` el bot no arranca |
 | `HF_TOKEN` | — | Solo para `scripts/phonon_server.py` (modelo de voz *gated* en Hugging Face) |
 
 </details>
@@ -180,9 +180,9 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
 | `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos |
-| `data/memory.json` (archivo opcional) | ausente | Hechos del usuario `[{ "key", "value" }]` que Jarvis pasa a la generación de argumentos cuando el pedido los menciona (`docs/CONTEXT_AND_MEMORY.md` §10) |
-| `approvalTiers` | `false` | Aprobación por niveles (verde sin confirmación, amarillo con Decisión 3 estricta, rojo siempre pide al usuario). Si está encendida reemplaza a `autoMode` en las escrituras. Ver `docs/CORE_FLOW.md` |
-| `modelKeepAlive` | `30m` | `keep_alive` de Ollama que se manda con cada consulta a los dos modelos (`30m`, `2h`, `-1` = sin límite). Ver `docs/OLLAMA_MODELOS_TEXTO.md` |
+| `data/memory.json` (archivo opcional) | ausente | Hechos del usuario `[{ "key", "value" }]` que Jarvis pasa a la generación de argumentos cuando el pedido los menciona ([`CONTEXT_AND_MEMORY`](docs/arquitectura/CONTEXT_AND_MEMORY.md) §10) |
+| `approvalTiers` | `false` | Aprobación por niveles (verde sin confirmación, amarillo con Decisión 3 estricta, rojo siempre pide al usuario). Si está encendida reemplaza a `autoMode` en las escrituras. Ver [`CORE_FLOW`](docs/arquitectura/CORE_FLOW.md) |
+| `modelKeepAlive` | `30m` | `keep_alive` de Ollama que se manda con cada consulta a los dos modelos (`30m`, `2h`, `-1` = sin límite). Ver [`OLLAMA_MODELOS_TEXTO`](docs/operacion/OLLAMA_MODELOS_TEXTO.md) |
 | `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
 | `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |
 | `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción). Solo valida los argumentos de ruta de las herramientas de archivos: **no restringe lo que haga un comando** de `run_command` |
@@ -192,7 +192,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
 | `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
 | `webSearchUseJudge` | `true` | `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada |
-| `voiceEnabled` · `telegramVoice` | `false` · `false` | Voz: la interfaz lee en voz alta cada respuesta final; Telegram suma una nota de voz (necesita `ffmpeg`). Ver [`TELEGRAM_Y_VOZ`](docs/TELEGRAM_Y_VOZ.md) |
+| `voiceEnabled` · `telegramVoice` | `false` · `false` | Voz: la interfaz lee en voz alta cada respuesta final; Telegram suma una nota de voz (necesita `ffmpeg`). Ver [`TELEGRAM_Y_VOZ`](docs/operacion/TELEGRAM_Y_VOZ.md) |
 | `voiceUrl` · `voiceName` | `http://127.0.0.1:8880` · `default` | Servidor TTS (`scripts/phonon_server.py`) y su voz |
 
 </details>
@@ -236,22 +236,24 @@ Esta es una **versión temprana ([v0.7.0](CHANGELOG.md))**: el flujo completo fu
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
 | **Herramientas** | 12 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 
-Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES_FUERA_DE_FLUJO`](docs/PENDIENTES_FUERA_DE_FLUJO.md).
+Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES`](docs/pendientes/PENDIENTES.md) y el diagnóstico técnico en [`DIAGNOSTICO_PENDIENTES`](docs/pendientes/DIAGNOSTICO_PENDIENTES.md).
 
 ---
 
 ## 📚 Para ir más a fondo
 
-Si te interesa entender cómo está construido por dentro:
+Si te interesa entender cómo está construido por dentro, consultá el índice completo en [`docs/README.md`](docs/README.md):
 
 | Documento | Qué vas a encontrar |
 |---|---|
-| 🏛️ [ARCHITECTURE](docs/ARCHITECTURE.md) | La arquitectura y las responsabilidades de cada módulo |
-| 🔄 [CORE_FLOW](docs/CORE_FLOW.md) | El recorrido de una tarea, de la instrucción a la respuesta final |
-| 🧠 [CONTEXT_AND_MEMORY](docs/CONTEXT_AND_MEMORY.md) | Cómo se arma el contexto, la memoria y el manejo de resultados |
-| 🔌 [JARVIS_API](docs/JARVIS_API.md) | La API HTTP local y los eventos en vivo que consume la interfaz |
+| 🏛️ [ARCHITECTURE](docs/arquitectura/ARCHITECTURE.md) | La arquitectura y las responsabilidades de cada módulo |
+| 🔄 [CORE_FLOW](docs/arquitectura/CORE_FLOW.md) | El recorrido de una tarea, de la instrucción a la respuesta final |
+| 🧠 [CONTEXT_AND_MEMORY](docs/arquitectura/CONTEXT_AND_MEMORY.md) | Cómo se arma el contexto, la memoria y el manejo de resultados |
+| 🧰 [TOOLS](docs/arquitectura/TOOLS.md) | Catálogo cerrado, proveedores nativos/MCP y pipeline de `web_search` |
+| ⚙️ [CONFIGURACION](docs/configuracion/CONFIGURACION.md) | `jarvis-config.json`, defaults del código, claves restringidas y `.env` |
+| 🔌 [JARVIS_API](docs/api/JARVIS_API.md) | La API HTTP local y los eventos en vivo que consume la interfaz |
 | 📏 [Eval](eval/README.md) | El laboratorio de evaluación de prompts: uso, variantes y [mejores resultados](eval/MEJORES_VARIANTES.md) |
-| 🚧 [PENDIENTES](docs/PENDIENTES_FUERA_DE_FLUJO.md) | Limitaciones conocidas y trabajo abierto |
+| 🚧 [PENDIENTES](docs/pendientes/PENDIENTES.md) | Limitaciones conocidas y trabajo abierto |
 | 📝 [CHANGELOG](CHANGELOG.md) | Qué trae cada versión y la historia del desarrollo |
 
 ---

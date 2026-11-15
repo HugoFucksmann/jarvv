@@ -1,6 +1,6 @@
 # Desalineaciones detectadas en el eval
 
-Estado: revisión de todos los archivos recibidos. Solo se listan puntos confirmados contra el código recibido o contra lo informado por el usuario. No se propone ni se aplica ninguna corrección.
+Estado: revisión de todos los archivos recibidos. Solo se listan puntos confirmados contra el código recibido o contra lo informado por el usuario. No se propone ni se aplica ninguna corrección. *(Nota: `eval-tree.md` mencionado en D10 era un listado externo usado durante la auditoría de `eval/` y no forma parte del repositorio.)*
 
 Fuente de verdad: el código de `src`. Si el desacuerdo es entre el eval y `src`, es el eval el que está desalineado. Si es entre la documentación (README, `INSTRUCCIONES.md`, comentarios) y el código del eval, es la documentación. Los puntos donde esa regla no decide quedan marcados "decidir" en el índice.
 

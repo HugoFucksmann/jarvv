@@ -3,7 +3,7 @@
  *
  * Funciones puras: las usan el motor y el laboratorio (`eval/`), con los mismos umbrales. Una sola consulta de decisión con dos preguntas sobre la
  * solicitud (`kind`, `choice`: chat / single / multi, de la que solo se usa la probabilidad de `chat`; y `multi`, `noul`). Medido en
- * docs/JARVIS_EVALUACION.md (T1) con un conjunto chico; el dataset del laboratorio (`eval/datasets/D0/`) es la medida que manda.
+ * docs/evaluacion/JARVIS_EVALUACION.md (T1) con un conjunto chico; el dataset del laboratorio (`eval/datasets/D0/`) es la medida que manda.
  */
 
 export const FIRST_QUERY_KINDS = ["chat", "single", "multi"] as const;

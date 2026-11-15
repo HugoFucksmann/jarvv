@@ -23,7 +23,7 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 
 ## [0.6.0] — 2026-11-09
 
-Primera publicación. El flujo completo funciona de punta a punta y el laboratorio de evaluación está incluido, con limitaciones conocidas (ver [`docs/PENDIENTES_FUERA_DE_FLUJO.md`](docs/PENDIENTES_FUERA_DE_FLUJO.md)).
+Primera publicación. El flujo completo funciona de punta a punta y el laboratorio de evaluación está incluido, con limitaciones conocidas (ver [`docs/pendientes/PENDIENTES.md`](docs/pendientes/PENDIENTES.md)).
 
 ### Núcleo
 - Flujo por tarea en dos modos, `reactive` y `deliberative`: lista de pendientes, ruta (Decisión 1), herramienta (Decisión 2), argumentos, resolución de referencias, anti-bucle, Guard, lista negra, pre-chequeo determinista, confirmación del usuario, revisión de argumentos (Decisión 3), despacho y verificación del resultado (Decisión 4).

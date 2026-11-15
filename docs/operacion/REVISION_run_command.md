@@ -1,5 +1,7 @@
 # Revisión de `run_command`: hallazgos, inconsistencias y faltantes
 
+> **Documento histórico (2026-11-10 / 2026-11-11).** Conserva la bitácora de hallazgos (`RC-01` a `RC-41`) y resultados de tandas referenciados desde código y pruebas (`tests/run_command.test.ts`). Para el estado operativo vigente, ver [`WINDOWS_TERMINAL.md`](WINDOWS_TERMINAL.md); para pendientes abiertos, [`../pendientes/PENDIENTES.md`](../pendientes/PENDIENTES.md).
+
 Documento de referencia para un agente que vaya a revisar `run_command` en profundidad. Reúne lo que se encontró al construirla y validarla (2026-11-10), con el contexto necesario para entender cada punto sin haber visto cómo se construyó. No impone soluciones: cada hallazgo dice qué se observó, con qué evidencia y qué conviene investigar.
 
 > **Revisión del 2026-11-11.** Los hallazgos se verificaron contra el código y con PowerShell real, y se resolvió lo que se podía sin tocar prompts ni el núcleo grande. El **estado de cada hallazgo**, los hallazgos nuevos (`RC-31` en adelante), la evaluación de ConPTY, las decisiones a confirmar y los cambios en lo que leen los modelos están en la **§9**. Una segunda tanda el mismo día (con las propuestas de la §9 aceptadas) resolvió más pendientes, incluido el núcleo: su estado, **que reemplaza al de la §9.2 donde lo nombra**, y todo lo que se corrió con su resultado están en la **§10**. Las secciones 1 a 8 describen el estado del 2026-11-10 y se dejan como estaban, salvo correcciones marcadas con *(corregido 2026-11-11)*.

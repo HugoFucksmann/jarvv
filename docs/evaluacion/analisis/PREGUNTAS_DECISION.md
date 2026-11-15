@@ -1,6 +1,6 @@
 # Preguntas a Decisión: qué se pregunta hoy y qué conviene preguntar
 
-> 2026-11-14. Medido contra `d3:2b-text` (y `d3:4b-text` de control) con `/v1/systemone`. Las muestras son chicas y varias etiquetadas a mano: sirven para decidir qué construir, no como medida final. Los scripts están en `eval/exp/` (`question_sets_d4.ts`, `question_views_d4.ts`, `place_wordings.ts`, `close_check.ts`).
+> 2026-11-14. Medido contra `d3:2b-text` (y `d3:4b-text` de control) con `/v1/systemone`. Las muestras son chicas y varias etiquetadas a mano: sirven para decidir qué construir, no como medida final. Los scripts están en `eval/exp/` (`question_sets_d4.ts`, `question_views_d4.ts`, `place_wordings.ts`, `close_check.ts`). **Documento histórico** — la descripción vigente de D0–D5 y las sondas está en [`CORE_FLOW.md`](../../arquitectura/CORE_FLOW.md).
 
 ## Qué se hizo
 **Comprobación de ubicación de lo escrito (implementada; hoy es la sonda `place` de `tools/probes.ts`).** Tras una escritura del catálogo cuya poscondición en disco se cumple (`write_file`, `create_directory`, `move_file`), la sonda hace dos consultas `noul` sobre el mismo resultado y se rechaza (`not_accomplished`) si la menor de las dos probabilidades es < 0,6:

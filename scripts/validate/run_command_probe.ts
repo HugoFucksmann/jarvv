@@ -5,7 +5,7 @@
  *   npx tsx scripts/validate/run_command_probe.ts          # los casos de siempre
  *   npx tsx scripts/validate/run_command_probe.ts --big    # además, 300 000 líneas de salida (~12 s)
  *
- * Qué mira cada caso está en `docs/REVISION_run_command.md` (hallazgos RC-xx). Actualizada el 2026-11-11 con lo que cambió en la revisión: tildes de las
+ * Qué mira cada caso está en `docs/operacion/REVISION_run_command.md` (hallazgos RC-xx). Actualizada el 2026-11-11 con lo que cambió en la revisión: tildes de las
  * herramientas del sistema por la tubería de PowerShell, Python en UTF-8, `Read-Host` y `pause` respondibles, `python -i`, barras de progreso que se reescriben (retorno de carro),
  * prompts por clases (un avance que se detiene ya no es un prompt) y una tubería cortada que no deja vivo al programa.
  */

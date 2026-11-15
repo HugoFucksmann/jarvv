@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — API HTTP de las tareas (`/api/jarvis/*`). El contrato para quien la consume está en `JARVIS_API.md`.
+ * JARVIS Core — API HTTP de las tareas (`/api/jarvis/*`). El contrato para quien la consume está en `docs/api/JARVIS_API.md`.
  *
  * El router solo valida la entrada y traduce: toda la lógica vive en `TaskManager`. Las respuestas de error son siempre
  * `{ error: string }`: 400 entrada inválida, 404 tarea inexistente, 409 la tarea no espera eso.

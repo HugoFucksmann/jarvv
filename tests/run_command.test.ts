@@ -404,7 +404,7 @@ test("con el tope de procesos vivos: lo que dejó una tarea completada se cierra
   }
 });
 
-// ───────────────────────── Mejoras de la revisión (RC-xx en docs/REVISION_run_command.md) ─────────────────────────
+// ───────────────────────── Mejoras de la revisión (RC-xx en docs/operacion/REVISION_run_command.md) ─────────────────────────
 
 test("RC-01: un avance sin salto de línea que se detiene no es un prompt", { skip: !windows }, async () => {
   const native = read(await run({ command: "Write-Host -NoNewline 'progreso...'; Start-Sleep 3; Write-Host ' listo'", timeoutSec: 20 }, nextTask()));

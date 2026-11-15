@@ -1,5 +1,5 @@
 /**
- * JARVIS Core — Aprobación por niveles (idea 5 de `docs/JARVIS_EVALUACION.md`), decidida por código.
+ * JARVIS Core — Aprobación por niveles (idea 5 de `docs/evaluacion/JARVIS_EVALUACION.md`), decidida por código.
  *
  * Con `approvalTiers` encendido (opt-in, `jarvis-config.json`) reemplaza al `autoMode` binario («se pregunta todo» o «no se pregunta nunca y la última barrera es un 2B»):
  * - **Verde** — reversible y sin sobrescribir, dentro de las carpetas del usuario (crear una carpeta, un archivo que no existe, mover a un destino que no existe): sin

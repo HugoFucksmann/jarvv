@@ -386,7 +386,7 @@ export const ROUTE_QUESTION =
 export const DECISION_PROMPTS = {
   /**
    * Hilo: ¿el pedido nuevo continúa la tarea anterior? Una pregunta `noul` con la tarea anterior y el pedido nuevo (texto de la prueba de continuación,
-   * docs/analisis/FRENTE_1_MEMORIA.md: con el umbral `CONTINUATION_APPROVE`, 28/28 seguimientos y 0/28 falsos). La redacción invertida no sirve («¿se entiende sin la anterior?»).
+   * docs/evaluacion/analisis/FRENTE_1_MEMORIA.md: con el umbral `CONTINUATION_APPROVE`, 28/28 seguimientos y 0/28 falsos). La redacción invertida no sirve («¿se entiende sin la anterior?»).
    */
   buildContinuation(data: ContinuationInput): DecisionInput {
     return {
@@ -402,7 +402,7 @@ export const DECISION_PROMPTS = {
 
   /**
    * D0 (primera consulta de la tarea reactiva): dos preguntas sobre la solicitud, sin contexto. `kind` ubica la solicitud entre charla, una acción y
-   * varias; `multi` lo confirma con un sí/no. Texto de la prueba T1 (docs/JARVIS_EVALUACION.md), todavía sin ajustar contra el dataset del laboratorio.
+   * varias; `multi` lo confirma con un sí/no. Texto de la prueba T1 (docs/evaluacion/JARVIS_EVALUACION.md), todavía sin ajustar contra el dataset del laboratorio.
    */
   buildFirstQuery(data: FirstQueryInput): DecisionInput {
     return {

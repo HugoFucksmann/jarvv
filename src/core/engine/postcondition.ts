@@ -3,7 +3,7 @@
  *
  * Una escritura exitosa deja algo que el código puede mirar: `create_directory` → la carpeta existe; `move_file` → el origen ya no está y el destino sí;
  * `write_file` → el archivo existe (y no está vacío si se le pidió escribir texto). Decisión 4 fallaba justo en esos hechos: rechazó un `Move-Item` correcto
- * (`ok` 0,51) y aprobó una copia donde se pidió mover (`docs/limitaciones/d3-2b.md`). Cumplida la poscondición el código aprueba sin consultar al modelo; no
+ * (`ok` 0,51) y aprobó una copia donde se pidió mover (`docs/evaluacion/limitaciones/d3-2b.md`). Cumplida la poscondición el código aprueba sin consultar al modelo; no
  * cumplida, rechaza. Si no se puede comprobar (ruta relativa, referencia sin resolver, otra herramienta, error al leer el disco) devuelve `null` y decide el modelo.
  */
 

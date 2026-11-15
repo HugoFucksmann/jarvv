@@ -28,7 +28,7 @@ Este documento consolida el análisis en código de los siete frentes pendientes
     - `Call` (`route/tool`),
     - `Args`.
   - Los campos `stepsDone`, `done`, `lastReads`, `env`, `description` y `schema` de `ReviewDecisionInput` (`src/core/contracts.ts:112-125`) sí se calculan en `src/core/engine/adapters.ts:197-208`, pero **`buildArgsReview` los ignora** por diseño de la variante ganadora en `eval/`.
-- Según las mediciones documentadas en `docs/analisis/FRENTE_1_MEMORIA.md` (§159-169) y `docs/analisis/FUERA_DE_FRENTES.md` (§49-51), al someter a `d3:2b` a 5 rutas inventadas en escritura, aprobó las 5 con confianza `0.93–0.95`, por lo que hoy la contención real recae en `src/core/engine/precheck.ts` (`writeDestinationHasSource`, `checkParentFolder`) y `src/core/policy/commandRules.ts`.
+- Según las mediciones documentadas en [`FRENTE_1_MEMORIA.md`](../evaluacion/analisis/FRENTE_1_MEMORIA.md) (§159-169), al someter a `d3:2b` a 5 rutas inventadas en escritura, aprobó las 5 con confianza `0.93–0.95`, por lo que hoy la contención real recae en `src/core/engine/precheck.ts` (`writeDestinationHasSource`, `checkParentFolder`) y `src/core/policy/commandRules.ts`.
 
 ### Causa raíz
 1. **Prompt sin anclaje fáctico (`lastReads` / `env`)**: al omitir `lastReads` y `env` para reducir tokens y evitar falsos rechazos en 2B, D3 no puede distinguir una ruta existente/leída de una ruta alucinada si esa ruta logra pasar `precheck.ts`.
@@ -42,7 +42,7 @@ Este documento consolida el análisis en código de los siete frentes pendientes
 - `src/core/engine/adapters.ts`: `reviewInput` y `candidateOf` (líneas 188-208).
 - `src/core/ctx/views/review.ts`: construcción de `ReviewView` (`lastReads`, `stepsDone`, `env`).
 - `src/core/engine/precheck.ts`: barrera determinista previa a D3 (`writeDestinationHasSource`, `checkParentFolder`).
-- `docs/limitaciones/d3-2b.md`, `docs/analisis/FRENTE_1_MEMORIA.md`, `docs/analisis/FUERA_DE_FRENTES.md`.
+- `docs/evaluacion/limitaciones/d3-2b.md`, `docs/evaluacion/analisis/FRENTE_1_MEMORIA.md`.
 
 ### Opciones de solución
 1. **Endurecer reglas deterministas en `precheck.ts` y `tiers.ts`, reduciendo el peso de D3**:
@@ -61,7 +61,7 @@ Este documento consolida el análisis en código de los siete frentes pendientes
 
 ### Estado actual
 - El motor soporta niveles en `src/core/policy/tiers.ts` (`approvalTierOf`) y `src/core/engine/callRunner.ts:366-418`, controlado por `config.approvalTiers` (`src/core/config.ts:75,158` con default `false`, pero activado en `jarvis-config.json:48` como `true`).
-- Sin embargo, la funcionalidad está incompleta en cuatro frentes documentados (`docs/CORE_FLOW.md:173`, `docs/JARVIS_EVALUACION.md:26`):
+- Sin embargo, la funcionalidad está incompleta en cuatro frentes documentados (`docs/arquitectura/CORE_FLOW.md`, `docs/evaluacion/JARVIS_EVALUACION.md:26`):
   1. **Sin exposición ni explicación en UI ni en Telegram**:
      - `ui/components/SettingsModal/SettingsModal.tsx:495-522` solo muestra el toggle y texto explicativo de `autoMode` («no pedirá confirmación para escribir, mover o ejecutar comandos»), lo cual es **falso cuando `approvalTiers: true`**, porque las operaciones `red` (p. ej. sobrescribir archivo existente, `run_command` fuera de la lista blanca) siguen pidiendo confirmación incluso con `autoMode: true`.
      - `src/telegram/bot.ts` (`/auto`) alterna `autoMode` sin advertir ni gestionar `approvalTiers`.
@@ -149,7 +149,7 @@ La restricción se implementó únicamente como un filtro léxico puntual en el 
   - Tres brechas permanecen abiertas:
     1. Muchas fuentes devueltas por Free Search no traen fecha (`source.date === undefined`), por lo que `dated()` no puede marcar antigüedad y `maxAgeHours` no las filtra.
     2. Cuando la pregunta pregunta por «último / actual / hoy» **sin** versión exacta `X.Y.Z` en el texto, `guardVersions` no actúa y el juez 2B suele dar `p >= 0.6` a resultados desactualizados de meses/años anteriores.
-    3. Como registra `docs/analisis/FRENTE_2_CONTEXTO.md:88`, **`buildResultVerification` (D4) en `src/core/models/prompts.ts:558-592` no recibe `TODAY`**, por lo que D4 no tiene referencia temporal para rechazar una búsqueda web con datos viejos frente a la fecha actual.
+    3. Como registra `docs/evaluacion/analisis/FRENTE_2_CONTEXTO.md:88`, **`buildResultVerification` (D4) en `src/core/models/prompts.ts:558-592` no recibe `TODAY`**, por lo que D4 no tiene referencia temporal para rechazar una búsqueda web con datos viejos frente a la fecha actual.
 
 ### Causa raíz
 El pipeline actual de `WebSearchProvider` está optimizado como búsqueda rápida de pasaje único (*first-hit stop* con presupuesto fijo `PASSAGES_BUDGET = 1700`, `RETURN_MAX = 4`), y la validación temporal descansa en metadatos opcionales del MCP más un juez 2B sin referencia temporal en D4.
@@ -158,7 +158,7 @@ El pipeline actual de `WebSearchProvider` está optimizado como búsqueda rápid
 - `src/tools/web/webSearchProvider.ts`: `JUDGE_FOUND`, `DEFAULT_MAX_AGE_HOURS`, `guardVersions`, `judgeNeed`, `dated`, bucles de corte temprano (`líneas 41, 47, 164, 471-551`).
 - `src/tools/web/args.ts` y `src/tools/web/bm25.ts` y `src/tools/web/chunks.ts`.
 - `src/core/models/prompts.ts`: `buildResultVerification` (líneas 558-592, ausencia de fecha actual `TODAY`), `FINAL_VIEW`.
-- `scripts/validate/web_eval/deep_probe.ts`, `docs/web_search/README.md`, `docs/analisis/FRENTE_2_CONTEXTO.md`.
+- `scripts/validate/web_eval/deep_probe.ts`, `docs/arquitectura/TOOLS.md`, `docs/evaluacion/analisis/FRENTE_2_CONTEXTO.md`.
 
 ### Opciones de solución
 1. **Para recencia (impacto acotado y medible)**:
@@ -175,7 +175,7 @@ El pipeline actual de `WebSearchProvider` está optimizado como búsqueda rápid
 ## 5. Deep Research
 
 ### Estado actual
-- Documentado extensamente en `docs/web_search/DEEP_RESEARCH.md` (estado explícito: **EN PAUSA — 2026-11-13**) y explorado en `scripts/validate/web_eval/deep_probe.ts` y `scripts/validate/web_eval/research.ts`.
+- Explorado en `scripts/validate/web_eval/deep_probe.ts`, `scripts/validate/web_eval/research.ts` y resumido en `docs/pendientes/PENDIENTES.md` (estado explícito: **EN PAUSA — 2026-11-13**).
 - **No está implementado en `src/`**. En `src/core/tools/manifest.ts:243` existe un resto de definición `free_search:research` que **no forma parte de `WEB_DEPENDENCIES`** (`src/core/tools/web.ts` / `jarvisRouter.ts`) y solo se conserva por cobertura de políticas en tests (`tests/repeat.test.ts:179`, `tests/sensitive.test.ts:95`).
 - Hoy toda consulta web pasa por `WebSearchProvider` en modo rápido con topes fijos: `SEARCH_RESULTS = 8`, `DEFAULT_PAGES = 3`, `PASSAGES_BUDGET = 1700`, `maxCallsPerStep = 6` (`src/core/engine/limits.ts`), `timeoutMs = 150_000`.
 - Además, los probes de `deep_probe.ts` registraron fallos reales del MCP `free_search` al leer páginas completas (`read_doc`/`fetch` con `RecursionError` en sitios como `redis.io` y páginas renderizadas por JS vacías).
@@ -184,7 +184,7 @@ El pipeline actual de `WebSearchProvider` está optimizado como búsqueda rápid
 Un modo de investigación profunda requiere múltiples rondas de búsqueda, seguimiento de fuentes autoritativas, verificación cruzada de citas literales y mayor presupuesto de lectura/síntesis, lo cual choca con los presupuestos estrictos del paso reactivo estándar (`6` llamadas por paso, `1700` caracteres de salida web, modelo 4B de contexto acotado) y con la fragilidad de extracción HTML de `free_search` en ciertos sitios.
 
 ### Archivos y símbolos implicados
-- `docs/web_search/DEEP_RESEARCH.md`: especificación y hallazgos de pausa.
+- `docs/pendientes/PENDIENTES.md`: estado y alcance en pausa.
 - `scripts/validate/web_eval/deep_probe.ts` y `scripts/validate/web_eval/research.ts`.
 - `src/tools/web/webSearchProvider.ts`: proveedor actual (`WebSearchProvider`, límites fijos).
 - `src/core/tools/manifest.ts`: línea 243 (`free_search:research`).
@@ -206,7 +206,7 @@ Un modo de investigación profunda requiere múltiples rondas de búsqueda, segu
 ## 6. Memoria manual (`data/memory.json`)
 
 ### Estado actual
-- De la arquitectura planteada en `docs/analisis/FRENTE_1_MEMORIA.md` (3 capas), solo existen parcialmente la Capa 1 y la Capa 2:
+- De la arquitectura planteada en `docs/evaluacion/analisis/FRENTE_1_MEMORIA.md` (3 capas), solo existen parcialmente la Capa 1 y la Capa 2:
   - **Capa 1 (`src/core/memory.ts`)**: `createMemoryReader` lee `data/memory.json` (con caché por `mtimeMs`), y devuelve `{ key, value }` cuya clave coincida con la consulta mediante `selectFacts`.
   - **Capa 2 (`src/core/engine/thread.ts`)**: memoria en RAM de 10 minutos para continuaciones de hilo (`previous request` / `previous answer`).
   - **Capa 3 (recetas aprendidas)**: no implementada.
@@ -225,7 +225,7 @@ La Capa 1 se construyó como un almacén mínimo de lectura pasiva para ayudar a
 - `src/core/engine/adapters.ts`: línea 112 (`argsInput` con parámetro `memory`), resto de adaptadores (`pendingInput`, `planInput`, `reviewInput`) sin `memory`.
 - `src/core/engine/precheck.ts`: `collectSources` (validación de rutas contra `facts`).
 - `src/core/engine/services.ts`: instanciación de `createMemoryReader`.
-- `docs/analisis/FRENTE_1_MEMORIA.md`, `docs/CONTEXT_AND_MEMORY.md`.
+- `docs/evaluacion/analisis/FRENTE_1_MEMORIA.md`, `docs/arquitectura/CONTEXT_AND_MEMORY.md`.
 
 ### Opciones de solución
 1. **CRUD mínimo de memoria en API + UI (recomendado como primer paso)**:
@@ -258,7 +258,7 @@ La Capa 1 se construyó como un almacén mínimo de lectura pasiva para ayudar a
     2. **Continuaciones de hilo (`env.follow.thread !== null`)**: p. ej. *«¿y el precio actual del otro?»*; toda continuación entra a `pending` (`runTask.ts`), donde vuelve a aplicar `PENDING_VIEW`.
     3. **Fallback cuando D0 falla o no está disponible (`classifyRequest` devuelve `null`)**: la tarea cae al flujo reactivo estándar pasando por `pending`.
     4. **Revisión de pendientes tras un fallo**: si una acción falla dentro de `runReactive` y vuelve a evaluarse `pending`, Qwen relee `PENDING_VIEW` con la regla restrictiva.
-- Por otro lado, según las pruebas históricas documentadas (`docs/JARVIS_EVALUACION.md:140`, `docs/analisis/FRENTE_3_DECISION.md` y variantes en `eval/variants/Pending/`), activar `PENDING_FACTS_LOOKUP = true` subió de `0/12` a `11/12` en consultas de hechos cambiantes, **pero** provocó 2 regresiones (`-5.2%`) en `eval/datasets/pending/llm_pending_hard.jsonl` (`pending-hard-008` perdió una URL literal del pedido y `pending-hard-026` se clasificó mal).
+- Por otro lado, según las pruebas históricas documentadas (`docs/evaluacion/JARVIS_EVALUACION.md:140`, `docs/evaluacion/analisis/FRENTE_3_DECISION.md` y variantes en `eval/variants/Pending/`), activar `PENDING_FACTS_LOOKUP = true` subió de `0/12` a `11/12` en consultas de hechos cambiantes, **pero** provocó 2 regresiones (`-5.2%`) en `eval/datasets/pending/llm_pending_hard.jsonl` (`pending-hard-008` perdió una URL literal del pedido y `pending-hard-026` se clasificó mal).
 
 ### Causa raíz
 Se dejó desactivada la cláusula de búsqueda web en `PENDING_VIEW` tras descubrir regresiones en `llm_pending_hard.jsonl`, confiando en D0 (`first === "single"`) como atajo para preguntas sueltas, lo cual deja desprotegidos los casos `multi`, continuaciones con hilo y fallbacks sin D0.

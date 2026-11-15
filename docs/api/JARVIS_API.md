@@ -1,6 +1,6 @@
 # JARVIS API — lo que necesita saber la UI
 
-Base: `/api/jarvis`. Solo local (Host y Origin `localhost`, `127.0.0.1` o `[::1]`). JSON en ambos sentidos. Los errores son siempre `{ "error": string }`: **400** entrada inválida, **404** tarea inexistente, **409** la tarea no espera eso.
+Base: `/api/jarvis` (más endpoints directos en `/api/mcp` y alias `/mcp`). Solo local (`Host` y `Origin` en `localhost`, `127.0.0.1` o `[::1]`). JSON con límite de **256 KB**. Los errores son siempre `{ "error": string }`: **400** entrada o JSON inválido, **404** tarea/ref/traza inexistente, **409** la tarea no espera eso, **413** cuerpo mayor a 256 KB, **429** tope de tareas o SSE.
 
 ## Modelo
 
@@ -26,11 +26,11 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 | `GET /state?taskId=` | | `{ task: TaskDto \| null, tasks: TaskSummary[], discoveredTools, unavailableServers }`. Sin `taskId`, la última |
 | `GET /events` | | SSE, ver abajo (`429` con 8 conexiones abiertas) |
 | `GET /tasks/:taskId/refs/:refId` | | Texto completo de una ref de la tarea (`calls[].ref`, `refs[].id`), `text/plain`. 404 si la tarea o la ref no existen o el archivo ya no está |
-| `GET /tasks/:taskId/trace?format=` | | Traza de una tarea **terminada**: `summary` (Markdown, por defecto; alertas, línea de tiempo con las decisiones D1 a D4, esperas y respuesta final) `json` (snapshot, consultas a modelos con sus opciones, herramientas y duraciones) o `full` (lo anterior más la entrada y la salida crudas de cada consulta a un modelo: prompts completos; puede pesar cientos de KB). 400 si `format` es otro; 404 si la tarea sigue en curso, la traza está desactivada (`traceEnabled`) o no existe |
+| `GET /tasks/:taskId/trace?format=` | | Traza de una tarea **terminada**: `summary` (Markdown, por defecto; línea de tiempo con decisiones D1–D4 por llamada, esperas y respuesta final), `json` (snapshot, todas las consultas D0–D5 y generativas, herramientas y duraciones) o `full` (lo anterior más prompts y salidas crudas). 400 si `format` es otro; 404 si sigue en curso, `traceEnabled` es `false` o no existe |
 | `GET /environment` | | Datos de esta PC: `platform`, `home`, `desktop`, `documents`, `downloads` (los que se pudieron consultar), más `now` (ISO) y `timeZone` |
-| `GET /limits` | | Topes del motor: `maxSteps`, `maxReplans`, `maxEscalations`, `maxItemFailures`, `maxCallsPerStep` (ejecuciones), `maxAttemptsPerStep`, `maxNotAccomplishedPerRoute`, `maxRepeatsPerStep`, `maxReviewRejectionsPerStep`, `maxVerifyRejectionsPerStep`, `maxUserRejectionsPerStep`, `maxQuestionsPerStep`: para mostrar progreso (paso 3 de 20, llamada 2 de 6) |
-| `GET/POST /config`, `ALL /refresh-discovery` | | `/config` devuelve y acepta la configuración completa; `POST` fusiona las claves que se envían y descarta las inválidas; ignora `refsDir` y `tracePath` (dónde escribe y borra Jarvis) y `command`, `args`, `env` y `cwd` de los servidores MCP (definen qué proceso se lanza: se editan en `jarvis-config.json` y se reinicia). Claves de seguridad: `autoMode` (boolean) y `blacklist` (ver abajo) |
-| `POST /tts` | `{ text }` | Voz: audio PCM 16-bit, mono, 24 kHz en streaming (`audio/L16`), sintetizado por el servidor TTS de `voiceUrl` (`scripts/phonon_server.py`). 400 sin `text` o con más de 20000 caracteres, 503 con `voiceEnabled` apagado, 502 si el servidor de voz falla |
+| `GET /limits` | | Topes del motor (14 campos): `maxSteps`, `maxReplans`, `maxEscalations`, `maxItemFailures`, `maxCallsPerStep`, `maxAttemptsPerStep`, `maxRepeatsPerStep`, `maxReviewRejectionsPerStep`, `maxVerifyRejectionsPerStep`, `maxUserRejectionsPerStep`, `maxDeniedPerStep`, `maxQuestionsPerStep`, `maxProcessPromptsPerStep`, `maxNotAccomplishedPerRoute` |
+| `GET/POST /config`, `ALL /refresh-discovery` | | `/config` devuelve y acepta configuración en JSON (exige objeto plano; **omite `env`** de los servidores MCP en las respuestas HTTP). `POST` fusiona las claves válidas y descarta `FILE_ONLY_KEYS` (`refsDir`, `tracePath`) y `LAUNCH_ONLY_KEYS` (`command`, `args`, `env`, `cwd` de los MCP). Detalle en [`../configuracion/CONFIGURACION.md`](../configuracion/CONFIGURACION.md) |
+| `POST /tts` | `{ text }` | Voz: audio PCM 16-bit, mono, 24 kHz en streaming (`audio/L16`), sintetizado por el servidor TTS de `voiceUrl` (`scripts/phonon_server.py`). 400 sin `text` o > 20 000 caracteres, 422 si queda vacío, 503 con `voiceEnabled` apagado, 502 si el servidor falla |
 
 Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-plan`) **exigen `taskId` y `waitId`** (si faltan, 400): sin ellos se aplicarían a la última tarea y un cliente aprobaría a ciegas lo que no vio. `waitId` es el `request.id` de la espera actual: si no coincide (respuesta tardía), responde 409. `/cancel` y `/user-answer` conservan el atajo (toman la última tarea si no se envía `taskId`).
 
@@ -64,10 +64,10 @@ Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-p
 
 ## Modo automático y lista negra (`/config`)
 
-- `autoMode` (`false` por defecto): con `true`, las escrituras y comandos del catálogo **no generan espera `approval`**; las valida la revisión de argumentos y se ejecutan. Guard (patrones destructivos y nivel `guard` de las reglas de comando, carpetas protegidas → llamada `tool_rejected`) y la lista negra siguen actuando: las reglas integradas (`commandRules.ts`) rechazan con `tool_rejected` lo muy destructivo (`blocked`) y mandan lo `sensitive` a la revisión de argumentos con umbral estricto (ver `CORE_FLOW.md`, «Modo automático»). Con `autoMode` en `false`, toda coincidencia con la lista pide aprobación (`approval`) con el motivo de la regla. Las **rutas sensibles** (`policy/sensitivePaths.ts`: claves y credenciales, datos de navegadores, variables de entorno con secretos, y para escribir, lugares de inicio automático, perfiles de shell, carpetas del sistema y `jarvis-config.json`) piden aprobación **también con `autoMode`**. Se lee en cada llamada: cambiarlo no libera una espera `approval` que ya esté abierta (hay que aprobarla o rechazarla).
-- Voz (`/config`): `voiceEnabled` (la interfaz lee en voz alta la respuesta final; habilita `POST /tts`), `telegramVoice` (Telegram suma una nota de voz; necesita `ffmpeg`), `voiceUrl` (solo http o https; `http://127.0.0.1:8880`) y `voiceName` (`default`). Se leen en cada respuesta.
-- `webSearchUseJudge` (`true` por defecto): `web_search` puntúa extractos y fragmentos con el modelo de decisión (2B). Apagado, solo ordena con BM25 y nunca afirma `found`. Se lee en cada llamada.
-- `blacklist`: entradas **propias** que se suman a las reglas de comando integradas (que no se configuran): `[{ "tool": "run_command" | "servidor:herramienta", "pattern"?: "regex sobre los argumentos", "reason": "texto para el modelo", "level"?: "blocked" | "sensitive" }]` (sin `level`, `blocked`). Solo afecta a herramientas que modifican el sistema; un acierto registra la llamada como `tool_rejected` (la tarea sigue). Sin `pattern` la herramienta entera deja de ofrecerse. `POST` reemplaza la lista completa.
+- `autoMode` (`false` por defecto en código, `true` en el `jarvis-config.json` incluido) y `approvalTiers` (`false` por defecto en código, `true` en el `jarvis-config.json` incluido): con `approvalTiers: true`, las escrituras se clasifican en verde (sin confirmación ni D3), amarillo (D3 estricto) y rojo (siempre pide confirmación); con `approvalTiers: false` y `autoMode: true`, las escrituras del catálogo pasan sin espera `approval` por D3. Guard, `blacklist` (`blocked` / `sensitive`) y las rutas sensibles (`sensitivePaths.ts`) siguen exigiendo confirmación u operando según [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md). Se lee en cada llamada.
+- Voz (`/config`): `voiceEnabled` (la interfaz lee en voz alta la respuesta final; habilita `POST /tts`), `telegramVoice` (Telegram suma una nota de voz; necesita `ffmpeg`), `voiceUrl` (solo http o https; `http://127.0.0.1:8880`) y `voiceName` (`default`). Ver [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md).
+- `webSearchUseJudge` (`true` por defecto): `web_search` puntúa extractos y fragmentos con el modelo de decisión (2B). Apagado, solo ordena con BM25 y nunca afirma `found`.
+- `blacklist`: entradas **propias** que se suman a las reglas de comando integradas: `[{ "tool": "run_command" | "servidor:herramienta", "pattern"?: "regex", "reason": "texto para el modelo", "level"?: "blocked" | "sensitive" }]` (sin `level`, `blocked`). `POST` reemplaza la lista completa.
 
 ## Esperas (`waiting`)
 
@@ -105,3 +105,15 @@ Un mensaje `data: <json>` por evento, más un comentario `: ping` cada 15 s.
 - **`partial` o `failed`:** mostrar `stopReason` y, de `calls`, los cambios que permanecen (escrituras `ok`) y los posibles (escrituras `tool_error`, `exception`, `interrupted` o `waiting_input`).
 - **Proceso en segundo plano:** si `facts.process.value` no es `null`, la tarea terminó dejando uno corriendo.
 - **Tareas retenidas:** hasta 20 en memoria; las terminales más antiguas se descartan (la lista `tasks` es la vigente).
+
+## Endpoints directos MCP (`/api/mcp` y `/mcp`)
+
+Permiten inspeccionar y probar servidores registrados sin crear una tarea (`src/server/mcpRouter.ts`):
+
+| Método y ruta | Cuerpo | Qué hace |
+|---|---|---|
+| `GET /discover-all` | | Descubre herramientas de todos los servidores registrados |
+| `GET /:server/tools` | | Lista herramientas de un servidor (`404` si no existe) |
+| `POST /:server/call` | `{ name, args? }` | Ejecuta una lectura directa (`404` servidor inexistente, `400` `name` faltante o `args` no objeto). Devuelve **`403`** si `policy.mutates` o `Guard !== ALLOW`: toda escritura debe pasar por una tarea |
+| `POST /:server/reconnect` | | Reconecta un servidor stdio (`404` si no existe) |
+| `GET /:server/status` | | Devuelve `{ connected: boolean }` |

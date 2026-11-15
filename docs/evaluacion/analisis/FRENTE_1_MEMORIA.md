@@ -1,7 +1,7 @@
 # Frente 1 — Memoria entre tareas
 
 > 2026-11-13. Diseño propuesto, con pruebas contra `qwen3.5:4b` y `d3:2b` reales (pensamiento apagado).
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto del documento es el diseño y las mediciones originales y no se reescribió.
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto del documento es el diseño y las mediciones originales y no se reescribió. **Documento histórico** — el estado vigente de memoria y los pendientes consolidados viven en [`CONTEXT_AND_MEMORY.md`](../../arquitectura/CONTEXT_AND_MEMORY.md), [`PENDIENTES.md`](../../pendientes/PENDIENTES.md) y [`DIAGNOSTICO_PENDIENTES.md`](../../pendientes/DIAGNOSTICO_PENDIENTES.md).
 
 ## Estado de implementación (2026-11-14)
 
@@ -166,7 +166,7 @@ Se probó el formato de producción de D3 (`Target`, `Call`, `Args`) con y sin u
 | Pedidos sin memoria (2) | aprobar | 2/2 | 2/2 |
 | Rutas inventadas (5) | rechazar | **0/5** (0,93 a 0,95 de `approved`) | 1/5 |
 
-Conclusión: **no hace falta pasarle los hechos a D3**, porque ya aprueba las rutas de memoria. Y aparece un hallazgo aparte: D3 aprueba rutas inventadas con 0,93 a 0,95, así que no es una barrera contra valores fabricados; esa función la cumple solo el pre-chequeo de código, y solo para lecturas (ver `FUERA_DE_FRENTES.md`).
+Conclusión: **no hace falta pasarle los hechos a D3**, porque ya aprueba las rutas de memoria. Y aparece un hallazgo aparte: D3 aprueba rutas inventadas con 0,93 a 0,95, así que no es una barrera contra valores fabricados; esa función la cumple solo el pre-chequeo de código, y solo para lecturas (ver [`DIAGNOSTICO_PENDIENTES.md`](../../pendientes/DIAGNOSTICO_PENDIENTES.md) §1).
 
 ### Continuación del pedido anterior (56 pedidos: 28 seguimientos y 28 independientes, 5 tareas previas)
 

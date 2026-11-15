@@ -1,6 +1,6 @@
 # Telegram y voz
 
-Dos vías opcionales sobre la misma API HTTP (`docs/JARVIS_API.md`): Telegram para pedir tareas y responderlas desde el teléfono, y la voz (TTS local) para leer las respuestas. Sin configurar nada, JARVIS funciona igual.
+Dos vías opcionales sobre la misma API HTTP ([`../api/JARVIS_API.md`](../api/JARVIS_API.md)): Telegram para pedir tareas y responderlas desde el teléfono, y la voz (TTS local) para leer las respuestas. Sin configurar nada, JARVIS funciona igual. Variables y opciones en [`../configuracion/CONFIGURACION.md`](../configuracion/CONFIGURACION.md).
 
 ## Telegram
 
@@ -18,7 +18,7 @@ Al arrancar, el servidor dice `[Telegram] Desactivado: <motivo>` o `[telegram] @
 
 **Comportamiento**
 - Comandos (el menú aparece al escribir `/`; cada uno tiene un alias de una letra):
-  - `/auto on|off` (`/a`): modo automático de Guard. Sin argumento muestra el estado. Encenderlo pide confirmar con un botón porque quita la aprobación humana, y vale para toda JARVIS (también la interfaz).
+  - `/auto on|off` (`/a`): alterna `autoMode` en la configuración global. Si `approvalTiers` está encendido en `jarvis-config.json`, las operaciones de nivel rojo y rutas sensibles siguen pidiendo confirmación igual (ver [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) §2). Sin argumento muestra el estado; encenderlo pide confirmar con un botón.
   - `/modo r|d` (`/m`): `r` reactivo, `d` deliberativo (también se entienden las palabras enteras). Vale para las tareas que se inician desde ese momento; vive en memoria y al reiniciar vuelve a `TELEGRAM_MODE`.
   - `/voz on|off` (`/v`): nota de voz de Telegram (`telegramVoice`). `/v ui on|off`: lectura en voz alta de la interfaz (`voiceEnabled`).
   - `/cancel` (`/c`) y `/start` (ayuda).

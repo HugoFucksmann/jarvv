@@ -4,7 +4,7 @@
  * El `cumple` genérico de Decisión 4 no ve los fallos que son una incoherencia entre lo pedido y un ARGUMENTO de la llamada (`mode: append` para «al principio»,
  * `pattern: app*.log` para «todos los .log», la hoja por defecto para «la hoja Ventas») ni una propiedad que la herramienta no devuelve (un listado sin fechas para
  * «los más recientes»): puntuaba esos casos malos entre 0,83 y 0,99. Una sonda es una pregunta (o dos) `noul` hecha solo para la herramienta que corresponde, con
- * un estado armado así: lo pedido junto a lo hecho, y la semántica de la herramienta explicada en lenguaje llano. Medido con d3:2b (`docs/analisis/PREGUNTAS_DECISION.md`):
+ * un estado armado así: lo pedido junto a lo hecho, y la semántica de la herramienta explicada en lenguaje llano. Medido con d3:2b (`docs/evaluacion/analisis/PREGUNTAS_DECISION.md`):
  * la misma pregunta sin ese estado separaba 0,07 a 0,27; con él, 0,6 a 0,9.
  *
  * Cada herramienta declara sus sondas en el catálogo (`tools/manifest.ts`). Las sondas aplican por herramienta y por tipo de archivo, nunca por palabras del pedido.

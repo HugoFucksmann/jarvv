@@ -2,12 +2,14 @@
 
 ## 1. Ciclo de Vida
 1. **Recepción**: la instrucción entra por `/process` con un modo (`reactive` o `deliberative`). La fachada crea el contexto de la tarea, lo registra y lanza `runTask` en segundo plano.
-2. **Estrategia**: `runTask` ejecuta el modo elegido (§2 y §3). Es el único que decide cuándo y cómo se cierra la tarea.
+2. **Entrada y estrategia (`runTask`)**:
+   - En **reactivo**, antes de generar pendientes: `detectContinuation` consulta si continúa la tarea anterior en RAM (`thread`) y **D0** (`classifyRequest`) clasifica la solicitud en `chat` (cierra `completed` sin llamadas y contesta en la respuesta final), `single` sin hilo (saltea el LLM de pendientes y usa la solicitud literal como único paso) o `multi` / con hilo (entra al bucle normal de pendientes).
+   - En **deliberativo**, planifica y pide confirmación antes de ejecutar (§3). `runTask` es el único que decide cuándo y cómo se cierra la tarea.
 3. **Ejecución por pasos**: cada paso consulta el destino (Decisión 1) y ejecuta llamadas (§4) hasta que una queda aprobada o el paso falla.
-4. **Recuperación**: un paso fallido dispara la recuperación del modo: escalación en reactivo, replan en deliberativo (§6).
+4. **Recuperación y cierre D5**: un paso fallido dispara escalación (reactivo) o replan (deliberativo) (§6). Al vaciarse la lista reactiva tras completar todos los ítems sin abandonos, **D5** (`confirmCompletion`) puede aprobar el cierre sin volver al LLM de pendientes; si detecta que falta algo y `reconcileList` vació la lista por similitud, reabre hasta `MAX_REOPENS` (2) veces.
 5. **Cierre**: `finalize` escribe el estado terminal una sola vez y, después, la respuesta final (§8).
 
-**Arranque del servidor** (`server.ts`): además de los servidores MCP, `warmUpModels` (`models/warmup.ts`) hace una consulta mínima al modelo de decisión y al generativo (sin bloquear el arranque; un fallo solo se registra) y cada consulta a Ollama lleva `keep_alive` (`modelKeepAlive`, por defecto `30m`; `-1` = sin límite). Así la primera tarea tras una pausa no paga la carga en frío. Con las variantes sin proyector de visión (`docs/OLLAMA_MODELOS_TEXTO.md`) los dos modelos quedan residentes en 8 GB y cambiar de uno a otro cuesta 20 a 80 ms en lugar de ~1 s.
+**Arranque del servidor** (`server.ts`): además de los servidores MCP, `warmUpModels` (`models/warmup.ts`) hace una consulta mínima al modelo de decisión y al generativo (sin bloquear el arranque; un fallo solo se registra) y cada consulta a Ollama lleva `keep_alive` (`modelKeepAlive`, por defecto `30m`; `-1` = sin límite). Así la primera tarea tras una pausa no paga la carga en frío. Con las variantes sin proyector de visión ([`../operacion/OLLAMA_MODELOS_TEXTO.md`](../operacion/OLLAMA_MODELOS_TEXTO.md)) los dos modelos quedan residentes en 8 GB y cambiar de uno a otro cuesta 20 a 80 ms en lugar de ~1 s.
 
 ### Mapa del flujo
 Las flechas punteadas son los cierres de la tarea; todos pasan por `finalize` (§8). Los números de las cajas remiten a las secciones.
@@ -17,11 +19,15 @@ flowchart TD
     IN(["POST /process<br/>modo + instrucción"]) --> CTX["Crear contexto y lanzar runTask"]
     CTX --> MODE{"Modo"}
 
-    MODE -->|reactive| PEND["Lista de pendientes<br/>(modelo generativo) §2"]
+    MODE -->|reactive| D0["Hilo (continuation)<br/>y D0 (first_query) §2"]
     MODE -->|deliberative| PLAN["Plan inicial<br/>§3"]
 
+    D0 -.->|chat ≥ 0,7| CLOSE
+    D0 -->|single sin hilo| RS["Paso nuevo con<br/>solicitud literal"]
+    D0 -->|multi o con hilo| PEND["Lista de pendientes<br/>(modelo generativo) §2"]
+
     PEND -->|vacía y canFinish| CLOSE
-    PEND -->|el primer pendiente<br/>es la instrucción| RS["Paso nuevo sin plan"]
+    PEND -->|primer pendiente| RS
 
     PLAN -->|inválido tras reintento| CLOSE
     PLAN --> CONF{"Confirmación<br/>del usuario"}
@@ -35,7 +41,8 @@ flowchart TD
 
     STEP -->|completed| NEXT{"¿Terminó?"}
     NEXT -->|deliberativo: todos completed| CLOSE
-    NEXT -->|no| MODE2{"Modo"}
+    NEXT -->|reactivo: lista vacía<br/>y D5 ≥ 0,75| CLOSE
+    NEXT -->|no / D5 duda| MODE2{"Modo"}
     MODE2 -->|reactive| PEND
     MODE2 -->|deliberative| DS
 
@@ -71,11 +78,11 @@ flowchart TD
         C3 --> C4["4 Resolver refs"]
         C4 --> C5["5 Anti-bucle"]
         C5 --> C6{"6 Guard"}
-        C6 -->|ALLOW o pide aprobación| C6A["6a Lista negra"] --> C6B["6b Pre-chequeo determinista"] --> C7["7 Confirmación del usuario<br/>si Guard la pidió y autoMode está apagado"]
-        C7 --> C8["8 Decisión 3: revisar argumentos<br/>solo escrituras sin confirmación"]
+        C6 -->|ALLOW o pide aprobación| C6A["6a Lista negra"] --> C6B["6b Pre-chequeo determinista"] --> C7["7 Confirmación del usuario<br/>(rojo/obligatorio o !autoMode)"]
+        C7 --> C8["8 Decisión 3: revisar argumentos<br/>escrituras no confirmadas ni verdes"]
         C8 --> C9["9 Despacho a la herramienta"]
         C9 --> C10["10 Procesar resultado<br/>resumen y ref"]
-        C10 --> C11{"11 Decisión 4:<br/>preguntas de VERIFY_CHECKS ≥ 0,6"}
+        C10 --> C11{"11 Verificación §7:<br/>código, D4 y sondas ≥ 0,6"}
     end
 
     C11 -->|approved| DONE(["Paso completed"])
@@ -122,7 +129,7 @@ Cada vuelta del bucle toma el primer ítem de la **lista de pendientes** y crea 
 ## 4. Un Paso (`runStep`)
 El paso repite este ciclo hasta que termina:
 
-1. **Topes del paso** (`engine/limits.ts`, un solo punto de control `checkStepLimits`, al inicio de cada vuelta): si el paso alcanzó algún tope, falla con su causa (`repeat_blocked`, `user_rejected`, `denied`, `review_rejected` o `call_cap`, en ese orden de precedencia). Con los topes de ejecuciones (`maxCallsPerStep`) o de intentos (`maxAttemptsPerStep`), antes de fallar se le hace una pregunta al usuario, si todavía no se le hizo una en el paso; el paso falla igual y la respuesta queda a la vista de lo que siga (siguiente paso o replan). Una **ejecución** es una llamada que llegó a la herramienta; un **intento** es cualquier llamada registrada salvo `user_rejected` (incluye las bloqueadas y las de argumentos inválidos, que no gastan ejecuciones).
+1. **Topes del paso** (`engine/limits.ts`, un solo punto de control `checkStepLimits`, al inicio de cada vuelta): si el paso alcanzó algún tope, falla con su causa (`repeat_blocked`, `user_rejected`, `denied`, `review_rejected`, `verify_rejected` o `call_cap`, en ese orden de precedencia). Con los topes de ejecuciones (`maxCallsPerStep`) o de intentos (`maxAttemptsPerStep`), antes de fallar se le hace una pregunta al usuario, si todavía no se le hizo una en el paso; el paso falla igual y la respuesta queda a la vista de lo que siga (siguiente paso o replan). Una **ejecución** es una llamada que llegó a la herramienta; un **intento** es cualquier llamada registrada salvo `user_rejected` (incluye las bloqueadas y las de argumentos inválidos, que no gastan ejecuciones).
 2. **Decisión 1**: en ambos modos. Ofrece las rutas con alguna herramienta utilizable (en deliberativo, solo la ruta del paso). Una ruta cuyos resultados Decisión 4 rechazó 2 veces como "no cumple lo pedido" (`not_accomplished`) en el paso (`maxNotAccomplishedPerRoute`) deja de ofrecerse en ese paso: cambiar los argumentos de la misma herramienta no resuelve lo que la ruta no puede dar; si no quedara otra, se ofrecen todas. La ruta cuyo último intento falló se marca en el prompt de D1. **En debate**: otro mecanismo para el reintento (cortar el paso tras un reintento fallido en lugar de quitar la opción). Si no queda ninguna opción, el paso falla (`no_tools`). Con una sola opción disponible, el modelo de decisión no se consulta.
 3. **Llamada** (§5): si queda aprobada, el paso termina `completed`. Si el servidor deniega la herramienta (`denied`), el modelo ve el motivo y sigue, hasta `maxDeniedPerStep`. Una revisión que detecta `info_missing` hace una pregunta al usuario (una por paso): se genera con el modelo generativo, se espera la respuesta y se registra como hecho `answer_<paso>_<n>`. Una llamada bloqueada por el anti-bucle contra una llamada idéntica que la verificación ya aprobó da el paso por cumplido (`completed`: lo pedido ya está hecho); el segundo bloqueo del paso lo falla (`repeat_blocked`, `maxRepeatsPerStep`). El segundo rechazo del usuario en un paso también lo falla (`user_rejected`, `maxUserRejectionsPerStep`): la instrucción del usuario queda a la vista del reintento o del replan. Cualquier otro resultado (argumentos inválidos, referencias sin resolver, anti-bucle, revisión rechazada, rechazo del usuario o verificación rechazada) vuelve al inicio con lo ocurrido a la vista del modelo.
 4. **Rechazos de la revisión**: al segundo `args_invalid` (el pre-chequeo y D3 lo producen; `tool_rejected` ya no se ofrece) en el mismo paso, el paso falla (`review_rejected`) y la recuperación del modo lo reencauza.
@@ -170,7 +177,7 @@ Con `approvalTiers: true` en `jarvis-config.json` (por defecto **apagada**: el c
 | **Amarillo** | Agregar a un archivo (`mode: append`), escribir fuera de las carpetas del usuario, rutas relativas o sin ruta, herramientas del catálogo sin clasificar | No | Sí, con umbral estricto (`BUDGET.sensitiveApprove`) |
 | **Rojo** | Sobrescribir un archivo que existe, pisar un destino, `run_command` que modifica, `stop_process`, herramienta no catalogada, lo obligatorio de Guard (ruta o dato sensible) y toda coincidencia de la lista negra | **Siempre el usuario** | No (la aprobación es la revisión) |
 
-Lo que ya rechazaba (`DENY` de Guard, `blocked` de la lista negra) sigue rechazando. Las lecturas no pasan por niveles. Sin la «lista de permitidos» ni «no volver a preguntar lo mismo» tras un rechazo del usuario (sin hacer).
+Lo que ya rechazaba (`DENY` de Guard, `blocked` de la lista negra) sigue rechazando. Las lecturas no pasan por niveles. Pendientes asociados (sin lista de permitidos ni deduplicación tras rechazo, ni visibilidad en UI/Telegram) en [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) §2.
 
 ### Modo automático (`autoMode`)
 Se lee en cada llamada (`deps.autoMode()`, `callRunner.ts`) y cambia solo dos fases de §5; el resto del flujo es igual. Una **ruta sensible** (`policy/sensitivePaths.ts`) pide confirmación obligatoria también con `autoMode` (`GuardDecision.mandatory`).
@@ -201,11 +208,11 @@ Decisión 4 evalúa las preguntas `noul` de la tabla `VERIFY_CHECKS` (`contracts
 - Aprueba solo si pasan todas, cada una con probabilidad de al menos 0,6 (`NOUL_APPROVE` en `engine/verify.ts`, `verdictOf`).
 - La razón es la de la primera pregunta que falla, en el orden de la tabla: si falla `ok`, `no_usable_data`; si falla solo `cumple`, `not_accomplished`.
 - **Primero el código (N5, 2026-11-14):** antes de consultar a Decisión 4 (`verifyCall`, `engine/postcondition.ts`): (a) `tool_error`, `exception` y `no_data` se rechazan sin modelo; (b) una **escritura del catálogo** con estado `ok` se comprueba en el disco: `create_directory` → la carpeta existe, `move_file` → el origen ya no está y el destino sí, `write_file` → el archivo existe y no está vacío si se pidió texto; cumplida, pasa por las **sondas** de la herramienta (ver abajo); no cumplida se rechaza (`not_accomplished`) sin modelo; una ruta relativa o una herramienta distinta no se comprueban y decide el modelo; (c) en una **lectura determinista con contenido** (`list_directory`, `read_file`, `read_multiple_files`, `list_processes`, estado `ok`, resumen no vacío ni «Directorio vacío.») la pregunta `ok` la responde el código (`VerifyDecisionInput.known`) y al modelo solo se le hace `cumple`. Con D4 aplicada así a los datasets `d4/` del laboratorio: 141/184 → 145/184, 0 regresiones. Búsquedas y salida de comandos siguen con ambas preguntas.
-- **Sondas por herramienta (2026-11-14, `tools/probes.ts` + `engine/probes.ts`):** el `cumple` genérico de D4 no ve los fallos que son una incoherencia entre lo pedido y un argumento de la llamada, ni una propiedad que la herramienta no devuelve. Cada herramienta declara sus sondas en el catálogo (`probes` en `tools/manifest.ts`; `probesOf`): `write_file` → ubicación + posición, `create_directory` y `move_file` → ubicación, `read_file` de `.xlsx`/`.xls`/`.xlsm` → ítem (hoja), `start_search` por nombre → alcance, `list_directory` → atributo (compuerta + resultado). Aplican por herramienta y tipo de archivo, nunca por palabras del pedido. Tras un veredicto base aprobado (postcondición cumplida, lectura conocida o `cumple`), `runProbes` hace las consultas `noul` en orden (`Decision.probe`, etapa `probe`): una consulta con compuerta por debajo de 0,6 deja la sonda sin aplicar; en las demás el valor de «bien» (o su complemento con `badWhenTrue`) debe llegar al umbral de la sonda (0,6): **dudar es rechazar**. La primera que falla rechaza la llamada con su motivo cerrado (`wrong_place`, `wrong_position`, `wrong_scope`, `wrong_item`, `missing_attribute`), cuyo texto fijo (`REASON_NOTES`) llega a `FAIL` del generador; el paso reintenta y `maxVerifyRejectionsPerStep` (2) lo corta. Medido con criterios y casos parecidos a producción (`eval/exp/probe_eval.ts`, 52 casos): 0 buenas rechazadas y 30 de 34 malas rechazadas a 0,6 (`docs/analisis/PREGUNTAS_DECISION.md`). Lo que una escritura rechazada por `wrong_place` dejó en el disco se avisa por código en la respuesta final (`renderPlaceNote`, con y sin modelo): «Quedó escrito en X… no coincide con el lugar que pediste»; no se mueve ni se borra nada.
+- **Sondas por herramienta (2026-11-14, `tools/probes.ts` + `engine/probes.ts`):** el `cumple` genérico de D4 no ve los fallos que son una incoherencia entre lo pedido y un argumento de la llamada, ni una propiedad que la herramienta no devuelve. Cada herramienta declara sus sondas en el catálogo (`probes` en `tools/manifest.ts`; `probesOf`): `write_file` → ubicación + posición, `create_directory` y `move_file` → ubicación, `read_file` de `.xlsx`/`.xls`/`.xlsm` → ítem (hoja), `start_search` por nombre → alcance, `list_directory` → atributo (compuerta + resultado). Aplican por herramienta y tipo de archivo, nunca por palabras del pedido. Tras un veredicto base aprobado (postcondición cumplida, lectura conocida o `cumple`), `runProbes` hace las consultas `noul` en orden (`Decision.probe`, etapa `probe`): una consulta con compuerta por debajo de 0,6 deja la sonda sin aplicar; en las demás el valor de «bien» (o su complemento con `badWhenTrue`) debe llegar al umbral de la sonda (0,6): **dudar es rechazar**. La primera que falla rechaza la llamada con su motivo cerrado (`wrong_place`, `wrong_position`, `wrong_scope`, `wrong_item`, `missing_attribute`), cuyo texto fijo (`REASON_NOTES`) llega a `FAIL` del generador; el paso reintenta y `maxVerifyRejectionsPerStep` (2) lo corta. Medido con criterios y casos parecidos a producción (`eval/exp/probe_eval.ts`, 52 casos): 0 buenas rechazadas y 30 de 34 malas rechazadas a 0,6 ([`../evaluacion/analisis/PREGUNTAS_DECISION.md`](../evaluacion/analisis/PREGUNTAS_DECISION.md)). Lo que una escritura rechazada por `wrong_place` dejó en el disco se avisa por código en la respuesta final (`renderPlaceNote`, con y sin modelo): «Quedó escrito en X… no coincide con el lugar que pediste»; no se mueve ni se borra nada.
 - **Cierre con Decisión 5 segura de que falta algo (2026-11-14):** si la probabilidad de `request_complete` es menor que `COMPLETION_INCOMPLETE_BELOW` (0,25) y la lista de pendientes que propone el modelo queda vacía solo porque `reconcileList` la descartó por parecerse a un ítem ya cumplido (p. ej. un ítem compuesto «crear la carpeta y luego el archivo» del que solo se hizo la primera parte), la tarea no cierra: se ejecutan los ítems propuestos que no repiten el texto exacto de uno ya cumplido, hasta 2 veces por tarea (`runReactive`). Visto en una traza real del 14/11: la tarea terminó `completed` sin crear el archivo.
 - **Tope por rechazos de D4 (2026-11-14):** `maxVerifyRejectionsPerStep` = 2. Con dos llamadas rechazadas por la verificación en el mismo paso, el paso falla con `verify_rejected` y la recuperación del modo reescribe el ítem (reactivo: `pending` → D1) o replanifica (deliberativo). Un solo reintento por paso.
 - `tool_error` y `exception` se rechazan sin consultar al modelo. `interrupted`, `waiting_input` y `denied` no se verifican y quedan sin veredicto. Con `waiting_input` (un proceso de `run_command` que pide una respuesta) el bucle de paso pregunta al usuario con `askUser`, con el prompt del proceso como pregunta (sin modelo), y sigue: la respuesta vuelve en la llamada siguiente. La respuesta se guarda en `answer_<paso>_<n>_p<pid>`: la clave ata la respuesta al proceso que preguntó (los modelos ven el texto, nunca la clave). Las preguntas de procesos tienen su propio tope (`maxProcessPromptsPerStep`, 3) y no gastan la del modelo (`maxQuestionsPerStep`, 1); se distinguen por esa clave.
-- Una respuesta inválida se repite una vez; si persiste, el servicio se considera no disponible.
+- Una respuesta inválida del **modelo generativo** se repite una vez (`BUDGET.invalidResponseRetries`); las consultas de **decisión** usan `0` reintentos por salida inválida (`queryModel(..., 0)`) porque el decisor es determinista, y ante fallo el servicio se considera no disponible.
 - **Argumentos: la solicitud original (2026-11-14, solo reactivo).** La vista de argumentos lleva además una línea `REQUEST:` (la solicitud completa, recortada a `caps.routeRequest`) antes de `TASK:`, salvo que sea igual al paso. El primer pendiente puede perder el valor exacto que el usuario dio. En los datasets de argumentos del laboratorio (3 repeticiones, junto con el cambio del pre-chequeo): 309/345 → 323/345, ningún dataset empeoró.
 - **Argumentos: memoria y reglas de comando.** Las reglas de PowerShell y la línea del sistema operativo van solo si la herramienta recibe `command` (`ARGUMENTS_VIEW.buildSystemPrompt`). Si hay hechos guardados del usuario (`data/memory.json`, `memory.ts`: pares `clave → valor` escritos a mano) cuya clave aparece completa en el pedido o en el paso (por prefijo de 5 letras, hasta 3), el prompt agrega el bloque `MEMORY`; sin coincidencia no hay bloque. Los valores de esos hechos también son fuente del pre-chequeo (`collectSources(ctx, extra)`): sin eso, una ruta que viene de un hecho se rechazaría como inventada.
 - **Memoria por tarea de las decisiones** (`memoizeDecision`, `engine/env.ts`): una misma entrada de D0 a D5 dentro de una tarea devuelve la misma respuesta sin volver a consultar al modelo; un fallo no se guarda. Las consultas de decisión no se repiten por respuesta inválida (el decisor es determinista).
@@ -242,18 +249,19 @@ El motivo de detención es una lista cerrada: `max_steps`, `no_alternatives`, `s
 
 ## 10. Errores y Límites
 - **Transporte hacia modelos**: los fallos de red o HTTP 503 se reintentan una vez tras 1 s. El timeout y la cancelación nunca se reintentan.
-- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez inyectando el motivo del error en el prompt; el modelo de decisión repite la consulta una vez. Si persiste: en argumentos es `args_invalid`; en la lista de pendientes, `unrecoverable`; en decisión y verificación, servicio no disponible.
+- **Salidas inválidas o truncadas**: el modelo generativo reintenta una vez (`BUDGET.invalidResponseRetries = 1`) inyectando el motivo del error en el prompt; el modelo de decisión **no reintenta** por salida inválida (`retries = 0`). Si persiste: en argumentos es `args_invalid`; en la lista de pendientes o en decisión/verificación, `unrecoverable` (servicio no disponible).
 - **Servicio no disponible**: se registra el error `service_unavailable` (si ya hay un paso) y la tarea se cierra con `unrecoverable`.
 - **Desborde de contexto**: si un prompt no deja margen para la salida, o una vista no entra en su límite, la tarea se cierra con `unrecoverable` sin registrar error y sin repetir.
 - **Cancelación cooperativa**: la señal de aborto llega a las esperas y a las llamadas en vuelo, y la tarea concluye sin tratarse como error. Una herramienta ya despachada queda `interrupted`.
 
-Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el contexto son valores por defecto):
+Límites vigentes (definidos en `budget.ts`, `engine/limits.ts` y `config.ts`; los timeouts y el contexto son valores por defecto):
 
 | Límite | Valor |
 |---|---|
 | Pasos máximos (`maxSteps`) | 20 (reactivo: tope de la tarea; deliberativo: tope por plan) |
 | Replans (`maxReplans`) | 3 |
-| Escalaciones (reactivo) | 2 (la tercera cierra la tarea) |
+| Escalaciones (reactivo, `maxEscalations`) | 2 (la tercera cierra la tarea) |
+| Fallos seguidos por ítem (reactivo, `maxItemFailures`) | 2 (si quedan otros ítems, abandona el ítem y la tarea queda parcial) |
 | Ejecuciones por paso (`maxCallsPerStep`) | 6 (llamadas que llegaron a la herramienta) |
 | Intentos por paso (`maxAttemptsPerStep`) | 10 (toda llamada registrada salvo los rechazos del usuario: techo contra un modelo que da vueltas) |
 | Rechazos de la verificación que agotan una ruta (`maxNotAccomplishedPerRoute`) | 2 (por paso) |
@@ -272,10 +280,10 @@ Límites vigentes (definidos en `budget.ts` y `config.ts`; los timeouts y el con
 | Contexto configurado | 16 384 tokens para ambos modelos |
 
 ## 11. Invariantes del Flujo
-1. **Unicidad de ejecución**: toda herramienta se ejecuta exclusivamente a través de `runCall` y detrás de Guard (ver `ARCHITECTURE.md`).
+1. **Unicidad de ejecución**: toda herramienta se ejecuta exclusivamente a través de `runCall` y detrás de Guard (ver [`ARCHITECTURE.md`](ARCHITECTURE.md) y [`TOOLS.md`](TOOLS.md)).
 2. **Un solo cierre**: solo `runTask` decide el cierre; `runStep` y `runCall` nunca escriben el estado terminal ni la respuesta.
 3. **Pasos completados inmutables**: un replan nunca repite ni reemplaza pasos `completed`.
-4. **Efectos permanentes**: los efectos ya aplicados no se retiran ante desvíos posteriores (ver `CONTEXT_AND_MEMORY.md`).
+4. **Efectos permanentes**: los efectos ya aplicados no se retiran ante desvíos posteriores (ver [`CONTEXT_AND_MEMORY.md`](CONTEXT_AND_MEMORY.md)).
 5. **Estado terminal cerrado**: una vez terminal, ninguna respuesta demorada ni evento tardío modifica el estado; el contexto rechaza toda escritura posterior.
 
 ## 12. Archivos Base

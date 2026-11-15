@@ -5,7 +5,7 @@
  * que coinciden con el pedido (todas las palabras de la clave aparecen, por prefijo de 5 letras) y solo esos, hasta `MAX_FACTS_PER_PROMPT`, van al
  * prompt de argumentos y a las fuentes del pre-chequeo. Sin coincidencia: cero tokens. Ningún modelo participa y nunca se escribe texto generado.
  *
- * Medido (docs/analisis/FRENTE_1_MEMORIA.md): con el hecho en el prompt el generativo pasa de 0/6 a 6/6 en pedidos que dependen de algo ya dicho; elegir por
+ * Medido (docs/evaluacion/analisis/FRENTE_1_MEMORIA.md): con el hecho en el prompt el generativo pasa de 0/6 a 6/6 en pedidos que dependen de algo ya dicho; elegir por
  * código acierta 14/14 y no contamina pedidos ajenos (0/8; pasar todos contaminaba 1 de 8).
  *
  * Formato: `[{ "key": "carpeta jarvis", "value": "C:\\Users\\Ana\\Desktop\\jarvis" }]` (también `{ "facts": [...] }`). Un archivo ausente o inválido es

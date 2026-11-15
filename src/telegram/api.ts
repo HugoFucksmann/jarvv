@@ -1,4 +1,4 @@
-/** Cliente de la API HTTP de JARVIS (`/api/jarvis/*`, contrato en `docs/JARVIS_API.md`): la misma que usa la interfaz web. */
+/** Cliente de la API HTTP de JARVIS (`/api/jarvis/*`, contrato en `docs/api/JARVIS_API.md`): la misma que usa la interfaz web. */
 
 import type { TaskEvent } from "../core/tasks.ts";
 

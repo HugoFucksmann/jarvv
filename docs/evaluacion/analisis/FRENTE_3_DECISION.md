@@ -2,7 +2,7 @@
 
 > 2026-11-13. Medido contra `d3:2b` real (`/v1/systemone`, Ollama 0.40.13) con las 137 entradas de decisión únicas de las trazas guardadas y los 196 casos de los datasets de D1. Cuando se escribió no se había tocado `src`.
 >
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales.
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales. **Documento histórico** — la referencia vigente de decisiones está en [`CORE_FLOW.md`](../../arquitectura/CORE_FLOW.md) y [`PENDIENTES.md`](../../pendientes/PENDIENTES.md).
 
 ## Estado de implementación (2026-11-14)
 
@@ -85,7 +85,7 @@ Tres alternativas para D1 y D2:
 | Alternativa | Ventaja | Desventaja |
 |---|---|---|
 | A. Seguir anotando (hoy) | Sin cambios | Medido: no corrige |
-| B. Reformular la pregunta en el reintento | No pierde opciones | Cada redacción de D1 mueve casos ajenos (`docs/limitaciones/d3-2b.md`); hay que medir cada una |
+| B. Reformular la pregunta en el reintento | No pierde opciones | Cada redacción de D1 mueve casos ajenos (`docs/evaluacion/limitaciones/d3-2b.md`); hay que medir cada una |
 | **C. Quitar del conjunto la opción que falló en el paso** | 14/18; es código; no depende de la redacción | Si la opción quitada era la correcta y falló por los argumentos, se pierde. Mitigación: si no queda ninguna, se ofrecen todas (ya existe para `not_accomplished`) |
 
 **Recomendación: C**, extendiendo lo que el motor ya hace con `maxNotAccomplishedPerRoute` (hoy solo cuenta `not_accomplished` y recién al segundo).
