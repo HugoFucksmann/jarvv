@@ -107,8 +107,8 @@ async function main() {
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
     stopRetention();
     stopTelegram?.();
-    tasks.cancelAll();
-    // Cada tarea cancelada cierra sus procesos en segundo plano (necesita los servidores vivos) y escribe su traza: se espera un momento.
+    tasks.cancelActive();
+    // La tarea cancelada cierra sus procesos en segundo plano (necesita los servidores vivos) y escribe su traza: se espera un momento.
     await tasks.drain(6000);
 
     // En paralelo: un servidor colgado no consume el plazo de los demás.

@@ -7,12 +7,13 @@
 
 import express from 'express';
 import { limitValues } from '../core/engine/limits.ts';
-import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from '../core/types/limits.ts';
+import { MAX_SSE_CLIENTS } from '../core/types/limits.ts';
 import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS, validateConfigPatch } from '../core/config.ts';
 import type { ConfigPatch } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
 import type { TraceFile } from '../core/trace/files.ts';
+import { TaskBusyError } from '../core/tasks.ts';
 import type { ControlResult, TaskManager } from '../core/tasks.ts';
 import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { TASK_MODES } from '../core/ctx/index.ts';
@@ -95,21 +96,27 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     };
 
   // Iniciar una tarea. `mode`: 'reactive' (por defecto) o 'deliberative' (planifica y pide confirmar el plan).
+  // `sessionKey` se acepta por compatibilidad y se ignora: Jarvis v1 usa un único hilo global y una sola tarea por vez.
   router.post('/process', (req, res) => {
     const message = text(req.body?.message);
     if (!message) return void res.status(400).json({ error: 'Mensaje requerido.' });
     const mode = req.body?.mode ?? 'reactive';
     if (!isMode(mode)) return void res.status(400).json({ error: `Modo inválido; use ${TASK_MODES.join(' o ')}.` });
-    if (tasks.activeCount() >= MAX_ACTIVE_TASKS) return void res.status(429).json({ error: `Hay ${MAX_ACTIVE_TASKS} tareas en curso; espere a que termine alguna o cancele una.` });
-    res.json({ task: tasks.start(message, mode, text(req.body?.sessionKey)) });
+    try {
+      res.json({ task: tasks.start(message, mode) });
+    } catch (err: unknown) {
+      if (err instanceof TaskBusyError) return void res.status(409).json({ error: err.message });
+      throw err;
+    }
   });
 
-  // Cancelar. Sin `taskId`, la última tarea abierta.
-  router.post('/cancel', (req, res) => {
+  // Cancelar. Sin `taskId`, la última tarea abierta. Espera a que cierre (o libera si quedó colgada) para dejar libre el lugar.
+  router.post('/cancel', async (req, res) => {
     const explicit = text(req.body?.taskId);
     const taskId = explicit ?? [...tasks.list()].reverse().find((t) => t.state === 'running')?.id;
     if (!taskId) return void res.json({ ok: true }); // nada que cancelar
     const result = tasks.cancel(taskId);
+    if (result === 'ok' || result === 'not_waiting') await tasks.settleCancel?.(taskId);
     // Cancelar una tarea que ya terminó no es un error.
     if (result === 'not_waiting') return void res.json({ ok: true });
     reply(res, result, '');

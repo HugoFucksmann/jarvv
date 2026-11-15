@@ -22,7 +22,7 @@ Al arrancar, el servidor dice `[Telegram] Desactivado: <motivo>` o `[telegram] @
   - `/modo r|d` (`/m`): `r` reactivo, `d` deliberativo (también se entienden las palabras enteras). Vale para las tareas que se inician desde ese momento; vive en memoria y al reiniciar vuelve a `TELEGRAM_MODE`.
   - `/voz on|off` (`/v`): nota de voz de Telegram (`telegramVoice`). `/v ui on|off`: lectura en voz alta de la interfaz (`voiceEnabled`).
   - `/cancel` (`/c`) y `/start` (ayuda).
-- Una tarea a la vez, y solo las que inicia el bot: las de la interfaz no generan mensajes. `/cancel` la cancela.
+- Una tarea a la vez en toda JARVIS, pero el bot solo sigue las que inicia él: las de la interfaz web (PC) no generan mensajes en Telegram. Si hay una tarea abierta desde la PC, un pedido nuevo desde Telegram responde `409` indicando cómo cancelarla y `/cancel` avisa que debe cancelarse desde la interfaz web. `/cancel` cancela las iniciadas en Telegram.
 - Un mensaje de progreso que se edita (pasos, qué hace cada llamada, su resultado y veredicto) y "escribiendo…" mientras trabaja; al terminar, la respuesta final como mensaje nuevo.
 - Planes, aprobaciones y preguntas llegan con botones. Los botones se quitan cuando la espera se resuelve (aquí, en la interfaz o por cancelación). Si los argumentos de una aprobación no entran enteros en el chat, no se ofrece "Aprobar": se aprueba desde la interfaz.
 - Los mensajes pendientes de cuando JARVIS estaba apagado se descartan al arrancar.

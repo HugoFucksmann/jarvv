@@ -77,7 +77,7 @@ test("Progress ignora lo que no dibuja y un paso descartado sale tachado", () =>
   assert.ok(p.render("h").includes("<s>❌ 1. Iteración #1</s> (descartado)"));
 });
 
-test("JarvisApi: post devuelve el error de la API o de la red, y listen reconecta y entrega los eventos", async () => {
+test("JarvisApi: get y post devuelven ok o el error de la API/red, y listen reconecta y entrega los eventos", async () => {
   const sent: TaskEvent = { type: "created", taskId: "t1", n: 0 };
   let connections = 0;
   const server = http.createServer((req, res) => {
@@ -89,12 +89,18 @@ test("JarvisApi: post devuelve el error de la API o de la red, y listen reconect
       if (connections === 1) res.end(); // se corta: el cliente debe reconectar
       return;
     }
+    if (req.method === "GET" && req.url === "/api/jarvis/state") {
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ task: { state: "running" } }));
+      return;
+    }
     res.writeHead(409, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "La tarea no espera eso." }));
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/jarvis`;
   const api = new JarvisApi(base);
 
+  assert.deepEqual(await api.get("/state"), { ok: true, data: { task: { state: "running" } } });
+  assert.deepEqual(await api.get("/other"), { ok: false, error: "La tarea no espera eso." });
   assert.deepEqual(await api.post("/approve", {}), { ok: false, error: "La tarea no espera eso." });
 
   const received: TaskEvent[] = [];
@@ -109,6 +115,7 @@ test("JarvisApi: post devuelve el error de la API o de la red, y listen reconect
 
   server.closeAllConnections();
   server.close();
+  assert.deepEqual(await api.get("/state"), { ok: false, error: "No se pudo contactar con JARVIS." });
   assert.deepEqual(await api.post("/approve", {}), { ok: false, error: "No se pudo contactar con JARVIS." });
 });
 

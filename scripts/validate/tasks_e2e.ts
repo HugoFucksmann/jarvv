@@ -163,7 +163,7 @@ try {
     await runTask(label, message, next);
   }
 } finally {
-  tasks.cancelAll();
+  tasks.cancelActive();
   await tasks.drain(4000);
   for (const provider of providers) await provider.close?.();
   for (const leftover of ["jarvis_validacion", "jarvis_validacion2", "jarvis_validacion_npm"]) fs.rmSync(path.join(os.tmpdir(), leftover), { recursive: true, force: true });

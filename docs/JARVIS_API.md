@@ -1,6 +1,6 @@
 # JARVIS API — lo que necesita saber la UI
 
-Base: `/api/jarvis`. Solo local (Host y Origin `localhost`, `127.0.0.1` o `[::1]`). JSON en ambos sentidos. Los errores son siempre `{ "error": string }`: **400** entrada inválida, **404** tarea inexistente, **409** la tarea no espera eso.
+Base: `/api/jarvis`. Solo local (Host y Origin `localhost`, `127.0.0.1` o `[::1]`). JSON en ambos sentidos. Los errores son siempre `{ "error": string }`: **400** entrada inválida, **404** tarea inexistente, **409** la tarea no espera eso o ya hay una tarea en curso.
 
 ## Modelo
 
@@ -15,8 +15,8 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 
 | Método y ruta | Cuerpo | Qué hace |
 |---|---|---|
-| `POST /process` | `{ message, mode?, sessionKey? }` | Crea y lanza la tarea (`sessionKey` opcional aísla el hilo entre pestañas o chats; por defecto `"default"`). Responde `{ task: TaskDto }`, o `429` si ya hay 4 tareas en curso |
-| `POST /cancel` | `{ taskId? }` | Cancela. Sin `taskId`, la última abierta. Idempotente |
+| `POST /process` | `{ message, mode? }` | Crea y lanza la única tarea activa (un solo hilo global; si llega `sessionKey`, se ignora sin error). Responde `{ task: TaskDto }`, o `409` si ya hay una tarea en curso (hasta cerrar respuesta final y traza) |
+| `POST /cancel` | `{ taskId? }` | Cancela y espera a liberar el cupo (incluso si la ejecución quedó colgada). Sin `taskId`, la tarea activa o la última terminada. Idempotente |
 | `POST /confirm-plan` | `{ taskId, waitId }` | Acepta el plan que espera confirmación |
 | `POST /modify-plan` | `{ taskId, feedback, waitId }` | Pide un plan nuevo con la instrucción (sin tope de veces); vuelve a pedir confirmación |
 | `POST /reject-plan` | `{ taskId, waitId }` | Rechaza sin instrucción: la tarea se cancela |
@@ -105,4 +105,4 @@ Un mensaje `data: <json>` por evento, más un comentario `: ping` cada 15 s.
 - **Fin de la tarea:** `task.state` se vuelve terminal antes que `result`: mostrar el estado y esperar `result` (llega en el evento `set result`). `result.text` es el mensaje al usuario; con la tarea `partial` o `failed` y `origin: "model"` empieza con un encabezado fijo (estado, qué no se logró y cambios hechos en la PC) escrito por el código: no hace falta repetirlo en la UI; con `origin: "fallback"` es un resumen fijo de lo hecho y de los cambios que quedaron en la PC.
 - **`partial` o `failed`:** mostrar `stopReason` y, de `calls`, los cambios que permanecen (escrituras `ok`) y los posibles (escrituras `tool_error`, `exception`, `interrupted` o `waiting_input`).
 - **Proceso en segundo plano:** si `facts.process.value` no es `null`, la tarea terminó dejando uno corriendo.
-- **Tareas retenidas:** hasta 20 en memoria; las terminales más antiguas se descartan (la lista `tasks` es la vigente).
+- **Tareas retenidas:** 1 tarea activa + hasta 20 tareas terminadas en memoria; al exceder 20 se descartan las terminadas más antiguas sin cancelar esperas (la lista `tasks` es la vigente).

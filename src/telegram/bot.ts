@@ -362,7 +362,13 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   });
 
   bot.command(["cancel", "c"], async (ctx) => {
-    if (!current) return void (await ctx.reply("No hay tarea en curso."));
+    if (!current) {
+      const state = await api.get<{ task?: { state?: string } | null }>("/state");
+      if (state.ok && state.data.task?.state === "running") {
+        return void (await ctx.reply("La tarea en curso se inició desde la interfaz web (PC); cancelala desde allí."));
+      }
+      return void (await ctx.reply("No hay tarea en curso."));
+    }
     const res = await api.post("/cancel", { taskId: current.taskId });
     if (!res.ok) await ctx.reply(`⚠️ ${res.error}`);
   });
@@ -424,7 +430,7 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
     starting = true;
     early.length = 0;
     try {
-      const res = await api.post<{ task: { task: { id: string } } }>("/process", { message: text, ...(mode ? { mode } : {}), sessionKey: `telegram:${cfg.chatId}` });
+      const res = await api.post<{ task: { task: { id: string } } }>("/process", { message: text, ...(mode ? { mode } : {}) });
       if (!res.ok) return void (await ctx.reply(`⚠️ ${res.error}`));
       const id = res.data.task.task.id;
       const t = begin(id);

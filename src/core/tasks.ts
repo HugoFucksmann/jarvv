@@ -1,17 +1,16 @@
 /**
  * JARVIS Core — Fachada de tareas (Fase 7).
  *
- * Es la única puerta entre el exterior (servidor HTTP, UI) y el motor: crea el contexto de cada tarea, lanza `runTask` en
- * segundo plano, expone las respuestas del usuario (plan, mutación, pregunta) y la cancelación, y emite los eventos que el
- * servidor reenvía por SSE. No decide nada del flujo: eso es de `runTask` (PLAN_FLUJO); aquí solo se conecta.
+ * Es la única puerta entre el exterior (servidor HTTP, UI, Telegram) y el motor: mantiene UNA sola tarea activa a la vez,
+ * lanza `runTask` en segundo plano, expone las respuestas del usuario (plan, mutación, pregunta) y la cancelación, y emite los
+ * eventos que el servidor reenvía por SSE. No decide nada del flujo: eso es de `runTask`; aquí solo se conecta.
  *
  * - Una tarea = un `TaskContext` + un `TaskRuntime` + un `TaskTraceRecorder`. La traza se conecta por `EngineDeps.sink` y por
  *   `change`; la fachada no la conoce más que para cerrarla.
- * - Eventos: `created`, `change` (las operaciones normalizadas de un `apply`, con su versión `n`) y `waiting` (cambia lo que
- *   espera la tarea del usuario). El estado completo se pide con `get` (`ctx.snapshot()` + `n` + espera).
- * - Un error de programación dentro de `runTask` no deja la tarea colgada: se cierra con `unrecoverable` y respuesta de respaldo.
- * - Retención: como máximo `MAX_RETAINED_TASKS`; se expulsan las terminales más antiguas y, si aun así se excede, se cancela
- *   la tarea en espera más antigua (abandonada).
+ * - Concurrencia: solo corre una tarea por vez (`active` + una única promesa `inFlight`); si llega otra antes de terminar por
+ *   completo (respuesta final y traza cerrada), rechaza con `TaskBusyError`.
+ * - Hilo: un único `previousTask` global en RAM (vence a los `THREAD_TTL_MS`).
+ * - Historial: hasta `MAX_RETAINED_TASKS` tareas terminadas; nunca cancela una espera por tamaño de historial.
  */
 
 import { BUDGET } from "./budget.ts";
@@ -37,6 +36,11 @@ export interface TaskManagerDeps {
   readonly decision: IActionDecision;
   readonly discovery: IDiscoveryEngine;
   readonly llm: EngineLLM;
+}
+
+export interface TaskManagerOptions {
+  /** Plazo (ms) tras cancelar antes de liberar una ejecución colgada que no responde al aborto. */
+  readonly cancelGraceMs?: number;
 }
 
 /** Estado completo de una tarea: el snapshot del contexto, su versión y lo que espera del usuario. */
@@ -68,21 +72,42 @@ export type TaskListener = (event: TaskEvent) => void;
 /** Resultado de una orden del usuario: el servidor lo traduce a HTTP (404, 409). */
 export type ControlResult = "ok" | "unknown_task" | "not_waiting";
 
+/** Error al intentar iniciar una tarea cuando todavía hay una activa (o cerrando su traza). */
+export class TaskBusyError extends Error {
+  readonly activeTaskId: string;
+
+  constructor(activeTaskId: string) {
+    super("Ya hay una tarea en curso; esperá a que termine o cancelala desde la interfaz web (botón Cancelar) o con /cancel en Telegram si la iniciaste ahí.");
+    this.name = "TaskBusyError";
+    this.activeTaskId = activeTaskId;
+  }
+}
+
 interface TaskEntry {
   readonly ctx: TaskContext;
   readonly runtime: TaskRuntime;
   readonly recorder: TaskTraceRecorder;
 }
 
-const MAX_PREVIOUS_SESSIONS = 20;
+interface ActiveRun {
+  readonly entry: TaskEntry;
+  readonly run: Promise<void>;
+  detached: boolean;
+  cancelTimer?: ReturnType<typeof setTimeout>;
+}
+
+const DEFAULT_CANCEL_GRACE_MS = 1500;
 
 export class TaskManager {
-  private readonly tasks = new Map<string, TaskEntry>();
+  private active: ActiveRun | null = null;
+  /** Única ejecución en curso (incluye respuesta final y escritura de la traza). */
+  private inFlight: Promise<void> | null = null;
+  /** Historial de tareas terminadas en orden cronológico, acotado a `MAX_RETAINED_TASKS`. */
+  private readonly history = new Map<string, TaskEntry>();
   private readonly listeners = new Set<TaskListener>();
-  /** Ejecuciones en curso (con la escritura de su traza). */
-  private readonly inFlight = new Set<Promise<void>>();
-  /** Hilo (`engine/thread.ts`): última tarea completada con respuesta del modelo por sesión, en RAM; vence a los `THREAD_TTL_MS`. */
-  private readonly previousBySession = new Map<string, { readonly task: PreviousTask; readonly at: number }>();
+  /** Hilo (`engine/thread.ts`): última tarea completada con respuesta del modelo, única y global; vence a los `THREAD_TTL_MS`. */
+  private previousTask: { readonly task: PreviousTask; readonly at: number } | null = null;
+  private readonly cancelGraceMs: number;
   private readonly contextOptions: ContextOptions = {
     now: Date.now,
     summaryMax: BUDGET.summaryMax,
@@ -97,7 +122,10 @@ export class TaskManager {
     private readonly deps: TaskManagerDeps,
     private readonly getConfig: ConfigSource,
     private readonly services: EngineServices = createEngineServices(getConfig),
-  ) { }
+    options: TaskManagerOptions = {},
+  ) {
+    this.cancelGraceMs = options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
+  }
 
   addEventListener(listener: TaskListener): () => void {
     this.listeners.add(listener);
@@ -108,16 +136,12 @@ export class TaskManager {
 
   // ─────────── Ciclo de vida ───────────
 
-  /** Tareas sin cerrar (en curso o esperando al usuario). */
-  activeCount(): number {
-    let active = 0;
-    for (const { ctx } of this.tasks.values()) if (!ctx.isClosed()) active++;
-    return active;
-  }
+  /** Crea la tarea y la lanza en segundo plano. Rechaza con `TaskBusyError` si hay otra sin terminar por completo. */
+  start(message: string, mode: TaskMode): TaskDto {
+    if (this.active !== null || this.inFlight !== null) {
+      throw new TaskBusyError(this.active?.entry.ctx.task.id ?? "");
+    }
 
-  /** Crea la tarea y la lanza en segundo plano. Devuelve su estado inicial. */
-  start(message: string, mode: TaskMode, sessionKey = "default"): TaskDto {
-    const key = sessionKey.trim() || "default";
     const id = newId("task");
     const ctx = create.context({ id, request: message, mode }, this.contextOptions);
     const recorder = new TaskTraceRecorder(ctx, this.getConfig);
@@ -129,81 +153,110 @@ export class TaskManager {
     });
     const entry: TaskEntry = { ctx, runtime, recorder };
 
-    this.tasks.set(id, entry);
     ctx.on("change", (event) => this.emit({ type: "change", taskId: id, n: event.n, at: event.at, ops: event.ops }));
-    this.prune();
-    this.emit({ type: "created", taskId: id, n: ctx.n });
 
-    console.log(`[Task] start id=${id} mode=${mode}`);
-    const prev = this.previousBySession.get(key);
-    const previousTask = prev !== undefined && Date.now() - prev.at < THREAD_TTL_MS ? prev.task : null;
-    if (prev !== undefined && previousTask === null) this.previousBySession.delete(key);
+    const prev = this.previousTask;
+    const previousTask = prev !== null && Date.now() - prev.at < THREAD_TTL_MS ? prev.task : null;
+    if (prev !== null && previousTask === null) this.previousTask = null;
     const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink, previousTask };
-    // La ejecución incluye la escritura de la traza (asíncrona, después de la respuesta): `drain` espera a ambas al apagar el servidor.
+
+    let current!: ActiveRun;
     const run: Promise<void> = runTask(ctx, runtime, deps)
-      .catch((error: unknown) => this.closeOnDefect(entry, error))
-      .then(() => this.remember(ctx, key))
+      .catch((error: unknown) => {
+        if (!current.detached) this.closeOnDefect(entry, error);
+      })
+      .then(() => {
+        if (!current.detached) this.remember(ctx);
+      })
       .finally(() => recorder.finish())
-      .finally(() => void this.inFlight.delete(run));
-    this.inFlight.add(run);
+      .finally(() => this.completeActive(current));
+
+    current = { entry, run, detached: false };
+    this.active = current;
+    this.inFlight = run;
+
+    this.emit({ type: "created", taskId: id, n: ctx.n });
+    console.log(`[Task] start id=${id} mode=${mode}`);
 
     return this.toDto(entry);
   }
 
   /** Guarda la tarea para el hilo si terminó completada con una respuesta del modelo (no la de respaldo, que es texto fijo). */
-  private remember(ctx: TaskContext, sessionKey: string): void {
+  private remember(ctx: TaskContext): void {
     const result = ctx.result;
     if (ctx.task.state !== "completed" || result === null || result.origin !== "model") return;
-    this.previousBySession.delete(sessionKey);
-    this.previousBySession.set(sessionKey, { task: previousTaskOf(ctx.task.request, result.text), at: Date.now() });
-    while (this.previousBySession.size > MAX_PREVIOUS_SESSIONS) {
-      const oldest = this.previousBySession.keys().next().value;
-      if (oldest === undefined) break;
-      this.previousBySession.delete(oldest);
-    }
+    this.previousTask = { task: previousTaskOf(ctx.task.request, result.text), at: Date.now() };
   }
 
-  /** Cancela la tarea: aborta lo que esté en curso y resuelve la espera. El cierre (`user_cancelled`) lo escribe `runTask`. */
+  /** Cancela la tarea: aborta lo que esté en curso y resuelve la espera. Si queda colgada, programa su liberación tras `cancelGraceMs`. */
   cancel(taskId: string): ControlResult {
-    const entry = this.tasks.get(taskId);
+    const entry = this.entryOf(taskId);
     if (!entry) return "unknown_task";
     if (entry.ctx.isClosed()) return "not_waiting";
     entry.runtime.cancel();
+    if (this.active?.entry === entry && this.active.cancelTimer === undefined) {
+      const target = this.active;
+      target.cancelTimer = setTimeout(() => this.forceRelease(target), this.cancelGraceMs);
+      target.cancelTimer.unref();
+    }
     return "ok";
   }
 
   /**
-   * Espera a que terminen las ejecuciones en curso (cierre de la tarea, cierre de sus procesos en segundo plano y escritura de la traza),
-   * hasta `timeoutMs`. Se usa después de `cancelAll`, antes de apagar los servidores MCP.
+   * Espera hasta `graceMs` a que la tarea cancelada termine y libere el cupo activo. Si la ejecución está colgada y no
+   * respondió dentro del plazo, fuerza su cierre (`user_cancelled` + respaldo), cierra la traza y libera el lugar.
+   */
+  async settleCancel(taskId: string, graceMs = this.cancelGraceMs): Promise<void> {
+    const target = this.active;
+    if (target === null || target.entry.ctx.task.id !== taskId) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, graceMs);
+    });
+    try {
+      await Promise.race([target.run.catch(() => undefined), limit]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+    if (this.active === target) {
+      this.forceRelease(target);
+      await target.entry.recorder.finish();
+    }
+  }
+
+  /**
+   * Espera a que termine la ejecución en curso (cierre de la tarea, cierre de sus procesos en segundo plano y escritura de la traza),
+   * hasta `timeoutMs`. Se usa después de `cancelActive`, antes de apagar los servidores MCP.
    */
   async drain(timeoutMs: number): Promise<void> {
-    if (this.inFlight.size === 0) return;
+    const run = this.inFlight;
+    if (run === null) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const limit = new Promise<void>((resolve) => {
       timer = setTimeout(resolve, timeoutMs);
     });
     try {
-      await Promise.race([Promise.allSettled([...this.inFlight]), limit]);
+      await Promise.race([run.catch(() => undefined), limit]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
   }
 
-  /** Cancela todas las tareas abiertas (cierre del servidor). */
-  cancelAll(): void {
-    for (const entry of this.tasks.values()) if (!entry.ctx.isClosed()) entry.runtime.cancel();
+  /** Cancela la tarea abierta (cierre del servidor), sin forzar liberación prematura: `drain` marca el plazo real. */
+  cancelActive(): void {
+    this.active?.entry.runtime.cancel();
   }
 
   // ─────────── Lectura ───────────
 
   get(taskId: string): TaskDto | null {
-    const entry = this.tasks.get(taskId);
+    const entry = this.entryOf(taskId);
     return entry ? this.toDto(entry) : null;
   }
 
   /** Texto completo de una ref de la tarea. La ruta sale del contexto, nunca del pedido, y el almacén solo lee dentro de su carpeta. */
   async readRef(taskId: string, refId: string): Promise<{ readonly text: string } | "unknown_task" | "unknown_ref" | "unavailable"> {
-    const entry = this.tasks.get(taskId);
+    const entry = this.entryOf(taskId);
     if (!entry) return "unknown_task";
     const ref = entry.ctx.snapshot().refs.find((r) => r.id === refId);
     if (!ref) return "unknown_ref";
@@ -215,14 +268,13 @@ export class TaskManager {
     }
   }
 
-  /** Tareas retenidas, de la más antigua a la más reciente. */
   /** Ids de las tareas retenidas en memoria (la retención en disco no borra sus refs). */
   taskIds(): string[] {
-    return [...this.tasks.keys()];
+    return this.entries().map((e) => e.ctx.task.id);
   }
 
   list(): TaskSummary[] {
-    return [...this.tasks.values()].map(({ ctx, runtime }) => ({
+    return this.entries().map(({ ctx, runtime }) => ({
       id: ctx.task.id,
       mode: ctx.task.mode,
       request: ctx.task.request,
@@ -263,12 +315,21 @@ export class TaskManager {
 
   /** Responde la pregunta abierta. Una respuesta vacía no se aplica (`not_waiting`) y la tarea sigue esperando. */
   answer(taskId: string, text: string): ControlResult {
-    const entry = this.tasks.get(taskId);
+    const entry = this.entryOf(taskId);
     if (!entry) return "unknown_task";
     return entry.runtime.waiting?.kind === "question" && entry.runtime.answer(text) ? "ok" : "not_waiting";
   }
 
   // ─────────── Internos ───────────
+
+  private entryOf(taskId: string): TaskEntry | undefined {
+    if (this.active?.entry.ctx.task.id === taskId) return this.active.entry;
+    return this.history.get(taskId);
+  }
+
+  private entries(): TaskEntry[] {
+    return this.active ? [...this.history.values(), this.active.entry] : [...this.history.values()];
+  }
 
   private control(
     taskId: string,
@@ -276,7 +337,7 @@ export class TaskManager {
     waitId: string | undefined,
     resolve: (runtime: TaskRuntime, id: string) => boolean,
   ): ControlResult {
-    const entry = this.tasks.get(taskId);
+    const entry = this.entryOf(taskId);
     if (!entry) return "unknown_task";
     const waiting = entry.runtime.waiting;
     if (waiting === null || waiting.kind !== kind) return "not_waiting";
@@ -304,6 +365,9 @@ export class TaskManager {
     try {
       runtime.cancel();
       if (!ctx.isClosed()) {
+        for (const step of ctx.find("steps", { state: "running" })) {
+          ctx.apply({ op: "update", target: step.id, value: { state: "failed" } });
+        }
         const calls = ctx.find("calls", {});
         ctx.apply({ op: "finish", target: "task", value: { state: terminalStateFor("unrecoverable", calls), stopReason: "unrecoverable" } });
       }
@@ -315,20 +379,54 @@ export class TaskManager {
     }
   }
 
-  /** Tope de tareas retenidas: expulsa las terminales con respuesta y, si aun así se excede, cancela la espera más antigua. */
-  private prune(): void {
-    this.evictFinished();
-    if (this.tasks.size <= MAX_RETAINED_TASKS) return;
-    const abandoned = [...this.tasks.values()].find((e) => e.runtime.waiting !== null);
-    if (!abandoned) return;
-    console.warn(`[Tasks] Tope de ${MAX_RETAINED_TASKS} tareas: se cancela la tarea en espera más antigua '${abandoned.ctx.task.id}'.`);
-    abandoned.runtime.cancel(); // cierra de forma asíncrona: se expulsa en la próxima tarea
+  private completeActive(target: ActiveRun): void {
+    if (target.cancelTimer !== undefined) {
+      clearTimeout(target.cancelTimer);
+      target.cancelTimer = undefined;
+    }
+    if (this.inFlight === target.run) this.inFlight = null;
+    if (this.active !== target) return;
+    this.active = null;
+    this.archive(target.entry);
   }
 
-  private evictFinished(): void {
-    for (const [id, entry] of this.tasks) {
-      if (this.tasks.size <= MAX_RETAINED_TASKS) return;
-      if (entry.ctx.isClosed() && entry.ctx.result !== null) this.tasks.delete(id);
+  private forceRelease(target: ActiveRun): void {
+    if (target.cancelTimer !== undefined) {
+      clearTimeout(target.cancelTimer);
+      target.cancelTimer = undefined;
+    }
+    if (this.active !== target) return;
+    target.detached = true;
+    this.active = null;
+    if (this.inFlight === target.run) this.inFlight = null;
+
+    const { ctx, runtime, recorder } = target.entry;
+    try {
+      runtime.cancel();
+      if (!ctx.isClosed()) {
+        for (const step of ctx.find("steps", { state: "running" })) {
+          ctx.apply({ op: "update", target: step.id, value: { state: "failed" } });
+        }
+        ctx.apply({ op: "finish", target: "task", value: { state: "cancelled", stopReason: "user_cancelled" } });
+      }
+      if (ctx.result === null) {
+        ctx.apply({ op: "set", target: "result", value: { text: renderFallback(ctx.view.forFallback(windowOptions())).text, origin: "fallback" } });
+      }
+    } catch (error) {
+      console.warn(`[Tasks] no se pudo cerrar la tarea colgada '${ctx.task.id}':`, errorMessage(error));
+    }
+    void Promise.resolve(this.deps.discovery.notifyTaskEnd?.(ctx.task.id, "cancelled")).catch(() => undefined);
+    void recorder.finish();
+    this.archive(target.entry);
+  }
+
+  private archive(entry: TaskEntry): void {
+    this.history.delete(entry.ctx.task.id);
+    this.history.set(entry.ctx.task.id, entry);
+    while (this.history.size > MAX_RETAINED_TASKS) {
+      const oldest = this.history.keys().next().value;
+      if (oldest === undefined) break;
+      this.history.delete(oldest);
     }
   }
 }

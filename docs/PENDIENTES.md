@@ -122,7 +122,7 @@ Actualizado el 2026-11-14, tras las sondas por herramienta, el aviso «escrito e
 
 Modelo de amenaza: un solo usuario en su PC.
 
-- Sin autenticación en la API (ver §1.2) y sin límite de tasa: hay tope de tareas (`MAX_ACTIVE_TASKS` 4) y de conexiones SSE (`MAX_SSE_CLIENTS` 8) con `429`, pero no de peticiones por segundo ni de tamaño de mensaje.
+- Sin autenticación en la API (ver §1.2) y sin límite de tasa: solo se permite una tarea activa por vez (`TaskBusyError`, HTTP `409`) y hay tope de conexiones SSE (`MAX_SSE_CLIENTS` 8) con `429`, pero no de peticiones por segundo ni de tamaño de mensaje.
 - `GET /config`, el texto de las refs y las trazas pueden exponer secretos a cualquier cliente local.
 - **Datos en reposo sin protección:** las refs y las trazas (`full.json.gz`, con prompts y resultados crudos) quedan en texto plano durante `retentionDays`, incluidas las claves que el usuario aprobó leer. Sin cifrado ni redacción de secretos.
 - **`allowedDirectories`** viene vacío y solo valida las herramientas de archivos: no restringe a `run_command`.

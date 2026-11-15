@@ -3,23 +3,35 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { after, before, test } from "node:test";
+import { after, before, mock, test } from "node:test";
 
 import express from "express";
 
-import type { TaskManager } from "../src/core/tasks.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { TaskBusyError, TaskManager } from "../src/core/tasks.ts";
+import { ConfigManager } from "../src/core/config.ts";
+import type { JarvisConfig } from "../src/core/config.ts";
+import type { EngineLLM } from "../src/core/contracts.ts";
+import type { EngineServices } from "../src/core/engine/services.ts";
 import type { DiscoveryEngine } from "../src/core/mcp/discovery.ts";
-import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from "../src/core/types/limits.ts";
+import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
+import { createRefVault } from "../src/core/refs/refVault.ts";
+import { MAX_SSE_CLIENTS } from "../src/core/types/limits.ts";
 import { createJarvisRouter, withoutLaunchFields } from "../src/server/jarvisRouter.ts";
 import { createMcpRouter } from "../src/server/mcpRouter.ts";
 import { localOnly } from "../src/server/localOnly.ts";
 
 const calls: string[] = [];
 const listeners = new Set<(event: unknown) => void>();
-let active = 0;
+let busy = false;
 const fakeTasks = {
-  activeCount: () => active,
-  start: (message: string) => ({ id: "task_new", message }),
+  start: (message: string) => {
+    if (busy) throw new TaskBusyError("task_1");
+    return { id: "task_new", message };
+  },
   addEventListener: (listener: (event: unknown) => void) => (listeners.add(listener), () => listeners.delete(listener)),
   list: () => [{ id: "task_1", state: "running" }],
   cancel: (id: string) => (calls.push(`cancel ${id}`), "ok"),
@@ -185,12 +197,180 @@ test("SSE: los eventos llegan como `data:`, y al cerrar el cliente se da de baja
   assert.equal(listeners.size, 0);
 });
 
-test("POST /process responde 429 con el tope de tareas en curso y vuelve a aceptar al liberarse una", async () => {
-  active = MAX_ACTIVE_TASKS;
-  assert.equal((await request("POST", "/api/jarvis/process", { body: { message: "hola" } })).status, 429);
-  active = MAX_ACTIVE_TASKS - 1;
-  assert.equal((await request("POST", "/api/jarvis/process", { body: { message: "hola" } })).status, 200);
-  active = 0;
+test("POST /process responde 409 con mensaje claro cuando ya hay una tarea activa (e ignora sessionKey), y vuelve a aceptar al liberarse", async () => {
+  busy = true;
+  const conflict = await request("POST", "/api/jarvis/process", { body: { message: "hola", sessionKey: "telegram:1" } });
+  assert.equal(conflict.status, 409);
+  assert.match(JSON.parse(conflict.body).error, /interfaz web.*\/cancel/i);
+  busy = false;
+  assert.equal((await request("POST", "/api/jarvis/process", { body: { message: "hola", sessionKey: "telegram:1" } })).status, 200);
+});
+
+test("POST /cancel libera el cupo aunque la ejecución esté colgada y permite iniciar otra tarea", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-http-cancel-"));
+  const getConfig = (): JarvisConfig => ({ traceEnabled: false, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
+  const services: EngineServices = {
+    vault: createRefVault({ dir: path.join(root, "refs") }),
+    guardScope: { protectedDirs: [], relativeBases: [root] },
+    blacklist: EMPTY_BLACKLIST,
+    environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
+    autoMode: () => false,
+  };
+  let hang = true;
+  const llm: EngineLLM = {
+    generateArgumentsFromView: async () => { throw new Error("unused"); },
+    generateQuestion: async () => { throw new Error("unused"); },
+    generatePendingFromView: () => (hang ? new Promise(() => undefined) : Promise.resolve({ pending: [], rawInput: "", rawOutput: "" })),
+    generatePlanFromView: async () => { throw new Error("unused"); },
+    generateFinalFromView: async () => ({ response: "Listo.", rawInput: "", rawOutput: "" }),
+  };
+  const discovery = { getServer: () => undefined, getDiscoveredTools: async () => [], getUnavailableServers: () => ({}), validateToolExists: async () => false };
+  const decision = {
+    chooseRoute: async () => { throw new Error("unused"); },
+    chooseTool: async () => { throw new Error("unused"); },
+    reviewArgs: async () => { throw new Error("unused"); },
+    verifyResult: async () => { throw new Error("unused"); },
+    checkCompletion: async () => { throw new Error("unused"); },
+  };
+  const realTasks = new TaskManager({ decision, discovery, llm }, getConfig, services, { cancelGraceMs: 30 });
+  const app = express();
+  app.use(express.json());
+  app.use("/api/jarvis", createJarvisRouter(realTasks, fakeDiscovery));
+  const local = http.createServer(app);
+  await new Promise<void>((resolve) => local.listen(0, "127.0.0.1", resolve));
+  const localPort = (local.address() as AddressInfo).port;
+  const postLocal = (p: string, body: unknown): Promise<{ status: number; body: string }> =>
+    new Promise((resolve, reject) => {
+      const payload = JSON.stringify(body);
+      const req = http.request({ host: "127.0.0.1", port: localPort, method: "POST", path: p, headers: { "Content-Type": "application/json" } }, (res) => {
+        let out = "";
+        res.on("data", (c: Buffer) => (out += c.toString()));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: out }));
+      });
+      req.on("error", reject);
+      req.write(payload);
+      req.end();
+    });
+
+  try {
+    const first = await postLocal("/api/jarvis/process", { message: "se cuelga" });
+    assert.equal(first.status, 200);
+    await new Promise((r) => setTimeout(r, 15));
+
+    const rejected = await postLocal("/api/jarvis/process", { message: "segunda" });
+    assert.equal(rejected.status, 409);
+
+    const cancelled = await postLocal("/api/jarvis/cancel", {});
+    assert.equal(cancelled.status, 200);
+
+    hang = false;
+    const second = await postLocal("/api/jarvis/process", { message: "destrabada" });
+    assert.equal(second.status, 200);
+    await realTasks.drain(3000);
+  } finally {
+    local.closeAllConnections?.();
+    local.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("HTTP real: /cancel idempotente y 404, hilo global ignora sessionKey y /tasks/:id/trace y /refs responden según estado", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-http-real-"));
+  const getConfig = (): JarvisConfig => ({ traceEnabled: true, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
+  const vault = createRefVault({ dir: path.join(root, "refs") });
+  const services: EngineServices = {
+    vault,
+    guardScope: { protectedDirs: [], relativeBases: [root] },
+    blacklist: EMPTY_BLACKLIST,
+    environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
+    autoMode: () => false,
+  };
+  let releasePending!: () => void;
+  let blockPending = true;
+  const seenPrev: unknown[] = [];
+  const llm: EngineLLM = {
+    generateArgumentsFromView: async () => { throw new Error("unused"); },
+    generateQuestion: async () => { throw new Error("unused"); },
+    generatePendingFromView: async () => {
+      if (blockPending) await new Promise<void>((r) => { releasePending = r; });
+      return { pending: [], rawInput: "", rawOutput: "" };
+    },
+    generatePlanFromView: async () => { throw new Error("unused"); },
+    generateFinalFromView: async () => ({ response: "Respuesta HTTP.", rawInput: "", rawOutput: "" }),
+  };
+  const discovery = { getServer: () => undefined, getDiscoveredTools: async () => [], getUnavailableServers: () => ({}), validateToolExists: async () => false };
+  const decision = {
+    continuation: async (input: { previous: unknown }) => {
+      seenPrev.push(input.previous);
+      return { follows: 0, rawInput: "", rawOutput: "" };
+    },
+    chooseRoute: async () => { throw new Error("unused"); },
+    chooseTool: async () => { throw new Error("unused"); },
+    reviewArgs: async () => { throw new Error("unused"); },
+    verifyResult: async () => { throw new Error("unused"); },
+    checkCompletion: async () => { throw new Error("unused"); },
+  };
+  const realTasks = new TaskManager({ decision, discovery, llm }, getConfig, services);
+  const app = express();
+  app.use(express.json());
+  app.use("/api/jarvis", createJarvisRouter(realTasks, fakeDiscovery));
+  const local = http.createServer(app);
+  await new Promise<void>((resolve) => local.listen(0, "127.0.0.1", resolve));
+  const localPort = (local.address() as AddressInfo).port;
+  const call = (method: string, p: string, body?: unknown): Promise<Reply> =>
+    new Promise((resolve, reject) => {
+      const payload = body === undefined ? undefined : JSON.stringify(body);
+      const req = http.request({ host: "127.0.0.1", port: localPort, method, path: p, headers: payload ? { "Content-Type": "application/json" } : undefined }, (res) => {
+        let out = "";
+        res.on("data", (c: Buffer) => (out += c.toString()));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: out }));
+      });
+      req.on("error", reject);
+      if (payload) req.write(payload);
+      req.end();
+    });
+
+  const cfgMock = mock.method(ConfigManager, "getConfig", getConfig);
+
+  try {
+    // Sin tareas activas: /cancel sin taskId es idempotente (200) y con taskId desconocido da 404.
+    assert.equal((await call("POST", "/api/jarvis/cancel", {})).status, 200);
+    assert.equal((await call("POST", "/api/jarvis/cancel", { taskId: "task_no_existe" })).status, 404);
+
+    // Primera tarea con sessionKey de la web UI: mientras corre, su traza aún no existe (404).
+    const firstRes = await call("POST", "/api/jarvis/process", { message: "desde web", sessionKey: "ui:tab1" });
+    assert.equal(firstRes.status, 200);
+    const firstId = (JSON.parse(firstRes.body) as { task: { task: { id: string } } }).task.task.id;
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal((await call("GET", `/api/jarvis/tasks/${firstId}/trace?format=summary`)).status, 404);
+    assert.equal((await call("GET", `/api/jarvis/tasks/${firstId}/trace?format=invalido`)).status, 400);
+
+    blockPending = false;
+    releasePending();
+    await realTasks.drain(3000);
+
+    // Cancelar una tarea ya terminada (y /cancel sin taskId cuando solo hay terminadas) sigue siendo idempotente (200).
+    assert.equal((await call("POST", "/api/jarvis/cancel", { taskId: firstId })).status, 200);
+    assert.equal((await call("POST", "/api/jarvis/cancel", {})).status, 200);
+
+    // Traza disponible al terminar; ref desconocida devuelve 404 y tarea desconocida también.
+    const traceRes = await call("GET", `/api/jarvis/tasks/${firstId}/trace?format=summary`);
+    assert.equal(traceRes.status, 200);
+    assert.match(String(traceRes.headers["content-type"]), /text\/markdown/);
+    assert.equal((await call("GET", `/api/jarvis/tasks/${firstId}/refs/r1`)).status, 404);
+    assert.equal((await call("GET", "/api/jarvis/tasks/task_no_existe/refs/r1")).status, 404);
+
+    // Segunda tarea desde otro sessionKey ("telegram:99"): comparte el hilo global único.
+    const secondRes = await call("POST", "/api/jarvis/process", { message: "desde telegram", sessionKey: "telegram:99" });
+    assert.equal(secondRes.status, 200);
+    await realTasks.drain(3000);
+    assert.deepEqual(seenPrev, [{ request: "desde web", answer: "Respuesta HTTP." }]);
+  } finally {
+    cfgMock.mock.restore();
+    local.closeAllConnections?.();
+    local.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("SSE: pasado el tope de conexiones abiertas responde 429, y al cerrarse una se acepta otra", async () => {

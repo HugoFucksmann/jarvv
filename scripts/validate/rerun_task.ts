@@ -122,7 +122,7 @@ try {
     for (const q of trace.queries) console.log(`    ${String(q.seq).padStart(2)} ${String(q.startedAt - t0).padStart(6)}ms ${q.stage.padEnd(12)} ${String(q.durationMs).padStart(5)}ms ${JSON.stringify(q.output).slice(0, 120)}`);
   }
 } finally {
-  tasks.cancelAll();
+  tasks.cancelActive();
   await tasks.drain(4000);
   for (const provider of providers) await provider.close?.();
   fs.rmSync(root, { recursive: true, force: true });

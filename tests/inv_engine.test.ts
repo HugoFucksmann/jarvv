@@ -495,7 +495,7 @@ test("Invariante 8: refs estrictamente aisladas a la tarea activa (refs_unresolv
       },
     );
 
-    const dtoA = tm.start("Tarea A genera ref", "reactive", "sA");
+    const dtoA = tm.start("Tarea A genera ref", "reactive");
     await tm.drain(5000);
     const snapA = tm.get(dtoA.task.id)!;
     assert.equal(snapA.refs.length, 1);
@@ -507,7 +507,7 @@ test("Invariante 8: refs estrictamente aisladas a la tarea activa (refs_unresolv
     taskMode = "foreign_ref";
     pendingCount = 0;
     const dispatchedBeforeB = dispatched;
-    const dtoB = tm.start("Tarea B usa ref ajena", "reactive", "sB");
+    const dtoB = tm.start("Tarea B usa ref ajena", "reactive");
     await tm.drain(5000);
     const snapB = tm.get(dtoB.task.id)!;
     assert.equal(dispatched, dispatchedBeforeB, "r1 ajena nunca debe llegar a server.callTool");

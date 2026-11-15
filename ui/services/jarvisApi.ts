@@ -89,10 +89,9 @@ export const jarvisApi = {
   },
 
   /** Inicia una nueva tarea en el backend. */
-  initiateTask(message: string, mode?: ExecutionMode, sessionKey?: string): Promise<InitiateTaskResponse> {
-    const body: { message: string; mode?: ExecutionMode; sessionKey?: string } = { message: message.trim() };
+  initiateTask(message: string, mode?: ExecutionMode): Promise<InitiateTaskResponse> {
+    const body: { message: string; mode?: ExecutionMode } = { message: message.trim() };
     if (mode) body.mode = mode;
-    if (sessionKey) body.sessionKey = sessionKey;
     return post("/api/jarvis/process", body, "Error al iniciar la tarea");
   },
 

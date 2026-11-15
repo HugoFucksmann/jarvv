@@ -1,7 +1,7 @@
 /**
  * Invariantes de estado, configuración y transporte (Fase 2 de auditoría).
  *
- * - Invariante 9: Hilo (`previousBySession`): aislamiento por `sessionKey`, TTL de 10 min (`THREAD_TTL_MS`) y tope LRU de 20 sesiones.
+ * - Invariante 9: Hilo (`previousTask`): único y global (compartido entre canales) con vencimiento de 10 min (`THREAD_TTL_MS`).
  * - Invariante 10: `memory.ts`: caché por `mtimeMs` (no relee disco si `mtimeMs` no cambia) y archivo corrupto/ausente devuelve `[]`.
  * - Invariante 11: `DEFAULT_CONFIG` sin `jarvis-config.json`: `autoMode === false` y `approvalTiers === false` (proceso aislado).
  * - Extra auditoría B: `transport.ts`: limpia el listener de `abort` tras vencer el backoff en reintento HTTP 503.
@@ -67,7 +67,7 @@ function makeTaskManager(root: string, onContinuation?: (input: { previous: unkn
   );
 }
 
-test("Invariante 9: previousBySession aísla por sessionKey, vence a los 10 min (THREAD_TTL_MS) y expulsa la más antigua al pasar 20", async () => {
+test("Invariante 9: previousTask es único y global, y vence a los 10 min (THREAD_TTL_MS)", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-inv9-"));
   let clock = 1_700_000_000_000;
   const dateMock = mock.method(Date, "now", () => clock);
@@ -76,42 +76,22 @@ test("Invariante 9: previousBySession aísla por sessionKey, vence a los 10 min 
     const seen: { req: string }[] = [];
     const tm = makeTaskManager(root, (input) => seen.push({ req: (input.previous as { request: string }).request }));
 
-    // Aislamiento entre canales / sesiones
-    tm.start("Pedido Telegram", "reactive", "telegram:42");
+    tm.start("Pedido uno", "reactive");
     await tm.drain(3000);
+    assert.equal(seen.length, 0, "la primera tarea no tiene previa");
 
-    tm.start("Pedido UI", "reactive", "ui:tab1");
-    await tm.drain(3000);
-    assert.equal(seen.length, 0, "ui:tab1 no ve la tarea previa de telegram:42");
-
-    // Dentro del TTL (< 10 min) sí ve la previa de su misma sesión
+    // Dentro del TTL (< 10 min) la siguiente tarea ve la previa global
     clock += THREAD_TTL_MS - 1;
-    tm.start("Segundo Telegram", "reactive", "telegram:42");
+    tm.start("Pedido dos", "reactive");
     await tm.drain(3000);
-    assert.deepEqual(seen, [{ req: "Pedido Telegram" }]);
+    assert.deepEqual(seen, [{ req: "Pedido uno" }]);
 
     // Vencido el TTL (>= 10 min) la entrada caduca
     seen.length = 0;
     clock += THREAD_TTL_MS;
-    tm.start("Tercer Telegram expirado", "reactive", "telegram:42");
+    tm.start("Pedido tres expirado", "reactive");
     await tm.drain(3000);
     assert.equal(seen.length, 0, "transcurridos 10 minutos exactos el hilo expira");
-
-    // Tope de 20 sesiones (LRU): crear 21 sesiones distintas; la 1.ª debe expulsarse y la 2.ª conservarse
-    for (let i = 1; i <= 21; i++) {
-      tm.start(`Init_${i}`, "reactive", `sess:${i}`);
-      await tm.drain(3000);
-      clock += 10;
-    }
-
-    seen.length = 0;
-    tm.start("Check sess:1", "reactive", "sess:1");
-    await tm.drain(3000);
-    assert.equal(seen.length, 0, "la sesión más antigua (sess:1) fue expulsada al superar 20");
-
-    tm.start("Check sess:2", "reactive", "sess:2");
-    await tm.drain(3000);
-    assert.deepEqual(seen, [{ req: "Init_2" }], "sess:2 sobrevive dentro del tope de 20");
   } finally {
     dateMock.mock.restore();
     fs.rmSync(root, { recursive: true, force: true });
