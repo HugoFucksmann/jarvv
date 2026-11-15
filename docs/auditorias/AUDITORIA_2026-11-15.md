@@ -145,3 +145,22 @@ El núcleo de Jarvis presenta una arquitectura **coherente, proporcional a su co
   - Línea base (español): `10/12` (`83.3%`).
   - Con `retryNote` en inglés (`PREVIOUS_ERROR:...`): `10/12` (`83.3%`), p50 equivalente.
 - **Acción:** **Descartado**. Empate estricto sin evidencia empírica de mejora en recuperación ante reintentos. Se preserva el prompt original de producción.
+
+---
+
+## 7. Reverificación (2026-11-15, segunda corrida)
+
+Modelos: `qwen3.5:4b-text` / `d3:2b-text`. Línea base = código previo a P-EVAL-01 (checkout aparte); "con cambio" = repo actual.
+
+| Ítem | Línea base | Con cambio / variante | Resultado |
+|---|---|---|---|
+| P-EVAL-01 (`route,tool_choice`, x3, 624 evals) | 573/624 (91.8%, macro 95.7%) | 573/624 (91.8%, macro 95.7%) | Empate exacto, 0 regresiones. Aplicado verificado (`route.ts` y golden correctos). |
+| P-EVAL-02 (`arguments`, x3, 363 evals) | 330/363 (90.9%) | 328/363 (90.4%) | Sin mejora (`cmd` 114→113, `hard` 79→77). Descartado se mantiene. |
+| P-EVAL-02 `eval:psvalid` | `cmd` 114/117, `hard` 31/33, `llm_arguments` 20/24, `extra_hard` 27/27 | `cmd` 113/117, `hard` 30/33, `llm_arguments` 21/24, `extra_hard` 27/27 | Mixto, sin mejora neta. Descartado. |
+| P-EVAL-03 (`retryNote`) | — | — | No remedido: corrida interrumpida. Se conserva el descarte de la medición anterior (empate 10/12). |
+
+Notas:
+- `lastResult` se conserva en `DecisionFrame` (`contracts.ts:71`): aún lo leen las variantes de `eval/variants/` (`route_lean*`, `route_min*`, `tool_choice_lean*`).
+- No se re-verificó `safe()` en `threadBlock`/`Request:` en esta corrida; vale la medición previa (sección 6).
+- Pendiente aparte: `npm test` falla en 6 tests (invariantes 1, 4/5, 8, 9, 11 y uno de `run_command`); no se comprobó si son anteriores a P-EVAL-01.
+- El eval ejecuta `git status`/`git rev-parse` (solo lectura) en `eval/core/results.ts` para anotar el commit en los resultados.
