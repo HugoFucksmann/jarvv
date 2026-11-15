@@ -52,6 +52,7 @@ export type PlanApprovalOutcome =
   | { readonly kind: "cancelled" };
 
 export interface PendingQuestion {
+  readonly id: string;
   readonly stepId: string;
   readonly question: string;
 }
@@ -187,9 +188,10 @@ export class TaskRuntime {
   // ─────────── Pregunta al usuario (`ask_user`) ───────────
 
   /** Espera la respuesta del usuario a la pregunta de un paso. Con la tarea ya cancelada resuelve `cancelled`. */
-  askUser(question: PendingQuestion): Promise<QuestionOutcome> {
+  askUser(input: Omit<PendingQuestion, "id">): Promise<QuestionOutcome> {
     if (this.cancelled) return Promise.resolve({ kind: "cancelled" });
     this.assertIdle();
+    const question: PendingQuestion = { ...input, id: newId("question") };
     return new Promise<QuestionOutcome>((resolve) => {
       this.question = { question, resolve };
       this.notify();

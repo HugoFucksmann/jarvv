@@ -9,7 +9,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 3. **Desacoplamiento estricto de modelos**: el modelo de decisión elige rutas y herramientas, revisa argumentos y verifica resultados; el modelo generativo planifica, genera argumentos, formula preguntas y redacta la respuesta final. Ningún modelo toca el sistema operativo ni escribe en el contexto: lo hace el motor, validando.
 4. **Seguridad con cierre por defecto**: toda acción pasa por Guard antes de despacharse. Una herramienta ausente del catálogo no se ofrece a ningún modelo, y si llegara a Guard se trata como sensible.
 5. **Salidas voluminosas fuera del contexto**: los resultados extensos se guardan en disco bajo referencias (`rN`). El contexto conserva un resumen acotado y la ruta del archivo.
-6. **Estado volátil, auditoría de solo adición**: las tareas viven en memoria con un cupo retenido. Lo único que se escribe en disco es la configuración, los resultados crudos de las refs y una traza de solo adición que el backend nunca vuelve a leer (ver `CONTEXT_AND_MEMORY.md`).
+6. **Estado volátil, auditoría de solo adición**: las tareas viven en memoria con un cupo retenido. Lo único que se escribe en disco es la configuración, los resultados crudos de las refs y una traza de solo adición que el motor de ejecución nunca vuelve a leer (solo lectura externa por `GET /api/jarvis/tasks/:taskId/trace`; ver `CONTEXT_AND_MEMORY.md`).
 7. **Lo accesorio se puede borrar**: la traza vive fuera del motor; si se elimina, el motor compila y funciona igual.
 
 ## 3. Componentes
@@ -20,7 +20,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Vías de entrada y salida** | Telegram (segunda vía de entrada de tareas: progreso, planes, aprobaciones y preguntas en el chat, respuesta en texto y nota de voz) y voz (TTS local: `POST /api/jarvis/tts`, lectura en la interfaz y notas de voz). | No deciden el flujo ni tocan el motor: usan la API HTTP como cualquier cliente y solo importan tipos del núcleo. Un chat distinto del autorizado se ignora. | `src/telegram/`, `src/voice/`, `scripts/phonon_server.py` (detalle en `docs/TELEGRAM_Y_VOZ.md`) |
 | **Fachada de tareas** | Única puerta entre el exterior y el motor: crea el contexto de cada tarea, lanza su ejecución en segundo plano, resuelve las respuestas del usuario (plan, aprobación, pregunta), cancela, retiene un cupo de tareas y emite los eventos. | No decide el flujo ni ejecuta herramientas. | `tasks.ts` |
 | **Contexto de tarea** | Guarda el estado completo de una tarea (plan, pasos, llamadas, errores, hechos, refs, respuesta), valida cada escritura, calcula las derivaciones (efectos, anti-bucle, contadores) y construye las vistas por consumidor. | No renderiza texto de prompts, no conoce herramientas ni modelos y no persiste. | `ctx/` (`context.ts`, `apply.ts`, `derive.ts`, `closure.ts`, `snapshot.ts`, `views/`) |
-| **Motor de ejecución** | Recorre la tarea de principio a fin: bucle de pasos, ejecución de cada llamada, verificación determinista y con modelo (poscondiciones en disco y sondas por herramienta), recuperación según el modo (escalación o replan), esperas del usuario y cierre. | No genera texto con modelos por su cuenta ni evalúa políticas de seguridad. | `engine/` (`runTask.ts`, `stepLoop.ts`, `callRunner.ts`, `retries.ts`, `planner.ts`, `pending.ts`, `pendingList.ts`, `precheck.ts`, `postcondition.ts`, `probes.ts`, `verify.ts`, `ask.ts`, `finalize.ts`) |
+| **Motor de ejecución** | Recorre la tarea de principio a fin: bucle de pasos, ejecución de cada llamada, verificación determinista y con modelo (poscondiciones en disco y sondas por herramienta), recuperación según el modo (escalación o replan), esperas del usuario y cierre. | No genera texto con modelos por su cuenta ni evalúa políticas de seguridad. | `engine/` (`runTask.ts`, `stepLoop.ts`, `callRunner.ts`, `retries.ts`, `planner.ts`, `pending.ts`, `pendingList.ts`, `precheck.ts`, `postcondition.ts`, `probes.ts`, `verify.ts`, `ask.ts`, `finalize.ts`, `args.ts`, `env.ts`, `capture.ts`, `outcomes.ts`, `runtime.ts`) |
 | **Modelo de decisión** | Decisiones mediante preguntas `choice` y `noul`: D0 (`first_query`), continuación de hilo (`continuation`), ruta (Decisión 1), herramienta (2), revisión de argumentos (3), verificación del resultado (4), sondas por herramienta (`probe`), cierre de tarea (5) y juez de fragmentos de `web_search`. | No genera texto libre, planes ni argumentos. | `models/decision.ts` |
 | **Modelo generativo** | Plan y replan, lista de pendientes (reactivo), argumentos conforme al esquema de la herramienta, pregunta al usuario y respuesta final. | No despacha comandos ni accede al entorno local. | `models/qwen.ts`, `models/prompts.ts` |
 | **Renderizadores** | Convierten las vistas estructuradas del contexto en el texto de los prompts, saneando todo texto externo. | No leen el contexto directamente ni aplican topes de negocio. | `render/` |
@@ -30,7 +30,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Procesador de resultados** | Convierte el resultado crudo de una herramienta en un estado (`ok`, `no_data`, `not_found`, `tool_error`, `denied`), un resumen acotado y el texto completo para la ref; incluye extractores por herramienta. | No guarda nada, no conoce tareas ni refs y no sanea. | `result/processResult.ts`, `result/extractors/` |
 | **Almacén y resolutor de refs** | Guarda el resultado crudo en disco y sustituye los tokens `{{ref:rN}}` de los argumentos por su contenido antes de Guard y del despacho. | El almacén no conoce el contexto; el resolutor no toca el disco ni las herramientas. | `refs/refVault.ts`, `refs/refResolver.ts` |
 | **Servidores MCP** | Transporte stdio JSON-RPC por servidor, descubrimiento y caché de herramientas, y adaptadores de cada servidor. | No deciden qué herramienta se usa. | `mcp/` |
-| **Registro de trazabilidad** | Al terminar cada tarea escribe una carpeta (`summary.md`, `trace.json`, `full.json.gz`) y una línea en `index.jsonl`, para análisis y evaluación externa; los resultados grandes quedan en las refs. | No es base de datos, no restaura estado al reiniciar y el backend nunca la lee. | `trace/recorder.ts`, `trace/format.ts`, `trace/types.ts` |
+| **Registro de trazabilidad** | Al terminar cada tarea escribe una carpeta (`summary.md`, `trace.json`, `full.json.gz`) y una línea en `index.jsonl`, para análisis, evaluación externa y lectura puntual por `GET /api/jarvis/tasks/:taskId/trace`; los resultados grandes quedan en las refs. | No es base de datos, no restaura estado al reiniciar y el motor nunca la lee. | `trace/` (`recorder.ts`, `format.ts`, `files.ts`, `sink.ts`, `types.ts`) |
 | **Presupuesto** | Tabla única de límites y topes (pasos, replans, llamadas por paso, recortes de las vistas, extractores). | No contiene lógica. | `budget.ts` |
 
 ## 4. Dependencias entre Capas
@@ -92,19 +92,16 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 
 ## 8. Archivos Base
 - `server.ts`
-- `src/server/jarvisRouter.ts`
-- `src/core/tasks.ts`
-- `src/core/ctx/` (`context.ts`, `apply.ts`, `derive.ts`, `closure.ts`, `views/`)
-- `src/core/contracts.ts`
-- `src/core/engine/` (`runTask.ts`, `stepLoop.ts`, `callRunner.ts`, `services.ts`, `adapters.ts`, `classify.ts`, `firstQuery.ts`, `completion.ts`, `thread.ts`, `postcondition.ts`, `probes.ts`, `pendingList.ts`, `precheck.ts`, `retries.ts`, `limits.ts`)
-- `src/core/models/decision.ts`, `src/core/models/qwen.ts`, `src/core/models/prompts.ts`, `src/core/models/stageRequests.ts`, `src/core/models/transport.ts`, `src/core/models/warmup.ts`
-- `src/core/render/`
+- `src/server/` (`jarvisRouter.ts`, `mcpRouter.ts`, `localOnly.ts`)
+- `src/core/tasks.ts`, `src/core/retention.ts`, `src/core/memory.ts`, `src/core/environment.ts`, `src/core/budget.ts`, `src/core/config.ts`, `src/core/contracts.ts`, `src/core/text.ts`, `src/core/utils.ts`
+- `src/core/types.ts` y `src/core/types/` (`audit.ts`, `decision.ts`, `limits.ts`, `mcp.ts`, `plan.ts`, `policy.ts`, `routes.ts`, `stages.ts`)
+- `src/core/ctx/` (`context.ts`, `apply.ts`, `create.ts`, `derive.ts`, `closure.ts`, `errors.ts`, `ids.ts`, `index.ts`, `json.ts`, `query.ts`, `snapshot.ts`, `types.ts`, `validate.ts`, `views/`)
+- `src/core/engine/` (`adapters.ts`, `args.ts`, `ask.ts`, `callRunner.ts`, `capture.ts`, `classify.ts`, `completion.ts`, `env.ts`, `failures.ts`, `finalClean.ts`, `finalize.ts`, `firstQuery.ts`, `limits.ts`, `outcomes.ts`, `pending.ts`, `pendingList.ts`, `planner.ts`, `postcondition.ts`, `precheck.ts`, `probes.ts`, `retries.ts`, `runTask.ts`, `runtime.ts`, `services.ts`, `stepLoop.ts`, `thread.ts`, `verify.ts`)
+- `src/core/models/` (`decision.ts`, `qwen.ts`, `prompts.ts`, `stageRequests.ts`, `transport.ts`, `warmup.ts`)
+- `src/core/render/` (`args.ts`, `ask.ts`, `errors.ts`, `final.ts`, `index.ts`, `messages.ts`, `pending.ts`, `plan.ts`, `shared.ts`)
 - `src/core/policy/` (`guard.ts`, `tiers.ts`, `blacklist.ts`, `commandRules.ts`, `readOnly.ts`, `rerun.ts`, `sensitivePaths.ts`, `egress.ts`)
-- `src/core/retention.ts`, `src/core/memory.ts`, `src/server/localOnly.ts`
-- `src/core/tools/` (`manifest.ts`, `probes.ts`, `provider.ts`, `host.ts`)
-- `src/core/result/processResult.ts`
-- `src/core/refs/refVault.ts`, `src/core/refs/refResolver.ts`
-- `src/core/mcp/` (`discovery.ts`, `transport.ts`)
-- `src/core/trace/` (`recorder.ts`, `format.ts`, `files.ts`, `types.ts`, `sink.ts`)
-- `src/core/text.ts` (saneado y comparación de textos por raíz, común al motor y a los extractores)
-- `src/core/budget.ts`, `src/core/config.ts`
+- `src/core/tools/` (`manifest.ts`, `probes.ts`, `provider.ts`, `host.ts`, `judge.ts`, `result.ts`)
+- `src/core/result/` (`processResult.ts`, `extractors/`)
+- `src/core/refs/` (`refVault.ts`, `refResolver.ts`)
+- `src/core/mcp/` (`discovery.ts`, `transport.ts`, `stdioServer.ts`, `desktopCommanderMcp.ts`, `freeSearchMcp.ts`, `types.ts`)
+- `src/core/trace/` (`recorder.ts`, `format.ts`, `files.ts`, `sink.ts`, `types.ts`)

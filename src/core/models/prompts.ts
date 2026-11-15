@@ -19,6 +19,8 @@ import type { ArgsReview, CompletionDecisionInput, DecisionAttempt, DecisionFram
 import type { Platform } from "../environment.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
 import { clip, clipTail } from "../utils.ts";
+import { safe } from "../text.ts";
+export { safe };
 
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
@@ -36,8 +38,6 @@ export const todayLine = (now: Date = new Date()): string => {
   return `TODAY: ${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())} (${weekday}${zone ? `, ${zone}` : ""})`;
 };
 
-/** Neutraliza los delimitadores <obs> en cualquier texto interpolado. */
-export const safe = (s: string): string => s.replace(/<\/?obs>/gi, "[obs]");
 
 /** Las últimas líneas que caben en el presupuesto (lo más reciente manda). */
 export const tailLines = (lines: readonly string[], maxChars: number): string[] => {
@@ -393,7 +393,7 @@ export const DECISION_PROMPTS = {
    */
   buildContinuation(data: ContinuationInput): DecisionInput {
     return {
-      state: `Previous request: ${data.previous.request}\nPrevious answer: ${data.previous.answer}\nNew request: ${data.request}`,
+      state: `Previous request: ${safe(data.previous.request)}\nPrevious answer: ${safe(data.previous.answer)}\nNew request: ${safe(data.request)}`,
       questions: {
         follow: {
           type: "noul",
@@ -490,7 +490,7 @@ Does the PASSAGE contain information that answers the QUESTION?`,
     }
 
     return {
-      state: [data.request ? `Request: ${data.request}` : null, ...frameLines(data)].filter(Boolean).join("\n"),
+      state: [data.request ? `Request: ${safe(data.request)}` : null, ...frameLines(data)].filter(Boolean).join("\n"),
       questions: { route: { type: "choice", instructions: ROUTE_QUESTION, criteria } },
     };
   },

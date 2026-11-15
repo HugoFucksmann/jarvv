@@ -60,9 +60,9 @@ const FINISH_TITLE: Record<string, string> = {
   cancelled: "🛑 Tarea cancelada",
 };
 
-const waitKey = (w: Waiting): string => (w.kind === "question" ? `q${w.question.stepId}` : w.request.id);
+export const waitKey = (w: Waiting): string => (w.kind === "question" ? w.question.id : w.request.id);
 /** Identifica la espera en el `callback_data` de los botones (conserva timestamp+sufijo único dentro de 64 bytes). */
-const tagOf = (w: Waiting): string => waitKey(w).slice(-32);
+export const tagOf = (w: Waiting): string => waitKey(w).slice(-32);
 
 export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   const bot = new Bot(cfg.token);

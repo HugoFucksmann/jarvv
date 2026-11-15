@@ -55,7 +55,8 @@ import {
   TransportError,
 } from "./transport.ts";
 import { errorMessage, isRecord } from "../utils.ts";
-import type { FragmentJudge, FragmentScores } from "../tools/judge.ts";
+import { JUDGE_BATCH, type FragmentJudge, type FragmentScores } from "../tools/judge.ts";
+export { JUDGE_BATCH };
 
 /** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
 export function buildDecisionRequest(
@@ -124,11 +125,8 @@ function routeDecisionOf(choice: string, trace: DecisionTrace, shortcut: boolean
   return shortcut ? { action: "route", route: choice, shortcut: true, ...trace } : { action: "route", route: choice, ...trace };
 }
 
-/** Fragmentos que se puntúan en una misma consulta al modelo (una pregunta `noul` por fragmento). */
-/** Fragmentos por consulta del juez (una pregunta `noul` cada uno). */
-export const JUDGE_BATCH = 5;
-
 export class Decision20Engine implements IActionDecision, FragmentJudge {
+  readonly batchSize = JUDGE_BATCH;
   /** `prompts`: los constructores de las preguntas de cada decisión; por defecto los de producción (el laboratorio de evaluación pasa otros). */
   constructor(
     private readonly getConfig: ConfigSource,

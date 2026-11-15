@@ -23,6 +23,10 @@ export interface JudgeTraceEvent {
   readonly error: string | null;
 }
 
+/** Fragmentos por consulta del juez (una pregunta `noul` cada uno). */
+export const JUDGE_BATCH = 5;
+
 export interface FragmentJudge {
+  readonly batchSize?: number;
   score(need: string, fragments: readonly string[], signal?: AbortSignal): Promise<FragmentScores>;
 }

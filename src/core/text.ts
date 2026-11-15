@@ -10,16 +10,20 @@
 const BLOCK_LABELS =
     /\b(GOAL|FACTS|LOG|FAIL|TASK|PLAN|CHAT|SCHEMA|TOOL|REFS|EFFECTS|LAST|DATA|PASOS|FEEDBACK|POSIBLES EFECTOS|HANDOFF|RESULTADO DE LA LLAMADA|EVID|PASO ACTUAL|EXPECTED|ESTADO DE LA TAREA|MOTIVO DE DETENCIÓN):/gi;
 
+/** Neutraliza los delimitadores `<obs>` en cualquier texto interpolado. */
+export const safe = (s: string): string => s.replace(/<\/?obs>/gi, "[obs]");
+
 /**
  * Reduce un texto externo a una sola línea y neutraliza lo que podría confundirse con la estructura del prompt:
  * `<obs>` y las etiquetas de bloque (`LOG:`, `FACTS:`…). Recorta a `maxLen` terminando en `...`.
  */
 export function sanitizeForMemory(text: string, maxLen = 120): string {
     if (!text) return "";
-    let clean = text
-        .replace(/[\r\n\t]+/g, " ")
-        .replace(/[\x00-\x1F\x7F]/g, "")
-        .replace(/<\/?obs>/gi, "[obs]")
+    let clean = safe(
+        text
+            .replace(/[\r\n\t]+/g, " ")
+            .replace(/[\x00-\x1F\x7F]/g, ""),
+    )
         .replace(BLOCK_LABELS, "$1_")
         .trim();
     if (clean.length > maxLen) {
@@ -38,10 +42,11 @@ export function sanitizeMultiline(text: string): string {
     return text
         .split(/\r\n|\r|\n/)
         .map((line) =>
-            line
-                .replace(/\t/g, "    ")
-                .replace(/[\x00-\x1F\x7F]/g, "")
-                .replace(/<\/?obs>/gi, "[obs]")
+            safe(
+                line
+                    .replace(/\t/g, "    ")
+                    .replace(/[\x00-\x1F\x7F]/g, ""),
+            )
                 .replace(BLOCK_LABELS, "$1_")
                 .trimEnd(),
         )

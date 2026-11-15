@@ -6,8 +6,10 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 
 import type { NormalizedOp } from "../src/core/ctx/index.ts";
+import { TaskRuntime } from "../src/core/engine/runtime.ts";
 import type { TaskEvent } from "../src/core/tasks.ts";
 import { JarvisApi } from "../src/telegram/api.ts";
+import { tagOf, waitKey } from "../src/telegram/bot.ts";
 import { telegramConfigFromEnv } from "../src/telegram/config.ts";
 import { chunk, mdToHtml } from "../src/telegram/format.ts";
 import { Progress } from "../src/telegram/progress.ts";
@@ -152,4 +154,26 @@ test("JarvisApi.listen: cancela inmediatamente el temporizador de reconexión al
   server.closeAllConnections();
   server.close();
   assert.ok(elapsed < 1000, `debió abortar antes de RECONNECT_MS (2000 ms), tardó ${elapsed} ms`);
+});
+
+test("PendingQuestion: dos preguntas en el mismo paso generan id, waitKey y tagOf distintos dentro de 64 bytes", () => {
+  const runtime = new TaskRuntime();
+  const tags: string[] = [];
+  const keys: string[] = [];
+
+  for (const text of ["¿Confirmás ruta?", "¿Sobrescribir archivo?"]) {
+    const pending = runtime.askUser({ stepId: "s1", question: text });
+    const w = runtime.waiting;
+    assert.ok(w !== null && w.kind === "question");
+    assert.ok(w.question.id.startsWith("question_"));
+    keys.push(waitKey(w));
+    const tag = tagOf(w);
+    tags.push(tag);
+    assert.ok(Buffer.byteLength(`cx:${tag}`, "utf8") <= 64, "callback_data dentro del límite de Telegram");
+    assert.equal(runtime.answer("ok"), true);
+    void pending;
+  }
+
+  assert.notEqual(keys[0], keys[1]);
+  assert.notEqual(tags[0], tags[1]);
 });

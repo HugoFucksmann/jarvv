@@ -149,8 +149,15 @@ export async function postJson(o: PostJsonOptions): Promise<PostJsonResult> {
 
             console.warn(`[Transport] ${reason}; reintento ${attempt + 1}/${LLM_TRANSPORT_RETRIES} en ${LLM_TRANSPORT_BACKOFF_MS}ms (${o.url})`);
             await new Promise<void>((resolve, reject) => {
-                const backoff = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
-                signal.addEventListener("abort", () => { clearTimeout(backoff); reject(signal.reason); }, { once: true });
+                const onAbort = (): void => {
+                    clearTimeout(backoff);
+                    reject(signal.reason);
+                };
+                const backoff = setTimeout(() => {
+                    signal.removeEventListener("abort", onAbort);
+                    resolve();
+                }, LLM_TRANSPORT_BACKOFF_MS);
+                signal.addEventListener("abort", onAbort, { once: true });
             }).catch((err) => { throw interrupted(err) ?? err; });
         }
     } finally {

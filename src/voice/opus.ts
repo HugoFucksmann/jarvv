@@ -29,12 +29,26 @@ export function ffmpegBin(): string {
 
 const MISSING = "ffmpeg no está instalado o no está en el PATH (necesario para las notas de voz; winget install Gyan.FFmpeg)";
 
+const FFMPEG_PROBE_TIMEOUT_MS = 5000;
+
 /** ¿Se puede ejecutar ffmpeg? */
-export function ffmpegAvailable(): Promise<boolean> {
+export function ffmpegAvailable(timeoutMs = FFMPEG_PROBE_TIMEOUT_MS): Promise<boolean> {
   return new Promise((resolve) => {
-    const probe = spawn(ffmpegBin(), ["-version"], { stdio: "ignore" });
-    probe.on("error", () => resolve(false));
-    probe.on("close", (code) => resolve(code === 0));
+    const probe = spawn(ffmpegBin(), ["-version"], { stdio: "ignore", windowsHide: true });
+    let settled = false;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => {
+      try { probe.kill(); } catch { /* ya terminado */ }
+      finish(false);
+    }, timeoutMs);
+    timer.unref();
+    probe.on("error", () => finish(false));
+    probe.on("close", (code) => finish(code === 0));
   });
 }
 

@@ -21,7 +21,7 @@
 
 import os from "node:os";
 
-import { classify, commandOf } from "./commandRules.ts";
+import { classify, commandOf, normalizeArgs } from "./commandRules.ts";
 
 export type ListLevel = "blocked" | "sensitive";
 
@@ -64,8 +64,6 @@ export function compileBlacklist(entries: readonly BlacklistEntry[]): Blacklist 
 
 const matchesTool = (entry: CompiledEntry, mcp: string, tool: string): boolean =>
   entry.tool === tool.toLowerCase() && (entry.server === null || entry.server === mcp.toLowerCase());
-
-const normalizeArgs = (args: Record<string, unknown>): string => JSON.stringify(args).toLowerCase().replace(/\\\\/g, "/").replace(/\s+/g, " ");
 
 /** Razón del rechazo si la llamada a una herramienta que modifica el sistema está en la lista negra; `null` si pasa. */
 export function blacklistReason(list: Blacklist, mcp: string, tool: string, mutates: boolean, args: Record<string, unknown>): string | null {

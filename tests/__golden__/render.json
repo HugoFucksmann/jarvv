@@ -62,7 +62,7 @@
       "instruction": "Leer el informe y guardar un resumen en resumen.txt",
       "expected": null
     },
-    "lastResult": "c3 s2 files/read_file read ok verdict=approved | Informe de ventas 2026 Q1: 120.000 Q2: 135.500 Q3: 98.250 (truncado) ref:r1 (48213, data/refs/task_fixture/r1.txt)",
+    "lastResult": null,
     "done": [
       "c1 s1 files/list_directory read ok verdict=approved",
       "c12 s1 files/write_file write ok verdict=approved",
@@ -101,7 +101,7 @@
       "instruction": "Leer el informe y guardar un resumen en resumen.txt",
       "expected": null
     },
-    "lastResult": "c3 s2 files/read_file read ok verdict=approved | Informe de ventas 2026 Q1: 120.000 Q2: 135.500 Q3: 98.250 (truncado) ref:r1 (48213, data/refs/task_fixture/r1.txt)",
+    "lastResult": null,
     "done": [
       "c1 s1 files/list_directory read ok verdict=approved",
       "c12 s1 files/write_file write ok verdict=approved",

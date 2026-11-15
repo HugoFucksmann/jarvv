@@ -119,14 +119,6 @@ const caps = BUDGET.caps;
 /** Línea de llamada `L`, recortada a su tope. */
 const lineText = (call: CallView): string => clipMarked(callHead(call), caps.line);
 
-/** Último resultado: `L` + resumen (≤ `lastResultSummary`) + marca de ref (≤ `refMark`), en una línea. */
-function lastResultText(call: CallView): string {
-  const parts = [lineText(call)];
-  if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), caps.lastResultSummary)}`);
-  if (call.ref !== null) parts.push(clipMarked(refText(call.ref), caps.refMark));
-  return parts.join(" ");
-}
-
 /** Estados cuyo resumen explica el fallo (el mensaje de la herramienta o del código); en el resto es el dato leído y no aporta a elegir ruta o herramienta. */
 const ATTEMPT_SUMMARY_STATUSES: readonly CallView["status"][] = ["tool_error", "exception", "args_invalid", "info_missing", "tool_rejected", "user_rejected"];
 
@@ -154,7 +146,7 @@ function stepText(step: CriterionView): { readonly instruction: string; readonly
 function decisionFrame(view: RouteView): DecisionFrame {
   return {
     step: view.step === null ? null : stepText(view.step),
-    lastResult: view.lastResult === null ? null : lastResultText(view.lastResult),
+    lastResult: null,
     done: lastCapped(view.done.map(lineText), caps.done),
     // Un rechazo del usuario no es un fallo de la ruta ni de la herramienta: no se marca como tal (el texto ya lo dice).
     attempts: view.attempts.map((c) => ({ route: c.route, tool: c.tool, failed: c.failed && c.status !== "user_rejected", text: attemptText(c) })),

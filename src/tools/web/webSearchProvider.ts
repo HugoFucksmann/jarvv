@@ -15,7 +15,7 @@
  */
 
 import { BUDGET } from "../../core/budget.ts";
-import type { FragmentJudge, FragmentScores, JudgeTraceEvent } from "../../core/tools/judge.ts";
+import { JUDGE_BATCH, type FragmentJudge, type FragmentScores, type JudgeTraceEvent } from "../../core/tools/judge.ts";
 import type { ToolCallOptions, ToolProvider, ToolRef } from "../../core/tools/provider.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import { clipAtWord } from "../../core/text.ts";
@@ -499,7 +499,7 @@ export class WebSearchProvider implements ToolProvider {
     const score = async (texts: string[]): Promise<number[]> => {
       const r = await this.invokeJudge(judge, need, texts, remaining, signal, recordJudge);
       if (r.probabilities.length !== texts.length) throw new Error("el modelo no devolvió una probabilidad por fragmento");
-      trace.calls += Math.ceil(texts.length / 5);
+      trace.calls += Math.ceil(texts.length / (judge.batchSize ?? JUDGE_BATCH));
       trace.ms += r.durationMs;
       trace.raw = { input: r.rawInput.slice(0, TRACE_RAW_MAX), output: r.rawOutput.slice(0, TRACE_RAW_MAX) };
       return [...r.probabilities];

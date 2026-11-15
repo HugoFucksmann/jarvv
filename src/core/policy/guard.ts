@@ -25,7 +25,7 @@ import path from "node:path";
 
 import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
-import { classify, commandOf } from "./commandRules.ts";
+import { classify, commandOf, normalizeArgs } from "./commandRules.ts";
 import { isReadOnlyCall } from "./readOnly.ts";
 import { egressFinding } from "./egress.ts";
 import { sensitivePathFinding } from "./sensitivePaths.ts";
@@ -163,7 +163,7 @@ export class Guard {
   }
 
   private static matchesDenyPattern(args: Record<string, unknown>): boolean {
-    const normalized = JSON.stringify(args).toLowerCase().replace(/\\\\/g, "/").replace(/\s+/g, " ");
+    const normalized = normalizeArgs(args);
     return DENY_PATTERNS.some((p) => p.test(normalized));
   }
 

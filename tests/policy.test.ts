@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { Guard, isPathInside } from "../src/core/policy/guard.ts";
 import type { ProtectedPaths } from "../src/core/policy/guard.ts";
 import { blacklistMatch, compileBlacklist } from "../src/core/policy/blacklist.ts";
-import { classify } from "../src/core/policy/commandRules.ts";
+import { classify, normalizeArgs } from "../src/core/policy/commandRules.ts";
 import { SYSTEM_TOOL_MANIFEST } from "../src/core/tools/manifest.ts";
 
 const DC = "desktop_commander";
@@ -69,4 +69,13 @@ test("fail-closed: una herramienta que no está en el catálogo pide aprobación
   for (const t of SYSTEM_TOOL_MANIFEST) {
     if (t.policy.mutates) assert.equal(t.policy.requiresApproval, true, `${t.server}:${t.name} modifica y no pide aprobación`);
   }
+});
+
+test("paridad Guard/Blacklist: ambos aplican normalizeArgs (minúsculas, \\\\ -> /, espacios colapsados)", () => {
+  const args = { path: "C:\\Temp\\ETc\\SHADOW", extra: "a   b   c" };
+  assert.equal(normalizeArgs(args), '{"path":"c:/temp/etc/shadow","extra":"a b c"}');
+
+  assert.equal(Guard.evaluate(DC, "read_file", { path: "C:\\sub\\etc\\SHADOW" }).decision, "DENY");
+  const list = compileBlacklist([{ tool: "write_file", pattern: "sub/etc/shadow", reason: "protegido" }]);
+  assert.ok(blacklistMatch(list, DC, "write_file", true, { path: "C:\\SUB\\etc\\SHADOW", content: "x" }));
 });

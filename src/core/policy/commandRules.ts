@@ -91,6 +91,10 @@ function splitSegments(text: string, parens: boolean): string[] {
 const norm = (token: string): string => token.toLowerCase().replace(/\\/g, "/");
 const baseName = (token: string): string => norm(token).replace(/^.*\//, "").replace(/\.exe$/, "");
 
+/** Normalización compartida de argumentos para patrones de Guard y lista negra (`\\` → `/`, minúsculas, espacios colapsados). */
+export const normalizeArgs = (args: Record<string, unknown>): string =>
+  JSON.stringify(args).toLowerCase().replace(/\\\\/g, "/").replace(/\s+/g, " ");
+
 // ───────────────────────── Rutas críticas ─────────────────────────
 
 type PathClass = "root" | "system" | "home";

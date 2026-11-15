@@ -31,16 +31,13 @@ export interface EngineServices {
   readonly memory?: () => readonly MemoryFact[];
 }
 
-let coherenceWarned = false;
-
 /**
  * Aviso de coherencia: si Desktop Commander restringe los directorios (`allowedDirectories` no vacío; vacío = sin
- * restricción) y `refsDir` queda fuera, el modelo no podrá leer las refs con la lectura normal. Se avisa una sola vez.
+ * restricción) y `refsDir` queda fuera, el modelo no podrá leer las refs con la lectura normal.
  */
 function warnIfRefsOutsideAllowed(refsDir: string, allowedDirectories: readonly string[]): void {
-  if (coherenceWarned || allowedDirectories.length === 0) return;
+  if (allowedDirectories.length === 0) return;
   if (allowedDirectories.some((dir) => isPathInside(path.resolve(dir), refsDir))) return;
-  coherenceWarned = true;
   console.warn(
     `[Engine] refsDir (${refsDir}) queda fuera de allowedDirectories de Desktop Commander: el modelo no podrá leer las refs ` +
     "con la lectura de archivos. Agregue esa carpeta a allowedDirectories o cambie refsDir.",

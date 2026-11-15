@@ -444,18 +444,78 @@ Todo en la PC de desarrollo (Windows 11 en español, Ollama con `qwen3.5:4b` y `
 - Pedido 9 (RC-25): 1 `completed` (usó `list_processes`; luego lo repitió y lo frenó el anti-bucle); 1 `partial (unrecoverable)`, que cerró por un servicio caído justo después de lanzar el proceso. No se vio `stop_process` usado en el pedido 9; sí apareció en una corrida del pedido 3 (sobre un proceso ya terminado: respondió `not_running`).
 - Para revisar: la corrida `unrecoverable` del pedido 9 ("Falló un servicio necesario") no se investigó.
 
-## 12. Revisión estática y parches deterministas (2026-11-14)
+## 12. Auditoría estática (`H-01`..`H-24`) y parches deterministas (2026-11-14 / 2026-11-15)
 
-La auditoría estática detallada de los hallazgos `H-01` a `H-24` sobre la implementación de `src/tools/terminal/` se mantiene en `src/tools/terminal/Revisión de la tool run_command (Jarvis).md` (documento separado del histórico `RC-xx` de arriba). De esos hallazgos, se resolvieron y cubrieron con pruebas unitarias los siguientes puntos deterministas:
+Consolidación en este archivo de la auditoría estática que vivía en `src/tools/terminal/Revisión de la tool run_command (Jarvis).md` (eliminado el 2026-11-15).
+
+- **Estado:** cerrada salvo pendientes menores de producto y de verificación viva en Windows · **Archivos revisados:** `codepages.ts`, `output.ts`, `powershell.ts`, `processTree.ts`, `prompts.ts`, `terminalProvider.ts`, `manifest.ts`, `text.ts`, `result.ts`, `provider.ts`, `readOnly.ts`, `rerun.ts`, `processResult.ts`, `structured.ts`, `budget.ts`, `commandRules.ts`, `callRunner.ts`, `guard.ts`, `blacklist.ts`, `sensitivePaths.ts`, `extractors/{types,index,shared,generic,files}.ts`.
+- **Actualización 2026-11-14:** resueltos y cubiertos en `tests/run_command.test.ts` los puntos deterministas `H-01`, `H-02`, `H-05`, `H-06`, `H-07` y `H-08` (queda pendiente validar `__jvDecode` con `powershell.exe` vivo en Windows).
+- **Actualización 2026-11-15:** `TerminalProvider.start()` acota la recursión de reintento cuando falta el archivo de ayudas (`helpersAttempt + 1 < MAX_HELPERS_ATTEMPTS`, `terminalProvider.ts:338-376`), evitando reintentos infinitos si falla la reescritura.
 
 | Hallazgo | Estado | Dónde y qué falta |
 |---|---|---|
 | `H-01` (`tree` y caracteres de caja) | **Resuelto en código y test TS** | `output.ts` (`accentScore`) y `powershell.ts` (`__jvDecode`) suman puntuación por caracteres de dibujo de caja consecutivos (`U+2500–U+257F`), evitando que `tree` en OEM 850 se decodifique como CP1252. Test en `tests/run_command.test.ts` (`OutputDecoder`). Falta probar `__jvDecode` con `powershell.exe` vivo en Windows. |
 | `H-02` (`\r\r\n` en `LineAssembler`) | **Resuelto [Test]** | `output.ts` (`LineAssembler.push`) conserva la línea abierta ante secuencias `\r+\n`. |
 | `H-05` (`[n/a]` y `(n/a)` en `CHOICE_OR_KEY`) | **Resuelto [Test]** | `prompts.ts` (`CHOICE_OR_KEY`) excluye `[n/a]` y `(n/a)` para que una línea ya terminada no dispare `TERMINATED_PROMPT_IDLE_MS` como `strong`. |
-| `H-06` (`stderr` en `systemProcesses`) | **Ya estaba resuelto** | `processTree.ts:66` abre `stdio: ["ignore", "pipe", "ignore"]` para no llenar un pipe sin lector. |
+| `H-06` (`stderr` en `systemProcesses`) | **Ya estaba resuelto** | `processTree.ts` abre `stdio: ["ignore", "pipe", "ignore"]` para no llenar un pipe sin lector. |
 | `H-07` (comentario `legacyChunks`) | **Resuelto** | `output.ts` documenta correctamente que cuenta fragmentos recibidos, no líneas. |
 | `H-08` (re-disparo de prompt ya respondido) | **Resuelto en código y test TS** | `output.ts` (`LineAssembler.closeAnswered`) limpia `lastCompleted` para que líneas en blanco posteriores no reevalúen el prompt anterior. Falta validar el proveedor completo en Windows con un proceso vivo. |
 
-Quedan abiertos (para decisión o validación en Windows/modelos): `H-03` (prompts parciales en herramientas envueltas), `H-04` (`...` en REPL frente a `PROGRESS_END`), `H-09`..`H-12` (mensajes/descripciones vistas por modelos), `H-13`..`H-24` (extractor `truncated`, comillas tipográficas en `readOnly`, `-Wai`, `--watch` en `rerun`, etc.).
+### 12.1 Alcance, método y arquitectura resumida de `src/tools/terminal/`
+
+Revisión estática de la tool (`run_command`, `list_processes`, `stop_process`). La comparación con Desktop Commander usa únicamente documentación pública (README y catálogos de terceros), sin inferir esquemas privados no publicados.
+
+- **`powershell.ts`**: arma la línea de `powershell.exe -Command` con prólogo UTF-8, ayudas en `.ps1` temporal (`Read-Host` propio y envoltorios de herramientas del sistema) y el comando del modelo en base64 dentro de `script`, más epílogo de código de salida.
+- **`output.ts`**: decodificación UTF-8 / OEM / ANSI, limpieza ANSI, ensamblado por flujo (`LineAssembler`) y búfer acotado (`OutputBuffer`).
+- **`prompts.ts`**: clasifica la última línea de un proceso silencioso (`strong`, `likely`, `weak`, `none`) y su umbral de silencio.
+- **`codepages.ts`**: consulta OEM y ANSI del registro una sola vez.
+- **`processTree.ts`**: corta árboles con `taskkill /T /F`, lista procesos por CIM y protege procesos críticos.
+
+### 12.2 Detalle completo de hallazgos (`H-01` a `H-24`)
+
+- **H-01 · Media · `output.ts` (`accentScore`) y `powershell.ts` (`__jvDecode`) — [Resuelto en TS y test; falta vivo en Windows]**: `ACCENTED` contaba solo letras latinas y confundía los bordes de caja CP850 (`├ └ ┬ ┴ ┼ ─`, bytes `0xC0–0xC5`) con vocales acentuadas de CP1252. Resuelto priorizando secuencias de dibujo de caja `U+2500–U+257F`.
+- **H-02 · Media · `output.ts` (`LineAssembler.push`) — [Resuelto [Test]]**: con `abc\r\r\n`, el segundo `\r` descartaba `abc` como `\r` suelto. Resuelto tratando `\r+\n` como un único salto de línea.
+- **H-03 · Media · `powershell.ts` (`__jvRun`) — [Abierto]**: el bucle de lectura en los envoltorios solo entrega líneas al recibir `0x0A`; prompts sin salto de línea (p. ej. `xcopy (F/D)?`) quedan retenidos en `$acc` hasta el fin del proceso. Dirección: emitir tramo parcial tras breve silencio o no envolver comandos interactivos.
+- **H-04 · Baja · `prompts.ts` (`PROGRESS_END`) — [Abierto]**: `\.\s*\.\s*\.` se evalúa antes que `PROMPT_END` y clasifica `...` (continuación REPL Python/Node) como `none`.
+- **H-05 · Baja · `prompts.ts` (`CHOICE_OR_KEY`) — [Resuelto [Test]]**: `[n/a]` y `(n/a)` coincidían como `[y/n]`/`[s/n]`. Resuelto excluyendo `n/a`.
+- **H-06 · Baja · `processTree.ts` (`systemProcesses`) — [Resuelto]**: usa `stdio: ["ignore", "pipe", "ignore"]`, evitando bloqueo por pipe `stderr` sin lector.
+- **H-07 · Baja · `output.ts` (`OutputDecoder.legacyChunks`) — [Resuelto]**: el comentario se corrigió para reflejar que cuenta fragmentos decodificados con página heredada, no líneas.
+- **H-08 · Media · `terminalProvider.ts` + `output.ts` (`LineAssembler`) — [Resuelto en código y test TS]**: si tras responder un prompt llegaba una línea en blanco, `lastCompleted` conservaba el prompt anterior y `completedSeq > answeredSeq` volvía a disparar `waiting_input`. Resuelto limpiando `lastCompleted` en `closeAnswered()`.
+- **H-09 · Baja · `terminalProvider.ts`, `processTree.ts`, `guard.ts`, `text.ts` — [Abierto (toca texto visto por modelos)]**: mensajes mixtos español/inglés (`spawnProcess`/`systemProcesses` concatenados en inglés; `guard.ts` en español dentro de `policyDenialNote` en inglés; `[… omitidos: N caracteres]` de `omissionMarker`).
+- **H-10 · Baja · `terminalProvider.ts` (`resume`, `describe`) y `manifest.ts` — [Abierto]**: `list_processes` muestra huérfanos (`left running by an earlier task`), pero `run_command` responde `Process N does not exist or was not started by this task` si otra tarea intenta continuarlos; solo sirven para `stop_process`.
+- **H-11 · Baja · `manifest.ts` (cabecera y `DESTINATIONS.terminal`) — [Abierto (prompt D1)]**: la descripción de ruta en `DESTINATIONS.terminal` menciona ejecutar comandos pero omite explícitamente listar/detener procesos.
+- **H-12 · Baja · `terminalProvider.ts` y `manifest.ts` — [Abierto]**: descripciones duplicadas entre proveedor nativo y `manifest.ts` (prevalece `applyDestination`), con redacciones divergentes y topes repetidos en texto libre.
+- **H-13 · Media · `structured.ts` (`extractStructured`) con `terminalProvider.ts` — [Abierto]**: `extractStructured` compara `raw.trim() !== text.trim()`; como `run_command` antepone cabecera y notas en `text`, `truncated` resulta `true` casi en todo comando con salida, escribiendo refs innecesarias en disco (y exponiendo a `RefVaultError` → `unrecoverable`). Dirección: señal explícita de recorte desde el proveedor.
+- **H-14 · Alta · `readOnly.ts` (`segmentsOf`), `commandRules.ts`, `guard.ts` — [Abierto]**: solo reconocen comillas ASCII (`"` y `'`), mientras PowerShell acepta comillas tipográficas (`‘ ’ ‚ ‛ “ ” „`). Un segmento cerrado con comilla tipográfica puede ocultar código destructivo en análisis de texto y evadir `isReadOnlyCall`, `classify`, `blacklist` y `WRITE_PATTERNS`. Dirección: reconocer comillas tipográficas o tratarlas como no analizables (fail-closed).
+- **H-15 · Baja · `readOnly.ts` (`WAIT_PARAM`) — [Abierto]**: busca `-wait\b` completo y no detecta abreviaturas únicas de PowerShell como `-Wai` en `Get-Content -Tail 5 -Wai`.
+- **H-16 · Baja · `rerun.ts` (`RUNNERS`) — [Abierto]**: `tsc`, `eslint`, `jest`, `vitest`, `mocha`, `pytest` y `npx` aceptan cualquier flag, permitiendo `--watch`/`-w` que dejan procesos colgados en el tope `maxLive`.
+- **H-17 · Baja · `structured.ts` (`process.active`) con `callRunner.ts` — [Abierto]**: un `stop_process` que devuelve `state: "error"` produce `active: false` y da de baja el PID del hecho `process`, aunque siga vivo.
+- **H-18 · Baja · `commandRules.ts` (`analyzeDelete`, `pathClass`) — [Abierto]**: `-Path:C:\` (sintaxis con `:`) se descarta como flag, y `C:\*.*` no normaliza `/*.*` como `C:\*`, cayendo de `guard`/`blocked` a `sensitive`.
+- **H-19 · Baja · `commandRules.ts` (`POWER_NAMES`) — [Abierto]**: la excepción `-c` (cancelar `shutdown -c` en Linux) en `shutdown.exe` de Windows significa comentario y permite evadir la regla `power`.
+- **H-20 · Baja · `commandRules.ts` (`KILL_NAMES`) frente a `stop_process` — [Abierto]**: `taskkill /IM csrss.exe` o `Stop-Process -Name csrss` queda `sensitive`, mientras `stop_process` bloquea `CRITICAL_PROCESSES` como `protected`.
+- **H-21 · Media · `guard.ts` (`DENY_PATTERNS`) — [Abierto]**: `/system32\/drivers/` se aplica sobre todo JSON de argumentos antes de distinguir lectura vs escritura, bloqueando incluso leer `C:\Windows\System32\drivers\etc\hosts`.
+- **H-22 · Baja · `guard.ts` (regla B) con `callRunner.ts` — [Abierto]**: la regla B solo revisa `FILE_WRITE`, confiando en que `run_command` pide confirmación; con `autoMode`/`approvalTiers` no protege `refsDir` contra un comando hasta que actúe D3/usuario.
+- **H-23 · Baja · comentarios desactualizados — [Abierto]**: cabeceras de `commandRules.ts` (habla de cerrar la tarea en `guard`), `guard.ts`/`callRunner.ts` (nombran `start_process`) y `callRunner.ts` (`requirementOf` solo soporta `"search"`).
+- **H-24 · Baja · `sensitivePaths.ts` frente a `commandRules.ts` — [Abierto]**: `system-folders` exige letra de unidad literal y no expande `$env:windir`, `$env:SystemRoot` ni `$env:ProgramFiles`.
+
+### 12.3 Comparación con Desktop Commander (parte de procesos)
+
+| Desktop Commander | Jarvis | Observación |
+|---|---|---|
+| `start_process`, `interact_with_process`, `read_process_output` | `run_command` (`command`, `pid`, `pid + input`) | Fusión deliberada en una sola herramienta; espera en `timeoutSec` (30 s por defecto, máx. 300 s) sin matar al vencer y entrega salida no leída acotada. |
+| `list_sessions` + `list_processes` | `list_processes` única | Mezcla sesiones de `run_command` y procesos del SO (causa de `H-10` con huérfanos). |
+| `force_terminate` + `kill_process` | `stop_process` única por `pid` | Protege `CRITICAL_PROCESSES` (`protected`), protección que falta en `run_command` (`H-20`). |
+
+### 12.4 Verificado sin hallazgos
+
+- `manifest.ts`: `repeatByArgs` (`allow` por `pid`, `rerun`/`strict` por comando), `requirementOf` solo `"search"`, `timeoutOf` para `run_command` (`315_000` ms > `MAX_WAIT_SEC` 300 s + margen), `argCaps.command` = 1000 coherente con traza.
+- `sensitivePaths.ts`, `guard.ts`, `blacklist.ts`, `commandRules.ts`: precedencia de evaluación (`DENY` → `guard` → ruta sensible obligatoria → no catalogada → aprobación/solo lectura), decodificación `-EncodedCommand` UTF-16LE, límite `MAX_DEPTH`, `analyzeShellWrapper` fail-closed.
+- `extractors/` y `processResult.ts`: precedencia de estados (`denied` → `not_found` → `tool_error` → `waiting_input` → `no_data` → `ok`), `compactText`/`generic` devuelven `null` sin texto, exit code != 0 → `tool_error` sin `isError`.
+- `output.ts`, `prompts.ts`, `terminalProvider.ts`: tablas OEM 437/850, retención UTF-8 y secuencias ANSI partidas entre fragmentos, `promptIdleMs` / `classifyPrompt`, reserva de cupo `starting` antes del `await`, `headTailNeutral` con `tail = 0`, `onTaskEnd`/`close` no lanzan.
+
+### 12.5 Pendiente de confirmar
+
+- `timeoutMs` en el proveedor nativo: `callRunner.ts` lo pasa en `ToolCallOptions` y compite contra cancelación; `list_processes` (15 s) y `stop_process` (5 s) tienen plazos internos y `run_command` tiene `timeoutSec` (300 s máx.), pero el proveedor nativo no instala un timer propio sobre `options.timeoutMs`.
+- `describe` en `terminalProvider.ts`: confirmar si la fila de un proceso gestionado que espera entrada marca claramente el equivalente a `Blocked` en todos los formatos de `list_processes`.
+- Conocimiento externo del entorno Windows: `CRITICAL_PROCESSES` no incluye `svchost`; `USER_FOLDERS` en `commandRules.ts` usa nombres en inglés y carpetas redirigidas de OneDrive (`Documentos`, `Escritorio`) pueden variar.
 

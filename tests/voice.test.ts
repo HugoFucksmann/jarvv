@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import express from "express";
 
@@ -11,6 +14,7 @@ import type { DiscoveryEngine } from "../src/core/mcp/discovery.ts";
 import type { TaskManager } from "../src/core/tasks.ts";
 import { createJarvisRouter } from "../src/server/jarvisRouter.ts";
 import { localOnly } from "../src/server/localOnly.ts";
+import { ffmpegAvailable } from "../src/voice/opus.ts";
 import { cleanForSpeech, speechExcerpt, splitForSpeech } from "../src/voice/tts.ts";
 
 test("cleanForSpeech quita código, enlaces y marcas de Markdown", () => {
@@ -93,4 +97,26 @@ test("/tts valida la entrada, la voz apagada y los fallos del servidor de voz", 
   voiceOn = false;
   assert.equal((await postTts({ text: "hola" })).status, 503);
   voiceOn = true;
+});
+
+test("ffmpegAvailable devuelve false ante binario inexistente y ante timeout", async () => {
+  const prev = process.env.FFMPEG_PATH;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-ffmpeg-"));
+  try {
+    process.env.FFMPEG_PATH = path.join(dir, "ffmpeg-missing");
+    assert.equal(await ffmpegAvailable(200), false);
+
+    if (process.platform !== "win32") {
+      const sleeper = path.join(dir, "ffmpeg-hang.sh");
+      fs.writeFileSync(sleeper, "#!/bin/sh\nsleep 10\n", { mode: 0o755 });
+      process.env.FFMPEG_PATH = sleeper;
+      const t0 = Date.now();
+      assert.equal(await ffmpegAvailable(50), false);
+      assert.ok(Date.now() - t0 < 1000, "debe resolver rápido al vencer el timeout");
+    }
+  } finally {
+    if (prev === undefined) delete process.env.FFMPEG_PATH;
+    else process.env.FFMPEG_PATH = prev;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

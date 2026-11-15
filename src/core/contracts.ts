@@ -67,7 +67,7 @@ export interface DecisionAttempt {
 export interface DecisionFrame {
   /** Paso actual. */
   readonly step: { readonly instruction: string; readonly expected: string | null } | null;
-  /** Última llamada aprobada que no es efecto, con su resumen: solo en reactivo. */
+  /** Legado sin uso en `frameLines` (adaptador emite `null`; conservado por compatibilidad con variantes históricas). */
   readonly lastResult: string | null;
   /** Llamadas hechas (aprobadas): solo en reactivo. */
   readonly done: readonly string[];

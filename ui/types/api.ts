@@ -136,6 +136,7 @@ export interface WaitingApproval {
 export interface WaitingQuestion {
   kind: "question";
   question: {
+    id: string;
     stepId: string;
     question: string;
   };
