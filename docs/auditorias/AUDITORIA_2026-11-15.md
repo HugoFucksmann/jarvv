@@ -110,7 +110,38 @@ El núcleo de Jarvis presenta una arquitectura **coherente, proporcional a su co
 | Alinear `JARVIS_API`, `CONTEXT_AND_MEMORY`, `CORE_FLOW`, `ARCHITECTURE` | Media | `docs/*.md` | Resuelto | 2026-11-15 |
 | Consolidar revisión `run_command` y borrar duplicado en `src/tools/terminal/` | Baja | `docs/REVISION_run_command.md`, `src/tools/terminal/` | Resuelto | 2026-11-15 |
 | Descartar refactors que no aportan (`regex`, `precheck` cache, `runCall`, `prompts.ts`) | — | `src/core/trace/format.ts`, `src/core/engine/precheck.ts`, `src/core/engine/callRunner.ts`, `src/core/models/prompts.ts` | Descartado | 2026-11-15 |
-| Incluir `lastResult` aprobado en `done` de `forRoute` (`P-EVAL-01`) | Alta | `src/core/ctx/views/route.ts:27` | Pendiente de eval / decisión | 2026-11-15 |
-| Quitar mención al parámetro `shell` en `osLine("windows")` (`P-EVAL-02`) | Baja | `src/core/models/prompts.ts:131-135` | Pendiente de eval / decisión | 2026-11-15 |
-| Traducir `retryNote` al inglés (`P-EVAL-03`) | Baja | `src/core/models/prompts.ts:86-89` | Pendiente de eval / decisión | 2026-11-15 |
+| Incluir `lastResult` aprobado en `done` de `forRoute` (`P-EVAL-01`) | Alta | `src/core/ctx/views/route.ts:27`, `tests/__golden__/render.json` | Resuelto (0 regresiones en eval 573/624 91.8% y golden actualizado) | 2026-11-15 |
+| Quitar mención al parámetro `shell` en `osLine("windows")` (`P-EVAL-02`) | Baja | `src/core/models/prompts.ts:131-135` | Descartado (sin mejora real en validez de comandos; se preserva baseline) | 2026-11-15 |
+| Traducir `retryNote` al inglés (`P-EVAL-03`) | Baja | `src/core/models/prompts.ts:86-89` | Descartado (empate exacto 10/12 en reintentos, sin evidencia de beneficio) | 2026-11-15 |
 | Cuerpos de error HTTP 200 en `/api/mcp/*` | Baja | `src/server/mcpRouter.ts` | Documentado sin cambios | 2026-11-15 |
+
+---
+
+## 6. Resultados de Evaluación Experimental (P-EVAL-01, P-EVAL-02, P-EVAL-03)
+
+### P-EVAL-01 — Restaurar última lectura aprobada en `done` de `forRoute`
+- **Cambio:** En `src/core/ctx/views/route.ts:27`, se eliminó el filtro `.filter((c) => c.id !== last?.id)`, de modo que `done` contiene todas las llamadas aprobadas (D1 y D2 ya no sufren ceguera sobre lecturas previas).
+- **Medición A/B (`eval/cli.ts --stages=route,tool_choice --repeat=3` sobre suites completas: 624 evaluaciones):**
+  - Línea base: `573/624` pasados (`91.8%`, macro `95.7%`, p50 86ms).
+    - `route_16_cases`: `45/48` (`93.8%`)
+    - `route_gemai`: `39/48` (`81.3%`)
+    - `route_terminal_explicit`: `225/246` (`91.5%`)
+    - `route_terminal_goals`: `228/246` (`92.7%`)
+    - `tool_choice_16_cases`: `36/36` (`100.0%`)
+  - Con P-EVAL-01: `573/624` pasados (`91.8%`, macro `95.7%`, p50 86ms).
+    - **Exactamente 0 regresiones** en todos los datasets.
+    - Suite complementaria `route_D1_hard` (38 casos x 3 repeticiones): `111/114` pasados (`97.4%`).
+  - Verificación `safe()` en `threadBlock` y `Request:`: evaluado en `continuation, pending, route` (`route_16_cases` 93.8% 30/32, `llm_pending` 81.3% 52/64) confirmando que no degrada ninguna etapa.
+- **Acción:** **Aplicado**. Se actualizó `tests/__golden__/render.json` (agregando la llamada aprobada `c3 s2 files/read_file` en `done` de `routeInput` y `toolInput`). El campo `lastResult` en `contracts.ts` se preserva como legado documental opcional por compatibilidad con variantes históricas de `eval/variants/` (`route_lean`, `tool_choice_lean`), pero ya no se renderiza en producción.
+
+### P-EVAL-02 — Mención de `shell` en `ARGUMENTS_VIEW.osLine("windows")`
+- **Evaluación:** Suite `eval/datasets/arguments/` (363 casos en 5 datasets x 3 repeticiones) + `eval:psvalid`:
+  - Línea base: `328/363` (`90.4%`); psvalid: `cmd` 97% (114/117), `hard` 94% (31/33), `llm_arguments` 88% (21/24), `extra_hard` 96% (26/27).
+  - Con recorte de `shell`: `331/363` (`91.2%`); psvalid idéntico (`cmd` 97%, `hard` 94%, `llm_arguments` 88%, `extra_hard` 96%).
+- **Acción:** **Descartado**. No arrojó reducción de alucinaciones ni mejora sintáctica en comandos PowerShell (variación dentro del margen de ruido del modelo generativo). Se mantiene la redacción aprobada de producción.
+
+### P-EVAL-03 — Traducción de `retryNote` al inglés
+- **Evaluación:** Medición sobre casos de reintento por salida inválida / bloqueo (`args_blocked_repeat` x 2 repeticiones):
+  - Línea base (español): `10/12` (`83.3%`).
+  - Con `retryNote` en inglés (`PREVIOUS_ERROR:...`): `10/12` (`83.3%`), p50 equivalente.
+- **Acción:** **Descartado**. Empate estricto sin evidencia empírica de mejora en recuperación ante reintentos. Se preserva el prompt original de producción.
