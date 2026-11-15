@@ -19,8 +19,9 @@ import { createRefVault, type RefVault } from "../refs/refVault.ts";
 export interface EngineServices {
   readonly vault: RefVault;
   readonly guardScope: ProtectedPaths;
-  /** Lista negra de herramientas que modifican el sistema, compilada desde la configuración. */
+  /** Lista negra de herramientas que modifican el sistema, compilada desde la configuración vigente. */
   readonly blacklist: Blacklist;
+  readonly currentBlacklist?: () => Blacklist;
   /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
   readonly environment: () => Promise<UserEnvironment>;
   readonly autoMode: () => boolean;
@@ -62,10 +63,25 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
   const bases = new Set<string>([process.cwd()]);
   if (desktop.cwd) bases.add(path.resolve(desktop.cwd));
 
+  let cachedKey: string | null = null;
+  let cachedBlacklist: Blacklist = [];
+  const currentBlacklist = (): Blacklist => {
+    const entries = getConfig().blacklist;
+    const key = JSON.stringify(entries);
+    if (key !== cachedKey) {
+      cachedKey = key;
+      cachedBlacklist = compileBlacklist(entries);
+    }
+    return cachedBlacklist;
+  };
+
   return {
     vault: createRefVault({ dir: refsDir }),
     guardScope: { protectedDirs: [refsDir], relativeBases: [...bases] },
-    blacklist: compileBlacklist(config.blacklist),
+    get blacklist(): Blacklist {
+      return currentBlacklist();
+    },
+    currentBlacklist,
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
     approvalTiers: () => getConfig().approvalTiers,

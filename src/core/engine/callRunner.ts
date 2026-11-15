@@ -23,7 +23,7 @@ import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason }
 import { factLines, selectFacts } from "../memory.ts";
 import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
 import { threadMemoryLines } from "./thread.ts";
-import { collectSources, precheckCall } from "./precheck.ts";
+import { collectSourcesAsync, precheckCall } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
@@ -162,7 +162,7 @@ async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[
       } catch {
         cataloged = [];
       }
-      if (cataloged.length > 0) return usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0 ? route : null;
+      if (cataloged.length > 0) return usableTools(ctx, mcp, cataloged, deps.currentBlacklist?.() ?? deps.blacklist).length > 0 ? route : null;
       // Sin catálogo: si el servidor existe, respondió y no lo marcaron caído, no tiene herramientas para este destino (`jarvis_terminal` fuera de
       // Windows): no se ofrece. Si falló o no está, se ofrece igual y el fallo cierra la tarea como infraestructura caída al ejecutar.
       const answeredEmpty = deps.discovery.getServer(mcp) !== undefined && deps.discovery.getUnavailableServers()[mcp] === undefined;
@@ -197,7 +197,7 @@ async function discoverTools(env: EngineEnv, stepId: string, route: ExecutableRo
     );
   }
 
-  const usable = usableTools(ctx, mcp, cataloged, deps.blacklist);
+  const usable = usableTools(ctx, mcp, cataloged, deps.currentBlacklist?.() ?? deps.blacklist);
   if (usable.length === 0) {
     console.warn(`[Engine] no hay herramientas utilizables en el destino '${route}'.`);
     return { kind: "outcome", outcome: { kind: "no_tools" } };
@@ -366,15 +366,16 @@ ${stepText}`, deps.memory?.() ?? []);
   // Aprobación por niveles (`policy/tiers.ts`, opt-in `approvalTiers`): reemplaza al `autoMode` binario en las escrituras. Una herramienta no catalogada es roja.
   const tiered = deps.approvalTiers?.() === true;
   const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, deps.disk) : "red") : null;
-  const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
+  const listed = blacklistMatch(deps.currentBlacklist?.() ?? deps.blacklist, mcp, tool.name, policy.mutates, resolved);
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
-  const sources = collectSources(
+  const sources = await collectSourcesAsync(
     ctx,
     [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])],
     deps.disk,
   );
+  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   const finding = await precheckCall({ tool: tool.name, kind, args: resolved, sources, environment }, deps.analyzeCommand, deps.disk);
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (finding !== null) return reject(finding.review, summaryText(finding.reason));

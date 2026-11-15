@@ -8,7 +8,8 @@
 import express from 'express';
 import { limitValues } from '../core/engine/limits.ts';
 import { MAX_ACTIVE_TASKS, MAX_SSE_CLIENTS } from '../core/types/limits.ts';
-import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS } from '../core/config.ts';
+import { ConfigManager, FILE_ONLY_KEYS, LAUNCH_ONLY_KEYS, validateConfigPatch } from '../core/config.ts';
+import type { ConfigPatch } from '../core/config.ts';
 import { getUserEnvironment } from '../core/environment.ts';
 import { readTraceFile, TRACE_FILES } from '../core/trace/files.ts';
 import type { TraceFile } from '../core/trace/files.ts';
@@ -100,7 +101,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     const mode = req.body?.mode ?? 'reactive';
     if (!isMode(mode)) return void res.status(400).json({ error: `Modo inválido; use ${TASK_MODES.join(' o ')}.` });
     if (tasks.activeCount() >= MAX_ACTIVE_TASKS) return void res.status(429).json({ error: `Hay ${MAX_ACTIVE_TASKS} tareas en curso; espere a que termine alguna o cancele una.` });
-    res.json({ task: tasks.start(message, mode) });
+    res.json({ task: tasks.start(message, mode, text(req.body?.sessionKey)) });
   });
 
   // Cancelar. Sin `taskId`, la última tarea abierta.
@@ -291,7 +292,10 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
       return void res.status(400).json({ error: 'Se requiere un objeto JSON con las claves a cambiar.' });
     }
-    res.json(ConfigManager.updateConfig(withoutLaunchFields(req.body) as Parameters<typeof ConfigManager.updateConfig>[0]));
+    const patch = withoutLaunchFields(req.body as Record<string, unknown>);
+    const error = validateConfigPatch(patch);
+    if (error) return void res.status(400).json({ error });
+    res.json(ConfigManager.updateConfig(patch as ConfigPatch));
   });
 
   return router;

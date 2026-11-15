@@ -15,6 +15,7 @@
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { TaskContext } from "../ctx/index.ts";
@@ -111,7 +112,85 @@ function readRefText(where: string): string | null {
   }
 }
 
+async function readRefTextAsync(where: string): Promise<string | null> {
+  try {
+    const fh = await fsp.open(where, "r");
+    try {
+      const buffer = Buffer.alloc(REF_SOURCE_MAX_BYTES);
+      const { bytesRead } = await fh.read(buffer, 0, buffer.length, 0);
+      return buffer.subarray(0, bytesRead).toString("utf8");
+    } finally {
+      await fh.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
 export type PrecheckDisk = Pick<DiskView, "exists" | "readFile">;
+
+const normalizedRefCache = new WeakMap<TaskContext, WeakMap<PrecheckDisk, Map<string, string>>>();
+
+export function clearSourceCache(ctx: TaskContext): void {
+  normalizedRefCache.delete(ctx);
+}
+
+function refCacheFor(ctx: TaskContext, disk: PrecheckDisk): Map<string, string> {
+  let byDisk = normalizedRefCache.get(ctx);
+  if (byDisk === undefined) {
+    byDisk = new WeakMap();
+    normalizedRefCache.set(ctx, byDisk);
+  }
+  let cache = byDisk.get(disk);
+  if (cache === undefined) {
+    cache = new Map();
+    byDisk.set(disk, cache);
+  }
+  return cache;
+}
+
+function collectBaseParts(ctx: TaskContext, extra: readonly string[]) {
+  // `extra`: valores de los hechos de la memoria del usuario que se pasaron a la generación (sin esto, una ruta que viene de un hecho se rechazaría como inventada).
+  const parts: string[] = [ctx.task.request, ...extra];
+  for (const step of ctx.find("steps", {})) if (step.instruction) parts.push(step.instruction);
+  parts.push(JSON.stringify(ctx.view.forReview(reviewViewOptions()).userInput));
+  const calls = ctx.find("calls", {});
+  for (const call of calls) {
+    // Solo lo que se ejecutó bien da origen: los argumentos de un intento rechazado o con `not_found` eran una suposición.
+    if (call.status === "ok" && call.args !== null) parts.push(JSON.stringify(call.args));
+    if (call.status === "ok" && call.summary !== null) parts.push(call.summary);
+  }
+  return { baseText: normalizeText(parts.join("\n")), calls };
+}
+
+function prepareSources(ctx: TaskContext, extra: readonly string[], disk: PrecheckDisk) {
+  const { baseText, calls } = collectBaseParts(ctx, extra);
+  return { calls, refs: ctx.find("refs", {}), cache: refCacheFor(ctx, disk), segments: [baseText] };
+}
+
+function lookupRefWhere(
+  cache: Map<string, string>,
+  segments: string[],
+  refs: readonly { readonly id: string; readonly where: string }[],
+  refId: string,
+  status: string,
+): string | null | "cached" {
+  const cached = cache.get(refId);
+  if (cached !== undefined) {
+    if (status === "ok") segments.push(cached);
+    return "cached";
+  }
+  return refs.find((r) => r.id === refId)?.where ?? null;
+}
+
+function recordRefSegment(cache: Map<string, string>, segments: string[], refId: string, status: string, text: string | null): boolean {
+  // Una ref ilegible (archivo borrado) puede contener lo que se busca: sin ella la comprobación no es concluyente.
+  if (text === null) return false;
+  const normalized = normalizeText(text);
+  cache.set(refId, normalized);
+  if (status === "ok") segments.push(normalized);
+  return true;
+}
 
 /**
  * Fuentes de la tarea para las comprobaciones "esto no aparece en nada": pedido, pasos, respuestas del usuario y todas las
@@ -119,24 +198,35 @@ export type PrecheckDisk = Pick<DiskView, "exists" | "readFile">;
  * URLs y rutas que aparecen solo ahí se darían por inventadas, o habría que apagar la comprobación en toda la tarea).
  */
 export function collectSources(ctx: TaskContext, extra: readonly string[] = [], disk: PrecheckDisk = REAL_DISK): PrecheckSources {
-  // `extra`: valores de los hechos de la memoria del usuario que se pasaron a la generación (sin esto, una ruta que viene de un hecho se rechazaría como inventada).
-  const parts: string[] = [ctx.task.request, ...extra];
-  for (const step of ctx.find("steps", {})) if (step.instruction) parts.push(step.instruction);
-  parts.push(JSON.stringify(ctx.view.forReview(reviewViewOptions()).userInput));
+  const { calls, refs, cache, segments } = prepareSources(ctx, extra, disk);
   let complete = true;
-  for (const call of ctx.find("calls", {})) {
-    // Solo lo que se ejecutó bien da origen: los argumentos de un intento rechazado o con `not_found` eran una suposición.
-    if (call.status === "ok" && call.args !== null) parts.push(JSON.stringify(call.args));
-    if (call.status === "ok" && call.summary !== null) parts.push(call.summary);
-    if (call.ref !== null) {
-      const ref = ctx.find("refs", {}).find((r) => r.id === call.ref);
-      const text = ref === undefined ? null : (disk.readFile ? disk.readFile(ref.where, REF_SOURCE_MAX_BYTES) : readRefText(ref.where));
-      // Una ref ilegible (archivo borrado) puede contener lo que se busca: sin ella la comprobación no es concluyente.
-      if (text === null) complete = false;
-      else if (call.status === "ok") parts.push(text);
-    }
+  for (const call of calls) {
+    if (call.ref === null) continue;
+    const where = lookupRefWhere(cache, segments, refs, call.ref, call.status);
+    if (where === "cached") continue;
+    const text = where === null ? null : (disk.readFile ? disk.readFile(where, REF_SOURCE_MAX_BYTES) : readRefText(where));
+    if (!recordRefSegment(cache, segments, call.ref, call.status, text)) complete = false;
   }
-  return { text: normalizeText(parts.join("\n")), complete };
+  return { text: segments.join("\n"), complete };
+}
+
+/** Variante asíncrona de `collectSources` con caché por `refId` para el motor de producción. */
+export async function collectSourcesAsync(ctx: TaskContext, extra: readonly string[] = [], disk: PrecheckDisk = REAL_DISK): Promise<PrecheckSources> {
+  const { calls, refs, cache, segments } = prepareSources(ctx, extra, disk);
+  let complete = true;
+  for (const call of calls) {
+    if (call.ref === null) continue;
+    const where = lookupRefWhere(cache, segments, refs, call.ref, call.status);
+    if (where === "cached") continue;
+    const text =
+      where === null
+        ? null
+        : disk !== REAL_DISK && disk.readFile !== undefined
+          ? disk.readFile(where, REF_SOURCE_MAX_BYTES)
+          : await readRefTextAsync(where);
+    if (!recordRefSegment(cache, segments, call.ref, call.status, text)) complete = false;
+  }
+  return { text: segments.join("\n"), complete };
 }
 
 // ───────────────────────── Reglas ─────────────────────────

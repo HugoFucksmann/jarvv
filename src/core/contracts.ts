@@ -317,6 +317,8 @@ export interface EngineDeps {
   readonly guardScope: ProtectedPaths;
   /** Lista negra de herramientas que modifican el sistema (`policy/blacklist.ts`). */
   readonly blacklist: Blacklist;
+  /** Lista negra vigente (leída en caliente si se provee; si no, `blacklist`). */
+  readonly currentBlacklist?: () => Blacklist;
   /** Datos de esta PC (sistema operativo y carpetas del usuario): se consultan una vez por proceso. */
   readonly environment: () => Promise<UserEnvironment>;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */

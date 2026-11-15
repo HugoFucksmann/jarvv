@@ -239,7 +239,6 @@ export interface QwenMaxTokens {
   arguments: number;
   plan: number;
   replan: number;
-  verify: number;
   final: number;
 }
 
@@ -247,6 +246,7 @@ export interface BlacklistEntry {
   tool: string;
   pattern?: string;
   reason: string;
+  level?: "blocked" | "sensitive";
 }
 
 export interface UserEnvironment {

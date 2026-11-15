@@ -50,39 +50,50 @@ export class JarvisApi {
     }
   }
 
-  /** Escucha los eventos (SSE) hasta que `signal` aborte; si la conexión se corta, reconecta. */
-  async listen(onEvent: (event: TaskEvent) => void, signal: AbortSignal): Promise<void> {
+  /** Escucha los eventos (SSE) hasta que `signal` aborte; si la conexión se corta, reconecta y avisa por `onReconnect`. */
+  async listen(onEvent: (event: TaskEvent) => void, signal: AbortSignal, onReconnect?: () => void): Promise<void> {
+    let wasDisconnected = false;
     while (!signal.aborted) {
       try {
         const res = await fetch(`${this.base}/events`, { signal });
         if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
+        if (wasDisconnected) {
+          wasDisconnected = false;
+          onReconnect?.();
+        }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let end: number;
-          while ((end = buffer.indexOf("\n\n")) >= 0) {
-            const raw = buffer.slice(0, end);
-            buffer = buffer.slice(end + 2);
-            const data = raw
-              .split("\n")
-              .filter((l) => l.startsWith("data:"))
-              .map((l) => l.slice(5).trim())
-              .join("");
-            if (!data) continue; // comentario de keep-alive
-            try {
-              onEvent(JSON.parse(data) as TaskEvent);
-            } catch {
-              /* mensaje inválido */
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let end: number;
+            while ((end = buffer.indexOf("\n\n")) >= 0) {
+              const raw = buffer.slice(0, end);
+              buffer = buffer.slice(end + 2);
+              const data = raw
+                .split("\n")
+                .filter((l) => l.startsWith("data:"))
+                .map((l) => l.slice(5).trim())
+                .join("");
+              if (!data) continue; // comentario de keep-alive
+              try {
+                onEvent(JSON.parse(data) as TaskEvent);
+              } catch {
+                /* mensaje inválido */
+              }
             }
           }
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
         }
       } catch {
         if (signal.aborted) return;
       }
+      wasDisconnected = true;
       await new Promise<void>((resolve) => {
         if (signal.aborted) return resolve();
         const onAbort = (): void => {

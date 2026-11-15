@@ -26,6 +26,27 @@ export function traceBaseDir(tracePath: string): string {
   return path.join(path.dirname(file), path.basename(file, path.extname(file)));
 }
 
+const indexLocks = new Map<string, Promise<void>>();
+
+/** Serializa lecturas y escrituras sobre `index.jsonl` dentro de una misma carpeta base. */
+export async function withTraceIndexLock<T>(base: string, fn: () => Promise<T>): Promise<T> {
+  const key = path.resolve(base);
+  const prev = indexLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = prev.then(() => gate, () => gate);
+  indexLocks.set(key, tail);
+  await prev.catch(() => undefined);
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (indexLocks.get(key) === tail) indexLocks.delete(key);
+  }
+}
+
 /** Texto del archivo de la traza de la tarea; `null` si la traza está desactivada, la tarea no terminó o el archivo no existe. */
 export function readTraceFile(tracePath: string, taskId: string, which: TraceFile): string | null {
   try {

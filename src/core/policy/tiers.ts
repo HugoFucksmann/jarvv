@@ -21,8 +21,12 @@ export type ApprovalTier = "green" | "yellow" | "red";
 
 export interface TierDisk {
   exists(p: string): boolean;
+  isDirectory?(p: string): boolean;
 }
-const REAL: TierDisk = { exists: (p) => fs.existsSync(p) };
+const REAL: TierDisk = {
+  exists: (p) => fs.existsSync(p),
+  isDirectory: (p) => fs.statSync(p).isDirectory(),
+};
 
 function absolute(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -54,8 +58,12 @@ export function approvalTierOf(tool: string, args: Readonly<Record<string, unkno
         const source = absolute(args.source);
         const destination = absolute(args.destination);
         if (source === null || destination === null || !underUserFolder(source, env) || !underUserFolder(destination, env)) return "yellow";
-        if (disk.exists(destination)) return "red";
-        return disk.exists(pathApiFor(destination).dirname(destination)) ? "green" : "yellow";
+        const api = pathApiFor(source, destination);
+        if (disk.exists(destination)) {
+          if (!disk.isDirectory?.(destination)) return "red";
+          return disk.exists(api.join(destination, api.basename(source))) ? "red" : "green";
+        }
+        return disk.exists(api.dirname(destination)) ? "green" : "yellow";
       }
       case "run_command": // un comando que modifica puede hacer cualquier cosa
       case "stop_process":

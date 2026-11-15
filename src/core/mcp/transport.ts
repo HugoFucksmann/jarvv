@@ -20,6 +20,77 @@ import { errorMessage } from "../utils.ts";
 
 /** Tope de una línea de salida del servidor sin salto de línea: un mensaje JSON-RPC es una línea; más que esto no es una respuesta, es un servidor descontrolado. */
 const MAX_STDOUT_BUFFER_CHARS = 32 * 1024 * 1024;
+const CLOSE_TIMEOUT_MS = 3000;
+
+function childExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+function terminateChild(child: ChildProcess, timeoutMs = CLOSE_TIMEOUT_MS): Promise<void> {
+  if (childExited(child) || child.pid === undefined) return Promise.resolve();
+
+  const waitChildExit = (ms: number): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (childExited(child)) return resolve(true);
+      let done = false;
+      const finish = (exited: boolean): void => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        child.off("exit", onEnd);
+        child.off("close", onEnd);
+        child.off("error", onEnd);
+        resolve(exited);
+      };
+      const onEnd = (): void => finish(true);
+      const timer = setTimeout(() => finish(childExited(child)), ms);
+      timer.unref();
+      child.once("exit", onEnd);
+      child.once("close", onEnd);
+      child.once("error", onEnd);
+    });
+
+  if (process.platform === "win32") {
+    const pid = child.pid;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const killerDone = new Promise<void>((resolve) => {
+      let done = false;
+      const finish = (fallback: boolean): void => {
+        if (done) return;
+        done = true;
+        if (timer !== undefined) clearTimeout(timer);
+        if (fallback && !childExited(child)) {
+          try { child.kill("SIGKILL"); } catch { }
+        }
+        resolve();
+      };
+      try {
+        const killer = spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"], {
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        timer = setTimeout(() => {
+          try { killer.kill(); } catch { }
+          finish(true);
+        }, timeoutMs);
+        timer.unref();
+        killer.once("error", () => finish(true));
+        killer.once("close", (code) => finish(code !== 0 && code !== 128));
+      } catch {
+        finish(true);
+      }
+    });
+    return Promise.all([killerDone, waitChildExit(timeoutMs)]).then(() => undefined);
+  }
+
+  return (async () => {
+    try { child.kill("SIGTERM"); } catch { }
+    const exited = await waitChildExit(Math.floor(timeoutMs / 2));
+    if (exited || childExited(child)) return;
+    try { child.kill("SIGKILL"); } catch { }
+    await waitChildExit(Math.ceil(timeoutMs / 2));
+  })();
+}
 
 /**
  * ¿Hace falta un shell para lanzar `command`? Solo en Windows y solo para un script `.cmd`/`.bat` (como `npx`): Node no los lanza sin shell. Un `.exe`
@@ -54,11 +125,16 @@ export class MCPTransportError extends Error {
   }
 }
 
+export interface McpCallOptions {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+}
+
 export interface IMCPTransport {
   readonly serverName: string;
   readonly config: StdioServerConfig;
   listTools(): Promise<MCPTool[]>;
-  callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult>;
+  callTool(name: string, args: Record<string, unknown>, options?: McpCallOptions): Promise<MCPCallResult>;
   isConnected(): boolean;
   reconnect(): Promise<void>;
   close?(): Promise<void>;
@@ -77,12 +153,14 @@ export class StdioMcpTransport implements IMCPTransport {
       resolve: (value: unknown) => void;
       reject: (reason: unknown) => void;
       timer: ReturnType<typeof setTimeout>;
+      cleanup: () => void;
       method: string;
     }
   >();
   private stderrLines: string[] = [];
   /** Fallo fatal antes de completar la inicialización: mientras exista no se reintenta el arranque (`reconnect()` lo limpia). */
   private permanentFailure: MCPTransportError | null = null;
+  private closePromise: Promise<void> | null = null;
 
   constructor(
     public readonly serverName: string,
@@ -317,6 +395,7 @@ export class StdioMcpTransport implements IMCPTransport {
 
         if (pending) {
           clearTimeout(pending.timer);
+          pending.cleanup();
           this.pendingRequests.delete(reqId);
           this.pendingRequests.delete(typeof reqId === "string" ? Number(reqId) : String(reqId));
 
@@ -342,6 +421,7 @@ export class StdioMcpTransport implements IMCPTransport {
   private rejectAllPending(error: Error): void {
     for (const [, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
+      pending.cleanup();
       pending.reject(error);
     }
     this.pendingRequests.clear();
@@ -363,7 +443,14 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   }
 
-  private async rawRpcCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  private async rawRpcCall<T>(
+    method: string,
+    params: Record<string, unknown> = {},
+    options?: McpCallOptions,
+  ): Promise<T> {
+    if (options?.signal?.aborted) {
+      throw new MCPTransportError(this.serverName, `Llamada '${method}' cancelada.`);
+    }
     if (!this.childProcess || !this.childProcess.stdin || this.childProcess.stdin.destroyed) {
       throw new MCPTransportError(this.serverName, "El stream stdin del proceso MCP no está disponible o fue cerrado.");
     }
@@ -375,11 +462,27 @@ export class StdioMcpTransport implements IMCPTransport {
       method,
       params,
     };
-    const currentTimeoutMs = this.getTimeoutMs();
+    const currentTimeoutMs =
+      options?.timeoutMs !== undefined && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? Math.floor(options.timeoutMs)
+        : this.getTimeoutMs();
 
     return new Promise<T>((resolve, reject) => {
+      const signal = options?.signal;
+      const onAbort = (): void => {
+        if (!this.pendingRequests.delete(id)) return;
+        clearTimeout(timer);
+        this.sendNotification("notifications/cancelled", { requestId: id, reason: "cancelled" });
+        reject(new MCPTransportError(this.serverName, `Llamada '${method}' cancelada.`));
+      };
+      const cleanup = (): void => {
+        signal?.removeEventListener("abort", onAbort);
+      };
+
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
+        if (!this.pendingRequests.delete(id)) return;
+        cleanup();
+        this.sendNotification("notifications/cancelled", { requestId: id, reason: "timeout" });
         const lastStderr = this.getLastStderr();
         if (lastStderr) {
           console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -392,28 +495,38 @@ export class StdioMcpTransport implements IMCPTransport {
         );
       }, currentTimeoutMs);
 
-      this.pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, method });
+      this.pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, cleanup, method });
+      if (signal) signal.addEventListener("abort", onAbort, { once: true });
 
       try {
         const line = JSON.stringify(payload) + "\n";
         this.childProcess!.stdin!.write(line, "utf8", (err) => {
-          if (err) {
+          if (err && this.pendingRequests.delete(id)) {
             clearTimeout(timer);
-            this.pendingRequests.delete(id);
+            cleanup();
             reject(new MCPTransportError(this.serverName, `Error escribiendo a stdin: ${err.message}`, err));
           }
         });
       } catch (err) {
-        clearTimeout(timer);
-        this.pendingRequests.delete(id);
-        reject(new MCPTransportError(this.serverName, `Error enviando mensaje por stdio: ${errorMessage(err)}`, err));
+        if (this.pendingRequests.delete(id)) {
+          clearTimeout(timer);
+          cleanup();
+          reject(new MCPTransportError(this.serverName, `Error enviando mensaje por stdio: ${errorMessage(err)}`, err));
+        }
       }
     });
   }
 
-  private async rpcCall<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  private async rpcCall<T>(
+    method: string,
+    params: Record<string, unknown> = {},
+    options?: McpCallOptions,
+  ): Promise<T> {
+    if (options?.signal?.aborted) {
+      throw new MCPTransportError(this.serverName, `Llamada '${method}' cancelada.`);
+    }
     await this.startProcess();
-    return await this.rawRpcCall<T>(method, params);
+    return await this.rawRpcCall<T>(method, params, options);
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -424,11 +537,12 @@ export class StdioMcpTransport implements IMCPTransport {
     return result.tools;
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
-    const result = await this.rpcCall<MCPCallResult>("tools/call", {
-      name,
-      arguments: args,
-    });
+  async callTool(name: string, args: Record<string, unknown>, options?: McpCallOptions): Promise<MCPCallResult> {
+    const result = await this.rpcCall<MCPCallResult>(
+      "tools/call",
+      { name, arguments: args },
+      options,
+    );
     if (!result || typeof result !== "object") {
       throw new MCPTransportError(this.serverName, `tools/call a '${name}' devolvió un resultado malformado.`);
     }
@@ -452,33 +566,15 @@ export class StdioMcpTransport implements IMCPTransport {
     this.rejectAllPending(new MCPTransportError(this.serverName, "Transporte cerrado por reconexión o terminación."));
 
     const child = this.childProcess;
-    if (child && !child.killed) {
-      const pid = child.pid;
-      if (pid && process.platform === "win32") {
-        try {
-          // En Windows, termina el árbol de procesos completo (/T) forzadamente (/F) para evitar huérfanos de cmd.exe
-          const killer = spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"], {
-            stdio: "ignore",
-            windowsHide: true,
-          });
-          killer.once("error", () => {
-            try {
-              child.kill("SIGKILL");
-            } catch { }
-          });
-        } catch {
-          try {
-            child.kill("SIGKILL");
-          } catch { }
-        }
-      } else {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // El fallo al terminar el proceso se ignora.
-        }
-      }
+    if (child) {
       this.childProcess = null;
+      const closing = terminateChild(child).finally(() => {
+        if (this.closePromise === closing) this.closePromise = null;
+      });
+      this.closePromise = closing;
+      await closing;
+      return;
     }
+    if (this.closePromise) await this.closePromise;
   }
 }

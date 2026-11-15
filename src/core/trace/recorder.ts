@@ -41,6 +41,7 @@ import type { ModelLink, ModelRecord, ToolRecord, WaitRecord } from "./types.ts"
 import { errorMessage } from "../utils.ts";
 import { TRACE_FORMAT_VERSION, buildMeta, buildSummary, folderName, indexEntry, refInfos, slimQuery, slimTool } from "./format.ts";
 import type { SummaryInput } from "./format.ts";
+import { withTraceIndexLock } from "./files.ts";
 
 export { TRACE_FORMAT_VERSION };
 export type { ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
@@ -92,6 +93,7 @@ export class TaskTraceRecorder {
   // ─────────── Bordes: modelos y herramientas ───────────
 
   private onModel(event: LlmCapture): void {
+    if (!this.enabled || this.finished) return;
     const record: ModelRecord = {
       seq: this.models.length + 1,
       stage: event.stage,
@@ -111,6 +113,7 @@ export class TaskTraceRecorder {
   }
 
   private onTool(event: ToolCapture): void {
+    if (!this.enabled || this.finished) return;
     const record: ToolRecord = {
       call: null,
       mcp: event.mcp,
@@ -275,7 +278,9 @@ export class TaskTraceRecorder {
     const full = Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models, tools, waits }), "utf-8");
     await yieldToLoop();
     await fs.writeFile(path.join(dir, "full.json.gz"), await gzip(full, { level: 6 }));
-    await fs.appendFile(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}\n`, "utf-8");
+    await withTraceIndexLock(base, () =>
+      fs.appendFile(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}\n`, "utf-8"),
+    );
   }
 }
 

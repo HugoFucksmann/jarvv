@@ -28,6 +28,19 @@ export type { ExecutionMode, McpInitStatus } from "../types/ui.ts";
 
 const FALLBACK_POLL_MS = 5000;
 const DEBOUNCE_STATE_MS = 80;
+const CLIENT_ID_STORAGE_KEY = "jarvis:clientId";
+
+function readOrCreateClientId(): string {
+  try {
+    const existing = window.sessionStorage.getItem(CLIENT_ID_STORAGE_KEY);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    window.sessionStorage.setItem(CLIENT_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
 
 const countKeys = (obj?: object | null): number => (obj ? Object.keys(obj).length : 0);
 
@@ -48,6 +61,7 @@ export function useJarvis() {
   const userClearedViewRef = useRef(false);
   const mcpInitDoneRef = useRef(false);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clientIdRef = useRef<string | null>(null);
 
   const [task, setTask] = useState<TaskDto | null>(null);
   const [tasks, setTasks] = useState<TaskSummary[]>([]);
@@ -251,7 +265,8 @@ export function useJarvis() {
       }
 
       return runAccepted(async () => {
-        const data = await jarvisApi.initiateTask(message, effectiveMode);
+        if (clientIdRef.current === null) clientIdRef.current = readOrCreateClientId();
+        const data = await jarvisApi.initiateTask(message, effectiveMode, `ui:${clientIdRef.current}`);
         userClearedViewRef.current = false;
         activeTaskIdRef.current = data.task.task.id;
         taskRef.current = data.task;

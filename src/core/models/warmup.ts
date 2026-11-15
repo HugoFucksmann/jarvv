@@ -17,7 +17,8 @@ const JSON_HEADERS = { "content-type": "application/json" };
 /** URL de chat del generativo: la base del servidor o `/v1/chat/completions` ya completa (como `QwenEngine.resolveUrl`). */
 export function chatUrl(base: string): string {
   const trimmed = base.trim().replace(/\/+$/, "");
-  return trimmed.endsWith("/v1/chat/completions") ? trimmed : `${trimmed}/v1/chat/completions`;
+  if (trimmed.endsWith("/v1/chat/completions")) return trimmed;
+  return trimmed.endsWith("/v1") ? `${trimmed}/chat/completions` : `${trimmed}/v1/chat/completions`;
 }
 
 async function ping(label: string, url: string, body: string, timeoutMs: number, fetchFn: FetchFn): Promise<void> {
@@ -38,16 +39,20 @@ async function ping(label: string, url: string, body: string, timeoutMs: number,
 /** Precalienta el modelo de decisión y el generativo, en ese orden (D0 es la primera consulta de cada tarea). Nunca lanza. */
 export async function warmUpModels(getConfig: ConfigSource, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<void> {
   const config = getConfig();
-  const decision = buildDecisionRequest(config, { state: "Request: hola", questions: { warmup: { type: "noul", instructions: "Is this a greeting?" } } });
-  await ping(`decisión ${config.decisionModel}`, decision.url, decision.body, config.decisionTimeoutMs, fetchFn);
+  if (config.decisionUrl.trim()) {
+    const decision = buildDecisionRequest(config, { state: "Request: hola", questions: { warmup: { type: "noul", instructions: "Is this a greeting?" } } });
+    await ping(`decisión ${config.decisionModel}`, decision.url, decision.body, config.decisionTimeoutMs, fetchFn);
+  }
 
-  const chat = JSON.stringify({
-    model: config.qwenModel,
-    messages: [{ role: "user", content: "hola" }],
-    max_tokens: 1,
-    stream: false,
-    reasoning_effort: "none",
-    keep_alive: config.modelKeepAlive,
-  });
-  await ping(`generativo ${config.qwenModel}`, chatUrl(config.qwenUrl), chat, config.qwenTimeoutMs, fetchFn);
+  if (config.qwenUrl.trim()) {
+    const chat = JSON.stringify({
+      model: config.qwenModel,
+      messages: [{ role: "user", content: "hola" }],
+      max_tokens: 1,
+      stream: false,
+      reasoning_effort: "none",
+      keep_alive: config.modelKeepAlive,
+    });
+    await ping(`generativo ${config.qwenModel}`, chatUrl(config.qwenUrl), chat, config.qwenTimeoutMs, fetchFn);
+  }
 }

@@ -191,22 +191,99 @@ function blacklistEntries(v: unknown): BlacklistEntry[] | undefined {
   for (const raw of v) {
     if (!isRecord(raw) || typeof raw.tool !== "string" || !raw.tool.trim() || typeof raw.reason !== "string" || !raw.reason.trim()) continue;
     const pattern = typeof raw.pattern === "string" && raw.pattern.trim() ? raw.pattern : undefined;
-    out.push({ tool: raw.tool.trim(), reason: raw.reason.trim(), ...(pattern === undefined ? {} : { pattern }) });
+    const level = raw.level === "blocked" || raw.level === "sensitive" ? raw.level : undefined;
+    out.push({ tool: raw.tool.trim(), reason: raw.reason.trim(), ...(pattern === undefined ? {} : { pattern }), ...(level === undefined ? {} : { level }) });
   }
   return out;
 }
 
-/** URL http(s) sin espacios; cualquier otra cosa (`file:`, vacío…) toma el valor de respaldo. */
-const httpUrl = (v: unknown, fallback: string): string => {
-  if (typeof v !== "string") return fallback;
-  const value = v.trim().replace(/\/+$/, "");
+const isHttpUrl = (v: unknown): v is string => {
+  if (typeof v !== "string" || !v.trim()) return false;
   try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:" ? value : fallback;
+    const url = new URL(v.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
-    return fallback;
+    return false;
   }
 };
+
+/** URL http(s) sin espacios; cualquier otra cosa (`file:`, vacío…) toma el valor de respaldo. */
+const httpUrl = (v: unknown, fallback: string): string =>
+  isHttpUrl(v) ? v.trim().replace(/\/+$/, "") : fallback;
+
+const URL_KEYS = ["qwenUrl", "decisionUrl", "voiceUrl"] as const;
+const TEXT_KEYS = ["qwenModel", "decisionModel", "voiceName"] as const;
+const BOOL_KEYS = ["thinking", "traceEnabled", "autoMode", "approvalTiers", "webSearchUseJudge", "voiceEnabled", "telegramVoice"] as const;
+const INT_KEYS = ["qwenNumCtx", "qwenTimeoutMs", "qwenThinkingTimeoutMs", "decisionMaxContext", "decisionTimeoutMs", "mcpTimeoutMs"] as const;
+const TOKEN_KEYS = ["arguments", "plan", "replan", "final"] as const;
+
+/**
+ * Valida los campos editables presentes en un parche ya filtrado (`withoutLaunchFields`).
+ * Claves desconocidas se ignoran sin error. Devuelve el mensaje indicando el primer campo inválido, o `null`.
+ */
+export function validateConfigPatch(raw: Record<string, unknown>): string | null {
+  for (const key of URL_KEYS) {
+    if (raw[key] !== undefined && !isHttpUrl(raw[key])) return `Campo '${key}' inválido: debe ser una URL http o https no vacía.`;
+  }
+  for (const key of TEXT_KEYS) {
+    if (raw[key] !== undefined && (typeof raw[key] !== "string" || !raw[key].trim())) return `Campo '${key}' inválido: debe ser un texto no vacío.`;
+  }
+  if (raw.modelKeepAlive !== undefined && !isKeepAlive(raw.modelKeepAlive)) {
+    return "Campo 'modelKeepAlive' inválido: use -1, 0 o una duración como '30m', '2h', '90s'.";
+  }
+  for (const key of BOOL_KEYS) {
+    if (raw[key] !== undefined && typeof raw[key] !== "boolean") return `Campo '${key}' inválido: debe ser booleano.`;
+  }
+  for (const key of INT_KEYS) {
+    const v = raw[key];
+    if (v !== undefined && (typeof v !== "number" || !Number.isInteger(v) || v < 1)) {
+      return `Campo '${key}' inválido: debe ser un entero mayor a 0.`;
+    }
+  }
+  if (raw.retentionDays !== undefined && (typeof raw.retentionDays !== "number" || !Number.isInteger(raw.retentionDays) || raw.retentionDays < 0)) {
+    return "Campo 'retentionDays' inválido: debe ser un entero mayor o igual a 0.";
+  }
+  if (raw.qwenMaxTokens !== undefined) {
+    if (!isRecord(raw.qwenMaxTokens)) return "Campo 'qwenMaxTokens' inválido: debe ser un objeto.";
+    for (const key of TOKEN_KEYS) {
+      const v = raw.qwenMaxTokens[key];
+      if (v !== undefined && (typeof v !== "number" || !Number.isInteger(v) || v < 1)) {
+        return `Campo 'qwenMaxTokens.${key}' inválido: debe ser un entero mayor a 0.`;
+      }
+    }
+  }
+  for (const server of ["desktopCommanderMcp", "freeSearchMcp"] as const) {
+    const value = raw[server];
+    if (value === undefined) continue;
+    if (!isRecord(value)) return `Campo '${server}' inválido: debe ser un objeto.`;
+    if (value.allowedDirectories !== undefined && stringList(value.allowedDirectories) === undefined) {
+      return `Campo '${server}.allowedDirectories' inválido: debe ser una lista de rutas.`;
+    }
+  }
+  if (raw.blacklist !== undefined) {
+    if (!Array.isArray(raw.blacklist)) return "Campo 'blacklist' inválido: debe ser una lista.";
+    for (let i = 0; i < raw.blacklist.length; i++) {
+      const entry = raw.blacklist[i];
+      if (!isRecord(entry)) return `Campo 'blacklist[${i}]' inválido: debe ser un objeto.`;
+      if (typeof entry.tool !== "string" || !entry.tool.trim()) return `Campo 'blacklist[${i}].tool' inválido: debe ser un texto no vacío.`;
+      if (typeof entry.reason !== "string" || !entry.reason.trim()) return `Campo 'blacklist[${i}].reason' inválido: debe ser un texto no vacío.`;
+      if (entry.pattern !== undefined) {
+        if (typeof entry.pattern !== "string") return `Campo 'blacklist[${i}].pattern' inválido: debe ser texto.`;
+        if (entry.pattern.trim()) {
+          try {
+            new RegExp(entry.pattern, "i");
+          } catch {
+            return `Campo 'blacklist[${i}].pattern' inválido: expresión regular inválida.`;
+          }
+        }
+      }
+      if (entry.level !== undefined && entry.level !== "blocked" && entry.level !== "sensitive") {
+        return `Campo 'blacklist[${i}].level' inválido: use 'blocked' o 'sensitive'.`;
+      }
+    }
+  }
+  return null;
+}
 
 function normalizeServer(raw: unknown, base: StdioServerConfig): StdioServerConfig {
   const r = isRecord(raw) ? raw : {};

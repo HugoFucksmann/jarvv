@@ -30,7 +30,7 @@ export function probeCallOf(env: EngineEnv, call: Call): ProbeCall {
     args: call.args,
     summary: call.summary,
     request: ctx.task.mode === "reactive" ? ctx.task.request : stepText,
-    step: ctx.task.mode === "reactive" ? ctx.task.request : stepText,
+    step: stepText,
   };
 }
 

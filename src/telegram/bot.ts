@@ -61,8 +61,8 @@ const FINISH_TITLE: Record<string, string> = {
 };
 
 const waitKey = (w: Waiting): string => (w.kind === "question" ? `q${w.question.stepId}` : w.request.id);
-/** Identifica la espera en el `callback_data` de los botones (Telegram lo limita a 64 bytes). */
-const tagOf = (w: Waiting): string => waitKey(w).slice(0, 8);
+/** Identifica la espera en el `callback_data` de los botones (conserva timestamp+sufijo único dentro de 64 bytes). */
+const tagOf = (w: Waiting): string => waitKey(w).slice(-32);
 
 export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   const bot = new Bot(cfg.token);
@@ -103,7 +103,9 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
     const pcm: Buffer[] = [];
     for await (const part of streamSpeech(spoken, voice, abort.signal)) pcm.push(Buffer.from(part));
     if (abort.signal.aborted || !pcm.length) return;
-    await bot.api.sendVoice(cfg.chatId, new InputFile(await pcmToOggOpus(Buffer.concat(pcm)), "jarvis.ogg"));
+    const ogg = await pcmToOggOpus(Buffer.concat(pcm), { signal: abort.signal });
+    if (abort.signal.aborted) return;
+    await bot.api.sendVoice(cfg.chatId, new InputFile(ogg, "jarvis.ogg"));
   }
 
   async function sendResult(t: TaskState, text: string): Promise<void> {
@@ -422,7 +424,7 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
     starting = true;
     early.length = 0;
     try {
-      const res = await api.post<{ task: { task: { id: string } } }>("/process", { message: text, ...(mode ? { mode } : {}) });
+      const res = await api.post<{ task: { task: { id: string } } }>("/process", { message: text, ...(mode ? { mode } : {}), sessionKey: `telegram:${cfg.chatId}` });
       if (!res.ok) return void (await ctx.reply(`⚠️ ${res.error}`));
       const id = res.data.task.task.id;
       const t = begin(id);
@@ -452,7 +454,19 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   // Menú de comandos que Telegram ofrece al escribir "/".
   void bot.api.setMyCommands([...BOT_COMMANDS]).catch(() => { /* el menú es una comodidad */ });
 
-  void api.listen(enqueue, abort.signal);
+  async function syncWaiting(): Promise<void> {
+    if (abort.signal.aborted || !current) return;
+    const taskId = current.taskId;
+    const t = tasks.get(taskId);
+    if (!t || t.finished) return;
+    const res = await api.get<{ task?: { waiting?: Waiting | null } | null }>(`/state?taskId=${encodeURIComponent(taskId)}`);
+    if (!res.ok || abort.signal.aborted || current?.taskId !== taskId || t.finished) return;
+    enqueue({ type: "waiting", taskId, waiting: res.data.task?.waiting ?? null });
+  }
+
+  void api.listen(enqueue, abort.signal, () => {
+    void syncWaiting();
+  });
   bot
     // Los mensajes que llegaron con JARVIS apagado se descartan: no deben lanzar tareas viejas al arrancar.
     .start({ drop_pending_updates: true, onStart: (me) => console.log(`[telegram] @${me.username} activo`) })

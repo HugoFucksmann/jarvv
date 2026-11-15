@@ -17,7 +17,7 @@ import path from "node:path";
 
 import type { ConfigSource } from "./config.ts";
 import { taskFolderName } from "./refs/refVault.ts";
-import { traceBaseDir } from "./trace/files.ts";
+import { traceBaseDir, withTraceIndexLock } from "./trace/files.ts";
 import { errorMessage } from "./utils.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -67,32 +67,34 @@ export async function pruneFolders(
 
 /** Quita de `index.jsonl` las líneas de las carpetas de traza que ya no existen; las líneas que no se pueden leer se conservan. */
 export async function pruneTraceIndex(base: string): Promise<void> {
-  const file = path.join(base, "index.jsonl");
-  let text: string;
-  try {
-    text = await fs.readFile(file, "utf8");
-  } catch {
-    return;
-  }
-  let existing: Set<string>;
-  try {
-    existing = new Set(await fs.readdir(base));
-  } catch {
-    return;
-  }
-  const lines = text.split("\n").filter((line) => line.trim() !== "");
-  const kept = lines.filter((line) => {
+  return withTraceIndexLock(base, async () => {
+    const file = path.join(base, "index.jsonl");
+    let text: string;
     try {
-      const entry = JSON.parse(line) as { folder?: unknown };
-      return typeof entry.folder !== "string" || existing.has(entry.folder);
+      text = await fs.readFile(file, "utf8");
     } catch {
-      return true;
+      return;
     }
+    let existing: Set<string>;
+    try {
+      existing = new Set(await fs.readdir(base));
+    } catch {
+      return;
+    }
+    const lines = text.split("\n").filter((line) => line.trim() !== "");
+    const kept = lines.filter((line) => {
+      try {
+        const entry = JSON.parse(line) as { folder?: unknown };
+        return typeof entry.folder !== "string" || existing.has(entry.folder);
+      } catch {
+        return true;
+      }
+    });
+    if (kept.length === lines.length) return;
+    const tmp = `${file}.tmp`;
+    await fs.writeFile(tmp, kept.length === 0 ? "" : `${kept.join("\n")}\n`, "utf8");
+    await fs.rename(tmp, file);
   });
-  if (kept.length === lines.length) return;
-  const tmp = `${file}.tmp`;
-  await fs.writeFile(tmp, kept.length === 0 ? "" : `${kept.join("\n")}\n`, "utf8");
-  await fs.rename(tmp, file);
 }
 
 /** Una pasada sobre las refs y las trazas, con la configuración vigente. `protectedTaskIds`: tareas cuyas refs no se borran. */

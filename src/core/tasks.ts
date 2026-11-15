@@ -74,13 +74,15 @@ interface TaskEntry {
   readonly recorder: TaskTraceRecorder;
 }
 
+const MAX_PREVIOUS_SESSIONS = 20;
+
 export class TaskManager {
   private readonly tasks = new Map<string, TaskEntry>();
   private readonly listeners = new Set<TaskListener>();
   /** Ejecuciones en curso (con la escritura de su traza). */
   private readonly inFlight = new Set<Promise<void>>();
-  /** Hilo (`engine/thread.ts`): la última tarea completada con respuesta del modelo, en RAM; vence a los `THREAD_TTL_MS`. */
-  private previous: { readonly task: PreviousTask; readonly at: number } | null = null;
+  /** Hilo (`engine/thread.ts`): última tarea completada con respuesta del modelo por sesión, en RAM; vence a los `THREAD_TTL_MS`. */
+  private readonly previousBySession = new Map<string, { readonly task: PreviousTask; readonly at: number }>();
   private readonly contextOptions: ContextOptions = {
     now: Date.now,
     summaryMax: BUDGET.summaryMax,
@@ -114,7 +116,8 @@ export class TaskManager {
   }
 
   /** Crea la tarea y la lanza en segundo plano. Devuelve su estado inicial. */
-  start(message: string, mode: TaskMode): TaskDto {
+  start(message: string, mode: TaskMode, sessionKey = "default"): TaskDto {
+    const key = sessionKey.trim() || "default";
     const id = newId("task");
     const ctx = create.context({ id, request: message, mode }, this.contextOptions);
     const recorder = new TaskTraceRecorder(ctx, this.getConfig);
@@ -132,12 +135,14 @@ export class TaskManager {
     this.emit({ type: "created", taskId: id, n: ctx.n });
 
     console.log(`[Task] start id=${id} mode=${mode}`);
-    const previousTask = this.previous !== null && Date.now() - this.previous.at < THREAD_TTL_MS ? this.previous.task : null;
+    const prev = this.previousBySession.get(key);
+    const previousTask = prev !== undefined && Date.now() - prev.at < THREAD_TTL_MS ? prev.task : null;
+    if (prev !== undefined && previousTask === null) this.previousBySession.delete(key);
     const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink, previousTask };
     // La ejecución incluye la escritura de la traza (asíncrona, después de la respuesta): `drain` espera a ambas al apagar el servidor.
     const run: Promise<void> = runTask(ctx, runtime, deps)
       .catch((error: unknown) => this.closeOnDefect(entry, error))
-      .then(() => this.remember(ctx))
+      .then(() => this.remember(ctx, key))
       .finally(() => recorder.finish())
       .finally(() => void this.inFlight.delete(run));
     this.inFlight.add(run);
@@ -146,10 +151,16 @@ export class TaskManager {
   }
 
   /** Guarda la tarea para el hilo si terminó completada con una respuesta del modelo (no la de respaldo, que es texto fijo). */
-  private remember(ctx: TaskContext): void {
+  private remember(ctx: TaskContext, sessionKey: string): void {
     const result = ctx.result;
     if (ctx.task.state !== "completed" || result === null || result.origin !== "model") return;
-    this.previous = { task: previousTaskOf(ctx.task.request, result.text), at: Date.now() };
+    this.previousBySession.delete(sessionKey);
+    this.previousBySession.set(sessionKey, { task: previousTaskOf(ctx.task.request, result.text), at: Date.now() });
+    while (this.previousBySession.size > MAX_PREVIOUS_SESSIONS) {
+      const oldest = this.previousBySession.keys().next().value;
+      if (oldest === undefined) break;
+      this.previousBySession.delete(oldest);
+    }
   }
 
   /** Cancela la tarea: aborta lo que esté en curso y resuelve la espera. El cierre (`user_cancelled`) lo escribe `runTask`. */

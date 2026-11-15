@@ -35,6 +35,7 @@ import { generatePending } from "./pending.ts";
 import { reconcileList } from "./pendingList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
+import { clearSourceCache } from "./precheck.ts";
 import type { TaskRuntime } from "./runtime.ts";
 import { runStep } from "./stepLoop.ts";
 
@@ -61,6 +62,7 @@ export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: Engi
     const closing = ctx.task.mode === "reactive" ? await runReactive(env) : await runDeliberative(env);
     await finalize(env, closing);
   } finally {
+    clearSourceCache(ctx);
     // Cancelada, fallida, parcial o con un error interno: cada proveedor cierra lo que la tarea dejó corriendo (procesos en segundo plano).
     // Completada: se conserva (pudo ser lo pedido).
     const state = ctx.task.state;

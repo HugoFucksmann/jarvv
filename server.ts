@@ -101,15 +101,15 @@ async function main() {
     isShuttingDown = true;
     // Si algún servidor MCP no cierra, un segundo Ctrl+C no haría nada (isShuttingDown): salida forzada.
     setTimeout(() => {
-      console.warn('[Host] El cierre excedió 5 s; saliendo de forma forzada.');
+      console.warn('[Host] El cierre excedió 10 s; saliendo de forma forzada.');
       process.exit(1);
-    }, 5000).unref();
+    }, 10000).unref();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
     stopRetention();
     stopTelegram?.();
     tasks.cancelAll();
     // Cada tarea cancelada cierra sus procesos en segundo plano (necesita los servidores vivos) y escribe su traza: se espera un momento.
-    await tasks.drain(3000);
+    await tasks.drain(6000);
 
     // En paralelo: un servidor colgado no consume el plazo de los demás.
     const results = await Promise.allSettled(Object.values(servers).map((server) => server.close?.()));

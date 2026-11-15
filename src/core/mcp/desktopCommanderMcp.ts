@@ -13,6 +13,7 @@ import { MCPCallResult } from "../types.ts";
 import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { StdioMcpServer } from "./stdioServer.ts";
 import type { ConfigSource } from "../config.ts";
+import type { ToolCallOptions } from "../tools/provider.ts";
 
 /** Antepone al comando de PowerShell la salida en UTF-8; en otros sistemas, con otro shell o sin comando, lo deja igual. */
 export function utf8Command(args: Record<string, unknown>, platform: NodeJS.Platform = process.platform): Record<string, unknown> {
@@ -36,14 +37,20 @@ export function missingLaunchScript(config: { command: string; args: readonly st
 export class DesktopCommanderMCPServer extends StdioMcpServer {
   readonly name = "desktop_commander";
   readonly version = "2.1.0";
-  private readonly allowedDirectories: string[];
+  private readonly getConfig: ConfigSource;
+  private readonly fixedAllowedDirs?: readonly string[];
 
   constructor(getConfig: ConfigSource, transport?: IMCPTransport, allowedDirs?: string[]) {
     const config = getConfig().desktopCommanderMcp;
     super(transport ?? new StdioMcpTransport("desktop_commander", config, () => getConfig().mcpTimeoutMs));
-    this.allowedDirectories = allowedDirs ?? config.allowedDirectories ?? [];
+    this.getConfig = getConfig;
+    this.fixedAllowedDirs = allowedDirs;
     const missing = transport === undefined ? missingLaunchScript(config) : null;
     if (missing !== null) console.warn(`[MCP desktop_commander] ${missing}`);
+  }
+
+  private currentAllowedDirs(): readonly string[] {
+    return this.fixedAllowedDirs ?? this.getConfig().desktopCommanderMcp.allowedDirectories ?? [];
   }
 
   /**
@@ -66,18 +73,19 @@ export class DesktopCommanderMCPServer extends StdioMcpServer {
     return found;
   }
 
-  private isPathAllowed(target: string): boolean {
+  private isPathAllowed(target: string, allowedDirectories: readonly string[]): boolean {
     const resolvedTarget = path.resolve(target);
-    return this.allowedDirectories.some((dir) => {
+    return allowedDirectories.some((dir) => {
       const rel = path.relative(path.resolve(dir), resolvedTarget);
       // Una subcarpeta cuyo nombre empieza por ".." (p. ej. "..backup") está dentro; ".." o "../x" está fuera.
       return rel !== ".." && !rel.startsWith(".." + path.sep) && !path.isAbsolute(rel);
     });
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<MCPCallResult> {
-    if (this.allowedDirectories.length > 0) {
-      const denied = this.collectPathArgs(args).find((p) => !this.isPathAllowed(p));
+  async callTool(name: string, args: Record<string, unknown>, options?: ToolCallOptions): Promise<MCPCallResult> {
+    const allowedDirectories = this.currentAllowedDirs();
+    if (allowedDirectories.length > 0) {
+      const denied = this.collectPathArgs(args).find((p) => !this.isPathAllowed(p, allowedDirectories));
       if (denied !== undefined) {
         return {
           isError: true,
@@ -85,13 +93,13 @@ export class DesktopCommanderMCPServer extends StdioMcpServer {
           content: [
             {
               type: "text",
-              text: `[DENIED] Acceso denegado: La ruta '${denied}' no pertenece a los allowedDirectories configurados (${this.allowedDirectories.join(", ")}).`,
+              text: `[DENIED] Acceso denegado: La ruta '${denied}' no pertenece a los allowedDirectories configurados (${allowedDirectories.join(", ")}).`,
             },
           ],
         };
       }
     }
 
-    return super.callTool(name, name === "start_process" ? utf8Command(args) : args);
+    return super.callTool(name, name === "start_process" ? utf8Command(args) : args, options);
   }
 }

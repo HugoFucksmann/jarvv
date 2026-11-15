@@ -218,6 +218,7 @@ export class TerminalProvider implements ToolProvider {
   private readonly procs = new Map<number, Tracked>();
   /** Procesos terminados cuya salida ya se entregó (por `pid`, del más viejo al más nuevo): una continuación tardía responde `finished`, no "no existe". */
   private readonly ended = new Map<number, Ended>();
+  private readonly disposing = new Map<number, { readonly tracked: Tracked; readonly promise: Promise<void> }>();
   private readonly defaultCwd: string;
   private readonly platform: NodeJS.Platform;
   private readonly maxLive: number;
@@ -677,30 +678,40 @@ export class TerminalProvider implements ToolProvider {
   // ───────────────────────── Cierre ─────────────────────────
 
   /** Corta el árbol del proceso y espera a que termine (con tope). */
-  private async dispose(t: Tracked): Promise<void> {
-    this.procs.delete(t.pid);
-    if (t.done) return;
-    await killTree(t.pid);
-    await new Promise<void>((resolve) => {
-      if (t.done) return resolve();
-      const end = (): void => {
-        clearTimeout(timer);
-        t.events.off("activity", check);
-        resolve();
-      };
-      const check = (): void => {
-        if (t.done) end();
-      };
-      const timer = setTimeout(end, 2000);
-      t.events.on("activity", check);
+  private dispose(t: Tracked): Promise<void> {
+    const inFlight = this.disposing.get(t.pid);
+    if (inFlight !== undefined) return inFlight.promise;
+    const promise = (async () => {
+      this.procs.delete(t.pid);
+      if (t.done) return;
+      await killTree(t.pid);
+      await new Promise<void>((resolve) => {
+        if (t.done) return resolve();
+        const end = (): void => {
+          clearTimeout(timer);
+          t.events.off("activity", check);
+          resolve();
+        };
+        const check = (): void => {
+          if (t.done) end();
+        };
+        const timer = setTimeout(end, 2000);
+        timer.unref();
+        t.events.on("activity", check);
+      });
+    })().finally(() => {
+      this.disposing.delete(t.pid);
     });
+    this.disposing.set(t.pid, { tracked: t, promise });
+    return promise;
   }
 
   private async killAll(filter: (t: Tracked) => boolean): Promise<number> {
+    const active = [...this.disposing.values()].filter((d) => filter(d.tracked)).map((d) => d.promise);
     const targets = [...this.procs.values()].filter((t) => !t.done && filter(t));
-    await Promise.allSettled(targets.map((t) => this.dispose(t)));
+    await Promise.allSettled([...active, ...targets.map((t) => this.dispose(t))]);
     for (const t of [...this.procs.values()]) if (filter(t) && t.done) this.procs.delete(t.pid);
-    return targets.length;
+    return targets.length + active.length;
   }
 
   /** Un proceso terminado cuya salida ya se entregó deja de seguirse; queda su lápida (tarea, código, duración) para responder una continuación tardía. */

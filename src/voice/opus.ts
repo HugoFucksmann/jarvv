@@ -38,17 +38,50 @@ export function ffmpegAvailable(): Promise<boolean> {
   });
 }
 
-export function pcmToOggOpus(pcm: Buffer): Promise<Buffer> {
+const FFMPEG_TIMEOUT_MS = 30_000;
+
+export function pcmToOggOpus(
+  pcm: Buffer,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<Buffer> {
+  const signal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? FFMPEG_TIMEOUT_MS;
+  if (signal?.aborted) {
+    return Promise.reject(new Error("Conversión a audio Opus cancelada."));
+  }
   return new Promise((resolve, reject) => {
     const ff = spawn(ffmpegBin(), [
       "-loglevel", "error",
       "-f", "s16le", "-ar", "24000", "-ac", "1", "-i", "pipe:0",
       "-c:a", "libopus", "-b:a", "32k", "-f", "ogg", "pipe:1",
-    ]);
+    ], { windowsHide: true });
     const out: Buffer[] = [];
+    let settled = false;
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const fail = (err: Error): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      try { ff.kill(); } catch { /* ya terminado */ }
+      reject(err);
+    };
+    const onAbort = (): void => fail(new Error("Conversión a audio Opus cancelada."));
+    const timer = setTimeout(() => fail(new Error(`ffmpeg excedió el tiempo máximo (${timeoutMs} ms)`)), timeoutMs);
+    timer.unref();
+    signal?.addEventListener("abort", onAbort, { once: true });
+
     ff.stdout.on("data", (d: Buffer) => out.push(d));
-    ff.on("error", (e: NodeJS.ErrnoException) => reject(e.code === "ENOENT" ? new Error(MISSING) : e));
-    ff.on("close", (code) => (code === 0 ? resolve(Buffer.concat(out)) : reject(new Error(`ffmpeg terminó con código ${code}`))));
+    ff.on("error", (e: NodeJS.ErrnoException) => fail(e.code === "ENOENT" ? new Error(MISSING) : e));
+    ff.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (code === 0) resolve(Buffer.concat(out));
+      else reject(new Error(`ffmpeg terminó con código ${code}`));
+    });
     ff.stdin.on("error", () => { /* ffmpeg cerró la entrada antes de tiempo: el error sale por `close` */ });
     ff.stdin.end(pcm);
   });
