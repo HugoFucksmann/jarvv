@@ -16,6 +16,7 @@ import type { TaskContext } from "../src/core/ctx/index.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
 import type { Waiting } from "../src/core/engine/runtime.ts";
+import { REVIEW_APPROVE } from "../src/core/engine/verify.ts";
 import { DecisionServiceUnavailableError } from "../src/core/models/transport.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
@@ -78,6 +79,8 @@ interface Scenario {
   /** Hilo: la tarea anterior vigente al empezar y la probabilidad de `follow` que da la consulta de continuación. */
   readonly previous?: { readonly request: string; readonly answer: string };
   readonly follows?: number;
+  /** Probabilidad `approved` que devuelve D3 (`reviewArgs`); por defecto 1. */
+  readonly reviewProb?: number;
 }
 
 interface Outcome {
@@ -135,7 +138,8 @@ async function run(s: Scenario): Promise<Outcome> {
       chooseTool: async (input) => ({ action: "tool", tool: input.tools.find((t) => t.name === s.tool) ?? input.tools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       reviewArgs: async () => {
         reviews++;
-        return { review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" };
+        const prob = s.reviewProb ?? 1;
+        return { review: prob >= 0.5 ? "approved" : "args_invalid", probabilities: { approved: prob }, rawInput: "", rawOutput: "" };
       },
       verifyResult: async (input) => {
         s.onVerifyInput?.(input);
@@ -808,6 +812,99 @@ test("niveles apagados (por defecto): el comportamiento de `autoMode` no cambia,
     { tiers: false },
   );
   assert.equal(approvals, 1);
+});
+
+test("autoMode encendido prevalece sobre approvalTiers: sobrescribir archivo o ejecutar comando no pide confirmación y pasa por D3", async () => {
+  const { approvals, reviews, ctx } = await tiered(
+    (dir) => {
+      const file = path.join(dir, "existe.txt");
+      fs.writeFileSync(file, "viejo");
+      return { file, args: { path: file, content: "nuevo", mode: "rewrite" } };
+    },
+    { autoMode: true, tiers: true },
+  );
+  assert.equal(approvals, 0, "autoMode no debe quedar bloqueado por el nivel rojo");
+  assert.equal(reviews, 1, "debe pasar por Decisión 3");
+  assert.equal(ctx.find("calls", {})[0].status, "ok");
+
+  let cmdApprovals = 0;
+  const cmdRes = await run({
+    request: "Crear carpeta C:\\Users\\Ana\\Desktop\\prueba",
+    tool: "run_command",
+    args: { command: "New-Item -ItemType Directory -Path C:\\Users\\Ana\\Desktop\\prueba" },
+    autoMode: true,
+    tiers: true,
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") {
+        cmdApprovals++;
+        runtime.resolveApproval(w.request.id, true);
+      }
+    },
+  });
+  assert.equal(cmdApprovals, 0, "run_command en autoMode no debe pedir aprobación humana aunque approvalTiers esté en true");
+  assert.equal(cmdRes.reviews, 1, "run_command que modifica debe pasar por D3");
+  assert.equal(cmdRes.dispatched.length, 1);
+});
+
+test("autoMode: comandos destructivos prohibidos (borrar carpeta de usuario) se rechazan sin pedir confirmación ni llamar a D3", async () => {
+  let approvals = 0;
+  const { ctx, dispatched, reviews } = await run({
+    request: "Limpiar Documentos",
+    tool: "run_command",
+    args: { command: "Remove-Item -Recurse -Force C:\\Users\\Ana\\Documents" },
+    home: "C:\\Users\\Ana",
+    autoMode: true,
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") {
+        approvals++;
+        runtime.resolveApproval(w.request.id, true);
+      }
+    },
+  });
+  assert.equal(approvals, 0);
+  assert.equal(reviews, 0, "blocked se rechaza antes de D3");
+  assert.equal(dispatched.length, 0);
+  assert.ok(ctx.find("calls", { status: "tool_rejected" }).length >= 1);
+});
+
+test("autoMode: comandos sensibles (borrar un archivo puntual) no piden confirmación y exigen umbral estricto en D3", async () => {
+  let approvals = 0;
+  const blockedByStrict = await run({
+    request: "Borrar C:\\Users\\Ana\\Documents\\viejo.txt",
+    tool: "run_command",
+    args: { command: "Remove-Item C:\\Users\\Ana\\Documents\\viejo.txt" },
+    home: "C:\\Users\\Ana",
+    autoMode: true,
+    reviewProb: REVIEW_APPROVE + 0.01,
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") {
+        approvals++;
+        runtime.resolveApproval(w.request.id, true);
+      }
+    },
+  });
+  assert.equal(approvals, 0, "sensitive en autoMode no pide aprobación humana");
+  assert.ok(blockedByStrict.reviews >= 1, "debe evaluarse en D3");
+  assert.equal(blockedByStrict.dispatched.length, 0, "por debajo de sensitiveApprove se rechaza como tool_rejected");
+  assert.ok(blockedByStrict.ctx.find("calls", { status: "tool_rejected" }).length >= 1);
+
+  const allowed = await run({
+    request: "Borrar C:\\Users\\Ana\\Documents\\viejo.txt",
+    tool: "run_command",
+    args: { command: "Remove-Item C:\\Users\\Ana\\Documents\\viejo.txt" },
+    home: "C:\\Users\\Ana",
+    autoMode: true,
+    reviewProb: BUDGET.sensitiveApprove + 0.05,
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") {
+        approvals++;
+        runtime.resolveApproval(w.request.id, true);
+      }
+    },
+  });
+  assert.equal(approvals, 0);
+  assert.equal(allowed.reviews, 1);
+  assert.equal(allowed.dispatched.length, 1);
 });
 
 // ───────────────────────── Decisión 5 segura de que falta algo ─────────────────────────

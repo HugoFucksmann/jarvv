@@ -363,10 +363,17 @@ ${stepText}`, deps.memory?.() ?? []);
   // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
   // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
   const auto = deps.autoMode();
-  // Aprobación por niveles (`policy/tiers.ts`, opt-in `approvalTiers`): reemplaza al `autoMode` binario en las escrituras. Una herramienta no catalogada es roja.
-  const tiered = deps.approvalTiers?.() === true;
+  // Aprobación por niveles (`policy/tiers.ts`, opt-in `approvalTiers`): solo cuando `autoMode` está apagado; si `autoMode` está encendido, rige el modo automático con D3. Una herramienta no catalogada es roja.
+  const tiered = !auto && deps.approvalTiers?.() === true;
   const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, deps.disk) : "red") : null;
-  const listed = blacklistMatch(deps.currentBlacklist?.() ?? deps.blacklist, mcp, tool.name, policy.mutates, resolved);
+  const listed = blacklistMatch(
+    deps.currentBlacklist?.() ?? deps.blacklist,
+    mcp,
+    tool.name,
+    policy.mutates,
+    resolved,
+    environment.home ? [environment.home] : undefined,
+  );
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.

@@ -69,8 +69,8 @@ export interface JarvisConfig {
    */
   autoMode: boolean;
   /**
-   * Aprobación por niveles (`policy/tiers.ts`): verde sin confirmación ni revisión, amarillo con Decisión 3 estricta, rojo siempre confirma el usuario. Si está encendida
-   * reemplaza a `autoMode` en las escrituras. Opt-in: por defecto apagada (el comportamiento de `autoMode` no cambia).
+   * Aprobación por niveles (`policy/tiers.ts`): verde sin confirmación ni revisión, amarillo con Decisión 3 estricta, rojo siempre confirma el usuario.
+   * Opt-in: por defecto apagada y solo aplica cuando `autoMode` está apagado (si `autoMode` está encendido, rige el modo automático con D3).
    */
   approvalTiers: boolean;
   /**

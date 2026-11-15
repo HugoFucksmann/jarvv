@@ -296,6 +296,7 @@ export interface JarvisConfig {
   retentionDays?: number;
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;
+  approvalTiers?: boolean;
   webSearchUseJudge?: boolean;
   voiceEnabled?: boolean;
   telegramVoice?: boolean;

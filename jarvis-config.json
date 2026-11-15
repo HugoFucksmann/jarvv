@@ -45,7 +45,7 @@
   "retentionDays": 30,
   "blacklist": [],
   "autoMode": true,
-  "approvalTiers": true,
+  "approvalTiers": false,
   "webSearchUseJudge": true,
   "voiceEnabled": false,
   "telegramVoice": false,
