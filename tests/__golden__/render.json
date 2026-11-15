@@ -65,6 +65,7 @@
     "lastResult": null,
     "done": [
       "c1 s1 files/list_directory read ok verdict=approved",
+      "c3 s2 files/read_file read ok verdict=approved",
       "c12 s1 files/write_file write ok verdict=approved",
       "c13 s1 files/write_file write ok verdict=approved",
       "c14 s1 files/write_file write ok verdict=approved"
@@ -104,6 +105,7 @@
     "lastResult": null,
     "done": [
       "c1 s1 files/list_directory read ok verdict=approved",
+      "c3 s2 files/read_file read ok verdict=approved",
       "c12 s1 files/write_file write ok verdict=approved",
       "c13 s1 files/write_file write ok verdict=approved",
       "c14 s1 files/write_file write ok verdict=approved"
