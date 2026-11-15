@@ -120,8 +120,13 @@ test("Invariante 1: solo finalize escribe el estado terminal y result en runTask
       environment: async () => { throw new Error("boom_environment"); },
       autoMode: () => false,
     };
+    let tmPendingCalls = 0;
+    const tmLlm: EngineLLM = {
+      ...deps.llm,
+      generatePendingFromView: async () => ({ pending: tmPendingCalls++ === 0 ? ["Listar"] : [], rawInput: "", rawOutput: "" }),
+    };
     const tm = new TaskManager(
-      { decision: deps.decision, discovery: deps.discovery, llm: deps.llm },
+      { decision: deps.decision, discovery: deps.discovery, llm: tmLlm },
       () => ({ traceEnabled: false, tracePath: path.join(dir, "t.jsonl"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig,
       services,
     );
@@ -153,6 +158,9 @@ test("Invariante 4 y 5 (deliberativo): replan por step_failure preserva paso com
         if (args.path === path.join(dir, "missing.txt")) {
           return { isError: true, content: [{ type: "text", text: "ENOENT: no such file" }] };
         }
+        if (tool === "write_file" && typeof args.path === "string") {
+          fs.writeFileSync(args.path, typeof args.content === "string" ? args.content : "", "utf8");
+        }
         return { content: [{ type: "text", text: `OK:${tool}:${String(args.path)}` }] };
       },
       isConnected: () => true,
@@ -182,8 +190,8 @@ test("Invariante 4 y 5 (deliberativo): replan por step_failure preserva paso com
       llm: {
         generateArgumentsFromView: async (input) => {
           argCalls++;
-          if (input.view.includes("Escribir primero")) return { args: { path: path.join(dir, "uno.txt"), content: "v1", mode: "rewrite" }, rawInput: "", rawOutput: "", timing: TIMING };
-          if (input.view.includes("Leer ausente")) return { args: { path: path.join(dir, "missing.txt") }, rawInput: "", rawOutput: "", timing: TIMING };
+          if (input.view.includes("TASK: Escribir primero")) return { args: { path: path.join(dir, "uno.txt"), content: "v1", mode: "rewrite" }, rawInput: "", rawOutput: "", timing: TIMING };
+          if (input.view.includes("TASK: Leer ausente")) return { args: { path: path.join(dir, "missing.txt") }, rawInput: "", rawOutput: "", timing: TIMING };
           return { args: { path: path.join(dir, "dos.txt"), content: "v2", mode: "rewrite" }, rawInput: "", rawOutput: "", timing: TIMING };
         },
         generateQuestion: async () => ({ question: "?", rawInput: "", rawOutput: "" }),
@@ -194,7 +202,7 @@ test("Invariante 4 y 5 (deliberativo): replan por step_failure preserva paso com
             return {
               steps: [
                 { instruction: "Escribir primero", route: "files", expected: "uno.txt creado" },
-                { instruction: "Leer ausente", route: "files", expected: "contenido leido" },
+                { instruction: "Leer ausente missing.txt", route: "files", expected: "contenido leido" },
               ],
               rawInput: "",
               rawOutput: "",
@@ -495,7 +503,7 @@ test("Invariante 8: refs estrictamente aisladas a la tarea activa (refs_unresolv
       },
     );
 
-    const dtoA = tm.start("Tarea A genera ref", "reactive");
+    const dtoA = tm.start("Tarea A genera ref leyendo big.txt", "reactive");
     await tm.drain(5000);
     const snapA = tm.get(dtoA.task.id)!;
     assert.equal(snapA.refs.length, 1);

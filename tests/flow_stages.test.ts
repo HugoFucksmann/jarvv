@@ -313,7 +313,7 @@ test("reactivo: item que falla maxItemFailures (2) veces se abandona si hay otro
       // D5 quisiera decir completo cuando quede vacía tras B, pero `abandoned > 0` debe cerrar partial.
       checkCompletion: async () => ({ requestComplete: 0.99, rawInput: "", rawOutput: "" }),
       verifyResult: async (input) => {
-        const failA = input.call.includes("/sub_a_");
+        const failA = input.call.includes("sub_a_");
         return { answers: failA ? { ok: 0.05, cumple: 0.05 } : { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
       },
     },

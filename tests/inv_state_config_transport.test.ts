@@ -140,11 +140,11 @@ test("Invariante 10: memory.ts cachea por mtimeMs (no relee disco si no cambia) 
 test("Invariante 11: sin jarvis-config.json, DEFAULT_CONFIG arranca con autoMode=false y approvalTiers=false", async () => {
   const emptyCwd = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-inv11-"));
   const configUrl = pathToFileURL(path.resolve("src/core/config.ts")).href;
-  const tsxBin = path.resolve("node_modules", ".bin", process.platform === "win32" ? "tsx.cmd" : "tsx");
+  const tsxCli = path.resolve("node_modules", "tsx", "dist", "cli.mjs");
 
   try {
     const script = `import { ConfigManager } from ${JSON.stringify(configUrl)}; const c = ConfigManager.getConfig(); console.log(JSON.stringify({ autoMode: c.autoMode, approvalTiers: c.approvalTiers }));`;
-    const { stdout } = await execFileAsync(tsxBin, ["--input-type=module", "-e", script], { cwd: emptyCwd });
+    const { stdout } = await execFileAsync(process.execPath, [tsxCli, "--input-type=module", "-e", script], { cwd: emptyCwd });
     const parsed = JSON.parse(stdout.trim()) as { autoMode: boolean; approvalTiers: boolean };
     assert.equal(parsed.autoMode, false);
     assert.equal(parsed.approvalTiers, false);
