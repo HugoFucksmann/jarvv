@@ -327,12 +327,6 @@ export function argsMax(defaultCap: number): number {
   return max;
 }
 
-/**
- * Nombres de los parámetros de `read_file` con los que `ctx.view.forArgs` deriva qué parte de una ref ya se mostró
- * (`ArgsViewOptions.readArgKeys`). Único lugar donde se declaran: el contexto no conoce herramientas (principio 5).
- */
-export const READ_ARG_KEYS = Object.freeze({ path: "path", offset: "offset", length: "length" });
-
 export function serverOf(route: ExecutableRoute): McpServerName {
   return DESTINATIONS[route].server;
 }

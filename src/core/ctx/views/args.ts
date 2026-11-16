@@ -10,7 +10,7 @@
  */
 
 import { effectsOf, isApproved, isExecuted, isFailure } from "../derive.ts";
-import type { Call, ContextData, Ref } from "../types.ts";
+import type { Call, ContextData } from "../types.ts";
 import {
   callViewOf,
   effectViewsOf,
@@ -22,27 +22,7 @@ import {
   taskPartsOf,
   userInputViewsOf,
 } from "./shared.ts";
-import type { ArgsView, ArgsViewOptions, AvailableRefView, ReadArgKeys, ShownRange } from "./types.ts";
-
-/**
- * Tramos de una ref ya leídos: lecturas con datos cuyo `args[path]` es el `where` de la ref. Se devuelven los valores
- * crudos de `offset` y `length` (sin interpretar unidades).
- */
-function shownRanges(data: ContextData, ref: Ref, keys: ReadArgKeys): ShownRange[] {
-  const out: ShownRange[] = [];
-  for (const call of data.calls) {
-    if (call.kind !== "read" || call.status !== "ok" || call.args === null) continue;
-    if (call.args[keys.path] !== ref.where) continue;
-    const offset = call.args[keys.offset];
-    const length = call.args[keys.length];
-    out.push({
-      callId: call.id,
-      offset: typeof offset === "number" ? offset : null,
-      length: typeof length === "number" ? length : null,
-    });
-  }
-  return out;
-}
+import type { ArgsView, ArgsViewOptions, AvailableRefView } from "./types.ts";
 
 /**
  * El último intento ejecutado de `tool` que falló (error de la herramienta o resultado rechazado por la verificación), de
@@ -66,7 +46,7 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
   const refs: AvailableRefView[] = data.refs
     .filter((ref) => !parts.shownRefs.has(ref.id))
     .slice(-Math.max(0, options.refs))
-    .map((ref) => ({ ...refToView(ref), stepId: ref.stepId, shown: shownRanges(data, ref, options.readArgKeys) }));
+    .map((ref) => ({ ...refToView(ref), stepId: ref.stepId }));
 
   const lastError = lastErrorOf(data.calls, options.tool, new Set(parts.failures.map((c) => c.id)));
 

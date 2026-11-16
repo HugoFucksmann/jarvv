@@ -6,7 +6,8 @@
  * - `data.pid` (número) y `data.state`: el proceso sigue vivo con `running` y `waiting_input`; con cualquier otro estado, ya no existe.
  * - `data.state = waiting_input` con `data.prompt` (texto): el proceso pide una respuesta del usuario.
  * - `data.state = not_found | no_results`: la herramienta buscó y no halló nada relevante (`no_data`, que la verificación rechaza).
- * `truncated` es `true` cuando el texto completo es más largo que lo que ve el modelo: el ejecutor lo guarda como ref.
+ * - `data.truncated` (booleano opcional): si el proveedor ya indica si recortó contenido, se usa tal cual (ej. `jarvis_terminal`);
+ *   si falta (ej. `web_search`), se compara el texto completo contra lo que ve el modelo.
  */
 
 import type { ExtractorInput, ExtractorOutput, ExtractorSignals } from "./types.ts";
@@ -25,9 +26,11 @@ export function extractStructured({ native }: ExtractorInput): ExtractorOutput {
         signals.waiting_input = { prompt: prompt.length > 0 ? prompt : "(no prompt text)" };
     }
 
+    const truncated = typeof data.truncated === "boolean" ? data.truncated : raw.trim() !== text.trim() && raw.trim().length > 0;
+
     const output: ExtractorOutput = {
         summary: text.length > 0 ? text : null,
-        truncated: raw.trim() !== text.trim() && raw.trim().length > 0,
+        truncated,
         ...(Object.keys(signals).length > 0 ? { signals } : {}),
     };
     if (typeof data.pid === "number" && Number.isInteger(data.pid)) {

@@ -178,7 +178,7 @@ const STOP_PROCESS_TOOL: MCPTool = {
 const TOOLS: readonly MCPTool[] = [RUN_COMMAND_TOOL, LIST_PROCESSES_TOOL, STOP_PROCESS_TOOL];
 
 const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
-  toolResult({ text: message, raw: message, data: { state: "error", ...data }, isError: true });
+  toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
 
 const seconds = (ms: number): string => `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 
@@ -620,14 +620,25 @@ export class TerminalProvider implements ToolProvider {
     const cap = Math.max(BUDGET.summaryMax - HEADER_RESERVE, 400);
     const head = Math.floor(cap * 0.2);
     const empty = state === "finished" && t.totalChars === 0 ? "(no output)" : "(no new output)";
-    const body = output.length === 0 ? empty : headTailNeutral(output, head, cap - head - 50).text;
+    const clipped = output.length === 0 ? null : headTailNeutral(output, head, cap - head - 50);
+    const body = clipped === null ? empty : clipped.text;
     const text = [header, ...notes, body].join("\n");
+    const truncated = omitted > 0 || (clipped?.clipped ?? false);
 
     const legacy = t.streams[0].decoder.legacyChunks + t.streams[1].decoder.legacyChunks;
     return toolResult({
       text,
       raw: output,
-      data: { state, pid: t.pid, exitCode, durationMs, ...(prompt === undefined ? {} : { prompt }), rawTruncated: omitted > 0, ...(t.detached ? { detached: true } : {}) },
+      data: {
+        state,
+        pid: t.pid,
+        exitCode,
+        durationMs,
+        ...(prompt === undefined ? {} : { prompt }),
+        truncated,
+        rawTruncated: omitted > 0,
+        ...(t.detached ? { detached: true } : {}),
+      },
       meta: {
         waitLimitMs: waitMs,
         waitedMs: Date.now() - waitStarted,
@@ -769,7 +780,7 @@ export class TerminalProvider implements ToolProvider {
       return toolResult({
         text: [header, ...lines.slice(0, shown), ...(omitted > 0 ? [omissionMarker(omitted, "procesos")] : [])].join("\n"),
         raw: [header, ...lines].join("\n"),
-        data: { state: "listed", scope: "system", count: rows.length },
+        data: { state: "listed", scope: "system", count: rows.length, truncated: omitted > 0 },
       });
     }
     const now = Date.now();
@@ -792,6 +803,7 @@ export class TerminalProvider implements ToolProvider {
         state: "listed",
         scope: "run_command",
         count: visible.length,
+        truncated: false,
         processes: visible.map((t) => ({ pid: t.pid, done: t.done, waiting: t.waitingPrompt !== null, ownTask: t.taskId === taskId, command: t.command.slice(0, 300) })),
       },
     });
@@ -815,27 +827,33 @@ export class TerminalProvider implements ToolProvider {
         return toolResult({
           text: `status: not_running · pid: ${pid}\nThe process had already finished (exit code ${exit}); there was nothing to stop.`,
           raw: "",
-          data: { state: "not_running", pid, scope: "run_command" },
+          data: { state: "not_running", pid, scope: "run_command", truncated: false },
         });
       }
       await this.dispose(tracked);
       for (const s of tracked.streams) tracked.buffer.append(s.lines.flushPartial());
-      const { text: output } = tracked.buffer.take();
+      const { text: output, omitted } = tracked.buffer.take();
       if (tracked.taskId === taskId) this.forget(tracked, true);
       const cap = Math.max(BUDGET.summaryMax - HEADER_RESERVE, 400);
+      const clipped = output.trim() === "" ? null : headTailNeutral(output, Math.floor(cap * 0.2), Math.floor(cap * 0.6));
+      const truncated = omitted > 0 || (clipped?.clipped ?? false);
       const lines = [
         `status: stopped · duration: ${seconds(Date.now() - tracked.startedAt)} · pid: ${pid}`,
         `The process and everything it started were stopped: ${tracked.command.replace(/\s+/g, " ").slice(0, 120)}`,
-        output.trim() === "" ? "(no unread output)" : `Unread output:\n${headTailNeutral(output, Math.floor(cap * 0.2), Math.floor(cap * 0.6)).text}`,
+        clipped === null ? "(no unread output)" : `Unread output:\n${clipped.text}`,
       ];
-      return toolResult({ text: lines.join("\n"), raw: output, data: { state: "stopped", pid, scope: "run_command" } });
+      return toolResult({
+        text: lines.join("\n"),
+        raw: output,
+        data: { state: "stopped", pid, scope: "run_command", truncated, rawTruncated: omitted > 0 },
+      });
     }
     const ended = this.ended.get(pid);
     if (ended !== undefined && ended.taskId === taskId) {
       return toolResult({
         text: `status: not_running · pid: ${pid}\nThe process had already ${ended.stopped ? "been stopped" : `finished (exit code ${ended.exitCode})`}; there was nothing to stop.`,
         raw: "",
-        data: { state: "not_running", pid, scope: "run_command" },
+        data: { state: "not_running", pid, scope: "run_command", truncated: false },
       });
     }
     let table: SystemProcess[];
@@ -854,7 +872,7 @@ export class TerminalProvider implements ToolProvider {
     return toolResult({
       text: `status: stopped · pid: ${pid}\nThe process ${target.name} was stopped (only that process, not the programs it started).`,
       raw: "",
-      data: { state: "stopped", pid, name: target.name, scope: "system" },
+      data: { state: "stopped", pid, name: target.name, scope: "system", truncated: false },
     });
   }
 
@@ -866,7 +884,12 @@ export class TerminalProvider implements ToolProvider {
         ...(withInput ? ["The input was ignored: the process is not running."] : []),
         "This process was stopped with stop_process; there is nothing to continue.",
       ].join("\n");
-      return toolResult({ text, raw: "", data: { state: "stopped", pid, durationMs: ended.durationMs, alreadyReported: true }, meta: { waitLimitMs: 0, waitedMs: 0 } });
+      return toolResult({
+        text,
+        raw: "",
+        data: { state: "stopped", pid, durationMs: ended.durationMs, truncated: false, alreadyReported: true },
+        meta: { waitLimitMs: 0, waitedMs: 0 },
+      });
     }
     const header = `status: finished · exit code: ${ended.exitCode} · duration: ${seconds(ended.durationMs)} · pid: ${pid}`;
     const notes = [
@@ -879,7 +902,7 @@ export class TerminalProvider implements ToolProvider {
       raw: "",
       // Sin `exitCode` en `data`: el código ya lo señaló la llamada que entregó la salida (con él, el núcleo registraría un segundo `tool_error` por el mismo
       // fallo). Queda en el texto, para que el modelo lo vea.
-      data: { state: "finished", pid, durationMs: ended.durationMs, rawTruncated: false, alreadyReported: true },
+      data: { state: "finished", pid, durationMs: ended.durationMs, truncated: false, rawTruncated: false, alreadyReported: true },
       meta: { waitLimitMs: 0, waitedMs: 0 },
     });
   }

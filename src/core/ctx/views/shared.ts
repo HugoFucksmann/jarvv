@@ -22,7 +22,7 @@ import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, stat
 import type { CallView, EffectView, FactView, RefView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
 
 export function refToView(ref: Ref): RefView {
-  return { id: ref.id, size: ref.size, where: ref.where, label: ref.label };
+  return { id: ref.id, size: ref.size, label: ref.label };
 }
 
 /** La ref con ese id, o `null` si `id` es `null` o no existe. */

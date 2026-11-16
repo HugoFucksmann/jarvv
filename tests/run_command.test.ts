@@ -210,6 +210,7 @@ test("un comando que termina: estado finished, salida completa en UTF-8 y códig
   assert.match(native.text, /^status: finished · exit code: 0 · duration: /);
   assert.match(native.raw, /hola ñandú/);
   assert.match(native.text, /The command finished successfully\./, "una frase llana para los modelos chicos");
+  assert.equal(native.data.truncated, false);
   assert.equal(result.isError, false);
 });
 
@@ -234,6 +235,7 @@ test("salida grande: el resumen respeta el tope y el texto completo va en raw", 
   assert.ok(native.text.includes("linea 20000"), "la cola es lo que se prioriza");
   assert.ok(native.raw.includes("linea 1\n") && native.raw.includes("linea 10000\n") && native.raw.includes("linea 20000"));
   assert.equal(native.data.rawTruncated, false);
+  assert.equal(native.data.truncated, true);
 });
 
 test("vence el plazo: running sin matar el proceso, y con {pid} se recoge el resto y el código de salida", { skip: !windows }, async () => {

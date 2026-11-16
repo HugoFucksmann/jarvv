@@ -25,7 +25,7 @@ const ctx_args_by_tool: Variant = {
         ...PROMPTS.ARGUMENTS_VIEW,
         buildSystemPrompt(tool, platform) {
           if (hasCommand({ tool })) return PROMPTS.ARGUMENTS_VIEW.buildSystemPrompt(tool, platform);
-          return tool.name === "read_file" ? `${NO_PS}\n${PROMPTS.ARGUMENTS_VIEW.READ_REFS_NOTE}` : NO_PS;
+          return NO_PS;
         },
         buildUserPrompt(data: ArgsViewPromptData): string {
           const desc = shortDesc(data.tool.description, "");

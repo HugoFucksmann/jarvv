@@ -31,6 +31,7 @@ import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/bla
 import { Guard } from "../policy/guard.ts";
 import { isReadOnlyCall } from "../policy/readOnly.ts";
 import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
+import { createRefRedactor } from "../refs/redactRef.ts";
 import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
@@ -350,7 +351,8 @@ ${stepText}`, deps.memory?.() ?? []);
   const recorded = clipArgs(mcp, tool.name, proposed);
 
   // 4. Sustituir las refs `{{ref:rN}}` (asíncrono). Una ref desconocida o ilegible nunca llega literal a la herramienta.
-  const resolution = await resolveRefs(proposed, createRefLookup(ctx, deps.vault), { ...tool.inputSchema });
+  const redactor = createRefRedactor(createRefLookup(ctx, deps.vault), clipWithin);
+  const resolution = await resolveRefs(proposed, redactor.lookup, { ...tool.inputSchema });
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (resolution.unresolvedRefs.length > 0) {
     const callId = register(ctx, {
@@ -364,6 +366,8 @@ ${stepText}`, deps.memory?.() ?? []);
     return registered(callId, "refs_unresolved");
   }
   const resolved = resolution.resolvedArgs;
+  const errorSummary = (text: string | null | undefined): string | null => summaryText(redactor.redact(text));
+
   // Un comando de terminal que solo lee es una lectura aunque `start_process` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA,
   // no pide confirmación y no pasa por D3. Desde acá la llamada se registra con este `kind`.
   const kind: CallKind = isReadOnlyCall(mcp, tool.name, resolved) ? "read" : base.kind;
@@ -372,13 +376,13 @@ ${stepText}`, deps.memory?.() ?? []);
   const sig = computeSig(resolved);
   // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
   const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, kind, args: recorded, sig, status, summary, ref: null });
-  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summary), status);
+  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, errorSummary(summary)), status);
   if (ctx.isRepeat(tool.name, sig, { policy: repeatPolicyOf(mcp, tool.name, resolved), stepId })) return reject("loop_blocked");
 
   // 6. Política (Guard). DENY (comando catastrófico, regla B de las carpetas protegidas): no se ejecuta y queda `tool_rejected` con la razón, como
   // un rechazo de la lista negra. La tarea NO cierra: el modelo ve el motivo en FAIL y prueba otro camino; `maxDeniedPerStep` corta el paso si insiste.
   const guard = Guard.evaluate(mcp, tool.name, resolved, deps.guardScope);
-  if (guard.decision === "DENY") return reject("tool_rejected", summaryText(policyDenialNote(guard.reason)));
+  if (guard.decision === "DENY") return reject("tool_rejected", policyDenialNote(guard.reason));
 
   // 6a. Lista negra (reglas de comando integradas + configuración). Solo escrituras. Nivel 1 (`blocked`) con modo automático: se rechaza aquí con la razón
   // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
@@ -389,7 +393,7 @@ ${stepText}`, deps.memory?.() ?? []);
   const tiered = deps.approvalTiers?.() === true;
   const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, undefined, deps.toolBaseDir?.()) : "red") : null;
   const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
-  if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
+  if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", listed.reason);
 
   // Analizador AST por llamada (lo comparten precheckCall y el chequeo de rutas de run_command en allowedDirectories).
   const rawAnalyzer = deps.analyzeCommand ?? analyzePowerShell;
@@ -409,7 +413,7 @@ ${stepText}`, deps.memory?.() ?? []);
     analyzeCmd,
   );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  if (finding !== null) return reject(finding.review, summaryText(finding.reason));
+  if (finding !== null) return reject(finding.review, finding.reason);
 
   // 6c. allowedDirectories en vivo para todas las herramientas, incluido run_command (cwd + rutas del AST de PowerShell).
   // Lo fuera de alcance se rechaza; lo que no se puede resolver obliga a pedir confirmación al usuario.
@@ -425,7 +429,7 @@ ${stepText}`, deps.memory?.() ?? []);
       });
       if (!res.allowed) {
         if (res.reason === "outside") {
-          return reject("tool_rejected", summaryText(policyDenialNote(`La ruta '${p}' está fuera de allowedDirectories.`)));
+          return reject("tool_rejected", policyDenialNote(`La ruta '${p}' está fuera de allowedDirectories.`));
         }
         allowedUnresolvableReason ??= `La ruta '${p}' no se pudo resolver contra allowedDirectories.`;
       }
@@ -434,7 +438,7 @@ ${stepText}`, deps.memory?.() ?? []);
       const cwdCheck = checkAllowedDirectory(effectiveCwd, allowedDirs, { home: environment.home });
       if (!cwdCheck.allowed) {
         if (cwdCheck.reason === "outside") {
-          return reject("tool_rejected", summaryText(policyDenialNote(`La carpeta de trabajo '${effectiveCwd}' está fuera de allowedDirectories.`)));
+          return reject("tool_rejected", policyDenialNote(`La carpeta de trabajo '${effectiveCwd}' está fuera de allowedDirectories.`));
         }
         allowedUnresolvableReason ??= `La carpeta de trabajo '${effectiveCwd}' no se pudo resolver contra allowedDirectories.`;
       }
@@ -447,7 +451,7 @@ ${stepText}`, deps.memory?.() ?? []);
           const dpCheck = checkAllowedDirectory(dp, allowedDirs, { cwdBase: effectiveCwd, home: environment.home });
           if (!dpCheck.allowed) {
             if (dpCheck.reason === "outside") {
-              return reject("tool_rejected", summaryText(policyDenialNote(`La ruta '${dp}' detectada en el comando está fuera de allowedDirectories.`)));
+              return reject("tool_rejected", policyDenialNote(`La ruta '${dp}' detectada en el comando está fuera de allowedDirectories.`));
             }
             allowedUnresolvableReason ??= `La ruta '${dp}' detectada en el comando no se pudo resolver contra allowedDirectories.`;
           }
@@ -476,15 +480,16 @@ ${stepText}`, deps.memory?.() ?? []);
     const canRemember = guard.mandatory !== true && listed === null && allowedUnresolvableReason === null;
     const key = approvalKey(tool.name, resolved);
     // El usuario ya rechazó exactamente esto en esta tarea: no se le vuelve a preguntar.
-    if (runtime.wasRejectedByUser(key)) return reject("user_rejected", summaryText(REPEATED_REJECTION_NOTE));
+    if (runtime.wasRejectedByUser(key)) return reject("user_rejected", REPEATED_REJECTION_NOTE);
     // Ya lo aprobó «siempre» en esta tarea: se omite la pregunta (la aprobación sustituye a D3, igual que si lo hubiera aprobado ahora).
     if (!(canRemember && runtime.isAlwaysApproved(key))) {
-      const approvalReason =
+      const rawApprovalReason =
         listed !== null
           ? `Lista de seguridad (${listed.id}): ${listed.reason}`
           : guard.mandatory === true
             ? (guard.reason ?? "Operación sensible")
             : allowedUnresolvableReason ?? (guard.reason ?? "Operación sensible");
+      const approvalReason = redactor.redact(rawApprovalReason) ?? rawApprovalReason;
       const approval = await runtime.requestApproval({
         mcp,
         tool: tool.name,
@@ -496,7 +501,7 @@ ${stepText}`, deps.memory?.() ?? []);
       if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
       if (approval.kind === "rejected") {
         runtime.rememberRejection(key);
-        return reject("user_rejected", summaryText(approval.instruction));
+        return reject("user_rejected", approval.instruction);
       }
       if (approval.remember === true && canRemember) runtime.rememberApproval(key);
     }
@@ -520,7 +525,7 @@ ${stepText}`, deps.memory?.() ?? []);
     const reviewed = reviewOutcome(review.value, strict ? BUDGET.sensitiveApprove : undefined);
     if (reviewed !== "approved" && strict && reviewOutcome(review.value) === "approved") {
       const note = `${listed?.reason ?? "This change is not trivially reversible."} The safety review was not confident enough to run it automatically. Use a safer command or a different approach.`;
-      return reject("tool_rejected", summaryText(note));
+      return reject("tool_rejected", note);
     }
     if (reviewed !== "approved") return reject(reviewed, reviewed === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null);
   }
@@ -561,7 +566,7 @@ ${stepText}`, deps.memory?.() ?? []);
   if (raced.kind === "failed") {
     // `callTool` lanzó: la herramienta no produjo resultado. `exception` es de quien ejecuta (el procesador no lo produce).
     console.error(`[MCP ← ERROR] server=${mcp} tool=${tool.name}: ${errorMessage(raced.error)}`);
-    const summary = summaryText(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
+    const summary = errorSummary(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
     return finishWithVerification(record("exception", summary), "exception");
   }
 
@@ -592,9 +597,10 @@ ${stepText}`, deps.memory?.() ?? []);
 
   const factOps = processFactOps(ctx, stepId, policy, processed);
   const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
+  const callSummary = processed.status === "ok" || processed.status === "waiting_input" ? processed.summary : errorSummary(processed.summary);
   const callId = register(
     ctx,
-    { ...base, kind, args: recorded, sig, status: processed.status, summary: processed.summary, ref },
+    { ...base, kind, args: recorded, sig, status: processed.status, summary: callSummary, ref },
     [...errorOps, ...factOps],
   );
   if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };

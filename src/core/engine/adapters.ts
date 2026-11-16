@@ -21,12 +21,10 @@ import {
   lastCapped,
   oneLine,
   readEntry,
-  refText,
   stateLines,
   stepDoneLine,
   userLines,
 } from "../render/shared.ts";
-import { READ_ARG_KEYS } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
@@ -48,7 +46,7 @@ export function reviewViewOptions(): ReviewViewOptions {
 }
 
 export function argsViewOptions(tool?: string): ArgsViewOptions {
-  return { ...reviewViewOptions(), readArgKeys: READ_ARG_KEYS, refs: BUDGET.caps.refs, tool };
+  return { ...reviewViewOptions(), refs: BUDGET.caps.refs, tool };
 }
 
 export function argsRenderOptions(): ArgsRenderOptions {
@@ -120,11 +118,10 @@ const caps = BUDGET.caps;
 /** Línea de llamada `L`, recortada a su tope. */
 const lineText = (call: CallView): string => clipMarked(callHead(call), caps.line);
 
-/** Último resultado: `L` + resumen (≤ `lastResultSummary`) + marca de ref (≤ `refMark`), en una línea. */
+/** Último resultado: `L` + resumen (≤ `lastResultSummary`), en una línea. */
 function lastResultText(call: CallView): string {
   const parts = [lineText(call)];
   if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), caps.lastResultSummary)}`);
-  if (call.ref !== null) parts.push(clipMarked(refText(call.ref), caps.refMark));
   return parts.join(" ");
 }
 

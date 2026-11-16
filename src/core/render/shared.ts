@@ -4,7 +4,7 @@
  */
 
 import type { BUDGET } from "../budget.ts";
-import type { AvailableRefView, CallView, FactView, RefView, StepDoneView, StepView, UserInputView } from "../ctx/index.ts";
+import type { AvailableRefView, CallView, FactView, StepDoneView, StepView, UserInputView } from "../ctx/index.ts";
 import { sanitizeMultiline, flatten } from "../text.ts";
 import { ContextOverflowError } from "./errors.ts";
 import type { OverflowingView } from "./errors.ts";
@@ -59,11 +59,6 @@ export function obsBlock(label: string, lines: readonly string[]): string | null
   return lines.length === 0 ? null : `${label}:\n<obs>\n${lines.join("\n")}\n</obs>`;
 }
 
-/** `ref:rN (tamaño, ruta)`: lo que el modelo necesita para leer la ref con una lectura normal. */
-export function refText(ref: RefView): string {
-  return `ref:${ref.id} (${ref.size}, ${oneLine(ref.where)})`;
-}
-
 /** Identificación de la llamada y su resultado fijo: sin `args`, resumen ni ref. */
 export function callHead(call: CallView): string {
   const parts = [`${call.id} ${call.stepId} ${oneLine(call.route)}/${oneLine(call.tool)} ${call.kind} ${call.status}`];
@@ -82,7 +77,6 @@ export function callLine(call: CallView, lineChars: number | null): string {
   const parts = [callHead(call)];
   if (call.args !== null) parts.push(`args=${fit(oneLine(JSON.stringify(call.args)))}`);
   if (call.summary !== null) parts.push(`| ${fit(oneLine(call.summary))}`);
-  if (call.ref !== null) parts.push(refText(call.ref));
   return parts.join(" ");
 }
 
@@ -94,7 +88,6 @@ export function effectEntry(call: CallView): string {
   const lines = [callHead(call)];
   if (call.args !== null) lines.push(`args=${oneLine(JSON.stringify(call.args))}`);
   if (call.summary !== null) lines.push(multiLine(call.summary));
-  if (call.ref !== null) lines.push(refText(call.ref));
   return lines.join("\n");
 }
 
@@ -107,13 +100,9 @@ export function userInputLine(input: UserInputView): string {
   return `${input.kind} ${input.stepId}: ${oneLine(input.text)}`;
 }
 
-/** Ref disponible con lo ya leído de ella: los valores de `offset` y `length` tal como los pidió cada lectura. */
+/** Ref disponible para reutilizar con `{{ref:rN}}`: identificador, tamaño y etiqueta (sin ruta ni estado de lectura). */
 export function availableRefLine(ref: AvailableRefView): string {
-  const shown =
-    ref.shown.length === 0
-      ? "unread"
-      : ref.shown.map((r) => `offset=${r.offset ?? "—"} length=${r.length ?? "—"}`).join("; ");
-  return `${refText(ref)} ${oneLine(ref.label)} — read: ${shown}`;
+  return `ref:${ref.id} (${ref.size}) ${oneLine(ref.label)}`;
 }
 
 // ───────────────────────── Elementos de las vistas con topes (8.2) ─────────────────────────
@@ -126,12 +115,11 @@ export function argsText(args: NonNullable<CallView["args"]>, max: number): stri
   return clipMarked(oneLine(JSON.stringify(args)), max);
 }
 
-/** Lectura: `L` + `args` + resumen completo (en líneas) + marca de ref. `argsMax`: tope de los `args` (por defecto `readArgs`). */
+/** Lectura: `L` + `args` + resumen completo (en líneas). `argsMax`: tope de los `args` (por defecto `readArgs`). */
 export function readEntry(call: CallView, caps: ViewCaps, argsMax: number = caps.readArgs): string {
   const lines = [clipMarked(callHead(call), caps.line)];
   if (call.args !== null) lines.push(`args=${argsText(call.args, argsMax)}`);
   if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.readSummary));
-  if (call.ref !== null) lines.push(clipMarked(refText(call.ref), caps.refMark));
   return lines.join("\n");
 }
 
@@ -146,7 +134,6 @@ export function failureLine(call: CallView, caps: ViewCaps, limits: FailureLimit
   const parts = [clipMarked(callHead(call), caps.line)];
   if (call.args !== null) parts.push(`args=${argsText(call.args, limits.args)}`);
   if (call.summary !== null) parts.push(`| ${clipMarked(oneLine(call.summary), limits.summary)}`);
-  if (call.ref !== null) parts.push(clipMarked(refText(call.ref), caps.refMark));
   return parts.join(" ");
 }
 
@@ -158,7 +145,6 @@ export function stepDoneLine(step: StepDoneView, caps: ViewCaps): string {
     const outcome = step.outcome;
     const result = [`→ ${oneLine(outcome.route)}/${oneLine(outcome.tool)} ${outcome.id}`];
     if (outcome.summary !== null) result.push(clipMarked(oneLine(outcome.summary), caps.stepsDoneOutcome));
-    if (outcome.ref !== null) result.push(clipMarked(refText(outcome.ref), caps.refMark));
     parts.push(result.join(" | "));
   }
   return parts.join(" ");
@@ -189,11 +175,10 @@ export function finalStepLine(step: StepView, caps: ViewCaps): string {
   return parts.join(" ");
 }
 
-/** Evidencia de `forFinal`: una aprobada lleva `L` + resumen (≤ `evidenceSummary`) + marca de ref; el resto, solo `L`. */
+/** Evidencia de `forFinal`: una aprobada lleva `L` + resumen (≤ `evidenceSummary`); el resto, solo `L`. */
 export function evidenceEntry(call: CallView, caps: ViewCaps): string {
   const lines = [clipMarked(callHead(call), caps.line)];
   if (call.summary !== null) lines.push(clipMarked(multiLine(call.summary), caps.evidenceSummary));
-  if (call.ref !== null) lines.push(clipMarked(refText(call.ref), caps.refMark));
   return lines.join("\n");
 }
 

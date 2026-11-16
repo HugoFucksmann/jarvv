@@ -99,15 +99,30 @@ const SYSTEM_USER_DIRS = new Set(["public", "default", "all users", "default use
 // ───────────────────────── Fuentes ─────────────────────────
 
 /** Tope de bytes que se leen de cada ref como fuente: las páginas largas superan varios cientos de KB y esto corre en cada llamada. */
-const REF_SOURCE_MAX_BYTES = 400_000;
+export const REF_SOURCE_MAX_BYTES = 400_000;
 
-/** Texto de una ref (el resultado crudo guardado aparte), o `null` si el archivo ya no se puede leer. */
-function readRefText(where: string): string | null {
+interface ReadRefResult {
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+/** Texto de una ref (hasta `REF_SOURCE_MAX_BYTES`) y si se cortó por tamaño, o `null` si el archivo ya no se puede leer. */
+function readRefText(where: string): ReadRefResult | null {
   try {
     const fd = fs.openSync(where, "r");
     try {
-      const buffer = Buffer.alloc(REF_SOURCE_MAX_BYTES);
-      return buffer.subarray(0, fs.readSync(fd, buffer, 0, buffer.length, 0)).toString("utf8");
+      const buffer = Buffer.alloc(REF_SOURCE_MAX_BYTES + 1);
+      let offset = 0;
+      while (offset < buffer.length) {
+        const bytesRead = fs.readSync(fd, buffer, offset, buffer.length - offset, offset);
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      const truncated = offset > REF_SOURCE_MAX_BYTES;
+      return {
+        text: buffer.subarray(0, truncated ? REF_SOURCE_MAX_BYTES : offset).toString("utf8"),
+        truncated,
+      };
     } finally {
       fs.closeSync(fd);
     }
@@ -133,10 +148,14 @@ export function collectSources(ctx: TaskContext, extra: readonly string[] = []):
     if (call.status === "ok" && call.summary !== null) parts.push(call.summary);
     if (call.ref !== null) {
       const ref = ctx.find("refs", {}).find((r) => r.id === call.ref);
-      const text = ref === undefined ? null : readRefText(ref.where);
-      // Una ref ilegible (archivo borrado) puede contener lo que se busca: sin ella la comprobación no es concluyente.
-      if (text === null) complete = false;
-      else if (call.status === "ok") parts.push(text);
+      const read = ref === undefined ? null : readRefText(ref.where);
+      // Una ref ilegible (archivo borrado) o mayor al tope por ref puede contener lo que se busca fuera de lo leído: la comprobación no es concluyente.
+      if (read === null) {
+        complete = false;
+      } else if (call.status === "ok") {
+        parts.push(read.text);
+        if (read.truncated) complete = false;
+      }
     }
   }
   return { text: normalizeText(parts.join("\n")), complete };

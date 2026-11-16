@@ -3,9 +3,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { collectSources, normalizeText, precheckCall, unwrapPowerShellCommand } from "../src/core/engine/precheck.ts";
+import { collectSources, normalizeText, precheckCall, REF_SOURCE_MAX_BYTES, unwrapPowerShellCommand } from "../src/core/engine/precheck.ts";
 import type { CommandAnalyzer, PrecheckInput } from "../src/core/engine/precheck.ts";
-import { buildContext } from "./fixtures.ts";
+import { buildContext, newContext } from "./fixtures.ts";
 
 const environment = { platform: "windows" as const, home: "C:\\Users\\Ana", documents: "C:\\Users\\Ana\\Documents" };
 const noAnalyzer: CommandAnalyzer = async () => null;
@@ -81,6 +81,38 @@ test("collectSources: solo lo ejecutado bien da origen, y una ref ilegible vuelv
   assert.ok(sources.text.includes("informe_ventas.txt"), "los args de una llamada ok son fuente");
   assert.ok(!sources.text.includes("no_existe.txt"), "los args de un intento fallido no lo son");
   assert.equal(sources.complete, false, "la ref del fixture no existe en disco");
+});
+
+test("collectSources: una ref mayor que REF_SOURCE_MAX_BYTES marca fuentes incompletas y evita falsos rechazos", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-ref-cap-"));
+  try {
+    const exactFile = path.join(dir, "exact.txt");
+    const bigFile = path.join(dir, "big.txt");
+    const prefixUrl = "https://primera.invalid/inicio";
+    const tailUrl = "https://despues-del-tope.invalid/recurso";
+    fs.writeFileSync(exactFile, prefixUrl.padEnd(REF_SOURCE_MAX_BYTES, "a"), "utf8");
+    fs.writeFileSync(bigFile, `${"b".repeat(REF_SOURCE_MAX_BYTES)}\n${tailUrl}`, "utf8");
+
+    const addRefCall = (where: string) => {
+      const ctx = newContext("reactive");
+      const s1 = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "buscar", route: null, expected: null } }).ids[0];
+      const ref = ctx.apply({ op: "add", target: "refs", value: { stepId: s1, label: "web_search", size: fs.statSync(where).size, where } }).ids[0];
+      ctx.apply({ op: "add", target: "calls", value: { stepId: s1, route: "web", tool: "web_search", kind: "read", args: { need: "x" }, sig: "s", status: "ok", summary: "ok", ref } });
+      return ctx;
+    };
+
+    const exactSources = collectSources(addRefCall(exactFile));
+    assert.equal(exactSources.complete, true, "hasta REF_SOURCE_MAX_BYTES exacto sigue completo");
+    assert.equal(await precheckCall(input({ tool: "fetch", args: { url: prefixUrl }, sources: exactSources }), noAnalyzer), null);
+    assert.equal((await precheckCall(input({ tool: "fetch", args: { url: tailUrl }, sources: exactSources }), noAnalyzer))?.review, "args_invalid");
+
+    const bigSources = collectSources(addRefCall(bigFile));
+    assert.equal(bigSources.complete, false, "si la ref excede REF_SOURCE_MAX_BYTES, no es concluyente");
+    assert.equal(await precheckCall(input({ tool: "fetch", args: { url: tailUrl }, sources: bigSources }), noAnalyzer), null, "no rechaza una URL que quedó más allá del tope");
+    assert.equal((await precheckCall(input({ tool: "fetch", args: { url: "ftp://despues-del-tope.invalid/recurso" }, sources: bigSources }), noAnalyzer))?.review, "args_invalid", "las reglas de sintaxis siguen corriendo");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ───────────────────────── Destino de una escritura con origen ─────────────────────────

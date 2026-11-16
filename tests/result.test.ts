@@ -73,6 +73,42 @@ test("resultado nativo: lo que ve el modelo, el texto completo aparte, el pid y 
   assert.deepEqual(unknown.process, { pid: "9", active: false }, "un pid que no existe da de baja el hecho process");
 });
 
+test("extractStructured usa data.truncated cuando está presente y mantiene la comparación de texto si falta (web_search)", () => {
+  // Cabecera/notas delante de una salida corta: text !== raw, pero data.truncated=false evita crear una ref innecesaria.
+  const shortCmd = processResult(
+    TERMINAL,
+    "run_command",
+    native({ state: "finished", pid: 7, exitCode: 0, truncated: false }, "status: finished · exit code: 0\nThe command finished successfully.\nhola", "hola"),
+    { command: "echo hola" },
+  );
+  assert.equal(shortCmd.truncated, false);
+  assert.equal(shortCmd.fullText, "hola");
+
+  const shortStop = processResult(
+    TERMINAL,
+    "stop_process",
+    native({ state: "stopped", pid: 7, scope: "run_command", truncated: false }, "status: stopped · pid: 7\nUnread output:\nantes", "antes"),
+    { pid: 7 },
+  );
+  assert.equal(shortStop.truncated, false);
+
+  // Salida recortada explícitamente: sí genera ref con el texto completo.
+  const longCmd = processResult(
+    TERMINAL,
+    "run_command",
+    native({ state: "finished", pid: 7, exitCode: 0, truncated: true }, "status: finished\n[… omitidos …]", "salida completa real"),
+    { command: "dir /s" },
+  );
+  assert.equal(longCmd.truncated, true);
+  assert.equal(longCmd.fullText, "salida completa real");
+
+  // Sin data.truncated (web_search): sigue comparando raw contra text.
+  const webDiff = processResult(WEB, "web_search", native({ state: "found" }, "status: found\nresumen", "fuente completa"), { need: "algo" });
+  assert.equal(webDiff.truncated, true);
+  const webSame = processResult(WEB, "web_search", native({ state: "found" }, "status: found", "status: found"), { need: "algo" });
+  assert.equal(webSame.truncated, false);
+});
+
 test("resultado nativo: waiting_input trae el prompt y no es un fallo; sin resultados es no_data", () => {
   const waiting = processResult(TERMINAL, "run_command", native({ state: "waiting_input", pid: 5, exitCode: null, prompt: "Continuar (s/n)?" }, "status: waiting_input"), { command: "x" });
   assert.equal(waiting.status, "waiting_input");

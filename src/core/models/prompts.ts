@@ -119,9 +119,6 @@ For file paths, use the real paths provided in ENV. Never use placeholders or en
 ${POWERSHELL_RULES}
 ${DATA_NOTICE_EN}`,
 
-    /** Solo al leer un archivo tiene sentido hablar de leer partes de una ref; en las demás herramientas la frase sobra. */
-    READ_REFS_NOTE: `To read part of a saved result, use the path shown in REFS (valid as written, even though it is not under ENV) with offset and length counted in lines.`,
-
     /** Línea del sistema operativo: va tras la primera línea del SYSTEM. Sin ella el modelo escribe comandos de Linux en Windows. */
     osLine(platform: Platform): string {
       return platform === "windows"
@@ -136,8 +133,7 @@ ${DATA_NOTICE_EN}`,
       const takesCommand = "command" in props;
       const system = takesCommand && platform === "windows" ? this.SYSTEM : this.SYSTEM.replace(`${POWERSHELL_RULES}\n`, "");
       const [first, ...rest] = system.split("\n");
-      const base = takesCommand ? [first, this.osLine(platform), ...rest].join("\n") : system;
-      return tool.name === "read_file" ? `${base}\n${this.READ_REFS_NOTE}` : base;
+      return takesCommand ? [first, this.osLine(platform), ...rest].join("\n") : system;
     },
 
     buildUserPrompt(data: ArgsViewPromptData): string {

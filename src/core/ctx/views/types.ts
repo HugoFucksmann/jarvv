@@ -44,23 +44,12 @@ export interface RouteViewOptions extends WindowOptions {
   readonly route?: string;
 }
 
-/**
- * Nombres de los parámetros de la lectura de archivos con los que se deriva qué parte de una ref ya se mostró.
- * El contexto no conoce herramientas (principio 5): quien lo usa los toma del catálogo.
- */
-export interface ReadArgKeys {
-  readonly path: string;
-  readonly offset: string;
-  readonly length: string;
-}
-
 export interface ReviewViewOptions extends WindowOptions {
   /** Últimas lecturas aprobadas que muestra la vista (`BUDGET.caps.lastReads`): no depende de las escalaciones. */
   readonly lastReads: number;
 }
 
 export interface ArgsViewOptions extends ReviewViewOptions {
-  readonly readArgKeys: ReadArgKeys;
   /** Refs más recientes que muestra la vista (`BUDGET.caps.refs`). */
   readonly refs: number;
   /** Herramienta para la que se generan los argumentos: con ella la vista incluye `lastError`. */
@@ -73,8 +62,6 @@ export interface RefView {
   readonly id: string;
   /** Tamaño en caracteres. */
   readonly size: number;
-  /** Ruta absoluta del archivo con el resultado crudo. */
-  readonly where: string;
   readonly label: string;
 }
 
@@ -131,16 +118,8 @@ export interface FeedbackView {
   readonly feedback: string;
 }
 
-/** Tramo de una ref ya leído, tal como lo pidió una lectura (valores crudos de `args`; `null` si no venían). */
-export interface ShownRange {
-  readonly callId: string;
-  readonly offset: number | null;
-  readonly length: number | null;
-}
-
 export interface AvailableRefView extends RefView {
   readonly stepId: string;
-  readonly shown: readonly ShownRange[];
 }
 
 // ───────────────────────── Vistas ─────────────────────────

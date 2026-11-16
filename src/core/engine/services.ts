@@ -11,7 +11,6 @@ import type { ConfigSource } from "../config.ts";
 import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
 import { createMemoryReader, type MemoryFact } from "../memory.ts";
 import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
-import { isPathInsideCanonical } from "../policy/allowedDirs.ts";
 import type { ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
 import { resolveToolTimeoutMs } from "../timeouts.ts";
@@ -40,25 +39,9 @@ export interface EngineServices {
   readonly memory?: () => readonly MemoryFact[];
 }
 
-let coherenceWarned = false;
-
 /**
- * Aviso de coherencia: si Desktop Commander restringe los directorios (`allowedDirectories` no vacío; vacío = sin
- * restricción) y `refsDir` queda fuera, el modelo no podrá leer las refs con la lectura normal. Se avisa una sola vez.
- */
-function warnIfRefsOutsideAllowed(refsDir: string, allowedDirectories: readonly string[]): void {
-  if (coherenceWarned || allowedDirectories.length === 0) return;
-  if (allowedDirectories.some((dir) => isPathInsideCanonical(path.resolve(dir), refsDir))) return;
-  coherenceWarned = true;
-  console.warn(
-    `[Engine] refsDir (${refsDir}) queda fuera de allowedDirectories de Desktop Commander: el modelo no podrá leer las refs ` +
-    "con la lectura de archivos. Agregue esa carpeta a allowedDirectories o cambie refsDir.",
-  );
-}
-
-/**
- * Crea una sola vez el almacén de refs (con `refsDir`) y el alcance de la regla B del Guard, y emite el aviso de
- * coherencia. La raíz de composición lo llama una vez y comparte el resultado entre tareas.
+ * Crea una sola vez el almacén de refs (con `refsDir`) y el alcance de la regla B del Guard. La raíz de composición
+ * lo llama una vez y comparte el resultado entre tareas.
  *
  * Las rutas relativas que el modelo escriba se resuelven contra dos bases (D27): el directorio de trabajo de Jarvis y el
  * `cwd` de Desktop Commander si está configurado. No se comprobó contra qué base resuelve Desktop Commander las suyas.
@@ -67,7 +50,6 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
   const config = getConfig();
   const refsDir = path.resolve(config.refsDir);
   const desktop = config.desktopCommanderMcp;
-  warnIfRefsOutsideAllowed(refsDir, desktop.allowedDirectories ?? []);
 
   const bases = new Set<string>([process.cwd()]);
   if (desktop.cwd) bases.add(path.resolve(desktop.cwd));
