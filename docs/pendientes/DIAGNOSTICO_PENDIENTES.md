@@ -87,6 +87,7 @@ Este documento consolida el análisis en código de los frentes pendientes ident
 > - **Deduplicación tras `user_rejected` (hecho):** tras un rechazo del usuario, la misma clave no se vuelve a preguntar en esa tarea; la llamada queda `user_rejected` con una nota y cuenta contra `maxUserRejectionsPerStep`.
 > - **Aviso de niveles en Telegram (hecho):** la confirmación de `/auto on` explica los tres niveles y cuándo se pregunta.
 > - **Rutas relativas (hecho):** `tiers.ts` resuelve una ruta relativa contra la carpeta de trabajo de la herramienta (`toolBaseDir`: `desktopCommanderMcp.cwd` o la del proceso; es la misma base que usa `allowedDirectories`) antes de comprobar si existe; sin base absoluta sigue en amarillo. `edit_block` (en pausa) queda en rojo.
+> - **Probado en uso real (2026-11-16):** los niveles funcionan según lo descrito arriba.
 > - **Pendiente a propósito:** allowlist persistente entre tareas.
 
 ### Estado actual
