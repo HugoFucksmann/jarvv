@@ -2,6 +2,27 @@
 
 Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/) y las versiones, [SemVer](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Seguridad
+- **Aprobación por niveles con `autoMode`:** `approvalTiers` queda encendida por defecto. Con `autoMode`, verde no pide al usuario ni pasa por D3; amarillo no pide al usuario y pasa por D3 estricto; rojo siempre pide al usuario. Guard, la lista negra y el pre-chequeo siguen igual. Toggle en Ajustes.
+- **`allowedDirectories` en todas las herramientas:** aplica también a `run_command` (`cwd` y rutas del análisis de PowerShell), se lee en vivo y usa `realpathSync`; lo no resoluble pide confirmación. Control en Ajustes.
+- **API local:** el servidor no arranca si `HOST` no es loopback; `/refresh-discovery` pasa a solo `POST`; nuevo tope de tamaño en disco `retentionMaxMb` (500 MB) para refs y trazas.
+- **Políticas:** `egress.ts` ya no trata un SHA hex como clave; `sensitivePaths.ts` resuelve symlinks, nombres 8.3 y prefijos `\\?\`/UNC; `commandRules.ts` detecta llamadas `.Delete()`/`.MoveTo()`/`.CopyTo()`.
+- **MCP:** al abortar o vencer una llamada por stdio se envía `notifications/cancelled`.
+
+### Aprobaciones
+- **Aprobar una vez / siempre en esta tarea** (UI y Telegram): «siempre» vive solo en la tarea (RAM), por herramienta + comando o ruta normalizada; lo obligatorio de Guard, la lista negra y lo no resoluble solo admiten «una vez». Tras un rechazo del usuario no se repite la misma pregunta en la tarea. Aviso de niveles en Telegram.
+
+### Experimental (apagado por defecto)
+- `reviewFullView`, `reviewReads` (D3) y `completionCoverageGuard` (D5): ver `docs/pendientes/DIAGNOSTICO_PENDIENTES.md`.
+
+### Terminal
+- Tablas de página de códigos 852 y 857; el conteo de letras acentuadas incluye Latin Extended-A.
+
+### Cambios
+- `list_directory` rechaza `depth` menor que 1 en el pre-chequeo; `validateAnswer` es exhaustivo y `DecisionValidationError` adjunta la salida cruda.
+
 ## [0.7.0] — 2026-11-15
 
 ### Destacado

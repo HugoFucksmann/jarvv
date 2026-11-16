@@ -63,7 +63,7 @@ function global:__jvDecode([byte[]] $b) {
   try { return $global:__jvUtf8.GetString($b, 0, $n) } catch {}
   $o = $global:__jvOem.GetString($b, 0, $n)
   $a = $global:__jvAnsi.GetString($b, 0, $n)
-  $letters = '[À-ÖØ-öø-ÿ]'
+  $letters = '[À-ÖØ-öø-ÿĀ-ſ]'
   if (([regex]::Matches($a, $letters)).Count -gt ([regex]::Matches($o, $letters)).Count) { $a } else { $o }
 }
 function global:__jvRun([string] $name, [object[]] $argv, [bool] $piped, $pipedInput) {

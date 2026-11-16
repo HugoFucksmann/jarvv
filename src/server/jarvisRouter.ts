@@ -16,6 +16,7 @@ import type { ControlResult, TaskManager } from '../core/tasks.ts';
 import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
 import { TASK_MODES } from '../core/ctx/index.ts';
 import { streamSpeech } from '../voice/tts.ts';
+import { TIMEOUT_DEFAULTS } from '../core/timeouts.ts';
 import type { VoiceConfig } from '../voice/tts.ts';
 import type { TaskMode } from '../core/ctx/index.ts';
 
@@ -93,7 +94,7 @@ const TTS_MAX_CHARS = 20000;
 /**
  * `getVoice`: la configuración de voz vigente (se lee en cada request) o `null` si está apagada. Sin ella `POST /tts` responde 503.
  */
-export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine, getVoice: () => VoiceConfig | null = () => null): express.Router {
+export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine, getVoice: () => VoiceConfig | null = () => null, getSseKeepAliveMs: () => number = () => TIMEOUT_DEFAULTS.sseKeepAliveMs): express.Router {
   const router = express.Router();
 
   /** `taskId` del cuerpo o, si falta, la última tarea retenida (compatibilidad con clientes de una sola tarea). */
@@ -163,7 +164,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   );
 
   // Mutación sensible: aprobar o rechazar (con una instrucción opcional en `reason`).
-  router.post('/approve', control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.approveCall(id, text(b.waitId)), true));
+  router.post('/approve', control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.approveCall(id, text(b.waitId), b.remember === true), true));
   router.post(
     '/deny',
     control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId)), true),
@@ -251,7 +252,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       res.write(chunk);
     };
     const unsubscribe = tasks.addEventListener((event) => send(`data: ${JSON.stringify(event)}\n\n`));
-    const keepAlive = setInterval(() => send(': ping\n\n'), 15000);
+    const keepAlive = setInterval(() => send(': ping\n\n'), getSseKeepAliveMs());
     req.on('close', () => {
       sseClients--;
       clearInterval(keepAlive);

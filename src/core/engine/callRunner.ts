@@ -23,6 +23,7 @@ import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason }
 import { factLines, selectFacts } from "../memory.ts";
 import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
 import { checkAllowedDirectory } from "../policy/allowedDirs.ts";
+import { approvalKey } from "../policy/approvalKey.ts";
 import { threadMemoryLines } from "./thread.ts";
 import { analyzePowerShell, collectSources, precheckCall, type CommandReport } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
@@ -59,6 +60,7 @@ export interface RunCallParams {
 
 type Policy = ReturnType<typeof getToolPolicy>;
 
+const REPEATED_REJECTION_NOTE = "The user already rejected this exact operation in this task. Do not ask again: use a different approach or say what could not be done.";
 const CANCELLED: CallOutcome = { kind: "cancelled", callId: null };
 const kindOf = (policy: Policy): CallKind => (policy.mutates ? "write" : "read");
 const ALLOWED_DIR_PATH_KEYS = ["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder", "cwd"] as const;
@@ -383,9 +385,9 @@ ${stepText}`, deps.memory?.() ?? []);
   // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
   const auto = deps.autoMode();
   // Aprobación por niveles (`policy/tiers.ts`, activa por defecto `approvalTiers`): clasifica las escrituras en green / yellow / red.
-  // Con `autoMode`: verde omite usuario y D3; amarillo omite usuario y pasa por D3 estricto; rojo siempre confirma el usuario.
+  // Con `autoMode`: verde omite usuario y D3; amarillo omite usuario y pasa por D3 estricto; rojo siempre confirma. Sin `autoMode`: verde pasa, amarillo y rojo piden al usuario (la aprobación sustituye a D3).
   const tiered = deps.approvalTiers?.() === true;
-  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment) : "red") : null;
+  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, undefined, deps.toolBaseDir?.()) : "red") : null;
   const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", summaryText(listed.reason));
 
@@ -465,26 +467,39 @@ ${stepText}`, deps.memory?.() ?? []);
   const askUser =
     allowedUnresolvableReason !== null ||
     (tiered
-      ? !userAuthored && (guard.mandatory === true || tier === "red" || listed !== null)
+      ? !userAuthored && (guard.mandatory === true || tier === "red" || (tier === "yellow" && !auto) || listed !== null)
       : !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto)));
 
   // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
   if (askUser) {
-    const approvalReason =
-      listed !== null
-        ? `Lista de seguridad (${listed.id}): ${listed.reason}`
-        : guard.mandatory === true
-          ? (guard.reason ?? "Operación sensible")
-          : allowedUnresolvableReason ?? (guard.reason ?? "Operación sensible");
-    const approval = await runtime.requestApproval({
-      mcp,
-      tool: tool.name,
-      capability: guard.capability,
-      reason: approvalReason,
-      args: recorded,
-    });
-    if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    if (approval.kind === "rejected") return reject("user_rejected", summaryText(approval.instruction));
+    // «Siempre en esta tarea» no se ofrece para lo obligatorio de Guard, la lista negra ni lo que no se pudo resolver: esos solo admiten «una vez».
+    const canRemember = guard.mandatory !== true && listed === null && allowedUnresolvableReason === null;
+    const key = approvalKey(tool.name, resolved);
+    // El usuario ya rechazó exactamente esto en esta tarea: no se le vuelve a preguntar.
+    if (runtime.wasRejectedByUser(key)) return reject("user_rejected", summaryText(REPEATED_REJECTION_NOTE));
+    // Ya lo aprobó «siempre» en esta tarea: se omite la pregunta (la aprobación sustituye a D3, igual que si lo hubiera aprobado ahora).
+    if (!(canRemember && runtime.isAlwaysApproved(key))) {
+      const approvalReason =
+        listed !== null
+          ? `Lista de seguridad (${listed.id}): ${listed.reason}`
+          : guard.mandatory === true
+            ? (guard.reason ?? "Operación sensible")
+            : allowedUnresolvableReason ?? (guard.reason ?? "Operación sensible");
+      const approval = await runtime.requestApproval({
+        mcp,
+        tool: tool.name,
+        capability: guard.capability,
+        reason: approvalReason,
+        args: recorded,
+        canRemember,
+      });
+      if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
+      if (approval.kind === "rejected") {
+        runtime.rememberRejection(key);
+        return reject("user_rejected", summaryText(approval.instruction));
+      }
+      if (approval.remember === true && canRemember) runtime.rememberApproval(key);
+    }
   }
 
   // 8. Revisión de argumentos (Decisión 3): solo en las escrituras que el usuario no aprobó. Si el usuario las aprobó (paso 7), la
@@ -492,7 +507,9 @@ ${stepText}`, deps.memory?.() ?? []);
   // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
   // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
   // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  if (kind === "write" && !askUser && !userAuthored && tier !== "green") {
+  // Con `reviewReads` (experimental, apagado por defecto) las lecturas también pasan por D3.
+  const reviewApplies = kind === "write" ? !askUser && !userAuthored && tier !== "green" : deps.reviewReads?.() === true;
+  if (reviewApplies) {
     const reviewView = ctx.view.forReview(reviewViewOptions());
     const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal), 0);
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
@@ -514,7 +531,7 @@ ${stepText}`, deps.memory?.() ?? []);
   const callOptions: ToolCallOptions = {
     signal: runtime.signal,
     taskId: ctx.task.id,
-    timeoutMs: timeoutOf(mcp, tool.name),
+    timeoutMs: deps.toolTimeoutMs?.(mcp, tool.name) ?? timeoutOf(mcp, tool.name),
     ...(server.dependencies === undefined ? {} : { host: createToolHost(deps.discovery, server.dependencies, env.sink, ctx.task.id) }),
   };
   const raced = await raceCancel(captureCallTool(server, env.sink)(tool.name, resolved, callOptions), runtime.signal);

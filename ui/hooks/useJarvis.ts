@@ -310,11 +310,12 @@ export function useJarvis() {
   );
 
   const approvePending = useCallback(
-    async (explicitTaskId?: string, explicitWaitId?: string): Promise<boolean> =>
+    async (explicitTaskId?: string, explicitWaitId?: string, remember = false): Promise<boolean> =>
       runAccepted(async () => {
         await jarvisApi.approvePending(
           resolveTaskId(explicitTaskId),
-          explicitWaitId || resolveWaitId()
+          explicitWaitId || resolveWaitId(),
+          remember
         );
         await fetchState();
       }, "Error al aprobar la operación pendiente."),

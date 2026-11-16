@@ -65,3 +65,30 @@ test("shell solo para scripts .cmd/.bat de Windows: node y uvx (.exe) se lanzan 
   assert.equal(needsShell("inexistente", env), false);
   assert.equal(needsShell("npx", { ...env, platform: "linux" }), false);
 });
+
+test("el plazo propio de una llamada (override por herramienta) gana sobre el de la configuración", async () => {
+  const transport = make(20000);
+  try {
+    const started = Date.now();
+    await assert.rejects(transport.callTool("slow", {}, { timeoutMs: 300 }), /Timeout de 300ms/);
+    assert.ok(Date.now() - started < 5000, "venció por su plazo, no por el de 20 s");
+    assert.equal(text(await transport.callTool("echo", { text: "sigue" })), "sigue");
+  } finally {
+    await transport.close();
+  }
+});
+
+test("abortar una llamada en vuelo la rechaza al instante y el transporte sigue sirviendo", async () => {
+  const transport = make(20000);
+  try {
+    const controller = new AbortController();
+    const pending = transport.callTool("slow", {}, { signal: controller.signal });
+    setTimeout(() => controller.abort(), 100);
+    const started = Date.now();
+    await assert.rejects(pending);
+    assert.ok(Date.now() - started < 5000);
+    assert.equal(text(await transport.callTool("echo", { text: "sigue" })), "sigue");
+  } finally {
+    await transport.close();
+  }
+});

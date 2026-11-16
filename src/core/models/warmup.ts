@@ -8,6 +8,7 @@
 
 import type { ConfigSource } from "../config.ts";
 import { buildDecisionRequest } from "./decision.ts";
+import { resolveModelTimeoutMs } from "../timeouts.ts";
 import { errorMessage } from "../utils.ts";
 
 type FetchFn = (input: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number }>;
@@ -35,7 +36,7 @@ async function ping(label: string, url: string, body: string, timeoutMs: number,
 export async function warmUpModels(getConfig: ConfigSource, fetchFn: FetchFn = fetch as unknown as FetchFn): Promise<void> {
   const config = getConfig();
   const decision = buildDecisionRequest(config, { state: "Request: hola", questions: { warmup: { type: "noul", instructions: "Is this a greeting?" } } });
-  await ping(`decisión ${config.decisionModel}`, decision.url, decision.body, config.decisionTimeoutMs, fetchFn);
+  await ping(`decisión ${config.decisionModel}`, decision.url, decision.body, resolveModelTimeoutMs(config, config.decisionModel, "decision"), fetchFn);
 
   const chat = JSON.stringify({
     model: config.qwenModel,
@@ -45,5 +46,5 @@ export async function warmUpModels(getConfig: ConfigSource, fetchFn: FetchFn = f
     reasoning_effort: "none",
     keep_alive: config.modelKeepAlive,
   });
-  await ping(`generativo ${config.qwenModel}`, chatUrl(config.qwenUrl), chat, config.qwenTimeoutMs, fetchFn);
+  await ping(`generativo ${config.qwenModel}`, chatUrl(config.qwenUrl), chat, resolveModelTimeoutMs(config, config.qwenModel, "qwen"), fetchFn);
 }

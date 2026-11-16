@@ -156,7 +156,7 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `PORT` | `3000` | Puerto del servidor |
-| `HOST` | `127.0.0.1` | Interfaz de red. Con `0.0.0.0` se expone a la red; como no hay autenticación, daría control de tu PC a quien llegue al servidor, así que no lo uses en redes que no controlás |
+| `HOST` | `127.0.0.1` | Interfaz de red. Debe ser loopback (`127.0.0.1`, `localhost`, `::1`): con cualquier otro valor el servidor no arranca, porque no hay autenticación y daría control de tu PC a quien llegue al servidor |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `TELEGRAM_MODE` | — | Telegram, opcional (se leen del entorno o de `.env`; ver `.env.example` y [`TELEGRAM_Y_VOZ`](docs/operacion/TELEGRAM_Y_VOZ.md)). Sin token o sin `TELEGRAM_CHAT_ID` el bot no arranca |
 | `HF_TOKEN` | — | Solo para `scripts/phonon_server.py` (modelo de voz *gated* en Hugging Face) |
 
@@ -179,16 +179,17 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `decisionUrl` · `decisionModel` | `http://127.0.0.1:11434` · `d3:2b` | Modelo de decisión |
 | `qwenNumCtx` · `decisionMaxContext` | `16384` | Ventana de contexto; debe coincidir con la del motor |
 | `thinking` | `false` | Razonamiento extendido en la respuesta final |
-| `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos |
+| `qwenTimeoutMs` · `decisionTimeoutMs` · `mcpTimeoutMs` | `120000` · `30000` · `60000` | Timeouts en milisegundos. Overrides por herramienta (`toolTimeoutsMs`) y por modelo (`modelTimeoutsMs`) y el inventario completo en [`CONFIGURACION`](docs/configuracion/CONFIGURACION.md) §4 |
 | `data/memory.json` (archivo opcional) | ausente | Hechos del usuario `[{ "key", "value" }]` que Jarvis pasa a la generación de argumentos cuando el pedido los menciona ([`CONTEXT_AND_MEMORY`](docs/arquitectura/CONTEXT_AND_MEMORY.md) §10) |
-| `approvalTiers` | `false` | Aprobación por niveles (verde sin confirmación, amarillo con Decisión 3 estricta, rojo siempre pide al usuario). Si está encendida reemplaza a `autoMode` en las escrituras. Ver [`CORE_FLOW`](docs/arquitectura/CORE_FLOW.md) |
+| `approvalTiers` | `true` | Aprobación por niveles (verde sin confirmación, amarillo con Decisión 3 estricta y sin confirmación con `autoMode` (sin él pide al usuario), rojo siempre pide al usuario). Ver [`CORE_FLOW`](docs/arquitectura/CORE_FLOW.md) |
 | `modelKeepAlive` | `30m` | `keep_alive` de Ollama que se manda con cada consulta a los dos modelos (`30m`, `2h`, `-1` = sin límite). Ver [`OLLAMA_MODELOS_TEXTO`](docs/operacion/OLLAMA_MODELOS_TEXTO.md) |
 | `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
 | `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |
-| `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita Desktop Commander (vacía = sin restricción). Solo valida los argumentos de ruta de las herramientas de archivos: **no restringe lo que haga un comando** de `run_command` |
+| `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita toda herramienta con ruta, incluido `run_command` (su `cwd` y las rutas que detecta el análisis de PowerShell). Se lee en cada llamada y compara con `realpathSync`; lo que no se puede resolver pide confirmación. Vacía = sin restricción |
 | `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
-| `retentionDays` | `30` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar nada). Las refs de una tarea retenida en memoria no se tocan |
+| `retentionDays` | `30` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar por antigüedad). Las refs de una tarea retenida en memoria no se tocan |
+| `retentionMaxMb` | `500` | Tope de tamaño en disco entre refs y trazas: si se supera, se borran las carpetas más viejas hasta bajar (`0` = sin tope) |
 | `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
 | `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
 | `webSearchUseJudge` | `true` | `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada |

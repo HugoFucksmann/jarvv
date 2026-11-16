@@ -31,6 +31,7 @@ import { toolResult } from "../../core/tools/result.ts";
 import { headTailNeutral, omissionMarker } from "../../core/text.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
+import { FIXED_TIMEOUTS, TIMEOUT_DEFAULTS } from "../../core/timeouts.ts";
 import { systemCodePages, type CodePages } from "./codepages.ts";
 import { cleanTerminalText, LineAssembler, legacyDecoder, OutputBuffer, OutputDecoder } from "./output.ts";
 import { buildCommandLine, ensureHelpersFile, HELPERS_ENV, HELPERS_UNAVAILABLE, HELPERS_UNAVAILABLE_EXIT, POWERSHELL_ARGS } from "./powershell.ts";
@@ -44,8 +45,9 @@ export const RUN_COMMAND = "run_command";
 export const LIST_PROCESSES = "list_processes";
 export const STOP_PROCESS = "stop_process";
 
-export const DEFAULT_WAIT_SEC = 30;
-export const MAX_WAIT_SEC = 300;
+/** Espera por omisión y tope de `timeoutSec` (los valores de `timeouts.ts`; la configuración los cambia con `waitSec`). */
+export const DEFAULT_WAIT_SEC = TIMEOUT_DEFAULTS.runCommandDefaultWaitSec;
+export const MAX_WAIT_SEC = TIMEOUT_DEFAULTS.runCommandMaxWaitSec;
 /** Procesos vivos a la vez. */
 export const MAX_LIVE_PROCESSES = 8;
 /**
@@ -59,12 +61,12 @@ const CLOSE_GRACE_MS = 300;
 /** Veces que se intenta escribir el archivo de ayudas antes de seguir sin ellas el resto de la sesión. */
 const MAX_HELPERS_ATTEMPTS = 3;
 /** Plazo para que el sistema arranque PowerShell. */
-const SPAWN_TIMEOUT_MS = 15_000;
+const SPAWN_TIMEOUT_MS = FIXED_TIMEOUTS.spawnMs;
 /** Lápidas de procesos terminados que se recuerdan a la vez (ver `ended`). */
 const MAX_ENDED = 64;
 /** Un proceso terminado cuya salida nadie leyó, o su lápida, se olvida pasado este tiempo. */
-const RETAIN_FINISHED_MS = 10 * 60 * 1000;
-const SAFETY_MARGIN_MS = 5000;
+const RETAIN_FINISHED_MS = FIXED_TIMEOUTS.retainFinishedMs;
+const SAFETY_MARGIN_MS = FIXED_TIMEOUTS.safetyMarginMs;
 /** Reserva de la cabecera y las notas dentro del tope del resumen. */
 const HEADER_RESERVE = 320;
 /** Una secuencia de escape que quedó partida al final de un fragmento se retiene hasta este largo. */
@@ -213,6 +215,8 @@ export interface TerminalOptions {
   readonly terminatedPromptIdleMs?: number;
   /** Directorios permitidos leídos en vivo: valida `cwd` de un comando nuevo (vacío = sin restricción). */
   readonly allowedDirectories?: () => readonly string[];
+  /** Espera por omisión y tope de `timeoutSec`, leídos en cada llamada (`runCommandDefaultWaitSec`, `runCommandMaxWaitSec`). Por defecto, 30 y 300 s. */
+  readonly waitSec?: () => { readonly default: number; readonly max: number };
 }
 
 export class TerminalProvider implements ToolProvider {
@@ -238,11 +242,13 @@ export class TerminalProvider implements ToolProvider {
   private helpersDisabled: boolean;
   private readonly helpersDir: string | undefined;
   private readonly getAllowedDirectories: () => readonly string[];
+  private readonly getWaitSec: () => { readonly default: number; readonly max: number };
 
   constructor(options: TerminalOptions = {}) {
     this.defaultCwd = options.defaultCwd ?? os.homedir();
     this.platform = options.platform ?? process.platform;
     this.maxLive = options.maxLive ?? MAX_LIVE_PROCESSES;
+    this.getWaitSec = options.waitSec ?? (() => ({ default: DEFAULT_WAIT_SEC, max: MAX_WAIT_SEC }));
     this.envRemove = new Set((options.envRemove ?? []).map((k) => k.toLowerCase()));
     this.legacyTools = options.legacyTools ?? true;
     this.helpersDisabled = options.helpers === false;
@@ -310,7 +316,8 @@ export class TerminalProvider implements ToolProvider {
     if (timeoutSec !== undefined && (typeof timeoutSec !== "number" || !Number.isFinite(timeoutSec) || timeoutSec <= 0)) return fail("'timeoutSec' must be a positive number.");
     if ((command === undefined || command.trim() === "") === (pid === undefined)) return fail("Give exactly one of: 'command' (a new command) or 'pid' (continue a process).");
 
-    const requested = Math.min(Math.max(Math.round(typeof timeoutSec === "number" ? timeoutSec : DEFAULT_WAIT_SEC), 1), MAX_WAIT_SEC) * 1000;
+    const wait = this.getWaitSec();
+    const requested = Math.min(Math.max(Math.round(typeof timeoutSec === "number" ? timeoutSec : wait.default), 1), Math.max(wait.max, 1)) * 1000;
     const ceiling = options.timeoutMs === undefined ? Infinity : Math.max(options.timeoutMs - SAFETY_MARGIN_MS, 1000);
     const waitMs = Math.min(requested, ceiling);
 

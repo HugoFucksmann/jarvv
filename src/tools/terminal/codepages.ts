@@ -6,6 +6,8 @@
 
 import { spawnSync } from "node:child_process";
 
+import { FIXED_TIMEOUTS } from "../../core/timeouts.ts";
+
 export interface CodePages {
   readonly oem: number;
   readonly ansi: number;
@@ -30,7 +32,7 @@ export function systemCodePages(): CodePages {
     const result = spawnSync("reg", ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"], {
       windowsHide: true,
       encoding: "latin1",
-      timeout: 5000,
+      timeout: FIXED_TIMEOUTS.codePagesMs,
     });
     const out = typeof result.stdout === "string" ? result.stdout : "";
     cached = { oem: readValue(out, "OEMCP") ?? DEFAULT_CODE_PAGES.oem, ansi: readValue(out, "ACP") ?? DEFAULT_CODE_PAGES.ansi };

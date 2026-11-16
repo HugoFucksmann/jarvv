@@ -6,9 +6,10 @@
  * si `taskkill` no se puede ejecutar, no termina a tiempo o termina con error (salvo 128: el proceso ya no existía), se cierra al menos el proceso principal. Nunca espera más de `KILL_TIMEOUT_MS`.
  */
 
+import { FIXED_TIMEOUTS } from "../../core/timeouts.ts";
 import { spawn } from "node:child_process";
 
-export const KILL_TIMEOUT_MS = 5000;
+export const KILL_TIMEOUT_MS = FIXED_TIMEOUTS.killMs;
 
 function killMain(pid: number): void {
   try {
@@ -58,7 +59,7 @@ const PROCESS_TABLE_COMMAND =
   "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-CimInstance Win32_Process | ForEach-Object { '{0}{4}{1}{4}{2}{4}{3}' -f $_.ProcessId, $_.ParentProcessId, $_.WorkingSetSize, $_.Name, [char]9 }";
 
 /** Los procesos de la PC (Windows, `Win32_Process`). Lanza si no se pudieron leer. Sin la línea de comandos: puede llevar secretos. */
-export function systemProcesses(timeoutMs = 15_000): Promise<SystemProcess[]> {
+export function systemProcesses(timeoutMs: number = FIXED_TIMEOUTS.processTableMs): Promise<SystemProcess[]> {
   return new Promise((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", PROCESS_TABLE_COMMAND], {
       windowsHide: true,

@@ -1,10 +1,11 @@
 /** Cliente de la API HTTP de JARVIS (`/api/jarvis/*`, contrato en `docs/api/JARVIS_API.md`): la misma que usa la interfaz web. */
 
+import { FIXED_TIMEOUTS } from "../core/timeouts.ts";
 import type { TaskEvent } from "../core/tasks.ts";
 
 export type ApiResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
 
-const RECONNECT_MS = 2000;
+const RECONNECT_MS = FIXED_TIMEOUTS.telegramReconnectMs;
 
 export class JarvisApi {
   constructor(private readonly base: string) {}

@@ -23,6 +23,7 @@ import type { MCPCallResult, MCPTool } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 import { FRESHNESS, MAX_DOMAINS, MAX_NEED_CHARS, MAX_URL_CHARS, MAX_URLS, isInternalHost, parseArgs, searchQuestion, type WebArgs } from "./args.ts";
 import { CANDIDATES, PER_SOURCE, pickCandidates, rank, type Ranked } from "./bm25.ts";
+import { FIXED_TIMEOUTS, TIMEOUT_DEFAULTS } from "../../core/timeouts.ts";
 import { chunkDocs, dateLabel, snippetChunks } from "./chunks.ts";
 import { callWithDeadline, DeadlineError, FormatError, ToolBudgetError, toolBudgetMessage } from "./hostCall.ts";
 import { parseFetch, parseReadDoc, parseSearch, type Doc, type Material, type Source } from "./report.ts";
@@ -52,8 +53,8 @@ export const COVERAGE_PARTIAL = 0.34;
 export const RETURN_MAX = 4;
 const PASSAGES_BUDGET = 1700;
 export const DEFAULT_TIMEOUT_MS = 150_000;
-const DEFAULT_JUDGE_TIMEOUT_MS = 20_000;
-const SAFETY_MARGIN_MS = 5000;
+const DEFAULT_JUDGE_TIMEOUT_MS = TIMEOUT_DEFAULTS.webJudgeMs;
+const SAFETY_MARGIN_MS = FIXED_TIMEOUTS.safetyMarginMs;
 /** Tiempo que debe quedar para el reintento sin filtros y para el modelo. */
 const RETRY_NEEDS_MS = 30_000;
 const JUDGE_NEEDS_MS = 15_000;
@@ -182,7 +183,8 @@ export interface WebSearchOptions {
   /** La fecha de hoy (el juez la ve para distinguir lo reciente); por defecto, la del sistema. */
   readonly now?: () => Date;
   /** Plazo máximo del modelo en una búsqueda (por defecto 20 s); pasado ese plazo se sigue con el orden léxico. */
-  readonly judgeTimeoutMs?: number;
+  /** Tope de cada consulta al juez (ms), o una función que lo da en cada uso. Por defecto 20 s. */
+  readonly judgeTimeoutMs?: number | (() => number);
 }
 
 const EMPTY: Material = { sources: [], docs: [], blocked: 0, diagnostics: {} };
@@ -202,12 +204,13 @@ export class WebSearchProvider implements ToolProvider {
   private readonly maxAgeHours: number;
   private readonly pages: number;
   private readonly now: () => Date;
-  private readonly judgeTimeoutMs: number;
+  private readonly judgeTimeoutMs: () => number;
 
   constructor(options: WebSearchOptions = {}) {
     this.getJudge = options.judge ?? (() => undefined);
     this.maxAgeHours = options.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
-    this.judgeTimeoutMs = options.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
+    const judgeTimeout = options.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
+    this.judgeTimeoutMs = typeof judgeTimeout === "function" ? judgeTimeout : () => judgeTimeout;
     const pages = options.pages ?? DEFAULT_PAGES;
     if (!Number.isInteger(pages) || pages < 1 || pages > 8) throw new RangeError(`web_search pages must be an integer from 1 to 8 (got ${String(pages)})`);
     this.pages = pages;
@@ -221,7 +224,7 @@ export class WebSearchProvider implements ToolProvider {
 
   /** El modelo no puede gastar más que el tiempo que queda: pasado ese plazo se sigue con el orden léxico. */
   private judgeSignal(remaining: () => number, signal?: AbortSignal): AbortSignal {
-    return AbortSignal.any([AbortSignal.timeout(Math.min(Math.max(remaining() - 2000, 1000), this.judgeTimeoutMs)), ...(signal === undefined ? [] : [signal])]);
+    return AbortSignal.any([AbortSignal.timeout(Math.min(Math.max(remaining() - 2000, 1000), this.judgeTimeoutMs())), ...(signal === undefined ? [] : [signal])]);
   }
 
   async listTools(): Promise<MCPTool[]> {

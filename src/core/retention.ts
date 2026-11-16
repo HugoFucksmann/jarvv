@@ -15,6 +15,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { FIXED_TIMEOUTS } from "./timeouts.ts";
 import type { ConfigSource } from "./config.ts";
 import { taskFolderName } from "./refs/refVault.ts";
 import { traceBaseDir } from "./trace/files.ts";
@@ -29,7 +30,7 @@ export const REFS_FOLDER = /^task_\d+_[A-Za-z0-9]+$/;
 export const TRACE_FOLDER = /^\d{8}-\d{6}_task_\d+_[A-Za-z0-9]+$/;
 
 /** Cada cuánto se repite la limpieza mientras el servidor sigue encendido. */
-export const RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const RETENTION_INTERVAL_MS = FIXED_TIMEOUTS.retentionIntervalMs;
 
 /**
  * Borra las subcarpetas directas de `dir` cuyo nombre cumple `owned`, modificadas antes de `now - maxAgeMs` y que `keep` no protege.

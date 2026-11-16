@@ -54,6 +54,7 @@ import {
   DecisionValidationError,
   TransportError,
 } from "./transport.ts";
+import { resolveModelTimeoutMs } from "../timeouts.ts";
 import { errorMessage, isRecord } from "../utils.ts";
 import type { FragmentJudge, FragmentScores } from "../tools/judge.ts";
 
@@ -159,13 +160,14 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     let result;
     const startedAt = Date.now();
+    const decisionTimeout = resolveModelTimeoutMs(config, config.decisionModel, "decision");
     try {
-      result = await postJson({ url, body, timeoutMs: config.decisionTimeoutMs, signal: options?.signal });
+      result = await postJson({ url, body, timeoutMs: decisionTimeout, signal: options?.signal });
     } catch (err) {
       if (err instanceof TransportError) {
         throw new DecisionServiceUnavailableError(
           err.kind === "timeout"
-            ? `Timeout (${config.decisionTimeoutMs}ms) esperando a Decision 2.0 en ${url}`
+            ? `Timeout (${decisionTimeout}ms) esperando a Decision 2.0 en ${url}`
             : `No fue posible conectar con Decision 2.0 en ${url}. Verifique que el servicio esté en ejecución. ${err.message}`,
           err
         );
@@ -270,7 +272,7 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
    * siempre se consulta, porque nunca hay una sola opción.
    */
   async reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision> {
-    const { state, questions } = this.prompts.buildArgsReview(input);
+    const { state, questions } = this.prompts.buildArgsReview(input, { fullView: this.getConfig().reviewFullView === true });
 
     const t0 = Date.now();
     const response = await this.ask("Decision #3", state, questions, signal);

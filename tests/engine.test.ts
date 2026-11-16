@@ -267,6 +267,65 @@ test("escritura: el usuario la rechaza, no se despacha, y al segundo rechazo el 
   assert.equal(ctx.isClosed(), true);
 });
 
+test("rechazo del usuario: la misma operación no se vuelve a preguntar en la tarea (se pregunta una sola vez)", async () => {
+  let asked = 0;
+  const { ctx, dispatched } = await run({
+    request: "Guardar hola en C:\\x\\a.txt",
+    tool: "write_file",
+    args: { path: "C:\\x\\a.txt", content: "hola", mode: "rewrite" },
+    onWait: (waiting, runtime) => {
+      if (waiting.kind === "approval") {
+        asked++;
+        runtime.resolveApproval(waiting.request.id, false, "no escribas nada");
+      }
+    },
+  });
+  assert.equal(asked, 1, "el usuario dijo que no una vez; la repetición se descarta sin preguntarle");
+  assert.equal(dispatched.length, 0);
+  const rejected = ctx.find("calls", { status: "user_rejected" });
+  assert.equal(rejected.length, 2);
+  assert.match(rejected[1].summary ?? "", /already rejected/);
+});
+
+test("aprobar siempre en la tarea: la misma ruta con otro contenido no se vuelve a preguntar", async () => {
+  let asked = 0;
+  const { dispatched } = await run({
+    request: "Guardar hola en C:\\x\\a.txt",
+    tool: "write_file",
+    args: {},
+    argsFor: (n) => ({ path: "C:\\x\\a.txt", content: `hola ${n}`, mode: "rewrite" }),
+    pendingFor: (n) => (n < 2 ? ["Guardar hola en C:\\x\\a.txt"] : []),
+    onWait: (waiting, runtime) => {
+      if (waiting.kind === "approval") {
+        asked++;
+        assert.equal(waiting.request.canRemember, true, "una ruta común admite «siempre»");
+        runtime.resolveApproval(waiting.request.id, true, undefined, true);
+      }
+    },
+  });
+  assert.equal(asked, 1, "la segunda escritura a la misma ruta ya estaba aprobada");
+  assert.ok(dispatched.length >= 2, "la herramienta se ejecutó más de una vez");
+});
+
+test("lo obligatorio de Guard no admite «siempre»: se pregunta cada vez y no se ofrece recordar", async () => {
+  const offered: (boolean | undefined)[] = [];
+  await run({
+    request: "Guardar la clave",
+    tool: "write_file",
+    args: {},
+    argsFor: (n) => ({ path: "C:\\Users\\Ana\\.ssh\\config", content: `x${n}`, mode: "rewrite" }),
+    pendingFor: (n) => (n < 2 ? ["Guardar la clave"] : []),
+    onWait: (waiting, runtime) => {
+      if (waiting.kind === "approval") {
+        offered.push(waiting.request.canRemember);
+        runtime.resolveApproval(waiting.request.id, true, undefined, true);
+      }
+    },
+  });
+  assert.ok(offered.length >= 1);
+  assert.ok(offered.every((v) => v === false), "nunca se ofrece recordar lo obligatorio");
+});
+
 test("escritura aprobada por el usuario: se despacha, no pasa por la revisión D3 y queda como efecto", async () => {
   const { ctx, dispatched, reviews } = await run({
     request: "Guardar hola en C:\\x\\a.txt",
@@ -789,14 +848,32 @@ test("niveles: rojo (sobrescribir un archivo que existe) siempre pide confirmaci
   assert.equal(ctx.find("calls", {})[0].status, "ok");
 });
 
-test("niveles: amarillo (agregar a un archivo) no pide confirmación y pasa por Decisión 3", async () => {
-  const { approvals, reviews } = await tiered((dir) => {
+test("niveles: amarillo (agregar a un archivo) con autoMode no pide confirmación y pasa por Decisión 3", async () => {
+  const { approvals, reviews } = await tiered(
+    (dir) => {
+      const file = path.join(dir, "existe.txt");
+      fs.writeFileSync(file, "viejo");
+      return { file, args: { path: file, content: "más", mode: "append" } };
+    },
+    { autoMode: true },
+  );
+  assert.equal(approvals, 0);
+  assert.equal(reviews, 1);
+});
+
+test("niveles: sin autoMode, amarillo pide confirmación al usuario (su aprobación sustituye a Decisión 3) y verde pasa", async () => {
+  const yellow = await tiered((dir) => {
     const file = path.join(dir, "existe.txt");
     fs.writeFileSync(file, "viejo");
     return { file, args: { path: file, content: "más", mode: "append" } };
   });
-  assert.equal(approvals, 0);
-  assert.equal(reviews, 1);
+  assert.equal(yellow.approvals, 1);
+  assert.equal(yellow.reviews, 0);
+  const green = await tiered((dir) => {
+    const file = path.join(dir, "nueva.txt");
+    return { file, args: { path: file, content: "hola" } };
+  });
+  assert.equal(green.approvals, 0);
 });
 
 test("niveles apagados (por defecto): el comportamiento de `autoMode` no cambia, una escritura del catálogo pide confirmación", async () => {

@@ -23,7 +23,9 @@
 
 ## Pendientes y diagnóstico
 - [`pendientes/PENDIENTES.md`](pendientes/PENDIENTES.md) — Lista única de limitaciones conocidas, deuda técnica y trabajo abierto (1.0 y 2.0).
-- [`pendientes/DIAGNOSTICO_PENDIENTES.md`](pendientes/DIAGNOSTICO_PENDIENTES.md) — Diagnóstico en código y opciones de solución de los 7 frentes prioritarios.
+- [`pendientes/DIAGNOSTICO_PENDIENTES.md`](pendientes/DIAGNOSTICO_PENDIENTES.md) — Diagnóstico en código y opciones de solución de los 6 frentes prioritarios.
+- [`pendientes/MEMORIA_PLAN.md`](pendientes/MEMORIA_PLAN.md) — Plan (sin implementar) de la memoria del usuario: estado actual, opciones y criterio de latencia.
+- [`pendientes/HERRAMIENTAS_NATIVAS.md`](pendientes/HERRAMIENTAS_NATIVAS.md) — Plan (sin implementar) de herramientas nativas de archivos (D-15 a D-17).
 
 ## Evaluación y análisis histórico
 - [`../eval/README.md`](../eval/README.md) — Guía de uso del laboratorio de evaluación (`eval/`).

@@ -9,14 +9,13 @@
 
 ---
 
-## Tools (11 + `ask` opcional)
+## Tools (10 + `ask` opcional)
 
-### Búsqueda e investigación
+### Búsqueda
 
 | Tool | Firma | Salida |
 |---|---|---|
 | `search` | `search(query, engines?, max_results?, freshness?, include_domains?, exclude_domains?, category?, include_text?, exclude_text?, max_age_hours?, format?)` | Ranking RRF deduplicado, `lead_snippet` extractivo opcional |
-| `research` | `research(question, depth?, ...filtros de search)` | Informe Markdown: fuentes + cuerpos completos |
 | `paper_graph` | `paper_graph(paper, direction?, limit?)` | Referencias, citas (por influencia), avisos Crossref de retractación/corrección. `paper` = DOI, ID OpenAlex, título exacto o arXiv (`arXiv:1706.03762`, URL abs, DOI `10.48550/arXiv.*`, id suelto) |
 | `compare` | `compare(question, urls=[2..5])` | Extractos lado a lado según la pregunta |
 
@@ -39,7 +38,7 @@
 
 ### `ask` (solo con backend de IA)
 
-`ask(question, freshness, include_domains, category)`. Corre `research`, el modelo puede llamar `search`/`fetch`/`read_doc`, devuelve respuesta breve + fuentes. En Python también `ask(question, answer_with=...)`.
+`ask(question, freshness, include_domains, category)`. El modelo puede llamar `search`/`fetch`/`read_doc`, devuelve respuesta breve + fuentes. En Python también `ask(question, answer_with=...)`.
 
 ### Prompts y recursos MCP
 
@@ -48,7 +47,7 @@
 
 ---
 
-## Parámetros de filtro (`search` / `research`)
+## Parámetros de filtro (`search`)
 
 | Param | Valores / efecto |
 |---|---|
@@ -87,7 +86,7 @@ Campos de procedencia/diagnóstico:
 | `lane_missing` | Fila cacheada sin algún motor del lane (se repite máx 1 h) |
 | `agent` (JSON) / `## Answer` (Markdown) | Respuesta del backend de IA, si está configurado |
 
-Regla: usar snippets solo para hallar fuentes; confirmar con `fetch`/`research`.
+Regla: usar snippets solo para hallar fuentes; confirmar con `fetch`.
 
 ---
 

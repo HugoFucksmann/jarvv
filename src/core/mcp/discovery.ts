@@ -4,12 +4,13 @@
  * falla queda "no disponible" hasta un refresco forzado.
  */
 
+import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import type { MCPTool } from "../types.ts";
 import type { IMCPServer } from "./types.ts";
 import type { TaskEndOutcome } from "../tools/provider.ts";
 import { errorMessage } from "../utils.ts";
 
-const TOOLS_CACHE_TTL_MS = 30000;
+const TOOLS_CACHE_TTL_MS = FIXED_TIMEOUTS.toolsCacheTtlMs;
 
 export class DiscoveryEngine {
   private servers: Map<string, IMCPServer> = new Map();

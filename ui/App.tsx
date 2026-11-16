@@ -163,6 +163,7 @@ export default function App() {
             <GuardBanner
               waiting={waiting}
               onApprove={approvePending}
+              onApproveAlways={() => approvePending(undefined, undefined, true)}
               onDeny={denyPending}
               onAnswer={provideUserAnswer}
             />

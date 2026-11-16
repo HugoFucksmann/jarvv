@@ -130,6 +130,8 @@ export interface WaitingApproval {
     capability: string;
     reason: string;
     args: Record<string, unknown>;
+    /** Si es verdadero se ofrece «Aprobar siempre en esta tarea» (nunca para lo obligatorio de Guard). */
+    canRemember?: boolean;
   };
 }
 
@@ -299,6 +301,9 @@ export interface JarvisConfig {
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;
   approvalTiers?: boolean;
+  reviewFullView?: boolean;
+  reviewReads?: boolean;
+  completionCoverageGuard?: boolean;
   webSearchUseJudge?: boolean;
   voiceEnabled?: boolean;
   telegramVoice?: boolean;

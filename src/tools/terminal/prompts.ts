@@ -10,14 +10,16 @@
  * - `none`: no es un prompt aunque quede quieto: vacío, demasiado largo, o un avance (`progreso...`, `45%`, `[####    ]`, un indicador giratorio).
  */
 
+import { FIXED_TIMEOUTS } from "../../core/timeouts.ts";
+
 export type PromptKind = "strong" | "likely" | "weak" | "none";
 
 /** Silencio que necesita un prompt `strong` o `likely` sin salto de línea. */
-export const PROMPT_IDLE_MS = 1500;
+export const PROMPT_IDLE_MS = FIXED_TIMEOUTS.promptIdleMs;
 /** Silencio que necesita una línea sin salto que no termina como un prompt. */
-export const WEAK_PROMPT_IDLE_MS = 5000;
+export const WEAK_PROMPT_IDLE_MS = FIXED_TIMEOUTS.weakPromptIdleMs;
 /** Silencio que necesita una elección o una tecla en una línea ya terminada. */
-export const TERMINATED_PROMPT_IDLE_MS = 3000;
+export const TERMINATED_PROMPT_IDLE_MS = FIXED_TIMEOUTS.terminatedPromptIdleMs;
 /** Largo máximo de la línea que se toma por prompt. */
 export const PROMPT_MAX_CHARS = 300;
 

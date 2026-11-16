@@ -8,11 +8,12 @@
 
 import { execFile } from "node:child_process";
 import os from "node:os";
+import { FIXED_TIMEOUTS } from "./timeouts.ts";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-const QUERY_TIMEOUT_MS = 8000;
+const QUERY_TIMEOUT_MS = FIXED_TIMEOUTS.environmentQueryMs;
 
 /**
  * Un solo proceso PowerShell devuelve las carpetas como JSON. La salida se fuerza a UTF-8 sin BOM: con la página de

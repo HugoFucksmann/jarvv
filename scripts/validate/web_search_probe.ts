@@ -46,7 +46,7 @@ const page = capture.fetches.map((f, i) => parseFetch(f.text, f.url, i + 1)).fin
 if (page?.ok && page.value !== null && "doc" in page.value) console.log(`  página leída: ${page.value.doc.url.slice(0, 60)} → ${chunkDocs([page.value.doc]).length} fragmentos`);
 
 console.log("\n### Si Free Search cambiara el formato (WS-05): se rechaza con la ruta, no se degrada en silencio");
-for (const text of ["# Research brief: x\n## Sources\n- [1] **T** — <https://a.org>", JSON.stringify({ results: [{ title: "x" }] })]) {
+for (const text of ["# Brief: x\n## Sources\n- [1] **T** — <https://a.org>", JSON.stringify({ results: [{ title: "x" }] })]) {
   const drift = parseSearch(text);
   console.log(`  ${drift.ok ? "ACEPTADO (mal)" : `rechazado: ${drift.detail}`}`);
 }

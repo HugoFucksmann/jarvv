@@ -28,7 +28,7 @@ function stepWith(calls: Partial<Record<CallStatus, number>>): { ctx: TaskContex
       // `args` es null solo con `args_invalid`; `sig` es null también con `refs_unresolved` (la huella sale de argumentos ya resueltos).
       const args = status === "args_invalid" ? null : {};
       const sig = status === "args_invalid" || status === "refs_unresolved" ? null : `s${n++}`;
-      ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "research", kind: "read", args, sig, status, summary: null, ref: null } });
+      ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "search", kind: "read", args, sig, status, summary: null, ref: null } });
     }
   }
   return { ctx, stepId };
@@ -99,7 +99,7 @@ test("los topes del paso son por paso: las llamadas de otro paso no cuentan", ()
   const ctx = newContext("reactive");
   const first = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "uno", route: null, expected: null } }).ids[0];
   for (let i = 0; i < BUDGET.maxRepeatsPerStep; i++) {
-    ctx.apply({ op: "add", target: "calls", value: { stepId: first, route: "web", tool: "research", kind: "read", args: {}, sig: `s${i}`, status: "loop_blocked", summary: null, ref: null } });
+    ctx.apply({ op: "add", target: "calls", value: { stepId: first, route: "web", tool: "search", kind: "read", args: {}, sig: `s${i}`, status: "loop_blocked", summary: null, ref: null } });
   }
   assert.equal(checkStepLimits(ctx, first)?.cause, "repeat_blocked");
   ctx.apply({ op: "update", target: first, value: { state: "failed" } });
@@ -167,7 +167,7 @@ test("tope del paso: dos llamadas rechazadas por la verificación fallan el paso
   const ctx = newContext("reactive");
   const stepId = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "paso", route: null, expected: null } }).ids[0];
   const reject = (i: number): void => {
-    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "research", kind: "read", args: {}, sig: `s${i}`, status: "ok", summary: null, ref: null } }).ids[0];
+    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "search", kind: "read", args: {}, sig: `s${i}`, status: "ok", summary: null, ref: null } }).ids[0];
     ctx.apply({ op: "update", target: id, value: { verdict: "rejected", reason: "not_accomplished" } });
   };
   reject(0);
@@ -183,7 +183,7 @@ test("los rechazos de la verificación son por paso", () => {
   ctx.apply({ op: "update", target: a, value: { state: "failed" } });
   const b = add("dos");
   for (const stepId of [a, b]) {
-    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "research", kind: "read", args: {}, sig: stepId, status: "ok", summary: null, ref: null } }).ids[0];
+    const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "search", kind: "read", args: {}, sig: stepId, status: "ok", summary: null, ref: null } }).ids[0];
     ctx.apply({ op: "update", target: id, value: { verdict: "rejected", reason: "no_usable_data" } });
   }
   assert.equal(checkStepLimits(ctx, a), null);

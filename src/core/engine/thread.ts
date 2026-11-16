@@ -7,10 +7,11 @@
  * cambia nada. Una tarea anterior es texto que escribió el usuario y la respuesta que él ya vio: nunca prosa nueva de un modelo.
  */
 
+import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import type { PreviousTask } from "../contracts.ts";
 
 /** Cuánto vive la tarea anterior para el hilo (DN-1.5). */
-export const THREAD_TTL_MS = 10 * 60 * 1000;
+export const THREAD_TTL_MS = FIXED_TIMEOUTS.threadTtlMs;
 /** Caracteres de la respuesta anterior que se conservan. */
 export const THREAD_ANSWER_CHARS = 500;
 /**

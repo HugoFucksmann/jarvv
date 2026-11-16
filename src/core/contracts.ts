@@ -332,6 +332,14 @@ export interface EngineDeps {
   readonly autoMode: () => boolean;
   /** Aprobación por niveles (`policy/tiers.ts`); activa por defecto. Omitida = apagada (en pruebas heredadas). */
   readonly approvalTiers?: () => boolean;
+  /** Experimental (config `reviewReads`): las lecturas también pasan por Decisión 3. Omitida = apagada. */
+  readonly reviewReads?: () => boolean;
+  /** Experimental (config `completionCoverageGuard`): Decisión 5 no cierra si un archivo nombrado en el pedido no aparece en ninguna llamada. Omitida = apagada. */
+  readonly completionCoverageGuard?: () => boolean;
+  /** Override de plazo (ms) de una herramienta desde la configuración (`toolTimeoutsMs`); `undefined` = rige el del catálogo. */
+  readonly toolTimeoutMs?: (server: string, tool: string) => number | undefined;
+  /** Carpeta de trabajo de las herramientas de archivos (contra ella se resuelven las rutas relativas al clasificar el nivel de riesgo). Omitida = las relativas quedan sin resolver. */
+  readonly toolBaseDir?: () => string;
   /** Directorios permitidos leídos en vivo en cada llamada; vacío u omitido = sin restricción. */
   readonly allowedDirectories?: () => readonly string[];
   /** Analizador de comandos inyectable (por defecto PowerShell AST en Windows). */

@@ -86,8 +86,9 @@ async function main() {
     jarvis_terminal: new TerminalProvider({
       envRemove: [...dotenvKeys(), ...SECRET_KEYS],
       allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+      waitSec: () => ({ default: getConfig().runCommandDefaultWaitSec, max: getConfig().runCommandMaxWaitSec }),
     }),
-    jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined) }),
+    jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined), judgeTimeoutMs: () => getConfig().webJudgeTimeoutMs }),
   };
 
   const discoveryEngine = new DiscoveryEngine(servers);
@@ -120,7 +121,7 @@ async function main() {
     stopTelegram?.();
     tasks.cancelAll();
     // Cada tarea cancelada cierra sus procesos en segundo plano (necesita los servidores vivos) y escribe su traza: se espera un momento.
-    await tasks.drain(3000);
+    await tasks.drain(getConfig().shutdownDrainMs);
 
     // En paralelo: un servidor colgado no consume el plazo de los demás.
     const results = await Promise.allSettled(Object.values(servers).map((server) => server.close?.()));
@@ -137,7 +138,7 @@ async function main() {
   process.on('SIGINT', () => cleanShutdown('SIGINT'));
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
 
-  app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine, () => voiceFor('ui')));
+  app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine, () => voiceFor('ui'), () => getConfig().sseKeepAliveMs));
   app.use(['/api/mcp', '/mcp'], createMcpRouter(discoveryEngine));
 
   // Lo que cuelga de un prefijo de API y no coincide con ninguna ruta nunca llega al frontend.

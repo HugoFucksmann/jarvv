@@ -60,7 +60,7 @@ export interface IMCPTransport {
   readonly serverName: string;
   readonly config: StdioServerConfig;
   listTools(): Promise<MCPTool[]>;
-  callTool(name: string, args: Record<string, unknown>, options?: Pick<ToolCallOptions, "signal">): Promise<MCPCallResult>;
+  callTool(name: string, args: Record<string, unknown>, options?: Pick<ToolCallOptions, "signal" | "timeoutMs">): Promise<MCPCallResult>;
   isConnected(): boolean;
   reconnect(): Promise<void>;
   close?(): Promise<void>;
@@ -368,7 +368,7 @@ export class StdioMcpTransport implements IMCPTransport {
     }
   }
 
-  private async rawRpcCall<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
+  private async rawRpcCall<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, timeoutMs?: number): Promise<T> {
     if (signal?.aborted) {
       throw new RequestAbortedError();
     }
@@ -383,7 +383,8 @@ export class StdioMcpTransport implements IMCPTransport {
       method,
       params,
     };
-    const currentTimeoutMs = this.getTimeoutMs();
+    // Un plazo propio de la llamada (override por herramienta, `toolTimeoutsMs`) gana sobre el de la configuración (`mcpTimeoutMs`).
+    const currentTimeoutMs = timeoutMs !== undefined && timeoutMs > 0 ? timeoutMs : this.getTimeoutMs();
 
     return new Promise<T>((resolve, reject) => {
       const onAbort = () => {
@@ -438,11 +439,11 @@ export class StdioMcpTransport implements IMCPTransport {
     });
   }
 
-  private async rpcCall<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<T> {
+  private async rpcCall<T>(method: string, params: Record<string, unknown> = {}, signal?: AbortSignal, timeoutMs?: number): Promise<T> {
     if (signal?.aborted) throw new RequestAbortedError();
     await this.startProcess();
     if (signal?.aborted) throw new RequestAbortedError();
-    return await this.rawRpcCall<T>(method, params, signal);
+    return await this.rawRpcCall<T>(method, params, signal, timeoutMs);
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -453,11 +454,11 @@ export class StdioMcpTransport implements IMCPTransport {
     return result.tools;
   }
 
-  async callTool(name: string, args: Record<string, unknown>, options?: Pick<ToolCallOptions, "signal">): Promise<MCPCallResult> {
+  async callTool(name: string, args: Record<string, unknown>, options?: Pick<ToolCallOptions, "signal" | "timeoutMs">): Promise<MCPCallResult> {
     const result = await this.rpcCall<MCPCallResult>("tools/call", {
       name,
       arguments: args,
-    }, options?.signal);
+    }, options?.signal, options?.timeoutMs);
     if (!result || typeof result !== "object") {
       throw new MCPTransportError(this.serverName, `tools/call a '${name}' devolvió un resultado malformado.`);
     }

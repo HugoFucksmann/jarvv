@@ -1,20 +1,41 @@
 # Diagnóstico Técnico de Pendientes de Arquitectura y Comportamiento
 
-Este documento consolida el análisis en código de los siete frentes pendientes identificados en la auditoría. **No aplica cambios funcionales**: documenta el estado actual, la causa raíz, los archivos y símbolos implicados, y las opciones de solución viables para abordarlos de forma controlada y medible.
+Este documento consolida el análisis en código de los frentes pendientes identificados en la auditoría. Documenta el estado, la causa raíz, los archivos y símbolos implicados y las opciones de solución. **Actualizado el 2026-11-15**: las secciones 2 y 3 llevan un bloque «Actualización» con lo que ya se resolvió; el texto de «Estado actual» que sigue a ese bloque es el diagnóstico original (histórico). Las secciones 7 a 11 resumen lo menor, D5, el anti-bucle, el terminal y `refsDir`.
 
 ## Índice
 
 1. [D3 (`reviewArgs`) con modelo 2B y sin lecturas](#1-d3-reviewargs-con-modelo-2b-y-sin-lecturas)
-2. [`approvalTiers` incompleto](#2-approvaltiers-incompleto)
-3. [`allowedDirectories` estático, sin realpath y fuera de `jarvis_terminal`](#3-alloweddirectories-estático-sin-realpath-y-fuera-de-jarvis_terminal)
+2. [`approvalTiers`](#2-approvaltiers-incompleto)
+3. [`allowedDirectories`](#3-alloweddirectories-estático-sin-realpath-y-fuera-de-jarvis_terminal)
 4. [`web_search`: consultas multiparte y recencia](#4-web_search-consultas-multiparte-y-recencia)
-5. [Deep Research](#5-deep-research)
-6. [Memoria manual (`data/memory.json`)](#6-memoria-manual-datamemoryjson)
-7. [`PENDING_FACTS_LOOKUP = false`](#7-pending_facts_lookup--false)
+5. [Memoria manual (`data/memory.json`)](#5-memoria-manual-datamemoryjson)
+6. [`PENDING_FACTS_LOOKUP = false`](#6-pending_facts_lookup--false)
+7. [Pendientes técnicos menores (revisión 2026-11-15)](#7-pendientes-técnicos-menores-revisión-2026-11-15)
+8. [Falsos cierres de Decisión 5](#8-falsos-cierres-de-decisión-5)
+9. [Anti-bucle con llamadas rechazadas sin ejecución](#9-anti-bucle-con-llamadas-rechazadas-sin-ejecución)
+10. [Terminal Windows](#10-terminal-windows-srctoolsterminal)
+11. [`refsDir`: cómo se leen los refs](#11-refsdir-cómo-se-leen-los-refs-investigación-sin-implementar)
 
 ---
 
 ## 1. D3 (`reviewArgs`) con modelo 2B y sin lecturas
+
+> **Investigación y flags (2026-11-15).**
+>
+> **Causa en el código.** `callRunner.ts` solo pasa por D3 las escrituras que el usuario no aprobó y que no son verdes (`reviewApplies`); las lecturas nunca (D3 rechazaba lecturas correctas, medido). `prompts.ts#buildArgsReview` arma el estado solo con `Target`, `User Input`, `Previous Errors`, `Call` y `Args`, aunque `adapters.ts#reviewInput` y `ctx/views/review.ts` ya calculan `lastReads`, `env`, `done` y `stepsDone` (trabajo que se descarta). Medido en `eval/` (variante `args_review_compact_history`, 72,9 % frente a 62,5 %): agregar las lecturas no cambió el resultado y agregar el schema lo bajó a 70,8 %. Medido en `FRENTE_1_MEMORIA.md`: D3 aprobó 5 de 5 rutas inventadas con 0,93 a 0,95; la barrera real contra valores fabricados es `precheck.ts`, no D3.
+>
+> **Opciones.**
+> | Opción | Pros | Contras / latencia |
+> |---|---|---|
+> | A. Vista completa (lecturas recientes + entorno en el prompt de D3) | Permite contrastar rutas y nombres con lo leído | En el eval no mejoró; más tokens por consulta (D3 ronda 255 tokens y ~42 ms en el eval; la latencia sube con los tokens, estimación no medida); riesgo de falsos rechazos nuevos |
+> | B. Que D3 valide lecturas | Frena lecturas con argumentos absurdos | Doble de consultas a D3 (una por lectura, hoy cero); ya rechazaba lecturas correctas; el pre-chequeo de código ya cubre las rutas inventadas |
+> | C. Endurecer `precheck.ts` (determinista) | 0 ms, sin riesgo de modelo | Solo cubre lo comprobable (ruta, URL, marcadores) |
+>
+> **Recomendación.** Priorizar C (hecho en parte: el pre-chequeo es ahora un registro de reglas con validaciones nuevas de ruta, URL y tipo en disco; ver `CORE_FLOW.md` 6b) y no encender A ni B hasta medirlas: D3 2B no discrimina valores inventados ni con más contexto (el contexto no era el límite, lo era el clasificador). Si se prueba, A primero (menor costo) y solo en escrituras.
+>
+> **Implementado, apagado por defecto** (en `jarvis-config.json`, claves de primer nivel; se leen en cada llamada): `reviewFullView` (A: suma `Recent reads` y `Environment` al prompt de D3) y `reviewReads` (B: las lecturas también pasan por D3, con el umbral normal). Sin flags el prompt y el flujo son idénticos a antes (el eval no se modificó: `buildArgsReview` solo recibió un segundo parámetro opcional).
+>
+> **Qué medir tú.** Dataset `args_review_D3` con y sin `reviewFullView` (aciertos y falsos rechazos, sobre todo en rutas inventadas); latencia p50/p95 de D3; con `reviewReads`, la tasa de lecturas legítimas rechazadas (`args_invalid` en lecturas) en tareas reales y los `maxReviewRejectionsPerStep` que cortan pasos.
 
 ### Estado actual
 - En `src/core/engine/callRunner.ts` (líneas 366-419):
@@ -59,6 +80,15 @@ Este documento consolida el análisis en código de los siete frentes pendientes
 
 ## 2. `approvalTiers` incompleto
 
+> **Actualización (2026-11-15).**
+> - **Hecho:** `approvalTiers` es `true` por defecto (`config.ts`) y los niveles funcionan con `autoMode` activo (`callRunner.ts`, `askUser`/paso 8): verde no pide al usuario ni pasa por D3; amarillo no pide al usuario y pasa por D3 con umbral estricto (si D3 no aprueba, rechazo o `args_invalid` como siempre); rojo siempre pide al usuario. Guard (`DENY` y `mandatory`), la lista negra y el pre-chequeo no cambian. `SettingsModal.tsx` tiene el toggle de `approvalTiers` y el copy de `autoMode` ya explica que lo rojo se sigue confirmando.
+> - **Sin `autoMode` (definido):** verde pasa sin pedir; amarillo y rojo piden al usuario, y esa aprobación sustituye a D3 (`callRunner.ts`, `askUser`).
+> - **Aprobar una vez / siempre en esta tarea (hecho):** el diálogo de aprobación (UI y Telegram) ofrece «Aprobar una vez» y «Aprobar siempre en esta tarea». «Siempre» vive solo en la RAM de la tarea (`TaskRuntime`), con clave herramienta + comando normalizado o ruta normalizada (`policy/approvalKey.ts`), y no sobrevive a la tarea. No se ofrece (solo «una vez») para lo obligatorio de Guard, la lista negra ni lo que `allowedDirectories` no pudo resolver. Quien aprueba «siempre» sustituye a D3 en esas llamadas, igual que una aprobación puntual. No hay allowlist persistente.
+> - **Deduplicación tras `user_rejected` (hecho):** tras un rechazo del usuario, la misma clave no se vuelve a preguntar en esa tarea; la llamada queda `user_rejected` con una nota y cuenta contra `maxUserRejectionsPerStep`.
+> - **Aviso de niveles en Telegram (hecho):** la confirmación de `/auto on` explica los tres niveles y cuándo se pregunta.
+> - **Rutas relativas (hecho):** `tiers.ts` resuelve una ruta relativa contra la carpeta de trabajo de la herramienta (`toolBaseDir`: `desktopCommanderMcp.cwd` o la del proceso; es la misma base que usa `allowedDirectories`) antes de comprobar si existe; sin base absoluta sigue en amarillo. `edit_block` (en pausa) queda en rojo.
+> - **Pendiente a propósito:** allowlist persistente entre tareas.
+
 ### Estado actual
 - El motor soporta niveles en `src/core/policy/tiers.ts` (`approvalTierOf`) y `src/core/engine/callRunner.ts:366-418`, controlado por `config.approvalTiers` (`src/core/config.ts:75,158` con default `false`, pero activado en `jarvis-config.json:48` como `true`).
 - Sin embargo, la funcionalidad está incompleta en cuatro frentes documentados (`docs/arquitectura/CORE_FLOW.md`, `docs/evaluacion/JARVIS_EVALUACION.md:26`):
@@ -102,6 +132,10 @@ Este documento consolida el análisis en código de los siete frentes pendientes
 
 ## 3. `allowedDirectories` estático, sin realpath y fuera de `jarvis_terminal`
 
+> **Actualización (2026-11-15).**
+> - **Hecho:** `src/core/policy/allowedDirs.ts` (`checkAllowedDirectory`, `canonicalPath`) compara con `realpathSync` (desciende al ancestro existente si la hoja no existe; quita `\\?\`). `callRunner.ts` paso 6c lo aplica a **todas** las herramientas con ruta y a `run_command` (su `cwd` y las rutas detectadas por el AST de PowerShell, `detectedPaths`/`unresolvablePaths`). Lo fuera de alcance se rechaza (`tool_rejected`); lo que no se puede resolver (variables, rutas relativas sin base, comando no analizable) pide confirmación al usuario. La configuración se lee en vivo (`deps.allowedDirectories`, y el wrapper de Desktop Commander y `TerminalProvider` reciben una función, no un snapshot). `SettingsModal.tsx` permite ver, agregar y quitar carpetas.
+> - **Pendiente:** el análisis de PowerShell sigue siendo heurístico; en plataformas distintas de Windows `run_command` no se analiza y cae en «pide confirmación». Sin pruebas automáticas del flujo completo (solo `tests/hardening.test.ts` cubre `checkAllowedDirectory`).
+
 ### Estado actual
 - En `jarvis-config.json:24`, `desktopCommanderMcp.allowedDirectories` está vacío (`[]`, sin restricciones).
 - En `src/core/mcp/desktopCommanderMcp.ts`:
@@ -139,11 +173,45 @@ La restricción se implementó únicamente como un filtro léxico puntual en el 
 
 ## 4. `web_search`: consultas multiparte y recencia
 
+> **Investigación ampliada (2026-11-15, solo análisis: NO implementado).** Todo lo siguiente está verificado en `src/tools/web/webSearchProvider.ts`, `args.ts` y `models/prompts.ts`.
+>
+> ### Multiparte
+> **Mecanismo.** `lookup` (etapa 1) puntúa cada extracto contra el `need` **completo** (una probabilidad por fragmento, lotes de 5). Si **algún** extracto llega a `JUDGE_FOUND` (0,6) devuelve `found` con hasta `SNIPPET_RETURN_MAX = 3` extractos de fuentes distintas y corta; la etapa 2 (leer páginas de a una, hasta `DEFAULT_PAGES = 3`) solo corre si ningún extracto responde. No hay facetas: un extracto que responde bien a la parte A de «A y B» basta. Después, D4 (`buildResultVerification`) juzga el resultado contra la instrucción del paso, pero ve solo el texto devuelto (topado por `PASSAGES_BUDGET`) y no sabe qué faceta falta.
+>
+> **Causa raíz.** Se optimizó para «un pasaje que responde» (primer acierto corta), y el criterio de cobertura es por fragmento, no por pregunta. Además `RETURN_MAX = 4` y el presupuesto fijo reparten el espacio por puntuación global, no por faceta.
+>
+> | Opción | Pros | Contras / latencia |
+> |---|---|---|
+> | A. Dividir `need` en facetas (conectores `y/and/vs/compar/diferencia`, `;`, comas) y exigir un extracto fuerte por faceta antes de `found` | Ataca la causa | +1 consulta al juez por faceta (≈ decenas de ms cada una, estimación); la división léxica falla («blanco y negro»); más código |
+> | B. Chequeo determinista de cobertura de términos: los términos que distinguen del `need` (sin palabras vacías, con `stemsOf`) deben aparecer en el conjunto de pasajes devueltos; si faltan, `found` pasa a `partial` y se nota qué faltó | 0 ms de modelo; reutiliza el mecanismo de `COVERAGE_PARTIAL`; `partial` ya empuja a leer páginas y le dice al modelo qué falta | Cuando falta cobertura agrega lecturas de página (segundos, hasta 3); falsos «falta» con sinónimos |
+> | C. Que el planificador (`pending`) parta el pedido en un paso por faceta | Sin cambios en el proveedor; cada `web_search` tiene una sola necesidad | Depende del 4B; no controla el caso «una frase, dos preguntas» dentro de un solo paso |
+> | D. Subir `RETURN_MAX`/`PASSAGES_BUDGET` | Más espacio para varias facetas | Más tokens para D4 y el generador final; no cambia el corte temprano |
+>
+> **Recomendación.** B (determinista y barata; solo degrada `found` a `partial` cuando falta un término fuerte) combinada con C (ya existe: D0 `multi` + `pending`); A solo si B muestra muchos falsos «falta». Descartar D.
+>
+> ### Recencia
+> **Mecanismo.** `freshness` (`day|week|month|year`) es un argumento opcional que elige el modelo generativo; sin él no se filtra por fecha. `DEFAULT_MAX_AGE_HOURS = 24` solo limita la caché de Free Search. El juez recibe `TODAY: AAAA-MM-DD` (`judgeNeed`) y cada fragmento con `[source date: X|unknown]` (`dated`); su criterio de `true` exige «el más reciente a la fecha de HOY» si la pregunta lo pide. `guardVersions` solo actúa con versiones exactas (`X.Y.Z`) en la pregunta. Si hay filtros y no hay resultados, reintenta sin filtros y lo avisa (`relaxed`).
+>
+> **Brechas.** (1) Muchas fuentes no traen fecha (`source.date === undefined` → `unknown`): el juez no puede distinguir. (2) Sin versión exacta, «¿cuál es la última…?» no tiene guarda: el 2B da `p ≥ 0,6` a resultados de meses o años atrás. (3) `buildResultVerification` (D4) **no recibe `TODAY`**: el único verificador que decide si el paso se cumplió no puede rechazar datos viejos (`FRENTE_2_CONTEXTO.md:88`). Ojo: se midió que dar `TODAY` a `pending` **empeoró** el resultado (79,2 %), así que no debe replicarse allí.
+>
+> | Opción | Pros | Contras / latencia |
+> |---|---|---|
+> | A. Poner `TODAY` en el estado de D4 solo para pasos de `web_search` | ~15 tokens; permite rechazar lo viejo | Cambia lo que ve D4: hay que medir en `eval/` (no verificado que no regrese) |
+> | B. Guarda determinista de fecha en el proveedor: si el `need` tiene palabras de recencia (`último/actual/latest/current/hoy/today`) y la fuente tiene fecha con más de N meses, limitar `p` por debajo de `JUDGE_FOUND` (como `guardVersions`) | 0 ms; no depende del modelo; parcial en vez de `found` empuja a leer más | Sin fecha no actúa; el umbral N es una decisión de producto |
+> | C. Extraer fechas del texto del fragmento (años y meses con regex) cuando `source.date` falta | Cubre la brecha 1 | Heurística; falsos positivos con fechas históricas citadas |
+> | D. `freshness: "year"` por defecto ante palabras de recencia | Filtra en origen | Ya hay reintento sin filtros, pero si Free Search desconoce la fecha de la fuente la descarta |
+>
+> **Recomendación.** B + C (deterministas, comparten la tabla de fechas) y A solo si la medición lo aprueba; D después de ver cuántas fuentes llegan con fecha.
+>
+> ### Qué medir tú
+> - Multiparte: un conjunto de preguntas A+B (p. ej. «diferencias Node 22 y 24», «PostgreSQL 17 vs 16») → fracción con ambas facetas cubiertas en lo devuelto; tasa de `found` que pasa a `partial` con B; páginas leídas y latencia extra.
+> - Recencia: preguntas «última/actual» con respuesta conocida y fuentes viejas → fracción de respuestas desactualizadas aceptadas (`found` con fuente vieja); proporción de fuentes con `source.date`; con A, regresiones de D4 en el eval.
+
 ### Estado actual
 - **Multiparte**:
   - En `src/tools/web/webSearchProvider.ts` (líneas 471-472, 493, 507, 551), el flujo termina en estado `"found"` en cuanto **un solo** snippet (`snippets.filter(c => c.p >= JUDGE_FOUND)`) o **un solo** chunk de página (`scored[0].p >= JUDGE_FOUND`, con `JUDGE_FOUND = 0.6`) supera el umbral.
   - No existe descomposición de la consulta en sub-preguntas o facetas, ni verificación de cobertura conjunta (p. ej. si el usuario pide *A y B*, basta con que un fragmento responda bien a *A* para cortar la búsqueda y devolver `"found"` sin *B*).
-  - Casos observados en `scripts/validate/web_eval/deep_probe.ts`: preguntas comparativas o multi-atributo como diferencias de rendimiento y compatibilidad entre Node 22 y 24, PostgreSQL 17 vs 16 en seguridad/rendimiento, o múltiples entidades/fechas en una consulta.
+  - Casos observados en sondeos anteriores (script retirado): preguntas comparativas o multi-atributo como diferencias de rendimiento y compatibilidad entre Node 22 y 24, PostgreSQL 17 vs 16 en seguridad/rendimiento, o múltiples entidades/fechas en una consulta.
 - **Recencia**:
   - `src/tools/web/args.ts` define `freshness`, `DEFAULT_MAX_AGE_HOURS = 24` (`webSearchProvider.ts:41`), `guardVersions` (`línea 164`) verifica versiones exactas `X.Y.Z`, `judgeNeed` inyecta `TODAY: YYYY-MM-DD`, y `dated()` antepone `[source date: ...]`.
   - Tres brechas permanecen abiertas:
@@ -158,7 +226,7 @@ El pipeline actual de `WebSearchProvider` está optimizado como búsqueda rápid
 - `src/tools/web/webSearchProvider.ts`: `JUDGE_FOUND`, `DEFAULT_MAX_AGE_HOURS`, `guardVersions`, `judgeNeed`, `dated`, bucles de corte temprano (`líneas 41, 47, 164, 471-551`).
 - `src/tools/web/args.ts` y `src/tools/web/bm25.ts` y `src/tools/web/chunks.ts`.
 - `src/core/models/prompts.ts`: `buildResultVerification` (líneas 558-592, ausencia de fecha actual `TODAY`), `FINAL_VIEW`.
-- `scripts/validate/web_eval/deep_probe.ts`, `docs/arquitectura/TOOLS.md`, `docs/evaluacion/analisis/FRENTE_2_CONTEXTO.md`.
+- `docs/arquitectura/TOOLS.md`, `docs/evaluacion/analisis/FRENTE_2_CONTEXTO.md`.
 
 ### Opciones de solución
 1. **Para recencia (impacto acotado y medible)**:
@@ -172,38 +240,9 @@ El pipeline actual de `WebSearchProvider` está optimizado como búsqueda rápid
 
 ---
 
-## 5. Deep Research
+## 5. Memoria manual (`data/memory.json`)
 
-### Estado actual
-- Explorado en `scripts/validate/web_eval/deep_probe.ts`, `scripts/validate/web_eval/research.ts` y resumido en `docs/pendientes/PENDIENTES.md` (estado explícito: **EN PAUSA — 2026-11-13**).
-- **No está implementado en `src/`**. En `src/core/tools/manifest.ts:243` existe un resto de definición `free_search:research` que **no forma parte de `WEB_DEPENDENCIES`** (`src/core/tools/web.ts` / `jarvisRouter.ts`) y solo se conserva por cobertura de políticas en tests (`tests/repeat.test.ts:179`, `tests/sensitive.test.ts:95`).
-- Hoy toda consulta web pasa por `WebSearchProvider` en modo rápido con topes fijos: `SEARCH_RESULTS = 8`, `DEFAULT_PAGES = 3`, `PASSAGES_BUDGET = 1700`, `maxCallsPerStep = 6` (`src/core/engine/limits.ts`), `timeoutMs = 150_000`.
-- Además, los probes de `deep_probe.ts` registraron fallos reales del MCP `free_search` al leer páginas completas (`read_doc`/`fetch` con `RecursionError` en sitios como `redis.io` y páginas renderizadas por JS vacías).
-
-### Causa raíz
-Un modo de investigación profunda requiere múltiples rondas de búsqueda, seguimiento de fuentes autoritativas, verificación cruzada de citas literales y mayor presupuesto de lectura/síntesis, lo cual choca con los presupuestos estrictos del paso reactivo estándar (`6` llamadas por paso, `1700` caracteres de salida web, modelo 4B de contexto acotado) y con la fragilidad de extracción HTML de `free_search` en ciertos sitios.
-
-### Archivos y símbolos implicados
-- `docs/pendientes/PENDIENTES.md`: estado y alcance en pausa.
-- `scripts/validate/web_eval/deep_probe.ts` y `scripts/validate/web_eval/research.ts`.
-- `src/tools/web/webSearchProvider.ts`: proveedor actual (`WebSearchProvider`, límites fijos).
-- `src/core/tools/manifest.ts`: línea 243 (`free_search:research`).
-- `src/core/engine/limits.ts`: `maxCallsPerStep = 6`.
-- `tests/repeat.test.ts:179`, `tests/sensitive.test.ts:95`.
-
-### Opciones de solución
-1. **Mantener pausa y alinear contratos mínimos**:
-   - Dejar `deep_research` fuera del motor reactivo hasta resolver multiparte y recencia en `web_search` base; documentar claramente el rol de `free_search:research` en `manifest.ts`.
-   - *Pros*: evita complejidad prematura sobre un MCP (`free_search`) que aún falla en páginas JS/recursivas.
-   - *Contras*: preguntas de investigación abierta siguen limitadas a 1 búsqueda rápida con `PASSAGES_BUDGET = 1700`.
-2. **Implementar herramienta dedicada (`web_research` / `deep_research`) aislada del paso corto**:
-   - Ejecutar un sub-flujo con descomposición en sub-consultas, filtrado de dominios, descarga acotada por sección (evitando `RecursionError` o con fallback a otro extractor), almacenamiento del reporte en `ref` (`refsDir`) y verificación extractiva de citas antes de devolver el resumen al paso principal.
-   - *Pros*: no infla el presupuesto ni los prompts de tareas normales y aprovecha el mecanismo de `refs` ya existente en `src/core/refs/`.
-   - *Contras*: latencia alta (decenas de segundos) y requiere corregir o sustituir el scraper de `free_search` para sitios con JS / HTML complejo.
-
----
-
-## 6. Memoria manual (`data/memory.json`)
+> Plan de diseño (sin implementar): [`MEMORIA_PLAN.md`](MEMORIA_PLAN.md).
 
 ### Estado actual
 - De la arquitectura planteada en `docs/evaluacion/analisis/FRENTE_1_MEMORIA.md` (3 capas), solo existen parcialmente la Capa 1 y la Capa 2:
@@ -243,7 +282,31 @@ La Capa 1 se construyó como un almacén mínimo de lectura pasiva para ayudar a
 
 ---
 
-## 7. `PENDING_FACTS_LOOKUP = false`
+## 6. `PENDING_FACTS_LOOKUP = false`
+
+> **Investigación ampliada (2026-11-15, solo análisis: NO implementado).**
+>
+> **Qué hace cada camino hoy** (`runTask.ts:93-175`):
+> - `first === "single"` y sin hilo: `pending = [request]` y `askModel = false`; **`pending` no se consulta** y D1 elige la ruta (una pregunta de hechos va a `web`). Es el camino que hoy salva a las preguntas sueltas.
+> - `chat` (D0 ≥ 0,7): cierra sin herramientas.
+> - `multi`, continuación de hilo y D0 caído (`classifyRequest` devuelve `null`): entran a `generatePending` con `PENDING_VIEW.SYSTEM`, cuya regla «charla o conocimiento general → lista vacía» no tiene la excepción de hechos cambiantes.
+> - Tras cada ítem completado, `confirmCompletion` (D5) y, si no cierra, `generatePending` otra vez: la misma regla.
+>
+> **Dónde falla realmente.** Solo cuando `pending` devuelve `[]` o descarta el ítem de búsqueda. En `multi` el modelo puede omitir el subpaso de búsqueda; en continuaciones («¿y el precio actual del otro?») puede tomarlo por conocimiento general. La cláusula (`PENDING_FACTS_LOOKUP = true`) llevó los hechos que abren un paso de 0/12 a 11/12 (charla vacía 8/8) pero costó 2 casos ajenos en `llm_pending_hard` (−5,2): `pending-hard-008` (perdió una URL literal) y `pending-hard-026`. Es decir, el problema de la cláusula es que está en el prompt de **todos** los pedidos y mueve ítems que no tienen que ver.
+>
+> **Conteo estático (sin modelos) sobre los datasets de `pending` (77 casos).** Una compuerta léxica con palabras de recencia (`último`, `actual`, `hoy`, `ahora`, `precio`, `versión`, `latest`, `current`, `news`…) y sin URL coincide con 12 pedidos; **6 son búsquedas reales** (`pending-006`, `pending-020`, `pending-hard-006`, `pending-hard-029`, `pending-hard-034`, `pending-hard-042`) y **6 son locales** (`pending-014` «uso de CPU actual», `pending-027/028` «qué versión tiene package.json», `pending-hard-005`, `pending-hard-012` «ahora leé notas.txt», `pending-hard-018` «modifiqué hoy»). Precisión 50 %: una compuerta léxica sola reintroduciría la regresión.
+>
+> **Opciones.**
+> | Opción | Pros | Contras / latencia |
+> |---|---|---|
+> | A. Cláusula en el prompt (la original), con redacción afinada (URL literal intacta) | Unifica todos los caminos | Requiere re-medir `llm_pending_hard`; el 4B es sensible a cualquier cambio de redacción |
+> | B. Cláusula solo si compuerta léxica **y** D0 con `chat` entre 0,5 y 0,7 (las preguntas de hechos rondan 0,51–0,65) | Limita el cambio de prompt a pedidos probables | No cubre continuaciones ni D0 caído; la compuerta léxica falla el 50 % |
+> | C. Sin tocar el prompt: si `pending` devuelve `[]` y la compuerta (léxica + D0) dice «hecho cambiante», forzar `pending = [request]` | Solo actúa donde hoy se cerraría vacío (charla/conocimiento): **no mueve ítems de otros pedidos**; 0 ms de modelo | Una pregunta de conocimiento con «actual/hoy» gasta una búsqueda web (segundos); no cubre el subpaso omitido en `multi` |
+> | D. Que D0 distinga `web_fact` (cuarta clase) | Separa el concepto del resto | Dataset nuevo en `eval/D0/` y recalibrar umbrales; más latencia solo si agrega preguntas |
+>
+> **Recomendación.** C primero (es la única que no puede mover los casos de `llm_pending_hard`, porque no toca ítems no vacíos), con la compuerta léxica restringida a pedidos sin ruta/URL y una lista corta de verbos de búsqueda; después, si hace falta cubrir `multi`, A medida en `eval/`. Descartar B como única medida (precisión 50 % y sin cobertura de hilos).
+>
+> **Qué medir tú.** (1) 12 preguntas de hechos + 8 de charla (`FRENTE_2_CONTEXTO.md`) → hechos que abren un paso y charla que sigue vacía; (2) `llm_pending_hard`, `llm_pending` y `llm_gemai` completos → regresiones (se espera 0 con C); (3) tasa de búsquedas innecesarias en pedidos de conocimiento con «actual/hoy»; (4) latencia añadida por tarea.
 
 ### Estado actual
 - En `src/core/models/prompts.ts:78`, está fija la bandera:
@@ -279,3 +342,136 @@ Se dejó desactivada la cláusula de búsqueda web en `PENDING_VIEW` tras descub
    - En lugar de delegar la frontera en una oración condicional dentro del prompt generativo 4B, detectar si la solicitud requiere consulta web actual en la etapa de clasificación (`D0` o regla previa en continuaciones) o inyectar esa pista solo cuando aplique.
    - *Pros*: evita que la regla de hechos cambiantes contamine pedidos con URLs o tareas locales en `llm_pending_hard`.
    - *Contras*: añade diseño/evaluación de dataset en D0 para continuaciones y tareas `multi`.
+
+---
+
+## 7. Pendientes técnicos menores (revisión 2026-11-15)
+
+Cada uno se validó en el código antes de tocarlo.
+
+| Pendiente | Resultado | Detalle |
+|---|---|---|
+| `list_directory` con `depth: 0` | **Hecho** | `precheck.ts` rechaza `depth` que no sea entero ≥ 1 con una razón escrita; el manifest lo declara en `notes.depth`. |
+| `shortDesc` duplicado | **Descartado** | `manifest.ts` solo valida (y rechaza al arrancar) las descripciones de sus propias definiciones. `shortDesc` también recorta las descripciones de herramientas que no vienen del manifest (servidores MCP de terceros), así que quitarlo dejaría pasar descripciones largas al prompt. |
+| `switch` exhaustivo en `validateAnswer` | **Hecho** | `decision.ts`: `switch (question.type)` con rama `never`. |
+| Salida cruda en `DecisionValidationError` | **Hecho** | El error lleva `raw` (`rawInput`, `rawOutput`, `timing`); `withRaw` lo adjunta en cada decisión y `engine/capture.ts` ya lo lee (`error.raw`) para la traza. Verificar en una traza real. |
+| `egress.ts`: SHAs no son claves | **Hecho** | Un token hex de 40, 64 o 128 caracteres ya no dispara `long-blob`; una cadena alfanumérica larga que no sea hex sí. Cubierto en `tests/hardening.test.ts`. |
+| `sensitivePaths.ts`: symlinks, 8.3, `\\?\`, UNC | **Hecho (parcial)** | Se normalizan prefijos extendidos y UNC, se resuelve `realpathSync` en argumentos de ruta y en tokens con forma de ruta dentro de comandos, y las reglas incluyen variantes 8.3 comunes (`PROGRA~1`, etc.). Un nombre 8.3 no listado en las reglas no se expande con `GetShortPathName`. |
+| MCP: `notifications/cancelled` | **Hecho** | `mcp/transport.ts` envía la notificación al abortar por `signal` y al vencer el tiempo; `callTool` recibe `options.signal`. Cubierto solo por tipos: probar contra Desktop Commander real. |
+| Patrones simples en `commandRules.ts` | **Hecho** | `.Delete()`, `.MoveTo()` y `.CopyTo()` sobre cualquier objeto → `sensitive` (`dotnet-file`). Las variables dinámicas, rutas en tuberías y concatenación de strings siguen sin analizarse. |
+
+---
+
+## 8. Falsos cierres de Decisión 5
+
+### Estado actual
+- `engine/completion.ts` (`confirmCompletion`): con el reactivo sin ítems pendientes, una pregunta `noul` a `d3:2b` («Using only what DONE shows, is every part of REQUEST already done?»). Si `request_complete >= COMPLETION_APPROVE (0,75)` la tarea cierra `completed` sin consultar al LLM de pendientes (~50 ms contra ~900 ms). Si no, `runTask.ts` vuelve a `generatePending`.
+- Medido (`docs/evaluacion/limitaciones/d3-2b.md`): 31/36 a 0,75 (el LLM antiguo, 26/36). Falsos «sí» conocidos: copiar por mover (0,99 en todas las formulaciones) y, en pruebas sintéticas quitando el último paso, 2/6 falsos cierres a 0,75. Falsos «no» en pedidos condicionales (0,09–0,19), que solo cuestan el LLM.
+
+### Causa raíz
+D5 juzga solo con el texto de `DONE` y es un clasificador 2B: no distingue «hecho algo parecido» de «hecho todo». Un falso «sí» cierra en silencio una tarea incompleta; el único contrapeso es el umbral. No existe ninguna comprobación determinista de cobertura del pedido.
+
+### Opciones
+| Opción | Pros | Contras / latencia |
+|---|---|---|
+| A. Subir el umbral (0,9) | Menos falsos «sí» | Los falsos «no» se multiplican (medido); cada uno cuesta ~900 ms de LLM |
+| B. Guarda determinista de cobertura: si el pedido nombra un archivo (lista cerrada de extensiones) que ninguna llamada menciona, no se cierra por D5 | 0 ms; solo hace el cierre más estricto; cubre el caso típico (se creó la carpeta pero no `gpt_info.md`) | Cobertura parcial: solo archivos nombrados; un falso bloqueo cuesta lo mismo que un falso «no» (cae al LLM de pendientes, que además es una segunda opinión) |
+| C. Segunda pregunta a D5 con otra redacción (acuerdo de dos) | Reduce falsos «sí» no correlacionados | +50 ms; en el eval una pregunta más detallada subió los falsos «sí» |
+| D. Dejar siempre la confirmación al LLM | Sin falsos cierres de D5 | +~850 ms en cada tarea que hoy cierra rápido |
+
+### Recomendación
+B (barata y determinista) detrás de flag, y validar con datos reales antes de tocar el umbral. A y C solo si B no alcanza.
+
+### Implementado (apagado por defecto)
+`completionCoverageGuard` en `jarvis-config.json`: `completion.ts#uncoveredArtifacts` extrae los nombres de archivo del pedido (extensiones: txt, md, json, csv, ps1, py, js, ts, pdf, docx, xlsx, png, jpg, zip, html, css, log, xml, yml, ini, bat, cmd, exe, mp3, mp4…) y, si alguno no aparece (sin mayúsculas, sin separadores) en los argumentos ni en el resumen de ninguna llamada, `confirmCompletion` devuelve `false` sin consultar a D5. Probado con `tests/hardening.test.ts`.
+
+### Qué medir tú
+Con el flag apagado y encendido, sobre el conjunto de D5 y trazas reales: falsos cierres (tarea `completed` con partes sin hacer), cierres que pasan al LLM por la guarda (falsos bloqueos) y latencia media por tarea. Un dataset formal de D5 en `eval/` sigue pendiente (no se tocó `eval/`).
+
+---
+
+## 9. Anti-bucle con llamadas rechazadas sin ejecución
+
+### Estado actual (`ctx/derive.ts#isRepeat`, `engine/limits.ts`, `callRunner.ts`)
+- `isRepeat` compara solo llamadas **ejecutadas** (`isExecuted`). Las rechazadas antes de ejecutar (`args_invalid`, `tool_rejected`, `user_rejected`, `info_missing`) llevan su `sig` pero no cuentan.
+- Aun así están acotadas por paso: `maxReviewRejectionsPerStep` (2) para `args_invalid`, `maxDeniedPerStep` (2) para `tool_rejected`/`denied`, `maxUserRejectionsPerStep` (2) para `user_rejected`, y `maxAttemptsPerStep` (10) para todo. El modelo ve el motivo y sube la temperatura (`priorAttempts`).
+
+### Causa raíz
+El `sig` se calcula con los argumentos resueltos, o sea después de generarlos con el LLM: reconocer una repetición idéntica no ahorra esa generación. Lo que sí ahorra es la consulta a D3 y, sobre todo, **la pregunta al usuario**: un rechazo del usuario (`user_rejected`) no se recordaba, y el modelo podía volver a proponer lo mismo (por ejemplo tras un rechazo por `egress.ts` en `web_search`).
+
+### Opciones
+| Opción | Pros | Contras / latencia |
+|---|---|---|
+| A. No repetir la pregunta tras `user_rejected` (clave herramienta + comando o ruta normalizada) | Determinista; elimina una interrupción al usuario; 0 ms | Un rechazo con argumentos reformulados no se detecta (la clave cambia) |
+| B. Contar como repetición las rechazadas idénticas sin ejecutar (`loop_blocked`) | Corta antes el paso | Sin ahorro de latencia (la generación ya ocurrió); la cota actual ya es de 2 intentos; riesgo de bloquear un reintento válido tras una lectura intermedia |
+| C. Pasar al generador los argumentos ya rechazados («do not repeat») | Evita la repetición en origen | Cambia lo que ve el modelo: requiere medir; hoy `Previous Errors` ya muestra el motivo |
+
+### Recomendación
+A (hecho). B no aporta latencia y las cotas existentes ya cortan en 2 intentos: no implementar salvo que las trazas muestren pasos agotados por identidad de argumentos. C, solo medido.
+
+### Implementado
+- **A** (ver §2): `callRunner.ts` registra en la RAM de la tarea (`TaskRuntime`, `policy/approvalKey.ts`) la clave de lo que el usuario rechazó y devuelve `user_rejected` con una nota («do not ask again…») sin volver a preguntar. Cuenta contra `maxUserRejectionsPerStep` (2), así que el paso falla igual que antes si el modelo insiste. Sin flag: no cambia lo que ve el usuario salvo que se le ahorra la pregunta repetida, y el modelo ve una razón escrita.
+
+### Qué medir tú
+En trazas reales, cuántos pasos terminan por `repeat_blocked`/`denied`/`review_rejected` con la misma `sig` repetida (si es casi cero, B no hace falta) y cuántas preguntas repetidas se ahorran por tarea.
+
+---
+
+## 10. Terminal Windows (`src/tools/terminal/`)
+
+| Pendiente | Resultado | Detalle |
+|---|---|---|
+| Codepages 852 y 857 sin tabla | **Hecho** | `output.ts` tiene ahora las mitades altas de 852 (centroeuropea) y 857 (turca), generadas con `Encoding.GetEncoding` de .NET (los bytes sin carácter en 857 quedan como U+FFFD). `accentScore` y el filtro de `powershell.ts` cuentan también Latin Extended-A (U+0100–U+017F: ł, ę, ş, ğ…), que es lo que da una página 852/857 bien decodificada. Probar en una PC con esa OEM (no hay una acá). |
+| Envoltorios con extensión (`ipconfig.exe \| ...`) | **Ya resuelto (RC-40); documentación corregida** | `powershell.ts` registra funciones `nombre`, `nombre.exe` y `nombre.com` (`tests/run_command.test.ts` cubre `ipconfig.exe` y `chcp.com`). Por ruta completa (`C:\Windows\System32\ipconfig.exe`) no se envuelve: es la única parte abierta y requiere interceptar `Application` con `PostCommandLookupAction`. |
+| Procesos que leen stdin sin prompt (`findstr`, `node`) | **No resuelto** | Saber si un proceso está bloqueado leyendo su entrada exige código nativo (`NtQueryInformationFile`) o un PTY (ConPTY, Horizonte 2.0). Cerrar `stdin` tras un silencio rompería los programas que responden por `{ pid, input }` y los que terminan al cerrarse la entrada. Hoy: quedan `running` hasta el plazo y `{ pid, input }` los destraba. |
+| Procesos huérfanos desde la UI (RC-25) | **No resuelto (producto + seguridad)** | `list_processes` y `stop_process` ya existen para el modelo. Mostrar y cortar procesos desde la interfaz exige un endpoint que corte procesos en la API local, que no tiene autenticación (decisión explícita de esta etapa: sin token), y definir dónde vive en la UI. |
+| ConPTY y Job Objects | Horizonte JARVIS 2.0 | Sin tocar. |
+
+---
+
+## 11. `refsDir`: cómo se leen los refs (investigación, sin implementar)
+
+### Dónde y cómo se leen
+- **Escritura:** `callRunner.ts` (paso 11) guarda en `refsDir/<tarea>/<uuid>.txt` (UTF-8, `wx`) el texto completo de una llamada cuyo resumen no lo contiene (`processed.truncated`). `refsDir` por defecto es `data/refs` (se resuelve con `path.resolve` al crear los servicios; solo editable en el archivo de configuración, `FILE_ONLY_KEYS`). Cada ref lleva etiqueta (`read_file /ruta (N líneas)`), tamaño en caracteres y ruta (`where`).
+- **El modelo la ve** en la sección `REFS` de la vista de argumentos: `ref:rN (tamaño, ruta) etiqueta — read: offset=… length=…` (`render/shared.ts#availableRefLine`), con lo que ya se leyó de ella.
+- **Quién la lee:** (1) el modelo, con `read_file` sobre `where` (lectura normal); (2) el motor, con `vault.readAll` (solo dentro de `refsDir`): sustitución de `{{ref:rN}}` en argumentos (`refs/refResolver.ts`, el archivo entero a memoria) y el endpoint de la interfaz `GET /tasks/:id/refs/:refId` (`tasks.readRef`); (3) el pre-chequeo, con `readRefText` (primeros 400 000 bytes, como fuente de «esto aparece en lo que la tarea sabe»).
+
+### ¿`read_file` lee por partes?
+Declara `offset` y `length` (el manifest anota que cuentan líneas en texto; en PDF y Excel no se verificó) y el extractor entiende la cabecera `[Reading N lines … (total: T lines, R remaining)]`. Los prompts guían con `ARGUMENTS_VIEW.READ_REFS_NOTE` (solo para `read_file`) y con la línea `read:` de cada ref (tramos ya leídos) y su etiqueta con el número de líneas. **Pero en la práctica no sirve para refs grandes:** cada lectura muestra solo 15 líneas del inicio y 15 del final (resumen de 2500 caracteres como máximo) y guarda el resto en otra ref (ver «Solución propuesta»). **El pre-chequeo no guía, y hoy lo estorba** (hallazgo 1).
+
+### Hallazgos
+1. **Bug confirmado (reproducido con un contexto de prueba): el pre-chequeo rechaza leer una ref.** `collectSources` agrega a las fuentes el *texto* de cada ref, pero no su ruta (`where`). `read_file` sobre `where` falla la regla `read-path-source` («The path … does not appear in the request or in earlier results») cuando todas las refs son legibles (`complete = true`). El modelo recibe un rechazo (`args_invalid`) justo al hacer lo que `READ_REFS_NOTE` le indica; solo se salva si la ruta aparece en otra fuente. Es un candidato claro a corregir.
+2. **Una ref muy grande:** `vault.put` no tiene tope (guarda todo; la retención por tamaño `retentionMaxMb` la borra después, pero una ref aislada de cientos de MB entra entera). `{{ref:rN}}` carga el archivo entero en memoria y lo inserta en los argumentos (el registro de la llamada sí se recorta). `GET …/refs/:refId` devuelve el texto completo sin tope. El pre-chequeo lee solo los primeros 400 000 bytes: con una ref mayor, una URL o ruta que aparezca solo después de ese punto se rechaza como inventada porque `complete` sigue en `true` (falso rechazo; hoy `complete` solo baja si la ref no se puede abrir).
+3. **`allowedDirectories` no cubre `refsDir` con la lógica actual.** `callRunner.ts` 6c y el wrapper de Desktop Commander comparan toda ruta con `allowedDirectories` sin exceptuar `refsDir`: con una lista no vacía que no lo incluya, `read_file` sobre una ref se rechaza (`outside`) aunque `READ_REFS_NOTE` diga que esa ruta vale tal cual. `services.ts#warnIfRefsOutsideAllowed` solo avisa una vez al arrancar, con la lista de ese momento (no ve cambios en vivo) y solo escribe en consola. Con lista vacía (el valor por defecto) no hay problema.
+4. **Guard:** la regla B protege `refsDir` de escrituras (`FILE_WRITE`); las lecturas pasan.
+
+### Solución propuesta: una herramienta nativa para leer refs por partes (sin implementar)
+
+**Qué no sirve hoy (verificado en el código).** `read_file` sobre una ref pasa por el extractor general: el resumen muestra solo 15 líneas del inicio y 15 del final (`BUDGET.extract.readFileHeadLines/TailLines`) con tope de 2500 caracteres (`summaryMax`); lo demás **se guarda en otra ref** (ref de una ref). Es decir, pedir `offset`/`length` de 100 líneas no entrega 100 líneas: entrega 30 y un enlace a la siguiente ref. Con ventanas de ≤30 líneas, una ref de 5 000 líneas exige unas 170 llamadas (el tope es `maxCallsPerStep = 6`), y nada se lo explica al modelo (`READ_REFS_NOTE` solo dice «usa offset y length»). Leer una ref grande por `read_file` no es viable aunque el pre-chequeo y `allowedDirectories` se arreglen.
+
+**Lo que ya hace bien la tool web.** `web_search` nunca le entrega la página entera al modelo: la lee por ventanas (`read_doc` con `start`/`length`, 50 000 caracteres, hasta 12 ventanas), la **parte en fragmentos** de ≤800 caracteres (`chunks.ts`, literales, con el último título repetido), **ordena por relevancia con BM25** contra la necesidad (`bm25.ts`: `rank`, `pickCandidates`, sin modelos, milisegundos) y devuelve solo los mejores pasajes bajo un presupuesto fijo (`PASSAGES_BUDGET = 1700`), con su posición. Un resultado nativo separa lo que ve el modelo (`text`) del texto completo (`raw`); si `text` y `raw` coinciden y caben, **no se crea una ref nueva** (`extractors/structured.ts`).
+
+**Propuesta: `read_ref`, proveedor nativo `jarvis_refs` (`src/tools/refs/`), una herramienta de lectura (`READ`).**
+- **Entrada:** `ref` (el id `rN`, no una ruta), y uno de estos modos: sin nada → **mapa**; `part: k` → **parte k**; `need: "texto"` → **mejores pasajes** para esa necesidad (opcional `limit`).
+  - *Mapa:* tamaño y líneas totales, número de partes y, por parte, su rango de líneas y su primera línea (o el último título). Determinista, ~300 caracteres por 10 partes. Sirve para navegar sin leer.
+  - *Parte k:* texto literal de la parte, alineado a líneas, de ≤ ~1 800 caracteres (por debajo de `summaryMax`), con «parte k de N · líneas a–b · siguiente: k+1». Para leer en orden (resumir, buscar por posición).
+  - *Necesidad:* BM25 sobre las partes de esa ref (la misma `rank` de la tool web), devuelve las 2–3 partes mejor puntuadas con su número y su rango de líneas (≤ ~1 800 caracteres en total) y avisa si la cobertura es baja (`MIN_COVERAGE`). Sin modelo ni red.
+- **Salida:** `text` = `raw` y siempre bajo el tope: **nunca genera una ref de la ref**. Las partes salen de un índice de offsets que se calcula una vez por ref, recorriendo el archivo en streaming y guardado en la RAM del proveedor (clave tarea + ref): una ref de cientos de MB no se carga entera.
+- **Acceso:** el proveedor recibe un lector inyectado (`readRef(taskId, refId)` por rangos, sobre el almacén y su carpeta), igual que `TaskManager.readRef` hoy. Sin rutas: **no pasa por `allowedDirectories`, por `sensitivePaths` ni por la regla «la ruta no aparece en nada»** (hallazgos 1 y 3 desaparecen para este camino) y solo lee dentro de `refsDir`.
+- **Cuándo se ofrece:** `requires: "refs"` en el catálogo (el mecanismo ya existe con `requires: "search"` para `get_more_search_results`, `callRunner.ts` ~156): la herramienta solo aparece si la tarea tiene alguna ref, así no engorda el catálogo de D2 en las demás tareas. Ruta propia o dentro de `files`: se decide al medir D1.
+- **Pre-chequeo:** una regla nueva en el registro (`ref-exists`: el `ref` debe ser el id de una ref de esta tarea; `part` entero entre 1 y N; `need` no vacío) con razón escrita. Las lecturas repetidas las frena el anti-bucle de siempre (parte distinta = llamada distinta).
+- **Reutilización:** `bm25.ts` y la partición por líneas de `chunks.ts` hoy viven en `src/tools/web/`; conviene moverlas a un módulo compartido puro (por ejemplo `src/core/retrieval/`) para que ambas herramientas las importen sin dependerse entre sí (el núcleo no importa `src/tools/`, y `architecture.test.ts` lo vigila).
+- **Cambios de modelo (se miden, no se hacen ahora):** descripción en inglés de la herramienta y su nota de parámetros (≤80 y ≤240 caracteres, `manifest.ts`), y reemplazar `READ_REFS_NOTE` por una pista que mande a `read_ref`. Es lo único que toca prompts.
+
+**Complementos pequeños (deterministas):**
+- **A (bug 1):** `collectSources` agrega la ruta `where` de cada ref de la tarea; sigue haciendo falta mientras `read_file` pueda leer rutas de refs (p. ej. el usuario las pega).
+- **D (hallazgo 2):** si una ref supera los 400 000 bytes que lee el pre-chequeo, `complete = false` (sin falsos rechazos por URLs o rutas que están más adelante).
+- **Tope en el almacén:** un máximo de caracteres por ref (`vault.put`) con marca explícita, o rechazo, para acotar disco y memoria; el valor es decisión de producto.
+
+**Alternativas descartadas.** (1) Dejar `read_file` y mejorar la nota: no resuelve el tope de 30 líneas por lectura. (2) Subir `summaryMax` o las líneas del extractor para refs: más tokens en cada vista (todas las vistas lo pagan) y sigue sin haber navegación. (3) Resumir la ref con un LLM: latencia (~1 s por pasada), riesgo de inventar y consume VRAM; la tool web demuestra que el orden léxico alcanza para ubicar. (4) Eximir `refsDir` de `allowedDirectories` y seguir con `read_file`: arregla el acceso, no el tamaño.
+
+**Fases (cada una se prueba sola).** (1) Índice por partes + modos mapa y parte (determinista, sin BM25) y la regla `ref-exists`. (2) Modo necesidad, con BM25 extraído a `retrieval/`. (3) Catálogo (`requires: "refs"`, descripción) y la pista que sustituye a `READ_REFS_NOTE`. (4) Opcional: aceptar también una ruta de archivo de texto grande bajo `allowedDirectories` (`path` en lugar de `ref`) para que `read_file` deje de ser la única vía de lectura de archivos largos.
+
+**Cómo se probaría.** *Tests sin modelos ni Windows:* límites de las partes (ni cortan una línea ni pasan de 1 800 caracteres, cubren el archivo sin huecos ni solapes), el índice con un archivo de 200 MB generado por streaming, `need` contra un texto con la respuesta en una posición conocida (¿cae entre los mejores pasajes?), `ref-exists`, y que ninguna salida crea una ref. *En `eval/` (lo corres tú):* tareas con una ref grande (listado de 5 000 archivos, un log largo, una página larga) y preguntas con la respuesta en posición conocida (inicio, medio, final y repartida); métricas: acierto, llamadas hasta la respuesta, tokens y latencia del paso, contra la línea base con `read_file`.
+
+**Qué medir tú primero (sin implementar).** En trazas reales: cuántas tareas terminan con refs sin leer o con cadenas de `read_file` sobre una ref (`read: offset=… length=…` repetido); el tamaño de las refs de `data/refs`; y la distribución de llamadas por paso en esas tareas.

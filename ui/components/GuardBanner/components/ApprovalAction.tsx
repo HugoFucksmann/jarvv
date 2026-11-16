@@ -7,6 +7,7 @@ import { CopyButton } from "../../Shared/CopyButton.tsx";
 interface ApprovalActionProps {
   request: WaitingApproval["request"];
   onApprove: () => ActionResult;
+  onApproveAlways?: () => ActionResult;
   onDeny: (reason?: string) => ActionResult;
 }
 
@@ -69,6 +70,7 @@ function formatArgValue(val: unknown): string {
 export const ApprovalAction: React.FC<ApprovalActionProps> = ({
   request,
   onApprove,
+  onApproveAlways,
   onDeny,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -84,6 +86,7 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
   };
 
   const handleApprove = () => runAction(onApprove);
+  const handleApproveAlways = () => (onApproveAlways ? runAction(onApproveAlways) : undefined);
   const handleDeny = () => runAction(() => onDeny("Rechazado manualmente por el usuario"));
 
   const rawArgs = request.args || {};
@@ -159,8 +162,20 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-accent-500 hover:bg-accent-400 rounded-md transition-colors cursor-pointer disabled:opacity-50"
           >
             {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            <span>Aprobar ejecución</span>
+            <span>Aprobar una vez</span>
           </button>
+          {request.canRemember === true && onApproveAlways && (
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={handleApproveAlways}
+              title="Aprueba esta operación y las idénticas (misma herramienta y mismo comando o ruta) hasta que termine esta tarea"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-accent-300 bg-slate-950 hover:bg-slate-800 border border-accent-500/50 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Check className="w-3.5 h-3.5" />
+              <span>Aprobar siempre en esta tarea</span>
+            </button>
+          )}
         </div>
       </div>
 

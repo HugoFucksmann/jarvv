@@ -60,6 +60,7 @@ import {
   RequestAbortedError,
   TransportError,
 } from "./transport.ts";
+import { resolveModelTimeoutMs } from "../timeouts.ts";
 import { errorMessage, isRecord } from "../utils.ts";
 
 type JsonSchema = Record<string, unknown>;
@@ -425,7 +426,7 @@ export class QwenEngine implements EngineLLM {
 
     const t0 = Date.now();
     const elapsed = (): TimeSpan => ({ startedAt: t0, durationMs: Date.now() - t0 });
-    const timeoutMs = o.thinking ? config.qwenThinkingTimeoutMs : config.qwenTimeoutMs;
+    const timeoutMs = resolveModelTimeoutMs(config, config.qwenModel, o.thinking ? "qwenThinking" : "qwen");
     let result;
     try {
       result = await postJson({ url, body: JSON.stringify(body), timeoutMs, signal: o.signal });

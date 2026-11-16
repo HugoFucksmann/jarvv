@@ -43,3 +43,27 @@ test("sin la carpeta contenedora la escritura falla: no es verde (amarillo), ni 
   assert.equal(approvalTierOf("write_file", { path: "C:\\Users\\Ana\\jarvis\\nota.md", content: "x" }, ENV, disk([])), "yellow", "C:\\Users\\Ana\\jarvis no existe");
   assert.equal(approvalTierOf("move_file", { source: "C:\\Users\\Ana\\Downloads\\a.pdf", destination: "C:\\Users\\Ana\\Nueva\\a.pdf" }, ENV, disk([])), "yellow");
 });
+
+// ───────────────────────── Rutas relativas ─────────────────────────
+
+const BASE = "C:\\Users\\Ana\\Documents";
+
+test("una ruta relativa se resuelve contra la carpeta de trabajo de la herramienta antes de mirar si existe", () => {
+  assert.equal(approvalTierOf("create_directory", { path: "Proyectos" }, ENV, disk([]), BASE), "green");
+  assert.equal(approvalTierOf("write_file", { path: "nota.md", content: "x" }, ENV, disk([]), BASE), "green", "no existe, la carpeta sí");
+  const existing = `${BASE}\\nota.md`;
+  assert.equal(approvalTierOf("write_file", { path: "nota.md", content: "x" }, ENV, disk([existing]), BASE), "red", "existe: sobrescribir");
+  assert.equal(approvalTierOf("write_file", { path: "nota.md", content: "x", mode: "append" }, ENV, disk([existing]), BASE), "yellow");
+  assert.equal(approvalTierOf("move_file", { source: "a.pdf", destination: "..\\Downloads\\a.pdf" }, ENV, disk([`${BASE}\\a.pdf`]), BASE), "green");
+  assert.equal(approvalTierOf("move_file", { source: "a.pdf", destination: "b.pdf" }, ENV, disk([`${BASE}\\a.pdf`, `${BASE}\\b.pdf`]), BASE), "red", "el destino ya existe");
+});
+
+test("una ruta relativa que sale de las carpetas del usuario, sin base o con una base relativa sigue en amarillo", () => {
+  assert.equal(approvalTierOf("create_directory", { path: "..\\..\\..\\..\\Temp\\x" }, ENV, disk([]), BASE), "yellow", "resuelve fuera de las carpetas del usuario");
+  assert.equal(approvalTierOf("create_directory", { path: "Proyectos" }, ENV, disk([])), "yellow", "sin base no se resuelve");
+  assert.equal(approvalTierOf("create_directory", { path: "Proyectos" }, ENV, disk([]), "relativa"), "yellow", "una base relativa no sirve");
+});
+
+test("edit_block (en pausa) sigue en rojo", () => {
+  assert.equal(approvalTierOf("edit_block", { file_path: "C:\\Users\\Ana\\Desktop\\a.txt" }, ENV, disk([])), "red");
+});

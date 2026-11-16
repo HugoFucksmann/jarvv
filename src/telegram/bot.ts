@@ -9,6 +9,7 @@
 
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { Context } from "grammy";
+import { FIXED_TIMEOUTS } from "../core/timeouts.ts";
 import type { TaskEvent } from "../core/tasks.ts";
 import type { Waiting } from "../core/engine/runtime.ts";
 import { speechExcerpt, streamSpeech } from "../voice/tts.ts";
@@ -44,9 +45,9 @@ interface TaskState {
   finished?: { state: string; stopReason: string | null };
 }
 
-const STATUS_INTERVAL_MS = 2500; // cada cuánto se actualiza, como mucho, el mensaje de progreso
-const TYPING_INTERVAL_MS = 4500; // el aviso "escribiendo…" dura 5 s en Telegram
-const RESULT_WAIT_MS = 30000; // espera máxima del resultado tras el fin de la tarea
+const STATUS_INTERVAL_MS = FIXED_TIMEOUTS.telegramStatusMs; // cada cuánto se actualiza, como mucho, el mensaje de progreso
+const TYPING_INTERVAL_MS = FIXED_TIMEOUTS.telegramTypingMs; // el aviso "escribiendo…" dura 5 s en Telegram
+const RESULT_WAIT_MS = FIXED_TIMEOUTS.telegramResultWaitMs; // espera máxima del resultado tras el fin de la tarea
 const VOICE_MAX_CHARS = 1500; // la nota de voz lee solo el comienzo de una respuesta larga
 const APPROVAL_ARGS_MAX = 1500; // más largo no se puede revisar en el chat
 
@@ -134,8 +135,10 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
       // Nunca se aprueba lo que no se pudo leer entero: con argumentos largos solo se ofrece denegar o cancelar.
       const reviewable = full.length <= APPROVAL_ARGS_MAX;
       const kb = new InlineKeyboard();
-      if (reviewable) kb.text("✅ Aprobar", `aa:${tag}`);
-      kb.text("🚫 Denegar", `ad:${tag}`).row().text("🛑 Cancelar", `cx:${tag}`);
+      if (reviewable) kb.text("✅ Aprobar una vez", `aa:${tag}`);
+      // «Siempre» vive solo en la tarea y nunca se ofrece para lo obligatorio de Guard (rutas o datos sensibles), la lista negra ni lo no resoluble.
+      if (reviewable && r.canRemember === true) kb.row().text("♾️ Aprobar siempre en esta tarea", `al:${tag}`);
+      kb.row().text("🚫 Denegar", `ad:${tag}`).row().text("🛑 Cancelar", `cx:${tag}`);
       const body = reviewable
         ? `\`\`\`json\n${full}\n\`\`\``
         : `\`\`\`json\n${full.slice(0, APPROVAL_ARGS_MAX)}\n…\n\`\`\`\n⚠️ Los argumentos son demasiado largos para revisarlos aquí: apruébalo desde la interfaz.`;
@@ -318,7 +321,7 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
     states: ["desactivado (pide aprobación)", "activado"],
     // Encenderlo delega escrituras amarillas en Decision 3; lo rojo (borrar/sobrescribir/comandos/procesos), rutas sensibles y lista negra siguen pidiendo aprobación.
     confirmOn: {
-      text: "Con el modo automático (con niveles de riesgo activos), las operaciones amarillas pasan por revisión automática en lugar de pedirte confirmación; lo rojo (eliminar, sobrescribir, comandos o procesos), las rutas sensibles y la lista negra siguen pidiéndote confirmación o bloqueándose. ¿Activarlo?",
+      text: "Niveles de riesgo: 🟢 verde (crear algo nuevo en tus carpetas) y lectura pasan sin preguntar; 🟡 amarillo (p. ej. agregar a un archivo): con el modo automático lo revisa Decision 3 sin pedirte confirmación, sin él te lo pregunta; 🔴 rojo (eliminar, sobrescribir, comandos o procesos), rutas sensibles y lista negra te piden confirmación siempre, con o sin modo automático. ¿Activar el modo automático?",
       callback: "ao",
     },
     done: ["🔒 Modo automático desactivado.", "⚡ Modo automático activado (amarillo revisado por Decision 3; rojo sigue pidiendo confirmación). Desactívalo con /auto off."],
@@ -382,6 +385,7 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
         awaitingFeedback = true;
         await ctx.reply("✏️ Escribe los cambios que quieres en el plan.");
       } else if (w.kind === "approval" && act === "aa") res = await api.post("/approve", decision);
+      else if (w.kind === "approval" && act === "al" && w.request.canRemember === true) res = await api.post("/approve", { ...decision, remember: true });
       else if (w.kind === "approval" && act === "ad") res = await api.post("/deny", decision);
     }
 

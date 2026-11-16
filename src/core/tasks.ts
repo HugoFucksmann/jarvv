@@ -240,9 +240,9 @@ export class TaskManager {
     return this.control(taskId, "plan", waitId, (runtime, id) => runtime.resolvePlanApproval(id, false));
   }
 
-  /** Acepta la mutación que espera confirmación. */
-  approveCall(taskId: string, waitId?: string): ControlResult {
-    return this.control(taskId, "approval", waitId, (runtime, id) => runtime.resolveApproval(id, true));
+  /** Acepta la mutación que espera confirmación; con `remember`, también las idénticas (misma herramienta y mismo comando o ruta) durante esta tarea. */
+  approveCall(taskId: string, waitId?: string, remember = false): ControlResult {
+    return this.control(taskId, "approval", waitId, (runtime, id) => runtime.resolveApproval(id, true, undefined, remember));
   }
 
   /** Rechaza la mutación, con una instrucción opcional que el motor deja a la vista del modelo. */

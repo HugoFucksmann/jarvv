@@ -1,3 +1,5 @@
+import { FIXED_TIMEOUTS } from "../timeouts.ts";
+
 /** Tareas retenidas en memoria. Las terminales más antiguas se expulsan (junto con sus refs). */
 export const MAX_RETAINED_TASKS = 20;
 /** Tareas en curso a la vez: cada una consulta los modelos locales y las herramientas, y una más no corre más rápido. `POST /process` responde 429 al pasarse. */
@@ -11,4 +13,4 @@ export const MAX_PARAM_NOTE_CHARS = 240;
 
 /** Política unificada de reintentos hacia el LLM y Decision. Reintentos ante fallo de red o HTTP 503 (nunca ante timeout ni abort). */
 export const LLM_TRANSPORT_RETRIES = 1;
-export const LLM_TRANSPORT_BACKOFF_MS = 1000;
+export const LLM_TRANSPORT_BACKOFF_MS = FIXED_TIMEOUTS.llmBackoffMs;

@@ -24,11 +24,35 @@ export const COMPLETION_APPROVE = 0.75;
  */
 export const COMPLETION_INCOMPLETE_BELOW = 0.25;
 
+/** Extensiones que cuentan como «un archivo nombrado» en la guarda de cobertura (una lista cerrada evita tomar `github.com` o `v1.2` por archivos). */
+const FILE_EXT = "txt|md|json|csv|ps1|py|js|ts|pdf|docx?|xlsx?|pptx?|png|jpe?g|zip|html?|css|log|xml|ya?ml|ini|bat|cmd|exe|mp3|mp4";
+const FILE_NAME = new RegExp(`[\\w\\-]+\\.(?:${FILE_EXT})(?![\\w])`, "gi");
+
+/**
+ * Archivos que el pedido nombra y que NINGUNA llamada de la tarea menciona (en sus argumentos ni en su resumen), sin distinguir mayúsculas. Un archivo que el pedido
+ * nombra y que nadie tocó es una señal determinista de que falta algo. Solo se mira el nombre (la carpeta no importa).
+ */
+export function uncoveredArtifacts(request: string, calls: readonly { readonly args: unknown; readonly summary: string | null }[]): string[] {
+  const named = [...new Set((request.match(FILE_NAME) ?? []).map((n) => n.toLowerCase()))];
+  if (named.length === 0) return [];
+  const haystack = calls.map((c) => `${JSON.stringify(c.args ?? null)} ${c.summary ?? ""}`).join("\n").toLowerCase().replace(/\\\\|\\/g, "/");
+  return named.filter((n) => !haystack.includes(n));
+}
+
 /** ¿La solicitud está cumplida con lo hecho? `false` ante la duda o un fallo: la tarea sigue con la confirmación del LLM. */
 export async function confirmCompletion(env: EngineEnv): Promise<boolean> {
   const { ctx, runtime } = env;
   env.completion.last = null;
   if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return false;
+  // Guarda de cobertura (config `completionCoverageGuard`, experimental): un archivo nombrado en el pedido que ninguna llamada menciona impide el cierre rápido
+  // (y ahorra la consulta); la tarea sigue con la confirmación de siempre. Solo puede volver el cierre más estricto.
+  if (env.deps.completionCoverageGuard?.() === true) {
+    const missing = uncoveredArtifacts(ctx.task.request, ctx.find("calls", {}));
+    if (missing.length > 0) {
+      console.warn(`[Engine] cierre por Decisión 5 omitido: el pedido nombra ${missing.join(", ")} y ninguna llamada lo menciona.`);
+      return false;
+    }
+  }
 
   const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0);
   if (!query.ok) {

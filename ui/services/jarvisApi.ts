@@ -128,9 +128,9 @@ export const jarvisApi = {
     );
   },
 
-  /** Aprueba una operación sensible pendiente de Guard. */
-  approvePending(taskId?: string, waitId?: string): Promise<OkResponse> {
-    return post("/api/jarvis/approve", taskBody(taskId, waitId), "Error al aprobar la operación");
+  /** Aprueba una operación sensible pendiente de Guard; con `remember`, también las idénticas durante la tarea (solo en la tarea, en RAM). */
+  approvePending(taskId?: string, waitId?: string, remember = false): Promise<OkResponse> {
+    return post("/api/jarvis/approve", taskBody(taskId, waitId, remember ? { remember: true } : {}), "Error al aprobar la operación");
   },
 
   /** Deniega una operación pendiente de Guard con motivo opcional. */

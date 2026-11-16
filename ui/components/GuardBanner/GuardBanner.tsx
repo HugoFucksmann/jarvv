@@ -7,6 +7,7 @@ import { ApprovalAction } from "./components/ApprovalAction.tsx";
 interface GuardBannerProps {
   waiting: Waiting | null;
   onApprove: () => ActionResult;
+  onApproveAlways?: () => ActionResult;
   onDeny: (reason?: string) => ActionResult;
   onAnswer: (answer: string) => ActionResult;
 }
@@ -79,6 +80,7 @@ const UserAnswerForm: React.FC<{
 const GuardBannerBase: React.FC<GuardBannerProps> = ({
   waiting,
   onApprove,
+  onApproveAlways,
   onDeny,
   onAnswer,
 }) => {
@@ -90,6 +92,7 @@ const GuardBannerBase: React.FC<GuardBannerProps> = ({
         <ApprovalAction
           request={waiting.request}
           onApprove={onApprove}
+          onApproveAlways={onApproveAlways}
           onDeny={onDeny}
         />
       ) : waiting.kind === "question" ? (

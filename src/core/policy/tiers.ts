@@ -26,12 +26,18 @@ export interface TierDisk {
 }
 const REAL: TierDisk = { exists: (p) => fs.existsSync(p), canonical: canonicalPath };
 
-function absolute(value: unknown, canon: (p: string) => string): string | null {
+/**
+ * La ruta absoluta y canónica de un argumento, o `null` si no se puede resolver. Una ruta relativa se resuelve contra `baseDir` (la carpeta de trabajo de la herramienta) antes
+ * de mirar si existe; sin una base absoluta, o con un marcador sin resolver, queda sin resolver (amarillo).
+ */
+function absolute(value: unknown, canon: (p: string) => string, baseDir?: string): string | null {
   if (typeof value !== "string") return null;
   const p = stripExtendedPrefix(value);
   if (p === "" || p.includes("{{") || p.includes("\0")) return null;
-  if (!isAnyAbsolute(p)) return null;
-  return canon(p);
+  if (isAnyAbsolute(p)) return canon(p);
+  const base = baseDir === undefined ? "" : stripExtendedPrefix(baseDir.trim());
+  if (base === "" || base.includes("{{") || base.includes("\0") || !isAnyAbsolute(base)) return null;
+  return canon(isWinPath(base) ? path.win32.resolve(base, p.replace(/\//g, "\\")) : path.posix.resolve(base, p));
 }
 
 const dirnameOf = (p: string): string => (isWinPath(p) ? path.win32.dirname(p) : path.posix.dirname(p));
@@ -44,17 +50,17 @@ function underUserFolder(p: string, env: UserEnvironment, canon: (target: string
 }
 
 /** El nivel de una escritura del catálogo ya con sus argumentos resueltos. Sin información suficiente, amarillo (nunca verde por omisión). */
-export function approvalTierOf(tool: string, args: Readonly<Record<string, unknown>>, env: UserEnvironment, disk: TierDisk = REAL): ApprovalTier {
+export function approvalTierOf(tool: string, args: Readonly<Record<string, unknown>>, env: UserEnvironment, disk: TierDisk = REAL, baseDir?: string): ApprovalTier {
   const canon = disk.canonical ?? canonicalPath;
   try {
     switch (tool) {
       case "create_directory": {
-        const dir = absolute(args.path, canon);
+        const dir = absolute(args.path, canon, baseDir);
         return dir !== null && underUserFolder(dir, env, canon) ? "green" : "yellow";
       }
       case "write_file": {
         const raw = typeof args.path === "string" ? args.path.trim() : "";
-        const file = absolute(args.path, canon);
+        const file = absolute(args.path, canon, baseDir);
         if (file === null || !underUserFolder(file, env, canon)) return "yellow";
         const fileExists = disk.exists(file) || (raw !== "" && disk.exists(raw));
         if (!fileExists) {
@@ -64,14 +70,15 @@ export function approvalTierOf(tool: string, args: Readonly<Record<string, unkno
         return args.mode === "append" ? "yellow" : "red"; // agregar es amarillo; reescribir un archivo que existe es sobrescribir
       }
       case "move_file": {
-        const source = absolute(args.source, canon);
+        const source = absolute(args.source, canon, baseDir);
         const rawDest = typeof args.destination === "string" ? args.destination.trim() : "";
-        const destination = absolute(args.destination, canon);
+        const destination = absolute(args.destination, canon, baseDir);
         if (source === null || destination === null || !underUserFolder(source, env, canon) || !underUserFolder(destination, env, canon)) return "yellow";
         if (disk.exists(destination) || (rawDest !== "" && disk.exists(rawDest))) return "red";
         const parentExists = disk.exists(dirnameOf(destination)) || (rawDest !== "" && disk.exists(dirnameOf(rawDest)));
         return parentExists ? "green" : "yellow";
       }
+      case "edit_block": // en pausa: si se incorpora al catálogo, sigue en rojo hasta que se clasifique
       case "run_command": // un comando que modifica puede hacer cualquier cosa
       case "stop_process":
         return "red";

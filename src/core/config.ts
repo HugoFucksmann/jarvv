@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { TIMEOUT_DEFAULTS } from "./timeouts.ts";
 import { isRecord } from "./utils.ts";
 import type { BlacklistEntry } from "./policy/blacklist.ts";
 
@@ -53,6 +54,19 @@ export interface JarvisConfig {
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
+  /** Overrides de plazo (ms) por herramienta: clave `servidor:herramienta` o `herramienta`. Ganan sobre el plazo del catálogo y sobre `mcpTimeoutMs` (`timeouts.ts`). */
+  toolTimeoutsMs: Record<string, number>;
+  /** Overrides de plazo (ms) por modelo: clave el tag (`qwen3.5:4b`; `<tag>#thinking` para el razonamiento). Ganan sobre `qwenTimeoutMs`, `qwenThinkingTimeoutMs` y `decisionTimeoutMs`. */
+  modelTimeoutsMs: Record<string, number>;
+  /** `run_command`: segundos que espera una llamada por omisión y tope de su `timeoutSec`. El plazo de la herramienta sigue al tope (tope + 15 s). */
+  runCommandDefaultWaitSec: number;
+  runCommandMaxWaitSec: number;
+  /** `web_search`: tope (ms) de cada consulta al modelo juez. */
+  webJudgeTimeoutMs: number;
+  /** SSE: intervalo (ms) del `ping` que mantiene abierta la conexión. */
+  sseKeepAliveMs: number;
+  /** Al apagar el servidor: espera máxima (ms) a que terminen las tareas. */
+  shutdownDrainMs: number;
   /** Registro de trazas: una carpeta por tarea terminada más una línea en `index.jsonl` (lo consume el laboratorio; Jarvis nunca lo lee). */
   traceEnabled: boolean;
   /** Solo fija la ubicación: las trazas van a la carpeta homónima sin extensión (`jarvis-traces.jsonl` → `jarvis-traces/`); el archivo `.jsonl` no se escribe. Una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
@@ -75,6 +89,15 @@ export interface JarvisConfig {
    * Activa por defecto: el nivel amarillo respeta `autoMode` para pedir o no al usuario antes de Decisión 3.
    */
   approvalTiers: boolean;
+  /**
+   * EXPERIMENTAL (apagado por defecto; cambian lo que ve o decide el modelo y hay que medirlos antes de encenderlos). Se leen en cada llamada.
+   * - `reviewFullView`: Decisión 3 recibe además las últimas lecturas y los datos del entorno (hoy solo `Target`, `User Input`, `Previous Errors`, `Call` y `Args`).
+   * - `reviewReads`: las lecturas también pasan por Decisión 3 (hoy nunca).
+   * - `completionCoverageGuard`: Decisión 5 no cierra la tarea si el pedido nombra un archivo que ninguna llamada menciona; cae a la confirmación de siempre.
+   */
+  reviewFullView: boolean;
+  reviewReads: boolean;
+  completionCoverageGuard: boolean;
   /**
    * `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada.
    * Empieza encendido: en la evaluación (scripts/validate/web_eval/RESULTADOS.md) sin el modelo la tool responde algo en 4 de 5 preguntas sin respuesta; con él, en 1 de 5.
@@ -118,6 +141,16 @@ export type ConfigPatch = Partial<
 export const isKeepAlive = (v: unknown): v is string => typeof v === "string" && /^(?:-1|0|\d+(?:\.\d+)?(?:ms|s|m|h))$/.test(v.trim());
 const keepAlive = (v: unknown, fallback: string): string => (isKeepAlive(v) ? v.trim() : fallback);
 
+/** Un mapa `clave → milisegundos` (overrides de plazo): descarta lo que no sea un entero positivo y las claves vacías. */
+export function timeoutMap(v: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [key, value] of Object.entries(v)) {
+    if (key.trim() !== "" && typeof value === "number" && Number.isInteger(value) && value > 0) out[key.trim()] = value;
+  }
+  return out;
+}
+
 const CONFIG_FILE_PATH = path.resolve(process.cwd(), "jarvis-config.json");
 
 const DEFAULT_CONFIG: JarvisConfig = {
@@ -127,12 +160,12 @@ const DEFAULT_CONFIG: JarvisConfig = {
   qwenNumCtx: 16384,
   qwenMaxTokens: { arguments: 2048, plan: 4096, replan: 4096, final: 2048 },
   modelKeepAlive: "30m",
-  qwenTimeoutMs: 120000,
-  qwenThinkingTimeoutMs: 180000,
+  qwenTimeoutMs: TIMEOUT_DEFAULTS.qwenMs,
+  qwenThinkingTimeoutMs: TIMEOUT_DEFAULTS.qwenThinkingMs,
   decisionUrl: "http://127.0.0.1:11434",
   decisionModel: "d3:2b",
   decisionMaxContext: 16384,
-  decisionTimeoutMs: 30000,
+  decisionTimeoutMs: TIMEOUT_DEFAULTS.decisionMs,
   desktopCommanderMcp: {
     // Desktop Commander es una dependencia del proyecto (`package.json`, versión exacta; el lockfile fija el resto) y se lanza con `node` directo:
     // arranca en ~1,4 s contra ~2,7 s con `npx`, no consulta el registro y no depende de la red. La ruta es relativa al directorio de trabajo de
@@ -150,7 +183,14 @@ const DEFAULT_CONFIG: JarvisConfig = {
     // Sin el carril de agentes: con una sesión de Codex firmada en la PC, `auto` mandaría las búsquedas también a ChatGPT y gastaría su cuota.
     env: { SEARCH_MCP_AGENT_ENGINES: "off" },
   },
-  mcpTimeoutMs: 60000,
+  mcpTimeoutMs: TIMEOUT_DEFAULTS.mcpMs,
+  toolTimeoutsMs: {},
+  modelTimeoutsMs: {},
+  runCommandDefaultWaitSec: TIMEOUT_DEFAULTS.runCommandDefaultWaitSec,
+  runCommandMaxWaitSec: TIMEOUT_DEFAULTS.runCommandMaxWaitSec,
+  webJudgeTimeoutMs: TIMEOUT_DEFAULTS.webJudgeMs,
+  sseKeepAliveMs: TIMEOUT_DEFAULTS.sseKeepAliveMs,
+  shutdownDrainMs: TIMEOUT_DEFAULTS.shutdownDrainMs,
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
   refsDir: "data/refs",
@@ -159,6 +199,9 @@ const DEFAULT_CONFIG: JarvisConfig = {
   blacklist: [],
   autoMode: false,
   approvalTiers: true,
+  reviewFullView: false,
+  reviewReads: false,
+  completionCoverageGuard: false,
   webSearchUseJudge: true,
   voiceEnabled: false,
   telegramVoice: false,
@@ -261,6 +304,13 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     desktopCommanderMcp: normalizeServer(r.desktopCommanderMcp, d.desktopCommanderMcp),
     freeSearchMcp: normalizeServer(r.freeSearchMcp, d.freeSearchMcp),
     mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
+    toolTimeoutsMs: timeoutMap(r.toolTimeoutsMs),
+    modelTimeoutsMs: timeoutMap(r.modelTimeoutsMs),
+    runCommandDefaultWaitSec: positiveInt(r.runCommandDefaultWaitSec, d.runCommandDefaultWaitSec),
+    runCommandMaxWaitSec: positiveInt(r.runCommandMaxWaitSec, d.runCommandMaxWaitSec),
+    webJudgeTimeoutMs: positiveInt(r.webJudgeTimeoutMs, d.webJudgeTimeoutMs),
+    sseKeepAliveMs: positiveInt(r.sseKeepAliveMs, d.sseKeepAliveMs),
+    shutdownDrainMs: positiveInt(r.shutdownDrainMs, d.shutdownDrainMs),
     traceEnabled: typeof r.traceEnabled === "boolean" ? r.traceEnabled : d.traceEnabled,
     tracePath: nonEmptyText(r.tracePath, d.tracePath),
     refsDir: nonEmptyText(r.refsDir, d.refsDir),
@@ -269,6 +319,9 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
     approvalTiers: typeof r.approvalTiers === "boolean" ? r.approvalTiers : d.approvalTiers,
+    reviewFullView: typeof r.reviewFullView === "boolean" ? r.reviewFullView : d.reviewFullView,
+    reviewReads: typeof r.reviewReads === "boolean" ? r.reviewReads : d.reviewReads,
+    completionCoverageGuard: typeof r.completionCoverageGuard === "boolean" ? r.completionCoverageGuard : d.completionCoverageGuard,
     webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
     voiceEnabled: typeof r.voiceEnabled === "boolean" ? r.voiceEnabled : d.voiceEnabled,
     telegramVoice: typeof r.telegramVoice === "boolean" ? r.telegramVoice : d.telegramVoice,

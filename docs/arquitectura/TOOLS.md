@@ -11,7 +11,7 @@ JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herram
 | `terminal` | `jarvis_terminal` (nativo) | `run_command`, `list_processes`, `stop_process` | Solo Windows/PowerShell; ver detalle operativo en [`../operacion/WINDOWS_TERMINAL.md`](../operacion/WINDOWS_TERMINAL.md) |
 | `web` | `jarvis_web` (nativo) | `web_search` | Búsqueda y lectura web; usa internamente `free_search` (`search`, `fetch`, `read_doc`) |
 
-Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true` para `free_search` (`search`, `fetch`, `read_doc`, más `research` conservado solo por cobertura de políticas en tests): tienen política en Guard, pero no se ofrecen a D1, D2 ni al planificador.
+Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true` para `free_search` (`search`, `fetch`, `read_doc`): tienen política en Guard, pero no se ofrecen a D1, D2 ni al planificador.
 
 ## 2. Contrato e infraestructura (`src/core/tools/`)
 
@@ -36,4 +36,4 @@ Busca en internet o lee hasta 5 URLs explícitas y devuelve fragmentos **literal
   - **Versión (`guardVersions`)**: si `need` menciona una versión `X.Y.Z` ausente en el fragmento, limita la probabilidad por debajo de `found`.
   - **Fechas**: lista `Sources: [n] título — url (dated AAAA-MM-DD)` indicando la fecha de página o snippet.
   - **Seguridad (`policy/egress.ts`)**: rechaza URLs locales/internas o con credenciales y exige confirmación humana obligatoria (aun con `autoMode`) si la consulta contiene rutas de usuario o posibles secretos/tokens.
-- **Referencias MCP y pendientes**: detalle de `free-search-mcp` en [`../operacion/free_search_mcp.md`](../operacion/free_search_mcp.md); limitaciones abiertas (multiparte, recencia, calibración y Deep Research en pausa) en [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) y [`../pendientes/PENDIENTES.md`](../pendientes/PENDIENTES.md).
+- **Referencias MCP y pendientes**: detalle de `free-search-mcp` en [`../operacion/free_search_mcp.md`](../operacion/free_search_mcp.md); limitaciones abiertas (multiparte, recencia, calibración) en [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) y [`../pendientes/PENDIENTES.md`](../pendientes/PENDIENTES.md).

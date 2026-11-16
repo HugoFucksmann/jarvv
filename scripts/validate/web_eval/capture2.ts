@@ -1,5 +1,5 @@
 /**
- * Captura para la ronda 3 (¿search + fetch de a una página en vez de research?): por caso, `search` (JSON) y `fetch` (JSON) de las primeras 3 URLs, con el tiempo de cada llamada.
+ * Captura para la ronda 3 (¿search + fetch de a una página?): por caso, `search` (JSON) y `fetch` (JSON) de las primeras 3 URLs, con el tiempo de cada llamada.
  *   npx tsx scripts/validate/web_eval/capture2.ts [--force] [--only=id,id] [--probe]
  * `--probe`: una sola consulta, imprime la forma de search/fetch/compare (para ver qué devuelve cada herramienta).
  */

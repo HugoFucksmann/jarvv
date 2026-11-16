@@ -67,10 +67,10 @@ test("prompt de argumentos: el bloque MEMORY solo aparece con hechos", () => {
 
 test("pre-chequeo: una ruta que viene de un hecho tiene origen solo si el hecho es fuente (DN-1.10)", async () => {
   const ctx = newContext("reactive");
-  const env = { platform: "windows", home: "C:\Users\Ana", desktop: "C:\Users\Ana\Desktop" } as never;
-  const args = { path: "D:\trabajo\facturas-app" };
+  const env = { platform: "windows", home: "C:\\Users\\Ana", desktop: "C:\\Users\\Ana\\Desktop" } as never;
+  const args = { path: "D:\\trabajo\\facturas-app" };
   const without = await precheckCall({ tool: "list_directory", kind: "read", args, sources: collectSources(ctx), environment: env });
   assert.equal(without?.review, "args_invalid", "sin el hecho, la ruta se rechaza como inventada");
-  const withFact = await precheckCall({ tool: "list_directory", kind: "read", args, sources: collectSources(ctx, ["D:\trabajo\facturas-app"]), environment: env });
+  const withFact = await precheckCall({ tool: "list_directory", kind: "read", args, sources: collectSources(ctx, ["D:\\trabajo\\facturas-app"]), environment: env });
   assert.equal(withFact, null);
 });

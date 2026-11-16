@@ -14,6 +14,7 @@ import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
 import { isPathInsideCanonical } from "../policy/allowedDirs.ts";
 import type { ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
+import { resolveToolTimeoutMs } from "../timeouts.ts";
 
 // ───────────────────────── Composición ─────────────────────────
 
@@ -27,6 +28,12 @@ export interface EngineServices {
   readonly autoMode: () => boolean;
   /** Aprobación por niveles (`approvalTiers` de la configuración, leída en cada llamada). */
   readonly approvalTiers?: () => boolean;
+  readonly reviewReads?: () => boolean;
+  readonly completionCoverageGuard?: () => boolean;
+  /** Override de plazo (ms) por herramienta desde la configuración, leído en cada llamada. */
+  readonly toolTimeoutMs?: (server: string, tool: string) => number | undefined;
+  /** Carpeta de trabajo de las herramientas de archivos (`desktopCommanderMcp.cwd`, o la del proceso). */
+  readonly toolBaseDir?: () => string;
   /** Directorios permitidos leídos en vivo desde la configuración en cada llamada. */
   readonly allowedDirectories?: () => readonly string[];
   /** Hechos del usuario de `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
@@ -72,6 +79,10 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
     approvalTiers: () => getConfig().approvalTiers,
+    reviewReads: () => getConfig().reviewReads,
+    completionCoverageGuard: () => getConfig().completionCoverageGuard,
+    toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
+    toolBaseDir: () => getConfig().desktopCommanderMcp.cwd ?? process.cwd(),
     allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
     memory: createMemoryReader(path.join(path.dirname(refsDir), "memory.json")),
   };

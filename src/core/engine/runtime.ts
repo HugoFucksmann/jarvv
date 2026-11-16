@@ -23,10 +23,12 @@ export interface ApprovalRequest {
   readonly reason: string;
   /** Argumentos tal como se registrarán (recortados), no los resueltos: pueden contener el contenido de una ref. */
   readonly args: JsonObject;
+  /** ¿Se ofrece «aprobar siempre en esta tarea»? Falso para lo obligatorio de Guard, la lista negra y lo que no se pudo resolver: solo admiten «una vez». */
+  readonly canRemember?: boolean;
 }
 
 export type ApprovalOutcome =
-  | { readonly kind: "approved" }
+  | { readonly kind: "approved"; readonly remember?: boolean }
   | { readonly kind: "rejected"; readonly instruction: string | null }
   | { readonly kind: "cancelled" };
 
@@ -92,6 +94,9 @@ export class TaskRuntime {
   private plan: PendingPlanEntry | null = null;
   private approval: PendingApprovalEntry | null = null;
   private question: PendingQuestionEntry | null = null;
+  /** «Aprobar siempre en esta tarea» y rechazos del usuario: solo en RAM y solo de esta tarea (claves de `policy/approvalKey.ts`). */
+  private readonly alwaysApproved = new Set<string>();
+  private readonly userRejected = new Set<string>();
 
   constructor(options: TaskRuntimeOptions = {}) {
     this.options = options;
@@ -174,14 +179,30 @@ export class TaskRuntime {
    * Resuelve la confirmación pendiente. Devuelve `false` si no hay una o su `id` no coincide (respuesta tardía o de otra
    * solicitud). `instruction` solo se conserva si se rechaza y no está vacía.
    */
-  resolveApproval(id: string, approved: boolean, instruction?: string): boolean {
+  resolveApproval(id: string, approved: boolean, instruction?: string, remember = false): boolean {
     const entry = this.approval;
     if (!entry || entry.request.id !== id) return false;
     this.approval = null;
     const clean = instruction?.trim() ? instruction.trim() : null;
-    entry.resolve(approved ? { kind: "approved" } : { kind: "rejected", instruction: clean });
+    // «Siempre» solo vale si la solicitud lo ofrecía (nunca para lo obligatorio de Guard).
+    entry.resolve(approved ? (remember && entry.request.canRemember === true ? { kind: "approved", remember: true } : { kind: "approved" }) : { kind: "rejected", instruction: clean });
     this.notify();
     return true;
+  }
+
+  // ─────────── Aprobaciones recordadas en la tarea ───────────
+
+  isAlwaysApproved(key: string): boolean {
+    return this.alwaysApproved.has(key);
+  }
+  rememberApproval(key: string): void {
+    this.alwaysApproved.add(key);
+  }
+  wasRejectedByUser(key: string): boolean {
+    return this.userRejected.has(key);
+  }
+  rememberRejection(key: string): void {
+    this.userRejected.add(key);
   }
 
   // ─────────── Pregunta al usuario (`ask_user`) ───────────
