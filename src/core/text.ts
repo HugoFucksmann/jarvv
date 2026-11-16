@@ -61,8 +61,8 @@ export function clipAtWord(text: string, n: number): string {
 }
 
 // ───────────────────────── Fase 4: recorte con marcador neutro ─────────────────────────
-// El `summary` de una llamada no contiene claves de ref (PLAN_CONTEXT 5.2): el marcador de omisión es neutro y la vista
-// añade la ref a partir de `call.ref`. Estas funciones no sanean (C9): el saneado lo hacen las vistas al renderizar.
+// El `summary` de una llamada no contiene claves de ref (PLAN_CONTEXT 5.2): el marcador de omisión es neutro y las vistas
+// no la muestran. Estas funciones no sanean (C9): el saneado lo hacen las vistas al renderizar.
 // Las usa `src/core/result/`.
 
 /** Resultado de un recorte: el texto y si hubo omisión. */

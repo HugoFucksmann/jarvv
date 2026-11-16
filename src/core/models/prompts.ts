@@ -98,7 +98,7 @@ const POWERSHELL_RULES = `PowerShell Rules:
 export const PROMPTS = {
   /**
    * Argumentos generados desde la vista estructurada `view` es el texto de `renderArgs` (secciones STATE, USER, STEPS,
-   * DONE, REFS, DATA, EFFECTS, FAIL, LAST ERROR y TASK).
+   * DONE, DATA, EFFECTS, FAIL, LAST ERROR y TASK).
    *
    * Texto de la variante args_ps_perfect (eval 2026-11-09, con el pre-chequeo de PowerShell como parte del grader: 100 % (66/66) vs 71,2 % (47/66) del texto
    * anterior, 0 regresiones, 19 mejoras, p < 0,001; args_ps_elite empata y agrega una regla de Rename-Item hecha a medida de un caso). Las reglas de
@@ -110,10 +110,9 @@ export const PROMPTS = {
     SYSTEM: `Generate the arguments for the indicated tool. Return only a JSON object that conforms to the SCHEMA.
 
 Include only the required parameters and optional parameters needed for the task.
-Follow TASK and USER exactly. Use STEPS, DONE, STATE, REFS, DATA and EFFECTS as context. Do not repeat failed attempts listed in FAIL or LAST ERROR; correct the specific problem.
+Follow TASK and USER exactly. Use STEPS, DONE, STATE, DATA and EFFECTS as context. Do not repeat failed attempts listed in FAIL or LAST ERROR; correct the specific problem.
 
 Use only available information for task-specific values. Never invent paths, identifiers, names, filters, URLs or data. Never use placeholders like 'example.com' or '<user>'.
-Use {{ref:rX}} only with references listed in REFS when a full saved result is needed.
 For file paths, use the real paths provided in ENV. Never use placeholders or environment variables.
 
 ${POWERSHELL_RULES}
@@ -245,7 +244,7 @@ ${DATA_NOTICE_EN}`,
    * PIDs ni estados internos. Medido con el modelo real: final_16_cases 87,5 % y final_gemai 62,5 % (igual que final_summary, p50 350 ms vs 1500 ms) y el caso de tamaños
    * (`final_sizes`) 8/8 contra 5/6 sin las reglas. Los fallos que quedan en fin-022 (omite la severidad) y fin-024 (traduce "Pending" a "pendiente", correcto en español) no son de este texto.
    * El SYSTEM sigue más corto que el original: ya no explica las secciones de la vista ni estas reglas, que antes sí estaban: una llamada con status args_invalid, loop_blocked,
-   * tool_rejected, info_missing, user_rejected o refs_unresolved nunca se ejecutó; "read"/"write" es solo el tipo de la herramienta; avisar de POSSIBLE EFFECTS y de un proceso en
+   * tool_rejected, info_missing o user_rejected nunca se ejecutó; "read"/"write" es solo el tipo de la herramienta; avisar de POSSIBLE EFFECTS y de un proceso en
    * segundo plano (STATE). Si en Jarvis real el final describe como ejecutadas llamadas que fallaron, reponer esas dos reglas. En el eval, reescribirlas todas
    * (final_summary_answerfirst) o acortar más (final_summary_short) bajó ~10 puntos.
    */

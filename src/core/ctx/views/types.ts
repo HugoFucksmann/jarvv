@@ -50,20 +50,11 @@ export interface ReviewViewOptions extends WindowOptions {
 }
 
 export interface ArgsViewOptions extends ReviewViewOptions {
-  /** Refs más recientes que muestra la vista (`BUDGET.caps.refs`). */
-  readonly refs: number;
   /** Herramienta para la que se generan los argumentos: con ella la vista incluye `lastError`. */
   readonly tool?: string;
 }
 
 // ───────────────────────── Piezas ─────────────────────────
-
-export interface RefView {
-  readonly id: string;
-  /** Tamaño en caracteres. */
-  readonly size: number;
-  readonly label: string;
-}
 
 export interface StepView {
   readonly id: string;
@@ -93,7 +84,6 @@ export interface CallView {
   /** `args` de la llamada; solo donde la vista muestra lo que se quiso ejecutar (si no, `null`). */
   readonly args: JsonObject | null;
   readonly summary: string | null;
-  readonly ref: RefView | null;
 }
 
 /** Un efecto o posible efecto es una llamada `write`; se muestra siempre con sus `args`. */
@@ -116,10 +106,6 @@ export interface UserInputView {
 export interface FeedbackView {
   readonly planId: string;
   readonly feedback: string;
-}
-
-export interface AvailableRefView extends RefView {
-  readonly stepId: string;
 }
 
 // ───────────────────────── Vistas ─────────────────────────
@@ -201,8 +187,6 @@ export interface ArgsView {
   readonly stepsDone: readonly StepDoneView[];
   /** Últimas lecturas aprobadas, con sus `args`, resumen y ref. */
   readonly lastReads: readonly CallView[];
-  /** Las refs más recientes que no se muestran en otra sección, con lo ya leído de cada una. */
-  readonly refs: readonly AvailableRefView[];
   /** Fallos del paso actual (ventana por escalaciones). */
   readonly stepFailures: readonly CallView[];
   /**

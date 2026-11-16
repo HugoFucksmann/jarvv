@@ -115,6 +115,36 @@ test("collectSources: una ref mayor que REF_SOURCE_MAX_BYTES marca fuentes incom
   }
 });
 
+test("collectSources: la respuesta larga del usuario (ref sin llamada, recortada en el hecho) es fuente; una ilegible o mayor al tope deja las fuentes incompletas", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-ref-orphan-"));
+  try {
+    const tailUrl = "https://despues-del-recorte.invalid/recurso";
+    const answerFile = path.join(dir, "respuesta.txt");
+    fs.writeFileSync(answerFile, `${"a".repeat(600)} ${tailUrl}`, "utf8");
+
+    const withOrphan = (where: string, size: number) => {
+      const ctx = newContext("reactive");
+      const s1 = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "abrir", route: null, expected: null } }).ids[0];
+      ctx.apply({ op: "add", target: "refs", value: { stepId: s1, label: "answer_1", size, where } });
+      return ctx;
+    };
+
+    const sources = collectSources(withOrphan(answerFile, fs.statSync(answerFile).size));
+    assert.equal(sources.complete, true);
+    assert.equal(await precheckCall(input({ tool: "fetch", args: { url: tailUrl }, sources }), noAnalyzer), null, "una URL que el usuario escribió pasado el recorte ya no se rechaza");
+    assert.equal((await precheckCall(input({ tool: "fetch", args: { url: "https://otra.invalid/x" }, sources }), noAnalyzer))?.review, "args_invalid", "lo que no está en ningún lado se sigue rechazando");
+
+    const missing = collectSources(withOrphan(path.join(dir, "no-existe.txt"), 1));
+    assert.equal(missing.complete, false, "una ref sin llamada que ya no se puede leer vuelve incompleta la comprobación");
+
+    const bigFile = path.join(dir, "grande.txt");
+    fs.writeFileSync(bigFile, "b".repeat(REF_SOURCE_MAX_BYTES + 10), "utf8");
+    assert.equal(collectSources(withOrphan(bigFile, REF_SOURCE_MAX_BYTES + 10)).complete, false, "una ref sin llamada mayor al tope vuelve incompleta la comprobación");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ───────────────────────── Destino de una escritura con origen ─────────────────────────
 
 test("escritura: un destino fuera de las carpetas del usuario que no sale de ningún lado se rechaza; con origen o dentro de ENV, no", async () => {

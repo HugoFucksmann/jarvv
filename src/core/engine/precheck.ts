@@ -142,12 +142,23 @@ export function collectSources(ctx: TaskContext, extra: readonly string[] = []):
   for (const step of ctx.find("steps", {})) if (step.instruction) parts.push(step.instruction);
   parts.push(JSON.stringify(ctx.view.forReview(reviewViewOptions()).userInput));
   let complete = true;
-  for (const call of ctx.find("calls", {})) {
+  const calls = ctx.find("calls", {});
+  const refs = ctx.find("refs", {});
+  // Una ref que ninguna llamada usa (la respuesta larga del usuario que `ask.ts` guarda cuando el hecho `answer_*` queda recortado) también es fuente: lo que el
+  // usuario escribió más allá del recorte no puede darse por inventado. Una ref ilegible o mayor al tope deja la comprobación inconclusa, como las de las llamadas.
+  const usedByCalls = new Set(calls.map((c) => c.ref).filter((id): id is string => id !== null));
+  for (const ref of refs) {
+    if (usedByCalls.has(ref.id)) continue;
+    const read = readRefText(ref.where);
+    if (read === null || read.truncated) complete = false;
+    if (read !== null) parts.push(read.text);
+  }
+  for (const call of calls) {
     // Solo lo que se ejecutó bien da origen: los argumentos de un intento rechazado o con `not_found` eran una suposición.
     if (call.status === "ok" && call.args !== null) parts.push(JSON.stringify(call.args));
     if (call.status === "ok" && call.summary !== null) parts.push(call.summary);
     if (call.ref !== null) {
-      const ref = ctx.find("refs", {}).find((r) => r.id === call.ref);
+      const ref = refs.find((r) => r.id === call.ref);
       const read = ref === undefined ? null : readRefText(ref.where);
       // Una ref ilegible (archivo borrado) o mayor al tope por ref puede contener lo que se busca fuera de lo leído: la comprobación no es concluyente.
       if (read === null) {

@@ -15,7 +15,7 @@
  *
  * Qué pasa tras cada llamada registrada: `approved` → paso `completed`; `denied` del servidor → `failed` (no se verifica);
  * `loop_blocked` contra una llamada idéntica ya aprobada → paso `completed` (lo pedido ya está hecho); el segundo `loop_blocked` del
- * paso (`BUDGET.maxRepeatsPerStep`) → `failed`; cualquier otro resultado (`args_invalid`, `refs_unresolved`, `info_missing`,
+ * paso (`BUDGET.maxRepeatsPerStep`) → `failed`; cualquier otro resultado (`args_invalid`, `info_missing`,
  * `loop_blocked`, `user_rejected`, veredicto `rejected`) → vuelve a Decisión 1 con lo ocurrido a la vista. Topes del paso:
  * `BUDGET.maxCallsPerStep` (sin `user_rejected`), `BUDGET.maxRepeatsPerStep` y `BUDGET.maxUserRejectionsPerStep` (el segundo rechazo del usuario falla el paso).
  *

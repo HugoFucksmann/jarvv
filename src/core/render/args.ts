@@ -16,7 +16,6 @@
 import type { ArgsView, CallView } from "../ctx/index.ts";
 import {
   argsText,
-  availableRefLine,
   callHead,
   clipMarked,
   effectEntry,
@@ -100,7 +99,6 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
     userBlock(view.userInput, caps),
     obsBlock("STEPS", lastCapped(view.stepsDone.map((s) => stepDoneLine(s, caps)), caps.stepsDone)),
     obsBlock("DONE", lastCapped(view.done.map((c) => clipMarked(callHead(c), caps.line)), caps.done)),
-    obsBlock("REFS", view.refs.map((r) => clipMarked(availableRefLine(r), caps.refLine))),
     obsBlock("DATA", view.lastReads.map((c) => readEntry(c, caps))),
     obsBlock("EFFECTS", effects),
     obsBlock("FAIL", failureLines(view.stepFailures, caps)),

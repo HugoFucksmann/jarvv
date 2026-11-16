@@ -56,11 +56,11 @@ Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-p
 
 - **Reactivo:** `plans` está vacío y los pasos traen `planId`, `route` y `expected` en `null`; `instruction` es el primer ítem de la lista de pendientes, que mantiene el código (el modelo la genera al empezar, tras un fallo y al vaciarse); la lista completa no se expone. Lo que se hizo se lee de `calls`. Cada iteración del bucle es un paso.
 - **Deliberativo:** un replan o una modificación del usuario marca `superseded: true` los pasos que reemplaza: se muestran como descartados, no como fallidos. Los vigentes son los que no están `superseded`.
-- **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `waiting_input` (un proceso de `run_command` sigue vivo y pide una respuesta del usuario: no se verifica y el paso emite una espera `question` con el texto que el proceso muestra), `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid` (el pre-chequeo o la revisión rechazaron los argumentos), `refs_unresolved`, `loop_blocked` (la misma llamada ya se había hecho), `user_rejected`, `tool_rejected` (la rechazó Guard, la lista negra o una regla de comando; la tarea sigue), `info_missing`. `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data` o `not_accomplished`.
+- **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `waiting_input` (un proceso de `run_command` sigue vivo y pide una respuesta del usuario: no se verifica y el paso emite una espera `question` con el texto que el proceso muestra), `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid` (el pre-chequeo o la revisión rechazaron los argumentos), `loop_blocked` (la misma llamada ya se había hecho), `user_rejected`, `tool_rejected` (la rechazó Guard, la lista negra o una regla de comando; la tarea sigue), `info_missing`. `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data` o `not_accomplished`.
 - **Escrituras:** `kind: "write"` con `status: "ok"` son cambios hechos en la PC; con `tool_error`, `exception`, `interrupted` o `waiting_input` pudieron dejar cambios parciales.
 - **`summary`:** resultado ya resumido (máx. 2500 caracteres, con marcadores `…(+N)` si se recortó). Si `ref` no es `null`, el resultado completo está en el archivo de esa ref (`refs[].where`, ruta absoluta en la PC; `size` en caracteres).
 - **`facts`:** `process` (id del proceso en segundo plano activo; `value: null` = ya no hay) y `answer_<stepId>_<n>` (`"pregunta -> respuesta"`).
-- `args` van como los propuso el modelo, con los strings recortados; `{{ref:rN}}` es una referencia a un resultado guardado.
+- `args` van como los propuso el modelo, con los strings recortados.
 
 ## Modo automático y lista negra (`/config`)
 
@@ -81,7 +81,7 @@ La tarea queda detenida hasta que el usuario responde; solo hay una espera a la 
 
 - La aprobación se pide después de que el pre-chequeo aceptó los argumentos. Con `autoMode` solo la piden lo rojo, lo obligatorio de Guard, la lista negra y lo que `allowedDirectories` no puede resolver. Si el usuario aprueba, no hay otra revisión de argumentos.
 - El plan se confirma tras el plan inicial y tras cada plan generado por una modificación del usuario; nunca tras un replan automático.
-- `args` de `approval` son los registrados (recortados); un contenido grande aparece como `{{ref:rN}}`.
+- `args` de `approval` son los registrados (recortados).
 - Cancelar resuelve cualquier espera y la tarea cierra con `cancelled` / `user_cancelled`.
 
 ## Eventos (SSE `GET /events`)

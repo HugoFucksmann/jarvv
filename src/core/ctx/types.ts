@@ -46,7 +46,6 @@ export const EXECUTED_CALL_STATUSES = ["ok", "no_data", "not_found", "tool_error
 /** Llamadas no ejecutadas, sin `denied`, que tiene dos orígenes (5.3). */
 export const NOT_EXECUTED_CALL_STATUSES = [
   "args_invalid",
-  "refs_unresolved",
   "loop_blocked",
   "user_rejected",
   "tool_rejected",

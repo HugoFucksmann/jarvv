@@ -90,7 +90,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
 | `calls` | Una por llamada a herramienta | Ejecutor de llamadas (alta) y verificación (veredicto) |
 | `errors` | Fallos de infraestructura asociados a un paso | Motor |
 | `facts` | `process` (procesos vivos de la tarea, como texto: `4321` o `4321, 5678`) y `answer_<paso>_<n>` (`pregunta -> respuesta`; si excede 500 caracteres, el texto completo va a una ref). La respuesta a la pregunta de un proceso agrega `_p<pid>` a la clave (las vistas muestran el texto, nunca la clave); `ctx.answers(paso)` lista las respuestas de un paso con su clave | Motor |
-| `refs` | Resultados completos en disco: etiqueta, tamaño, ruta | Ejecutor de llamadas |
+| `refs` | Resultados completos en disco: etiqueta, tamaño, ruta. Solo para el pre-chequeo y la depuración: ninguna vista las muestra a los modelos | Ejecutor de llamadas |
 | `result` | Respuesta final y origen | Cierre |
 
 ### Escritura: una sola puerta
@@ -120,7 +120,6 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `waiting_input` | El proceso que lanzó `run_command` sigue vivo y pide una respuesta del usuario; no se verifica y el paso se la pregunta |
 | | `denied` | La política del servidor la denegó (`denied`); una denegación de Guard queda registrada como `tool_rejected` y no cierra la tarea |
 | No ejecutadas | `args_invalid` | Argumentos inválidos (validación, pre-chequeo o revisión; el pre-chequeo y la revisión dejan un motivo fijo como resumen) |
-| | `refs_unresolved` | Una referencia `rN` no se pudo resolver |
 | | `loop_blocked` | El anti-bucle bloqueó una repetición |
 | | `tool_rejected` | Guard, la lista negra o una regla de comando vetó la herramienta o el comando (no cierra la tarea) |
 | | `info_missing` | La revisión detectó información faltante |
@@ -170,9 +169,9 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 
 ## 5. Resultados Voluminosos y Referencias
 1. **Procesamiento**: el resultado crudo de la herramienta se convierte en un estado, un resumen (hasta 2 500 caracteres) y el texto completo. Solo `list_directory` (40 entradas) y `read_file` (primeras y últimas 15 líneas) de Desktop Commander tienen extractor propio. Los resultados de las herramientas propias (`jarvis_*`) los lee el extractor estructurado: el texto que el proveedor ya preparó para el modelo más las señales (código de salida, `pid` y estado, espera de entrada). El resto usa el genérico (inicio y final del texto, 750 caracteres cada uno).
-2. **Almacén**: si el resumen no contiene todo el resultado, el texto completo se guarda en disco en `<refsDir>/<tarea>/<uuid>.txt` (UTF-8, nunca se sobrescribe) y la llamada lleva una `ref` con su etiqueta, tamaño y ruta. La retención (`retention.ts`) las borra por antigüedad (`retentionDays`, 30 por defecto; `0` la desactiva) al arrancar y cada 6 horas; solo toca carpetas con el nombre de una tarea de Jarvis y nunca las de una tarea retenida en memoria.
-3. **Uso por los modelos**: un modelo nunca ve el contenido completo. Para usarlo, escribe `{{ref:rN}}` (o `ref:rN` como valor completo de un argumento) y el resolutor lo sustituye por el contenido real **antes de Guard y del despacho**; o lee la ruta del archivo con la herramienta de archivos, por tramos. La vista de argumentos le indica qué tramos de cada ref ya leyó.
-4. **Resolución segura**: solo se aceptan ids `rN` de la propia tarea, la sustitución es de una sola pasada (el contenido inyectado no se vuelve a analizar) y una ref desconocida o ilegible nunca llega a la herramienta: la llamada queda `refs_unresolved`.
+2. **Almacén**: si el resumen no contiene todo el resultado, el texto completo se guarda en disco en `<refsDir>/<tarea>/<uuid>.txt` (UTF-8, nunca se sobrescribe), cortado a 5 000 000 de caracteres con una marca explícita si lo supera (`REF_MAX_CHARS`), y la llamada lleva una `ref` con su etiqueta, tamaño y ruta. La retención (`retention.ts`) las borra por antigüedad (`retentionDays`, 30 por defecto; `0` la desactiva) al arrancar y cada 6 horas; solo toca carpetas con el nombre de una tarea de Jarvis y nunca las de una tarea retenida en memoria.
+3. **Uso**: las refs son solo para depurar y para el pre-chequeo. **Los modelos no las ven ni las usan**: ninguna vista incluye la ref, su ruta ni una instrucción para leerla, y los argumentos que propone el modelo se ejecutan tal cual (no hay sustitución de `{{ref:rN}}`). Cada herramienta deja en `summary` lo que el modelo necesita; la ref guarda el texto crudo completo.
+4. **Lectores**: (a) el pre-chequeo (`collectSources`) lee hasta 400 000 bytes de cada ref como fuente de «esto aparece en lo que la tarea sabe», incluidas las refs que ninguna llamada usa (la respuesta larga del usuario que se guarda cuando el hecho `answer_*` queda recortado); si una ref es ilegible o más grande, las fuentes quedan incompletas (`complete = false`) y la regla de origen de argumentos no se aplica, para no rechazar de más; (b) la depuración: `GET /tasks/:id/refs/:refId` y la traza.
 5. **Protección**: Guard deniega las escrituras de archivos sobre la carpeta de refs.
 
 ## 6. Persistencia
@@ -188,7 +187,7 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 1. **Escritura solo por el motor**: los modelos nunca escriben en el contexto ni en las refs; todo pasa por `apply` (§1).
 2. **Sin prosa de modelos en el contexto**: lo que un modelo razona o justifica solo viaja en eventos y trazas. Motivos de rechazo y de detención son claves cerradas con texto fijo.
 3. **Efectos permanentes**: se derivan de `calls`, que nunca se borran (un paso reemplazado solo se marca `superseded`). Ni el replan ni ningún retroceso pueden ocultarlos.
-4. **Aislamiento por tarea**: las refs se resuelven solo contra la tarea activa (§5).
+4. **Aislamiento por tarea**: el pre-chequeo solo lee las refs de la tarea activa (§5).
 5. **Estado terminal cerrado**: una tarea terminal rechaza toda escritura; ninguna respuesta tardía puede modificarla.
 
 ## 8. Limitaciones Conocidas
@@ -200,7 +199,7 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 | Contexto (`apply`, validación, derivaciones, cierre, snapshot, vistas) | `ctx/` |
 | Renderizado de prompts y topes | `render/`, `budget.ts` |
 | Memoria entre tareas | `memory.ts`, `engine/thread.ts`, `tasks.ts` |
-| Resultados y refs | `result/processResult.ts`, `result/extractors/`, `refs/refVault.ts`, `refs/refResolver.ts` |
+| Resultados y refs | `result/processResult.ts`, `result/extractors/`, `refs/refVault.ts` |
 | Escritura desde el motor | `engine/callRunner.ts`, `engine/args.ts` |
 | Tareas, traza y configuración | `tasks.ts`, `trace/recorder.ts`, `config.ts` |
 
@@ -215,4 +214,4 @@ El contexto de una tarea nace vacío y no conoce a nadie. Dos fuentes de memoria
 
 - **Regla:** solo entra lo que escribió el usuario o la respuesta que ya vio; nunca prosa nueva de un modelo. Sin coincidencia no hay bloque y no cambia ningún token.
 - **Formato del archivo:** `[{ "key": "carpeta jarvis", "value": "C:\\Users\\Ana\\Desktop\\jarvis" }]` (también `{ "facts": [...] }`). Archivo ausente o inválido = memoria vacía.
-- **Sin hacer:** frase «recordá que…» y pantalla para ver y borrar hechos, respuestas del usuario como hechos, recetas por pedido repetido (ver [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) §5 y el plan en [`../pendientes/MEMORIA_PLAN.md`](../pendientes/MEMORIA_PLAN.md)). Diseño completo y mediciones: [`../evaluacion/analisis/FRENTE_1_MEMORIA.md`](../evaluacion/analisis/FRENTE_1_MEMORIA.md).
+- **Sin hacer:** frase «recordá que…» y pantalla para ver y borrar hechos, respuestas del usuario como hechos, recetas por pedido repetido (ver [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md) §2). Diseño completo y mediciones: [`../evaluacion/analisis/FRENTE_1_MEMORIA.md`](../evaluacion/analisis/FRENTE_1_MEMORIA.md).

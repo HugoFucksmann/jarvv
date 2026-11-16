@@ -13,7 +13,7 @@
  * Qué es una llamada, a efectos de los topes (todo se deriva de `calls`; no hay contadores aparte):
  * - **Ejecución** (`executions`): la llamada llegó a la herramienta. Es lo que cuesta de verdad (tiempo, efectos).
  * - **Intento** (`attempts`): cualquier llamada registrada salvo `user_rejected` (el rechazo es decisión del usuario, no un intento del modelo).
- *   Incluye lo que nunca tocó la herramienta: `loop_blocked`, `args_invalid`, `refs_unresolved`, `info_missing`, `tool_rejected`.
+ *   Incluye lo que nunca tocó la herramienta: `loop_blocked`, `args_invalid`, `info_missing`, `tool_rejected`.
  * Así, una repetición bloqueada no gasta una ejecución, y los intentos tienen su propio techo contra un modelo que da vueltas.
  */
 

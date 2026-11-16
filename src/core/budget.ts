@@ -115,11 +115,9 @@ export const BUDGET = {
     /** Lectura: `L` + `args` + `summary` completo + marca de ref. */
     readArgs: 600,
     readSummary: 2500,
-    refMark: 250,
     /** Llamada evaluada (`forVerify`) y llamada rechazada (`forAsk`). */
     evaluatedArgs: 2000,
     rejectedSummary: 800,
-    refLine: 400,
     done: 30,
     stepsDone: 30,
     stepsDoneInstruction: 400,
@@ -127,7 +125,6 @@ export const BUDGET = {
     nextInstruction: 600,
     lastResultSummary: 2500,
     lastReads: 3,
-    refs: 8,
     userInput: 6000,
     env: 1000,
     /** Reserva común de efectos y posibles efectos: nunca se recortan; si no entran, la vista falla en voz alta. */

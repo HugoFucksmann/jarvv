@@ -13,7 +13,6 @@ import { createHash } from "node:crypto";
 
 import { BUDGET } from "../budget.ts";
 import type { JsonObject, JsonValue } from "../ctx/index.ts";
-import { isWholeRefToken } from "../refs/refResolver.ts";
 import { clipMarked, oneLine } from "../render/shared.ts";
 import { argCapsOf } from "../tools/manifest.ts";
 import { isRecord } from "../utils.ts";
@@ -47,7 +46,7 @@ export function clipWithin(text: string, cap: number): string {
 const MAX_CONTAINER_DEPTH = BUDGET.jsonMaxDepth;
 
 function clipValue(value: unknown, cap: number, depth: number): JsonValue {
-  if (typeof value === "string") return isWholeRefToken(value) ? value : clipWithin(value, cap);
+  if (typeof value === "string") return clipWithin(value, cap);
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (depth >= MAX_CONTAINER_DEPTH) return null;

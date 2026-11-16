@@ -208,7 +208,7 @@ function buildContext(sc: Scenario): Built {
     const stepId = stepIds[callStep[k]];
     const refId = c.ref ? addOne({ op: "add", target: "refs", value: { stepId, ...c.ref } }) : null;
     const args = c.args === undefined ? {} : c.args;
-    const sig = args === null || c.status === "refs_unresolved" ? null : `sig-${k}`;
+    const sig = args === null ? null : `sig-${k}`;
     const id = addOne({
       op: "add",
       target: "calls",

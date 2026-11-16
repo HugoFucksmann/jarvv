@@ -21,8 +21,6 @@ import type { CommandReport } from "../src/core/engine/precheck.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
-import { clipWithin } from "../src/core/engine/args.ts";
-import { createRefRedactor, REF_DISPLAY_CAP } from "../src/core/refs/redactRef.ts";
 import { createRefVault } from "../src/core/refs/refVault.ts";
 import type { MCPCallResult, MCPTool } from "../src/core/types.ts";
 import type { ExecutableRoute } from "../src/core/types/routes.ts";
@@ -31,7 +29,6 @@ const SCHEMA = {
   type: "object",
   properties: {
     path: { type: "string" },
-    url: { type: "string" },
     content: { type: "string" },
     mode: { type: "string" },
     command: { type: "string" },
@@ -63,8 +60,6 @@ interface Step6cHarnessOptions {
   readonly autoMode?: boolean;
   readonly approvalDecision?: "approve" | "reject";
   readonly analyzeCommand?: (command: string) => Promise<CommandReport | null>;
-  readonly seedRefs?: readonly string[];
-  readonly callTool?: (toolName: string, args: Record<string, unknown>) => Promise<MCPCallResult>;
 }
 
 async function runSingleCall(opts: Step6cHarnessOptions) {
@@ -79,7 +74,6 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
     listTools: async () => tools,
     callTool: async (toolName, args): Promise<MCPCallResult> => {
       dispatched.push({ tool: toolName, args });
-      if (opts.callTool !== undefined) return opts.callTool(toolName, args);
       return { content: [{ type: "text", text: "contenido ok" }] };
     },
     isConnected: () => true,
@@ -91,7 +85,6 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
     jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS),
   };
 
-  const vault = createRefVault({ dir: vaultDir });
   const deps: EngineDeps = {
     discovery: {
       getServer: (name) => servers[name],
@@ -125,7 +118,7 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
       },
       generateFinalFromView: async () => ({ response: "Listo.", rawInput: "", rawOutput: "" }),
     },
-    vault,
+    vault: createRefVault({ dir: vaultDir }),
     guardScope: { protectedDirs: [path.join(vaultDir, "protegida")], relativeBases: [opts.home] },
     blacklist: EMPTY_BLACKLIST,
     environment: async () => ({ platform: opts.platform ?? "linux", home: opts.home }),
@@ -141,10 +134,6 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
     { now: () => (clock += 1000), summaryMax: 2500, argsStringMax: 2000, factValueMax: 500, feedbackMax: 1500, jsonMaxDepth: 6 },
   );
   const stepId = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: opts.request, route: null, expected: null } }).ids[0];
-  for (const [i, refText] of (opts.seedRefs ?? []).entries()) {
-    const stored = await vault.put(ctx.task.id, refText);
-    ctx.apply({ op: "add", target: "refs", value: { stepId, label: `seed_${i + 1}`, size: stored.size, where: stored.where } });
-  }
   const runtime = new TaskRuntime({
     onChange: (waiting) => {
       if (waiting !== null && waiting.kind === "approval") {
@@ -518,147 +507,91 @@ test("paso 6c: deps.allowedDirectories se lee en vivo entre llamadas y [] desact
   }
 });
 
-test("refs en rechazos: la sustitución de {{ref:r1}} sigue llegando intacta a la herramienta", async () => {
+const windowsHost = process.platform === "win32";
+
+test("paso 6c: un junction de Windows dentro de allowedDirectories que apunta fuera se rechaza en archivos y en run_command", { skip: !windowsHost }, async () => {
   const sb = makeSandbox();
   try {
-    const fullText = "contenido completo de la ref\nsegunda línea";
-    const target = path.join(sb.allowedDir, "sub", "nuevo.txt");
-    const res = await runSingleCall({
-      request: `Escribir ${target}`,
+    // Un junction no pide permisos de administrador (a diferencia de un symlink).
+    const junction = path.join(sb.allowedDir, "junction-fuera");
+    fs.symlinkSync(sb.outsideDir, junction, "junction");
+    const viaJunction = path.join(junction, "secreto.txt");
+
+    const read = await runSingleCall({
+      request: `Leer ${viaJunction}`,
       route: "files",
-      tool: "write_file",
-      args: { path: target, content: "{{ref:r1}}", mode: "rewrite" },
+      tool: "read_file",
+      args: { path: viaJunction },
       allowedDirs: () => [sb.allowedDir],
       home: sb.allowedDir,
-      seedRefs: [fullText],
+      platform: "windows",
     });
-    assert.equal(res.calls[0].status, "ok");
-    assert.equal(res.dispatched.length, 1);
-    assert.equal(res.dispatched[0].args.content, fullText);
-    assert.equal((res.calls[0].args as { content?: string })?.content, "{{ref:r1}}");
+    assert.equal(read.calls[0].status, "tool_rejected");
+    assert.match(read.calls[0].summary ?? "", /allowedDirectories/);
+    assert.equal(read.dispatched.length, 0);
+
+    const newLeaf = path.join(junction, "nuevo.txt");
+    const write = await runSingleCall({
+      request: `Escribir ${newLeaf}`,
+      route: "files",
+      tool: "write_file",
+      args: { path: newLeaf, content: "hola", mode: "rewrite" },
+      allowedDirs: () => [sb.allowedDir],
+      home: sb.allowedDir,
+      platform: "windows",
+    });
+    assert.equal(write.calls[0].status, "tool_rejected");
+    assert.equal(write.dispatched.length, 0);
+
+    const cwd = await runSingleCall({
+      request: `Ejecutar Get-Date en ${junction}`,
+      route: "terminal",
+      tool: "run_command",
+      args: { command: "Get-Date", cwd: junction },
+      allowedDirs: () => [sb.allowedDir],
+      home: sb.allowedDir,
+      platform: "windows",
+      analyzeCommand: async () => ({ syntaxErrors: [], commands: [{ name: "Get-Date", kind: "Cmdlet", dashOptions: [] }], detectedPaths: [], unresolvablePaths: [] }),
+    });
+    assert.equal(cwd.calls[0].status, "tool_rejected");
+    assert.match(cwd.calls[0].summary ?? "", /está fuera de allowedDirectories/);
+    assert.equal(cwd.dispatched.length, 0);
   } finally {
     sb.cleanup();
   }
 });
 
-test("refs en rechazos (a): una ref con texto parecido a un mensaje legítimo solo se reemplaza si coincide entera y sin refs no recorta", async () => {
+test("paso 6c con el analizador real de PowerShell: una ruta fuera del alcance se rechaza, una dentro pasa y una variable pide confirmación", { skip: !windowsHost }, async () => {
   const sb = makeSandbox();
   try {
-    // 1) Ref con texto parecido (sin coincidencia completa del valor de >= 8 chars): no se sobrerredacta un mensaje corto.
-    const redactor = createRefRedactor({ get: async (id) => (id === "r1" ? "allowedDirectories extra privado" : undefined) }, clipWithin);
-    await redactor.lookup.get("r1");
-    const shortMsg = "La ruta 'C:\\Users\\Ana\\doc.txt' está fuera de allowedDirectories.";
-    assert.equal(redactor.redact(shortMsg), shortMsg);
+    const common = { route: "terminal" as const, tool: "run_command", allowedDirs: () => [sb.allowedDir], home: sb.allowedDir, platform: "windows" as const };
 
-    // 2) En mensajes > 120 chars con ref usada, el texto legítimo que pasa de 120 chars sí se recorta a <= 120.
-    const withRef = await runSingleCall({
-      request: `Escribir en ${sb.outsideFile}`,
-      route: "files",
-      tool: "write_file",
-      args: { path: sb.outsideFile, content: "{{ref:r1}}", mode: "rewrite" },
-      allowedDirs: () => [sb.allowedDir],
-      home: sb.allowedDir,
-      seedRefs: ["allowedDirectories extra privado"],
+    const outside = await runSingleCall({
+      ...common,
+      request: `Leer ${sb.outsideFile}`,
+      args: { command: `Get-Content '${sb.outsideFile}'`, cwd: sb.allowedDir },
     });
-    assert.equal(withRef.calls[0].status, "tool_rejected");
-    const summaryWithRef = withRef.calls[0].summary ?? "";
-    assert.ok(summaryWithRef.length <= REF_DISPLAY_CAP);
-    assert.match(summaryWithRef, /^Denied by the security policy; it was not performed\./);
+    assert.equal(outside.calls[0].status, "tool_rejected", outside.calls[0].summary ?? "");
+    assert.match(outside.calls[0].summary ?? "", /allowedDirectories/);
+    assert.equal(outside.dispatched.length, 0);
 
-    // 3) Si la llamada NO usó refs, el mismo mensaje largo queda intacto (> 120 chars).
-    const withoutRef = await runSingleCall({
-      request: `Escribir en ${sb.outsideFile}`,
-      route: "files",
-      tool: "write_file",
-      args: { path: sb.outsideFile, content: "texto directo sin refs", mode: "rewrite" },
-      allowedDirs: () => [sb.allowedDir],
-      home: sb.allowedDir,
+    const inside = await runSingleCall({
+      ...common,
+      request: `Leer ${sb.insideFile}`,
+      args: { command: `Get-Content '${sb.insideFile}'`, cwd: sb.allowedDir },
     });
-    assert.equal(withoutRef.calls[0].status, "tool_rejected");
-    assert.ok((withoutRef.calls[0].summary ?? "").length > REF_DISPLAY_CAP);
-    assert.match(withoutRef.calls[0].summary ?? "", /Do not try this operation again/);
+    assert.equal(inside.dispatched.length, 1, inside.calls[0].summary ?? "");
+    assert.equal(inside.calls[0].status, "ok");
+
+    const variable = await runSingleCall({
+      ...common,
+      request: "Leer un archivo en una variable",
+      args: { command: "Get-Content $env:TEMP\algo.txt", cwd: sb.allowedDir },
+    });
+    assert.equal(variable.dispatched.length, 0, "una ruta que no se puede resolver no se despacha sin confirmación");
+    assert.equal(variable.approvals.length, 1, "una ruta con variable pide confirmación al usuario");
+    assert.equal(variable.approvals[0].canRemember, false, "«siempre» no se ofrece para lo que no se pudo resolver");
   } finally {
     sb.cleanup();
   }
 });
-
-test("refs en rechazos (b): normalización de barras y mayúsculas reemplaza por {{ref:r1}}; otro formato pasa al tope de 120", async () => {
-  const sb = makeSandbox();
-  try {
-    const secretPath = "C:\\Users\\pedro_privado\\secreto/clave_larga.txt";
-    const writeTarget = path.join(sb.allowedDir, "sub", "destino.txt");
-
-    // 1) Diferencia de barras (/ vs \) y mayúsculas/minúsculas: se reemplaza por {{ref:r1}}.
-    const redactor = createRefRedactor({ get: async (id) => (id === "r1" ? secretPath : undefined) }, clipWithin);
-    await redactor.lookup.get("r1");
-    assert.equal(
-      redactor.redact(`La ruta '${secretPath.replace(/\\/g, "/").toUpperCase()}' falló.`),
-      "La ruta '{{ref:r1}}' falló.",
-    );
-
-    // 2) Formato distinto (base64 en tool_error real): no coincide y queda truncado a <= 120 chars.
-    const encodedErr = await runSingleCall({
-      request: `Escribir en ${writeTarget}`,
-      route: "files",
-      tool: "write_file",
-      args: { path: writeTarget, content: "{{ref:r1}}", mode: "rewrite" },
-      allowedDirs: () => [sb.allowedDir],
-      home: sb.allowedDir,
-      seedRefs: ["clave=secreta/ruta?token=" + "m".repeat(200)],
-      callTool: async (_tool, args) => ({
-        isError: true,
-        content: [{ type: "text", text: `Error codificado: ${Buffer.from(String(args.content), "utf8").toString("base64")}` }],
-      }),
-    });
-    assert.equal(encodedErr.calls[0].status, "tool_error");
-    const errSummary = encodedErr.calls[0].summary ?? "";
-    assert.ok(errSummary.length <= REF_DISPLAY_CAP);
-    assert.match(errSummary, /…\(\+\d+\)$/);
-  } finally {
-    sb.cleanup();
-  }
-});
-
-test("refs en rechazos (c): si tras reemplazar supera 120 caracteres o es formato no reconocido, ante la duda se trunca a <= 120", async () => {
-  const sb = makeSandbox();
-  try {
-    const secret = "clave=secreta/ruta?token=" + "m".repeat(240);
-
-    // 1) Excepción en callRunner con valor exacto: reemplaza por {{ref:r1}} y, si aún pasa de 120, corta a <= 120.
-    const longPrefix = "Fallo al escribir en destino muy largo ".repeat(3);
-    const thrown = await runSingleCall({
-      request: `Escribir en ${path.join(sb.allowedDir, "sub", "destino.txt")}`,
-      route: "files",
-      tool: "write_file",
-      args: { path: path.join(sb.allowedDir, "sub", "destino.txt"), content: "{{ref:r1}}", mode: "rewrite" },
-      allowedDirs: () => [sb.allowedDir],
-      home: sb.allowedDir,
-      seedRefs: [secret],
-      callTool: async (_tool, args) => {
-        throw new Error(`${longPrefix}: ${String(args.content)}`);
-      },
-    });
-    assert.equal(thrown.calls[0].status, "exception");
-    assert.ok((thrown.calls[0].summary ?? "").length <= REF_DISPLAY_CAP);
-    assert.doesNotMatch(thrown.calls[0].summary ?? "", /clave=secreta|mmmmmm/);
-
-    // 2) Valor reformateado largo (URL-encoded) o prefijo parcial no reconocido: se recorta a <= 120 y descarta el resto.
-    const redactor = createRefRedactor({ get: async (id) => (id === "r1" ? secret : undefined) }, clipWithin);
-    await redactor.lookup.get("r1");
-
-    const urlEncoded = `Regla custom rechazó URL-encoded: ${encodeURIComponent(secret)}`;
-    const clippedUrl = redactor.redact(urlEncoded) ?? "";
-    assert.ok(clippedUrl.length <= REF_DISPLAY_CAP);
-    assert.match(clippedUrl, /…\(\+\d+\)$/);
-
-    const partialLeak = `Prefijo parcial: ${secret.slice(0, 140)}`;
-    const clippedPartial = redactor.redact(partialLeak) ?? "";
-    assert.ok(clippedPartial.length <= REF_DISPLAY_CAP);
-    assert.match(clippedPartial, /…\(\+\d+\)$/);
-    assert.doesNotMatch(clippedPartial, /m{100}/);
-  } finally {
-    sb.cleanup();
-  }
-});
-
-

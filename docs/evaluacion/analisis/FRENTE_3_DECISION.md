@@ -2,7 +2,7 @@
 
 > 2026-11-13. Medido contra `d3:2b` real (`/v1/systemone`, Ollama 0.40.13) con las 137 entradas de decisión únicas de las trazas guardadas y los 196 casos de los datasets de D1. Cuando se escribió no se había tocado `src`.
 >
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales. **Documento histórico** — la referencia vigente de decisiones está en [`CORE_FLOW.md`](../../arquitectura/CORE_FLOW.md) y [`PENDIENTES.md`](../../pendientes/PENDIENTES.md).
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales. **Documento histórico** — la referencia vigente de decisiones está en [`CORE_FLOW.md`](../../arquitectura/CORE_FLOW.md) y [`PENDIENTES_EVAL.md`](../../pendientes/PENDIENTES_EVAL.md).
 
 ## Estado de implementación (2026-11-14)
 

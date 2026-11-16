@@ -22,7 +22,7 @@ export function buildAskView(data: ContextData): AskView {
     request: reactive ? data.task.request : null,
     step: step === null ? null : stepViewOf(step),
     userInput: userInputViewsOf(data),
-    rejectedCall: rejectedCall === null ? null : callViewOf(data, rejectedCall, true),
-    lastRead: reads.length === 0 ? null : callViewOf(data, reads[0], true),
+    rejectedCall: rejectedCall === null ? null : callViewOf(rejectedCall, true),
+    lastRead: reads.length === 0 ? null : callViewOf(reads[0], true),
   };
 }

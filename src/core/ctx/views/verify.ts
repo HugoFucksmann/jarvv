@@ -28,7 +28,7 @@ export function buildVerifyView(data: ContextData, callId: string): VerifyView {
   const callIndex = parsedCall?.index ?? Number.POSITIVE_INFINITY;
   return {
     criterion: { instruction: step.instruction, expected: step.expected },
-    call: callViewOf(data, call, true),
+    call: callViewOf(call, true),
     done: reactive ? doneCalls(data.calls).filter((c) => c.id !== call.id).map(lineViewOf) : [],
     // Llamadas aprobadas anteriores a la evaluada, en orden, con args y resumen (en ambos modos). Sin tope: lo aplica el adaptador.
     previous: doneCalls(data.calls)
@@ -36,7 +36,7 @@ export function buildVerifyView(data: ContextData, callId: string): VerifyView {
         const p = parseId(c.id);
         return p !== null && p.section === "calls" && p.index < callIndex;
       })
-      .map((c) => callViewOf(data, c, true)),
+      .map((c) => callViewOf(c, true)),
     userInput: userInputViewsOf(data),
   };
 }

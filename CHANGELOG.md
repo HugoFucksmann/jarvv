@@ -15,7 +15,7 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 - **Aprobar una vez / siempre en esta tarea** (UI y Telegram): «siempre» vive solo en la tarea (RAM), por herramienta + comando o ruta normalizada; lo obligatorio de Guard, la lista negra y lo no resoluble solo admiten «una vez». Tras un rechazo del usuario no se repite la misma pregunta en la tarea. Aviso de niveles en Telegram.
 
 ### Experimental (apagado por defecto)
-- `reviewFullView`, `reviewReads` (D3) y `completionCoverageGuard` (D5): ver `docs/pendientes/DIAGNOSTICO_PENDIENTES.md`.
+- `reviewFullView`, `reviewReads` (D3) y `completionCoverageGuard` (D5): ver `docs/pendientes/PENDIENTES_EVAL.md`.
 
 ### Terminal
 - Tablas de página de códigos 852 y 857; el conteo de letras acentuadas incluye Latin Extended-A.
@@ -44,7 +44,7 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 
 ## [0.6.0] — 2026-11-09
 
-Primera publicación. El flujo completo funciona de punta a punta y el laboratorio de evaluación está incluido, con limitaciones conocidas (ver [`docs/pendientes/PENDIENTES.md`](docs/pendientes/PENDIENTES.md)).
+Primera publicación. El flujo completo funciona de punta a punta y el laboratorio de evaluación está incluido, con limitaciones conocidas (ver [`docs/pendientes/PENDIENTES_EVAL.md`](docs/pendientes/PENDIENTES_EVAL.md) y [`docs/pendientes/PENDIENTES_CODIGO.md`](docs/pendientes/PENDIENTES_CODIGO.md)).
 
 ### Núcleo
 - Flujo por tarea en dos modos, `reactive` y `deliberative`: lista de pendientes, ruta (Decisión 1), herramienta (Decisión 2), argumentos, resolución de referencias, anti-bucle, Guard, lista negra, pre-chequeo determinista, confirmación del usuario, revisión de argumentos (Decisión 3), despacho y verificación del resultado (Decisión 4).

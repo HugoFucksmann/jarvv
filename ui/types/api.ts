@@ -55,7 +55,6 @@ export type CallStatus =
   | "waiting_input"
   | "denied"
   | "args_invalid"
-  | "refs_unresolved"
   | "loop_blocked"
   | "user_rejected"
   | "tool_rejected"

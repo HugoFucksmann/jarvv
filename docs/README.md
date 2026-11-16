@@ -21,11 +21,9 @@
 - [`operacion/free_search_mcp.md`](operacion/free_search_mcp.md) — Referencia externa de `free-search-mcp 0.18.0` (herramientas, filtros, motores y variables).
 - [`operacion/REVISION_run_command.md`](operacion/REVISION_run_command.md) — Bitácora histórica de la revisión de `run_command` (hallazgos `RC-01` a `RC-41`).
 
-## Pendientes y diagnóstico
-- [`pendientes/PENDIENTES.md`](pendientes/PENDIENTES.md) — Lista única de limitaciones conocidas, deuda técnica y trabajo abierto (1.0 y 2.0).
-- [`pendientes/DIAGNOSTICO_PENDIENTES.md`](pendientes/DIAGNOSTICO_PENDIENTES.md) — Diagnóstico en código y opciones de solución de los 6 frentes prioritarios.
-- [`pendientes/MEMORIA_PLAN.md`](pendientes/MEMORIA_PLAN.md) — Plan (sin implementar) de la memoria del usuario: estado actual, opciones y criterio de latencia.
-- [`pendientes/HERRAMIENTAS_NATIVAS.md`](pendientes/HERRAMIENTAS_NATIVAS.md) — Plan (sin implementar) de herramientas nativas de archivos (D-15 a D-17).
+## Pendientes
+- [`pendientes/PENDIENTES_EVAL.md`](pendientes/PENDIENTES_EVAL.md) — Todo lo pendiente que depende de eval, mediciones o pruebas en otro entorno (D3, `PENDING_FACTS_LOOKUP`, D5, `web_search`, calibración).
+- [`pendientes/PENDIENTES_CODIGO.md`](pendientes/PENDIENTES_CODIGO.md) — Todo lo pendiente que depende de código o de decisiones de producto y seguridad (memoria, herramientas nativas, terminal, seguridad, 2.0).
 
 ## Evaluación y análisis histórico
 - [`../eval/README.md`](../eval/README.md) — Guía de uso del laboratorio de evaluación (`eval/`).

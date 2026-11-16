@@ -25,9 +25,9 @@ function stepWith(calls: Partial<Record<CallStatus, number>>): { ctx: TaskContex
   let n = 0;
   for (const [status, count] of Object.entries(calls) as [CallStatus, number][]) {
     for (let i = 0; i < count; i++) {
-      // `args` es null solo con `args_invalid`; `sig` es null también con `refs_unresolved` (la huella sale de argumentos ya resueltos).
+      // `args` es null solo con `args_invalid`; `sig` solo es null con él.
       const args = status === "args_invalid" ? null : {};
-      const sig = status === "args_invalid" || status === "refs_unresolved" ? null : `s${n++}`;
+      const sig = status === "args_invalid" ? null : `s${n++}`;
       ctx.apply({ op: "add", target: "calls", value: { stepId, route: "web", tool: "search", kind: "read", args, sig, status, summary: null, ref: null } });
     }
   }
@@ -37,8 +37,8 @@ function stepWith(calls: Partial<Record<CallStatus, number>>): { ctx: TaskContex
 // ───────────────────────── Contadores ─────────────────────────
 
 test("countStep: ejecución es lo que llegó a la herramienta; intento, todo menos el rechazo del usuario; lo bloqueado no ejecuta", () => {
-  const { ctx, stepId } = stepWith({ ok: 2, tool_error: 1, loop_blocked: 2, args_invalid: 1, refs_unresolved: 1, info_missing: 1, tool_rejected: 1, user_rejected: 3 });
-  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 9, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1, rejected: 0 });
+  const { ctx, stepId } = stepWith({ ok: 2, tool_error: 1, loop_blocked: 2, args_invalid: 1, info_missing: 1, tool_rejected: 1, user_rejected: 3 });
+  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 8, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1, rejected: 0 });
 });
 
 test("countStep: un denied del servidor y una llamada interrumpida cuentan como ejecutadas", () => {
@@ -54,7 +54,7 @@ const CASES: { name: string; calls: Partial<Record<CallStatus, number>>; limit: 
   { name: "denegaciones (Guard, lista negra o servidor)", calls: { tool_rejected: 1, denied: BUDGET.maxDeniedPerStep - 1 }, limit: "maxDeniedPerStep", cause: "denied", askFirst: false },
   { name: "argumentos inválidos", calls: { args_invalid: BUDGET.maxReviewRejectionsPerStep }, limit: "maxReviewRejectionsPerStep", cause: "review_rejected", askFirst: false },
   { name: "ejecuciones", calls: { ok: BUDGET.maxCallsPerStep }, limit: "maxCallsPerStep", cause: "call_cap", askFirst: true },
-  { name: "intentos sin ejecución", calls: { refs_unresolved: BUDGET.maxAttemptsPerStep }, limit: "maxAttemptsPerStep", cause: "call_cap", askFirst: true },
+  { name: "intentos sin ejecución", calls: { info_missing: BUDGET.maxAttemptsPerStep }, limit: "maxAttemptsPerStep", cause: "call_cap", askFirst: true },
 ];
 
 for (const c of CASES) {

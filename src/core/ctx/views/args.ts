@@ -17,12 +17,11 @@ import {
   envViewsOf,
   failureViewOf,
   lineViewOf,
-  refToView,
   stepViewOf,
   taskPartsOf,
   userInputViewsOf,
 } from "./shared.ts";
-import type { ArgsView, ArgsViewOptions, AvailableRefView } from "./types.ts";
+import type { ArgsView, ArgsViewOptions } from "./types.ts";
 
 /**
  * El último intento ejecutado de `tool` que falló (error de la herramienta o resultado rechazado por la verificación), de
@@ -43,11 +42,6 @@ function lastErrorOf(calls: readonly Call[], tool: string | undefined, skip: Rea
 export function buildArgsView(data: ContextData, options: ArgsViewOptions): ArgsView {
   const parts = taskPartsOf(data, options, effectsOf(data.calls));
 
-  const refs: AvailableRefView[] = data.refs
-    .filter((ref) => !parts.shownRefs.has(ref.id))
-    .slice(-Math.max(0, options.refs))
-    .map((ref) => ({ ...refToView(ref), stepId: ref.stepId }));
-
   const lastError = lastErrorOf(data.calls, options.tool, new Set(parts.failures.map((c) => c.id)));
 
   return {
@@ -55,10 +49,9 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
     done: parts.done.map(lineViewOf),
     step: parts.step === null ? null : stepViewOf(parts.step),
     stepsDone: parts.stepsDone,
-    lastReads: parts.reads.map((c) => callViewOf(data, c, true)),
-    refs,
-    stepFailures: parts.failures.map((c) => failureViewOf(data, c)),
-    lastError: lastError === null ? null : callViewOf(data, lastError, true),
+    lastReads: parts.reads.map((c) => callViewOf(c, true)),
+    stepFailures: parts.failures.map((c) => failureViewOf(c)),
+    lastError: lastError === null ? null : callViewOf(lastError, true),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
     effects: effectViewsOf(data),

@@ -8,7 +8,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 2. **El contexto no conoce a nadie**: no importa herramientas, modelos ni la traza. Quien lo usa le pasa los datos ya resueltos y los topes numéricos.
 3. **Desacoplamiento estricto de modelos**: el modelo de decisión elige rutas y herramientas, revisa argumentos y verifica resultados; el modelo generativo planifica, genera argumentos, formula preguntas y redacta la respuesta final. Ningún modelo toca el sistema operativo ni escribe en el contexto: lo hace el motor, validando.
 4. **Seguridad con cierre por defecto**: toda acción pasa por Guard antes de despacharse. Una herramienta ausente del catálogo no se ofrece a ningún modelo, y si llegara a Guard se trata como sensible.
-5. **Salidas voluminosas fuera del contexto**: los resultados extensos se guardan en disco bajo referencias (`rN`). El contexto conserva un resumen acotado y la ruta del archivo.
+5. **Salidas voluminosas fuera del contexto**: los resultados extensos se guardan en disco bajo referencias (`rN`). El contexto de los modelos conserva solo un resumen acotado; el texto completo queda en disco para depurar y para el pre-chequeo, y los modelos no ven la ref ni su ruta.
 6. **Estado volátil, auditoría de solo adición**: las tareas viven en memoria con un cupo retenido. Lo único que se escribe en disco es la configuración, los resultados crudos de las refs y una traza de solo adición que el backend nunca vuelve a leer (ver [`CONTEXT_AND_MEMORY.md`](CONTEXT_AND_MEMORY.md)).
 7. **Lo accesorio se puede borrar**: la traza vive fuera del motor; si se elimina, el motor compila y funciona igual.
 
@@ -28,7 +28,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Lista negra y reglas de comando** | Reglas deterministas sobre herramientas que modifican el sistema, en dos niveles (`blocked`, `sensitive`): reglas integradas (`commandRules.ts`: Windows y Linux, comando y ruta juntos, siempre activas) y entradas de `blacklist` en `jarvis-config.json`. Las lecturas pasan siempre. | No cierra la tarea (eso es de Guard con el nivel `guard`) ni consulta modelos. | `policy/blacklist.ts`, `policy/commandRules.ts` |
 | **Catálogo de herramientas** | Lista cerrada de herramientas autorizadas, con su destino, capacidad, política (aprobación, anti-bucle / `rerun.ts`) y sondas (`tools/probes.ts`). Única fuente de políticas (ver [`TOOLS.md`](TOOLS.md)). | No ejecuta llamadas ni guarda estado dinámico. | `tools/manifest.ts`, `tools/probes.ts`, `policy/rerun.ts` |
 | **Procesador de resultados** | Convierte el resultado crudo de una herramienta en un estado (`ok`, `no_data`, `not_found`, `tool_error`, `denied`), un resumen acotado y el texto completo para la ref; incluye extractores por herramienta. | No guarda nada, no conoce tareas ni refs y no sanea. | `result/processResult.ts`, `result/extractors/` |
-| **Almacén y resolutor de refs** | Guarda el resultado crudo en disco y sustituye los tokens `{{ref:rN}}` de los argumentos por su contenido antes de Guard y del despacho. | El almacén no conoce el contexto; el resolutor no toca el disco ni las herramientas. | `refs/refVault.ts`, `refs/refResolver.ts` |
+| **Almacén de refs** | Guarda el resultado crudo en disco, solo para depuración y para el pre-chequeo (que lo lee como fuente). No se sustituye en los argumentos ni se muestra a los modelos. | No conoce el contexto. | `refs/refVault.ts` |
 | **Servidores MCP** | Transporte stdio JSON-RPC por servidor, descubrimiento y caché de herramientas, y adaptadores de cada servidor. | No deciden qué herramienta se usa. | `mcp/` |
 | **Registro de trazabilidad** | Al terminar cada tarea escribe una carpeta (`summary.md`, `trace.json`, `full.json.gz`) y una línea en `index.jsonl`, para análisis y evaluación externa; los resultados grandes quedan en las refs. | No es base de datos, no restaura estado al reiniciar y el backend nunca la lee. | `trace/recorder.ts`, `trace/format.ts`, `trace/types.ts` |
 | **Presupuesto** | Tabla única de límites y topes (pasos, replans, llamadas por paso, recortes de las vistas, extractores). | No contiene lógica. | `budget.ts` |
@@ -106,7 +106,6 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 - `src/core/tools/manifest.ts`, `src/core/tools/probes.ts`
 - `src/core/result/processResult.ts`
 - `src/core/refs/refVault.ts`
-- `src/core/refs/refResolver.ts`
 - `src/core/mcp/discovery.ts`
 - `src/core/trace/recorder.ts`, `src/core/trace/format.ts`, `src/core/trace/types.ts`
 - `src/core/policy/blacklist.ts`, `src/core/policy/commandRules.ts`, `src/core/trace/sink.ts`, `src/core/text.ts` (saneado y comparación de textos por raíz, común al motor y a los extractores)

@@ -67,6 +67,8 @@ interface Scenario {
   readonly completion?: number;
   /** Decisión 5 falla (servicio caído): el cierre cae a la confirmación del LLM. */
   readonly completionFails?: boolean;
+  /** Guarda de cobertura de D5 (`completionCoverageGuard`) encendida. */
+  readonly coverageGuard?: boolean;
   /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): el reactivo reintenta con pasos nuevos del mismo criterio. */
   readonly pendingAlways?: boolean;
   /** El proveedor de terminal responde sin herramientas (una plataforma donde no existe: RC-29). */
@@ -174,6 +176,7 @@ async function run(s: Scenario): Promise<Outcome> {
     environment: async () => ({ platform: "windows", home: s.home ?? "C:\\Users\\Ana" }),
     autoMode: () => s.autoMode ?? false,
     approvalTiers: () => s.tiers ?? false,
+    completionCoverageGuard: () => s.coverageGuard ?? false,
     previousTask: s.previous ?? null,
   };
 
@@ -919,6 +922,38 @@ test("cierre: con Decisión 5 dudando (no segura de que falta algo) se conserva 
   });
   assert.equal(dispatched.length, 1);
   assert.equal(ctx.task.state, "completed");
+});
+
+test("cierre: con la guarda de cobertura encendida, un archivo nombrado en el pedido que ninguna llamada menciona impide el cierre rápido de Decisión 5", async () => {
+  const base = {
+    request: "Listar C:\\Users\\Ana\\Documents y guardar el resumen en informe.txt",
+    tool: "list_directory",
+    args: { path: "C:\\Users\\Ana\\Documents" },
+    first: "single" as const,
+    completion: 0.95,
+  };
+  const off = await run({ ...base, coverageGuard: false });
+  assert.equal(off.completionChecks, 1, "sin guarda, D5 decide");
+  assert.equal(off.pendingQueries, 0, "y cierra sin consultar al LLM de pendientes");
+  assert.equal(off.ctx.task.state, "completed");
+
+  const on = await run({ ...base, coverageGuard: true });
+  assert.equal(on.completionChecks, 0, "con guarda, ni se consulta a D5");
+  assert.ok(on.pendingQueries >= 1, "la confirmación pasa al LLM de pendientes");
+});
+
+test("cierre: con la guarda de cobertura encendida, si una llamada menciona el archivo nombrado, D5 decide como siempre", async () => {
+  const out = await run({
+    request: "Listar C:\\Users\\Ana\\Documents\\informe.txt",
+    tool: "list_directory",
+    args: { path: "C:\\Users\\Ana\\Documents\\informe.txt" },
+    first: "single",
+    completion: 0.95,
+    coverageGuard: true,
+  });
+  assert.equal(out.completionChecks, 1);
+  assert.equal(out.pendingQueries, 0);
+  assert.equal(out.ctx.task.state, "completed");
 });
 
 // ───────────────────────── Ubicación de lo escrito ─────────────────────────

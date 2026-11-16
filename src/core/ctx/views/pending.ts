@@ -14,8 +14,8 @@ export function buildPendingView(data: ContextData, previous: readonly string[],
   return {
     request: data.task.request,
     previous: [...previous],
-    done: doneCalls(data.calls).map((c) => callViewOf(data, c, true)),
-    attempts: lastN(attemptCalls(data.calls), size).map((c) => failureViewOf(data, c)),
+    done: doneCalls(data.calls).map((c) => callViewOf(c, true)),
+    attempts: lastN(attemptCalls(data.calls), size).map((c) => failureViewOf(c)),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
   };

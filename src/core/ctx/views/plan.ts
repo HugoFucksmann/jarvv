@@ -62,7 +62,7 @@ export function buildPlanView(data: ContextData, options: PlanViewOptions): Plan
       current: current === undefined ? null : stepViewOf(current),
       next: next.map(stepViewOf),
     },
-    failures: failures.map((c) => callViewOf(data, c, true)),
+    failures: failures.map((c) => callViewOf(c, true)),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
     effects: effectViewsOf(data),

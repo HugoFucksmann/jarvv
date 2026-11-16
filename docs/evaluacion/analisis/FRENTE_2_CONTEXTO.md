@@ -2,7 +2,7 @@
 
 > 2026-11-13. Revisado sobre el código (`ctx/views/`, `render/`, `engine/adapters.ts`, `models/prompts.ts`, `budget.ts`) y sobre los prompts reales guardados en las trazas. Las propuestas marcadas «medido» se probaron en el laboratorio o contra los modelos. Cuando se escribió no se había tocado `src`.
 >
-> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales. **Documento histórico** — el estado vigente de contexto y pendientes está en [`CONTEXT_AND_MEMORY.md`](../../arquitectura/CONTEXT_AND_MEMORY.md) y [`PENDIENTES.md`](../../pendientes/PENDIENTES.md).
+> **2026-11-14: implementado en parte.** Mirá «Estado de implementación»; el resto es el análisis y las mediciones originales. **Documento histórico** — el estado vigente de contexto y pendientes está en [`CONTEXT_AND_MEMORY.md`](../../arquitectura/CONTEXT_AND_MEMORY.md) y [`PENDIENTES_EVAL.md`](../../pendientes/PENDIENTES_EVAL.md).
 
 ## Estado de implementación (2026-11-14)
 

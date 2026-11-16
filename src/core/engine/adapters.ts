@@ -46,7 +46,7 @@ export function reviewViewOptions(): ReviewViewOptions {
 }
 
 export function argsViewOptions(tool?: string): ArgsViewOptions {
-  return { ...reviewViewOptions(), refs: BUDGET.caps.refs, tool };
+  return { ...reviewViewOptions(), tool };
 }
 
 export function argsRenderOptions(): ArgsRenderOptions {

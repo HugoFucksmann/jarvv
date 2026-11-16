@@ -40,16 +40,23 @@ export interface RefVaultOptions {
 export interface StoredRef {
   /** Ruta absoluta del archivo con el texto crudo. */
   where: string;
-  /** Tamaño en caracteres (`text.length`). */
+  /** Tamaño en caracteres de lo guardado (el texto, o el texto cortado más la marca si superó `REF_MAX_CHARS`). */
   size: number;
 }
 
 export interface RefVault {
-  /** Guarda `text` (cualquier texto) en un archivo nuevo de la carpeta de la tarea. */
+  /** Guarda `text` en un archivo nuevo de la carpeta de la tarea; si supera `REF_MAX_CHARS`, lo corta y lo marca. */
   put(taskId: string, text: string): Promise<StoredRef>;
   /** Texto completo del archivo `where`; solo rutas dentro del directorio del almacén. */
   readAll(where: string): Promise<string>;
 }
+
+/** Tope de caracteres que `put` guarda por ref: lo que lo supera se corta y el archivo termina con una marca explícita (acota disco, memoria y el endpoint de depuración). */
+export const REF_MAX_CHARS = 5_000_000;
+
+/** Marca que `put` agrega al final de un texto cortado por `REF_MAX_CHARS`. */
+export const refTruncationMarker = (omitted: number): string => `
+[… ref truncated: ${omitted} characters omitted …]`;
 
 const UNSAFE_CHARS = /[^A-Za-z0-9._-]/g;
 
@@ -84,6 +91,7 @@ export function createRefVault(options: RefVaultOptions): RefVault {
     if (typeof text !== "string") {
       throw new RefVaultError("invalid_input", "put: `text` debe ser un texto");
     }
+    const stored = text.length > REF_MAX_CHARS ? `${text.slice(0, REF_MAX_CHARS)}${refTruncationMarker(text.length - REF_MAX_CHARS)}` : text;
     const folder = path.join(root, taskFolderName(taskId));
     const where = path.join(folder, `${randomUUID()}.txt`);
 
@@ -93,13 +101,13 @@ export function createRefVault(options: RefVaultOptions): RefVault {
       throw new RefVaultError("write_failed", `no se pudo crear la carpeta ${folder}: ${reason(error)}`, folder, error);
     }
     try {
-      await writeFile(where, text, { encoding: "utf8", flag: "wx" });
+      await writeFile(where, stored, { encoding: "utf8", flag: "wx" });
     } catch (error) {
       // Con EEXIST el archivo no es nuestro (no se toca); con cualquier otro fallo puede quedar uno a medias.
       if (errnoCode(error) !== "EEXIST") await rm(where, { force: true }).catch(() => undefined);
       throw new RefVaultError("write_failed", `no se pudo escribir ${where}: ${reason(error)}`, where, error);
     }
-    return { where, size: text.length };
+    return { where, size: stored.length };
   }
 
   async function readAll(where: string): Promise<string> {

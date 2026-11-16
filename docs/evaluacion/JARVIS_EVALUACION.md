@@ -1,6 +1,6 @@
 # JARVIS — Evaluación y banco de ideas
 
-> **Documento histórico de evaluación (2026-11-13 / 2026-11-14).** Para el flujo vigente, ver [`ARCHITECTURE.md`](../arquitectura/ARCHITECTURE.md) y [`CORE_FLOW.md`](../arquitectura/CORE_FLOW.md); para el estado abierto actual, [`PENDIENTES.md`](../pendientes/PENDIENTES.md). Base original: `ARCHITECTURE.md`, `CORE_FLOW.md`, `CONTEXT_AND_MEMORY.md`.
+> **Documento histórico de evaluación (2026-11-13 / 2026-11-14).** Para el flujo vigente, ver [`ARCHITECTURE.md`](../arquitectura/ARCHITECTURE.md) y [`CORE_FLOW.md`](../arquitectura/CORE_FLOW.md); para el estado abierto actual, [`PENDIENTES_EVAL.md`](../pendientes/PENDIENTES_EVAL.md) y [`PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md). Base original: `ARCHITECTURE.md`, `CORE_FLOW.md`, `CONTEXT_AND_MEMORY.md`.
 > Primera evaluación: hecha solo sobre la documentación. Las estimaciones debían confirmarse con las trazas.
 > **Segunda revisión (2026-11-13):** contrastada con el código, con las trazas guardadas (`jarvis-traces/`: 116 tareas en el índice, 35 con detalle) y con pruebas directas contra Ollama. Lo medido está en «Mediciones reales»; cada idea previa lleva una línea **Revisión** con el veredicto; las ideas nuevas están en «Ideas nuevas (segunda revisión)». No se editó código.
 

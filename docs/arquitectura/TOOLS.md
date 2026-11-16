@@ -17,7 +17,7 @@ Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true` para `free_sea
 
 - **`ToolProvider` (`provider.ts`)**: contrato único que implementa tanto cada servidor MCP como cada proveedor nativo (`callTool(name, args, { signal, timeoutMs, taskId, host })` y `onTaskEnd(taskId, outcome)`).
 - **`ToolHost` (`host.ts`)**: pasarela inyectada a herramientas compuestas; solo permite invocar las `dependencies` declaradas y registra cada sub-llamada en la traza.
-- **Resultado estructurado (`result.ts`, `extractors/structured.ts`)**: los proveedores nativos devuelven `structuredContent` y `_meta` con `schema: 1` (`text` para el modelo, `raw` para ref, `data` y `meta` para señales del motor y traza).
+- **Resultado estructurado (`result.ts`, `extractors/structured.ts`)**: los proveedores nativos devuelven `structuredContent` y `_meta` con `schema: 1` (`text` para el modelo, `raw` para ref, `data` y `meta` para señales del motor y traza). `data.truncated` (booleano) indica si el proveedor recortó contenido: solo entonces se crea una ref; si falta, el extractor compara `raw` con `text` (`web_search`). Las refs son solo para depurar y para el pre-chequeo.
 - **Orden y sondas**: `sortByCatalog` fija el orden de opciones en D2; `probesOf` asocia sondas de verificación (`tools/probes.ts`) a `write_file`, `create_directory`, `move_file`, `read_file` (Excel), `start_search` y `list_directory`.
 - **Política de repetición (`repeatPolicyOf`)**: `strict` por defecto, `retry_failed` (`web_search`), `allow` (`get_more_search_results` y continuación `{ pid }` en `run_command`) o `rerun` (comandos de comprobación/compilación en `policy/rerun.ts`).
 
@@ -36,4 +36,4 @@ Busca en internet o lee hasta 5 URLs explícitas y devuelve fragmentos **literal
   - **Versión (`guardVersions`)**: si `need` menciona una versión `X.Y.Z` ausente en el fragmento, limita la probabilidad por debajo de `found`.
   - **Fechas**: lista `Sources: [n] título — url (dated AAAA-MM-DD)` indicando la fecha de página o snippet.
   - **Seguridad (`policy/egress.ts`)**: rechaza URLs locales/internas o con credenciales y exige confirmación humana obligatoria (aun con `autoMode`) si la consulta contiene rutas de usuario o posibles secretos/tokens.
-- **Referencias MCP y pendientes**: detalle de `free-search-mcp` en [`../operacion/free_search_mcp.md`](../operacion/free_search_mcp.md); limitaciones abiertas (multiparte, recencia, calibración) en [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) y [`../pendientes/PENDIENTES.md`](../pendientes/PENDIENTES.md).
+- **Referencias MCP y pendientes**: detalle de `free-search-mcp` en [`../operacion/free_search_mcp.md`](../operacion/free_search_mcp.md); limitaciones abiertas (multiparte, recencia, calibración) en [`../pendientes/PENDIENTES_EVAL.md`](../pendientes/PENDIENTES_EVAL.md) y, para las herramientas nativas planeadas, en [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md).

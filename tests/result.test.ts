@@ -4,8 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
-import { createRefLookup, isWholeRefToken, resolveRefs, schemaTypes } from "../src/core/refs/refResolver.ts";
-import type { RefLookup } from "../src/core/refs/refResolver.ts";
+import { schemaTypes } from "../src/core/utils.ts";
 import { processResult } from "../src/core/result/processResult.ts";
 import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
@@ -131,57 +130,6 @@ test("los bloques que no son texto no aportan contenido", () => {
   assert.equal(r.fullText, "hola");
 });
 
-// ───────────────────────── refResolver ─────────────────────────
-
-const lookup = (refs: Record<string, string>): RefLookup => ({ get: async (id) => refs[id] });
-
-test("refs: el valor completo y la forma embebida se sustituyen; sin el prefijo `ref:` un r1 desnudo no es ref", async () => {
-  const l = lookup({ r1: "CONTENIDO" });
-  const out = await resolveRefs({ a: "{{ref:r1}}", b: "ref:r1", c: "antes {{ref:r1}} después", d: "r1" }, l);
-  assert.deepEqual(out.resolvedArgs, { a: "CONTENIDO", b: "CONTENIDO", c: "antes CONTENIDO después", d: "r1" });
-  assert.deepEqual(out.resolvedRefs, ["r1"]);
-  assert.equal(out.unresolvedRefs.length, 0);
-});
-
-test("refs: una ref desconocida queda literal y se informa", async () => {
-  const out = await resolveRefs({ a: "{{ref:r9}}", b: "x {{ref:r9}} y" }, lookup({}));
-  assert.deepEqual(out.resolvedArgs, { a: "{{ref:r9}}", b: "x {{ref:r9}} y" });
-  assert.deepEqual(out.unresolvedRefs, ["r9"]);
-});
-
-test("refs: el contenido sustituido no se vuelve a escanear (sin anidadas)", async () => {
-  const out = await resolveRefs({ a: "{{ref:r1}}" }, lookup({ r1: "{{ref:r2}}", r2: "SECRETO" }));
-  assert.equal(out.resolvedArgs.a, "{{ref:r2}}");
-  assert.deepEqual(out.resolvedRefs, ["r1"]);
-});
-
-test("refs: se parsea el JSON de una ref solo si el schema pide objeto o arreglo y no admite string", async () => {
-  const l = lookup({ r1: '{"k":1}' });
-  const structured = await resolveRefs({ a: "{{ref:r1}}" }, l, { properties: { a: { type: "object" } } });
-  assert.deepEqual(structured.resolvedArgs.a, { k: 1 });
-  const mixed = await resolveRefs({ a: "{{ref:r1}}" }, l, { properties: { a: { anyOf: [{ type: "string" }, { type: "object" }] } } });
-  assert.equal(mixed.resolvedArgs.a, '{"k":1}');
-  const noSchema = await resolveRefs({ a: "{{ref:r1}}" }, l);
-  assert.equal(noSchema.resolvedArgs.a, '{"k":1}');
-});
-
-test("refs: se resuelven dentro de arreglos y objetos anidados", async () => {
-  const out = await resolveRefs({ paths: ["{{ref:r1}}", "fijo"], deep: { x: "ref:r1" } }, lookup({ r1: "A" }));
-  assert.deepEqual(out.resolvedArgs, { paths: ["A", "fijo"], deep: { x: "A" } });
-});
-
-test("refs: createRefLookup toma la ruta del contexto y un fallo de lectura da undefined", async () => {
-  const source = { get: (id: string) => (id === "r1" ? ({ id: "r1", where: "data/refs/t/r1.txt", size: 1, label: "x", stepId: "s1" } as never) : undefined) };
-  const ok = createRefLookup(source, { readAll: async (where) => `leído:${where}` });
-  assert.equal(await ok.get("r1"), "leído:data/refs/t/r1.txt");
-  assert.equal(await ok.get("r2"), undefined);
-  const broken = createRefLookup(source, { readAll: async () => { throw new Error("EIO"); } });
-  assert.equal(await broken.get("r1"), undefined);
-});
-
-test("refs: isWholeRefToken y schemaTypes", () => {
-  assert.equal(isWholeRefToken("{{ref:r12}}"), true);
-  assert.equal(isWholeRefToken(" ref:r3 "), true);
-  assert.equal(isWholeRefToken("x {{ref:r1}}"), false);
+test("schemaTypes: incluye las ramas anyOf/oneOf", () => {
   assert.deepEqual([...schemaTypes({ anyOf: [{ type: "string" }, { type: ["object", "null"] }] })].sort(), ["null", "object", "string"]);
 });

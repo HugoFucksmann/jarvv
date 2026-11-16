@@ -180,11 +180,10 @@ export function checkCallInput(raw: unknown, env: CheckEnv): CallInput {
 
   // 5.2: `args` es null solo cuando no hay objeto que guardar (`args_invalid` por JSON no parseable).
   if (args === null && status !== "args_invalid") violation("invalid_value", 3, "call.args vale null solo con `status = args_invalid`");
-  // 5.2: `sig` es null cuando no hubo argumentos resueltos (`args_invalid`, `refs_unresolved`); existe en el resto.
+  // 5.2: `sig` es null cuando no hubo argumentos resueltos (`args_invalid`); existe en el resto.
   if (args === null && sig !== null) violation("invalid_value", 3, "call.sig vale null cuando call.args vale null");
-  if (status === "refs_unresolved" && sig !== null) violation("invalid_value", 3, "call.sig vale null con `status = refs_unresolved`");
-  if (sig === null && status !== "args_invalid" && status !== "refs_unresolved") {
-    violation("invalid_value", 3, `call.sig solo puede ser null con \`args_invalid\` o \`refs_unresolved\` (status = ${status})`);
+  if (sig === null && status !== "args_invalid") {
+    violation("invalid_value", 3, `call.sig solo puede ser null con \`args_invalid\` (status = ${status})`);
   }
 
   if (!env.hasStep(stepId)) violation("dangling_ref", 5, `call.stepId "${stepId}" no existe`);

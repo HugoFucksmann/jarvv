@@ -11,7 +11,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | `qwenModel` | `"qwen3.5:4b"` | `"qwen3.5:4b-text"` | Modelo generativo (ver [`../operacion/OLLAMA_MODELOS_TEXTO.md`](../operacion/OLLAMA_MODELOS_TEXTO.md)) |
 | `decisionModel` | `"d3:2b"` | `"d3:2b-text"` | Modelo de decisión (`/v1/systemone`) |
 | `autoMode` | `false` | `true` | Omitir la confirmación humana de lo amarillo (D3 lo revisa; lo verde nunca pide); lo rojo y lo obligatorio de Guard siempre se confirman |
-| `reviewFullView`, `reviewReads`, `completionCoverageGuard` | `false` | `false` | Experimentales, apagados: D3 con lecturas y entorno; lecturas por D3; D5 con guarda de cobertura (ver `DIAGNOSTICO_PENDIENTES.md` §1 y §8) |
+| `reviewFullView`, `reviewReads`, `completionCoverageGuard` | `false` | `false` | Experimentales, apagados: D3 con lecturas y entorno; lecturas por D3; D5 con guarda de cobertura (ver `PENDIENTES_EVAL.md` §1 y §3) |
 | `approvalTiers` | `true` | `true` | Clasificación verde/amarillo/rojo para escrituras; funciona con `autoMode` activo (ver `CORE_FLOW.md`) |
 
 ## 2. Claves principales (`jarvis-config.json`)
@@ -23,14 +23,14 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | **Ciclo de vida Ollama** | `modelKeepAlive` | `"30m"` (`-1` = permanente, `0` = descargar tras cada consulta) |
 | **Servidores MCP** | `desktopCommanderMcp`, `freeSearchMcp`, `mcpTimeoutMs` | Binario, argumentos, `env`, `cwd`, `allowedDirectories: []` (`desktop_commander`) y timeout MCP (`60000` ms; override por herramienta: `toolTimeoutsMs`, ver §4) |
 | **Trazas y refs** | `traceEnabled`, `tracePath`, `refsDir`, `retentionDays`, `retentionMaxMb` | `true`, `"jarvis-traces.jsonl"` (ubica carpeta `jarvis-traces/`), `"data/refs"`, `30` días (`0` desactiva borrado por antigüedad), `500` MB (tope de tamaño en disco entre refs y trazas; `0` lo desactiva) |
-| **Experimentales** (apagados) | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | ver `DIAGNOSTICO_PENDIENTES.md` §1 y §8 |
+| **Experimentales** (apagados) | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | ver `PENDIENTES_EVAL.md` §1 y §3 |
 | **Políticas y web** | `blacklist`, `autoMode`, `approvalTiers`, `webSearchUseJudge` | `[]`, ver §1 arriba y detalle de reglas en [`../api/JARVIS_API.md`](../api/JARVIS_API.md) y [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md) |
 | **Voz (TTS)** | `voiceEnabled`, `telegramVoice`, `voiceUrl`, `voiceName` | `false`, `false`, `"http://127.0.0.1:8880"`, `"default"` (detalle en [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)) |
 
 ### Reglas de seguridad HTTP (`POST /api/jarvis/config` y `GET /config`)
 - **Solo editables en disco**: `FILE_ONLY_KEYS` (`refsDir`, `tracePath`) y `LAUNCH_ONLY_KEYS` (`command`, `args`, `env`, `cwd` de los servidores MCP) son ignoradas por `POST /config` para que un cliente HTTP no cambie ejecutables ni rutas de borrado en caliente.
 - **Sin exposición de `env`**: `GET /config` y la respuesta de `POST /config` omiten `env` de ambos servidores MCP (`sanitizeConfigForHttp`).
-- **`allowedDirectories`**: se lee en cada llamada (un cambio por `POST /config` rige de inmediato) y aplica a **todas** las herramientas con ruta, incluido `run_command` (su `cwd` y las rutas que detecta el análisis de PowerShell). Las rutas se comparan con `realpathSync` (symlinks). Una ruta fuera se rechaza; lo que no se puede resolver (variables, rutas relativas sin base, comando no analizable) pide confirmación al usuario. Ver [`../pendientes/DIAGNOSTICO_PENDIENTES.md`](../pendientes/DIAGNOSTICO_PENDIENTES.md) §3.
+- **`allowedDirectories`**: se lee en cada llamada (un cambio por `POST /config` rige de inmediato) y aplica a **todas** las herramientas con ruta, incluido `run_command` (su `cwd` y las rutas que detecta el análisis de PowerShell). Las rutas se comparan con `realpathSync` (symlinks). Una ruta fuera se rechaza; lo que no se puede resolver (variables, rutas relativas sin base, comando no analizable) pide confirmación al usuario. Ver [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md) §6.
 
 ## 3. Variables de entorno (`.env`) y memoria (`data/memory.json`)
 

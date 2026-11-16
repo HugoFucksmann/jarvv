@@ -1,6 +1,6 @@
 # Revisión de `run_command`: hallazgos, inconsistencias y faltantes
 
-> **Documento histórico (2026-11-10 / 2026-11-11).** Conserva la bitácora de hallazgos (`RC-01` a `RC-41`) y resultados de tandas referenciados desde código y pruebas (`tests/run_command.test.ts`). Para el estado operativo vigente, ver [`WINDOWS_TERMINAL.md`](WINDOWS_TERMINAL.md); para pendientes abiertos, [`../pendientes/PENDIENTES.md`](../pendientes/PENDIENTES.md).
+> **Documento histórico (2026-11-10 / 2026-11-11).** Conserva la bitácora de hallazgos (`RC-01` a `RC-41`) y resultados de tandas referenciados desde código y pruebas (`tests/run_command.test.ts`). Para el estado operativo vigente, ver [`WINDOWS_TERMINAL.md`](WINDOWS_TERMINAL.md); para pendientes abiertos, [`../pendientes/PENDIENTES_EVAL.md`](../pendientes/PENDIENTES_EVAL.md) y [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md).
 
 Documento de referencia para un agente que vaya a revisar `run_command` en profundidad. Reúne lo que se encontró al construirla y validarla (2026-11-10), con el contexto necesario para entender cada punto sin haber visto cómo se construyó. No impone soluciones: cada hallazgo dice qué se observó, con qué evidencia y qué conviene investigar.
 

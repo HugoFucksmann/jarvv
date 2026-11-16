@@ -19,20 +19,7 @@ import { parseId } from "../ids.ts";
 import { currentOf } from "../query.ts";
 import type { Call, ContextData, Ref, Step } from "../types.ts";
 import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, statusNoteOf } from "./messages.ts";
-import type { CallView, EffectView, FactView, RefView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
-
-export function refToView(ref: Ref): RefView {
-  return { id: ref.id, size: ref.size, label: ref.label };
-}
-
-/** La ref con ese id, o `null` si `id` es `null` o no existe. */
-function refViewOf(data: ContextData, id: string | null): RefView | null {
-  if (id === null) return null;
-  const parsed = parseId(id);
-  if (parsed === null || parsed.section !== "refs") return null;
-  const ref = data.refs[parsed.index];
-  return ref !== undefined && ref.id === id ? refToView(ref) : null;
-}
+import type { CallView, EffectView, FactView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
 
 export function stepViewOf(step: Step): StepView {
   return {
@@ -61,25 +48,23 @@ export function lineViewOf(call: Call): CallView {
     failed: isFailure(call),
     args: null,
     summary: null,
-    ref: null,
   };
 }
 
-/** `withArgs`: incluir los `args` (herramienta y lo que se quiso ejecutar). Siempre lleva `summary` y ref. */
-export function callViewOf(data: ContextData, call: Call, withArgs: boolean): CallView {
+/** `withArgs`: incluir los `args` (herramienta y lo que se quiso ejecutar). Siempre lleva `summary`; nunca la ref (los modelos no las ven). */
+export function callViewOf(call: Call, withArgs: boolean): CallView {
   return {
     ...lineViewOf(call),
     args: withArgs ? call.args : null,
     summary: call.summary,
-    ref: refViewOf(data, call.ref),
   };
 }
 
 /** Un fallo muestra los `args` solo en `args_invalid`, `tool_rejected` e `info_missing` (sección 8). */
-export function failureViewOf(data: ContextData, call: Call): CallView {
+export function failureViewOf(call: Call): CallView {
   // Un `args_invalid` con razón escrita (pre-chequeo) no muestra los argumentos: la razón dice qué cambiar y, viéndolos, el modelo los copiaba.
   const hide = call.status === "args_invalid" && call.summary !== null;
-  return callViewOf(data, call, ARGS_SHOWN_STATUSES.includes(call.status) && !hide);
+  return callViewOf(call, ARGS_SHOWN_STATUSES.includes(call.status) && !hide);
 }
 
 /** Entrada del usuario (5.4), en orden cronológico. */
@@ -94,12 +79,12 @@ export function envViewsOf(data: ContextData): FactView[] {
 
 /** Todos los efectos, con sus `args` y sin recorte. */
 export function effectViewsOf(data: ContextData): EffectView[] {
-  return effectsOf(data.calls).map((c) => callViewOf(data, c, true));
+  return effectsOf(data.calls).map((c) => callViewOf(c, true));
 }
 
 /** Todos los posibles efectos, con sus `args` y sin recorte. */
 export function possibleEffectViewsOf(data: ContextData): EffectView[] {
-  return possibleEffectsOf(data.calls).map((c) => callViewOf(data, c, true));
+  return possibleEffectsOf(data.calls).map((c) => callViewOf(c, true));
 }
 
 /** Ids de los efectos y posibles efectos: las vistas que los muestran aparte no repiten esas llamadas en otra sección. */
@@ -118,8 +103,6 @@ export interface TaskParts {
   readonly stepsDone: StepDoneView[];
   readonly reads: Call[];
   readonly failures: Call[];
-  /** Refs de las llamadas que muestran su ref (`excluded`, `reads` y `failures`): no se repiten en `refs`. */
-  readonly shownRefs: ReadonlySet<string>;
 }
 
 /**
@@ -132,17 +115,15 @@ export function taskPartsOf(data: ContextData, options: ReviewViewOptions, exclu
   const step = currentOf(data).step;
 
   const shown = new Set<string>();
-  const shownRefs = new Set<string>();
   const mark = (call: Call): void => {
     shown.add(call.id);
-    if (call.ref !== null) shownRefs.add(call.ref);
   };
   excluded.forEach(mark);
 
   const reads = lastReadsWithData(data.calls, options.lastReads).filter((c) => !shown.has(c.id));
   reads.forEach(mark);
 
-  // `done` (reactivo): líneas `L`, sin ref: no marca refs porque no las muestra.
+  // `done` (reactivo): líneas `L`.
   const done = reactive ? doneCalls(data.calls).filter((c) => !shown.has(c.id)) : [];
   done.forEach((c) => shown.add(c.id));
 
@@ -151,7 +132,7 @@ export function taskPartsOf(data: ContextData, options: ReviewViewOptions, exclu
   const failures = step === null ? [] : recentFailures(data.calls, size, step.id).filter((c) => !shown.has(c.id));
   failures.forEach(mark);
 
-  return { step, done, stepsDone, reads, failures, shownRefs };
+  return { step, done, stepsDone, reads, failures };
 }
 
 /**
@@ -165,7 +146,7 @@ export function stepsDoneViews(data: ContextData, shown: Set<string>): StepDoneV
     const outcome = outcomeOf(data.calls, s.id);
     const free = outcome !== null && !shown.has(outcome.id) ? outcome : null;
     if (free !== null) shown.add(free.id);
-    out.push({ id: s.id, instruction: s.instruction, outcome: free === null ? null : callViewOf(data, free, false) });
+    out.push({ id: s.id, instruction: s.instruction, outcome: free === null ? null : callViewOf(free, false) });
   }
   return out;
 }

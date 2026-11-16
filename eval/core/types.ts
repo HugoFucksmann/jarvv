@@ -79,7 +79,7 @@ export interface Case {
     precheck?: {
       kind: "read" | "write";
       sources: PrecheckSources;
-      /** Ids de las refs que existen en el escenario: usar otra es una ref inventada (`refs_unresolved` en producción). */
+      /** Ids de las refs que existen en el escenario: usar otra es una ref inventada. */
       refIds: string[];
     };
     origin?: { id: string; commit?: string };

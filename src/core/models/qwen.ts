@@ -51,7 +51,6 @@ import {
   TRUNCATED,
 } from "./stageRequests.ts";
 import type { PromptSet, StageRequest } from "./stageRequests.ts";
-import { isWholeRefToken, schemaTypes } from "../refs/refResolver.ts";
 import {
   estimateTokens,
   postJson,
@@ -61,7 +60,7 @@ import {
   TransportError,
 } from "./transport.ts";
 import { resolveModelTimeoutMs } from "../timeouts.ts";
-import { errorMessage, isRecord } from "../utils.ts";
+import { errorMessage, isRecord, schemaTypes } from "../utils.ts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -200,7 +199,6 @@ export function validateArgs(args: Record<string, unknown>, schema: MCPTool["inp
   if (missing.length > 0) problems.push(`faltan campos requeridos: ${missing.join(", ")}`);
 
   for (const [key, value] of Object.entries(args)) {
-    if (isWholeRefToken(value)) continue;
     if (!Object.hasOwn(props, key)) {
       if (schema.additionalProperties === false) problems.push(`parámetro no definido en el schema: ${key}`);
       continue;

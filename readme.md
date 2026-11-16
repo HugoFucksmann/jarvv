@@ -237,7 +237,7 @@ Esta es una **versión temprana ([v0.7.0](CHANGELOG.md))**: el flujo completo fu
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
 | **Herramientas** | 12 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 
-Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES`](docs/pendientes/PENDIENTES.md) y el diagnóstico técnico en [`DIAGNOSTICO_PENDIENTES`](docs/pendientes/DIAGNOSTICO_PENDIENTES.md).
+Próximos pasos: seguridad y controles de ejecución, ampliar el conjunto de herramientas y estabilizar tareas largas, hasta una v1.0. El detalle de lo pendiente está en [`PENDIENTES_EVAL`](docs/pendientes/PENDIENTES_EVAL.md) (lo que depende de eval) y [`PENDIENTES_CODIGO`](docs/pendientes/PENDIENTES_CODIGO.md) (lo que depende de código).
 
 ---
 
@@ -254,7 +254,8 @@ Si te interesa entender cómo está construido por dentro, consultá el índice 
 | ⚙️ [CONFIGURACION](docs/configuracion/CONFIGURACION.md) | `jarvis-config.json`, defaults del código, claves restringidas y `.env` |
 | 🔌 [JARVIS_API](docs/api/JARVIS_API.md) | La API HTTP local y los eventos en vivo que consume la interfaz |
 | 📏 [Eval](eval/README.md) | El laboratorio de evaluación de prompts: uso, variantes y [mejores resultados](eval/MEJORES_VARIANTES.md) |
-| 🚧 [PENDIENTES](docs/pendientes/PENDIENTES.md) | Limitaciones conocidas y trabajo abierto |
+| 🚧 [PENDIENTES_EVAL](docs/pendientes/PENDIENTES_EVAL.md) | Pendientes que dependen de eval y mediciones |
+| 🚧 [PENDIENTES_CODIGO](docs/pendientes/PENDIENTES_CODIGO.md) | Pendientes que dependen de código y decisiones |
 | 📝 [CHANGELOG](CHANGELOG.md) | Qué trae cada versión y la historia del desarrollo |
 
 ---

@@ -17,8 +17,8 @@ export function buildReviewView(data: ContextData, options: ReviewViewOptions): 
     done: parts.done.map(lineViewOf),
     step: parts.step === null ? null : stepViewOf(parts.step),
     stepsDone: parts.stepsDone,
-    lastReads: parts.reads.map((c) => callViewOf(data, c, true)),
-    stepFailures: parts.failures.map((c) => failureViewOf(data, c)),
+    lastReads: parts.reads.map((c) => callViewOf(c, true)),
+    stepFailures: parts.failures.map((c) => failureViewOf(c)),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
   };

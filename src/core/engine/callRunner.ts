@@ -10,8 +10,8 @@
  * - Una llamada se registra UNA sola vez, al terminar el intento, con su `status` final y sin `verdict`. Un reintento es una
  *   llamada nueva. El `verdict` y la `reason` se escriben después, juntos, en un segundo `apply` (`verifyCall`).
  * - Con `ref`: el texto crudo se guarda en disco (`vault.put`) → `apply add ref` → `apply add call` con `ref = rN` (dos `apply`).
- * - `args` van como los propuso el modelo (refs sin resolver) con los strings recortados; `sig` sale de los argumentos ya
- *   resueltos y es `null` en `args_invalid` por validación y en `refs_unresolved`; un `args_invalid` de la revisión conserva su `sig`.
+ * - `args` van como los propuso el modelo, con los strings recortados; `sig` sale de esos mismos argumentos y es `null`
+ *   en `args_invalid` por validación; un `args_invalid` de la revisión conserva su `sig`.
  * - No se registra nada mientras se espera la confirmación; cancelar ahí no deja llamada. Si la cancelación llega con la
  *   herramienta ya despachada se registra `interrupted` en ese momento y el resultado tardío se descarta.
  *
@@ -30,8 +30,6 @@ import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
 import { isReadOnlyCall } from "../policy/readOnly.ts";
-import { createRefLookup, resolveRefs } from "../refs/refResolver.ts";
-import { createRefRedactor } from "../refs/redactRef.ts";
 import { RefVaultError } from "../refs/refVault.ts";
 import { ContextOverflowError } from "../render/index.ts";
 import { processResult } from "../result/processResult.ts";
@@ -350,23 +348,8 @@ ${stepText}`, deps.memory?.() ?? []);
   const proposed = generation.value.args;
   const recorded = clipArgs(mcp, tool.name, proposed);
 
-  // 4. Sustituir las refs `{{ref:rN}}` (asíncrono). Una ref desconocida o ilegible nunca llega literal a la herramienta.
-  const redactor = createRefRedactor(createRefLookup(ctx, deps.vault), clipWithin);
-  const resolution = await resolveRefs(proposed, redactor.lookup, { ...tool.inputSchema });
-  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  if (resolution.unresolvedRefs.length > 0) {
-    const callId = register(ctx, {
-      ...base,
-      args: recorded,
-      sig: null,
-      status: "refs_unresolved",
-      summary: summaryText(`Referencias sin resolver: ${resolution.unresolvedRefs.join(", ")}`),
-      ref: null,
-    });
-    return registered(callId, "refs_unresolved");
-  }
-  const resolved = resolution.resolvedArgs;
-  const errorSummary = (text: string | null | undefined): string | null => summaryText(redactor.redact(text));
+  // 4. Las refs son solo para depurar y para el pre-chequeo: el modelo no las usa, así que los argumentos propuestos son los que se ejecutan.
+  const resolved = proposed;
 
   // Un comando de terminal que solo lee es una lectura aunque `start_process` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA,
   // no pide confirmación y no pasa por D3. Desde acá la llamada se registra con este `kind`.
@@ -376,7 +359,7 @@ ${stepText}`, deps.memory?.() ?? []);
   const sig = computeSig(resolved);
   // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
   const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, kind, args: recorded, sig, status, summary, ref: null });
-  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, errorSummary(summary)), status);
+  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summaryText(summary)), status);
   if (ctx.isRepeat(tool.name, sig, { policy: repeatPolicyOf(mcp, tool.name, resolved), stepId })) return reject("loop_blocked");
 
   // 6. Política (Guard). DENY (comando catastrófico, regla B de las carpetas protegidas): no se ejecuta y queda `tool_rejected` con la razón, como
@@ -483,13 +466,12 @@ ${stepText}`, deps.memory?.() ?? []);
     if (runtime.wasRejectedByUser(key)) return reject("user_rejected", REPEATED_REJECTION_NOTE);
     // Ya lo aprobó «siempre» en esta tarea: se omite la pregunta (la aprobación sustituye a D3, igual que si lo hubiera aprobado ahora).
     if (!(canRemember && runtime.isAlwaysApproved(key))) {
-      const rawApprovalReason =
+      const approvalReason =
         listed !== null
           ? `Lista de seguridad (${listed.id}): ${listed.reason}`
           : guard.mandatory === true
             ? (guard.reason ?? "Operación sensible")
             : allowedUnresolvableReason ?? (guard.reason ?? "Operación sensible");
-      const approvalReason = redactor.redact(rawApprovalReason) ?? rawApprovalReason;
       const approval = await runtime.requestApproval({
         mcp,
         tool: tool.name,
@@ -566,7 +548,7 @@ ${stepText}`, deps.memory?.() ?? []);
   if (raced.kind === "failed") {
     // `callTool` lanzó: la herramienta no produjo resultado. `exception` es de quien ejecuta (el procesador no lo produce).
     console.error(`[MCP ← ERROR] server=${mcp} tool=${tool.name}: ${errorMessage(raced.error)}`);
-    const summary = errorSummary(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
+    const summary = summaryText(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
     return finishWithVerification(record("exception", summary), "exception");
   }
 
@@ -597,10 +579,9 @@ ${stepText}`, deps.memory?.() ?? []);
 
   const factOps = processFactOps(ctx, stepId, policy, processed);
   const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
-  const callSummary = processed.status === "ok" || processed.status === "waiting_input" ? processed.summary : errorSummary(processed.summary);
   const callId = register(
     ctx,
-    { ...base, kind, args: recorded, sig, status: processed.status, summary: callSummary, ref },
+    { ...base, kind, args: recorded, sig, status: processed.status, summary: processed.summary, ref },
     [...errorOps, ...factOps],
   );
   if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };

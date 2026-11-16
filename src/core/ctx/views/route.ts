@@ -23,10 +23,10 @@ export function buildRouteView(data: ContextData, options: RouteViewOptions): Ro
   return {
     request: reactive ? data.task.request : null,
     step: step === null ? null : stepViewOf(step),
-    lastResult: last === null ? null : callViewOf(data, last, false),
+    lastResult: last === null ? null : callViewOf(last, false),
     done: reactive ? doneCalls(data.calls).filter((c) => c.id !== last?.id).map(lineViewOf) : [],
     // El último intento lleva su resumen (el porqué del fallo); los anteriores, solo la línea `L`.
-    attempts: lastN(attempts, size).map((c, i, all) => (i === all.length - 1 ? callViewOf(data, c, false) : lineViewOf(c))),
+    attempts: lastN(attempts, size).map((c, i, all) => (i === all.length - 1 ? callViewOf(c, false) : lineViewOf(c))),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
   };

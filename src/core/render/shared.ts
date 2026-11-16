@@ -4,7 +4,7 @@
  */
 
 import type { BUDGET } from "../budget.ts";
-import type { AvailableRefView, CallView, FactView, StepDoneView, StepView, UserInputView } from "../ctx/index.ts";
+import type { CallView, FactView, StepDoneView, StepView, UserInputView } from "../ctx/index.ts";
 import { sanitizeMultiline, flatten } from "../text.ts";
 import { ContextOverflowError } from "./errors.ts";
 import type { OverflowingView } from "./errors.ts";
@@ -98,11 +98,6 @@ export function factLine(fact: FactView): string {
 /** Entrada del usuario: tipo, paso y texto en una línea. */
 export function userInputLine(input: UserInputView): string {
   return `${input.kind} ${input.stepId}: ${oneLine(input.text)}`;
-}
-
-/** Ref disponible para reutilizar con `{{ref:rN}}`: identificador, tamaño y etiqueta (sin ruta ni estado de lectura). */
-export function availableRefLine(ref: AvailableRefView): string {
-  return `ref:${ref.id} (${ref.size}) ${oneLine(ref.label)}`;
 }
 
 // ───────────────────────── Elementos de las vistas con topes (8.2) ─────────────────────────

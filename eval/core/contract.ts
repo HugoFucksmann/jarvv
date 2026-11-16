@@ -11,7 +11,7 @@ import { BUDGET } from "../../src/core/budget.ts";
 import type { DECISION_PROMPTS } from "../../src/core/models/prompts.ts";
 import type { PromptSet } from "../../src/core/models/stageRequests.ts";
 import { NOT_JSON, parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/models/qwen.ts";
-import { schemaTypes as prodSchemaTypes } from "../../src/core/refs/refResolver.ts";
+import { schemaTypes as prodSchemaTypes } from "../../src/core/utils.ts";
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
@@ -31,7 +31,6 @@ export {
 /** Error que producción devuelve al modelo cuando la salida JSON no se puede extraer (texto idéntico). */
 export const NOT_JSON_ERROR = NOT_JSON;
 export { MAY_BE_EMPTY } from "../../src/core/engine/precheck.ts";
-export { isWholeRefToken } from "../../src/core/refs/refResolver.ts";
 export { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../../src/core/types/limits.ts";
 export const LLM_INVALID_OUTPUT_RETRIES = BUDGET.invalidResponseRetries;
 export const MAX_STEPS = BUDGET.maxSteps;

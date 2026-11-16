@@ -39,3 +39,16 @@ export const clipTail = (s: string, n: number): string =>
 
 export const newId = (prefix: string): string =>
     `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+/** Tipos JSON-Schema que admite un nodo, incluyendo ramas anyOf/oneOf. */
+export function schemaTypes(schema: unknown, out = new Set<string>()): Set<string> {
+  if (!isRecord(schema)) return out;
+  const t = schema.type;
+  if (typeof t === "string") out.add(t);
+  else if (Array.isArray(t)) t.forEach((x) => typeof x === "string" && out.add(x));
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const branches = schema[key];
+    if (Array.isArray(branches)) branches.forEach((b) => schemaTypes(b, out));
+  }
+  return out;
+}
