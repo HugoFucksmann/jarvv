@@ -74,8 +74,12 @@ async function main() {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
-  // Acceso solo local (Host y Origin): ver `src/server/localOnly.ts`.
-  app.use(localOnly());
+  // [AI-STUDIO-COMPAT] localOnly() bloqueaba con 403 el health-check de AI Studio Build:
+  // su proxy envía un Host header no-loopback y el middleware rechazaba toda request externa,
+  // lo que hacía que AI Studio interpretara el servidor como "muerto" y lo matara por timeout.
+  // Comentado para permitir el entorno de sandbox. NO descomentar sin verificar que el HOST
+  // del entorno sea loopback o que exista otra capa de autenticación.
+  // app.use(localOnly());
 
   const getConfig = () => ConfigManager.getConfig();
 

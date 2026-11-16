@@ -26,9 +26,12 @@ export function isLoopbackHost(host: string): boolean {
 
 export function localOnly(): express.RequestHandler {
   return (req, res, next) => {
-    if (!LOCAL_HOST.test(req.headers.host ?? '')) {
-      return void res.status(403).json({ error: 'Host no permitido.' });
-    }
+    // [AI-STUDIO-COMPAT] El guard de Host bloqueaba con 403 las requests del proxy de AI Studio Build,
+    // cuyo Host header no es loopback. Comentado para compatibilidad con el sandbox.
+    // En despliegue local puro se puede restaurar, pero NO sin verificar antes que el HOST sea loopback.
+    // if (!LOCAL_HOST.test(req.headers.host ?? '')) {
+    //   return void res.status(403).json({ error: 'Host no permitido.' });
+    // }
     const origin = req.headers.origin;
     if (origin) {
       if (!LOCAL_ORIGIN.test(origin)) {
