@@ -239,24 +239,12 @@ export interface ArgsView {
 }
 
 /**
- * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `refs` ni `effects`: las refs sin resolver y el
- * anti-loop se resuelven antes, de forma determinista, y la seguridad de una escritura es del Guard y de la confirmación del
- * usuario. El candidato (ruta, herramienta, descripción y `args`) es un parámetro: lo pasa el motor, no vive en el contexto.
+ * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `request`, `refs`, `lastError` ni `effects`: las refs
+ * sin resolver y el anti-loop se resuelven antes, de forma determinista, y la seguridad de una escritura es del Guard y de
+ * la confirmación del usuario. El candidato (ruta, herramienta, descripción y `args`) es un parámetro: lo pasa el motor, no
+ * vive en el contexto.
  */
-export interface ReviewView {
-  /** Solo en reactivo: llamadas aprobadas como línea `L`, sin las que ya muestra `lastReads`. */
-  readonly done: readonly CallView[];
-  /** El paso actual. */
-  readonly step: StepView | null;
-  /** Solo en deliberativo: pasos `completed` vigentes, con su resultado. */
-  readonly stepsDone: readonly StepDoneView[];
-  /** Las mismas lecturas que vio LLM 2: para contrastar los `args` con los datos. */
-  readonly lastReads: readonly CallView[];
-  readonly stepFailures: readonly CallView[];
-  /** Para decidir `info_missing`. */
-  readonly userInput: readonly UserInputView[];
-  readonly env: readonly FactView[];
-}
+export type ReviewView = Omit<ArgsView, "request" | "refs" | "lastError" | "effects">;
 
 /** Criterio contra el que se juzga la llamada: el del paso (`expected` solo en deliberativo). */
 export interface CriterionView {
