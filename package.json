@@ -6,7 +6,7 @@
   "version": "0.7.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "tsx server.tsx",
     "start": "tsx server.ts",
     "vite": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",

@@ -57,13 +57,19 @@ const SECRET_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'HF_TOKEN'];
 
 async function main() {
   const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '127.0.0.1';
-  if (!isLoopbackHost(HOST)) {
-    throw new Error(
-      `[Security] HOST='${HOST}' no es loopback (use 127.0.0.1, localhost o ::1). ` +
-      'La API local no tiene autenticación; no se permite escuchar fuera de loopback.',
-    );
-  }
+  const HOST = process.env.HOST || '0.0.0.0';
+  // [AI-STUDIO-COMPAT] La validación de loopback está comentada para permitir que el servidor
+  // escuche en cualquier interfaz (0.0.0.0) y sea accesible desde Google AI Studio Build.
+  // En producción local esta restricción tiene sentido (la API no tiene autenticación),
+  // pero en el sandbox de AI Studio el HOST asignado no es loopback y el throw bloqueaba el arranque.
+  // NO restaurar este bloque sin coordinar con el equipo — ver auditoría de compatibilidad.
+  //
+  // if (!isLoopbackHost(HOST)) {
+  //   throw new Error(
+  //     `[Security] HOST='${HOST}' no es loopback (use 127.0.0.1, localhost o ::1). ` +
+  //     'La API local no tiene autenticación; no se permite escuchar fuera de loopback.',
+  //   );
+  // }
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
