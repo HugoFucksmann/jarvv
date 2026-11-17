@@ -30,7 +30,7 @@ test("amarillo: agregar a un archivo, fuera de las carpetas del usuario, rutas r
   assert.equal(approvalTierOf("write_file", { path: "D:\\datos\\nota.md", content: "x" }, ENV, disk([])), "yellow", "fuera de las carpetas del usuario");
   assert.equal(approvalTierOf("create_directory", { path: "relativa" }, ENV, disk([])), "yellow");
   assert.equal(approvalTierOf("create_directory", {}, ENV, disk([])), "yellow");
-  assert.equal(approvalTierOf("write_file", { path: "C:\\Users\\Ana\\Desktop\\{{ref:r1}}" }, ENV, disk([])), "yellow", "referencia sin resolver");
+  assert.equal(approvalTierOf("write_file", { path: "C:\\Users\\Ana\\Desktop\\{{nombre}}" }, ENV, disk([])), "yellow", "marcador {{…}} sin resolver");
   assert.equal(approvalTierOf("alguna_herramienta", {}, ENV, disk([])), "yellow");
   assert.equal(approvalTierOf("move_file", { source: "D:\\a.txt", destination: "C:\\Users\\Ana\\Desktop\\a.txt" }, ENV, disk([])), "yellow", "el origen está fuera");
 });

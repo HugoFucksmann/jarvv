@@ -55,9 +55,9 @@ test("write_file: existe (met); vacío con texto para escribir es unmet; en appe
     assert.equal(postconditionOf("write_file", { path: dir, content: "x" }), "unmet", "una carpeta no es un archivo");
   }));
 
-test("lo que no se puede comprobar devuelve null: ruta relativa, referencia sin resolver, otra herramienta, sin argumentos", () => {
+test("lo que no se puede comprobar devuelve null: ruta relativa, marcador {{…}} sin resolver, otra herramienta, sin argumentos", () => {
   assert.equal(postconditionOf("create_directory", { path: "relativa/x" }), null);
-  assert.equal(postconditionOf("write_file", { path: path.join(os.tmpdir(), "{{ref:r1}}"), content: "x" }), null);
+  assert.equal(postconditionOf("write_file", { path: path.join(os.tmpdir(), "{{nombre}}"), content: "x" }), null);
   assert.equal(postconditionOf("run_command", { command: "Get-Date" }), null);
   assert.equal(postconditionOf("create_directory", null), null);
   assert.equal(postconditionOf("create_directory", { path: 5 }), null);

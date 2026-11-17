@@ -30,28 +30,8 @@ const CMD_SCHEMA = { type: "object", properties: { command: { type: "string" }, 
 const READ_SCHEMA = { type: "object", properties: { path: { type: "string" } }, required: ["path"] };
 
 // Herramienta de LECTURA: el pre-chequeo exige que la ruta salga de la tarea (en una escritura, crear una ruta nueva es legítimo).
-const REF_SCHEMA = { type: "object", properties: { path: { type: "string" }, encoding: { type: "string" } }, required: ["path", "encoding"] };
-
-const refFile = join(mkdtempSync(join(tmpdir(), "eval-ref-")), "resultado.txt");
-writeFileSync(refFile, "contenido guardado de la búsqueda");
-
-/** Escenario con una llamada previa que dejó la ref r1 (la única que existe). */
-const conRef = (id: string) =>
-  JSON.stringify({
-    id,
-    stage: "arguments",
-    scenario: {
-      mode: "reactive",
-      request: `lee ${DOC} y úsalo con el resultado de la búsqueda`,
-      steps: [{ state: "running", instruction: `leer ${DOC}` }],
-      calls: [{ route: "web", tool: "web_search", status: "ok", summary: "resultado largo guardado aparte", ref: { label: "búsqueda", size: 5000, where: refFile } }],
-      at: { route: "files", tool: "read_file", inputSchema: REF_SCHEMA, environment: ENV },
-    },
-    expect: { requiredFields: ["path", "encoding"] },
-  });
 
 const CASOS = [
-  conRef("con_ref"),
   caso("cmd", "terminal", "lista los 10 procesos que mas ram consuman", "run_command", CMD_SCHEMA, {
     requiredFields: ["command", "timeout_ms"],
     forbiddenHardcodedValues: ["ps aux", "head -n"],
@@ -87,7 +67,6 @@ const buenos: Array<[string, string]> = [
   ["cmd", JSON.stringify({ command: "Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 10", timeout_ms: 30000 })],
   ["leer", JSON.stringify({ path: DOC })],
   ["leer_libre", JSON.stringify({ path: DOC })],
-  ["con_ref", JSON.stringify({ path: DOC, encoding: "{{ref:r1}}" })],
 ];
 
 for (const [id, salida] of buenos) {
@@ -110,9 +89,6 @@ const malos: Array<[string, string, string]> = [
   ["leer", "ruta inventada que no sale de la solicitud", JSON.stringify({ path: INVENTADA })],
   ["leer", "ruta distinta de la exacta esperada", JSON.stringify({ path: "C:\\Users\\hugof\\Documents\\otro.txt" })],
   ["leer_libre", "ruta inventada: solo la detecta el pre-chequeo", JSON.stringify({ path: INVENTADA })],
-  ["con_ref", "ref inventada (no existe en el escenario, sin allowedRefTokens)", JSON.stringify({ path: DOC, encoding: "{{ref:r9}}" })],
-  ["con_ref", "ref inventada dentro de un texto", JSON.stringify({ path: DOC, encoding: "resumen: {{ref:r7}}" })],
-  ["con_ref", "ruta inventada junto a una ref válida (el resto se sigue comprobando)", JSON.stringify({ path: INVENTADA, encoding: "{{ref:r1}}" })],
   ["leer", "ruta de otro usuario", JSON.stringify({ path: "C:\\Users\\ana\\Documents\\informe.txt" })],
 ];
 
