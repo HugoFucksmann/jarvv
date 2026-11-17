@@ -85,7 +85,7 @@ Los defaults salen de `jarvis-config.json` (sin él, de los valores por defecto 
 ### Ejecución
 | Flag | Default | Descripción |
 |---|---|---|
-| `--thinking` | `auto` | `auto`, `prod`, `on`, `off` o `both` (cada caso dos veces, con y sin thinking). |
+| `--thinking` | `off` | `off` (ninguna etapa generativa piensa; es lo que usa Jarvis), `prod` (el `thinking` de cada caso, como producción: `plan` piensa), `on` o `both` (cada caso dos veces, con y sin thinking). |
 | `--timeout` | 120000 (gen) / 180000 (thinking) / 30000 (dec) | Timeout por petición, en ms. |
 | `--concurrency` | `3` | Peticiones simultáneas (entero ≥ 1). Con más de 1 las latencias no son comparables: usar `1` para medirlas. |
 | `--repeat` | `1` | Repeticiones por caso. |

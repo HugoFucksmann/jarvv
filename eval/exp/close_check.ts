@@ -9,7 +9,6 @@
  * Uso: npx tsx eval/exp/close_check.ts [--only=A1,D1]
  */
 import fs from "node:fs";
-import { PROMPTS } from "../../src/core/models/prompts.ts";
 import { ConfigManager } from "../../src/core/config.ts";
 import { createDecisionClient } from "../core/client/decision.ts";
 import { createGenerativeClient } from "../core/client/generative.ts";

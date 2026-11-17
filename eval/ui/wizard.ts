@@ -281,13 +281,12 @@ export async function runWizard(): Promise<string[] | null> {
 
       {
         const thinking = await pickOne(ask, "Thinking", [
-          { value: "auto", text: "auto" },
+          { value: "off", text: `off  ${c.gray("por defecto: sin thinking")}` },
           { value: "prod", text: "prod" },
           { value: "on", text: "on" },
-          { value: "off", text: "off" },
           { value: "both", text: `both  ${c.gray("compara on y off")}` },
         ]);
-        if (thinking !== "auto") {
+        if (thinking !== "off") {
           argv.push(`--thinking=${thinking}`);
           summary.push(["Thinking", thinking]);
         }

@@ -18,7 +18,6 @@ export const finalStage: GenerativeStageEntry<FinalOutput, FinalExpect> = {
   stageName: "final",
   requestType: "generative",
   rejectTruncated: false,
-  expandThinkingAuto: true,
   expectSpec: {
     keys: { mustContainFacts: "string[]", mustMentionEffects: "string[]", forbiddenHallucinations: "string[]" },
     atLeastOne: ["mustContainFacts", "mustMentionEffects", "forbiddenHallucinations"],

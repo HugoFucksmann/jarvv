@@ -325,7 +325,8 @@ export interface Variant {
 // ───────────────────────── Resultados ─────────────────────────
 
 /** Valores de `--thinking`. */
-export type ThinkingMode = "auto" | "prod" | "on" | "off" | "both";
+/** `off` (por defecto): ninguna etapa generativa piensa. `prod`: el `thinking` de cada caso (como producción). `both`: cada caso con y sin thinking. */
+export type ThinkingMode = "prod" | "on" | "off" | "both";
 
 /**
  * Resultado de UNA pregunta de una decisión. Se registra una entrada por cada pregunta enviada, indexada por su

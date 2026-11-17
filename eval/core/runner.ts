@@ -110,13 +110,10 @@ function expandThinking(
   if (mode === "prod") return [{ thinking: caseThinking, stageKey: stage }];
   if (mode === "on") return [{ thinking: true, stageKey: stage }];
   if (mode === "off") return [{ thinking: false, stageKey: stage }];
-  if (mode === "both" || entry.expandThinkingAuto) {
-    return [
-      { thinking: true, stageKey: `${stage}[think=on]` },
-      { thinking: false, stageKey: `${stage}[think=off]` },
-    ];
-  }
-  return [{ thinking: caseThinking, stageKey: stage }];
+  return [
+    { thinking: true, stageKey: `${stage}[think=on]` },
+    { thinking: false, stageKey: `${stage}[think=off]` },
+  ];
 }
 
 // ───────────────────────── Bucket (7.9, 5.4) ─────────────────────────

@@ -16,6 +16,17 @@ Todo lo que se cierra **midiendo**: correr `eval/`, revisar trazas reales o prob
 | Laboratorio `eval/` | Limpio de refs, con D0/D5 formales y `recalled` listos | Correr los evals con modelos y convertir `jarvis-traces/` (§6) |
 | Pruebas en otro entorno | — | Hacerlas (§7) |
 
+## Primera medición (2026-11-17)
+
+Detalle en [`../evaluacion/INFORME_MEDICION_2026-11-17.md`](../evaluacion/INFORME_MEDICION_2026-11-17.md). Resumen:
+
+- **Memoria en `arguments`** (`recalled`): con la memoria en el prompt, `prod` pasa de 41,7 % a 83,3 %; `args_structured_brief` llega a 100 % con 12 casos (sin significancia: hace falta un dataset mayor).
+- **`final` con `recalled` e hilo:** ninguna variante supera a `prod`.
+- **`pending`:** `pending_facts_safe` +3,2 % sin significancia, y baja `llm_pending_hard` (el riesgo conocido de §2). No encender nada.
+- **D5:** `prod` 85,1 %; `d5_strict_parts` empata y `d5_ultra_brief` baja.
+- **Pendiente de medir:** §1 (D3 con y sin `reviewFullView`), §4 (`web_search`), `question`, la fase 3 y la comparación de `plan` con `--thinking=prod` (aplazada: con thinking cada llamada tarda decenas de segundos; no correr nada con thinking hasta decidirlo).
+- **El contexto real de Ollama no es 16384** (8192 de entorno, 4096 en el Modelfile de `d3`): ver §5 y la sección 4 del informe.
+
 ---
 
 ## 1. D3 (`reviewArgs`) con modelo 2B y sin lecturas

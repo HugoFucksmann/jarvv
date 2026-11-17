@@ -11,7 +11,6 @@
 
 import { readFileSync } from "node:fs";
 import { ConfigManager } from "../../src/core/config.ts";
-import { DECISION_PROMPTS } from "../../src/core/models/prompts.ts";
 import { PLACE_PROBE } from "../../src/core/tools/probes.ts";
 import { DEFAULT_DECISION_URL } from "../core/config.ts";
 import { materializeScenario } from "../core/scenario.ts";

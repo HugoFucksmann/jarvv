@@ -13,7 +13,7 @@ const MODEL = process.argv[2] ?? "d3:2b-text";
 const OUT = process.argv[3] ?? "d4_views.json";
 
 // Misma pregunta (`cumple`) sobre tres RENDERIZADOS distintos del mismo resultado: ¿los errores se descorrelacionan?
-const CUMPLE = (instruction: string, expected: string | null) => ({
+const CUMPLE = (_instruction: string, expected: string | null) => ({
   type: "noul",
   instructions: `${expected ? "Does the result meet the expected outcome?" : "Does the result accomplish the step?"}`,
   criteria: { true: "Fully meets what was requested.", false: "Incomplete, failed, or different from request." },

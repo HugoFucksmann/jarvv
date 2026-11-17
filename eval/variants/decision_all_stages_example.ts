@@ -25,7 +25,6 @@ import {
   listBlock,
   REVIEW_OPTIONS,
   shortDesc,
-  VERIFY_QUESTIONS,
 } from "../../src/core/models/prompts.ts";
 import type { DecisionInput } from "../../src/core/models/prompts.ts";
 import { DESTINATIONS } from "../../src/core/tools/manifest.ts";

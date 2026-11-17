@@ -121,8 +121,6 @@ export interface GenerativeStageEntry<TOutput, TExpect> {
   requestType: "generative";
   /** true → una salida truncada (`finishReason === "length"`) se rechaza siempre. */
   rejectTruncated: boolean;
-  /** true → `--thinking=auto` expande on y off. */
-  expandThinkingAuto?: boolean;
   expectSpec: ExpectSpec;
   graders: Grader<TOutput, TExpect>[];
   buildRequest(sc: Scenario, ov: VariantPrompts | undefined, h: ScenarioHelpers): Materialized;

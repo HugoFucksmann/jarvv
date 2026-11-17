@@ -189,9 +189,10 @@ export function parseConfig(argv: string[]): EvalConfig {
   }
 
   // thinking
-  const thinkingRaw = str(flags, "thinking") ?? "auto";
-  if (!["auto", "prod", "on", "off", "both"].includes(thinkingRaw)) {
-    throw new Error(`--thinking: valor inválido '${thinkingRaw}' (auto|prod|on|off|both).`);
+  // Por defecto SIN thinking: con él cada llamada generativa tarda decenas de segundos y Jarvis no lo usa; sin la bandera el modelo piensa por su cuenta.
+  const thinkingRaw = str(flags, "thinking") ?? "off";
+  if (!["prod", "on", "off", "both"].includes(thinkingRaw)) {
+    throw new Error(`--thinking: valor inválido '${thinkingRaw}' (prod|on|off|both).`);
   }
   const thinking = thinkingRaw as ThinkingMode;
 

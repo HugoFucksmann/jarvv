@@ -103,8 +103,8 @@ export interface ScenarioAt {
 }
 
 export interface ScenarioRecalled {
-  /** Hechos del usuario (`source: "user_memory"`): `{ key, value }` o mapa `clave -> valor`. */
-  facts?: Array<{ key: string; value: string; from?: string }> | Record<string, string>;
+  /** Hechos del usuario (`source: "user_memory"`): `{ key, value }`, como los devuelve `MemoryProvider.recall`. */
+  user_memory?: Array<{ key: string; value: string; from?: string }>;
   /** Hilo reciente (`source: "thread"`): las dos entradas que usa producción. */
   thread?: { previous_request?: string; previous_answer?: string };
 }
@@ -235,11 +235,11 @@ function buildContext(sc: Scenario): Built {
     ctx.apply({ op: "set", target: `facts.answer_${lastStepId}_${i + 1}`, value: { value: text, stepId: lastStepId } });
   });
 
-  if (sc.recalled?.facts) {
-    const entries = Array.isArray(sc.recalled.facts)
-      ? sc.recalled.facts
-      : Object.entries(sc.recalled.facts).map(([key, value]) => ({ key, value, from: undefined }));
-    for (const entry of entries) {
+  // Una clave mal escrita no puede ignorarse en silencio: el caso se mediría sin memoria y el oracle (que contesta con `expect`) no lo notaría.
+  const unknownRecalled = Object.keys(sc.recalled ?? {}).filter((k) => k !== "user_memory" && k !== "thread");
+  if (unknownRecalled.length > 0) throw new Error(`scenario.recalled: clave desconocida (${unknownRecalled.join(", ")}); se admiten user_memory y thread`);
+  if (sc.recalled?.user_memory) {
+    for (const entry of sc.recalled.user_memory) {
       ctx.apply({
         op: "add",
         target: "recalled",

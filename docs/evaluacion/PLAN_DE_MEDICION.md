@@ -30,6 +30,11 @@ npx tsx eval/cli.ts --client=oracle
 
 Si `--client=oracle` no da **100 %** en todas las celdas, **no corras modelos**: el problema es de datasets/graders y no del modelo.
 
+> **Lo que el `oracle` no ve** (aprendido en la primera corrida, ver [`INFORME_MEDICION_2026-11-17.md`](INFORME_MEDICION_2026-11-17.md)): el `oracle` contesta con lo que dice la etiqueta, así que pasa aunque el prompt no lleve lo que el caso supone (por ejemplo, una clave de `scenario.recalled` mal escrita dejaba el caso sin memoria). Antes de medir un dataset nuevo, mirá el prompt real de un caso con `--client=mock --dry-run` y comprobá que contiene lo esperado (`MEMORY`, `PREVIOUS TASK`, etc.). Señal de alarma: **todas las variantes dan exactamente el mismo resultado**.
+> - **Thinking:** el eval corre las etapas generativas **sin thinking por defecto** (`--thinking=off`: envía `reasoning_effort: "none"`), como Jarvis. Usá `--thinking=prod` o `both` solo si querés medirlo a propósito.
+> - **Home ficticio:** los casos que necesitan archivos o carpetas que no existen deben usar un home ficticio (`C:\Users\Eval`). Con el home real de esta PC el pre-chequeo mira el disco y rechaza lo ficticio.
+> - **Contexto real:** en esta PC Ollama corre con 8192 (variable de entorno) y `d3` con 4096 (Modelfile); ni Jarvis ni el eval envían `num_ctx`. Un prompt más largo se trunca en silencio (ver sección 4 del informe).
+
 ---
 
 ## 2. Lista ordenada de corridas
@@ -81,7 +86,7 @@ Si `--client=oracle` no da **100 %** en todas las celdas, **no corras modelos**:
 | **3.3** | `tool_choice` | Desempate de herramientas en `tool_choice_variedad` y datasets actuales | `npm run eval -- --stages=tool_choice --dataset=tool_choice_variedad,tool_choice_current,tool_choice_jarvis_runtime,tool_choice_16_cases --variant=prod,tool_choice_structured,tool_choice_direct_nofail --concurrency=1 --label=suite_tool_choice` | >= 90 % canónico; verificar desempates `move_file`/`copy_file`, `edit_file`/`write_file` | ~15-30 s |
 | **3.4** | `result_verification` completo | Barrido completo D4 (10 datasets, 225 can + 4 raw) para confirmar que `d4_strict_scope` o `d4_web_recency` no regresan nada | `npm run eval -- --stages=result_verification --dataset=eval/datasets/d4/*.jsonl --variant=prod,d4_strict_scope,d4_web_recency --concurrency=1 --label=suite_d4_full` | 0 regresiones significativas vs `prod`, mejora neta en `verify_copy_move` y `d4_verify_variedad` | ~1.5-2.5 min |
 | **3.5** | `plan` | Línea base + estabilidad de planes deliberativos | `npm run eval -- --stages=plan --dataset=plan_16_cases,plan_gemai,plan_jarvis_runtime --variant=prod,plan_adaptive,plan_effects_grounded --repeat=2 --concurrency=1 --label=suite_plan` | `passRate >= 0.85`, uso correcto de `EFFECTS` y `user_feedback` | ~2-4 min |
-| **3.6** | Medición de `--thinking=both` (opcional §5) | Impacto real de `thinking=on` vs `thinking=off` en `final` y `plan` (calidad vs latencia) | `npm run eval -- --stages=final --dataset=final_recalled_variedad,final_16_cases --thinking=both --repeat=2 --concurrency=1 --label=thinking_final` | Solo justificar `thinking=on` si el delta en `passRate` compensa el costo en p50/p95 | ~2-4 min |
+| **3.6** | **Aplazada, no correr sin decisión del equipo:** medición de `--thinking=both` (opcional §5) | Impacto real de `thinking=on` vs `thinking=off` en `final` y `plan` (calidad vs latencia) | `npm run eval -- --stages=final --dataset=final_recalled_variedad,final_16_cases --thinking=both --repeat=2 --concurrency=1 --label=thinking_final` | Solo justificar `thinking=on` si el delta en `passRate` compensa el costo en p50/p95 | ~2-4 min |
 
 ---
 

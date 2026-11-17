@@ -9,7 +9,7 @@
  * Uso: npx tsx eval/exp/select_tools.ts [--phase=d1,d2,chain]
  */
 import fs from "node:fs";
-import { DECISION_PROMPTS, PROMPTS, shortDesc } from "../../src/core/models/prompts.ts";
+import { PROMPTS, shortDesc } from "../../src/core/models/prompts.ts";
 import { DESTINATIONS, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import { ConfigManager } from "../../src/core/config.ts";
 import { createDecisionClient } from "../core/client/decision.ts";
@@ -343,7 +343,6 @@ const TCASES: TCase[] = [
 const PROD_D2_INSTR = "Choose the tool that directly accomplishes the step instruction.";
 interface D2Variant { name: string; kind: "choice" | "noul"; build: (c: TCase) => { state: string; questions: Record<string, unknown> } }
 const D2_STATE = (c: TCase) => `Step: ${c.text}\nRoute: ${c.route}`;
-const paramsOf = (name: string): string => { const t = SYSTEM_TOOL_MANIFEST.find((x) => x.name === name); return t?.params ? `(${t.params.join(", ")})` : ""; };
 const d2choice = (name: string, crit: (t: (typeof SYSTEM_TOOL_MANIFEST)[number]) => string, instructions = PROD_D2_INSTR): D2Variant => ({
   name, kind: "choice",
   build: (c) => ({ state: D2_STATE(c), questions: { selected_tool: { type: "choice", instructions, criteria: Object.fromEntries(toolsOf(c.route).map((t) => [t.name, crit(t)])) } } }),
