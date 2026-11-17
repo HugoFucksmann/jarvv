@@ -7,7 +7,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DECISION_STAGES } from "./case.ts";
+import { isDecisionStage } from "./stages/index.ts";
 import { hasLatency, isDecisionCorrect, percentile } from "./scoring.ts";
 import { fmtDeltaMs, fmtDeltaPct, fmtMs, fmtP95, fmtPct, MIN_P95_SAMPLES, variantTableHead, variantTableRows } from "./report-format.ts";
 import type { GlobalScoreSummary, QuestionCross, QuestionScore, RunRecord, StageName } from "./types.ts";
@@ -399,7 +399,7 @@ const KIND_ORDER: SummaryKind[] = ["generative", "decision", "total"];
 /** Tipo de modelo que corre una etapa. `stageKey` puede traer sufijo de thinking (`final[think=on]`). */
 function kindOfStage(stageOrKey: string): "generative" | "decision" {
   const stage = stageOrKey.replace(/\[.*\]$/, "");
-  return (DECISION_STAGES as readonly string[]).includes(stage) ? "decision" : "generative";
+  return isDecisionStage(stage) ? "decision" : "generative";
 }
 
 /**
