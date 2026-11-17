@@ -38,7 +38,7 @@ import { TaskRuntime } from "./engine/runtime.ts";
 import type { ModelPause, Waiting } from "./engine/runtime.ts";
 import { renderFallback } from "./render/index.ts";
 import { windowOptions } from "./engine/adapters.ts";
-import { listTaskLogFiles, openTaskLog, readTaskLog, taskLogPath, tasksDirFromSource } from "./taskLog.ts";
+import { listTaskLogFiles, openTaskLog, readTaskLog, summarizeClosedTaskLog, taskLogPath, tasksDirFromSource } from "./taskLog.ts";
 import { argsMax } from "./tools/manifest.ts";
 import { TaskTraceRecorder } from "./trace/recorder.ts";
 import { MAX_RETAINED_TASKS } from "./types/limits.ts";
@@ -327,32 +327,47 @@ export class TaskManager {
 
   // ─────────── Internos ───────────
 
+  /**
+   * Al arrancar: las `MAX_RETAINED_TASKS` tareas más recientes se reproducen completas (quedan en la caché de RAM) y cualquier tarea que no esté cerrada y con respuesta se
+   * cierra con `restart`. El resto, ya cerradas, se listan leyendo solo cabecera y los dos últimos registros (`summarizeClosedTaskLog`): reproducir todos los logs
+   * (hasta `retentionDays` y `retentionMaxMb`) demoraría el arranque. Un log viejo que ese resumen no entiende sí se reproduce completo.
+   */
   private restoreFromDisk(): void {
     const files = listTaskLogFiles(this.tasksDir);
-    const loaded: { readonly id: string; readonly ctx: TaskContext }[] = [];
+    const firstRecent = Math.max(0, files.length - MAX_RETAINED_TASKS);
 
-    for (const { taskId, filePath } of files) {
+    files.forEach(({ taskId, filePath }, index) => {
+      const recent = index >= firstRecent;
+      if (!recent) {
+        const closed = summarizeClosedTaskLog(filePath);
+        if (closed !== null) {
+          this.summaries.set(taskId, {
+            id: closed.id,
+            mode: closed.mode,
+            request: closed.request,
+            state: closed.state,
+            stopReason: closed.stopReason,
+            startedAt: closed.startedAt,
+            n: closed.n,
+            waiting: null,
+          });
+          return;
+        }
+      }
       const result = readTaskLog(filePath, { onListenerError: this.onListenerError, attachLiveWriter: true });
       if (!result.ok) {
         this.unreadable.set(result.id, result.reason);
         console.warn(`[Tasks] log ilegible '${result.id}' (${filePath}): ${result.reason}`);
-        continue;
+        return;
       }
       const { ctx } = result;
       if (!ctx.isClosed() || ctx.result === null) {
         this.closeOnRestart(ctx);
         this.restartedOnStartup.push(this.summaryOf(ctx, null));
       }
-      const summary = this.summaryOf(ctx, null);
-      this.summaries.set(taskId, summary);
-      loaded.push({ id: taskId, ctx });
-    }
-
-    const recent = loaded.slice(-MAX_RETAINED_TASKS);
-    for (const { id, ctx } of recent) {
-      const runtime = new TaskRuntime({ onChange: () => undefined });
-      this.tasks.set(id, { ctx, runtime });
-    }
+      this.summaries.set(taskId, this.summaryOf(ctx, null));
+      if (recent) this.tasks.set(taskId, { ctx, runtime: new TaskRuntime({ onChange: () => undefined }) });
+    });
   }
 
   private closeOnRestart(ctx: TaskContext): void {

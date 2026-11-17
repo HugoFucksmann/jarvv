@@ -25,7 +25,8 @@ import type {
   TaskContext,
   TaskMode,
 } from "./ctx/index.ts";
-import { TASK_MODES } from "./ctx/index.ts";
+import { STOP_REASONS, TASK_MODES, TERMINAL_TASK_STATES } from "./ctx/index.ts";
+import type { StopReason, TerminalTaskState } from "./ctx/index.ts";
 import { taskFolderName } from "./refs/refVault.ts";
 import { errorMessage, isRecord } from "./utils.ts";
 
@@ -105,6 +106,13 @@ export function appendLogRecordSync(filePath: string, record: ApplyRecord): void
   } finally {
     fs.closeSync(fd);
   }
+}
+
+/** Reescribe el log solo con sus líneas válidas (cabecera y registros completos), cada una terminada en salto de línea; reemplazo atómico. */
+function repairLogTail(filePath: string, goodLines: readonly string[]): void {
+  const tmp = `${filePath}.repair`;
+  fs.writeFileSync(tmp, `${goodLines.join("\n")}\n`, "utf8");
+  fs.renameSync(tmp, filePath);
 }
 
 /** Crea la cabecera y devuelve el callback síncrono para `ContextOptions.onApply`. */
@@ -224,21 +232,38 @@ export function readTaskLog(
   }
 
   const rawEntries: LogEntry[] = [];
+  let droppedTail = false;
   for (let i = 1; i < lines.length; i++) {
     const isLast = i === lines.length - 1;
     let parsed: unknown;
     try {
       parsed = JSON.parse(lines[i]);
     } catch {
-      if (isLast) break; // Un último registro incompleto se descarta al leer (§5).
+      if (isLast) {
+        droppedTail = true; // Un último registro incompleto se descarta al leer (§5).
+        break;
+      }
       return { ok: false, id: rawHeader.id, filePath, reason: `registro JSON corrupto en línea ${i + 1}` };
     }
     const entry = parseEntry(parsed);
     if (!entry) {
-      if (isLast) break;
+      if (isLast) {
+        droppedTail = true;
+        break;
+      }
       return { ok: false, id: rawHeader.id, filePath, reason: `registro de log inválido en línea ${i + 1}` };
     }
     rawEntries.push(entry);
+  }
+
+  // Con escritor vivo se va a seguir escribiendo en este archivo: una cola dañada (registro cortado) o sin salto de línea se quita antes, o el
+  // registro siguiente quedaría pegado a esos bytes y, más adelante, haría ilegible todo el log.
+  if (extraOptions.attachLiveWriter && (droppedTail || !text.endsWith("\n"))) {
+    try {
+      repairLogTail(filePath, lines.slice(0, 1 + rawEntries.length));
+    } catch (error) {
+      return { ok: false, id: rawHeader.id, filePath, reason: `no se pudo reparar la cola dañada del log: ${errorMessage(error)}` };
+    }
   }
 
   const converted = convertLogSchema(rawHeader, rawEntries);
@@ -299,6 +324,60 @@ export function readTaskLog(
 export function isTaskLogTerminal(filePath: string): boolean {
   const result = readTaskLog(filePath);
   return result.ok && result.ctx.isClosed();
+}
+
+/** Datos de un log de tarea ya cerrada y con respuesta, leídos sin reproducirlo. */
+export interface ClosedTaskLogSummary {
+  readonly id: string;
+  readonly mode: TaskMode;
+  readonly request: string;
+  readonly startedAt: number;
+  readonly state: TerminalTaskState;
+  readonly stopReason: StopReason | null;
+  /** Cantidad de registros (la versión `n` del contexto reproducido). */
+  readonly n: number;
+}
+
+/**
+ * Resumen de un log sin reproducirlo: solo cabecera, último registro y el anterior. `result` solo se escribe en un `apply` posterior al `finish` y una sola vez
+ * (`ctx/apply.ts`), así que si el último registro es esa escritura, la tarea está cerrada y con respuesta, y el `finish` está en el registro anterior.
+ * Devuelve `null` en cualquier otro caso (tarea sin cerrar, sin respuesta, cola dañada o log que no se entiende): quien llama reproduce el log completo.
+ */
+export function summarizeClosedTaskLog(filePath: string): ClosedTaskLogSummary | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  if (!text.endsWith("\n")) return null;
+  const lines = text.split(/\r?\n/);
+  while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  if (lines.length < 3) return null;
+  try {
+    const header = parseHeader(JSON.parse(lines[0]));
+    const last = parseEntry(JSON.parse(lines[lines.length - 1]));
+    const before = parseEntry(JSON.parse(lines[lines.length - 2]));
+    if (header === null || header.v !== LOG_SCHEMA_VERSION || last === null || before === null) return null;
+    const isResult = (op: unknown): boolean => isRecord(op) && op.op === "set" && op.target === "result";
+    if (last.ops.length !== 1 || !isResult(last.ops[0])) return null;
+    const finish = before.ops.find((op) => isRecord(op) && op.op === "finish" && op.target === "task");
+    if (!isRecord(finish) || !isRecord(finish.value)) return null;
+    const { state, stopReason } = finish.value;
+    if (typeof state !== "string" || !(TERMINAL_TASK_STATES as readonly string[]).includes(state)) return null;
+    if (stopReason !== null && (typeof stopReason !== "string" || !(STOP_REASONS as readonly string[]).includes(stopReason))) return null;
+    return {
+      id: header.id,
+      mode: header.mode,
+      request: header.request,
+      startedAt: header.startedAt,
+      state: state as TerminalTaskState,
+      stopReason: stopReason as StopReason | null,
+      n: lines.length - 1,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface TaskLogFileInfo {

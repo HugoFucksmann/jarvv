@@ -3,12 +3,13 @@
  *
  * Cuando el último ítem de la lista termina bien (la lista queda vacía y no se abandonó nada), antes de confirmar con el LLM generativo que no falta nada
  * (~900 ms) se le hace una sola pregunta al modelo de decisión (~50 ms): con la solicitud y todo lo hecho a la vista, ¿la solicitud está cumplida?
- * Si responde que sí con probabilidad de al menos `COMPLETION_APPROVE`, la tarea cierra `completed` sin llamar al LLM. En cualquier otro caso (no, duda, fallo del
- * servicio, nada hecho todavía) se cae a la confirmación del LLM como antes: un falso "no" solo cuesta esa llamada, mientras que un falso "sí" cierra la tarea
+ * Si responde que sí con probabilidad de al menos `COMPLETION_APPROVE`, la tarea cierra `completed` sin llamar al LLM. En cualquier otro caso (no, duda, respuesta
+ * inválida o desborde, nada hecho todavía) se cae a la confirmación del LLM como antes: un falso "no" solo cuesta esa llamada, mientras que un falso "sí" cierra la tarea
  * incompleta en silencio, por eso el umbral es más estricto que `NOUL_APPROVE`.
  *
  * Solo en reactivo y con `ctx.canFinish() === "completed"` (hay una llamada aprobada y nada quedó abandonado por el usuario): es la misma regla con la que
- * `generatePending` acepta una lista vacía. Un fallo del servicio de decisión no cierra la tarea aquí: lo vuelve a ver (y lo cierra) la consulta del LLM.
+ * `generatePending` acepta una lista vacía. Si el modelo de decisión no está disponible, rige la pausa de `queryModel` (`MEMORIA_CONTEXTO_DISENO.md` §6.1) y, agotada,
+ * la tarea cierra `unrecoverable`.
  */
 
 import { completionInput } from "./adapters.ts";
@@ -62,6 +63,11 @@ export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutco
 
   const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0, pauseOf(env, "decision"));
   if (!query.ok) {
+    // Una respuesta inválida o un desborde de esta consulta no es un modelo caído: es un atajo que no se pudo tomar, y la tarea sigue con la confirmación del LLM.
+    if (query.failure === "invalid" || query.failure === "overflow") {
+      console.warn(`[Engine] cierre por Decisión 5 no disponible (${query.failure}); se confirma con el LLM.`);
+      return { kind: "incomplete" };
+    }
     const closure = closeOnFailure(ctx, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }

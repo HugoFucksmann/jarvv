@@ -3,15 +3,20 @@
  *
  * Consultan al modelo de decisión con la política común de pausa y reintento (`queryModel` + `pauseOf`, §6.1). Si la
  * consulta no está configurada (`firstQuery`/`continuation` ausente o sin tarea anterior vigente) siguen el flujo normal;
- * si la consulta falla (pausa agotada, URL sin configurar, desborde o respuesta inválida), la tarea cierra `unrecoverable`
- * sin degradación silenciosa (§6.1, §7.4).
+ * si el modelo de decisión no está disponible (pausa agotada o URL sin configurar), la tarea cierra `unrecoverable` sin degradación silenciosa
+ * (§6.1, §7.4). Una respuesta inválida o un desborde de la consulta sí siguen el flujo normal, como antes.
  */
 
 import type { FirstQueryKind } from "./firstQuery.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
+import type { ModelFailureKind } from "./failures.ts";
 import type { PreviousTask } from "../contracts.ts";
+import { errorMessage } from "../utils.ts";
 import { CONTINUATION_APPROVE } from "./thread.ts";
+
+/** Una respuesta inválida o un desborde de estas consultas (atajos) no es un modelo caído: la tarea sigue sin su aporte. Un modelo no disponible (agotada la pausa) o una cancelación sí cierran. */
+const degradesToDefault = (failure: ModelFailureKind): boolean => failure === "invalid" || failure === "overflow";
 
 export type ClassifyOutcome =
   | { readonly kind: "classified"; readonly first: FirstQueryKind | null }
@@ -31,6 +36,10 @@ export async function classifyRequest(env: EngineEnv): Promise<ClassifyOutcome> 
 
   const query = await queryModel(() => decision.firstQuery!({ request: ctx.task.request }, runtime.signal), 0, pauseOf(env, "decision"));
   if (!query.ok) {
+    if (degradesToDefault(query.failure)) {
+      console.warn(`[Engine] D0 sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); la tarea sigue por el flujo de siempre.`);
+      return { kind: "classified", first: null };
+    }
     const closure = closeOnFailure(ctx, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
@@ -50,6 +59,10 @@ export async function detectContinuation(env: EngineEnv): Promise<ContinuationOu
 
   const query = await queryModel(() => decision.continuation!({ previous, request: ctx.task.request }, runtime.signal), 0, pauseOf(env, "decision"));
   if (!query.ok) {
+    if (degradesToDefault(query.failure)) {
+      console.warn(`[Engine] continuación sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); sin hilo.`);
+      return { kind: "resolved", previous: null };
+    }
     const closure = closeOnFailure(ctx, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
