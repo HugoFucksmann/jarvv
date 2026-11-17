@@ -104,7 +104,7 @@ export function getActivityPhrase(task: TaskDto | null | undefined): ActivityPhr
       task.paused.model === "llm"
         ? "LLM"
         : task.paused.model === "decision"
-          ? "Decision 2.0"
+          ? "Modelo de decisión"
           : task.paused.model;
     return {
       stateGroup: "waiting",
@@ -112,8 +112,14 @@ export function getActivityPhrase(task: TaskDto | null | undefined): ActivityPhr
     };
   }
 
-  // 3. Tarea terminada
+  // 3. Tarea terminada (task.state pasa a terminal antes de escribirse result)
   if (task.task.state !== "running") {
+    if (!task.result) {
+      return {
+        stateGroup: "working",
+        label: "Redactando respuesta final…",
+      };
+    }
     switch (task.task.state) {
       case "completed":
         return { stateGroup: "finished", label: "Tarea completada con éxito" };
@@ -138,15 +144,7 @@ export function getActivityPhrase(task: TaskDto | null | undefined): ActivityPhr
     }
   }
 
-  // 3. Tarea en ejecución
-  const lastCall = task.calls[task.calls.length - 1];
-  if (lastCall && (!lastCall.status || lastCall.status === "running")) {
-    return {
-      stateGroup: "working",
-      label: `Ejecutando herramienta ${lastCall.tool}…`,
-    };
-  }
-
+  // 4. Tarea en ejecución
   const runningStep = task.steps.find((s) => s.state === "running" && !s.superseded);
   if (runningStep) {
     const stepIdx = task.steps.indexOf(runningStep) + 1;
@@ -158,10 +156,13 @@ export function getActivityPhrase(task: TaskDto | null | undefined): ActivityPhr
     };
   }
 
-  if (task.task.mode === "deliberative" && task.steps.length === 0) {
+  if (task.steps.length === 0) {
     return {
       stateGroup: "working",
-      label: "Estructurando plan de ejecución…",
+      label:
+        task.task.mode === "deliberative"
+          ? "Estructurando plan de ejecución…"
+          : "Evaluando consulta…",
     };
   }
 

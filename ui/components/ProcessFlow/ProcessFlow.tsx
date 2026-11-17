@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { History, PauseCircle, Terminal } from "lucide-react";
+import { History, Loader2, PauseCircle, Terminal } from "lucide-react";
 import type { TaskDto, RefDto } from "../../types/api.ts";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
@@ -150,6 +150,7 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       {planWaiting && planWaiting.kind === "plan" ? (
         <div className="flex flex-col gap-3">
           <PlanReview
+            key={planWaiting.request.id}
             steps={planWaiting.request.steps}
             onConfirm={onConfirmPlan}
             onReject={onRejectPlan}
@@ -183,10 +184,19 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
       {/* Artefactos, referencias, procesos en segundo plano y respuestas */}
       <ArtifactsList task={task} onViewRef={handleViewRef} />
 
-      {/* Respuesta final si ya está sintetizada */}
-      {task.result && (
+      {/* Respuesta final o espera tras transición terminal */}
+      {task.result ? (
         <FinalResponseView result={task.result} onOpenTrace={handleOpenTrace} onSpeak={onSpeak} onStopSpeech={onStopSpeech} speechStatus={speechStatus} />
-      )}
+      ) : isTerminalTask ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2.5 border-t border-slate-800 pt-4 text-xs text-slate-400"
+        >
+          <Loader2 className="w-4 h-4 animate-spin text-accent-400 shrink-0" />
+          <span>Redactando respuesta final…</span>
+        </div>
+      ) : null}
 
       {/* Modal visor de referencia */}
       {activeRefId && (

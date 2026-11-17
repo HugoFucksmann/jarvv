@@ -42,7 +42,7 @@ const TABS: {
       id: "summary",
       label: "Resumen",
       icon: FileText,
-      hint: "Línea de tiempo con decisiones D1 (herramienta), D2 (argumentos), D3 (revisión) y D4 (verificación)",
+      hint: "Línea de tiempo con decisiones D0–D5: D1 (ruta), D2 (herramienta), D3 (revisión) y D4 (verificación)",
     },
     {
       id: "json",

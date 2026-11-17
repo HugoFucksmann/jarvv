@@ -32,6 +32,10 @@ export const TraceInspector: React.FC<Props> = ({ taskId, initialCallId = null }
   const [selected, setSelected] = useState<number | null>(null);
   const [onlyCall, setOnlyCall] = useState<string | null>(initialCallId);
 
+  useEffect(() => {
+    setOnlyCall(initialCallId ?? null);
+  }, [initialCallId]);
+
   // Lista lateral: fijada (siempre abierta) o riel que se expande al pasar el ratón / con el teclado.
   const [pinned, setPinned] = useState(readPinned);
   const [hovered, setHovered] = useState(false);

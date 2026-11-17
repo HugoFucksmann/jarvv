@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { X, Laptop, Folder, Clock, Globe, Shield, Gauge, Copy, Check } from "lucide-react";
 import type { UserEnvironment, EngineLimits } from "../../../types/api.ts";
+import { useClipboardCopy } from "../../../hooks/useClipboardCopy.ts";
 
 interface EnvironmentModalProps {
   environment: UserEnvironment | null;
@@ -72,7 +73,7 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
   limits,
   onClose,
 }) => {
-  const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
+  const { copy, isCopied } = useClipboardCopy(1500);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -82,15 +83,9 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const copyPath = async (key: string, path?: string) => {
+  const copyPath = (key: string, path?: string) => {
     if (!path) return;
-    try {
-      await navigator.clipboard.writeText(path);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey(null), 1500);
-    } catch (e) {
-      console.warn("Failed to copy:", e);
-    }
+    void copy(path, key);
   };
 
   return (
@@ -189,12 +184,12 @@ export const EnvironmentModal: React.FC<EnvironmentModalProps> = ({
                           title="Copiar ruta"
                           className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                         >
-                          {copiedKey === key ? (
+                          {isCopied(key) ? (
                             <Check className="w-3 h-3 text-emerald-400" />
                           ) : (
                             <Copy className="w-3 h-3" />
                           )}
-                          <span>{copiedKey === key ? "Copiado" : "Copiar"}</span>
+                          <span>{isCopied(key) ? "Copiado" : "Copiar"}</span>
                         </button>
                       )}
                     </div>

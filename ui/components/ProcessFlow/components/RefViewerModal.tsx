@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { X, FileText, Loader2, AlertCircle, Copy, Check, HardDrive, Hash, Clock } from "lucide-react";
 import type { RefDto } from "../../../types/api.ts";
 import { jarvisApi } from "../../../services/jarvisApi.ts";
+import { useClipboardCopy } from "../../../hooks/useClipboardCopy.ts";
 
 interface RefViewerModalProps {
   taskId: string;
@@ -19,7 +20,7 @@ export const RefViewerModal: React.FC<RefViewerModalProps> = ({
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copy, isCopied } = useClipboardCopy(2000);
 
   useEffect(() => {
     let isMounted = true;
@@ -54,15 +55,9 @@ export const RefViewerModal: React.FC<RefViewerModalProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
 
-  const handleCopy = async () => {
+  const handleCopy = () => {
     if (!content) return;
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.warn("Failed to copy:", e);
-    }
+    void copy(content);
   };
 
   const formattedSize = refMeta?.size
@@ -123,8 +118,8 @@ export const RefViewerModal: React.FC<RefViewerModalProps> = ({
                 title="Copiar contenido"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer border border-slate-700/60"
               >
-                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copied ? "¡Copiado!" : "Copiar"}</span>
+                {isCopied() ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{isCopied() ? "¡Copiado!" : "Copiar"}</span>
               </button>
             )}
             <button

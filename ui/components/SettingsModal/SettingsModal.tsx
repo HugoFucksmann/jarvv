@@ -16,7 +16,7 @@ import {
   Laptop,
   Volume2,
 } from "lucide-react";
-import type { JarvisConfig, BlacklistEntry, UserEnvironment, EngineLimits } from "../../types/api.ts";
+import type { JarvisConfig, ConfigPatch, BlacklistEntry } from "../../types/api.ts";
 import { jarvisApi } from "../../services/jarvisApi.ts";
 
 interface SettingsModalProps {
@@ -252,6 +252,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return () => clearTimeout(closeTimerRef.current);
   }, [loadConfig]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isSaving) onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSaving, onClose]);
+
   const update = (patch: Partial<JarvisConfig>) =>
     setConfig((prev) => (prev ? { ...prev, ...patch } : prev));
 
@@ -300,7 +308,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setError(null);
 
     try {
-      const updated = await jarvisApi.updateConfig(config);
+      const {
+        refsDir: _refsDir,
+        tracePath: _tracePath,
+        desktopCommanderMcp,
+        freeSearchMcp: _freeSearchMcp,
+        ...editable
+      } = config;
+      const patch: ConfigPatch = {
+        ...editable,
+        ...(desktopCommanderMcp?.allowedDirectories !== undefined
+          ? { desktopCommanderMcp: { allowedDirectories: desktopCommanderMcp.allowedDirectories } }
+          : {}),
+      };
+      const updated = await jarvisApi.updateConfig(patch);
       setConfig(updated);
       setSaved(true);
       // Se refresca el catálogo de inmediato; el cierre espera solo para mostrar "Guardado"
@@ -388,7 +409,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="text"
                     value={config.qwenModel || ""}
                     onChange={(e) => update({ qwenModel: e.target.value })}
-                    placeholder="qwen3.5:9b"
+                    placeholder="qwen3.5:4b"
                     className={`px-2.5 py-1.5 ${INPUT_BASE} font-mono text-xs`}
                   />
                 </div>
@@ -652,7 +673,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Reglas deterministas de rechazo (tool_rejected). Afecta solo a herramientas que modifican el sistema.
+                  Reglas para herramientas que modifican el sistema: con modo automático activado rechazan automáticamente (tool_rejected); en modo interactivo solicitan confirmación al usuario.
                 </p>
 
                 {/* Formulario para nueva regla */}
@@ -837,7 +858,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={(e) => update({ tracePath: e.target.value })}
                     readOnly
                     title="Solo se cambia en jarvis-config.json (la API no lo acepta)"
-                    placeholder="trace/runs.jsonl"
+                    placeholder="jarvis-traces.jsonl"
                     className="px-2.5 py-1.5 bg-slate-950/60 border border-slate-800 rounded-md text-slate-400 font-mono text-xs focus:outline-none"
                   />
                 </div>

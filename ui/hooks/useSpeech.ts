@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getApiUrl } from "../utils/apiUrl.ts";
 
 export type SpeechStatus = "idle" | "loading" | "playing" | "disconnected";
 
@@ -18,6 +19,7 @@ export function useSpeech(onError?: (message: string) => void) {
   const ctxRef = useRef<AudioContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const mountedRef = useRef(true);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -31,7 +33,30 @@ export function useSpeech(onError?: (message: string) => void) {
     }
     sourcesRef.current = [];
     streamDoneRef.current = true;
-    setStatus("idle");
+    if (mountedRef.current) setStatus("idle");
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+      abortRef.current = null;
+      for (const s of sourcesRef.current) {
+        try {
+          s.stop();
+        } catch {
+          /* ya detenido */
+        }
+      }
+      sourcesRef.current = [];
+      streamDoneRef.current = true;
+      const ctx = ctxRef.current;
+      ctxRef.current = null;
+      if (ctx) {
+        void ctx.close().catch(() => {});
+      }
+    };
   }, []);
 
   const speak = useCallback(
@@ -44,12 +69,16 @@ export function useSpeech(onError?: (message: string) => void) {
       try {
         const ctx = (ctxRef.current ??= new AudioContext({ sampleRate: SAMPLE_RATE }));
         await ctx.resume();
-        const res = await fetch("/api/jarvis/tts", {
+        if (ac.signal.aborted || abortRef.current !== ac || !mountedRef.current) return;
+
+        const res = await fetch(getApiUrl("/api/jarvis/tts"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text }),
           signal: ac.signal,
         });
+        if (ac.signal.aborted || abortRef.current !== ac || !mountedRef.current) return;
+
         if (!res.ok || !res.body) {
           let reason = `Error ${res.status}`;
           try {
@@ -58,7 +87,7 @@ export function useSpeech(onError?: (message: string) => void) {
           } catch {
             /* sin cuerpo JSON */
           }
-          if (abortRef.current === ac) {
+          if (abortRef.current === ac && mountedRef.current) {
             abortRef.current = null;
             streamDoneRef.current = true;
             if (res.status === 502 || res.status === 503) {
@@ -75,38 +104,60 @@ export function useSpeech(onError?: (message: string) => void) {
         let leftover: Uint8Array = new Uint8Array(0);
         let t = ctx.currentTime + 0.05;
 
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const bytes = concat(leftover, value);
-          const usable = bytes.length - (bytes.length % 2);
-          leftover = bytes.slice(usable);
-          if (usable === 0) continue;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (ac.signal.aborted || abortRef.current !== ac || !mountedRef.current) {
+              void reader.cancel().catch(() => {});
+              return;
+            }
+            if (done) break;
+            const bytes = concat(leftover, value);
+            const usable = bytes.length - (bytes.length % 2);
+            leftover = bytes.slice(usable);
+            if (usable === 0) continue;
 
-          const i16 = new Int16Array(bytes.slice(0, usable).buffer);
-          const f32 = Float32Array.from(i16, (v) => v / 32768);
-          const buf = ctx.createBuffer(1, f32.length, SAMPLE_RATE);
-          buf.copyToChannel(f32, 0);
+            const i16 = new Int16Array(bytes.slice(0, usable).buffer);
+            const f32 = Float32Array.from(i16, (v) => v / 32768);
+            const buf = ctx.createBuffer(1, f32.length, SAMPLE_RATE);
+            buf.copyToChannel(f32, 0);
 
-          const src = ctx.createBufferSource();
-          src.buffer = buf;
-          src.connect(ctx.destination);
-          src.onended = () => {
-            sourcesRef.current = sourcesRef.current.filter((x) => x !== src);
-            if (sourcesRef.current.length === 0 && streamDoneRef.current) setStatus("idle");
-          };
-          t = Math.max(t, ctx.currentTime);
-          src.start(t);
-          t += buf.duration;
-          sourcesRef.current.push(src);
-          setStatus("playing");
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(ctx.destination);
+            src.onended = () => {
+              sourcesRef.current = sourcesRef.current.filter((x) => x !== src);
+              if (
+                sourcesRef.current.length === 0 &&
+                streamDoneRef.current &&
+                abortRef.current === ac &&
+                mountedRef.current
+              ) {
+                abortRef.current = null;
+                setStatus("idle");
+              }
+            };
+            t = Math.max(t, ctx.currentTime);
+            src.start(t);
+            t += buf.duration;
+            sourcesRef.current.push(src);
+            setStatus("playing");
+          }
+        } finally {
+          reader.releaseLock();
         }
+
+        if (ac.signal.aborted || abortRef.current !== ac || !mountedRef.current) return;
         streamDoneRef.current = true;
-        if (sourcesRef.current.length === 0 && abortRef.current === ac) setStatus("idle");
+        if (sourcesRef.current.length === 0) {
+          abortRef.current = null;
+          setStatus("idle");
+        }
       } catch (e) {
         if ((e as Error).name !== "AbortError") {
           console.error("TTS:", e);
-          if (abortRef.current === ac) {
+          if (abortRef.current === ac && mountedRef.current) {
+            abortRef.current = null;
             streamDoneRef.current = true;
             setStatus("idle");
             onError?.("Voz: no se pudo reproducir el audio.");
@@ -150,6 +201,7 @@ export function useSpeakNewResults(
   const seen = useRef<{ id: string | null; hadResult: boolean }>({ id: null, hadResult: true });
 
   useEffect(() => {
+    let cancelled = false;
     const prev = seen.current;
     if (taskId !== prev.id) {
       seen.current = { id: taskId, hadResult: resultText !== null };
@@ -160,9 +212,12 @@ export function useSpeakNewResults(
     seen.current = { id: taskId, hadResult: true };
     if (enabled && taskId !== null) {
       void claimSpeech(taskId).then((mine) => {
-        if (mine) void speak(resultText);
+        if (!cancelled && mine) void speak(resultText);
       });
     }
+    return () => {
+      cancelled = true;
+    };
   }, [taskId, resultText, enabled, speak, stop]);
 
   useEffect(() => () => stop(), [stop]);

@@ -80,15 +80,17 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
                   }`}
               >
                 <div className="mt-1.5">
-                  <StatusDot status={getTaskStatusType(t.state)} />
+                  <StatusDot status={getTaskStatusType(t.state, Boolean(t.waiting))} />
                 </div>
                 <div className="flex flex-col flex-1 min-w-0">
                   <span className="truncate text-[13px] text-slate-100">{t.request}</span>
                   <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
                     <span>{MODE_LABELS[t.mode]}</span>
-                    {t.state === "running" && (
+                    {t.waiting ? (
+                      <span className="text-yellow-400 font-semibold animate-pulse">En espera</span>
+                    ) : t.state === "running" ? (
                       <span className="text-accent-400 font-semibold animate-pulse">En curso</span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 {isSelected && <Check className="w-3.5 h-3.5 text-accent-400 shrink-0 mt-0.5" />}

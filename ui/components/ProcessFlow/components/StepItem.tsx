@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from "react";
+import React, { memo, useState } from "react";
 import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree, Timer } from "lucide-react";
 import type { CallDto, StepDto, TaskState } from "../../../types/api.ts";
 import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
@@ -20,9 +20,19 @@ interface StepItemProps {
   taskState?: TaskState;
 }
 
+const VERDICT_REASON_LABELS: Record<string, string> = {
+  not_accomplished: "No cumple lo esperado",
+  no_usable_data: "Sin datos útiles",
+  wrong_place: "Ubicación incorrecta",
+  wrong_position: "Posición incorrecta",
+  wrong_scope: "Alcance incorrecto",
+  wrong_item: "Elemento incorrecto",
+  missing_attribute: "Falta un atributo requerido",
+};
+
 function callStatusTone(status?: string): string {
   if (status === "ok") return "text-emerald-400";
-  if (status === "no_data" || status === "not_found") return "text-yellow-400";
+  if (status === "no_data" || status === "not_found" || status === "waiting_input") return "text-yellow-400";
   return status ? "text-rose-400" : "text-slate-400";
 }
 
@@ -46,10 +56,16 @@ function callVerdictLabel(call: CallDto): string {
       return "ESPERANDO RESPUESTA";
     case "denied":
       return "DENEGADO";
+    case "args_invalid":
+      return "ARGUMENTOS INVÁLIDOS";
+    case "loop_blocked":
+      return "BLOQUEADO (BUCLE)";
     case "user_rejected":
       return "RECHAZADO POR USUARIO";
     case "tool_rejected":
-      return "RECHAZADO POR HERRAMIENTA";
+      return "RECHAZADO POR POLÍTICA";
+    case "info_missing":
+      return "FALTA INFORMACIÓN";
     default:
       return call.status ? call.status.toUpperCase() : "EJECUTADO";
   }
@@ -97,31 +113,12 @@ const StepItemBase: React.FC<StepItemProps> = ({
   isLast = false,
   onViewRef,
   onViewQueries,
-  allCalls,
-  taskState,
+  allCalls: _allCalls,
+  taskState: _taskState,
 }) => {
   const [showCalls, setShowCalls] = useState(false);
   const callsCount = calls.length;
 
-  const isTerminal =
-    taskState === "completed" ||
-    taskState === "partial" ||
-    taskState === "failed" ||
-    taskState === "cancelled";
-
-  const [nowMs, setNowMs] = useState<number>(() => Date.now());
-
-  useEffect(() => {
-    if (isTerminal) return;
-    const interval = setInterval(() => {
-      setNowMs(Date.now());
-    }, 500);
-    return () => clearInterval(interval);
-  }, [isTerminal]);
-
-  const globalCalls = allCalls || calls;
-
-  // En modo reactivo instruction suele ser null: inferimos del contenido de las llamadas
   const displayInstruction =
     step.instruction ||
     (callsCount > 0
@@ -217,24 +214,20 @@ const StepItemBase: React.FC<StepItemProps> = ({
                 const verdict = callVerdictLabel(c);
 
                 const currentCallAtMs = typeof c.at === "number" ? c.at : Date.parse(c.at) || 0;
-                let durationMs: number | null = null;
-
-                const globalIndex = globalCalls.findIndex((gc) => gc.id === c.id);
-                if (globalIndex !== -1 && globalIndex < globalCalls.length - 1) {
-                  const nextCall = globalCalls[globalIndex + 1];
-                  const nextCallAtMs = typeof nextCall.at === "number" ? nextCall.at : Date.parse(nextCall.at) || 0;
-                  if (nextCallAtMs && currentCallAtMs) {
-                    durationMs = Math.max(0, nextCallAtMs - currentCallAtMs);
-                  }
-                } else if (currentCallAtMs) {
-                  if (isTerminal) {
-                    // Si la tarea terminó y es la última llamada
-                    durationMs = Math.max(0, nowMs - currentCallAtMs);
-                  } else {
-                    // Sigue ejecutándose en este momento
-                    durationMs = Math.max(0, nowMs - currentCallAtMs);
-                  }
-                }
+                const prevTimestampMs =
+                  cIdx > 0
+                    ? typeof calls[cIdx - 1].at === "number"
+                      ? (calls[cIdx - 1].at as number)
+                      : Date.parse(String(calls[cIdx - 1].at)) || 0
+                    : step.at
+                      ? typeof step.at === "number"
+                        ? step.at
+                        : Date.parse(step.at) || 0
+                      : 0;
+                const durationMs =
+                  currentCallAtMs > 0 && prevTimestampMs > 0 && currentCallAtMs >= prevTimestampMs
+                    ? currentCallAtMs - prevTimestampMs
+                    : null;
 
                 return (
                   <div key={`call-${c.id || cIdx}`} className="py-2.5 text-xs">
@@ -281,7 +274,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
                         {durationMs !== null && durationMs >= 0 && (
                           <span
                             className="flex items-center gap-0.5 text-[11px] text-slate-400 font-mono font-normal tabular-nums bg-slate-800/80 px-1 py-0.5 rounded border border-slate-700/60"
-                            title={`Duración aproximada de esta acción: ${formatDuration(durationMs)}`}
+                            title={`Intervalo aproximado hasta completar esta llamada: ${formatDuration(durationMs)}`}
                           >
                             <Timer className="w-2.5 h-2.5 text-slate-400" />
                             <span>{formatDuration(durationMs)}</span>
@@ -329,7 +322,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
 
                     {c.reason && (
                       <p className="text-xs text-yellow-300/80 mt-0.5">
-                        Motivo: {c.reason}
+                        Motivo: {VERDICT_REASON_LABELS[c.reason] ? `${VERDICT_REASON_LABELS[c.reason]} (${c.reason})` : c.reason}
                       </p>
                     )}
 

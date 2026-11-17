@@ -21,7 +21,7 @@ export interface TaskInfo {
   mode: ExecutionMode;
   request: string;
   state: TaskState;
-  stopReason?: StopReason;
+  stopReason?: StopReason | null;
   startedAt: string | number;
 }
 
@@ -29,8 +29,8 @@ export interface PlanDto {
   id: string;
   at: string | number;
   trigger: "initial" | "user_feedback" | "step_failure";
-  feedback?: string;
-  stepId?: string;
+  feedback?: string | null;
+  stepId?: string | null;
 }
 
 export type StepState = "pending" | "running" | "completed" | "failed";
@@ -69,13 +69,13 @@ export interface CallDto {
   route: string;
   tool: string;
   kind: "read" | "write";
-  args: Record<string, unknown>;
-  sig: string;
+  args: Record<string, unknown> | null;
+  sig: string | null;
   status: CallStatus;
   verdict: "approved" | "rejected" | null;
-  reason?: string;
-  summary?: string;
-  ref?: string;
+  reason?: string | null;
+  summary?: string | null;
+  ref?: string | null;
 }
 
 export interface ErrorDto {
@@ -181,7 +181,10 @@ export interface TaskSummary {
   state: TaskState;
   mode: ExecutionMode;
   request: string;
-  startedAt: string;
+  stopReason?: StopReason | null;
+  startedAt: number | string;
+  n?: number;
+  waiting?: Waiting["kind"] | null;
 }
 
 export interface McpToolDto {
@@ -233,7 +236,7 @@ export interface SseChange {
   type: "change";
   taskId: string;
   n: number;
-  at: string;
+  at: number | string;
   ops: SseChangeOp[];
 }
 
@@ -271,6 +274,7 @@ export interface BlacklistEntry {
   tool: string;
   pattern?: string;
   reason: string;
+  level?: "blocked" | "sensitive";
 }
 
 export interface UserEnvironment {

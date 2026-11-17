@@ -54,7 +54,22 @@ const STOP_REASON_DETAILS: Record<
   },
 };
 
-function formatCallArg(args: Record<string, unknown>): string {
+const VERDICT_REASON_LABELS: Record<string, string> = {
+  not_accomplished: "No cumple lo esperado",
+  no_usable_data: "Sin datos útiles",
+  wrong_place: "Ubicación incorrecta",
+  wrong_position: "Posición incorrecta",
+  wrong_scope: "Alcance incorrecto",
+  wrong_item: "Elemento incorrecto",
+  missing_attribute: "Falta un atributo requerido",
+};
+
+function formatReason(reason: string): string {
+  return VERDICT_REASON_LABELS[reason] ? `${VERDICT_REASON_LABELS[reason]} (${reason})` : reason;
+}
+
+function formatCallArg(args?: Record<string, unknown> | null): string {
+  if (!args) return "";
   if (typeof args.command === "string") return args.command;
   if (typeof args.path === "string") return args.path;
   if (typeof args.input === "string") return args.input;
@@ -161,7 +176,7 @@ export const FailureAnalysis: React.FC<FailureAnalysisProps> = ({ task }) => {
                   </div>
                   {c.reason && (
                     <p className="text-xs text-yellow-200/90 mt-0.5">
-                      Motivo: {c.reason}
+                      Motivo: {formatReason(c.reason)}
                     </p>
                   )}
                 </div>

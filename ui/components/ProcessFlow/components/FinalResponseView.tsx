@@ -81,7 +81,7 @@ export const FinalResponseView: React.FC<FinalResponseViewProps> = ({
           <button
             type="button"
             onClick={onOpenTrace}
-            title="Ver la traza de auditoría: decisiones D1 a D4, consultas y duraciones"
+            title="Ver la traza de auditoría: decisiones D0 a D5, consultas y duraciones"
             className={`flex items-center ${ACTION}`}
           >
             <Activity className="h-4 w-4" />

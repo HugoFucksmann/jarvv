@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, lazy, Suspense } from "react";
+import { useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
@@ -70,10 +70,16 @@ export default function App() {
     selectHistoricalTask,
   } = useJarvis();
 
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTaskActive = Boolean(task && !isTerminalState(task.task.state));
 
+  useEffect(() => () => {
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+  }, []);
+
   const focusInput = () => {
-    setTimeout(() => inputRef.current?.focus(), 50);
+    if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
+    focusTimerRef.current = setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   const openSettings = useCallback(() => setIsSettingsOpen(true), []);

@@ -46,7 +46,7 @@ export function useJarvis() {
   const taskRef = useRef<TaskDto | null>(null);
   const isInitialSnapshotLoaded = useRef(false);
   const userClearedViewRef = useRef(false);
-  const mcpInitDoneRef = useRef(false);
+  const stateReqSeqRef = useRef(0);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [task, setTask] = useState<TaskDto | null>(null);
@@ -105,10 +105,12 @@ export function useJarvis() {
   // Snapshot de estado
   // -------------------------------------------------------------------------
 
-  const fetchState = useCallback(async (targetTaskId?: string) => {
+  const fetchState = useCallback(async (explicitTaskId?: string) => {
+    const reqSeq = ++stateReqSeqRef.current;
     try {
-      const qTaskId = targetTaskId || activeTaskIdRef.current || undefined;
+      const qTaskId = explicitTaskId || activeTaskIdRef.current || undefined;
       const data = await jarvisApi.getState(qTaskId);
+      if (reqSeq !== stateReqSeqRef.current) return;
 
       if (data.tasks) {
         setTasks(data.tasks);
@@ -116,47 +118,38 @@ export function useJarvis() {
 
       if (data.task) {
         const fetched = data.task;
-        const shouldShow =
-          !isInitialSnapshotLoaded.current ||
-          !userClearedViewRef.current ||
-          fetched.task.state === "running" ||
-          (activeTaskIdRef.current && fetched.task.id === activeTaskIdRef.current);
+        const currentViewedId = activeTaskIdRef.current;
+        const isViewingExplicit = Boolean(explicitTaskId && fetched.task.id === explicitTaskId);
+        const isSameViewedTask = Boolean(currentViewedId && fetched.task.id === currentViewedId);
+        const isInitialLoad = !isInitialSnapshotLoaded.current && !userClearedViewRef.current;
+        const canAutoShowNew = !currentViewedId && !userClearedViewRef.current;
 
-        if (shouldShow) {
+        if (isViewingExplicit || isSameViewedTask || isInitialLoad || canAutoShowNew) {
+          const isNewViewedTask = currentViewedId !== fetched.task.id;
           isInitialSnapshotLoaded.current = true;
           userClearedViewRef.current = false;
           activeTaskIdRef.current = fetched.task.id;
           taskRef.current = fetched;
           setTask(fetched);
-          if (fetched.task.mode) {
+          if (fetched.task.mode && (isNewViewedTask || fetched.task.state === "running")) {
             setMode(fetched.task.mode);
           }
         }
       } else if (!activeTaskIdRef.current) {
-        // No hay tareas en el servidor
+        isInitialSnapshotLoaded.current = true;
         setTask(null);
         taskRef.current = null;
       }
 
-      if (countKeys(data.discoveredTools) > 0) {
-        setDiscoveredTools(data.discoveredTools);
-      }
-      if (data.unavailableServers) {
-        setUnavailableServers(data.unavailableServers);
-      }
-
-      if (!mcpInitDoneRef.current) {
-        mcpInitDoneRef.current = true;
-        setMcpInitStatus(
-          resolveMcpStatus(countKeys(data.discoveredTools), countKeys(data.unavailableServers), "loading")
-        );
-      }
+      setDiscoveredTools(data.discoveredTools ?? {});
+      setUnavailableServers(data.unavailableServers ?? {});
+      setMcpInitStatus(
+        resolveMcpStatus(countKeys(data.discoveredTools), countKeys(data.unavailableServers), "loading")
+      );
     } catch (err) {
+      if (reqSeq !== stateReqSeqRef.current) return;
       console.warn("Failed to fetch JARVIS state from backend:", err);
-      if (!mcpInitDoneRef.current) {
-        mcpInitDoneRef.current = true;
-        setMcpInitStatus("error");
-      }
+      setMcpInitStatus((prev) => (prev === "loading" ? "error" : prev));
     }
   }, []);
 
@@ -165,12 +158,20 @@ export function useJarvis() {
     fetchStateRef.current = fetchState;
   }, [fetchState]);
 
-  const scheduleFetchState = useCallback((targetTaskId?: string) => {
+  const scheduleFetchState = useCallback((eventTaskId?: string, eventType?: SseMessage["type"]) => {
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
     debounceTimerRef.current = setTimeout(() => {
-      void fetchStateRef.current(targetTaskId);
+      const viewedId = activeTaskIdRef.current;
+      // Si ya estamos viendo una tarea, refrescamos esa misma tarea (no secuestramos la vista con otra).
+      // Si no hay tarea en vista y el usuario no la limpió, permitimos mostrar una recién creada.
+      const target = viewedId
+        ? viewedId
+        : !userClearedViewRef.current && eventType === "created" && eventTaskId
+          ? eventTaskId
+          : undefined;
+      void fetchStateRef.current(target);
     }, DEBOUNCE_STATE_MS);
   }, []);
 
@@ -186,6 +187,7 @@ export function useJarvis() {
 
     let eventSource: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let hasOpenedOnce = false;
 
     const startFallbackPolling = () => {
       if (!pollTimer) {
@@ -203,7 +205,13 @@ export function useJarvis() {
     try {
       eventSource = new EventSource(getApiUrl("/api/jarvis/events"));
 
-      eventSource.onopen = stopFallbackPolling;
+      eventSource.onopen = () => {
+        stopFallbackPolling();
+        if (hasOpenedOnce) {
+          void fetchStateRef.current();
+        }
+        hasOpenedOnce = true;
+      };
 
       eventSource.onmessage = (msgEvent) => {
         try {
@@ -220,7 +228,7 @@ export function useJarvis() {
             });
           }
           if (data && data.taskId) {
-            scheduleFetchState(data.taskId);
+            scheduleFetchState(data.taskId, data.type);
           } else {
             scheduleFetchState();
           }
@@ -260,6 +268,8 @@ export function useJarvis() {
 
       return runAccepted(async () => {
         const data = await jarvisApi.initiateTask(message, effectiveMode);
+        stateReqSeqRef.current++;
+        isInitialSnapshotLoaded.current = true;
         userClearedViewRef.current = false;
         activeTaskIdRef.current = data.task.task.id;
         taskRef.current = data.task;
@@ -272,8 +282,9 @@ export function useJarvis() {
   const cancelTask = useCallback(
     async (explicitTaskId?: string): Promise<boolean> => {
       const res = await runAction(async () => {
-        const result = await jarvisApi.cancelTask(resolveTaskId(explicitTaskId));
-        await fetchState();
+        const targetId = resolveTaskId(explicitTaskId);
+        const result = await jarvisApi.cancelTask(targetId);
+        await fetchState(activeTaskIdRef.current || undefined);
         return result;
       }, "Error al cancelar la tarea.");
       return Boolean(res);
@@ -284,8 +295,9 @@ export function useJarvis() {
   const confirmPlan = useCallback(
     (): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.confirmPlan(resolveTaskId(), resolveWaitId());
-        await fetchState();
+        const targetId = resolveTaskId();
+        await jarvisApi.confirmPlan(targetId, resolveWaitId());
+        await fetchState(targetId);
       }, "Error al confirmar el plan."),
     [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
@@ -293,8 +305,9 @@ export function useJarvis() {
   const rejectPlan = useCallback(
     (): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.rejectPlan(resolveTaskId(), resolveWaitId());
-        await fetchState();
+        const targetId = resolveTaskId();
+        await jarvisApi.rejectPlan(targetId, resolveWaitId());
+        await fetchState(targetId);
       }, "Error al rechazar el plan."),
     [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
@@ -302,8 +315,9 @@ export function useJarvis() {
   const modifyPlan = useCallback(
     (feedback: string): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.modifyPlan(feedback, resolveTaskId(), resolveWaitId());
-        await fetchState();
+        const targetId = resolveTaskId();
+        await jarvisApi.modifyPlan(feedback, targetId, resolveWaitId());
+        await fetchState(targetId);
       }, "Error al solicitar modificación del plan."),
     [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
@@ -311,8 +325,9 @@ export function useJarvis() {
   const provideUserAnswer = useCallback(
     (answer: string): Promise<boolean> =>
       runAccepted(async () => {
-        await jarvisApi.provideUserAnswer(answer, resolveTaskId());
-        await fetchState();
+        const targetId = resolveTaskId();
+        await jarvisApi.provideUserAnswer(answer, targetId);
+        await fetchState(targetId);
       }, "Error al enviar respuesta interactiva."),
     [runAccepted, resolveTaskId, fetchState]
   );
@@ -320,12 +335,13 @@ export function useJarvis() {
   const approvePending = useCallback(
     async (explicitTaskId?: string, explicitWaitId?: string, remember = false): Promise<boolean> =>
       runAccepted(async () => {
+        const targetId = resolveTaskId(explicitTaskId);
         await jarvisApi.approvePending(
-          resolveTaskId(explicitTaskId),
+          targetId,
           explicitWaitId || resolveWaitId(),
           remember
         );
-        await fetchState();
+        await fetchState(targetId);
       }, "Error al aprobar la operación pendiente."),
     [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
@@ -333,12 +349,13 @@ export function useJarvis() {
   const denyPending = useCallback(
     async (reason?: string, explicitTaskId?: string, explicitWaitId?: string): Promise<boolean> =>
       runAccepted(async () => {
+        const targetId = resolveTaskId(explicitTaskId);
         await jarvisApi.denyPending(
           reason,
-          resolveTaskId(explicitTaskId),
+          targetId,
           explicitWaitId || resolveWaitId()
         );
-        await fetchState();
+        await fetchState(targetId);
       }, "Error al denegar la operación pendiente."),
     [runAccepted, resolveTaskId, resolveWaitId, fetchState]
   );
@@ -382,6 +399,11 @@ export function useJarvis() {
   }, [autoMode]);
 
   const clearTaskView = useCallback(() => {
+    stateReqSeqRef.current++;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     userClearedViewRef.current = true;
     activeTaskIdRef.current = null;
     taskRef.current = null;
@@ -391,9 +413,15 @@ export function useJarvis() {
 
   const selectHistoricalTask = useCallback(
     async (taskId: string) => {
+      const reqSeq = ++stateReqSeqRef.current;
       try {
         const data = await jarvisApi.getState(taskId);
+        if (reqSeq !== stateReqSeqRef.current) return;
+        if (data.tasks) {
+          setTasks(data.tasks);
+        }
         if (data.task?.task.id === taskId) {
+          isInitialSnapshotLoaded.current = true;
           userClearedViewRef.current = false;
           activeTaskIdRef.current = taskId;
           taskRef.current = data.task;
@@ -402,9 +430,13 @@ export function useJarvis() {
             setMode(data.task.task.mode);
           }
           setError(null);
+        } else {
+          setError("La tarea seleccionada ya no está disponible en el servidor.");
         }
       } catch (e) {
+        if (reqSeq !== stateReqSeqRef.current) return;
         console.warn("Failed to retrieve historical task:", e);
+        setError(e instanceof Error && e.message ? e.message : "No se pudo cargar la tarea seleccionada.");
       }
     },
     []

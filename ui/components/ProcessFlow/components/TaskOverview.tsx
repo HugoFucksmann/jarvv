@@ -55,7 +55,12 @@ function getProgressText(task: TaskDto, limits?: EngineLimits | null): string {
   const totalSteps = activeSteps.length;
   const maxSuffix = limits?.maxSteps ? ` (tope: ${limits.maxSteps})` : "";
 
-  if (totalSteps === 0) return "Respuesta directa";
+  if (totalSteps === 0) {
+    if (task.task.state === "running") {
+      return task.task.mode === "deliberative" ? "Planificando" : "Evaluando";
+    }
+    return "Respuesta directa";
+  }
 
   const completedSteps = activeSteps.filter((s) => s.state === "completed").length;
   const runningStepIdx = activeSteps.findIndex((s) => s.state === "running");
@@ -170,7 +175,7 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
             <button
               type="button"
               onClick={onOpenTrace}
-              title="Ver traza de auditoría (decisiones D1 a D4 y duraciones)"
+              title="Ver traza de auditoría (decisiones D0 a D5 y duraciones)"
               aria-label="Ver traza de auditoría"
               className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors cursor-pointer border border-transparent hover:border-slate-700 font-mono"
             >

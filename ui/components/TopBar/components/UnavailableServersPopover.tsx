@@ -5,12 +5,14 @@ import type { UnavailableServers } from "../../../types/api.ts";
 interface UnavailableServersPopoverProps {
   unavailableServers: UnavailableServers;
   isOpen: boolean;
+  anchorRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
 }
 
 export const UnavailableServersPopover: React.FC<UnavailableServersPopoverProps> = ({
   unavailableServers,
   isOpen,
+  anchorRef,
   onClose,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -18,7 +20,9 @@ export const UnavailableServersPopover: React.FC<UnavailableServersPopoverProps>
   useEffect(() => {
     if (!isOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const root = anchorRef?.current ?? containerRef.current;
+      if (root && !root.contains(target)) {
         onClose();
       }
     };
@@ -31,7 +35,7 @@ export const UnavailableServersPopover: React.FC<UnavailableServersPopoverProps>
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, anchorRef, onClose]);
 
   if (!isOpen) return null;
 

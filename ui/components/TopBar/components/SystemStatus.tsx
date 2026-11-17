@@ -87,19 +87,20 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
   onOpenEnvironment,
 }) => {
   const [showUnavailablePopover, setShowUnavailablePopover] = useState(false);
+  const mcpStatusWrapperRef = React.useRef<HTMLDivElement>(null);
 
   let statusType: StatusDotStatus;
   let statusLabel: string;
   let statusColorClass: string;
 
-  if (isExecuting) {
-    statusType = "running";
-    statusLabel = "Ejecutando tarea";
-    statusColorClass = "text-accent-300 font-medium";
-  } else if (isWaitingInput) {
+  if (isWaitingInput) {
     statusType = "approval";
     statusLabel = getWaitingReasonLabel(waitingReason);
     statusColorClass = "text-yellow-300 font-medium animate-pulse";
+  } else if (isExecuting) {
+    statusType = "running";
+    statusLabel = "Ejecutando tarea";
+    statusColorClass = "text-accent-300 font-medium";
   } else {
     statusType = unavailableCount > 0 ? "unverified" : "completed";
     statusLabel = "Core listo";
@@ -127,7 +128,7 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
 
       <Separator />
 
-      <div className="relative">
+      <div ref={mcpStatusWrapperRef} className="relative">
         <McpStatus
           status={mcpInitStatus}
           count={mcpCount}
@@ -137,6 +138,7 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
         <UnavailableServersPopover
           unavailableServers={unavailableServers}
           isOpen={showUnavailablePopover}
+          anchorRef={mcpStatusWrapperRef}
           onClose={() => setShowUnavailablePopover(false)}
         />
       </div>

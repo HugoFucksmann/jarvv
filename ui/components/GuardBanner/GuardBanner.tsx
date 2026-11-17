@@ -90,6 +90,7 @@ const GuardBannerBase: React.FC<GuardBannerProps> = ({
     <div className="p-2.5 bg-slate-950 border border-yellow-500/40 rounded-xl shadow-xl">
       {waiting.kind === "approval" ? (
         <ApprovalAction
+          key={waiting.request.id}
           request={waiting.request}
           onApprove={onApprove}
           onApproveAlways={onApproveAlways}
@@ -97,6 +98,7 @@ const GuardBannerBase: React.FC<GuardBannerProps> = ({
         />
       ) : waiting.kind === "question" ? (
         <UserAnswerForm
+          key={`${waiting.question.stepId}:${waiting.question.question}`}
           question={waiting.question.question}
           onSubmit={onAnswer}
         />

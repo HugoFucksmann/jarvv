@@ -1,4 +1,4 @@
-/** Etapas que consultan a un modelo (`src/core/types/stages.ts`), con su decisión (D1–D4) y qué modelo las corre. */
+/** Etapas que consultan a un modelo (`src/core/types/stages.ts`), con su decisión (D0–D5) y qué modelo las corre. */
 
 export type StageKind = "decision" | "generative";
 
@@ -10,11 +10,14 @@ interface StageInfo {
 }
 
 const STAGES: Record<string, StageInfo> = {
+  probe: { label: "Sonda", kind: "decision" },
+  continuation: { label: "Continuación", kind: "decision" },
+  first_query: { label: "Clasificación inicial", code: "D0", kind: "decision" },
   route: { label: "Ruta", code: "D1", kind: "decision" },
   tool: { label: "Herramienta", code: "D2", kind: "decision" },
   review: { label: "Revisión de args", code: "D3", kind: "decision" },
   verify: { label: "Verificación", code: "D4", kind: "decision" },
-  completion: { label: "Cierre", kind: "decision" },
+  completion: { label: "Cierre", code: "D5", kind: "decision" },
   args: { label: "Argumentos", kind: "generative" },
   question: { label: "Pregunta", kind: "generative" },
   plan: { label: "Plan", kind: "generative" },
