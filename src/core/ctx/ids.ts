@@ -12,6 +12,7 @@ export const ID_PREFIX: { readonly [S in SectionName]: string } = {
   calls: "c",
   errors: "e",
   refs: "r",
+  recalled: "m",
 };
 
 const SECTION_BY_PREFIX: { readonly [prefix: string]: SectionName | undefined } = {
@@ -20,6 +21,7 @@ const SECTION_BY_PREFIX: { readonly [prefix: string]: SectionName | undefined } 
   c: "calls",
   e: "errors",
   r: "refs",
+  m: "recalled",
 };
 
 const ID_PATTERN = /^([a-z])([1-9][0-9]*)$/;

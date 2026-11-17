@@ -35,15 +35,15 @@ import type { ConfigSource } from "../config.ts";
 import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
 import { NULL_SINK } from "./sink.ts";
 import type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
-import type { Waiting } from "../engine/runtime.ts";
+import type { ModelPause, Waiting } from "../engine/runtime.ts";
 import type { MCPCallResult } from "../types.ts";
-import type { ModelLink, ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
+import type { ModelLink, ModelRecord, PauseRecord, ToolRecord, WaitRecord } from "./types.ts";
 import { errorMessage } from "../utils.ts";
 import { TRACE_FORMAT_VERSION, buildMeta, buildSummary, folderName, indexEntry, refInfos, slimQuery, slimTool } from "./format.ts";
 import type { SummaryInput } from "./format.ts";
 
 export { TRACE_FORMAT_VERSION };
-export type { ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
+export type { ModelRecord, PauseRecord, ToolRecord, WaitRecord } from "./types.ts";
 
 const gzip = promisify(zlib.gzip);
 
@@ -63,6 +63,8 @@ export class TaskTraceRecorder {
   private readonly tools: ToolRecord[] = [];
   private readonly waits: WaitRecord[] = [];
   private openWait: { kind: Waiting["kind"]; n: number; startedAt: number } | null = null;
+  private readonly pauses: PauseRecord[] = [];
+  private openPause: { model: string; n: number; startedAt: number } | null = null;
   private readonly refSizes = new Map<string, number>();
   private pendingModels: ModelRecord[] = [];
   private pendingTools: ToolRecord[] = [];
@@ -152,6 +154,24 @@ export class TaskTraceRecorder {
     this.openWait = null;
   }
 
+  /** La tarea entró o salió de pausa por modelo no disponible (`null` = terminó la pausa). */
+  onPaused(paused: ModelPause | null): void {
+    if (!this.enabled || this.finished) return;
+    if (paused !== null) {
+      if (this.openPause !== null && this.openPause.model === paused.model && this.openPause.startedAt === paused.since) return;
+      this.closePause();
+      this.openPause = { model: paused.model, n: this.ctx.n, startedAt: paused.since };
+      return;
+    }
+    this.closePause();
+  }
+
+  private closePause(): void {
+    if (this.openPause === null) return;
+    this.pauses.push({ ...this.openPause, endedAt: Date.now() });
+    this.openPause = null;
+  }
+
   // ─────────── Contexto: `change` ───────────
 
   private onChange(event: ChangeEvent): void {
@@ -202,6 +222,7 @@ export class TaskTraceRecorder {
     this.unsubscribe();
     if (!this.enabled) return (this.done = Promise.resolve());
     this.closeWait();
+    this.closePause();
     const captured = this.capture();
     // Lo capturado es lo único que la escritura necesita: la tarea sigue retenida en memoria y no debe cargar con lo crudo.
     this.release();
@@ -217,6 +238,7 @@ export class TaskTraceRecorder {
       models: [...this.models],
       tools: [...this.tools],
       waits: [...this.waits],
+      pauses: [...this.pauses],
       raw: new Map(this.rawResults),
       dropped: new Set(this.textDropped),
     };
@@ -226,6 +248,7 @@ export class TaskTraceRecorder {
     this.models.length = 0;
     this.tools.length = 0;
     this.waits.length = 0;
+    this.pauses.length = 0;
     this.pendingModels = [];
     this.pendingTools = [];
     this.refSizes.clear();
@@ -235,7 +258,7 @@ export class TaskTraceRecorder {
 
   /** Escribe la carpeta de la tarea y su línea en `index.jsonl`. Cede el hilo entre los trabajos pesados (serializar, comprimir). */
   private async write(c: Captured): Promise<void> {
-    const { config, snapshot, models, tools, waits } = c;
+    const { config, snapshot, models, tools, waits, pauses } = c;
     const startedAt = snapshot.task.startedAt;
     const endedAt = Date.now();
 
@@ -255,6 +278,7 @@ export class TaskTraceRecorder {
       queries: models.map(slimQuery),
       tools,
       waits,
+      pauses,
       refs: refInfos(snapshot.refs),
     };
     const file = path.resolve(process.cwd(), config.tracePath);
@@ -268,11 +292,11 @@ export class TaskTraceRecorder {
     await yieldToLoop();
     await fs.writeFile(
       path.join(dir, "trace.json"),
-      JSON.stringify({ ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: tools.map(slimTool), waits, refs: input.refs }),
+      JSON.stringify({ ...header, kind: "slim", durationMs: endedAt - startedAt, meta: input.meta, snapshot, queries: input.queries, tools: tools.map(slimTool), waits, pauses, refs: input.refs }),
       "utf-8",
     );
     await yieldToLoop();
-    const full = Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models, tools, waits }), "utf-8");
+    const full = Buffer.from(JSON.stringify({ ...header, kind: "full", snapshot, models, tools, waits, pauses }), "utf-8");
     await yieldToLoop();
     await fs.writeFile(path.join(dir, "full.json.gz"), await gzip(full, { level: 6 }));
     await fs.appendFile(path.join(base, "index.jsonl"), `${JSON.stringify(indexEntry(input, folder))}\n`, "utf-8");
@@ -286,6 +310,7 @@ interface Captured {
   readonly models: ModelRecord[];
   readonly tools: ToolRecord[];
   readonly waits: WaitRecord[];
+  readonly pauses: PauseRecord[];
   readonly raw: Map<ToolRecord, MCPCallResult>;
   readonly dropped: Set<ToolRecord>;
 }

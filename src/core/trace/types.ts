@@ -57,3 +57,12 @@ export interface WaitRecord {
   startedAt: number;
   endedAt: number;
 }
+
+/** Una pausa por modelo no disponible (§6.1): desde que falló hasta que respondió, venció el tope o se canceló. */
+export interface PauseRecord {
+  model: string;
+  /** Versión del contexto cuando empezó la pausa. */
+  n: number;
+  startedAt: number;
+  endedAt: number;
+}

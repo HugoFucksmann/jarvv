@@ -21,7 +21,7 @@
 import type { PreviousTask } from "../contracts.ts";
 import { pendingInput } from "./adapters.ts";
 import type { EngineEnv } from "./env.ts";
-import { closeOnFailure, queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 
 export type PendingOutcome =
   /** `list` no vacía: `list[0]` es la instrucción del paso. */
@@ -35,7 +35,7 @@ type Listed = { readonly kind: "listed"; readonly list: readonly string[] } | Ex
 
 async function listPending(env: EngineEnv, input: ReturnType<typeof pendingInput>): Promise<Listed> {
   const { ctx, runtime } = env;
-  const query = await queryModel(() => env.llm.generatePendingFromView(input, runtime.signal), 0);
+  const query = await queryModel(() => env.llm.generatePendingFromView(input, runtime.signal), 0, pauseOf(env, "llm"));
   if (!query.ok) {
     const closure = closeOnFailure(ctx, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };

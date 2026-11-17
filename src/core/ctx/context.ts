@@ -25,6 +25,7 @@ import { ContextError } from "./errors.ts";
 import { currentOf, findElements, getElement } from "./query.ts";
 import { cloneData } from "./snapshot.ts";
 import { checkMeta } from "./validate.ts";
+import { cloneJson } from "./json.ts";
 import {
   buildArgsView,
   buildAskView,
@@ -38,6 +39,7 @@ import {
 } from "./views/index.ts";
 import type { ContextViews } from "./views/types.ts";
 import type {
+  ApplyRecord,
   ApplyResult,
   Call,
   ChangeEvent,
@@ -48,6 +50,7 @@ import type {
   ContextOptions,
   CurrentView,
   ElementOf,
+  JsonValue,
   Op,
   ResultEntry,
   SectionName,
@@ -63,6 +66,7 @@ export class TaskContext {
   private readonly listeners = new Set<ChangeListener>();
   private readonly now: () => number;
   private readonly limits: ContextLimits;
+  private readonly onApply: ((record: ApplyRecord) => void) | undefined;
   private readonly onListenerError: ((error: unknown) => void) | undefined;
 
   /** `ctx.view.<vista>(...)` (sección 8): objetos estructurados de solo lectura; el texto lo arman los renderizadores. */
@@ -87,7 +91,11 @@ export class TaskContext {
       factValueMax: options.factValueMax,
       feedbackMax: options.feedbackMax,
       jsonMaxDepth: options.jsonMaxDepth,
+      ...(options.recalledKeyMax === undefined ? {} : { recalledKeyMax: options.recalledKeyMax }),
+      ...(options.recalledValueMax === undefined ? {} : { recalledValueMax: options.recalledValueMax }),
+      ...(options.threadValueMax === undefined ? {} : { threadValueMax: options.threadValueMax }),
     };
+    this.onApply = options.onApply;
     this.onListenerError = options.onListenerError;
   }
 
@@ -126,6 +134,10 @@ export class TaskContext {
     const changeMeta = checkMeta(meta);
     const at = this.now();
     const batch = prepareBatch(this.data, ops, at, this.limits);
+    if (this.onApply) {
+      const rawOps = cloneJson((Array.isArray(ops) ? ops : [ops]) as unknown as JsonValue) as unknown as readonly Op[];
+      this.onApply({ n: this.counter + 1, at, ops: rawOps, meta: changeMeta });
+    }
     batch.commit();
     this.counter += 1;
     const event: ChangeEvent = Object.freeze({

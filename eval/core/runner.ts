@@ -9,8 +9,8 @@
 
 import { createHash } from "node:crypto";
 import type { DecisionClient } from "./client/decision.ts";
-import { DECISION_MAX_CONTEXT, estimateDecisionPromptTokens } from "./client/decision.ts";
-import type { GenerativeCallContext, GenerativeClient, PreparedRequest } from "./client/generative.ts";
+import { estimateDecisionPromptTokens, DECISION_MAX_CONTEXT } from "./client/decision.ts";
+import type { GenerativeClient, GenerativeCallContext } from "./client/generative.ts";
 import { isTransportError } from "./client/generative.ts";
 import type { EvalConfig } from "./config.ts";
 import { resolveDecisionTimeout, resolveGenerativeTimeout } from "./config.ts";
@@ -21,24 +21,27 @@ import {
   retryNote,
   TRUNCATED_ERROR,
 } from "./contract.ts";
-import { PROD_SHORTCUT_TAG } from "./case.ts";
 import { createCollector } from "./graders/common.ts";
-import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
-import { getStage, isDecisionStage, runGraders } from "./stages/index.ts";
+import { collectStrings, usedRefIds } from "./graders/arguments.ts";
 import type { DecisionStageEntry, GenerativeStageEntry } from "./stages/index.ts";
+import { getStage, runGraders } from "./stages/index.ts";
 import { SCHEMA_VERSION } from "./types.ts";
 import type {
   AnswerExpects,
-  Case,
   DecisionRequest,
   DecisionStage,
+  Case,
   GenerativeRequest,
   GenerativeStage,
   QuestionResult,
   RunRecord,
   StageName,
 } from "./types.ts";
+import { analyzePowerShell, precheckCall } from "../../src/core/engine/precheck.ts";
+import type { CommandAnalyzer } from "../../src/core/engine/precheck.ts";
+import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
 import type { Variant } from "./variants/types.ts";
+import { DECISION_STAGES, PROD_SHORTCUT_TAG } from "./case.ts";
 
 // ───────────────────────── Helpers ─────────────────────────
 
@@ -50,28 +53,14 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
-function logDryRun(prepared: PreparedRequest): void {
-  console.log(`POST ${prepared.url}`);
-  console.log(JSON.stringify(prepared.body, null, 2));
-}
-
-type TokenTotals = { prompt?: number; completion?: number; total?: number };
-
-function addTokens(acc: TokenTotals | undefined, next: TokenTotals | undefined): TokenTotals | undefined {
-  if (!next) return acc;
-  return {
-    prompt: (acc?.prompt ?? 0) + (next.prompt ?? 0),
-    completion: (acc?.completion ?? 0) + (next.completion ?? 0),
-    total: (acc?.total ?? 0) + (next.total ?? 0),
-  };
-}
-
-/** Parámetros generativos finales (sección 7.1): variante.params > valor del caso. */
+/** Parámetros generativos finales (sección 7.1): variante.params > valor del caso.
+ *  No hay flag de temperatura: sale del caso o de `params.temperature` de la variante (ya aplicada). */
 function resolveGenerativeRequest(
   req: GenerativeRequest,
   thinkingOverride?: boolean,
 ): GenerativeRequest {
   const out = { ...req };
+  // thinking: la expansión de thinking ya respetó lo que fijó la variante
   if (thinkingOverride !== undefined) out.thinking = thinkingOverride;
   return out;
 }
@@ -86,7 +75,7 @@ interface ThinkingExpansion {
 }
 
 /**
- * Devuelve las combinaciones de thinking para un caso, según --thinking y el registro de la etapa.
+ * Devuelve las combinaciones de thinking para un caso, según --thinking y la etapa.
  * El runner itera sobre cada una.
  */
 function expandThinking(
@@ -95,8 +84,8 @@ function expandThinking(
   cfg: EvalConfig,
   variantFixedThinking?: boolean,
 ): ThinkingExpansion[] {
-  const entry = getStage(stage);
-  if (entry.requestType === "decision") {
+  // Decisión: stageKey = stage, no se expande
+  if ((DECISION_STAGES as readonly string[]).includes(stage)) {
     return [{ thinking: false, stageKey: stage }];
   }
 
@@ -107,16 +96,52 @@ function expandThinking(
 
   const mode = cfg.thinking;
 
-  if (mode === "prod") return [{ thinking: caseThinking, stageKey: stage }];
-  if (mode === "on") return [{ thinking: true, stageKey: stage }];
-  if (mode === "off") return [{ thinking: false, stageKey: stage }];
-  if (mode === "both" || entry.expandThinkingAuto) {
+  if (mode === "prod") {
+    return [{ thinking: caseThinking, stageKey: stage }];
+  }
+  if (mode === "on") {
+    return [{ thinking: true, stageKey: stage }];
+  }
+  if (mode === "off") {
+    return [{ thinking: false, stageKey: stage }];
+  }
+  if (mode === "both") {
     return [
       { thinking: true, stageKey: `${stage}[think=on]` },
       { thinking: false, stageKey: `${stage}[think=off]` },
     ];
   }
+  // auto (default)
+  if (stage === "final") {
+    return [
+      { thinking: true, stageKey: `${stage}[think=on]` },
+      { thinking: false, stageKey: `${stage}[think=off]` },
+    ];
+  }
+  // plan, arguments, question: valor del caso
   return [{ thinking: caseThinking, stageKey: stage }];
+}
+
+/** El analizador de producción, con caché por comando (cada análisis lanza un PowerShell). */
+const analysisCache = new Map<string, ReturnType<CommandAnalyzer>>();
+const cachedAnalyze: CommandAnalyzer = (command) => {
+  let r = analysisCache.get(command);
+  if (r === undefined) {
+    r = analyzePowerShell(command);
+    analysisCache.set(command, r);
+  }
+  return r;
+};
+
+/**
+ * Los argumentos que llevan un token de ref (`{{ref:rN}}` o `ref:rN`), fuera. Producción los resuelve antes del pre-chequeo; el eval
+ * no tiene el contenido de las refs, y comprobar el token literal rechazaría de más (una URL o ruta "sin origen", un comando que no
+ * parsea). Ante la duda, silencio, como el propio pre-chequeo. Límite: esos valores no se comprueban.
+ */
+function argsWithoutRefs(args: Record<string, unknown>): Record<string, unknown> {
+  const stringsOf = (v: unknown): string[] =>
+    typeof v === "string" ? [v] : Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  return Object.fromEntries(Object.entries(args).filter(([, v]) => usedRefIds(stringsOf(v)).length === 0));
 }
 
 // ───────────────────────── Bucket (7.9, 5.4) ─────────────────────────
@@ -153,13 +178,17 @@ async function runOne(
   const { fc, variantSpec, datasetName, iteration, thinkingExp } = task;
   const timestamp = isoNow();
   const bucket = resolveBucket(fc, cfg);
-  const stage = fc.stage;
 
-  const baseRecord: BaseRecord = {
+  // El caso ya trae el request final: el cargador lo armó con los prompts de la variante.
+  const stage = fc.stage;
+  const isDecision = (DECISION_STAGES as readonly string[]).includes(stage);
+
+  // ── Base del record ──
+  const baseRecord: Omit<RunRecord, "rawInput" | "rawOutput" | "requestHash" | "durationMs" | "passed" | "errors" | "warnings" | "metrics" | "measurements" | "model"> = {
     schemaVersion: SCHEMA_VERSION,
     dataset: datasetName,
     caseId: fc.id,
-    stage,
+    stage: stage as StageName,
     stageKey: thinkingExp.stageKey,
     iteration,
     variant: variantSpec,
@@ -169,10 +198,12 @@ async function runOne(
     timestamp,
   };
 
-  if (isDecisionStage(stage)) {
+  // ── Preparar y ejecutar ──
+  if (isDecision) {
     return runDecision(task, cfg, decClient, dryRun, baseRecord);
+  } else {
+    return runGenerative(task, cfg, genClient, dryRun, baseRecord, thinkingExp.thinking);
   }
-  return runGenerative(task, cfg, genClient, dryRun, baseRecord, thinkingExp.thinking);
 }
 
 /**
@@ -196,21 +227,6 @@ function gradeWithGuard(
   }
 }
 
-function finalizeAttemptChecks(
-  collector: ReturnType<typeof createCollector>["collector"],
-  measurements: Record<string, number | string>,
-  warnings: string[],
-  retryErrors: string[],
-  parseError: string | undefined,
-  retryKindLabel: string,
-): void {
-  collector.check("client_call_ok", true, "");
-  const parseOk = parseError === undefined;
-  collector.check("output_parse_ok", parseOk, parseOk ? "" : parseError);
-  measurements.attempts = retryErrors.length + 1;
-  retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por ${retryKindLabel}: ${e}`));
-}
-
 // ── Decisión ──
 
 async function runDecision(
@@ -218,14 +234,18 @@ async function runDecision(
   cfg: EvalConfig,
   client: DecisionClient,
   dryRun: boolean,
-  baseRecord: BaseRecord,
+  baseRecord: ReturnType<typeof buildBase>,
 ): Promise<RunResult> {
   const { fc, variant } = task;
   const sentReq = fc.request as DecisionRequest;
   const prepared = client.prepare(sentReq);
   const hash = requestHash(prepared.body);
 
-  if (dryRun) logDryRun(prepared);
+  // dry-run
+  if (dryRun) {
+    console.log(`POST ${prepared.url}`);
+    console.log(JSON.stringify(prepared.body, null, 2));
+  }
 
   // Ojo: `passed` del collector es un getter; desestructurarlo lo congelaba en `true`. Se calcula al final.
   const { collector, errors, warnings, metrics, measurements } = createCollector();
@@ -256,20 +276,25 @@ async function runDecision(
 
   const timeoutMs = resolveDecisionTimeout(cfg);
   const callCtx = { stage: fc.stage, expect: fc.expect };
-  const entry = getStage(fc.stage) as DecisionStageEntry<unknown, unknown>;
+  const entry = getStage(fc.stage as StageName) as DecisionStageEntry<unknown, unknown>;
 
   // Como producción (`queryModel`): una respuesta que no pasa la validación se consulta de nuevo, hasta
-  // `LLM_INVALID_OUTPUT_RETRIES` veces y con el mismo request (sin nota de error ni cambio de parámetros).
+  // `LLM_INVALID_OUTPUT_RETRIES` veces y con el mismo request (sin nota de error ni cambio de parámetros). Las fallas de
+  // transporte no entran aquí (las reintenta `postJson`).
   let result = await client.call(sentReq, timeoutMs, callCtx);
-  let durationMs = result.durationMs;
+  let durationMs = result.durationMs; // mismo criterio que las etapas generativas: suma de los intentos
   let parsed: unknown;
   let parseError: string | undefined;
   const retryErrors: string[] = [];
-  let tokens: TokenTotals | undefined;
+  let tokens: { prompt: number; completion: number; total: number } | undefined;
 
   for (let attempt = 0; ; attempt++) {
     if (!result.ok) break;
-    tokens = addTokens(tokens, result.tokens);
+    tokens = {
+      prompt: (tokens?.prompt ?? 0) + result.tokens.prompt,
+      completion: (tokens?.completion ?? 0) + result.tokens.completion,
+      total: (tokens?.total ?? 0) + result.tokens.total,
+    };
     parsed = undefined;
     parseError = undefined;
     try {
@@ -282,9 +307,9 @@ async function runDecision(
     result = await client.call(sentReq, timeoutMs, callCtx);
     durationMs += result.durationMs;
   }
+  retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por respuesta inválida: ${e}`));
 
   if (!result.ok) {
-    retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por respuesta inválida: ${e}`));
     collector.check("client_call_ok", false, result.error);
     return makeRecord(baseRecord, {
       rawInput: prepared.body,
@@ -301,12 +326,23 @@ async function runDecision(
     });
   }
 
+  collector.check("client_call_ok", true, "");
   const rawOutput = result.rawOutput;
-  finalizeAttemptChecks(collector, measurements, warnings, retryErrors, parseError, "respuesta inválida");
 
+  // Parse (ya hecho en el bucle de arriba; aquí queda el resultado del último intento)
+  const parseOk = parseError === undefined;
+  if (!parseOk) collector.check("output_parse_ok", false, parseError as string);
+  if (parseOk) collector.check("output_parse_ok", true, "");
+  measurements.attempts = retryErrors.length + 1;
+
+  // Labels (7.8)
   const labelInfo = entry.label(parsed, fc.expect as never);
-  gradeWithGuard(entry, parsed, fc.expect, { rawOutput, durationMs }, collector, metrics);
 
+  // Graders de la etapa (pregunta principal)
+  const ctx = { rawOutput, durationMs };
+  gradeWithGuard(entry, parsed, fc.expect, ctx, collector, metrics);
+
+  // Todas las preguntas del request, una entrada por clave. Las adicionales con `expect.answers` se evalúan aparte.
   const expectRec = fc.expect as unknown as Record<string, unknown>;
   const questions = buildQuestionResults({
     rawOutput,
@@ -329,7 +365,7 @@ async function runDecision(
     metrics,
     measurements,
     parsedOutput: parsed,
-    tokens: tokens as { prompt: number; completion: number; total: number } | undefined,
+    tokens,
     tokensEstimated: true,
     predictedLabel: labelInfo.predicted,
     expectedLabel: labelInfo.expected,
@@ -346,20 +382,28 @@ async function runGenerative(
   cfg: EvalConfig,
   client: GenerativeClient,
   dryRun: boolean,
-  baseRecord: BaseRecord,
+  baseRecord: ReturnType<typeof buildBase>,
   thinking: boolean,
 ): Promise<RunResult> {
   const { fc } = task;
-  const req = resolveGenerativeRequest(fc.request as GenerativeRequest, thinking);
+
+  // Resolver request final con precedencia (7.1)
+  const reqRaw = fc.request as GenerativeRequest;
+  const req = resolveGenerativeRequest(reqRaw, thinking);
+
   const callCtx: GenerativeCallContext = { toolSchema: fc.meta?.toolSchema, stage: fc.stage, expect: fc.expect };
   const prepared = client.prepare(req);
   const hash = requestHash(prepared.body);
 
-  if (dryRun) logDryRun(prepared);
+  if (dryRun) {
+    console.log(`POST ${prepared.url}`);
+    console.log(JSON.stringify(prepared.body, null, 2));
+  }
 
   // Ojo: `passed` del collector es un getter; desestructurarlo lo congelaba en `true`. Se calcula al final.
   const { collector, errors, warnings, metrics, measurements } = createCollector();
 
+  /** Parámetros con que se envía un intento (`requestParams` del record). */
   const paramsOf = (r: GenerativeRequest) => ({
     temperature: r.temperature,
     thinking: r.thinking,
@@ -383,7 +427,10 @@ async function runGenerative(
     });
   }
 
-  const entry = getStage(fc.stage) as GenerativeStageEntry<unknown, unknown>;
+  const entry = getStage(fc.stage as StageName) as GenerativeStageEntry<unknown, unknown>;
+  // Como producción (`dispatchValidated`): un reintento ante salida inválida o truncada, con ERROR_PREVIO,
+  // 1.5x tokens y temperatura max(0.3, la del request). Las fallas de transporte no entran aquí (las reintenta `postJson`).
+  const jsonStage = fc.stage === "plan" || fc.stage === "arguments" || fc.stage === "pending";
 
   let curReq = req;
   let result = await client.call(curReq, resolveGenerativeTimeout(cfg, curReq.thinking), callCtx);
@@ -391,36 +438,48 @@ async function runGenerative(
   let parsed: unknown;
   let parseError: string | undefined;
   const retryErrors: string[] = [];
-  let tokens: TokenTotals | undefined;
+  let tokens: { prompt?: number; completion?: number; total?: number } | undefined;
 
   for (let attempt = 0; ; attempt++) {
-    if (!result.ok) break;
-    tokens = addTokens(tokens, result.tokens);
-    parsed = undefined;
-    parseError = undefined;
-    try {
-      parsed = entry.parseOutput(result.rawOutput, curReq, fc.meta?.toolSchema);
-    } catch (e) {
-      parseError = e instanceof Error ? e.message : String(e);
-    }
-    const isLast = attempt >= LLM_INVALID_OUTPUT_RETRIES;
-    const truncated = result.finishReason === "length";
-    const error = entry.rejectTruncated
-      ? (truncated ? TRUNCATED_ERROR : parseError)
-      : (parseError ?? (truncated && !isLast ? TRUNCATED_ERROR : undefined));
-    if (!error || isLast) break;
-    retryErrors.push(error);
-    curReq = {
-      ...req,
-      user: req.user + retryNote(error),
-      maxTokens: Math.ceil(req.maxTokens * RETRY_TOKEN_FACTOR),
-      thinking: req.retryThinking ?? req.thinking,
-      temperature: Math.max(RETRY_TEMPERATURE, req.temperature),
-    };
-    result = await client.call(curReq, resolveGenerativeTimeout(cfg, curReq.thinking), callCtx);
-    durationMs += result.durationMs;
+    if (result.ok) {
+      if (result.tokens) {
+        tokens = {
+          prompt: (tokens?.prompt ?? 0) + (result.tokens.prompt ?? 0),
+          completion: (tokens?.completion ?? 0) + (result.tokens.completion ?? 0),
+          total: (tokens?.total ?? 0) + (result.tokens.total ?? 0),
+        };
+      }
+      parsed = undefined;
+      parseError = undefined;
+      try {
+        parsed = entry.parseOutput(result.rawOutput, curReq, fc.meta?.toolSchema);
+      } catch (e) {
+        parseError = e instanceof Error ? e.message : String(e);
+      }
+      const isLast = attempt >= LLM_INVALID_OUTPUT_RETRIES;
+      const truncated = result.finishReason === "length";
+      // final/question: en el último intento se acepta una salida truncada; plan/arguments nunca.
+      let error: string | undefined;
+      if (jsonStage) error = truncated ? TRUNCATED_ERROR : parseError;
+      else error = parseError ?? (truncated && !isLast ? TRUNCATED_ERROR : undefined);
+      if (!error || isLast) break;
+      retryErrors.push(error);
+      curReq = {
+        ...req,
+        user: req.user + retryNote(error),
+        maxTokens: Math.ceil(req.maxTokens * RETRY_TOKEN_FACTOR),
+        // Como producción: el reintento de `final` va sin thinking (un final vacío suele ser thinking que agotó el presupuesto).
+        thinking: req.retryThinking ?? req.thinking,
+        // Como producción: el reintento nunca baja la temperatura que fijó el request (p. ej. `params.temperature` de una variante).
+        temperature: Math.max(RETRY_TEMPERATURE, req.temperature),
+      };
+      result = await client.call(curReq, resolveGenerativeTimeout(cfg, curReq.thinking), callCtx);
+      durationMs += result.durationMs;
+    } else break;
   }
 
+  // `requestHash` es el del primer request (identifica el prompt del caso y no varía si hubo reintento); `rawInput` y
+  // `requestParams` describen el último intento, el que produjo `rawOutput` (o el que falló).
   const usedBody = client.prepare(curReq).body;
   const requestParams = paramsOf(curReq);
 
@@ -441,14 +500,36 @@ async function runGenerative(
     });
   }
 
+  collector.check("client_call_ok", true, "");
   const rawOutput = result.rawOutput;
-  finalizeAttemptChecks(collector, measurements, warnings, retryErrors, parseError, "salida inválida");
+  const parseOk = parseError === undefined;
+  if (!parseOk) collector.check("output_parse_ok", false, parseError as string);
+  if (parseOk) collector.check("output_parse_ok", true, "");
+  measurements.attempts = retryErrors.length + 1;
+  retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por salida inválida: ${e}`));
 
   const ctx = { rawOutput, finishReason: result.finishReason, durationMs };
   gradeWithGuard(entry, parsed, fc.expect, ctx, collector, metrics);
 
-  if (cfg.client === "real" && parsed !== undefined && entry.postCheck) {
-    await entry.postCheck({ parsed, fc, collector });
+  // Como producción (6b): los argumentos generados pasan por el pre-chequeo determinista, con el `kind` y las fuentes del escenario.
+  // Solo con el cliente real: `mock` y `oracle` fabrican valores (`"mock"`) sin origen en la tarea, y la regla del pre-chequeo es justo
+  // que cada ruta/URL salga de la solicitud o de resultados previos; no tiene sentido exigírsela a una salida sintética.
+  if (
+    cfg.client === "real" && fc.stage === "arguments" && parsed !== undefined &&
+    fc.meta?.toolName !== undefined && fc.meta.environment !== undefined && fc.meta.precheck !== undefined
+  ) {
+    // Como producción (refs sin resolver): una ref que no existe en el escenario es inventada, haya o no `allowedRefTokens`.
+    const unknownRefs = usedRefIds(collectStrings((parsed as { args: Record<string, unknown> }).args))
+      .filter((id) => !fc.meta!.precheck!.refIds.includes(id));
+    collector.check("refs_exist", unknownRefs.length === 0, `Usa refs que no existen en el escenario: ${[...new Set(unknownRefs)].map((id) => `{{ref:${id}}}`).join(", ")}`);
+    const finding = await precheckCall({
+      tool: fc.meta.toolName,
+      kind: fc.meta.precheck.kind,
+      args: argsWithoutRefs((parsed as { args: Record<string, unknown> }).args),
+      sources: fc.meta.precheck.sources,
+      environment: fc.meta.environment,
+    }, cachedAnalyze);
+    collector.check("precheck_ok", finding === null, `El pre-chequeo de producción rechazaría estos argumentos: ${finding?.reason}`);
   }
 
   return makeRecord(baseRecord, {
@@ -474,6 +555,8 @@ async function runGenerative(
 
 type BaseRecord = Omit<RunRecord, "rawInput" | "rawOutput" | "requestHash" | "durationMs" | "passed" | "errors" | "warnings" | "metrics" | "measurements" | "model">;
 
+function buildBase(x: BaseRecord): BaseRecord { return x; }
+
 function makeRecord(
   base: BaseRecord,
   extra: {
@@ -488,7 +571,7 @@ function makeRecord(
     metrics: Record<string, boolean>;
     measurements: Record<string, number | string>;
     parsedOutput?: unknown;
-    tokens?: TokenTotals;
+    tokens?: { prompt?: number; completion?: number; total?: number };
     tokensEstimated?: boolean;
     finishReason?: string;
     requestParams?: { temperature?: number; thinking?: boolean; maxTokens?: number; timeoutMs?: number };
@@ -573,18 +656,22 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
     genClient, decClient, stageFilter, onRecord, dryRun = false,
   } = input;
 
+  // Filtrar por etapa
   const filtered = stageFilter.length > 0
-    ? cases.filter((c) => stageFilter.includes(c.stage))
+    ? cases.filter((c) => stageFilter.includes(c.stage as StageName))
     : cases;
 
+  // Generar tareas: por caso × repetición × expansión de thinking
   const tasks: RunTask[] = [];
   for (const fc of filtered) {
-    const entry = getStage(fc.stage);
-    const variantFixedThinking =
-      entry.requestType === "generative" ? variant.params?.[fc.stage as GenerativeStage]?.thinking : undefined;
+    // Determinar si la variante fija thinking (para generativas)
+    let variantFixedThinking: boolean | undefined;
+    if (!(DECISION_STAGES as readonly string[]).includes(fc.stage)) {
+      variantFixedThinking = variant.params?.[fc.stage as GenerativeStage]?.thinking;
+    }
 
     const caseThinking = fc.request.type === "generative" ? fc.request.thinking : false;
-    const expansions = expandThinking(fc.stage, caseThinking, cfg, variantFixedThinking);
+    const expansions = expandThinking(fc.stage as StageName, caseThinking, cfg, variantFixedThinking);
 
     for (const exp of expansions) {
       for (let iter = 1; iter <= cfg.repeat; iter++) {
@@ -598,10 +685,12 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
 
   const fns = tasks.map((task) => async () => {
     const result = await runOne(task, cfg, genClient, decClient, dryRun);
+    // Detectar fallo de red
     if (!dryRun && result.record.metrics.client_call_ok === false) {
       const err = result.record.errors[result.record.errors.length - 1] ?? "";
       if (isTransportError(err)) networkFailCount++;
     }
+    // Solo cuentan las corridas que llamaron al cliente: un desborde de contexto se rechaza antes de enviar.
     if (!dryRun && result.record.metrics.client_call_ok !== undefined) callCount++;
     onRecord?.(result.record);
     return result.record;

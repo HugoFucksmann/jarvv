@@ -11,6 +11,7 @@
 
 import { BUDGET } from "../budget.ts";
 import type { ArgsViewOptions, CallView, CriterionView, FinalViewOptions, JsonObject, PlanViewOptions, ReviewView, ReviewViewOptions, RouteView, RouteViewOptions, TaskContext, VerifyView, WindowOptions } from "../ctx/index.ts";
+import { recalledFilterFor } from "../recalledPolicy.ts";
 import { renderArgs, renderPending, renderPlan } from "../render/index.ts";
 import type { ArgsRenderOptions, AskRenderOptions, FinalRenderOptions, PlanRenderOptions, Rendered } from "../render/index.ts";
 import {
@@ -46,7 +47,7 @@ export function reviewViewOptions(): ReviewViewOptions {
 }
 
 export function argsViewOptions(tool?: string): ArgsViewOptions {
-  return { ...reviewViewOptions(), tool };
+  return { ...reviewViewOptions(), tool, recalled: recalledFilterFor("forArgs") };
 }
 
 export function argsRenderOptions(): ArgsRenderOptions {
@@ -67,7 +68,7 @@ export function planRenderOptions(): PlanRenderOptions {
 }
 
 export function finalViewOptions(): FinalViewOptions {
-  return { lastReads: BUDGET.caps.lastReads, evidence: BUDGET.caps.evidence, steps: BUDGET.caps.stepsDone };
+  return { lastReads: BUDGET.caps.lastReads, evidence: BUDGET.caps.evidence, steps: BUDGET.caps.stepsDone, recalled: recalledFilterFor("forFinal") };
 }
 
 export function finalRenderOptions(): FinalRenderOptions {

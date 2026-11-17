@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { History, Terminal } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { History, PauseCircle, Terminal } from "lucide-react";
 import type { TaskDto, RefDto } from "../../types/api.ts";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
@@ -10,6 +10,7 @@ import { RefViewerModal } from "./components/RefViewerModal.tsx";
 import { TraceViewerModal } from "./components/TraceViewerModal.tsx";
 import { Separator } from "../Shared/Separator.tsx";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
+import { formatDuration } from "../../utils/timeFormat.ts";
 import type { SpeechStatus } from "../../hooks/useSpeech.ts";
 import type { ActionResult } from "../../types/ui.ts";
 
@@ -42,6 +43,15 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   const [internalCallId, setInternalCallId] = useState<string | null>(null);
   const [activeRefId, setActiveRefId] = useState<string | null>(null);
   const [activeRefMeta, setActiveRefMeta] = useState<RefDto | undefined>(undefined);
+  const [pauseNowMs, setPauseNowMs] = useState<number>(() => Date.now());
+
+  const activePause = task?.task.state === "running" ? task.paused ?? null : null;
+  useEffect(() => {
+    if (!activePause) return;
+    setPauseNowMs(Date.now());
+    const timer = setInterval(() => setPauseNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [activePause]);
 
   if (!task) {
     return (
@@ -110,6 +120,33 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
 
   return (
     <section className="flex flex-col gap-5 py-4">
+      {activePause && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-lg bg-yellow-950/35 border border-yellow-800/60 text-xs"
+        >
+          <div className="flex items-start gap-2.5 min-w-0">
+            <PauseCircle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5 min-w-0">
+              <span className="font-semibold text-yellow-200">
+                Pausada: {activePause.model === "llm" ? "LLM" : activePause.model === "decision" ? "Decision 2.0" : activePause.model} no disponible
+              </span>
+              <span className="text-yellow-100/80 tabular-nums">
+                En espera desde hace {formatDuration(Math.max(0, pauseNowMs - activePause.since))} · reintentando automáticamente
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void onCancelTask()}
+            className="px-3 py-1.5 rounded-md font-medium text-rose-200 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-800/70 transition-colors cursor-pointer shrink-0"
+          >
+            Cancelar tarea
+          </button>
+        </div>
+      )}
+
       {planWaiting && planWaiting.kind === "plan" ? (
         <div className="flex flex-col gap-3">
           <PlanReview

@@ -68,9 +68,17 @@ export type Waiting =
   | { readonly kind: "approval"; readonly request: ApprovalRequest }
   | { readonly kind: "question"; readonly question: PendingQuestion };
 
+/** Pausa temporal de la tarea mientras un modelo no está disponible (§6.1). */
+export interface ModelPause {
+  readonly since: number;
+  readonly model: string;
+}
+
 export interface TaskRuntimeOptions {
   /** Se invoca cada vez que cambia la espera (`null` = ya no se espera nada). Un fallo del receptor no afecta al ejecutor. */
   readonly onChange?: (waiting: Waiting | null) => void;
+  /** Se invoca cuando la tarea entra o sale de pausa por modelo no disponible. Un fallo del receptor no afecta al ejecutor. */
+  readonly onPause?: (paused: ModelPause | null) => void;
 }
 
 interface PendingPlanEntry {
@@ -94,6 +102,7 @@ export class TaskRuntime {
   private plan: PendingPlanEntry | null = null;
   private approval: PendingApprovalEntry | null = null;
   private question: PendingQuestionEntry | null = null;
+  private _paused: ModelPause | null = null;
   /** «Aprobar siempre en esta tarea» y rechazos del usuario: solo en RAM y solo de esta tarea (claves de `policy/approvalKey.ts`). */
   private readonly alwaysApproved = new Set<string>();
   private readonly userRejected = new Set<string>();
@@ -119,10 +128,25 @@ export class TaskRuntime {
     return null;
   }
 
+  /** Pausa actual por modelo no disponible, o `null`. */
+  get paused(): ModelPause | null {
+    return this._paused;
+  }
+
+  /** Marca o limpia la pausa por modelo no disponible. */
+  setPaused(paused: ModelPause | null): void {
+    if (this._paused === null && paused === null) return;
+    if (this._paused !== null && paused !== null && this._paused.since === paused.since && this._paused.model === paused.model) return;
+    this._paused = paused;
+    this.notifyPause();
+  }
+
   /** Cancela la tarea: aborta la señal y resuelve la espera activa como `cancelled`. Idempotente. */
   cancel(): void {
     if (this.controller.signal.aborted) return;
     this.controller.abort();
+    const wasPaused = this._paused !== null;
+    this._paused = null;
     const plan = this.plan;
     const approval = this.approval;
     const question = this.question;
@@ -132,6 +156,7 @@ export class TaskRuntime {
     plan?.resolve({ kind: "cancelled" });
     approval?.resolve({ kind: "cancelled" });
     question?.resolve({ kind: "cancelled" });
+    if (wasPaused) this.notifyPause();
     if (plan || approval || question) this.notify();
   }
 
@@ -239,6 +264,14 @@ export class TaskRuntime {
       this.options.onChange?.(this.waiting);
     } catch (error) {
       console.error("[TaskRuntime] onChange falló:", error);
+    }
+  }
+
+  private notifyPause(): void {
+    try {
+      this.options.onPause?.(this._paused);
+    } catch (error) {
+      console.error("[TaskRuntime] onPause falló:", error);
     }
   }
 }

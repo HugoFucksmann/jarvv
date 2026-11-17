@@ -24,7 +24,7 @@ import { planInput } from "./adapters.ts";
 import { clipWithin } from "./args.ts";
 import type { PlanFromViewInput } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
-import { closeOnFailure, queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import type { PlanApprovalOutcome } from "./runtime.ts";
 
 export type PlanRequest =
@@ -63,7 +63,7 @@ export async function generatePlan(env: EngineEnv, request: PlanRequest): Promis
   }
 
   // ── LLM 1. Qwen ya repite una vez una salida inválida: aquí no se repite.
-  const query = await queryModel(() => env.llm.generatePlanFromView(input, runtime.signal), 0);
+  const query = await queryModel(() => env.llm.generatePlanFromView(input, runtime.signal), 0, pauseOf(env, "llm"));
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (!query.ok) {
     if (query.failure === "invalid") {

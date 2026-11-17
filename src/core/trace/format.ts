@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 
 import type { Call, ContextData, Ref } from "../ctx/index.ts";
-import type { ModelRecord, ToolRecord, WaitRecord } from "./types.ts";
+import type { ModelRecord, PauseRecord, ToolRecord, WaitRecord } from "./types.ts";
 
 /** Versión del formato de la traza. `full.json.gz` conserva la forma de la versión 2 (`snapshot`, `models`, `tools`, `waits`) más `kind: "full"`. */
 export const TRACE_FORMAT_VERSION = 3;
@@ -277,11 +277,12 @@ export interface SummaryInput {
   queries: readonly SlimQuery[];
   tools: readonly ToolRecord[];
   waits: readonly WaitRecord[];
+  pauses?: readonly PauseRecord[];
   refs: readonly RefInfo[];
 }
 
 export function buildSummary(input: SummaryInput): string {
-  const { snapshot: s, queries, tools, waits, refs, meta } = input;
+  const { snapshot: s, queries, tools, waits, pauses = [], refs, meta } = input;
   const task = s.task;
   const total = input.endedAt - input.startedAt;
   const md: string[] = [];
@@ -345,6 +346,10 @@ export function buildSummary(input: SummaryInput): string {
 
   if (waits.length > 0) {
     md.push("## Esperas del usuario", "", ...waits.map((w) => `- ${w.kind}: ${seconds(w.endedAt - w.startedAt)}`), "");
+  }
+
+  if (pauses.length > 0) {
+    md.push("## Pausas por modelo no disponible", "", ...pauses.map((p) => `- ${p.model}: ${seconds(p.endedAt - p.startedAt)} (en v${p.n})`), "");
   }
 
   if (refs.length > 0) {

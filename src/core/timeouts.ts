@@ -34,6 +34,12 @@ export const TIMEOUT_DEFAULTS = {
   shutdownDrainMs: 3_000,
 } as const;
 
+/** Tope de pausa acumulada por consulta ante un modelo no disponible (`modelUnavailablePauseMaxMs`): 10 minutos. */
+export const DEFAULT_MODEL_PAUSE_MAX_MS = 10 * 60_000;
+/** Espera inicial y máxima entre reintentos mientras la tarea está pausada por un modelo caído (de 2 s a 30 s). */
+export const PAUSE_RETRY_MIN_MS = 2_000;
+export const PAUSE_RETRY_MAX_MS = 30_000;
+
 export const FIXED_TIMEOUTS = {
   /** Margen que se resta al plazo de una llamada para devolver un resultado antes de que la corte quien la espera (`run_command`, `web_search`). */
   safetyMarginMs: 5_000,

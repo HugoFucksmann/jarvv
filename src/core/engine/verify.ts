@@ -19,7 +19,7 @@ import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";
 import type { ArgsReview, ReviewDecision, VerifyCheckKey } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
 import { codeAnswersOk, postconditionOf } from "./postcondition.ts";
-import { closeOnFailure, queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import { runProbes } from "./probes.ts";
 
 export type VerifyOutcome =
@@ -92,7 +92,7 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
   const view = verifyInput(ctx.view.forVerify(callId));
   // Una lectura determinista con contenido (listado, archivo, procesos) ya tiene `ok` resuelto: el modelo solo juzga si cumple lo pedido.
   const input = codeAnswersOk(call.tool, call.status, call.summary) ? { ...view, known: { ok: 1 } } : view;
-  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), 0);
+  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), 0, pauseOf(env, "decision"));
 
   if (!query.ok) {
     const closure = closeOnFailure(ctx, call.stepId, query.failure, query.error);

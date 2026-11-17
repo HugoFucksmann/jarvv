@@ -23,6 +23,7 @@ import {
   checkFactKey,
   checkFinishValue,
   checkPlanInput,
+  checkRecalledInput,
   checkRefInput,
   checkResultInput,
   checkStepInput,
@@ -38,6 +39,7 @@ import type {
   FinishValue,
   NormalizedOp,
   Plan,
+  RecalledEntry,
   Ref,
   ResultEntry,
   SectionName,
@@ -70,6 +72,7 @@ interface Added {
   calls: Call[];
   errors: ErrorEntry[];
   refs: Ref[];
+  recalled: RecalledEntry[];
 }
 
 function has(obj: object, key: string): boolean {
@@ -79,7 +82,7 @@ function has(obj: object, key: string): boolean {
 class Draft {
   private readonly data: ContextData;
   private readonly at: number;
-  private readonly added: Added = { plans: [], steps: [], calls: [], errors: [], refs: [] };
+  private readonly added: Added = { plans: [], steps: [], calls: [], errors: [], refs: [], recalled: [] };
   private readonly patchedSteps = new Map<number, Step>();
   private readonly patchedCalls = new Map<number, Call>();
   private readonly facts = new Map<string, Fact>();
@@ -237,8 +240,29 @@ class Draft {
         this.record({ op: "add", target: "refs", value: element });
         return;
       }
+      case "recalled": {
+        const v = checkRecalledInput(value, env);
+        const duplicate =
+          this.data.recalled.some((r) => r.source === v.source && r.key === v.key) ||
+          this.added.recalled.some((r) => r.source === v.source && r.key === v.key);
+        if (duplicate) {
+          violation("invariant", 6, `invariante: ya existe un aporte de memoria con fuente "${v.source}" y clave "${v.key}"`);
+        }
+        const element: RecalledEntry = deepFreeze({
+          id: this.nextId("recalled"),
+          at: this.at,
+          stepId: v.stepId,
+          source: v.source,
+          key: v.key,
+          value: v.value,
+          from: v.from,
+        });
+        this.added.recalled.push(element);
+        this.record({ op: "add", target: "recalled", value: element });
+        return;
+      }
       default:
-        violation("unknown_target", 2, `\`add\` no aplica a "${target}" (solo plans, steps, calls, errors y refs)`);
+        violation("unknown_target", 2, `\`add\` no aplica a "${target}" (solo plans, steps, calls, errors, refs y recalled)`);
     }
   }
 
@@ -352,6 +376,7 @@ class Draft {
     for (const element of this.added.calls) data.calls.push(element);
     for (const element of this.added.errors) data.errors.push(element);
     for (const element of this.added.refs) data.refs.push(element);
+    for (const element of this.added.recalled) data.recalled.push(element);
     for (const [key, fact] of this.facts) data.facts[key] = fact;
     if (this.result !== undefined) data.result = this.result;
     if (this.finish !== null) {

@@ -25,6 +25,12 @@ export const BUDGET = {
   feedbackMax: 1500,
   /** Profundidad máxima de un valor JSON escrito (`args`): niveles de contenedores contando la raíz (9). */
   jsonMaxDepth: 6,
+  /** Tope de clave de `recalled` (`MEMORIA_CONTEXTO_DISENO.md` §7.2). */
+  recalledKeyMax: 80,
+  /** Tope del valor de `recalled` para `user_memory` (§7.2). */
+  recalledValueMax: 300,
+  /** Tope del valor de `recalled` para `thread` (`previous_request`, `previous_answer`). */
+  threadValueMax: 8000,
 
   // ── Recorte que aplica quien ejecuta (no lo valida `apply`) ──
   /**
@@ -137,6 +143,8 @@ export const BUDGET = {
     finalStepInstruction: 300,
     evidence: 38,
     evidenceSummary: 1500,
+    /** Cantidad máxima de hechos de `user_memory` que se muestran en una vista (`MEMORIA_CONTEXTO_DISENO.md` §8). */
+    recalled: 3,
   },
 
   // ── Extractores de resultados (Fase 4) ──

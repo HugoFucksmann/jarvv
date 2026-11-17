@@ -5,14 +5,16 @@
  * motor que conoce la configuración; los contratos están en `../contracts.ts`.
  */
 
+import os from "node:os";
 import path from "node:path";
 
 import type { ConfigSource } from "../config.ts";
 import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
-import { createMemoryReader, type MemoryFact } from "../memory.ts";
+import { createJsonMemoryProvider, createMemoryReader, type MemoryFact, type MemoryProvider } from "../memory.ts";
 import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
 import type { ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
+import { tasksDirFromConfig } from "../taskLog.ts";
 import { resolveToolTimeoutMs } from "../timeouts.ts";
 
 // ───────────────────────── Composición ─────────────────────────
@@ -37,18 +39,21 @@ export interface EngineServices {
   readonly allowedDirectories?: () => readonly string[];
   /** Hechos del usuario de `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
   readonly memory?: () => readonly MemoryFact[];
+  /** Proveedor desacoplado de memoria de hechos (`src/memory`). */
+  readonly memoryProvider?: MemoryProvider;
+  /** Tope de pausa (ms) ante modelo no disponible, leído en vivo de la configuración. */
+  readonly modelUnavailablePauseMaxMs?: () => number;
 }
 
 /**
- * Crea una sola vez el almacén de refs (con `refsDir`) y el alcance de la regla B del Guard. La raíz de composición
- * lo llama una vez y comparte el resultado entre tareas.
- *
- * Las rutas relativas que el modelo escriba se resuelven contra dos bases (D27): el directorio de trabajo de Jarvis y el
- * `cwd` de Desktop Commander si está configurado. No se comprobó contra qué base resuelve Desktop Commander las suyas.
+ * Crea una sola vez el almacén de refs (con `refsDir`) y el alcance del Guard (refs, logs de tareas, carpeta del proyecto y archivo de memoria).
+ * La raíz de composición lo llama una vez y comparte el resultado entre tareas.
  */
 export function createEngineServices(getConfig: ConfigSource): EngineServices {
   const config = getConfig();
   const refsDir = path.resolve(config.refsDir);
+  const tasksDir = tasksDirFromConfig(config);
+  const memoryFile = path.join(path.dirname(refsDir), "memory.json");
   const desktop = config.desktopCommanderMcp;
 
   const bases = new Set<string>([process.cwd()]);
@@ -56,7 +61,12 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
 
   return {
     vault: createRefVault({ dir: refsDir }),
-    guardScope: { protectedDirs: [refsDir], relativeBases: [...bases] },
+    guardScope: {
+      protectedDirs: [refsDir, tasksDir, process.cwd()],
+      protectedFiles: [memoryFile],
+      relativeBases: [...bases],
+      commandBases: [os.homedir()],
+    },
     blacklist: compileBlacklist(config.blacklist),
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
@@ -66,6 +76,8 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
     toolBaseDir: () => getConfig().desktopCommanderMcp.cwd ?? process.cwd(),
     allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
-    memory: createMemoryReader(path.join(path.dirname(refsDir), "memory.json")),
+    memory: createMemoryReader(memoryFile),
+    memoryProvider: createJsonMemoryProvider(memoryFile),
+    modelUnavailablePauseMaxMs: () => getConfig().modelUnavailablePauseMaxMs,
   };
 }

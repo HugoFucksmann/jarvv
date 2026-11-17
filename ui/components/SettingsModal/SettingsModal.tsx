@@ -475,7 +475,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 3. Límites operativos y timeouts (ms)
               </SectionTitle>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pl-1">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pl-1">
                 <NumberField
                   id="cfg-decision-timeout"
                   label="Decision 2.0"
@@ -499,6 +499,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   label="MCPs (stdio)"
                   value={config.mcpTimeoutMs}
                   onChange={(mcpTimeoutMs) => update({ mcpTimeoutMs })}
+                />
+                <NumberField
+                  id="cfg-model-pause-max"
+                  label="Pausa modelo caído (0 = off)"
+                  value={config.modelUnavailablePauseMaxMs ?? 600000}
+                  min={0}
+                  onChange={(modelUnavailablePauseMaxMs) => update({ modelUnavailablePauseMaxMs })}
                 />
               </div>
             </div>
@@ -836,18 +843,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pl-1">
                 <NumberField
                   id="cfg-retention-days"
-                  label="Retención máxima (días; 0 = sin límite)"
+                  label="Refs y trazas (días; 0 = sin límite)"
                   value={config.retentionDays ?? 0}
                   min={0}
                   onChange={(retentionDays) => update({ retentionDays })}
                 />
                 <NumberField
+                  id="cfg-log-retention-days"
+                  label="Logs de tareas (días; 0 = sin límite)"
+                  value={config.logRetentionDays ?? 0}
+                  min={0}
+                  onChange={(logRetentionDays) => update({ logRetentionDays })}
+                />
+                <NumberField
                   id="cfg-retention-max-mb"
-                  label="Tope de disco refs + trazas (MB; 0 = sin tope)"
-                  value={config.retentionMaxMb ?? 500}
+                  label="Tope disco refs+trazas+logs (MB; 0 = sin tope)"
+                  value={config.retentionMaxMb ?? 250}
                   min={0}
                   onChange={(retentionMaxMb) => update({ retentionMaxMb })}
                 />

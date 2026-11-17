@@ -20,4 +20,5 @@ export const FALLBACK_STOP_TEXT: { readonly [R in StopReason]: string } = {
   user_cancelled: "La tarea fue cancelada por el usuario.",
   replans_exhausted: "Se agotaron los replanes sin lograr completar la tarea.",
   unrecoverable: "Falló un servicio necesario y la tarea no pudo continuar.",
+  restart: "El servidor se reinició mientras la tarea corría.",
 };

@@ -35,6 +35,7 @@ import { generatePending } from "./pending.ts";
 import { reconcileList } from "./pendingList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
+import { recordInitialRecalled, recordUserMemory } from "./recalled.ts";
 import type { TaskRuntime } from "./runtime.ts";
 import { runStep } from "./stepLoop.ts";
 
@@ -90,10 +91,16 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o D0 no disponible: el flujo de siempre.
   // Hilo: si el pedido continúa la tarea anterior («guardalo en un md»), esa tarea entra a `pending`, a los argumentos y a la respuesta final. Con hilo, una acción no toma
   // el atajo (la solicitud literal dice «eso»): `pending` la reescribe con la tarea anterior a la vista. Una charla sí cierra directo: la respuesta final ve el hilo.
-  env.follow.thread = await detectContinuation(env);
+  const continuation = await detectContinuation(env);
+  if (continuation.kind === "cancelled") return CANCELLED;
+  if (continuation.kind === "close") return stop(continuation.stopReason);
+  env.follow.thread = continuation.previous;
+  await recordInitialRecalled(env);
   if (runtime.cancelled) return CANCELLED;
-  const first = await classifyRequest(env);
-  if (runtime.cancelled) return CANCELLED;
+  const classification = await classifyRequest(env);
+  if (classification.kind === "cancelled") return CANCELLED;
+  if (classification.kind === "close") return stop(classification.stopReason);
+  const first = classification.first;
   if (first === "chat") return COMPLETED;
   if (first === "single" && env.follow.thread === null) {
     pending = [ctx.task.request];
@@ -154,7 +161,10 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
           // Hecho todo lo previsto: si se abandonó algo, la tarea es parcial; si no, Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
           // y, si no lo asegura, se confirma con el LLM que no falta nada.
           if (abandoned > 0) return stop("no_alternatives");
-          if (await confirmCompletion(env)) return COMPLETED;
+          const completion = await confirmCompletion(env);
+          if (completion.kind === "complete") return COMPLETED;
+          if (completion.kind === "cancelled") return CANCELLED;
+          if (completion.kind === "close") return stop(completion.stopReason);
           askModel = true;
         }
         continue;
@@ -182,6 +192,9 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
 
 async function runDeliberative(env: EngineEnv): Promise<Closing> {
   const { ctx, runtime } = env;
+
+  await recordUserMemory(env, ctx.task.request, null);
+  if (runtime.cancelled) return CANCELLED;
 
   // ── Plan inicial y su confirmación.
   const initial = await generatePlan(env, { kind: "initial" });

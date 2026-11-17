@@ -62,6 +62,7 @@ export function terminalStateFor(stopReason: StopReason, calls: readonly Call[])
     case "replans_exhausted":
     case "no_alternatives":
     case "unrecoverable":
+    case "restart":
       return hasEffects(calls) || hasApprovedOk(calls) ? "partial" : "failed";
   }
 }

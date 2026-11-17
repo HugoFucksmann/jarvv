@@ -13,21 +13,56 @@
  */
 
 import { NOUL_APPROVE, validateAnswer } from "./contract.ts";
-import { getStage } from "./stages/index.ts";
-import type { DecisionStageEntry } from "./stages/index.ts";
 import type {
   AnswerExpects,
   ChoiceQ,
   DecisionRequest,
   DecisionStage,
+  FragmentJudgeExpect,
   GraderCollector,
   QuestionResult,
+  ResultVerificationExpect,
 } from "./types.ts";
-import { parseAnswers } from "./variants/labels.ts";
+import { fragmentKeys, MAIN_QUESTIONS, parseAnswers } from "./variants/labels.ts";
 import type { ParsedAnswer } from "./variants/labels.ts";
 
 const YES = "yes";
 const NO = "no";
+
+/** Pregunta que alimenta la salida de la etapa, y qué espera el caso de ella (null = no se puede fijar). */
+interface MainBinding {
+  question: string;
+  expected: string | null;
+}
+
+/**
+ * Preguntas principales de la etapa: las de producción (`MAIN_QUESTIONS`). Una que el request no trae (la variante cambió las
+ * preguntas) no se registra como principal. `canonicalExpected` es la etiqueta canónica esperada de las etapas de una sola pregunta.
+ */
+function mainBindings(
+  stage: DecisionStage,
+  req: DecisionRequest,
+  canonicalExpected: string | null,
+  expect: Record<string, unknown>,
+): MainBinding[] {
+  const keys = MAIN_QUESTIONS[stage];
+  let out: MainBinding[];
+  if (stage === "fragment_judge") {
+    // Si f<i> es choice (variantes con ranking/clasificación), f<i> es extra o no se mapea a YES/NO salvo que sea noul.
+    const wants = (expect as unknown as FragmentJudgeExpect).expectedRelevant ?? [];
+    return fragmentKeys(req)
+      .filter((k) => req.questions[k]?.type === "noul")
+      .map((question, i) => ({ question, expected: wants[i] === undefined ? null : wants[i] ? YES : NO }));
+  }
+  if (stage === "result_verification") {
+    const rv = expect as unknown as ResultVerificationExpect;
+    const wants = [rv.expectedOk, rv.expectedCumple];
+    out = keys.map((question, i) => ({ question, expected: wants[i] === undefined ? null : wants[i] ? YES : NO }));
+  } else {
+    out = [{ question: keys[0], expected: canonicalExpected }];
+  }
+  return out.filter((b) => req.questions[b.question] !== undefined);
+}
 
 /** Valida una pregunta `choice` con el código de producción; devuelve el motivo si la respuesta no sirve. */
 function readChoice(
@@ -83,8 +118,7 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
     globalError = e instanceof Error ? e.message : String(e);
   }
 
-  const entry = getStage(stage) as DecisionStageEntry<unknown, Record<string, unknown>>;
-  const bindings = entry.mainQuestionBindings(sentReq, canonicalExpected, expect);
+  const bindings = mainBindings(stage, sentReq, canonicalExpected, expect);
   const explicit = (expect.answers ?? {}) as AnswerExpects;
 
   for (const [key, q] of Object.entries(sentReq.questions)) {

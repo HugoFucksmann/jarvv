@@ -98,7 +98,21 @@ export function getActivityPhrase(task: TaskDto | null | undefined): ActivityPhr
     }
   }
 
-  // 2. Tarea terminada
+  // 2. Pausada por modelo no disponible
+  if (task.task.state === "running" && task.paused) {
+    const modelLabel =
+      task.paused.model === "llm"
+        ? "LLM"
+        : task.paused.model === "decision"
+          ? "Decision 2.0"
+          : task.paused.model;
+    return {
+      stateGroup: "waiting",
+      label: `Pausada: ${modelLabel} no disponible (reintentando automáticamente)`,
+    };
+  }
+
+  // 3. Tarea terminada
   if (task.task.state !== "running") {
     switch (task.task.state) {
       case "completed":

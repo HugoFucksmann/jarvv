@@ -13,7 +13,7 @@
 
 import { completionInput } from "./adapters.ts";
 import type { EngineEnv } from "./env.ts";
-import { queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 
 /** Probabilidad mínima de `request_complete` para cerrar sin consultar al LLM (eval/exp/close_check.ts: 31/36 a 0,75; a 0,9 los falsos "no" se multiplican). */
 export const COMPLETION_APPROVE = 0.75;
@@ -39,27 +39,33 @@ export function uncoveredArtifacts(request: string, calls: readonly { readonly a
   return named.filter((n) => !haystack.includes(n));
 }
 
-/** ¿La solicitud está cumplida con lo hecho? `false` ante la duda o un fallo: la tarea sigue con la confirmación del LLM. */
-export async function confirmCompletion(env: EngineEnv): Promise<boolean> {
+export type CompletionOutcome =
+  | { readonly kind: "complete" }
+  | { readonly kind: "incomplete" }
+  | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
+  | { readonly kind: "cancelled" };
+
+/** ¿La solicitud está cumplida con lo hecho? `incomplete` ante la duda; si Decision falla tras la pausa (§6.1), cierra `unrecoverable`. */
+export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutcome> {
   const { ctx, runtime } = env;
   env.completion.last = null;
-  if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return false;
+  if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return { kind: "incomplete" };
   // Guarda de cobertura (config `completionCoverageGuard`, experimental): un archivo nombrado en el pedido que ninguna llamada menciona impide el cierre rápido
   // (y ahorra la consulta); la tarea sigue con la confirmación de siempre. Solo puede volver el cierre más estricto.
   if (env.deps.completionCoverageGuard?.() === true) {
     const missing = uncoveredArtifacts(ctx.task.request, ctx.find("calls", {}));
     if (missing.length > 0) {
       console.warn(`[Engine] cierre por Decisión 5 omitido: el pedido nombra ${missing.join(", ")} y ninguna llamada lo menciona.`);
-      return false;
+      return { kind: "incomplete" };
     }
   }
 
-  const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0);
+  const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0, pauseOf(env, "decision"));
   if (!query.ok) {
-    console.warn(`[Engine] cierre por Decisión 5 no disponible (${query.failure}); se confirma con el LLM.`);
-    return false;
+    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
-  if (runtime.cancelled || ctx.isClosed()) return false;
+  if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
   env.completion.last = query.value.requestComplete;
-  return query.value.requestComplete >= COMPLETION_APPROVE;
+  return { kind: query.value.requestComplete >= COMPLETION_APPROVE ? "complete" : "incomplete" };
 }

@@ -9,7 +9,7 @@
 
 import type { Call, VerdictReason } from "../ctx/index.ts";
 import type { EngineEnv } from "./env.ts";
-import { closeOnFailure, queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import { probesOf, serverOf } from "../tools/manifest.ts";
 import { GATE_MIN, type Probe, type ProbeCall } from "../tools/probes.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
@@ -51,7 +51,7 @@ export async function runProbes(env: EngineEnv, call: Call): Promise<ProbesOutco
   const probeCall = probeCallOf(env, call);
   for (const probe of applicableProbes(call, probeCall)) {
     for (const stage of probe.stages(probeCall)) {
-      const answered = await queryModel(() => decision.probe!({ state: stage.state, question: stage.question }, runtime.signal), 0);
+      const answered = await queryModel(() => decision.probe!({ state: stage.state, question: stage.question }, runtime.signal), 0, pauseOf(env, "decision"));
       if (!answered.ok) {
         const closure = closeOnFailure(ctx, call.stepId, answered.failure, answered.error);
         return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };

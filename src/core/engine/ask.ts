@@ -25,7 +25,7 @@ import { renderAsk } from "../render/index.ts";
 import { askRenderOptions } from "./adapters.ts";
 import { clipWithin, withLineCount } from "./args.ts";
 import type { EngineEnv } from "./env.ts";
-import { closeOnFailure, queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 
 export type AskOutcome =
   | { readonly kind: "answered" }
@@ -82,7 +82,7 @@ export async function askUser(env: EngineEnv, stepId: string, literalQuestion?: 
     const view = renderAsk(ctx.view.forAsk(), askRenderOptions());
 
     // El LLM ya reintentó una vez una salida inválida (Qwen): aquí no se repite (D29).
-    const generated = await queryModel(() => env.llm.generateQuestion({ view }, runtime.signal), 0);
+    const generated = await queryModel(() => env.llm.generateQuestion({ view }, runtime.signal), 0, pauseOf(env, "llm"));
     if (!generated.ok) {
       const closure = closeOnFailure(ctx, stepId, generated.failure, generated.error);
       return closure.kind === "cancelled" ? { kind: "cancelled" } : UNRECOVERABLE;

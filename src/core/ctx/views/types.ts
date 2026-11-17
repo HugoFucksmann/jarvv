@@ -9,6 +9,7 @@ import type {
   CallStatus,
   CallVerdict,
   JsonObject,
+  RecalledSource,
   StepState,
   StopReason,
   TaskState,
@@ -30,6 +31,13 @@ export interface PlanViewOptions extends WindowOptions {
   readonly stepsDone: number;
 }
 
+export interface RecalledFilterOptions {
+  /** Fuentes visibles en esta vista (si se omite, todas las registradas). */
+  readonly sources?: readonly RecalledSource[];
+  /** Tope de entradas por fuente (se conservan las más recientes de cada fuente, manteniendo el orden). */
+  readonly maxBySource?: Readonly<Partial<Record<RecalledSource, number>>>;
+}
+
 export interface FinalViewOptions {
   /** Lecturas completas que muestra la vista (`BUDGET.caps.lastReads`). */
   readonly lastReads: number;
@@ -37,6 +45,8 @@ export interface FinalViewOptions {
   readonly evidence: number;
   /** Pasos vigentes que muestra `steps` (`BUDGET.caps.stepsDone`). */
   readonly steps: number;
+  /** Política de selección de aportes `recalled` para esta vista. */
+  readonly recalled?: RecalledFilterOptions;
 }
 
 export interface RouteViewOptions extends WindowOptions {
@@ -52,6 +62,8 @@ export interface ReviewViewOptions extends WindowOptions {
 export interface ArgsViewOptions extends ReviewViewOptions {
   /** Herramienta para la que se generan los argumentos: con ella la vista incluye `lastError`. */
   readonly tool?: string;
+  /** Política de selección de aportes `recalled` para esta vista. */
+  readonly recalled?: RecalledFilterOptions;
 }
 
 // ───────────────────────── Piezas ─────────────────────────
@@ -106,6 +118,16 @@ export interface UserInputView {
 export interface FeedbackView {
   readonly planId: string;
   readonly feedback: string;
+}
+
+export interface RecalledView {
+  readonly id: string;
+  readonly at: number;
+  readonly stepId: string | null;
+  readonly source: RecalledSource;
+  readonly key: string;
+  readonly value: string;
+  readonly from: string | null;
 }
 
 // ───────────────────────── Vistas ─────────────────────────
@@ -197,17 +219,19 @@ export interface ArgsView {
   readonly lastError: CallView | null;
   readonly userInput: readonly UserInputView[];
   readonly env: readonly FactView[];
+  /** Aportes de memoria y continuidad visibles en esta vista (`recalled`). */
+  readonly recalled: readonly RecalledView[];
   /** Todos, con sus `args` y sin recorte. */
   readonly effects: readonly EffectView[];
 }
 
 /**
- * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `request`, `refs`, `lastError` ni `effects`: las refs
+ * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `request`, `refs`, `lastError`, `effects` ni `recalled`: las refs
  * sin resolver y el anti-loop se resuelven antes, de forma determinista, y la seguridad de una escritura es del Guard y de
  * la confirmación del usuario. El candidato (ruta, herramienta, descripción y `args`) es un parámetro: lo pasa el motor, no
  * vive en el contexto.
  */
-export type ReviewView = Omit<ArgsView, "request" | "refs" | "lastError" | "effects">;
+export type ReviewView = Omit<ArgsView, "request" | "refs" | "lastError" | "effects" | "recalled">;
 
 /** Criterio contra el que se juzga la llamada: el del paso (`expected` solo en deliberativo). */
 export interface CriterionView {
@@ -284,6 +308,8 @@ export interface FinalView {
   readonly evidence: readonly CallView[];
   readonly userInput: readonly UserInputView[];
   readonly env: readonly FactView[];
+  /** Aportes de memoria y continuidad visibles en esta vista (`recalled`). */
+  readonly recalled: readonly RecalledView[];
   readonly effects: readonly EffectView[];
   readonly possibleEffects: readonly EffectView[];
 }

@@ -20,7 +20,7 @@ import { ContextOverflowError, renderFallback, renderFinal, renderPlaceNote, ren
 import { finalRenderOptions, finalViewOptions, windowOptions } from "./adapters.ts";
 import { stripNoChangesFiller } from "./finalClean.ts";
 import type { EngineEnv } from "./env.ts";
-import { isLlmDown, queryModel } from "./failures.ts";
+import { isLlmDown, pauseOf, queryModel } from "./failures.ts";
 
 /** Cómo cierra la tarea: `null` = `completed`; si no, el motivo de detención. */
 export interface Closing {
@@ -64,7 +64,7 @@ ${note}`;
   }
 
   // Qwen ya repite una vez una salida inválida: aquí no se repite.
-  const query = await queryModel(() => env.llm.generateFinalFromView(env.follow.thread === null ? { view } : { view, thread: env.follow.thread }, runtime.signal), 0);
+  const query = await queryModel(() => env.llm.generateFinalFromView({ view }, runtime.signal), 0, pauseOf(env, "llm"));
   if (!query.ok) {
     console.error(`[Engine] LLM 3 falló (${query.failure}); respuesta de respaldo.`);
     return fallback();

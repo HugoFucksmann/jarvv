@@ -26,13 +26,30 @@ import {
   LLMValidationError,
   RequestAbortedError,
 } from "../models/transport.ts";
+import { PAUSE_RETRY_MAX_MS, PAUSE_RETRY_MIN_MS } from "../timeouts.ts";
 import { errorMessage } from "../utils.ts";
+import type { EngineEnv } from "./env.ts";
+import type { TaskRuntime } from "./runtime.ts";
 
 export type ModelFailureKind = "cancelled" | "unavailable" | "overflow" | "invalid";
 
 export type ModelResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly failure: ModelFailureKind; readonly error: unknown };
+
+export interface ModelPauseContext {
+  readonly model: "llm" | "decision";
+  readonly runtime: Pick<TaskRuntime, "signal" | "cancelled" | "setPaused">;
+  readonly maxPauseMs: number;
+}
+
+export function pauseOf(env: EngineEnv, model: "llm" | "decision"): ModelPauseContext {
+  return {
+    model,
+    runtime: env.runtime,
+    maxPauseMs: Math.max(0, env.deps.modelUnavailablePauseMaxMs?.() ?? 0),
+  };
+}
 
 /** Clasifica el error de una consulta a un modelo; `null` si no es de ninguna de las clases conocidas (defecto del código). */
 export function classifyModelError(error: unknown): ModelFailureKind | null {
@@ -42,22 +59,84 @@ export function classifyModelError(error: unknown): ModelFailureKind | null {
   return null;
 }
 
+const isRetryableUnavailable = (error: unknown): boolean =>
+  (error instanceof LLMServiceUnavailableError || error instanceof DecisionServiceUnavailableError) &&
+  error.retryable !== false;
+
+function waitAbortable(ms: number, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(false);
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /**
  * Ejecuta una consulta a un modelo. Ante una respuesta inválida la repite hasta `repeatOnInvalid` veces (0 = no repite: el
- * modelo ya reintenta internamente, como Qwen). Nunca repite un desborde, un servicio caído ni una cancelación.
+ * modelo ya reintenta internamente, como Qwen). Ante un fallo `unavailable` reintentable (red, timeout o HTTP no-OK) pausa la
+ * tarea y reintenta con espera creciente (2 s a 30 s) hasta `maxPauseMs` o cancelación. URL sin configurar (`retryable = false`),
+ * desborde y cancelación no se pausan ni se repiten.
  */
-export async function queryModel<T>(call: () => Promise<T>, repeatOnInvalid: number = BUDGET.invalidResponseRetries): Promise<ModelResult<T>> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return { ok: true, value: await call() };
-    } catch (error) {
-      const failure = classifyModelError(error);
-      if (failure === null) throw error;
-      if (failure === "invalid" && attempt < repeatOnInvalid) {
-        console.warn(`[Engine] respuesta inválida (${errorMessage(error)}); se repite la consulta (${attempt + 1}/${repeatOnInvalid}).`);
-        continue;
+export async function queryModel<T>(
+  call: () => Promise<T>,
+  repeatOnInvalid: number = BUDGET.invalidResponseRetries,
+  pause?: ModelPauseContext,
+): Promise<ModelResult<T>> {
+  let invalidAttempts = 0;
+  let pauseStartedAt: number | null = null;
+  let delayMs = PAUSE_RETRY_MIN_MS;
+  try {
+    for (;;) {
+      if (pause?.runtime.cancelled) {
+        return { ok: false, failure: "cancelled", error: new RequestAbortedError() };
       }
-      return { ok: false, failure, error };
+      try {
+        return { ok: true, value: await call() };
+      } catch (error) {
+        const failure = classifyModelError(error);
+        if (failure === null) throw error;
+        if (failure === "invalid" && invalidAttempts < repeatOnInvalid) {
+          invalidAttempts++;
+          console.warn(`[Engine] respuesta inválida (${errorMessage(error)}); se repite la consulta (${invalidAttempts}/${repeatOnInvalid}).`);
+          continue;
+        }
+        if (
+          failure === "unavailable" &&
+          isRetryableUnavailable(error) &&
+          pause !== undefined &&
+          pause.maxPauseMs > 0
+        ) {
+          const now = Date.now();
+          if (pauseStartedAt === null) {
+            pauseStartedAt = now;
+            pause.runtime.setPaused({ since: pauseStartedAt, model: pause.model });
+            console.warn(`[Engine] modelo '${pause.model}' no disponible (${errorMessage(error)}); pausando tarea hasta ${pause.maxPauseMs}ms.`);
+          }
+          const remaining = pauseStartedAt + pause.maxPauseMs - now;
+          if (remaining > 0) {
+            const waitMs = Math.min(delayMs, remaining);
+            delayMs = Math.min(delayMs * 2, PAUSE_RETRY_MAX_MS);
+            const aborted = await waitAbortable(waitMs, pause.runtime.signal);
+            if (aborted) {
+              return { ok: false, failure: "cancelled", error: new RequestAbortedError() };
+            }
+            continue;
+          }
+          console.warn(`[Engine] pausa agotada (${pause.maxPauseMs}ms) esperando al modelo '${pause.model}'.`);
+        }
+        return { ok: false, failure, error };
+      }
+    }
+  } finally {
+    if (pauseStartedAt !== null && pause !== undefined) {
+      pause.runtime.setPaused(null);
     }
   }
 }

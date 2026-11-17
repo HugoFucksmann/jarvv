@@ -199,7 +199,11 @@ async function main() {
   const telegram = telegramConfigFromEnv(process.env, PORT);
   if (telegram.config) {
     telegram.warnings.forEach((warning) => console.warn(`[Telegram] ${warning}`));
-    stopTelegram = startTelegram({ cfg: telegram.config, getVoice: () => voiceFor('telegram') });
+    stopTelegram = startTelegram({
+      cfg: telegram.config,
+      getVoice: () => voiceFor('telegram'),
+      interruptedOnStartup: tasks.interruptedOnStartup(),
+    });
   } else {
     console.log(`[Telegram] Desactivado: ${telegram.reason}.`);
   }

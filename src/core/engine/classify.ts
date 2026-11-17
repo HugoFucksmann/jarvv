@@ -1,46 +1,58 @@
 /**
- * JARVIS Core — D0: clasificar la solicitud al empezar una tarea reactiva (charla, una acción o varias).
+ * JARVIS Core — D0 y detección de continuación al empezar una tarea reactiva.
  *
- * Una sola consulta de decisión (unos 50 ms) antes de `pending`. Es una optimización, nunca una condición: sin `firstQuery` en Decision, con la
- * consulta fallida o con la tarea ya empezada, devuelve `null` y la tarea sigue por el flujo de siempre (el fallo real lo vuelve a ver, y lo cierra,
- * la primera consulta que sí es necesaria). Qué hace el motor con cada resultado: `runReactive` (`runTask.ts`).
+ * Consultan al modelo de decisión con la política común de pausa y reintento (`queryModel` + `pauseOf`, §6.1). Si la
+ * consulta no está configurada (`firstQuery`/`continuation` ausente o sin tarea anterior vigente) siguen el flujo normal;
+ * si la consulta falla (pausa agotada, URL sin configurar, desborde o respuesta inválida), la tarea cierra `unrecoverable`
+ * sin degradación silenciosa (§6.1, §7.4).
  */
 
 import type { FirstQueryKind } from "./firstQuery.ts";
 import type { EngineEnv } from "./env.ts";
-import { queryModel } from "./failures.ts";
-import { errorMessage } from "../utils.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import type { PreviousTask } from "../contracts.ts";
 import { CONTINUATION_APPROVE } from "./thread.ts";
 
-export async function classifyRequest(env: EngineEnv): Promise<FirstQueryKind | null> {
-  const { ctx, runtime, decision } = env;
-  if (decision.firstQuery === undefined) return null;
-  // Solo al empezar: con pasos o llamadas la solicitud ya tomó un camino.
-  if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return null;
+export type ClassifyOutcome =
+  | { readonly kind: "classified"; readonly first: FirstQueryKind | null }
+  | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
+  | { readonly kind: "cancelled" };
 
-  const query = await queryModel(() => decision.firstQuery!({ request: ctx.task.request }, runtime.signal), 0);
+export type ContinuationOutcome =
+  | { readonly kind: "resolved"; readonly previous: PreviousTask | null }
+  | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
+  | { readonly kind: "cancelled" };
+
+export async function classifyRequest(env: EngineEnv): Promise<ClassifyOutcome> {
+  const { ctx, runtime, decision } = env;
+  if (decision.firstQuery === undefined) return { kind: "classified", first: null };
+  // Solo al empezar: con pasos o llamadas la solicitud ya tomó un camino.
+  if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return { kind: "classified", first: null };
+
+  const query = await queryModel(() => decision.firstQuery!({ request: ctx.task.request }, runtime.signal), 0, pauseOf(env, "decision"));
   if (!query.ok) {
-    if (query.failure !== "cancelled") console.warn(`[Engine] D0 no disponible (${query.failure}: ${errorMessage(query.error)}); la tarea sigue por el flujo de siempre.`);
-    return null;
+    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
-  return query.value.kind;
+  if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
+  return { kind: "classified", first: query.value.kind };
 }
 
 /**
- * Hilo: la tarea anterior si el pedido nuevo la continúa (probabilidad de `follow` ≥ `CONTINUATION_APPROVE`), o `null`. Sin tarea anterior vigente, sin `continuation` en
- * Decision o con la consulta fallida, `null`: la tarea sigue como siempre (no detectar equivale al comportamiento de antes).
+ * Hilo: la tarea anterior si el pedido nuevo la continúa (probabilidad de `follow` ≥ `CONTINUATION_APPROVE`), o `null`.
+ * Sin tarea anterior vigente o sin `continuation` en Decision, `null`; si la consulta falla tras la pausa de §6.1, cierra `unrecoverable`.
  */
-export async function detectContinuation(env: EngineEnv): Promise<PreviousTask | null> {
+export async function detectContinuation(env: EngineEnv): Promise<ContinuationOutcome> {
   const { ctx, runtime, decision, deps } = env;
   const previous = deps.previousTask ?? null;
-  if (previous === null || decision.continuation === undefined) return null;
-  if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return null;
+  if (previous === null || decision.continuation === undefined) return { kind: "resolved", previous: null };
+  if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return { kind: "resolved", previous: null };
 
-  const query = await queryModel(() => decision.continuation!({ previous, request: ctx.task.request }, runtime.signal), 0);
+  const query = await queryModel(() => decision.continuation!({ previous, request: ctx.task.request }, runtime.signal), 0, pauseOf(env, "decision"));
   if (!query.ok) {
-    if (query.failure !== "cancelled") console.warn(`[Engine] continuación no disponible (${query.failure}: ${errorMessage(query.error)}); sin hilo.`);
-    return null;
+    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
-  return query.value.follows >= CONTINUATION_APPROVE ? previous : null;
+  if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
+  return { kind: "resolved", previous: query.value.follows >= CONTINUATION_APPROVE ? previous : null };
 }

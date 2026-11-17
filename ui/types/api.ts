@@ -13,7 +13,8 @@ export type StopReason =
   | "security_denied"
   | "user_cancelled"
   | "replans_exhausted"
-  | "unrecoverable";
+  | "unrecoverable"
+  | "restart";
 
 export interface TaskInfo {
   id: string;
@@ -99,6 +100,16 @@ export interface RefDto {
   where: string;
 }
 
+export interface RecalledDto {
+  id: string;
+  at: string | number;
+  stepId: string | null;
+  source: "user_memory" | "thread";
+  key: string;
+  value: string;
+  from: string | null;
+}
+
 export interface TaskResult {
   text: string;
   origin: "model" | "fallback";
@@ -144,6 +155,11 @@ export interface WaitingQuestion {
 
 export type Waiting = WaitingPlan | WaitingApproval | WaitingQuestion;
 
+export interface ModelPauseDto {
+  since: number;
+  model: string;
+}
+
 export interface TaskDto {
   v: 1;
   n: number;
@@ -154,8 +170,10 @@ export interface TaskDto {
   errors: ErrorDto[];
   facts: Record<string, FactEntry>;
   refs: RefDto[];
+  recalled: RecalledDto[];
   result: TaskResult | null;
   waiting: Waiting | null;
+  paused: ModelPauseDto | null;
 }
 
 export interface TaskSummary {
@@ -225,7 +243,13 @@ export interface SseWaiting {
   waiting: Waiting | null;
 }
 
-export type SseMessage = SseCreated | SseChange | SseWaiting;
+export interface SsePaused {
+  type: "paused";
+  taskId: string;
+  paused: ModelPauseDto | null;
+}
+
+export type SseMessage = SseCreated | SseChange | SseWaiting | SsePaused;
 
 // Tipos de configuración para SettingsModal
 export interface StdioServerConfig {
@@ -289,6 +313,7 @@ export interface JarvisConfig {
   decisionModel: string;
   decisionMaxContext: number;
   decisionTimeoutMs: number;
+  modelUnavailablePauseMaxMs?: number;
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
@@ -296,6 +321,7 @@ export interface JarvisConfig {
   tracePath: string;
   refsDir?: string;
   retentionDays?: number;
+  logRetentionDays?: number;
   retentionMaxMb?: number;
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;

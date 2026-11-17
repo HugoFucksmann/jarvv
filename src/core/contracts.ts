@@ -9,7 +9,7 @@
 
 import type { UserEnvironment } from "./environment.ts";
 import type { FirstQueryKind } from "./engine/firstQuery.ts";
-import type { MemoryFact } from "./memory.ts";
+import type { MemoryFact, MemoryProvider } from "./memory.ts";
 import type { IMCPServer } from "./mcp/types.ts";
 import type { TaskEndOutcome } from "./tools/provider.ts";
 import type { Blacklist } from "./policy/blacklist.ts";
@@ -351,8 +351,14 @@ export interface EngineDeps {
   } | null>;
   /** Hechos guardados por el usuario (`data/memory.json`); omitido = sin memoria. */
   readonly memory?: () => readonly MemoryFact[];
+  /** Proveedor de memoria externa (`src/memory`); omitido = adapta `memory` si existe, o sin memoria. */
+  readonly memoryProvider?: MemoryProvider;
   /** La tarea anterior vigente (menos de `THREAD_TTL_MS`) cuando esta tarea empezó; `null` u omitida = sin hilo. */
   readonly previousTask?: PreviousTask | null;
+  /** Id de la tarea anterior (auditoría `recalled.from` para el hilo). */
+  readonly previousTaskId?: string | null;
+  /** Tope de pausa acumulada (ms) por consulta ante un modelo no disponible; omitido = sin pausa (0). */
+  readonly modelUnavailablePauseMaxMs?: () => number;
   /** Receptor de la traza (D11). Sin él, no se captura nada. */
   readonly sink?: CaptureSink;
 }

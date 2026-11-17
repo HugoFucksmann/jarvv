@@ -25,7 +25,6 @@ import type { CommandReport } from "../src/core/engine/precheck.ts";
 import { analyzePowerShell } from "../src/core/engine/precheck.ts";
 import { NOUL_APPROVE } from "../src/core/engine/verify.ts";
 import { getToolPolicy, serverOf } from "../src/core/tools/manifest.ts";
-import { datasetName, resolveDatasetPaths } from "./core/datasets.ts";
 import type { Scenario } from "./core/scenario.ts";
 import { scenarioPrecheck } from "./core/scenario.ts";
 
@@ -54,17 +53,24 @@ function flag(name: string): string | undefined {
   return a === undefined ? undefined : a.slice(name.length + 3);
 }
 
-function loadCases(dataset: string): Array<{ dataset: string; cases: RawCase[] }> {
-  return resolveDatasetPaths([dataset]).map((path) => {
-    const cases: RawCase[] = [];
-    for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
-      const t = line.trim();
-      if (t === "" || t.startsWith("#")) continue;
-      const c = JSON.parse(t) as RawCase;
-      if (c.stage === "args_review" && c.scenario !== undefined && c.expect?.expectedReview !== undefined) cases.push(c);
-    }
-    return { dataset: datasetName(path), cases };
-  });
+/** `--dataset`: nombre (`smoke`), nombre con `.jsonl` o ruta a un archivo `.jsonl`. No acepta carpetas ni globs (a diferencia de la CLI). */
+function datasetPath(dataset: string): string {
+  const candidates = [dataset, `eval/datasets/${dataset}`, `eval/datasets/${dataset}.jsonl`];
+  const found = candidates.find((c) => c.endsWith(".jsonl") && existsSync(c));
+  if (found === undefined) throw new Error(`No existe el dataset '${dataset}' (se buscó: ${candidates.join(", ")}). Solo archivos .jsonl; carpetas y globs no se admiten aquí.`);
+  return found;
+}
+
+function loadCases(dataset: string): RawCase[] {
+  const path = datasetPath(dataset);
+  const out: RawCase[] = [];
+  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const t = line.trim();
+    if (t === "" || t.startsWith("#")) continue;
+    const c = JSON.parse(t) as RawCase;
+    if (c.stage === "args_review" && c.scenario !== undefined && c.expect?.expectedReview !== undefined) out.push(c);
+  }
+  return out;
 }
 
 // ───────────────────────── Estadística ─────────────────────────
@@ -98,29 +104,27 @@ async function precheckRows(datasets: string[]): Promise<CaseRow[]> {
     return p;
   };
   const rows: CaseRow[] = [];
-  for (const spec of datasets) {
-    for (const { dataset, cases } of loadCases(spec)) {
-      for (const c of cases) {
-        const sc = c.scenario;
-        const tool = sc?.at?.tool ?? "";
-        const route = sc?.at?.route;
-        const kind = route !== undefined && getToolPolicy(serverOf(route), tool).mutates ? "write" : "read";
-        let finding: Awaited<ReturnType<typeof scenarioPrecheck>> = null;
-        try {
-          if (sc !== undefined) finding = await scenarioPrecheck(sc, analyze);
-        } catch (e) {
-          console.warn(`  ⚠ ${dataset}/${c.id}: no se pudo correr el pre-chequeo (${e instanceof Error ? e.message : String(e)})`);
-        }
-        rows.push({
-          dataset,
-          id: c.id,
-          tags: c.tags ?? [],
-          expected: c.expect?.expectedReview as string,
-          kind,
-          pre: finding?.review ?? null,
-          reason: finding?.reason ?? null,
-        });
+  for (const dataset of datasets) {
+    for (const c of loadCases(dataset)) {
+      const sc = c.scenario;
+      const tool = sc?.at?.tool ?? "";
+      const route = sc?.at?.route;
+      const kind = route !== undefined && getToolPolicy(serverOf(route), tool).mutates ? "write" : "read";
+      let finding: Awaited<ReturnType<typeof scenarioPrecheck>> = null;
+      try {
+        if (sc !== undefined) finding = await scenarioPrecheck(sc, analyze);
+      } catch (e) {
+        console.warn(`  ⚠ ${dataset}/${c.id}: no se pudo correr el pre-chequeo (${e instanceof Error ? e.message : String(e)})`);
       }
+      rows.push({
+        dataset,
+        id: c.id,
+        tags: c.tags ?? [],
+        expected: c.expect?.expectedReview as string,
+        kind,
+        pre: finding?.review ?? null,
+        reason: finding?.reason ?? null,
+      });
     }
   }
   return rows;
@@ -301,8 +305,7 @@ async function main(): Promise<void> {
   const md = ["# Cruce del pre-chequeo con D3", "", `Datasets: ${datasets.join(", ")}${runsDir ? ` · corrida: \`${runsDir}\`` : ""}`, "", ...preReport(rows)];
   let json: unknown[] = [];
   if (runsDir !== undefined) {
-    const datasetNames = new Set(resolveDatasetPaths(datasets).map(datasetName));
-    const runs = loadRuns(runsDir).filter((r) => datasetNames.has(r.dataset));
+    const runs = loadRuns(runsDir).filter((r) => datasets.includes(r.dataset));
     if (runs.length === 0) console.warn("⚠ La corrida no tiene resultados de args_review para esos datasets.");
     else {
       const x = crossReport(rows, runs);

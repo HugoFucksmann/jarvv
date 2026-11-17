@@ -15,6 +15,7 @@ import {
   envViewsOf,
   lineViewOf,
   possibleEffectViewsOf,
+  recalledViewsOf,
   stepViewOf,
   taskViewOf,
   userInputViewsOf,
@@ -41,6 +42,7 @@ export function buildFinalView(data: ContextData, options: FinalViewOptions): Fi
     evidence: [...approved.map((c) => callViewOf(c, false)), ...others.map(lineViewOf)],
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
+    recalled: recalledViewsOf(data, options.recalled),
     effects: effectViewsOf(data),
     possibleEffects: possibleEffectViewsOf(data),
   };

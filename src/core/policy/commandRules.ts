@@ -43,7 +43,7 @@ const worst = (a: RuleFinding | null, b: RuleFinding | null): RuleFinding | null
 // ───────────────────────── Lectura del comando ─────────────────────────
 
 /** Parte un texto en palabras respetando comillas simples y dobles (las comillas no quedan en la palabra). */
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   const out: string[] = [];
   let cur = "";
   let quote: string | null = null;
@@ -66,7 +66,7 @@ function tokenize(text: string): string[] {
 }
 
 /** Parte por separadores de comandos fuera de comillas. Con `parens`, también por paréntesis. */
-function splitSegments(text: string, parens: boolean): string[] {
+export function splitSegments(text: string, parens: boolean): string[] {
   const seps = new Set([";", "&", "|", "\n", "\r", "{", "}", "`"]);
   if (parens) for (const c of "()") seps.add(c);
   const out: string[] = [];

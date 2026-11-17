@@ -140,7 +140,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     const config = this.getConfig();
     if (!config.decisionUrl) {
       throw new DecisionServiceUnavailableError(
-        "La URL de Decision 2.0 no está configurada. Configure la URL HTTP en la barra de configuración."
+        "La URL de Decision 2.0 no está configurada. Configure la URL HTTP en la barra de configuración.",
+        undefined,
+        false,
       );
     }
 

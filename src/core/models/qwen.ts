@@ -353,12 +353,15 @@ export class QwenEngine implements EngineLLM {
   private resolveUrl(raw: string): string {
     const base = raw.trim().replace(/\/+$/, "");
     if (!base) {
-      throw new LLMServiceUnavailableError("La URL de Qwen no está configurada. Configúrela en la barra de configuración.");
+      throw new LLMServiceUnavailableError("La URL de Qwen no está configurada. Configúrela en la barra de configuración.", undefined, undefined, false);
     }
     if (base.endsWith("/v1/chat/completions")) return base;
     if (/\/(generate|api\/chat)$/.test(base)) {
       throw new LLMServiceUnavailableError(
-        `La URL de Qwen debe ser la base del servidor o terminar en /v1/chat/completions (recibido: ${base}). Los endpoints /generate y /api/chat ya no se admiten.`
+        `La URL de Qwen debe ser la base del servidor o terminar en /v1/chat/completions (recibido: ${base}). Los endpoints /generate y /api/chat ya no se admiten.`,
+        undefined,
+        undefined,
+        false,
       );
     }
     return base.endsWith("/v1") ? `${base}/chat/completions` : `${base}/v1/chat/completions`;

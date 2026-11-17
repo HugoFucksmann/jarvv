@@ -20,11 +20,9 @@
 
 import { BUDGET } from "../budget.ts";
 import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason } from "../ctx/index.ts";
-import { factLines, selectFacts } from "../memory.ts";
 import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
 import { checkAllowedDirectory } from "../policy/allowedDirs.ts";
 import { approvalKey } from "../policy/approvalKey.ts";
-import { threadMemoryLines } from "./thread.ts";
 import { analyzePowerShell, collectSources, precheckCall, type CommandReport } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
@@ -44,9 +42,10 @@ import { argsInput, renderArgsView, reviewInput, reviewViewOptions, routeViewOpt
 import { callLabel, clipArgs, clipWithin, computeSig } from "./args.ts";
 import { captureCallTool } from "./capture.ts";
 import type { EngineEnv } from "./env.ts";
-import { closeOnFailure, queryModel } from "./failures.ts";
+import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
+import { recordUserMemory } from "./recalled.ts";
 import { factValue, inputAnswersProcess } from "./retries.ts";
 import { routeExhausted } from "./limits.ts";
 import { reviewOutcome, verifyCall } from "./verify.ts";
@@ -300,7 +299,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const routeView = ctx.view.forRoute(routeViewOptions(route));
   // DN-3.7: orden del catálogo, no el del descubrimiento del servidor.
   const options = sortByCatalog(mcp, tools);
-  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, options), runtime.signal), 0); // DN-3.4: Decision es determinista, repetir da lo mismo
+  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, options), runtime.signal), 0, pauseOf(env, "decision")); // DN-3.4: Decision es determinista, repetir da lo mismo
   if (!toolQuery.ok) return fromFailure(ctx, stepId, toolQuery.failure, toolQuery.error);
   if (runtime.cancelled) return CANCELLED;
   const tool = toolQuery.value.tool;
@@ -319,6 +318,10 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   const base = { stepId, route, tool: tool.name, kind: kindOf(policy) } as const;
 
   // 3. Argumentos (LLM). Una salida inválida es `args_invalid`; el LLM caído o el desborde cierran la tarea.
+  const stepText = ctx.find("steps", {}).find((s) => s.id === stepId)?.instruction ?? "";
+  await recordUserMemory(env, `${ctx.task.request}\n${stepText}`, stepId);
+  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
+
   const rendered = renderArgsView(ctx, tool.name);
   if (rendered.overflow) {
     // D26, D30: la vista no cabe en su límite; cierre sin `error`.
@@ -326,17 +329,14 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
     return { kind: "close", stopReason: "unrecoverable", callId: null };
   }
   const environment = await deps.environment();
-  // Memoria del usuario: solo los hechos cuya clave aparece en el pedido o en el paso (hasta 3); sus valores también son fuente del pre-chequeo.
-  const stepText = ctx.find("steps", {}).find((s) => s.id === stepId)?.instruction ?? "";
-  const facts = selectFacts(`${ctx.task.request}
-${stepText}`, deps.memory?.() ?? []);
   // Intentos previos de esta herramienta en este paso que no se aprobaron (rechazados, bloqueados o con error): suben la temperatura.
   // Un `waiting_input` no es un intento fallido: el proceso pidió una respuesta y la llamada siguiente (`{ pid, input }`) necesita precisión, no variedad.
   const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved" && c.status !== "waiting_input").length;
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
-    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts, [...factLines(facts), ...(env.follow.thread === null ? [] : threadMemoryLines(env.follow.thread))]), runtime.signal),
+    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
     0,
+    pauseOf(env, "llm"),
   );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (!generation.ok) {
@@ -392,7 +392,7 @@ ${stepText}`, deps.memory?.() ?? []);
 
   // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
   const finding = await precheckCall(
-    { tool: tool.name, kind, args: resolved, sources: collectSources(ctx, [...facts.map((f) => f.value), ...(env.follow.thread === null ? [] : [env.follow.thread.request, env.follow.thread.answer])]), environment },
+    { tool: tool.name, kind, args: resolved, sources: collectSources(ctx), environment },
     analyzeCmd,
   );
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
@@ -498,7 +498,7 @@ ${stepText}`, deps.memory?.() ?? []);
   const reviewApplies = kind === "write" ? !askUser && !userAuthored && tier !== "green" : deps.reviewReads?.() === true;
   if (reviewApplies) {
     const reviewView = ctx.view.forReview(reviewViewOptions());
-    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal), 0);
+    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal), 0, pauseOf(env, "decision"));
     if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
     // Nivel 2 de la lista negra (solo llega aquí en automático): umbral estricto. Si el comando habría pasado con el umbral normal y solo lo frena la

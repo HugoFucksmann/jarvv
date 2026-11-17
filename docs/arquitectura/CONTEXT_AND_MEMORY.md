@@ -1,7 +1,7 @@
 # Contexto, Memoria y Persistencia
 
 ## 1. El Contexto de Tarea
-Todo lo que el sistema sabe de una tarea vive en un único objeto, el **contexto** (`TaskContext`). No hay memorias paralelas dentro de una tarea: el estado que ve la interfaz, lo que leen los modelos y lo que audita la traza salen de las mismas secciones. Lo que se recuerda **entre** tareas (hechos del usuario y la tarea anterior) vive fuera del contexto y entra a los prompts por el motor: ver §10.
+Todo lo que el sistema sabe de una tarea vive en un único objeto, el **contexto** (`TaskContext`), cuya secuencia de mutaciones se persiste en un log por tarea (`taskLog.ts`). No hay memorias paralelas dentro de una tarea: el estado que ve la interfaz, lo que leen los modelos y lo que audita la traza salen de las mismas secciones. Lo que se recuerda **entre** tareas (hechos del usuario en `src/memory` y el hilo con la tarea anterior) entra al contexto por `apply` en la sección `recalled` y queda congelado en el log: ver §10.
 
 ### Cómo se ve
 Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no existen en el JSON real.
@@ -77,6 +77,16 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
     "where": string                        // ruta absoluta del archivo
   }],
 
+  "recalled": [{
+    "id": string,                          // "m1"…
+    "at": number,
+    "stepId": string | null,               // null al iniciar la tarea
+    "source": "user_memory" | "thread",
+    "key": string,                         // clave del hecho, "previous_request" o "previous_answer"
+    "value": string,
+    "from": string | null                  // id de la tarea origen en "thread"
+  }],
+
   "result": { "text": string, "origin": "model" | "fallback" } | null
 }
 ```
@@ -91,6 +101,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
 | `errors` | Fallos de infraestructura asociados a un paso | Motor |
 | `facts` | `process` (procesos vivos de la tarea, como texto: `4321` o `4321, 5678`) y `answer_<paso>_<n>` (`pregunta -> respuesta`; si excede 500 caracteres, el texto completo va a una ref). La respuesta a la pregunta de un proceso agrega `_p<pid>` a la clave (las vistas muestran el texto, nunca la clave); `ctx.answers(paso)` lista las respuestas de un paso con su clave | Motor |
 | `refs` | Resultados completos en disco: etiqueta, tamaño, ruta. Solo para el pre-chequeo y la depuración: ninguna vista las muestra a los modelos | Ejecutor de llamadas |
+| `recalled` | Aportes externos congelados durante la tarea (`user_memory` y `thread`), sin duplicar `(source, key)`; su confianza y visibilidad salen de `recalledPolicy.ts` | Motor (al iniciar y en cada paso) |
 | `result` | Respuesta final y origen | Cierre |
 
 ### Escritura: una sola puerta
@@ -169,49 +180,52 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 
 ## 5. Resultados Voluminosos y Referencias
 1. **Procesamiento**: el resultado crudo de la herramienta se convierte en un estado, un resumen (hasta 2 500 caracteres) y el texto completo. Solo `list_directory` (40 entradas) y `read_file` (primeras y últimas 15 líneas) de Desktop Commander tienen extractor propio. Los resultados de las herramientas propias (`jarvis_*`) los lee el extractor estructurado: el texto que el proveedor ya preparó para el modelo más las señales (código de salida, `pid` y estado, espera de entrada). El resto usa el genérico (inicio y final del texto, 750 caracteres cada uno).
-2. **Almacén**: si el resumen no contiene todo el resultado, el texto completo se guarda en disco en `<refsDir>/<tarea>/<uuid>.txt` (UTF-8, nunca se sobrescribe), cortado a 5 000 000 de caracteres con una marca explícita si lo supera (`REF_MAX_CHARS`), y la llamada lleva una `ref` con su etiqueta, tamaño y ruta. La retención (`retention.ts`) las borra por antigüedad (`retentionDays`, 30 por defecto; `0` la desactiva) al arrancar y cada 6 horas; solo toca carpetas con el nombre de una tarea de Jarvis y nunca las de una tarea retenida en memoria.
+2. **Almacén**: si el resumen no contiene todo el resultado, el texto completo se guarda en disco en `<refsDir>/<tarea>/<uuid>.txt` (UTF-8, nunca se sobrescribe), cortado a 5 000 000 de caracteres con una marca explícita si lo supera (`REF_MAX_CHARS`), y la llamada lleva una `ref` con su etiqueta, tamaño y ruta. La retención (`retention.ts`) limpia en una sola pasada refs, trazas (10 días por defecto, `retentionDays`) y logs de tareas terminales (30 días por defecto, `logRetentionDays`) con tope compartido de 250 MB (`retentionMaxMb`), al arrancar y cada 6 horas; solo toca carpetas o archivos con los nombres propios de Jarvis y nunca borra los de una tarea retenida en RAM.
 3. **Uso**: las refs son solo para depurar y para el pre-chequeo. **Los modelos no las ven ni las usan**: ninguna vista incluye la ref, su ruta ni una instrucción para leerla, y los argumentos que propone el modelo se ejecutan tal cual (no hay sustitución de `{{ref:rN}}`). Cada herramienta deja en `summary` lo que el modelo necesita; la ref guarda el texto crudo completo.
-4. **Lectores**: (a) el pre-chequeo (`collectSources`) lee hasta 400 000 bytes de cada ref como fuente de «esto aparece en lo que la tarea sabe», incluidas las refs que ninguna llamada usa (la respuesta larga del usuario que se guarda cuando el hecho `answer_*` queda recortado); si una ref es ilegible o más grande, las fuentes quedan incompletas (`complete = false`) y la regla de origen de argumentos no se aplica, para no rechazar de más; (b) la depuración: `GET /tasks/:id/refs/:refId` y la traza.
-5. **Protección**: Guard deniega las escrituras de archivos sobre la carpeta de refs.
+4. **Lectores**: (a) el pre-chequeo (`collectSources`) lee hasta 400 000 bytes de cada ref como fuente de «esto aparece en lo que la tarea sabe», incluidas las refs que ninguna llamada usa (la respuesta larga del usuario que se guarda cuando el hecho `answer_*` queda recortado); si una ref es ilegible o más grande (o fue borrada por retención), las fuentes quedan incompletas (`complete = false`) y la regla de origen de argumentos no se aplica, para no rechazar de más; (b) la depuración: `GET /tasks/:id/refs/:refId` y la traza.
+5. **Protección**: Guard deniega las escrituras de archivos y comandos no de solo lectura sobre la carpeta de refs, los logs de tareas, la carpeta del proyecto y `data/memory.json`.
 
 ## 6. Persistencia
-- **Tareas en memoria**: el estado de las tareas vive solo en RAM. Se retienen como máximo 20; al excederse, se expulsan las terminales más antiguas y, si aun así se supera, se cancela la tarea en espera más antigua.
-- **Sin restauración**: al reiniciar el servidor no se recuperan tareas; el sistema arranca limpio.
-- **En disco**: la configuración (`jarvis-config.json`), los resultados crudos de las refs y la traza.
-- **Traza por tarea** (`src/core/trace/`): si `traceEnabled` está activo, al terminar cada tarea se escribe, en segundo plano, una carpeta `jarvis-traces/AAAAMMDD-HHMMSS_<id>/` (junto a `tracePath`, sin la extensión) y una línea en `jarvis-traces/index.jsonl`. Es de consumo externo (auditoría y laboratorio de evaluación) y el backend nunca la lee. La carpeta tiene: `summary.md` (alertas, línea de tiempo de pasos y llamadas con lo que decidieron D1 a D4, esperas, refs con un fragmento y la respuesta final); `trace.json` (el snapshot final del contexto, todas las consultas D0–D5 y generativas con la salida interpretada y opciones ofrecidas, herramientas, esperas y bloque `meta` con modelos, versión del código, entorno y schemas); y `full.json.gz` (todo lo anterior más entradas y salidas crudas, comprimido). Los resultados grandes no se copian: viven en las refs de `data/refs` y la traza guarda su id (`rN`), tamaño y fragmento. El archivo único `jarvis-traces.jsonl` de la versión 2 ya no se escribe.
+- **Caché en RAM y log en disco**: en RAM se retienen como máximo 20 tareas (`MAX_RETAINED_TASKS`); al excederse, se expulsan las terminales más antiguas y, si aun así se supera, se cancela la tarea en espera más antigua. Cada `apply` exitoso persiste al instante su registro JSONL (`data/tasks/<id>.jsonl`) con cabecera de versión y límites vigentes; las tareas expulsadas o de ejecuciones previas se reconstruyen bajo demanda por pliegue puro del log (`readTaskLog`).
+- **Política de reinicio**: las tareas que quedaron no terminales al apagarse el servidor no se reanudan. Al arrancar se cierran con motivo `restart` (`partial` si hubo efectos, `failed` si no) y texto fijo «El servidor se reinició mientras la tarea corría», conservando visibles sus efectos y posibles efectos; si Telegram está activo, envía un aviso por cada tarea cortada. Un log corrupto en cualquier línea distinta de la última deja la tarea marcada como ilegible sin cargarla a medias.
+- **En disco**: la configuración (`jarvis-config.json`), el log de cada tarea (`data/tasks/`), los resultados crudos de las refs (`data/refs/`), la memoria externa (`data/memory.json`) y la traza (`jarvis-traces/`).
+- **Traza por tarea** (`src/core/trace/`): si `traceEnabled` está activo, al terminar cada tarea se escribe, en segundo plano, una carpeta `jarvis-traces/AAAAMMDD-HHMMSS_<id>/` (junto a `tracePath`, sin la extensión) y una línea en `jarvis-traces/index.jsonl`. Es de consumo externo (auditoría y laboratorio de evaluación) y el backend nunca la lee. La carpeta tiene: `summary.md` (alertas, línea de tiempo de pasos y llamadas con lo que decidieron D1 a D4, esperas, refs con un fragmento y la respuesta final); `trace.json` (el snapshot final del contexto, todas las consultas D0–D5 y generativas con la salida interpretada y opciones ofrecidas, herramientas, esperas y bloque `meta` con modelos, versión del código, entorno y schemas); y `full.json.gz` (todo lo anterior más entradas y salidas crudas, comprimido). Los resultados grandes no se copian: viven en las refs de `data/refs` y la traza guarda su id (`rN`), tamaño y fragmento.
 - **Pensamiento de los modelos**: la salida cruda de los modelos se reduce a una lista blanca de campos (identificador, modelo, motivo de fin, contenido y uso de tokens); el razonamiento interno no se registra.
 
-- **Cambios de prompt de 2026-11-14:** D1 y D2 ya no reciben `Last result`; D4 ya no recibe `Previous approved calls` (la vista `forVerify` y `verifyInput` lo siguen calculando); el prompt de argumentos lleva las reglas de comando solo si la herramienta tiene `command`, y un bloque `MEMORY` si hay hechos o hilo (§10).
-
 ## 7. Invariantes de Acceso a Memoria
-1. **Escritura solo por el motor**: los modelos nunca escriben en el contexto ni en las refs; todo pasa por `apply` (§1).
-2. **Sin prosa de modelos en el contexto**: lo que un modelo razona o justifica solo viaja en eventos y trazas. Motivos de rechazo y de detención son claves cerradas con texto fijo.
-3. **Efectos permanentes**: se derivan de `calls`, que nunca se borran (un paso reemplazado solo se marca `superseded`). Ni el replan ni ningún retroceso pueden ocultarlos.
-4. **Aislamiento por tarea**: el pre-chequeo solo lee las refs de la tarea activa (§5).
-5. **Estado terminal cerrado**: una tarea terminal rechaza toda escritura; ninguna respuesta tardía puede modificarla.
+1. **Escritura solo por el motor**: los modelos nunca escriben en el contexto ni en las refs; todo pasa por `apply` (§1), incluidos los aportes de `recalled`.
+2. **Sin prosa nueva de un modelo**: lo que un modelo razona o justifica solo viaja en eventos y trazas; las respuestas finales ya mostradas al usuario se guardan marcadas con su origen (`thread` en `recalled`). Motivos de rechazo y de detención son claves cerradas con texto fijo.
+3. **Efectos permanentes**: se derivan de `calls`, que nunca se borran (un paso reemplazado solo se marca `superseded`). Ni un replan ni un reinicio pueden ocultarlos.
+4. **Aislamiento por tarea**: un log por tarea; el pre-chequeo solo lee las refs y `recalled` de la tarea activa (§5).
+5. **Estado terminal cerrado**: una tarea terminal rechaza toda escritura; tras el registro terminal, el log no admite escrituras y ninguna respuesta tardía puede modificarla.
+6. **Pliegue puro**: el mismo log produce siempre el mismo contexto. Los ids salen de la cantidad de elementos y el instante `at` viene en cada registro, no del reloj real.
+7. **Reconstruir no ejecuta**: reproducir un log no llama a modelos, herramientas ni al almacén de memoria.
+8. **Memoria, log y proyecto protegidos**: las herramientas de Jarvis no pueden escribir en `data/memory.json`, en la carpeta del log (`data/tasks/`) ni dentro de la carpeta del proyecto de Jarvis. Guard lo deniega siempre, incluidos los comandos de terminal que no son de solo lectura cuando nombran esas rutas.
 
 ## 8. Limitaciones Conocidas
-- **Timeouts de modelos**: un timeout durante un paso se registra como servicio no disponible, sin distinguirlo de una caída.
+- Las vistas `forPending` y `forPlan` aún no leen `recalled` en v1 (requiere habilitar y medir con el eval; el hilo sigue entrando a `pending`).
 
 ## 9. Archivos Base
-| Tema | Ruta en `src/core/` |
+| Tema | Ruta |
 |---|---|
-| Contexto (`apply`, validación, derivaciones, cierre, snapshot, vistas) | `ctx/` |
-| Renderizado de prompts y topes | `render/`, `budget.ts` |
-| Memoria entre tareas | `memory.ts`, `engine/thread.ts`, `tasks.ts` |
-| Resultados y refs | `result/processResult.ts`, `result/extractors/`, `refs/refVault.ts` |
-| Escritura desde el motor | `engine/callRunner.ts`, `engine/args.ts` |
-| Tareas, traza y configuración | `tasks.ts`, `trace/recorder.ts`, `config.ts` |
+| Contexto (`apply`, validación, derivaciones, cierre, snapshot, vistas) | `src/core/ctx/` |
+| Log de eventos y reproducción | `src/core/taskLog.ts`, `src/core/retention.ts` |
+| Renderizado de prompts, política de `recalled` y topes | `src/core/render/`, `src/core/recalledPolicy.ts`, `src/core/budget.ts` |
+| Paquete de memoria externa y adaptador | `src/memory/index.ts`, `src/core/memory.ts` |
+| Hilo y escritura de `recalled` | `src/core/engine/thread.ts`, `src/core/engine/recalled.ts`, `src/core/tasks.ts` |
+| Resultados, refs y Guard | `src/core/result/`, `src/core/refs/refVault.ts`, `src/core/policy/guard.ts` |
+| Escritura desde el motor | `src/core/engine/runTask.ts`, `src/core/engine/callRunner.ts`, `src/core/engine/args.ts` |
+| Tareas, traza y configuración | `src/core/tasks.ts`, `src/core/trace/recorder.ts`, `src/core/config.ts` |
 
+## 10. Memoria entre tareas
+El contexto de una tarea nace vacío y recibe los aportes externos por `apply` en `recalled` (§1), donde quedan congelados en el log de la tarea para que editar `data/memory.json` no altere tareas pasadas:
 
-## 10. Memoria entre tareas (fuera del contexto)
-El contexto de una tarea nace vacío y no conoce a nadie. Dos fuentes de memoria entran a los prompts por el motor, nunca por `apply`, y no cambian ni se escriben en el contexto (se mantienen los invariantes de §7):
-
-| Memoria | Qué guarda | Dónde | Cuándo entra a un prompt |
+| Memoria | Qué guarda | Dónde | Cuándo entra a `recalled` y a los prompts |
 |---|---|---|---|
-| **Hechos del usuario** (`memory.ts`) | Pares `clave → valor` que el usuario escribió a mano, p. ej. `carpeta jarvis` → su ruta | `data/memory.json` (junto a `refsDir`, ignorado por git; se relee si cambia la fecha del archivo) | Solo los que coinciden con el pedido o el paso: todas las palabras de la clave (prefijo de 5 letras), hasta 3. Van como bloque `MEMORY` a la generación de argumentos y sus valores son fuente del pre-chequeo |
-| **Hilo** (`engine/thread.ts`) | La última tarea `completed` con respuesta del modelo: pedido y 500 caracteres de respuesta | RAM de `TaskManager`, 10 minutos | Solo si una consulta `noul` a `d3` (`follow`, umbral 0,3) dice que el pedido nuevo la continúa: a `pending`, a la respuesta final, a los argumentos (líneas `previous request/answer` del bloque `MEMORY`) y como fuente del pre-chequeo |
+| **Hechos del usuario** (`src/memory`) | Pares `clave → valor` (y `aliases` opcionales) que el usuario escribió a mano | `data/memory.json` (junto a `refsDir`, ignorado por git; caché por `mtimeMs`) | Al iniciar la tarea (`request`) y en cada paso (`request + paso`), sin duplicar `(source, key)`. En v1 se lee en `forArgs`, `forFinal` y como fuente del pre-chequeo |
+| **Hilo** (`engine/thread.ts`) | La última tarea `completed` con respuesta del modelo: pedido y 500 caracteres de respuesta | RAM de `TaskManager` (10 minutos); se copia a `recalled` al iniciar si continúa | Si `detectContinuation` (`d3`, umbral 0,3) responde que continúa, se copian `previous_request` y `previous_answer` con `from` = id anterior. Entra a `pending`, `forArgs`, `forFinal` y pre-chequeo |
 
-- **Regla:** solo entra lo que escribió el usuario o la respuesta que ya vio; nunca prosa nueva de un modelo. Sin coincidencia no hay bloque y no cambia ningún token.
-- **Formato del archivo:** `[{ "key": "carpeta jarvis", "value": "C:\\Users\\Ana\\Desktop\\jarvis" }]` (también `{ "facts": [...] }`). Archivo ausente o inválido = memoria vacía.
-- **Sin hacer:** frase «recordá que…» y pantalla para ver y borrar hechos, respuestas del usuario como hechos, recetas por pedido repetido (ver [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md) §2). Diseño completo y mediciones: [`../evaluacion/analisis/FRENTE_1_MEMORIA.md`](../evaluacion/analisis/FRENTE_1_MEMORIA.md).
+- **Regla:** la confianza y la visibilidad de cada fuente se derivan de `source` en `recalledPolicy.ts`. Sin coincidencia no se agrega nada y no cambia ningún token.
+- **Formato del archivo:** `[{ "key": "carpeta jarvis", "value": "C:\\Users\\Ana\\Desktop\\jarvis", "aliases": ["mi repo"] }]` (también `{ "facts": [...] }`). Archivo ausente o inválido = memoria vacía.
+- **Diseño completo:** [`../pendientes/MEMORIA_CONTEXTO_DISENO.md`](../pendientes/MEMORIA_CONTEXTO_DISENO.md) (mediciones en [`../evaluacion/analisis/FRENTE_1_MEMORIA.md`](../evaluacion/analisis/FRENTE_1_MEMORIA.md)).
+

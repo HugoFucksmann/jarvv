@@ -23,6 +23,7 @@ import type { TaskContext } from "../ctx/index.ts";
 import type { Platform, UserEnvironment } from "../environment.ts";
 import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import { stripExtendedPrefix } from "../policy/allowedDirs.ts";
+import { isPrecheckSource } from "../recalledPolicy.ts";
 import { reviewViewOptions } from "./adapters.ts";
 
 const execFileAsync = promisify(execFile);
@@ -137,8 +138,10 @@ function readRefText(where: string): ReadRefResult | null {
  * URLs y rutas que aparecen solo ahí se darían por inventadas, o habría que apagar la comprobación en toda la tarea).
  */
 export function collectSources(ctx: TaskContext, extra: readonly string[] = []): PrecheckSources {
-  // `extra`: valores de los hechos de la memoria del usuario que se pasaron a la generación (sin esto, una ruta que viene de un hecho se rechazaría como inventada).
   const parts: string[] = [ctx.task.request, ...extra];
+  for (const r of ctx.find("recalled", {})) {
+    if (isPrecheckSource(r.source)) parts.push(r.value);
+  }
   for (const step of ctx.find("steps", {})) if (step.instruction) parts.push(step.instruction);
   parts.push(JSON.stringify(ctx.view.forReview(reviewViewOptions()).userInput));
   let complete = true;

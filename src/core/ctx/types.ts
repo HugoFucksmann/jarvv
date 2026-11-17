@@ -25,6 +25,7 @@ export const STOP_REASONS = [
   "user_cancelled",
   "replans_exhausted",
   "unrecoverable",
+  "restart",
 ] as const;
 export type StopReason = (typeof STOP_REASONS)[number];
 
@@ -80,9 +81,12 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
+export const RECALLED_SOURCES = ["user_memory", "thread"] as const;
+export type RecalledSource = (typeof RECALLED_SOURCES)[number];
+
 // ───────────────────────── Secciones con id (5.1) ─────────────────────────
 
-export const SECTION_NAMES = ["plans", "steps", "calls", "errors", "refs"] as const;
+export const SECTION_NAMES = ["plans", "steps", "calls", "errors", "refs", "recalled"] as const;
 export type SectionName = (typeof SECTION_NAMES)[number];
 
 // ───────────────────────── Elementos (5) ─────────────────────────
@@ -171,6 +175,18 @@ export interface Ref {
   where: string;
 }
 
+export interface RecalledEntry {
+  id: string;
+  at: number;
+  /** Paso en curso cuando se incorporó; null al iniciar la tarea. */
+  stepId: string | null;
+  source: RecalledSource;
+  key: string;
+  value: string;
+  /** Auditoría: id de la tarea de origen (hilo), o null. */
+  from: string | null;
+}
+
 export interface ResultEntry {
   text: string;
   origin: ResultOrigin;
@@ -185,6 +201,7 @@ export interface ContextData {
   errors: ErrorEntry[];
   facts: { [key: string]: Fact };
   refs: Ref[];
+  recalled: RecalledEntry[];
   result: ResultEntry | null;
 }
 
@@ -228,6 +245,14 @@ export interface RefInput {
   where: string;
 }
 
+export interface RecalledInput {
+  stepId: string | null;
+  source: RecalledSource;
+  key: string;
+  value: string;
+  from: string | null;
+}
+
 // ───────────────────────── Operaciones (6) ─────────────────────────
 
 export interface StepPatch {
@@ -259,6 +284,7 @@ export type Op =
   | { op: "add"; target: "calls"; value: CallInput }
   | { op: "add"; target: "errors"; value: ErrorInput }
   | { op: "add"; target: "refs"; value: RefInput }
+  | { op: "add"; target: "recalled"; value: RecalledInput }
   | { op: "update"; target: string; value: StepPatch | CallPatch }
   | { op: "set"; target: FactTarget; value: FactInput }
   | { op: "set"; target: "result"; value: ResultEntry }
@@ -271,6 +297,7 @@ export type NormalizedOp =
   | { op: "add"; target: "calls"; value: Call }
   | { op: "add"; target: "errors"; value: ErrorEntry }
   | { op: "add"; target: "refs"; value: Ref }
+  | { op: "add"; target: "recalled"; value: RecalledEntry }
   | { op: "update"; target: string; value: StepPatch | CallPatch }
   | { op: "set"; target: FactTarget; value: Fact }
   | { op: "set"; target: "result"; value: ResultEntry }
@@ -309,11 +336,26 @@ export interface ContextLimits {
   feedbackMax: number;
   /** Profundidad máxima de un valor JSON (`args`): niveles de contenedores contando la raíz. */
   jsonMaxDepth: number;
+  /** Largo máximo de `recalled.key`. */
+  recalledKeyMax?: number;
+  /** Largo máximo de `recalled.value` para `user_memory`. */
+  recalledValueMax?: number;
+  /** Largo máximo de `recalled.value` para `thread`. */
+  threadValueMax?: number;
+}
+
+export interface ApplyRecord {
+  readonly n: number;
+  readonly at: number;
+  readonly ops: readonly Op[];
+  readonly meta: ChangeMeta | null;
 }
 
 export interface ContextOptions extends ContextLimits {
   /** Reloj inyectable: devuelve la marca de tiempo de cada `apply`. */
   now: () => number;
+  /** Hook síncrono por lote validado, antes de confirmar en memoria (para persistencia del log). */
+  onApply?: (record: ApplyRecord) => void;
   /** Se invoca si un suscriptor falla; el cambio no se revierte. */
   onListenerError?: (error: unknown) => void;
 }
@@ -326,7 +368,7 @@ export interface CurrentView {
 }
 
 /** Cualquier elemento que devuelve `ctx.get`. */
-export type ContextElement = Plan | Step | Call | ErrorEntry | Ref | Fact;
+export type ContextElement = Plan | Step | Call | ErrorEntry | Ref | RecalledEntry | Fact;
 
 /** Elementos devueltos por `get` y `find`. */
 export type ElementOf<S extends SectionName> = S extends "plans"
@@ -337,4 +379,6 @@ export type ElementOf<S extends SectionName> = S extends "plans"
   ? Call
   : S extends "errors"
   ? ErrorEntry
-  : Ref;
+  : S extends "refs"
+  ? Ref
+  : RecalledEntry;

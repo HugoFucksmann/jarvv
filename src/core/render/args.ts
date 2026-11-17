@@ -94,7 +94,17 @@ export function renderArgs(view: ArgsView, options: ArgsRenderOptions): Rendered
   const request =
     view.request === null || view.request === undefined || oneLine(view.request) === oneLine(taskText ?? "") ? null : `REQUEST: ${clipMarked(oneLine(view.request), caps.routeRequest)}`;
 
+  const memoryLines = view.recalled.map((r) => {
+    const label = r.source === "thread" ? r.key.replace(/_/g, " ") : r.key;
+    return `- ${oneLine(label)}: ${oneLine(r.value)}`;
+  });
+  const memory =
+    memoryLines.length === 0
+      ? null
+      : `MEMORY (saved by the user earlier; use these values when the task refers to them):\n${memoryLines.join("\n")}`;
+
   const sections = [
+    memory,
     stateBlock(view.env, caps),
     userBlock(view.userInput, caps),
     obsBlock("STEPS", lastCapped(view.stepsDone.map((s) => stepDoneLine(s, caps)), caps.stepsDone)),

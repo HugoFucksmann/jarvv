@@ -7,7 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { TIMEOUT_DEFAULTS } from "./timeouts.ts";
+import { DEFAULT_MODEL_PAUSE_MAX_MS, TIMEOUT_DEFAULTS } from "./timeouts.ts";
 import { isRecord } from "./utils.ts";
 import type { BlacklistEntry } from "./policy/blacklist.ts";
 
@@ -51,6 +51,8 @@ export interface JarvisConfig {
   /** Ventana de contexto de Decision 2.0 según su contrato. */
   decisionMaxContext: number;
   decisionTimeoutMs: number;
+  /** Pausa acumulada máxima (ms) por consulta cuando el LLM o Decision no responden; 0 = sin pausa. */
+  modelUnavailablePauseMaxMs: number;
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
@@ -73,7 +75,9 @@ export interface JarvisConfig {
   tracePath: string;
   /** Días que se conservan los resultados crudos (`refsDir`) y las trazas; lo más viejo se borra al arrancar y cada 6 horas. 0 = no se borra nada. Las refs de una tarea retenida en memoria no se tocan. */
   retentionDays: number;
-  /** Tope de tamaño total en disco (en MB) entre `refsDir` y las trazas; si se supera, se borran las carpetas más viejas hasta bajar del límite. 0 = sin tope por tamaño. */
+  /** Días que se conservan los logs de eventos de tareas terminales (`data/tasks/*.jsonl`); 0 = no se borran por antigüedad. */
+  logRetentionDays: number;
+  /** Tope de tamaño total en disco (en MB) compartido entre `refsDir`, las trazas y los logs; si se supera, se borran los más antiguos primero. 0 = sin tope por tamaño. */
   retentionMaxMb: number;
   /** Carpeta de los resultados crudos de las refs; una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
   refsDir: string;
@@ -166,6 +170,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   decisionModel: "d3:2b",
   decisionMaxContext: 16384,
   decisionTimeoutMs: TIMEOUT_DEFAULTS.decisionMs,
+  modelUnavailablePauseMaxMs: DEFAULT_MODEL_PAUSE_MAX_MS,
   desktopCommanderMcp: {
     // Desktop Commander es una dependencia del proyecto (`package.json`, versión exacta; el lockfile fija el resto) y se lanza con `node` directo:
     // arranca en ~1,4 s contra ~2,7 s con `npx`, no consulta el registro y no depende de la red. La ruta es relativa al directorio de trabajo de
@@ -194,8 +199,9 @@ const DEFAULT_CONFIG: JarvisConfig = {
   traceEnabled: true,
   tracePath: "jarvis-traces.jsonl",
   refsDir: "data/refs",
-  retentionDays: 30,
-  retentionMaxMb: 500,
+  retentionDays: 10,
+  logRetentionDays: 30,
+  retentionMaxMb: 250,
   blacklist: [],
   autoMode: false,
   approvalTiers: true,
@@ -301,6 +307,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     decisionModel: nonEmptyText(r.decisionModel, d.decisionModel),
     decisionMaxContext: positiveInt(r.decisionMaxContext, d.decisionMaxContext),
     decisionTimeoutMs: positiveInt(r.decisionTimeoutMs, d.decisionTimeoutMs),
+    modelUnavailablePauseMaxMs: nonNegativeInt(r.modelUnavailablePauseMaxMs, d.modelUnavailablePauseMaxMs),
     desktopCommanderMcp: normalizeServer(r.desktopCommanderMcp, d.desktopCommanderMcp),
     freeSearchMcp: normalizeServer(r.freeSearchMcp, d.freeSearchMcp),
     mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
@@ -315,6 +322,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     tracePath: nonEmptyText(r.tracePath, d.tracePath),
     refsDir: nonEmptyText(r.refsDir, d.refsDir),
     retentionDays: nonNegativeInt(r.retentionDays, d.retentionDays),
+    logRetentionDays: nonNegativeInt(r.logRetentionDays, d.logRetentionDays),
     retentionMaxMb: nonNegativeInt(r.retentionMaxMb, d.retentionMaxMb),
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,

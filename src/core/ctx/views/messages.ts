@@ -62,4 +62,5 @@ export const STOP_REASON_NOTES: { readonly [R in StopReason]: string } = {
   user_cancelled: "The task was cancelled by the user.",
   replans_exhausted: "The replans were exhausted without completing the task.",
   unrecoverable: "A required service failed and the task could not continue.",
+  restart: "The server restarted while the task was running.",
 };

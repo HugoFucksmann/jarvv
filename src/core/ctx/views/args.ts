@@ -17,6 +17,7 @@ import {
   envViewsOf,
   failureViewOf,
   lineViewOf,
+  recalledViewsOf,
   stepViewOf,
   taskPartsOf,
   userInputViewsOf,
@@ -54,6 +55,7 @@ export function buildArgsView(data: ContextData, options: ArgsViewOptions): Args
     lastError: lastError === null ? null : callViewOf(lastError, true),
     userInput: userInputViewsOf(data),
     env: envViewsOf(data),
+    recalled: recalledViewsOf(data, options.recalled),
     effects: effectViewsOf(data),
   };
 }

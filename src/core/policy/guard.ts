@@ -5,17 +5,17 @@
  * - Ningún modelo puede eludir Guard.
  * - Patrones destructivos sobre el SO y comandos catastróficos (nivel `guard` de `commandRules.ts`: discos, raíz del sistema) => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
  *   escanean los de `free_search` ni `jarvis_web` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
- *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `start_process`, que siempre pide aprobación).
+ *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `run_command`, que siempre pide aprobación).
  * - Ruta sensible (`sensitivePaths.ts`: claves, credenciales, navegadores, lugares de inicio automático, el sistema) => APPROVAL obligatorio,
  *   también con `autoMode`: `GuardDecision.mandatory`. Se mira antes que el modo de solo lectura de un comando.
  * - Datos sensibles en lo que `web_search` envía a internet (`egress.ts`: claves, tokens, rutas del usuario) => APPROVAL obligatorio, también con `autoMode`.
  * - Herramienta no catalogada en el manifest => APPROVAL (fail-closed; en la práctica runStep ya no la ofrece).
  * - policy.requiresApproval => APPROVAL cada vez (la aprobación no perdura), salvo un comando de terminal que `readOnly.ts` demuestra de
  *   solo lectura (pasó antes por todas las reglas anteriores: DENY de patrones y reglas de comando).
- * - Regla B (Fase 5): una escritura (FILE_WRITE) sobre una ruta dentro de las carpetas protegidas (`refsDir`: resultados
- *   crudos de las refs) => DENY siempre. Se revisan los argumentos de tipo texto, salvo `content` y `mode`; las rutas
- *   relativas se resuelven contra cada base conocida (D27); se compara sin seguir enlaces simbólicos. No cubre
- *   `start_process` (un comando puede tocar esas rutas; ya pide aprobación) ni un directorio que CONTENGA a la protegida.
+ * - Regla B / Invariante 8: una escritura (`FILE_WRITE`, mutación o comando `run_command` no de solo lectura) sobre una ruta dentro de las
+ *   carpetas o archivos protegidos (`refsDir`, logs de tareas, carpeta del proyecto, `data/memory.json`) => DENY siempre. Se revisan los
+ *   argumentos de tipo texto, salvo `content` y `mode`, y las rutas extraídas de comandos; las rutas relativas se resuelven contra cada base
+ *   conocida (`relativeBases` / `commandBases`); se compara sin seguir enlaces simbólicos. No cubre un directorio que CONTENGA a la protegida.
  * - Resto => ALLOW (lecturas).
  * - La política sale únicamente del manifest (tools/manifest.ts); no hay otra fuente.
  */
@@ -25,7 +25,7 @@ import path from "node:path";
 
 import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
-import { classify, commandOf } from "./commandRules.ts";
+import { classify, commandOf, splitSegments, tokenize } from "./commandRules.ts";
 import { isReadOnlyCall } from "./readOnly.ts";
 import { egressFinding } from "./egress.ts";
 import { sensitivePathFinding } from "./sensitivePaths.ts";
@@ -41,12 +41,16 @@ const DENY_PATTERNS: readonly RegExp[] = [
   /system32\/drivers/,
 ];
 
-/** Carpetas que el modelo no puede modificar y bases para resolver las rutas relativas que escriba (regla B). */
+/** Carpetas y archivos que el modelo no puede modificar y bases para resolver rutas relativas (invariante 8). */
 export interface ProtectedPaths {
-  /** Rutas absolutas de las carpetas protegidas (hoy: `refsDir`). */
+  /** Rutas absolutas de las carpetas protegidas (`refsDir`, logs de tareas, proyecto de Jarvis). */
   readonly protectedDirs: readonly string[];
-  /** Bases contra las que se resuelve una ruta relativa: cada una es un candidato (D27). */
+  /** Rutas absolutas de archivos protegidos (`data/memory.json`). */
+  readonly protectedFiles?: readonly string[];
+  /** Bases contra las que se resuelve una ruta relativa de herramientas de archivos: cada una es un candidato (D27). */
   readonly relativeBases: readonly string[];
+  /** Bases para resolver rutas relativas en comandos de terminal si el llamado omite `cwd` (p. ej. `os.homedir()`). */
+  readonly commandBases?: readonly string[];
 }
 
 /**
@@ -58,12 +62,21 @@ export function isPathInside(parent: string, child: string): boolean {
   return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
+function samePath(a: string, b: string): boolean {
+  return path.relative(path.resolve(a), path.resolve(b)) === "";
+}
+
 /** Argumentos de las herramientas de escritura que no son rutas (texto que se escribe, modo de escritura). */
 const NON_PATH_ARGS: readonly string[] = ["content", "mode"];
+const COMMAND_ARG_KEYS: readonly string[] = ["command", "cmd", "input"];
+const MAX_WRAPPER_DEPTH = 3;
+const SHELL_WRAPPERS = new Set(["cmd", "powershell", "pwsh", "bash", "sh", "zsh", "dash"]);
+const HOME_VAR_PREFIX = /^(\$env:userprofile|\$env:home|\$home|\$\{home\}|%userprofile%|%homepath%|~)(?=[\\/]|$)/i;
+const REDIRECT_TARGET = /(?:^|[^&>])>>?\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|>`"']+))/g;
 
 export class Guard {
   /**
-   * @param scope Carpetas protegidas (regla B). Sin él, la regla no se aplica.
+   * @param scope Carpetas y archivos protegidos (invariante 8). Sin él, la regla no se aplica.
    */
   static evaluate(mcp: string, tool: string, args: Record<string, unknown> = {}, scope?: ProtectedPaths): GuardDecision {
     const policy = getToolPolicy(mcp, tool);
@@ -84,10 +97,11 @@ export class Guard {
       return { decision: "DENY", reason: `Operación rechazada (DENY): comando catastrófico prohibido (${found.id}).`, capability };
     }
 
-    if (scope && capability === "FILE_WRITE" && Guard.touchesProtectedPath(args, scope)) {
+    const isWrite = capability === "FILE_WRITE" || policy.mutates || command !== null;
+    if (scope && !isReadOnlyCall(mcp, tool, args) && isWrite && Guard.touchesProtectedPath(args, scope, command !== null)) {
       return {
         decision: "DENY",
-        reason: "Operación rechazada (DENY): la ruta pertenece a la carpeta de resultados guardados (refs) y no se puede modificar.",
+        reason: "Operación rechazada (DENY): la ruta pertenece a una carpeta o archivo protegido del sistema (refs, logs, memoria o proyecto) y no se puede modificar.",
         capability,
       };
     }
@@ -134,23 +148,130 @@ export class Guard {
     return args;
   }
 
-  /** Rutas que un argumento de texto puede nombrar: absoluta, `~` o relativa a cada base conocida. */
-  private static candidatePaths(value: string, scope: ProtectedPaths): string[] {
-    const text = value.trim();
+  /** Rutas que un argumento de texto puede nombrar: absoluta, `~`/env o relativa a cada base dada. */
+  private static candidatePaths(value: string, bases: readonly string[]): string[] {
+    let text = value.trim().replace(/^['"]|['"]$/g, "");
     if (text.length === 0 || text.includes("\0")) return [];
-    if (text === "~" || text.startsWith("~/") || text.startsWith("~\\")) return [path.join(os.homedir(), text.slice(1))];
-    if (path.isAbsolute(text)) return [text];
-    return scope.relativeBases.map((base) => path.resolve(base, text));
+    const envMatch = text.match(HOME_VAR_PREFIX);
+    if (envMatch) text = path.join(os.homedir(), text.slice(envMatch[0].length));
+    if (path.isAbsolute(text) || /^[a-z]:[\\/]/i.test(text)) return [text];
+    return bases.map((base) => path.resolve(base, text));
   }
 
-  /** Regla B: ¿algún argumento de texto (salvo `content` y `mode`) nombra una ruta dentro de las carpetas protegidas? */
-  private static touchesProtectedPath(args: Record<string, unknown>, scope: ProtectedPaths): boolean {
-    for (const [key, value] of Object.entries(args)) {
-      if (typeof value !== "string" || NON_PATH_ARGS.includes(key.toLowerCase())) continue;
-      for (const candidate of Guard.candidatePaths(value, scope)) {
-        if (scope.protectedDirs.some((dir) => isPathInside(dir, candidate))) return true;
+  private static isProtectedTarget(candidate: string, scope: ProtectedPaths): boolean {
+    return (
+      scope.protectedDirs.some((dir) => isPathInside(dir, candidate)) ||
+      (scope.protectedFiles?.some((file) => samePath(file, candidate)) ?? false)
+    );
+  }
+
+  private static looksLikePath(token: string, protectedFileNames: ReadonlySet<string>): boolean {
+    const t = token.trim();
+    if (t === "" || t.includes("\0")) return false;
+    if (t === "." || t === ".." || t.startsWith("./") || t.startsWith(".\\") || t.startsWith("../") || t.startsWith("..\\")) return true;
+    if (t.includes("/") || t.includes("\\") || t.startsWith("~") || /^[a-z]:/i.test(t)) return true;
+    if (HOME_VAR_PREFIX.test(t)) return true;
+    return protectedFileNames.has(path.basename(t).toLowerCase());
+  }
+
+  private static extractCommandPaths(command: string, protectedFileNames: ReadonlySet<string>, depth = 0): string[] {
+    const found: string[] = [];
+    const segments = new Set([...splitSegments(command, false), ...splitSegments(command, true)]);
+
+    for (const segment of segments) {
+      let match: RegExpExecArray | null;
+      REDIRECT_TARGET.lastIndex = 0;
+      while ((match = REDIRECT_TARGET.exec(segment)) !== null) {
+        const target = match[1] ?? match[2] ?? match[3] ?? "";
+        if (target && !/^(&|\$null|\/dev\/null|nul)$/i.test(target)) found.push(target);
+      }
+
+      const tokens = tokenize(segment);
+      if (tokens.length === 0) continue;
+
+      if (depth < MAX_WRAPPER_DEPTH) {
+        const cmdName = tokens[0].toLowerCase().replace(/\\/g, "/").replace(/^.*\//, "").replace(/\.exe$/, "");
+        const lc = tokens.map((t) => t.toLowerCase());
+        if (SHELL_WRAPPERS.has(cmdName)) {
+          let inner: string | null = null;
+          if (cmdName === "cmd") {
+            const i = lc.findIndex((t, k) => k > 0 && (t === "/c" || t === "/k"));
+            if (i > 0) inner = tokens.slice(i + 1).join(" ");
+          } else if (cmdName === "powershell" || cmdName === "pwsh") {
+            const enc = lc.findIndex((t, k) => k > 0 && ["-e", "-ec", "-enc", "-encodedcommand"].includes(t));
+            if (enc > 0 && tokens[enc + 1]) {
+              try {
+                inner = Buffer.from(tokens[enc + 1], "base64").toString("utf16le");
+              } catch {
+                inner = null;
+              }
+            } else {
+              const c = lc.findIndex((t, k) => k > 0 && (t === "-c" || t === "-command"));
+              if (c > 0) inner = tokens.slice(c + 1).join(" ");
+            }
+          } else {
+            const c = lc.findIndex((t, k) => k > 0 && /^-[a-z]*c$/.test(t));
+            if (c > 0) inner = tokens.slice(c + 1).join(" ");
+          }
+          if (inner) found.push(...Guard.extractCommandPaths(inner, protectedFileNames, depth + 1));
+        } else if (cmdName === "sudo" || cmdName === "doas") {
+          const inner: string[] = [];
+          for (let i = 1; i < tokens.length; i++) {
+            if (inner.length === 0 && lc[i].startsWith("-")) {
+              if (["-u", "-g", "-h", "-p", "-c", "-r", "-t", "-d"].includes(lc[i])) i++;
+              continue;
+            }
+            inner.push(tokens[i]);
+          }
+          if (inner.length > 0) found.push(...Guard.extractCommandPaths(inner.join(" "), protectedFileNames, depth + 1));
+        }
+      }
+
+      for (const token of tokens) {
+        const candidates = [token];
+        const eq = token.indexOf("=");
+        if (eq > 0 && eq < token.length - 1) candidates.push(token.slice(eq + 1));
+        const colon = token.indexOf(":");
+        if (token.startsWith("-") && colon > 1 && colon < token.length - 1) candidates.push(token.slice(colon + 1));
+        for (const piece of candidates) {
+          if (Guard.looksLikePath(piece, protectedFileNames)) found.push(piece);
+        }
       }
     }
+
+    return found;
+  }
+
+  /** Invariante 8: ¿los argumentos o el comando nombran una carpeta o archivo protegido? */
+  private static touchesProtectedPath(args: Record<string, unknown>, scope: ProtectedPaths, hasCommand: boolean): boolean {
+    for (const [key, value] of Object.entries(args)) {
+      const k = key.toLowerCase();
+      if (NON_PATH_ARGS.includes(k)) continue;
+      if (hasCommand && COMMAND_ARG_KEYS.includes(k)) continue;
+      const values = typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+      for (const item of values) {
+        for (const candidate of Guard.candidatePaths(item, scope.relativeBases)) {
+          if (Guard.isProtectedTarget(candidate, scope)) return true;
+        }
+      }
+    }
+
+    if (hasCommand) {
+      const command = commandOf(args);
+      if (command !== null) {
+        const cmdBases =
+          typeof args.cwd === "string" && args.cwd.trim() !== ""
+            ? Guard.candidatePaths(args.cwd.trim(), scope.commandBases ?? scope.relativeBases)
+            : (scope.commandBases ?? scope.relativeBases);
+        const protectedFileNames = new Set((scope.protectedFiles ?? []).map((f) => path.basename(f).toLowerCase()));
+        for (const token of Guard.extractCommandPaths(command, protectedFileNames)) {
+          for (const candidate of Guard.candidatePaths(token, cmdBases)) {
+            if (Guard.isProtectedTarget(candidate, scope)) return true;
+          }
+        }
+      }
+    }
+
     return false;
   }
 

@@ -36,6 +36,7 @@ function context(params: CreateContextParams, options: ContextOptions): TaskCont
     errors: [],
     facts: {},
     refs: [],
+    recalled: [],
     result: null,
   };
   return new TaskContext(data, options);

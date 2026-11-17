@@ -31,10 +31,12 @@ export class TransportError extends Error {
 /** El LLM no responde: red, HTTP no-OK, timeout o configuración ausente. */
 export class LLMServiceUnavailableError extends Error {
     readonly raw?: { rawInput: string; timing?: TimeSpan };
-    constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }) {
+    readonly retryable: boolean;
+    constructor(message: string, cause?: unknown, raw?: { rawInput: string; timing?: TimeSpan }, retryable = true) {
         super(`[LLM Unavailable] ${message}`, { cause });
         this.name = "LLMServiceUnavailableError";
         this.raw = raw;
+        this.retryable = retryable;
     }
 }
 
@@ -61,9 +63,11 @@ export class LLMValidationError extends Error {
 }
 
 export class DecisionServiceUnavailableError extends Error {
-    constructor(message: string, cause?: unknown) {
+    readonly retryable: boolean;
+    constructor(message: string, cause?: unknown, retryable = true) {
         super(`[Decision 2.0 Unavailable] ${message}`, { cause });
         this.name = "DecisionServiceUnavailableError";
+        this.retryable = retryable;
     }
 }
 

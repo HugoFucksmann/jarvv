@@ -10,7 +10,8 @@
 import { Bot, InlineKeyboard, InputFile } from "grammy";
 import type { Context } from "grammy";
 import { FIXED_TIMEOUTS } from "../core/timeouts.ts";
-import type { TaskEvent } from "../core/tasks.ts";
+import { RESTART_RESULT_TEXT } from "../core/tasks.ts";
+import type { TaskEvent, TaskSummary } from "../core/tasks.ts";
 import type { Waiting } from "../core/engine/runtime.ts";
 import { speechExcerpt, streamSpeech } from "../voice/tts.ts";
 import type { VoiceConfig } from "../voice/tts.ts";
@@ -25,6 +26,8 @@ export interface TelegramDeps {
   cfg: TelegramConfig;
   /** Configuración de voz si Telegram debe sumar una nota de voz a la respuesta; `null` si está apagada. Se lee en cada respuesta. */
   getVoice: () => VoiceConfig | null;
+  /** Tareas que quedaron abiertas al apagarse el servidor y se cerraron con `restart` al arrancar. */
+  interruptedOnStartup?: readonly TaskSummary[];
 }
 
 interface TaskState {
@@ -42,8 +45,14 @@ interface TaskState {
   typing?: ReturnType<typeof setInterval>;
   /** Serializa las ediciones del mensaje de progreso. */
   lock: Promise<void>;
+  /** Pausa activa por modelo no disponible y temporizador breve para distinguir reanudación de cierre inmediato. */
+  pausedModel?: string;
+  resumeTimer?: ReturnType<typeof setTimeout>;
   finished?: { state: string; stopReason: string | null };
 }
+
+const modelLabel = (model: string): string =>
+  model === "llm" ? "modelo generativo (LLM)" : model === "decision" ? "modelo de decisión" : model;
 
 const STATUS_INTERVAL_MS = FIXED_TIMEOUTS.telegramStatusMs; // cada cuánto se actualiza, como mucho, el mensaje de progreso
 const TYPING_INTERVAL_MS = FIXED_TIMEOUTS.telegramTypingMs; // el aviso "escribiendo…" dura 5 s en Telegram
@@ -62,7 +71,7 @@ const waitKey = (w: Waiting): string => (w.kind === "question" ? `q${w.question.
 /** Identifica la espera en el `callback_data` de los botones (Telegram lo limita a 64 bytes). */
 const tagOf = (w: Waiting): string => waitKey(w).slice(0, 8);
 
-export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
+export function startTelegram({ cfg, getVoice, interruptedOnStartup = [] }: TelegramDeps): () => void {
   const bot = new Bot(cfg.token);
   const api = new JarvisApi(cfg.apiBase);
   const abort = new AbortController();
@@ -172,7 +181,8 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
   function stopTimers(t: TaskState): void {
     if (t.typing) clearInterval(t.typing);
     if (t.timer) clearTimeout(t.timer);
-    t.typing = t.timer = undefined;
+    if (t.resumeTimer) clearTimeout(t.resumeTimer);
+    t.typing = t.timer = t.resumeTimer = undefined;
   }
 
   function flushStatus(t: TaskState, header = "⏳ Trabajando…"): Promise<void> {
@@ -212,8 +222,17 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
 
   async function onFinish(id: string, t: TaskState, finish: { state: string; stopReason: string | null }): Promise<void> {
     t.finished = finish;
+    const pausedBeforeFinish = t.pausedModel;
+    t.pausedModel = undefined;
     stopTimers(t);
     await retirePrompt(t, null);
+    if (pausedBeforeFinish !== undefined && finish.state !== "completed") {
+      const msg =
+        finish.state === "cancelled"
+          ? `🛑 **Tarea cancelada durante la pausa** (${modelLabel(pausedBeforeFinish)}).`
+          : `❌ **Se agotó la espera por ${modelLabel(pausedBeforeFinish)}.** Cerrando tarea (${finish.stopReason ?? finish.state}).`;
+      await sendRich(msg).catch(() => { });
+    }
     if (current?.taskId === id) {
       current = null;
       awaitingFeedback = false;
@@ -239,6 +258,26 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
       await retirePrompt(t, event.waiting ? waitKey(event.waiting) : null);
       if (event.waiting) await showWaiting(t, event.waiting);
       else awaitingFeedback = false;
+      return;
+    }
+    if (event.type === "paused") {
+      if (t.resumeTimer) {
+        clearTimeout(t.resumeTimer);
+        t.resumeTimer = undefined;
+      }
+      if (event.paused !== null) {
+        t.pausedModel = event.paused.model;
+        await sendRich(`⏸️ **${modelLabel(event.paused.model)} no disponible.** Pausando tarea y reintentando automáticamente… (usa /cancel para cancelar).`);
+      } else if (t.pausedModel !== undefined && !t.finished) {
+        const model = t.pausedModel;
+        t.resumeTimer = setTimeout(() => {
+          t.resumeTimer = undefined;
+          if (t.pausedModel === model && (!t.finished || t.finished.state === "completed")) {
+            t.pausedModel = undefined;
+            void sendRich(`▶️ **${modelLabel(model)} disponible.** Retomando la tarea.`).catch(() => { });
+          }
+        }, 120);
+      }
       return;
     }
     if (event.type !== "change") return;
@@ -444,6 +483,15 @@ export function startTelegram({ cfg, getVoice }: TelegramDeps): () => void {
 
   // Menú de comandos que Telegram ofrece al escribir "/".
   void bot.api.setMyCommands([...BOT_COMMANDS]).catch(() => { /* el menú es una comodidad */ });
+
+  // Aviso tras un reinicio si quedaron tareas interrumpidas (incluidas las que esperaban aprobación o respuesta).
+  for (const task of interruptedOnStartup) {
+    const excerpt = task.request.length > 140 ? `${task.request.slice(0, 140)}…` : task.request;
+    const outcome = task.state === "partial" ? "⚠️ Parcial (hubo cambios aplicados)" : "❌ Fallida";
+    void sendRich(
+      `🔄 **Tarea interrumpida por reinicio**\n\n**Pedido:** ${excerpt}\n**Estado:** ${outcome} (\`restart\`)\n${RESTART_RESULT_TEXT}.`,
+    ).catch((e) => console.error("[telegram] aviso de reinicio:", e instanceof Error ? e.message : e));
+  }
 
   void api.listen(enqueue, abort.signal);
   bot

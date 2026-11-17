@@ -14,9 +14,20 @@
  *   la tarea en espera más antigua (abandonada).
  */
 
+import fs from "node:fs";
 import { BUDGET } from "./budget.ts";
 import { create, terminalStateFor } from "./ctx/index.ts";
-import type { ContextData, ContextOptions, NormalizedOp, StopReason, TaskContext, TaskMode, TaskState } from "./ctx/index.ts";
+import type {
+  ContextData,
+  ContextLimits,
+  ContextOptions,
+  NormalizedOp,
+  Op,
+  StopReason,
+  TaskContext,
+  TaskMode,
+  TaskState,
+} from "./ctx/index.ts";
 import type { EngineDeps, EngineLLM, IActionDecision, IDiscoveryEngine, PreviousTask } from "./contracts.ts";
 import { previousTaskOf, THREAD_TTL_MS } from "./engine/thread.ts";
 import type { EngineServices } from "./engine/services.ts";
@@ -24,13 +35,16 @@ import { createEngineServices } from "./engine/services.ts";
 import type { ConfigSource } from "./config.ts";
 import { runTask } from "./engine/runTask.ts";
 import { TaskRuntime } from "./engine/runtime.ts";
-import type { Waiting } from "./engine/runtime.ts";
+import type { ModelPause, Waiting } from "./engine/runtime.ts";
 import { renderFallback } from "./render/index.ts";
 import { windowOptions } from "./engine/adapters.ts";
+import { listTaskLogFiles, openTaskLog, readTaskLog, taskLogPath, tasksDirFromSource } from "./taskLog.ts";
 import { argsMax } from "./tools/manifest.ts";
 import { TaskTraceRecorder } from "./trace/recorder.ts";
 import { MAX_RETAINED_TASKS } from "./types/limits.ts";
 import { errorMessage, newId } from "./utils.ts";
+
+export const RESTART_RESULT_TEXT = "El servidor se reinició mientras la tarea corría";
 
 /** Motores que recibe la fachada; los construye la raíz de composición (server.ts). */
 export interface TaskManagerDeps {
@@ -44,6 +58,7 @@ export interface TaskDto extends ContextData {
   /** Versión del contexto (`ctx.n`): los eventos `change` traen la suya, para detectar saltos. */
   n: number;
   waiting: Waiting | null;
+  paused: ModelPause | null;
 }
 
 /** Fila de un listado. */
@@ -61,7 +76,8 @@ export interface TaskSummary {
 export type TaskEvent =
   | { readonly type: "created"; readonly taskId: string; readonly n: number }
   | { readonly type: "change"; readonly taskId: string; readonly n: number; readonly at: number; readonly ops: readonly Readonly<NormalizedOp>[] }
-  | { readonly type: "waiting"; readonly taskId: string; readonly waiting: Waiting | null };
+  | { readonly type: "waiting"; readonly taskId: string; readonly waiting: Waiting | null }
+  | { readonly type: "paused"; readonly taskId: string; readonly paused: ModelPause | null };
 
 export type TaskListener = (event: TaskEvent) => void;
 
@@ -71,37 +87,57 @@ export type ControlResult = "ok" | "unknown_task" | "not_waiting";
 interface TaskEntry {
   readonly ctx: TaskContext;
   readonly runtime: TaskRuntime;
-  readonly recorder: TaskTraceRecorder;
+  readonly recorder?: TaskTraceRecorder;
 }
 
 export class TaskManager {
+  /** Caché en RAM (máximo `MAX_RETAINED_TASKS`); las tareas anteriores se reconstruyen desde su log bajo demanda. */
   private readonly tasks = new Map<string, TaskEntry>();
+  /** Resumen en memoria de todas las tareas válidas conocidas (en caché o en disco), para `list()`. */
+  private readonly summaries = new Map<string, TaskSummary>();
+  /** Tareas cuyo log resultó ilegible al arrancar o consultar (no se cargan a medias; el archivo se conserva en disco). */
+  private readonly unreadable = new Map<string, string>();
+  /** Tareas que estaban abiertas al arrancar y se cerraron con `restart`. */
+  private readonly restartedOnStartup: TaskSummary[] = [];
   private readonly listeners = new Set<TaskListener>();
   /** Ejecuciones en curso (con la escritura de su traza). */
   private readonly inFlight = new Set<Promise<void>>();
   /** Hilo (`engine/thread.ts`): la última tarea completada con respuesta del modelo, en RAM; vence a los `THREAD_TTL_MS`. */
-  private previous: { readonly task: PreviousTask; readonly at: number } | null = null;
-  private readonly contextOptions: ContextOptions = {
-    now: Date.now,
+  private previous: { readonly id: string; readonly task: PreviousTask; readonly at: number } | null = null;
+  private readonly tasksDir: string;
+  private readonly contextLimits: ContextLimits = {
     summaryMax: BUDGET.summaryMax,
     argsStringMax: argsMax(BUDGET.argsStringDefault),
     factValueMax: BUDGET.factValueMax,
     feedbackMax: BUDGET.feedbackMax,
     jsonMaxDepth: BUDGET.jsonMaxDepth,
-    onListenerError: (error) => console.error("[Tasks] un suscriptor de `change` falló:", errorMessage(error)),
+    recalledKeyMax: BUDGET.recalledKeyMax,
+    recalledValueMax: BUDGET.recalledValueMax,
+    threadValueMax: BUDGET.threadValueMax,
+  };
+  private readonly onListenerError = (error: unknown): void => {
+    console.error("[Tasks] un suscriptor de `change` falló:", errorMessage(error));
   };
 
   constructor(
     private readonly deps: TaskManagerDeps,
     private readonly getConfig: ConfigSource,
     private readonly services: EngineServices = createEngineServices(getConfig),
-  ) { }
+  ) {
+    this.tasksDir = tasksDirFromSource(this.getConfig);
+    this.restoreFromDisk();
+  }
 
   addEventListener(listener: TaskListener): () => void {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /** Tareas que estaban no terminales al arrancar el servidor y se cerraron con motivo `restart`. */
+  interruptedOnStartup(): readonly TaskSummary[] {
+    return [...this.restartedOnStartup];
   }
 
   // ─────────── Ciclo de vida ───────────
@@ -116,24 +152,56 @@ export class TaskManager {
   /** Crea la tarea y la lanza en segundo plano. Devuelve su estado inicial. */
   start(message: string, mode: TaskMode): TaskDto {
     const id = newId("task");
-    const ctx = create.context({ id, request: message, mode }, this.contextOptions);
+    const startedAt = Date.now();
+    let created = false;
+    const log = openTaskLog(this.tasksDir, {
+      id,
+      mode,
+      request: message,
+      startedAt,
+      limits: this.contextLimits,
+    });
+    const options: ContextOptions = {
+      ...this.contextLimits,
+      now: () => {
+        if (!created) {
+          created = true;
+          return startedAt;
+        }
+        return Date.now();
+      },
+      onApply: log.onApply,
+      onListenerError: this.onListenerError,
+    };
+    const ctx = create.context({ id, request: message, mode }, options);
     const recorder = new TaskTraceRecorder(ctx, this.getConfig);
     const runtime = new TaskRuntime({
       onChange: (waiting) => {
         recorder.onWaiting(waiting);
+        this.summaries.set(id, this.summaryOf(ctx, waiting));
         this.emit({ type: "waiting", taskId: id, waiting });
+      },
+      onPause: (paused) => {
+        recorder.onPaused(paused);
+        this.emit({ type: "paused", taskId: id, paused });
       },
     });
     const entry: TaskEntry = { ctx, runtime, recorder };
 
     this.tasks.set(id, entry);
-    ctx.on("change", (event) => this.emit({ type: "change", taskId: id, n: event.n, at: event.at, ops: event.ops }));
+    this.summaries.set(id, this.summaryOf(ctx, runtime.waiting));
+    ctx.on("change", (event) => {
+      this.summaries.set(id, this.summaryOf(ctx, runtime.waiting));
+      this.emit({ type: "change", taskId: id, n: event.n, at: event.at, ops: event.ops });
+    });
     this.prune();
     this.emit({ type: "created", taskId: id, n: ctx.n });
 
     console.log(`[Task] start id=${id} mode=${mode}`);
-    const previousTask = this.previous !== null && Date.now() - this.previous.at < THREAD_TTL_MS ? this.previous.task : null;
-    const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink, previousTask };
+    const previousActive = this.previous !== null && Date.now() - this.previous.at < THREAD_TTL_MS ? this.previous : null;
+    const previousTask = previousActive?.task ?? null;
+    const previousTaskId = previousActive?.id ?? null;
+    const deps: EngineDeps = { ...this.deps, ...this.services, sink: recorder.sink, previousTask, previousTaskId };
     // La ejecución incluye la escritura de la traza (asíncrona, después de la respuesta): `drain` espera a ambas al apagar el servidor.
     const run: Promise<void> = runTask(ctx, runtime, deps)
       .catch((error: unknown) => this.closeOnDefect(entry, error))
@@ -149,7 +217,7 @@ export class TaskManager {
   private remember(ctx: TaskContext): void {
     const result = ctx.result;
     if (ctx.task.state !== "completed" || result === null || result.origin !== "model") return;
-    this.previous = { task: previousTaskOf(ctx.task.request, result.text), at: Date.now() };
+    this.previous = { id: ctx.task.id, task: previousTaskOf(ctx.task.request, result.text), at: Date.now() };
   }
 
   /** Cancela la tarea: aborta lo que esté en curso y resuelve la espera. El cierre (`user_cancelled`) lo escribe `runTask`. */
@@ -187,14 +255,16 @@ export class TaskManager {
 
   get(taskId: string): TaskDto | null {
     const entry = this.tasks.get(taskId);
-    return entry ? this.toDto(entry) : null;
+    if (entry) return this.toDto(entry);
+    const ctx = this.loadFromDisk(taskId);
+    return ctx ? { ...ctx.snapshot(), n: ctx.n, waiting: null, paused: null } : null;
   }
 
   /** Texto completo de una ref de la tarea. La ruta sale del contexto, nunca del pedido, y el almacén solo lee dentro de su carpeta. */
   async readRef(taskId: string, refId: string): Promise<{ readonly text: string } | "unknown_task" | "unknown_ref" | "unavailable"> {
-    const entry = this.tasks.get(taskId);
-    if (!entry) return "unknown_task";
-    const ref = entry.ctx.snapshot().refs.find((r) => r.id === refId);
+    const ctx = this.tasks.get(taskId)?.ctx ?? this.loadFromDisk(taskId);
+    if (!ctx) return "unknown_task";
+    const ref = ctx.snapshot().refs.find((r) => r.id === refId);
     if (!ref) return "unknown_ref";
     try {
       return { text: await this.services.vault.readAll(ref.where) };
@@ -204,23 +274,21 @@ export class TaskManager {
     }
   }
 
-  /** Tareas retenidas, de la más antigua a la más reciente. */
-  /** Ids de las tareas retenidas en memoria (la retención en disco no borra sus refs). */
+  /** Ids de las tareas retenidas en memoria (la retención en disco no borra sus refs ni su log). */
   taskIds(): string[] {
     return [...this.tasks.keys()];
   }
 
   list(): TaskSummary[] {
-    return [...this.tasks.values()].map(({ ctx, runtime }) => ({
-      id: ctx.task.id,
-      mode: ctx.task.mode,
-      request: ctx.task.request,
-      state: ctx.task.state,
-      stopReason: ctx.task.stopReason,
-      startedAt: ctx.task.startedAt,
-      n: ctx.n,
-      waiting: runtime.waiting?.kind ?? null,
-    }));
+    const out: TaskSummary[] = [];
+    for (const [id, summary] of this.summaries) {
+      if (!this.tasks.has(id) && !fs.existsSync(taskLogPath(this.tasksDir, id))) {
+        this.summaries.delete(id);
+        continue;
+      }
+      out.push(summary);
+    }
+    return out;
   }
 
   // ─────────── Respuestas del usuario ───────────
@@ -259,6 +327,79 @@ export class TaskManager {
 
   // ─────────── Internos ───────────
 
+  private restoreFromDisk(): void {
+    const files = listTaskLogFiles(this.tasksDir);
+    const loaded: { readonly id: string; readonly ctx: TaskContext }[] = [];
+
+    for (const { taskId, filePath } of files) {
+      const result = readTaskLog(filePath, { onListenerError: this.onListenerError, attachLiveWriter: true });
+      if (!result.ok) {
+        this.unreadable.set(result.id, result.reason);
+        console.warn(`[Tasks] log ilegible '${result.id}' (${filePath}): ${result.reason}`);
+        continue;
+      }
+      const { ctx } = result;
+      if (!ctx.isClosed() || ctx.result === null) {
+        this.closeOnRestart(ctx);
+        this.restartedOnStartup.push(this.summaryOf(ctx, null));
+      }
+      const summary = this.summaryOf(ctx, null);
+      this.summaries.set(taskId, summary);
+      loaded.push({ id: taskId, ctx });
+    }
+
+    const recent = loaded.slice(-MAX_RETAINED_TASKS);
+    for (const { id, ctx } of recent) {
+      const runtime = new TaskRuntime({ onChange: () => undefined });
+      this.tasks.set(id, { ctx, runtime });
+    }
+  }
+
+  private closeOnRestart(ctx: TaskContext): void {
+    try {
+      if (!ctx.isClosed()) {
+        const ops: Op[] = [];
+        for (const step of ctx.find("steps", { state: "running" })) {
+          ops.push({ op: "update", target: step.id, value: { state: "failed" } });
+        }
+        const calls = ctx.find("calls", {});
+        ops.push({ op: "finish", target: "task", value: { state: terminalStateFor("restart", calls), stopReason: "restart" } });
+        ctx.apply(ops, { reason: "restart" });
+      }
+      if (ctx.result === null) {
+        ctx.apply({ op: "set", target: "result", value: { text: RESTART_RESULT_TEXT, origin: "fallback" } }, { reason: "restart" });
+      }
+    } catch (error) {
+      console.error(`[Tasks] no se pudo cerrar '${ctx.task.id}' tras reinicio:`, errorMessage(error));
+    }
+  }
+
+  private loadFromDisk(taskId: string): TaskContext | null {
+    if (this.unreadable.has(taskId)) return null;
+    const filePath = taskLogPath(this.tasksDir, taskId);
+    if (!fs.existsSync(filePath)) return null;
+    const result = readTaskLog(filePath, { onListenerError: this.onListenerError });
+    if (!result.ok) {
+      this.unreadable.set(taskId, result.reason);
+      console.warn(`[Tasks] log ilegible '${taskId}' (${filePath}): ${result.reason}`);
+      return null;
+    }
+    return result.ctx;
+  }
+
+  private summaryOf(ctx: TaskContext, waiting: Waiting | null): TaskSummary {
+    return {
+      id: ctx.task.id,
+      mode: ctx.task.mode,
+      request: ctx.task.request,
+      state: ctx.task.state,
+      stopReason: ctx.task.stopReason,
+      startedAt: ctx.task.startedAt,
+      n: ctx.n,
+      waiting: waiting?.kind ?? null,
+    };
+  }
+
   private control(
     taskId: string,
     kind: "plan" | "approval",
@@ -274,7 +415,7 @@ export class TaskManager {
   }
 
   private toDto({ ctx, runtime }: TaskEntry): TaskDto {
-    return { ...ctx.snapshot(), n: ctx.n, waiting: runtime.waiting };
+    return { ...ctx.snapshot(), n: ctx.n, waiting: runtime.waiting, paused: runtime.paused };
   }
 
   private emit(event: TaskEvent): void {

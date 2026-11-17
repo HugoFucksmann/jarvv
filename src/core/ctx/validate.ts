@@ -15,6 +15,7 @@ import {
   CALL_VERDICTS,
   ERROR_KINDS,
   PLAN_TRIGGERS,
+  RECALLED_SOURCES,
   RESULT_ORIGINS,
   STEP_STATES,
   STOP_REASONS,
@@ -33,6 +34,7 @@ import type {
   FinishValue,
   JsonObject,
   PlanInput,
+  RecalledInput,
   RefInput,
   ResultEntry,
   StepInput,
@@ -212,6 +214,26 @@ export function checkRefInput(raw: unknown, env: CheckEnv): RefInput {
   const where = reqText(o.where, "ref.where");
   if (!env.hasStep(stepId)) violation("dangling_ref", 5, `ref.stepId "${stepId}" no existe`);
   return { stepId, label, size, where };
+}
+
+const DEFAULT_RECALLED_KEY_MAX = 80;
+const DEFAULT_RECALLED_VALUE_MAX = 300;
+const DEFAULT_THREAD_VALUE_MAX = 4000;
+
+export function checkRecalledInput(raw: unknown, env: CheckEnv): RecalledInput {
+  const o = ensureObject(raw, "recalled");
+  ensureKeys(o, ["stepId", "source", "key", "value", "from"], [], "recalled");
+  const stepId = nullableText(o.stepId, "recalled.stepId");
+  if (stepId !== null && !env.hasStep(stepId)) violation("dangling_ref", 5, `recalled.stepId "${stepId}" no existe`);
+  const source = oneOf(o.source, RECALLED_SOURCES, "recalled.source");
+  const keyMax = env.limits.recalledKeyMax ?? DEFAULT_RECALLED_KEY_MAX;
+  const key = reqText(o.key, "recalled.key");
+  if (key.length > keyMax) violation("limit", 7, `recalled.key supera el tope de ${keyMax} caracteres (tiene ${key.length})`);
+  const valueMax = source === "user_memory" ? (env.limits.recalledValueMax ?? DEFAULT_RECALLED_VALUE_MAX) : (env.limits.threadValueMax ?? DEFAULT_THREAD_VALUE_MAX);
+  const value = reqText(o.value, "recalled.value");
+  if (value.length > valueMax) violation("limit", 7, `recalled.value supera el tope de ${valueMax} caracteres (tiene ${value.length})`);
+  const from = nullableText(o.from, "recalled.from");
+  return { stepId, source, key, value, from };
 }
 
 // ───────────────────────── `update` ─────────────────────────

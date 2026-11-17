@@ -17,9 +17,20 @@ import {
 } from "../derive.ts";
 import { parseId } from "../ids.ts";
 import { currentOf } from "../query.ts";
-import type { Call, ContextData, Ref, Step } from "../types.ts";
+import type { Call, ContextData, RecalledSource, Ref, Step } from "../types.ts";
 import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, statusNoteOf } from "./messages.ts";
-import type { CallView, EffectView, FactView, ReviewViewOptions, StepDoneView, StepView, TaskView, UserInputView } from "./types.ts";
+import type {
+  CallView,
+  EffectView,
+  FactView,
+  RecalledFilterOptions,
+  RecalledView,
+  ReviewViewOptions,
+  StepDoneView,
+  StepView,
+  TaskView,
+  UserInputView,
+} from "./types.ts";
 
 export function stepViewOf(step: Step): StepView {
   return {
@@ -75,6 +86,37 @@ export function userInputViewsOf(data: ContextData): UserInputView[] {
 /** Hechos de entorno (5.4): los vigentes que no son respuestas del usuario. */
 export function envViewsOf(data: ContextData): FactView[] {
   return envOf(data.facts).map(({ key, value, stepId, at }) => ({ key, value, stepId, at }));
+}
+
+/** Aportes de `recalled` filtrados por política de fuentes y topes por vista, conservando el orden cronológico. */
+export function recalledViewsOf(data: ContextData, filter?: RecalledFilterOptions): RecalledView[] {
+  const entries = filter?.sources
+    ? data.recalled.filter((r) => filter.sources!.includes(r.source))
+    : data.recalled;
+  if (entries.length === 0) return [];
+
+  const maxBySource = filter?.maxBySource;
+  if (!maxBySource) {
+    return entries.map(({ id, at, stepId, source, key, value, from }) => ({ id, at, stepId, source, key, value, from }));
+  }
+
+  const counts = new Map<RecalledSource, number>();
+  for (const r of entries) counts.set(r.source, (counts.get(r.source) ?? 0) + 1);
+  const skip = new Map<RecalledSource, number>();
+  for (const [source, total] of counts) {
+    const cap = maxBySource[source];
+    if (cap !== undefined && total > cap) skip.set(source, total - Math.max(0, cap));
+  }
+
+  const seen = new Map<RecalledSource, number>();
+  const out: RecalledView[] = [];
+  for (const r of entries) {
+    const idx = seen.get(r.source) ?? 0;
+    seen.set(r.source, idx + 1);
+    if (idx < (skip.get(r.source) ?? 0)) continue;
+    out.push({ id: r.id, at: r.at, stepId: r.stepId, source: r.source, key: r.key, value: r.value, from: r.from });
+  }
+  return out;
 }
 
 /** Todos los efectos, con sus `args` y sin recorte. */

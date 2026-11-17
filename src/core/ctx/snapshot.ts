@@ -27,6 +27,7 @@ import type {
   Fact,
   JsonValue,
   Plan,
+  RecalledEntry,
   Ref,
   SectionName,
   Step,
@@ -41,6 +42,7 @@ import {
   checkFactInput,
   checkFactKey,
   checkPlanInput,
+  checkRecalledInput,
   checkRefInput,
   checkResultInput,
   checkStepInput,
@@ -88,7 +90,7 @@ function elementsOf(raw: unknown, section: SectionName): Record<string, unknown>
 }
 
 function parseBody(raw: Record<string, unknown>, limits: ContextLimits): ContextData {
-  ensureKeys(raw, ["v", "task", "plans", "steps", "calls", "errors", "facts", "refs", "result"], [], "snapshot");
+  ensureKeys(raw, ["v", "task", "plans", "steps", "calls", "errors", "facts", "refs", "recalled", "result"], [], "snapshot");
   // Raíz → sección → elemento → args: tres niveles más que la profundidad permitida a un valor JSON.
   const problem = jsonProblem(raw, { maxDepth: limits.jsonMaxDepth + 3, maxString: null });
   if (problem) violation("invalid_value", 3, `snapshot${problem.path.slice(1)}: ${problem.detail}`);
@@ -109,7 +111,7 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
   });
 
   // ── ids en orden y tamaños, antes de resolver referencias
-  const [rawPlans, rawSteps, rawCalls, rawErrors, rawRefs] = SECTION_NAMES.map((section) => elementsOf(raw[section], section));
+  const [rawPlans, rawSteps, rawCalls, rawErrors, rawRefs, rawRecalled] = SECTION_NAMES.map((section) => elementsOf(raw[section], section));
   const sizes = { plans: rawPlans.length, steps: rawSteps.length, refs: rawRefs.length };
   const inRange = (section: "plans" | "steps" | "refs", id: string): boolean => {
     const parsed = parseId(id);
@@ -194,6 +196,26 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
     return deepFreeze({ id: makeId("refs", i), stepId: v.stepId, at: finiteNumber(el.at, "ref.at"), label: v.label, size: v.size, where: v.where });
   });
 
+  const seenRecalled = new Set<string>();
+  const recalled: RecalledEntry[] = rawRecalled.map((el, i) => {
+    ensureKeys(el, ["id", "at", "stepId", "source", "key", "value", "from"], [], "recalled");
+    const v = checkRecalledInput({ stepId: el.stepId, source: el.source, key: el.key, value: el.value, from: el.from }, lookup);
+    const dedupKey = `${v.source}\u0000${v.key}`;
+    if (seenRecalled.has(dedupKey)) {
+      violation("invariant", 6, `invariante: clave duplicada en recalled para fuente "${v.source}": "${v.key}"`);
+    }
+    seenRecalled.add(dedupKey);
+    return deepFreeze({
+      id: makeId("recalled", i),
+      at: finiteNumber(el.at, "recalled.at"),
+      stepId: v.stepId,
+      source: v.source,
+      key: v.key,
+      value: v.value,
+      from: v.from,
+    });
+  });
+
   // ── hechos y resultado
   const rawFacts = ensureObject(raw.facts, "facts");
   const facts: { [key: string]: Fact } = {};
@@ -220,5 +242,5 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
     assertFinalState(mode, task.state, task.stopReason, steps, calls);
   }
 
-  return { v: CONTEXT_VERSION, task, plans, steps, calls, errors, facts, refs, result };
+  return { v: CONTEXT_VERSION, task, plans, steps, calls, errors, facts, refs, recalled, result };
 }

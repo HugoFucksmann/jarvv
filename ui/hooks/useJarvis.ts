@@ -211,6 +211,14 @@ export function useJarvis() {
             return;
           }
           const data = JSON.parse(msgEvent.data) as SseMessage;
+          if (data?.type === "paused" && data.taskId) {
+            setTask((prev) => {
+              if (!prev || prev.task.id !== data.taskId) return prev;
+              const next = { ...prev, paused: data.paused };
+              taskRef.current = next;
+              return next;
+            });
+          }
           if (data && data.taskId) {
             scheduleFetchState(data.taskId);
           } else {

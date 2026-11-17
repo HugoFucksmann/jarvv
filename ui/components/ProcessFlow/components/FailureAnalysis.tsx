@@ -46,6 +46,12 @@ const STOP_REASON_DETAILS: Record<
     tone: "text-rose-300 bg-rose-950/30 border-rose-800/50",
     icon: <AlertOctagon className="w-4 h-4 text-rose-400 shrink-0" />,
   },
+  restart: {
+    label: "Interrumpida por reinicio del servidor",
+    description: "El servidor se reinició mientras la tarea corría.",
+    tone: "text-yellow-300 bg-yellow-950/25 border-yellow-800/50",
+    icon: <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />,
+  },
 };
 
 function formatCallArg(args: Record<string, unknown>): string {

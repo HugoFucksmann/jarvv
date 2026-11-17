@@ -16,6 +16,7 @@
   "decisionModel": "d3:2b-text",
   "decisionMaxContext": 16384,
   "decisionTimeoutMs": 30000,
+  "modelUnavailablePauseMaxMs": 600000,
   "desktopCommanderMcp": {
     "command": "node",
     "args": [
@@ -42,8 +43,9 @@
   "traceEnabled": true,
   "tracePath": "jarvis-traces.jsonl",
   "refsDir": "data/refs",
-  "retentionDays": 30,
-  "retentionMaxMb": 500,
+  "retentionDays": 10,
+  "logRetentionDays": 30,
+  "retentionMaxMb": 250,
   "blacklist": [],
   "autoMode": false,
   "approvalTiers": true,

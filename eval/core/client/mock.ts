@@ -6,7 +6,7 @@
  */
 
 import type { ToolInputSchema } from "../contract.ts";
-import { estimateTokens, isRecord } from "../contract.ts";
+import { estimateTokens } from "../contract.ts";
 import type { DecisionRequest, GenerativeRequest } from "../types.ts";
 import { createDecisionClient } from "./decision.ts";
 import type { DecisionCallContext, DecisionClient, DecisionClientConfig } from "./decision.ts";
@@ -36,13 +36,11 @@ export type MockGenerativeResponder = (
 /** Recibe lo que se habría enviado; devuelve el cuerpo de respuesta (texto JSON). */
 export type MockDecisionResponder = (prepared: PreparedRequest, req: DecisionRequest, ctx?: DecisionCallContext) => string;
 
-function mockTokens(promptText: string, rawOutput: string): { prompt: number; completion: number; total: number } {
-  const prompt = estimateTokens(promptText);
-  const completion = estimateTokens(rawOutput);
-  return { prompt, completion, total: prompt + completion };
-}
-
 // ───────────────────────── Generativo ─────────────────────────
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 function sentSchema(prepared: PreparedRequest): Record<string, unknown> | undefined {
   const rf = prepared.body.response_format;
@@ -128,11 +126,13 @@ export function createMockGenerativeClient(
       const prepared = real.prepare(req);
       const out = responder ? responder(prepared, req, ctx) : defaultGenerativeResponder(prepared, req, ctx);
       const res: MockGenerativeResponse = typeof out === "string" ? { rawOutput: out } : out;
+      const prompt = estimateTokens(req.system + req.user);
+      const completion = estimateTokens(res.rawOutput);
       return {
         ok: true,
         rawOutput: res.rawOutput,
         finishReason: res.finishReason ?? "stop",
-        tokens: mockTokens(req.system + req.user, res.rawOutput),
+        tokens: { prompt, completion, total: prompt + completion },
         tokensEstimated: true,
         durationMs: 0,
       };
@@ -167,10 +167,12 @@ export function createMockDecisionClient(
     async call(req, _timeoutMs, ctx) {
       const prepared = real.prepare(req);
       const rawOutput = responder ? responder(prepared, req, ctx) : defaultDecisionResponder(prepared, req);
+      const prompt = estimateTokens(JSON.stringify({ state: req.state, questions: req.questions }));
+      const completion = estimateTokens(rawOutput);
       return {
         ok: true,
         rawOutput,
-        tokens: mockTokens(JSON.stringify({ state: req.state, questions: req.questions }), rawOutput),
+        tokens: { prompt, completion, total: prompt + completion },
         tokensEstimated: true,
         durationMs: 0,
       };

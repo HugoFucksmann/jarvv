@@ -18,8 +18,11 @@ import path from "node:path";
 import { FIXED_TIMEOUTS } from "./timeouts.ts";
 import type { ConfigSource } from "./config.ts";
 import { taskFolderName } from "./refs/refVault.ts";
+import { isTaskLogTerminal, LOG_FILE, tasksDirFromConfig } from "./taskLog.ts";
 import { traceBaseDir } from "./trace/files.ts";
 import { errorMessage } from "./utils.ts";
+
+export { LOG_FILE };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -58,6 +61,44 @@ export async function pruneFolders(
       const info = await fs.lstat(full);
       if (!info.isDirectory() || now - info.mtimeMs <= maxAgeMs) continue;
       await fs.rm(full, { recursive: true, force: true });
+      removed.push(name);
+    } catch (error) {
+      console.warn(`[Retention] no se pudo borrar '${full}': ${errorMessage(error)}`);
+    }
+  }
+  return removed;
+}
+
+function logTaskId(fileName: string): string {
+  return fileName.endsWith(".jsonl") ? fileName.slice(0, -".jsonl".length) : fileName;
+}
+
+/**
+ * Borra archivos `.jsonl` de log propios de Jarvis modificados antes de `now - maxAgeMs`, solo si no están protegidos y su tarea es terminal.
+ */
+export async function pruneLogFiles(
+  dir: string,
+  maxAgeMs: number,
+  now: number,
+  keep: (taskId: string) => boolean = () => false,
+): Promise<string[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    if (!LOG_FILE.test(name)) continue;
+    const taskId = logTaskId(name);
+    if (keep(taskId)) continue;
+    const full = path.join(dir, name);
+    try {
+      const info = await fs.lstat(full);
+      if (!info.isFile() || now - info.mtimeMs <= maxAgeMs) continue;
+      if (!isTaskLogTerminal(full)) continue;
+      await fs.rm(full, { force: true });
       removed.push(name);
     } catch (error) {
       console.warn(`[Retention] no se pudo borrar '${full}': ${errorMessage(error)}`);
@@ -120,8 +161,8 @@ async function folderSizeBytes(dir: string): Promise<number> {
   return total;
 }
 
-interface SizedFolder {
-  readonly kind: "refs" | "trace";
+interface SizedEntry {
+  readonly kind: "refs" | "trace" | "log";
   readonly full: string;
   readonly mtimeMs: number;
   readonly size: number;
@@ -133,14 +174,14 @@ async function collectSizedFolders(
   owned: RegExp,
   kind: "refs" | "trace",
   keep: (name: string) => boolean = () => false,
-): Promise<SizedFolder[]> {
+): Promise<SizedEntry[]> {
   let names: string[];
   try {
     names = await fs.readdir(dir);
   } catch {
     return [];
   }
-  const out: SizedFolder[] = [];
+  const out: SizedEntry[] = [];
   for (const name of names) {
     if (!owned.test(name)) continue;
     const full = path.join(dir, name);
@@ -161,47 +202,92 @@ async function collectSizedFolders(
   return out;
 }
 
-/** Una pasada sobre las refs y las trazas, con la configuración vigente. `protectedTaskIds`: tareas cuyas refs no se borran. */
+async function collectSizedLogs(
+  dir: string,
+  keep: (taskId: string) => boolean = () => false,
+): Promise<SizedEntry[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+  const out: SizedEntry[] = [];
+  for (const name of names) {
+    if (!LOG_FILE.test(name)) continue;
+    const full = path.join(dir, name);
+    try {
+      const info = await fs.lstat(full);
+      if (!info.isFile()) continue;
+      const taskId = logTaskId(name);
+      const protectedLog = keep(taskId) || !isTaskLogTerminal(full);
+      out.push({
+        kind: "log",
+        full,
+        mtimeMs: info.mtimeMs,
+        size: info.size,
+        protected: protectedLog,
+      });
+    } catch {
+      // Ignora entradas ilegibles.
+    }
+  }
+  return out;
+}
+
+/** Una pasada sobre refs, trazas y logs de eventos, con la configuración vigente. `protectedTaskIds`: tareas retenidas cuyos refs y logs no se borran. */
 export async function runRetention(getConfig: ConfigSource, protectedTaskIds: () => readonly string[], now: number = Date.now()): Promise<void> {
   const config = getConfig();
   const maxDays = config.retentionDays;
+  const logMaxDays = config.logRetentionDays ?? (maxDays <= 0 ? 0 : 30);
   const maxMb = config.retentionMaxMb ?? 0;
-  if (maxDays <= 0 && maxMb <= 0) return;
+  if (maxDays <= 0 && logMaxDays <= 0 && maxMb <= 0) return;
 
-  const kept = new Set(protectedTaskIds().map(taskFolderName));
+  const rawKeptIds = new Set(protectedTaskIds());
+  const keptRefFolders = new Set([...rawKeptIds].map(taskFolderName));
   const refsDir = path.resolve(config.refsDir);
+  const tasksDir = tasksDirFromConfig(config);
   const traceBase = traceBaseDir(config.tracePath);
 
   let refsByAge = 0;
   let tracesByAge = 0;
+  let logsByAge = 0;
   if (maxDays > 0) {
     const maxAgeMs = maxDays * DAY_MS;
-    const refs = await pruneFolders(refsDir, REFS_FOLDER, maxAgeMs, now, (name) => kept.has(name));
+    const refs = await pruneFolders(refsDir, REFS_FOLDER, maxAgeMs, now, (name) => keptRefFolders.has(name));
     const traces = await pruneFolders(traceBase, TRACE_FOLDER, maxAgeMs, now);
     refsByAge = refs.length;
     tracesByAge = traces.length;
   }
+  if (logMaxDays > 0) {
+    const logMaxAgeMs = logMaxDays * DAY_MS;
+    const logs = await pruneLogFiles(tasksDir, logMaxAgeMs, now, (id) => rawKeptIds.has(id) || keptRefFolders.has(id));
+    logsByAge = logs.length;
+  }
 
   let refsBySize = 0;
   let tracesBySize = 0;
+  let logsBySize = 0;
   if (maxMb > 0) {
     const maxBytes = maxMb * 1024 * 1024;
-    const folders = [
-      ...(await collectSizedFolders(refsDir, REFS_FOLDER, "refs", (name) => kept.has(name))),
+    const entries = [
+      ...(await collectSizedFolders(refsDir, REFS_FOLDER, "refs", (name) => keptRefFolders.has(name))),
       ...(await collectSizedFolders(traceBase, TRACE_FOLDER, "trace")),
+      ...(await collectSizedLogs(tasksDir, (id) => rawKeptIds.has(id) || keptRefFolders.has(id))),
     ];
-    let totalBytes = folders.reduce((sum, f) => sum + f.size, 0);
+    let totalBytes = entries.reduce((sum, f) => sum + f.size, 0);
     if (totalBytes > maxBytes) {
-      const deletable = folders.filter((f) => !f.protected).sort((a, b) => a.mtimeMs - b.mtimeMs);
-      for (const folder of deletable) {
+      const deletable = entries.filter((f) => !f.protected).sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const entry of deletable) {
         if (totalBytes <= maxBytes) break;
         try {
-          await fs.rm(folder.full, { recursive: true, force: true });
-          totalBytes -= folder.size;
-          if (folder.kind === "refs") refsBySize++;
-          else tracesBySize++;
+          await fs.rm(entry.full, { recursive: entry.kind !== "log", force: true });
+          totalBytes -= entry.size;
+          if (entry.kind === "refs") refsBySize++;
+          else if (entry.kind === "trace") tracesBySize++;
+          else logsBySize++;
         } catch (error) {
-          console.warn(`[Retention] no se pudo borrar '${folder.full}': ${errorMessage(error)}`);
+          console.warn(`[Retention] no se pudo borrar '${entry.full}': ${errorMessage(error)}`);
         }
       }
     }
@@ -212,9 +298,10 @@ export async function runRetention(getConfig: ConfigSource, protectedTaskIds: ()
   }
   const totalRefs = refsByAge + refsBySize;
   const totalTraces = tracesByAge + tracesBySize;
-  if (totalRefs + totalTraces > 0) {
+  const totalLogs = logsByAge + logsBySize;
+  if (totalRefs + totalTraces + totalLogs > 0) {
     console.log(
-      `[Retention] se borraron ${totalRefs} carpeta(s) de refs y ${totalTraces} de trazas (antigüedad: ${refsByAge + tracesByAge}, tamaño: ${refsBySize + tracesBySize}).`,
+      `[Retention] se borraron ${totalRefs} carpeta(s) de refs, ${totalTraces} de trazas y ${totalLogs} log(s) (antigüedad: ${refsByAge + tracesByAge + logsByAge}, tamaño: ${refsBySize + tracesBySize + logsBySize}).`,
     );
   }
 }

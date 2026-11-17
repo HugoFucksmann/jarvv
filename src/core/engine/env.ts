@@ -10,6 +10,7 @@ import type { TaskContext } from "../ctx/index.ts";
 import { captureDecision, captureLlm } from "./capture.ts";
 import { NULL_SINK, type CaptureSink } from "../trace/sink.ts";
 import type { ContinuationInput, EngineDeps, EngineLLM, FirstQueryInput, IActionDecision, PreviousTask, ProbeQuery } from "../contracts.ts";
+import { MAX_FACTS_PER_PROMPT, selectFacts, type MemoryProvider } from "../memory.ts";
 import type { TaskRuntime } from "./runtime.ts";
 
 export interface EngineEnv {
@@ -21,8 +22,10 @@ export interface EngineEnv {
   /** LLM con la captura aplicada (sin `sink`, es el de `deps`). */
   readonly llm: EngineLLM;
   readonly sink: CaptureSink;
-  /** La tarea anterior si el pedido la continúa (`detectContinuation`); la fija `runReactive` al empezar y la leen `pending`, los argumentos y la respuesta final. */
+  /** La tarea anterior si el pedido la continúa (`detectContinuation`); la fija `runReactive` al empezar y la leen `pending` y el registro inicial de `recalled`. */
   readonly follow: { thread: PreviousTask | null };
+  /** Proveedor de memoria de hechos (`memoryProvider` o adaptado de `deps.memory`). */
+  readonly memory: MemoryProvider | null;
   /** Lo último que dijo Decisión 5 (`confirmCompletion`): la probabilidad de `request_complete`, o `null` si no respondió. */
   readonly completion: { last: number | null };
 }
@@ -62,11 +65,21 @@ export function memoizeDecision(decision: IActionDecision): IActionDecision {
 export function createEngineEnv(ctx: TaskContext, runtime: TaskRuntime, deps: EngineDeps): EngineEnv {
   const sink = deps.sink ?? NULL_SINK;
   const version = (): number => ctx.n;
+  const memory: MemoryProvider | null =
+    deps.memoryProvider ??
+    (deps.memory
+      ? {
+          async recall(text: string, limit: number = MAX_FACTS_PER_PROMPT) {
+            return selectFacts(text, deps.memory!(), limit);
+          },
+        }
+      : null);
   return {
     ctx,
     runtime,
     deps,
     sink,
+    memory,
     follow: { thread: null },
     completion: { last: null },
     decision: memoizeDecision(deps.sink ? captureDecision(deps.decision, sink, version) : deps.decision),
