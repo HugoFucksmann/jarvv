@@ -102,6 +102,13 @@ export interface ScenarioAt {
   environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
 }
 
+export interface ScenarioRecalled {
+  /** Hechos del usuario (`source: "user_memory"`): `{ key, value }` o mapa `clave -> valor`. */
+  facts?: Array<{ key: string; value: string; from?: string }> | Record<string, string>;
+  /** Hilo reciente (`source: "thread"`): las dos entradas que usa producción. */
+  thread?: { previous_request?: string; previous_answer?: string };
+}
+
 export interface Scenario {
   mode: "reactive" | "deliberative";
   request: string;
@@ -109,6 +116,8 @@ export interface Scenario {
   calls?: ScenarioCall[];
   /** Hechos de entorno (hoy solo `process`). */
   facts?: Record<string, string>;
+  /** Aportes recuperados de memoria (`user_memory` y `thread`: `previous_request`, `previous_answer`). */
+  recalled?: ScenarioRecalled;
   /** Respuestas del usuario a preguntas anteriores (`answer_<paso>_<n>`), en orden. */
   userInput?: string[];
   /** Cierre de la tarea (para `final`). */
@@ -226,6 +235,36 @@ function buildContext(sc: Scenario): Built {
     ctx.apply({ op: "set", target: `facts.answer_${lastStepId}_${i + 1}`, value: { value: text, stepId: lastStepId } });
   });
 
+  if (sc.recalled?.facts) {
+    const entries = Array.isArray(sc.recalled.facts)
+      ? sc.recalled.facts
+      : Object.entries(sc.recalled.facts).map(([key, value]) => ({ key, value, from: undefined }));
+    for (const entry of entries) {
+      ctx.apply({
+        op: "add",
+        target: "recalled",
+        value: { stepId: null, source: "user_memory", key: entry.key, value: entry.value, from: entry.from ?? null },
+      });
+    }
+  }
+  if (sc.recalled?.thread) {
+    const { previous_request, previous_answer } = sc.recalled.thread;
+    if (previous_request !== undefined) {
+      ctx.apply({
+        op: "add",
+        target: "recalled",
+        value: { stepId: null, source: "thread", key: "previous_request", value: previous_request, from: null },
+      });
+    }
+    if (previous_answer !== undefined) {
+      ctx.apply({
+        op: "add",
+        target: "recalled",
+        value: { stepId: null, source: "thread", key: "previous_answer", value: previous_answer, from: null },
+      });
+    }
+  }
+
   if (sc.finish) {
     ctx.apply({ op: "finish", target: "task", value: { state: sc.finish.state, stopReason: sc.finish.stopReason ?? null } });
   }
@@ -256,7 +295,7 @@ export interface Materialized {
   toolName?: string;
   environment?: UserEnvironment;
   /** `arguments`: `kind` de la herramienta y fuentes de la tarea, como los arma producción (`callRunner`); completan ese pre-chequeo. */
-  precheck?: { kind: "read" | "write"; sources: PrecheckSources; refIds: string[] };
+  precheck?: { kind: "read" | "write"; sources: PrecheckSources };
 }
 
 const decision = (d: { state: string; questions: unknown }): Materialized => ({
@@ -296,9 +335,8 @@ function precheckBase(
   route: ExecutableRoute,
   toolName: string,
   atEnvironment: ScenarioAt["environment"],
-): { kind: "read" | "write"; sources: PrecheckSources; environment: UserEnvironment; refIds: string[] } {
+): { kind: "read" | "write"; sources: PrecheckSources; environment: UserEnvironment } {
   return {
-    refIds: ctx.find("refs", {}).map((r) => r.id.toLowerCase()),
     kind: getToolPolicy(serverOf(route), toolName).mutates ? "write" : "read",
     sources: collectSources(ctx),
     environment: atEnvironment ? { ...DEFAULT_ENVIRONMENT, ...atEnvironment } : DEFAULT_ENVIRONMENT,

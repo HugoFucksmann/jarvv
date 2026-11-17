@@ -14,7 +14,7 @@ export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
-export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge";
+export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge" | "d5";
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
@@ -79,8 +79,6 @@ export interface Case {
     precheck?: {
       kind: "read" | "write";
       sources: PrecheckSources;
-      /** Ids de las refs que existen en el escenario: usar otra es una ref inventada. */
-      refIds: string[];
     };
     origin?: { id: string; commit?: string };
   };
@@ -181,6 +179,20 @@ export interface FragmentJudgeOutput {
   relevant: boolean[];
 }
 
+// d5 (cierre de tarea reactiva: completa vs falta trabajo; `src/core/engine/completion.ts`)
+export interface D5Expect {
+  expectedComplete: boolean;
+  /** Probabilidad mínima de "sí" cuando `expectedComplete: true` (el umbral de producción es `COMPLETION_APPROVE` = 0.75). */
+  minProbability?: number;
+  /** Probabilidad máxima de "sí" cuando `expectedComplete: false`. */
+  maxProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface D5Output {
+  complete: boolean;
+  probability: number;
+}
+
 // plan
 export interface PlanStep {
   goal: string;
@@ -213,7 +225,6 @@ export interface ArgumentsOutput {
 export interface ArgumentsExpect {
   requiredFields?: string[];
   exactFieldValues?: Record<string, unknown>;
-  allowedRefTokens?: string[];
   forbiddenHardcodedValues?: string[];
 }
 
@@ -262,6 +273,7 @@ export type StageExpect =
   | ArgsReviewExpect
   | ResultVerificationExpect
   | FragmentJudgeExpect
+  | D5Expect
   | PlanExpect
   | ArgumentsExpect
   | FinalExpect

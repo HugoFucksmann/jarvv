@@ -20,7 +20,7 @@ dueño del flujo después de medirla (reglas en 7).
 | `pending` (lista de pendientes; el primero es la instrucción del paso) | qwen3.5:4b, sin thinking, JSON `{"pending":[…]}` | `PROMPTS.PENDING_VIEW` (`models/prompts.ts`) | `REQUEST`, `PENDING`, `STATE`, `USER`, `DONE`, `FAIL` |
 | D1 `route` (files, locate, terminal, web) | d3:2b, pregunta `choice` | `DECISION_PROMPTS.buildRouteChoice` + `DESTINATIONS[ruta].description` (`tools/manifest.ts`) + `ROUTE_HINTS` | `Step:` y los intentos del paso (no el pedido) |
 | D2 `tool_choice` | d3:2b, `choice` (se omite con una sola herramienta) | `DECISION_PROMPTS.buildToolChoice` + descripción de cada herramienta (manifest) | igual que D1 |
-| `arguments` | qwen3.5:4b, sin thinking, JSON conforme al schema | `PROMPTS.ARGUMENTS_VIEW` (`SYSTEM`, `osLine`, `READ_REFS_NOTE`, `buildUserPrompt`) | `ENV`, `TOOL`, `SCHEMA`, y la vista (`STATE`, `USER`, `DONE`, `REFS`, `DATA`, `EFFECTS`, `FAIL`, `TASK`) |
+| `arguments` | qwen3.5:4b, sin thinking, JSON conforme al schema | `PROMPTS.ARGUMENTS_VIEW` (`SYSTEM`, `osLine`, `buildUserPrompt`) | `ENV`, `TOOL`, `SCHEMA`, y la vista (`STATE`, `USER`, `DONE`, `DATA`, `EFFECTS`, `FAIL`, `TASK`) |
 | pre-chequeo | **código, no es un prompt** | `engine/precheck.ts` | argumentos resueltos y fuentes de la tarea |
 | D3 `args_review` | d3:2b, `choice` de 3 opciones | `REVIEW_OPTIONS` y `DECISION_PROMPTS.buildArgsReview` | paso, intentos fallidos, lecturas, llamada candidata con schema |
 | D4 `result_verification` | d3:2b, dos preguntas `noul` (`ok`, `cumple`; aprueba si ambas > 0,5) | `VERIFY_QUESTIONS` y `DECISION_PROMPTS.buildResultVerification` | instrucción del paso, hechas, la llamada evaluada |

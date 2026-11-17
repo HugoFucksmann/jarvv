@@ -69,7 +69,7 @@ export interface ScenarioHelpers {
     route: ExecutableRoute,
     toolName: string,
     atEnvironment: ScenarioAt["environment"],
-  ): { kind: "read" | "write"; sources: PrecheckSources; environment: UserEnvironment; refIds: string[] };
+  ): { kind: "read" | "write"; sources: PrecheckSources; environment: UserEnvironment };
   toolOf(route: ExecutableRoute, name: string, inputSchema?: ToolInputSchema): MCPTool;
   need<T>(value: T | undefined, what: string, stage: string): T;
   config(): ReturnType<typeof ConfigManager.getConfig>;
@@ -157,6 +157,7 @@ export type StageEntry<TOutput = unknown, TExpect = unknown, TReq = unknown> =
 import { argsReviewStage } from "./args_review.ts";
 import { argumentsStage } from "./arguments.ts";
 import { d0Stage } from "./d0.ts";
+import { d5Stage } from "./d5.ts";
 import { finalStage } from "./final.ts";
 import { fragmentJudgeStage } from "./fragment_judge.ts";
 import { pendingStage } from "./pending.ts";
@@ -174,6 +175,7 @@ const REGISTRY = new Map<StageName, AnyStageEntry>([
   ["args_review", argsReviewStage],
   ["result_verification", resultVerificationStage],
   ["fragment_judge", fragmentJudgeStage],
+  ["d5", d5Stage],
   ["plan", planStage],
   ["arguments", argumentsStage],
   ["final", finalStage],

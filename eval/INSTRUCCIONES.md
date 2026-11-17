@@ -34,8 +34,9 @@ Atajos de `package.json`:
 | Decisión | `args_review` | `approved`, `args_invalid` o `info_missing` |
 | Decisión | `result_verification` | Veredictos `ok` y `cumple` |
 | Decisión | `fragment_judge` | Por cada fragmento de `web_search`, si responde la pregunta (probabilidad `>= JUDGE_FOUND`, 0.6) |
+| Decisión | `d5` | Cierre del reactivo con lista vacía: si `DONE` cumple todo `REQUEST` (`COMPLETION_APPROVE` = 0.75) |
 | Generativa | `plan` | Cantidad de pasos, rutas permitidas y requeridas, palabras clave |
-| Generativa | `arguments` | Campos requeridos, valores exactos, refs válidos, valores prohibidos |
+| Generativa | `arguments` | Campos requeridos, valores exactos, valores prohibidos |
 | Generativa | `final` | Datos y efectos que debe mencionar, alucinaciones prohibidas |
 | Generativa | `question` | Largo, una sola pregunta, sin fugas de identificadores internos |
 | Generativa | `pending` | Primer pendiente, palabras prohibidas, lista vacía cuando no queda nada por hacer |
@@ -134,13 +135,13 @@ Una línea por caso; las vacías y las que empiezan con `#` se ignoran. Un caso 
 | Campo | Descripción |
 |---|---|
 | `id` | Único dentro del dataset |
-| `stage` | Una de las diez etapas |
+| `stage` | Una de las doce etapas |
 | `scenario` | La situación y el punto de decisión (abajo) |
 | `expect` | Lo que debe cumplir la salida; claves cerradas por etapa |
 | `tags`, `description` | Opcionales; los tags sirven con `--tags=` |
 | `isRaw` | Caso adversarial: se reporta aparte, fuera del `passRate` canónico |
 
-`scenario`: `mode` (`reactive` | `deliberative`), `request`, `steps`, `calls` (`status`, `args`, `summary`, `verdict`, `ref`), `facts`, `userInput`, `finish` (cierre, para `final`) y `at` (punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `previous`, `environment`). Los tipos están en `core/scenario.ts`.
+`scenario`: `mode` (`reactive` | `deliberative`), `request`, `steps`, `calls` (`status`, `args`, `summary`, `verdict`, `ref`), `facts` (clave `answer_<paso>_<n>` o libre), `recalled` (`{ user_memory?: [{ key, value, from? }], thread?: { previous_request?, previous_answer? } }` aplicados al contexto para `arguments` y `final`), `userInput`, `finish` (cierre, para `final`) y `at` (punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `previous`, `environment`). Los tipos están en `core/scenario.ts`.
 
 - Un escenario deliberativo necesita `steps` con `instruction`, `route` y `expected`.
 - `pending`: solo en `reactive`; `at.previous` es la lista de la vuelta anterior; `expect` admite `expectEmpty`, `maxItems`, `requiredKeywordsInFirst` y `forbiddenKeywords`.
@@ -153,7 +154,7 @@ Una línea por caso; las vacías y las que empiezan con `#` se ignoran. Un caso 
 - `datasets/smoke.jsonl` tiene un caso por etapa.
 
 ### Decisiones con varias preguntas
-Una variante puede enviar más de una pregunta por request. La principal (`route`, `selected_tool`, `review`; `ok` y `cumple`) se evalúa con el `expect` de la etapa; las adicionales, con `expect.answers`:
+Una variante puede enviar más de una pregunta por request. La principal (`kind`, `route`, `selected_tool`, `review`, `request_complete`; `ok` y `cumple`; `f0`..`f4`) se evalúa con el `expect` de la etapa; las adicionales, con `expect.answers`:
 
 ```json
 "expect": {
@@ -166,7 +167,7 @@ Una variante puede enviar más de una pregunta por request. La principal (`route
 }
 ```
 
-`choice` para preguntas `choice`, `yes` para `noul` (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6). Si el request no trae la pregunta no se evalúa (warning `q_<clave>_sent`); una pregunta sin expectativa se registra pero no se evalúa. Cada una genera `q_<clave>_match` y `q_<clave>_min_probability`, y cada pregunta se parsea por separado.
+`choice` para preguntas `choice`, `yes` para `noul` (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6; en la etapa `d5` el umbral canónico es `COMPLETION_APPROVE`, 0.75). Si el request no trae la pregunta no se evalúa (warning `q_<clave>_sent`); una pregunta sin expectativa se registra pero no se evalúa. Cada una genera `q_<clave>_match` y `q_<clave>_min_probability`, y cada pregunta se parsea por separado.
 
 ### Etapa `d0` (primera consulta de la tarea reactiva)
 
@@ -174,18 +175,31 @@ Una variante puede enviar más de una pregunta por request. La principal (`route
 {"id":"d0-001","stage":"d0","scenario":{"mode":"reactive","request":"Busca el ultimo modelo de GPT y guardalo en un md en el escritorio"},"expect":{"expectedKind":"multi"}}
 ```
 
-`expect.expectedKind` es `chat`, `single` o `multi`. Opcionales: `minChatProbability` (casos de charla: el umbral de producción es 0,7) y `maxChatProbability` (casos que NO son charla pero se parecen, p. ej. una pregunta de hechos: no deben acercarse al umbral). Checks: `kind_match`, `min_chat_probability_met`, `max_chat_probability_met`. Solo modo `reactive`. El `kind` evaluado lo decide el código (`firstQueryKind`), no el `choice` del modelo. Dataset: `eval/datasets/D0/d0_casos_ejemplo.jsonl` (35 casos, 31 pasan; los 4 que fallan caen en el flujo de siempre y no son falsos «charla»). En esa carpeta también está `route_D1_hard.jsonl`, un dataset de la etapa `route`.
+`expect.expectedKind` es `chat`, `single` o `multi`. Opcionales: `minChatProbability` (casos de charla: el umbral de producción es 0,7) y `maxChatProbability` (casos que NO son charla pero se parecen, p. ej. una pregunta de hechos: no deben acercarse al umbral). Checks: `kind_match`, `min_chat_probability_met`, `max_chat_probability_met`. Solo modo `reactive`. El `kind` evaluado lo decide el código (`firstQueryKind`), no el `choice` del modelo.
 
-### Etapa `fragment_judge` (modelo para una etapa de decisión nueva)
-El caso trae solo la necesidad y los fragmentos:
+### Etapa `d5` (cierre de tarea reactiva)
+
+```json
+{"id":"d5-cc-y01","stage":"d5","scenario":{"mode":"reactive","request":"...","steps":[{"instruction":"...","state":"completed"}],"calls":[{"step":0,"route":"terminal","tool":"run_command","kind":"read","status":"ok","args":{...},"summary":"...","verdict":"approved"}]},"expect":{"expectedComplete":true}}
+```
+
+Solo modo `reactive`, con el contexto en condiciones de cerrar (`ctx.canFinish() === "completed"`). Construye el request con `completionInput(ctx)` y `buildCompletionCheck`, y compara la probabilidad de `request_complete` contra `COMPLETION_APPROVE` (0,75). `expect.expectedComplete` es booleano; opcionales `minProbability` (solo con `true`) y `maxProbability` (solo con `false`). Checks: `complete_match`, `min_probability_met`, `max_probability_met`.
+
+### Etapa `fragment_judge` y cómo sumar una etapa nueva
+El caso de `fragment_judge` trae solo la necesidad y los fragmentos (`at.fragments`, de 1 a 5 fragmentos `JUDGE_BATCH`, y `expectedRelevant` en orden):
 
 ```json
 {"id":"fj-005","stage":"fragment_judge","scenario":{"mode":"reactive","request":"…","at":{"need":"¿Cuál es la velocidad de la luz?","fragments":["…","…","…"]}},"expect":{"expectedRelevant":[true,false,true]}}
 ```
 
-`at.fragments` lleva de 1 a 5 fragmentos (`JUDGE_BATCH`) y `expectedRelevant` un booleano por fragmento, en orden. Checks: `fragment_<i>_match`, `fragment_<i>_min_probability` (si el caso pide `minProbability`) y `fragment_count_match`. Ejemplos: `eval/variants/fragment_judge/fragment_judge_strict.ts` y `eval/datasets/fragment_judge/fragment_judge_gem1.jsonl`.
+Checks: `fragment_<i>_match`, `fragment_<i>_min_probability` (si pide `minProbability`) y `fragment_count_match`.
 
-Para sumar otra etapa de decisión hay que tocar: `DecisionStage` y su `expect` (`types.ts`), `DECISION_STAGES` y el esquema de `expect` (`case.ts`), el parser (`variants/labels.ts`), el grader (`graders/label.ts`), el registro (`stages/decision.ts` e `index.ts`), el armado del request (`scenario.ts`), las preguntas principales (`questions.ts`) y el oráculo (`client/oracle.ts`).
+Las etapas son enchufables y viven en `eval/core/stages/`. Para sumar una etapa nueva:
+1. **Módulo de etapa (`eval/core/stages/<etapa>.ts`):** implementar `DecisionStageEntry` o `GenerativeStageEntry` con su `expectSpec` (claves, requeridas, enums y validación semántica), `buildRequest`, `parseOutput`, `label`, `graders`, `oracleAnswer` o `oracleOutput` y (en decisiones) `mainQuestionBindings`.
+2. **Registro (`eval/core/stages/index.ts`):** importar la entrada y agregarla a `REGISTRY`.
+3. **Tipos (`eval/core/types.ts`):** sumar el nombre a `DecisionStage` o `GenerativeStage` y definir `*Expect` y `*Output` (agregando `*Expect` a `StageExpect`).
+4. **Contrato y graders (`eval/core/contract.ts`, `eval/core/graders/`):** reexportar constantes de `src/` si hacen falta y sumar un grader propio (p. ej. en `graders/label.ts`) si los existentes no cubren el `expect`.
+5. **Caso de humo, dataset y variantes:** agregar un caso en `eval/datasets/smoke.jsonl`, datasets en `eval/datasets/<etapa>/` y variantes en `eval/variants/<etapa>/`.
 
 ---
 
@@ -228,7 +242,7 @@ Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es
 
 | Etapa | Qué escribe la variante |
 |---|---|
-| `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildFirstQuery`, `buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`). |
+| `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildFirstQuery`, `buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`, `buildCompletionCheck`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`). |
 | `plan`, `arguments`, `final`, `question`, `pending` | La vista entera en `prompts.PROMPTS` (`PLAN_VIEW`, `ARGUMENTS_VIEW`, `FINAL_VIEW`, `QUESTION`, `PENDING_VIEW`), con todas sus piezas. |
 
 ```ts

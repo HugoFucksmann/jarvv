@@ -10,7 +10,7 @@ import type { CommandAnalyzer } from "../../../src/core/engine/precheck.ts";
 import { argumentsStageRequest } from "../../../src/core/models/stageRequests.ts";
 import { argsProblemText, isRecord, NOT_JSON_ERROR, parseJsonObject, validateArgs } from "../contract.ts";
 import type { ToolInputSchema } from "../contract.ts";
-import { ArgumentsGrader, collectStrings, usedRefIds } from "../graders/arguments.ts";
+import { ArgumentsGrader } from "../graders/arguments.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import type { ArgumentsExpect, ArgumentsOutput, GenerativeRequest } from "../types.ts";
 import type { GenerativeStageEntry, OracleHelpers } from "./index.ts";
@@ -26,17 +26,6 @@ const cachedAnalyze: CommandAnalyzer = (command) => {
   }
   return r;
 };
-
-/**
- * Los argumentos que llevan un token de ref (`{{ref:rN}}` o `ref:rN`), fuera. Producción los resuelve antes del pre-chequeo; el eval
- * no tiene el contenido de las refs, y comprobar el token literal rechazaría de más (una URL o ruta "sin origen", un comando que no
- * parsea). Ante la duda, silencio, como el propio pre-chequeo. Límite: esos valores no se comprueban.
- */
-function argsWithoutRefs(args: Record<string, unknown>): Record<string, unknown> {
-  const stringsOf = (v: unknown): string[] =>
-    typeof v === "string" ? [v] : Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
-  return Object.fromEntries(Object.entries(args).filter(([, v]) => usedRefIds(stringsOf(v)).length === 0));
-}
 
 function valueFor(
   schema: unknown,
@@ -92,8 +81,8 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
   requestType: "generative",
   rejectTruncated: true,
   expectSpec: {
-    keys: { requiredFields: "string[]", exactFieldValues: "object", allowedRefTokens: "string[]", forbiddenHardcodedValues: "string[]" },
-    atLeastOne: ["requiredFields", "exactFieldValues", "allowedRefTokens", "forbiddenHardcodedValues"],
+    keys: { requiredFields: "string[]", exactFieldValues: "object", forbiddenHardcodedValues: "string[]" },
+    atLeastOne: ["requiredFields", "exactFieldValues", "forbiddenHardcodedValues"],
     validate(expectObj, errs) {
       if (isRecord(expectObj.exactFieldValues) && Object.keys(expectObj.exactFieldValues).length === 0) {
         errs.push("expect.exactFieldValues no puede ser un objeto vacío (no generaría ningún check).");
@@ -106,7 +95,7 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
     const at = sc.at ?? {};
     const route = h.need(at.route, "route", "arguments");
     const tool = h.toolOf(route, h.need(at.tool, "tool", "arguments"), at.inputSchema);
-    const { kind, sources, environment: env, refIds } = h.precheckBase(ctx, route, tool.name, at.environment);
+    const { kind, sources, environment: env } = h.precheckBase(ctx, route, tool.name, at.environment);
     // Sin `priorAttempts`: un caso `arguments` es siempre el primer intento (`argsInput` aplica 0).
     const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), h.config(), h.effectivePrompts(ov).P);
     return {
@@ -114,7 +103,7 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
       toolSchema: tool.inputSchema as ToolInputSchema,
       toolName: tool.name,
       environment: env,
-      precheck: { kind, sources, refIds },
+      precheck: { kind, sources },
     };
   },
   parseOutput(rawOutput: string, _sentReq: GenerativeRequest, toolSchema?: ToolInputSchema): ArgumentsOutput {
@@ -141,18 +130,11 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
   label: noLabel,
   async postCheck({ parsed, fc, collector }) {
     if (fc.meta?.toolName === undefined || fc.meta.environment === undefined || fc.meta.precheck === undefined) return;
-    // Como producción (refs sin resolver): una ref que no existe en el escenario es inventada, haya o no `allowedRefTokens`.
-    const unknownRefs = usedRefIds(collectStrings(parsed.args)).filter((id) => !fc.meta!.precheck!.refIds.includes(id));
-    collector.check(
-      "refs_exist",
-      unknownRefs.length === 0,
-      `Usa refs que no existen en el escenario: ${[...new Set(unknownRefs)].map((id) => `{{ref:${id}}}`).join(", ")}`,
-    );
     const finding = await precheckCall(
       {
         tool: fc.meta.toolName,
         kind: fc.meta.precheck.kind,
-        args: argsWithoutRefs(parsed.args),
+        args: parsed.args,
         sources: fc.meta.precheck.sources,
         environment: fc.meta.environment,
       },

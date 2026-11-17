@@ -4,6 +4,7 @@
  * Etapa generativa `pending`: lista de pendientes del modo reactivo.
  */
 
+import type { PreviousTask } from "../../../src/core/contracts.ts";
 import { pendingInput } from "../../../src/core/engine/adapters.ts";
 import { pendingStageRequest } from "../../../src/core/models/stageRequests.ts";
 import { NOT_JSON_ERROR, parseJsonObject, parsePendingList } from "../contract.ts";
@@ -32,8 +33,14 @@ export const pendingStage: GenerativeStageEntry<PendingOutput, PendingExpect> = 
     if (sc.mode !== "reactive") throw new Error("etapa 'pending': la lista de pendientes solo existe en modo reactivo.");
     const { ctx } = h.buildContext(sc);
     const at = sc.at ?? {};
+    const t = sc.recalled?.thread;
+    const thread: PreviousTask | undefined =
+      t && (t.previous_request !== undefined || t.previous_answer !== undefined)
+        ? { request: t.previous_request ?? "", answer: t.previous_answer ?? "" }
+        : undefined;
+    const input = { ...pendingInput(ctx, at.previous ?? []), ...(thread ? { thread } : {}) };
     return {
-      request: h.generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), h.effectivePrompts(ov).P), "pending"),
+      request: h.generative(pendingStageRequest(input, h.effectivePrompts(ov).P), "pending"),
     };
   },
   parseOutput(rawOutput: string): PendingOutput {

@@ -4,10 +4,9 @@ import type { Variant } from "../../core/variants/types.ts";
 const SYSTEM = `Generate the arguments for the indicated tool. Return only a JSON object that conforms to the SCHEMA.
 
 Include only required parameters and optional parameters necessary for the task.
-Follow TASK and USER exactly. Use STEPS, DONE, STATE, REFS, DATA and EFFECTS as context. Do not repeat failed attempts from FAIL or LAST ERROR; correct their specific problems.
+Follow TASK and USER exactly. Use STEPS, DONE, STATE, DATA and EFFECTS as context. Do not repeat failed attempts from FAIL or LAST ERROR; correct their specific problems.
 
 Use only available information. Never invent paths, identifiers, names, filters, URLs or data. Never use placeholders.
-Use {{ref:rX}} only for references listed in REFS when a full saved result is required.
 For file paths, use actual paths provided in ENV. Never use environment variables.
 
 PowerShell Rules:

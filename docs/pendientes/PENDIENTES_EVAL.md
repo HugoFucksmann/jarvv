@@ -10,10 +10,10 @@ Todo lo que se cierra **midiendo**: correr `eval/`, revisar trazas reales o prob
 |---|---|---|
 | D3 (`reviewArgs`) | Implementado, apagado (`reviewFullView`, `reviewReads`) | Medir su efecto (§1) |
 | `PENDING_FACTS_LOOKUP` | Apagado (`false`), sin mitigación | Decidir y medir la opción C (§2) |
-| Falsos cierres de D5 | Guarda `completionCoverageGuard` implementada, apagada, con tests | Medirla y crear un dataset de D5 (§3) |
+| Falsos cierres de D5 | Guarda `completionCoverageGuard` implementada, apagada; etapa y datasets D5 listos en `eval/` | Medirla con modelos y trazas (§3) |
 | `web_search` | Sin implementar | Medir multiparte y recencia, luego decidir (§4) |
 | Umbrales, topes, tiempos, contexto de Ollama | Valores iniciales | Calibrar con uso real (§5) |
-| Laboratorio `eval/` | Con restos de refs y datasets viejos | Limpiar y correr los evals (§6) |
+| Laboratorio `eval/` | Limpio de refs, con D0/D5 formales y `recalled` listos | Correr los evals con modelos y convertir `jarvis-traces/` (§6) |
 | Pruebas en otro entorno | — | Hacerlas (§7) |
 
 ---
@@ -107,7 +107,7 @@ B (barata y determinista) detrás de flag, y validar con datos reales antes de t
 `completionCoverageGuard` en `jarvis-config.json`: `completion.ts#uncoveredArtifacts` extrae los nombres de archivo del pedido (extensiones: txt, md, json, csv, ps1, py, js, ts, pdf, docx, xlsx, png, jpg, zip, html, css, log, xml, yml, ini, bat, cmd, exe, mp3, mp4…) y, si alguno no aparece (sin mayúsculas, sin separadores) en los argumentos ni en el resumen de ninguna llamada, `confirmCompletion` devuelve `false` sin consultar a D5. Tests: `uncoveredArtifacts` (`tests/hardening.test.ts`) y el flujo con el flag encendido y apagado (`tests/engine.test.ts`, «cierre: … guarda de cobertura …»).
 
 ### Qué medir tú
-Con el flag apagado y encendido, sobre el conjunto de D5 y trazas reales: falsos cierres (tarea `completed` con partes sin hacer), cierres que pasan al LLM por la guarda (falsos bloqueos) y latencia media por tarea. Un dataset formal de D5 en `eval/` sigue pendiente (no se tocó `eval/`).
+Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y `d5_variedad` en `eval/`) y trazas reales: falsos cierres (tarea `completed` con partes sin hacer), cierres que pasan al LLM por la guarda (falsos bloqueos) y latencia media por tarea.
 
 ---
 
@@ -167,16 +167,11 @@ Con el flag apagado y encendido, sobre el conjunto de D5 y trazas reales: falsos
 
 ## 6. Laboratorio `eval/`
 
-- **Restos de las refs** (los modelos ya no las ven):
-  - `eval/core/runner.ts` (valida tokens `{{ref:rN}}` y la comprobación `refs_exist`), `graders/arguments.ts`, `case.ts`, `scenario.ts` y `types.ts` conservan el soporte de refs y `allowedRefTokens`.
-  - Las variantes de `eval/variants/arguments/` (`args_g`, `args_ps_elite`, `args_ps_objetive`, `args_ps_perfect`) siguen con `REFS` y `{{ref:rX}}` en el prompt.
-  - Los casos `con_ref` de `tests/eval_arguments.test.ts` ya no tienen sentido.
-  - `eval/CONCLUSIONES_HISTORICAS.md` cita `READ_REFS_NOTE`.
+- **Restos fuera de `eval/`:** en `tests/eval_arguments.test.ts` quedan los casos `conRef` (no tocados; actualizar cuando se revise ese test).
 - **Datasets de `question/`:** 3 casos usaban el estado `refs_unresolved` (eliminado) y pasaron a `info_missing`; medir si la pregunta del modelo cambia con la otra frase de estado.
-- **Correr** los evals de argumentos (el prompt perdió `REFS`) y de `question/`; se espera sin regresión.
-- **Datasets viejos:** actualizar los que aún citan `start_process` y `fetch`; unificar `facts.answer_<n>` de `scenario.ts` con `answer_<paso>_<n>` de producción.
-- **Etapas nuevas:** agregar D0 y D5 formales y un script que convierta las carpetas de `jarvis-traces/` en escenarios.
-- Desalineaciones detalladas entre `eval/` y `src/`: [`../evaluacion/desalineaciones-eval.md`](../evaluacion/desalineaciones-eval.md).
+- **Correr** los evals de `arguments` (el prompt ya no tiene `REFS`), `question/`, `d5`, memoria (`recalled`) y el resto del plan de medición (`docs/evaluacion/PLAN_DE_MEDICION.md`).
+- **Trazas reales:** sumar un script que convierta las carpetas de `jarvis-traces/` en escenarios.
+- Desalineaciones detalladas entre `eval/` y `src/`: [`../evaluacion/desalineaciones-eval.md`](../evaluacion/desalineaciones-eval.md). Plan operativo: [`../evaluacion/PLAN_DE_MEDICION.md`](../evaluacion/PLAN_DE_MEDICION.md).
 
 ## 7. Pruebas en otro entorno
 

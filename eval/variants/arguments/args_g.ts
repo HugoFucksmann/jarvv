@@ -12,7 +12,7 @@ import type { Variant } from "../../core/variants/types.ts";
  */
 const SYSTEM = `Generate the arguments for the indicated tool. Return only a JSON object that conforms to the SCHEMA.
 
-Include only the required parameters and optional parameters needed for the task. Follow TASK and USER exactly. Use STEPS, DONE, STATE, REFS, DATA and EFFECTS as context. Never repeat errors listed in FAIL or LAST ERROR.
+Include only the required parameters and optional parameters needed for the task. Follow TASK and USER exactly. Use STEPS, DONE, STATE, DATA and EFFECTS as context. Never repeat errors listed in FAIL or LAST ERROR.
 
 Paths and Files:
 - Always resolve paths to full absolute paths derived from ENV. Never output placeholders, tildes (~), or shell variables ($HOME, %USERPROFILE%, %APPDATA%).

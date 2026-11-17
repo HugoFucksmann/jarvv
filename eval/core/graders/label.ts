@@ -4,17 +4,20 @@
  * Graders de coincidencia de etiquetas para las etapas de decisión.
  */
 
+import { COMPLETION_KEY } from "../contract.ts";
 import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
+  D0Expect,
+  D0Output,
+  D5Expect,
+  D5Output,
   FragmentJudgeExpect,
   FragmentJudgeOutput,
   Grader,
   GraderCollector,
   ResultVerificationExpect,
   ResultVerificationOutput,
-  D0Expect,
-  D0Output,
   RouteExpect,
   RouteOutput,
   ToolChoiceExpect,
@@ -176,5 +179,33 @@ export const FragmentJudgeGrader: Grader<FragmentJudgeOutput, FragmentJudgeExpec
       );
       if (want) checkMinProbability(col, `fragment_${i}_min_probability`, `f${i}`, p, expect.minProbability);
     });
+  },
+};
+
+export const D5LabelGrader: Grader<D5Output, D5Expect> = {
+  name: "d5_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("d5_valid", false, "No se pudo obtener la decisión de cierre (D5).");
+      return;
+    }
+
+    col.measure("complete_prob", output.probability);
+    col.check(
+      "complete_match",
+      output.complete === expect.expectedComplete,
+      `D5 decidió ${output.complete ? "completo" : "incompleto"} (prob=${output.probability.toFixed(3)}) y se esperaba ${expect.expectedComplete ? "completo" : "incompleto"}.`,
+    );
+
+    if (expect.minProbability !== undefined) {
+      checkMinProbability(col, "min_probability_met", COMPLETION_KEY, output.probability, expect.minProbability);
+    }
+    if (expect.maxProbability !== undefined) {
+      col.check(
+        "max_probability_met",
+        Number.isFinite(output.probability) && output.probability <= expect.maxProbability,
+        `Probabilidad ${output.probability.toFixed(3)} de '${COMPLETION_KEY}' mayor al máximo ${expect.maxProbability}.`,
+      );
+    }
   },
 };

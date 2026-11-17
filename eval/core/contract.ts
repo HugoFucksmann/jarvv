@@ -17,8 +17,9 @@ import { schemaTypes as prodSchemaTypes } from "../../src/core/utils.ts";
 
 export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
 export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvider.ts";
+export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";
 export { NOUL_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
-export { ARGS_REVIEWS } from "../../src/core/contracts.ts";
+export { ARGS_REVIEWS, COMPLETION_KEY } from "../../src/core/contracts.ts";
 export { estimateTokens } from "../../src/core/models/transport.ts";
 export { retryNote } from "../../src/core/models/prompts.ts";
 export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/models/qwen.ts";
