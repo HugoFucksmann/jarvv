@@ -7,7 +7,11 @@ import path from "node:path";
 import { test } from "node:test";
 
 import type { JarvisConfig } from "../src/core/config.ts";
-import { REFS_FOLDER, TRACE_FOLDER, pruneFolders, pruneTraceIndex, runRetention } from "../src/core/retention.ts";
+import { BUDGET } from "../src/core/budget.ts";
+import { create } from "../src/core/ctx/index.ts";
+import type { ContextLimits } from "../src/core/ctx/index.ts";
+import { REFS_FOLDER, TRACE_FOLDER, pruneFolders, pruneLogFiles, pruneTraceIndex, runRetention } from "../src/core/retention.ts";
+import { LOG_FILE, openTaskLog } from "../src/core/taskLog.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 10, 9);
@@ -101,4 +105,116 @@ test("runRetention: aplica retentionDays a refs y trazas, protege las refs de ta
 
 test("pruneTraceIndex: sin index.jsonl no hace nada", async () => {
   await pruneTraceIndex(path.join(os.tmpdir(), "no-existe-jarvis-xyz"));
+});
+
+// ───────────────────────── Logs de eventos de las tareas ─────────────────────────
+
+const LOG_LIMITS: ContextLimits = { summaryMax: BUDGET.summaryMax, argsStringMax: 2000, factValueMax: BUDGET.factValueMax, feedbackMax: BUDGET.feedbackMax, jsonMaxDepth: BUDGET.jsonMaxDepth };
+
+/** Un log de tarea con la antigüedad dada; `closed` lo cierra con respuesta y `pad` agranda la cabecera (para probar el tope de tamaño). */
+function logFile(tasksDir: string, id: string, ageDays: number, options: { readonly closed?: boolean; readonly pad?: number } = {}): string {
+  const request = `pedido ${id}${"x".repeat(options.pad ?? 0)}`;
+  const log = openTaskLog(tasksDir, { id, mode: "reactive", request, startedAt: NOW - ageDays * DAY, limits: LOG_LIMITS });
+  let t = NOW - ageDays * DAY;
+  let born = false;
+  const ctx = create.context({ id, request, mode: "reactive" }, { ...LOG_LIMITS, now: () => (born ? (t += 1000) : ((born = true), NOW - ageDays * DAY)), onApply: log.onApply });
+  ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "listar", route: null, expected: null } });
+  if (options.closed !== false) {
+    ctx.apply({ op: "finish", target: "task", value: { state: "completed", stopReason: null } });
+    ctx.apply({ op: "set", target: "result", value: { text: "Listo.", origin: "model" } });
+  }
+  const when = new Date(NOW - ageDays * DAY);
+  fs.utimesSync(log.filePath, when, when);
+  return log.filePath;
+}
+
+const configWith = (root: string, extra: Partial<JarvisConfig>) => (): JarvisConfig =>
+  ({ refsDir: path.join(root, "data", "refs"), tracePath: path.join(root, "traces.jsonl"), retentionDays: 10, logRetentionDays: 30, retentionMaxMb: 0, ...extra }) as JarvisConfig;
+
+test("los logs se reconocen por el nombre que Jarvis les da: `<id de tarea>.jsonl`", () => {
+  assert.ok(LOG_FILE.test(`${VIEJA}.jsonl`));
+  for (const ajeno of ["notas.jsonl", "index.jsonl", `${VIEJA}.txt`, `${VIEJA}.jsonl.repair`, "task_x.jsonl"]) assert.equal(LOG_FILE.test(ajeno), false, ajeno);
+});
+
+test("pruneLogFiles borra solo logs viejos de tareas cerradas: no toca los recientes, los protegidos, los de tareas sin cerrar ni archivos ajenos", async () => {
+  const root = tempDir();
+  const tasksDir = path.join(root, "data", "tasks");
+  const old = logFile(tasksDir, VIEJA, 40);
+  logFile(tasksDir, NUEVA, 5);
+  logFile(tasksDir, VIVA, 90);
+  const open = logFile(tasksDir, "task_1700000000009_open", 90, { closed: false });
+  fs.writeFileSync(path.join(tasksDir, "notas.jsonl"), "x");
+  const ancient = new Date(NOW - 400 * DAY);
+  fs.utimesSync(path.join(tasksDir, "notas.jsonl"), ancient, ancient);
+
+  const removed = await pruneLogFiles(tasksDir, 30 * DAY, NOW, (id) => id === VIVA);
+  assert.deepEqual(removed, [`${VIEJA}.jsonl`]);
+  assert.equal(fs.existsSync(old), false);
+  assert.ok(fs.existsSync(open), "una tarea sin cerrar nunca pierde su log");
+  assert.deepEqual(fs.readdirSync(tasksDir).sort(), ["notas.jsonl", `${NUEVA}.jsonl`, "task_1700000000009_open.jsonl", `${VIVA}.jsonl`].sort());
+  assert.deepEqual(await pruneLogFiles(path.join(tasksDir, "no-existe"), DAY, NOW), []);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("runRetention: refs y trazas a los 10 días, el log a los 30 (cada uno con su propia antigüedad)", async () => {
+  const root = tempDir();
+  const refsDir = path.join(root, "data", "refs");
+  const tasksDir = path.join(root, "data", "tasks");
+  folder(refsDir, VIEJA, 20);
+  folder(path.join(root, "traces"), `20261020-000000_${VIEJA}`, 20);
+  logFile(tasksDir, VIEJA, 20);
+  const veryOld = "task_1600000000000_zzzz";
+  logFile(tasksDir, veryOld, 40);
+
+  await runRetention(configWith(root, {}), () => [], NOW);
+  assert.equal(fs.existsSync(path.join(refsDir, VIEJA)), false, "las refs de 20 días se borran");
+  assert.deepEqual(fs.readdirSync(path.join(root, "traces")).filter((n) => n !== "index.jsonl"), [], "la traza de 20 días se borra");
+  assert.deepEqual(fs.readdirSync(tasksDir), [`${VIEJA}.jsonl`], "el log de 20 días queda y el de 40 se borra");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("runRetention: el log de una tarea retenida en memoria no se borra, y logRetentionDays 0 no borra logs por antigüedad", async () => {
+  const root = tempDir();
+  const tasksDir = path.join(root, "data", "tasks");
+  logFile(tasksDir, VIVA, 90);
+  logFile(tasksDir, VIEJA, 90);
+  await runRetention(configWith(root, {}), () => [VIVA], NOW);
+  assert.deepEqual(fs.readdirSync(tasksDir), [`${VIVA}.jsonl`]);
+
+  logFile(tasksDir, VIEJA, 90);
+  await runRetention(configWith(root, { logRetentionDays: 0 }), () => [], NOW);
+  assert.deepEqual(fs.readdirSync(tasksDir).sort(), [`${VIEJA}.jsonl`, `${VIVA}.jsonl`].sort(), "sin días de log no se borra nada por antigüedad");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("runRetention: el tope de tamaño es compartido entre refs, trazas y logs: se borra lo más antiguo primero y nunca lo protegido ni lo no cerrado", async () => {
+  const root = tempDir();
+  const refsDir = path.join(root, "data", "refs");
+  const tasksDir = path.join(root, "data", "tasks");
+  const big = (dir: string, name: string, ageDays: number): void => {
+    folder(dir, name, ageDays);
+    fs.writeFileSync(path.join(dir, name, "grande.txt"), "x".repeat(600_000));
+    const when = new Date(NOW - ageDays * DAY);
+    fs.utimesSync(path.join(dir, name), when, when);
+  };
+  const oldestRefs = "task_1700000000100_refs";
+  const middleLog = "task_1700000000200_logg";
+  const newestRefs = "task_1700000000300_newr";
+  big(refsDir, oldestRefs, 6);
+  logFile(tasksDir, middleLog, 4, { pad: 600_000 });
+  big(refsDir, newestRefs, 1);
+  const open = logFile(tasksDir, "task_1700000000400_open", 8, { closed: false, pad: 600_000 });
+
+  // ~2,4 MB entre las cuatro cosas; con un tope de 2 MB sobra lo más antiguo que se puede borrar: las refs de 6 días.
+  await runRetention(configWith(root, { retentionDays: 0, logRetentionDays: 0, retentionMaxMb: 2 }), () => [], NOW);
+  assert.equal(fs.existsSync(path.join(refsDir, oldestRefs)), false, "lo más antiguo borrable (refs de 6 días) se va primero");
+  assert.ok(fs.existsSync(path.join(tasksDir, `${middleLog}.jsonl`)) && fs.existsSync(path.join(refsDir, newestRefs)), "lo más nuevo se conserva al bajar del tope");
+  assert.ok(fs.existsSync(open), "el log de una tarea sin cerrar no se borra aunque sea el más antiguo");
+
+  // Con un tope de 1 MB se sigue en orden (el log de 4 días, después las refs de 1 día) y se corta lo que se puede: el log abierto, que no se puede borrar, queda aunque el total siga sobre el tope.
+  await runRetention(configWith(root, { retentionDays: 0, logRetentionDays: 0, retentionMaxMb: 1 }), () => [], NOW);
+  assert.equal(fs.existsSync(path.join(tasksDir, `${middleLog}.jsonl`)), false, "los logs cuentan para el tope y se borran por antigüedad");
+  assert.equal(fs.existsSync(path.join(refsDir, newestRefs)), false, "después se borran las refs más nuevas: sigue sobre el tope");
+  assert.ok(fs.existsSync(open), "el log de la tarea sin cerrar queda");
+  fs.rmSync(root, { recursive: true, force: true });
 });

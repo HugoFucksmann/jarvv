@@ -16,7 +16,7 @@ import type { TaskContext } from "../src/core/ctx/index.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
 import type { Waiting } from "../src/core/engine/runtime.ts";
-import { DecisionServiceUnavailableError } from "../src/core/models/transport.ts";
+import { DecisionServiceUnavailableError, DecisionValidationError } from "../src/core/models/transport.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
 import { createRefVault } from "../src/core/refs/refVault.ts";
@@ -65,8 +65,8 @@ interface Scenario {
   readonly verifyFor?: (n: number) => { ok: number; cumple: number };
   /** Probabilidad que Decisión 5 (cierre) da a `request_complete`; por defecto 0 (no asegura el cierre y se confirma con el LLM, como antes). */
   readonly completion?: number;
-  /** Decisión 5 falla (servicio caído): el cierre cae a la confirmación del LLM. */
-  readonly completionFails?: boolean;
+  /** Decisión 5 falla: `true`/`"unavailable"` = servicio caído (la tarea cierra `unrecoverable`); `"invalid"`/`"overflow"` = el atajo no se pudo tomar y se confirma con el LLM. */
+  readonly completionFails?: boolean | FailKind;
   /** Guarda de cobertura de D5 (`completionCoverageGuard`) encendida. */
   readonly coverageGuard?: boolean;
   /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): el reactivo reintenta con pasos nuevos del mismo criterio. */
@@ -76,10 +76,19 @@ interface Scenario {
   /** Ve los destinos que se ofrecen a Decisión 1 en cada vuelta. */
   readonly onRoutes?: (routes: readonly string[]) => void;
   /** D0 (primera consulta): lo que decide; `"fail"` = el servicio de decisión falla. Sin esto, el doble no implementa `firstQuery` (flujo de siempre). */
-  readonly first?: "chat" | "single" | "multi" | "fail";
+  readonly first?: "chat" | "single" | "multi" | "fail" | FailKind;
   /** Hilo: la tarea anterior vigente al empezar y la probabilidad de `follow` que da la consulta de continuación. */
   readonly previous?: { readonly request: string; readonly answer: string };
   readonly follows?: number;
+  /** La consulta de continuación falla (`"unavailable"` cierra la tarea; `"invalid"`/`"overflow"` siguen sin hilo). */
+  readonly continuationFails?: FailKind;
+}
+
+type FailKind = "unavailable" | "invalid" | "overflow";
+
+/** El error que lanza un doble de Decisión según el tipo de fallo. */
+function decisionFailure(kind: FailKind): Error {
+  return kind === "unavailable" ? new DecisionServiceUnavailableError("Decisión caída (prueba)") : new DecisionValidationError("Respuesta inválida (prueba)", kind === "overflow");
 }
 
 interface Outcome {
@@ -93,6 +102,10 @@ interface Outcome {
   readonly completionChecks: number;
   /** Lo que recibió cada consulta que lleva la tarea anterior (`thread`), por etapa. */
   readonly threads: { readonly pending: unknown[]; readonly final: unknown[]; readonly memory: unknown[] };
+  /** El texto que recibió el LLM en cada generación de la respuesta final (el hilo llega como sección `recalled`). */
+  readonly finalViews: string[];
+  /** El texto que recibió el LLM en cada generación de argumentos (la memoria y el hilo llegan como bloque `MEMORY`). */
+  readonly argViews: string[];
 }
 
 async function run(s: Scenario): Promise<Outcome> {
@@ -104,6 +117,8 @@ async function run(s: Scenario): Promise<Outcome> {
   let completionChecks = 0;
   let verified = 0;
   const threads = { pending: [] as unknown[], final: [] as unknown[], memory: [] as unknown[] };
+  const finalViews: string[] = [];
+  const argViews: string[] = [];
 
   const ended: string[] = [];
   let generated = 0;
@@ -148,27 +163,34 @@ async function run(s: Scenario): Promise<Outcome> {
         ? {}
         : {
             firstQuery: async () => {
-              if (s.first === "fail") throw new DecisionServiceUnavailableError("Decisión caída (prueba)");
+              if (s.first === "fail" || s.first === "unavailable" || s.first === "invalid" || s.first === "overflow") throw decisionFailure(s.first === "fail" ? "unavailable" : s.first);
               return { kind: s.first as "chat" | "single" | "multi", probabilities: {}, multi: 0, rawInput: "", rawOutput: "" };
             },
           }),
       ...(s.place === undefined && s.probeBy === undefined ? {} : { probe: async (q: { question: { instructions: string } }) => ({ probability: s.probeBy === undefined ? (s.place as number) : s.probeBy(q.question.instructions), rawInput: "", rawOutput: "" }) }),
-      ...(s.follows === undefined ? {} : { continuation: async () => ({ follows: s.follows as number, rawInput: "", rawOutput: "" }) }),
+      ...(s.follows === undefined && s.continuationFails === undefined
+        ? {}
+        : {
+            continuation: async () => {
+              if (s.continuationFails !== undefined) throw decisionFailure(s.continuationFails);
+              return { follows: s.follows as number, rawInput: "", rawOutput: "" };
+            },
+          }),
       checkCompletion: async () => {
         completionChecks++;
-        if (s.completionFails === true) throw new DecisionServiceUnavailableError("Decisión caída (prueba)");
+        if (s.completionFails !== undefined && s.completionFails !== false) throw decisionFailure(s.completionFails === true ? "unavailable" : s.completionFails);
         return { requestComplete: s.completionFor !== undefined ? s.completionFor(completionChecks - 1) : (s.completion ?? 0), rawInput: "", rawOutput: "" };
       },
     },
     llm: {
-      generateArgumentsFromView: async (input: { readonly priorAttempts?: number; readonly memory?: readonly string[] }) => ({ args: (s.onArgs?.(input), input.memory === undefined || threads.memory.push(input.memory), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
+      generateArgumentsFromView: async (input: { readonly priorAttempts?: number; readonly memory?: readonly string[]; readonly view?: string }) => ({ args: (s.onArgs?.(input), input.view === undefined || argViews.push(input.view), input.memory === undefined || threads.memory.push(input.memory), s.argsFor?.(generated++) ?? s.args), rawInput: "", rawOutput: "", timing: TIMING }),
       generateQuestion: async () => ({ question: "¿cuál?", rawInput: "", rawOutput: "" }),
       // La primera consulta trae el pendiente; al vaciarse, el modelo confirma que no falta nada.
       generatePendingFromView: async (input: { readonly thread?: unknown }) => (pendingQueries++, threads.pending.push(input.thread), { pending: s.pendingFor !== undefined ? s.pendingFor(pendingQueries - 1) : s.pendingAlways === true || pendingCalls++ === 0 ? [s.request] : [], rawInput: "", rawOutput: "" }),
       generatePlanFromView: async () => {
         throw new Error("no se usa en reactivo");
       },
-      generateFinalFromView: async (input: { readonly thread?: unknown }) => (threads.final.push(input.thread), { response: "Listo.", rawInput: "", rawOutput: "" }),
+      generateFinalFromView: async (input: { readonly thread?: unknown; readonly view?: string }) => (threads.final.push(input.thread), finalViews.push(input.view ?? ""), { response: "Listo.", rawInput: "", rawOutput: "" }),
     },
     vault: createRefVault({ dir }),
     guardScope: { protectedDirs: [path.join(dir, "protegida")], relativeBases: [dir] },
@@ -183,14 +205,14 @@ async function run(s: Scenario): Promise<Outcome> {
   // Con D0 el paso recibe `ctx.task.request` (no la lista del doble de `pending`): la tarea nace con la solicitud del escenario.
   let clock = 1_700_000_000_000;
   const ctx =
-    s.first === undefined && s.follows === undefined
+    s.first === undefined && s.follows === undefined && s.continuationFails === undefined
       ? newContext("reactive")
       : create.context({ id: "task_d0", request: s.request, mode: "reactive" }, { now: () => (clock += 1000), summaryMax: 2500, argsStringMax: 2000, factValueMax: 500, feedbackMax: 1500, jsonMaxDepth: 6 });
   let runtime!: TaskRuntime;
   runtime = new TaskRuntime({ onChange: (waiting) => waiting !== null && s.onWait !== undefined && queueMicrotask(() => s.onWait!(waiting, runtime)) });
   await runTask(ctx, runtime, deps);
   fs.rmSync(dir, { recursive: true, force: true });
-  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads };
+  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads, finalViews, argViews };
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
@@ -219,12 +241,22 @@ test("cierre: Decisión 5 por debajo del umbral (0,75) no cierra: se confirma co
   assert.equal(pendingQueries, 2, "la confirmación del LLM sí ocurrió");
 });
 
-test("cierre: si Decisión 5 falla, la tarea no se cierra por eso: se confirma con el LLM", async () => {
-  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails: true });
-  assert.equal(ctx.task.state, "completed");
-  assert.equal(ctx.task.stopReason, null);
+test("cierre: si el modelo de Decisión 5 no está disponible (agotada la pausa) la tarea cierra unrecoverable, sin confirmar con el LLM", async () => {
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails: "unavailable" });
+  assert.equal(ctx.task.stopReason, "unrecoverable");
+  assert.equal(ctx.task.state, "partial", "hubo una lectura aprobada: no es `failed`");
   assert.equal(completionChecks, 1);
-  assert.equal(pendingQueries, 2);
+  assert.equal(pendingQueries, 1, "no se pidió la confirmación al LLM");
+});
+
+test("cierre: una respuesta inválida o un desborde de Decisión 5 no es un modelo caído: se confirma con el LLM como antes", async () => {
+  for (const completionFails of ["invalid", "overflow"] as const) {
+    const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails });
+    assert.equal(ctx.task.state, "completed", completionFails);
+    assert.equal(ctx.task.stopReason, null, completionFails);
+    assert.equal(completionChecks, 1, completionFails);
+    assert.equal(pendingQueries, 2, completionFails);
+  }
 });
 
 test("RC-13: un comando que el Guard deniega no se despacha ni cierra la tarea: el modelo ve el motivo y prueba otro camino", async () => {
@@ -685,26 +717,39 @@ test("D0 una acción: la lista es la solicitud literal, sin consultar pendientes
   assert.equal(ctx.find("steps", {})[0].instruction, DOCS, "el paso recibe la solicitud sin reescritura");
 });
 
-test("D0 varias acciones o D0 caído: el flujo de siempre (la lista de pendientes la genera el modelo)", async () => {
-  for (const first of ["multi", "fail"] as const) {
+test("D0 varias acciones, o una respuesta inválida o un desborde de D0: el flujo de siempre (la lista de pendientes la genera el modelo)", async () => {
+  for (const first of ["multi", "invalid", "overflow"] as const) {
     const { ctx, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first });
     assert.equal(ctx.task.state, "completed", first);
     assert.ok(pendingQueries >= 1, `${first}: consulta pendientes`);
   }
 });
 
+test("D0 con el modelo de decisión no disponible (agotada la pausa): la tarea cierra unrecoverable sin ejecutar nada", async () => {
+  const { ctx, dispatched, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "unavailable" });
+  assert.equal(ctx.task.state, "failed");
+  assert.equal(ctx.task.stopReason, "unrecoverable");
+  assert.equal(dispatched.length, 0);
+  assert.equal(pendingQueries, 0);
+  assert.notEqual(ctx.result, null, "la tarea cerrada deja una respuesta");
+});
+
 // ───────────────────────── Hilo con la tarea anterior ─────────────────────────
 
 const PREV = { request: "decime qué hay en mi escritorio", answer: "En tu escritorio está la carpeta C:\\Users\\Ana\\Documents\\Proyectos y el archivo notas.txt." };
 const FOLLOW_UP = "mostrame qué hay dentro de eso";
+/** Valores de las entradas `thread` de `recalled` (pedido y respuesta anteriores), en orden. */
+const threadRecalled = (ctx: TaskContext): string[] => ctx.find("recalled", {}).filter((r) => r.source === "thread").map((r) => r.value);
 
 test("Hilo: continuación detectada: pending recibe la tarea anterior sin atajo, los argumentos la reciben como memoria, el pre-chequeo la acepta como fuente y la final también la ve", async () => {
   const path = "C:\\Users\\Ana\\Documents\\Proyectos";
-  const { ctx, dispatched, threads } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.8, completion: 1 });
+  const { ctx, dispatched, threads, finalViews, argViews } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.8, completion: 1 });
   assert.equal(ctx.task.state, "completed");
   assert.deepEqual(threads.pending[0], PREV, "pending ve la tarea anterior");
-  assert.deepEqual(threads.final[0], PREV, "la respuesta final la ve");
-  assert.ok(threads.memory.length > 0 && (threads.memory[0] as string[]).some((l) => l.startsWith("previous answer:")), "los argumentos reciben líneas de memoria");
+  assert.deepEqual(threadRecalled(ctx), [PREV.request, PREV.answer], "el hilo quedó en `recalled` (previous_request y previous_answer)");
+  assert.match(finalViews[0], /PREVIOUS TASK/, "la respuesta final la ve, como sección `recalled`");
+  assert.ok(finalViews[0].includes(PREV.request) && finalViews[0].includes("notas.txt"));
+  assert.ok(argViews[0].includes("MEMORY") && argViews[0].includes("previous answer:") && argViews[0].includes("notas.txt"), "los argumentos reciben el hilo como líneas del bloque MEMORY");
   assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1, "la ruta del hilo pasó el pre-chequeo");
 });
 
@@ -716,10 +761,24 @@ test("Hilo: sin continuación (follow bajo) no hay hilo en ningún prompt y la a
 });
 
 test("Hilo: una charla que continúa la tarea anterior cierra sin llamadas y la respuesta final recibe el hilo", async () => {
-  const { ctx, dispatched, threads } = await run({ request: "traducilo al inglés", tool: "list_directory", args: {}, first: "chat", previous: PREV, follows: 0.5 });
+  const { ctx, dispatched, finalViews } = await run({ request: "traducilo al inglés", tool: "list_directory", args: {}, first: "chat", previous: PREV, follows: 0.5 });
   assert.equal(ctx.task.state, "completed");
   assert.equal(dispatched.length, 0);
-  assert.deepEqual(threads.final[0], PREV);
+  assert.deepEqual(threadRecalled(ctx), [PREV.request, PREV.answer]);
+  assert.ok(finalViews[0].includes(PREV.request) && finalViews[0].includes("notas.txt"), "la respuesta final recibe el hilo");
+});
+
+test("Hilo: la consulta de continuación inválida o con desborde sigue sin hilo; con el modelo no disponible la tarea cierra unrecoverable", async () => {
+  for (const continuationFails of ["invalid", "overflow"] as const) {
+    const { ctx, threads } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", previous: PREV, continuationFails, completion: 1 });
+    assert.equal(ctx.task.state, "completed", continuationFails);
+    assert.deepEqual(threadRecalled(ctx), [], continuationFails);
+    assert.equal(threads.pending.filter((x) => x !== undefined).length, 0, continuationFails);
+  }
+  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", previous: PREV, continuationFails: "unavailable" });
+  assert.equal(ctx.task.state, "failed");
+  assert.equal(ctx.task.stopReason, "unrecoverable");
+  assert.equal(dispatched.length, 0);
 });
 
 test("Hilo: sin tarea anterior vigente no se consulta la continuación", async () => {
