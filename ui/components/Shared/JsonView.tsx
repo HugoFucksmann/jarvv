@@ -3,8 +3,8 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { CopyButton } from "./CopyButton.tsx";
 
 /**
- * Visor JSON compartido: resaltado de sintaxis, nodos plegables con guías de indentación,
- * textos largos o con saltos de línea legibles como párrafos, y copia por nodo.
+ * Visor JSON compartido: resaltado de sintaxis, llaves y corchetes con colores por profundidad,
+ * nodos plegables con guías de indentación, textos largos legibles como párrafos y copia por nodo.
  *
  * - `JsonView` recibe un valor ya parseado.
  * - `JsonText` recibe texto: si es JSON válido usa `JsonView`, si no lo muestra tal cual.
@@ -17,17 +17,47 @@ const BLOCK_STRING_MIN = 160;
 const COPY_CLASS = "gap-1 rounded px-1.5 py-0.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-white";
 const REVEAL = "opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100";
 
+/*
+ * Paleta por nivel de anidación para llaves `{ }` y corchetes `[ ]`,
+ * más sus guías verticales de indentación. Separada de claves (naranja),
+ * números (amarillo), booleanos/null (rosa) y cadenas (blanco suave).
+ */
+const BRACE_COLORS = [
+  "text-sky-300",
+  "text-violet-300",
+  "text-teal-300",
+  "text-indigo-300",
+] as const;
+
+const GUIDE_COLORS = [
+  "border-sky-400/25",
+  "border-violet-400/25",
+  "border-teal-400/25",
+  "border-indigo-400/25",
+] as const;
+
 const isContainer = (v: unknown): v is Record<string, unknown> | unknown[] => typeof v === "object" && v !== null;
 
 const stringify = (v: unknown) => JSON.stringify(v, null, 2);
 
-const Punct: React.FC<{ children: React.ReactNode }> = ({ children }) => <span className="text-slate-500">{children}</span>;
+export function tryParseJson(text: string): { ok: true; value: unknown } | { ok: false } {
+  if (!text || text.trim() === "") return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch {
+    return { ok: false };
+  }
+}
 
-const Comma: React.FC<{ show: boolean }> = ({ show }) => (show ? <span className="text-slate-600">,</span> : null);
+const Brace: React.FC<{ depth: number; children: React.ReactNode }> = ({ depth, children }) => (
+  <span className={`${BRACE_COLORS[depth % BRACE_COLORS.length]} font-semibold`}>{children}</span>
+);
+
+const Comma: React.FC<{ show: boolean }> = ({ show }) => (show ? <span className="text-slate-500">,</span> : null);
 
 /*
- * Sintaxis: claves en naranja, textos en gris claro (el valor que se lee), números en amarillo y
- * true/false/null en rosa. Los textos no usan un tono cálido para no confundirse con las claves.
+ * Sintaxis: claves en naranja, textos en blanco suave (el valor que se lee), números en amarillo,
+ * true/false/null en rosa y llaves/corchetes con colores según profundidad.
  */
 const Key: React.FC<{ name: string }> = ({ name }) => (
   <>
@@ -37,8 +67,8 @@ const Key: React.FC<{ name: string }> = ({ name }) => (
 );
 
 const Primitive: React.FC<{ value: unknown }> = ({ value }) => {
-  if (value === null) return <span className="text-rose-300">null</span>;
-  if (typeof value === "boolean") return <span className="text-rose-300">{String(value)}</span>;
+  if (value === null) return <span className="font-medium text-rose-300">null</span>;
+  if (typeof value === "boolean") return <span className="font-medium text-rose-300">{String(value)}</span>;
   if (typeof value === "number") return <span className="text-yellow-300">{String(value)}</span>;
   if (typeof value === "string") return <span className="break-words text-slate-100">{JSON.stringify(value)}</span>;
   return <span className="text-slate-400">{String(value)}</span>;
@@ -49,7 +79,7 @@ const LongString: React.FC<{ name?: string; value: string }> = ({ name, value })
   const [full, setFull] = useState(false);
   const clipped = !full && value.length > CLIP_AT;
   return (
-    <div className="group/row rounded hover:bg-slate-800/40">
+    <div className="group/row rounded py-0.5 hover:bg-slate-800/40">
       <div className="flex items-center gap-2 pl-5">
         {name !== undefined && (
           <span>
@@ -61,7 +91,7 @@ const LongString: React.FC<{ name?: string; value: string }> = ({ name, value })
           <CopyButton text={value} title="Copiar texto" iconSize="w-3.5 h-3.5" className={COPY_CLASS} />
         </span>
       </div>
-      <div className="ml-5 mb-1 border-l-2 border-slate-700 pl-3 font-sans text-sm leading-7 text-slate-200 whitespace-pre-wrap break-words">
+      <div className="ml-5 mb-1 border-l-2 border-slate-700 pl-3 font-sans text-[15px] leading-7 text-slate-200 whitespace-pre-wrap break-words">
         {clipped ? `${value.slice(0, CLIP_AT)}…` : value}
       </div>
       {clipped && (
@@ -100,7 +130,7 @@ const Node: React.FC<NodeProps> = ({ name, value, depth, last, defaultDepth }) =
       return <LongString name={name} value={value} />;
     }
     return (
-      <div className="rounded pl-5 break-words hover:bg-slate-800/40">
+      <div className="rounded py-0.5 pl-5 break-words hover:bg-slate-800/40">
         {name !== undefined && <Key name={name} />}
         <Primitive value={value} />
         <Comma show={!last} />
@@ -111,12 +141,13 @@ const Node: React.FC<NodeProps> = ({ name, value, depth, last, defaultDepth }) =
   const [openCh, closeCh] = isArray ? ["[", "]"] : ["{", "}"];
   const count = entries.length;
   const noun = isArray ? (count === 1 ? "elemento" : "elementos") : count === 1 ? "clave" : "claves";
+  const guideClass = GUIDE_COLORS[depth % GUIDE_COLORS.length];
 
   if (count === 0) {
     return (
-      <div className="rounded pl-5 hover:bg-slate-800/40">
+      <div className="rounded py-0.5 pl-5 hover:bg-slate-800/40">
         {name !== undefined && <Key name={name} />}
-        <Punct>{openCh + closeCh}</Punct>
+        <Brace depth={depth}>{openCh + closeCh}</Brace>
         <Comma show={!last} />
       </div>
     );
@@ -126,7 +157,7 @@ const Node: React.FC<NodeProps> = ({ name, value, depth, last, defaultDepth }) =
     <div>
       <div
         onClick={() => setOpen((o) => !o)}
-        className="group/row flex cursor-pointer items-start gap-1 rounded hover:bg-slate-800/40"
+        className="group/row flex cursor-pointer items-start gap-1 rounded py-0.5 hover:bg-slate-800/40"
       >
         <button
           type="button"
@@ -138,13 +169,13 @@ const Node: React.FC<NodeProps> = ({ name, value, depth, last, defaultDepth }) =
         </button>
         <div className="min-w-0 flex-1 break-words">
           {name !== undefined && <Key name={name} />}
-          <Punct>{openCh}</Punct>
+          <Brace depth={depth}>{openCh}</Brace>
           {!open && (
             <>
-              <span className="mx-1.5 text-xs text-slate-500">
+              <span className="mx-1.5 text-xs text-slate-400">
                 {count} {noun}
               </span>
-              <Punct>{closeCh}</Punct>
+              <Brace depth={depth}>{closeCh}</Brace>
               <Comma show={!last} />
             </>
           )}
@@ -163,7 +194,7 @@ const Node: React.FC<NodeProps> = ({ name, value, depth, last, defaultDepth }) =
       </div>
       {open && (
         <>
-          <div className="ml-2 border-l border-slate-800 pl-4">
+          <div className={`ml-2 border-l ${guideClass} pl-4`}>
             {entries.slice(0, shown).map(([k, v], i) => (
               <Node
                 key={k}
@@ -178,14 +209,14 @@ const Node: React.FC<NodeProps> = ({ name, value, depth, last, defaultDepth }) =
               <button
                 type="button"
                 onClick={() => setShown((s) => s + PAGE_SIZE)}
-                className="py-0.5 text-xs text-accent-300 hover:underline cursor-pointer"
+                className="py-1 text-xs text-accent-300 hover:underline cursor-pointer"
               >
                 Mostrar más (quedan {count - shown})
               </button>
             )}
           </div>
-          <div className="rounded pl-5">
-            <Punct>{closeCh}</Punct>
+          <div className="rounded py-0.5 pl-5">
+            <Brace depth={depth}>{closeCh}</Brace>
             <Comma show={!last} />
           </div>
         </>
@@ -210,9 +241,9 @@ export const JsonView: React.FC<JsonViewProps> = ({ value, defaultDepth = 3, too
   // Al cambiar `tick` se vuelve a montar el árbol con la nueva profundidad.
   const [mode, setMode] = useState({ depth: defaultDepth, tick: 0 });
   return (
-    <div className={`group/json relative font-mono text-[13px] leading-6 text-slate-300 ${className}`}>
+    <div className={`group/json relative font-mono text-sm leading-6 text-slate-300 ${className}`}>
       {toolbar && isContainer(value) && (
-        <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border border-slate-800 bg-slate-900/95 p-0.5 opacity-0 transition-opacity group-hover/json:opacity-100 focus-within:opacity-100">
+        <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/95 p-0.5 shadow-lg shadow-black/40 opacity-0 transition-opacity group-hover/json:opacity-100 focus-within:opacity-100">
           <button type="button" className={TOOL_BTN} onClick={() => setMode((m) => ({ depth: Infinity, tick: m.tick + 1 }))}>
             Expandir todo
           </button>
@@ -229,18 +260,12 @@ export const JsonView: React.FC<JsonViewProps> = ({ value, defaultDepth = 3, too
 
 /** Muestra texto JSON con `JsonView`; si no es JSON válido, lo muestra como texto plano. */
 export const JsonText: React.FC<Omit<JsonViewProps, "value"> & { text: string }> = ({ text, ...rest }) => {
-  const parsed = useMemo(() => {
-    try {
-      return { ok: true as const, value: JSON.parse(text) as unknown };
-    } catch {
-      return { ok: false as const };
-    }
-  }, [text]);
+  const parsed = useMemo(() => tryParseJson(text), [text]);
 
   if (!parsed.ok) {
     return (
       <pre
-        className={`whitespace-pre-wrap break-words font-mono text-[13px] leading-6 text-slate-300 ${rest.className ?? ""}`}
+        className={`whitespace-pre-wrap break-words font-mono text-sm leading-6 text-slate-300 ${rest.className ?? ""}`}
       >
         {text}
       </pre>

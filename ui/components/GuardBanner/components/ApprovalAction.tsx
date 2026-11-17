@@ -3,6 +3,7 @@ import { ShieldAlert, Check, X, Loader2, Terminal } from "lucide-react";
 import type { WaitingApproval } from "../../../types/api.ts";
 import type { ActionResult } from "../../../types/ui.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
+import { JsonView } from "../../Shared/JsonView.tsx";
 
 interface ApprovalActionProps {
   request: WaitingApproval["request"];
@@ -218,16 +219,33 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             {primaryContent !== null ? "Otros argumentos de la llamada" : "Argumentos de la llamada"}
           </span>
-          <div className="flex flex-col gap-1.5 font-mono text-xs">
+          <div className="flex flex-col gap-1.5 font-mono text-sm">
             {secondaryEntries.map(([k, v]) => {
+              const isObject = typeof v === "object" && v !== null;
               const isString = typeof v === "string";
               const isMultiline = isString && (v.includes("\n") || v.length > 80);
               const strVal = formatArgValue(v);
 
+              if (isObject) {
+                return (
+                  <div key={k} className="flex flex-col gap-1 p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-accent-400 font-semibold">{k}:</span>
+                      <CopyButton
+                        text={JSON.stringify(v, null, 2)}
+                        copiedLabel="¡Copiado!"
+                        className="gap-1 text-[11px] px-1.5 py-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
+                      />
+                    </div>
+                    <JsonView value={v} defaultDepth={2} toolbar={false} />
+                  </div>
+                );
+              }
+
               if (isMultiline) {
                 return (
-                  <div key={k} className="flex flex-col gap-1 p-2 rounded-lg bg-slate-950 border border-slate-800">
-                    <div className="flex items-center justify-between text-[11px]">
+                  <div key={k} className="flex flex-col gap-1 p-2.5 rounded-lg bg-slate-950 border border-slate-800">
+                    <div className="flex items-center justify-between text-xs">
                       <span className="text-accent-400 font-semibold">{k}:</span>
                       <CopyButton
                         text={strVal}
@@ -235,7 +253,7 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
                         className="gap-1 text-[11px] px-1.5 py-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white"
                       />
                     </div>
-                    <pre className="p-1.5 rounded bg-black/40 text-slate-100 whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-xs leading-relaxed">
+                    <pre className="p-2 rounded bg-black/40 text-slate-100 whitespace-pre-wrap break-all max-h-40 overflow-y-auto text-sm leading-relaxed">
                       {renderWithVisibleControlChars(strVal)}
                     </pre>
                   </div>
@@ -243,9 +261,11 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
               }
 
               return (
-                <div key={k} className="flex items-start gap-2 py-0.5 px-1 rounded hover:bg-slate-800/40">
+                <div key={k} className="flex items-start gap-2 py-0.5 px-1 rounded hover:bg-slate-800/40 text-[13px]">
                   <span className="text-accent-400 font-semibold shrink-0">{k}:</span>
-                  <span className="text-slate-100 break-all">{strVal}</span>
+                  <span className="text-slate-100 break-all">
+                    {isString ? renderWithVisibleControlChars(strVal) : strVal}
+                  </span>
                 </div>
               );
             })}

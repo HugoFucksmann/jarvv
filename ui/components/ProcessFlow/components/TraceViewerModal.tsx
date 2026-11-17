@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { jarvisApi } from "../../../services/jarvisApi.ts";
 import { MarkdownRenderer } from "../../Shared/MarkdownRenderer.tsx";
+import { JsonText } from "../../Shared/JsonView.tsx";
 import { TraceInspector } from "../../TraceInspector/TraceInspector.tsx";
 
 interface TraceViewerModalProps {
@@ -346,9 +347,9 @@ export const TraceViewerModal: React.FC<TraceViewerModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <pre className="p-4 bg-slate-950 rounded-lg border border-slate-800 font-mono text-xs text-slate-200 whitespace-pre-wrap break-words leading-relaxed selection:bg-accent-500/30">
-                  {content}
-                </pre>
+                <div className="p-4 bg-slate-950 rounded-lg border border-slate-800 selection:bg-accent-500/30">
+                  <JsonText text={content ?? ""} defaultDepth={2} />
+                </div>
               )}
             </div>
           )}

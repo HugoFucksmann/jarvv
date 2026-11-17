@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Terminal } from "lucide-react";
 import { CopyButton } from "./CopyButton.tsx";
-import { JsonText } from "./JsonView.tsx";
+import { JsonText, tryParseJson } from "./JsonView.tsx";
 
 interface MarkdownRendererProps {
   content: string;
@@ -264,15 +264,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
       {blocks.map((block, idx) => {
         switch (block.type) {
           case "code": {
+            const lang = block.language.toLowerCase();
+            const isJsonBlock =
+              lang === "json" ||
+              lang === "jsonc" ||
+              (lang === "código" &&
+                /^\s*[{\[]/.test(block.code) &&
+                tryParseJson(block.code).ok);
             return (
               <div
                 key={idx}
-                className="flex flex-col rounded-lg border border-slate-800 bg-slate-950 overflow-hidden font-mono text-xs my-1"
+                className="flex flex-col rounded-lg border border-slate-800 bg-slate-950 overflow-hidden font-mono my-1"
               >
                 <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-[11px] text-slate-400">
                   <div className="flex items-center gap-1.5">
                     <Terminal className="w-3.5 h-3.5 text-accent-400" />
-                    <span className="font-semibold text-slate-300 uppercase">{block.language}</span>
+                    <span className="font-semibold text-slate-300 uppercase">
+                      {isJsonBlock && lang === "código" ? "JSON" : block.language}
+                    </span>
                   </div>
                   <CopyButton
                     text={block.code}
@@ -280,7 +289,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
                     className="gap-1 text-slate-400 hover:text-slate-200"
                   />
                 </div>
-                {block.language.toLowerCase() === "json" ? (
+                {isJsonBlock ? (
                   <div className="p-3 overflow-x-auto">
                     <JsonText text={block.code} defaultDepth={4} />
                   </div>

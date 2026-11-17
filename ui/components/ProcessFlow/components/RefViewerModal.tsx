@@ -3,6 +3,7 @@ import { X, FileText, Loader2, AlertCircle, Copy, Check, HardDrive, Hash, Clock 
 import type { RefDto } from "../../../types/api.ts";
 import { jarvisApi } from "../../../services/jarvisApi.ts";
 import { useClipboardCopy } from "../../../hooks/useClipboardCopy.ts";
+import { JsonText } from "../../Shared/JsonView.tsx";
 
 interface RefViewerModalProps {
   taskId: string;
@@ -161,10 +162,8 @@ export const RefViewerModal: React.FC<RefViewerModalProps> = ({
               </div>
             </div>
           ) : content !== null ? (
-            <div className="relative">
-              <pre className="p-4 bg-slate-950 rounded-lg border border-slate-800 font-mono text-[13px] text-slate-200 whitespace-pre-wrap break-all leading-relaxed max-h-[60vh] overflow-y-auto selection:bg-accent-500/30">
-                {content}
-              </pre>
+            <div className="p-4 bg-slate-950 rounded-lg border border-slate-800 max-h-[60vh] overflow-y-auto selection:bg-accent-500/30">
+              <JsonText text={content} defaultDepth={3} />
             </div>
           ) : null}
         </div>

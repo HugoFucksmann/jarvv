@@ -2,6 +2,7 @@ import React from "react";
 import { Cpu, FileText, ExternalLink, HelpCircle, AlertCircle, HardDrive, Clock, Database } from "lucide-react";
 import type { TaskDto, RefDto } from "../../../types/api.ts";
 import { parseProcessPids } from "../../../utils/taskStatus.ts";
+import { JsonText, JsonView } from "../../Shared/JsonView.tsx";
 
 interface ArtifactsListProps {
   task: TaskDto;
@@ -46,7 +47,7 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
       key,
       stepId: fact.stepId,
       at: fact.at,
-      value: typeof fact.value === "string" ? fact.value : JSON.stringify(fact.value),
+      rawValue: fact.value,
     }));
 
   const hasRefs = refs && refs.length > 0;
@@ -160,12 +161,16 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
           </div>
           <div className="flex flex-col gap-1.5 pl-5">
             {otherFacts.map((f) => (
-              <div key={f.key} className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs">
-                <div className="text-slate-500 mb-0.5 flex items-center justify-between text-[11px] gap-2">
+              <div key={f.key} className="p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-xs">
+                <div className="text-slate-500 mb-1 flex items-center justify-between text-[11px] gap-2">
                   <span className="font-mono text-slate-300">{f.key} · Paso {f.stepId}</span>
                   <span className="tabular-nums">{new Date(f.at).toLocaleTimeString()}</span>
                 </div>
-                <div className="text-slate-200 whitespace-pre-wrap break-words">{f.value}</div>
+                {typeof f.rawValue === "string" ? (
+                  <JsonText text={f.rawValue} defaultDepth={2} toolbar={false} />
+                ) : (
+                  <JsonView value={f.rawValue} defaultDepth={2} toolbar={false} />
+                )}
               </div>
             ))}
           </div>

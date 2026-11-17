@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { TraceQuery } from "../../types/trace.ts";
 import { formatMs, stageInfo } from "../../utils/traceStages.ts";
 import { CopyButton } from "../Shared/CopyButton.tsx";
+import { JsonText, JsonView } from "../Shared/JsonView.tsx";
 import { ProbBars, type Answers } from "./ProbBars.tsx";
 
 function tryParse(text: string | null): unknown {
@@ -27,12 +28,13 @@ const TRUNCATED = new Set(["length", "max_tokens"]);
  * Sección plegable sin caja: cabecera ligera y contenido con una guía vertical.
  * `prose` usa tipografía de texto (prompts, mensajes); sin él, monoespaciada (JSON, salidas crudas).
  */
-const Block: React.FC<{ title: string; text: string; defaultOpen?: boolean; prose?: boolean }> = ({
-  title,
-  text,
-  defaultOpen = true,
-  prose = false,
-}) => {
+const Block: React.FC<{
+  title: string;
+  text: string;
+  value?: unknown;
+  defaultOpen?: boolean;
+  prose?: boolean;
+}> = ({ title, text, value, defaultOpen = true, prose = false }) => {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="group/block">
@@ -56,14 +58,20 @@ const Block: React.FC<{ title: string; text: string; defaultOpen?: boolean; pros
           />
         </div>
       </div>
-      {open && (
-        <pre
-          className={`mt-1 ml-[7px] border-l border-slate-800 pl-4 whitespace-pre-wrap break-words ${prose ? "font-sans text-[13px] leading-6 text-slate-200" : "font-mono text-xs leading-relaxed text-slate-300"
-            }`}
-        >
-          {text}
-        </pre>
-      )}
+      {open &&
+        (prose ? (
+          <pre className="mt-1 ml-[7px] border-l border-slate-800 pl-4 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-200">
+            {text}
+          </pre>
+        ) : (
+          <div className="mt-1 ml-[7px] border-l border-slate-800 pl-4">
+            {value !== undefined ? (
+              <JsonView value={value} defaultDepth={3} />
+            ) : (
+              <JsonText text={text} defaultDepth={3} />
+            )}
+          </div>
+        ))}
     </div>
   );
 };
@@ -85,17 +93,22 @@ const InputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
         {messages.map((m, i) => {
           const msg = isRecord(m) ? m : {};
           const role = typeof msg.role === "string" ? msg.role : `mensaje ${i + 1}`;
+          const content = msg.content ?? "";
+          const isStr = typeof content === "string";
           return (
             <Block
               key={i}
               title={role}
-              text={pretty(msg.content ?? "")}
-              prose={typeof msg.content === "string"}
+              text={pretty(content)}
+              value={isStr ? undefined : content}
+              prose={isStr}
               defaultOpen={role !== "system" || messages.length === 1}
             />
           );
         })}
-        {Object.keys(params).length > 0 && <Block title="parámetros" text={pretty(params)} defaultOpen={false} />}
+        {Object.keys(params).length > 0 && (
+          <Block title="parámetros" text={pretty(params)} value={params} defaultOpen={false} />
+        )}
       </div>
     );
   }
@@ -103,9 +116,23 @@ const InputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
     const { state, questions, ...rest } = parsed;
     return (
       <div className="flex flex-col gap-3">
-        {state !== undefined && <Block title="state" text={pretty(state)} />}
-        {questions !== undefined && <Block title="questions" text={pretty(questions)} />}
-        {Object.keys(rest).length > 0 && <Block title="otros" text={pretty(rest)} defaultOpen={false} />}
+        {state !== undefined && (
+          <Block
+            title="state"
+            text={pretty(state)}
+            value={typeof state === "string" ? undefined : state}
+          />
+        )}
+        {questions !== undefined && (
+          <Block
+            title="questions"
+            text={pretty(questions)}
+            value={typeof questions === "string" ? undefined : questions}
+          />
+        )}
+        {Object.keys(rest).length > 0 && (
+          <Block title="otros" text={pretty(rest)} value={rest} defaultOpen={false} />
+        )}
       </div>
     );
   }
@@ -116,6 +143,7 @@ const OutputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
   const out = query.output;
   const answers = stageInfo(query.stage).kind === "decision" && isRecord(out) ? (out as Answers) : null;
   const hasInterpreted = answers === null && out !== null && out !== undefined;
+  const isOutStr = typeof out === "string";
   return (
     <div className="flex flex-col gap-4">
       {query.error && (
@@ -126,8 +154,17 @@ const OutputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
         </div>
       )}
       {answers && <ProbBars answers={answers} offered={query.offered} />}
-      {hasInterpreted && <Block title="salida interpretada" text={pretty(out)} prose={typeof out === "string"} />}
-      {query.rawOutput !== null && <Block title="salida cruda" text={query.rawOutput} defaultOpen={!answers && !hasInterpreted} />}
+      {hasInterpreted && (
+        <Block
+          title="salida interpretada"
+          text={pretty(out)}
+          value={isOutStr ? undefined : out}
+          prose={isOutStr}
+        />
+      )}
+      {query.rawOutput !== null && (
+        <Block title="salida cruda" text={query.rawOutput} defaultOpen={!answers && !hasInterpreted} />
+      )}
     </div>
   );
 };

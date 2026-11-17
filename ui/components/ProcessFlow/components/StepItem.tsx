@@ -5,6 +5,7 @@ import { STEP_STATE_LABELS, formatVerdictReason } from "../../../utils/taskStatu
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { formatDuration } from "../../../utils/timeFormat.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
+import { JsonText, JsonView } from "../../Shared/JsonView.tsx";
 import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
 
 interface StepItemProps {
@@ -89,8 +90,8 @@ const OutputViewer: React.FC<{ text: string; copyTitle: string; className?: stri
         />
       </div>
       {expanded && (
-        <div className="p-2 bg-slate-950 border border-slate-800 rounded text-xs font-mono text-slate-300 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
-          {text}
+        <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg max-h-60 overflow-y-auto">
+          <JsonText text={text} defaultDepth={2} />
         </div>
       )}
     </div>
@@ -347,9 +348,9 @@ const StepItemBase: React.FC<StepItemProps> = ({
                     )}
 
                     {c.args && Object.keys(c.args).length > 0 && (
-                      <div className="text-xs font-mono text-slate-400 truncate mb-1">
-                        <span className="text-slate-500">args: </span>
-                        {JSON.stringify(c.args)}
+                      <div className="my-1.5 p-2.5 bg-slate-950 border border-slate-800 rounded-lg">
+                        <div className="text-[11px] font-medium text-slate-500 mb-1">Argumentos</div>
+                        <JsonView value={c.args} defaultDepth={1} toolbar={false} />
                       </div>
                     )}
 
