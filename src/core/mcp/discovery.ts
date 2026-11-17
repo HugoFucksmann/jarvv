@@ -84,6 +84,16 @@ export class DiscoveryEngine {
     return Object.fromEntries(entries);
   }
 
+  /** Instantánea síncrona de las herramientas ya cacheadas en memoria (sin consultar a los servidores MCP). */
+  getCachedTools(): Record<string, MCPTool[]> {
+    const out: Record<string, MCPTool[]> = {};
+    for (const server of this.servers.values()) {
+      const cached = this.toolsCache.get(server.name);
+      out[server.name] = cached ? cached.tools : [];
+    }
+    return out;
+  }
+
   /** Avisa a todos los proveedores que terminó una tarea (cierre de lo que dejó corriendo). Nunca lanza: un fallo se informa. */
   async notifyTaskEnd(taskId: string, outcome: TaskEndOutcome): Promise<void> {
     await Promise.allSettled(

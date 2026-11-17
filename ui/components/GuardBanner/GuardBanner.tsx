@@ -1,6 +1,6 @@
 import React, { memo, useState } from "react";
-import { HelpCircle, Send, Loader2 } from "lucide-react";
-import type { Waiting } from "../../types/api.ts";
+import { HelpCircle, Send, Loader2, Terminal } from "lucide-react";
+import type { QuestionSource, Waiting } from "../../types/api.ts";
 import type { ActionResult } from "../../types/ui.ts";
 import { ApprovalAction } from "./components/ApprovalAction.tsx";
 
@@ -14,8 +14,10 @@ interface GuardBannerProps {
 
 const UserAnswerForm: React.FC<{
   question: string;
+  source: QuestionSource;
+  pid?: string;
   onSubmit: (answer: string) => ActionResult;
-}> = ({ question, onSubmit }) => {
+}> = ({ question, source, pid, onSubmit }) => {
   const [answer, setAnswer] = useState("");
   const [isSending, setIsSending] = useState(false);
 
@@ -31,15 +33,28 @@ const UserAnswerForm: React.FC<{
     }
   };
 
+  const isProcess = source === "process";
+
   return (
     <form
       onSubmit={handleSubmit}
       className="flex items-start gap-3 p-3.5 bg-slate-900 border border-slate-800 rounded-lg"
     >
-      <HelpCircle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
+      {isProcess ? (
+        <Terminal className="w-5 h-5 text-accent-400 shrink-0 mt-0.5" />
+      ) : (
+        <HelpCircle className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" />
+      )}
       <div className="flex flex-col gap-2 flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-          <span className="text-yellow-300">Respuesta requerida</span>
+        <div className="flex items-center gap-2 flex-wrap text-xs font-medium text-slate-400">
+          <span className={isProcess ? "text-accent-300" : "text-yellow-300"}>
+            {isProcess ? "Entrada requerida por proceso" : "Respuesta requerida"}
+          </span>
+          {isProcess && pid && (
+            <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono text-slate-300">
+              PID {pid}
+            </span>
+          )}
           <span aria-hidden="true">·</span>
           <span className="text-[11px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
             Sin temporizador de expiración
@@ -53,7 +68,11 @@ const UserAnswerForm: React.FC<{
             type="text"
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
-            placeholder="Escribe tu respuesta para reanudar el flujo..."
+            placeholder={
+              isProcess
+                ? "Escribe la entrada para enviar al proceso..."
+                : "Escribe tu respuesta para reanudar el flujo..."
+            }
             aria-label="Respuesta para JARVIS"
             className="flex-1 min-w-0 px-3 py-2 bg-slate-950 border border-slate-700 rounded-md text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-accent-500/70 focus:ring-2 focus:ring-accent-500/20 transition-colors disabled:opacity-60"
             disabled={isSending}
@@ -98,8 +117,10 @@ const GuardBannerBase: React.FC<GuardBannerProps> = ({
         />
       ) : waiting.kind === "question" ? (
         <UserAnswerForm
-          key={`${waiting.question.stepId}:${waiting.question.question}`}
+          key={waiting.question.id}
           question={waiting.question.question}
+          source={waiting.question.source}
+          pid={waiting.question.pid}
           onSubmit={onAnswer}
         />
       ) : null}

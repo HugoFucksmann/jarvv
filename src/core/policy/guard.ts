@@ -244,13 +244,14 @@ export class Guard {
 
   /** Invariante 8: ¿los argumentos o el comando nombran una carpeta o archivo protegido? */
   private static touchesProtectedPath(args: Record<string, unknown>, scope: ProtectedPaths, hasCommand: boolean): boolean {
+    const relativeBases = scope.relativeBases;
     for (const [key, value] of Object.entries(args)) {
       const k = key.toLowerCase();
       if (NON_PATH_ARGS.includes(k)) continue;
       if (hasCommand && COMMAND_ARG_KEYS.includes(k)) continue;
       const values = typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
       for (const item of values) {
-        for (const candidate of Guard.candidatePaths(item, scope.relativeBases)) {
+        for (const candidate of Guard.candidatePaths(item, relativeBases)) {
           if (Guard.isProtectedTarget(candidate, scope)) return true;
         }
       }
@@ -261,8 +262,8 @@ export class Guard {
       if (command !== null) {
         const cmdBases =
           typeof args.cwd === "string" && args.cwd.trim() !== ""
-            ? Guard.candidatePaths(args.cwd.trim(), scope.commandBases ?? scope.relativeBases)
-            : (scope.commandBases ?? scope.relativeBases);
+            ? Guard.candidatePaths(args.cwd.trim(), scope.commandBases ?? relativeBases)
+            : (scope.commandBases ?? relativeBases);
         const protectedFileNames = new Set((scope.protectedFiles ?? []).map((f) => path.basename(f).toLowerCase()));
         for (const token of Guard.extractCommandPaths(command, protectedFileNames)) {
           for (const candidate of Guard.candidatePaths(token, cmdBases)) {

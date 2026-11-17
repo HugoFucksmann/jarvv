@@ -145,7 +145,7 @@ export default function App() {
         waitingReason={waitingKind}
         isPaused={isPaused}
         pausedModel={paused?.model ?? null}
-        mcpCount={Object.keys(discoveredTools).length}
+        mcpCount={Object.values(discoveredTools).filter((tools) => tools.length > 0).length}
         unavailableCount={Object.keys(unavailableServers).length}
         mcpInitStatus={mcpInitStatus}
         unavailableServers={unavailableServers}

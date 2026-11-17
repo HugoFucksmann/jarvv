@@ -74,8 +74,8 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
   };
 
   /** Pregunta al usuario, espera y deja el hecho escrito; `null` si el bucle puede seguir. `literalQuestion`: pregunta ya armada (un proceso que espera entrada). */
-  const ask = async (literalQuestion?: string, keySuffix?: string): Promise<StepOutcome | null> => {
-    const asked = await askUser(env, stepId, literalQuestion, keySuffix);
+  const ask = async (literalQuestion?: string, keySuffix?: string, pid?: string): Promise<StepOutcome | null> => {
+    const asked = await askUser(env, stepId, literalQuestion, keySuffix, pid);
     if (asked.kind === "answered") return null;
     return asked.kind === "cancelled" ? CANCELLED : { kind: "close", stopReason: asked.stopReason };
   };
@@ -141,7 +141,7 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
     // Un proceso que sigue vivo y espera una respuesta: no hay resultado que verificar, se le pregunta al usuario lo que el proceso pide y la respuesta
     // vuelve en la siguiente llamada. Con su propio tope (`maxProcessPromptsPerStep`): un prompt más allá de él lo acaba el tope de llamadas.
     if (outcome.status === "waiting_input" && outcome.prompt !== undefined && outcome.pid !== undefined && canAskProcessPrompt(ctx, stepId)) {
-      const stop = await ask(processQuestion(outcome.prompt), processAnswerSuffix(outcome.pid));
+      const stop = await ask(processQuestion(outcome.prompt), processAnswerSuffix(outcome.pid), outcome.pid);
       if (stop !== null) return stop;
     }
     // Los demás topes (repeticiones, rechazos del usuario, argumentos inválidos, ejecuciones e intentos) los revisa `checkStepLimits` al volver al inicio.

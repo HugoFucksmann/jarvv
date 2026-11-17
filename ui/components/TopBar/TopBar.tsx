@@ -31,9 +31,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectTask,
   ...status
 }) => (
-  <header className="relative z-40 flex items-center justify-between px-6 2xl:px-10 py-3 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md shrink-0">
+  <header className="relative z-40 flex items-center justify-between gap-2 px-3 sm:px-6 2xl:px-10 py-3 border-b border-slate-800 bg-slate-950/90 backdrop-blur-md shrink-0">
     {/* Zona 1: marca e historial de la sesión */}
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
       <BrandWordmark />
       <HistoryMenu tasks={tasks} activeTaskId={activeTaskId} onSelectTask={onSelectTask} />
     </div>
@@ -42,7 +42,7 @@ export const TopBar: React.FC<TopBarProps> = ({
     <SystemStatus {...status} />
 
     {/* Zona 3: modo de ejecución y configuración */}
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
       <ModeSelector mode={mode} onChange={onModeChange} disabled={status.isExecuting} />
       <button
         type="button"

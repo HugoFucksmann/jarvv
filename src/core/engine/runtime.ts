@@ -10,8 +10,16 @@
  */
 
 import type { JsonObject } from "../ctx/index.ts";
+import type { ListLevel } from "../policy/blacklist.ts";
+import type { ApprovalTier } from "../policy/tiers.ts";
 import type { Capability } from "../types.ts";
 import { newId } from "../utils.ts";
+
+/** Regla de la lista negra asociada a una solicitud de aprobación. */
+export interface ApprovalBlacklist {
+  readonly id: string;
+  readonly level: ListLevel;
+}
 
 /** Mutación que espera confirmación del usuario. */
 export interface ApprovalRequest {
@@ -25,6 +33,10 @@ export interface ApprovalRequest {
   readonly args: JsonObject;
   /** ¿Se ofrece «aprobar siempre en esta tarea»? Falso para lo obligatorio de Guard, la lista negra y lo que no se pudo resolver: solo admiten «una vez». */
   readonly canRemember?: boolean;
+  /** Nivel de riesgo calculado cuando `approvalTiers` está activo (`green` | `yellow` | `red`). */
+  readonly tier?: ApprovalTier;
+  /** Regla de lista negra que motivó o condicionó la aprobación. */
+  readonly blacklist?: ApprovalBlacklist;
 }
 
 export type ApprovalOutcome =
@@ -53,9 +65,14 @@ export type PlanApprovalOutcome =
   | { readonly kind: "rejected"; readonly instruction: string | null }
   | { readonly kind: "cancelled" };
 
+export type QuestionSource = "model" | "process";
+
 export interface PendingQuestion {
+  readonly id: string;
   readonly stepId: string;
   readonly question: string;
+  readonly source: QuestionSource;
+  readonly pid?: string;
 }
 
 export type QuestionOutcome =
@@ -233,20 +250,22 @@ export class TaskRuntime {
   // ─────────── Pregunta al usuario (`ask_user`) ───────────
 
   /** Espera la respuesta del usuario a la pregunta de un paso. Con la tarea ya cancelada resuelve `cancelled`. */
-  askUser(question: PendingQuestion): Promise<QuestionOutcome> {
+  askUser(input: Omit<PendingQuestion, "id">): Promise<QuestionOutcome> {
     if (this.cancelled) return Promise.resolve({ kind: "cancelled" });
     this.assertIdle();
+    const question: PendingQuestion = { ...input, id: newId("question") };
     return new Promise<QuestionOutcome>((resolve) => {
       this.question = { question, resolve };
       this.notify();
     });
   }
 
-  /** Responde la pregunta abierta. Una respuesta vacía se ignora (sigue esperando): devuelve `false`, igual que sin pregunta. */
-  answer(text: string): boolean {
+  /** Responde la pregunta abierta. Si se indica `id`, debe coincidir con la pregunta vigente. Una respuesta vacía se ignora: devuelve `false`. */
+  answer(text: string, id?: string): boolean {
     const entry = this.question;
     const clean = text.trim();
     if (!entry || clean.length === 0) return false;
+    if (id !== undefined && entry.question.id !== id) return false;
     this.question = null;
     entry.resolve({ kind: "answered", answer: clean });
     this.notify();

@@ -170,25 +170,24 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId)), true),
   );
 
-  // Responder la pregunta abierta de la tarea.
+  // Responder la pregunta abierta de la tarea (`waitId` opcional por retrocompatibilidad; si se envía, debe coincidir con `question.id`).
   router.post('/user-answer', (req, res) => {
     const answer = text(req.body?.answer);
     if (!answer) return void res.status(400).json({ error: 'Se requiere una respuesta no vacía.' });
-    control('La tarea no espera una respuesta.', (id) => tasks.answer(id, answer))(req, res, () => undefined);
+    control('La tarea no espera una respuesta.', (id, b) => tasks.answer(id, answer, text(b.waitId)))(req, res, () => undefined);
   });
 
-  // Estado: la tarea pedida (o la última), el listado y el catálogo de herramientas.
-  router.get('/state', async (req, res) => {
+  // Estado: la tarea pedida (o la última), el listado y el catálogo de herramientas cacheado (sin bloquear en discoverAll).
+  router.get('/state', (req, res) => {
     try {
       const requested = text(req.query.taskId);
       const list = tasks.list();
       const id = requested ?? list[list.length - 1]?.id;
-      const tools = await discoveryEngine.discoverAll().catch(() => ({}));
       res.json({
-        task: id ? tasks.get(id) : null,
+        task: id ? (tasks.get?.(id) ?? null) : null,
         tasks: list,
-        discoveredTools: tools,
-        unavailableServers: discoveryEngine.getUnavailableServers(),
+        discoveredTools: discoveryEngine.getCachedTools?.() ?? {},
+        unavailableServers: discoveryEngine.getUnavailableServers?.() ?? {},
       });
     } catch (err: unknown) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar el estado.' });
@@ -196,6 +195,17 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   });
 
   // Lecturas para la UI (solo lectura, sin efecto en el motor).
+  // Estado completo de una tarea individual (liviano: sin listado global ni catálogo de herramientas).
+  router.get('/tasks/:taskId', (req, res) => {
+    try {
+      const task = tasks.get(req.params.taskId);
+      if (!task) return void res.status(404).json({ error: 'Tarea no encontrada.' });
+      res.json(task);
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar la tarea.' });
+    }
+  });
+
   // Texto completo de una ref de la tarea (`calls[].ref`): `text/plain`.
   router.get('/tasks/:taskId/refs/:refId', async (req, res) => {
     let result: Awaited<ReturnType<TaskManager['readRef']>>;
@@ -233,8 +243,9 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     res.json(limitValues());
   });
 
-  // Eventos en tiempo real (SSE): un mensaje `data: <TaskEvent>` por evento.
+  // Eventos en tiempo real (SSE): evento inicial `snapshot` seguido de eventos de tarea, todos con `id:` y `data:`.
   let sseClients = 0;
+  let nextSseEventId = 1;
   router.get('/events', (req, res) => {
     if (sseClients >= MAX_SSE_CLIENTS) return void res.status(429).json({ error: 'Demasiadas conexiones de eventos abiertas.' });
     sseClients++;
@@ -251,7 +262,23 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       }
       res.write(chunk);
     };
-    const unsubscribe = tasks.addEventListener((event) => send(`data: ${JSON.stringify(event)}\n\n`));
+    const sendEvent = (payload: unknown): void => {
+      const id = nextSseEventId++;
+      send(`id: ${id}\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    const requested = text(req.query.taskId);
+    const list = tasks.list();
+    const taskId = requested ?? list[list.length - 1]?.id;
+    const unsubscribe = tasks.addEventListener((event) => sendEvent(event));
+    sendEvent({
+      type: 'snapshot',
+      task: taskId ? (tasks.get?.(taskId) ?? null) : null,
+      tasks: list,
+      discoveredTools: discoveryEngine.getCachedTools?.() ?? {},
+      unavailableServers: discoveryEngine.getUnavailableServers?.() ?? {},
+    });
+
     const keepAlive = setInterval(() => send(': ping\n\n'), getSseKeepAliveMs());
     req.on('close', () => {
       sseClients--;

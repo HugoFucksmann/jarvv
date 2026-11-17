@@ -322,8 +322,8 @@ export interface EngineDeps {
   readonly vault: RefVault;
   /** Alcance de la regla B del Guard (D9, D20, D27). */
   readonly guardScope: ProtectedPaths;
-  /** Lista negra de herramientas que modifican el sistema (`policy/blacklist.ts`). */
-  readonly blacklist: Blacklist;
+  /** Lista negra de herramientas que modifican el sistema (`policy/blacklist.ts`); puede ser estática o leerse en vivo. */
+  readonly blacklist: Blacklist | (() => Blacklist);
   /** Datos de esta PC (sistema operativo y carpetas del usuario): se consultan una vez por proceso. */
   readonly environment: () => Promise<UserEnvironment>;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */

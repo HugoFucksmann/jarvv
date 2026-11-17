@@ -51,8 +51,8 @@ export const HistoryMenu: React.FC<HistoryMenuProps> = ({
         aria-expanded={isOpen}
         className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-md transition-colors cursor-pointer"
       >
-        <History className="w-3.5 h-3.5 text-accent-400" />
-        <span className="hidden sm:inline">Historial</span>
+        <History className="w-3.5 h-3.5 text-accent-400 shrink-0" />
+        <span className="hidden lg:inline">Historial</span>
         <span className="text-xs text-slate-500 tabular-nums">({tasks.length})</span>
         <ChevronDown
           className={`w-3 h-3 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`}

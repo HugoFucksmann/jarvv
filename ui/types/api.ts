@@ -140,6 +140,13 @@ export interface WaitingPlan {
   };
 }
 
+export type ApprovalTier = "green" | "yellow" | "red";
+
+export interface ApprovalBlacklistInfo {
+  id: string;
+  level: "blocked" | "sensitive";
+}
+
 export interface WaitingApproval {
   kind: "approval";
   request: {
@@ -151,14 +158,21 @@ export interface WaitingApproval {
     args: Record<string, unknown>;
     /** Si es verdadero se ofrece «Aprobar siempre en esta tarea» (nunca para lo obligatorio de Guard). */
     canRemember?: boolean;
+    tier?: ApprovalTier;
+    blacklist?: ApprovalBlacklistInfo;
   };
 }
+
+export type QuestionSource = "model" | "process";
 
 export interface WaitingQuestion {
   kind: "question";
   question: {
+    id: string;
     stepId: string;
     question: string;
+    source: QuestionSource;
+    pid?: string;
   };
 }
 
@@ -229,10 +243,19 @@ export interface DiscoveryResponse {
   error?: string;
 }
 
+export interface SseSnapshot {
+  type: "snapshot";
+  task: TaskDto | null;
+  tasks: TaskSummary[];
+  discoveredTools: Record<string, McpToolDto[]>;
+  unavailableServers: UnavailableServers;
+}
+
 export interface SseCreated {
   type: "created";
   taskId: string;
   n: number;
+  summary: TaskSummary;
 }
 
 export interface SseChangeOp {
@@ -261,7 +284,7 @@ export interface SsePaused {
   paused: ModelPauseDto | null;
 }
 
-export type SseMessage = SseCreated | SseChange | SseWaiting | SsePaused;
+export type SseMessage = SseSnapshot | SseCreated | SseChange | SseWaiting | SsePaused;
 
 // Tipos de configuración para SettingsModal
 export interface StdioServerConfig {

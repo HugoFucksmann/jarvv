@@ -14,6 +14,7 @@ import type {
   JarvisConfig,
   OkResponse,
   StateResponse,
+  TaskDto,
   UserEnvironment,
 } from "../types/api.ts";
 
@@ -87,6 +88,14 @@ export const jarvisApi = {
     return request<StateResponse>(`/api/jarvis/state${query}`, "Error al obtener el estado");
   },
 
+  /** Obtiene el estado completo de una tarea individual (liviano, sin catálogo ni listado). */
+  getTask(taskId: string): Promise<TaskDto> {
+    return request<TaskDto>(
+      `/api/jarvis/tasks/${encodeURIComponent(taskId)}`,
+      "Error al obtener el estado de la tarea"
+    );
+  },
+
   /** Inicia una nueva tarea en el backend. */
   initiateTask(message: string, mode?: ExecutionMode): Promise<InitiateTaskResponse> {
     const body: { message: string; mode?: ExecutionMode } = { message: message.trim() };
@@ -119,10 +128,10 @@ export const jarvisApi = {
   },
 
   /** Envía la respuesta del usuario a una pregunta interactiva abierta. */
-  provideUserAnswer(answer: string, taskId?: string): Promise<OkResponse> {
+  provideUserAnswer(answer: string, taskId?: string, waitId?: string): Promise<OkResponse> {
     return post(
       "/api/jarvis/user-answer",
-      { answer, ...(taskId ? { taskId } : {}) },
+      taskBody(taskId, waitId, { answer }),
       "Error al enviar respuesta interactiva"
     );
   },

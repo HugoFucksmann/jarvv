@@ -160,23 +160,30 @@ test("el parche de /config descarta lo que solo se edita en el archivo y conserv
   assert.deepEqual(patch, { autoMode: true, retentionDays: 7, desktopCommanderMcp: { allowedDirectories: ["C:\\Users"] }, freeSearchMcp: {} });
 });
 
-test("SSE: los eventos llegan como `data:`, y al cerrar el cliente se da de baja el suscriptor (sin fuga)", async () => {
+test("SSE: entrega `snapshot` inicial e ids de evento, reenvía eventos y da de baja el suscriptor al cerrar", async () => {
   const received = await new Promise<string>((resolve, reject) => {
+    let buffer = "";
+    let pushed = false;
     const req = http.request({ host: "127.0.0.1", port, path: "/api/jarvis/events", headers: { Host: `127.0.0.1:${port}` } }, (res) => {
       assert.match(String(res.headers["content-type"]), /text\/event-stream/);
       res.setEncoding("utf8");
       res.on("data", (chunk: string) => {
-        if (chunk.includes("data:")) {
+        buffer += chunk;
+        if (!pushed && buffer.includes('"type":"snapshot"')) {
+          pushed = true;
+          [...listeners].forEach((listener) => listener({ type: "task_updated", taskId: "task_1" }));
+        }
+        if (buffer.includes('"type":"task_updated"')) {
           req.destroy();
-          resolve(chunk);
+          resolve(buffer);
         }
       });
-      setTimeout(() => [...listeners].forEach((listener) => listener({ type: "task_updated", taskId: "task_1" })), 50);
     });
     req.on("error", (error) => (error as NodeJS.ErrnoException).code === "ECONNRESET" || reject(error));
     req.end();
   });
-  assert.equal(received.trim(), 'data: {"type":"task_updated","taskId":"task_1"}');
+  assert.match(received, /^id: \d+\ndata: \{"type":"snapshot",/m);
+  assert.match(received, /^id: \d+\ndata: \{"type":"task_updated","taskId":"task_1"\}/m);
   for (let i = 0; i < 50 && listeners.size > 0; i++) await new Promise((r) => setTimeout(r, 20));
   assert.equal(listeners.size, 0);
 });

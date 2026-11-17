@@ -130,6 +130,34 @@ export const ApprovalAction: React.FC<ApprovalActionProps> = ({
         <div className="flex items-center gap-2 flex-wrap min-w-0">
           <ShieldAlert className="w-5 h-5 text-yellow-400 shrink-0" />
           <span className="text-sm font-semibold text-yellow-300">Aprobación requerida</span>
+          {request.tier && (
+            <span
+              title={
+                request.tier === "red"
+                  ? "Riesgo rojo: sobrescribir, comando de terminal, proceso o herramienta no catalogada (siempre pide confirmación)."
+                  : request.tier === "yellow"
+                    ? "Riesgo amarillo: modificación revisable en el sistema."
+                    : "Riesgo verde: escritura reversible en carpeta del usuario."
+              }
+              className={`px-1.5 py-0.5 rounded border text-[11px] font-medium ${
+                request.tier === "red"
+                  ? "bg-rose-950/60 border-rose-800/70 text-rose-300"
+                  : request.tier === "yellow"
+                    ? "bg-yellow-950/50 border-yellow-800/60 text-yellow-300"
+                    : "bg-emerald-950/50 border-emerald-800/60 text-emerald-300"
+              }`}
+            >
+              Nivel {request.tier === "red" ? "rojo" : request.tier === "yellow" ? "amarillo" : "verde"}
+            </span>
+          )}
+          {request.blacklist && (
+            <span
+              title={`Regla de lista negra '${request.blacklist.id}' (${request.blacklist.level === "blocked" ? "bloqueada" : "sensible"})`}
+              className="px-1.5 py-0.5 rounded bg-rose-950/70 border border-rose-800/80 text-[11px] font-mono text-rose-200"
+            >
+              Lista negra: {request.blacklist.id} ({request.blacklist.level === "blocked" ? "bloqueada" : "sensible"})
+            </span>
+          )}
           {request.capability && (
             <span className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300">
               {request.capability}

@@ -168,6 +168,9 @@ export async function availableRoutes(env: EngineEnv, stepId: string, routes: re
   return remaining.length > 0 ? remaining : out;
 }
 
+const currentBlacklist = (deps: EngineEnv["deps"]): Blacklist =>
+  typeof deps.blacklist === "function" ? deps.blacklist() : deps.blacklist;
+
 async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
   const { ctx, deps } = env;
   // En paralelo: si el servidor todavía está arrancando (lo normal en la primera tarea tras encender Jarvis), esperar a cada ruta una tras otra
@@ -181,7 +184,7 @@ async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[
       } catch {
         cataloged = [];
       }
-      if (cataloged.length > 0) return usableTools(ctx, mcp, cataloged, deps.blacklist).length > 0 ? route : null;
+      if (cataloged.length > 0) return usableTools(ctx, mcp, cataloged, currentBlacklist(deps)).length > 0 ? route : null;
       // Sin catálogo: si el servidor existe, respondió y no lo marcaron caído, no tiene herramientas para este destino (`jarvis_terminal` fuera de
       // Windows): no se ofrece. Si falló o no está, se ofrece igual y el fallo cierra la tarea como infraestructura caída al ejecutar.
       const answeredEmpty = deps.discovery.getServer(mcp) !== undefined && deps.discovery.getUnavailableServers()[mcp] === undefined;
@@ -216,7 +219,7 @@ async function discoverTools(env: EngineEnv, stepId: string, route: ExecutableRo
     );
   }
 
-  const usable = usableTools(ctx, mcp, cataloged, deps.blacklist);
+  const usable = usableTools(ctx, mcp, cataloged, currentBlacklist(deps));
   if (usable.length === 0) {
     console.warn(`[Engine] no hay herramientas utilizables en el destino '${route}'.`);
     return { kind: "outcome", outcome: { kind: "no_tools" } };
@@ -374,7 +377,7 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
   // Con `autoMode`: verde omite usuario y D3; amarillo omite usuario y pasa por D3 estricto; rojo siempre confirma. Sin `autoMode`: verde pasa, amarillo y rojo piden al usuario (la aprobación sustituye a D3).
   const tiered = deps.approvalTiers?.() === true;
   const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, undefined, deps.toolBaseDir?.()) : "red") : null;
-  const listed = blacklistMatch(deps.blacklist, mcp, tool.name, policy.mutates, resolved);
+  const listed = blacklistMatch(currentBlacklist(deps), mcp, tool.name, policy.mutates, resolved);
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", listed.reason);
 
   // Analizador AST por llamada (lo comparten precheckCall y el chequeo de rutas de run_command en allowedDirectories).
@@ -478,6 +481,8 @@ export async function runCall(env: EngineEnv, params: RunCallParams): Promise<Ca
         reason: approvalReason,
         args: recorded,
         canRemember,
+        ...(tier !== null ? { tier } : {}),
+        ...(listed !== null ? { blacklist: { id: listed.id, level: listed.level } } : {}),
       });
       if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
       if (approval.kind === "rejected") {

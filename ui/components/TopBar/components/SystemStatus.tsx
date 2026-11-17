@@ -34,17 +34,26 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
   switch (status) {
     case "loading":
       return (
-        <span className="flex items-center gap-1.5 text-accent-400 animate-pulse font-medium">
-          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-          <span>Inicializando MCP…</span>
+        <span
+          title="Inicializando MCP…"
+          aria-label="Inicializando MCP"
+          className="flex items-center gap-1.5 text-accent-400 animate-pulse font-medium"
+        >
+          <Loader2 className="w-3.5 h-3.5 xl:w-3 xl:h-3 animate-spin shrink-0" />
+          <span className="hidden xl:inline">Inicializando MCP…</span>
         </span>
       );
     case "ready":
       return (
-        <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-          <CheckCircle2 className="w-3 h-3 shrink-0" />
-          <span>
-            {count} MCP{plural} listos
+        <span
+          title={`${count} MCP${plural} listos`}
+          aria-label={`${count} MCP${plural} listos`}
+          className="flex items-center gap-1 text-emerald-400 font-medium"
+        >
+          <CheckCircle2 className="w-3.5 h-3.5 xl:w-3 xl:h-3 shrink-0" />
+          <span className="hidden sm:inline tabular-nums">{count}</span>
+          <span className="hidden xl:inline">
+            MCP{plural} listos
           </span>
         </span>
       );
@@ -53,12 +62,15 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
         <button
           type="button"
           onClick={onToggleDetails}
-          title="Ver detalle de servidores MCP no disponibles"
-          className="flex items-center gap-1.5 text-yellow-300 font-medium hover:text-yellow-200 transition-colors cursor-pointer bg-yellow-950/30 px-1.5 py-0.5 rounded border border-yellow-800/50"
+          title={`${count} MCP${plural} · ${unavailableCount} caído${unavailableCount > 1 ? "s" : ""} (ver detalle)`}
+          aria-label={`${count} MCP${plural}, ${unavailableCount} caído${unavailableCount > 1 ? "s" : ""}`}
+          className="flex items-center gap-1 text-yellow-300 font-medium hover:text-yellow-200 transition-colors cursor-pointer bg-yellow-950/30 px-1.5 py-0.5 rounded border border-yellow-800/50"
         >
-          <AlertTriangle className="w-3 h-3 shrink-0" />
-          <span>
-            {count} MCP{plural} · {unavailableCount} caído{unavailableCount > 1 ? "s" : ""}
+          <AlertTriangle className="w-3.5 h-3.5 xl:w-3 xl:h-3 shrink-0" />
+          <span className="hidden sm:inline tabular-nums">
+            {count}
+            <span className="hidden xl:inline"> MCP{plural}</span> · {unavailableCount}
+            <span className="hidden xl:inline"> caído{unavailableCount > 1 ? "s" : ""}</span>
           </span>
         </button>
       );
@@ -67,11 +79,12 @@ const McpStatus: React.FC<McpStatusProps> = ({ status, count, unavailableCount, 
         <button
           type="button"
           onClick={onToggleDetails}
-          title="Ver detalle de servidores MCP no disponibles"
+          title="MCPs no disponibles (ver detalle)"
+          aria-label="MCPs no disponibles"
           className="flex items-center gap-1.5 text-rose-300 font-medium hover:text-rose-200 transition-colors cursor-pointer bg-rose-950/40 px-1.5 py-0.5 rounded border border-rose-800/60"
         >
-          <XCircle className="w-3 h-3 shrink-0" />
-          <span>MCPs no disponibles</span>
+          <XCircle className="w-3.5 h-3.5 xl:w-3 xl:h-3 shrink-0" />
+          <span className="hidden xl:inline">MCPs no disponibles</span>
         </button>
       );
   }
@@ -118,25 +131,28 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
   }
 
   return (
-    <div className="relative hidden md:flex items-center gap-2.5 text-xs text-slate-400">
-      <StatusDot status={statusType} />
-      <span className={statusColorClass}>{statusLabel}</span>
+    <div className="relative flex items-center gap-2 xl:gap-2.5 text-xs text-slate-400">
+      <span title={statusLabel} className="flex items-center gap-2" aria-label={statusLabel}>
+        <StatusDot status={statusType} />
+        <span className={`${statusColorClass} hidden xl:inline`}>{statusLabel}</span>
+      </span>
 
-      <Separator />
+      <Separator className="hidden xl:inline-block" />
 
       {onOpenEnvironment && (
         <button
           type="button"
           onClick={onOpenEnvironment}
-          title="Ver datos de la PC (carpetas resueltas) y límites del motor"
-          className="flex items-center gap-1.5 text-slate-300 hover:text-accent-300 transition-colors cursor-pointer"
+          title="Entorno PC: ver datos de la PC (carpetas resueltas) y límites del motor"
+          aria-label="Entorno PC"
+          className="flex items-center gap-1.5 p-1 xl:p-0 text-slate-300 hover:text-accent-300 hover:bg-slate-900 xl:hover:bg-transparent rounded transition-colors cursor-pointer"
         >
-          <Laptop className="w-3 h-3 text-accent-400" />
-          <span>Entorno PC</span>
+          <Laptop className="w-3.5 h-3.5 xl:w-3 xl:h-3 text-accent-400 shrink-0" />
+          <span className="hidden xl:inline">Entorno PC</span>
         </button>
       )}
 
-      <Separator />
+      <Separator className="hidden xl:inline-block" />
 
       <div ref={mcpStatusWrapperRef} className="relative">
         <McpStatus
@@ -153,25 +169,26 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
         />
       </div>
 
-      <Separator />
+      <Separator className="hidden xl:inline-block" />
 
       <span
         title={
           autoMode
-            ? "Modo Automático activo: Las escrituras y comandos no piden aprobación interactiva (validadas por Decisión 3)."
-            : "Modo Interactivo: Las operaciones de modificación en el sistema requieren aprobación manual antes de actuar."
+            ? "Guard: Auto — Las escrituras y comandos no piden aprobación interactiva (validadas por Decisión 3)."
+            : "Guard: Interactivo — Las operaciones de modificación en el sistema requieren aprobación manual antes de actuar."
         }
+        aria-label={`Guard: ${autoMode ? "Auto" : "Interactivo"}`}
         className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-xs ${autoMode
             ? "bg-yellow-950/30 text-yellow-300 border border-yellow-800/50 font-semibold"
             : "text-slate-400 hover:text-slate-300"
           }`}
       >
         {autoMode ? (
-          <ShieldCheck className="w-3 h-3 text-yellow-400" />
+          <ShieldCheck className="w-3.5 h-3.5 xl:w-3 xl:h-3 text-yellow-400 shrink-0" />
         ) : (
-          <Shield className="w-3 h-3 text-slate-400" />
+          <Shield className="w-3.5 h-3.5 xl:w-3 xl:h-3 text-slate-400 shrink-0" />
         )}
-        <span>Guard: {autoMode ? "Auto" : "Interactivo"}</span>
+        <span className="hidden xl:inline">Guard: {autoMode ? "Auto" : "Interactivo"}</span>
       </span>
     </div>
   );

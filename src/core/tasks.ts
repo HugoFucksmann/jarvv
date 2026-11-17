@@ -74,7 +74,7 @@ export interface TaskSummary {
 }
 
 export type TaskEvent =
-  | { readonly type: "created"; readonly taskId: string; readonly n: number }
+  | { readonly type: "created"; readonly taskId: string; readonly n: number; readonly summary: TaskSummary }
   | { readonly type: "change"; readonly taskId: string; readonly n: number; readonly at: number; readonly ops: readonly Readonly<NormalizedOp>[] }
   | { readonly type: "waiting"; readonly taskId: string; readonly waiting: Waiting | null }
   | { readonly type: "paused"; readonly taskId: string; readonly paused: ModelPause | null };
@@ -188,14 +188,15 @@ export class TaskManager {
     });
     const entry: TaskEntry = { ctx, runtime, recorder };
 
+    const summary = this.summaryOf(ctx, runtime.waiting);
     this.tasks.set(id, entry);
-    this.summaries.set(id, this.summaryOf(ctx, runtime.waiting));
+    this.summaries.set(id, summary);
     ctx.on("change", (event) => {
       this.summaries.set(id, this.summaryOf(ctx, runtime.waiting));
       this.emit({ type: "change", taskId: id, n: event.n, at: event.at, ops: event.ops });
     });
     this.prune();
-    this.emit({ type: "created", taskId: id, n: ctx.n });
+    this.emit({ type: "created", taskId: id, n: ctx.n, summary });
 
     console.log(`[Task] start id=${id} mode=${mode}`);
     const previousActive = this.previous !== null && Date.now() - this.previous.at < THREAD_TTL_MS ? this.previous : null;
@@ -318,11 +319,14 @@ export class TaskManager {
     return this.control(taskId, "approval", waitId, (runtime, id) => runtime.resolveApproval(id, false, instruction));
   }
 
-  /** Responde la pregunta abierta. Una respuesta vacía no se aplica (`not_waiting`) y la tarea sigue esperando. */
-  answer(taskId: string, text: string): ControlResult {
+  /** Responde la pregunta abierta. `waitId` (opcional) debe coincidir con `question.id` si se envía. Una respuesta vacía no se aplica (`not_waiting`). */
+  answer(taskId: string, text: string, waitId?: string): ControlResult {
     const entry = this.tasks.get(taskId);
     if (!entry) return "unknown_task";
-    return entry.runtime.waiting?.kind === "question" && entry.runtime.answer(text) ? "ok" : "not_waiting";
+    const waiting = entry.runtime.waiting;
+    if (waiting === null || waiting.kind !== "question") return "not_waiting";
+    if (waitId !== undefined && waitId !== waiting.question.id) return "not_waiting";
+    return entry.runtime.answer(text, waiting.question.id) ? "ok" : "not_waiting";
   }
 
   // ─────────── Internos ───────────

@@ -71,7 +71,7 @@ export function processAnswerText(value: string): string | null {
  * `literalQuestion`: texto ya armado por el código; sin él, el LLM redacta la pregunta a partir de `forAsk`. `keySuffix`: se agrega a la clave del hecho de la
  * respuesta (`answer_<paso>_<n>_<sufijo>`), para quien necesite saber después a qué respondió (`processAnswerSuffix`).
  */
-export async function askUser(env: EngineEnv, stepId: string, literalQuestion?: string, keySuffix?: string): Promise<AskOutcome> {
+export async function askUser(env: EngineEnv, stepId: string, literalQuestion?: string, keySuffix?: string, pid?: string): Promise<AskOutcome> {
   const { ctx, runtime, deps } = env;
 
   let question: string;
@@ -90,7 +90,13 @@ export async function askUser(env: EngineEnv, stepId: string, literalQuestion?: 
     if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
     question = generated.value.question;
   }
-  const outcome = await runtime.askUser({ stepId, question });
+  const source = literalQuestion !== undefined || pid !== undefined ? "process" : "model";
+  const outcome = await runtime.askUser({
+    stepId,
+    question,
+    source,
+    ...(pid !== undefined ? { pid } : {}),
+  });
   if (outcome.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
 
   const full = `${question} -> ${outcome.answer}`;

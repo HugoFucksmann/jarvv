@@ -76,7 +76,12 @@ test("Progress ignora lo que no dibuja y un paso descartado sale tachado", () =>
 });
 
 test("JarvisApi: post devuelve el error de la API o de la red, y listen reconecta y entrega los eventos", async () => {
-  const sent: TaskEvent = { type: "created", taskId: "t1", n: 0 };
+  const sent: TaskEvent = {
+    type: "created",
+    taskId: "t1",
+    n: 0,
+    summary: { id: "t1", mode: "reactive", request: "hola", state: "running", stopReason: null, startedAt: 0, n: 0, waiting: null },
+  };
   let connections = 0;
   const server = http.createServer((req, res) => {
     if (req.url === "/api/jarvis/events") {

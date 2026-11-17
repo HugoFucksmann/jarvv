@@ -22,8 +22,8 @@ import { resolveToolTimeoutMs } from "../timeouts.ts";
 export interface EngineServices {
   readonly vault: RefVault;
   readonly guardScope: ProtectedPaths;
-  /** Lista negra de herramientas que modifican el sistema, compilada desde la configuración. */
-  readonly blacklist: Blacklist;
+  /** Lista negra de herramientas que modifican el sistema, compilada desde la configuración (estática o en vivo). */
+  readonly blacklist: Blacklist | (() => Blacklist);
   /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
   readonly environment: () => Promise<UserEnvironment>;
   readonly autoMode: () => boolean;
@@ -52,20 +52,32 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
   const refsDir = path.resolve(config.refsDir);
   const tasksDir = tasksDirFromConfig(config);
   const memoryFile = path.join(path.dirname(refsDir), "memory.json");
-  const desktop = config.desktopCommanderMcp;
 
-  const bases = new Set<string>([process.cwd()]);
-  if (desktop.cwd) bases.add(path.resolve(desktop.cwd));
+  let cachedBlacklistRaw: string | null = null;
+  let cachedBlacklist: Blacklist | null = null;
+  const getBlacklist = (): Blacklist => {
+    const raw = getConfig().blacklist;
+    const serialized = JSON.stringify(raw);
+    if (cachedBlacklist !== null && cachedBlacklistRaw === serialized) return cachedBlacklist;
+    cachedBlacklistRaw = serialized;
+    cachedBlacklist = compileBlacklist(raw);
+    return cachedBlacklist;
+  };
 
   return {
     vault: createRefVault({ dir: refsDir }),
     guardScope: {
       protectedDirs: [refsDir, tasksDir, process.cwd()],
       protectedFiles: [memoryFile],
-      relativeBases: [...bases],
+      get relativeBases(): readonly string[] {
+        const bases = new Set<string>([process.cwd()]);
+        const cwd = getConfig().desktopCommanderMcp.cwd;
+        if (cwd) bases.add(path.resolve(cwd));
+        return [...bases];
+      },
       commandBases: [os.homedir()],
     },
-    blacklist: compileBlacklist(config.blacklist),
+    blacklist: getBlacklist,
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
     approvalTiers: () => getConfig().approvalTiers,

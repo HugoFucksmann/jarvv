@@ -120,6 +120,13 @@ export interface JarvisConfig {
 /** Origen de la configuración vigente: quien construye un motor se lo pasa (la raíz de composición decide de dónde sale). Se llama en cada uso, así un cambio en caliente se respeta. */
 export type ConfigSource = () => JarvisConfig;
 
+export interface ConfigChangeEvent {
+  readonly prev: JarvisConfig;
+  readonly next: JarvisConfig;
+}
+
+export type ConfigChangeListener = (event: ConfigChangeEvent) => void;
+
 /**
  * Campos de un servidor MCP que definen QUÉ proceso lanza Jarvis. Solo se cambian editando `jarvis-config.json` y reiniciando:
  * la API HTTP (`POST /config`) los ignora, para que un cliente local no pueda fijar el ejecutable que se lanzará al arrancar.
@@ -340,6 +347,15 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
 
 export class ConfigManager {
   private static currentConfig: JarvisConfig = ConfigManager.loadConfig();
+  private static readonly changeListeners = new Set<ConfigChangeListener>();
+
+  /** Suscribe un oyente a los cambios de configuración (`updateConfig`). Devuelve la función para desuscribirse. */
+  static onChange(listener: ConfigChangeListener): () => void {
+    this.changeListeners.add(listener);
+    return () => {
+      this.changeListeners.delete(listener);
+    };
+  }
 
   /** Copia profunda: modificarla no altera la configuración activa. */
   static getConfig(): JarvisConfig {
@@ -347,15 +363,23 @@ export class ConfigManager {
   }
 
   static updateConfig(patch: ConfigPatch): JarvisConfig {
-    const cur = this.currentConfig;
-    this.currentConfig = normalize({
-      ...cur,
+    const prev = this.currentConfig;
+    const next = normalize({
+      ...prev,
       ...patch,
-      desktopCommanderMcp: { ...cur.desktopCommanderMcp, ...patch.desktopCommanderMcp },
-      freeSearchMcp: { ...cur.freeSearchMcp, ...patch.freeSearchMcp },
-      qwenMaxTokens: { ...cur.qwenMaxTokens, ...patch.qwenMaxTokens },
-    }, cur);
-    this.saveConfig(this.currentConfig);
+      desktopCommanderMcp: { ...prev.desktopCommanderMcp, ...patch.desktopCommanderMcp },
+      freeSearchMcp: { ...prev.freeSearchMcp, ...patch.freeSearchMcp },
+      qwenMaxTokens: { ...prev.qwenMaxTokens, ...patch.qwenMaxTokens },
+    }, prev);
+    this.currentConfig = next;
+    this.saveConfig(next);
+    for (const listener of [...this.changeListeners]) {
+      try {
+        listener({ prev: structuredClone(prev), next: structuredClone(next) });
+      } catch (error) {
+        console.error("[ConfigManager] un suscriptor de onChange falló:", error);
+      }
+    }
     return this.getConfig();
   }
 
