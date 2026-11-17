@@ -135,7 +135,7 @@ export interface Scenario {
   calls?: ScenarioCall[];
   /** Hechos de entorno (hoy solo `process`). */
   facts?: Record<string, string>;
-  /** Respuestas del usuario a preguntas anteriores (`answer_1`, `answer_2`…), en orden. */
+  /** Respuestas del usuario a preguntas anteriores (`answer_<paso>_<n>`), en orden. */
   userInput?: string[];
   /** Cierre de la tarea (para `final`). */
   finish?: { state: TerminalTaskState; stopReason?: StopReason | null };
@@ -247,9 +247,9 @@ function buildContext(sc: Scenario): Built {
   for (const [key, value] of Object.entries(sc.facts ?? {})) {
     ctx.apply({ op: "set", target: `facts.${key}`, value: { value, stepId: lastStepId } });
   }
-  (sc.userInput ?? []).forEach((text, i) => {
-    ctx.apply({ op: "set", target: `facts.answer_${i + 1}`, value: { value: text, stepId: lastStepId } });
-  });
+  for (const text of sc.userInput ?? []) {
+    ctx.apply({ op: "set", target: `facts.${ctx.nextAnswerKey(lastStepId)}`, value: { value: text, stepId: lastStepId } });
+  }
 
   if (sc.finish) {
     ctx.apply({ op: "finish", target: "task", value: { state: sc.finish.state, stopReason: sc.finish.stopReason ?? null } });
