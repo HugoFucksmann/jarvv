@@ -1,6 +1,7 @@
 import React from "react";
-import { Cpu, FileText, ExternalLink, HelpCircle, AlertCircle, HardDrive, Clock } from "lucide-react";
+import { Cpu, FileText, ExternalLink, HelpCircle, AlertCircle, HardDrive, Clock, Database } from "lucide-react";
 import type { TaskDto, RefDto } from "../../../types/api.ts";
+import { parseProcessPids } from "../../../utils/taskStatus.ts";
 
 interface ArtifactsListProps {
   task: TaskDto;
@@ -8,16 +9,22 @@ interface ArtifactsListProps {
 }
 
 export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef }) => {
-  const { facts, refs, errors } = task;
+  const { facts, refs, errors, steps } = task;
+  const isRunning = task.task.state === "running";
 
-  // 1. Proceso activo en segundo plano
-  const backgroundProcess = facts?.process && facts.process.value !== null && facts.process.value !== undefined
-    ? facts.process
-    : null;
+  const stepIndexById = new Map<string, { num: number; instruction: string | null }>();
+  steps.forEach((s, i) => {
+    stepIndexById.set(s.id, { num: i + 1, instruction: s.instruction });
+  });
+
+  // 1. Proceso activo en segundo plano (PIDs separados por coma en facts.process)
+  const processPids = parseProcessPids(facts?.process);
+  const backgroundProcess = processPids.length > 0 ? facts.process : null;
+  const processStepMeta = backgroundProcess?.stepId ? stepIndexById.get(backgroundProcess.stepId) : undefined;
 
   // 2. Respuestas interactivas del usuario en facts
   const answeredQuestions = Object.entries(facts || {})
-    .filter(([key, fact]) => key.startsWith("answer_") && Boolean(fact.value))
+    .filter(([key, fact]) => key.startsWith("answer_") && fact.value !== null && fact.value !== undefined && String(fact.value).trim() !== "")
     .map(([key, fact]) => ({
       key,
       stepId: fact.stepId,
@@ -25,10 +32,27 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
       value: String(fact.value),
     }));
 
+  // 3. Otros facts registrados (si existieran)
+  const otherFacts = Object.entries(facts || {})
+    .filter(
+      ([key, fact]) =>
+        key !== "process" &&
+        !key.startsWith("answer_") &&
+        fact.value !== null &&
+        fact.value !== undefined &&
+        String(fact.value).trim() !== ""
+    )
+    .map(([key, fact]) => ({
+      key,
+      stepId: fact.stepId,
+      at: fact.at,
+      value: typeof fact.value === "string" ? fact.value : JSON.stringify(fact.value),
+    }));
+
   const hasRefs = refs && refs.length > 0;
   const hasErrors = errors && errors.length > 0;
 
-  if (!backgroundProcess && answeredQuestions.length === 0 && !hasRefs && !hasErrors) {
+  if (!backgroundProcess && answeredQuestions.length === 0 && otherFacts.length === 0 && !hasRefs && !hasErrors) {
     return null;
   }
 
@@ -38,22 +62,39 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
       {backgroundProcess && (
         <div className="flex items-start gap-3 p-3 rounded-lg bg-accent-500/5 border border-accent-500/30 text-slate-200">
           <Cpu className="w-5 h-5 text-accent-400 shrink-0 mt-0.5 animate-pulse" />
-          <div className="flex flex-col gap-1 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-accent-300 text-[13px]">
-                Proceso en segundo plano activo
-              </span>
-              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px] font-mono font-semibold">
-                PID / ID: {String(backgroundProcess.value)}
-              </span>
-              {backgroundProcess.stepId && (
-                <span className="text-slate-400 text-[11px]">
-                  (Iniciado en {backgroundProcess.stepId})
+          <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-accent-300 text-[13px]">
+                  {processPids.length === 1
+                    ? "Proceso en segundo plano activo"
+                    : `Procesos en segundo plano activos (${processPids.length})`}
+                </span>
+                {processPids.map((pid) => (
+                  <span
+                    key={pid}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 text-[11px] font-mono font-semibold tabular-nums"
+                  >
+                    PID {pid}
+                  </span>
+                ))}
+                {backgroundProcess.stepId && (
+                  <span className="text-slate-400 text-[11px]">
+                    · {processStepMeta ? `Paso #${processStepMeta.num}` : `Paso ${backgroundProcess.stepId}`}
+                    {processStepMeta?.instruction ? `: ${processStepMeta.instruction}` : ""}
+                  </span>
+                )}
+              </div>
+              {backgroundProcess.at && (
+                <span className="text-[11px] text-slate-500 tabular-nums shrink-0">
+                  {new Date(backgroundProcess.at).toLocaleTimeString()}
                 </span>
               )}
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              La tarea finalizó dejando este proceso en ejecución continua en su equipo (p. ej., un servidor o monitoreo). Sigue activo de forma independiente.
+              {isRunning
+                ? "Proceso en ejecución continua en segundo plano en su equipo mientras avanza la tarea."
+                : "La tarea finalizó dejando este proceso en ejecución continua en su equipo (p. ej., un servidor o monitoreo). Sigue activo de forma independiente."}
             </p>
           </div>
         </div>
@@ -63,15 +104,28 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
       {hasErrors && (
         <div className="flex flex-col gap-2 p-3 rounded-lg bg-rose-950/30 border border-rose-900/50">
           <div className="flex items-center gap-2 text-rose-300 font-semibold text-[13px]">
-            <AlertCircle className="w-4 h-4 text-rose-400" />
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>Incidencias de servicio detectadas ({errors.length})</span>
           </div>
-          <div className="flex flex-col gap-1 pl-6">
-            {errors.map((err, i) => (
-              <div key={err.id || i} className="text-rose-200 text-xs">
-                • <span className="font-semibold font-mono">{err.kind}</span> en paso {err.stepId} ({new Date(err.at).toLocaleTimeString()})
-              </div>
-            ))}
+          <div className="flex flex-col gap-1.5 pl-6">
+            {errors.map((err, i) => {
+              const stepMeta = stepIndexById.get(err.stepId);
+              return (
+                <div key={err.id || i} className="flex items-baseline justify-between gap-2 text-rose-200 text-xs flex-wrap">
+                  <div className="min-w-0">
+                    <span className="font-semibold">Servicio no disponible</span>{" "}
+                    <span className="font-mono text-rose-300/80">({err.kind})</span>{" "}
+                    <span className="text-rose-200/80">
+                      en {stepMeta ? `paso #${stepMeta.num}` : `paso ${err.stepId}`}
+                      {stepMeta?.instruction ? ` — ${stepMeta.instruction}` : ""}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-rose-300/70 tabular-nums shrink-0">
+                    {new Date(err.at).toLocaleTimeString()}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -91,6 +145,27 @@ export const ArtifactsList: React.FC<ArtifactsListProps> = ({ task, onViewRef })
                   <span className="tabular-nums">{new Date(q.at).toLocaleTimeString()}</span>
                 </div>
                 <div className="text-slate-200 whitespace-pre-wrap">{q.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* C2. Otros hechos registrados en la tarea */}
+      {otherFacts.length > 0 && (
+        <div className="flex flex-col gap-2 pt-1 border-t border-slate-800">
+          <div className="flex items-center gap-2 text-slate-200 font-semibold text-[13px]">
+            <Database className="w-3.5 h-3.5 text-accent-400" />
+            <span>Hechos registrados ({otherFacts.length})</span>
+          </div>
+          <div className="flex flex-col gap-1.5 pl-5">
+            {otherFacts.map((f) => (
+              <div key={f.key} className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-xs">
+                <div className="text-slate-500 mb-0.5 flex items-center justify-between text-[11px] gap-2">
+                  <span className="font-mono text-slate-300">{f.key} · Paso {f.stepId}</span>
+                  <span className="tabular-nums">{new Date(f.at).toLocaleTimeString()}</span>
+                </div>
+                <div className="text-slate-200 whitespace-pre-wrap break-words">{f.value}</div>
               </div>
             ))}
           </div>

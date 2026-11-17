@@ -1,8 +1,12 @@
-import type { TaskState, StepState, ExecutionMode, TaskDto } from "../types/api.ts";
+import type { TaskState, StepState, ExecutionMode, TaskDto, FactEntry } from "../types/api.ts";
 import type { StatusDotStatus } from "../components/Shared/StatusDot.tsx";
 
-export function getTaskStatusType(state?: TaskState, isWaiting: boolean = false): StatusDotStatus {
-  if (isWaiting) return "approval";
+export function getTaskStatusType(
+  state?: TaskState,
+  isWaiting: boolean = false,
+  isPaused: boolean = false
+): StatusDotStatus {
+  if (isWaiting || (state === "running" && isPaused)) return "approval";
   switch (state) {
     case "running":
       return "running";
@@ -16,6 +20,43 @@ export function getTaskStatusType(state?: TaskState, isWaiting: boolean = false)
     default:
       return "idle";
   }
+}
+
+export function formatPausedModelLabel(model: string): string {
+  switch (model) {
+    case "llm":
+      return "LLM";
+    case "decision":
+      return "Modelo de decisión";
+    default:
+      return model;
+  }
+}
+
+export const VERDICT_REASON_LABELS: Record<string, string> = {
+  not_accomplished: "No cumple lo esperado",
+  no_usable_data: "Sin datos útiles",
+  wrong_place: "Ubicación incorrecta",
+  wrong_position: "Posición incorrecta",
+  wrong_scope: "Alcance incorrecto",
+  wrong_item: "Elemento incorrecto",
+  missing_attribute: "Falta un atributo requerido",
+};
+
+export function formatVerdictReason(reason: string): string {
+  return VERDICT_REASON_LABELS[reason]
+    ? `${VERDICT_REASON_LABELS[reason]} (${reason})`
+    : reason;
+}
+
+export function parseProcessPids(fact?: FactEntry | null): string[] {
+  if (!fact || fact.value === null || fact.value === undefined) return [];
+  const raw = String(fact.value).trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 export function getWaitingReasonLabel(kind?: string | null): string {
@@ -100,12 +141,7 @@ export function getActivityPhrase(task: TaskDto | null | undefined): ActivityPhr
 
   // 2. Pausada por modelo no disponible
   if (task.task.state === "running" && task.paused) {
-    const modelLabel =
-      task.paused.model === "llm"
-        ? "LLM"
-        : task.paused.model === "decision"
-          ? "Modelo de decisión"
-          : task.paused.model;
+    const modelLabel = formatPausedModelLabel(task.paused.model);
     return {
       stateGroup: "waiting",
       label: `Pausada: ${modelLabel} no disponible (reintentando automáticamente)`,

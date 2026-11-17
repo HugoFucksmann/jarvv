@@ -12,12 +12,21 @@ interface PromptInputProps {
   isBusy: boolean;
   isExecuting: boolean;
   isWaitingInput: boolean;
+  isPaused?: boolean;
   inputRef?: React.RefObject<HTMLInputElement | null>;
 }
 
-function getPlaceholder(mode: ExecutionMode, isExecuting: boolean, isWaitingInput: boolean): string {
+function getPlaceholder(
+  mode: ExecutionMode,
+  isExecuting: boolean,
+  isWaitingInput: boolean,
+  isPaused: boolean
+): string {
   if (isWaitingInput) {
     return "Tarea en espera de tu decisión: revisa la aprobación, la pregunta o el plan en pantalla...";
+  }
+  if (isPaused) {
+    return "Tarea en pausa por modelo no disponible; reintentando automáticamente...";
   }
   if (isExecuting) {
     return "Ejecutando pipeline y despachando herramientas MCP...";
@@ -34,6 +43,7 @@ const PromptInputBase: React.FC<PromptInputProps> = ({
   isBusy,
   isExecuting,
   isWaitingInput,
+  isPaused = false,
   inputRef,
 }) => {
   const [value, setValue] = useState("");
@@ -61,7 +71,7 @@ const PromptInputBase: React.FC<PromptInputProps> = ({
           type="text"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={getPlaceholder(mode, isExecuting, isWaitingInput)}
+          placeholder={getPlaceholder(mode, isExecuting, isWaitingInput, isPaused)}
           aria-label="Instrucción u objetivo para JARVIS"
           disabled={isBusy}
           className="w-full pl-5 pr-36 py-3 bg-slate-900 border border-slate-800 rounded-xl text-[15px] text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-accent-500/60 focus:ring-2 focus:ring-accent-500/20 transition-colors disabled:opacity-60"

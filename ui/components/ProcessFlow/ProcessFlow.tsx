@@ -6,16 +6,20 @@ import { StepTimeline } from "./components/StepTimeline.tsx";
 import { FinalResponseView } from "./components/FinalResponseView.tsx";
 import { FailureAnalysis } from "./components/FailureAnalysis.tsx";
 import { ArtifactsList } from "./components/ArtifactsList.tsx";
+import { RecalledContext } from "./components/RecalledContext.tsx";
 import { RefViewerModal } from "./components/RefViewerModal.tsx";
 import { TraceViewerModal } from "./components/TraceViewerModal.tsx";
 import { Separator } from "../Shared/Separator.tsx";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
+import { formatPausedModelLabel } from "../../utils/taskStatus.ts";
 import { formatDuration } from "../../utils/timeFormat.ts";
 import type { SpeechStatus } from "../../hooks/useSpeech.ts";
 import type { ActionResult } from "../../types/ui.ts";
 
 interface ProcessFlowProps {
   task: TaskDto | null;
+  availableTaskIds?: Set<string>;
+  onSelectTask?: (taskId: string) => void;
   onConfirmPlan: () => ActionResult;
   onRejectPlan?: () => ActionResult;
   onModifyPlan?: (feedback: string) => ActionResult;
@@ -29,6 +33,8 @@ interface ProcessFlowProps {
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   task,
+  availableTaskIds,
+  onSelectTask,
   onConfirmPlan,
   onRejectPlan,
   onModifyPlan,
@@ -111,6 +117,8 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
     <StepTimeline
       steps={task.steps}
       calls={task.calls}
+      errors={task.errors}
+      processFact={task.facts?.process}
       taskState={task.task.state}
       mode={task.task.mode}
       onViewRef={handleViewRef}
@@ -130,10 +138,10 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
             <PauseCircle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
             <div className="flex flex-col gap-0.5 min-w-0">
               <span className="font-semibold text-yellow-200">
-                Pausada: {activePause.model === "llm" ? "LLM" : activePause.model === "decision" ? "Decision 2.0" : activePause.model} no disponible
+                Pausada: {formatPausedModelLabel(activePause.model)} no disponible
               </span>
               <span className="text-yellow-100/80 tabular-nums">
-                En espera desde hace {formatDuration(Math.max(0, pauseNowMs - activePause.since))} · reintentando automáticamente
+                Desde las {new Date(activePause.since).toLocaleTimeString()} ({formatDuration(Math.max(0, pauseNowMs - activePause.since))}) · reintentando automáticamente
               </span>
             </div>
           </div>
@@ -145,6 +153,15 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
             Cancelar tarea
           </button>
         </div>
+      )}
+
+      {task.recalled && task.recalled.length > 0 && (
+        <RecalledContext
+          key={task.task.id}
+          recalled={task.recalled}
+          availableTaskIds={availableTaskIds}
+          onSelectTask={onSelectTask}
+        />
       )}
 
       {planWaiting && planWaiting.kind === "plan" ? (

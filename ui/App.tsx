@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, lazy, Suspense } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
@@ -43,6 +43,8 @@ export default function App() {
     waiting,
     waitingKind,
     isWaiting,
+    paused,
+    isPaused,
     isExecuting,
     discoveredTools,
     unavailableServers,
@@ -72,6 +74,7 @@ export default function App() {
 
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isTaskActive = Boolean(task && !isTerminalState(task.task.state));
+  const availableTaskIds = useMemo(() => new Set(allTasks.map((t) => t.id)), [allTasks]);
 
   useEffect(() => () => {
     if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
@@ -132,6 +135,8 @@ export default function App() {
         isExecuting={isExecuting}
         isWaitingInput={isWaiting}
         waitingReason={waitingKind}
+        isPaused={isPaused}
+        pausedModel={paused?.model ?? null}
         mcpCount={Object.keys(discoveredTools).length}
         unavailableCount={Object.keys(unavailableServers).length}
         mcpInitStatus={mcpInitStatus}
@@ -157,6 +162,7 @@ export default function App() {
               isBusy={isTaskActive}
               isExecuting={isExecuting}
               isWaitingInput={isWaiting}
+              isPaused={isPaused}
             />
             {task && (
               <TaskOverview
@@ -177,6 +183,8 @@ export default function App() {
 
           <ProcessFlow
             task={task}
+            availableTaskIds={availableTaskIds}
+            onSelectTask={selectHistoricalTask}
             onConfirmPlan={confirmPlan}
             onRejectPlan={rejectPlan}
             onModifyPlan={modifyPlan}
