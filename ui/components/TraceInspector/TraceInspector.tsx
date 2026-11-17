@@ -152,7 +152,7 @@ export const TraceInspector: React.FC<Props> = ({ taskId, initialCallId = null }
     <div className="flex h-full min-h-0">
       {/* Lista lateral. El contenedor reserva el ancho; el panel se superpone al expandirse con el ratón. */}
       <div
-        className={`relative shrink-0 transition-[width] duration-150 motion-reduce:transition-none ${pinned ? "w-80" : "w-16"}`}
+        className={`relative shrink-0 transition-[width] duration-150 motion-reduce:transition-none ${pinned ? "w-80" : "w-20"}`}
         onMouseEnter={() => scheduleHover(true)}
         onMouseLeave={() => scheduleHover(false)}
         onFocus={(e) => {
@@ -168,22 +168,24 @@ export const TraceInspector: React.FC<Props> = ({ taskId, initialCallId = null }
       >
         <aside
           aria-label="Lista de consultas"
-          className={`absolute inset-y-0 left-0 z-20 flex flex-col overflow-hidden border-r border-slate-800 bg-slate-950 transition-[width,box-shadow] duration-150 motion-reduce:transition-none ${expanded ? "w-80" : "w-16"
+          className={`absolute inset-y-0 left-0 z-20 flex flex-col overflow-hidden border-r border-slate-800 bg-slate-950 transition-[width,box-shadow] duration-150 motion-reduce:transition-none ${expanded ? "w-80" : "w-20"
             } ${expanded && !pinned ? "shadow-2xl shadow-black/60" : ""}`}
         >
-          <div className="flex h-10 w-80 shrink-0 items-center gap-2 border-b border-slate-800 pl-4">
-            <button
-              type="button"
-              onClick={togglePinned}
-              aria-expanded={pinned}
-              aria-label={pinned ? "Contraer la lista de consultas" : "Fijar la lista de consultas abierta"}
-              title={pinned ? "Contraer lista" : "Fijar lista abierta"}
-              className={`rounded p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors cursor-pointer ${FOCUS_RING}`}
-            >
-              {pinned ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
-            </button>
+          <div className="flex h-10 w-80 shrink-0 items-center border-b border-slate-800">
+            <div className="flex w-20 shrink-0 items-center justify-center">
+              <button
+                type="button"
+                onClick={togglePinned}
+                aria-expanded={pinned}
+                aria-label={pinned ? "Contraer la lista de consultas" : "Fijar la lista de consultas abierta"}
+                title={pinned ? "Contraer lista" : "Fijar lista abierta"}
+                className={`rounded p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-100 transition-colors cursor-pointer ${FOCUS_RING}`}
+              >
+                {pinned ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+              </button>
+            </div>
             <span
-              className={`whitespace-nowrap text-xs text-slate-400 transition-opacity duration-150 motion-reduce:transition-none ${expanded ? "opacity-100" : "opacity-0"
+              className={`whitespace-nowrap text-xs text-slate-400 transition-opacity duration-150 motion-reduce:transition-none ${expanded ? "opacity-100" : "opacity-0 pointer-events-none"
                 }`}
             >
               <span className="font-medium text-slate-200">{visible.length}</span>

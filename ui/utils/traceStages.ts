@@ -6,23 +6,25 @@ interface StageInfo {
   label: string;
   /** Nombre corto de la decisión, si la etapa es una. */
   code?: string;
+  /** Abreviatura de 3 letras para el riel lateral encogido. */
+  short?: string;
   kind: StageKind;
 }
 
 const STAGES: Record<string, StageInfo> = {
-  probe: { label: "Sonda", kind: "decision" },
-  continuation: { label: "Continuación", kind: "decision" },
+  probe: { label: "Sonda", short: "Snd", kind: "decision" },
+  continuation: { label: "Continuación", short: "Cnt", kind: "decision" },
   first_query: { label: "Clasificación inicial", code: "D0", kind: "decision" },
   route: { label: "Ruta", code: "D1", kind: "decision" },
   tool: { label: "Herramienta", code: "D2", kind: "decision" },
   review: { label: "Revisión de args", code: "D3", kind: "decision" },
   verify: { label: "Verificación", code: "D4", kind: "decision" },
   completion: { label: "Cierre", code: "D5", kind: "decision" },
-  args: { label: "Argumentos", kind: "generative" },
-  question: { label: "Pregunta", kind: "generative" },
-  plan: { label: "Plan", kind: "generative" },
-  final: { label: "Respuesta final", kind: "generative" },
-  pending: { label: "Pendientes", kind: "generative" },
+  args: { label: "Argumentos", short: "Arg", kind: "generative" },
+  question: { label: "Pregunta", short: "Prg", kind: "generative" },
+  plan: { label: "Plan", short: "Pln", kind: "generative" },
+  final: { label: "Respuesta final", short: "Fin", kind: "generative" },
+  pending: { label: "Pendientes", short: "Pnd", kind: "generative" },
 };
 
 export function stageInfo(stage: string): StageInfo {

@@ -76,18 +76,36 @@ export const QueryList: React.FC<Props> = ({ queries, selected, onSelect, compac
     rootRef.current?.querySelector<HTMLElement>(`[data-seq="${next.seq}"]`)?.focus();
   };
 
-  const fade = `transition-opacity duration-150 motion-reduce:transition-none ${compact ? "opacity-0" : "opacity-100"}`;
+  const fade = `transition-opacity duration-150 motion-reduce:transition-none ${compact ? "opacity-0 pointer-events-none" : "opacity-100"}`;
+  const compactFade = `transition-opacity duration-150 motion-reduce:transition-none ${compact ? "opacity-100" : "opacity-0 pointer-events-none"}`;
 
   return (
     <div ref={rootRef} onKeyDown={handleKeyDown} className="flex flex-col pb-2">
       {groups.map((g, gi) => (
         <div key={`${g.key}-${gi}`} className="flex flex-col">
-          <div className={`w-80 whitespace-nowrap px-3 pt-3 pb-1 text-[11px] text-slate-500 ${fade}`}>{g.label}</div>
+          <div className="relative w-80 pt-3 pb-1">
+            <div
+              aria-hidden={!compact}
+              className={`absolute inset-y-0 left-0 flex w-[4.625rem] items-center justify-center gap-1 px-2 pt-3 pb-1 ${compactFade}`}
+            >
+              <span className="h-px flex-1 bg-slate-800" />
+              <span className="font-mono text-[10px] text-slate-500">
+                {g.key === "_" ? "·" : g.key}
+              </span>
+              <span className="h-px flex-1 bg-slate-800" />
+            </div>
+            <div className={`whitespace-nowrap px-3 text-[11px] text-slate-500 ${fade}`}>
+              {g.label}
+            </div>
+          </div>
+
           {g.items.map((q) => {
             const info = stageInfo(q.stage);
             const active = q.seq === selected;
             const isDecision = info.kind === "decision";
             const slowest = maxMs > 0 && q.durationMs === maxMs;
+            const shortCode = info.code ?? info.short ?? (isDecision ? "D" : "LLM");
+
             return (
               <button
                 key={q.seq}
@@ -95,35 +113,57 @@ export const QueryList: React.FC<Props> = ({ queries, selected, onSelect, compac
                 data-seq={q.seq}
                 onClick={() => onSelect(q.seq)}
                 aria-current={active ? "true" : undefined}
-                title={`${q.seq} · ${info.label}`}
-                className={`relative block w-80 py-1.5 pl-2.5 pr-4 text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-slate-800/70 ${active ? "bg-slate-800/60" : "hover:bg-slate-900"
+                title={`${q.seq} · ${info.label} (${formatMs(q.durationMs)})`}
+                className={`relative block w-80 py-1.5 text-left transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-slate-800/70 ${active ? "bg-slate-800/70" : "hover:bg-slate-900"
                   }`}
               >
                 {active && <span className="absolute left-0 inset-y-1 w-0.5 rounded-full bg-accent-400" />}
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span className="w-5 text-right font-mono text-[11px] tabular-nums text-slate-500">{q.seq}</span>
-                  <span
-                    className={`w-7 text-center font-mono text-[11px] font-medium ${q.error ? "text-rose-400" : isDecision ? "text-accent-400" : "text-slate-400"
-                      }`}
-                  >
-                    {info.code ?? (isDecision ? "D" : "LLM")}
-                  </span>
-                  <span
-                    className={`truncate ${fade} ${q.error ? "text-rose-300" : active ? "font-medium text-slate-50" : "text-slate-300"
-                      }`}
-                  >
-                    {info.label}
-                  </span>
-                  <span
-                    className={`ml-auto font-mono text-[11px] tabular-nums ${fade} ${slowest ? "text-yellow-300" : "text-slate-500"
-                      }`}
-                    title={slowest ? "Consulta más lenta" : undefined}
-                  >
-                    {formatMs(q.durationMs)}
-                  </span>
+
+                <div className="flex items-center text-xs">
+                  <div className="flex w-[4.625rem] shrink-0 items-center gap-1.5 pl-2 pr-1">
+                    <span className="w-5 text-right font-mono text-[11px] tabular-nums text-slate-500">
+                      {q.seq}
+                    </span>
+                    <span
+                      className={`w-8 rounded py-px text-center font-mono text-[11px] font-medium ${q.error
+                          ? "bg-rose-950/60 text-rose-300"
+                          : isDecision
+                            ? "bg-accent-500/10 text-accent-300"
+                            : "bg-slate-800/90 text-slate-300"
+                        }`}
+                    >
+                      {shortCode}
+                    </span>
+                  </div>
+
+                  <div className={`flex min-w-0 flex-1 items-center gap-2 pl-1.5 pr-4 ${fade}`}>
+                    <span
+                      className={`truncate ${q.error ? "text-rose-300" : active ? "font-medium text-slate-50" : "text-slate-300"
+                        }`}
+                    >
+                      {info.label}
+                    </span>
+                    <span
+                      className={`ml-auto shrink-0 font-mono text-[11px] tabular-nums ${slowest ? "text-yellow-300" : "text-slate-500"
+                        }`}
+                      title={slowest ? "Consulta más lenta" : undefined}
+                    >
+                      {formatMs(q.durationMs)}
+                    </span>
+                  </div>
                 </div>
-                <div className={`mt-0.5 h-4 truncate pl-[3.75rem] text-[11px] text-slate-500 ${fade}`}>
-                  <Brief query={q} />
+
+                <div className="relative mt-0.5 h-4 text-[11px]">
+                  <div
+                    aria-hidden={!compact}
+                    className={`absolute inset-y-0 left-0 flex w-[4.625rem] items-center justify-end pr-2 font-mono text-[10px] tabular-nums ${compactFade} ${q.error ? "text-rose-400" : slowest ? "text-yellow-300" : "text-slate-500"
+                      }`}
+                  >
+                    {q.error ? "error" : formatMs(q.durationMs)}
+                  </div>
+                  <div className={`truncate pl-[5rem] pr-4 text-slate-500 ${fade}`}>
+                    <Brief query={q} />
+                  </div>
                 </div>
               </button>
             );
