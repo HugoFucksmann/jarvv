@@ -445,8 +445,10 @@ export function useJarvis() {
   const clearError = useCallback(() => setError(null), []);
 
   const waiting = task?.waiting ?? null;
+  const paused = task?.task.state === "running" ? (task.paused ?? null) : null;
   const isExecuting = task?.task.state === "running";
   const isWaiting = waiting !== null;
+  const isPaused = paused !== null;
 
   return {
     task,
@@ -456,6 +458,8 @@ export function useJarvis() {
     waiting,
     waitingKind: waiting?.kind ?? null,
     isWaiting,
+    paused,
+    isPaused,
     isExecuting,
     discoveredTools,
     unavailableServers,

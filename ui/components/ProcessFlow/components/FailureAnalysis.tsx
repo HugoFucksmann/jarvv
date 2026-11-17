@@ -1,6 +1,7 @@
 import React from "react";
-import { AlertOctagon, CheckCircle, AlertTriangle, ShieldX, Terminal, FileCode } from "lucide-react";
+import { AlertOctagon, CheckCircle, AlertTriangle, ShieldX, ShieldAlert, Terminal, FileCode } from "lucide-react";
 import type { TaskDto, StopReason, CallDto } from "../../../types/api.ts";
+import { formatVerdictReason } from "../../../utils/taskStatus.ts";
 
 interface FailureAnalysisProps {
   task: TaskDto;
@@ -54,20 +55,6 @@ const STOP_REASON_DETAILS: Record<
   },
 };
 
-const VERDICT_REASON_LABELS: Record<string, string> = {
-  not_accomplished: "No cumple lo esperado",
-  no_usable_data: "Sin datos útiles",
-  wrong_place: "Ubicación incorrecta",
-  wrong_position: "Posición incorrecta",
-  wrong_scope: "Alcance incorrecto",
-  wrong_item: "Elemento incorrecto",
-  missing_attribute: "Falta un atributo requerido",
-};
-
-function formatReason(reason: string): string {
-  return VERDICT_REASON_LABELS[reason] ? `${VERDICT_REASON_LABELS[reason]} (${reason})` : reason;
-}
-
 function formatCallArg(args?: Record<string, unknown> | null): string {
   if (!args) return "";
   if (typeof args.command === "string") return args.command;
@@ -93,6 +80,10 @@ export const FailureAnalysis: React.FC<FailureAnalysisProps> = ({ task }) => {
     (c) =>
       c.kind === "write" &&
       (c.status === "tool_error" || c.status === "exception" || c.status === "interrupted" || c.status === "waiting_input")
+  );
+
+  const rejectedByVerification = task.calls.filter(
+    (c) => c.verdict === "rejected" && Boolean(c.reason)
   );
 
   return (
@@ -176,9 +167,34 @@ export const FailureAnalysis: React.FC<FailureAnalysisProps> = ({ task }) => {
                   </div>
                   {c.reason && (
                     <p className="text-xs text-yellow-200/90 mt-0.5">
-                      Motivo: {formatReason(c.reason)}
+                      Motivo: {formatVerdictReason(c.reason)}
                     </p>
                   )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 3. Llamadas rechazadas en verificación (D4) */}
+        {rejectedByVerification.length > 0 && (
+          <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-rose-950/20 border border-rose-900/40 mt-1">
+            <div className="flex items-center gap-1.5 text-rose-300 font-medium">
+              <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+              <span>Rechazos de verificación ({rejectedByVerification.length}):</span>
+            </div>
+            <div className="flex flex-col gap-1 divide-y divide-rose-950/60 pl-5">
+              {rejectedByVerification.map((c: CallDto, idx: number) => (
+                <div key={`call-rej-${c.id || idx}`} className="pt-1 first:pt-0 text-xs">
+                  <div className="flex items-center gap-2 text-rose-200 flex-wrap">
+                    <span className="font-semibold font-mono">{c.tool}</span>
+                    <span className="text-slate-400 font-mono">paso {c.stepId}</span>
+                    {c.reason && (
+                      <span className="text-yellow-300">
+                        · {formatVerdictReason(c.reason)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

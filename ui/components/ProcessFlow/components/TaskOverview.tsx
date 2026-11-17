@@ -7,6 +7,7 @@ import {
   getActivityPhrase,
   getTaskStatusType,
   MODE_LABELS,
+  parseProcessPids,
   type ActivityStateGroup,
 } from "../../../utils/taskStatus.ts";
 
@@ -96,8 +97,11 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
   const activeSteps = task.steps.filter((s) => !s.superseded);
   const progress = getProgressText(task, limits);
   const activity = getActivityPhrase(task);
-  const hasActiveProcess = task.facts?.process && task.facts.process.value !== null && task.facts.process.value !== undefined;
+  const processPids = parseProcessPids(task.facts?.process);
+  const hasActiveProcess = processPids.length > 0;
   const isTerminal = task.task.state !== "running";
+  const isPaused = !isTerminal && Boolean(task.paused);
+  const serviceErrorsCount = task.errors?.length ?? 0;
 
   const startedAtMs = typeof task.task.startedAt === "number"
     ? task.task.startedAt
@@ -133,7 +137,7 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
   return (
     <header className="flex flex-col gap-1.5">
       <div className="flex items-center gap-3 min-w-0 flex-wrap sm:flex-nowrap">
-        <StatusDot status={getTaskStatusType(task.task.state, Boolean(task.waiting))} />
+        <StatusDot status={getTaskStatusType(task.task.state, Boolean(task.waiting), isPaused)} />
         <h2
           title={task.task.request}
           className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-50"
@@ -150,13 +154,27 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
           )}
         </span>
 
+        {serviceErrorsCount > 0 && (
+          <span
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-950/40 text-rose-300 border border-rose-800/60 text-[11px] font-medium shrink-0 tabular-nums"
+            title={`Incidencias de servicio registradas: ${task.errors.map((e) => `${e.kind} (${e.stepId})`).join(", ")}`}
+          >
+            <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />
+            <span>
+              {serviceErrorsCount} {serviceErrorsCount === 1 ? "incidencia" : "incidencias"}
+            </span>
+          </span>
+        )}
+
         {hasActiveProcess && (
           <span
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 text-[10px] font-mono shrink-0"
-            title={`Proceso en segundo plano activo (PID: ${String(task.facts.process.value)})`}
+            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-700 text-[10px] font-mono shrink-0 tabular-nums"
+            title={`Proceso en segundo plano activo (${processPids.join(", ")}) iniciado en paso ${task.facts.process.stepId} a las ${new Date(task.facts.process.at).toLocaleTimeString()}`}
           >
             <Cpu className="w-3 h-3 text-accent-400 animate-pulse" />
-            <span>PID: {String(task.facts.process.value)}</span>
+            <span>
+              {processPids.length === 1 ? "PID" : "PIDs"}: {processPids.join(", ")}
+            </span>
           </span>
         )}
 

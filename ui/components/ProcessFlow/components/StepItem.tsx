@@ -1,7 +1,7 @@
 import React, { memo, useState } from "react";
-import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree, Timer } from "lucide-react";
-import type { CallDto, StepDto, TaskState } from "../../../types/api.ts";
-import { STEP_STATE_LABELS } from "../../../utils/taskStatus.ts";
+import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree, Timer, AlertCircle, Cpu } from "lucide-react";
+import type { CallDto, ErrorDto, StepDto, TaskState } from "../../../types/api.ts";
+import { STEP_STATE_LABELS, formatVerdictReason } from "../../../utils/taskStatus.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { formatDuration } from "../../../utils/timeFormat.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
@@ -10,6 +10,8 @@ import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
 interface StepItemProps {
   step: StepDto;
   calls: CallDto[];
+  errors?: ErrorDto[];
+  processPids?: string[];
   index: number;
   isCurrent: boolean;
   isLast?: boolean;
@@ -19,16 +21,6 @@ interface StepItemProps {
   allCalls?: CallDto[];
   taskState?: TaskState;
 }
-
-const VERDICT_REASON_LABELS: Record<string, string> = {
-  not_accomplished: "No cumple lo esperado",
-  no_usable_data: "Sin datos útiles",
-  wrong_place: "Ubicación incorrecta",
-  wrong_position: "Posición incorrecta",
-  wrong_scope: "Alcance incorrecto",
-  wrong_item: "Elemento incorrecto",
-  missing_attribute: "Falta un atributo requerido",
-};
 
 function callStatusTone(status?: string): string {
   if (status === "ok") return "text-emerald-400";
@@ -108,6 +100,8 @@ const OutputViewer: React.FC<{ text: string; copyTitle: string; className?: stri
 const StepItemBase: React.FC<StepItemProps> = ({
   step,
   calls,
+  errors = [],
+  processPids = [],
   index,
   isCurrent,
   isLast = false,
@@ -118,6 +112,7 @@ const StepItemBase: React.FC<StepItemProps> = ({
 }) => {
   const [showCalls, setShowCalls] = useState(false);
   const callsCount = calls.length;
+  const rejectedCallsWithReason = calls.filter((c) => Boolean(c.reason));
 
   const displayInstruction =
     step.instruction ||
@@ -181,6 +176,35 @@ const StepItemBase: React.FC<StepItemProps> = ({
                 <span className="text-slate-500">Esperado:</span> {step.expected}
               </p>
             )}
+
+            {errors.length > 0 && (
+              <div className="flex flex-col gap-1 mt-1">
+                {errors.map((err, eIdx) => (
+                  <div
+                    key={err.id || eIdx}
+                    className="flex items-center gap-1.5 text-xs text-rose-300"
+                  >
+                    <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    <span>
+                      Servicio no disponible (<span className="font-mono">{err.kind}</span>)
+                    </span>
+                    <span className="text-slate-500 tabular-nums">
+                      · {new Date(err.at).toLocaleTimeString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {processPids.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-accent-300 mt-1 tabular-nums">
+                <Cpu className="w-3.5 h-3.5 text-accent-400 shrink-0" />
+                <span>
+                  Proceso en segundo plano · {processPids.length === 1 ? "PID" : "PIDs"}:{" "}
+                  <span className="font-mono text-slate-200">{processPids.join(", ")}</span>
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -192,20 +216,33 @@ const StepItemBase: React.FC<StepItemProps> = ({
       {/* Historial de llamadas a herramientas asociadas a este paso */}
       {callsCount > 0 && (
         <div className="ml-7 mt-1">
-          <button
-            type="button"
-            onClick={() => setShowCalls((v) => !v)}
-            className="flex items-center gap-1.5 text-xs text-accent-400 hover:text-accent-300 transition-colors cursor-pointer"
-          >
-            {showCalls ? (
-              <ChevronDown className="w-3.5 h-3.5" />
-            ) : (
-              <ChevronRight className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowCalls((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-accent-400 hover:text-accent-300 transition-colors cursor-pointer"
+            >
+              {showCalls ? (
+                <ChevronDown className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5" />
+              )}
+              <span>
+                {callsCount} llamada{callsCount > 1 ? "s" : ""} a herramientas
+              </span>
+            </button>
+
+            {!showCalls && rejectedCallsWithReason.length > 0 && (
+              <span className="flex items-center gap-1 text-[11px] text-yellow-300/90">
+                <ShieldAlert className="w-3 h-3 text-yellow-400 shrink-0" />
+                <span>
+                  {rejectedCallsWithReason.length === 1
+                    ? `${rejectedCallsWithReason[0].tool}: ${formatVerdictReason(rejectedCallsWithReason[0].reason!)}`
+                    : `${rejectedCallsWithReason.length} rechazos: ${rejectedCallsWithReason.map((c) => `${c.tool} (${c.reason})`).join(" · ")}`}
+                </span>
+              </span>
             )}
-            <span>
-              {callsCount} llamada{callsCount > 1 ? "s" : ""} a herramientas
-            </span>
-          </button>
+          </div>
 
           {showCalls && (
             <div className="mt-2 flex flex-col divide-y divide-slate-800/60 border-l border-slate-800 pl-3">
@@ -300,6 +337,15 @@ const StepItemBase: React.FC<StepItemProps> = ({
                       </div>
                     </div>
 
+                    {c.reason && (
+                      <div className="flex items-center gap-1.5 text-xs text-yellow-300 bg-yellow-950/25 border border-yellow-800/40 rounded px-2 py-1 mb-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                        <span>
+                          Motivo de rechazo: <span className="font-medium">{formatVerdictReason(c.reason)}</span>
+                        </span>
+                      </div>
+                    )}
+
                     {c.args && Object.keys(c.args).length > 0 && (
                       <div className="text-xs font-mono text-slate-400 truncate mb-1">
                         <span className="text-slate-500">args: </span>
@@ -317,12 +363,6 @@ const StepItemBase: React.FC<StepItemProps> = ({
                     {c.summary && (
                       <p className="text-[13px] text-slate-300 line-clamp-3">
                         {c.summary}
-                      </p>
-                    )}
-
-                    {c.reason && (
-                      <p className="text-xs text-yellow-300/80 mt-0.5">
-                        Motivo: {VERDICT_REASON_LABELS[c.reason] ? `${VERDICT_REASON_LABELS[c.reason]} (${c.reason})` : c.reason}
                       </p>
                     )}
 

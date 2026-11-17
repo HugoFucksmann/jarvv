@@ -62,6 +62,15 @@ export type CallStatus =
   | "info_missing"
   | string;
 
+export type VerdictReason =
+  | "no_usable_data"
+  | "not_accomplished"
+  | "wrong_place"
+  | "wrong_position"
+  | "wrong_scope"
+  | "wrong_item"
+  | "missing_attribute";
+
 export interface CallDto {
   id: string;
   stepId: string;
@@ -73,7 +82,7 @@ export interface CallDto {
   sig: string | null;
   status: CallStatus;
   verdict: "approved" | "rejected" | null;
-  reason?: string | null;
+  reason?: VerdictReason | string | null;
   summary?: string | null;
   ref?: string | null;
 }
@@ -321,6 +330,13 @@ export interface JarvisConfig {
   desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
+  toolTimeoutsMs?: Record<string, number>;
+  modelTimeoutsMs?: Record<string, number>;
+  runCommandDefaultWaitSec?: number;
+  runCommandMaxWaitSec?: number;
+  webJudgeTimeoutMs?: number;
+  sseKeepAliveMs?: number;
+  shutdownDrainMs?: number;
   traceEnabled: boolean;
   tracePath: string;
   refsDir?: string;

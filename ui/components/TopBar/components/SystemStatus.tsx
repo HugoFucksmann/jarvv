@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Loader2, CheckCircle2, AlertTriangle, XCircle, Laptop, ShieldCheck, Shield } from "lucide-react";
 import { StatusDot, type StatusDotStatus } from "../../Shared/StatusDot.tsx";
 import { Separator } from "../../Shared/Separator.tsx";
-import { getWaitingReasonLabel } from "../../../utils/taskStatus.ts";
+import { getWaitingReasonLabel, formatPausedModelLabel } from "../../../utils/taskStatus.ts";
 import type { McpInitStatus } from "../../../types/ui.ts";
 import type { UnavailableServers } from "../../../types/api.ts";
 import { UnavailableServersPopover } from "./UnavailableServersPopover.tsx";
@@ -11,6 +11,8 @@ export interface SystemStatusProps {
   isExecuting: boolean;
   isWaitingInput?: boolean;
   waitingReason?: string | null;
+  isPaused?: boolean;
+  pausedModel?: string | null;
   mcpCount: number;
   unavailableCount?: number;
   mcpInitStatus?: McpInitStatus;
@@ -79,6 +81,8 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
   isExecuting,
   isWaitingInput = false,
   waitingReason = null,
+  isPaused = false,
+  pausedModel = null,
   mcpCount,
   unavailableCount = 0,
   mcpInitStatus = "ready",
@@ -97,6 +101,12 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
     statusType = "approval";
     statusLabel = getWaitingReasonLabel(waitingReason);
     statusColorClass = "text-yellow-300 font-medium animate-pulse";
+  } else if (isPaused) {
+    statusType = "approval";
+    statusLabel = pausedModel
+      ? `Pausada (${formatPausedModelLabel(pausedModel)})`
+      : "Pausada (modelo)";
+    statusColorClass = "text-yellow-300 font-medium";
   } else if (isExecuting) {
     statusType = "running";
     statusLabel = "Ejecutando tarea";
