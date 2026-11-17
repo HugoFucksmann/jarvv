@@ -6,8 +6,7 @@
  * agrupado de etapas.
  */
 
-import { DECISION_STAGES, GENERATIVE_STAGES } from "../core/case.ts";
-import { allStageNames } from "../core/stages/index.ts";
+import { allStageNames, stageNamesByType } from "../core/stages/index.ts";
 
 /** Mueve la baseline al principio (si existe) y conserva el orden del resto. */
 export function baselineFirst(names: readonly string[], baseline: string): string[] {
@@ -16,13 +15,13 @@ export function baselineFirst(names: readonly string[], baseline: string): strin
 
 /** Etapas agrupadas (decisión, generativas, otras), conservando el orden de `allStageNames()` dentro de cada grupo. */
 export function groupStages(): Array<[string, string[]]> {
-  const stages = allStageNames() as string[];
-  const decision = DECISION_STAGES as readonly string[];
-  const generative = GENERATIVE_STAGES as readonly string[];
+  const decision = stageNamesByType("decision") as string[];
+  const generative = stageNamesByType("generative") as string[];
+  const other = (allStageNames() as string[]).filter((s) => !decision.includes(s) && !generative.includes(s));
   return [
-    ["Decisión", stages.filter((s) => decision.includes(s))],
-    ["Generativas", stages.filter((s) => generative.includes(s))],
-    ["Otras", stages.filter((s) => !decision.includes(s) && !generative.includes(s))],
+    ["Decisión", decision],
+    ["Generativas", generative],
+    ["Otras", other],
   ];
 }
 

@@ -8,11 +8,8 @@
  *   escenario → `create.context` + `apply` → `ctx.view.<vista>` → adaptadores (`engine/adapters.ts`) → constructores de
  *   prompts (`models/prompts.ts`, `models/stageRequests.ts`) → request del eval.
  *
- * Así los mensajes fijos de `ctx/views/messages.ts`, los topes de `BUDGET`, los renderizadores y los parámetros de cada
- * etapa llegan al modelo tal como en producción, y un cambio en `src/` se refleja solo en el eval.
- *
- * Es, con `contract.ts`, la vía declarada hacia `src/` (también importan `src/` `config.ts`, `runner.ts` —pre-chequeo—, `types.ts`, `client/*`, `cross.ts` y `psvalid.ts`). Todas las entradas se arman con
- * las mismas funciones que el motor (`planInput`, `renderArgsView`, `argsInput`, `routeInput`…, en `engine/adapters.ts`).
+ * El armado concreto de cada etapa vive en su módulo enchufable de `eval/core/stages/`; aquí viven el armado del
+ * contexto (`buildContext`), los helpers compartidos (`scenarioHelpers`) y `materializeScenario`.
  */
 
 import { createHash } from "node:crypto";
@@ -20,42 +17,19 @@ import { BUDGET } from "../../src/core/budget.ts";
 import { ConfigManager } from "../../src/core/config.ts";
 import { create } from "../../src/core/ctx/index.ts";
 import type { CallStatus, JsonObject, Op, StepState, StopReason, TaskContext, TerminalTaskState, VerdictReason } from "../../src/core/ctx/index.ts";
-import {
-  argsInput,
-  askRenderOptions,
-  finalRenderOptions,
-  finalViewOptions,
-  pendingInput,
-  planInput,
-  renderArgsView,
-  reviewInput,
-  reviewViewOptions,
-  routeInput,
-  routeViewOptions,
-  toolInput,
-  verifyInput,
-} from "../../src/core/engine/adapters.ts";
-import { renderAsk, renderFinal } from "../../src/core/render/index.ts";
-import { DECISION_PROMPTS, PROMPTS } from "../../src/core/models/prompts.ts";
-import {
-  argumentsStageRequest,
-  BASE_TEMPERATURE,
-  finalStageRequest,
-  pendingStageRequest,
-  planStageRequest,
-  questionStageRequest,
-} from "../../src/core/models/stageRequests.ts";
-import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
 import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
-import { codeAnswersOk } from "../../src/core/engine/postcondition.ts";
 import type { CommandAnalyzer, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
+import type { UserEnvironment } from "../../src/core/environment.ts";
+import { DECISION_PROMPTS, PROMPTS } from "../../src/core/models/prompts.ts";
+import { BASE_TEMPERATURE } from "../../src/core/models/stageRequests.ts";
+import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
 import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
 import type { MCPTool } from "../../src/core/types.ts";
 import type { ExecutableRoute } from "../../src/core/types/routes.ts";
-import { EXECUTABLE_ROUTES, JUDGE_BATCH } from "./contract.ts";
 import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
+import { getStage, hasStage } from "./stages/index.ts";
+import type { ScenarioHelpers } from "./stages/index.ts";
 import type { DecisionRequest, GenerativeRequest, GenerativeStage, Variant } from "./types.ts";
-import type { UserEnvironment } from "../../src/core/environment.ts";
 
 /**
  * Lo que, además de `src/`, cambia los prompts de los casos por escenario: la fecha (`TODAY`) y la configuración que fija
@@ -247,9 +221,10 @@ function buildContext(sc: Scenario): Built {
   for (const [key, value] of Object.entries(sc.facts ?? {})) {
     ctx.apply({ op: "set", target: `facts.${key}`, value: { value, stepId: lastStepId } });
   }
-  for (const text of sc.userInput ?? []) {
-    ctx.apply({ op: "set", target: `facts.${ctx.nextAnswerKey(lastStepId)}`, value: { value: text, stepId: lastStepId } });
-  }
+  // Como producción (`answer_<paso>_<n>`): cada respuesta del usuario queda asociada al paso.
+  (sc.userInput ?? []).forEach((text, i) => {
+    ctx.apply({ op: "set", target: `facts.answer_${lastStepId}_${i + 1}`, value: { value: text, stepId: lastStepId } });
+  });
 
   if (sc.finish) {
     ctx.apply({ op: "finish", target: "task", value: { state: sc.finish.state, stopReason: sc.finish.stopReason ?? null } });
@@ -330,6 +305,17 @@ function precheckBase(
   };
 }
 
+const scenarioHelpers: ScenarioHelpers = {
+  buildContext,
+  effectivePrompts,
+  decision,
+  generative,
+  precheckBase,
+  toolOf,
+  need,
+  config: () => ConfigManager.getConfig(),
+};
+
 /**
  * Pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre un caso `args_review`: el mismo código que corre `runCall`,
  * con las fuentes del contexto del escenario. No usa ningún modelo.
@@ -348,99 +334,10 @@ export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer):
  * parámetros de la variante (`params`: temperatura, tokens, thinking…). Lanza `Error` con el motivo si el escenario no sirve.
  */
 export function materializeScenario(stage: string, sc: Scenario, variant?: Variant): Materialized {
-  const built = buildFromScenario(stage, sc, variant?.prompts);
+  if (!hasStage(stage)) throw new Error(`etapa '${stage}' desconocida para un escenario.`);
+  const built = getStage(stage).buildRequest(sc, variant?.prompts, scenarioHelpers);
   const params = variant?.params?.[stage as GenerativeStage];
   if (params === undefined || built.request.type !== "generative") return built;
   const defined = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
   return { ...built, request: { ...built.request, ...defined } };
-}
-
-function buildFromScenario(stage: string, sc: Scenario, ov?: VariantPrompts): Materialized {
-  if (stage === "d0") {
-    // La primera consulta de la tarea: solo la solicitud, sin contexto (como `Decision20Engine.firstQuery`).
-    if (sc.mode !== "reactive") throw new Error("etapa 'd0': la primera consulta solo existe en modo reactivo.");
-    return decision(effectivePrompts(ov).D.buildFirstQuery({ request: sc.request }));
-  }
-  if (stage === "fragment_judge") {
-    // No hay tarea ni contexto: el juez recibe solo la necesidad y los fragmentos (como `Decision20Engine.score`).
-    const at = sc.at ?? {};
-    const fragments = at.fragments ?? [];
-    if (fragments.length === 0 || fragments.length > JUDGE_BATCH) throw new Error(`etapa 'fragment_judge': at.fragments debe traer entre 1 y ${JUDGE_BATCH} fragmentos.`);
-    return decision(effectivePrompts(ov).D.buildFragmentJudge({ need: need(at.need, "need", stage), fragments }));
-  }
-  if (stage === "pending" && sc.mode !== "reactive") throw new Error("etapa 'pending': la lista de pendientes solo existe en modo reactivo.");
-  const { ctx, callIds } = buildContext(sc);
-  const at = sc.at ?? {};
-  const config = ConfigManager.getConfig();
-  const { P, D } = effectivePrompts(ov);
-
-  switch (stage) {
-    case "route": {
-      const flags = {
-        routes: at.routes ?? [...EXECUTABLE_ROUTES],
-      };
-      return decision(D.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
-    }
-    case "tool_choice": {
-      const route = need(at.route, "route", stage);
-      const names = at.tools ?? SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route).map((d) => d.name);
-      const tools = names.map((n) => toolOf(route, n));
-      return decision(D.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools)));
-    }
-    case "args_review": {
-      const route = need(at.route, "route", stage);
-      const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      return decision(D.buildArgsReview(reviewInput(ctx.view.forReview(reviewViewOptions()), route, tool, at.args ?? {})));
-    }
-    case "result_verification": {
-      const id = callIds[at.call ?? callIds.length - 1];
-      if (id === undefined) throw new Error("etapa 'result_verification': el escenario no tiene la llamada a evaluar (scenario.calls / at.call).");
-      const input = verifyInput(ctx.view.forVerify(id));
-      // Como producción (`verifyCall`): en una lectura determinista con contenido, `ok` lo responde el código y no se le pregunta al modelo.
-      const evaluated = ctx.find("calls", { id })[0];
-      const known = evaluated !== undefined && codeAnswersOk(evaluated.tool, evaluated.status, evaluated.summary) ? { ok: 1 } : undefined;
-      // En reactivo el contexto exige `expected: null` en el paso (validate.ts): el `expected` del escenario se inyecta aquí, solo en eval.
-      const steps = sc.steps ?? [];
-      const ci = at.call ?? callIds.length - 1;
-      const si = sc.calls?.[ci]?.step ?? steps.length - 1;
-      const expected = steps[Math.min(Math.max(si, 0), steps.length - 1)]?.expected ?? null;
-      return decision(
-        D.buildResultVerification({
-          ...input,
-          ...(known === undefined ? {} : { known }),
-          criterion: expected === null ? input.criterion : { ...input.criterion, expected },
-          request: at.lastItem ? sc.request : null,
-        }),
-      );
-    }
-    case "plan": {
-      return { request: generative(planStageRequest(planInput(ctx, at.feedback ?? null), config, P), "plan") };
-    }
-    case "arguments": {
-      const route = need(at.route, "route", stage);
-      const tool = toolOf(route, need(at.tool, "tool", stage), at.inputSchema);
-      // Misma construcción que `scenarioPrecheck`: `kind`, fuentes y entorno del pre-chequeo de producción.
-      const { kind, sources, environment: env, refIds } = precheckBase(ctx, route, tool.name, at.environment);
-      // Sin `priorAttempts`: un caso `arguments` es siempre el primer intento (`argsInput` aplica 0).
-      const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), config, P);
-      return {
-        request: generative(request),
-        toolSchema: tool.inputSchema as ToolInputSchema,
-        toolName: tool.name,
-        environment: env,
-        precheck: { kind, sources, refIds },
-      };
-    }
-    case "pending": {
-      return { request: generative(pendingStageRequest(pendingInput(ctx, at.previous ?? []), P), "pending") };
-    }
-    case "question":
-      return { request: generative(questionStageRequest({ view: renderAsk(ctx.view.forAsk(), askRenderOptions()) }, P)) };
-    case "final":
-      return {
-        request: generative(finalStageRequest({ view: renderFinal(ctx.view.forFinal(finalViewOptions()), finalRenderOptions()).text }, config, P)),
-      };
-    default:
-      throw new Error(`etapa '${stage}' desconocida para un escenario.`);
-  }
 }

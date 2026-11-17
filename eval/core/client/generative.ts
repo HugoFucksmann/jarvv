@@ -23,7 +23,8 @@ export function reserveCompletionTokens(req: GenerativeRequest, numCtx: number):
 }
 
 import { ConfigManager } from "../../../src/core/config.ts";
-import { estimateTokens, LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../contract.ts";
+import { postJson as prodPostJson, TransportError } from "../../../src/core/models/transport.ts";
+import { estimateTokens } from "../contract.ts";
 import type { ToolInputSchema } from "../contract.ts";
 import type { GenerativeRequest } from "../types.ts";
 
@@ -46,44 +47,22 @@ export function isTransportError(error: string): boolean {
 }
 
 /**
- * POST JSON con `fetch` + `AbortSignal.timeout`. Reintento único en red o 503 (como producción), sin `Authorization`.
- * Errores: `timeout` / `network: …` / `http_<status>` (ver `isTransportError`).
+ * Delega en `src/core/models/transport.ts` (`postJson`) para heredar la política de timeout y reintento único en red/503.
+ * Traduce la respuesta al contrato `{ ok, text | error, durationMs }` (`timeout` / `network: …` / `http_<status>`).
  */
 export async function postJson(url: string, body: unknown, timeoutMs: number): Promise<PostResult> {
   const start = Date.now();
-  // Presupuesto total de la llamada: incluye el reintento y la espera (como `models/transport.ts`).
-  const signal = AbortSignal.timeout(timeoutMs);
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(body),
-        signal,
-      });
-      const text = await res.text();
-      if (!(res.status === 503 && attempt < LLM_TRANSPORT_RETRIES)) {
-        const durationMs = Date.now() - start;
-        if (!res.ok) return { ok: false, error: `http_${res.status}`, durationMs };
-        return { ok: true, text, durationMs };
-      }
-      // 503: cae al backoff y reintenta.
-    } catch (e) {
-      if (signal.aborted || (e as { name?: string } | null)?.name === "TimeoutError") {
-        return { ok: false, error: "timeout", durationMs: Date.now() - start };
-      }
-      if (attempt >= LLM_TRANSPORT_RETRIES) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { ok: false, error: `network: ${msg}`, durationMs: Date.now() - start };
-      }
+  try {
+    const res = await prodPostJson({ url, body: JSON.stringify(body), timeoutMs });
+    const durationMs = Date.now() - start;
+    if (!res.ok) return { ok: false, error: `http_${res.status}`, durationMs };
+    return { ok: true, text: res.text, durationMs };
+  } catch (e) {
+    const durationMs = Date.now() - start;
+    if (e instanceof TransportError) {
+      return { ok: false, error: e.kind === "timeout" ? "timeout" : `network: ${e.message}`, durationMs };
     }
-    // Reintento único (red o HTTP 503) tras 1 s; el timeout nunca se reintenta.
-    await new Promise<void>((resolve) => {
-      // Con el presupuesto ya agotado el evento `abort` no se repite: sin esto se esperaba el backoff entero y se inflaba la latencia.
-      if (signal.aborted) return resolve();
-      const t = setTimeout(resolve, LLM_TRANSPORT_BACKOFF_MS);
-      signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
-    });
+    return { ok: false, error: `network: ${e instanceof Error ? e.message : String(e)}`, durationMs };
   }
 }
 
@@ -209,15 +188,15 @@ export function createGenerativeClient(cfg: GenerativeClientConfig): GenerativeC
   return {
     prepare,
     async call(req, timeoutMs) {
-      if (reserveCompletionTokens(req, numCtx) === null) {
+      const reserved = reserveCompletionTokens(req, numCtx);
+      if (reserved === null) {
         return {
           ok: false,
           error: `${CONTEXT_OVERFLOW_PREFIX} el prompt (~${estimateTokens(req.system) + estimateTokens(req.user)} tokens) no deja espacio de salida en el contexto de ${numCtx} tokens; producción no lo enviaría.`,
           durationMs: 0,
         };
       }
-      const { body } = prepare(req);
-      const res = await postJson(url, body, timeoutMs);
+      const res = await postJson(url, buildGenerativeBody(cfg.model, req, reserved), timeoutMs);
       if (!res.ok) return res;
       const parsed = parseGenerativeResponse(res.text);
       if (!parsed) {
