@@ -250,7 +250,6 @@ export const JsonView: React.FC<JsonViewProps> = ({ value, defaultDepth = 3, too
           <button type="button" className={TOOL_BTN} onClick={() => setMode((m) => ({ depth: 1, tick: m.tick + 1 }))}>
             Contraer todo
           </button>
-          <CopyButton text={() => stringify(value)} title="Copiar JSON" iconSize="w-3.5 h-3.5" className={COPY_CLASS} />
         </div>
       )}
       <Node key={mode.tick} value={value} depth={0} last defaultDepth={mode.depth} />

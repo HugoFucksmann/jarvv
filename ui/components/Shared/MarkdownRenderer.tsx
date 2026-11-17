@@ -28,7 +28,7 @@ function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   // Regex para tokens inline: code, bold, italic, strike, link
   const inlineRegex =
-    /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|~~[^~]+~~|\[[^\]]+\]\([^)]+\))/g;
+    /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|(?<![a-zA-Z0-9_])_[^_]+_(?![a-zA-Z0-9_])|~~[^~]+~~|\[[^\]]+\]\([^)]+\))/g;
 
   let lastIdx = 0;
   let match: RegExpExecArray | null;
@@ -84,7 +84,7 @@ function renderInline(text: string): React.ReactNode[] {
             href={linkMatch[2]}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-accent-400 hover:text-accent-300 underline underline-offset-2 transition-colors"
+            className="text-accent-400 hover:text-accent-300 underline underline-offset-2 transition-colors break-words"
           >
             {linkMatch[1]}
           </a>

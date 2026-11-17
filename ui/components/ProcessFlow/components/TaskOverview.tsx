@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2, Plus, XCircle, Activity, Cpu, Clock } from "lucide-react";
+import { AlertCircle, ArrowDown, CheckCircle2, Loader2, Plus, XCircle, Activity, Cpu, Clock } from "lucide-react";
 import type { StepState, TaskDto, TaskState, EngineLimits } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";
 import { formatDuration } from "../../../utils/timeFormat.ts";
@@ -183,12 +183,25 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
             className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800 text-[11px] font-mono shrink-0 tabular-nums"
             title={isTerminal ? `Tiempo total transcurrido: ${formatDuration(totalDurationMs)}` : "Tiempo transcurrido en ejecución"}
           >
-            <Clock className={`w-3 h-3 text-slate-400 ${!isTerminal ? "text-accent-400 animate-spin" : ""}`} />
+            <Clock className={`w-3 h-3 ${!isTerminal ? "text-accent-400" : "text-slate-400"}`} />
             <span>{formatDuration(totalDurationMs)}</span>
           </span>
         )}
 
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
+        <div className="flex items-center gap-1 shrink-0 ml-auto sm:ml-0">
+          {task.result && task.steps.length > 0 && (
+            <button
+              type="button"
+              onClick={() => document.getElementById("final-response")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              title="Ir a la respuesta final"
+              aria-label="Ir a la respuesta final"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-300 hover:text-emerald-200 hover:bg-slate-800 rounded-md transition-colors cursor-pointer"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Respuesta</span>
+            </button>
+          )}
+
           {isTerminal && onOpenTrace && (
             <button
               type="button"
@@ -217,28 +230,33 @@ export const TaskOverview: React.FC<TaskOverviewProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 min-w-0">
-        {activeSteps.length > 0 && (
-          <div role="img" aria-label={progress} className="flex gap-1 w-28 sm:w-44 shrink-0">
-            {activeSteps.map((s, i) => (
-              <span
-                key={`${s.id}-${i}`}
-                title={`${i + 1}. ${s.instruction || "Paso"}`}
-                className={`h-1 flex-1 rounded-full ${SEGMENT_TONE[s.state] || "bg-slate-700"}`}
-              />
-            ))}
-          </div>
-        )}
-        <p
-          role="status"
-          aria-live="polite"
-          title={activity.label}
-          className={`flex items-center gap-2 min-w-0 text-xs ${ACTIVITY_TONE[activity.stateGroup]
-            }`}
-        >
-          <ActivityIcon group={activity.stateGroup} state={task.task.state} />
-          <span className="truncate">{activity.label}</span>
-        </p>
+      <div className="flex items-center justify-between gap-3 min-w-0 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {activeSteps.length > 0 && (
+            <div role="img" aria-label={progress} className="flex gap-1 w-24 sm:w-44 shrink-0">
+              {activeSteps.map((s, i) => (
+                <span
+                  key={`${s.id}-${i}`}
+                  title={`${i + 1}. ${s.instruction || "Paso"}`}
+                  className={`h-1 flex-1 rounded-full ${SEGMENT_TONE[s.state] || "bg-slate-700"}`}
+                />
+              ))}
+            </div>
+          )}
+          <p
+            role="status"
+            aria-live="polite"
+            title={activity.label}
+            className={`flex items-center gap-2 min-w-0 text-xs ${ACTIVITY_TONE[activity.stateGroup]
+              }`}
+          >
+            <ActivityIcon group={activity.stateGroup} state={task.task.state} />
+            <span className="truncate">{activity.label}</span>
+          </p>
+        </div>
+        <span className="md:hidden text-[11px] text-slate-500 tabular-nums shrink-0">
+          {MODE_LABELS[task.task.mode]} · {progress}
+        </span>
       </div>
     </header>
   );

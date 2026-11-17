@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from "react";
+import { ArrowDown } from "lucide-react";
 import { useJarvis } from "./hooks/useJarvis.ts";
 import { useFocusShortcut } from "./hooks/useFocusShortcut.ts";
 import { TopBar } from "./components/TopBar/TopBar.tsx";
@@ -31,7 +32,9 @@ export default function App() {
   const [isEnvironmentOpen, setIsEnvironmentOpen] = useState(false);
   const [isTraceOpen, setIsTraceOpen] = useState(false);
   const [isNewTaskConfirmOpen, setIsNewTaskConfirmOpen] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   useFocusShortcut(inputRef);
 
@@ -79,6 +82,11 @@ export default function App() {
   useEffect(() => () => {
     if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
   }, []);
+
+  const currentTaskId = task?.task.id ?? null;
+  useEffect(() => {
+    setShowScrollBottom(false);
+  }, [currentTaskId]);
 
   const focusInput = () => {
     if (focusTimerRef.current) clearTimeout(focusTimerRef.current);
@@ -150,8 +158,16 @@ export default function App() {
 
       {error && <ErrorBanner message={error} onClose={clearError} />}
 
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-6 2xl:px-10 pb-6 flex flex-col">
+      <main
+        ref={mainRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+          setShowScrollBottom(distance > 240);
+        }}
+        className="relative flex-1 overflow-y-auto"
+      >
+        <div className="mx-auto w-full max-w-5xl px-6 2xl:px-10 pb-12 flex flex-col">
           {/* Cabezal fijo: instrucción, estado de la tarea y acciones de autorización */}
           <div className="sticky top-0 z-30 flex flex-col gap-2.5 pt-4 pb-3 bg-slate-950/95 backdrop-blur-md border-b border-slate-800/70">
             <PromptInput
@@ -172,17 +188,22 @@ export default function App() {
                 onOpenTrace={openTrace}
               />
             )}
-            <GuardBanner
-              waiting={waiting}
-              onApprove={approvePending}
-              onApproveAlways={() => approvePending(undefined, undefined, true)}
-              onDeny={denyPending}
-              onAnswer={provideUserAnswer}
-            />
+            {waiting && waiting.kind !== "plan" && (
+              <div className="max-h-[45vh] overflow-y-auto">
+                <GuardBanner
+                  waiting={waiting}
+                  onApprove={approvePending}
+                  onApproveAlways={() => approvePending(undefined, undefined, true)}
+                  onDeny={denyPending}
+                  onAnswer={provideUserAnswer}
+                />
+              </div>
+            )}
           </div>
 
           <ProcessFlow
             task={task}
+            recentTasks={allTasks}
             availableTaskIds={availableTaskIds}
             onSelectTask={selectHistoricalTask}
             onConfirmPlan={confirmPlan}
@@ -196,6 +217,21 @@ export default function App() {
             speechStatus={speechStatus}
           />
         </div>
+
+        {task && showScrollBottom && (
+          <div className="sticky bottom-4 z-20 flex justify-end px-6 2xl:px-10 pointer-events-none">
+            <button
+              type="button"
+              onClick={() => mainRef.current?.scrollTo({ top: mainRef.current.scrollHeight, behavior: "smooth" })}
+              title="Bajar al final"
+              aria-label="Bajar al final"
+              className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/95 hover:bg-slate-800 text-slate-200 border border-slate-700 shadow-lg text-xs cursor-pointer transition-colors"
+            >
+              <ArrowDown className="w-3.5 h-3.5 text-accent-400" />
+              <span>Bajar</span>
+            </button>
+          </div>
+        )}
       </main>
 
       {isSettingsOpen && (

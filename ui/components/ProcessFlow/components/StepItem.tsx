@@ -5,7 +5,7 @@ import { STEP_STATE_LABELS, formatVerdictReason } from "../../../utils/taskStatu
 import { getRouteLabel } from "../../../utils/routeLabels.ts";
 import { formatDuration } from "../../../utils/timeFormat.ts";
 import { CopyButton } from "../../Shared/CopyButton.tsx";
-import { JsonText, JsonView } from "../../Shared/JsonView.tsx";
+import { JsonText, JsonView, tryParseJson } from "../../Shared/JsonView.tsx";
 import { StepStatusIcon } from "../../Shared/StepStatusIcon.tsx";
 
 interface StepItemProps {
@@ -361,19 +361,38 @@ const StepItemBase: React.FC<StepItemProps> = ({
                       </div>
                     )}
 
-                    {c.summary && (
-                      <p className="text-[13px] text-slate-300 line-clamp-3">
-                        {c.summary}
-                      </p>
-                    )}
-
-                    {c.summary && (
-                      <OutputViewer
-                        text={c.summary}
-                        copyTitle="Copiar salida de herramienta"
-                        className="mt-1.5"
-                      />
-                    )}
+                    {c.summary && (() => {
+                      const isJson = /^\s*[{\[]/.test(c.summary) && tryParseJson(c.summary).ok;
+                      const isLong = c.summary.length > 220 || c.summary.split("\n").length > 3;
+                      if (!isLong && !isJson) {
+                        return (
+                          <div className="flex items-start justify-between gap-2 mt-1">
+                            <p className="text-[13px] text-slate-300 whitespace-pre-wrap break-words flex-1 min-w-0">
+                              {c.summary}
+                            </p>
+                            <CopyButton
+                              text={c.summary}
+                              title="Copiar salida de herramienta"
+                              iconSize="w-3 h-3"
+                              className="shrink-0 text-slate-500 hover:text-white p-1 rounded hover:bg-slate-800"
+                            />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="mt-1 flex flex-col gap-1">
+                          {!isJson && (
+                            <p className="text-[13px] text-slate-300 line-clamp-3">
+                              {c.summary}
+                            </p>
+                          )}
+                          <OutputViewer
+                            text={c.summary}
+                            copyTitle="Copiar salida de herramienta"
+                          />
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

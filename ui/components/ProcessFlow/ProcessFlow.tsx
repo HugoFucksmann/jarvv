@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { History, Loader2, PauseCircle, Terminal } from "lucide-react";
-import type { TaskDto, RefDto } from "../../types/api.ts";
+import { ChevronDown, ChevronRight, History, Loader2, PauseCircle, Terminal, ArrowUpRight } from "lucide-react";
+import type { TaskDto, TaskSummary, RefDto } from "../../types/api.ts";
 import { PlanReview } from "./components/PlanReview.tsx";
 import { StepTimeline } from "./components/StepTimeline.tsx";
 import { FinalResponseView } from "./components/FinalResponseView.tsx";
@@ -10,14 +10,16 @@ import { RecalledContext } from "./components/RecalledContext.tsx";
 import { RefViewerModal } from "./components/RefViewerModal.tsx";
 import { TraceViewerModal } from "./components/TraceViewerModal.tsx";
 import { Separator } from "../Shared/Separator.tsx";
+import { StatusDot } from "../Shared/StatusDot.tsx";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";
-import { formatPausedModelLabel } from "../../utils/taskStatus.ts";
+import { formatPausedModelLabel, getActivityPhrase, getTaskStatusType, MODE_LABELS } from "../../utils/taskStatus.ts";
 import { formatDuration } from "../../utils/timeFormat.ts";
 import type { SpeechStatus } from "../../hooks/useSpeech.ts";
 import type { ActionResult } from "../../types/ui.ts";
 
 interface ProcessFlowProps {
   task: TaskDto | null;
+  recentTasks?: TaskSummary[];
   availableTaskIds?: Set<string>;
   onSelectTask?: (taskId: string) => void;
   onConfirmPlan: () => ActionResult;
@@ -33,6 +35,7 @@ interface ProcessFlowProps {
 
 export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   task,
+  recentTasks = [],
   availableTaskIds,
   onSelectTask,
   onConfirmPlan,
@@ -50,6 +53,12 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   const [activeRefId, setActiveRefId] = useState<string | null>(null);
   const [activeRefMeta, setActiveRefMeta] = useState<RefDto | undefined>(undefined);
   const [pauseNowMs, setPauseNowMs] = useState<number>(() => Date.now());
+  const [stepsCollapsed, setStepsCollapsed] = useState(false);
+
+  const taskId = task?.task.id ?? null;
+  useEffect(() => {
+    setStepsCollapsed(false);
+  }, [taskId]);
 
   const activePause = task?.task.state === "running" ? task.paused ?? null : null;
   useEffect(() => {
@@ -60,21 +69,52 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
   }, [activePause]);
 
   if (!task) {
+    const latest = [...recentTasks].reverse().slice(0, 4);
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
-        <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900 border border-slate-800">
-          <Terminal className="w-5 h-5 text-accent-400" />
+      <div className="flex flex-col items-center justify-center gap-6 py-16 text-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex items-center justify-center w-11 h-11 rounded-xl bg-slate-900 border border-slate-800">
+            <Terminal className="w-5 h-5 text-accent-400" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <p className="text-base font-medium text-slate-200">Listo para recibir una instrucción</p>
+            <p className="text-sm text-slate-500 max-w-md">
+              Escribe arriba y pulsa Enter (<span className="text-slate-400">Shift+Enter</span> para nueva línea). Con{" "}
+              <kbd className="px-1.5 py-0.5 text-[11px] font-mono text-slate-300 bg-slate-900 border border-slate-800 rounded">
+                {FOCUS_SHORTCUT_LABEL}
+              </kbd>{" "}
+              enfocas el campo desde cualquier lugar.
+            </p>
+          </div>
         </div>
-        <div className="flex flex-col gap-1.5">
-          <p className="text-base font-medium text-slate-200">Todavía no hay tareas</p>
-          <p className="text-sm text-slate-500 max-w-sm">
-            Escribe una instrucción arriba y pulsa Enter. Con{" "}
-            <kbd className="px-1.5 py-0.5 text-[11px] font-mono text-slate-300 bg-slate-900 border border-slate-800 rounded">
-              {FOCUS_SHORTCUT_LABEL}
-            </kbd>{" "}
-            vuelves al campo desde cualquier lugar.
-          </p>
-        </div>
+
+        {latest.length > 0 && onSelectTask && (
+          <div className="w-full max-w-lg flex flex-col gap-2 text-left pt-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400 px-1">
+              <History className="w-3.5 h-3.5 text-accent-400" />
+              <span>Tareas recientes de la sesión</span>
+            </div>
+            <div className="flex flex-col divide-y divide-slate-800/80 rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+              {latest.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onSelectTask(t.id)}
+                  className="flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                >
+                  <StatusDot status={getTaskStatusType(t.state, Boolean(t.waiting))} />
+                  <span className="flex-1 min-w-0 truncate text-sm text-slate-200 group-hover:text-white">
+                    {t.request}
+                  </span>
+                  <span className="text-[11px] text-slate-500 shrink-0">
+                    {MODE_LABELS[t.mode]}
+                  </span>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-accent-400 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -112,10 +152,19 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
     (s) => s.state !== "pending" || task.calls.some((c) => c.stepId === s.id)
   );
   const executedCount = task.steps.filter((s) => s.state !== "pending").length;
+  const activeStepCount = task.steps.filter((s) => !s.superseded).length;
+  const isBetweenSteps =
+    !isTerminalTask &&
+    !task.waiting &&
+    !activePause &&
+    task.steps.length > 0 &&
+    !task.steps.some((s) => s.state === "running" && !s.superseded);
+  const livePhrase = isBetweenSteps ? getActivityPhrase(task).label : null;
 
   const timeline = (
     <StepTimeline
       steps={task.steps}
+      plans={task.plans}
       calls={task.calls}
       errors={task.errors}
       processFact={task.facts?.process}
@@ -191,6 +240,43 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
             </div>
           )}
         </div>
+      ) : task.steps.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <button
+              type="button"
+              onClick={() => setStepsCollapsed((v) => !v)}
+              aria-expanded={!stepsCollapsed}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+            >
+              {stepsCollapsed ? (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              )}
+              <span className="font-semibold text-slate-300">
+                Ejecución ({activeStepCount} {activeStepCount === 1 ? "paso" : "pasos"}
+                {task.calls.length > 0 ? ` · ${task.calls.length} ${task.calls.length === 1 ? "llamada" : "llamadas"}` : ""})
+              </span>
+            </button>
+            {stepsCollapsed && (
+              <button
+                type="button"
+                onClick={() => setStepsCollapsed(false)}
+                className="text-[11px] text-accent-400 hover:text-accent-300 cursor-pointer"
+              >
+                Mostrar pasos
+              </button>
+            )}
+          </div>
+          {!stepsCollapsed && timeline}
+          {livePhrase && (
+            <div role="status" aria-live="polite" className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-400 shrink-0" />
+              <span>{livePhrase}</span>
+            </div>
+          )}
+        </div>
       ) : (
         timeline
       )}
@@ -203,7 +289,14 @@ export const ProcessFlow: React.FC<ProcessFlowProps> = ({
 
       {/* Respuesta final o espera tras transición terminal */}
       {task.result ? (
-        <FinalResponseView result={task.result} onOpenTrace={handleOpenTrace} onSpeak={onSpeak} onStopSpeech={onStopSpeech} speechStatus={speechStatus} />
+        <FinalResponseView
+          result={task.result}
+          taskState={task.task.state}
+          onOpenTrace={handleOpenTrace}
+          onSpeak={onSpeak}
+          onStopSpeech={onStopSpeech}
+          speechStatus={speechStatus}
+        />
       ) : isTerminalTask ? (
         <div
           role="status"

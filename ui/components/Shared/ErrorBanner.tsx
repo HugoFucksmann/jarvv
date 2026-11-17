@@ -7,10 +7,11 @@ interface ErrorBannerProps {
 }
 
 export const ErrorBanner: React.FC<ErrorBannerProps> = ({ message, onClose }) => (
-    <div
-        role="alert"
-        className="mx-6 2xl:mx-10 mt-3 p-3 bg-rose-950/50 border border-rose-900/70 rounded-lg text-rose-200 text-[13px] flex items-start justify-between gap-3 shadow-md"
-    >
+    <div className="mx-auto w-full max-w-5xl px-6 2xl:px-10 mt-3 shrink-0">
+        <div
+            role="alert"
+            className="p-3 bg-rose-950/50 border border-rose-900/70 rounded-lg text-rose-200 text-[13px] flex items-start justify-between gap-3 shadow-md"
+        >
         <div className="flex items-start gap-2 min-w-0">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" />
             <span className="font-mono break-words min-w-0">{message}</span>
@@ -23,5 +24,6 @@ export const ErrorBanner: React.FC<ErrorBannerProps> = ({ message, onClose }) =>
         >
             <X className="w-4 h-4" />
         </button>
+        </div>
     </div>
 );
