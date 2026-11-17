@@ -4,7 +4,7 @@
  * - `clipWithin`: recorte con tope TOTAL (D23). `render/shared.clipMarked` conserva `max` caracteres y agrega el marcador
  *   encima, lo que sobrepasaría `ARGS_MAX` y el tope de un hecho (regla 7 de `apply`). Aquí el resultado nunca supera `cap`.
  * - `clipArgs`: recorte de los strings de `args` (5.2, D18): tope por defecto `BUDGET.argsStringDefault`, excepciones por
- *   parámetro del catálogo (`argCaps`), marcador `…(+N)`. Los tokens de ref completos (`{{ref:rN}}`, `ref:rN`) no se recortan.
+ *   parámetro del catálogo (`argCaps`), marcador `…(+N)`.
  * - `computeSig`: huella de los argumentos YA resueltos (anti-loop). La calcula quien ejecuta (5.4).
  * - `callLabel` / `withLineCount`: `label` de una ref (D8): herramienta, argumento principal y líneas del archivo de la ref.
  */
@@ -62,7 +62,7 @@ function clipValue(value: unknown, cap: number, depth: number): JsonValue {
 }
 
 /**
- * `args` tal como se escriben en la llamada: como los propuso el modelo (refs sin resolver), con los strings recortados.
+ * `args` tal como se escriben en la llamada: como los propuso el modelo, con los strings recortados.
  * El tope es el del parámetro de nivel superior (`argCaps` del catálogo o el valor por defecto) y lo heredan los
  * strings anidados.
  */

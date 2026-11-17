@@ -124,8 +124,6 @@ export function selectFacts(text: string, facts: readonly MemoryFact[], max: num
   return matches.slice(0, max).map((m) => m.fact);
 }
 
-/** Líneas para el bloque `MEMORY`: `clave: valor`. */
-export const factLines = (facts: readonly Recalled[]): string[] => facts.map((f) => `${f.key}: ${f.value}`);
 
 /**
  * Lector del archivo con caché por fecha de modificación: se edita a mano con Jarvis encendido y el cambio se ve en la tarea siguiente, sin releer el

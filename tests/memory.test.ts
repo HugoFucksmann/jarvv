@@ -5,8 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 
 import { collectSources, precheckCall } from "../src/core/engine/precheck.ts";
-import { createMemoryReader, factLines, MAX_FACTS_PER_PROMPT, parseFacts, selectFacts } from "../src/core/memory.ts";
-import { PROMPTS } from "../src/core/models/prompts.ts";
+import { createMemoryReader, MAX_FACTS_PER_PROMPT, parseFacts, selectFacts } from "../src/memory/index.ts";
 import { newContext } from "./fixtures.ts";
 
 const FACTS = parseFacts([
@@ -55,14 +54,6 @@ test("createMemoryReader: archivo ausente o inválido es memoria vacía; un camb
   fs.utimesSync(file, new Date(), new Date(Date.now() + 10_000));
   assert.equal(read().length, 0);
   fs.rmSync(dir, { recursive: true, force: true });
-});
-
-test("prompt de argumentos: el bloque MEMORY solo aparece con hechos", () => {
-  const tool = { name: "list_directory", description: "List", inputSchema: { type: "object", properties: { path: { type: "string" } } } };
-  const data = { tool, cleanedSchema: {}, environment: { platform: "windows", home: "C:\Users\Ana" }, view: "TASK: x" } as never;
-  assert.ok(!PROMPTS.ARGUMENTS_VIEW.buildUserPrompt(data).includes("MEMORY"));
-  const withFacts = PROMPTS.ARGUMENTS_VIEW.buildUserPrompt({ ...(data as object), memory: factLines(FACTS.slice(0, 1)) } as never);
-  assert.ok(withFacts.includes("MEMORY") && withFacts.includes("- carpeta jarvis: C:\Users\Ana\Desktop\jarvis"));
 });
 
 test("pre-chequeo: una ruta que viene de un hecho tiene origen solo si el hecho es fuente (DN-1.10)", async () => {

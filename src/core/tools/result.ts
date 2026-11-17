@@ -14,10 +14,6 @@ import { isRecord } from "../utils.ts";
 
 export const TOOL_RESULT_SCHEMA = 1;
 
-/** Estados de `data.state` que el núcleo interpreta (el resto del `data` es libre). */
-export const RESULT_STATES = ["finished", "running", "waiting_input", "cancelled", "found", "partial", "not_found", "no_results"] as const;
-export type ResultState = (typeof RESULT_STATES)[number];
-
 export interface ToolResultParts {
   readonly text: string;
   readonly raw: string;

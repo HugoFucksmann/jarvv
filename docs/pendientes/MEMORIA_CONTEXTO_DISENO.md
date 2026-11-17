@@ -1,6 +1,6 @@
 # Diseño: contexto por eventos y memoria externa (v1)
 
-> **Solo diseño. No hay nada implementado.** La implementación queda a cargo del agente. Este es el único documento de diseño de la memoria.
+> **Estado: v1 implementada** (log de eventos por tarea, restauración con `restart`, `MemoryProvider` y sección `recalled`, matching mejorado y pausa por modelo no disponible). Quedan para después, con eval: habilitar `recalled` en `pending` y `plan`, y re-medir el matching. Lo de §11 (v2) no está hecho. Este es el único documento de diseño de la memoria; el texto de abajo describe el diseño, no el estado del código.
 
 Documentos relacionados: `../arquitectura/CONTEXT_AND_MEMORY.md` (§1, §3, §4, §6, §7, §10), `../evaluacion/analisis/FRENTE_1_MEMORIA.md` (mediciones), `PENDIENTES_CODIGO.md` y `PENDIENTES_EVAL.md`.
 

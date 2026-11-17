@@ -211,7 +211,7 @@ Cada consumidor recibe una vista distinta del mismo contexto, estructurada, de s
 | Contexto (`apply`, validación, derivaciones, cierre, snapshot, vistas) | `src/core/ctx/` |
 | Log de eventos y reproducción | `src/core/taskLog.ts`, `src/core/retention.ts` |
 | Renderizado de prompts, política de `recalled` y topes | `src/core/render/`, `src/core/recalledPolicy.ts`, `src/core/budget.ts` |
-| Paquete de memoria externa y adaptador | `src/memory/index.ts`, `src/core/memory.ts` |
+| Paquete de memoria externa y adaptador | `src/memory/index.ts` |
 | Hilo y escritura de `recalled` | `src/core/engine/thread.ts`, `src/core/engine/recalled.ts`, `src/core/tasks.ts` |
 | Resultados, refs y Guard | `src/core/result/`, `src/core/refs/refVault.ts`, `src/core/policy/guard.ts` |
 | Escritura desde el motor | `src/core/engine/runTask.ts`, `src/core/engine/callRunner.ts`, `src/core/engine/args.ts` |

@@ -26,8 +26,6 @@ export function previousTaskOf(request: string, answer: string): PreviousTask {
   return { request: request.trim(), answer: text.length > THREAD_ANSWER_CHARS ? `${text.slice(0, THREAD_ANSWER_CHARS)}…` : text };
 }
 
-/** Líneas `clave: valor` para el bloque `MEMORY` de la generación de argumentos. */
-export const threadMemoryLines = (previous: PreviousTask): string[] => [`previous request: ${previous.request}`, `previous answer: ${previous.answer}`];
 
 /** Bloque de texto para los prompts de la lista de pendientes y de la respuesta final (datos ajenos: van entre `<obs>`). */
 export const threadBlock = (previous: PreviousTask): string =>

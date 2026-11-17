@@ -25,7 +25,7 @@ export const REAL_DISK: DiskView = {
   size: (p) => fs.statSync(p).size,
 };
 
-/** El valor es una ruta absoluta sin referencias `{{ref:…}}` sin resolver. */
+/** El valor es una ruta absoluta, sin marcadores `{{…}}` sin resolver. */
 function absolutePath(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const p = value.trim();

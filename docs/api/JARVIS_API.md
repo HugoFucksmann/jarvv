@@ -8,7 +8,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 
 - **Modo** (`mode`): `reactive` (por defecto; elige herramientas paso a paso) o `deliberative` (planifica, pide confirmar el plan y lo ejecuta).
 - **Estado** (`task.state`): `running` → termina en `completed`, `partial` (quedó algo logrado), `failed` o `cancelled`. Un estado terminal no cambia.
-- **Motivo** (`task.stopReason`, solo si no es `completed`): `max_steps`, `no_alternatives`, `security_denied` (histórico: el motor ya no lo emite, queda para leer trazas anteriores), `user_cancelled`, `replans_exhausted`, `unrecoverable` (falló un modelo o el catálogo de herramientas, no la tarea).
+- **Motivo** (`task.stopReason`, solo si no es `completed`): `max_steps`, `no_alternatives`, `security_denied` (histórico: el motor ya no lo emite, queda para leer trazas anteriores), `user_cancelled`, `replans_exhausted`, `unrecoverable` (falló un modelo o el catálogo de herramientas, no la tarea), `restart` (el servidor se reinició mientras la tarea corría: se cierra al arrancar, con `partial` si dejó efectos y `failed` si no, y la respuesta fija «El servidor se reinició mientras la tarea corría»; la tarea no se reanuda).
 - **Respuesta final** (`result`): `null` hasta que exista; se escribe **después** de pasar a estado terminal. `result.origin` es `model` o `fallback` (texto fijo en español, sin modelo; siempre en `cancelled`).
 
 ## Endpoints
@@ -49,8 +49,10 @@ Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-p
   "errors": [{ "id", "stepId", "at", "kind": "service_unavailable" }],
   "facts":  { "<clave>": { "value", "stepId", "at" } },
   "refs":   [{ "id", "stepId", "at", "label", "size", "where" }],
+  "recalled": [{ "id", "stepId", "at", "source": "user_memory|thread", "key", "value", "from" }],
   "result": { "text", "origin": "model|fallback" } | null,
-  "waiting": Waiting | null
+  "waiting": Waiting | null,
+  "paused": { "since", "model": "llm|decision" } | null
 }
 ```
 
@@ -64,7 +66,7 @@ Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-p
 
 ## Modo automático y lista negra (`/config`)
 
-- `autoMode` (`false` por defecto en código, `true` en el `jarvis-config.json` incluido) y `approvalTiers` (`true` por defecto): con `approvalTiers: true`, las escrituras se clasifican en verde (sin confirmación ni D3), amarillo (con `autoMode`: sin confirmación y con D3 estricto; sin `autoMode`: pide confirmación) y rojo (siempre pide confirmación); con `approvalTiers: false` y `autoMode: true`, las escrituras del catálogo pasan sin espera `approval` por D3. Guard, `blacklist` (`blocked` / `sensitive`) y las rutas sensibles (`sensitivePaths.ts`) siguen exigiendo confirmación u operando según [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md). Se lee en cada llamada.
+- `autoMode` (`false` por defecto, también en el `jarvis-config.json` incluido) y `approvalTiers` (`true` por defecto): con `approvalTiers: true`, las escrituras se clasifican en verde (sin confirmación ni D3), amarillo (con `autoMode`: sin confirmación y con D3 estricto; sin `autoMode`: pide confirmación) y rojo (siempre pide confirmación); con `approvalTiers: false` y `autoMode: true`, las escrituras del catálogo pasan sin espera `approval` por D3. Guard, `blacklist` (`blocked` / `sensitive`) y las rutas sensibles (`sensitivePaths.ts`) siguen exigiendo confirmación u operando según [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md). Se lee en cada llamada.
 - Voz (`/config`): `voiceEnabled` (la interfaz lee en voz alta la respuesta final; habilita `POST /tts`), `telegramVoice` (Telegram suma una nota de voz; necesita `ffmpeg`), `voiceUrl` (solo http o https; `http://127.0.0.1:8880`) y `voiceName` (`default`). Ver [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md).
 - `webSearchUseJudge` (`true` por defecto): `web_search` puntúa extractos y fragmentos con el modelo de decisión (2B). Apagado, solo ordena con BM25 y nunca afirma `found`.
 - `blacklist`: entradas **propias** que se suman a las reglas de comando integradas: `[{ "tool": "run_command" | "servidor:herramienta", "pattern"?: "regex", "reason": "texto para el modelo", "level"?: "blocked" | "sensitive" }]` (sin `level`, `blocked`). `POST` reemplaza la lista completa.
@@ -84,6 +86,10 @@ La tarea queda detenida hasta que el usuario responde; solo hay una espera a la 
 - `args` de `approval` son los registrados (recortados).
 - Cancelar resuelve cualquier espera y la tarea cierra con `cancelled` / `user_cancelled`.
 
+## Pausa por modelo no disponible (`paused`)
+
+Si el LLM o el modelo de decisión no responden (red, timeout o error HTTP), la tarea **no se cierra de inmediato**: queda pausada y repite la misma consulta con esperas crecientes (2 s a 30 s) hasta `modelUnavailablePauseMaxMs` (10 minutos por defecto). `paused` es `{ since, model }` mientras espera (`since` en ms; `model` es `llm` o `decision`) y `null` si no. No es una espera del usuario: la única acción posible es `POST /cancel`. Si el modelo vuelve, la tarea sigue donde estaba. Si se agota el tiempo, o la causa no se arregla esperando (URL del modelo sin configurar, el prompt no cabe en su contexto), la tarea cierra `unrecoverable`. Una respuesta inválida del modelo se trata aparte: D0, la continuación y D5 siguen sin su aporte y las demás consultas reintentan una vez.
+
 ## Eventos (SSE `GET /events`)
 
 Un mensaje `data: <json>` por evento, más un comentario `: ping` cada 15 s.
@@ -92,6 +98,7 @@ Un mensaje `data: <json>` por evento, más un comentario `: ping` cada 15 s.
 { "type": "created", "taskId", "n" }
 { "type": "change",  "taskId", "n", "at", "ops": [{ "op": "add|update|set|finish", "target", "value" }] }
 { "type": "waiting", "taskId", "waiting": Waiting | null }
+{ "type": "paused",  "taskId", "paused": { "since", "model": "llm|decision" } | null }
 ```
 
 - `change`: un evento por cada escritura en el contexto, con `n` consecutivo. `ops` ya trae los elementos creados (con `id` y `at`): `add` (`target` = sección), `update` (`target` = id del paso o la llamada, `value` = campos cambiados), `set` (`target` = `facts.<clave>` o `result`) y `finish` (`value` = `{ state, stopReason }`).

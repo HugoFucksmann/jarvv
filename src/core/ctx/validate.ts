@@ -218,7 +218,8 @@ export function checkRefInput(raw: unknown, env: CheckEnv): RefInput {
 
 const DEFAULT_RECALLED_KEY_MAX = 80;
 const DEFAULT_RECALLED_VALUE_MAX = 300;
-const DEFAULT_THREAD_VALUE_MAX = 4000;
+/** Mismo valor que `BUDGET.threadValueMax`: el contexto no importa `budget`, así que quien no pasa el tope usa este. */
+const DEFAULT_THREAD_VALUE_MAX = 8000;
 
 export function checkRecalledInput(raw: unknown, env: CheckEnv): RecalledInput {
   const o = ensureObject(raw, "recalled");

@@ -55,9 +55,6 @@ const arguments_strict_context: Variant = {
             env,
             `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
             `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
-            data.memory && data.memory.length > 0
-              ? `MEMORY (verbatim user facts):\n${data.memory.map((m) => `- ${safe(m)}`).join("\n")}`
-              : null,
             data.view,
           ]);
         },

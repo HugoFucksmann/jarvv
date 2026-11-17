@@ -188,7 +188,6 @@ function matchesType(v: unknown, t: string): boolean {
 /**
  * Valida los argumentos contra el inputSchema real de la tool (solo nivel superior):
  * requeridos presentes y no nulos, tipo y enum de cada propiedad declarada.
- * Un token de referencia ({{ref:rX}}) se acepta en cualquier propiedad: se sustituye después.
  * No valida anidados ni resuelve $ref/$defs.
  */
 export function validateArgs(args: Record<string, unknown>, schema: MCPTool["inputSchema"]): string | null {

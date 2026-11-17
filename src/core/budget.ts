@@ -6,15 +6,6 @@
  * origina y qué fase la consume. Las fases siguientes agregan sus valores a esta misma tabla.
  */
 
-export interface BudgetMeta {
-  /** true si el diseño la marca como provisoria o tentativa. */
-  readonly provisional: boolean;
-  /** Sección del diseño (o "supuesto de implementación") de donde sale el valor. */
-  readonly source: string;
-  /** Dónde se aplica. */
-  readonly usedBy: string;
-}
-
 export const BUDGET = {
   // ── Topes que `apply` valida (se pasan a `create.context`) ──
   /** Tope de largo de `summary` (9). */
@@ -163,5 +154,3 @@ export const BUDGET = {
     textTailChars: 750,
   },
 } as const;
-
-export type BudgetKey = keyof typeof BUDGET;

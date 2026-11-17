@@ -28,14 +28,13 @@ Todo lo que se cierra **programando** o con una **decisión de producto o de seg
 
 ## 2. Memoria del usuario
 
-Estado: `data/memory.json` se edita **a mano** (formato `[{ "key", "value" }]` o `{ "facts": [...] }`; topes: 200 entradas, clave ≤ 80 caracteres, valor ≤ 300). Se relee solo si cambia su fecha de modificación. Los hechos solo llegan a la vista de argumentos y al pre-chequeo. La memoria de hilo (`engine/thread.ts`, RAM, 10 minutos) es aparte y no se toca aquí.
+Estado (v1 implementada según [`MEMORIA_CONTEXTO_DISENO.md`](MEMORIA_CONTEXTO_DISENO.md)): `data/memory.json` se edita **a mano** (formato `[{ "key", "value", "aliases"? }]` o `{ "facts": [...] }`; topes: 200 entradas, clave ≤ 80 caracteres, valor ≤ 300) y vive en el paquete independiente `src/memory/` (`MemoryProvider.recall`, con alias, plurales regulares y prioridad por cantidad de stems). Los hechos y el hilo de la tarea anterior entran al contexto por `apply` en la sección `recalled` (con el log de eventos de cada tarea en `data/tasks/`) y se muestran solo en las vistas de argumentos y de respuesta final; también son fuente del pre-chequeo.
 
 **Límites conocidos:**
 1. Sin API, pantalla ni comando de Telegram para crear, ver o borrar hechos; sin captura por conversación («recordá que…»).
-2. `selectFacts` exige que **todos** los stems de la clave aparezcan en el pedido (prefijo de 5 letras): sinónimos y plurales irregulares no coinciden; tope de 3 hechos.
-3. Claves que comparten palabras compiten por los 3 cupos, sin prioridad por especificidad.
-4. Los hechos no llegan a `pending`, `plan`, D3 ni `final`.
-5. Nada se aprende solo (a propósito: solo entra lo que escribió el usuario).
+2. El matching sigue siendo léxico: sinónimos y plurales irregulares no coinciden (los alias son los que escribe el usuario). **El matching nuevo (alias, plurales, prioridad) no está re-medido en `eval/`** (criterio: no empeorar 14/14 de selección ni la contaminación de pedidos ajenos, hoy 0/8).
+3. Los hechos no llegan a `pending`, `plan` ni D3 (decisión: habilitarlos de a una vista, con eval).
+4. Nada se aprende solo (a propósito: solo entra lo que escribió el usuario).
 
 **Criterios de diseño:** preferir diseños sin modelos extra (el presupuesto de 8 GB de VRAM ya lo ocupan `d3` y el generativo); cero tokens sin coincidencia; nunca texto generado por un modelo guardado como hecho sin confirmación explícita; compatible con los invariantes de [`CONTEXT_AND_MEMORY.md`](../arquitectura/CONTEXT_AND_MEMORY.md) §7 (la memoria entra por el motor, no por `apply`).
 
@@ -43,7 +42,6 @@ Estado: `data/memory.json` se edita **a mano** (formato `[{ "key", "value" }]` o
 
 | Opción | Qué es | Pros | Contras |
 |---|---|---|---|
-| C. Mejor matching sin modelos | Alias por hecho, prioridad por cantidad de stems, *stemming* mínimo de plurales | 0 ms, determinista | Depende de los alias que escriba el usuario; riesgo de contaminar pedidos ajenos (**re-medir en `eval/`**) |
 | A. CRUD sobre el mismo archivo | `GET/PUT/DELETE /memory`, pantalla en la UI y comando de Telegram; el JSON sigue siendo la fuente | 0 ms; reversible; hace usable la memoria existente | Escritura concurrente con la edición manual; superficie nueva en una API sin autenticación (cualquier proceso local escribiría hechos que se usan como fuente del pre-chequeo) |
 | D. Inyección en `pending` y `plan` | Pasar los hechos elegidos también a esas etapas | La ruta correcta se usa desde el primer paso | Más tokens en prompts de 2B, con regresiones previas en `pending` (**medir**) |
 | B. Captura conversacional | Regla léxica que detecta «recordá que X es Y» y guarda tras confirmación | Natural para el usuario | Frágil con frases libres; con modelo añade una llamada y riesgo de inventar; define un tipo de pedido nuevo |

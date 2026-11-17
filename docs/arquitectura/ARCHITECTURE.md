@@ -43,7 +43,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 - **Arranque de los servidores MCP**: `server.ts` los inicia en paralelo apenas escucha (`DiscoveryEngine.discoverAll`), porque tardan en estar listos (Desktop Commander ~0,7 s lanzado con `node` directo desde `node_modules`; Free Search ~1,8-2,5 s con `uvx`); si esperaran a la primera petición, la pagaría la primera carga de la interfaz o la primera tarea. Un servidor que falla queda como no disponible hasta un refresco.
 - **Cierre ordenado**: el apagado del servidor cancela las tareas y espera un momento (`TaskManager.drain`) a que cierren sus procesos en segundo plano y escriban su traza, antes de apagar los servidores MCP; la traza se escribe de forma asíncrona, fuera del flujo de la tarea.
 - **Topes en un solo lugar**: `engine/limits.ts` define qué cuenta cada tope (ejecuciones, intentos, bloqueos, rechazos), a qué alcance (tarea, ítem, paso) y qué pasa al llegar; `runStep` consulta un único punto de control y `GET /limits` sale de la misma tabla. El anti-bucle (`ctx/derive.ts`) aplica la política de repetición de cada herramienta.
-- **Retención**: `retention.ts` borra por antigüedad (`retentionDays`) y por tamaño total en disco (`retentionMaxMb`, las más viejas primero) las carpetas de refs y de trazas que Jarvis creó (por nombre), nunca las de otras cosas, y protege las refs de las tareas retenidas en memoria.
+- **Retención**: `retention.ts` borra por antigüedad (`retentionDays` para refs y trazas, `logRetentionDays` para el log de eventos) y por tamaño total en disco compartido (`retentionMaxMb`, las más viejas primero) las carpetas de refs y de trazas y los logs de tareas que Jarvis creó (por nombre), nunca las de otras cosas. Protege las refs y el log de las tareas retenidas en memoria, y nunca borra el log de una tarea sin cerrar.
 - **Contratos**: `contracts.ts` define las interfaces que implementan los modelos (`models/qwen.ts`, `models/decision.ts`), por eso estos importan de él los tipos y las listas cerradas (`ARGS_REVIEWS`, `VERIFY_CHECKS`); no importan lógica del motor. No hay ciclos de imports: el receptor de la captura vive en `trace/sink.ts` (aparte de los envoltorios de `capture.ts`) y los registros de la traza en `trace/types.ts`.
 - **Vías externas**: `src/telegram/` y `src/voice/` dependen del núcleo solo por tipos y de la API HTTP en tiempo de ejecución; el núcleo, las herramientas y el resto no las importan (`tests/architecture.test.ts`). El token del bot vive en `.env` y los comandos de `run_command` no lo heredan.
 - **Prohibido**: que modelos, Guard, el catálogo o el procesador de resultados dependan del host, de la fachada o del motor. El backend tampoco depende de la interfaz ni del laboratorio de evaluación.
@@ -102,7 +102,7 @@ Además, `/api/mcp` expone el descubrimiento y la invocación directa de los ser
 - `src/core/models/prompts.ts`
 - `src/core/render/`
 - `src/core/policy/guard.ts`, `src/core/policy/tiers.ts`, `src/core/policy/egress.ts`, `src/core/policy/rerun.ts`, `src/core/policy/readOnly.ts`, `src/core/policy/sensitivePaths.ts`
-- `src/core/retention.ts`, `src/core/engine/limits.ts`, `src/core/memory.ts`, `src/server/localOnly.ts`
+- `src/core/retention.ts`, `src/core/engine/limits.ts`, `src/memory/index.ts`, `src/server/localOnly.ts`
 - `src/core/tools/manifest.ts`, `src/core/tools/probes.ts`
 - `src/core/result/processResult.ts`
 - `src/core/refs/refVault.ts`

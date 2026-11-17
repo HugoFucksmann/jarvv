@@ -9,7 +9,7 @@
 
 import type { UserEnvironment } from "./environment.ts";
 import type { FirstQueryKind } from "./engine/firstQuery.ts";
-import type { MemoryFact, MemoryProvider } from "./memory.ts";
+import type { MemoryProvider } from "../memory/index.ts";
 import type { IMCPServer } from "./mcp/types.ts";
 import type { TaskEndOutcome } from "./tools/provider.ts";
 import type { Blacklist } from "./policy/blacklist.ts";
@@ -234,8 +234,6 @@ export interface ArgsFromViewInput {
   readonly view: string;
   /** Intentos previos de esta herramienta en este paso que no se aprobaron; sube la temperatura (`argsTemperature`). Por defecto 0. */
   readonly priorAttempts?: number;
-  /** Hechos del usuario que coinciden con el pedido (`memory.ts`), como líneas `clave: valor`; vacío u omitido = sin bloque. */
-  readonly memory?: readonly string[];
 }
 
 export interface QuestionInput {
@@ -349,9 +347,7 @@ export interface EngineDeps {
     readonly detectedPaths?: readonly string[];
     readonly unresolvablePaths?: readonly string[];
   } | null>;
-  /** Hechos guardados por el usuario (`data/memory.json`); omitido = sin memoria. */
-  readonly memory?: () => readonly MemoryFact[];
-  /** Proveedor de memoria externa (`src/memory`); omitido = adapta `memory` si existe, o sin memoria. */
+  /** Proveedor de memoria externa (`src/memory`, hechos de `data/memory.json`); omitido = sin memoria. */
   readonly memoryProvider?: MemoryProvider;
   /** La tarea anterior vigente (menos de `THREAD_TTL_MS`) cuando esta tarea empezó; `null` u omitida = sin hilo. */
   readonly previousTask?: PreviousTask | null;

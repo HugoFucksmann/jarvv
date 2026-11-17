@@ -6,7 +6,6 @@
 
 import { getApiUrl } from "../utils/apiUrl.ts";
 import type {
-  BlacklistEntry,
   ConfigPatch,
   DiscoveryResponse,
   EngineLimits,

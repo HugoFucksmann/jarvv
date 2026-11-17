@@ -22,7 +22,8 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | **Modelo de decisión** | `decisionUrl`, `decisionModel`, `decisionMaxContext`, `decisionTimeoutMs` | `http://127.0.0.1:11434`, `decisionMaxContext: 16384`, timeout `30000` ms (override por modelo: `modelTimeoutsMs`, ver §4) |
 | **Ciclo de vida Ollama** | `modelKeepAlive` | `"30m"` (`-1` = permanente, `0` = descargar tras cada consulta) |
 | **Servidores MCP** | `desktopCommanderMcp`, `freeSearchMcp`, `mcpTimeoutMs` | Binario, argumentos, `env`, `cwd`, `allowedDirectories: []` (`desktop_commander`) y timeout MCP (`60000` ms; override por herramienta: `toolTimeoutsMs`, ver §4) |
-| **Trazas y refs** | `traceEnabled`, `tracePath`, `refsDir`, `retentionDays`, `retentionMaxMb` | `true`, `"jarvis-traces.jsonl"` (ubica carpeta `jarvis-traces/`), `"data/refs"`, `30` días (`0` desactiva borrado por antigüedad), `500` MB (tope de tamaño en disco entre refs y trazas; `0` lo desactiva) |
+| **Trazas, refs y logs** | `traceEnabled`, `tracePath`, `refsDir`, `retentionDays`, `logRetentionDays`, `retentionMaxMb` | `true`, `"jarvis-traces.jsonl"` (ubica carpeta `jarvis-traces/`), `"data/refs"`, `10` días para refs y trazas, `30` días para el log de eventos de cada tarea (`data/tasks/`, junto a `refsDir`), `250` MB (tope de tamaño en disco compartido entre refs, trazas y logs; `0` lo desactiva) |
+| **Pausa por modelo caído** | `modelUnavailablePauseMaxMs` | `600000` (10 min): una tarea espera ese tiempo a que vuelva un modelo que no responde antes de cerrarse; `0` = no espera |
 | **Experimentales** (apagados) | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | ver `PENDIENTES_EVAL.md` §1 y §3 |
 | **Políticas y web** | `blacklist`, `autoMode`, `approvalTiers`, `webSearchUseJudge` | `[]`, ver §1 arriba y detalle de reglas en [`../api/JARVIS_API.md`](../api/JARVIS_API.md) y [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md) |
 | **Voz (TTS)** | `voiceEnabled`, `telegramVoice`, `voiceUrl`, `voiceName` | `false`, `false`, `"http://127.0.0.1:8880"`, `"default"` (detalle en [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)) |
@@ -39,7 +40,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_MODE`: configuración del bot ([`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)).
   - `HF_TOKEN`: token de Hugging Face para `scripts/phonon_server.py`.
   - Los comandos de `run_command` no heredan las variables cargadas desde `.env` ni los secretos de Telegram/voz.
-- **`data/memory.json`** (opcional, fuera de git): pares manuales `[{ "key": "...", "value": "..." }]` leídos por `src/core/memory.ts` (formato y reglas en [`../arquitectura/CONTEXT_AND_MEMORY.md`](../arquitectura/CONTEXT_AND_MEMORY.md) §10).
+- **`data/memory.json`** (opcional, fuera de git): pares manuales `[{ "key": "...", "value": "..." }]` leídos por `src/memory/index.ts` (formato y reglas en [`../arquitectura/CONTEXT_AND_MEMORY.md`](../arquitectura/CONTEXT_AND_MEMORY.md) §10).
 
 ## 4. Tiempos de espera (inventario)
 

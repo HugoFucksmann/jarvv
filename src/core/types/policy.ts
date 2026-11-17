@@ -2,7 +2,7 @@
  * Capacidades de herramientas.
  * DOWNLOAD y CONFIGURATION: reservadas; ninguna herramienta del manifest las usa hoy (Guard y
  * NEEDS_APPROVAL ya las contemplan). COMMAND_EXECUTION solo la usa UNKNOWN_TOOL_POLICY (herramientas
- * no catalogadas); start_process es PROCESS_CONTROL.
+ * no catalogadas); run_command y stop_process son PROCESS_CONTROL.
  */
 export type Capability =
   | "READ"

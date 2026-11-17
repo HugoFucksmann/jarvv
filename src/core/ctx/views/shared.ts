@@ -15,9 +15,8 @@ import {
   recentWindowSize,
   userInputOf,
 } from "../derive.ts";
-import { parseId } from "../ids.ts";
 import { currentOf } from "../query.ts";
-import type { Call, ContextData, RecalledSource, Ref, Step } from "../types.ts";
+import type { Call, ContextData, RecalledSource, Step } from "../types.ts";
 import { ARGS_SHOWN_STATUSES, REASON_NOTES, STATE_NOTES, STOP_REASON_NOTES, statusNoteOf } from "./messages.ts";
 import type {
   CallView,

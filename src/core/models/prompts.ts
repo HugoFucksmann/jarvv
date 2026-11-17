@@ -142,8 +142,6 @@ ${DATA_NOTICE_EN}`,
         linesBlock("ENV", Object.entries(data.environment).filter(([k]) => k !== "platform").map(([k, v]) => `${k}=${v}`), MAX_ENV_CHARS),
         `TOOL: ${safe(data.tool.name)}${desc ? `: ${safe(desc)}` : ""}`,
         `SCHEMA: ${JSON.stringify(data.cleanedSchema)}`,
-        // Frente 1: hechos que el usuario guardó y que coinciden con el pedido (0/6 → 6/6 en el laboratorio). Sin coincidencia no hay bloque.
-        data.memory && data.memory.length > 0 ? `MEMORY (saved by the user earlier; use these values when the task refers to them):\n${data.memory.map((m) => `- ${safe(m)}`).join("\n")}` : null,
         data.view,
       ]);
     },

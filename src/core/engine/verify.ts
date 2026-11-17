@@ -12,7 +12,7 @@
  * - El veredicto y la razón se escriben juntos en un único `apply` (regla 4).
  */
 
-import type { Call, CallVerdict, VerdictReason } from "../ctx/index.ts";
+import type { CallVerdict, VerdictReason } from "../ctx/index.ts";
 import { VERIFIABLE_CALL_STATUSES } from "../ctx/index.ts";
 import { verifyInput } from "./adapters.ts";
 import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";

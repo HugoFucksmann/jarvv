@@ -88,7 +88,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
     abandoned > 0 || closure !== "completed" ? stop("no_alternatives") : COMPLETED;
 
   // D0: una consulta de decisión sobre la solicitud antes de `pending`. Charla: sin llamadas, la tarea cierra completada y la respuesta final contesta (hoy cuesta
-  // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o D0 no disponible: el flujo de siempre.
+  // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o una respuesta de D0 que no sirve (inválida o desborde): el flujo de siempre. Con el modelo de decisión no disponible rige la pausa (`queryModel`) y, agotada, la tarea cierra.
   // Hilo: si el pedido continúa la tarea anterior («guardalo en un md»), esa tarea entra a `pending`, a los argumentos y a la respuesta final. Con hilo, una acción no toma
   // el atajo (la solicitud literal dice «eso»): `pending` la reescribe con la tarea anterior a la vista. Una charla sí cierra directo: la respuesta final ve el hilo.
   const continuation = await detectContinuation(env);

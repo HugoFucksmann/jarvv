@@ -67,14 +67,6 @@ const matchesTool = (entry: CompiledEntry, mcp: string, tool: string): boolean =
 
 const normalizeArgs = (args: Record<string, unknown>): string => JSON.stringify(args).toLowerCase().replace(/\\\\/g, "/").replace(/\s+/g, " ");
 
-/** Razón del rechazo si la llamada a una herramienta que modifica el sistema está en la lista negra; `null` si pasa. */
-export function blacklistReason(list: Blacklist, mcp: string, tool: string, mutates: boolean, args: Record<string, unknown>): string | null {
-  if (!mutates) return null;
-  const text = normalizeArgs(args);
-  const hit = list.find((e) => matchesTool(e, mcp, tool) && (e.pattern === null || e.pattern.test(text)));
-  return hit?.reason ?? null;
-}
-
 /** ¿La herramienta está vetada entera (entrada sin patrón, de nivel `blocked`) y modifica el sistema? Entonces no se ofrece a la decisión de herramienta. */
 export function isBlacklistedTool(list: Blacklist, mcp: string, tool: string, mutates: boolean): boolean {
   return mutates && list.some((e) => e.pattern === null && e.level === "blocked" && matchesTool(e, mcp, tool));

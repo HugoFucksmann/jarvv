@@ -10,7 +10,7 @@ import path from "node:path";
 
 import type { ConfigSource } from "../config.ts";
 import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
-import { createJsonMemoryProvider, createMemoryReader, type MemoryFact, type MemoryProvider } from "../memory.ts";
+import { createJsonMemoryProvider, type MemoryProvider } from "../../memory/index.ts";
 import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
 import type { ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
@@ -37,9 +37,7 @@ export interface EngineServices {
   readonly toolBaseDir?: () => string;
   /** Directorios permitidos leídos en vivo desde la configuración en cada llamada. */
   readonly allowedDirectories?: () => readonly string[];
-  /** Hechos del usuario de `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
-  readonly memory?: () => readonly MemoryFact[];
-  /** Proveedor desacoplado de memoria de hechos (`src/memory`). */
+  /** Proveedor desacoplado de memoria de hechos (`src/memory`): `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
   readonly memoryProvider?: MemoryProvider;
   /** Tope de pausa (ms) ante modelo no disponible, leído en vivo de la configuración. */
   readonly modelUnavailablePauseMaxMs?: () => number;
@@ -76,7 +74,6 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
     toolBaseDir: () => getConfig().desktopCommanderMcp.cwd ?? process.cwd(),
     allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
-    memory: createMemoryReader(memoryFile),
     memoryProvider: createJsonMemoryProvider(memoryFile),
     modelUnavailablePauseMaxMs: () => getConfig().modelUnavailablePauseMaxMs,
   };
