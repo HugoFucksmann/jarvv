@@ -12,6 +12,7 @@ import { canFinish as canFinishOf, hasApprovedCall as hasApprovedCallOf } from "
 import {
   effectsOf,
   escalationCount,
+  consecutiveFailedSteps,
   questionsAsked as questionsAskedOf,
   nextAnswerKey as nextAnswerKeyOf,
   isRepeat as isRepeatOf,
@@ -251,6 +252,11 @@ export class TaskContext {
   /** Escalaciones: pasos `failed`, incluidos los reemplazados. */
   escalations(): number {
     return escalationCount(this.data.steps);
+  }
+
+  /** Pasos fallidos seguidos, desde el último paso completado (se reinicia con el progreso). */
+  consecutiveFailures(): number {
+    return consecutiveFailedSteps(this.data.steps);
   }
 
   /** Tamaño de las ventanas recientes según las escalaciones (9). */

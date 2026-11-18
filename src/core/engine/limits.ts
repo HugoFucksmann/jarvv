@@ -6,8 +6,7 @@
  * Aquí quedan juntas, y `runStep` consulta UN punto de control (`checkStepLimits`).
  *
  * Alcances:
- * - `task`: se cuenta en toda la tarea (pasos, escalaciones, replans).
- * - `item`: por ítem de la lista de pendientes del reactivo (lo lleva `runReactive`: el ítem no vive en el contexto).
+ * - `task`: se cuenta en toda la tarea (pasos, replans) o en una racha de ella (pasos fallidos seguidos).
  * - `step`: se cuenta entre las llamadas del paso y arranca de cero en cada paso nuevo.
  *
  * Qué es una llamada, a efectos de los topes (todo se deriva de `calls`; no hay contadores aparte):
@@ -24,19 +23,20 @@ import type { StepFailureCause } from "./outcomes.ts";
 
 // ───────────────────────── Catálogo de topes ─────────────────────────
 
-export type LimitScope = "task" | "item" | "step";
+export type LimitScope = "task" | "step";
 
 /** Los topes de `BUDGET` que gobiernan el motor, con su alcance. El orden es el de `GET /limits`. */
 export const LIMIT_SCOPES = {
   maxSteps: "task",
   maxReplans: "task",
   maxEscalations: "task",
-  maxItemFailures: "item",
   maxCallsPerStep: "step",
   maxAttemptsPerStep: "step",
   maxRepeatsPerStep: "step",
   maxReviewRejectionsPerStep: "step",
   maxVerifyRejectionsPerStep: "step",
+  maxToolErrorsPerStep: "step",
+  maxSameToolErrorsPerStep: "step",
   maxUserRejectionsPerStep: "step",
   maxDeniedPerStep: "step",
   maxQuestionsPerStep: "step",
@@ -58,16 +58,29 @@ export function limitValues(): Record<LimitId, number> {
 /** Pasos de la tarea (los `failed` cuentan): al llegar, la tarea cierra `max_steps`. */
 export const stepsExhausted = (ctx: TaskContext): boolean => ctx.find("steps", {}).length >= BUDGET.maxSteps;
 
-/** Escalaciones (pasos `failed`) por ENCIMA del tope (red de seguridad global): el reactivo cierra `no_alternatives`. */
-export const escalationsExceeded = (ctx: TaskContext): boolean => ctx.escalations() > BUDGET.maxEscalations;
+/**
+ * Pasos `failed` SEGUIDOS (sin un paso completado en el medio) por ENCIMA del tope: el reactivo cierra `no_alternatives`. Cuenta la racha y no el total de la tarea: un paso que
+ * termina bien la reinicia, así una tarea larga que se recupera de fallos sueltos no se cierra por acumularlos.
+ */
+export const escalationsExceeded = (ctx: TaskContext): boolean => ctx.consecutiveFailures() > BUDGET.maxEscalations;
 
 /** Replans hechos al tope: el deliberativo cierra `replans_exhausted`. */
 export const replansExhausted = (ctx: TaskContext): boolean => ctx.replansDone() >= BUDGET.maxReplans;
 
-/** Pasos fallidos seguidos sobre un mismo ítem al tope: el reactivo cierra `no_alternatives` (un ítem nunca se abandona). */
-export const itemFailuresReached = (failures: number): boolean => failures >= BUDGET.maxItemFailures;
-
 // ───────────────────────── Topes del paso ─────────────────────────
+
+/**
+ * La «firma» de un error de herramienta: su texto sin lo que cambia entre dos corridas del mismo error (el `pid` y la duración de una llamada de `run_command`), en
+ * minúsculas y con los espacios colapsados. Dos errores con la misma firma son el mismo error.
+ */
+export function toolErrorSignature(summary: string | null): string {
+  return (summary ?? "")
+    .toLowerCase()
+    .replace(/\bpid: ?\d+/g, "")
+    .replace(/\bduration: ?[\d.]+ ?m?s\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /** Lo que se cuenta de las llamadas de un paso. */
 export interface StepCounters {
@@ -83,8 +96,12 @@ export interface StepCounters {
   readonly userRejected: number;
   /** `tool_rejected` (Guard o lista negra) y `denied` (servidor). */
   readonly denied: number;
-  /** Llamadas con veredicto `rejected` de la verificación (incluye `tool_error` y `exception`, que se rechazan sin modelo). */
+  /** Llamadas con veredicto `rejected` de la verificación: el resultado no sirve (`no_data`, `not_accomplished`, las sondas). No incluye los errores de la herramienta. */
   readonly rejected: number;
+  /** Errores de la herramienta: `tool_error` y `exception`. Se rechazan sin consultar al modelo, pero cuentan aparte de los rechazos de la verificación. */
+  readonly toolFailed: number;
+  /** Cuántos errores de la herramienta SEGUIDOS (entre los errores del paso, en orden) tienen la misma firma que el último: 1 si el último error es distinto del anterior. */
+  readonly sameToolError: number;
 }
 
 /** Los contadores del paso, en una sola pasada por sus llamadas. */
@@ -96,6 +113,9 @@ export function countStep(calls: readonly Call[]): StepCounters {
   let userRejected = 0;
   let denied = 0;
   let rejected = 0;
+  let toolFailed = 0;
+  let sameToolError = 0;
+  let lastSignature: string | null = null;
   for (const c of calls) {
     if (isExecuted(c)) executions++;
     if (c.status === "user_rejected") userRejected++;
@@ -103,9 +123,14 @@ export function countStep(calls: readonly Call[]): StepCounters {
     if (c.status === "loop_blocked") blocked++;
     else if (c.status === "args_invalid") argsInvalid++;
     else if (c.status === "tool_rejected" || c.status === "denied") denied++;
-    if (c.verdict === "rejected") rejected++;
+    if (c.status === "tool_error" || c.status === "exception") {
+      toolFailed++;
+      const signature = toolErrorSignature(c.summary);
+      sameToolError = signature === lastSignature ? sameToolError + 1 : 1;
+      lastSignature = signature;
+    } else if (c.verdict === "rejected") rejected++;
   }
-  return { executions, attempts, blocked, argsInvalid, userRejected, denied, rejected };
+  return { executions, attempts, blocked, argsInvalid, userRejected, denied, rejected, toolFailed, sameToolError };
 }
 
 /** Una regla del paso: cuando `counter` llega a `BUDGET[limit]`, el paso falla con `cause`. */
@@ -124,6 +149,8 @@ const STEP_RULES: readonly StepRule[] = [
   { limit: "maxDeniedPerStep", counter: "denied", cause: "denied", askFirst: false },
   { limit: "maxReviewRejectionsPerStep", counter: "argsInvalid", cause: "review_rejected", askFirst: false },
   { limit: "maxVerifyRejectionsPerStep", counter: "rejected", cause: "verify_rejected", askFirst: false },
+  { limit: "maxToolErrorsPerStep", counter: "toolFailed", cause: "tool_failed", askFirst: false },
+  { limit: "maxSameToolErrorsPerStep", counter: "sameToolError", cause: "tool_failed", askFirst: false },
   { limit: "maxCallsPerStep", counter: "executions", cause: "call_cap", askFirst: true },
   { limit: "maxAttemptsPerStep", counter: "attempts", cause: "call_cap", askFirst: true },
 ];

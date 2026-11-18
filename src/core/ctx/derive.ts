@@ -204,6 +204,20 @@ export function escalationCount(steps: readonly Step[]): number {
 }
 
 /**
+ * Pasos `failed` seguidos (5.4): los que van al final de la lista de pasos, sin ningún paso `completed` en el medio. Un paso que termina bien reinicia la cuenta: el
+ * progreso no se paga con los fallos de antes. A diferencia de `escalationCount`, que cuenta todos los fallidos de la tarea.
+ */
+export function consecutiveFailedSteps(steps: readonly Step[]): number {
+  let count = 0;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const state = steps[i].state;
+    if (state === "completed") break;
+    if (state === "failed") count++;
+  }
+  return count;
+}
+
+/**
  * Tamaño de las ventanas recientes (9): con 0, 1 y 2 o más escalaciones (`min(escalaciones, 2)`, en ambos modos)
  * las vistas muestran los últimos `windows[0]`, `windows[1]` y `windows[2]` elementos de cada lista. `windows` lo
  * pasa quien usa el contexto (`BUDGET.recentWindows`).

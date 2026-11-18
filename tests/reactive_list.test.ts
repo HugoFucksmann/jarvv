@@ -5,7 +5,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BUDGET } from "../src/core/budget.ts";
 import { MAX_REOPENS, ReactiveList } from "../src/core/engine/reactiveList.ts";
 
 test("empieza vacía y pidiendo al modelo; `seed` la llena sin consultarlo", () => {
@@ -31,35 +30,37 @@ test("un paso que termina bien quita su ítem; al vaciarse hay que confirmar con
   assert.equal(list.needsModel, true);
 });
 
-test("un fallo con otros ítems detrás: el primero reescribe; al `maxItemFailures`-ésimo seguido cierra (`exhausted`) y nunca abandona al resto", () => {
+test("tras un fallo se consulta al modelo; una reescritura DISTINTA es un intento nuevo y no hereda ningún conteo: el ítem puede fallar y reescribirse varias veces", () => {
   const list = new ReactiveList();
-  list.applyModelList(["Leer un archivo imposible", "Guardar lo obtenido"], false);
+  list.applyModelList(["Buscar el precio del producto X en la web", "Guardar el resultado"], false);
   list.modelAnswered();
-  for (let i = 1; i < BUDGET.maxItemFailures; i++) {
-    assert.equal(list.failHead(), "rewrite");
+  for (let i = 0; i < 5; i++) {
+    list.failHead();
     assert.equal(list.needsModel, true, "tras un fallo se consulta al modelo para reescribir el ítem");
+    assert.equal(list.applyModelList([`Consultar el catálogo número ${i} para el producto X`, "Guardar el resultado"], false), "accepted", `reescritura ${i + 1}`);
     list.modelAnswered();
   }
-  assert.equal(list.failHead(), "exhausted");
-  assert.deepEqual(list.pending, ["Leer un archivo imposible", "Guardar lo obtenido"], "no avanza al segundo ítem ni lo abandona");
+  assert.equal(list.head, "Consultar el catálogo número 4 para el producto X");
+  assert.deepEqual(list.pending, ["Consultar el catálogo número 4 para el producto X", "Guardar el resultado"], "el ítem de atrás se conserva en su lugar");
 });
 
-test("un ítem sin nadie detrás también corta al `maxItemFailures`-ésimo fallo (`exhausted`: 2 intentos, no 3)", () => {
+test("tras un fallo, si el modelo omite el ítem fallido y sigue con uno de los que venían detrás, corta (`skips_failed_item`) sin mutar la lista", () => {
   const list = new ReactiveList();
-  list.seed(["Único ítem"]);
-  for (let i = 1; i < BUDGET.maxItemFailures; i++) {
-    assert.equal(list.failHead(), "rewrite");
-  }
-  assert.equal(list.failHead(), "exhausted");
-  assert.deepEqual(list.pending, ["Único ítem"]);
+  list.applyModelList(["Leer el archivo informe.txt", "Resumir el contenido del informe", "Guardar el resumen en resumen.md"], false);
+  list.modelAnswered();
+  list.completeHead(); // «Leer…» ok
+  list.failHead(); // «Resumir…» falla
+  assert.equal(list.applyModelList(["Guardar el resumen en resumen.md"], false), "skips_failed_item");
+  assert.deepEqual(list.pending, ["Resumir el contenido del informe", "Guardar el resumen en resumen.md"], "el ítem fallido sigue de primero");
 });
 
-test("completar un ítem reinicia la cuenta de fallos seguidos", () => {
+test("tras un fallo, un ítem reformulado que sigue pareciéndose al fallido no es una omisión: se acepta", () => {
   const list = new ReactiveList();
-  list.applyModelList(["Primero", "Segundo", "Tercero"], false);
-  if (BUDGET.maxItemFailures > 1) list.failHead(); // un fallo sobre «Primero»
-  list.completeHead(); // «Primero» termina bien
-  for (let i = 1; i < BUDGET.maxItemFailures; i++) assert.equal(list.failHead(), "rewrite", "la cuenta de «Segundo» arranca de cero");
+  list.applyModelList(["Resumir el contenido del informe", "Guardar el resumen en resumen.md"], false);
+  list.modelAnswered();
+  list.failHead();
+  assert.equal(list.applyModelList(["Resumir el informe en tres líneas", "Guardar el resumen en resumen.md"], false), "accepted");
+  assert.equal(list.head, "Resumir el informe en tres líneas");
 });
 
 test("el modelo no vuelve a agregar un ítem ya cumplido", () => {
@@ -74,7 +75,7 @@ test("el modelo no vuelve a agregar un ítem ya cumplido", () => {
 test("`applyModelDone` con ítems pendientes tras fallo se rechaza sin abandonar ni avanzar al segundo ítem", () => {
   const list = new ReactiveList();
   list.applyModelList(["Primero", "Segundo distinto"], false);
-  assert.equal(list.failHead(), "rewrite");
+  list.failHead();
   assert.equal(list.applyModelDone(), "rejected");
   assert.deepEqual(list.pending, ["Primero", "Segundo distinto"]);
 });
@@ -94,7 +95,7 @@ test("`applyModelDone` con la lista ya vacía (inicio o confirmación D5) se ace
 test("tras un fallo, `applyModelList` corta con `identical_rewrite` solo ante igualdad estricta normalizada, no por `sameItem`", () => {
   const list = new ReactiveList();
   list.applyModelList(["Leer archivo datos.json", "Guardar resumen"], false);
-  assert.equal(list.failHead(), "rewrite");
+  list.failHead();
   // Igualdad estricta normalizada (cambia mayúsculas, tildes y puntuación) -> corta.
   assert.equal(list.applyModelList(["leer archivo datos json!", "Guardar resumen"], false), "identical_rewrite");
   assert.deepEqual(list.pending, ["Leer archivo datos.json", "Guardar resumen"]);
@@ -108,14 +109,14 @@ test("tras un fallo, `applyModelList` con solo ítems ya cumplidos devuelve `no_
   const single = new ReactiveList();
   single.applyModelList(["Crear A", "Leer B"], false);
   single.completeHead();
-  assert.equal(single.failHead(), "rewrite");
+  single.failHead();
   assert.equal(single.applyModelList(["Crear A"], false), "no_replacement");
   assert.deepEqual(single.pending, ["Leer B"]);
 
   const multi = new ReactiveList();
   multi.applyModelList(["Crear A", "Leer B", "Escribir C"], false);
   multi.completeHead();
-  assert.equal(multi.failHead(), "rewrite");
+  multi.failHead();
   assert.equal(multi.applyModelList(["Crear A"], false), "no_replacement");
   assert.deepEqual(multi.pending, ["Leer B", "Escribir C"]);
 });
@@ -147,4 +148,60 @@ test("reapertura: si D5 dice con seguridad que falta algo y la lista queda vací
   assert.equal(list.isEmpty, true, "agotadas las reaperturas, no se reabre más");
   list.applyModelList([variant(0)], true);
   assert.equal(list.isEmpty, true, "el mismo texto exacto de un ítem ya cumplido nunca se reabre");
+});
+
+test("tras un fallo, si el modelo vuelve a listar un ítem ya cumplido y luego el mismo ítem fallido, también corta (`identical_rewrite`)", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false);
+  list.modelAnswered();
+  list.completeHead(); // «Crear…» ok
+  list.failHead(); // «Escribir…» falla
+  assert.equal(list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false), "identical_rewrite");
+  assert.deepEqual(list.pending, ["Escribir el archivo notas.md"]);
+});
+
+// ───────────────────────── Un reintento idéntico del ítem cuando la falla fue un error de la herramienta ─────────────────────────
+
+test("tras `tool_failed`, repetir el ítem se acepta UNA vez (`identical_retry`) con la lista intacta; la segunda vez cierra", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Escribir el informe en informe.md", "Enviar el informe"], false);
+  list.modelAnswered();
+  list.failHead("tool_failed");
+  assert.equal(list.applyModelList(["Escribir el informe en informe.md", "Enviar el informe"], false), "identical_retry");
+  assert.deepEqual(list.pending, ["Escribir el informe en informe.md", "Enviar el informe"], "la lista no cambia: el mismo ítem se vuelve a intentar con un paso nuevo");
+
+  list.modelAnswered();
+  list.failHead("tool_failed"); // el reintento también falló
+  assert.equal(list.applyModelList(["Escribir el informe en informe.md", "Enviar el informe"], false), "identical_rewrite", "el reintento idéntico es uno por ítem");
+});
+
+test("el reintento idéntico es solo para errores de la herramienta: con otra causa, o sin causa, repetir el ítem cierra", () => {
+  for (const cause of ["verify_rejected", "call_cap", "review_rejected", "repeat_blocked", null] as const) {
+    const list = new ReactiveList();
+    list.applyModelList(["Leer el archivo datos.json"], false);
+    list.modelAnswered();
+    list.failHead(cause);
+    assert.equal(list.applyModelList(["Leer el archivo datos.json"], false), "identical_rewrite", String(cause));
+  }
+});
+
+test("cada ítem tiene su propio reintento idéntico", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false);
+  list.modelAnswered();
+  list.failHead("tool_failed");
+  assert.equal(list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false), "identical_retry");
+  list.completeHead(); // el reintento salió bien
+  list.failHead("tool_failed"); // ahora falla «Escribir…»
+  assert.equal(list.applyModelList(["Escribir el archivo notas.md"], false), "identical_retry", "otro ítem: su propio reintento");
+});
+
+test("el reintento idéntico también vale cuando el modelo vuelve a listar un ítem ya cumplido antes del fallido", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false);
+  list.modelAnswered();
+  list.completeHead();
+  list.failHead("tool_failed");
+  assert.equal(list.applyModelList(["Crear la carpeta docs", "Escribir el archivo notas.md"], false), "identical_retry");
+  assert.deepEqual(list.pending, ["Escribir el archivo notas.md"]);
 });

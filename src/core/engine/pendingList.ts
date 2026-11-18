@@ -39,6 +39,9 @@ function proper(text: string): Set<string> {
 
 const normalized = (s: string): string => fold(s).replace(/[^a-z0-9]+/g, " ").trim();
 
+/** El texto de un ítem normalizado (sin mayúsculas, tildes ni puntuación): la clave con la que se reconoce «el mismo ítem». */
+export const itemKey = normalized;
+
 /** Igualdad estricta normalizada entre dos ítems (con guarda para no colisionar textos vacíos). */
 export function sameNormalizedText(a: string, b: string): boolean {
   const na = normalized(a);

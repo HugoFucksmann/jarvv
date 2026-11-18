@@ -323,13 +323,14 @@ export interface EngineLimits {
   maxSteps: number;
   maxReplans: number;
   maxEscalations: number;
-  maxItemFailures: number;
   maxCallsPerStep: number;
   maxAttemptsPerStep: number;
   maxNotAccomplishedPerRoute: number;
   maxRepeatsPerStep: number;
   maxReviewRejectionsPerStep: number;
   maxVerifyRejectionsPerStep: number;
+  maxToolErrorsPerStep: number;
+  maxSameToolErrorsPerStep: number;
   maxUserRejectionsPerStep: number;
   maxDeniedPerStep: number;
   maxQuestionsPerStep: number;

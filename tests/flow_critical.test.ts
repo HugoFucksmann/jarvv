@@ -12,6 +12,7 @@ import { test } from "node:test";
 import { BUDGET } from "../src/core/budget.ts";
 import type { EngineDeps } from "../src/core/contracts.ts";
 import { create } from "../src/core/ctx/index.ts";
+import type { TaskContext } from "../src/core/ctx/index.ts";
 import { FAKE_DISK } from "./fixtures.ts";
 import { LLMServiceUnavailableError } from "../src/core/models/transport.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
@@ -1024,7 +1025,11 @@ test("reactivo: si pending repite exactamente el texto normalizado tras fallo o 
   }
 });
 
-test("reactivo: red de seguridad global maxEscalations = 6 corta recién al 7.º paso fallido", async () => {
+/**
+ * Ocho ítems que fallan una vez cada uno. Con `recovers` el modelo de pendientes reescribe cada ítem fallido en uno que sale bien (el progreso reinicia la racha);
+ * sin él, reescribe cada uno en otro texto que también falla (la racha crece hasta el tope).
+ */
+async function escalationScenario(recovers: boolean): Promise<TaskContext> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-esc6-"));
   try {
     const fileTools = [tool("read_file")];
@@ -1042,7 +1047,7 @@ test("reactivo: red de seguridad global maxEscalations = 6 corta recién al 7.º
     };
     const items = Array.from({ length: 8 }, (_, i) => `Leer C:\\Users\\Ana\\fail_${i}.txt`);
     let pendingN = 0;
-    const ctx = makeCtx("task_esc6", "Ocho pasos donde cada ítem falla a lo sumo una vez antes de reescribirse");
+    const ctx = makeCtx(recovers ? "task_esc_recovers" : "task_esc_streak", "Ocho pasos donde cada ítem falla una vez y se reescribe");
     const deps: EngineDeps = {
       discovery: {
         getServer: (n) => (n === "desktop_commander" ? server : undefined),
@@ -1062,7 +1067,7 @@ test("reactivo: red de seguridad global maxEscalations = 6 corta recién al 7.º
         generatePendingFromView: async () => {
           pendingN++;
           if (pendingN === 1) return { pending: items, rawInput: "", rawOutput: "" };
-          return { pending: [`Leer C:\\Users\\Ana\\ok_${stepIdx++}.txt`], rawInput: "", rawOutput: "" };
+          return { pending: [recovers ? `Leer C:\\Users\\Ana\\ok_${stepIdx++}.txt` : `Leer C:\\Users\\Ana\\fail_${100 + stepIdx++}.txt`], rawInput: "", rawOutput: "" };
         },
         generateArgumentsFromView: async () => {
           const instr = ctx.current().step?.instruction ?? "";
@@ -1089,12 +1094,26 @@ test("reactivo: red de seguridad global maxEscalations = 6 corta recién al 7.º
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
-    assert.equal(BUDGET.maxEscalations, 6);
-    assert.equal(ctx.task.stopReason, "no_alternatives");
-    assert.equal(ctx.task.state, "partial");
-    assert.equal(ctx.find("steps", { state: "failed" }).length, 7, "permite hasta 6 fallos entre ítems distintos y corta al 7.º");
+    return ctx;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+test("reactivo: los fallos NO se acumulan entre ítems que se recuperan: 8 pasos fallidos en total (uno por ítem) y la tarea termina completed", async () => {
+  const ctx = await escalationScenario(true);
+  assert.equal(ctx.task.state, "completed");
+  assert.equal(ctx.task.stopReason, null);
+  assert.equal(ctx.find("steps", { state: "failed" }).length, 8, "ocho fallos sueltos, más que maxEscalations = 6, y no cierran la tarea");
+  assert.equal(ctx.consecutiveFailures(), 0, "cada ítem reescrito terminó bien y reinició la racha");
+});
+
+test("reactivo: una racha de pasos fallidos SEGUIDOS corta recién al 7.º (maxEscalations = 6), aunque cada reescritura sea un texto distinto", async () => {
+  const ctx = await escalationScenario(false);
+  assert.equal(BUDGET.maxEscalations, 6);
+  assert.equal(ctx.task.stopReason, "no_alternatives");
+  assert.equal(ctx.task.state, "failed", "sin efectos ni llamadas aprobadas");
+  assert.equal(ctx.find("steps", { state: "failed" }).length, 7, "permite hasta 6 fallos seguidos y corta al 7.º");
+  assert.equal(ctx.consecutiveFailures(), 7);
 });
 

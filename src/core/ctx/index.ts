@@ -91,6 +91,7 @@ export {
   effectsOf,
   envOf,
   escalationCount,
+  consecutiveFailedSteps,
   isAnswerKey,
   isApproved,
   isExecuted,

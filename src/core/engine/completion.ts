@@ -1,7 +1,7 @@
 /**
  * JARVIS Core — Cierre del reactivo con Decisión 5 (`checkCompletion`).
  *
- * Cuando el último ítem de la lista termina bien (la lista queda vacía y no se abandonó nada), antes de confirmar con el LLM generativo que no falta nada
+ * Cuando el último ítem de la lista termina bien (la lista queda vacía), antes de confirmar con el LLM generativo que no falta nada
  * (~900 ms) se le hace una sola pregunta al modelo de decisión (~50 ms): con la solicitud y todo lo hecho a la vista, ¿la solicitud está cumplida?
  * Si responde que sí con probabilidad de al menos `COMPLETION_APPROVE`, la tarea cierra `completed` sin llamar al LLM. En cualquier otro caso (no, duda, respuesta
  * inválida o desborde, nada hecho todavía) se cae a la confirmación del LLM como antes: un falso "no" solo cuesta esa llamada, mientras que un falso "sí" cierra la tarea

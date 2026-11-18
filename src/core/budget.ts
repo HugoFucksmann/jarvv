@@ -31,12 +31,11 @@ export const BUDGET = {
   argsStringDefault: 300,
 
   // ── Límites del motor (5.2) ──
-  // Reintentos y fallos seguidos: todos en 2 (un intento y un reintento); los topes de pasos y llamadas, ajustados al uso real.
+  // Reintentos y fallos seguidos: un intento y un reintento (2) por paso; los topes de pasos y llamadas, ajustados al uso real.
   maxSteps: 20,
   maxReplans: 3,
+  /** Pasos fallidos SEGUIDOS (sin un paso completado en el medio) antes de cerrar la tarea reactiva (`no_alternatives`): ver `escalationsExceeded` en `engine/limits.ts`. */
   maxEscalations: 6,
-  /** Pasos fallidos seguidos sobre el mismo ítem de la lista antes de cerrar la tarea (`no_alternatives`): ver `runReactive`. */
-  maxItemFailures: 2,
   /** Ejecuciones por paso: llamadas que llegaron a la herramienta (lo que cuesta de verdad). Ver `engine/limits.ts`. */
   maxCallsPerStep: 6,
   /** Intentos por paso: toda llamada registrada salvo `user_rejected`, incluidas las que no tocaron la herramienta (bloqueadas, argumentos inválidos...). Techo contra un modelo que da vueltas. */
@@ -47,8 +46,12 @@ export const BUDGET = {
   maxRepeatsPerStep: 2,
   /** Llamadas rechazadas por la revisión (`args_invalid`) que fallan el paso: 2 = un solo reintento. */
   maxReviewRejectionsPerStep: 2,
-  /** Llamadas rechazadas por la verificación (Decisión 4, `verdict = rejected`) que fallan el paso: 2 = un solo reintento. Tras eso la recuperación del modo reescribe el ítem (reactivo) o replanifica (deliberativo). */
+  /** Llamadas rechazadas por la verificación (Decisión 4, `verdict = rejected`, sin contar los errores de herramienta) que fallan el paso: 2 = un solo reintento. Tras eso la recuperación del modo reescribe el ítem (reactivo) o replanifica (deliberativo). */
   maxVerifyRejectionsPerStep: 2,
+  /** Errores de la herramienta (`tool_error`: error, tiempo agotado o código de salida distinto de 0; y `exception`) que fallan el paso: 3 = dos reintentos. Cuenta aparte de los rechazos de la verificación: un error de la herramienta casi siempre se corrige cambiando los argumentos, y un resultado que no cumple lo pedido no. El tercer intento solo existe si el error CAMBIÓ: ver `maxSameToolErrorsPerStep`. */
+  maxToolErrorsPerStep: 3,
+  /** Veces seguidas que la herramienta devuelve el MISMO error (mismo texto, sin contar pid ni duración) en un paso: 2 = ante el mismo error dos veces, el paso falla sin gastar un tercer intento. Si el error cambia, el modelo está corrigiendo y rige `maxToolErrorsPerStep`. */
+  maxSameToolErrorsPerStep: 2,
   /** Rechazos del usuario (`user_rejected`) que fallan el paso: 2 = el usuario ya dijo que no dos veces; no se le vuelve a pedir lo mismo. No cuentan para el tope de llamadas. */
   maxUserRejectionsPerStep: 2,
   /**

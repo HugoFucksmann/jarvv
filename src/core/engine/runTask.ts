@@ -6,11 +6,12 @@
  *
  * Reactivo: cada vuelta es un paso nuevo cuya instrucción es el primer pendiente de una lista que mantiene el código
  * (`pendingList.ts`; el modelo la genera al empezar y se le consulta de nuevo solo tras un fallo o al vaciarse). Un paso que
- * termina bien quita su ítem; un ítem nunca se abandona: al alcanzar `BUDGET.maxItemFailures` pasos fallidos seguidos, si
- * `pending` devuelve `done` o solo ítems ya cumplidos tras un fallo, o si repite exactamente el texto normalizado del ítem
- * fallido, la tarea cierra `no_alternatives` (`partial` si hubo efectos o llamadas aprobadas, `failed` si no). Al terminar bien el último ítem, Decisión 5 (`completion.ts`) puede cerrar `completed` sin consultar al LLM. Una lista vacía confirmada por el modelo cierra `completed` o
- * `no_alternatives`, según `canFinish()`; `max_steps` al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); un paso `failed`
- * es una escalación: por encima de `BUDGET.maxEscalations` (red de seguridad global), `no_alternatives`.
+ * termina bien quita su ítem; un ítem nunca se abandona. Tras un paso fallido se le pide al modelo que reescriba el ítem: una reescritura DISTINTA es un intento nuevo
+ * (no hereda ningún conteo); si `pending` repite exactamente el texto normalizado del ítem fallido (Decisión trabaja con temperatura 0: el mismo texto da la misma
+ * respuesta, ya se sabe que fallará; salvo un reintento idéntico por ítem si el paso falló por errores de la herramienta), responde `done` o solo ítems ya cumplidos, u omite el ítem fallido y sigue con uno de los que venían detrás (que pueden depender
+ * de él), la tarea cierra `no_alternatives` (`partial` si hubo efectos o llamadas aprobadas, `failed` si no). Al terminar bien el último ítem, Decisión 5 (`completion.ts`) puede cerrar `completed` sin consultar al LLM. Una lista vacía confirmada por el modelo cierra `completed` o
+ * `no_alternatives`, según `canFinish()`; `max_steps` al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); una racha de pasos `failed` SEGUIDOS (sin un paso
+ * completado en el medio) por encima de `BUDGET.maxEscalations` cierra `no_alternatives`: un paso que termina bien reinicia la cuenta.
  *
  * Deliberativo: plan inicial (LLM 1) y confirmación del usuario. Rechazarlo con instrucción da un plan `user_feedback`
  * (sin tope) y se vuelve a pedir la confirmación; si ese plan es inválido se conserva el vigente y se vuelve a pedir;
@@ -108,8 +109,9 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
       const next = await generatePending(env, list.pending);
       switch (next.kind) {
         case "next":
-          if (list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW) !== "accepted") {
-            return stop("no_alternatives");
+          {
+            const transition = list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW);
+            if (transition !== "accepted" && transition !== "identical_retry") return stop("no_alternatives");
           }
           break;
         case "done":
@@ -141,9 +143,10 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
         continue;
       }
       case "failed":
-        // Red de seguridad global (`BUDGET.maxEscalations`); antes de eso, `maxItemFailures` seguidos sobre el mismo ítem cierran la tarea.
+        // Una racha de pasos fallidos sin ningún paso completado en el medio agota la recuperación (`BUDGET.maxEscalations`). Antes de eso, se reescribe el ítem; si el
+        // modelo lo repite idéntico, se cierra (`applyModelList`).
         if (escalationsExceeded(ctx)) return stop("no_alternatives");
-        if (list.failHead() === "exhausted") return stop("no_alternatives");
+        list.failHead(outcome.cause);
         continue;
       case "close":
         return stop(outcome.stopReason);

@@ -10,7 +10,7 @@ import {
   checkStepLimits,
   countStep,
   escalationsExceeded,
-  itemFailuresReached,
+  toolErrorSignature,
   limitValues,
   replansExhausted,
   routeExhausted,
@@ -38,7 +38,7 @@ function stepWith(calls: Partial<Record<CallStatus, number>>): { ctx: TaskContex
 
 test("countStep: ejecución es lo que llegó a la herramienta; intento, todo menos el rechazo del usuario; lo bloqueado no ejecuta", () => {
   const { ctx, stepId } = stepWith({ ok: 2, tool_error: 1, loop_blocked: 2, args_invalid: 1, info_missing: 1, tool_rejected: 1, user_rejected: 3 });
-  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 8, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1, rejected: 0 });
+  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 3, attempts: 8, blocked: 2, argsInvalid: 1, userRejected: 3, denied: 1, rejected: 0, toolFailed: 1, sameToolError: 1 });
 });
 
 test("countStep: un denied del servidor y una llamada interrumpida cuentan como ejecutadas", () => {
@@ -126,26 +126,35 @@ test("routeExhausted: dos rechazos 'no cumple' de esa ruta en el paso la agotan;
   assert.equal(routeExhausted(ctx, stepId, "web"), false);
 });
 
-// ───────────────────────── Topes de la tarea y del ítem ─────────────────────────
+// ───────────────────────── Topes de la tarea ─────────────────────────
 
-test("tarea: pasos al tope, escalaciones por encima del tope y replans al tope", () => {
+test("tarea: pasos al tope y replans al tope", () => {
   const ctx = newContext("reactive");
   assert.equal(stepsExhausted(ctx), false);
-  let last = "";
   for (let i = 0; i < BUDGET.maxSteps; i++) {
-    if (last !== "") ctx.apply({ op: "update", target: last, value: { state: "failed" } });
-    last = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: `p${i}`, route: null, expected: null } }).ids[0];
-    // Al agregar el paso `i`, hay `i` pasos fallidos.
-    if (i === BUDGET.maxEscalations) assert.equal(escalationsExceeded(ctx), false, "en el tope todavía no se excede");
-    if (i === BUDGET.maxEscalations + 1) assert.equal(escalationsExceeded(ctx), true, "uno por encima del tope");
+    const id = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: `p${i}`, route: null, expected: null } }).ids[0];
+    ctx.apply({ op: "update", target: id, value: { state: i % 2 === 0 ? "completed" : "failed" } });
   }
   assert.equal(stepsExhausted(ctx), true);
   assert.equal(replansExhausted(ctx), false);
 });
 
-test("ítem: fallos seguidos al tope", () => {
-  assert.equal(itemFailuresReached(BUDGET.maxItemFailures - 1), false);
-  assert.equal(itemFailuresReached(BUDGET.maxItemFailures), true);
+test("pasos fallidos seguidos: se cierra por ENCIMA del tope y un paso completado reinicia la racha", () => {
+  const ctx = newContext("reactive");
+  const step = (state: "completed" | "failed"): void => {
+    const id = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "p", route: null, expected: null } }).ids[0];
+    ctx.apply({ op: "update", target: id, value: { state } });
+  };
+  for (let i = 1; i <= BUDGET.maxEscalations + 1; i++) {
+    step("failed");
+    assert.equal(escalationsExceeded(ctx), i > BUDGET.maxEscalations, `${i} fallidos seguidos`);
+  }
+  step("completed");
+  assert.equal(ctx.consecutiveFailures(), 0, "un paso completado reinicia la racha");
+  assert.equal(escalationsExceeded(ctx), false);
+  for (let i = 0; i < BUDGET.maxEscalations; i++) step("failed");
+  assert.equal(escalationsExceeded(ctx), false, "en el tope todavía no se excede: los fallos de antes del paso completado no se acumulan");
+  assert.equal(ctx.escalations(), 2 * BUDGET.maxEscalations + 1, "el total de fallidos de la tarea sigue disponible para las ventanas de las vistas");
 });
 
 // ───────────────────────── Catálogo y /limits ─────────────────────────
@@ -158,7 +167,7 @@ test("limitValues: expone todos los topes del catálogo con su valor de BUDGET, 
     assert.equal(typeof values[id as keyof typeof values], "number", id);
     assert.equal(values[id as keyof typeof values], BUDGET[id as keyof typeof BUDGET], id);
   }
-  assert.deepEqual([...new Set(Object.values(LIMIT_SCOPES))].sort(), ["item", "step", "task"]);
+  assert.deepEqual([...new Set(Object.values(LIMIT_SCOPES))].sort(), ["step", "task"]);
 });
 
 // ───────────────────────── Corte tras rechazos de la verificación ─────────────────────────
@@ -188,4 +197,81 @@ test("los rechazos de la verificación son por paso", () => {
   }
   assert.equal(checkStepLimits(ctx, a), null);
   assert.equal(checkStepLimits(ctx, b), null);
+});
+
+// ───────────────────────── Errores de la herramienta: contador y topes propios ─────────────────────────
+
+/** Una llamada ejecutada con el veredicto que le da el motor: `tool_error` y `exception` se rechazan sin modelo (`no_usable_data`); un `ok` rechazado, por `not_accomplished`. */
+function failedCall(ctx: ReturnType<typeof newContext>, stepId: string, status: "tool_error" | "exception" | "ok", n: number, summary: string | null = null): void {
+  const id = ctx.apply({ op: "add", target: "calls", value: { stepId, route: "files", tool: "write_file", kind: "write", args: {}, sig: `e${n}`, status, summary, ref: null } }).ids[0];
+  ctx.apply({ op: "update", target: id, value: { verdict: "rejected", reason: status === "ok" ? "not_accomplished" : "no_usable_data" } });
+}
+const newStep = (ctx: ReturnType<typeof newContext>): string => ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "paso", route: null, expected: null } }).ids[0];
+
+test("tope del paso: el MISMO error de la herramienta dos veces falla el paso con tool_failed; uno solo no", () => {
+  const ctx = newContext("reactive");
+  const stepId = newStep(ctx);
+  failedCall(ctx, stepId, "tool_error", 0, "EBUSY: resource busy");
+  assert.equal(checkStepLimits(ctx, stepId), null, "un error: se permite un reintento");
+  failedCall(ctx, stepId, "tool_error", 1, "EBUSY: resource busy");
+  assert.deepEqual(checkStepLimits(ctx, stepId), { limit: "maxSameToolErrorsPerStep", cause: "tool_failed", askFirst: false }, "el mismo error otra vez: no se gasta un tercer intento");
+});
+
+test("tope del paso: si el error CAMBIA, el modelo está corrigiendo y hay un tercer intento; tres errores fallan el paso", () => {
+  const ctx = newContext("reactive");
+  const stepId = newStep(ctx);
+  failedCall(ctx, stepId, "tool_error", 0, "EBUSY: resource busy");
+  failedCall(ctx, stepId, "tool_error", 1, "EACCES: permission denied");
+  assert.equal(checkStepLimits(ctx, stepId), null, "dos errores distintos: todavía hay un tercer intento");
+  failedCall(ctx, stepId, "tool_error", 2, "ENOENT: no such file");
+  assert.deepEqual(checkStepLimits(ctx, stepId), { limit: "maxToolErrorsPerStep", cause: "tool_failed", askFirst: false });
+});
+
+test("el mismo error se reconoce aunque cambien el pid y la duración; un código de salida distinto es otro error", () => {
+  const run = (exit: number, pid: number, duration: string): string => `status: finished · exit code: ${exit} · duration: ${duration} · pid: ${pid} · cwd: C:\\Users\\Ana\nfalló`;
+  assert.equal(toolErrorSignature(run(1, 111, "0.3s")), toolErrorSignature(run(1, 222, "1.9s")));
+  assert.notEqual(toolErrorSignature(run(1, 111, "0.3s")), toolErrorSignature(run(2, 111, "0.3s")), "otro código de salida: el error cambió");
+  assert.equal(toolErrorSignature("  EBUSY:   Resource BUSY "), toolErrorSignature("ebusy: resource busy"));
+  assert.equal(toolErrorSignature(null), "");
+});
+
+test("el mismo error cuenta aunque haya un rechazo de la verificación en el medio", () => {
+  const ctx = newContext("reactive");
+  const stepId = newStep(ctx);
+  failedCall(ctx, stepId, "tool_error", 0, "EBUSY: resource busy");
+  failedCall(ctx, stepId, "ok", 1);
+  failedCall(ctx, stepId, "tool_error", 2, "EBUSY: resource busy");
+  assert.equal(countStep(ctx.find("calls", { stepId })).sameToolError, 2);
+  assert.equal(checkStepLimits(ctx, stepId)?.cause, "tool_failed");
+});
+
+test("`exception` cuenta como error de la herramienta, junto con `tool_error`", () => {
+  const ctx = newContext("reactive");
+  const stepId = newStep(ctx);
+  failedCall(ctx, stepId, "tool_error", 0, "error A");
+  failedCall(ctx, stepId, "exception", 1, "error B");
+  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 2, attempts: 2, blocked: 0, argsInvalid: 0, userRejected: 0, denied: 0, rejected: 0, toolFailed: 2, sameToolError: 1 });
+  failedCall(ctx, stepId, "exception", 2, "error C");
+  assert.equal(checkStepLimits(ctx, stepId)?.cause, "tool_failed");
+});
+
+test("un error de la herramienta y un rechazo de la verificación NO se suman: el paso sigue hasta el tope de cada tipo", () => {
+  const ctx = newContext("reactive");
+  const stepId = newStep(ctx);
+  failedCall(ctx, stepId, "tool_error", 0, "error A");
+  failedCall(ctx, stepId, "ok", 1); // el resultado llegó pero no cumple lo pedido
+  assert.deepEqual(countStep(ctx.find("calls", { stepId })), { executions: 2, attempts: 2, blocked: 0, argsInvalid: 0, userRejected: 0, denied: 0, rejected: 1, toolFailed: 1, sameToolError: 1 });
+  assert.equal(checkStepLimits(ctx, stepId), null, "antes, estos dos sumaban dos rechazos y fallaban el paso");
+  failedCall(ctx, stepId, "ok", 2);
+  assert.equal(checkStepLimits(ctx, stepId)?.cause, "verify_rejected", "el segundo rechazo de la verificación sí falla el paso");
+});
+
+test("los errores de la herramienta son por paso", () => {
+  const ctx = newContext("reactive");
+  const a = newStep(ctx);
+  failedCall(ctx, a, "tool_error", 0, "EBUSY: resource busy");
+  ctx.apply({ op: "update", target: a, value: { state: "failed" } });
+  const b = newStep(ctx);
+  failedCall(ctx, b, "tool_error", 1, "EBUSY: resource busy");
+  assert.equal(checkStepLimits(ctx, b), null, "el error del paso anterior no se arrastra, ni siquiera como «el mismo error»");
 });

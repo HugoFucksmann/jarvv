@@ -7,7 +7,7 @@ import { ContextError, canFinish, planClosure } from "../src/core/ctx/index.ts";
 import { reconcileList, sameItem } from "../src/core/engine/pendingList.ts";
 import { buildContext, newContext } from "./fixtures.ts";
 
-test("pendientes: lo ya cumplido o abandonado no vuelve a la lista", () => {
+test("pendientes: lo ya cumplido no vuelve a la lista", () => {
   const next = reconcileList(["Guardar el resumen", "Abrir el archivo"], ["Leer el informe", "Guardar el resumen"], ["Abrir el archivo"]);
   assert.deepEqual(next, ["Guardar el resumen"]);
 });

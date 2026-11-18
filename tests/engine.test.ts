@@ -560,8 +560,8 @@ test("repetición: un segundo fallo pasajero idéntico en el mismo paso ya no se
   });
   const first = ctx.find("steps", {})[0];
   const statuses = ctx.find("calls", { stepId: first.id }).map((c) => c.status);
-  // Un reintento por paso: el segundo `tool_error` es el segundo rechazo de la verificación (`maxVerifyRejectionsPerStep`) y falla el paso antes de un tercer intento.
-  assert.deepEqual(statuses.slice(0, 3), ["tool_error", "tool_error"], "ejecución y un reintento; el paso falla con el segundo rechazo");
+  // Un reintento por paso: el segundo `tool_error` alcanza el tope de errores de la herramienta (`maxToolErrorsPerStep`) y falla el paso (`tool_failed`) antes de un tercer intento.
+  assert.deepEqual(statuses.slice(0, 3), ["tool_error", "tool_error"], "ejecución y un reintento; el paso falla con el segundo error");
 });
 
 // ───────────────────────── Procesos que preguntan (RC-02, RC-20, RC-14) ─────────────────────────
@@ -1097,4 +1097,104 @@ test("sondas: lo escrito en un lugar rechazado se avisa por código en la respue
   assert.ok(exists, "no se borra nada");
   assert.ok(out.ctx.result?.text.includes(`Quedó escrito en: ${file}`), out.ctx.result?.text);
   assert.ok(out.ctx.result?.text.includes("No lo moví ni lo borré"));
+});
+
+// ───────────────────────── Errores de la herramienta: no se suman a los rechazos de la verificación ─────────────────────────
+
+test("tool_error + resultado rechazado en el mismo paso: el paso NO falla (cada tipo tiene su tope) y el tercer intento lo completa", async () => {
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    argsFor: (n) => ({ ...LIST, depth: n + 1 }), // otra huella en cada intento: el anti-bucle no interviene
+    first: "single",
+    completion: 1,
+    // 1.ª ejecución: la herramienta falla (`tool_error`, rechazada por código); 2.ª y 3.ª: devuelven un listado.
+    resultFor: (n) => (n === 0 ? { content: [{ type: "text", text: "error de la herramienta" }], isError: true } : { content: [{ type: "text", text: "[FILE] a.txt\n[FILE] b.txt" }] }),
+    // El primer resultado que llega a Decisión 4 (la 2.ª ejecución) no cumple lo pedido; el segundo sí.
+    verifyFor: (n) => (n === 0 ? { ok: 0.95, cumple: 0.1 } : { ok: 0.95, cumple: 0.95 }),
+  });
+  const calls = ctx.find("calls", {});
+  assert.deepEqual(
+    calls.map((c) => [c.status, c.verdict]),
+    [
+      ["tool_error", "rejected"],
+      ["ok", "rejected"],
+      ["ok", "approved"],
+    ],
+    "un error de herramienta y un rechazo: antes sumaban dos rechazos y fallaban el paso en la 2.ª llamada",
+  );
+  assert.equal(ctx.find("steps", { state: "failed" }).length, 0);
+  assert.equal(ctx.task.state, "completed");
+});
+
+test("B: errores de la herramienta DISTINTOS: hay un tercer intento y el paso se completa (con el mismo error dos veces, el paso habría fallado en el segundo)", async () => {
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    argsFor: (n) => ({ ...LIST, depth: n + 1 }),
+    first: "single",
+    completion: 1,
+    resultFor: (n) => {
+      if (n === 0) return { content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true };
+      if (n === 1) return { content: [{ type: "text", text: "EACCES: permission denied" }], isError: true };
+      return { content: [{ type: "text", text: "[FILE] a.txt\n[FILE] b.txt" }] };
+    },
+  });
+  assert.deepEqual(
+    ctx.find("calls", {}).map((c) => [c.status, c.verdict]),
+    [
+      ["tool_error", "rejected"],
+      ["tool_error", "rejected"],
+      ["ok", "approved"],
+    ],
+  );
+  assert.equal(ctx.find("steps", { state: "failed" }).length, 0);
+  assert.equal(ctx.task.state, "completed");
+});
+
+test("B: el MISMO error de la herramienta dos veces falla el paso sin gastar un tercer intento", async () => {
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    argsFor: (n) => ({ ...LIST, depth: n + 1 }),
+    first: "single",
+    resultFor: () => ({ content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true }),
+    pendingFor: () => ["Listar otra cosa distinta por completo"], // el modelo reescribe el ítem: lo que se mide acá es el paso
+  });
+  const first = ctx.find("steps", {})[0];
+  assert.equal(first.state, "failed");
+  assert.equal(ctx.find("calls", { stepId: first.id }).length, 2, "dos llamadas: el segundo error idéntico corta el paso");
+});
+
+test("C: el paso falla por errores de la herramienta y `pending` repite el ítem: se reintenta UNA vez con un paso nuevo, que se completa", async () => {
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    first: "single",
+    completion: 1,
+    pendingAlways: true, // el modelo de pendientes devuelve siempre el mismo ítem
+    // Las dos primeras ejecuciones (el primer paso) fallan igual; la tercera, ya en el paso nuevo, sale bien.
+    resultFor: (n) => (n < 2 ? { content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true } : { content: [{ type: "text", text: "[FILE] a.txt\n[FILE] b.txt" }] }),
+  });
+  const steps = ctx.find("steps", {});
+  assert.deepEqual(steps.map((s) => s.state), ["failed", "completed"], "el primer paso falló y el reintento idéntico, en un paso nuevo, se completó");
+  assert.equal(ctx.task.state, "completed");
+});
+
+test("C: el reintento idéntico es uno solo: si también falla por errores de la herramienta, la tarea cierra", async () => {
+  const { ctx } = await run({
+    request: DOCS,
+    tool: "list_directory",
+    args: LIST,
+    first: "single",
+    pendingAlways: true,
+    resultFor: () => ({ content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true }),
+  });
+  assert.deepEqual(ctx.find("steps", {}).map((s) => s.state), ["failed", "failed"], "el paso y su único reintento idéntico");
+  assert.equal(ctx.task.stopReason, "no_alternatives");
+  assert.equal(ctx.task.state, "failed", "sin efectos ni llamadas aprobadas");
 });

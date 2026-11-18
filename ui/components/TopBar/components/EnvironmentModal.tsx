@@ -31,12 +31,8 @@ const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> 
     desc: "Límite de nuevos planes automáticos tras fallas consecutivas.",
   },
   maxEscalations: {
-    label: "Tope de pasos fallidos",
-    desc: "Tope global de seguridad de pasos fallidos en modo reactivo antes de cerrar la tarea.",
-  },
-  maxItemFailures: {
-    label: "Fallos por ítem",
-    desc: "Intentos fallidos seguidos sobre una misma acción antes de cerrar la tarea sin alternativas.",
+    label: "Pasos fallidos seguidos",
+    desc: "Pasos fallidos seguidos, sin ninguno completado en el medio, antes de cerrar la tarea reactiva sin alternativas. Un paso que termina bien reinicia la cuenta.",
   },
   maxRepeatsPerStep: {
     label: "Repeticiones en bucle",
@@ -48,7 +44,15 @@ const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> 
   },
   maxVerifyRejectionsPerStep: {
     label: "Rechazos de verificación",
-    desc: "Resultados rechazados por Decisión 4 permitidos en un paso antes de que el paso falle y se reescriba la tarea.",
+    desc: "Resultados rechazados por Decisión 4 permitidos en un paso antes de que el paso falle y se reescriba la tarea. No cuenta los errores de la herramienta.",
+  },
+  maxToolErrorsPerStep: {
+    label: "Errores de herramienta",
+    desc: "Errores de la herramienta (error, tiempo agotado o código de salida distinto de 0) permitidos en un paso antes de que el paso falle. Cuenta aparte de los rechazos de verificación. El último intento solo se da si el error cambió.",
+  },
+  maxSameToolErrorsPerStep: {
+    label: "Mismo error repetido",
+    desc: "Veces seguidas que la herramienta puede devolver exactamente el mismo error en un paso antes de que el paso falle sin gastar más intentos.",
   },
   maxUserRejectionsPerStep: {
     label: "Rechazos del usuario",

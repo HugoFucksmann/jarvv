@@ -20,7 +20,6 @@
  * - La política sale únicamente del manifest (tools/manifest.ts); no hay otra fuente.
  */
 
-import os from "node:os";
 import path from "node:path";
 
 import type { Capability, GuardDecision } from "../types.ts";
