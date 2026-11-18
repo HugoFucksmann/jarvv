@@ -161,6 +161,7 @@ import { fragmentJudgeStage } from "./fragment_judge.ts";
 import { pendingStage } from "./pending.ts";
 import { planStage } from "./plan.ts";
 import { questionStage } from "./question.ts";
+import { recoveryStage } from "./recovery.ts";
 import { resultVerificationStage } from "./result_verification.ts";
 import { routeStage } from "./route.ts";
 import { toolChoiceStage } from "./tool_choice.ts";
@@ -174,6 +175,7 @@ const REGISTRY = new Map<StageName, AnyStageEntry>([
   ["result_verification", resultVerificationStage],
   ["fragment_judge", fragmentJudgeStage],
   ["d5", d5Stage],
+  ["recovery", recoveryStage],
   ["plan", planStage],
   ["arguments", argumentsStage],
   ["final", finalStage],

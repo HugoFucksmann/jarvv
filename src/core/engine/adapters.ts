@@ -27,9 +27,10 @@ import {
   userLines,
 } from "../render/shared.ts";
 import type { MCPTool } from "../types.ts";
+import type { StepFailureCause } from "./outcomes.ts";
 import { cleanInputSchema } from "../utils.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import type { ArgsFromViewInput, CompletionDecisionInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "../contracts.ts";
+import type { ArgsFromViewInput, CompletionDecisionInput, RecoveryDecisionInput, DecisionFrame, PendingFromViewInput, PlanFromViewInput, ReviewCandidate, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyDecisionInput } from "../contracts.ts";
 
 // ───────────────────────── Opciones de vistas y renderizadores ─────────────────────────
 
@@ -86,6 +87,14 @@ export function pendingInput(ctx: TaskContext, previous: readonly string[]): Pen
  */
 export function completionInput(ctx: TaskContext): CompletionDecisionInput {
   return pendingInput(ctx, []);
+}
+
+/**
+ * Entrada de la decisión «recovery» (todavía solo la usa el eval): la vista de `forPending` con la lista de la vuelta (el ítem fallido de primero) y lo que se sabe del
+ * fallo (la causa y cuántos pasos fallidos lleva el ítem).
+ */
+export function recoveryInput(ctx: TaskContext, previous: readonly string[], cause: StepFailureCause | null, attempts: number): RecoveryDecisionInput {
+  return { view: pendingInput(ctx, previous).view, failed: previous[0] ?? ctx.task.request, cause, attempts, behind: previous.slice(1) };
 }
 
 // ───────────────────────── LLM 1 (plan) y argumentos ─────────────────────────

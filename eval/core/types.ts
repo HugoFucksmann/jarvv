@@ -14,7 +14,7 @@ export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
-export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge" | "d5";
+export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge" | "d5" | "recovery";
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
@@ -193,6 +193,20 @@ export interface D5Output {
   probability: number;
 }
 
+// recovery (qué hacer cuando falla el paso de un ítem de la lista reactiva; `src/core/contracts.ts`, todavía no integrada en el motor)
+export interface RecoveryExpect {
+  expectedAction: "close" | "skip_continue" | "rewrite_item" | "replan";
+  /** Probabilidad mínima de la acción esperada. */
+  minProbability?: number;
+  /** Preguntas secundarias; `independent` (`noul`) mide la dependencia de los ítems de atrás. */
+  answers?: AnswerExpects;
+}
+export interface RecoveryOutput {
+  action: "close" | "skip_continue" | "rewrite_item" | "replan";
+  /** Probabilidades de la pregunta `action`. */
+  probabilities: Record<string, number>;
+}
+
 // plan
 export interface PlanStep {
   goal: string;
@@ -274,6 +288,7 @@ export type StageExpect =
   | ResultVerificationExpect
   | FragmentJudgeExpect
   | D5Expect
+  | RecoveryExpect
   | PlanExpect
   | ArgumentsExpect
   | FinalExpect

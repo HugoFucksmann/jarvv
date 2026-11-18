@@ -95,6 +95,9 @@ export interface ScenarioAt {
   feedback?: string;
   // pending: la lista de pendientes de la vuelta anterior (vacía o ausente en la primera vuelta).
   previous?: string[];
+  // recovery: la causa del fallo (`StepFailureCause`) y los pasos fallidos del ítem hasta ahora (default 1). `previous` trae la lista de la vuelta con el ítem fallido de primero.
+  cause?: string;
+  attempts?: number;
   // fragment_judge: la necesidad (la pregunta de `web_search`) y los fragmentos a puntuar (hasta `JUDGE_BATCH`). No usa el resto del escenario.
   need?: string;
   fragments?: string[];

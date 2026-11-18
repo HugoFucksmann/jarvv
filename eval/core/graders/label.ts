@@ -17,6 +17,8 @@ import type {
   Grader,
   GraderCollector,
   ResultVerificationExpect,
+  RecoveryExpect,
+  RecoveryOutput,
   ResultVerificationOutput,
   RouteExpect,
   RouteOutput,
@@ -60,6 +62,18 @@ export const D0LabelGrader: Grader<D0Output, D0Expect> = {
         `Probabilidad ${typeof chat === "number" ? chat.toFixed(3) : "?"} de 'chat' mayor al máximo ${expect.maxChatProbability}.`,
       );
     }
+  },
+};
+
+export const RecoveryLabelGrader: Grader<RecoveryOutput, RecoveryExpect> = {
+  name: "recovery_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("recovery_valid", false, "No se pudo obtener la decisión de recuperación.");
+      return;
+    }
+    col.check("action_match", output.action === expect.expectedAction, `Acción obtenida '${output.action}' difiere de la esperada '${expect.expectedAction}'.`);
+    checkMinProbability(col, "min_probability_met", expect.expectedAction, output.probabilities?.[expect.expectedAction], expect.minProbability);
   },
 };
 

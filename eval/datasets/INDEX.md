@@ -1,7 +1,7 @@
 # Índice de Datasets del Eval (`eval/datasets/`)
 
 > Inventario completo y verificado contra `npx tsx eval/cli.ts --client=oracle` y `npx tsx eval/cli.ts --list`.
-> **Totales en `eval/datasets/`:** **64 archivos `.jsonl`** · **1 317 casos** (**1 281 canónicos** + **36 adversariales con `isRaw: true`**) cubriendo las **12 etapas** del eval.
+> **Totales en `eval/datasets/`:** **65 archivos `.jsonl`** · **1 352 casos** (**1 315 canónicos** + **37 adversariales con `isRaw: true`**) cubriendo las **13 etapas** del eval. (Las filas por etapa de abajo se actualizaron solo para `recovery` y `smoke`; el recuento total sale de contar los archivos.)
 > **Complemento offline en `eval/exp/`:** `eval/exp/memory_matching_cases.json` (**32 casos**, sin modelos).
 
 ---
@@ -17,13 +17,14 @@
 | `result_verification` | Decisión | 10 | 229 | 225 | 4 | Decisión 4 (`ok` y `cumple`) |
 | `fragment_judge` | Decisión | 4 | 42 | 42 | 0 | Juez de fragmentos web (`web_search`) |
 | `d5` | Decisión | 2 | 51 | 47 | 4 | Decisión 5 (cierre de tarea reactiva) |
+| `recovery` | Decisión | 2 | 31 | 30 | 1 | Qué hacer tras un paso fallido (`close` / `skip_continue` / `rewrite_item` / `replan`). **Todavía no existe en el motor**: se evalúa antes de integrarla |
 | `plan` | Generativa | 3 | 48 | 48 | 0 | Planificación y replanning deliberativo |
 | `arguments` | Generativa | 8 | 163 | 159 | 4 | Generación JSON de argumentos (incluye `recalled`) |
 | `final` | Generativa | 6 | 80 | 76 | 4 | Respuesta final (incluye `recalled` y tamaños) |
 | `question` | Generativa | 4 | 90 | 90 | 0 | Pregunta al usuario ante `info_missing` |
 | `pending` | Generativa | 5 | 109 | 105 | 4 | Lista de pendientes del motor reactivo |
-| *Multietapa* (`smoke`) | Mixto | 1 | 10 | 10 | 0 | 1 caso por etapa (`route`..`d5`, excepto `fragment_judge` y `d0`) |
-| **Total `.jsonl`** | — | **64** | **1 317** | **1 281** | **36** | — |
+| *Multietapa* (`smoke`) | Mixto | 1 | 11 | 11 | 0 | 1 caso por etapa (`route`..`d5` y `recovery`, excepto `fragment_judge` y `d0`) |
+| **Total `.jsonl`** | — | **65** | **1 352** | **1 315** | **37** | — |
 
 ---
 
@@ -32,7 +33,7 @@
 ### Raíz (`eval/datasets/`)
 | Archivo | Etapa(s) | Total | Canónicos | `isRaw` | Qué cubre |
 |---|---|---:|---:|---:|---|
-| `eval/datasets/smoke.jsonl` | 10 etapas (`route`, `tool_choice`, `args_review`, `result_verification`, `plan`, `arguments`, `final`, `question`, `pending`, `d5`) | 10 | 10 | 0 | Prueba rápida de humo end-to-end del harness (incluye `smoke-d5`). |
+| `eval/datasets/smoke.jsonl` | 11 etapas (`route`, `tool_choice`, `args_review`, `result_verification`, `plan`, `arguments`, `final`, `question`, `pending`, `d5`, `recovery`) | 11 | 11 | 0 | Prueba rápida de humo end-to-end del harness (incluye `smoke-d5`). |
 
 ### `D0/` (`d0`)
 | Archivo | Total | Canónicos | `isRaw` | Qué cubre |
@@ -98,6 +99,11 @@
 |---|---:|---:|---:|---|
 | `eval/datasets/d5/d5_close_check.jsonl` | 36 | 36 | 0 | Semilla migrada de `eval/exp/close_check.ts`: 18 `true` (`d5-cc-y01..18`) y 18 `false` (`d5-cc-n01..18`), incluyendo condicionales, parciales y copiar por mover. |
 | `eval/datasets/d5/d5_variedad.jsonl` | 15 | 11 | 4 | Nuevo: 3 niveles (5 típicos, 6 difíciles, 4 adversariales). Multiparte incompleta, archivo faltante, entidad equivocada, condicionales, caso negativo "sin modificar nada" e inyección en resumen. |
+
+### `recovery/` (`recovery`)
+| Archivo | Total | Canónicos | `isRaw` | Qué cubre |
+|---|---:|---:|---:|---|
+| `eval/datasets/recovery/recovery_casos.jsonl` | 30 | 29 | 1 | Semilla: 11 `rewrite_item` (`rec-rw-*`), 5 `replan` (`rec-rp-*`), 7 `skip_continue` (`rec-sk-*`, `rec-bd-01` borderline) y 7 `close` (`rec-cl-*`), con la pregunta `independent` (dependencia de los ítems de atrás) en los casos que tienen ítems detrás. La regla de etiquetado está en `eval/datasets/recovery/README.md`. |
 
 ### `plan/` (`plan`)
 | Archivo | Total | Canónicos | `isRaw` | Qué cubre |

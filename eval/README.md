@@ -2,7 +2,7 @@
 
 > Mide cómo decide y responde Jarvis, y valida cada cambio de prompt contra producción antes de tocar `src`.
 
-Evalúa las diez etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
+Evalúa las trece etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
 
 ---
 
@@ -73,5 +73,7 @@ eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval
 Los datasets de `eval/datasets/<etapa>/` se cargan a mano (casos por escenario, hoy con ayuda de otros modelos y revisión humana); no hay generación automática de casos. Los scripts de `eval/gen/` (`mutaciones.ts`, `ram_real.ts`, `ram_retry.ts`, `repeticiones.ts`) generan casos sintéticos puntuales y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md)). Resultados y conclusiones: [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las mejores variantes por etapa) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
 
 ## Documentación
+
+**Si vas a tocar prompts, variantes o datasets de las etapas de decisión (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `d5`, `recovery`), leé primero [`GUIA_DECISION.md`](./GUIA_DECISION.md)**: cómo funciona el modelo de decisión, qué no funcionó y cómo medir sin engañarte.
 
 Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas y estructura del código.

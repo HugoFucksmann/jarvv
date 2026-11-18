@@ -9,6 +9,7 @@
 
 import type { UserEnvironment } from "./environment.ts";
 import type { FirstQueryKind } from "./engine/firstQuery.ts";
+import type { StepFailureCause } from "./engine/outcomes.ts";
 import type { DiskView } from "./engine/postcondition.ts";
 import type { MemoryProvider } from "../memory/index.ts";
 import type { IMCPServer } from "./mcp/types.ts";
@@ -169,6 +170,38 @@ export interface CompletionDecisionInput {
 
 /** Clave de la pregunta `noul` de Decisión 5. */
 export const COMPLETION_KEY = "request_complete";
+
+/**
+ * Decisión «recovery»: qué hacer cuando falla el paso de un ítem de la lista reactiva. TODAVÍA NO la usa el motor: existe para evaluarla en `eval/` antes de integrarla
+ * (`docs/pendientes/PENDIENTES_CODIGO.md` §9.1, punto 6). Cuatro opciones lejanas entre sí:
+ * - `rewrite_item`: el objetivo sigue siendo válido y el fallo parece corregible: se reintenta el mismo ítem con otros argumentos u otro enfoque.
+ * - `replan`: el fallo muestra que el plan supone algo que falta o está mal (un prerrequisito): hay que rehacer lo que queda.
+ * - `skip_continue`: el ítem no tiene arreglo, pero ninguno de los de atrás necesita su resultado: se deja y se sigue con ellos.
+ * - `close`: el ítem no tiene arreglo (o el usuario o la política lo rechazaron) y la tarea no puede seguir sin él, o no queda nada más por hacer.
+ */
+export const RECOVERY_ACTIONS = ["close", "skip_continue", "rewrite_item", "replan"] as const;
+export type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
+
+/** Claves de las preguntas de «recovery»: `action` (`choice`, la principal) e `independent` (`noul`: ¿los ítems de atrás no necesitan el resultado del fallido?). */
+export const RECOVERY_KEY = "action";
+export const RECOVERY_INDEPENDENT_KEY = "independent";
+
+/** Lo que recibe la decisión «recovery». */
+export interface RecoveryDecisionInput {
+  /** Texto de `renderPending` con la lista de la vuelta (el ítem fallido de primero): REQUEST, PENDING, STATE, USER, DONE y FAIL. */
+  readonly view: string;
+  /** El ítem cuyo paso falló (el primero de PENDING). */
+  readonly failed: string;
+  /** Por qué falló el paso, o `null` si no se conoce. */
+  readonly cause: StepFailureCause | null;
+  /**
+   * Pasos fallidos de este ítem hasta ahora. Con temperatura 0 la misma entrada da siempre la misma respuesta: este número deja que el decisor cambie de opinión en el
+   * intento siguiente.
+   */
+  readonly attempts: number;
+  /** Los ítems que quedan detrás del fallido. */
+  readonly behind: readonly string[];
+}
 
 /** Decisión 5: probabilidad de que la solicitud completa ya esté cumplida con lo hecho, sin umbral aplicado: el cierre es de `confirmCompletion` (`engine/completion.ts`). */
 export type CompletionDecision = Omit<DecisionTrace, "probabilities"> & { readonly requestComplete: number };
