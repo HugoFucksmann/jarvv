@@ -69,7 +69,7 @@ interface Scenario {
   readonly completionFails?: boolean | FailKind;
   /** Guarda de cobertura de D5 (`completionCoverageGuard`) encendida. */
   readonly coverageGuard?: boolean;
-  /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): el reactivo reintenta con pasos nuevos del mismo criterio. */
+  /** El modelo de pendientes devuelve siempre el mismo ítem (no confirma que no falte nada): tras un fallo corta por reescritura idéntica. */
   readonly pendingAlways?: boolean;
   /** El proveedor de terminal responde sin herramientas (una plataforma donde no existe: RC-29). */
   readonly noTerminalTools?: boolean;
@@ -525,7 +525,7 @@ const REJECT = { ok: 0.01, cumple: 0.01 };
 const LIST = { path: "C:\\Users\\Ana\\Documents" };
 const DOCS = "Listar C:\\Users\\Ana\\Documents";
 
-test("topes: el modelo repite los mismos argumentos tras un rechazo: no se vuelve a ejecutar ni en el paso ni en los pasos que piden lo mismo", async () => {
+test("topes: el modelo repite los mismos argumentos tras un rechazo en el paso y, si pending repite el mismo texto, corta sin correr otro paso", async () => {
   const { ctx, dispatched } = await run({ request: DOCS, tool: "list_directory", args: LIST, verifyFor: () => REJECT, pendingAlways: true });
   assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1, "las repeticiones bloqueadas no llegan a la herramienta");
   const calls = ctx.find("calls", {});
@@ -533,7 +533,8 @@ test("topes: el modelo repite los mismos argumentos tras un rechazo: no se vuelv
   assert.equal(calls[0].verdict, "rejected");
   assert.ok(calls.slice(1).every((c) => c.status === "loop_blocked"), "todo lo demás son repeticiones bloqueadas");
   assert.deepEqual(ctx.find("calls", { stepId: calls[0].stepId }).map((c) => c.status), ["ok", "loop_blocked", "loop_blocked"], "dos bloqueos fallan el paso");
-  assert.ok(ctx.find("steps", { state: "failed" }).length >= 2, "los pasos siguientes (mismo criterio) fallan igual, acotados por las escalaciones");
+  assert.equal(ctx.find("steps", { state: "failed" }).length, 1, "si pending devuelve exactamente el mismo texto tras el fallo, cierra sin ejecutar otro paso");
+  assert.equal(ctx.task.stopReason, "no_alternatives");
 });
 
 // Un `tool_error` se rechaza sin consultar a D4 (no hay datos que juzgar): solo se verifica el resultado del reintento.
@@ -600,6 +601,7 @@ test("RC-02: la pregunta de un proceso no gasta la del modelo, y las de procesos
     request: "Instalar el programa",
     tool: "run_command",
     args: {},
+    pendingFor: (n) => [n === 0 ? "Instalar el programa" : "Completar instalación del programa"],
     // Un proceso que pregunta sin fin: tras el tope de preguntas de procesos ya no se pregunta; al agotarse el paso, el motor todavía puede hacer SU pregunta.
     argsFor: (n) => (n === 0 ? { command: "Read-Host instalar" } : { pid: 4321, input: `r${n}` }),
     resultFor: () => waitingFor("Otra vez: "),
@@ -611,13 +613,14 @@ test("RC-02: la pregunta de un proceso no gasta la del modelo, y las de procesos
       }
     },
   });
-  // Por paso: el reactivo puede reintentar con pasos nuevos, y cada uno tiene su tope.
+  // Por paso: el reactivo puede reintentar con un paso nuevo (reescrito), y cada uno tiene su tope de 3.
   const perStep = new Map<string, number>();
   for (const [key, fact] of Object.entries(ctx.snapshot().facts)) {
     if (key.startsWith("answer_") && key.endsWith("_p4321")) perStep.set(fact.stepId, (perStep.get(fact.stepId) ?? 0) + 1);
   }
   assert.equal(Math.max(...perStep.values()), 3, "como mucho tres preguntas del proceso por paso (el tope)");
   assert.equal(perStep.get("s1"), 3);
+  assert.equal(perStep.get("s2"), 3);
   assert.ok(questions.includes("¿cuál?"), "y la pregunta del modelo antes de fallar el paso sigue disponible");
 });
 

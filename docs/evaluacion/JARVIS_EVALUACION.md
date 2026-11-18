@@ -299,7 +299,7 @@ Ordenadas por retorno esperado. Las tres primeras son de configuración o de muy
 ### N4. Cortar por código las repeticiones que el modelo no corrige
 - **Qué:** tres cortes deterministas, todos con datos que el motor ya tiene:
   1. **Misma huella tras un bloqueo:** si el generador devuelve los mismos argumentos que acaban de bloquearse, no gastar otra vuelta de D1 y D2. Fallar el paso en ese momento, o dejar de ofrecer esa herramienta en el paso.
-  2. **Ítem reescrito idéntico:** si tras un fallo `pending` devuelve el mismo texto del ítem que falló, no hay información nueva. Tratarlo como abandonado en lugar de correr otro paso igual.
+  2. **Ítem reescrito idéntico:** si tras un fallo `pending` devuelve el mismo texto del ítem que falló (igualdad estricta normalizada), no hay información nueva. Cerrar la tarea (`no_alternatives`) en lugar de correr otro paso igual o abandonarlo.
   3. **Mismos argumentos tras un rechazo del usuario sin instrucción:** no volver a pedir la misma confirmación.
 - **Evidencia:** `loop_blocked` es el segundo estado más frecuente (72 de 295 llamadas). En la traza de «Get-ChildItem C:\Windows…» el modelo generó 6 veces seguidas `list_directory {depth: 2}`, a lo largo de 3 pasos con la misma instrucción: 30 consultas y 28,7 s para una tarea que estaba perdida desde la segunda llamada.
 - **Beneficio:** las tareas que van a fallar fallan en 5 s en lugar de 30, y el usuario recibe antes la pregunta o el aviso.

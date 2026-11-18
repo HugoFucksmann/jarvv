@@ -27,12 +27,11 @@ test("un paso que termina bien quita su ítem; al vaciarse hay que confirmar con
   assert.deepEqual(list.pending, ["Guardar el archivo notas.md"]);
   list.completeHead();
   assert.equal(list.isEmpty, true);
-  assert.equal(list.hasAbandoned, false);
   list.askModelToConfirm();
   assert.equal(list.needsModel, true);
 });
 
-test("un fallo con otros ítems detrás: el primero reescribe; al `maxItemFailures`-ésimo seguido se abandona y se sigue con el resto", () => {
+test("un fallo con otros ítems detrás: el primero reescribe; al `maxItemFailures`-ésimo seguido cierra (`exhausted`) y nunca abandona al resto", () => {
   const list = new ReactiveList();
   list.applyModelList(["Leer un archivo imposible", "Guardar lo obtenido"], false);
   list.modelAnswered();
@@ -41,18 +40,18 @@ test("un fallo con otros ítems detrás: el primero reescribe; al `maxItemFailur
     assert.equal(list.needsModel, true, "tras un fallo se consulta al modelo para reescribir el ítem");
     list.modelAnswered();
   }
-  assert.equal(list.failHead(), "abandoned");
-  assert.deepEqual(list.pending, ["Guardar lo obtenido"]);
-  assert.equal(list.hasAbandoned, true);
-  assert.equal(list.needsModel, false, "abandonar no consulta al modelo: el resto de la lista ya está");
+  assert.equal(list.failHead(), "exhausted");
+  assert.deepEqual(list.pending, ["Leer un archivo imposible", "Guardar lo obtenido"], "no avanza al segundo ítem ni lo abandona");
 });
 
-test("un ítem sin nadie detrás no se abandona por fallos: sigue pidiendo reescritura", () => {
+test("un ítem sin nadie detrás también corta al `maxItemFailures`-ésimo fallo (`exhausted`: 2 intentos, no 3)", () => {
   const list = new ReactiveList();
   list.seed(["Único ítem"]);
-  for (let i = 0; i < BUDGET.maxItemFailures + 2; i++) assert.equal(list.failHead(), "rewrite");
+  for (let i = 1; i < BUDGET.maxItemFailures; i++) {
+    assert.equal(list.failHead(), "rewrite");
+  }
+  assert.equal(list.failHead(), "exhausted");
   assert.deepEqual(list.pending, ["Único ítem"]);
-  assert.equal(list.hasAbandoned, false);
 });
 
 test("completar un ítem reinicia la cuenta de fallos seguidos", () => {
@@ -68,23 +67,65 @@ test("el modelo no vuelve a agregar un ítem ya cumplido", () => {
   list.applyModelList(["Crear la carpeta docs", "Guardar el archivo notas.md"], false);
   list.completeHead();
   list.completeHead();
-  list.applyModelList(["Crear la carpeta docs"], false);
+  assert.equal(list.applyModelList(["Crear la carpeta docs"], false), "accepted");
   assert.equal(list.isEmpty, true);
 });
 
-test("`applyModelDone` con ítems detrás: siguen, y el de adelante queda abandonado", () => {
+test("`applyModelDone` con ítems pendientes tras fallo se rechaza sin abandonar ni avanzar al segundo ítem", () => {
   const list = new ReactiveList();
   list.applyModelList(["Primero", "Segundo distinto"], false);
-  list.applyModelDone();
-  assert.deepEqual(list.pending, ["Segundo distinto"]);
-  assert.equal(list.hasAbandoned, true);
+  assert.equal(list.failHead(), "rewrite");
+  assert.equal(list.applyModelDone(), "rejected");
+  assert.deepEqual(list.pending, ["Primero", "Segundo distinto"]);
 });
 
-test("`applyModelDone` con la lista ya vacía no abandona nada", () => {
+test("`applyModelDone` con la lista ya vacía (inicio o confirmación D5) se acepta sin error", () => {
   const list = new ReactiveList();
-  list.applyModelDone();
+  assert.equal(list.applyModelDone(), "accepted");
   assert.equal(list.isEmpty, true);
-  assert.equal(list.hasAbandoned, false);
+
+  list.applyModelList(["Paso único"], false);
+  list.completeHead();
+  list.askModelToConfirm();
+  assert.equal(list.applyModelDone(), "accepted");
+  assert.equal(list.isEmpty, true);
+});
+
+test("tras un fallo, `applyModelList` corta con `identical_rewrite` solo ante igualdad estricta normalizada, no por `sameItem`", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Leer archivo datos.json", "Guardar resumen"], false);
+  assert.equal(list.failHead(), "rewrite");
+  // Igualdad estricta normalizada (cambia mayúsculas, tildes y puntuación) -> corta.
+  assert.equal(list.applyModelList(["leer archivo datos json!", "Guardar resumen"], false), "identical_rewrite");
+  assert.deepEqual(list.pending, ["Leer archivo datos.json", "Guardar resumen"]);
+
+  // Texto con diferencia real aunque `sameItem` los considere similares -> se acepta y conserva el posterior.
+  assert.equal(list.applyModelList(["Leer archivo datos.json en Documentos"], false), "accepted");
+  assert.deepEqual(list.pending, ["Leer archivo datos.json en Documentos", "Guardar resumen"]);
+});
+
+test("tras un fallo, `applyModelList` con solo ítems ya cumplidos devuelve `no_replacement` y no vacía ni salta ítems", () => {
+  const single = new ReactiveList();
+  single.applyModelList(["Crear A", "Leer B"], false);
+  single.completeHead();
+  assert.equal(single.failHead(), "rewrite");
+  assert.equal(single.applyModelList(["Crear A"], false), "no_replacement");
+  assert.deepEqual(single.pending, ["Leer B"]);
+
+  const multi = new ReactiveList();
+  multi.applyModelList(["Crear A", "Leer B", "Escribir C"], false);
+  multi.completeHead();
+  assert.equal(multi.failHead(), "rewrite");
+  assert.equal(multi.applyModelList(["Crear A"], false), "no_replacement");
+  assert.deepEqual(multi.pending, ["Leer B", "Escribir C"]);
+});
+
+test("guarda de texto vacío: ítems sin caracteres alfanuméricos ASCII no colisionan como reescritura idéntica", async () => {
+  const { sameNormalizedText } = await import("../src/core/engine/pendingList.ts");
+  assert.equal(sameNormalizedText("", ""), false);
+  assert.equal(sameNormalizedText("!!!", "???"), false);
+  assert.equal(sameNormalizedText("你好", "世界"), false);
+  assert.equal(sameNormalizedText("Leer A.txt", "leer a txt"), true);
 });
 
 test("reapertura: si D5 dice con seguridad que falta algo y la lista queda vacía solo por parecerse a lo cumplido, se ejecuta lo propuesto, hasta MAX_REOPENS veces", () => {

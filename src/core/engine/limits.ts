@@ -58,13 +58,13 @@ export function limitValues(): Record<LimitId, number> {
 /** Pasos de la tarea (los `failed` cuentan): al llegar, la tarea cierra `max_steps`. */
 export const stepsExhausted = (ctx: TaskContext): boolean => ctx.find("steps", {}).length >= BUDGET.maxSteps;
 
-/** Escalaciones (pasos `failed`) por ENCIMA del tope: el reactivo cierra `no_alternatives`. */
+/** Escalaciones (pasos `failed`) por ENCIMA del tope (red de seguridad global): el reactivo cierra `no_alternatives`. */
 export const escalationsExceeded = (ctx: TaskContext): boolean => ctx.escalations() > BUDGET.maxEscalations;
 
 /** Replans hechos al tope: el deliberativo cierra `replans_exhausted`. */
 export const replansExhausted = (ctx: TaskContext): boolean => ctx.replansDone() >= BUDGET.maxReplans;
 
-/** Pasos fallidos seguidos sobre un mismo ítem al tope: el reactivo lo abandona si quedan otros. */
+/** Pasos fallidos seguidos sobre un mismo ítem al tope: el reactivo cierra `no_alternatives` (un ítem nunca se abandona). */
 export const itemFailuresReached = (failures: number): boolean => failures >= BUDGET.maxItemFailures;
 
 // ───────────────────────── Topes del paso ─────────────────────────

@@ -34,8 +34,8 @@ export const BUDGET = {
   // Reintentos y fallos seguidos: todos en 2 (un intento y un reintento); los topes de pasos y llamadas, ajustados al uso real.
   maxSteps: 20,
   maxReplans: 3,
-  maxEscalations: 2,
-  /** Pasos fallidos seguidos sobre el mismo ítem de la lista antes de abandonarlo (si quedan otros): ver `runReactive`. */
+  maxEscalations: 6,
+  /** Pasos fallidos seguidos sobre el mismo ítem de la lista antes de cerrar la tarea (`no_alternatives`): ver `runReactive`. */
   maxItemFailures: 2,
   /** Ejecuciones por paso: llamadas que llegaron a la herramienta (lo que cuesta de verdad). Ver `engine/limits.ts`. */
   maxCallsPerStep: 6,

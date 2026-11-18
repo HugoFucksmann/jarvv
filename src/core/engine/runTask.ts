@@ -6,10 +6,11 @@
  *
  * Reactivo: cada vuelta es un paso nuevo cuya instrucción es el primer pendiente de una lista que mantiene el código
  * (`pendingList.ts`; el modelo la genera al empezar y se le consulta de nuevo solo tras un fallo o al vaciarse). Un paso que
- * termina bien quita su ítem; un ítem con `BUDGET.maxItemFailures` pasos fallidos seguidos se abandona si quedan otros, y la tarea
- * cierra `no_alternatives` (parcial) cuando se vacía. Al terminar bien el último ítem, Decisión 5 (`completion.ts`) puede cerrar `completed` sin consultar al LLM. Una lista vacía confirmada por el modelo cierra `completed` o
+ * termina bien quita su ítem; un ítem nunca se abandona: al alcanzar `BUDGET.maxItemFailures` pasos fallidos seguidos, si
+ * `pending` devuelve `done` o solo ítems ya cumplidos tras un fallo, o si repite exactamente el texto normalizado del ítem
+ * fallido, la tarea cierra `no_alternatives` (`partial` si hubo efectos o llamadas aprobadas, `failed` si no). Al terminar bien el último ítem, Decisión 5 (`completion.ts`) puede cerrar `completed` sin consultar al LLM. Una lista vacía confirmada por el modelo cierra `completed` o
  * `no_alternatives`, según `canFinish()`; `max_steps` al llegar a `BUDGET.maxSteps` pasos (los `failed` cuentan); un paso `failed`
- * es una escalación: al tercero, `no_alternatives`.
+ * es una escalación: por encima de `BUDGET.maxEscalations` (red de seguridad global), `no_alternatives`.
  *
  * Deliberativo: plan inicial (LLM 1) y confirmación del usuario. Rechazarlo con instrucción da un plan `user_feedback`
  * (sin tope) y se vuelve a pedir la confirmación; si ese plan es inválido se conserva el vigente y se vuelve a pedir;
@@ -75,9 +76,9 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   // fallo (reescribir el ítem) o al vaciarse (confirmar que no falta nada). Acá queda el flujo: qué consultar y cuándo cerrar.
   const list = new ReactiveList();
 
-  // Cierre con la lista vacía: abandonar un ítem deja la tarea incompleta; si no, decide `canFinish()`.
+  // Cierre con la lista vacía (inicio o confirmación D5): decide `canFinish()`.
   const finishEmpty = (closure: "completed" | "no_alternatives" | null): Closing =>
-    list.hasAbandoned || closure !== "completed" ? stop("no_alternatives") : COMPLETED;
+    closure !== "completed" ? stop("no_alternatives") : COMPLETED;
 
   // D0: una consulta de decisión sobre la solicitud antes de `pending`. Charla: sin llamadas, la tarea cierra completada y la respuesta final contesta (hoy cuesta
   // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o una respuesta de D0 que no sirve (inválida o desborde): el flujo de siempre. Con el modelo de decisión no disponible rige la pausa (`queryModel`) y, agotada, la tarea cierra.
@@ -107,10 +108,12 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
       const next = await generatePending(env, list.pending);
       switch (next.kind) {
         case "next":
-          list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW);
+          if (list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW) !== "accepted") {
+            return stop("no_alternatives");
+          }
           break;
         case "done":
-          list.applyModelDone();
+          if (list.applyModelDone() === "rejected") return stop("no_alternatives");
           if (list.isEmpty) return finishEmpty(next.closure);
           break;
         case "close":
@@ -127,9 +130,8 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
       case "completed": {
         list.completeHead();
         if (list.isEmpty) {
-          // Hecho todo lo previsto: si se abandonó algo, la tarea es parcial; si no, Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
+          // Hecho todo lo previsto: Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
           // y, si no lo asegura, se confirma con el LLM que no falta nada.
-          if (list.hasAbandoned) return stop("no_alternatives");
           const completion = await confirmCompletion(env);
           if (completion.kind === "complete") return COMPLETED;
           if (completion.kind === "cancelled") return CANCELLED;
@@ -139,9 +141,9 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
         continue;
       }
       case "failed":
-        // Un paso `failed` es una escalación; el tercero agota la recuperación.
+        // Red de seguridad global (`BUDGET.maxEscalations`); antes de eso, `maxItemFailures` seguidos sobre el mismo ítem cierran la tarea.
         if (escalationsExceeded(ctx)) return stop("no_alternatives");
-        list.failHead(); // abandona el ítem si agotó sus intentos y quedan otros; si no, se consulta al modelo para reescribirlo
+        if (list.failHead() === "exhausted") return stop("no_alternatives");
         continue;
       case "close":
         return stop(outcome.stopReason);

@@ -7,7 +7,7 @@
  * y volviera a agregar los ya cumplidos.
  *
  * Cuando el modelo sí devuelve una lista (tras un fallo o al vaciarse), `reconcileList` la ajusta con tres reglas:
- *  - el modelo no vuelve a agregar un ítem ya cumplido o abandonado (`settled`);
+ *  - el modelo no vuelve a agregar un ítem ya cumplido (`settled`);
  *  - un ítem repetido seguido es un duplicado, pero uno que vuelve después de otro distinto es un pedido ("corré las pruebas, cambiá X y volvé a
  *    correrlas"): se conserva (RC-21);
  *  - los ítems que venían después del reescrito no se pierden: si la lista nueva no los cubre, se agregan al final. Son pendientes que el código ya
@@ -39,6 +39,12 @@ function proper(text: string): Set<string> {
 
 const normalized = (s: string): string => fold(s).replace(/[^a-z0-9]+/g, " ").trim();
 
+/** Igualdad estricta normalizada entre dos ítems (con guarda para no colisionar textos vacíos). */
+export function sameNormalizedText(a: string, b: string): boolean {
+  const na = normalized(a);
+  return na !== "" && na === normalized(b);
+}
+
 /** ¿Dos ítems piden lo mismo? */
 export function sameItem(a: string, b: string): boolean {
   const sa = stems(a);
@@ -55,7 +61,7 @@ export function sameItem(a: string, b: string): boolean {
 }
 
 /**
- * La lista que sigue tras una consulta al modelo: `modelList` sin lo ya cumplido o abandonado (`settled`) ni duplicados seguidos, más los ítems que
+ * La lista que sigue tras una consulta al modelo: `modelList` sin lo ya cumplido (`settled`) ni duplicados seguidos, más los ítems que
  * venían después del primero de `previous` y la lista nueva no cubre.
  */
 export function reconcileList(modelList: readonly string[], previous: readonly string[], settled: readonly string[]): string[] {

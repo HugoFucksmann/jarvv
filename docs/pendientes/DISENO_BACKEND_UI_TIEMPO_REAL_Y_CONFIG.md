@@ -78,7 +78,7 @@ Requiere instrumentar puntos concretos del motor (`runTask.ts`, `stepLoop.ts`, `
 
 2. **Estado reactivo oculto y resultado de D0/hilo (`reactiveState` en `TaskRuntime` / `TaskDto`)**
    - **Qué vive solo como variables locales en `runTask.ts`**:
-     - En `runReactive` (`src/core/engine/runTask.ts:79-85`): `pending: string[]` (cola de pendientes restante), `settled: string[]` (ítems cumplidos/abandonados), `abandoned: number`, `headFailures: number`, `reopens: number`.
+     - En `ReactiveList` (`src/core/engine/reactiveList.ts`): `pending: string[]` (cola de pendientes restante), `done: string[]` (ítems cumplidos), `headFailures: number`, `failedHead: string | null`, `reopens: number`.
      - Resultado de D0 (`classifyRequest` en `src/core/engine/classify.ts`): si clasificó como `chat`, `single`, `multi` o degradó por fallo, más `probabilities` y `multi`.
      - Resultado de `detectContinuation` (`follows` vs umbral `CONTINUATION_APPROVE`), incluso cuando quedó por debajo y no generó entrada en `recalled`.
      - Última probabilidad de D5 (`env.completion.last` en `src/core/engine/env.ts` y `completion.ts`).
@@ -153,7 +153,7 @@ Hoy la UI abre `EventSource("/api/jarvis/events")`, recibe `created` / `change` 
    - Puede ir en el mismo `/events` (bajo opt-in `?include=trace` para no enviar payload extra a Telegram o clientes simples) o en un stream específico `/api/jarvis/tasks/:taskId/trace/events`.
 
 3. **Evento SSE para cola `pending` reactiva (`reactive_pending`)**
-   - Emitir `{ taskId, pending, settled, abandoned }` cuando `generatePending` devuelve lista o `runReactive` consume/abandona un ítem (`runTask.ts:122-183`). Da visibilidad inmediata de cuántos pasos faltan en modo reactivo.
+   - Emitir `{ taskId, pending, done }` cuando `generatePending` devuelve lista o `runReactive` completa un ítem (`runTask.ts`). Da visibilidad inmediata de cuántos pasos faltan en modo reactivo.
 
 ### 2.3 Nivel 3 — Complejidad Alta (streaming continuo de modelos y stdout de terminal)
 
@@ -287,7 +287,7 @@ Cambios puntuales en `services.ts`, `callRunner.ts`, `config.ts`, `jarvisRouter.
 |---|---|---|---|---|
 | **1 (Quick win)** | Convertir `blacklist` y `guardScope.relativeBases` en lectura viva + `ConfigManager.onChange` (warmup modelos, retención, SSE keepalive y evento `config`) | Config | **Baja** | `src/core/config.ts`, `src/core/contracts.ts`, `src/core/engine/services.ts`, `src/core/engine/callRunner.ts`, `src/core/policy/guard.ts`, `src/server/jarvisRouter.ts`, `server.tsx` |
 | **2 (Quick win)** | Exponer diagnósticos de `TaskManager`, estado de servidores MCP, `GET /tasks/:id` ligero y deltas SSE completos (`snapshot` inicial + `TaskSummary`) | Info + Tiempo real | **Baja** | `src/core/tasks.ts`, `src/core/mcp/discovery.ts`, `src/core/engine/limits.ts`, `src/server/jarvisRouter.ts` |
-| **3** | Añadir `activity`, estado reactivo (`pending`/`settled`/`abandoned`), resultado de D0/hilo y `id`/`source` en `PendingQuestion` dentro de `TaskRuntime` + evento SSE `activity` | Info + Tiempo real | **Media** | `src/core/engine/runtime.ts`, `src/core/engine/runTask.ts`, `src/core/engine/stepLoop.ts`, `src/core/engine/callRunner.ts`, `src/core/engine/classify.ts`, `src/core/tasks.ts` |
+| **3** | Añadir `activity`, estado reactivo (`pending`/`done`), resultado de D0/hilo y `id`/`source` en `PendingQuestion` dentro de `TaskRuntime` + evento SSE `activity` | Info + Tiempo real | **Media** | `src/core/engine/runtime.ts`, `src/core/engine/runTask.ts`, `src/core/engine/stepLoop.ts`, `src/core/engine/callRunner.ts`, `src/core/engine/classify.ts`, `src/core/tasks.ts` |
 | **4** | Traza en vivo (`TaskTraceRecorder.liveSnapshot()` + `?live=1` en `GET /trace` y evento SSE opt-in) | Info + Tiempo real | **Media-Alta** | `src/core/trace/recorder.ts`, `src/core/trace/format.ts`, `src/core/tasks.ts`, `src/server/jarvisRouter.ts` |
 | **5** | Recarga desde disco de `jarvis-config.json` (`reloadFromDisk` / watcher) + reinicio seguro de MCPs y Telegram cuando `activeCount === 0` | Config | **Media** | `src/core/config.ts`, `src/core/mcp/transport.ts`, `src/core/mcp/discovery.ts`, `src/tools/terminal/terminalProvider.ts`, `server.tsx` |
 | **6** | Streaming de salida de `run_command` (`onProgress` throttled en `TerminalProvider`) y streaming de tokens en `QwenEngine` (`final_response` / `question`) | Tiempo real | **Alta** | `src/tools/terminal/terminalProvider.ts`, `src/core/tools/provider.ts`, `src/core/models/transport.ts`, `src/core/models/qwen.ts`, `src/core/engine/finalize.ts`, `src/server/jarvisRouter.ts` |

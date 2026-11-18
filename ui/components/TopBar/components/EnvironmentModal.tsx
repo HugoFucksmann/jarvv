@@ -31,12 +31,12 @@ const LIMIT_LABELS: Record<keyof EngineLimits, { label: string; desc: string }> 
     desc: "Límite de nuevos planes automáticos tras fallas consecutivas.",
   },
   maxEscalations: {
-    label: "Escalaciones de modelo",
-    desc: "Límite de cambios de estrategia o nivel de modelo.",
+    label: "Tope de pasos fallidos",
+    desc: "Tope global de seguridad de pasos fallidos en modo reactivo antes de cerrar la tarea.",
   },
   maxItemFailures: {
     label: "Fallos por ítem",
-    desc: "Intentos fallidos seguidos sobre una misma acción antes de abandonarla.",
+    desc: "Intentos fallidos seguidos sobre una misma acción antes de cerrar la tarea sin alternativas.",
   },
   maxRepeatsPerStep: {
     label: "Repeticiones en bucle",

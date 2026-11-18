@@ -43,12 +43,13 @@ function makeCtx(id: string, request: string) {
   );
 }
 
-test("reactivo: abandona un ítem tras agotar sus fallos si quedan otros ítems y cierra partial (no_alternatives)", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-crit-"));
+test("reactivo: un ítem nunca se abandona con otros detrás; al 2.º fallo cierra no_alternatives (failed sin efectos, partial con efectos previos)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-no-abandon-"));
   try {
+    // 1) Sin efectos previos: ítem 1 falla 2 veces (con reescritura distinta), ítem 2 no se ejecuta y cierra failed.
     let pendingCall = 0;
     let argCall = 0;
-    const ctx = makeCtx("task_abandon", "Primero fallido, segundo bien");
+    const ctx = makeCtx("task_no_abandon_fail", "Primero fallido, segundo dependiente");
     const fileTools = ["read_file", "write_file"].map(tool);
     const server: IMCPServer = {
       name: "desktop_commander",
@@ -95,9 +96,9 @@ test("reactivo: abandona un ítem tras agotar sus fallos si quedan otros ítems 
           throw new Error("no se usa");
         },
         generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
-        generateFinalFromView: async () => ({ response: "Parcial.", rawInput: "", rawOutput: "" }),
+        generateFinalFromView: async () => ({ response: "Fallida.", rawInput: "", rawOutput: "" }),
       },
-      vault: createRefVault({ dir: path.join(dir, "refs") }),
+      vault: createRefVault({ dir: path.join(dir, "refs1") }),
       guardScope: { protectedDirs: [], relativeBases: [dir] },
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
@@ -105,11 +106,42 @@ test("reactivo: abandona un ítem tras agotar sus fallos si quedan otros ítems 
       approvalTiers: () => false,
       disk: FAKE_DISK,
     };
-    const rt = new TaskRuntime();
-    await runTask(ctx, rt, deps);
+    await runTask(ctx, new TaskRuntime(), deps);
     assert.equal(ctx.task.stopReason, "no_alternatives");
-    assert.equal(ctx.task.state, "partial");
-    assert.ok(ctx.find("calls", { tool: "write_file", verdict: "approved" }).length === 1);
+    assert.equal(ctx.task.state, "failed");
+    assert.equal(ctx.find("steps", { state: "failed" }).length, 2);
+    assert.equal(ctx.find("calls", { tool: "write_file" }).length, 0, "el segundo ítem dependiente nunca se ejecuta");
+
+    // 2) Con efecto previo (paso 0 aprobado), luego ítem 1 falla 2 veces con ítem 2 detrás -> partial (no_alternatives), ítem 2 no corre.
+    let p2 = 0;
+    const ctxPartial = makeCtx("task_no_abandon_partial", "Crear base, leer imposible, escribir dependiente");
+    await runTask(ctxPartial, new TaskRuntime(), {
+      ...deps,
+      decision: {
+        ...deps.decision,
+        chooseTool: async (inp) => ({
+          action: "tool",
+          tool: inp.tools.find((t) => t.name === (inp.step?.instruction?.includes("Leer") ? "read_file" : "write_file"))!,
+          probabilities: {},
+          rawInput: "",
+          rawOutput: "",
+          shortcut: true,
+        }),
+      },
+      llm: {
+        ...deps.llm,
+        generatePendingFromView: async () => {
+          p2++;
+          if (p2 === 1) return { pending: ["Escribir archivo inicial", "Leer imposible", "Escribir segundo archivo"], rawInput: "", rawOutput: "" };
+          return { pending: ["Leer imposible alternativa"], rawInput: "", rawOutput: "" };
+        },
+      },
+      vault: createRefVault({ dir: path.join(dir, "refs2") }),
+    });
+    assert.equal(ctxPartial.task.stopReason, "no_alternatives");
+    assert.equal(ctxPartial.task.state, "partial");
+    assert.equal(ctxPartial.find("calls", { tool: "write_file", verdict: "approved" }).length, 1, "solo el efecto previo; el segundo dependiente no corre");
+    assert.equal(ctxPartial.find("steps", { state: "failed" }).length, 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -186,11 +218,12 @@ test("reactivo: MAX_REOPENS = 2 detiene reaperturas infinitas provocadas por D5"
   }
 });
 
-test("reactivo: tercera escalación (escalationsExceeded) cierra no_alternatives y respuestas largas de askUser guardan ref + fact atómico", async () => {
+test("reactivo: un solo ítem cierra no_alternatives al 2.º fallo y respuestas largas de askUser guardan ref + fact atómico", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-esc-"));
   try {
     let askCount = 0;
-    const ctx = makeCtx("task_esc", "Falla tres veces y pregunta al usuario");
+    let pendingN = 0;
+    const ctx = makeCtx("task_esc", "Falla dos veces y pregunta al usuario");
     const fileTools = [tool("write_file")];
     const server: IMCPServer = {
       name: "desktop_commander",
@@ -212,7 +245,7 @@ test("reactivo: tercera escalación (escalationsExceeded) cierra no_alternatives
       decision: {
         chooseRoute: async () => ({ action: "route", route: "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
         chooseTool: async () => ({ action: "tool", tool: fileTools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
-        // info_missing dispara askUser en el primer paso; luego args_invalid hasta escalar
+        // info_missing dispara askUser en el primer paso; luego args_invalid hasta cerrar en el 2.º fallo del ítem
         reviewArgs: async () =>
           askCount === 0
             ? { review: "info_missing", probabilities: { info_missing: 0.9 } as Record<string, number>, rawInput: "", rawOutput: "" }
@@ -221,7 +254,10 @@ test("reactivo: tercera escalación (escalationsExceeded) cierra no_alternatives
         checkCompletion: async () => ({ requestComplete: 0, rawInput: "", rawOutput: "" }),
       },
       llm: {
-        generatePendingFromView: async () => ({ pending: ["Escribir algo"], rawInput: "", rawOutput: "" }),
+        generatePendingFromView: async () => {
+          pendingN++;
+          return { pending: [pendingN === 1 ? "Escribir algo" : "Escribir algo con otra ruta"], rawInput: "", rawOutput: "" };
+        },
         generateArgumentsFromView: async () => ({
           args: { path: `C:\\Users\\Ana\\x${argN++}.txt`, content: "hola", mode: "rewrite" },
           rawInput: "",
@@ -254,7 +290,7 @@ test("reactivo: tercera escalación (escalationsExceeded) cierra no_alternatives
     await runTask(ctx, rt, deps);
     assert.equal(ctx.task.stopReason, "no_alternatives");
     assert.equal(ctx.task.state, "failed");
-    assert.equal(ctx.find("steps", { state: "failed" }).length, 3);
+    assert.equal(ctx.find("steps", { state: "failed" }).length, 2, "un ítem único pasa de 3 a 2 intentos");
     assert.ok(ctx.find("refs", {}).length >= 1, "la respuesta larga del usuario creó una ref");
     assert.ok(Object.keys(ctx.snapshot().facts).some((k) => k.startsWith("answer_s1_")));
   } finally {
@@ -364,7 +400,7 @@ test("callRunner: allowedDirectories revisa args.paths[] y omite isUrl en read_f
       },
       llm: {
         ...deps.llm,
-        generatePendingFromView: async () => ({ pending: ["Probar comandos"], rawInput: "", rawOutput: "" }),
+        generatePendingFromView: async () => ({ pending: [seq === 0 ? "Probar comandos" : "Ejecutar Get-Date en terminal"], rawInput: "", rawOutput: "" }),
         generateArgumentsFromView: async () => {
           const n = seq++;
           if (n === 0) return { args: { command: "Set-Content blockedcmd ok" }, rawInput: "", rawOutput: "", timing: TIMING };
@@ -814,3 +850,251 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("reactivo: si pending tras un fallo devuelve solo un ítem ya cumplido, no cierra completed (cierra partial no_alternatives)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-empty-fail-"));
+  try {
+    let pendingCall = 0;
+    const ctx = makeCtx("task_empty_after_fail", "Escribir primero y luego leer imposible");
+    const fileTools = ["read_file", "write_file"].map(tool);
+    const server: IMCPServer = {
+      name: "desktop_commander",
+      version: "t",
+      listTools: async () => fileTools,
+      callTool: async (t) => ({ content: [{ type: "text", text: t === "write_file" ? "ok" : "error" }], ...(t === "read_file" ? { isError: true } : {}) }),
+      isConnected: () => true,
+      reconnect: async () => undefined,
+    };
+    const deps: EngineDeps = {
+      discovery: {
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
+        getUnavailableServers: () => ({}),
+        validateToolExists: async () => true,
+        notifyTaskEnd: async () => undefined,
+      },
+      decision: {
+        chooseRoute: async () => ({ action: "route", route: "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        chooseTool: async (inp) => ({
+          action: "tool",
+          tool: inp.tools.find((t) => t.name === (inp.step?.instruction?.includes("Escribir") ? "write_file" : "read_file"))!,
+          probabilities: {},
+          rawInput: "",
+          rawOutput: "",
+          shortcut: true,
+        }),
+        reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
+        verifyResult: async () => ({ answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" }),
+        checkCompletion: async () => ({ requestComplete: 0.99, rawInput: "", rawOutput: "" }),
+      },
+      llm: {
+        generatePendingFromView: async () => {
+          pendingCall++;
+          if (pendingCall === 1) return { pending: ["Escribir primero", "Leer imposible"], rawInput: "", rawOutput: "" };
+          // Tras fallar "Leer imposible", el modelo devuelve únicamente el ítem ya cumplido "Escribir primero".
+          return { pending: ["Escribir primero"], rawInput: "", rawOutput: "" };
+        },
+        generateArgumentsFromView: async (inp) =>
+          inp.tool.name === "write_file"
+            ? { args: { path: "C:\\Users\\Ana\\primero.txt", content: "ok", mode: "rewrite" }, rawInput: "", rawOutput: "", timing: TIMING }
+            : { args: { path: "C:\\Users\\Ana\\imposible.txt" }, rawInput: "", rawOutput: "", timing: TIMING },
+        generatePlanFromView: async () => {
+          throw new Error("no se usa");
+        },
+        generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
+        generateFinalFromView: async () => ({ response: "Parcial.", rawInput: "", rawOutput: "" }),
+      },
+      vault: createRefVault({ dir: path.join(dir, "refs") }),
+      guardScope: { protectedDirs: [], relativeBases: [dir] },
+      blacklist: EMPTY_BLACKLIST,
+      environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
+      autoMode: () => true,
+      approvalTiers: () => false,
+      disk: FAKE_DISK,
+    };
+    await runTask(ctx, new TaskRuntime(), deps);
+    assert.equal(ctx.task.stopReason, "no_alternatives");
+    assert.equal(ctx.task.state, "partial");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reactivo: si pending repite exactamente el texto normalizado tras fallo o responde vacío (done) con ítems detrás, cierra sin ejecutar más pasos", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-cut-"));
+  try {
+    const fileTools = ["read_file", "write_file"].map(tool);
+    const server: IMCPServer = {
+      name: "desktop_commander",
+      version: "t",
+      listTools: async () => fileTools,
+      callTool: async () => ({ content: [{ type: "text", text: "error" }], isError: true }),
+      isConnected: () => true,
+      reconnect: async () => undefined,
+    };
+    const mkDeps = (pendingFn: (callN: number) => string[], vaultSub: string): EngineDeps => {
+      let n = 0;
+      let argN = 0;
+      return {
+        discovery: {
+          getServer: (name) => (name === "desktop_commander" ? server : undefined),
+          getDiscoveredTools: async (name) => (name === "desktop_commander" ? fileTools : []),
+          getUnavailableServers: () => ({}),
+          validateToolExists: async () => true,
+          notifyTaskEnd: async () => undefined,
+        },
+        decision: {
+          chooseRoute: async () => ({ action: "route", route: "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+          chooseTool: async (inp) => ({ action: "tool", tool: inp.tools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+          reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
+          verifyResult: async () => ({ answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" }),
+          checkCompletion: async () => ({ requestComplete: 0, rawInput: "", rawOutput: "" }),
+        },
+        llm: {
+          generatePendingFromView: async () => ({ pending: pendingFn(n++), rawInput: "", rawOutput: "" }),
+          generateArgumentsFromView: async () => ({ args: { path: `C:\\Users\\Ana\\f_${argN++}.txt` }, rawInput: "", rawOutput: "", timing: TIMING }),
+          generatePlanFromView: async () => {
+            throw new Error("no se usa");
+          },
+          generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
+          generateFinalFromView: async () => ({ response: "No se pudo.", rawInput: "", rawOutput: "" }),
+        },
+        vault: createRefVault({ dir: path.join(dir, vaultSub) }),
+        guardScope: { protectedDirs: [], relativeBases: [dir] },
+        blacklist: EMPTY_BLACKLIST,
+        environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
+        autoMode: () => true,
+        approvalTiers: () => false,
+        disk: FAKE_DISK,
+      };
+    };
+
+    // 1) Reescritura idéntica (cambia mayúsculas/puntuación): no ejecuta 2.º paso y cierra failed (1 paso).
+    const ctxSame = makeCtx("task_same_text", "Leer A y escribir B");
+    await runTask(
+      ctxSame,
+      new TaskRuntime(),
+      mkDeps((i) => (i === 0 ? ["Leer C:\\Users\\Ana\\a.txt", "Escribir B"] : ["leer c users ana a txt!"]), "refs_same"),
+    );
+    assert.equal(ctxSame.task.stopReason, "no_alternatives");
+    assert.equal(ctxSame.task.state, "failed");
+    assert.equal(ctxSame.find("steps", { state: "failed" }).length, 1);
+
+    // 2) pending responde vacío (`done`) habiendo un efecto previo e ítem 2 detrás -> applyModelDone rechaza sin ejecutar ítem 2.
+    let wrote = 0;
+    const partialServer: IMCPServer = {
+      ...server,
+      callTool: async (t) => {
+        if (t === "write_file") {
+          wrote++;
+          return { content: [{ type: "text", text: "ok" }] };
+        }
+        return { content: [{ type: "text", text: "error" }], isError: true };
+      },
+    };
+    const depsDone = mkDeps((i) => (i === 0 ? ["Escribir primero", "Leer imposible", "Escribir dependiente"] : []), "refs_done");
+    const ctxDone = makeCtx("task_done_after_fail", "Escribir, leer imposible, escribir dependiente");
+    await runTask(ctxDone, new TaskRuntime(), {
+      ...depsDone,
+      discovery: { ...depsDone.discovery, getServer: (name) => (name === "desktop_commander" ? partialServer : undefined) },
+      decision: {
+        ...depsDone.decision,
+        chooseTool: async (inp) => ({
+          action: "tool",
+          tool: inp.tools.find((t) => t.name === (inp.step?.instruction?.includes("Escribir") ? "write_file" : "read_file"))!,
+          probabilities: {},
+          rawInput: "",
+          rawOutput: "",
+          shortcut: true,
+        }),
+      },
+      llm: {
+        ...depsDone.llm,
+        generateArgumentsFromView: async (inp) =>
+          inp.tool.name === "write_file"
+            ? { args: { path: "C:\\Users\\Ana\\init.txt", content: "ok", mode: "rewrite" }, rawInput: "", rawOutput: "", timing: TIMING }
+            : { args: { path: "C:\\Users\\Ana\\nope.txt" }, rawInput: "", rawOutput: "", timing: TIMING },
+      },
+    });
+    assert.equal(ctxDone.task.stopReason, "no_alternatives");
+    assert.equal(ctxDone.task.state, "partial");
+    assert.equal(wrote, 1, "el ítem dependiente detrás no se ejecutó tras `done`");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("reactivo: red de seguridad global maxEscalations = 6 corta recién al 7.º paso fallido", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-esc6-"));
+  try {
+    const fileTools = [tool("read_file")];
+    let stepIdx = 0;
+    const server: IMCPServer = {
+      name: "desktop_commander",
+      version: "t",
+      listTools: async () => fileTools,
+      callTool: async (_t, a) => {
+        const fail = String(a.path).includes("fail_");
+        return { content: [{ type: "text", text: fail ? "error" : "ok" }], ...(fail ? { isError: true } : {}) };
+      },
+      isConnected: () => true,
+      reconnect: async () => undefined,
+    };
+    const items = Array.from({ length: 8 }, (_, i) => `Leer C:\\Users\\Ana\\fail_${i}.txt`);
+    let pendingN = 0;
+    const ctx = makeCtx("task_esc6", "Ocho pasos donde cada ítem falla a lo sumo una vez antes de reescribirse");
+    const deps: EngineDeps = {
+      discovery: {
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
+        getUnavailableServers: () => ({}),
+        validateToolExists: async () => true,
+        notifyTaskEnd: async () => undefined,
+      },
+      decision: {
+        chooseRoute: async () => ({ action: "route", route: "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        chooseTool: async () => ({ action: "tool", tool: fileTools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
+        verifyResult: async () => ({ answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" }),
+        checkCompletion: async () => ({ requestComplete: 0.99, rawInput: "", rawOutput: "" }),
+      },
+      llm: {
+        generatePendingFromView: async () => {
+          pendingN++;
+          if (pendingN === 1) return { pending: items, rawInput: "", rawOutput: "" };
+          return { pending: [`Leer C:\\Users\\Ana\\ok_${stepIdx++}.txt`], rawInput: "", rawOutput: "" };
+        },
+        generateArgumentsFromView: async () => {
+          const instr = ctx.current().step?.instruction ?? "";
+          const match = instr.match(/C:\\Users\\Ana\\(?:fail|ok)_\d+\.txt/);
+          return {
+            args: { path: match ? match[0] : "C:\\Users\\Ana\\fail_0.txt" },
+            rawInput: "",
+            rawOutput: "",
+            timing: TIMING,
+          };
+        },
+        generatePlanFromView: async () => {
+          throw new Error("no se usa");
+        },
+        generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
+        generateFinalFromView: async () => ({ response: "Parcial.", rawInput: "", rawOutput: "" }),
+      },
+      vault: createRefVault({ dir: path.join(dir, "refs") }),
+      guardScope: { protectedDirs: [], relativeBases: [dir] },
+      blacklist: EMPTY_BLACKLIST,
+      environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
+      autoMode: () => true,
+      approvalTiers: () => false,
+      disk: FAKE_DISK,
+    };
+    await runTask(ctx, new TaskRuntime(), deps);
+    assert.equal(BUDGET.maxEscalations, 6);
+    assert.equal(ctx.task.stopReason, "no_alternatives");
+    assert.equal(ctx.task.state, "partial");
+    assert.equal(ctx.find("steps", { state: "failed" }).length, 7, "permite hasta 6 fallos entre ítems distintos y corta al 7.º");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
