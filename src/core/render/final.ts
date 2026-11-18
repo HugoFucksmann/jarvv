@@ -9,6 +9,7 @@
  */
 
 import type { CallView, FallbackView, FinalView } from "../ctx/index.ts";
+import { placedPathArg } from "../tools/toolTargets.ts";
 import { FALLBACK_STATE_TEXT, FALLBACK_STOP_TEXT } from "./messages.ts";
 import {
   clipMarked,
@@ -103,7 +104,7 @@ export function renderStatusNote(view: FallbackView, notAchieved: readonly strin
  */
 export function renderPlaceNote(view: FallbackView, request: string): string | null {
   const pathOf = (c: CallView): string | null => {
-    const value = c.tool === "move_file" ? c.args?.destination : c.args?.path;
+    const value = c.args?.[placedPathArg(c.tool)];
     return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
   };
   const approved = new Set(view.effects.filter((c) => c.verdict === "approved").map(pathOf));

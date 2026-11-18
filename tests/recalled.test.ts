@@ -126,7 +126,7 @@ function recallEnv(options: { readonly provider?: MemoryProvider; readonly threa
     ctx,
     runtime: { cancelled: options.cancelled === true },
     memory: options.provider,
-    follow: { thread: options.thread ?? null },
+    state: { thread: options.thread ?? null, lastCompletion: null, llmDown: false },
     deps: { previousTaskId: options.previousTaskId ?? null },
   } as unknown as EngineEnv;
   return { env, ctx };

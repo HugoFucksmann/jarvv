@@ -28,11 +28,11 @@ import { createEngineEnv } from "./env.ts";
 import type { EngineEnv } from "./env.ts";
 import { finalize } from "./finalize.ts";
 import { COMPLETION_INCOMPLETE_BELOW, confirmCompletion } from "./completion.ts";
-import { escalationsExceeded, itemFailuresReached, replansExhausted, stepsExhausted } from "./limits.ts";
+import { escalationsExceeded, replansExhausted, stepsExhausted } from "./limits.ts";
 import type { Closing } from "./finalize.ts";
 import { classifyRequest, detectContinuation } from "./classify.ts";
 import { generatePending } from "./pending.ts";
-import { reconcileList } from "./pendingList.ts";
+import { ReactiveList } from "./reactiveList.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
 import { recordInitialRecalled, recordUserMemory } from "./recalled.ts";
@@ -69,23 +69,15 @@ export async function runTask(ctx: TaskContext, runtime: TaskRuntime, deps: Engi
   }
 }
 
-/** Reaperturas de la lista por tarea cuando Decisión 5 dice con seguridad que falta algo. */
-const MAX_REOPENS = 2;
-
 async function runReactive(env: EngineEnv): Promise<Closing> {
   const { ctx, runtime } = env;
-  // La lista la mantiene el código (ver `pendingList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem,
-  // y solo se consulta al modelo tras un fallo (reescribir el ítem) o al vaciarse (confirmar que no falta nada).
-  let pending: readonly string[] = [];
-  let askModel = true;
-  const settled: string[] = []; // ítems cumplidos o abandonados: el modelo no los vuelve a agregar
-  let abandoned = 0;
-  let headFailures = 0; // pasos fallidos seguidos sobre el ítem de adelante
-  let reopens = 0; // veces que Decisión 5 reabrió la lista tras vaciarla `reconcileList`
+  // La lista la mantiene el código (`reactiveList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem, y solo se consulta al modelo tras un
+  // fallo (reescribir el ítem) o al vaciarse (confirmar que no falta nada). Acá queda el flujo: qué consultar y cuándo cerrar.
+  const list = new ReactiveList();
 
   // Cierre con la lista vacía: abandonar un ítem deja la tarea incompleta; si no, decide `canFinish()`.
   const finishEmpty = (closure: "completed" | "no_alternatives" | null): Closing =>
-    abandoned > 0 || closure !== "completed" ? stop("no_alternatives") : COMPLETED;
+    list.hasAbandoned || closure !== "completed" ? stop("no_alternatives") : COMPLETED;
 
   // D0: una consulta de decisión sobre la solicitud antes de `pending`. Charla: sin llamadas, la tarea cierra completada y la respuesta final contesta (hoy cuesta
   // dos consultas a `pending`). Una acción: la lista es la solicitud literal y el paso la recibe sin reescritura. Varias acciones, o una respuesta de D0 que no sirve (inválida o desborde): el flujo de siempre. Con el modelo de decisión no disponible rige la pausa (`queryModel`) y, agotada, la tarea cierra.
@@ -94,7 +86,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   const continuation = await detectContinuation(env);
   if (continuation.kind === "cancelled") return CANCELLED;
   if (continuation.kind === "close") return stop(continuation.stopReason);
-  env.follow.thread = continuation.previous;
+  env.state.thread = continuation.previous;
   await recordInitialRecalled(env);
   if (runtime.cancelled) return CANCELLED;
   const classification = await classifyRequest(env);
@@ -102,85 +94,54 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
   if (classification.kind === "close") return stop(classification.stopReason);
   const first = classification.first;
   if (first === "chat") return COMPLETED;
-  if (first === "single" && env.follow.thread === null) {
-    pending = [ctx.task.request];
-    askModel = false;
-  }
+  if (first === "single" && env.state.thread === null) list.seed([ctx.task.request]);
 
   for (;;) {
     if (runtime.cancelled) return CANCELLED;
     if (stepsExhausted(ctx)) return stop("max_steps");
 
-    if (askModel) {
-      const previous = pending;
+    if (list.needsModel) {
       // Lo que Decisión 5 dijo justo antes de esta consulta (si fue ella la que la provocó); se consume acá para que no valga en una consulta posterior.
-      const completionBefore = env.completion.last;
-      env.completion.last = null;
-      const next = await generatePending(env, previous);
+      const completionBefore = env.state.lastCompletion;
+      env.state.lastCompletion = null;
+      const next = await generatePending(env, list.pending);
       switch (next.kind) {
-        case "next": {
-          pending = reconcileList(next.list, previous, settled);
-          // Decisión 5 dijo con seguridad que falta algo y pendientes lo propone, pero `reconcileList` lo descartó por parecerse a un ítem ya cumplido (p. ej. un ítem
-          // compuesto «crear la carpeta y luego el archivo» del que solo se hizo la primera parte): cerrar acá sería dar por hecho lo que no se hizo. Se ejecutan los ítems
-          // propuestos que no repiten el texto exacto de uno ya cumplido, como máximo `MAX_REOPENS` veces por tarea.
-          if (pending.length === 0 && next.list.length > 0 && reopens < MAX_REOPENS && completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW) {
-            const fresh = next.list.filter((item) => !settled.includes(item));
-            if (fresh.length > 0) {
-              pending = fresh;
-              reopens++;
-            }
-          }
+        case "next":
+          list.applyModelList(next.list, completionBefore !== null && completionBefore < COMPLETION_INCOMPLETE_BELOW);
           break;
-        }
         case "done":
-          // El modelo dice que no queda nada; si el código tiene ítems detrás del que falló, siguen.
-          pending = reconcileList([], previous, settled);
-          if (previous.length > 0 && pending.length < previous.length) {
-            settled.push(previous[0]);
-            abandoned++;
-          }
-          if (pending.length === 0) return finishEmpty(next.closure);
+          list.applyModelDone();
+          if (list.isEmpty) return finishEmpty(next.closure);
           break;
         case "close":
           return stop(next.stopReason);
         case "cancelled":
           return CANCELLED;
       }
-      if (pending.length === 0) return finishEmpty(ctx.canFinish());
-      askModel = false;
+      if (list.isEmpty) return finishEmpty(ctx.canFinish());
+      list.modelAnswered();
     }
 
-    const head = pending[0];
-    const outcome = await runStep(env, { kind: "reactive", instruction: head });
+    const outcome = await runStep(env, { kind: "reactive", instruction: list.head });
     switch (outcome.kind) {
-      case "completed":
-        settled.push(head);
-        pending = pending.slice(1);
-        headFailures = 0;
-        if (pending.length === 0) {
+      case "completed": {
+        list.completeHead();
+        if (list.isEmpty) {
           // Hecho todo lo previsto: si se abandonó algo, la tarea es parcial; si no, Decisión 5 dice si la solicitud está cumplida (cierra sin llamar al LLM)
           // y, si no lo asegura, se confirma con el LLM que no falta nada.
-          if (abandoned > 0) return stop("no_alternatives");
+          if (list.hasAbandoned) return stop("no_alternatives");
           const completion = await confirmCompletion(env);
           if (completion.kind === "complete") return COMPLETED;
           if (completion.kind === "cancelled") return CANCELLED;
           if (completion.kind === "close") return stop(completion.stopReason);
-          askModel = true;
+          list.askModelToConfirm();
         }
         continue;
+      }
       case "failed":
         // Un paso `failed` es una escalación; el tercero agota la recuperación.
         if (escalationsExceeded(ctx)) return stop("no_alternatives");
-        headFailures++;
-        if (itemFailuresReached(headFailures) && pending.length > 1) {
-          // Salida parcial: el ítem agotó sus intentos y quedan otros (p. ej. guardar lo obtenido): se sigue con el resto.
-          settled.push(head);
-          abandoned++;
-          pending = pending.slice(1);
-          headFailures = 0;
-        } else {
-          askModel = true;
-        }
+        list.failHead(); // abandona el ítem si agotó sus intentos y quedan otros; si no, se consulta al modelo para reescribirlo
         continue;
       case "close":
         return stop(outcome.stopReason);

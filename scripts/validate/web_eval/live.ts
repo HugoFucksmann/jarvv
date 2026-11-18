@@ -6,9 +6,8 @@ import { ConfigManager } from "../../../src/core/config.ts";
 import { DiscoveryEngine } from "../../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../../src/core/mcp/freeSearchMcp.ts";
 import { Decision20Engine } from "../../../src/core/models/decision.ts";
-import { createToolHost } from "../../../src/core/tools/host.ts";
+import { createToolHost, DIRECT_CALL } from "../../../src/core/tools/host.ts";
 import { readToolResult } from "../../../src/core/tools/result.ts";
-import { NULL_SINK } from "../../../src/core/trace/sink.ts";
 import { WEB_DEPENDENCIES, WebSearchProvider } from "../../../src/tools/web/webSearchProvider.ts";
 import { CASES } from "./cases.ts";
 
@@ -23,7 +22,7 @@ const provider = new WebSearchProvider({ judge: () => decision });
 let hit = 0, n = 0, bad = 0, fp = 0, neg = 0, ms = 0, pages = 0, errors = 0, answered = 0;
 try {
   for (const c of CASES.filter((x) => only === undefined || only.includes(x.id))) {
-    const host = createToolHost(discovery, WEB_DEPENDENCIES, NULL_SINK, "live");
+    const host = createToolHost(discovery, WEB_DEPENDENCIES, DIRECT_CALL, "live");
     const t0 = Date.now();
     const result = await provider.callTool("web_search", { need: c.need }, { taskId: "live", host, timeoutMs: 150_000 });
     const took = Date.now() - t0;

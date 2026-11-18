@@ -19,8 +19,8 @@
  * solo lee. Lo que no reconoce (por ejemplo `(Get-Date).AddDays(-1)`) sigue como escritura y pide confirmación.
  */
 
-import os from "node:os";
 
+import { defaultHomeDirs } from "./homeDirs.ts";
 import { classify } from "./commandRules.ts";
 
 /** Comandos de PowerShell (y alias comunes) que solo consultan o dan formato a lo que reciben. En minúsculas. */
@@ -157,12 +157,12 @@ export function isReadOnlySegment(segment: string): boolean {
 }
 
 /** ¿Ninguna regla de comando (`commandRules.ts`) marca el texto, en ningún nivel? */
-export const noCommandRule = (command: string): boolean => classify(command.trim(), { homeDirs: [os.homedir()] }) === null;
+export const noCommandRule = (command: string, homeDirs: readonly string[] = defaultHomeDirs()): boolean => classify(command.trim(), { homeDirs }) === null;
 
 /** ¿El comando solo lee? Ver el criterio en la cabecera del archivo. */
-export function isReadOnlyCommand(command: string): boolean {
+export function isReadOnlyCommand(command: string, homeDirs: readonly string[] = defaultHomeDirs()): boolean {
   const segments = analyzableSegments(command);
-  return segments !== null && segments.every(isReadOnlySegment) && noCommandRule(command);
+  return segments !== null && segments.every(isReadOnlySegment) && noCommandRule(command, homeDirs);
 }
 
 /**
@@ -170,9 +170,9 @@ export function isReadOnlyCommand(command: string): boolean {
  * - un comando nuevo que `isReadOnlyCommand` reconoce como de PowerShell de solo lectura;
  * - una continuación (`pid`) sin `input`: solo espera más salida de un proceso que ya se aprobó. Con `input` se le envía texto a un proceso: no es lectura.
  */
-export function isReadOnlyCall(mcp: string, tool: string, args: Record<string, unknown>): boolean {
+export function isReadOnlyCall(mcp: string, tool: string, args: Record<string, unknown>, homeDirs: readonly string[] = defaultHomeDirs()): boolean {
   if (mcp.toLowerCase() !== "jarvis_terminal" || tool.toLowerCase() !== "run_command") return false;
   // Un `command` vacío o en blanco no cuenta como comando (igual que en el proveedor): con `pid` es una continuación.
-  if (typeof args.command === "string" && args.command.trim() !== "") return args.pid === undefined && isReadOnlyCommand(args.command);
+  if (typeof args.command === "string" && args.command.trim() !== "") return args.pid === undefined && isReadOnlyCommand(args.command, homeDirs);
   return typeof args.pid === "number" && args.input === undefined;
 }

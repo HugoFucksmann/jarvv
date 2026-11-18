@@ -40,7 +40,7 @@ export async function classifyRequest(env: EngineEnv): Promise<ClassifyOutcome> 
       console.warn(`[Engine] D0 sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); la tarea sigue por el flujo de siempre.`);
       return { kind: "classified", first: null };
     }
-    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    const closure = closeOnFailure(env, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
   if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
@@ -63,7 +63,7 @@ export async function detectContinuation(env: EngineEnv): Promise<ContinuationOu
       console.warn(`[Engine] continuación sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); sin hilo.`);
       return { kind: "resolved", previous: null };
     }
-    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    const closure = closeOnFailure(env, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
   if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };

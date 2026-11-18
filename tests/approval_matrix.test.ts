@@ -95,6 +95,14 @@ interface Scenario {
   readonly outside?: boolean;
   /** El usuario rechaza (con esta instrucción) en lugar de aprobar. */
   readonly deny?: string;
+  /** El usuario aprueba con «siempre en esta tarea». */
+  readonly remember?: boolean;
+  /** La primera ejecución falla (`tool_error`) y el modelo reintenta con otro contenido: la misma operación se pide dos veces. */
+  readonly retry?: boolean;
+  /** Con `retry`: el contenido de la `n`-ésima generación (por defecto `hola n`). */
+  readonly retryContent?: (n: number) => string;
+  /** Patrón de la entrada de la lista negra (por defecto, el nombre del archivo). */
+  readonly listPattern?: string;
 }
 
 interface Observed {
@@ -107,6 +115,8 @@ interface Observed {
   /** La primera confirmación pedida, si hubo. */
   readonly approval: { readonly tier?: string; readonly canRemember: boolean; readonly blacklist?: { readonly level: string }; readonly reason: string } | null;
   readonly dispatched: number;
+  /** Confirmaciones pedidas en toda la tarea. */
+  readonly totalAsked: number;
 }
 
 async function observe(s: Scenario): Promise<Observed> {
@@ -125,6 +135,7 @@ async function observe(s: Scenario): Promise<Observed> {
       listTools: async () => tools,
       callTool: async (toolName): Promise<MCPCallResult> => {
         dispatched++;
+        if (s.retry === true && dispatched === 1) return { content: [{ type: "text", text: "falló" }], isError: true };
         if (toolName === "run_command") return FINISHED;
         return { content: [{ type: "text", text: toolName === "write_file" ? "ok" : "[FILE] a.txt\n[FILE] b.txt" }] };
       },
@@ -135,8 +146,9 @@ async function observe(s: Scenario): Promise<Observed> {
     const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? TERMINAL_TOOLS : name === "desktop_commander" ? FILE_TOOLS : []);
 
     const entries: BlacklistEntry[] =
-      s.list === undefined ? [] : [{ tool: op.tool, pattern: "nueva|existe|a\\.txt", reason: "Regla de prueba.", level: s.list }];
+      s.list === undefined ? [] : [{ tool: op.tool, pattern: s.listPattern ?? "nueva|existe|a\\.txt", reason: "Regla de prueba.", level: s.list }];
     let pendingCalls = 0;
+    let generated = 0;
     let runtime!: TaskRuntime;
 
     const deps: EngineDeps = {
@@ -159,7 +171,10 @@ async function observe(s: Scenario): Promise<Observed> {
         checkCompletion: async () => ({ requestComplete: 1, rawInput: "", rawOutput: "" }),
       },
       llm: {
-        generateArgumentsFromView: async () => ({ args: op.args, rawInput: "", rawOutput: "", timing: TIMING }),
+        generateArgumentsFromView: async () => {
+          const n = generated++;
+          return { args: s.retry === true ? { ...op.args, content: s.retryContent?.(n) ?? `hola ${n}` } : op.args, rawInput: "", rawOutput: "", timing: TIMING };
+        },
         generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
         generatePendingFromView: async () => ({ pending: pendingCalls++ === 0 ? [op.request] : [], rawInput: "", rawOutput: "" }),
         generatePlanFromView: async () => {
@@ -197,7 +212,7 @@ async function observe(s: Scenario): Promise<Observed> {
         asked++;
         const r = waiting.request;
         approval ??= { ...(r.tier === undefined ? {} : { tier: r.tier }), canRemember: r.canRemember === true, ...(r.blacklist === undefined ? {} : { blacklist: { level: r.blacklist.level } }), reason: r.reason };
-        queueMicrotask(() => (s.deny === undefined ? runtime.resolveApproval(r.id, true) : runtime.resolveApproval(r.id, false, s.deny)));
+        queueMicrotask(() => (s.deny === undefined ? runtime.resolveApproval(r.id, true, undefined, s.remember === true) : runtime.resolveApproval(r.id, false, s.deny)));
       },
     });
     await runTask(ctx, runtime, deps);
@@ -205,7 +220,7 @@ async function observe(s: Scenario): Promise<Observed> {
     const call = ctx.find("calls", {})[0];
     assert.ok(call !== undefined, "la tarea debió registrar al menos una llamada");
     const snapshot = first ?? { asked, reviews };
-    return { asked: snapshot.asked, reviews: snapshot.reviews, status: call.status, summary: call.summary, approval, dispatched };
+    return { asked: snapshot.asked, reviews: snapshot.reviews, status: call.status, summary: call.summary, approval, dispatched, totalAsked: asked };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -224,6 +239,8 @@ interface Expect {
   readonly tier?: string;
   readonly listLevel?: string;
   readonly summary?: RegExp;
+  /** Confirmaciones pedidas en toda la tarea (no solo hasta la primera llamada). */
+  readonly totalAsked?: number;
 }
 
 function check(name: string, s: Scenario, e: Expect): void {
@@ -236,6 +253,7 @@ function check(name: string, s: Scenario, e: Expect): void {
     if (e.tier !== undefined) assert.equal(o.approval?.tier, e.tier, "nivel mostrado en la confirmación");
     if (e.listLevel !== undefined) assert.equal(o.approval?.blacklist?.level, e.listLevel, "nivel de la lista negra mostrado");
     if (e.summary !== undefined) assert.match(o.summary ?? "", e.summary);
+    if (e.totalAsked !== undefined) assert.equal(o.totalAsked, e.totalAsked, `confirmaciones en toda la tarea (${label(s)})`);
   });
 }
 
@@ -345,3 +363,19 @@ for (const { tiers, auto } of MODES) {
   const asks = tiers || !auto;
   check(label(s), s, { asked: asks ? 1 : 0, reviews: asks ? 0 : 1, status: "ok" });
 }
+
+// ───────────────────────── 9. «Aprobar siempre en esta tarea» ─────────────────────────
+
+// La misma operación se pide dos veces (la primera ejecución falla y el modelo reintenta con otro contenido). Con «siempre», lo común no se vuelve a preguntar; lo obligatorio
+// de Guard y la lista negra solo admiten «una vez» (`canRemember = false`): se pregunta de nuevo.
+check("rojo + «siempre»: la misma ruta no se vuelve a preguntar", { op: "overwrite", tiers: true, auto: false, remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 1, canRemember: true });
+check("rojo sin «siempre»: se vuelve a preguntar", { op: "overwrite", tiers: true, auto: false, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2 });
+check("ruta sensible + «siempre»: solo admite «una vez», se vuelve a preguntar", { op: "sensitive_path", tiers: true, auto: true, remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2, canRemember: false });
+check("lista sensitive + «siempre»: solo admite «una vez», se vuelve a preguntar", { op: "new_file", tiers: true, auto: false, list: "sensitive", remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2, canRemember: false });
+
+// «Siempre» vale por herramienta y ruta, no por contenido: si el reintento pasa a coincidir con la lista negra, ya no se puede dar por aprobado.
+check(
+  "«siempre» aprobado con un contenido inocuo no cubre el reintento que coincide con la lista negra",
+  { op: "overwrite", tiers: true, auto: false, remember: true, retry: true, list: "sensitive", listPattern: "peligro", retryContent: (n) => (n === 0 ? "seguro" : "peligro") },
+  { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2 },
+);

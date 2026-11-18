@@ -70,7 +70,7 @@ export async function generatePlan(env: EngineEnv, request: PlanRequest): Promis
       console.error("[Engine] plan inválido:", query.error);
       return { kind: "invalid" };
     }
-    const closure = closeOnFailure(ctx, errorStepId, query.failure, query.error);
+    const closure = closeOnFailure(env, errorStepId, query.failure, query.error);
     return closure.kind === "cancelled" ? CANCELLED : UNRECOVERABLE;
   }
 

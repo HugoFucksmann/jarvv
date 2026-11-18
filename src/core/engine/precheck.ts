@@ -25,6 +25,7 @@ import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import { stripExtendedPrefix } from "../policy/allowedDirs.ts";
 import { isPathArgKey } from "../policy/pathArgs.ts";
 import { isPrecheckSource } from "../recalledPolicy.ts";
+import { isPathWriteTool, parentFolderArg } from "../tools/toolTargets.ts";
 import { reviewViewOptions } from "./adapters.ts";
 
 const execFileAsync = promisify(execFile);
@@ -426,8 +427,6 @@ function diskKind(p: string): "file" | "directory" | "other" | null {
 }
 
 const isUrlLike = (value: string): boolean => /^https?:\/\//i.test(value.trim());
-/** Herramientas que escriben (crean o reemplazan) lo que hay en sus rutas: ahí no hay comodines ni nombres que Windows no admite. */
-const WRITE_PATH_TOOLS = new Set(["write_file", "create_directory", "move_file"]);
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
 // ── Reglas por valor ──
@@ -485,7 +484,7 @@ export const VALUE_RULES: readonly PrecheckRule<ValueContext>[] = [
       const rest = stripExtendedPrefix(c.value.trim()).replace(/^[A-Za-z]:/, "");
       const bad = /[<>"|\u0000-\u001f]/.exec(rest);
       if (bad !== null) return invalid(`The path '${c.value}' contains a character that Windows does not allow in paths (${JSON.stringify(bad[0])}). Use a plain path.`);
-      if (!WRITE_PATH_TOOLS.has(c.input.tool)) return null;
+      if (!isPathWriteTool(c.input.tool)) return null;
       if (/[?*]/.test(rest)) return invalid(`The path '${c.value}' has a wildcard ('?' or '*'): ${c.input.tool} needs one exact path.`);
       for (const segment of rest.split(/[\\/]/)) {
         if (segment === "" || segment === "." || segment === "..") continue;
@@ -554,7 +553,7 @@ function firstValueFinding(input: PrecheckInput, rules: readonly PrecheckRule<Va
  * se comprueba en el disco solo si la carpeta de inicio del entorno existe en esta PC y solo con rutas absolutas. `create_directory` sí crea las carpetas intermedias.
  */
 function checkParentFolder(input: PrecheckInput): PrecheckFinding | null {
-  const key = input.tool === "write_file" ? "path" : input.tool === "move_file" ? "destination" : null;
+  const key = parentFolderArg(input.tool);
   const value = key === null ? undefined : input.args[key];
   if (typeof value !== "string" || !isAbsolutePath(normalizeText(value))) return null;
   try {
@@ -569,33 +568,50 @@ function checkParentFolder(input: PrecheckInput): PrecheckFinding | null {
   }
 }
 
-/** Lo que hay en disco no es lo que la herramienta espera (carpeta donde va un archivo y al revés, origen de un movimiento que no existe). */
-function checkPathKind(input: PrecheckInput): PrecheckFinding | null {
-  const arg = (key: string): string | null => {
-    const v = input.args[key];
-    return typeof v === "string" && v.trim() !== "" && !isUrlLike(v) && isAbsolutePath(normalizeText(v)) ? v : null;
-  };
-  if (!diskIsReal(input.environment)) return null;
-  switch (input.tool) {
-    case "write_file": {
-      const p = arg("path");
+/** Un argumento de ruta absoluta (no una URL) con valor, o `null`. */
+function absolutePathArg(input: PrecheckInput, key: string): string | null {
+  const v = input.args[key];
+  return typeof v === "string" && v.trim() !== "" && !isUrlLike(v) && isAbsolutePath(normalizeText(v)) ? v : null;
+}
+
+/**
+ * Lo que hay en disco no es lo que la herramienta espera (carpeta donde va un archivo y al revés, origen de un movimiento que no existe). Una regla por herramienta:
+ * agregar una herramienta con rutas es agregar su fila (`path-kind` solo corre para las que están acá).
+ */
+const PATH_KIND_CHECKS: ReadonlyMap<string, (input: PrecheckInput) => PrecheckFinding | null> = new Map([
+  [
+    "write_file",
+    (input) => {
+      const p = absolutePathArg(input, "path");
       return p !== null && diskKind(p) === "directory" ? invalid(`'${p}' is a folder, not a file: write_file needs a file path (for example '${p}\\notes.txt').`) : null;
-    }
-    case "read_file": {
-      const p = arg("path");
+    },
+  ],
+  [
+    "read_file",
+    (input) => {
+      const p = absolutePathArg(input, "path");
       return p !== null && diskKind(p) === "directory" ? invalid(`'${p}' is a folder, not a file: use list_directory to see what it contains, then read_file on a file.`) : null;
-    }
-    case "list_directory": {
-      const p = arg("path");
+    },
+  ],
+  [
+    "list_directory",
+    (input) => {
+      const p = absolutePathArg(input, "path");
       return p !== null && diskKind(p) === "file" ? invalid(`'${p}' is a file, not a folder: use read_file to read it.`) : null;
-    }
-    case "move_file": {
-      const p = arg("source");
+    },
+  ],
+  [
+    "move_file",
+    (input) => {
+      const p = absolutePathArg(input, "source");
       return p !== null && diskKind(p) === null ? invalid(`The source '${p}' does not exist, so it cannot be moved. Check the name with list_directory or locate it first.`) : null;
-    }
-    default:
-      return null;
-  }
+    },
+  ],
+]);
+
+function checkPathKind(input: PrecheckInput): PrecheckFinding | null {
+  if (!diskIsReal(input.environment)) return null;
+  return PATH_KIND_CHECKS.get(input.tool)?.(input) ?? null;
 }
 
 const textArg = (input: PrecheckInput, key: string): string | null => {
@@ -630,8 +646,8 @@ export const CALL_RULES: readonly PrecheckRule<CallContext>[] = [
       return flat(from) === flat(to) ? invalid("The source and the destination of move_file are the same path: there is nothing to move. Give the new location or the new name.") : null;
     },
   },
-  { name: "parent-folder", applies: ({ input }) => input.tool === "write_file" || input.tool === "move_file", check: ({ input }) => checkParentFolder(input) },
-  { name: "path-kind", applies: ({ input }) => ["write_file", "read_file", "list_directory", "move_file"].includes(input.tool), check: ({ input }) => checkPathKind(input) },
+  { name: "parent-folder", applies: ({ input }) => parentFolderArg(input.tool) !== null, check: ({ input }) => checkParentFolder(input) },
+  { name: "path-kind", applies: ({ input }) => PATH_KIND_CHECKS.has(input.tool), check: ({ input }) => checkPathKind(input) },
   {
     name: "linux-path-in-command",
     applies: ({ input }) => isPowerShellCommand(input),

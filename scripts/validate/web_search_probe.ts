@@ -16,9 +16,8 @@ import { ConfigManager } from "../../src/core/config.ts";
 import { DiscoveryEngine } from "../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../src/core/mcp/freeSearchMcp.ts";
 import { Decision20Engine } from "../../src/core/models/decision.ts";
-import { createToolHost } from "../../src/core/tools/host.ts";
+import { createToolHost, DIRECT_CALL } from "../../src/core/tools/host.ts";
 import { readToolResult } from "../../src/core/tools/result.ts";
-import { NULL_SINK } from "../../src/core/trace/sink.ts";
 import { isInternalHost } from "../../src/tools/web/args.ts";
 import { tokenize } from "../../src/tools/web/bm25.ts";
 import { chunkDocs, cleanLines } from "../../src/tools/web/chunks.ts";
@@ -86,7 +85,7 @@ const discovery = new DiscoveryEngine([freeSearch]);
 const decision = new Decision20Engine(getConfig);
 
 async function ask(label: string, provider: WebSearchProvider, args: Record<string, unknown>): Promise<void> {
-  const host = createToolHost(discovery, WEB_DEPENDENCIES, NULL_SINK, "probe");
+  const host = createToolHost(discovery, WEB_DEPENDENCIES, DIRECT_CALL, "probe");
   const started = Date.now();
   const result = await provider.callTool("web_search", args, { taskId: "probe", host, timeoutMs: 150_000 });
   const native = readToolResult(result);

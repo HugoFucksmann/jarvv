@@ -26,6 +26,7 @@ import path from "node:path";
 import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
 import { classify, commandOf, splitSegments, tokenize } from "./commandRules.ts";
+import { defaultHomeDirs } from "./homeDirs.ts";
 import { isReadOnlyCall } from "./readOnly.ts";
 import { egressFinding } from "./egress.ts";
 import { sensitivePathFinding } from "./sensitivePaths.ts";
@@ -51,6 +52,8 @@ export interface ProtectedPaths {
   readonly relativeBases: readonly string[];
   /** Bases para resolver rutas relativas en comandos de terminal si el llamado omite `cwd` (p. ej. `os.homedir()`). */
   readonly commandBases?: readonly string[];
+  /** Carpetas de inicio del usuario: `~` y `$env:USERPROFILE` se resuelven contra la primera, y borrar una de ellas entera es crítico. Omitida = las del sistema (`policy/homeDirs.ts`). */
+  readonly homeDirs?: readonly string[];
 }
 
 /**
@@ -92,13 +95,14 @@ export class Guard {
     }
 
     const command = scannable ? commandOf(scannable) : null;
-    const found = command !== null ? classify(command, { homeDirs: [os.homedir()] }) : null;
+    const homeDirs = scope?.homeDirs ?? defaultHomeDirs();
+    const found = command !== null ? classify(command, { homeDirs }) : null;
     if (found?.tier === "guard") {
       return { decision: "DENY", reason: `Operación rechazada (DENY): comando catastrófico prohibido (${found.id}).`, capability };
     }
 
     const isWrite = capability === "FILE_WRITE" || policy.mutates || command !== null;
-    if (scope && !isReadOnlyCall(mcp, tool, args) && isWrite && Guard.touchesProtectedPath(args, scope, command !== null)) {
+    if (scope && !isReadOnlyCall(mcp, tool, args, homeDirs) && isWrite && Guard.touchesProtectedPath(args, scope, command !== null)) {
       return {
         decision: "DENY",
         reason: "Operación rechazada (DENY): la ruta pertenece a una carpeta o archivo protegido del sistema (refs, logs, memoria o proyecto) y no se puede modificar.",
@@ -107,7 +111,7 @@ export class Guard {
     }
 
     if (scannable !== null) {
-      const write = policy.mutates && !isReadOnlyCall(mcp, tool, args);
+      const write = policy.mutates && !isReadOnlyCall(mcp, tool, args, homeDirs);
       const sensitive = sensitivePathFinding(scannable, write);
       if (sensitive !== null) {
         return { decision: "APPROVAL", mandatory: true, reason: `Ruta sensible (${sensitive.id}): ${sensitive.reason}`, capability };
@@ -128,7 +132,7 @@ export class Guard {
       };
     }
 
-    if (policy.requiresApproval && !isReadOnlyCall(mcp, tool, args)) {
+    if (policy.requiresApproval && !isReadOnlyCall(mcp, tool, args, homeDirs)) {
       return { decision: "APPROVAL", reason: Guard.approvalReason(capability, tool, args), capability };
     }
 
@@ -149,11 +153,11 @@ export class Guard {
   }
 
   /** Rutas que un argumento de texto puede nombrar: absoluta, `~`/env o relativa a cada base dada. */
-  private static candidatePaths(value: string, bases: readonly string[]): string[] {
+  private static candidatePaths(value: string, bases: readonly string[], home: string): string[] {
     let text = value.trim().replace(/^['"]|['"]$/g, "");
     if (text.length === 0 || text.includes("\0")) return [];
     const envMatch = text.match(HOME_VAR_PREFIX);
-    if (envMatch) text = path.join(os.homedir(), text.slice(envMatch[0].length));
+    if (envMatch) text = path.join(home, text.slice(envMatch[0].length));
     if (path.isAbsolute(text) || /^[a-z]:[\\/]/i.test(text)) return [text];
     return bases.map((base) => path.resolve(base, text));
   }
@@ -245,13 +249,14 @@ export class Guard {
   /** Invariante 8: ¿los argumentos o el comando nombran una carpeta o archivo protegido? */
   private static touchesProtectedPath(args: Record<string, unknown>, scope: ProtectedPaths, hasCommand: boolean): boolean {
     const relativeBases = scope.relativeBases;
+    const home = (scope.homeDirs ?? defaultHomeDirs())[0];
     for (const [key, value] of Object.entries(args)) {
       const k = key.toLowerCase();
       if (NON_PATH_ARGS.includes(k)) continue;
       if (hasCommand && COMMAND_ARG_KEYS.includes(k)) continue;
       const values = typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
       for (const item of values) {
-        for (const candidate of Guard.candidatePaths(item, relativeBases)) {
+        for (const candidate of Guard.candidatePaths(item, relativeBases, home)) {
           if (Guard.isProtectedTarget(candidate, scope)) return true;
         }
       }
@@ -262,11 +267,11 @@ export class Guard {
       if (command !== null) {
         const cmdBases =
           typeof args.cwd === "string" && args.cwd.trim() !== ""
-            ? Guard.candidatePaths(args.cwd.trim(), scope.commandBases ?? relativeBases)
+            ? Guard.candidatePaths(args.cwd.trim(), scope.commandBases ?? relativeBases, home)
             : (scope.commandBases ?? relativeBases);
         const protectedFileNames = new Set((scope.protectedFiles ?? []).map((f) => path.basename(f).toLowerCase()));
         for (const token of Guard.extractCommandPaths(command, protectedFileNames)) {
-          for (const candidate of Guard.candidatePaths(token, cmdBases)) {
+          for (const candidate of Guard.candidatePaths(token, cmdBases, home)) {
             if (Guard.isProtectedTarget(candidate, scope)) return true;
           }
         }

@@ -1,12 +1,15 @@
 /**
  * JARVIS Core — Ejecutor de una llamada (`runCall`, Fase 5; PLAN_CONTEXT 5.2 y 5.3).
  *
- * Fases, en orden: descubrir herramientas → elegir herramienta (Decision #2) → argumentos (LLM) → resolver refs → huella
- * (`sig`) y anti-loop → Guard (política) → lista negra (en automático, el nivel 1 se rechaza aquí) → pre-chequeo determinista → confirmación del usuario (si Guard la exige
- * y no hay modo automático, o si la lista negra coincide y no hay modo automático: con ella, D3 no entra) → revisión de argumentos (Decisión 3, solo escrituras que no pidieron confirmación) → despacho (compite
- * contra la cancelación) → procesar el resultado → guardar la ref si hace falta → registrar la llamada → verificar.
+ * `runCall` solo encadena las fases, en este orden (cada una en su módulo):
  *
- * Registro en el contexto:
+ *   `callPrepare`   descubrir herramientas → elegir herramienta (Decision #2) → argumentos (LLM) → huella (`sig`)
+ *   anti-bucle
+ *   `callAuthorize` Guard → lista negra (en automático, el nivel 1 se rechaza aquí) → pre-chequeo determinista → allowedDirectories → ¿pide confirmación?
+ *   `callConfirm`   confirmación del usuario (si la autorización la exige: con ella, D3 no entra) → revisión de argumentos (Decisión 3, solo escrituras que no pidieron confirmación)
+ *   `callExecute`   despacho (compite contra la cancelación) → procesar el resultado → guardar la ref si hace falta → registrar la llamada → verificar
+ *
+ * Registro en el contexto (`callRecord.ts`):
  * - Una llamada se registra UNA sola vez, al terminar el intento, con su `status` final y sin `verdict`. Un reintento es una
  *   llamada nueva. El `verdict` y la `reason` se escriben después, juntos, en un segundo `apply` (`verifyCall`).
  * - Con `ref`: el texto crudo se guarda en disco (`vault.put`) → `apply add ref` → `apply add call` con `ref = rN` (dos `apply`).
@@ -18,38 +21,17 @@
  * Esta función NUNCA llama a `finish` ni escribe `result` (Fase 6): devuelve un `CallOutcome` y quien llama decide.
  */
 
-import { BUDGET } from "../budget.ts";
-import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason } from "../ctx/index.ts";
-import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
-import { checkAllowedDirectory } from "../policy/allowedDirs.ts";
-import { approvalKey } from "../policy/approvalKey.ts";
-import { PATH_ARG_KEYS, PATH_LIST_KEY } from "../policy/pathArgs.ts";
-import { analyzePowerShell, collectSources, precheckCall, type CommandReport } from "./precheck.ts";
-import type { IMCPServer } from "../mcp/types.ts";
-import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
-import { Guard } from "../policy/guard.ts";
-import { isReadOnlyCall } from "../policy/readOnly.ts";
-import { RefVaultError } from "../refs/refVault.ts";
-import { ContextOverflowError } from "../render/index.ts";
-import { processResult } from "../result/processResult.ts";
-import type { ProcessedResult } from "../result/processResult.ts";
-import { applyDestination, getToolPolicy, isKnownTool, repeatPolicyOf, requirementOf, serverOf, sortByCatalog, timeoutOf } from "../tools/manifest.ts";
-import { createToolHost } from "../tools/host.ts";
-import type { ToolCallOptions } from "../tools/provider.ts";
-import type { MCPTool } from "../types.ts";
+import type { CallStatus } from "../ctx/index.ts";
+import { repeatPolicyOf, serverOf } from "../tools/manifest.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
-import { errorMessage } from "../utils.ts";
-import { argsInput, renderArgsView, reviewInput, reviewViewOptions, routeViewOptions, toolInput } from "./adapters.ts";
-import { callLabel, clipArgs, clipWithin, computeSig } from "./args.ts";
-import { captureCallTool } from "./capture.ts";
+import { authorize } from "./callAuthorize.ts";
+import { confirmIfNeeded, reviewIfNeeded } from "./callConfirm.ts";
+import type { Gate } from "./callConfirm.ts";
+import { executeAndRecord } from "./callExecute.ts";
+import { prepareArgs, selectTool } from "./callPrepare.ts";
+import { CANCELLED, recordCall, registered, summaryText } from "./callRecord.ts";
 import type { EngineEnv } from "./env.ts";
-import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
-import type { ModelFailureKind } from "./failures.ts";
 import type { CallOutcome } from "./outcomes.ts";
-import { recordUserMemory } from "./recalled.ts";
-import { factValue, inputAnswersProcess } from "./retries.ts";
-import { routeExhausted } from "./limits.ts";
-import { reviewOutcome, verifyCall } from "./verify.ts";
 
 export interface RunCallParams {
   readonly stepId: string;
@@ -57,540 +39,38 @@ export interface RunCallParams {
   readonly route: ExecutableRoute;
 }
 
-type Policy = ReturnType<typeof getToolPolicy>;
-
-const REPEATED_REJECTION_NOTE = "The user already rejected this exact operation in this task. Do not ask again: use a different approach or say what could not be done.";
-const CANCELLED: CallOutcome = { kind: "cancelled", callId: null };
-const kindOf = (policy: Policy): CallKind => (policy.mutates ? "write" : "read");
-
-function toolPathArgs(toolName: string, args: Readonly<Record<string, unknown>>): string[] {
-  const paths: string[] = [];
-  for (const key of PATH_ARG_KEYS) {
-    const val = args[key];
-    if (typeof val === "string" && val.trim() !== "") {
-      if (toolName === "read_file" && args.isUrl === true && /^https?:\/\//i.test(val.trim())) continue;
-      paths.push(val);
-    }
-  }
-  const list = args[PATH_LIST_KEY];
-  if (Array.isArray(list)) {
-    for (const item of list) {
-      if (typeof item === "string" && item.trim() !== "") paths.push(item);
-    }
-  }
-  return paths;
-}
-
-/** Resumen de un texto fijo o de un error: recortado al tope; `null` si no hay texto (nunca `""`). */
-function summaryText(text: string | null | undefined): string | null {
-  const clean = text?.trim();
-  return clean ? clipWithin(clean, BUDGET.summaryMax) : null;
-}
-
-/** Lo que ve el modelo cuando el Guard deniega una llamada: que no se ejecutó, el motivo de la regla y que siga por otro camino. */
-export function policyDenialNote(reason: string | undefined): string {
-  return `Denied by the security policy; it was not performed. ${reason ?? ""} Do not try this operation again: take a different approach, or leave this part out.`.replace(/\s+/g, " ").trim();
-}
-
-/** Motivo fijo de un `args_invalid` de la revisión (D3): el modelo de decisión solo elige la opción, no dice qué argumento falla. */
-export const REVIEW_ARGS_INVALID_NOTE =
-  "The review found a wrong argument: a value is invented, copied incorrectly, or contradicts the task or the data read. Write the arguments again from the task and the data.";
-
-const registered = (
-  callId: string,
-  status: CallStatus,
-  verdict: "approved" | "rejected" | null = null,
-  reason: VerdictReason | null = null,
-  waiting?: { readonly prompt?: string; readonly pid?: string },
-): CallOutcome => ({
-  kind: "registered",
-  callId,
-  status,
-  verdict,
-  reason,
-  ...(waiting?.prompt === undefined ? {} : { prompt: waiting.prompt }),
-  ...(waiting?.pid === undefined ? {} : { pid: waiting.pid }),
-});
-
-/** Fallo de un modelo o de la infraestructura → cierre (o cancelación) con la llamada registrada, si la hay. */
-function fromFailure(ctx: TaskContext, stepId: string, failure: ModelFailureKind, detail: unknown, callId: string | null = null): CallOutcome {
-  const closure = closeOnFailure(ctx, stepId, failure, detail);
-  return closure.kind === "cancelled" ? { kind: "cancelled", callId } : { kind: "close", stopReason: closure.stopReason, callId };
-}
-
-// ───────────────────────── Registro de la llamada ─────────────────────────
-
-interface CallDraft {
-  readonly stepId: string;
-  readonly route: ExecutableRoute;
-  readonly tool: string;
-  readonly kind: CallKind;
-  readonly args: JsonObject | null;
-  readonly sig: string | null;
-  readonly status: CallStatus;
-  readonly summary: string | null;
-  readonly ref: string | null;
-}
-
-/** Agrega la llamada (y las operaciones extra del mismo lote) y devuelve su id. La llamada es siempre la primera `add`. */
-function register(ctx: TaskContext, draft: CallDraft, extra: readonly Op[] = []): string {
-  return ctx.apply([{ op: "add", target: "calls", value: { ...draft } }, ...extra]).ids[0];
-}
-
-// ───────────────────────── Descubrimiento ─────────────────────────
-
-type Discovery =
-  | { readonly kind: "ok"; readonly server: IMCPServer; readonly tools: MCPTool[] }
-  | { readonly kind: "outcome"; readonly outcome: CallOutcome };
-
-/**
- * Herramientas del catálogo que se pueden usar ahora: las que no exigen un proceso o una búsqueda activos, o cuyo requisito
- * se cumple, menos las vetadas enteras por la lista negra (FLUJO 2, opciones disponibles). Una herramienta cuya llamada se
- * bloqueó por repetición sigue disponible: el anti-bucle solo bloquea la llamada idéntica, y con otros argumentos pasa.
- */
-function usableTools(ctx: TaskContext, mcp: string, cataloged: readonly MCPTool[], blacklist: Blacklist): MCPTool[] {
-  const searchActive = ctx.find("calls", { tool: "start_search", status: "ok" }).length > 0;
-  return cataloged.filter((t) => {
-    if (isBlacklistedTool(blacklist, mcp, t.name, getToolPolicy(mcp, t.name).mutates)) return false;
-    return requirementOf(mcp, t.name) === undefined || searchActive;
-  });
-}
-
-/**
- * Rutas que se ofrecen a Decisión 1: las que tienen al menos una herramienta usable. Una ruta cuyo servidor o catálogo no
- * se puede consultar NO se descarta: el fallo aparece al ejecutar y cierra la tarea como infraestructura caída. Una cuyo servidor respondió
- * sin herramientas (una herramienta que no existe en esta plataforma) sí se descarta.
- */
-export async function availableRoutes(env: EngineEnv, stepId: string, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
-  const out = await routesWithTools(env, routes);
-  // Una ruta cuyo resultado Decisión 4 rechazó `maxNotAccomplishedPerRoute` veces como "no cumple lo pedido" en este paso se deja de ofrecer: cambiar los
-  // argumentos de la misma herramienta no resuelve lo que esa ruta no puede dar (p. ej. `list_directory` no trae tamaños). Si no quedara ninguna ruta, se ofrecen todas.
-  const remaining = out.filter((route) => !routeExhausted(env.ctx, stepId, route));
-  return remaining.length > 0 ? remaining : out;
-}
-
-const currentBlacklist = (deps: EngineEnv["deps"]): Blacklist =>
-  typeof deps.blacklist === "function" ? deps.blacklist() : deps.blacklist;
-
-async function routesWithTools(env: EngineEnv, routes: readonly ExecutableRoute[]): Promise<ExecutableRoute[]> {
-  const { ctx, deps } = env;
-  // En paralelo: si el servidor todavía está arrancando (lo normal en la primera tarea tras encender Jarvis), esperar a cada ruta una tras otra
-  // sumaría los arranques de los dos servidores en vez de esperar al más lento. El orden de las rutas se conserva.
-  const checked = await Promise.all(
-    routes.map(async (route): Promise<ExecutableRoute | null> => {
-      const mcp = serverOf(route);
-      let cataloged: MCPTool[] = [];
-      try {
-        cataloged = deps.discovery.getServer(mcp) ? applyDestination(route, await deps.discovery.getDiscoveredTools(mcp)) : [];
-      } catch {
-        cataloged = [];
-      }
-      if (cataloged.length > 0) return usableTools(ctx, mcp, cataloged, currentBlacklist(deps)).length > 0 ? route : null;
-      // Sin catálogo: si el servidor existe, respondió y no lo marcaron caído, no tiene herramientas para este destino (`jarvis_terminal` fuera de
-      // Windows): no se ofrece. Si falló o no está, se ofrece igual y el fallo cierra la tarea como infraestructura caída al ejecutar.
-      const answeredEmpty = deps.discovery.getServer(mcp) !== undefined && deps.discovery.getUnavailableServers()[mcp] === undefined;
-      return answeredEmpty ? null : route;
-    }),
-  );
-  return checked.filter((route): route is ExecutableRoute => route !== null);
-}
-
-/**
- * Herramientas utilizables del destino. Servidor ausente, sin catálogo disponible o descubrimiento que falla =
- * infraestructura (`service_unavailable`, D4). Que tras filtrar las que exigen un proceso o una búsqueda activos no
- * quede ninguna NO es infraestructura: `no_tools` (D32).
- */
-async function discoverTools(env: EngineEnv, stepId: string, route: ExecutableRoute, mcp: string): Promise<Discovery> {
-  const { ctx, deps } = env;
-  const unavailable = (detail: unknown): Discovery => ({ kind: "outcome", outcome: fromFailure(ctx, stepId, "unavailable", detail) });
-
-  const server = deps.discovery.getServer(mcp);
-  if (!server) return unavailable(`Servidor MCP '${mcp}' no disponible.`);
-
-  let cataloged: MCPTool[];
-  try {
-    cataloged = applyDestination(route, await deps.discovery.getDiscoveredTools(mcp));
-  } catch (error) {
-    return unavailable(error);
-  }
-  if (cataloged.length === 0) {
-    const down = deps.discovery.getUnavailableServers()[mcp];
-    return unavailable(
-      `Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${mcp}'` + (down ? `: servidor no disponible (${down.reason}).` : "."),
-    );
-  }
-
-  const usable = usableTools(ctx, mcp, cataloged, currentBlacklist(deps));
-  if (usable.length === 0) {
-    console.warn(`[Engine] no hay herramientas utilizables en el destino '${route}'.`);
-    return { kind: "outcome", outcome: { kind: "no_tools" } };
-  }
-  return { kind: "ok", server, tools: usable };
-}
-
-// ───────────────────────── Cancelación en vuelo ─────────────────────────
-
-type Raced<T> = { readonly kind: "done"; readonly value: T } | { readonly kind: "failed"; readonly error: unknown } | { readonly kind: "cancelled" };
-
-/**
- * Compite la promesa contra la señal de cancelación (`callTool` no recibe señal). Si gana la señal, el resultado tardío
- * se descarta; el rechazo tardío se absorbe para que no quede una promesa rechazada sin manejar.
- */
-function raceCancel<T>(promise: Promise<T>, signal: AbortSignal): Promise<Raced<T>> {
-  const settled: Promise<Raced<T>> = promise.then(
-    (value): Raced<T> => ({ kind: "done", value }),
-    (error: unknown): Raced<T> => ({ kind: "failed", error }),
-  );
-  if (signal.aborted) return Promise.resolve({ kind: "cancelled" });
-  return new Promise<Raced<T>>((resolve) => {
-    const onAbort = (): void => resolve({ kind: "cancelled" });
-    signal.addEventListener("abort", onAbort, { once: true });
-    void settled.then((result) => {
-      signal.removeEventListener("abort", onAbort);
-      resolve(result); // si la señal ganó, `resolve` ya no tiene efecto: el resultado tardío se descarta
-    });
-  });
-}
-
-// ───────────────────────── Hecho `process` ─────────────────────────
-
-const setProcessFact = (value: string | null, stepId: string): Op => ({ op: "set", target: "facts.process", value: { value, stepId } });
-
-/** Separador de los `pid` del hecho `process`. */
-const PROCESS_SEPARATOR = ", ";
-
-/** Los `pid` del hecho `process`, en el orden en que se lanzaron. */
-export function processPids(value: string | null): string[] {
-  return value === null ? [] : value.split(",").map((p) => p.trim()).filter((p) => p !== "");
-}
-
-/**
- * Operaciones del hecho `process` a partir de la señal del resultado (`ProcessSignal`). El hecho lista los procesos vivos de la tarea (`4321, 5678`, en
- * el orden en que se lanzaron): el generador de argumentos necesita el `pid` para continuar uno, y con dos procesos en segundo plano el último no alcanza
- * (RC-14). Alta cuando la mutación que lanza el proceso termina `ok` o queda esperando entrada; baja cuando el proceso ya no existe (sin ninguno,
- * `value = null`). Con otros errores el hecho se conserva.
- */
-function processFactOps(ctx: TaskContext, stepId: string, policy: Policy, processed: ProcessedResult): Op[] {
-  const current = processPids(factValue(ctx, "process"));
-  const signal = processed.process;
-  if (signal === undefined) return [];
-  const pid = String(signal.pid);
-  if (signal.active) {
-    const started = processed.status === "ok" || processed.status === "waiting_input";
-    return started && policy.mutates && !current.includes(pid) ? [setProcessFact([...current, pid].join(PROCESS_SEPARATOR), stepId)] : [];
-  }
-  if (!current.includes(pid)) return [];
-  const rest = current.filter((p) => p !== pid);
-  return [setProcessFact(rest.length > 0 ? rest.join(PROCESS_SEPARATOR) : null, stepId)];
-}
-
-// ───────────────────────── runCall ─────────────────────────
-
 export async function runCall(env: EngineEnv, params: RunCallParams): Promise<CallOutcome> {
-  const { ctx, runtime, deps } = env;
+  const { ctx, runtime } = env;
   const { stepId, route } = params;
-  const mcp = serverOf(route);
 
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
 
-  // 1. Descubrir.
-  const found = await discoverTools(env, stepId, route, mcp);
-  if (found.kind === "outcome") return found.outcome;
-  const { server, tools } = found;
-  if (runtime.cancelled) return CANCELLED;
+  // 1 a 5. Elegir la herramienta, generar los argumentos y calcular la huella (`callPrepare.ts`).
+  const selected = await selectTool(env, stepId, route);
+  if (selected.kind === "stop") return selected.outcome;
+  const preparedResult = await prepareArgs(env, stepId, route, selected);
+  if (preparedResult.kind === "stop") return preparedResult.outcome;
+  const { call: prepared, environment } = preparedResult;
 
-  // 2. Elegir la herramienta (Decision #2). Los intentos de la vista van filtrados a la ruta elegida.
-  const routeView = ctx.view.forRoute(routeViewOptions(route));
-  // DN-3.7: orden del catálogo, no el del descubrimiento del servidor.
-  const options = sortByCatalog(mcp, tools);
-  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, options), runtime.signal), 0, pauseOf(env, "decision")); // DN-3.4: Decision es determinista, repetir da lo mismo
-  if (!toolQuery.ok) return fromFailure(ctx, stepId, toolQuery.failure, toolQuery.error);
-  if (runtime.cancelled) return CANCELLED;
-  const tool = toolQuery.value.tool;
-
-  // El catálogo del servidor pudo cambiar: `validateToolExists` refresca antes de dar la herramienta por inexistente.
-  let exists: boolean;
-  try {
-    exists = await deps.discovery.validateToolExists(mcp, tool.name);
-  } catch (error) {
-    return fromFailure(ctx, stepId, "unavailable", error);
-  }
-  if (!exists) return fromFailure(ctx, stepId, "unavailable", `La herramienta '${tool.name}' ya no la expone el servidor '${mcp}'.`);
-  if (runtime.cancelled) return CANCELLED;
-
-  const policy = getToolPolicy(mcp, tool.name);
-  const base = { stepId, route, tool: tool.name, kind: kindOf(policy) } as const;
-
-  // 3. Argumentos (LLM). Una salida inválida es `args_invalid`; el LLM caído o el desborde cierran la tarea.
-  const stepText = ctx.find("steps", {}).find((s) => s.id === stepId)?.instruction ?? "";
-  await recordUserMemory(env, `${ctx.task.request}\n${stepText}`, stepId);
-  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-
-  const rendered = renderArgsView(ctx, tool.name);
-  if (rendered.overflow) {
-    // D26, D30: la vista no cabe en su límite; cierre sin `error`.
-    console.error(`[Engine] ${new ContextOverflowError("forArgs", BUDGET.caps.effectsReserve, rendered.chars).message}`);
-    return { kind: "close", stopReason: "unrecoverable", callId: null };
-  }
-  const environment = await deps.environment();
-  // Intentos previos de esta herramienta en este paso que no se aprobaron (rechazados, bloqueados o con error): suben la temperatura.
-  // Un `waiting_input` no es un intento fallido: el proceso pidió una respuesta y la llamada siguiente (`{ pid, input }`) necesita precisión, no variedad.
-  const priorAttempts = ctx.find("calls", { stepId, tool: tool.name }).filter((c) => c.verdict !== "approved" && c.status !== "waiting_input").length;
-  // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
-  const generation = await queryModel(
-    () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
-    0,
-    pauseOf(env, "llm"),
-  );
-  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  if (!generation.ok) {
-    if (generation.failure !== "invalid") return fromFailure(ctx, stepId, generation.failure, generation.error);
-    console.error("[Engine] argumentos inválidos:", errorMessage(generation.error));
-    const callId = register(ctx, { ...base, args: null, sig: null, status: "args_invalid", summary: summaryText(errorMessage(generation.error)), ref: null });
-    return registered(callId, "args_invalid");
-  }
-  const resolved = generation.value.args;
-  const recorded = clipArgs(mcp, tool.name, resolved);
-
-  // 4. Las refs son solo para depurar y para el pre-chequeo: el modelo no las usa, así que los argumentos propuestos (`resolved`) son los que se ejecutan.
-
-  // Un comando de terminal que solo lee es una lectura aunque `run_command` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA,
-  // no pide confirmación y no pasa por D3. Desde acá la llamada se registra con este `kind`.
-  const kind: CallKind = isReadOnlyCall(mcp, tool.name, resolved) ? "read" : base.kind;
-
-  // 5. Huella de los argumentos resueltos y anti-loop (un `denied` del servidor cuenta como ejecutada).
-  const sig = computeSig(resolved);
   // A partir de acá la llamada tiene huella: se registra con los mismos `args` y `sig`, sin `ref`. `reject` además devuelve el resultado.
-  const record = (status: CallStatus, summary: string | null = null): string => register(ctx, { ...base, kind, args: recorded, sig, status, summary, ref: null });
-  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(record(status, summaryText(summary)), status);
-  if (ctx.isRepeat(tool.name, sig, { policy: repeatPolicyOf(mcp, tool.name, resolved), stepId })) return reject("loop_blocked");
+  const reject = (status: CallStatus, summary: string | null = null): CallOutcome => registered(recordCall(ctx, prepared, status, summaryText(summary)), status);
 
-  // 6. Política (Guard). DENY (comando catastrófico, regla B de las carpetas protegidas): no se ejecuta y queda `tool_rejected` con la razón, como
-  // un rechazo de la lista negra. La tarea NO cierra: el modelo ve el motivo en FAIL y prueba otro camino; `maxDeniedPerStep` corta el paso si insiste.
-  const guard = Guard.evaluate(mcp, tool.name, resolved, deps.guardScope);
-  if (guard.decision === "DENY") return reject("tool_rejected", policyDenialNote(guard.reason));
+  // Anti-bucle (un `denied` del servidor cuenta como ejecutada).
+  if (ctx.isRepeat(prepared.tool.name, prepared.sig, { policy: repeatPolicyOf(serverOf(route), prepared.tool.name, prepared.resolved), stepId })) return reject("loop_blocked");
 
-  // 6a. Lista negra (reglas de comando integradas + configuración). Solo escrituras. Nivel 1 (`blocked`) con modo automático: se rechaza aquí con la razón
-  // escrita (llega a FAIL; el modelo prueba otro comando y no cuenta contra el tope de rechazos de D3). Sin modo automático, cualquier coincidencia se
-  // pregunta al usuario (paso 7). Nivel 2 (`sensitive`) con modo automático: sigue a D3 (paso 8) con umbral estricto.
-  const auto = deps.autoMode();
-  // Aprobación por niveles (`policy/tiers.ts`, activa por defecto `approvalTiers`): clasifica las escrituras en green / yellow / red.
-  // Con `autoMode`: verde omite usuario y D3; amarillo omite usuario y pasa por D3 estricto; rojo siempre confirma. Sin `autoMode`: verde pasa, amarillo y rojo piden al usuario (la aprobación sustituye a D3).
-  const tiered = deps.approvalTiers?.() === true;
-  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, resolved, environment, undefined, deps.toolBaseDir?.()) : "red") : null;
-  const listed = blacklistMatch(currentBlacklist(deps), mcp, tool.name, policy.mutates, resolved);
-  if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", listed.reason);
+  // 6 a 6c. Autorización (`callAuthorize.ts`): Guard → lista negra `blocked` → pre-chequeo → allowedDirectories → ¿pide confirmación? El orden es ese y no cambia.
+  // Un rechazo se registra acá (`tool_rejected`, `args_invalid`, `info_missing`); no cierra la tarea.
+  const auth = await authorize(env, prepared, environment);
+  if (auth.kind === "reject") return reject(auth.status, auth.summary);
+  if (auth.kind === "cancelled") return CANCELLED;
 
-  // Analizador AST por llamada (lo comparten precheckCall y el chequeo de rutas de run_command en allowedDirectories).
-  const rawAnalyzer = deps.analyzeCommand ?? analyzePowerShell;
-  let cachedCmdReport: Promise<CommandReport | null> | null = null;
-  let cachedCmdText: string | null = null;
-  const analyzeCmd = (cmd: string): Promise<CommandReport | null> => {
-    if (cachedCmdReport === null || cachedCmdText !== cmd) {
-      cachedCmdText = cmd;
-      cachedCmdReport = rawAnalyzer(cmd);
-    }
-    return cachedCmdReport;
-  };
+  // 7. Confirmación del usuario y 8. revisión de argumentos (D3) (`callConfirm.ts`). Si el usuario aprobó, la aprobación es la revisión y D3 no entra.
+  const settle = (gate: Gate): CallOutcome | null => (gate.kind === "reject" ? reject(gate.status, gate.summary) : gate.kind === "stop" ? gate.outcome : null);
+  const confirmed = settle(await confirmIfNeeded(env, prepared, auth));
+  if (confirmed !== null) return confirmed;
+  const reviewed = settle(await reviewIfNeeded(env, prepared, auth));
+  if (reviewed !== null) return reviewed;
 
-  // 6b. Pre-chequeo determinista (sin modelo): lo comprobable se rechaza con una razón escrita que llega al LLM de argumentos.
-  const finding = await precheckCall(
-    { tool: tool.name, kind, args: resolved, sources: collectSources(ctx), environment },
-    analyzeCmd,
-  );
-  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  if (finding !== null) return reject(finding.review, finding.reason);
-
-  // 6c. allowedDirectories en vivo para todas las herramientas, incluido run_command (cwd + rutas del AST de PowerShell).
-  // Lo fuera de alcance se rechaza; lo que no se puede resolver obliga a pedir confirmación al usuario.
-  const allowedDirs = (deps.allowedDirectories?.() ?? []).map((d) => d.trim()).filter(Boolean);
-  let allowedUnresolvableReason: string | null = null;
-  if (allowedDirs.length > 0) {
-    const effectiveCwd = typeof resolved.cwd === "string" && resolved.cwd.trim() !== "" ? resolved.cwd.trim() : environment.home;
-    const pathArgs = toolPathArgs(tool.name, resolved);
-    for (const p of pathArgs) {
-      const res = checkAllowedDirectory(p, allowedDirs, {
-        home: environment.home,
-        ...(tool.name === "run_command" ? { cwdBase: effectiveCwd } : {}),
-      });
-      if (!res.allowed) {
-        if (res.reason === "outside") {
-          return reject("tool_rejected", policyDenialNote(`La ruta '${p}' está fuera de allowedDirectories.`));
-        }
-        allowedUnresolvableReason ??= `La ruta '${p}' no se pudo resolver contra allowedDirectories.`;
-      }
-    }
-    if (tool.name === "run_command" && typeof resolved.command === "string") {
-      const cwdCheck = checkAllowedDirectory(effectiveCwd, allowedDirs, { home: environment.home });
-      if (!cwdCheck.allowed) {
-        if (cwdCheck.reason === "outside") {
-          return reject("tool_rejected", policyDenialNote(`La carpeta de trabajo '${effectiveCwd}' está fuera de allowedDirectories.`));
-        }
-        allowedUnresolvableReason ??= `La carpeta de trabajo '${effectiveCwd}' no se pudo resolver contra allowedDirectories.`;
-      }
-      const cmdReport = environment.platform === "windows" || deps.analyzeCommand !== undefined ? await analyzeCmd(resolved.command) : null;
-      if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-      if (cmdReport === null) {
-        allowedUnresolvableReason ??= "No se pudieron analizar todas las rutas del comando contra allowedDirectories.";
-      } else {
-        for (const dp of cmdReport.detectedPaths ?? []) {
-          const dpCheck = checkAllowedDirectory(dp, allowedDirs, { cwdBase: effectiveCwd, home: environment.home });
-          if (!dpCheck.allowed) {
-            if (dpCheck.reason === "outside") {
-              return reject("tool_rejected", policyDenialNote(`La ruta '${dp}' detectada en el comando está fuera de allowedDirectories.`));
-            }
-            allowedUnresolvableReason ??= `La ruta '${dp}' detectada en el comando no se pudo resolver contra allowedDirectories.`;
-          }
-        }
-        if ((cmdReport.unresolvablePaths?.length ?? 0) > 0) {
-          allowedUnresolvableReason ??= `El comando usa rutas o variables sin resolver (${cmdReport.unresolvablePaths![0]}) que no pueden verificarse contra allowedDirectories.`;
-        }
-      }
-    }
-  }
-
-  // Una ruta sensible (`guard.mandatory`) o no resoluble en `allowedDirectories` pide confirmación también en modo automático.
-  // La respuesta del usuario a un proceso, enviada tal cual a ese proceso, ya la escribió él: no se le pide aprobarla ni la revisa D3 (RC-20). No vale con una
-  // ruta sensible ni con una coincidencia de la lista negra, que siguen su camino.
-  const userAuthored = guard.mandatory !== true && listed === null && allowedUnresolvableReason === null && inputAnswersProcess(ctx, stepId, tool.name, resolved, recorded.input);
-  // Por niveles: pide el usuario lo obligatorio de Guard, lo rojo, lo no resoluble para allowedDirectories y toda coincidencia de la lista negra; lo verde y lo amarillo no.
-  const askUser =
-    allowedUnresolvableReason !== null ||
-    (tiered
-      ? !userAuthored && (guard.mandatory === true || tier === "red" || (tier === "yellow" && !auto) || listed !== null)
-      : !userAuthored && ((guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && isKnownTool(mcp, tool.name)))) || (listed !== null && !auto)));
-
-  // 7. Confirmación del usuario, tras el pre-chequeo (no se le pide aprobar lo que ya se sabe inválido). No hay registro mientras se espera; cancelar aquí no deja llamada.
-  if (askUser) {
-    // «Siempre en esta tarea» no se ofrece para lo obligatorio de Guard, la lista negra ni lo que no se pudo resolver: esos solo admiten «una vez».
-    const canRemember = guard.mandatory !== true && listed === null && allowedUnresolvableReason === null;
-    const key = approvalKey(tool.name, resolved);
-    // El usuario ya rechazó exactamente esto en esta tarea: no se le vuelve a preguntar.
-    if (runtime.wasRejectedByUser(key)) return reject("user_rejected", REPEATED_REJECTION_NOTE);
-    // Ya lo aprobó «siempre» en esta tarea: se omite la pregunta (la aprobación sustituye a D3, igual que si lo hubiera aprobado ahora).
-    if (!(canRemember && runtime.isAlwaysApproved(key))) {
-      const approvalReason =
-        listed !== null
-          ? `Lista de seguridad (${listed.id}): ${listed.reason}`
-          : guard.mandatory === true
-            ? (guard.reason ?? "Operación sensible")
-            : allowedUnresolvableReason ?? (guard.reason ?? "Operación sensible");
-      const approval = await runtime.requestApproval({
-        mcp,
-        tool: tool.name,
-        capability: guard.capability,
-        reason: approvalReason,
-        args: recorded,
-        canRemember,
-        ...(tier !== null ? { tier } : {}),
-        ...(listed !== null ? { blacklist: { id: listed.id, level: listed.level } } : {}),
-      });
-      if (approval.kind === "cancelled" || runtime.cancelled || ctx.isClosed()) return CANCELLED;
-      if (approval.kind === "rejected") {
-        runtime.rememberRejection(key);
-        return reject("user_rejected", approval.instruction);
-      }
-      if (approval.remember === true && canRemember) runtime.rememberApproval(key);
-    }
-  }
-
-  // 8. Revisión de argumentos (Decisión 3): solo en las escrituras que el usuario no aprobó. Si el usuario las aprobó (paso 7), la
-  // aprobación es la revisión y D3 no entra.
-  // Una lectura no la pasa por D3: no deja cambios, la verificación posterior atrapa un resultado inútil y, medido, D3 rechazaba
-  // lecturas correctas (con el pre-chequeo delante, solo suma falsos rechazos). Si rechaza una escritura, la llamada queda con su
-  // `sig` (los argumentos sí se resolvieron) y con el `status` del escenario.
-  // Con `reviewReads` (experimental, apagado por defecto) las lecturas también pasan por D3.
-  const reviewApplies = kind === "write" ? !askUser && !userAuthored && tier !== "green" : deps.reviewReads?.() === true;
-  if (reviewApplies) {
-    const reviewView = ctx.view.forReview(reviewViewOptions());
-    const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, route, tool, recorded), runtime.signal), 0, pauseOf(env, "decision"));
-    if (!review.ok) return fromFailure(ctx, stepId, review.failure, review.error);
-    if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-    // Nivel 2 de la lista negra (solo llega aquí en automático): umbral estricto. Si el comando habría pasado con el umbral normal y solo lo frena la
-    // exigencia extra, no es un argumento inválido: se rechaza como `tool_rejected` (no cuenta contra el tope de rechazos de D3) y el modelo prueba otro camino.
-    const strict = listed?.level === "sensitive" || tier === "yellow";
-    const reviewed = reviewOutcome(review.value, strict ? BUDGET.sensitiveApprove : undefined);
-    if (reviewed !== "approved" && strict && reviewOutcome(review.value) === "approved") {
-      const note = `${listed?.reason ?? "This change is not trivially reversible."} The safety review was not confident enough to run it automatically. Use a safer command or a different approach.`;
-      return reject("tool_rejected", note);
-    }
-    if (reviewed !== "approved") return reject(reviewed, reviewed === "args_invalid" ? REVIEW_ARGS_INVALID_NOTE : null);
-  }
-
-  // 9. Despacho: compite contra la cancelación.
-  if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  console.log(`[MCP → SEND] server=${mcp} tool=${tool.name} args=${JSON.stringify(resolved).slice(0, 300)}`);
-  const callOptions: ToolCallOptions = {
-    signal: runtime.signal,
-    taskId: ctx.task.id,
-    timeoutMs: deps.toolTimeoutMs?.(mcp, tool.name) ?? timeoutOf(mcp, tool.name),
-    ...(server.dependencies === undefined ? {} : { host: createToolHost(deps.discovery, server.dependencies, env.sink, ctx.task.id) }),
-  };
-  const raced = await raceCancel(captureCallTool(server, env.sink)(tool.name, resolved, callOptions), runtime.signal);
-
-  if (raced.kind === "cancelled") {
-    if (ctx.isClosed()) return CANCELLED;
-    const callId = record("interrupted");
-    console.warn(`[Engine] '${tool.name}' interrumpida por la cancelación; si responde después, el resultado se descarta.`);
-    return { kind: "cancelled", callId };
-  }
-  if (ctx.isClosed()) return CANCELLED;
-
-  const finishWithVerification = async (callId: string, status: CallStatus, waiting?: { readonly prompt?: string; readonly pid?: string }): Promise<CallOutcome> => {
-    const verification = await verifyCall(env, callId);
-    switch (verification.kind) {
-      case "verified":
-        return registered(callId, status, verification.verdict, verification.reason, waiting);
-      case "skipped":
-        return registered(callId, status, null, null, waiting);
-      case "close":
-        return { kind: "close", stopReason: verification.stopReason, callId };
-      case "cancelled":
-        return { kind: "cancelled", callId };
-    }
-  };
-
-  if (raced.kind === "failed") {
-    // `callTool` lanzó: la herramienta no produjo resultado. `exception` es de quien ejecuta (el procesador no lo produce).
-    console.error(`[MCP ← ERROR] server=${mcp} tool=${tool.name}: ${errorMessage(raced.error)}`);
-    const summary = summaryText(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
-    return finishWithVerification(record("exception", summary), "exception");
-  }
-
-  // 10. Procesar el resultado.
-  console.log(`[MCP ← RECV] server=${mcp} tool=${tool.name} result=${JSON.stringify(raced.value).slice(0, 400)}`);
-  const processed = processResult(mcp, tool.name, raced.value, resolved);
-
-  // 11. Con `ref` (el resumen no contiene el resultado completo): disco → `add ref` → `add call` con `ref = rN`.
-  let ref: string | null = null;
-  let vaultFailed = false;
-  if (processed.truncated && processed.fullText.length > 0) {
-    try {
-      const stored = await deps.vault.put(ctx.task.id, processed.fullText);
-      if (ctx.isClosed()) return CANCELLED;
-      ref = ctx.apply({
-        op: "add",
-        target: "refs",
-        value: { stepId, label: callLabel(tool.name, resolved, processed.fullText), size: stored.size, where: stored.where },
-      }).ids[0];
-    } catch (error) {
-      if (!(error instanceof RefVaultError)) throw error;
-      // D7: la herramienta ya se ejecutó. La llamada se registra sin `ref` (el resumen queda incompleto), con el error.
-      console.error(`[Engine] no se pudo guardar el resultado completo de '${tool.name}': ${error.message}`);
-      vaultFailed = true;
-    }
-  }
-  if (ctx.isClosed()) return CANCELLED;
-
-  const factOps = processFactOps(ctx, stepId, policy, processed);
-  const errorOps: Op[] = vaultFailed ? [{ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } }] : [];
-  const callId = register(
-    ctx,
-    { ...base, kind, args: recorded, sig, status: processed.status, summary: processed.summary, ref },
-    [...errorOps, ...factOps],
-  );
-  if (vaultFailed) return { kind: "close", stopReason: "unrecoverable", callId };
-
-  // 12. Verificar (segundo `apply`: `verdict` y `reason` juntos).
-  return finishWithVerification(callId, processed.status, { prompt: processed.prompt, pid: processed.process?.pid });
+  // 9 a 12. Despacho, resultado, registro y verificación (`callExecute.ts`). Desde acá no hay más decisiones de autorización.
+  return executeAndRecord(env, prepared);
 }

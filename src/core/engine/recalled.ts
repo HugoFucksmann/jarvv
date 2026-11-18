@@ -54,11 +54,11 @@ export async function recordInitialRecalled(env: EngineEnv): Promise<void> {
     }
   }
   if (env.runtime.cancelled || env.ctx.isClosed()) return;
-  if (env.follow.thread !== null) {
+  if (env.state.thread !== null) {
     const from = env.deps.previousTaskId ?? null;
     entries.push(
-      { stepId: null, source: "thread", key: "previous_request", value: env.follow.thread.request, from },
-      { stepId: null, source: "thread", key: "previous_answer", value: env.follow.thread.answer, from },
+      { stepId: null, source: "thread", key: "previous_request", value: env.state.thread.request, from },
+      { stepId: null, source: "thread", key: "previous_answer", value: env.state.thread.answer, from },
     );
   }
   recordRecalled(env.ctx, entries);

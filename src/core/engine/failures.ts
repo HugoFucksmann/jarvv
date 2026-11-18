@@ -13,12 +13,11 @@
  *   Decision y el verificador: igual que `unavailable`; para los argumentos: `args_invalid`).
  * - Cualquier otra excepción es un defecto del código y se propaga.
  *
- * Si el servicio caído es el propio LLM, el cierre lo recuerda (`isLlmDown`): la respuesta final no lo consulta y va
+ * Si el servicio caído es el propio LLM, el cierre lo recuerda (`env.state.llmDown`): la respuesta final no lo consulta y va
  * directo a `forFallback` (FLUJO 9).
  */
 
 import { BUDGET } from "../budget.ts";
-import type { TaskContext } from "../ctx/index.ts";
 import {
   DecisionServiceUnavailableError,
   DecisionValidationError,
@@ -141,14 +140,6 @@ export async function queryModel<T>(
   }
 }
 
-/** Tareas cuyo LLM está caído. Es del motor, no del contexto (principio 5): la clave es el contexto vivo de la tarea. */
-const llmDown = new WeakSet<TaskContext>();
-
-/** ¿Un fallo anterior de esta tarea fue el LLM caído? */
-export function isLlmDown(ctx: TaskContext): boolean {
-  return llmDown.has(ctx);
-}
-
 /** Qué cierra la tarea (o la cancela) tras un fallo que no es recuperable dentro del paso. */
 export type FailureClosure = { readonly kind: "cancelled" } | { readonly kind: "close"; readonly stopReason: "unrecoverable" };
 
@@ -158,10 +149,11 @@ export type FailureClosure = { readonly kind: "cancelled" } | { readonly kind: "
  * captura de la traza. Sin paso (`stepId = null`: fallo anterior a que existan pasos, o antes de ejecutar el plan) tampoco
  * se registra `error`. No cierra la tarea (`finish` es de la Fase 6).
  */
-export function closeOnFailure(ctx: TaskContext, stepId: string | null, failure: ModelFailureKind, detail: unknown): FailureClosure {
+export function closeOnFailure(env: Pick<EngineEnv, "ctx" | "state">, stepId: string | null, failure: ModelFailureKind, detail: unknown): FailureClosure {
   if (failure === "cancelled") return { kind: "cancelled" };
+  const { ctx } = env;
   console.error(`[Engine] la tarea no puede continuar (${failure}): ${errorMessage(detail)}`);
-  if (detail instanceof LLMServiceUnavailableError) llmDown.add(ctx);
+  if (detail instanceof LLMServiceUnavailableError) env.state.llmDown = true;
   if (failure !== "overflow" && stepId !== null && !ctx.isClosed()) {
     ctx.apply({ op: "add", target: "errors", value: { stepId, kind: "service_unavailable" } });
   }

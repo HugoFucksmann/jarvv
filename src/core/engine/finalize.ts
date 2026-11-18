@@ -20,7 +20,7 @@ import { ContextOverflowError, renderFallback, renderFinal, renderPlaceNote, ren
 import { finalRenderOptions, finalViewOptions, windowOptions } from "./adapters.ts";
 import { stripNoChangesFiller } from "./finalClean.ts";
 import type { EngineEnv } from "./env.ts";
-import { isLlmDown, pauseOf, queryModel } from "./failures.ts";
+import { pauseOf, queryModel } from "./failures.ts";
 
 /** Cómo cierra la tarea: `null` = `completed`; si no, el motivo de detención. */
 export interface Closing {
@@ -52,7 +52,7 @@ ${note}`;
   };
   const fallback = (): ResultEntry => ({ text: withPlace(renderFallback(ctx.view.forFallback(windowOptions())).text), origin: "fallback" });
 
-  if (ctx.task.state === "cancelled" || isLlmDown(ctx)) return fallback();
+  if (ctx.task.state === "cancelled" || env.state.llmDown) return fallback();
 
   let view: string;
   try {

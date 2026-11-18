@@ -26,6 +26,8 @@ import { DiscoveryEngine } from "../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../src/core/mcp/freeSearchMcp.ts";
 import { Decision20Engine } from "../../src/core/models/decision.ts";
 import { QwenEngine } from "../../src/core/models/qwen.ts";
+import { createEngineServices, memoryFileOf } from "../../src/core/engine/services.ts";
+import { createJsonMemoryProvider } from "../../src/memory/index.ts";
 import { TaskManager } from "../../src/core/tasks.ts";
 import type { ToolProvider } from "../../src/core/tools/provider.ts";
 import { TerminalProvider } from "../../src/tools/terminal/terminalProvider.ts";
@@ -55,7 +57,7 @@ const providers: ToolProvider[] = [
   new TerminalProvider(),
   new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decision : undefined) }),
 ];
-const tasks = new TaskManager({ decision, discovery: new DiscoveryEngine(providers), llm: new QwenEngine(getConfig) }, getConfig);
+const tasks = new TaskManager({ decision, discovery: new DiscoveryEngine(providers), llm: new QwenEngine(getConfig) }, getConfig, createEngineServices(getConfig, { memoryProvider: createJsonMemoryProvider(memoryFileOf(getConfig())) }));
 
 interface Policy {
   /** Aprobar (`true`) o rechazar las confirmaciones. */

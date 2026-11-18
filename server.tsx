@@ -21,6 +21,8 @@ import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
 import { Decision20Engine } from './src/core/models/decision.ts';
 import { QwenEngine } from './src/core/models/qwen.ts';
 import { TaskManager } from './src/core/tasks.ts';
+import { createEngineServices, memoryFileOf } from './src/core/engine/services.ts';
+import { createJsonMemoryProvider } from './src/memory/index.ts';
 import { apiErrorHandler, createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
 import { isLoopbackHost, localOnly } from './src/server/localOnly.ts';
@@ -104,7 +106,9 @@ async function main() {
   const discoveryEngine = new DiscoveryEngine(servers);
   const llm = new QwenEngine(getConfig);
 
-  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig);
+  // La memoria de hechos del usuario (`data/memory.json`) la elige esta raíz de composición; el motor solo recibe el puerto (`MemoryProvider`).
+  const services = createEngineServices(getConfig, { memoryProvider: createJsonMemoryProvider(memoryFileOf(getConfig())) });
+  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig, services);
 
   // Limpieza por antigüedad de las refs y las trazas (`retentionDays`): al arrancar y cada 6 horas.
   const stopRetention = startRetention(getConfig, () => tasks.taskIds());

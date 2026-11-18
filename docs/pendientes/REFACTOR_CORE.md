@@ -72,6 +72,21 @@ Juntar en un `TaskExecutionState` lo que hoy está en `llmDown`, las cajas de `e
 - `engine/` deja de elegir la implementación de memoria: recibe el `MemoryProvider` desde el arranque de la app.
 - `guard.ts` recibe el homedir por parámetro en vez de llamar a `os.homedir()`.
 
+## Estado (2026-11-18)
+
+**Punto 1 (`runCall`): hecho.** `callRunner.ts` pasó de 595 a 76 líneas y encadena `callPrepare` → anti-bucle → `callAuthorize` → `callConfirm` → `callExecute`. Red de seguridad: `tests/approval_matrix.test.ts` (54 casos) y `tests/authorize.test.ts`.
+
+**Punto 2 (tabla por herramienta): hecho en lo que valía la pena.** Al leer el código, el manifest (`tools/manifest.ts`) ya era la tabla de políticas, sondas, plazos, repetición y recortes por herramienta; el análisis original subestimaba eso. Lo que seguía repartido eran tres cosas, y ya están en tablas:
+- Dónde deja su resultado cada herramienta que escribe (`tools/toolTargets.ts`), que reemplazó 4 `if (tool === "move_file")` en sondas, aviso final y pre-chequeo.
+- Regla de nivel de aprobación por herramienta (`TIER_RULES` en `policy/tiers.ts`), antes un `switch`.
+- Poscondición de disco por herramienta (`POSTCONDITIONS` en `engine/postcondition.ts`) y chequeo de tipo de ruta (`PATH_KIND_CHECKS` en `engine/precheck.ts`), antes `switch`.
+
+`tests/tool_specs.test.ts` hace fallar la suite si una herramienta que modifica el sistema no tiene su fila en alguna tabla: antes caía en silencio en un valor por omisión (amarillo, «lo decide el modelo»). **Decisión de diseño:** las funciones no se registran dentro del manifest, porque `manifest.ts` importaría `policy/` y `engine/` y `tiers.ts` necesita al manifest para despachar (ciclo), además de invertir la dirección de dependencias que el punto 4 quiere arreglar. Cada tabla queda junto a su código, indexada por nombre, y el test garantiza la coherencia con el catálogo. **Queda fuera a propósito:** las ramas por argumento de `read_file` (`isUrl`) y `run_command` (`cwd`) en `callAuthorize.ts`, y el plazo de `run_command` en `timeouts.ts`; son comportamiento de un argumento concreto, no clasificación de herramientas.
+
+**Punto 3 (estado de ejecución): hecho.** `engine/state.ts` define `TaskExecutionState` (`thread`, `lastCompletion`, `llmDown`), que se crea con la tarea y viaja en `env.state`: reemplaza las dos cajas sueltas de `EngineEnv` (`follow`, `completion`) y el `WeakSet` global `llmDown` de `failures.ts` (`closeOnFailure` y `fromFailure` reciben ahora `env` en vez de `ctx`). Lo que `runReactive` guardaba en seis variables locales pasó a `ReactiveList` (`engine/reactiveList.ts`), con transiciones con nombre (`applyModelList`, `applyModelDone`, `completeHead`, `failHead`…), probadas sin modelos en `tests/reactive_list.test.ts`; `runReactive` conserva solo el flujo. Se mantuvo chico a propósito: no se metió ahí lo que usa una sola función. **Queda fuera:** la caché de `getUserEnvironment()` (`environment.ts`) es una caché de proceso de datos de la PC (no estado de una tarea) y ya es inyectable por `deps.environment`; el log que deja la tarea abierta si falla su escritura (`PENDIENTES_CODIGO.md` §9.2) es una corrección de comportamiento y va aparte.
+
+**Punto 4 (dependencias en una dirección): hecho.** `tools/host.ts` ya no importa `engine/capture.ts`: `createToolHost` recibe el envoltorio de captura (`CaptureCall`; `DIRECT_CALL` para quien corre fuera de una tarea, como los scripts de validación) y lo arma `callExecute` con `captureCallTool`. `engine/services.ts` ya no elige la memoria: `createEngineServices(getConfig, { memoryProvider })` la recibe y `server.tsx` construye `createJsonMemoryProvider(memoryFileOf(config))`; sin proveedor no hay memoria (el `TaskManager` por defecto, usado por las pruebas, queda sin ella). El inicio del usuario llega a Guard, a la lista negra y a las reglas de solo lectura por parámetro (`guardScope.homeDirs`, fijado en `services.ts`); el valor por omisión vive en un solo archivo (`policy/homeDirs.ts`). Tres pruebas en `tests/architecture.test.ts` fijan el sentido: `core/tools` y `core/policy` no importan `engine/` ni `models/`, el motor solo importa el puerto de memoria (tipos) y `policy/` solo llama a `os.homedir()` en `homeDirs.ts`.
+
 ## Qué no cambia
 
 - La estructura de carpetas.

@@ -37,7 +37,7 @@ async function listPending(env: EngineEnv, input: ReturnType<typeof pendingInput
   const { ctx, runtime } = env;
   const query = await queryModel(() => env.llm.generatePendingFromView(input, runtime.signal), 0, pauseOf(env, "llm"));
   if (!query.ok) {
-    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    const closure = closeOnFailure(env, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
   if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
@@ -49,7 +49,7 @@ const withThread = (input: ReturnType<typeof pendingInput>, thread: PreviousTask
 
 export async function generatePending(env: EngineEnv, previous: readonly string[]): Promise<PendingOutcome> {
   const { ctx } = env;
-  const input = withThread(pendingInput(ctx, previous), env.follow.thread);
+  const input = withThread(pendingInput(ctx, previous), env.state.thread);
 
   let listed = await listPending(env, input);
   if (listed.kind !== "listed") return listed;

@@ -13,6 +13,7 @@
  */
 
 import type { VerdictReason } from "../ctx/index.ts";
+import { placedPathArg } from "./toolTargets.ts";
 
 /** Lo que una sonda sabe de la llamada evaluada: los datos que llegan a producción, no una versión simplificada. */
 export interface ProbeCall {
@@ -60,7 +61,7 @@ const parts = (path: string): string[] => path.split(/[\\/]+/).filter((p) => p !
 
 /** La ruta que dejó la llamada: el archivo o la carpeta; en un movimiento, el destino. */
 function placedPath(call: ProbeCall): string {
-  return text(call.tool === "move_file" ? call.args?.destination : call.args?.path).trim();
+  return text(call.args?.[placedPathArg(call.tool)]).trim();
 }
 
 /** Un `move_file` cuyo origen y destino están en la misma carpeta (solo cambia el nombre). */

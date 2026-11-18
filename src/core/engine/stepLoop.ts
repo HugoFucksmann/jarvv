@@ -32,7 +32,8 @@ import type { ExecutableRoute } from "../types/routes.ts";
 import { EXECUTABLE_ROUTES, isExecutableRoute } from "../types/routes.ts";
 import { routeInput, routeViewOptions } from "./adapters.ts";
 import { askUser, processAnswerSuffix, processQuestion } from "./ask.ts";
-import { availableRoutes, runCall } from "./callRunner.ts";
+import { availableRoutes } from "./callDiscovery.ts";
+import { runCall } from "./callRunner.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import type { CallOutcome, StepFailureCause, StepOutcome } from "./outcomes.ts";
@@ -99,7 +100,7 @@ export async function runStep(env: EngineEnv, seed: StepSeed): Promise<StepOutco
     const input = routeInput(ctx.view.forRoute(routeViewOptions()), { routes });
     const query = await queryModel(() => env.decision.chooseRoute(input, runtime.signal), 0, pauseOf(env, "decision"));
     if (!query.ok) {
-      const closure = closeOnFailure(ctx, stepId, query.failure, query.error);
+      const closure = closeOnFailure(env, stepId, query.failure, query.error);
       return closure.kind === "cancelled" ? CANCELLED : { kind: "close", stopReason: closure.stopReason };
     }
     if (runtime.cancelled || ctx.isClosed()) return CANCELLED;

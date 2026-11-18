@@ -95,7 +95,7 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
   const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), 0, pauseOf(env, "decision"));
 
   if (!query.ok) {
-    const closure = closeOnFailure(ctx, call.stepId, query.failure, query.error);
+    const closure = closeOnFailure(env, call.stepId, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
   // Una cancelación que llega justo con la respuesta: la llamada queda sin veredicto y el paso no sigue.

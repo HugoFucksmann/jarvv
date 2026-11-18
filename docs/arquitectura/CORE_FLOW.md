@@ -295,7 +295,7 @@ Límites vigentes (definidos en `budget.ts`, `engine/limits.ts` y `config.ts`; l
 | Tema | Ruta en `src/core/` |
 |---|---|
 | Entrada y estrategia | `tasks.ts`, `engine/runTask.ts`, `engine/stepLoop.ts`, `engine/planner.ts`, `engine/pending.ts` |
-| Llamadas y verificación | `engine/callRunner.ts`, `engine/verify.ts`, `engine/ask.ts` |
+| Llamadas y verificación | `engine/callRunner.ts` (encadena las fases), `engine/callPrepare.ts` y `engine/callDiscovery.ts` (herramienta y argumentos), `engine/callAuthorize.ts` (política y regla de confirmación), `engine/callConfirm.ts` (confirmación y D3), `engine/callExecute.ts` (despacho y registro), `engine/callRecord.ts`, `engine/verify.ts`, `engine/ask.ts` |
 | Cierre y fallos | `engine/finalize.ts`, `engine/failures.ts`, `engine/runtime.ts` |
 | Modelos y transporte | `models/decision.ts`, `models/qwen.ts`, `models/prompts.ts`, `models/stageRequests.ts`, `models/transport.ts`, `budget.ts` |
 | Etapas de modelo (ids de traza: `continuation`, `first_query`, `route`, `tool`, `review`, `verify`, `completion`, `args`, `question`, `plan`, `final`, `pending`) | `types/stages.ts` |

@@ -49,7 +49,7 @@ export type CompletionOutcome =
 /** ¿La solicitud está cumplida con lo hecho? `incomplete` ante la duda; si Decision falla tras la pausa (§6.1), cierra `unrecoverable`. */
 export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutcome> {
   const { ctx, runtime } = env;
-  env.completion.last = null;
+  env.state.lastCompletion = null;
   if (ctx.task.mode !== "reactive" || ctx.canFinish() !== "completed") return { kind: "incomplete" };
   // Guarda de cobertura (config `completionCoverageGuard`, experimental): un archivo nombrado en el pedido que ninguna llamada menciona impide el cierre rápido
   // (y ahorra la consulta); la tarea sigue con la confirmación de siempre. Solo puede volver el cierre más estricto.
@@ -68,10 +68,10 @@ export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutco
       console.warn(`[Engine] cierre por Decisión 5 no disponible (${query.failure}); se confirma con el LLM.`);
       return { kind: "incomplete" };
     }
-    const closure = closeOnFailure(ctx, null, query.failure, query.error);
+    const closure = closeOnFailure(env, null, query.failure, query.error);
     return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
   }
   if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
-  env.completion.last = query.value.requestComplete;
+  env.state.lastCompletion = query.value.requestComplete;
   return { kind: query.value.requestComplete >= COMPLETION_APPROVE ? "complete" : "incomplete" };
 }

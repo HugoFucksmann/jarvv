@@ -8,7 +8,7 @@ import { test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
 import type { FragmentJudge } from "../src/core/tools/judge.ts";
-import { createToolHost } from "../src/core/tools/host.ts";
+import { createToolHost, DIRECT_CALL } from "../src/core/tools/host.ts";
 import { applyDestination, buildCompactCatalog } from "../src/core/tools/manifest.ts";
 import type { ToolHost, ToolRef } from "../src/core/tools/provider.ts";
 import { readToolResult } from "../src/core/tools/result.ts";
@@ -509,13 +509,19 @@ test("ToolHost: solo deja pasar lo que el proveedor declara y las sub-llamadas l
     isConnected: () => true,
     reconnect: async () => undefined,
   };
-  const host = createToolHost({ getServer: (name) => (name === "free_search" ? server : undefined) }, WEB_DEPENDENCIES, { llm() {}, tool() {} } as never, "task_9");
+  const captured: string[] = [];
+  const capture: typeof DIRECT_CALL = (target) => {
+    const call = DIRECT_CALL(target);
+    return (tool, args, options) => (captured.push(`${target.name}:${tool}`), call(tool, args, options));
+  };
+  const host = createToolHost({ getServer: (name) => (name === "free_search" ? server : undefined) }, WEB_DEPENDENCIES, capture, "task_9");
   assert.equal((await host.call({ server: "free_search", tool: "search" }, { query: "q" })).content[0].text, "hecho");
   assert.equal((await host.call({ server: "free_search", tool: "fetch" }, { url: "https://a.org" })).content[0].text, "hecho");
   assert.deepEqual(seen.map((c) => [c.name, c.taskId]), [["search", "task_9"], ["fetch", "task_9"]]);
   await assert.rejects(host.call({ server: "free_search", tool: "download" }, { url: "https://a.org" }), /no figura entre las dependencias/);
   await assert.rejects(host.call({ server: "desktop_commander", tool: "write_file" }, {}), /no figura entre las dependencias/);
   assert.equal(seen.length, 2, "lo no declarado nunca llega al servidor");
+  assert.deepEqual(captured, ["free_search:search", "free_search:fetch"], "cada sub-llamada pasa por el envoltorio de captura que recibe el host");
 });
 
 // ───────────────────────── Proveedor: sin modelo ─────────────────────────

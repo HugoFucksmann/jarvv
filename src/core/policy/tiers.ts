@@ -49,42 +49,68 @@ function underUserFolder(p: string, env: UserEnvironment, canon: (target: string
   );
 }
 
+/** Lo que necesita la regla de nivel de una herramienta. */
+interface TierContext {
+  readonly env: UserEnvironment;
+  readonly disk: TierDisk;
+  readonly canon: (p: string) => string;
+  readonly baseDir: string | undefined;
+}
+
+type TierRule = (args: Readonly<Record<string, unknown>>, c: TierContext) => ApprovalTier;
+
+/**
+ * Una regla de nivel por herramienta que escribe del catálogo. Agregar una herramienta que escribe es agregar su fila; `tests/tool_specs.test.ts` falla si una
+ * herramienta que modifica el sistema no tiene la suya (sin fila rige el amarillo, que no es una clasificación sino un valor por omisión).
+ */
+const TIER_RULES: ReadonlyMap<string, TierRule> = new Map<string, TierRule>([
+  [
+    "create_directory",
+    (args, { env, canon, baseDir }) => {
+      const dir = absolute(args.path, canon, baseDir);
+      return dir !== null && underUserFolder(dir, env, canon) ? "green" : "yellow";
+    },
+  ],
+  [
+    "write_file",
+    (args, { env, disk, canon, baseDir }) => {
+      const raw = typeof args.path === "string" ? args.path.trim() : "";
+      const file = absolute(args.path, canon, baseDir);
+      if (file === null || !underUserFolder(file, env, canon)) return "yellow";
+      const fileExists = disk.exists(file) || (raw !== "" && disk.exists(raw));
+      if (!fileExists) {
+        const parentExists = disk.exists(dirnameOf(file)) || (raw !== "" && disk.exists(dirnameOf(raw)));
+        return parentExists ? "green" : "yellow"; // sin la carpeta contenedora la escritura falla: no es verde
+      }
+      return args.mode === "append" ? "yellow" : "red"; // agregar es amarillo; reescribir un archivo que existe es sobrescribir
+    },
+  ],
+  [
+    "move_file",
+    (args, { env, disk, canon, baseDir }) => {
+      const source = absolute(args.source, canon, baseDir);
+      const rawDest = typeof args.destination === "string" ? args.destination.trim() : "";
+      const destination = absolute(args.destination, canon, baseDir);
+      if (source === null || destination === null || !underUserFolder(source, env, canon) || !underUserFolder(destination, env, canon)) return "yellow";
+      if (disk.exists(destination) || (rawDest !== "" && disk.exists(rawDest))) return "red";
+      const parentExists = disk.exists(dirnameOf(destination)) || (rawDest !== "" && disk.exists(dirnameOf(rawDest)));
+      return parentExists ? "green" : "yellow";
+    },
+  ],
+  ["edit_block", () => "red"], // en pausa: si se incorpora al catálogo, sigue en rojo hasta que se clasifique
+  ["run_command", () => "red"], // un comando que modifica puede hacer cualquier cosa
+  ["stop_process", () => "red"],
+]);
+
+/** ¿La herramienta tiene una regla de nivel propia? (Sin ella, `approvalTierOf` da amarillo por omisión.) */
+export const hasTierRule = (tool: string): boolean => TIER_RULES.has(tool);
+
 /** El nivel de una escritura del catálogo ya con sus argumentos resueltos. Sin información suficiente, amarillo (nunca verde por omisión). */
 export function approvalTierOf(tool: string, args: Readonly<Record<string, unknown>>, env: UserEnvironment, disk: TierDisk = REAL, baseDir?: string): ApprovalTier {
-  const canon = disk.canonical ?? canonicalPath;
+  const rule = TIER_RULES.get(tool);
+  if (rule === undefined) return "yellow";
   try {
-    switch (tool) {
-      case "create_directory": {
-        const dir = absolute(args.path, canon, baseDir);
-        return dir !== null && underUserFolder(dir, env, canon) ? "green" : "yellow";
-      }
-      case "write_file": {
-        const raw = typeof args.path === "string" ? args.path.trim() : "";
-        const file = absolute(args.path, canon, baseDir);
-        if (file === null || !underUserFolder(file, env, canon)) return "yellow";
-        const fileExists = disk.exists(file) || (raw !== "" && disk.exists(raw));
-        if (!fileExists) {
-          const parentExists = disk.exists(dirnameOf(file)) || (raw !== "" && disk.exists(dirnameOf(raw)));
-          return parentExists ? "green" : "yellow"; // sin la carpeta contenedora la escritura falla: no es verde
-        }
-        return args.mode === "append" ? "yellow" : "red"; // agregar es amarillo; reescribir un archivo que existe es sobrescribir
-      }
-      case "move_file": {
-        const source = absolute(args.source, canon, baseDir);
-        const rawDest = typeof args.destination === "string" ? args.destination.trim() : "";
-        const destination = absolute(args.destination, canon, baseDir);
-        if (source === null || destination === null || !underUserFolder(source, env, canon) || !underUserFolder(destination, env, canon)) return "yellow";
-        if (disk.exists(destination) || (rawDest !== "" && disk.exists(rawDest))) return "red";
-        const parentExists = disk.exists(dirnameOf(destination)) || (rawDest !== "" && disk.exists(dirnameOf(rawDest)));
-        return parentExists ? "green" : "yellow";
-      }
-      case "edit_block": // en pausa: si se incorpora al catálogo, sigue en rojo hasta que se clasifique
-      case "run_command": // un comando que modifica puede hacer cualquier cosa
-      case "stop_process":
-        return "red";
-      default:
-        return "yellow";
-    }
+    return rule(args, { env, disk, canon: disk.canonical ?? canonicalPath, baseDir });
   } catch {
     return "yellow";
   }

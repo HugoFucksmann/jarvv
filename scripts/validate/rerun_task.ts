@@ -17,7 +17,8 @@ import path from "node:path";
 
 import type { JarvisConfig } from "../../src/core/config.ts";
 import { ConfigManager } from "../../src/core/config.ts";
-import { createEngineServices } from "../../src/core/engine/services.ts";
+import { createEngineServices, memoryFileOf } from "../../src/core/engine/services.ts";
+import { createJsonMemoryProvider } from "../../src/memory/index.ts";
 import { DesktopCommanderMCPServer } from "../../src/core/mcp/desktopCommanderMcp.ts";
 import { DiscoveryEngine } from "../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../src/core/mcp/freeSearchMcp.ts";
@@ -62,7 +63,7 @@ const providers: ToolProvider[] = [
   new TerminalProvider(),
   new WebSearchProvider({ judge: () => undefined }),
 ];
-const services = { ...createEngineServices(getConfig), environment: async () => environment };
+const services = { ...createEngineServices(getConfig, { memoryProvider: createJsonMemoryProvider(memoryFileOf(getConfig())) }), environment: async () => environment };
 const tasks = new TaskManager({ decision, discovery: new DiscoveryEngine(providers), llm: new QwenEngine(getConfig) }, getConfig, services);
 
 const events: string[] = [];

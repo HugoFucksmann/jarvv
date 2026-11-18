@@ -33,39 +33,62 @@ function absolutePath(value: unknown): string | null {
   return path.isAbsolute(p) ? p : null;
 }
 
-export function postconditionOf(tool: string, args: Readonly<Record<string, unknown>> | null, disk: DiskView = REAL_DISK): Postcondition {
-  if (args === null) return null;
-  try {
-    switch (tool) {
-      case "create_directory": {
-        const dir = absolutePath(args.path);
-        if (dir === null) return null;
-        return disk.exists(dir) && disk.isDirectory(dir) ? "met" : "unmet";
-      }
-      case "move_file": {
-        const source = absolutePath(args.source);
-        const destination = absolutePath(args.destination);
-        if (source === null || destination === null) return null;
-        if (disk.exists(source)) return "unmet";
-        if (disk.exists(destination)) {
-          // Mover «a una carpeta» deja el archivo dentro de ella.
-          if (disk.isDirectory(destination)) return disk.exists(path.join(destination, path.basename(source))) ? "met" : "unmet";
-          return "met";
-        }
-        return "unmet";
-      }
-      case "write_file": {
-        const file = absolutePath(args.path);
-        if (file === null) return null;
-        if (!disk.exists(file) || disk.isDirectory(file)) return "unmet";
-        // Con texto para escribir, un archivo vacío no es lo pedido (no se compara el tamaño exacto: la herramienta puede normalizar saltos de línea).
-        // En modo `append` el archivo ya podía existir: solo se mira que exista.
-        if (args.mode !== "append" && typeof args.content === "string" && args.content !== "" && disk.size(file) === 0) return "unmet";
+type PostconditionRule = (args: Readonly<Record<string, unknown>>, disk: DiskView) => Postcondition;
+
+/**
+ * Una poscondición por herramienta que escribe en el disco. Agregar una herramienta que deja algo en el disco es agregar su fila; las que no dejan nada que mirar
+ * (comandos, procesos) están en `NO_DISK_POSTCONDITION`. `tests/tool_specs.test.ts` falla si una herramienta que modifica el sistema no está en una de las dos.
+ */
+const POSTCONDITIONS: ReadonlyMap<string, PostconditionRule> = new Map<string, PostconditionRule>([
+  [
+    "create_directory",
+    (args, disk) => {
+      const dir = absolutePath(args.path);
+      if (dir === null) return null;
+      return disk.exists(dir) && disk.isDirectory(dir) ? "met" : "unmet";
+    },
+  ],
+  [
+    "move_file",
+    (args, disk) => {
+      const source = absolutePath(args.source);
+      const destination = absolutePath(args.destination);
+      if (source === null || destination === null) return null;
+      if (disk.exists(source)) return "unmet";
+      if (disk.exists(destination)) {
+        // Mover «a una carpeta» deja el archivo dentro de ella.
+        if (disk.isDirectory(destination)) return disk.exists(path.join(destination, path.basename(source))) ? "met" : "unmet";
         return "met";
       }
-      default:
-        return null;
-    }
+      return "unmet";
+    },
+  ],
+  [
+    "write_file",
+    (args, disk) => {
+      const file = absolutePath(args.path);
+      if (file === null) return null;
+      if (!disk.exists(file) || disk.isDirectory(file)) return "unmet";
+      // Con texto para escribir, un archivo vacío no es lo pedido (no se compara el tamaño exacto: la herramienta puede normalizar saltos de línea).
+      // En modo `append` el archivo ya podía existir: solo se mira que exista.
+      if (args.mode !== "append" && typeof args.content === "string" && args.content !== "" && disk.size(file) === 0) return "unmet";
+      return "met";
+    },
+  ],
+]);
+
+/** Herramientas que modifican el sistema sin dejar nada que el código pueda comprobar en el disco: las decide el modelo. */
+export const NO_DISK_POSTCONDITION: ReadonlySet<string> = new Set(["run_command", "stop_process"]);
+
+/** ¿La herramienta declara una poscondición de disco? */
+export const hasPostcondition = (tool: string): boolean => POSTCONDITIONS.has(tool);
+
+export function postconditionOf(tool: string, args: Readonly<Record<string, unknown>> | null, disk: DiskView = REAL_DISK): Postcondition {
+  if (args === null) return null;
+  const rule = POSTCONDITIONS.get(tool);
+  if (rule === undefined) return null;
+  try {
+    return rule(args, disk);
   } catch {
     return null;
   }

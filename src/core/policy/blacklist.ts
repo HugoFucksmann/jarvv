@@ -19,9 +19,8 @@
  * colapsados). Sin patrón se rechaza toda llamada a la herramienta y esta deja de ofrecerse a la decisión de herramienta.
  */
 
-import os from "node:os";
-
 import { classify, commandOf } from "./commandRules.ts";
+import { defaultHomeDirs } from "./homeDirs.ts";
 
 export type ListLevel = "blocked" | "sensitive";
 
@@ -92,7 +91,7 @@ export function blacklistMatch(
   tool: string,
   mutates: boolean,
   args: Record<string, unknown>,
-  homeDirs: readonly string[] = [os.homedir()],
+  homeDirs: readonly string[] = defaultHomeDirs(),
 ): ListHit | null {
   if (!mutates) return null;
   let best: ListHit | null = null;

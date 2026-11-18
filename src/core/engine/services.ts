@@ -8,9 +8,9 @@
 import os from "node:os";
 import path from "node:path";
 
-import type { ConfigSource } from "../config.ts";
+import type { ConfigSource, JarvisConfig } from "../config.ts";
 import { getUserEnvironment, type UserEnvironment } from "../environment.ts";
-import { createJsonMemoryProvider, type MemoryProvider } from "../../memory/index.ts";
+import type { MemoryProvider } from "../../memory/index.ts";
 import { compileBlacklist, type Blacklist } from "../policy/blacklist.ts";
 import type { ProtectedPaths } from "../policy/guard.ts";
 import { createRefVault, type RefVault } from "../refs/refVault.ts";
@@ -37,21 +37,32 @@ export interface EngineServices {
   readonly toolBaseDir?: () => string;
   /** Directorios permitidos leídos en vivo desde la configuración en cada llamada. */
   readonly allowedDirectories?: () => readonly string[];
-  /** Proveedor desacoplado de memoria de hechos (`src/memory`): `data/memory.json` (junto a `refsDir`), con caché por fecha de modificación. */
+  /** Proveedor de memoria de hechos que eligió la raíz de composición (`src/memory`); omitido = sin memoria. El motor no elige la implementación. */
   readonly memoryProvider?: MemoryProvider;
   /** Tope de pausa (ms) ante modelo no disponible, leído en vivo de la configuración. */
   readonly modelUnavailablePauseMaxMs?: () => number;
+}
+
+/** El archivo de la memoria de hechos (`data/memory.json`): junto a `refsDir`. Lo protege Guard; qué proveedor lo lee lo decide la raíz de composición. */
+export function memoryFileOf(config: Pick<JarvisConfig, "refsDir">): string {
+  return path.join(path.dirname(path.resolve(config.refsDir)), "memory.json");
+}
+
+/** Opciones que decide la raíz de composición. */
+export interface EngineServicesOptions {
+  /** Proveedor de memoria de hechos (`createJsonMemoryProvider(memoryFileOf(config))` en `server.tsx`). Omitido = sin memoria. */
+  readonly memoryProvider?: MemoryProvider;
 }
 
 /**
  * Crea una sola vez el almacén de refs (con `refsDir`) y el alcance del Guard (refs, logs de tareas, carpeta del proyecto y archivo de memoria).
  * La raíz de composición lo llama una vez y comparte el resultado entre tareas.
  */
-export function createEngineServices(getConfig: ConfigSource): EngineServices {
+export function createEngineServices(getConfig: ConfigSource, options: EngineServicesOptions = {}): EngineServices {
   const config = getConfig();
   const refsDir = path.resolve(config.refsDir);
   const tasksDir = tasksDirFromConfig(config);
-  const memoryFile = path.join(path.dirname(refsDir), "memory.json");
+  const memoryFile = memoryFileOf(config);
 
   let cachedBlacklistRaw: string | null = null;
   let cachedBlacklist: Blacklist | null = null;
@@ -76,6 +87,7 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
         return [...bases];
       },
       commandBases: [os.homedir()],
+      homeDirs: [os.homedir()],
     },
     blacklist: getBlacklist,
     environment: getUserEnvironment,
@@ -86,7 +98,7 @@ export function createEngineServices(getConfig: ConfigSource): EngineServices {
     toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
     toolBaseDir: () => getConfig().desktopCommanderMcp.cwd ?? process.cwd(),
     allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
-    memoryProvider: createJsonMemoryProvider(memoryFile),
+    ...(options.memoryProvider === undefined ? {} : { memoryProvider: options.memoryProvider }),
     modelUnavailablePauseMaxMs: () => getConfig().modelUnavailablePauseMaxMs,
   };
 }

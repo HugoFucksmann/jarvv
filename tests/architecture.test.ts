@@ -66,3 +66,28 @@ test("el núcleo no conoce las vías de entrada y salida (Telegram, voz, servido
   assert.deepEqual(offenders("telegram", ["server"]), []);
   assert.deepEqual(offenders("voice", ["server", "telegram"]), []);
 });
+
+test("el catálogo y las políticas del núcleo (`core/tools`, `core/policy`) no importan el motor ni los modelos: la dependencia va del motor hacia ellos", () => {
+  const forbidden = ["engine", "models"].map((name) => path.join(CORE, name));
+  const offenders = [path.join(CORE, "tools"), path.join(CORE, "policy")].flatMap((dir) =>
+    files(dir).flatMap((file) =>
+      relativeImports(file)
+        .filter((target) => forbidden.some((forbiddenDir) => inside(forbiddenDir, target)))
+        .map((target) => `${path.relative(SRC, file)} → ${path.relative(SRC, target)}`),
+    ),
+  );
+  assert.deepEqual(offenders, []);
+});
+
+test("el motor no elige la implementación de la memoria: solo importa su puerto (tipos); el proveedor lo elige la raíz de composición", () => {
+  const offenders = files(path.join(CORE, "engine")).filter((file) => /^import\s+(?!type\b)[^;]*memory\/index/m.test(fs.readFileSync(file, "utf8"))).map((file) => path.relative(SRC, file));
+  assert.deepEqual(offenders, []);
+});
+
+test("`core/policy` solo consulta el sistema para el inicio del usuario en un lugar (`homeDirs.ts`)", () => {
+  const offenders = files(path.join(CORE, "policy"))
+    .filter((file) => path.basename(file) !== "homeDirs.ts")
+    .filter((file) => /\bos\.homedir\s*\(/.test(fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "")))
+    .map((file) => path.relative(SRC, file));
+  assert.deepEqual(offenders, []);
+});

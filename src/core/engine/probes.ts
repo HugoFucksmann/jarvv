@@ -53,7 +53,7 @@ export async function runProbes(env: EngineEnv, call: Call): Promise<ProbesOutco
     for (const stage of probe.stages(probeCall)) {
       const answered = await queryModel(() => decision.probe!({ state: stage.state, question: stage.question }, runtime.signal), 0, pauseOf(env, "decision"));
       if (!answered.ok) {
-        const closure = closeOnFailure(ctx, call.stepId, answered.failure, answered.error);
+        const closure = closeOnFailure(env, call.stepId, answered.failure, answered.error);
         return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };
       }
       if (runtime.cancelled || ctx.isClosed()) return { kind: "cancelled" };
