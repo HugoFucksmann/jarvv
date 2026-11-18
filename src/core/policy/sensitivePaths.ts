@@ -18,6 +18,7 @@
  */
 
 import { canonicalPath, isAnyAbsolute, stripExtendedPrefix } from "./allowedDirs.ts";
+import { isPathArgKey, PATH_LIST_KEY } from "./pathArgs.ts";
 
 export interface PathFinding {
   /** Identificador estable de la regla. */
@@ -86,8 +87,6 @@ const WRITE_PATTERNS: readonly PathRule[] = [
   rule("jarvis-config", "Jarvis' own configuration (it holds the security switches).", String.raw`(jarvis-config\.json|jarvis~[1-9]\.jso)${END}`),
 ];
 
-/** Argumentos que nombran una ruta. */
-const PATH_KEYS = new Set(["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder", "cwd"]);
 /** Argumentos con el texto de un comando. */
 const COMMAND_KEYS = new Set(["command", "cmd", "input"]);
 
@@ -118,7 +117,7 @@ function scannedTexts(args: Readonly<Record<string, unknown>>): string[] {
   const out: string[] = [];
   for (const [key, value] of Object.entries(args)) {
     const k = key.toLowerCase();
-    const isPath = PATH_KEYS.has(k) || k === "paths";
+    const isPath = isPathArgKey(k) || k === PATH_LIST_KEY;
     const isCmd = COMMAND_KEYS.has(k);
     if (!isPath && !isCmd) continue;
     const values = typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];

@@ -16,6 +16,7 @@ Todo lo que se cierra **programando** o con una **decisión de producto o de seg
 | 6 | Seguridad y API HTTP | Decisiones y límites conocidos |
 | 7 | Deuda técnica | Código |
 | 8 | Horizonte JARVIS 2.0 | Sin empezar |
+| 9 | Revisión de código del 2026-11-18 (flujo, contexto y memoria) | Código |
 
 ---
 
@@ -102,3 +103,37 @@ Estado: los archivos los sirve Desktop Commander (`files`, `locate`); en `src/to
 - Lecturas preparatorias de apoyo dentro del mismo paso (`role: support`, varias rutas por herramienta) y ejecución paralela de lecturas y procesos independientes.
 - Recetas parametrizadas para comandos frecuentes y respuestas finales por plantilla cuando solo hubo escrituras.
 - Captura conversacional de memoria y recetas aprendidas (Capa 3 de [`FRENTE_1_MEMORIA.md`](../evaluacion/analisis/FRENTE_1_MEMORIA.md)).
+
+## 9. Revisión de código del 2026-11-18 (flujo, contexto y memoria)
+
+Hallazgos de leer el código (no la documentación). Estado de la suite al revisar: 528 de 535 tests pasan y `tsc --noEmit` está limpio. Se dejaron fuera seguridad y UI.
+
+### 9.1 Flujo
+
+1. ~~**La verificación de escrituras depende del disco real.**~~ **Resuelto el 2026-11-18.** `postconditionOf` miraba siempre el disco real, y una escritura con ruta absoluta que no existe en la PC se rechazaba como `not_accomplished` (`C:\Users\Ana\bien.txt` daba `unmet`). Ahora `EngineDeps.disk?: DiskView` (por defecto el disco real) llega a `verifyCall` (`verify.ts`), y los tests de flujo usan `FAKE_DISK` (`tests/fixtures.ts`). Los 4 tests de flujo pasan (el deliberativo también: la causa era la misma).
+2. **La salida parcial casi no tiene margen.** Abandonar un ítem exige `maxItemFailures` (2) pasos fallidos seguidos sobre él, y esos dos fallos ya consumen `maxEscalations` (2): [`runTask.ts:173`](../../src/core/engine/runTask.ts) cierra `no_alternatives` en cuanto un paso más falla (`escalationsExceeded`, [`limits.ts:62`](../../src/core/engine/limits.ts)). «Abandonar y seguir con el resto» solo sirve si el resto sale perfecto. **Decidir:** subir el cupo de escalaciones o no contar contra él los pasos de un ítem ya abandonado; medir en `eval/`.
+3. **`tool_error` y `exception` cuentan como rechazo de la verificación.** `countStep` ([`limits.ts:106`](../../src/core/engine/limits.ts)) incluye en `rejected` toda llamada con `verdict = rejected`, y las dos se rechazan sin modelo: dos errores de herramienta fallan el paso con `verify_rejected`, igual que dos resultados que «no cumplen». Conviene separar la causa (`tool_failed`) para la recuperación y el informe.
+4. **`runCall` (~300 líneas, [`callRunner.ts:288`](../../src/core/engine/callRunner.ts)) y `precheck.ts` (680)** son lineales y funcionan, pero cuestan tocarlos. Candidatos a partir en fases con nombre (descubrir, argumentos, política, despacho, registro). **Red de seguridad lista (2026-11-18):** [`tests/approval_matrix.test.ts`](../../tests/approval_matrix.test.ts) fija con 49 casos la autorización de una llamada (`approvalTiers` × `autoMode` × nivel × lista negra × ruta sensible × umbral de D3 × `allowedDirectories` × rechazo del usuario); cuatro mutaciones deliberadas de `callRunner` la hicieron fallar. Ver `REFACTOR_CORE.md`, punto 1.
+
+5. ~~**Claves de ruta copiadas en 4 archivos.**~~ **Resuelto el 2026-11-18:** una sola definición en [`policy/pathArgs.ts`](../../src/core/policy/pathArgs.ts) (`PATH_ARG_KEYS`, `PATH_LIST_KEY`, `isPathArgKey`), usada por `callRunner`, `precheck`, `sensitivePaths` y `approvalKey`. Las 3 copias de `callRunner`, `precheck` y `sensitivePaths` eran idénticas; la de `approvalKey` omitía `cwd`, y ahora la incluye (solo cambia el caso de una llamada con `cwd` y sin `command`, que el catálogo no produce). **Queda:** `precheck` no trata `paths` (arreglo, p. ej. `read_multiple_files`) como ruta —lo lee como texto—, a diferencia de los otros tres; decidir si debe prechequearlo.
+
+### 9.2 Contexto
+
+1. **Un fallo al escribir el log deja la tarea abierta.** `apply` llama a `onApply` (escritura síncrona del `.jsonl`) antes de confirmar ([`context.ts:137`](../../src/core/ctx/context.ts)); si falla, lanza. `closeOnDefect` ([`tasks.ts:451`](../../src/core/tasks.ts)) también cierra con `apply`, y falla igual: la tarea queda `running` y ocupa un cupo de `activeCount`. *Deducido de la lectura, sin probar.* **Arreglo propuesto:** que `closeOnDefect` cierre sin pasar por el log (o marque la tarea como cerrada en la caché) y que `onApply` no lance fuera del contexto.
+2. **`recalled` no se puede retirar.** Un hecho recordado dura toda la tarea (`apply` rechaza duplicados de `(source, key)` y no hay baja). La vista conserva solo los `cap` más recientes por fuente (`recalledViewsOf`), así que un hecho relevante temprano puede quedar fuera cuando entran otros después.
+3. **`facts` solo tiene dos usos** (`answer_*` y `process`): es un mecanismo genérico sin uso general; no urge, pero conviene tenerlo presente antes de agregarle más claves.
+
+### 9.3 Memoria e hilo
+
+1. **Emparejamiento frágil con claves cortas** ([`memory/index.ts:105`](../../src/memory/index.ts)): prefijos de 5 letras, así que una clave de un solo término coincide con palabras no relacionadas (`proyecto` y `proyección` comparten `proye`). Sin sinónimos. Sigue sin re-medirse en `eval/` (ver §2).
+2. **La memoria llega solo a argumentos y respuesta final** (`RECALLED_SOURCE_POLICY`, [`recalledPolicy.ts`](../../src/core/recalledPolicy.ts)): no a `pending`, `plan`, D3 ni D4. En deliberativo el plan no ve los hechos; solo la generación de argumentos (con `request` y paso).
+3. **Hilo de un solo slot, en RAM** ([`tasks.ts:218`](../../src/core/tasks.ts)): se pierde al reiniciar, vence a los 10 minutos y solo lo actualiza una tarea `completed` con respuesta del modelo (una parcial o con respuesta de respaldo no encadena). Solo funciona en reactivo.
+4. **Tope inconsistente:** la respuesta anterior se recorta a 500 caracteres (`THREAD_ANSWER_CHARS`), pero `threadValueMax` del contexto es 8000.
+
+### 9.4 Tests
+
+De los 6 fallos de la suite, los 4 de flujo quedaron resueltos (§9.1, punto 1). Quedan 2, ya conocidos:
+- `run_command.test.ts:522`: desactualizado, ya figura en §1.
+- `http.test.ts:86`: consecuencia del guard de `Host` (§1).
+
+Además, `tsc --noEmit` falla en variantes de eval nuevas sin versionar (`eval/variants/d5/d5_it*.ts` importan `DecisionInput` de `contracts.ts`, que no existe); el resto del proyecto compila limpio.

@@ -9,6 +9,7 @@
 
 import type { UserEnvironment } from "./environment.ts";
 import type { FirstQueryKind } from "./engine/firstQuery.ts";
+import type { DiskView } from "./engine/postcondition.ts";
 import type { MemoryProvider } from "../memory/index.ts";
 import type { IMCPServer } from "./mcp/types.ts";
 import type { TaskEndOutcome } from "./tools/provider.ts";
@@ -326,6 +327,8 @@ export interface EngineDeps {
   readonly blacklist: Blacklist | (() => Blacklist);
   /** Datos de esta PC (sistema operativo y carpetas del usuario): se consultan una vez por proceso. */
   readonly environment: () => Promise<UserEnvironment>;
+  /** Cómo mira el disco la verificación de escrituras (`engine/postcondition.ts`). Omitida = el disco real; las pruebas inyectan uno falso. */
+  readonly disk?: DiskView;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */
   readonly autoMode: () => boolean;
   /** Aprobación por niveles (`policy/tiers.ts`); activa por defecto. Omitida = apagada (en pruebas heredadas). */

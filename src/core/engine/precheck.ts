@@ -23,6 +23,7 @@ import type { TaskContext } from "../ctx/index.ts";
 import type { Platform, UserEnvironment } from "../environment.ts";
 import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import { stripExtendedPrefix } from "../policy/allowedDirs.ts";
+import { isPathArgKey } from "../policy/pathArgs.ts";
 import { isPrecheckSource } from "../recalledPolicy.ts";
 import { reviewViewOptions } from "./adapters.ts";
 
@@ -72,14 +73,13 @@ export function normalizeText(text: string): string {
 
 export type Role = "path" | "url" | "command" | "text";
 
-const PATH_KEYS = new Set(["path", "source", "src", "destination", "dest", "file", "directory", "dir", "folder", "cwd"]);
 const SOURCE_KEYS = new Set(["source", "src", "from"]);
 /** Claves cuyo valor puede ser vacío a propósito (un archivo vacío, una tecla Enter). */
 export const MAY_BE_EMPTY = new Set(["content", "text", "data", "body", "input"]);
 
 function roleOf(key: string): Role {
   const k = key.toLowerCase();
-  if (PATH_KEYS.has(k)) return "path";
+  if (isPathArgKey(k)) return "path";
   if (k === "url" || k === "urls") return "url";
   if (k === "command") return "command";
   return "text";

@@ -84,7 +84,7 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
 
   // N5: lo que el código puede comprobar no se le pregunta al modelo. Una escritura del catálogo se verifica en el disco: cumplida, se aprueba; no cumplida, se rechaza.
   if (call.status === "ok" && call.kind === "write") {
-    const post = postconditionOf(call.tool, call.args);
+    const post = postconditionOf(call.tool, call.args, env.deps.disk);
     if (post === "unmet") return record("rejected", "not_accomplished");
     if (post === "met") return withProbes("approved", null);
   }

@@ -7,8 +7,7 @@
  */
 
 import { canonicalPath, isAnyAbsolute, stripExtendedPrefix } from "./allowedDirs.ts";
-
-const PATH_KEYS = ["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder"] as const;
+import { PATH_ARG_KEYS, PATH_LIST_KEY } from "./pathArgs.ts";
 
 const normPath = (value: string): string => {
   const p = stripExtendedPrefix(value.trim());
@@ -35,11 +34,12 @@ export function approvalKey(tool: string, args: Readonly<Record<string, unknown>
     return `${tool}|cmd|${args.command.trim().replace(/\s+/g, " ").toLowerCase()}|${cwd}`;
   }
   const paths: string[] = [];
-  for (const key of PATH_KEYS) {
+  for (const key of PATH_ARG_KEYS) {
     const v = args[key];
     if (typeof v === "string" && v.trim() !== "") paths.push(normPath(v));
   }
-  if (Array.isArray(args.paths)) for (const v of args.paths) if (typeof v === "string" && v.trim() !== "") paths.push(normPath(v));
+  const list = args[PATH_LIST_KEY];
+  if (Array.isArray(list)) for (const v of list) if (typeof v === "string" && v.trim() !== "") paths.push(normPath(v));
   if (paths.length > 0) return `${tool}|path|${paths.join(">")}`;
   return `${tool}|args|${stable(args)}`;
 }

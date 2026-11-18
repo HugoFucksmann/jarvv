@@ -3,6 +3,7 @@
  * muestran (lecturas, escrituras, fallos, refs, hechos y entrada del usuario).
  */
 
+import type { DiskView } from "../src/core/engine/postcondition.ts";
 import { create } from "../src/core/ctx/index.ts";
 import type { CallStatus, JsonObject, TaskContext, TaskMode } from "../src/core/ctx/index.ts";
 
@@ -116,3 +117,13 @@ export function buildContext(mode: TaskMode, stage: Stage): TaskContext {
   }
   return ctx;
 }
+
+/**
+ * Disco falso para las pruebas del motor: toda ruta existe; las que tienen extensión son archivos no vacíos y las demás, carpetas.
+ * Sin esto la verificación de escrituras (`postconditionOf`) mira el disco real y rechaza las rutas inventadas (`C:\Users\Ana\...`).
+ */
+export const FAKE_DISK: DiskView = {
+  exists: () => true,
+  isDirectory: (p) => !/\.[^\/.]+$/.test(p),
+  size: () => 1,
+};

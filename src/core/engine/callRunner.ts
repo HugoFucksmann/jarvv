@@ -23,6 +23,7 @@ import type { CallKind, CallStatus, JsonObject, Op, TaskContext, VerdictReason }
 import { approvalTierOf, type ApprovalTier } from "../policy/tiers.ts";
 import { checkAllowedDirectory } from "../policy/allowedDirs.ts";
 import { approvalKey } from "../policy/approvalKey.ts";
+import { PATH_ARG_KEYS, PATH_LIST_KEY } from "../policy/pathArgs.ts";
 import { analyzePowerShell, collectSources, precheckCall, type CommandReport } from "./precheck.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { blacklistMatch, isBlacklistedTool, type Blacklist } from "../policy/blacklist.ts";
@@ -61,19 +62,19 @@ type Policy = ReturnType<typeof getToolPolicy>;
 const REPEATED_REJECTION_NOTE = "The user already rejected this exact operation in this task. Do not ask again: use a different approach or say what could not be done.";
 const CANCELLED: CallOutcome = { kind: "cancelled", callId: null };
 const kindOf = (policy: Policy): CallKind => (policy.mutates ? "write" : "read");
-const ALLOWED_DIR_PATH_KEYS = ["path", "source", "src", "destination", "dest", "directory", "dir", "file", "folder", "cwd"] as const;
 
 function toolPathArgs(toolName: string, args: Readonly<Record<string, unknown>>): string[] {
   const paths: string[] = [];
-  for (const key of ALLOWED_DIR_PATH_KEYS) {
+  for (const key of PATH_ARG_KEYS) {
     const val = args[key];
     if (typeof val === "string" && val.trim() !== "") {
       if (toolName === "read_file" && args.isUrl === true && /^https?:\/\//i.test(val.trim())) continue;
       paths.push(val);
     }
   }
-  if (Array.isArray(args.paths)) {
-    for (const item of args.paths) {
+  const list = args[PATH_LIST_KEY];
+  if (Array.isArray(list)) {
+    for (const item of list) {
       if (typeof item === "string" && item.trim() !== "") paths.push(item);
     }
   }

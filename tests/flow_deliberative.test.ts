@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { BUDGET } from "../src/core/budget.ts";
 import type { EngineDeps, GeneratedStep } from "../src/core/contracts.ts";
 import { create } from "../src/core/ctx/index.ts";
+import { FAKE_DISK } from "./fixtures.ts";
 import { LLMValidationError } from "../src/core/models/transport.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
@@ -131,6 +132,7 @@ async function runDelib(s: DelibScenario) {
     environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
     autoMode: () => true,
     approvalTiers: () => false,
+    disk: FAKE_DISK,
   };
 
   let t = 1_700_000_000_000;

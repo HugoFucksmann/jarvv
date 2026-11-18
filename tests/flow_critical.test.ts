@@ -12,6 +12,7 @@ import { test } from "node:test";
 import { BUDGET } from "../src/core/budget.ts";
 import type { EngineDeps } from "../src/core/contracts.ts";
 import { create } from "../src/core/ctx/index.ts";
+import { FAKE_DISK } from "./fixtures.ts";
 import { LLMServiceUnavailableError } from "../src/core/models/transport.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
@@ -102,6 +103,7 @@ test("reactivo: abandona un ítem tras agotar sus fallos si quedan otros ítems 
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     const rt = new TaskRuntime();
     await runTask(ctx, rt, deps);
@@ -172,6 +174,7 @@ test("reactivo: MAX_REOPENS = 2 detiene reaperturas infinitas provocadas por D5"
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
     // 1 inicial + 2 reaperturas (reopens < 2) + 1 consulta final ya con reopens=2 que no reabre → 4 llamadas a pending, 3 pasos
@@ -237,6 +240,7 @@ test("reactivo: tercera escalación (escalationsExceeded) cierra no_alternatives
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     const rt = new TaskRuntime({
       onChange: (w) => {
@@ -334,6 +338,7 @@ test("callRunner: allowedDirectories revisa args.paths[] y omite isUrl en read_f
       environment: async () => ({ platform: "windows", home: allowed }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
     const rejected = ctx.find("calls", { status: "tool_rejected" });
@@ -431,6 +436,7 @@ test("callRunner: raceCancel registra interrupted ante cancelación en vuelo y d
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     });
 
     const llm3a: number[] = [];
@@ -544,6 +550,7 @@ test("finalize: compone statusNote + stripNoChangesFiller + placeNote en tarea p
       environment: async () => ({ platform: "linux", home: wrongDir }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
     assert.equal(ctx.task.state, "partial");
@@ -626,6 +633,7 @@ test("RC-21 + maxCallsPerStep: rerun bloqueado hasta escritura intermedia", asyn
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
     assert.deepEqual(dispatched, ["run_command", "write_file", "run_command"]);
@@ -692,6 +700,7 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
 
     // Fuerza maxVerifyRejectionsPerStep=2 por paso; como ambas rutas fallan en el mismo paso (files x2 -> routeExhausted -> terminal), verifica transición files -> terminal
@@ -795,6 +804,7 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
       approvalTiers: () => false,
+      disk: FAKE_DISK,
     };
     await runTask(ctxFinOver, new TaskRuntime(), depsFinOver);
     assert.equal(ctxFinOver.task.state, "completed");
