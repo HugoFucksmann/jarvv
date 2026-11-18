@@ -301,10 +301,14 @@ export type ReadAnswer = { probabilities?: Record<string, number>; noul?: number
 export interface DecisionReaders {
   /** `args_review`: de las respuestas `noul` enviadas (clave → probabilidad de sí) a la etiqueta y sus probabilidades. */
   args_review?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
+  /** `args_review` (con cualquier tipo de pregunta, `choice` y `noul`): recibe `ReadAnswer` por clave. */
+  args_review_read?: (answers: Record<string, ReadAnswer>) => { choice: string; probabilities: Record<string, number> };
   /** `result_verification`: de las respuestas de todas las preguntas enviadas a las probabilidades de `ok` y `cumple`. */
   result_verification?: (answers: Record<string, ReadAnswer>) => { ok: number; cumple: number };
   /** `fragment_judge`: de las respuestas enviadas por pregunta a las probabilidades o relevancia por fragmento. */
   fragment_judge?: (answers: Record<string, ReadAnswer>) => { probabilities: number[]; relevant: boolean[] };
+  /** `d5`: de las respuestas de todas las preguntas enviadas al veredicto de cierre y su probabilidad. */
+  d5?: (answers: Record<string, ReadAnswer>) => { complete?: boolean; probability: number };
 }
 
 /**

@@ -9,7 +9,7 @@ import { ARGS_REVIEWS, reviewOutcome } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ArgsReviewLabelGrader } from "../graders/label.ts";
 import type { ArgsReviewExpect, ArgsReviewOutput, ChoiceQ, DecisionReaders, DecisionRequest, NoulQ } from "../types.ts";
-import { DecisionParseError, extractNoul, mainChoice, parseAnswers } from "../variants/labels.ts";
+import { DecisionParseError, extractNoul, mainChoice, parseAnswers, readAllAnswers } from "../variants/labels.ts";
 import type { DecisionStageEntry } from "./index.ts";
 import { checkRange01 } from "./shared.ts";
 
@@ -34,9 +34,12 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
   },
   parseOutput(rawOutput: string, sentReq: DecisionRequest, read: DecisionReaders | undefined): ArgsReviewOutput {
     const answers = parseAnswers(rawOutput);
+    const readerRead = read?.args_review_read;
     const reader = read?.args_review;
     let result: { choice: string; probabilities: Record<string, number> };
-    if (reader) {
+    if (readerRead) {
+      result = readerRead(readAllAnswers(sentReq, answers));
+    } else if (reader) {
       const values: Record<string, number> = {};
       for (const [key, q] of Object.entries(sentReq.questions)) {
         if (q.type === "noul") values[key] = extractNoul(answers, key);
