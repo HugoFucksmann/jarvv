@@ -115,6 +115,29 @@ function repairLogTail(filePath: string, goodLines: readonly string[]): void {
   fs.renameSync(tmp, filePath);
 }
 
+/**
+ * Envuelve la escritura del log con una falla definitiva. Un fallo al escribir (disco lleno, permisos) se propaga UNA vez, antes de que `apply` confirme el lote: el
+ * motor no sigue ejecutando herramientas cuyo efecto no quedaría en el log. Después el escritor queda apagado y no lanza más, para que el cierre de la tarea
+ * (`TaskManager.closeOnDefect`) pueda escribirse en memoria en vez de fallar otra vez y dejarla `running` para siempre. El log queda como un prefijo de lo ocurrido: al
+ * reiniciar, una tarea sin cierre en el log se cierra con `restart`.
+ */
+export function guardedLogWriter(write: (record: ApplyRecord) => void, onFail: (error: unknown) => void): (record: ApplyRecord) => void {
+  let broken = false;
+  return (record) => {
+    if (broken) return;
+    try {
+      write(record);
+    } catch (error) {
+      broken = true;
+      onFail(error);
+      throw error;
+    }
+  };
+}
+
+const logFailureReporter = (filePath: string) => (error: unknown): void =>
+  console.error(`[Log] no se pudo escribir '${filePath}': ${errorMessage(error)}. Se detiene su escritura; la tarea se cierra sin registrar el cierre en el log.`);
+
 /** Crea la cabecera y devuelve el callback síncrono para `ContextOptions.onApply`. */
 export function openTaskLog(
   tasksDir: string,
@@ -124,7 +147,7 @@ export function openTaskLog(
   writeLogHeaderSync(filePath, { v: LOG_SCHEMA_VERSION, ...header });
   return {
     filePath,
-    onApply: (record) => appendLogRecordSync(filePath, record),
+    onApply: guardedLogWriter((record) => appendLogRecordSync(filePath, record), logFailureReporter(filePath)),
   };
 }
 
@@ -279,6 +302,7 @@ export function readTaskLog(
   const { header, entries } = converted;
   let clock = header.startedAt;
   let replaying = true;
+  const liveWriter = guardedLogWriter((record) => appendLogRecordSync(filePath, record), logFailureReporter(filePath));
   try {
     const ctx = create.context(
       { id: header.id, request: header.request, mode: header.mode },
@@ -288,7 +312,7 @@ export function readTaskLog(
         ...(extraOptions.attachLiveWriter
           ? {
               onApply: (record) => {
-                if (!replaying) appendLogRecordSync(filePath, record);
+                if (!replaying) liveWriter(record);
               },
             }
           : {}),

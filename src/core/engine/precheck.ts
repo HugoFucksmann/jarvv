@@ -23,7 +23,7 @@ import type { TaskContext } from "../ctx/index.ts";
 import type { Platform, UserEnvironment } from "../environment.ts";
 import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import { stripExtendedPrefix } from "../policy/allowedDirs.ts";
-import { isPathArgKey } from "../policy/pathArgs.ts";
+import { isPathArgKey, PATH_LIST_KEY } from "../policy/pathArgs.ts";
 import { isPrecheckSource } from "../recalledPolicy.ts";
 import { isPathWriteTool, parentFolderArg } from "../tools/toolTargets.ts";
 import { reviewViewOptions } from "./adapters.ts";
@@ -80,7 +80,7 @@ export const MAY_BE_EMPTY = new Set(["content", "text", "data", "body", "input"]
 
 function roleOf(key: string): Role {
   const k = key.toLowerCase();
-  if (isPathArgKey(k)) return "path";
+  if (isPathArgKey(k) || k === PATH_LIST_KEY) return "path"; // `paths` (read_multiple_files) es un arreglo de rutas: `stringsOf` revisa cada una
   if (k === "url" || k === "urls") return "url";
   if (k === "command") return "command";
   return "text";

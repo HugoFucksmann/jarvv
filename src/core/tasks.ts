@@ -375,7 +375,7 @@ export class TaskManager {
   }
 
   private closeOnRestart(ctx: TaskContext): void {
-    try {
+    const close = (): void => {
       if (!ctx.isClosed()) {
         const ops: Op[] = [];
         for (const step of ctx.find("steps", { state: "running" })) {
@@ -387,6 +387,15 @@ export class TaskManager {
       }
       if (ctx.result === null) {
         ctx.apply({ op: "set", target: "result", value: { text: RESTART_RESULT_TEXT, origin: "fallback" } }, { reason: "restart" });
+      }
+    };
+    try {
+      try {
+        close();
+      } catch (first) {
+        // Si falló la escritura en el log, su escritor quedó apagado (`guardedLogWriter`): el segundo intento cierra la tarea en memoria.
+        console.error(`[Tasks] primer intento de cerrar '${ctx.task.id}' tras reinicio falló:`, errorMessage(first));
+        close();
       }
     } catch (error) {
       console.error(`[Tasks] no se pudo cerrar '${ctx.task.id}' tras reinicio:`, errorMessage(error));
@@ -450,14 +459,24 @@ export class TaskManager {
   /** Defecto de programación en `runTask`: la tarea no puede quedar abierta. Se cierra con `unrecoverable` y respaldo. */
   private closeOnDefect({ ctx, runtime }: TaskEntry, error: unknown): void {
     console.error("[Tasks] error interno en la ejecución de la tarea:", error);
-    try {
-      runtime.cancel();
+    runtime.cancel();
+    const close = (): void => {
       if (!ctx.isClosed()) {
         const calls = ctx.find("calls", {});
         ctx.apply({ op: "finish", target: "task", value: { state: terminalStateFor("unrecoverable", calls), stopReason: "unrecoverable" } });
       }
       if (ctx.result === null) {
         ctx.apply({ op: "set", target: "result", value: { text: renderFallback(ctx.view.forFallback(windowOptions())).text, origin: "fallback" } });
+      }
+    };
+    try {
+      try {
+        close();
+      } catch (first) {
+        // Si el defecto fue la escritura del log, el escritor se apagó al fallar (`guardedLogWriter`) y este segundo intento cierra la tarea en memoria; sin él, una
+        // tarea cuyo log no se puede escribir quedaba `running` para siempre y ocupaba un cupo de tareas activas.
+        console.error("[Tasks] primer intento de cerrar la tarea tras el error falló:", errorMessage(first));
+        close();
       }
     } catch (closing) {
       console.error("[Tasks] no se pudo cerrar la tarea tras el error:", errorMessage(closing));

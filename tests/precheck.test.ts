@@ -278,3 +278,28 @@ test("analizador de PowerShell: el JSON de ConvertTo-Json (un elemento suelto, a
   assert.deepEqual(none, { syntaxErrors: [], commands: [] });
   assert.throws(() => parseAnalyzerOutput("no es json"));
 });
+
+// ───────────────────────── `paths`: el arreglo de rutas de `read_multiple_files` se trata como rutas ─────────────────────────
+
+test("`paths` (read_multiple_files): una ruta que no aparece en nada de lo que la tarea sabe se rechaza, aunque otra del arreglo sí aparezca", async () => {
+  const ok = "C:\\Users\\Ana\\Documents\\informe.txt";
+  const invented = "C:\\Datos\\inventado.txt";
+  assert.equal(await precheckCall(input({ tool: "read_multiple_files", args: { paths: [ok] } }), noAnalyzer), null, "con origen pasa");
+  const rejected = await precheckCall(input({ tool: "read_multiple_files", args: { paths: [ok, invented] } }), noAnalyzer);
+  assert.equal(rejected?.review, "args_invalid");
+  assert.match(rejected?.reason ?? "", /inventado\.txt/);
+});
+
+test("`paths`: marcador de posición, carpeta de otro usuario y carácter inválido de Windows se rechazan como en `path`", async () => {
+  assert.equal((await precheckCall(input({ tool: "read_multiple_files", args: { paths: ["C:\\Users\\Ana\\Documents\\<archivo>.txt"] } }), noAnalyzer))?.review, "args_invalid", "marcador");
+  const other = await precheckCall(input({ tool: "read_multiple_files", args: { paths: ["C:\\Users\\Pedro\\Documents\\informe.txt"] } }), noAnalyzer);
+  assert.equal(other?.review, "args_invalid");
+  assert.match(other?.reason ?? "", /another user/);
+  assert.equal((await precheckCall(input({ tool: "read_multiple_files", args: { paths: ["C:\\Users\\Ana\\Documents\\a|b.txt"] } }), noAnalyzer))?.review, "args_invalid", "carácter inválido");
+});
+
+test("`paths`: un valor vacío del arreglo pide información; con las fuentes incompletas no se rechaza por 'no aparece'", async () => {
+  assert.equal((await precheckCall(input({ tool: "read_multiple_files", args: { paths: ["C:\\Users\\Ana\\Documents\\informe.txt", ""] } }), noAnalyzer))?.review, "info_missing");
+  const sources = { text: "nada", complete: false };
+  assert.equal(await precheckCall(input({ tool: "read_multiple_files", args: { paths: ["C:\\Datos\\otro.txt"] }, sources }), noAnalyzer), null);
+});

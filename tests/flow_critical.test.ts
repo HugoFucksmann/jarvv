@@ -283,7 +283,7 @@ test("callRunner: allowedDirectories revisa args.paths[] y omite isUrl en read_f
     let stepArgsIdx = 0;
     let activeBlacklist: Blacklist = compileBlacklist([{ tool: "run_command", pattern: "Invoke-WebRequest", level: "blocked", reason: "No descargar" }]);
 
-    const ctx = makeCtx("task_live_bl", "Leer https://api.acme-corp.invalid/data.json y luego ejecutar comando sensible");
+    const ctx = makeCtx("task_live_bl", `Leer ${path.join(dir, "fuera", "x.txt")} y https://api.acme-corp.invalid/data.json y luego ejecutar comando sensible`);
     const deps: EngineDeps = {
       discovery: {
         getServer: (n) => (n === "desktop_commander" || n === "jarvis_terminal" ? server(n) : undefined),

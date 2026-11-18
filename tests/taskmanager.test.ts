@@ -126,3 +126,48 @@ test("hilo: una tarea completada con respuesta del modelo queda como tarea anter
   assert.deepEqual(seen, [{ request: "primera tarea", answer: "Listo." }], "la segunda ve la primera, con su respuesta");
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test("si falla la escritura del log, la tarea no queda abierta: cierra `unrecoverable` con respuesta de respaldo y libera su cupo", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-tm-log-"));
+  // Antes de la primera escritura del motor, el archivo del log pasa a ser una carpeta: `appendLogRecordSync` falla (EISDIR) como lo haría un disco lleno.
+  let sabotaged = false;
+  const tasks = manager(root, async () => {
+    const dir = path.join(root, "tasks");
+    if (!sabotaged) {
+      sabotaged = true;
+      for (const name of fs.readdirSync(dir).filter((n) => n.endsWith(".jsonl"))) {
+        fs.rmSync(path.join(dir, name));
+        fs.mkdirSync(path.join(dir, name));
+      }
+    }
+    return { pending: [], rawInput: "", rawOutput: "" };
+  });
+  const dto = tasks.start("no hay nada que hacer", "reactive");
+  await tasks.drain(5000);
+
+  const task = tasks.get(dto.task.id);
+  assert.equal(task?.task.state, "failed", "no queda `running`");
+  assert.equal(task?.task.stopReason, "unrecoverable");
+  assert.equal(task?.result?.origin, "fallback", "respuesta de respaldo, sin modelo");
+  assert.equal(tasks.activeCount(), 0, "no ocupa un cupo de tareas activas");
+});
+
+test("si la tarea falla por un defecto y además el log no se puede escribir, el cierre se reintenta en memoria (el primer intento apaga el escritor)", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-tm-log2-"));
+  const tasks = manager(root, async () => {
+    const dir = path.join(root, "tasks");
+    for (const name of fs.readdirSync(dir).filter((n) => n.endsWith(".jsonl"))) {
+      fs.rmSync(path.join(dir, name));
+      fs.mkdirSync(path.join(dir, name));
+    }
+    throw new Error("defecto de programación (prueba)"); // antes de cualquier escritura del motor: el primer fallo del log ocurre al cerrar
+  });
+  const dto = tasks.start("no hay nada que hacer", "reactive");
+  await tasks.drain(5000);
+
+  const task = tasks.get(dto.task.id);
+  assert.equal(task?.task.state, "failed");
+  assert.equal(task?.task.stopReason, "unrecoverable");
+  assert.equal(task?.result?.origin, "fallback");
+  assert.equal(tasks.activeCount(), 0);
+});
