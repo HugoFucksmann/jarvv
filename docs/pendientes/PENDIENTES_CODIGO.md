@@ -1,6 +1,6 @@
 # Pendientes que dependen de código
 
-Todo lo que se cierra **programando** o con una **decisión de producto o de seguridad**, sin necesidad de correr `eval/`. Lo que se cierra midiendo está en [`PENDIENTES_EVAL.md`](PENDIENTES_EVAL.md). Actualizado el 2026-11-16; lo ya resuelto se quitó (el historial está en git).
+Todo lo que se cierra **programando** o con una **decisión de producto o de seguridad**, sin necesidad de correr `eval/`. Lo que se cierra midiendo está en [`PENDIENTES_EVAL.md`](PENDIENTES_EVAL.md). Actualizado el 2026-11-19; lo ya resuelto se quitó (el historial está en git).
 
 **Alcance de plataforma:** JARVIS apunta solo a Windows y PowerShell. Linux/WSL no es objetivo de la versión actual (`listTools()` de terminal devuelve `[]` fuera de Windows).
 
@@ -23,9 +23,8 @@ Todo lo que se cierra **programando** o con una **decisión de producto o de seg
 ## 1. Guard de `Host` y tests que fallan
 
 - **Guard de `Host` desactivado.** En [`src/server/localOnly.ts`](../../src/server/localOnly.ts) el chequeo de `Host` está comentado por compatibilidad con el proxy de AI Studio Build. Mientras esté así, un sitio web puede llegar a la API local con un dominio que resuelve a `127.0.0.1` (DNS rebinding), y esa API ejecuta comandos en la PC sin autenticación. Hoy tampoco rigen la validación de loopback del arranque ni el middleware `localOnly` (están comentados en `server.tsx` y `HOST` es `0.0.0.0` por defecto): el proyecto se corre así a propósito en otros entornos durante el desarrollo. **Decisión:** restaurar el guard (y perder esa compatibilidad) o dejarlo así y cambiar el test para que lo refleje.
-- **Tests que ya fallaban antes del refactor de refs:**
-  - `tests/http.test.ts:86` («Host local… DNS rebinding»): responde 200 en vez de 403. Es la consecuencia de lo anterior.
-  - ~~`tests/run_command.test.ts:522`~~ **Resuelto:** el test ahora comprueba que `data.exitCode` no está (a propósito: el código de salida queda en el texto, para no registrar un segundo `tool_error`) y que el texto lo dice.
+- **Test que falla por lo anterior:**
+  - `tests/http.test.ts:86` («Host local… DNS rebinding»): responde 200 en vez de 403 mientras el guard esté desactivado.
 
 ## 2. Memoria del usuario
 
@@ -79,7 +78,7 @@ Estado: los archivos los sirve Desktop Commander (`files`, `locate`); en `src/to
 - **Procesos que leen `stdin` sin prompt** (`findstr`, `node`): saber si un proceso está bloqueado leyendo su entrada exige código nativo (`NtQueryInformationFile`) o un PTY (ConPTY). Hoy quedan `running` hasta el plazo y `{ pid, input }` los destraba. Cerrar `stdin` tras un silencio rompería los programas que responden por `{ pid, input }`.
 - **Procesos huérfanos desde la UI (RC-25):** `list_processes` y `stop_process` ya existen para el modelo. Mostrar y cortar procesos desde la interfaz exige un endpoint que corte procesos en la API local, que no tiene autenticación (decisión de esta etapa: sin token), y definir dónde vive en la UI.
 - **Descripción de `run_command` para el modelo:** sigue diciendo 30 s y 300 s aunque se configuren otros tiempos.
-- **Hallazgos abiertos de `run_command` y políticas (`Revisión de la tool run_command (Jarvis).md`):** siguen vigentes `H-01` (`accentScore`/`__jvDecode` con caracteres `tree`), `H-02` (`\r\r\n` en `LineAssembler.push`), `H-03` (prompts sin salto retenidos en `__jvRun`), `H-04` (`...` de REPL bloqueado por `PROGRESS_END`), `H-05` (`[n/a]`/`(n/a)` como `CHOICE_OR_KEY`), `H-06` (`stderr` no leído en `systemProcesses`), `H-08` (`lastCompleted` sin `seq`), `H-09`/`H-10`/`H-11`/`H-12` (idiomas mezclados, procesos huérfanos listados pero no continuables y textos duplicados), `H-14` (alta: comillas tipográficas `‘’“”` en `readOnly.ts`/`commandRules.ts`), `H-16` (`rerun.ts` acepta `--watch`), `H-17` (`stop_process` con `error` da de baja el hecho `process`), `H-18` (`-Path:C:\` y `*.*`), `H-19` (`shutdown -c`), `H-20` (`KILL_NAMES` sin `CRITICAL_PROCESSES`), `H-21` (`/system32\/drivers/` en `DENY_PATTERNS` bloquea lecturas de `hosts`), `H-22` (regla B vs `run_command` en `autoMode`) y `H-24` (`$env:windir` en `sensitivePaths.ts`). *(Ya resueltos y quitados de pendientes: `H-13`, `H-15` y `H-23`.)*
+- **Hallazgos abiertos de `run_command` y políticas (`Revisión de la tool run_command (Jarvis).md`):** siguen vigentes `H-01` (`accentScore`/`__jvDecode` con caracteres `tree`), `H-02` (`\r\r\n` en `LineAssembler.push`), `H-03` (prompts sin salto retenidos en `__jvRun`), `H-04` (`...` de REPL bloqueado por `PROGRESS_END`), `H-05` (`[n/a]`/`(n/a)` como `CHOICE_OR_KEY`), `H-06` (`stderr` descartado sin diagnóstico en errores de `systemProcesses`; el bloqueo por tubería ya está resuelto), `H-08` (`lastCompleted` sin `seq`), `H-09`/`H-10`/`H-11`/`H-12` (idiomas mezclados, procesos huérfanos listados pero no continuables y textos duplicados), `H-14` (alta: comillas tipográficas `‘’“”` en `readOnly.ts`/`commandRules.ts`), `H-16` (`rerun.ts` acepta `--watch`), `H-17` (`stop_process` con `error` da de baja el hecho `process`), `H-18` (`-Path:C:\` y `*.*`), `H-19` (`shutdown -c`), `H-20` (`KILL_NAMES` sin `CRITICAL_PROCESSES`), `H-21` (`/system32\/drivers/` en `DENY_PATTERNS` bloquea lecturas de `hosts`) y `H-24` (`$env:windir` en `sensitivePaths.ts`). *(Ya resueltos y quitados de pendientes: `H-13`, `H-15`, `H-22` y `H-23`.)*
 
 ## 6. Seguridad y API HTTP
 
@@ -95,7 +94,7 @@ Estado: los archivos los sirve Desktop Commander (`files`, `locate`); en `src/to
 ## 7. Deuda técnica
 
 - **Idioma del reintento:** `retryNote` (`prompts.ts`) sigue en español (`ERROR_PREVIO: ...`) dentro de prompts en inglés.
-- **`prompts.ts`:** falta modularizarlo en partes con nombre para las variantes del eval, y derivar `ReviewView` con `Omit` sobre `ArgsView`.
+- **`prompts.ts`:** ya exporta helpers y tablas reutilizables para `eval/`, pero falta modularizar los textos `SYSTEM` en partes con nombre para las variantes del eval.
 - **Tests sin cubrir:** los componentes de `ui/` y el flujo de aprobación de extremo a extremo.
 
 ## 8. Horizonte JARVIS 2.0
@@ -109,7 +108,7 @@ Estado: los archivos los sirve Desktop Commander (`files`, `locate`); en `src/to
 
 ### 9.1 Flujo
 
-1. **Dependencias entre ítems (`recovery`) y reescritura de un solo ítem:** el modo sombra ya está conectado con las tres acciones finales (`close`, `rewrite_item`, `replan` en `recoveryRules.ts` + `recoveryShadow.ts` + `DECISION_PROMPTS.buildRecovery`, `recoveryShadow: true` por defecto; se descartó `skip_continue`). Lo resuelto de flujo (`FAKE_DISK`, `maxEscalations` por racha, `toolFailed` separado, refactor de `REFACTOR_CORE.md` y `pathArgs.ts` / `paths` de `read_multiple_files`) ya quedó aplicado.
+1. **Dependencias entre ítems (`recovery`) y reescritura de un solo ítem:** el modo sombra ya está conectado con las tres acciones finales (`close`, `rewrite_item`, `replan` en `recoveryRules.ts` + `recoveryShadow.ts` + `DECISION_PROMPTS.buildRecovery`, `recoveryShadow: true` por defecto; se descartó `skip_continue`).
 
    **Qué queda pendiente en `recovery`:**
    - Juntar trazas reales con el modo sombra activo y medir contra lo ocurrido antes de activar `close` por regla y `rewrite_item` / `replan` (ver `eval/GUIA_DECISION.md`, §5; revisar además en trazas reales el tercer intento y el reintento idéntico de `toolFailed`).
@@ -134,7 +133,7 @@ Estado: los archivos los sirve Desktop Commander (`files`, `locate`); en `src/to
 
 - `src/core/engine/reactiveList.ts:105`: el filtro de reapertura usa `!this.done.includes(item)` exacto en vez de comparación normalizada.
 - `src/telegram/bot.ts:70,128`: `waitKey` usa `` `q${w.question.stepId}` ``; si en un mismo paso hay más de una pregunta (p. ej. prompts de proceso con `maxProcessPromptsPerStep = 3`), la segunda colisiona en `t.shown`.
-- `ui/components/SettingsModal/sections/SecuritySection.tsx:182-244`: el formulario de `blacklist` no expone el campo `level` (`blocked` | `sensitive`) y el texto de `autoMode` mezcla reglas con y sin niveles.
+- `ui/components/SettingsModal/sections/SecuritySection.tsx:179-244`: el formulario de `blacklist` no expone el campo `level` (`blocked` | `sensitive`) y el texto explicativo de la lista negra no distingue ambos niveles.
 - `src/tools/web/webSearchProvider.ts:227`: `AbortSignal.timeout(...)` puede dejar timers colgados en pruebas (`tests/web_search.test.ts:751`).
 - `http.test.ts:86`: sigue fallando mientras el guard de `Host` / `localOnly` esté desactivado (§1).
-- `tsc --noEmit` (`npm run lint`) compila limpio con 0 errores. (`run_command.test.ts:522` ya quedó resuelto.)
+- `tsc --noEmit` (`npm run lint`) compila limpio con 0 errores.
