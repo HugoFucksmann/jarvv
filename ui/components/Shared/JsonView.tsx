@@ -70,7 +70,7 @@ const Primitive: React.FC<{ value: unknown }> = ({ value }) => {
   if (value === null) return <span className="font-medium text-rose-300">null</span>;
   if (typeof value === "boolean") return <span className="font-medium text-rose-300">{String(value)}</span>;
   if (typeof value === "number") return <span className="text-yellow-300">{String(value)}</span>;
-  if (typeof value === "string") return <span className="break-words text-slate-100">{JSON.stringify(value)}</span>;
+  if (typeof value === "string") return <span className="break-words [overflow-wrap:anywhere] text-slate-100">{JSON.stringify(value)}</span>;
   return <span className="text-slate-400">{String(value)}</span>;
 };
 
@@ -91,7 +91,7 @@ const LongString: React.FC<{ name?: string; value: string }> = ({ name, value })
           <CopyButton text={value} title="Copiar texto" iconSize="w-3.5 h-3.5" className={COPY_CLASS} />
         </span>
       </div>
-      <div className="ml-5 mb-1 border-l-2 border-slate-700 pl-3 font-sans text-[15px] leading-7 text-slate-200 whitespace-pre-wrap break-words">
+      <div className="ml-5 mb-1 border-l-2 border-slate-700 pl-3 font-sans text-[15px] leading-7 text-slate-200 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
         {clipped ? `${value.slice(0, CLIP_AT)}…` : value}
       </div>
       {clipped && (
@@ -241,7 +241,7 @@ export const JsonView: React.FC<JsonViewProps> = ({ value, defaultDepth = 3, too
   // Al cambiar `tick` se vuelve a montar el árbol con la nueva profundidad.
   const [mode, setMode] = useState({ depth: defaultDepth, tick: 0 });
   return (
-    <div className={`group/json relative font-mono text-sm leading-6 text-slate-300 ${className}`}>
+    <div className={`group/json relative min-w-0 font-mono text-sm leading-6 text-slate-300 ${className}`}>
       {toolbar && isContainer(value) && (
         <div className="absolute right-0 top-0 z-10 flex items-center gap-0.5 rounded-md border border-slate-700/80 bg-slate-900/95 p-0.5 shadow-lg shadow-black/40 opacity-0 transition-opacity group-hover/json:opacity-100 focus-within:opacity-100">
           <button type="button" className={TOOL_BTN} onClick={() => setMode((m) => ({ depth: Infinity, tick: m.tick + 1 }))}>
@@ -264,7 +264,7 @@ export const JsonText: React.FC<Omit<JsonViewProps, "value"> & { text: string }>
   if (!parsed.ok) {
     return (
       <pre
-        className={`whitespace-pre-wrap break-words font-mono text-sm leading-6 text-slate-300 ${rest.className ?? ""}`}
+        className={`whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-sm leading-6 text-slate-300 ${rest.className ?? ""}`}
       >
         {text}
       </pre>
