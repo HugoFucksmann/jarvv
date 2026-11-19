@@ -153,7 +153,7 @@ const OutputPanel: React.FC<{ query: TraceQuery }> = ({ query }) => {
           {query.error}
         </div>
       )}
-      {answers && <ProbBars answers={answers} offered={query.offered} />}
+      {answers && <ProbBars answers={answers} offered={query.offered} stage={query.stage} />}
       {hasInterpreted && (
         <Block
           title="salida interpretada"

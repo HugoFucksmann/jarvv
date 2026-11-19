@@ -1,7 +1,7 @@
 import React, { useRef } from "react";
 import type { TraceQuery } from "../../types/trace.ts";
 import { formatMs, stageInfo } from "../../utils/traceStages.ts";
-import { LOW_CONFIDENCE, type Answers } from "./ProbBars.tsx";
+import { analyzeNoul, LOW_CONFIDENCE, type Answers } from "./ProbBars.tsx";
 
 /** Lo decidido en una línea: opción elegida y su probabilidad (amarillo si es baja), o tokens de salida. */
 const Brief: React.FC<{ query: TraceQuery }> = ({ query: q }) => {
@@ -23,10 +23,20 @@ const Brief: React.FC<{ query: TraceQuery }> = ({ query: q }) => {
             );
           }
           if (typeof a.noul === "number") {
+            const noul = analyzeNoul(a.noul, q.stage);
+            const isDoubt = noul.zone === "duda";
+            const side = noul.yes >= noul.no ? `sí ${noul.yesPctText}` : `no ${noul.noPctText}`;
             return (
-              <span key={k}>
+              <span
+                key={k}
+                title={`${k}: sí ${noul.yesPctText} / no ${noul.noPctText} (${noul.zone})`}
+              >
                 {sep}
-                {k} {a.noul.toFixed(2)}
+                <span className="text-slate-200">{k}</span>{" "}
+                <span className={isDoubt ? "text-yellow-400" : "text-slate-400"}>
+                  {side}
+                </span>
+                {isDoubt && <span className="text-yellow-400"> · duda</span>}
               </span>
             );
           }
