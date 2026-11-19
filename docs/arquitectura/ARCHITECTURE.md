@@ -30,7 +30,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | **Catálogo de herramientas** | Lista cerrada de herramientas autorizadas, con su destino, capacidad, política (aprobación, anti-bucle / `rerun.ts`) y sondas (`tools/probes.ts`). Única fuente de políticas (ver [`TOOLS.md`](TOOLS.md)). | No ejecuta llamadas ni guarda estado dinámico. | `tools/manifest.ts`, `tools/probes.ts`, `policy/rerun.ts` |
 | **Procesador de resultados** | Convierte el resultado crudo de una herramienta en un estado (`ok`, `no_data`, `not_found`, `tool_error`, `denied`, `waiting_input`), un resumen acotado y el texto completo para la ref; incluye extractores por herramienta. | No guarda nada, no conoce tareas ni refs y no sanea. | `result/processResult.ts`, `result/extractors/` |
 | **Almacén de refs** | Guarda el resultado crudo en disco, solo para depuración y para el pre-chequeo (que lo lee como fuente). No se sustituye en los argumentos ni se muestra a los modelos. | No conoce el contexto. | `refs/refVault.ts` |
-| **Servidores MCP** | Transporte stdio JSON-RPC por servidor, descubrimiento y caché de herramientas, y adaptadores de cada servidor. | No deciden qué herramienta se usa. | `mcp/` |
+| **Servidores MCP y proveedores nativos** | Transporte stdio JSON-RPC por servidor (`mcp/`), descubrimiento y caché de herramientas, y proveedores nativos en proceso (`src/tools/files/`, `src/tools/terminal/`, `src/tools/web/`). | No deciden qué herramienta se usa. | `mcp/`, `src/tools/` |
 | **Registro de trazabilidad** | Al terminar cada tarea escribe una carpeta (`summary.md`, `trace.json`, `full.json.gz`) y una línea en `index.jsonl`, para análisis y evaluación externa; los resultados grandes quedan en las refs. | No es base de datos, no restaura estado al reiniciar y el backend nunca la lee. | `trace/recorder.ts`, `trace/format.ts`, `trace/types.ts` |
 | **Presupuesto** | Tabla única de límites y topes (pasos, replans, llamadas por paso, recortes de las vistas, extractores). | No contiene lógica. | `budget.ts` |
 
@@ -63,7 +63,7 @@ El backend es un sistema determinista de asistencia y automatización local. Orq
 | Modelo generativo | Plan, replan, pendientes, argumentos, pregunta al usuario y respuesta final | Ollama en `qwenUrl` (modelo `qwenModel`) |
 | `desktop_commander` | Herramientas de archivos y búsqueda local | MCP por stdio (`desktopCommanderMcp`) |
 | `free_search` | Búsqueda y lectura web usadas internamente por `web_search` (`search`, `fetch`, `read_doc`) | MCP por stdio (`freeSearchMcp`) |
-| Herramientas propias | `run_command`, `list_processes` y `stop_process` (`jarvis_terminal`) y `web_search` (`jarvis_web`) | Proveedores nativos en `src/tools/terminal/` y `src/tools/web/` |
+| Herramientas propias | `find_files`, `list_folder` y `system_info` (`jarvis_files`, internas en etapa 1), `run_command`, `list_processes` y `stop_process` (`jarvis_terminal`), y `web_search` (`jarvis_web`) | Proveedores nativos en `src/tools/files/`, `src/tools/terminal/` y `src/tools/web/` |
 
 - La configuración vive en `jarvis-config.json` (detalle en [`../configuracion/CONFIGURACION.md`](../configuracion/CONFIGURACION.md)). Toda lectura y escritura pasa por una normalización que descarta claves desconocidas y valores inválidos.
 - Define endpoints, timeouts, tope de tokens de salida por etapa, servidores MCP, políticas (`autoMode`, `approvalTiers`, `blacklist`, `webSearchUseJudge`), voz, traza y carpeta de refs. `qwenNumCtx` y `decisionMaxContext` deben coincidir con el contexto real de cada servicio.

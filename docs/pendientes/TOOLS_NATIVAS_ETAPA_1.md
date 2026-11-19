@@ -147,3 +147,57 @@ Principio de diseño para D1 y D2: dentro de una ruta, las herramientas tienen q
 ## 7. Qué no tocar
 
 D1, D2, `prompts.ts`, `engine/`, `policy/` (salvo usar sus funciones), `DESTINATIONS`, `EXECUTABLE_ROUTES`, los umbrales ni Desktop Commander. Si algo de esto parece necesario, anotarlo como pendiente de la etapa 2 en lugar de resolverlo.
+
+---
+
+## 8. Propuesta para la etapa 2: nuevas herramientas y consolidación
+
+Con la etapa 1 (`find_files`, `list_folder`, `system_info`) implementada y probada como interna, la etapa 2 persigue dos objetivos concretos: **(a) exponer las herramientas nativas y apagar la búsqueda de Desktop Commander**, y **(b) cerrar los huecos donde hoy el modelo cae en `run_command` (PowerShell) o reescrituras enteras de archivos**.
+
+### 8.1 Herramientas nuevas recomendadas
+
+| Prioridad | Herramienta (en `jarvis_files`) | Tipo | Qué problema resuelve hoy | Contrato y diseño recomendado |
+|---|---|---|---|---|
+| **Alta (1)** | `search_content` | Solo lectura | Si se apaga `start_search` en etapa 2, hoy no habría reemplazo nativo para `searchType: "content"` (buscar texto dentro de archivos). | Búsqueda de contenido en **una sola llamada**, con `pattern`, `path` (mismos alias que `find_files`), `extensions` / `filePattern`, `ignoreCase` (por omisión `true`), `literal` vs comodín simple y `maxResults`. Misma lista de exclusión que `find_files`, omisión automática de binarios y archivos mayores a un tope (p. ej. 2–5 MB), y el **mismo contrato honesto** (`found` \| `partial` \| `no_results` \| `incomplete`). |
+| **Alta (2)** | `copy_file` *(P2)* | Escritura | Copiar archivos o carpetas hoy obliga a usar `run_command` (nivel rojo y parseo heurístico de PowerShell). | `{ source, destination, overwrite? }` (con alias en rutas). Copia de archivo o carpeta recursiva con tope de entradas/tamaño, rechazo de ciclos/symlinks fuera de `allowedDirectories` y creación de carpeta padre o prechequeo explícito. `overwrite: false` por omisión. |
+| **Alta (3)** | `delete_file` *(P3)* | Escritura destructiva | Borrar archivos o carpetas hoy también pasa por `run_command` (`rm`/`Remove-Item`), sin papelera ni freno uniforme. | `{ path, recursive?, permanent? }`. **Por defecto envía a la Papelera de Windows** (`Microsoft.VisualBasic.FileIO.FileSystem` / Shell) para que sea reversible; `permanent: true` solo explícito. **Siempre tier `red`**, confirmación reforzada si `recursive: true`, bloqueo duro para raíces del usuario (`home`, `desktop`, `documents`, `downloads`), discos raíz y `ProtectedPaths`. |
+| **Media (4)** | `edit_file` *(P5)* | Escritura dirigida | `edit_block` está en pausa y editar un archivo de código o texto hoy fuerza a `write_file` entero (`rewrite` es tier `red` y propenso a truncar). | `{ path, oldText, newText, expectedReplacements? }` (solo texto UTF-8). Falla **sin escribir** (`isError: true`) si `oldText` aparece 0 veces o más de `expectedReplacements` (por omisión `1`). Evita ediciones ambiguas del modelo 2B y reemplaza la dependencia de `edit_block` de Desktop Commander. |
+
+### 8.2 Qué NO conviene migrar todavía (y por qué)
+
+| Herramienta actual (Desktop Commander) | Recomendación para etapa 2 | Motivo |
+|---|---|---|
+| `read_file`, `read_multiple_files` | **Mantener en Desktop Commander** | `read_file` ya soporta **PDF y Excel (`.xlsx`/`.xls`/`.xlsm`)** además de texto por ventana (`offset`, `length`). Reimplementarlo en `jarvis_files` suma parsers pesados sin ganancia clara en D1/D2. |
+| `write_file` | **Mantener en Desktop Commander** | Ya soporta texto y exportación tabular a `.xlsx` (ver notas en `manifest.ts`). Solo migrarlo si en una etapa posterior se decide retirar Desktop Commander por completo. |
+| `create_directory`, `move_file` | **Mantener en etapa 2 (migrar opcional en 2c)** | Ya funcionan y tienen reglas en `tiers.ts`, `postcondition.ts` y `toolTargets.ts`. Reimplementarlas ahora duplica trabajo sin destrabar una capacidad faltante (salvo que `move_file` falle con rutas Win32/OneDrive o se busque apagar el servidor MCP externo). |
+| `start_search`, `get_more_search_results` | **Apagar al activar `find_files` + `search_content`** | Una vez cubierto nombre (`find_files`) y contenido (`search_content`), la búsqueda en 2 pasos queda superada. |
+| `list_directory` | **Reemplazar por `list_folder`** | `list_folder` ya cubre nombres, tamaños, fechas, orden, filtros y `depth` en una sola herramienta, evitando el desvío actual por `run_command`. |
+
+### 8.3 Requisitos en el núcleo para cada tool nueva de etapa 2
+
+Las suites existentes (`tests/tool_specs.test.ts` y `tests/architecture.test.ts`) exigen que toda herramienta visible —y especialmente toda mutación en disco— quede integrada en estos puntos:
+
+1. **Catálogo y rutas ([`src/core/tools/manifest.ts`](../../src/core/tools/manifest.ts), [`src/core/types/routes.ts`](../../src/core/types/routes.ts)):**
+   - Pasar `find_files`, `list_folder` y `system_info` de `internalDef` a `def` visible, junto con las nuevas (`search_content`, `copy_file`, `delete_file`, `edit_file`).
+   - Revisar `EXECUTABLE_ROUTES` y `DESTINATIONS` (P4): separar búsqueda (`find_files`, `search_content`), sistema (`system_info`, o agrupar según eval) y archivos (`read_file`, `list_folder`, `write_file`, `edit_file`, `copy_file`, `move_file`, `create_directory`, `delete_file`) asegurando que dentro de cada ruta las herramientas difieran en una señal clara para el 2B.
+2. **Niveles de aprobación ([`src/core/policy/tiers.ts`](../../src/core/policy/tiers.ts)):**
+   - Toda tool no interna que mute (`mutates: true`) **debe tener fila en `TIER_RULES`**:
+     - `copy_file`: `green` si destino no existe dentro de carpetas del usuario; `yellow` fuera de ellas o recursivo grande; `red` si `overwrite: true` o el destino ya existe.
+     - `delete_file`: **`red` siempre** (con detalle explícito de papelera vs permanente y cantidad de elementos si es carpeta).
+     - `edit_file`: `yellow` (o `green` en carpetas de proyecto/usuario si se habilita por política), pasando por `approvalKey.ts` igual que el resto.
+3. **Poscondiciones y objetivos de escritura ([`src/core/engine/postcondition.ts`](../../src/core/engine/postcondition.ts), [`src/core/tools/toolTargets.ts`](../../src/core/tools/toolTargets.ts), [`src/core/tools/probes.ts`](../../src/core/tools/probes.ts)):**
+   - Agregar fila en `POSTCONDITIONS`:
+     - `copy_file`: verificar que `destination` exista (conservando `source`).
+     - `delete_file`: verificar que `path` deje de existir en esa ubicación.
+     - `edit_file`: verificar que `path` siga existiendo como archivo (y no vacío si no correspondía).
+   - Registrar `copy_file` (y `edit_file` si aplica prechequeo de destino) en `WRITE_TARGETS` para habilitar `PLACE_PROBE`, `POSITION_PROBE` y detección temprana de carpeta padre faltante (`parent_missing`).
+4. **Evaluación (`eval/`):**
+   - Corregir `eval/core/stages/tool_choice.ts` para filtrar `d.internal !== true` cuando todavía coexistan tools internas durante transiciones.
+   - Actualizar los datasets y casos de D1 (`route_*`), D2 (`tool_choice_*`) y argumentos (`arguments_*`), y **re-medir antes de apagar `start_search` y `list_directory`**.
+
+### 8.4 Orden sugerido de implementación en etapa 2
+
+1. **Etapa 2A (lectura y búsqueda completa):** implementar `search_content` en `jarvis_files`, exponer `find_files`, `search_content`, `list_folder` y `system_info` (P4), re-medir D1/D2 en `eval/` y retirar `start_search`, `get_more_search_results` y `list_directory`.
+2. **Etapa 2B (escrituras seguras):** implementar `copy_file` (P2) y luego `delete_file` (P3) con papelera de Windows por defecto, filas en `tiers.ts`, `postcondition.ts` y `toolTargets.ts`.
+3. **Etapa 2C (edición dirigida):** implementar `edit_file` (P5) y retirar el estado pausado de `edit_block` si ya queda cubierto de forma nativa.
+

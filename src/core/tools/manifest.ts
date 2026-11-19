@@ -245,6 +245,44 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   internalDef("free_search", "web", "search", "READ", "Search the web and return a list of links with snippets.", { emptyIsError: true, repeat: "retry_failed" }),
   internalDef("free_search", "web", "read_doc", "READ", "Read a long page or document in windows (start, length).", { repeat: "retry_failed" }),
   internalDef("free_search", "web", "fetch", "READ", "Download ONE known URL as Markdown.", { repeat: "retry_failed" }),
+
+  // Etapa 1 de herramientas nativas de archivos y sistema (`jarvis_files`): internas, no se ofrecen a D1 ni D2 todavía.
+  internalDef("jarvis_files", "locate", "find_files", "FILE_READ", "Find files or folders by name (wildcards like *.csv). Not for text inside files.", {
+    repeat: "retry_failed",
+    params: ["pattern", "path", "type", "maxResults"],
+    notes: {
+      pattern: "Name or text to match. Without * or ?, matches substring (case-insensitive). With * or ?, matches full name. Use | for alternatives (e.g. *.csv|*.json). Plain wildcards only, no regex.",
+      path: "Folder to search in. Default: user home. Accepts aliases (home, desktop, documents, downloads) or an absolute path.",
+      type: "Entry type to find: 'file', 'folder', or 'any' (default 'any').",
+      maxResults: "Maximum results to return (default 50, max 200).",
+    },
+    timeoutMs: 15_000,
+  }),
+  internalDef("jarvis_files", "files", "list_folder", "FILE_READ", "List a folder with type, size and date; can sort and filter by extension.", {
+    repeat: "retry_failed",
+    params: ["path", "sortBy", "order", "type", "extensions", "depth", "limit", "includeHidden"],
+    notes: {
+      path: "Folder to list. Accepts aliases (home, desktop, documents, downloads) or an absolute path.",
+      sortBy: "Sort field: 'name' (default), 'size', or 'modified'.",
+      order: "Sort order: 'asc' or 'desc'. Default is 'asc' for name, 'desc' for size and modified.",
+      type: "Entry type filter: 'file', 'folder', or 'any' (default 'any').",
+      extensions: 'Optional list of file extensions without dots, e.g. ["csv", "json"].',
+      depth: "Subfolder depth to traverse (integer >= 1; default 1, max 3).",
+      limit: "Maximum entries to show (default 100, max 500).",
+      includeHidden: "Include hidden files and dotfiles (default false).",
+    },
+    timeoutMs: 10_000,
+  }),
+  internalDef("jarvis_files", "files", "system_info", "FILE_READ", "Report hardware, OS, disks, services or installed dev tools of this PC.", {
+    repeat: "retry_failed",
+    params: ["section", "status", "limit"],
+    notes: {
+      section: "Section to inspect: 'overview', 'hardware', 'os', 'disks', 'services', or 'dev_tools'.",
+      status: "Only for 'services': filter by 'running' (default), 'stopped', or 'all'.",
+      limit: "Only for 'services': maximum services to list (default 100).",
+    },
+    timeoutMs: 10_000,
+  }),
 ];
 
 /** Clave canónica de una herramienta (servidor + nombre, sin distinguir mayúsculas); la usan el catálogo y el registro de extractores. */

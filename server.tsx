@@ -30,6 +30,7 @@ import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { warmUpModels } from './src/core/models/warmup.ts';
 import { startRetention } from './src/core/retention.ts';
+import { FilesProvider } from './src/tools/files/filesProvider.ts';
 import { TerminalProvider } from './src/tools/terminal/terminalProvider.ts';
 import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
 import { startTelegram } from './src/telegram/bot.ts';
@@ -95,6 +96,10 @@ async function main() {
     free_search: freeSearchServer,
     // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
     // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
+    jarvis_files: new FilesProvider({
+      allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+      environment: getUserEnvironment,
+    }),
     jarvis_terminal: new TerminalProvider({
       envRemove: [...dotenvKeys(), ...SECRET_KEYS],
       allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],

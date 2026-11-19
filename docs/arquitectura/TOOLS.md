@@ -1,6 +1,6 @@
 # Herramientas y Catálogo
 
-JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herramientas** repartidas en **4 rutas** (`EXECUTABLE_ROUTES`), combinando servidores MCP por stdio (`desktop_commander`, `free_search`) y proveedores nativos en proceso (`jarvis_terminal`, `jarvis_web` en `src/tools/`).
+JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herramientas visibles** repartidas en **4 rutas** (`EXECUTABLE_ROUTES`), combinando servidores MCP por stdio (`desktop_commander`, `free_search`) y proveedores nativos en proceso (`jarvis_files`, `jarvis_terminal`, `jarvis_web` en `src/tools/`).
 
 ## 1. Catálogo vigente
 
@@ -11,7 +11,9 @@ JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herram
 | `terminal` | `jarvis_terminal` (nativo) | `run_command`, `list_processes`, `stop_process` | Solo Windows/PowerShell; ver detalle operativo en [`../operacion/WINDOWS_TERMINAL.md`](../operacion/WINDOWS_TERMINAL.md) |
 | `web` | `jarvis_web` (nativo) | `web_search` | Búsqueda y lectura web; usa internamente `free_search` (`search`, `fetch`, `read_doc`) |
 
-Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true` para `free_search` (`search`, `fetch`, `read_doc`): tienen política en Guard, pero no se ofrecen a D1, D2 ni al planificador.
+Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true`:
+- `free_search` (`search`, `fetch`, `read_doc`): usadas internamente por `web_search`.
+- `jarvis_files` (`find_files`, `list_folder`, `system_info`, en `src/tools/files/`): proveedor nativo de solo lectura (etapa 1); tiene política en Guard, pero todavía no se ofrece a D1, D2 ni al planificador.
 
 ## 2. Contrato e infraestructura (`src/core/tools/`)
 
@@ -19,7 +21,7 @@ Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true` para `free_sea
 - **`ToolHost` (`host.ts`)**: pasarela inyectada a herramientas compuestas; solo permite invocar las `dependencies` declaradas y registra cada sub-llamada en la traza.
 - **Resultado estructurado (`result.ts`, `extractors/structured.ts`)**: los proveedores nativos devuelven `structuredContent` y `_meta` con `schema: 1` (`text` para el modelo, `raw` para ref, `data` y `meta` para señales del motor y traza). `data.truncated` (booleano) indica si el proveedor recortó contenido: solo entonces se crea una ref; si falta, el extractor compara `raw` con `text` (`web_search`). Las refs son solo para depurar y para el pre-chequeo.
 - **Orden y sondas**: `sortByCatalog` fija el orden de opciones en D2; `probesOf` asocia sondas de verificación (`tools/probes.ts`) a `write_file`, `create_directory`, `move_file`, `read_file` (Excel), `start_search` y `list_directory`.
-- **Política de repetición (`repeatPolicyOf`)**: `strict` por defecto, `retry_failed` (`web_search`), `allow` (`get_more_search_results` y continuación `{ pid }` en `run_command`) o `rerun` (comandos de comprobación/compilación en `policy/rerun.ts`).
+- **Política de repetición (`repeatPolicyOf`)**: `strict` por defecto, `retry_failed` (`web_search` y `jarvis_files`), `allow` (`get_more_search_results` y continuación `{ pid }` en `run_command`) o `rerun` (comandos de comprobación/compilación en `policy/rerun.ts`).
 
 ## 3. Pipeline de `web_search` (`src/tools/web/`)
 
