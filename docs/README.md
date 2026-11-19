@@ -27,6 +27,7 @@
 
 ## Evaluación y análisis histórico
 - [`../eval/README.md`](../eval/README.md) — Guía de uso del laboratorio de evaluación (`eval/`).
+- [`evaluacion/PLAN_DE_MEDICION.md`](evaluacion/PLAN_DE_MEDICION.md) — Plan operativo de corridas A/B, criterios estadísticos y creación de variantes en `eval/`.
 - [`evaluacion/desalineaciones-eval.md`](evaluacion/desalineaciones-eval.md) — Desalineaciones detectadas entre `eval/` y `src/`.
 - [`evaluacion/JARVIS_EVALUACION.md`](evaluacion/JARVIS_EVALUACION.md) — Evaluación de rendimiento/latencia, mediciones reales (2026-11-13) e ideas T1–T5 / N1–N9 *(histórico)*.
 - [`evaluacion/limitaciones/README.md`](evaluacion/limitaciones/README.md) — Índice de fichas de limitaciones de modelos y casos descartados del flujo *(histórico)*.

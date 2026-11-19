@@ -48,7 +48,7 @@ Forma del snapshot (`v: 1`). Los valores son tipos; los comentarios `//` no exis
     "sig": string | null,                  // huella de args resueltos
     "status": CallStatus,                  // §2
     "verdict": "approved" | "rejected" | null,
-    "reason": "no_usable_data" | "not_accomplished" | null,   // solo con rejected
+    "reason": "no_usable_data" | "not_accomplished" | "wrong_place" | "wrong_position" | "wrong_scope" | "wrong_item" | "missing_attribute" | null, // solo con rejected
     "summary": string | null,
     "ref": string | null                   // id de ref si el resumen no es completo
   }],
@@ -136,7 +136,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `info_missing` | La revisión detectó información faltante |
 | | `user_rejected` | El usuario rechazó la operación |
 
-- **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted`, `waiting_input` y `denied`. Un rechazo lleva un motivo: `no_usable_data` o `not_accomplished`.
+- **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted`, `waiting_input` y `denied`. Un rechazo lleva un motivo cerrado (`VERDICT_REASONS`): `no_usable_data`, `not_accomplished` o los motivos de sondas por herramienta (`wrong_place`, `wrong_position`, `wrong_scope`, `wrong_item`, `missing_attribute`).
 - **Efecto**: una escritura con `status = ok`, con cualquier veredicto. Una escritura que terminó en `tool_error`, `exception`, `interrupted` o `waiting_input` se registra como **posible efecto**: pudo dejar cambios parciales y se muestra aparte.
 - **Texto fijo**: lo que se le dice a los modelos sobre un estado o un motivo son frases fijas, nunca prosa de un modelo.
 

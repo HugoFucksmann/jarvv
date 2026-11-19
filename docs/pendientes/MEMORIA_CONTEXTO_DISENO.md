@@ -12,19 +12,18 @@ Documentos relacionados: `../arquitectura/CONTEXT_AND_MEMORY.md` (§1, §3, §4,
 2. Que lo que Jarvis trae de afuera (hechos del usuario y continuidad con la tarea anterior) entre al contexto por la misma puerta que todo lo demás, y quede en el log y en la traza.
 3. Que el almacén de memoria sea un **paquete independiente** y que el contexto pueda crecer con capacidades nuevas sin tocar su núcleo.
 
-## 2. Punto de partida
+## 2. Línea base incorporada en v1
 
-Verificado en `src/core/memory.ts`, `engine/services.ts` y `engine/callRunner.ts`.
+Verificado en `src/memory/index.ts`, `src/core/engine/services.ts`, `src/core/engine/recalled.ts` y `src/core/engine/callPrepare.ts`:
 
-- **Almacén:** `data/memory.json` (junto a `refsDir`, ignorado por git), con formato `[{ "key": "...", "value": "..." }]` o `{ "facts": [...] }`. Se edita a mano; no hay CRUD en HTTP, UI ni Telegram.
-- **Lectura:** `createMemoryReader` relee el archivo solo si cambia su `mtimeMs`. Archivo ausente o inválido = memoria vacía, nunca un error de la tarea. Topes: 200 entradas, clave ≤ 80 caracteres, valor ≤ 300.
-- **Matching** (`selectFacts`): por *stems* (`stemsOf` de `text.ts`: prefijo de 5 letras, sin palabras vacías). Un hecho coincide si **todas** las palabras distintivas de su clave aparecen en el texto. Orden del archivo, hasta `MAX_FACTS_PER_PROMPT = 3`. Sin modelos.
-- **Inyección:** solo en `callRunner.ts` (paso 3), con el texto `request + instrucción del paso`. Los hechos entran como líneas `clave: valor` al prompt de argumentos y como fuentes válidas del pre-chequeo (`collectSources`). **No** entran a `pending`, `plan`, D3 ni a la respuesta final.
-- **Hilo** (`engine/thread.ts`, guardado en `TaskManager.previous`): otra memoria, de RAM y 10 minutos (§7.4). A diferencia de los hechos, **sí** entra a la lista de pendientes (`pending`), a los argumentos (como líneas `previous request` / `previous answer`), a la respuesta final y al pre-chequeo. Llega por el motor (`env.follow.thread`), no por el contexto: hoy no queda en el log ni en `ctx`.
-- **Retención actual** (`retention.ts`, `config.ts`): una sola pasada sobre refs **y trazas** (no existe log), 30 días y 500 MB en total entre ambas, y nunca borra las refs de una tarea retenida en RAM.
-- **Guard** (`policy/guard.ts`, `engine/services.ts`): la regla B protege solo `refsDir` y solo para herramientas `FILE_WRITE`; no cubre `data/memory.json` (que vive en la carpeta padre de `refsDir`) ni `run_command`/`start_process`.
-- **Contexto** (`ctx/apply.ts`): ids deterministas (`<prefijo><cantidad+1>`) y el instante sale de un reloj inyectado (`options.now`, una vez por `apply`). `apply` solo acepta `{op, target, value}`; no admite ids ni instantes de afuera.
-- **Medido** (`evaluacion/analisis/FRENTE_1_MEMORIA.md`): con el hecho en el prompt, los argumentos pasan de 0/6 a 6/6; elegir por código acierta 14/14 y no contamina pedidos ajenos (0/8).
+- **Almacén:** `data/memory.json` (junto a `refsDir`, ignorado por git), con formato `[{ "key": "...", "value": "...", "aliases"?: [...] }]` o `{ "facts": [...] }`. Se edita a mano; no hay CRUD en HTTP, UI ni Telegram.
+- **Lectura:** `createJsonMemoryProvider` relee el archivo solo si cambia su `mtimeMs`. Archivo ausente o inválido = memoria vacía, nunca un error de la tarea. Topes: 200 entradas, clave ≤ 80 caracteres, valor ≤ 300.
+- **Matching** (`selectFacts`): por *stems* (`stemsOf` propio de `src/memory/index.ts`: prefijo de 5 letras, plurales regulares, alias y prioridad por cantidad de stems). Sin modelos.
+- **Inyección:** entra al contexto vía `apply` en la sección `recalled` al iniciar la tarea y en cada preparación de llamada; se muestra solo en argumentos (`forArgs`) y respuesta final (`forFinal`), además de servir como fuente del pre-chequeo (`collectSources`). **No** entra a `pending`, `plan` ni D3.
+- **Hilo** (`engine/thread.ts`, guardado en `TaskManager`): memoria en RAM con TTL de 10 minutos (`previous_request` / `previous_answer` de la última tarea `completed` con respuesta del modelo). Si `detectContinuation` confirma continuación, se copia a `recalled` vía `apply` (con `from`), entrando también a `pending`, `forArgs`, `forFinal` y pre-chequeo.
+- **Retención (`src/core/retention.ts`):** pasada única cada 6 h sobre refs y trazas (`retentionDays`: 10 días) y logs de tareas terminales (`logRetentionDays`: 30 días), con tope compartido de **250 MB** (`retentionMaxMb`). Nunca borra lo de una tarea retenida en RAM.
+- **Guard (`src/core/policy/guard.ts`):** protege `refsDir`, `data/tasks/`, la carpeta del proyecto y `data/memory.json` frente a herramientas de escritura y comandos no de solo lectura.
+- **Contexto (`ctx/apply.ts`):** ids deterministas (`<prefijo><cantidad+1>`) e instante inyectado (`options.now`), sin admitir ids ni instantes externos.
 
 **Límites conocidos**
 1. No hay forma cómoda de crear, ver o borrar hechos.
@@ -160,22 +159,15 @@ Siguen vigentes los de `CONTEXT_AND_MEMORY.md` §7, con estas precisiones y tres
 5. **Estado terminal cerrado:** tras el registro terminal, el log no admite escrituras.
 6. **Pliegue puro (nuevo):** el mismo log produce siempre el mismo contexto. Los ids salen de la cantidad de elementos y el instante `at` viene en cada registro (la reproducción usa un reloj que lo devuelve), no del reloj real.
 7. **Reconstruir no ejecuta (nuevo):** reproducir un log no llama a modelos, herramientas ni al almacén de memoria.
-8. **Memoria, log y proyecto protegidos (nuevo):** las herramientas de Jarvis no pueden escribir en `data/memory.json`, en la carpeta del log ni dentro de la carpeta del proyecto de Jarvis. Guard deniega esas escrituras, como hoy con `refsDir` (`CONTEXT_AND_MEMORY.md` §5), y la denegación vale también para `run_command` y `start_process` cuando el comando no es de solo lectura y nombra esas rutas. Ninguna de estas rutas se puede aprobar. Las demás carpetas se rigen por `allowedDirectories`: las aprueba el usuario y la aprobación queda guardada para no volver a preguntar. Así no entra a la memoria nada que no haya escrito el usuario y el log no se altera desde las tareas.
+8. **Memoria, log y proyecto protegidos (nuevo):** las herramientas de Jarvis no pueden escribir en `data/memory.json`, en la carpeta del log (`data/tasks/`) ni dentro de la carpeta del proyecto de Jarvis. Guard deniega esas escrituras, igual que con `refsDir` (`CONTEXT_AND_MEMORY.md` §5), y la denegación vale también para `run_command` cuando el comando no es de solo lectura y nombra esas rutas. Ninguna de estas rutas se puede aprobar. Las demás carpetas se rigen por `allowedDirectories`: las aprueba el usuario y el resto queda sujeto a autorización por tarea. Así no entra a la memoria nada que no haya escrito el usuario y el log no se altera desde las tareas.
 
-## 10. Alcance de v1 y orden de trabajo
+## 10. Estado de v1
 
-1. **Log de eventos:** formato, versionado, persistencia y reproducción, con pruebas de que el pliegue reconstruye un contexto idéntico.
-2. **Política de reinicio:** tareas no terminales cerradas como interrumpidas.
-3. **Puerto `MemoryProvider` y sección `recalled`;** mover `memory.ts` al paquete.
-4. **Matching mejorado,** dentro del paquete (límites 2 y 3): alias por hecho (`"aliases": ["mi repo", "proyecto"]`), prioridad por cantidad de stems de la clave (más específica primero) y stemming mínimo de plurales. Hay que re-medir la contaminación de pedidos ajenos.
-5. **Habilitar vistas con referencias** (`pending`, `plan`), una por una, con eval (límite 4).
+Implementado en código: log de eventos (`taskLog.ts`), política de reinicio (`restart`), puerto `MemoryProvider` y sección `recalled`, matching mejorado (alias, prioridad por especificidad, plurales regulares) y pausa por modelo no disponible (§6.1).
 
-6. **Pausa por modelo no disponible** (§6.1): paso independiente y final; si se complica, se saca sin afectar a los anteriores.
+**Pendiente de v1 (en medición):** habilitar `recalled` (`user_memory`) en las vistas `pending` y `plan` tras evaluarlo en `eval/` (ver [`PENDIENTES_EVAL.md`](PENDIENTES_EVAL.md) y [`../evaluacion/PLAN_DE_MEDICION.md`](../evaluacion/PLAN_DE_MEDICION.md) §5).
 
-Fuera de alcance de v1: el CRUD de hechos (límite 1), que pasa a v2; los hechos se siguen editando a mano en `data/memory.json`, desde la PC.
-
-Descartada: recuperación semántica con embeddings. Exige un modelo extra (VRAM y latencia) y contradice el criterio 1, salvo que el matching léxico resulte insuficiente con datos reales.
-Al implementar hay que actualizar `CONTEXT_AND_MEMORY.md`: §1 (esquema), §6 (hoy dice «sin restauración»), §7 (invariantes) y §10 (hoy dice que la memoria entra «por el motor, no por `apply`», y deja de ser así; además enlaza al plan anterior, que debe apuntar a este documento).
+Descartada: recuperación semántica con embeddings (exige un modelo extra en VRAM y contradice el criterio 1, salvo que el matching léxico resulte insuficiente con datos reales).
 
 ## 11. Queda para v2
 
@@ -210,7 +202,7 @@ Al implementar hay que actualizar `CONTEXT_AND_MEMORY.md`: §1 (esquema), §6 (h
 - Lectura en v1: `forArgs` y `forFinal` (§8).
 - Un hecho de memoria sigue siendo fuente válida del pre-chequeo en v1: sin CRUD solo lo edita quien tiene acceso a la PC. Se revisa cuando llegue el CRUD (v2).
 
-**Seguridad:** invariante 8 (§9). Incluye `run_command` y `start_process`, y la carpeta del proyecto.
+**Seguridad:** invariante 8 (§9). Incluye `run_command` y la carpeta del proyecto (`start_process` ya no existe en el catálogo).
 
 ### 12.2 A criterio de quien implementa (sin decisión de producto)
 

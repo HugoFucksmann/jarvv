@@ -11,7 +11,7 @@ Evalúa las trece etapas del flujo, compara variantes de prompt y deja cada resu
 | | |
 |---|---|
 | **Contexto real de Jarvis** | Los casos por escenario describen la situación y el eval arma el prompt con el mismo código que usa Jarvis: vistas, mensajes fijos, renderizadores y parámetros de cada etapa. Si `src` cambia, el eval se actualiza solo. |
-| **Cobertura completa** | Cinco etapas de decisión (cuatro del flujo y el juez de fragmentos de `web_search`) y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
+| **Cobertura completa** | Ocho etapas de decisión (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5` y `recovery` en modo sombra) y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
 | **A/B de prompts sin riesgo** | Las variantes se aplican en memoria y se comparan contra la baseline `prod`: deltas, regresiones y mejoras caso por caso, prueba de signos y promedio por etapa. No modifica `src` ni los casos. |
 | **Lectura por tipo de modelo** | El resumen separa etapas generativas y de decisión, y avisa cuando una variante mejora un tipo y empeora el otro, para que el total no engañe. |
 | **Fiel a producción** | Mismos reintentos, mismos criterios de validación y un `pass` estricto: un run solo pasa si no registra ningún error. |
@@ -39,7 +39,7 @@ npm run eval -- --variant=mi_variante --no-baseline --dataset=smoke   # sin prod
 | `--list` | Lista etapas, variantes y datasets disponibles |
 | `--menu` | Asistente interactivo que arma y ejecuta el comando |
 | `--client=oracle` | Valida casos y graders sin modelos |
-| `--dataset=smoke` | Corrida real con los modelos de producción (por defecto `qwen3.5:4b` y `d3:2b`) |
+| `--dataset=smoke` | Corrida real con los modelos de `jarvis-config.json` (hoy `qwen3.5:4b-text` y `d3:2b-text`; sin el archivo, `qwen3.5:4b` y `d3:2b`) |
 | `--variant=… --repeat=3` | Compara una variante contra `prod` con tres repeticiones |
 
 ---

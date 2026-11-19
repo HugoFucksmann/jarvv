@@ -20,8 +20,8 @@ Antes de proponer cambios, este es el flujo real verificado en `src/` y `server.
   - `TaskRuntime` (`runtime`) mantiene el estado efímero de flujo (`waiting`, `paused`, `alwaysApproved`, `userRejected`, `AbortController`) y emite `onChange` (`waiting`) y `onPause` (`paused`).
   - `TaskTraceRecorder` (`src/core/trace/recorder.ts`) escucha `CaptureSink` (`llm` y `tool`), `ctx.on("change")`, `onWaiting` y `onPaused`, acumula todo en RAM y **recién lo escribe a disco en `finish()`**, al terminar la tarea.
 - **Transporte HTTP/SSE (`src/server/jarvisRouter.ts`)**:
-  - `GET /api/jarvis/events` emite por SSE únicamente 4 tipos de `TaskEvent`: `created`, `change` (`ops`), `waiting` y `paused`.
-  - `GET /api/jarvis/state` devuelve `{ task, tasks, discoveredTools, unavailableServers }`, ejecutando `await discoveryEngine.discoverAll()` en cada consulta.
+  - `GET /api/jarvis/events` emite `snapshot` inicial (con `id:`) y eventos `created` (con `summary`), `change` (`ops`), `waiting` y `paused`.
+  - `GET /api/jarvis/state` devuelve `{ task, tasks, discoveredTools, unavailableServers }` desde la caché síncrona (`getCachedTools()`, sin bloquear en `discoverAll()`), y `GET /api/jarvis/tasks/:taskId` devuelve el `TaskDto` individual liviano.
   - `GET /api/jarvis/tasks/:taskId/trace` lee exclusivamente archivos ya cerrados en disco (`summary.md`, `trace.json`, `full.json.gz`), devolviendo `404` mientras la tarea sigue en curso.
 - **Configuración (`src/core/config.ts`, `src/core/engine/services.ts`, `src/server/jarvisRouter.ts`)**:
   - `ConfigManager` carga `jarvis-config.json` una sola vez al iniciar (`static currentConfig`) y expone `getConfig()` / `updateConfig(patch)`.
@@ -48,7 +48,7 @@ Cambios localizados en `jarvisRouter.ts`, `TaskManager` (`tasks.ts`) o `limits.t
    - **Qué falta exponer**:
      - En `TaskManager` (`src/core/tasks.ts`): `activeCount()` vs `MAX_ACTIVE_TASKS` (`4`), cantidad en RAM vs `MAX_RETAINED_TASKS` (`20`), mapa `unreadable` (logs corruptos que no se cargaron, con su motivo) y `restartedOnStartup` (tareas interrumpidas al reiniciar el servidor).
      - En `DiscoveryEngine` (`src/core/mcp/discovery.ts`) y `StdioMcpTransport` (`src/core/mcp/transport.ts`): hoy `unavailableServers` muestra servidores fallidos, pero no el estado vivo de cada proveedor (`isConnected()`, `version`, `permanentFailure`, cantidad de herramientas en caché y antigüedad de la caché `lastFetched`).
-     - En `GET /limits` (`src/core/engine/limits.ts`): `limitValues()` solo devuelve los 14 topes de `LIMIT_SCOPES`; quedan fuera otros topes útiles de `BUDGET` (`src/core/budget.ts`), `MAX_ACTIVE_TASKS`, `MAX_RETAINED_TASKS`, `MAX_LIVE_PROCESSES` (`8`) y `THREAD_TTL_MS` (`10 min`).
+     - En `GET /limits` (`src/core/engine/limits.ts`): `limitValues()` solo devuelve los 15 topes de `LIMIT_SCOPES`; quedan fuera otros topes útiles de `BUDGET` (`src/core/budget.ts`), `MAX_ACTIVE_TASKS`, `MAX_RETAINED_TASKS`, `MAX_LIVE_PROCESSES` (`8`) y `THREAD_TTL_MS` (`10 min`).
    - **Archivos a tocar**: `src/core/tasks.ts` (getters de solo lectura), `src/core/mcp/discovery.ts` (estado por servidor), `src/core/engine/limits.ts`, `src/server/jarvisRouter.ts`.
    - **Complejidad y riesgo**: Muy bajos; solo lectura de estructuras ya existentes.
 
@@ -85,14 +85,12 @@ Requiere instrumentar puntos concretos del motor (`runTask.ts`, `stepLoop.ts`, `
    - **Implementación**: espejar estos datos en `TaskRuntime` (o en un objeto `executionMeta` dentro de `TaskDto`), ya que por diseño `TaskContext` no guarda la lista de pendientes ni probabilidades (`principio 5`).
    - **Archivos a tocar**: `src/core/engine/runtime.ts`, `src/core/engine/runTask.ts`, `src/core/engine/classify.ts`, `src/core/engine/completion.ts`, `src/core/tasks.ts`.
 
-3. **Metadatos de seguridad, aprobaciones recordadas y preguntas tipadas (`Guard` / `Tiers` / `Blacklist` / `PendingQuestion`)**
-   - **Qué falta hoy en `TaskDto` y `Waiting`**:
-     - `PendingQuestion` (`src/core/engine/runtime.ts:56-59`) no tiene `id` propio (a diferencia de `ApprovalRequest` y `PlanApprovalRequest`) ni distingue si la pregunta viene del modelo (`ask_user`) o de un proceso en vivo (`waiting_input` + `pid`). Eso impide validar `waitId` en `POST /user-answer` o mostrar badge específico de terminal interactiva.
-     - `ApprovalRequest` no incluye el `tier` calculado (`green` / `yellow` / `red` de `tiers.ts`) ni el detalle de `blacklistMatch` (`id`, `level`), ni se expone qué claves están activas en `runtime.alwaysApproved` y `runtime.userRejected`.
-     - Falta `startedAt` de cada intento en `Call` (hoy `Call.at` es el instante en que se registró tras terminar; la duración real de la herramienta o de D1–D4 no está en `TaskDto`, solo en la traza post-mortem).
-   - **Opciones**:
-     - *Opción A (solo en `TaskRuntime` / `TaskDto`)*: agregar `id` y `source` (`"model" | "process"`) + `pid?` a `PendingQuestion`, enriquecer `ApprovalRequest` con `tier?` y `blacklist?`, y exponer `rememberedApprovalsCount` / `rejectedKeysCount` en `TaskDto`.
-     - *Opción B (incluye duración por llamada)*: calcular `durationMs` en `callRunner.ts` y adjuntarlo en un mapa auxiliar `callTimings` en `TaskRuntime` (sin tocar `TaskContext`).
+3. **Conteos de aprobaciones/rechazos recordados y duración real de llamadas en `TaskDto`**
+   - *(Ya resuelto en `runtime.ts`, `callConfirm.ts` y `jarvisRouter.ts`: `PendingQuestion` ya incluye `id`, `source` y `pid?`, `POST /user-answer` valida `waitId`, y `ApprovalRequest` ya incluye `tier?` y `blacklist?`).*
+   - **Qué falta hoy en `TaskDto`:**
+     - No se exponen qué claves o cuántos elementos están activos en `runtime.alwaysApproved` y `runtime.userRejected` (`rememberedApprovalsCount` / `rejectedKeysCount`).
+     - Falta `startedAt` / `durationMs` de cada intento en `Call` (hoy `Call.at` es el instante en que se registró tras terminar; la duración real solo queda en la traza post-mortem).
+   - **Implementación:** exponer `rememberedApprovalsCount` / `rejectedKeysCount` en `TaskDto` y adjuntar un mapa auxiliar `callTimings` en `TaskRuntime` desde `callRunner.ts`/`callExecute.ts` (sin tocar `TaskContext`).
 
 ### 1.3 Nivel 3 — Complejidad Alta (traza en vivo, sub-llamadas y ampliación del esquema de contexto)
 
@@ -116,27 +114,22 @@ Requiere instrumentar puntos concretos del motor (`runTask.ts`, `stepLoop.ts`, `
 
 ## 2. Frente 2 — Mostrar información en tiempo real en la UI
 
-### 2.0 Cuellos de botella actuales del modelo SSE + `GET /state`
+### 2.0 Cuellos de botella actuales del modelo SSE
 
-Hoy la UI abre `EventSource("/api/jarvis/events")`, recibe `created` / `change` / `waiting` / `paused`, y vuelve a pedir `GET /api/jarvis/state`. Eso genera tres limitaciones reales en `src/`:
-1. **Refetch pesado**: cada `GET /state` ejecuta `await discoveryEngine.discoverAll()` y serializa el `TaskDto` completo + `tasks[]` completo, aunque solo haya cambiado un veredicto o una `waiting`.
+Con la hidratación inicial por `snapshot`, `created.summary`, `GET /tasks/:taskId` y la aplicación de `change.ops` en `ui/hooks/useJarvis.ts`, el refetch completo quedó como respaldo. Quedan tres limitaciones reales en `src/`:
+1. **Sin replay ante reconexión SSE**: al reconectarse `EventSource`, no hay soporte de `Last-Event-ID` con buffer de eventos recientes en `TaskManager`.
 2. **Silencios largos entre `apply()`**: entre `add steps` y `add calls` pueden pasar **20–180 segundos** (pensamiento + generación de argumentos + ejecución de `run_command` / `web_search` + verificación D4) sin ningún evento SSE, salvo que ocurra una espera o una pausa de modelo.
 3. **Sin streaming de salida**: `QwenEngine` envía `stream: false` (`src/core/models/qwen.ts:401`) y `TerminalProvider` acumula stdout/stderr en `OutputBuffer` hasta `settle()` (`src/tools/terminal/terminalProvider.ts:580`).
 
-### 2.1 Nivel 1 — Complejidad Baja (aprovechar y aligerar lo ya existente en SSE y REST)
+### 2.1 Nivel 1 — Complejidad Baja (completar eventos livianos en SSE)
 
-1. **Aplicar deltas `ops` en el cliente en vez de refetch completo de `GET /state`**
-   - **Qué ya existe en el back**: el evento `change` (`src/core/tasks.ts:78`) ya transporta `{ taskId, n, at, ops }` con las `NormalizedOp` exactas (`add plans/steps/calls/errors/refs/recalled`, `update` de paso/llamada, `set facts.*/result`, `finish`).
-   - **Qué falta en el back**:
-     - Al conectar `GET /api/jarvis/events`, el cliente puede perder eventos entre `GET /state` y `EventSource`. Agregar soporte de evento inicial `hello` / `snapshot` (o parámetro `?taskId=` + `Last-Event-ID` con pequeño ring buffer de eventos recientes en `TaskManager`) elimina la ventana de carrera.
-     - Incluir en `created` el `TaskSummary` completo (no solo `{ taskId, n }`) y emitir `summary` (o derivarlo en UI desde `ops`) para no tener que refetching `tasks[]`.
-     - Crear endpoint ligero `GET /api/jarvis/tasks/:taskId` que devuelva solo `TaskDto` sin ejecutar `discoveryEngine.discoverAll()`.
+1. **Soporte de `Last-Event-ID` en SSE (`GET /api/jarvis/events`)**
+   - *(Ya implementado: evento `snapshot` inicial, `id:` por mensaje SSE, `created.summary`, `GET /api/jarvis/tasks/:taskId` liviano y consumo por deltas `ops` en `ui/hooks/useJarvis.ts`).*
+   - **Qué falta en el back**: mantener un ring buffer pequeño de eventos recientes en `TaskManager` (o router) y reenviar los perdidos cuando llega la cabecera `Last-Event-ID`.
    - **Archivos a tocar**: `src/core/tasks.ts`, `src/server/jarvisRouter.ts`.
-   - **Complejidad y riesgo**: Bajos; el contrato de `ops` ya existe y es inmutable/congelado en `TaskContext`.
 
-2. **Separar el catálogo MCP de `/state` y notificar cambios por SSE**
-   - `GET /state` llama a `discoveryEngine.discoverAll()` en cada refetch (`jarvisRouter.ts:186`). Aunque `DiscoveryEngine` tiene TTL de 30 s (`TOOLS_CACHE_TTL_MS`), si un servidor falla o caduca el TTL, bloquea `/state`.
-   - Emitir un evento SSE `discovery` cuando `discoverAll(true)` / `refresh-discovery` actualiza herramientas o cambia `unavailableServers`, y añadir una variante `GET /state?includeTools=0` (o leer solo caché síncrona en `/state` dejando el refresco asíncrono aparte).
+2. **Notificar cambios del catálogo MCP por SSE (`discovery`)**
+   - `GET /state` ya lee caché síncrona (`getCachedTools()`). Lo que falta es emitir un evento SSE `discovery` cuando `discoverAll(true)` / `refresh-discovery` actualiza herramientas o cambia `unavailableServers` para que la UI no dependa de polling ni de `GET /state`.
 
 3. **Evento SSE para cambio de configuración y procesos**
    - Emitir evento SSE `config` (con `sanitizeConfigForHttp`) cada vez que `ConfigManager.updateConfig` modifica valores (por ejemplo si Telegram ejecuta `/auto on` o `/voz on` mientras la UI está abierta — hoy la UI no se entera en tiempo real cuando Telegram cambia `autoMode` o `voiceEnabled`).
@@ -191,37 +184,25 @@ Hoy la UI abre `EventSource("/api/jarvis/events")`, recibe `created` / `change` 
 
 | Categoría | Claves en `src/core/config.ts` | Comportamiento actual sin reiniciar |
 |---|---|---|
-| **1. Ya dinámicas (se leen en cada uso vía `getConfig()`)** | `qwenUrl`, `qwenModel`, `thinking`, `qwenNumCtx`, `qwenMaxTokens`, `modelKeepAlive`, `qwenTimeoutMs`, `qwenThinkingTimeoutMs`, `decisionUrl`, `decisionModel`, `decisionMaxContext`, `decisionTimeoutMs`, `modelUnavailablePauseMaxMs`, `autoMode`, `approvalTiers`, `reviewFullView`, `reviewReads`, `completionCoverageGuard`, `webSearchUseJudge`, `webJudgeTimeoutMs`, `desktopCommanderMcp.allowedDirectories`, `runCommandDefaultWaitSec`, `runCommandMaxWaitSec`, `mcpTimeoutMs`, `toolTimeoutsMs`, `modelTimeoutsMs`, `voiceEnabled`, `telegramVoice`, `voiceUrl`, `voiceName`, `shutdownDrainMs` | **Funcionan en caliente** tras `POST /config` (toman efecto en la siguiente llamada a modelo/herramienta/TTS o cierre). |
-| **2. Dinámicas solo parcialmente o para nuevas instancias** | `traceEnabled`, `sseKeepAliveMs`, `retentionDays`, `logRetentionDays`, `retentionMaxMb` | - `traceEnabled`: aplica solo a tareas nuevas (`TaskTraceRecorder` lee en su constructor, `recorder.ts:84`).<br>- `sseKeepAliveMs`: aplica solo a nuevas conexiones SSE; las abiertas conservan el `setInterval` inicial (`jarvisRouter.ts:255`).<br>- `retention*`: aplica en la próxima corrida cada 6 h (`RETENTION_INTERVAL_MS`), no inmediatamente tras guardar. |
-| **3. Congeladas al arranque por bug/diseño estático (¡desalineación real!)** | `blacklist`, `desktopCommanderMcp.cwd` (en `guardScope.relativeBases`) | - `blacklist`: `createEngineServices` llama a `compileBlacklist(config.blacklist)` **una sola vez** al iniciar (`services.ts:70`). Aunque `POST /config` la acepta y la guarda en `jarvis-config.json`, el motor sigue usando la compilación del arranque.<br>- `desktopCommanderMcp.cwd`: `toolBaseDir` la lee en vivo (`services.ts:77`), pero `guardScope.relativeBases` la captura una sola vez al arrancar (`services.ts:59-67`). Además el subproceso stdio `desktop_commander` sigue en el `cwd` original. |
-| **4. Bloqueadas por `withoutLaunchFields` y cacheadas al arranque** | `FILE_ONLY_KEYS`: `refsDir`, `tracePath` (+ derivada `tasksDir` y `memoryFile`)<br>`LAUNCH_ONLY_KEYS`: `command`, `args`, `env`, `cwd` de `desktopCommanderMcp` y `freeSearchMcp` | - Ignoradas por `POST /config` (`jarvisRouter.ts:36-53`) por seguridad y ciclo de vida.<br>- Editando `jarvis-config.json` manualmente **tampoco se recargan** sin reiniciar: `ConfigManager.currentConfig` solo se lee al cargar el módulo (`config.ts:342`), `TaskManager.tasksDir` se fija en el constructor (`tasks.ts:127`), `RefVault` y `memoryProvider` se crean una vez en `services.ts`, y `StdioMcpTransport` guarda su `config` de arranque (`transport.ts:92`). |
-| **5. Solo variables de entorno / `.env`** | `PORT`, `HOST`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_MODE`, `HF_TOKEN`, `dotenvKeys()` | Leídas una sola vez en `server.tsx` al arrancar (`telegramConfigFromEnv`, `envRemove` de `TerminalProvider`). |
+| **1. Ya dinámicas (se leen en cada uso vía `getConfig()`)** | `qwenUrl`, `qwenModel`, `thinking`, `qwenNumCtx`, `qwenMaxTokens`, `modelKeepAlive`, `qwenTimeoutMs`, `qwenThinkingTimeoutMs`, `decisionUrl`, `decisionModel`, `decisionMaxContext`, `decisionTimeoutMs`, `modelUnavailablePauseMaxMs`, `autoMode`, `approvalTiers`, `reviewFullView`, `reviewReads`, `completionCoverageGuard`, `webSearchUseJudge`, `webJudgeTimeoutMs`, `blacklist`, `desktopCommanderMcp.cwd` (en `toolBaseDir` y `guardScope.relativeBases`), `desktopCommanderMcp.allowedDirectories`, `runCommandDefaultWaitSec`, `runCommandMaxWaitSec`, `mcpTimeoutMs`, `toolTimeoutsMs`, `modelTimeoutsMs`, `voiceEnabled`, `telegramVoice`, `voiceUrl`, `voiceName`, `shutdownDrainMs` | **Funcionan en caliente** tras `POST /config` (toman efecto en la siguiente llamada a modelo/herramienta/TTS o cierre; `blacklist` usa caché serializada en `services.ts`). |
+| **2. Dinámicas solo parcialmente o para nuevas instancias** | `traceEnabled`, `sseKeepAliveMs`, `retentionDays`, `logRetentionDays`, `retentionMaxMb` | - `traceEnabled`: aplica solo a tareas nuevas (`TaskTraceRecorder` lee en su constructor, `recorder.ts:84`).<br>- `sseKeepAliveMs`: aplica solo a nuevas conexiones SSE; las abiertas conservan el `setInterval` inicial (`jarvisRouter.ts:282`).<br>- `retention*`: aplica en la próxima corrida cada 6 h (`RETENTION_INTERVAL_MS`), no inmediatamente tras guardar. |
+| **3. Bloqueadas por `withoutLaunchFields` y cacheadas al arranque** | `FILE_ONLY_KEYS`: `refsDir`, `tracePath` (+ derivada `tasksDir` y `memoryFile`)<br>`LAUNCH_ONLY_KEYS`: `command`, `args`, `env`, `cwd` de `desktopCommanderMcp` y `freeSearchMcp` | - Ignoradas por `POST /config` (`jarvisRouter.ts:36-53`) por seguridad y ciclo de vida (el subproceso stdio `desktop_commander` conserva el `cwd` original hasta reiniciarse).<br>- Editando `jarvis-config.json` manualmente **tampoco se recargan** sin reiniciar: `ConfigManager.currentConfig` solo se lee al cargar el módulo, `TaskManager.tasksDir` se fija en el constructor (`tasks.ts:127`), `RefVault` y `memoryProvider` se crean una vez en `services.ts`, y `StdioMcpTransport` guarda su `config` de arranque. |
+| **4. Solo variables de entorno / `.env`** | `PORT`, `HOST`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_MODE`, `HF_TOKEN`, `dotenvKeys()` | Leídas una sola vez en `server.tsx` al arrancar (`telegramConfigFromEnv`, `envRemove` de `TerminalProvider`). |
 
 ---
 
-### 3.1 Nivel 1 — Complejidad Baja (corregir lo que ya debería ser en caliente)
+### 3.1 Nivel 1 — Complejidad Baja (reacciones ligeras en caliente)
 
-Cambios puntuales en `services.ts`, `callRunner.ts`, `config.ts`, `jarvisRouter.ts` y `server.tsx`, sin reescribir subprocesos ni migración de directorios.
+Cambios puntuales en `config.ts`, `jarvisRouter.ts` y `server.tsx`, sin reescribir subprocesos ni migración de directorios (`blacklist` y `guardScope.relativeBases` ya son dinámicos en `services.ts`).
 
-1. **Hacer reactiva `blacklist` en caliente**
-   - **Problema**: `EngineServices.blacklist` y `EngineDeps.blacklist` son un objeto `Blacklist` compilado una vez en `services.ts:70`.
-   - **Implementación**:
-     - Cambiar en `EngineDeps` (`src/core/contracts.ts`) y `EngineServices` (`src/core/engine/services.ts`) `blacklist: Blacklist | (() => Blacklist)` (o resolver en `services.ts` con caché por referencia/hash de `config.blacklist` para no recompilar expresiones regulares en cada llamada si no cambió).
-     - En `callRunner.ts` (`usableTools` y `blacklistMatch`) y `stepLoop.ts`, leer el getter actualizado (o fijar una lectura coherente por paso/llamada).
-   - **Complejidad y riesgo**: Muy bajos; corrige una inconsistencia real donde `POST /config` hoy promete actualizar `blacklist` pero no surte efecto hasta reiniciar.
-
-2. **Hacer dinámico `guardScope.relativeBases` con `desktopCommanderMcp.cwd`**
-   - **Implementación**: en `services.ts` y `src/core/policy/guard.ts`, permitir que `ProtectedPaths.relativeBases` sea función o recomputarlo en cada llamada usando `getConfig().desktopCommanderMcp.cwd`, en lugar de congelar `[process.cwd(), desktop.cwd]` en `createEngineServices`.
-   - *(Nota: el `cwd` físico del subproceso MCP `desktop_commander` sigue perteneciendo a Nivel 2/3 porque requiere reiniciar el proceso hijo).*
-
-3. **Bus de suscripción en `ConfigManager` (`ConfigManager.onChange`) para reacciones ligeras**
+1. **Bus de suscripción en `ConfigManager` (`ConfigManager.onChange`) para reacciones ligeras**
    - Agregar `onChange(listener)` en `src/core/config.ts` que notifique `{ prev, next }` tras cada `updateConfig()` (o recarga). Con eso se resuelven en pocos archivos cuatro brechas actuales:
      - **Re-precalentamiento de modelos (`server.tsx` + `src/core/models/warmup.ts`)**: si cambiaron `qwenUrl`, `qwenModel`, `decisionUrl` o `decisionModel`, lanzar `void warmUpModels(getConfig)` en segundo plano (sin bloquear la respuesta HTTP de `POST /config`, opcionalmente con `AbortController` para cancelar un warmup previo si vuelven a cambiar la config).
      - **Disparar retención inmediata (`server.tsx` + `src/core/retention.ts`)**: si bajaron `retentionDays`, `logRetentionDays` o `retentionMaxMb` (o pasaron de `0` a `>0`), ejecutar `runRetention(...)` con un pequeño debounce.
      - **Actualizar `sseKeepAliveMs` en conexiones SSE ya abiertas (`jarvisRouter.ts`)**: reemplazar `setInterval(..., getSseKeepAliveMs())` por un `setTimeout` encadenado que vuelva a leer `getSseKeepAliveMs()` en cada ping (o rearmar el timer al recibir `ConfigManager.onChange`).
      - **Notificar por SSE `config` actualizado**: si Telegram o un script llama a `POST /config`, la UI recibe el cambio en vivo sin esperar recarga de página.
 
-4. **Permitir ajustar `traceEnabled` durante una tarea o reflejar el estado vigente en el resumen**
+2. **Permitir ajustar `traceEnabled` durante una tarea o reflejar el estado vigente en el resumen**
    - Si se desea que activar `traceEnabled` a mitad de una tarea o desactivarlo aplique de inmediato: hoy es de complejidad baja solo si se documenta que rige por tarea nueva (comportamiento sano para no generar trazas mutiladas a mitad de ejecución), mientras que el cierre/retención ya se adaptan al instante.
 
 ### 3.2 Nivel 2 — Complejidad Media (recarga de `jarvis-config.json` desde disco + reinicio seguro de MCPs en reposo y Telegram)
@@ -285,9 +266,9 @@ Cambios puntuales en `services.ts`, `callRunner.ts`, `config.ts`, `jarvisRouter.
 
 | Prioridad | Cambio | Frente | Complejidad | Archivos principales |
 |---|---|---|---|---|
-| **1 (Quick win)** | Convertir `blacklist` y `guardScope.relativeBases` en lectura viva + `ConfigManager.onChange` (warmup modelos, retención, SSE keepalive y evento `config`) | Config | **Baja** | `src/core/config.ts`, `src/core/contracts.ts`, `src/core/engine/services.ts`, `src/core/engine/callRunner.ts`, `src/core/policy/guard.ts`, `src/server/jarvisRouter.ts`, `server.tsx` |
-| **2 (Quick win)** | Exponer diagnósticos de `TaskManager`, estado de servidores MCP, `GET /tasks/:id` ligero y deltas SSE completos (`snapshot` inicial + `TaskSummary`) | Info + Tiempo real | **Baja** | `src/core/tasks.ts`, `src/core/mcp/discovery.ts`, `src/core/engine/limits.ts`, `src/server/jarvisRouter.ts` |
-| **3** | Añadir `activity`, estado reactivo (`pending`/`done`), resultado de D0/hilo y `id`/`source` en `PendingQuestion` dentro de `TaskRuntime` + evento SSE `activity` | Info + Tiempo real | **Media** | `src/core/engine/runtime.ts`, `src/core/engine/runTask.ts`, `src/core/engine/stepLoop.ts`, `src/core/engine/callRunner.ts`, `src/core/engine/classify.ts`, `src/core/tasks.ts` |
+| **1 (Quick win)** | `ConfigManager.onChange` (warmup de modelos, retención inmediata, SSE `keepAlive` encadenado y evento SSE `config`) | Config | **Baja** | `src/core/config.ts`, `src/server/jarvisRouter.ts`, `server.tsx` |
+| **2 (Quick win)** | Exponer diagnósticos de `TaskManager`, estado de servidores MCP, `Last-Event-ID` y evento SSE `discovery` | Info + Tiempo real | **Baja** | `src/core/tasks.ts`, `src/core/mcp/discovery.ts`, `src/core/engine/limits.ts`, `src/server/jarvisRouter.ts` |
+| **3** | Añadir `activity`, estado reactivo (`pending`/`done`), resultado de D0/hilo, conteos `alwaysApproved`/`userRejected` y `callTimings` en `TaskRuntime` + evento SSE `activity` | Info + Tiempo real | **Media** | `src/core/engine/runtime.ts`, `src/core/engine/runTask.ts`, `src/core/engine/stepLoop.ts`, `src/core/engine/callRunner.ts`, `src/core/engine/classify.ts`, `src/core/tasks.ts` |
 | **4** | Traza en vivo (`TaskTraceRecorder.liveSnapshot()` + `?live=1` en `GET /trace` y evento SSE opt-in) | Info + Tiempo real | **Media-Alta** | `src/core/trace/recorder.ts`, `src/core/trace/format.ts`, `src/core/tasks.ts`, `src/server/jarvisRouter.ts` |
 | **5** | Recarga desde disco de `jarvis-config.json` (`reloadFromDisk` / watcher) + reinicio seguro de MCPs y Telegram cuando `activeCount === 0` | Config | **Media** | `src/core/config.ts`, `src/core/mcp/transport.ts`, `src/core/mcp/discovery.ts`, `src/tools/terminal/terminalProvider.ts`, `server.tsx` |
 | **6** | Streaming de salida de `run_command` (`onProgress` throttled en `TerminalProvider`) y streaming de tokens en `QwenEngine` (`final_response` / `question`) | Tiempo real | **Alta** | `src/tools/terminal/terminalProvider.ts`, `src/core/tools/provider.ts`, `src/core/models/transport.ts`, `src/core/models/qwen.ts`, `src/core/engine/finalize.ts`, `src/server/jarvisRouter.ts` |

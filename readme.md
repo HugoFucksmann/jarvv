@@ -39,7 +39,7 @@ Mientras trabaja, vas viendo en la interfaz cada paso, cada herramienta y cada d
 <td width="50%" valign="top">
 
 ### 🏠 Local por diseño
-Los modelos corren en tu equipo con [Ollama](https://ollama.com). Tus instrucciones y tus archivos no viajan a ningún servicio de IA. El servidor escucha solo en `127.0.0.1` y rechaza cualquier petición con `Host` u `Origin` que no sea local.
+Los modelos corren en tu equipo con [Ollama](https://ollama.com). Tus instrucciones y tus archivos no viajan a ningún servicio de IA. El diseño está pensado para escucha local (`127.0.0.1` y filtro `Host`/`Origin` en `localOnly.ts`; actualmente el chequeo de arranque y `localOnly()` están comentados en `server.tsx` por compatibilidad con el sandbox de AI Studio Build).
 
 </td>
 <td width="50%" valign="top">
@@ -155,8 +155,8 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
-| `PORT` | `3000` | Puerto del servidor |
-| `HOST` | `127.0.0.1` | Interfaz de red. Debe ser loopback (`127.0.0.1`, `localhost`, `::1`): con cualquier otro valor el servidor no arranca, porque no hay autenticación y daría control de tu PC a quien llegue al servidor |
+| `PORT` | `3000` | Puerto del servidor (opcional; no viene en `.env.example`) |
+| `HOST` | `0.0.0.0` | Interfaz de red (no viene en `.env.example`; en uso local conviene fijar `HOST=127.0.0.1` porque la API no tiene autenticación; el chequeo estricto de loopback en `server.tsx` está comentado temporalmente por compatibilidad con AI Studio Build) |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `TELEGRAM_MODE` | — | Telegram, opcional (se leen del entorno o de `.env`; ver `.env.example` y [`TELEGRAM_Y_VOZ`](docs/operacion/TELEGRAM_Y_VOZ.md)). Sin token o sin `TELEGRAM_CHAT_ID` el bot no arranca |
 | `HF_TOKEN` | — | Solo para `scripts/phonon_server.py` (modelo de voz *gated* en Hugging Face) |
 
@@ -192,8 +192,8 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `logRetentionDays` | `30` | Días que se conserva el log de eventos de cada tarea (`data/tasks/<id>.jsonl`), solo si la tarea ya cerró (`0` = no borrar logs por antigüedad) |
 | `retentionMaxMb` | `250` | Tope de tamaño en disco compartido entre refs, trazas y logs: si se supera, se borra lo más viejo que se pueda borrar hasta bajar (`0` = sin tope). Nunca se borra el log de una tarea sin cerrar |
 | `modelUnavailablePauseMaxMs` | `600000` | Cuánto espera una tarea (en ms) a que vuelva un modelo que no responde (LLM o decisión) antes de cerrarse; mientras espera queda pausada y se puede cancelar (`0` = no esperar) |
-| `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "start_process", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
-| `autoMode` | `false` | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
+| `blacklist` | `[]` | Entradas propias de la lista negra, que se suman a las reglas de comando integradas (siempre activas: borrados, apagado, discos, usuarios, registro, procesos, servicios, git, paquetes…, con dos niveles, `blocked` y `sensitive`). Una entrada vale para herramientas que modifican el sistema: `[{ "tool": "run_command", "pattern": "remove-item\\s+-recurse", "reason": "texto para el modelo" }]`. `tool` es `herramienta` o `servidor:herramienta`; sin `pattern` se veta la herramienta entera. Las lecturas nunca se rechazan. El rechazo es `tool_rejected` (el modelo sigue con otra cosa) |
+| `autoMode` | `false` (`true` en `jarvis-config.json` incluido) | Modo automático: las escrituras y comandos del catálogo no piden aprobación al usuario y las valida la revisión de argumentos (Decisión 3). Guard (patrones destructivos, carpetas protegidas) y las reglas de comando siguen actuando: lo muy destructivo se rechaza y lo sensible pasa por un umbral más estricto. Una herramienta no catalogada sigue pidiendo aprobación. Se lee en cada llamada, así que se puede cambiar con una tarea en curso |
 | `webSearchUseJudge` | `true` | `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada |
 | `voiceEnabled` · `telegramVoice` | `false` · `false` | Voz: la interfaz lee en voz alta cada respuesta final; Telegram suma una nota de voz (necesita `ffmpeg`). Ver [`TELEGRAM_Y_VOZ`](docs/operacion/TELEGRAM_Y_VOZ.md) |
 | `voiceUrl` · `voiceName` | `http://127.0.0.1:8880` · `default` | Servidor TTS (`scripts/phonon_server.py`) y su voz |
@@ -206,7 +206,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 
 ```
 jarvis/
-├── server.ts            Servidor Express: composición, API local y eventos en vivo
+├── server.tsx           Servidor Express: composición, API local y eventos en vivo
 ├── src/
 │   ├── core/            Núcleo: motor, modelos (`models/`), Guard, MCP, contexto, refs y contratos
 │   ├── server/          Rutas HTTP (/api/jarvis y /api/mcp)
@@ -235,7 +235,7 @@ Esta es una **versión temprana ([v0.7.0](CHANGELOG.md))**: el flujo completo fu
 | **Tareas largas** | ⚠️ Con muchos pasos y reintentos el contexto crece y el modelo chico pierde precisión; hay compactación, pero falta medirla |
 | **Validaciones** | ⚠️ La revisión de argumentos (Decisión 3) y la verificación de resultados (Decisión 4) usan umbrales iniciales (0,6) sin calibrar con uso real |
 | **Evaluación** | ⚠️ El laboratorio funciona, pero los datasets y las variantes se cargan a mano: no es 100 % autónomo y aún no evalúa tareas completas de punta a punta |
-| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` viene apagado; encendido, los comandos no piden aprobación y los valida un modelo de 2B, salvo las rutas sensibles (claves, credenciales, inicio automático, sistema), que siempre piden confirmación. La API no tiene autenticación: solo acepta `Host` y `Origin` locales y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Los servidores MCP se lanzan con versión fija (Desktop Commander `0.3.2`). **No expongas el servidor fuera de `localhost`** |
+| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` es `false` por defecto en código (`true` en el `jarvis-config.json` incluido, junto con `approvalTiers: true`); con niveles activos solo lo rojo y lo obligatorio piden confirmación humana. La API no tiene autenticación (`localOnly.ts` define el filtro de `Host`/`Origin`, actualmente comentado junto al chequeo de loopback en `server.tsx` por compatibilidad con AI Studio Build) y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Los servidores MCP se lanzan con versión fija (Desktop Commander `0.3.2`). **No expongas el servidor fuera de `localhost`** |
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
 | **Herramientas** | 12 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 

@@ -10,7 +10,7 @@ Lanza comandos de PowerShell o interactúa con procesos iniciados dentro de la m
   - `command`: texto PowerShell (se registra recortado a 1000 caracteres en `argCaps`).
   - `pid`: id de un proceso vivo de la misma tarea.
   - `input`: respuesta para un proceso en `waiting_input` (máx. 1000 caracteres, solo junto a `pid`).
-  - `timeoutSec`: 1 a 300 s (default `30`). El plazo del catálogo es `315 s`.
+  - `timeoutSec`: 1 a 300 s (default `30`; valores configurables en `jarvis-config.json` con `runCommandDefaultWaitSec` y `runCommandMaxWaitSec`). El plazo efectivo de la herramienta es `(runCommandMaxWaitSec + 15) s` (`315 s` por defecto).
   - `cwd`: directorio absoluto inicial para un comando nuevo (default: carpeta personal del usuario).
 - **Ejecución (`powershell.ts`)**: invoca `powershell.exe -NoProfile -NonInteractive -Command` con prólogo UTF-8, ayudas en `%TEMP%\jarvis-terminal\helpers-*.ps1` (`Read-Host`/`pause` respondibles y envoltorios de utilidades del sistema como `ipconfig`, `ping`, `netsh`) y el comando codificado en base64. Si el antivirus bloquea las ayudas, relanza sin ellas y registra aviso en consola.
 - **Decodificación**: salida UTF-8 con respaldo línea por línea OEM (850) / ANSI (1252), sin escapes ANSI ni barras de progreso intermedias. Límite de buffer por llamada: 500 000 caracteres de cabeza y cola; `text` al modelo respeta `BUDGET.summaryMax` (2500 chars).

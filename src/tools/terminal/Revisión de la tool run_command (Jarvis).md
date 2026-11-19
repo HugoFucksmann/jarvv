@@ -110,19 +110,7 @@ La cabecera dice «una tool propia por ruta (`run_command`, `web_search`)», per
 
 El manifest se declara «fuente única de herramientas, políticas y descripciones», pero `TerminalProvider` define sus propias descripciones de herramienta y de parámetro (`RUN_COMMAND_TOOL`, `LIST_PROCESSES_TOOL`, `STOP_PROCESS_TOOL`) y el manifest repite en texto los valores de `DEFAULT_WAIT_SEC` y `MAX_WAIT_SEC` (`default 30, max 300`). `applyDestination` sustituye las del proveedor, así que solo cuenta una, y ya difieren (por ejemplo la de `list_processes`). Cambiar una constante no actualiza la nota.
 
-### H-13 · Media · `structured.ts` (`extractStructured`) con `terminalProvider.ts` (`settle`, `stopProcess`)
-
-**`truncated` es `true` en casi todo resultado de `run_command`, aunque no se haya omitido nada.**
-
-`extractStructured` calcula `truncated` como `raw.trim() !== text.trim()` (con `raw` no vacío). En `run_command` el `text` siempre lleva cabecera y notas delante del cuerpo (`[header, ...notes, body]`), mientras que `raw` es solo la salida: nunca coinciden cuando hay salida. Ejemplo: `echo hola` da `raw = "hola"` y `text = "status: finished · … The command finished successfully.\nhola"`, y `truncated = true`. Según `processResult.ts`, `truncated` es lo que el ejecutor usa para decidir si la llamada lleva ref, y `result.ts` dice que solo hay ref cuando `raw` y `text` difieren. Pasa igual con `stop_process` sobre un proceso de `run_command` con salida pendiente. `list_processes` no se ve afectado: su `text` y su `raw` coinciden si no se recorta.
-
-*Impacto:* una ref en disco por cada comando con salida y la marca de resumen incompleto donde el resumen está completo. Si las vistas listan refs con el tope `caps.refs` (8), esas refs triviales pueden ocupar el sitio de otras útiles (por confirmar en el ejecutor).
-
-*Contrato que se incumple:* `extractors/types.ts` define `truncated` como «el extractor omitió texto de contenido; un recorte de metadatos no cuenta», y `extractReadFile` (`files.ts`) lo respeta a propósito: sus notas de cabecera no cuentan para `truncated`. `extractStructured` hace lo contrario: la cabecera y las notas de `run_command` son metadatos y aun así hacen que `text` difiera de `raw`. Además su comentario de cabecera dice «cuando el texto completo es más largo que lo que ve el modelo», pero el código compara con `!==`, no por largo, y con cabecera delante el `text` suele ser el más largo.
-
-*Confirmado en el ejecutor (`callRunner.ts`, paso 11):* `if (processed.truncated && processed.fullText.length > 0)` hace `vault.put` y `add ref`. Es decir, se escribe una ref en disco por cada comando con salida. Además, si `vault.put` lanza `RefVaultError`, `runCall` devuelve `close` con `unrecoverable`: por H-13, un fallo del almacén que debería afectar solo a salidas recortadas de verdad cierra la tarea tras cualquier comando que imprima algo.
-
-*Dirección:* que el proveedor indique en `data` si recortó (el `rawTruncated` actual solo cubre `OutputBuffer`, no el `headTailNeutral` de `settle`) y que el extractor use esa señal en lugar de comparar textos.
+*(H-13 resuelto: `structured.ts:29` ya respeta `data.truncated` cuando el proveedor nativo lo informa.)*
 
 ### H-14 · Alta · `readOnly.ts` (`segmentsOf`) con `commandRules.ts` y `guard.ts`
 
@@ -134,13 +122,7 @@ El manifest se declara «fuente única de herramientas, políticas y descripcion
 
 *Dirección:* tratar las comillas tipográficas como comillas, o descartar el comando si contiene alguna.
 
-### H-15 · Baja · `readOnly.ts` (`WAIT_PARAM`)
-
-**`-Wait` se detecta por su nombre completo; la abreviación `-Wai` pasa.**
-
-`WAIT_PARAM = /(^|\s)-wait\b/i` busca el nombre entero. PowerShell acepta prefijos únicos de parámetro y en `Get-Content` `-Wai` es único (`-Wa` choca con `-WarningAction`). `Get-Content app.log -Tail 5 -Wai` no se detecta, se trata como lectura sin confirmación y deja un proceso corriendo, justo lo que la cabecera dice evitar.
-
-*Impacto:* tras el plazo `run_command` no lo mata y ocupa uno de los 8 puestos de procesos vivos.
+*(H-15 resuelto: `readOnly.ts:108` ya usa `/(^|\s)-wai(?:t)?\b/i`.)*
 
 ### H-16 · Baja · `rerun.ts` (`RUNNERS`)
 
@@ -203,11 +185,7 @@ La cabecera de `guard.ts` dice que la regla B (proteger `refsDir`) no cubre un c
 
 *Dirección:* aplicar la regla B también al texto de `command`, o reformular el comentario para que diga que en automático solo lo cubre D3.
 
-### H-23 · Baja · comentarios que describen un comportamiento que el código ya no tiene
-
-- `commandRules.ts` (cabecera): el nivel `guard` «cierra la tarea en cualquier modo». `guard.ts` devuelve `DENY` y `callRunner.ts` registra `tool_rejected` sin cerrar («La tarea NO cierra»); `blacklist.ts` también dice «sin cerrar la tarea».
-- `guard.ts` y `callRunner.ts` (paso 4) hablan de `start_process` de Desktop Commander como si fuera la tool que cubre `readOnly.ts`; en esta tool es `run_command`.
-- `callRunner.ts` (`usableTools`, `discoverTools`): habla de herramientas que «exigen un proceso o una búsqueda activos», pero `requirementOf` devuelve `"search" | undefined` y `usableTools` solo evalúa `searchActive`. No hay ningún requisito de proceso.
+*(H-23 resuelto tras el refactor: `guard.ts` y `callAuthorize.ts` ya no hablan de `start_process`, y `usableTools` en `callDiscovery.ts` coincide con `requirementOf`.)*
 
 ### H-24 · Baja · `sensitivePaths.ts` (`system-folders`, `unix-system`) frente a `commandRules.ts`
 
@@ -268,6 +246,5 @@ Fuentes: [py-commander-mcp (PyPI)](https://pypi.org/project/py-commander-mcp/), 
 
 ## Pendiente de confirmar
 
-- Quién aplica `timeoutMs` en el proveedor nativo: `callRunner.ts` solo lo pasa en `ToolCallOptions` y compite el despacho contra la cancelación. Los resultados de `Select-String src\core\**\*.ts` solo muestran el uso en `mcp/transport.ts` (clientes MCP) y la declaración en `tools/provider.ts`; esa búsqueda no es recursiva, así que no descarta un consumidor en subcarpetas. Riesgo bajo: `list_processes` y `stop_process` (sin `timeoutMs`) están acotadas por sus plazos internos (15 s y 5 s) y `run_command` por `timeoutSec` (300 s máx.). Comando para cerrarlo: `Get-ChildItem src\core -Recurse -Filter *.ts | Select-String "timeoutMs" | Select-Object Path,LineNumber,Line`.
 - `describe` en `terminalProvider.ts`: si la fila de un proceso gestionado indica que espera entrada (el equivalente del `Blocked` de Desktop Commander).
 - Depende de conocimiento externo, no solo del código: `CRITICAL_PROCESSES` no incluye `svchost`, y cortar la instancia que aloja RPC o DCOM reinicia Windows (solo `killProcess` fallando sin permisos de administrador lo evitaría). Además, `USER_FOLDERS` (`commandRules.ts`) solo reconoce nombres en inglés bajo el perfil; con la redirección de carpetas de OneDrive pueden llevar el nombre localizado (`Documentos`, `Escritorio`) y quedar fuera de la protección.

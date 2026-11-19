@@ -7,7 +7,7 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 ### Seguridad
 - **Aprobación por niveles con `autoMode`:** `approvalTiers` queda encendida por defecto. Con `autoMode`, verde no pide al usuario ni pasa por D3; amarillo no pide al usuario y pasa por D3 estricto; rojo siempre pide al usuario. Guard, la lista negra y el pre-chequeo siguen igual. Toggle en Ajustes.
 - **`allowedDirectories` en todas las herramientas:** aplica también a `run_command` (`cwd` y rutas del análisis de PowerShell), se lee en vivo y usa `realpathSync`; lo no resoluble pide confirmación. Control en Ajustes.
-- **API local:** el servidor no arranca si `HOST` no es loopback; `/refresh-discovery` pasa a solo `POST`; nuevo tope de tamaño en disco `retentionMaxMb` (500 MB) para refs y trazas.
+- **API local:** validación de `HOST` loopback en el arranque *(luego comentada temporalmente en `server.tsx` por compatibilidad con el sandbox de AI Studio Build)*; `/refresh-discovery` pasa a solo `POST`; nuevo tope de tamaño en disco `retentionMaxMb` (250 MB) para refs, trazas y logs.
 - **Políticas:** `egress.ts` ya no trata un SHA hex como clave; `sensitivePaths.ts` resuelve symlinks, nombres 8.3 y prefijos `\\?\`/UNC; `commandRules.ts` detecta llamadas `.Delete()`/`.MoveTo()`/`.CopyTo()`.
 - **MCP:** al abortar o vencer una llamada por stdio se envía `notifications/cancelled`.
 

@@ -1,6 +1,6 @@
 # JARVIS API — lo que necesita saber la UI
 
-Base: `/api/jarvis` (más endpoints directos en `/api/mcp` y alias `/mcp`). Solo local (`Host` y `Origin` en `localhost`, `127.0.0.1` o `[::1]`). JSON con límite de **256 KB**. Los errores son siempre `{ "error": string }`: **400** entrada o JSON inválido, **404** tarea/ref/traza inexistente, **409** la tarea no espera eso, **413** cuerpo mayor a 256 KB, **429** tope de tareas o SSE.
+Base: `/api/jarvis` (más endpoints directos en `/api/mcp` y alias `/mcp`). Diseñada para entorno local (`localOnly.ts` define la validación de `Host` y `Origin` en `localhost`, `127.0.0.1` o `[::1]`; actualmente el middleware `localOnly()` y la validación de `HOST` loopback están comentados en `server.tsx`, y el chequeo de `Host` en `localOnly.ts`, por compatibilidad con el proxy de AI Studio Build). JSON con límite de **256 KB**. Los errores son siempre `{ "error": string }`: **400** entrada o JSON inválido, **404** tarea/ref/traza inexistente, **409** la tarea no espera eso, **413** cuerpo mayor a 256 KB, **429** tope de tareas o SSE.
 
 ## Modelo
 
@@ -20,11 +20,12 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 | `POST /confirm-plan` | `{ taskId, waitId }` | Acepta el plan que espera confirmación |
 | `POST /modify-plan` | `{ taskId, feedback, waitId }` | Pide un plan nuevo con la instrucción (sin tope de veces); vuelve a pedir confirmación |
 | `POST /reject-plan` | `{ taskId, waitId }` | Rechaza sin instrucción: la tarea se cancela |
-| `POST /approve` | `{ taskId, waitId }` | Acepta la operación sensible pendiente |
+| `POST /approve` | `{ taskId, waitId, remember? }` | Acepta la operación sensible pendiente (`remember: true` intenta recordarla en RAM para la tarea si `canRemember` es `true`) |
 | `POST /deny` | `{ taskId, reason?, waitId }` | Rechaza la operación; `reason` (opcional) llega al modelo como instrucción. La tarea no termina |
-| `POST /user-answer` | `{ taskId?, answer }` | Responde la pregunta abierta (no vacía) |
+| `POST /user-answer` | `{ taskId?, answer, waitId? }` | Responde la pregunta abierta (no vacía; `waitId` opcional, si se envía debe coincidir con `question.id`) |
 | `GET /state?taskId=` | | `{ task: TaskDto \| null, tasks: TaskSummary[], discoveredTools, unavailableServers }`. Sin `taskId`, la última |
-| `GET /events` | | SSE, ver abajo (`429` con 8 conexiones abiertas) |
+| `GET /tasks/:taskId` | | `TaskDto` individual (liviano: sin listado global ni catálogo de herramientas). `404` si no existe |
+| `GET /events?taskId=` | | SSE, ver abajo (`429` con 8 conexiones abiertas) |
 | `GET /tasks/:taskId/refs/:refId` | | Texto completo de una ref de la tarea (`calls[].ref`, `refs[].id`), `text/plain`. 404 si la tarea o la ref no existen o el archivo ya no está |
 | `GET /tasks/:taskId/trace?format=` | | Traza de una tarea **terminada**: `summary` (Markdown, por defecto; línea de tiempo con decisiones D1–D4 por llamada, esperas y respuesta final), `json` (snapshot, todas las consultas D0–D5 y generativas, herramientas y duraciones) o `full` (lo anterior más prompts y salidas crudas). 400 si `format` es otro; 404 si sigue en curso, `traceEnabled` es `false` o no existe |
 | `GET /environment` | | Datos de esta PC: `platform`, `home`, `desktop`, `documents`, `downloads` (los que se pudieron consultar), más `now` (ISO) y `timeZone` |
@@ -32,7 +33,7 @@ Una **tarea** es un contexto único: todo el estado sale de un solo objeto (`Tas
 | `GET/POST /config`, `POST /refresh-discovery` | | `/config` devuelve y acepta configuración en JSON (exige objeto plano; **omite `env`** de los servidores MCP en las respuestas HTTP). `POST` fusiona las claves válidas y descarta `FILE_ONLY_KEYS` (`refsDir`, `tracePath`) y `LAUNCH_ONLY_KEYS` (`command`, `args`, `env`, `cwd` de los MCP). Detalle en [`../configuracion/CONFIGURACION.md`](../configuracion/CONFIGURACION.md) |
 | `POST /tts` | `{ text }` | Voz: audio PCM 16-bit, mono, 24 kHz en streaming (`audio/L16`), sintetizado por el servidor TTS de `voiceUrl` (`scripts/phonon_server.py`). 400 sin `text` o > 20 000 caracteres, 422 si queda vacío, 503 con `voiceEnabled` apagado, 502 si el servidor falla |
 
-Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-plan`) **exigen `taskId` y `waitId`** (si faltan, 400): sin ellos se aplicarían a la última tarea y un cliente aprobaría a ciegas lo que no vio. `waitId` es el `request.id` de la espera actual: si no coincide (respuesta tardía), responde 409. `/cancel` y `/user-answer` conservan el atajo (toman la última tarea si no se envía `taskId`).
+Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-plan`) **exigen `taskId` y `waitId`** (si faltan, 400): sin ellos se aplicarían a la última tarea y un cliente aprobaría a ciegas lo que no vio. `waitId` es el `request.id` de la espera actual: si no coincide (respuesta tardía), responde 409. `/cancel` y `/user-answer` conservan el atajo (toman la última tarea si no se envía `taskId`; en `/user-answer`, `waitId` es opcional).
 
 ## TaskDto
 
@@ -58,7 +59,7 @@ Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-p
 
 - **Reactivo:** `plans` está vacío y los pasos traen `planId`, `route` y `expected` en `null`; `instruction` es el primer ítem de la lista de pendientes, que mantiene el código (el modelo la genera al empezar, tras un fallo y al vaciarse); la lista completa no se expone. Lo que se hizo se lee de `calls`. Cada iteración del bucle es un paso.
 - **Deliberativo:** un replan o una modificación del usuario marca `superseded: true` los pasos que reemplaza: se muestran como descartados, no como fallidos. Los vigentes son los que no están `superseded`.
-- **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `waiting_input` (un proceso de `run_command` sigue vivo y pide una respuesta del usuario: no se verifica y el paso emite una espera `question` con el texto que el proceso muestra), `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid` (el pre-chequeo o la revisión rechazaron los argumentos), `loop_blocked` (la misma llamada ya se había hecho), `user_rejected`, `tool_rejected` (la rechazó Guard, la lista negra o una regla de comando; la tarea sigue), `info_missing`. `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data` o `not_accomplished`.
+- **`calls[].status`:** ejecutadas `ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `waiting_input` (un proceso de `run_command` sigue vivo y pide una respuesta del usuario: no se verifica y el paso emite una espera `question` con el texto que el proceso muestra), `denied` (la rechazó el servidor de la herramienta); no ejecutadas `args_invalid` (el pre-chequeo o la revisión rechazaron los argumentos), `loop_blocked` (la misma llamada ya se había hecho), `user_rejected`, `tool_rejected` (la rechazó Guard, la lista negra o una regla de comando; la tarea sigue), `info_missing`. `verdict` es lo que dijo la verificación del resultado (`null` si no se verificó). `reason`: `no_usable_data`, `not_accomplished`, `wrong_place`, `wrong_position`, `wrong_scope`, `wrong_item` o `missing_attribute`.
 - **Escrituras:** `kind: "write"` con `status: "ok"` son cambios hechos en la PC; con `tool_error`, `exception`, `interrupted` o `waiting_input` pudieron dejar cambios parciales.
 - **`summary`:** resultado ya resumido (máx. 2500 caracteres, con marcadores `…(+N)` si se recortó). Si `ref` no es `null`, el resultado completo está en el archivo de esa ref (`refs[].where`, ruta absoluta en la PC; `size` en caracteres).
 - **`facts`:** `process` (id del proceso en segundo plano activo; `value: null` = ya no hay) y `answer_<stepId>_<n>` (`"pregunta -> respuesta"`).
@@ -66,19 +67,19 @@ Las decisiones (`/approve`, `/deny`, `/confirm-plan`, `/modify-plan`, `/reject-p
 
 ## Modo automático y lista negra (`/config`)
 
-- `autoMode` (`false` por defecto, también en el `jarvis-config.json` incluido) y `approvalTiers` (`true` por defecto): con `approvalTiers: true`, las escrituras se clasifican en verde (sin confirmación ni D3), amarillo (con `autoMode`: sin confirmación y con D3 estricto; sin `autoMode`: pide confirmación) y rojo (siempre pide confirmación); con `approvalTiers: false` y `autoMode: true`, las escrituras del catálogo pasan sin espera `approval` por D3. Guard, `blacklist` (`blocked` / `sensitive`) y las rutas sensibles (`sensitivePaths.ts`) siguen exigiendo confirmación u operando según [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md). Se lee en cada llamada.
+- `autoMode` (`false` por defecto en código, `true` en el `jarvis-config.json` incluido) y `approvalTiers` (`true` por defecto): con `approvalTiers: true`, las escrituras se clasifican en verde (sin confirmación ni D3), amarillo (con `autoMode`: sin confirmación y con D3 estricto; sin `autoMode`: pide confirmación) y rojo (siempre pide confirmación); con `approvalTiers: false` y `autoMode: true`, las escrituras del catálogo pasan sin espera `approval` por D3. Guard, `blacklist` (`blocked` / `sensitive`) y las rutas sensibles (`sensitivePaths.ts`) siguen exigiendo confirmación u operando según [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md). Se lee en cada llamada.
 - Voz (`/config`): `voiceEnabled` (la interfaz lee en voz alta la respuesta final; habilita `POST /tts`), `telegramVoice` (Telegram suma una nota de voz; necesita `ffmpeg`), `voiceUrl` (solo http o https; `http://127.0.0.1:8880`) y `voiceName` (`default`). Ver [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md).
 - `webSearchUseJudge` (`true` por defecto): `web_search` puntúa extractos y fragmentos con el modelo de decisión (2B). Apagado, solo ordena con BM25 y nunca afirma `found`.
-- `blacklist`: entradas **propias** que se suman a las reglas de comando integradas: `[{ "tool": "run_command" | "servidor:herramienta", "pattern"?: "regex", "reason": "texto para el modelo", "level"?: "blocked" | "sensitive" }]` (sin `level`, `blocked`). `POST` reemplaza la lista completa.
+- `blacklist`: entradas **propias** que se suman a las reglas de comando integradas: `[{ "tool": "run_command" | "servidor:herramienta", "pattern"?: "regex", "reason": "texto para el modelo", "level"?: "blocked" | "sensitive" }]` (sin `level`, `blocked`; nota: `blacklistEntries` en `src/core/config.ts` hoy conserva solo `tool`, `pattern` y `reason`, descartando `level` al normalizar). `POST` reemplaza la lista completa.
 
 ## Esperas (`waiting`)
 
 La tarea queda detenida hasta que el usuario responde; solo hay una espera a la vez. `waiting` es `null` si no espera nada.
 
 ```jsonc
-{ "kind": "plan",     "request": { "id", "planId", "steps": [{ "id", "instruction", "route", "expected" }] } }   // → /confirm-plan, /modify-plan, /reject-plan
-{ "kind": "approval", "request": { "id", "mcp", "tool", "capability", "reason", "args" } }                    // → /approve, /deny
-{ "kind": "question", "question": { "stepId", "question" } }                                                  // → /user-answer
+{ "kind": "plan",     "request": { "id", "planId", "steps": [{ "id", "instruction", "route", "expected" }] } }                      // → /confirm-plan, /modify-plan, /reject-plan
+{ "kind": "approval", "request": { "id", "mcp", "tool", "capability", "reason", "args", "canRemember?", "tier?", "blacklist?" } } // → /approve, /deny
+{ "kind": "question", "question": { "id", "stepId", "question", "source", "pid?" } }                                            // → /user-answer
 ```
 
 - La aprobación se pide después de que el pre-chequeo aceptó los argumentos. Con `autoMode` solo la piden lo rojo, lo obligatorio de Guard, la lista negra y lo que `allowedDirectories` no puede resolver. Si el usuario aprueba, no hay otra revisión de argumentos.
@@ -92,18 +93,20 @@ Si el LLM o el modelo de decisión no responden (red, timeout o error HTTP), la 
 
 ## Eventos (SSE `GET /events`)
 
-Un mensaje `data: <json>` por evento, más un comentario `: ping` cada 15 s.
+Un mensaje `id: <n>\ndata: <json>` por evento, más un comentario `: ping` cada 15 s (configurable con `sseKeepAliveMs`).
 
 ```jsonc
-{ "type": "created", "taskId", "n" }
-{ "type": "change",  "taskId", "n", "at", "ops": [{ "op": "add|update|set|finish", "target", "value" }] }
-{ "type": "waiting", "taskId", "waiting": Waiting | null }
-{ "type": "paused",  "taskId", "paused": { "since", "model": "llm|decision" } | null }
+{ "type": "snapshot", "task": TaskDto | null, "tasks": TaskSummary[], "discoveredTools", "unavailableServers" }
+{ "type": "created",  "taskId", "n", "summary": TaskSummary }
+{ "type": "change",   "taskId", "n", "at", "ops": [{ "op": "add|update|set|finish", "target", "value" }] }
+{ "type": "waiting",  "taskId", "waiting": Waiting | null }
+{ "type": "paused",   "taskId", "paused": { "since", "model": "llm|decision" } | null }
 ```
 
+- `snapshot`: se emite de inmediato al conectar (toma `?taskId=` o la última tarea, equivalente a `GET /state`).
 - `change`: un evento por cada escritura en el contexto, con `n` consecutivo. `ops` ya trae los elementos creados (con `id` y `at`): `add` (`target` = sección), `update` (`target` = id del paso o la llamada, `value` = campos cambiados), `set` (`target` = `facts.<clave>` o `result`) y `finish` (`value` = `{ state, stopReason }`).
-- Forma simple y segura de consumirlo: al recibir `change` o `waiting`, pedir `GET /state?taskId=` (con debounce). Si se aplican las `ops` directamente y `n` salta (no es el anterior + 1), hay que releer el estado.
-- Al conectar no se reenvía historia: leer primero `/state`.
+- Forma simple y segura de consumirlo: hidratarse desde el `snapshot` inicial y aplicar `ops` por delta (`change`); si `n` salta (no es el anterior + 1), releer `GET /tasks/:taskId` o `GET /state?taskId=`.
+- En reconexiones no se reenvían deltas perdidos (no usa `Last-Event-ID`): el nuevo `snapshot` al reconectar entrega el estado vigente completo.
 
 ## Qué mostrar y cómo
 

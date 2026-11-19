@@ -4,7 +4,7 @@ La configuración de tiempo de ejecución vive en `jarvis-config.json` (raíz de
 
 ## 1. Defaults del código vs `jarvis-config.json` incluido
 
-Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/core/config.ts`). El archivo `jarvis-config.json` incluido en el repositorio ajusta cuatro valores pensados para desarrollo local con 8 GB de VRAM:
+Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/core/config.ts`). Comparativa entre los valores del código y el `jarvis-config.json` incluido en el repositorio (pensado para desarrollo local con 8 GB de VRAM):
 
 | Clave | Default en `config.ts` | `jarvis-config.json` incluido | Qué controla |
 |---|---|---|---|
@@ -26,7 +26,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | **Trazas, refs y logs** | `traceEnabled`, `tracePath`, `refsDir`, `retentionDays`, `logRetentionDays`, `retentionMaxMb` | `true`, `"jarvis-traces.jsonl"` (ubica carpeta `jarvis-traces/`), `"data/refs"`, `10` días para refs y trazas, `30` días para el log de eventos de cada tarea (`data/tasks/`, junto a `refsDir`), `250` MB (tope de tamaño en disco compartido entre refs, trazas y logs; `0` lo desactiva) |
 | **Pausa por modelo caído** | `modelUnavailablePauseMaxMs` | `600000` (10 min): una tarea espera ese tiempo a que vuelva un modelo que no responde antes de cerrarse; `0` = no espera |
 | **Experimentales** (apagados) | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | ver `PENDIENTES_EVAL.md` §1 y §3 |
-| **Políticas y web** | `blacklist`, `autoMode`, `approvalTiers`, `webSearchUseJudge` | `[]`, ver §1 arriba y detalle de reglas en [`../api/JARVIS_API.md`](../api/JARVIS_API.md) y [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md) |
+| **Políticas y web** | `blacklist`, `autoMode`, `approvalTiers`, `webSearchUseJudge`, `webJudgeTimeoutMs` | `[]`, ver §1 arriba, `20000` ms para el juez web y detalle de reglas en [`../api/JARVIS_API.md`](../api/JARVIS_API.md) y [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md) |
 | **Voz (TTS)** | `voiceEnabled`, `telegramVoice`, `voiceUrl`, `voiceName` | `false`, `false`, `"http://127.0.0.1:8880"`, `"default"` (detalle en [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)) |
 
 ### Reglas de seguridad HTTP (`POST /api/jarvis/config` y `GET /config`)
@@ -36,8 +36,8 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 
 ## 3. Variables de entorno (`.env`) y memoria (`data/memory.json`)
 
-- **`.env`** (ver `.env.example`):
-  - `PORT` (`3000`) y `HOST` (`127.0.0.1`): puerto e interfaz de escucha. `HOST` debe ser loopback (`127.0.0.1`, `localhost` o `::1`); cualquier otro valor aborta el arranque porque la API no tiene autenticación.
+- **`.env`** (`.env.example` incluye solo `HF_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` y `TELEGRAM_MODE`):
+  - `PORT` (`3000` por defecto) y `HOST` (`0.0.0.0` por defecto en `server.tsx`; no figuran en `.env.example`): puerto e interfaz de escucha. La validación estricta de loopback (`127.0.0.1`, `localhost` o `::1`) y `localOnly()` están comentados actualmente en `server.tsx` por compatibilidad con el sandbox de AI Studio Build (ver [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md) §1); en despliegue local puro se recomienda `HOST=127.0.0.1` porque la API no tiene autenticación.
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_MODE`: configuración del bot ([`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)).
   - `HF_TOKEN`: token de Hugging Face para `scripts/phonon_server.py`.
   - Los comandos de `run_command` no heredan las variables cargadas desde `.env` ni los secretos de Telegram/voz.

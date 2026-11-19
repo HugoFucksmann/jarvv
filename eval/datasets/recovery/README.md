@@ -1,6 +1,6 @@
 # Dataset `recovery`
 
-Casos de la etapa `recovery`: **qué hacer cuando falla el paso de un ítem de la lista del modo reactivo.** En el motor corre solo en **modo sombra** (`src/core/engine/recoveryShadow.ts`, config `recoveryShadow`): registra qué haría y no actúa. El diseño está en [`docs/pendientes/PENDIENTES_CODIGO.md`](../../../docs/pendientes/PENDIENTES_CODIGO.md), §9.1, punto 6; los resultados, los descartes y cómo leer las trazas, en [`eval/GUIA_DECISION.md`](../../GUIA_DECISION.md) (sección 5).
+Casos de la etapa `recovery`: **qué hacer cuando falla el paso de un ítem de la lista del modo reactivo.** En el motor corre solo en **modo sombra** (`src/core/engine/recoveryShadow.ts`, config `recoveryShadow`): registra qué haría y no actúa. El diseño está en [`docs/pendientes/PENDIENTES_CODIGO.md`](../../../docs/pendientes/PENDIENTES_CODIGO.md), §9.1, punto 1; los resultados, los descartes y cómo leer las trazas, en [`eval/GUIA_DECISION.md`](../../GUIA_DECISION.md) (sección 5).
 
 El prompt de producción (`prod`) es `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts`. Las variantes viven en `eval/variants/recovery/`; las de la época de cuatro opciones están archivadas en `eval/variants/_archivo_recovery_4_opciones/` (no se pueden correr).
 

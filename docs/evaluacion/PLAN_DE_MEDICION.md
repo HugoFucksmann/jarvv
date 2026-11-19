@@ -45,7 +45,7 @@ Si `--client=oracle` no da **100 %** en todas las celdas, **no corras modelos**:
 
 | Orden | Qué mide y por qué | Comando exacto | Criterio de aceptación | Tiempo aprox. |
 |---|---|---|---|---|
-| **0.1** | Integridad de código, tipos, cargador y graders sobre los 64 datasets (1 317 casos, 12 etapas) | `npm run lint && npm run eval:smoke && npx tsx eval/cli.ts --client=oracle` | Salida `0`, `0` errores de TypeScript, **100 %** en las 64 celdas de oracle | ~8 s |
+| **0.1** | Integridad de código, tipos, cargador y graders sobre los 71 datasets (1 569 casos: 1 526 canónicos + 43 `isRaw`, 13 etapas) | `npm run lint && npm run eval:smoke && npx tsx eval/cli.ts --client=oracle` | Salida `0`, `0` errores de TypeScript, **100 %** en las 71 celdas de oracle | ~8 s |
 | **0.2** | Matching determinista de memoria (`selectFacts` en `src/memory/index.ts`): casos originales de `FRENTE_1_MEMORIA.md` (14 selección + 8 negativos de no-contaminación) + 10 nuevos de alias, plurales y prioridad por especificidad | `npx tsx eval/exp/memory_matching.ts` | **32/32** (`frente1_selection: 14/14`, `frente1_no_contamination: 8/8` sin contaminar —equivalente al `0/8` pedidos ajenos contaminados de `FRENTE_1_MEMORIA.md`, no una mejora—, `aliases_plurals_specificity: 10/10`) | < 2 s |
 | **0.3** | Cobertura del pre-chequeo determinista de `src/core/engine/precheck.ts` sobre los datasets D3 antes de cruzar con el modelo | `npm run eval:cross -- --dataset=args_review_16_cases,args_review_gemai,args_review_gemaiL,args_review_current,args_review_jarvis_runtime,args_review_variedad --label=pre_only` | Imprime la tabla base por modo de falla y 0 falsos rechazos inesperados en aprobadas | ~3 s |
 
@@ -55,7 +55,7 @@ Si `--client=oracle` no da **100 %** en todas las celdas, **no corras modelos**:
 
 | Orden | Qué mide y por qué | Comando exacto | Criterio de aceptación | Tiempo aprox. |
 |---|---|---|---|---|
-| **1.1** | Smoke real en vivo (10 etapas, 1 caso c/u) para verificar conexión, latencias base sin cola (`concurrency=1`) y formato real de salida | `npm run eval -- --dataset=smoke --concurrency=1 --label=calibracion_smoke` | `passRate >= 0.80` en smoke, 0 errores de transporte/timeout, p50 coherente con `OLLAMA_MODELOS_TEXTO.md` (~50 ms dec / ~250-500 ms gen en GPU) | ~15-30 s |
+| **1.1** | Smoke real en vivo (11 etapas, 1 caso c/u) para verificar conexión, latencias base sin cola (`concurrency=1`) y formato real de salida | `npm run eval -- --dataset=smoke --concurrency=1 --label=calibracion_smoke` | `passRate >= 0.80` en smoke, 0 errores de transporte/timeout, p50 coherente con `OLLAMA_MODELOS_TEXTO.md` (~50 ms dec / ~250-500 ms gen en GPU) | ~15-30 s |
 
 ---
 
@@ -156,6 +156,6 @@ Para mantener limpias las variantes base del repo, creá todas las variantes exp
 2. **Etapa formal de `continuation` (`DECISION_PROMPTS.buildContinuation`):** `CONTINUATION_APPROVE = 0.3` y el constructor existen en `src/core/engine/thread.ts` y `src/core/models/prompts.ts`, pero aún no tienen etapa formal ni datasets dedicados en `eval/` (hoy solo hay mediciones históricas en `FRENTE_1_MEMORIA.md`).
 3. **Opción C de `PENDING_FACTS_LOOKUP` (`PENDIENTES_EVAL.md` §2):** la compuerta determinista (léxica + D0 `chat` en zona intermedia cuando `pending` devuelve `[]`) no está implementada en `src/core/engine/runTask.ts`. Medir `PENDING_FACTS_LOOKUP = true` en eval ya demostró regresiones en `llm_pending_hard`.
 4. **Flags globales de `jarvis-config.json` (`completionCoverageGuard`, `reviewFullView`, `reviewReads`):**
-   - `reviewFullView` ya tiene su réplica exacta en la variante `args_review_fullview`, pero **`completionCoverageGuard`** (cierre D5 con verificación determinista de nombres de archivo en `src/core/engine/completion.ts`) y **`reviewReads`** (pasar lecturas por D3 en `src/core/engine/callRunner.ts`) actúan en el motor y requieren correr tareas reales end-to-end / trazas con el flag encendido en `jarvis-config.json` (no se ejercen por el prompt aislado de `eval/`).
+   - `reviewFullView` ya tiene su réplica exacta en la variante `args_review_fullview`, pero **`completionCoverageGuard`** (cierre D5 con verificación determinista de nombres de archivo en `src/core/engine/completion.ts`) y **`reviewReads`** (pasar lecturas por D3 en `src/core/engine/callConfirm.ts`, orquestado por `callRunner.ts`) actúan en el motor y requieren correr tareas reales end-to-end / trazas con el flag encendido en `jarvis-config.json` (no se ejercen por el prompt aislado de `eval/`).
 5. **`web_search` multiparte (Opción B) y recencia (Opciones B/C + `TODAY` en D4):** la degradación de `found` a `partial` por cobertura de términos (`stemsOf`), las guardas de fecha en `webSearchProvider.ts` y la inyección condicional de `TODAY` en `verify.ts` / `prompts.ts` todavía no existen en `src/`. En `eval/` hoy solo se puede medir D4 con el prototipo `d4_web_recency` (para probar cero regresiones si se suma `TODAY`).
 6. **Conversor de trazas reales (`jarvis-traces/` → `.jsonl`):** pendiente en `PENDIENTES_EVAL.md` §6 para convertir sesiones reales capturadas en producción en escenarios reproducibles del eval.

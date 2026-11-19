@@ -33,7 +33,7 @@ Detalle en [`../evaluacion/INFORME_MEDICION_2026-11-17.md`](../evaluacion/INFORM
 
 > **Investigación y flags (2026-11-15).**
 >
-> **Causa en el código.** `callRunner.ts` solo pasa por D3 las escrituras que el usuario no aprobó y que no son verdes (`reviewApplies`); las lecturas nunca (D3 rechazaba lecturas correctas, medido). `prompts.ts#buildArgsReview` arma el estado solo con `Target`, `User Input`, `Previous Errors`, `Call` y `Args`, aunque `adapters.ts#reviewInput` y `ctx/views/review.ts` ya calculan `lastReads`, `env`, `done` y `stepsDone` (trabajo que se descarta). Medido en `eval/` (variante `args_review_compact_history`, 72,9 % frente a 62,5 %): agregar las lecturas no cambió el resultado y agregar el schema lo bajó a 70,8 %. Medido en `FRENTE_1_MEMORIA.md`: D3 aprobó 5 de 5 rutas inventadas con 0,93 a 0,95; la barrera real contra valores fabricados es `precheck.ts`, no D3.
+> **Causa en el código.** `callConfirm.ts` (`reviewIfNeeded`) solo pasa por D3 las escrituras que el usuario no aprobó ni escribió y que no son verdes (`applies`); las lecturas nunca (D3 rechazaba lecturas correctas, medido). `prompts.ts#buildArgsReview` arma el estado solo con `Target`, `User Input`, `Previous Errors`, `Call` y `Args`, aunque `adapters.ts#reviewInput` y `ctx/views/review.ts` ya calculan `lastReads`, `env`, `done` y `stepsDone` (trabajo que se descarta). Medido en `eval/` (variante `args_review_compact_history`, 72,9 % frente a 62,5 %): agregar las lecturas no cambió el resultado y agregar el schema lo bajó a 70,8 %. Medido en `FRENTE_1_MEMORIA.md`: D3 aprobó 5 de 5 rutas inventadas con 0,93 a 0,95; la barrera real contra valores fabricados es `precheck.ts`, no D3.
 >
 > **Opciones.**
 > | Opción | Pros | Contras / latencia |
@@ -49,9 +49,9 @@ Detalle en [`../evaluacion/INFORME_MEDICION_2026-11-17.md`](../evaluacion/INFORM
 > **Qué medir tú.** Dataset `args_review_D3` con y sin `reviewFullView` (aciertos y falsos rechazos, sobre todo en rutas inventadas); latencia p50/p95 de D3; con `reviewReads`, la tasa de lecturas legítimas rechazadas (`args_invalid` en lecturas) en tareas reales y los `maxReviewRejectionsPerStep` que cortan pasos.
 
 ### Archivos y símbolos implicados
-- `src/core/engine/callRunner.ts`: flujo de aprobación (`tiered`, `tier`, `needsReview`, llamada a `env.decision.reviewArgs`).
+- `src/core/engine/callAuthorize.ts`, `src/core/engine/callConfirm.ts` y `src/core/engine/callRunner.ts`: flujo de autorización, aprobación y revisión (`tiered`, `tier`, `reviewIfNeeded`, llamada a `env.decision.reviewArgs`).
 - `src/core/models/prompts.ts`: `buildArgsReview`.
-- `src/core/models/decision.ts`: `OllamaDecisionProvider.reviewArgs`.
+- `src/core/models/decision.ts`: `Decision20Engine.reviewArgs`.
 - `src/core/engine/adapters.ts`: `reviewInput` y `candidateOf`.
 - `src/core/ctx/views/review.ts`: construcción de `ReviewView` (`lastReads`, `stepsDone`, `env`).
 - `src/core/engine/precheck.ts`: barrera determinista previa a D3 (`writeDestinationHasSource`, `checkParentFolder`).
@@ -159,7 +159,7 @@ Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y 
 > - Recencia: preguntas «última/actual» con respuesta conocida y fuentes viejas → fracción de respuestas desactualizadas aceptadas (`found` con fuente vieja); proporción de fuentes con `source.date`; con A, regresiones de D4 en el eval.
 
 ### Archivos y símbolos implicados
-- `src/tools/web/webSearchProvider.ts`: `JUDGE_FOUND`, `DEFAULT_MAX_AGE_HOURS`, `guardVersions`, `judgeNeed`, `dated`, bucles de corte temprano (`líneas 41, 47, 164, 471-551`).
+- `src/tools/web/webSearchProvider.ts`: `JUDGE_FOUND`, `DEFAULT_MAX_AGE_HOURS`, `guardVersions`, `judgeNeed`, `dated`, bucles de corte temprano (`líneas 42, 48, 165, 469-554`).
 - `src/tools/web/args.ts` y `src/tools/web/bm25.ts` y `src/tools/web/chunks.ts`.
 - `src/core/models/prompts.ts`: `buildResultVerification` , `FINAL_VIEW`.
 - `docs/arquitectura/TOOLS.md`, `docs/evaluacion/analisis/FRENTE_2_CONTEXTO.md`.
