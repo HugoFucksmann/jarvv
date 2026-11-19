@@ -19,7 +19,7 @@ import { parseArgs, isInternalHost, searchQuestion } from "../src/tools/web/args
 import { pickCandidates, rank, tokenize } from "../src/tools/web/bm25.ts";
 import { chunkDocs, chunkLines, cleanDocs, cleanLines, snippetChunks, CHUNK_MAX } from "../src/tools/web/chunks.ts";
 import { cleanSnippet, isBlockPage, parseFetch, parseSearch, plausibleDate } from "../src/tools/web/report.ts";
-import { WEB_DEPENDENCIES, WebSearchProvider } from "../src/tools/web/webSearchProvider.ts";
+import { JUDGE_FOUND, WEB_DEPENDENCIES, WebSearchProvider } from "../src/tools/web/webSearchProvider.ts";
 
 // ───────────────────────── Material de prueba ─────────────────────────
 
@@ -691,6 +691,14 @@ test("con modelo: lo mejor por debajo del umbral alto es partial, y por debajo d
   const none = read(await search(new WebSearchProvider({ judge: () => judgeOf(() => 0.1) }), { need: "¿Cuándo se publicó Node.js 22?" }, fakeHost(asWeb(REPORT)).host));
   assert.equal(none.data.state, "not_found");
   assert.deepEqual(none.data.passages, []);
+});
+
+test("con modelo: el corte de `found` es 0,5 (desde 0,5 responde; por debajo, solo en parte)", async () => {
+  assert.equal(JUDGE_FOUND, 0.5);
+  const found = read(await search(new WebSearchProvider({ judge: () => judgeOf(() => 0.52) }), { need: "¿Cuándo se publicó Node.js 22?" }, fakeHost(asWeb(REPORT)).host));
+  assert.equal(found.data.state, "found");
+  const partial = read(await search(new WebSearchProvider({ judge: () => judgeOf(() => 0.48) }), { need: "¿Cuándo se publicó Node.js 22?" }, fakeHost(asWeb(REPORT)).host));
+  assert.equal(partial.data.state, "partial");
 });
 
 test("si el modelo falla, se sigue con el orden léxico: el estado no pasa de partial y la causa queda en la traza", async () => {

@@ -28,7 +28,7 @@ Busca en internet o lee hasta 5 URLs explícitas y devuelve fragmentos **literal
 - **Argumentos**: `need` (pregunta directa, máx. 300 chars), `urls` (hasta 5 HTTP/HTTPS), `freshness` (`day`/`week`/`month`/`year`), `domains` (hasta 5). Plazo del catálogo: `150 s` (`145 s` efectivos internos).
 - **Flujo**:
   1. Llama a `free_search:search` en JSON (8 resultados, `max_age_hours: 24`, filtros opcionales). Si recibió `urls`, pasa directo a `fetch`.
-  2. Si `webSearchUseJudge` está activo (`config.ts`), `Decision20Engine` (`FragmentJudge`) puntúa los extractos viendo `TODAY`. Si alguno alcanza `0.6` (`found`), devuelve hasta 3 sin bajar páginas.
+  2. Si `webSearchUseJudge` está activo (`config.ts`), `Decision20Engine` (`FragmentJudge`) puntúa los extractos viendo `TODAY`. Si alguno alcanza `0.5` (`found`, `JUDGE_FOUND`), devuelve hasta 3 sin bajar páginas.
   3. Si ninguno responde, lee **una página por vez** (`fetch`, máx. 3), limpia HTML/navegación, parte en fragmentos de 500–800 caracteres, BM25 elige 6 candidatos y el 2B los puntúa (corte al alcanzar `found`). Como último recurso ante páginas truncadas (~50 000 chars), lee tramos con `read_doc` (hasta 12).
   4. **Sin juez (`webSearchUseJudge: false` o fallo/timeout de 20 s)**: lee hasta 3 páginas y ordena por cobertura léxica (BM25); estado máximo `partial` (≥ 0.34), nunca `found`.
   5. Si con filtros no hubo material, reintenta una vez sin filtros y avisa en el texto.

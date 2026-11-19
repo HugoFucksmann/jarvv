@@ -285,7 +285,7 @@ function d4Report(dir: string): string[] {
       `| ${variant} | ${v.good.length} | ${pct(v.good.filter((p) => p >= NOUL_APPROVE).length, v.good.length)} | ${pct(v.good.filter((p) => p >= 0.9).length, v.good.length)} | ${v.bad.length} | ${pct(v.bad.filter((p) => p >= NOUL_APPROVE).length, v.bad.length)} | ${v.bad.length === 0 ? "—" : Math.max(...v.bad).toFixed(3)} |`,
     );
   }
-  md.push("", `Aprobar = el mínimo entre \`ok\` y \`cumple\` llega al umbral de producción (\`NOUL_APPROVE\`, ${NOUL_APPROVE}). Buenos = esperado \`ok\` y \`cumple\`; malos = cualquier otro.`);
+  md.push("", `Aprobar = el mínimo entre \`ok\` y \`cumple\` llega a \`NOUL_APPROVE\` (${NOUL_APPROVE}); aproximación: en producción \`ok\` aprueba desde \`OK_APPROVE\` (0,3) y \`cumple\` desde \`NOUL_APPROVE\`. Buenos = esperado \`ok\` y \`cumple\`; malos = cualquier otro.`);
   return md;
 }
 

@@ -44,8 +44,11 @@ export const DEFAULT_MAX_AGE_HOURS = 24;
 export const SEARCH_RESULTS = 8;
 /** Páginas que se leen como máximo cuando ningún extracto responde (de a una, empezando por la del mejor extracto). Sin juez se leen las 3 primeras a la vez. */
 export const DEFAULT_PAGES = 3;
-/** Con modelo: probabilidad desde la que un fragmento responde (`found`) o responde en parte (`partial`). */
-export const JUDGE_FOUND = 0.6;
+/**
+ * Con modelo: probabilidad desde la que un fragmento responde (`found`) o responde en parte (`partial`). `found` en 0,5 y no en 0,6: en los datasets del juez (84 fragmentos) rinde igual
+ * o un error menos (6 contra 7) y, medido con 0,45, no cambia; por debajo de 0,1 casi no hay fragmentos que respondan (3 %) y por encima de 0,9 responden el 91 %.
+ */
+export const JUDGE_FOUND = 0.5;
 export const JUDGE_PARTIAL = 0.3;
 /** Sin modelo (o si falla): fracción de las palabras de la pregunta que debe tener el fragmento. Coincidir en palabras no es responder: sin modelo el estado no pasa de `partial`. */
 export const COVERAGE_PARTIAL = 0.34;

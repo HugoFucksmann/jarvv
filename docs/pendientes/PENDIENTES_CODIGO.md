@@ -66,6 +66,8 @@ Estado: los archivos los sirve Desktop Commander (`files`, `locate`); en `src/to
 
 **Orden sugerido:** P1, P2, P3, P4 (re-midiendo en `eval/`). P5 y P6 según uso real.
 
+**Plan en dos etapas (decidido el 2026-11-19).** Etapa 1: agregar solo las nativas de lectura (`find_files`, `list_folder`, `system_info`; P1, P6 y las «recetas» de §8), registradas como internas y sin exponer a D1 ni D2, y probar que funcionan; la ficha para implementarlas está en [`TOOLS_NATIVAS_ETAPA_1.md`](TOOLS_NATIVAS_ETAPA_1.md) (incluye lo que se midió de `start_search`: no encuentra carpetas, no entiende regex ni listas de extensiones y confunde «no terminé» con «no está»). Etapa 2: redistribuir rutas y opciones de D1 y D2, actualizar los datasets de `eval/` y recién entonces apagar `locate` y la búsqueda de Desktop Commander.
+
 **Decisiones pendientes:** ¿papelera por defecto en `delete_file`, o también borrado permanente con confirmación? ¿`find_files` puede buscar fuera de las carpetas del usuario? ¿Se acepta tocar el flujo de rutas (P4) antes de tener las nativas?
 
 ## 4. Allowlist persistente de aprobaciones

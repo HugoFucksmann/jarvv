@@ -355,7 +355,7 @@ export interface QuestionResult {
   type: "choice" | "noul";
   /** main = alimenta la salida canónica de la etapa; extra = pregunta adicional (caso o variante). */
   role: "main" | "extra";
-  /** `choice`: opción elegida. `noul`: "yes" o "no" (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6 en producción). null = sin respuesta válida. */
+  /** `choice`: opción elegida. `noul`: "yes" o "no" (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6 en producción; `ok` de verificación usa `OK_APPROVE`, 0.3). null = sin respuesta válida. */
   answer: string | null;
   /** Valor `noul` en [0,1] (probabilidad de "sí"). */
   noul?: number;

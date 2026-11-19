@@ -127,7 +127,7 @@ Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y 
 > **Investigación ampliada (2026-11-15, solo análisis: NO implementado).** Todo lo siguiente está verificado en `src/tools/web/webSearchProvider.ts`, `args.ts` y `models/prompts.ts`.
 >
 > ### Multiparte
-> **Mecanismo.** `lookup` (etapa 1) puntúa cada extracto contra el `need` **completo** (una probabilidad por fragmento, lotes de 5). Si **algún** extracto llega a `JUDGE_FOUND` (0,6) devuelve `found` con hasta `SNIPPET_RETURN_MAX = 3` extractos de fuentes distintas y corta; la etapa 2 (leer páginas de a una, hasta `DEFAULT_PAGES = 3`) solo corre si ningún extracto responde. No hay facetas: un extracto que responde bien a la parte A de «A y B» basta. Después, D4 (`buildResultVerification`) juzga el resultado contra la instrucción del paso, pero ve solo el texto devuelto (topado por `PASSAGES_BUDGET`) y no sabe qué faceta falta.
+> **Mecanismo.** `lookup` (etapa 1) puntúa cada extracto contra el `need` **completo** (una probabilidad por fragmento, lotes de 5). Si **algún** extracto llega a `JUDGE_FOUND` (0,5) devuelve `found` con hasta `SNIPPET_RETURN_MAX = 3` extractos de fuentes distintas y corta; la etapa 2 (leer páginas de a una, hasta `DEFAULT_PAGES = 3`) solo corre si ningún extracto responde. No hay facetas: un extracto que responde bien a la parte A de «A y B» basta. Después, D4 (`buildResultVerification`) juzga el resultado contra la instrucción del paso, pero ve solo el texto devuelto (topado por `PASSAGES_BUDGET`) y no sabe qué faceta falta.
 >
 > **Causa raíz.** Se optimizó para «un pasaje que responde» (primer acierto corta), y el criterio de cobertura es por fragmento, no por pregunta. Además `RETURN_MAX = 4` y el presupuesto fijo reparten el espacio por puntuación global, no por faceta.
 >
@@ -168,7 +168,7 @@ Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y 
 
 ## 5. Calibración con uso real
 
-- **Umbrales y topes del motor:** `REVIEW_APPROVE = 0.6`, `NOUL_APPROVE = 0.6`, `BUDGET.sensitiveApprove = 0.65`, y los topes `maxSteps`, `maxCallsPerStep`, `maxItemFailures`, `availableRoutes`: son valores iniciales; requieren medición en tareas reales.
+- **Umbrales y topes del motor:** `REVIEW_APPROVE = 0.6`, `NOUL_APPROVE = 0.6` (`cumple`), `OK_APPROVE = 0.3` (`ok`), `BUDGET.sensitiveApprove = 0.65`, y los topes `maxSteps`, `maxCallsPerStep`, `maxItemFailures`, `availableRoutes`: son valores iniciales; requieren medición en tareas reales.
 - **Contexto real de Ollama frente al configurado:** si el entorno fija `OLLAMA_CONTEXT_LENGTH=8192` o el Modelfile de `d3` fija `num_ctx 4096`, la guarda que calcula contra `16384` no protege. Ajustar en la PC o alinear en `jarvis-config.json` ([`../operacion/OLLAMA_MODELOS_TEXTO.md`](../operacion/OLLAMA_MODELOS_TEXTO.md)).
 - **Tiempos de espera** (aplazado por decisión del usuario): hay una primera versión hecha y sin validar (`src/core/timeouts.ts`, tabla en [`CONFIGURACION`](../configuracion/CONFIGURACION.md) §4, overrides `toolTimeoutsMs` y `modelTimeoutsMs`; los valores no cambiaron). Falta calibrar con uso real y decidir si se conserva. `mcpTimeoutMs` (60 s): confirmar si requiere ajuste por herramienta.
 - **Anti-bucle:** en trazas reales, cuántos pasos terminan por `repeat_blocked`/`denied`/`review_rejected` con la misma `sig` repetida y cuántas preguntas repetidas se ahorran por tarea. Si es casi cero, no hace falta contar las rechazadas idénticas (`loop_blocked`). El mecanismo ya está implementado y probado.

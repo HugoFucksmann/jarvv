@@ -18,7 +18,7 @@ import { schemaTypes as prodSchemaTypes } from "../../src/core/utils.ts";
 export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
 export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvider.ts";
 export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";
-export { NOUL_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
+export { NOUL_APPROVE, OK_APPROVE, VERIFY_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
 export { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY } from "../../src/core/contracts.ts";
 export { STEP_FAILURE_CAUSES } from "../../src/core/engine/outcomes.ts";
 export { estimateTokens } from "../../src/core/models/transport.ts";

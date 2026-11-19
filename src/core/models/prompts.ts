@@ -405,6 +405,11 @@ export const DECISION_PROMPTS = {
         multi: {
           type: "noul",
           instructions: "Does the request ask for two or more separate actions (for example search and then save, or two different things to find)?",
+          // Criterios medidos contra los 69 casos de `eval/datasets/D0` más una tarea real de seis partes: sin ellos esa tarea daba 0,39 (una acción) y con ellos 0,77 (varias); 61/69 contra 59/69, sin casos peores.
+          criteria: {
+            true: "The request asks for two or more different things to do or find (several items, or steps joined by 'and', 'then' or commas), or one action whose result feeds another action.",
+            false: "The request asks for exactly one thing to do or find. Reading or looking something up and then telling the answer is still one action.",
+          },
         },
       },
     };

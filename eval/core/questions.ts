@@ -12,7 +12,7 @@
  * etapa; acá solo se registra, para poder cruzarla con las demás.
  */
 
-import { NOUL_APPROVE, validateAnswer } from "./contract.ts";
+import { NOUL_APPROVE, VERIFY_APPROVE, validateAnswer } from "./contract.ts";
 import { getStage } from "./stages/index.ts";
 import type { DecisionStageEntry } from "./stages/index.ts";
 import type {
@@ -112,7 +112,8 @@ export function buildQuestionResults(input: BuildQuestionsInput): Record<string,
         res.error = r;
       } else {
         res.noul = r;
-        res.answer = r >= NOUL_APPROVE ? YES : NO;
+        // `ok` y `cumple` de la verificación tienen su propio corte en producción (`VERIFY_APPROVE`); el resto de las `noul`, `NOUL_APPROVE`.
+        res.answer = r >= (key in VERIFY_APPROVE ? VERIFY_APPROVE[key as keyof typeof VERIFY_APPROVE] : NOUL_APPROVE) ? YES : NO;
       }
     }
 

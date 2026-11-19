@@ -33,7 +33,7 @@ Atajos de `package.json`:
 | Decisión | `tool_choice` | Herramienta elegida y su probabilidad |
 | Decisión | `args_review` | `approved`, `args_invalid` o `info_missing` |
 | Decisión | `result_verification` | Veredictos `ok` y `cumple` |
-| Decisión | `fragment_judge` | Por cada fragmento de `web_search`, si responde la pregunta (probabilidad `>= JUDGE_FOUND`, 0.6) |
+| Decisión | `fragment_judge` | Por cada fragmento de `web_search`, si responde la pregunta (probabilidad `>= JUDGE_FOUND`, 0.5) |
 | Decisión | `d5` | Cierre del reactivo con lista vacía: si `DONE` cumple todo `REQUEST` (`COMPLETION_APPROVE` = 0.75) |
 | Decisión | `recovery` | Qué hacer cuando falla el paso de un ítem de la lista reactiva: `close`, `rewrite_item` o `replan` (sin `skip_continue`). En el motor corre solo en **modo sombra** (`recoveryShadow`: registra en la traza, no actúa); `prod` es `DECISION_PROMPTS.buildRecovery` |
 | Generativa | `plan` | Cantidad de pasos, rutas permitidas y requeridas, palabras clave |
@@ -168,7 +168,7 @@ Una variante puede enviar más de una pregunta por request. La principal (`kind`
 }
 ```
 
-`choice` para preguntas `choice`, `yes` para `noul` (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6; en la etapa `d5` el umbral canónico es `COMPLETION_APPROVE`, 0.75). Si el request no trae la pregunta no se evalúa (warning `q_<clave>_sent`); una pregunta sin expectativa se registra pero no se evalúa. Cada una genera `q_<clave>_match` y `q_<clave>_min_probability`, y cada pregunta se parsea por separado.
+`choice` para preguntas `choice`, `yes` para `noul` (`yes` si la probabilidad es `>= NOUL_APPROVE`, 0.6; `ok` de la verificación usa `OK_APPROVE`, 0.3; en la etapa `d5` el umbral canónico es `COMPLETION_APPROVE`, 0.75). Si el request no trae la pregunta no se evalúa (warning `q_<clave>_sent`); una pregunta sin expectativa se registra pero no se evalúa. Cada una genera `q_<clave>_match` y `q_<clave>_min_probability`, y cada pregunta se parsea por separado.
 
 ### Etapa `d0` (primera consulta de la tarea reactiva)
 

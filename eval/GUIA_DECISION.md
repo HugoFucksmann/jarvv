@@ -65,12 +65,13 @@ Un 0,9 no significa «90 % de acierto». En `recovery` la probabilidad de la acc
 
 | Umbral | Valor | Dónde |
 |---|---|---|
-| `NOUL_APPROVE` | 0,6 | `engine/verify.ts` (verificación, cada `noul`) |
+| `NOUL_APPROVE` | 0,6 | `engine/verify.ts` (verificación: corte de `cumple`) |
+| `OK_APPROVE` | 0,3 | `engine/verify.ts` (verificación: corte de `ok`) |
 | `REVIEW_APPROVE` | 0,6 | `engine/verify.ts` (revisión de argumentos) |
 | `BUDGET.sensitiveApprove` | 0,65 | `budget.ts` (revisión estricta de acciones sensibles) |
 | `COMPLETION_APPROVE` | 0,75 | `engine/completion.ts` (cierre de tarea reactiva, D5) |
 | `CONTINUATION_APPROVE` | 0,3 | `engine/thread.ts` |
-| `JUDGE_FOUND` | 0,6 | `tools/web/webSearchProvider.ts` |
+| `JUDGE_FOUND` | 0,5 | `tools/web/webSearchProvider.ts` |
 
 (Leerlos del código antes de citarlos: pueden haber cambiado.)
 

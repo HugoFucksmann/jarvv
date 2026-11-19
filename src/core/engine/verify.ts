@@ -28,8 +28,18 @@ export type VerifyOutcome =
   | { readonly kind: "close"; readonly stopReason: "unrecoverable" }
   | { readonly kind: "cancelled" };
 
-/** Una respuesta `noul` aprueba solo si su probabilidad llega a este valor (ante ambigüedad, no se aprueba). */
+/** Una respuesta `noul` aprueba solo si su probabilidad llega a este valor (ante ambigüedad, no se aprueba). Es el corte de `cumple`. */
 export const NOUL_APPROVE = 0.6;
+
+/**
+ * Corte de `ok` («¿el resultado trae datos o confirma el éxito?»). Más bajo que el de `cumple`: en los datasets de verificación `ok` separa casi sin errores (por debajo de 0,1 no hay
+ * ningún «sí» y por encima de 0,1 los «sí» son el 99 %), y con 0,6 rechazaba 11 resultados buenos de 129 contra 2 con 0,3, sin aprobar ninguno malo más (1 en los dos casos). `cumple` sigue en 0,6: en
+ * su zona del medio (0,2 a 0,9) el modelo acierta como una moneda y mover el corte solo cambia qué error se comete.
+ */
+export const OK_APPROVE = 0.3;
+
+/** Corte de cada pregunta de `VERIFY_CHECKS`: la pregunta aprueba solo si su probabilidad llega a él. */
+export const VERIFY_APPROVE: Readonly<Record<VerifyCheckKey, number>> = { ok: OK_APPROVE, cumple: NOUL_APPROVE };
 
 /** La revisión de argumentos (D3) aprueba solo si la probabilidad de `approved` es al menos este valor (`reviewOutcome`). */
 export const REVIEW_APPROVE = 0.6;
@@ -52,7 +62,7 @@ export function reviewOutcome(decision: Pick<ReviewDecision, "review" | "probabi
  * la de la primera que no pasa, en el orden de la tabla (5.3).
  */
 export function verdictOf(answers: Readonly<Record<VerifyCheckKey, number>>): { verdict: CallVerdict; reason: VerdictReason | null } {
-  const failed = VERIFY_CHECKS.find(({ key }) => !(answers[key] >= NOUL_APPROVE));
+  const failed = VERIFY_CHECKS.find(({ key }) => !(answers[key] >= VERIFY_APPROVE[key]));
   return failed === undefined ? { verdict: "approved", reason: null } : { verdict: "rejected", reason: failed.reason };
 }
 

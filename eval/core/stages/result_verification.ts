@@ -6,7 +6,7 @@
 
 import { verifyInput } from "../../../src/core/engine/adapters.ts";
 import { codeAnswersOk } from "../../../src/core/engine/postcondition.ts";
-import { NOUL_APPROVE } from "../contract.ts";
+import { VERIFY_APPROVE } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ResultVerificationGrader } from "../graders/label.ts";
 import type { ChoiceQ, DecisionReaders, DecisionRequest, NoulQ, ResultVerificationExpect, ResultVerificationOutput } from "../types.ts";
@@ -67,7 +67,7 @@ export const resultVerificationStage: DecisionStageEntry<ResultVerificationOutpu
       ok = sentReq.questions.ok === undefined ? 1 : extractNoul(answers, "ok");
       cumple = extractNoul(answers, "cumple");
     }
-    return { ok: ok >= NOUL_APPROVE, cumple: cumple >= NOUL_APPROVE, okProbability: ok, cumpleProbability: cumple };
+    return { ok: ok >= VERIFY_APPROVE.ok, cumple: cumple >= VERIFY_APPROVE.cumple, okProbability: ok, cumpleProbability: cumple };
   },
   label(output, expect) {
     const predicted = output ? `ok=${output.ok},cumple=${output.cumple}` : null;
