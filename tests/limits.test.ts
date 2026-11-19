@@ -233,6 +233,21 @@ test("el mismo error se reconoce aunque cambien el pid y la duración; un códig
   assert.notEqual(toolErrorSignature(run(1, 111, "0.3s")), toolErrorSignature(run(2, 111, "0.3s")), "otro código de salida: el error cambió");
   assert.equal(toolErrorSignature("  EBUSY:   Resource BUSY "), toolErrorSignature("ebusy: resource busy"));
   assert.equal(toolErrorSignature(null), "");
+  // El error de PowerShell repite el comando que falló: con otro comando es el mismo error.
+  const elevation = (command: string): string =>
+    [
+      "status: finished · exit code: 1 · duration: 0.4s · pid: 33804 · cwd: C:\\Users\\hugof",
+      "The command failed (exit code 1).",
+      "Get-WindowsPackage : La operación solicitada requiere elevación.",
+      "En línea: 1 Carácter: 1",
+      `+ ${command}`,
+      "+ ~~~~~~~~~~~~~~~~~~~~~~~~~~",
+      "    + CategoryInfo          : NotSpecified: (:) [Get-WindowsPackage], COMException",
+    ].join("\n");
+  assert.equal(toolErrorSignature(elevation("Get-WindowsPackage -Online | Where-Object {$_.IdentityName -match 'Mi ...")), toolErrorSignature(elevation("Get-WindowsPackage -Online | Select-Object IdentityName")), "el comando cambia, el error no");
+  const english = (position: string, command: string): string => ["The command failed (exit code 1).", "Get-X : Access is denied.", position, `+ ${command}`, "+ ~~~~"].join("\n");
+  assert.equal(toolErrorSignature(english("At line:1 char:1", "Get-X")), toolErrorSignature(english("At line:1 char:9", "Get-X -Force")));
+  assert.notEqual(toolErrorSignature(elevation("Get-Foo")), toolErrorSignature(elevation("Get-Foo").replace("requiere elevación", "no se encuentra la ruta")), "otro mensaje, otro error");
 });
 
 test("el mismo error cuenta aunque haya un rechazo de la verificación en el medio", () => {

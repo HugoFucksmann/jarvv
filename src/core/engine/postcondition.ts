@@ -10,14 +10,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { DiskView } from "../types/disk.ts";
+
 export type Postcondition = "met" | "unmet" | null;
 
-/** Cómo mira el disco: inyectable para las pruebas. */
-export interface DiskView {
-  exists(p: string): boolean;
-  isDirectory(p: string): boolean;
-  size(p: string): number;
-}
+/** Cómo mira el disco: inyectable para las pruebas (definido en `types/disk.ts`). */
+export type { DiskView };
 
 export const REAL_DISK: DiskView = {
   exists: (p) => fs.existsSync(p),

@@ -6,7 +6,8 @@
  * evento lleva `n`, la versión del contexto al empezar la consulta; el registrador (Fase 7) lo enlaza con el `change`
  * correspondiente y con su paso. Los eventos no contienen ids. Un fallo del receptor nunca afecta al motor.
  *
- * Criterio: si se borra `trace/`, el motor compila y funciona igual (este archivo no importa nada de allí).
+ * Criterio: el motor solo conoce de `trace/` el receptor (`trace/sink.ts`: tipos y `NULL_SINK`); el registrador y el formato (`recorder.ts`, `format.ts`) los usa solo la
+ * fachada de tareas. Sin `trace/recorder.ts` y `format.ts` el motor funciona igual; `sink.ts` es el único archivo que el motor necesita de esa carpeta.
  */
 
 import type { IMCPServer } from "../mcp/types.ts";

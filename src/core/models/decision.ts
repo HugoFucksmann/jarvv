@@ -45,7 +45,7 @@ import type {
   RecoveryDecisionInput,
 } from "../contracts.ts";
 import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY, VERIFY_CHECKS } from "../contracts.ts";
-import { firstQueryKind } from "../engine/firstQuery.ts";
+import { firstQueryKind } from "../types/firstQuery.ts";
 import { isExecutableRoute } from "../types/routes.ts";
 import type { ConfigSource, JarvisConfig } from "../config.ts";
 import { DECISION_PROMPTS } from "./prompts.ts";

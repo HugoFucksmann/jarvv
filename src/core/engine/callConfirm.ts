@@ -84,7 +84,7 @@ export async function reviewIfNeeded(env: EngineEnv, call: PreparedCall, auth: A
   if (!applies) return PASS;
 
   const reviewView = ctx.view.forReview(reviewViewOptions());
-  const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, call.route, call.tool, call.recorded), runtime.signal), 0, pauseOf(env, "decision"));
+  const review = await queryModel(() => env.decision.reviewArgs(reviewInput(reviewView, call.route, call.tool, call.recorded), runtime.signal), pauseOf(env, "decision"));
   if (!review.ok) return { kind: "stop", outcome: fromFailure(env, call.stepId, review.failure, review.error) };
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
 

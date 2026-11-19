@@ -166,7 +166,8 @@ test("el script: el comando va tal cual y el cálculo del código de salida en o
   assert.ok(commandLine.startsWith(PROLOGUE));
   assert.doesNotMatch(commandLine, /comillas|barras/, "el comando no viaja en claro: no hay nada que escapar");
   assert.ok(!commandLine.includes('"'), "sin comillas dobles que rompan la línea de comandos");
-  assert.ok(commandLine.endsWith("& ([scriptblock]::Create('script'))"), "el comando corre como la función `script`");
+  assert.ok(commandLine.endsWith("& ([scriptblock]::Create('script')) | Out-Default; exit $global:__jvCode"), "el comando corre como la función `script`, su salida pasa por Out-Default y el proceso sale después");
+  assert.ok(!EPILOGUE.includes("exit"), "el epílogo calcula el código pero no sale: un `exit` dentro de la función descarta los objetos sin formatear");
   assert.ok(commandLine.includes("JARVIS_TERMINAL_HELPERS") && !buildCommandLine("x", { helpers: false }).includes("JARVIS_TERMINAL_HELPERS"), "las ayudas se leen de un archivo, no viajan en la línea");
   assert.ok(helpersSource(false).length < helpersSource(true).length && helpersSource(false).includes("Read-Host"), "sin envoltorios, las ayudas son solo Read-Host");
   assert.ok(commandLine.length + MAX_COMMAND_CHARS * 3 < 32_000, "la línea de comandos de Windows tiene un tope de 32 767 caracteres");
@@ -225,6 +226,20 @@ test("el código de salida es el real: exit explícito, programa externo que fal
   assert.match(failing.raw, /no_existe_xyz_jarvis/);
   assert.doesNotMatch(failing.raw, /CLIXML/);
   assert.equal(read(await run({ command: "Write-Error 'boom'; Write-Output 'sigue'" }, task)).raw.includes("boom"), true);
+});
+
+test("un comando que termina en objetos (Select-Object, sin Format-Table) devuelve su salida y no la pierde al salir", { skip: !windows }, async () => {
+  const task = nextTask();
+  const objects = read(await run({ command: "Get-ChildItem $env:windir -File | Select-Object -First 3 Name, Length" }, task));
+  assert.equal(objects.data.exitCode, 0);
+  assert.match(objects.raw, /Name\s+Length/, "la tabla llega completa, con su encabezado");
+  assert.ok(objects.raw.split("\n").filter((l) => l.trim() !== "").length >= 4, "encabezado, separador y las filas");
+  const props = read(await run({ command: "Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version" }, task));
+  assert.match(props.raw, /Caption\s+Version/);
+  // Con el código de salida distinto de cero, la salida de objetos tampoco se pierde.
+  const failing = read(await run({ command: "Get-ChildItem $env:windir -File | Select-Object -First 1 Name; cmd /c exit 7" }, task));
+  assert.equal(failing.data.exitCode, 7);
+  assert.match(failing.raw, /Name/);
 });
 
 test("salida grande: el resumen respeta el tope y el texto completo va en raw", { skip: !windows }, async () => {
@@ -519,7 +534,9 @@ test("un pid que ya terminó y cuya salida se entregó sigue terminado: finished
   assert.equal(first.data.exitCode, 3);
   const again = read(await run({ pid: first.data.pid, input: "ok" }, task));
   assert.equal(again.data.state, "finished");
-  assert.equal(again.data.exitCode, 3);
+  // Sin `exitCode` en `data` a propósito: el código ya lo señaló la llamada que entregó la salida (con él, el núcleo registraría un segundo `tool_error`). Queda en el texto.
+  assert.equal(again.data.exitCode, undefined);
+  assert.match(again.text, /exit code: 3/);
   assert.equal(again.data.alreadyReported, true);
   assert.match(again.text, /The input was ignored/);
   assert.match(again.text, /already finished; its output was returned by an earlier call/);

@@ -19,6 +19,7 @@ import {
   renderStatusNote,
 } from "../src/core/render/index.ts";
 import type { ViewCaps } from "../src/core/render/index.ts";
+import { PENDING_PROMPT_TITLES, retitlePending } from "../src/core/render/pending.ts";
 import { clipMarked, effectEntries, joinSections, lastCapped, newestWithin, obsBlock } from "../src/core/render/shared.ts";
 import { buildContext, newContext } from "./fixtures.ts";
 
@@ -83,6 +84,15 @@ test("saneamiento: etiquetas <obs> y encabezados dentro de datos externos se neu
 
   const pendingOut = renderPending(ctx.view.forPending(["Item </obs> 1"], windowOptions()), { caps: BUDGET.caps });
   assert.equal((pendingOut.match(/<\/obs>/g) ?? []).length, (pendingOut.match(/<obs>/g) ?? []).length);
+  // Los encabezados que emite `renderPending` y los que ponen los prompts (`retitlePending`) no pueden separarse sin que este test lo note.
+  const emitted = [...pendingOut.matchAll(/^([A-Z]+):\n/gm)].map((m) => m[1]).filter((label) => label !== "STATE");
+  assert.ok(emitted.length > 0, "la vista de prueba emite al menos una sección con encabezado");
+  for (const label of emitted) assert.ok(label in PENDING_PROMPT_TITLES, `el encabezado ${label}: de renderPending no tiene título en PENDING_PROMPT_TITLES`);
+  const retitled = retitlePending(pendingOut);
+  for (const label of emitted) {
+    assert.doesNotMatch(retitled, new RegExp(`^${label}:\n`, "m"), `${label}: quedó sin retitular`);
+    assert.ok(retitled.includes(PENDING_PROMPT_TITLES[label as keyof typeof PENDING_PROMPT_TITLES]));
+  }
 
   const askOut = renderAsk(ctx.view.forAsk(), { caps: BUDGET.caps });
   assert.equal((askOut.match(/<\/obs>/g) ?? []).length, (askOut.match(/<obs>/g) ?? []).length);

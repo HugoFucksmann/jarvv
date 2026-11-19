@@ -7,6 +7,7 @@
  */
 
 import type { CallStatus, CallVerdict, StopReason, VerdictReason } from "../ctx/index.ts";
+import type { StepFailureCause } from "../types/stepFailure.ts";
 
 /**
  * Qué devuelve `runCall` a `runStep`.
@@ -34,9 +35,9 @@ export type CallOutcome =
   | { readonly kind: "close"; readonly stopReason: StopReason; readonly callId: string | null }
   | { readonly kind: "cancelled"; readonly callId: string | null };
 
-/** Por qué un paso quedó `failed` (la recuperación del modo —escalación o replan— la resuelve la Fase 6). */
-export const STEP_FAILURE_CAUSES = ["call_cap", "repeat_blocked", "review_rejected", "verify_rejected", "tool_failed", "user_rejected", "denied", "no_tools"] as const;
-export type StepFailureCause = (typeof STEP_FAILURE_CAUSES)[number];
+/** Por qué un paso quedó `failed` (la recuperación del modo —escalación o replan— la resuelve `runTask`). Se define en `types/stepFailure.ts`. */
+export { STEP_FAILURE_CAUSES } from "../types/stepFailure.ts";
+export type { StepFailureCause } from "../types/stepFailure.ts";
 
 /**
  * Qué devuelve `runStep` al proveedor de pasos.

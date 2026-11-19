@@ -70,11 +70,18 @@ export const replansExhausted = (ctx: TaskContext): boolean => ctx.replansDone()
 // ───────────────────────── Topes del paso ─────────────────────────
 
 /**
- * La «firma» de un error de herramienta: su texto sin lo que cambia entre dos corridas del mismo error (el `pid` y la duración de una llamada de `run_command`), en
- * minúsculas y con los espacios colapsados. Dos errores con la misma firma son el mismo error.
+ * La «firma» de un error de herramienta: su texto sin lo que cambia entre dos corridas del mismo error, en minúsculas y con los espacios colapsados. Dos errores con
+ * la misma firma son el mismo error. Lo que no cuenta:
+ * - el `pid` y la duración de una llamada de `run_command`;
+ * - las líneas que PowerShell agrega con la posición y el texto del comando que falló (`En línea: 1 Carácter: 1`, `At line:1 char:1`, `+ Get-X -Online | Where-Object …`,
+ *   `+ ~~~~`): cuando el modelo cambia el comando para reintentar, el error (por ejemplo «requiere elevación») es el mismo pero esas líneas no, y la guarda de «el
+ *   mismo error dos veces» nunca disparaba.
  */
 export function toolErrorSignature(summary: string | null): string {
   return (summary ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*\+(\s|$)/.test(line) && !/^\s*(en línea|at line)\s*:/i.test(line))
+    .join("\n")
     .toLowerCase()
     .replace(/\bpid: ?\d+/g, "")
     .replace(/\bduration: ?[\d.]+ ?m?s\b/g, "")

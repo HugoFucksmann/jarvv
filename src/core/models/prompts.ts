@@ -14,7 +14,8 @@ import {
 } from "../types.ts";
 import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_KEY } from "../contracts.ts";
 import type { ContinuationInput, FirstQueryInput, PreviousTask } from "../contracts.ts";
-import { threadBlock } from "../engine/thread.ts";
+import { retitlePending } from "../render/pending.ts";
+import { threadBlock } from "../render/thread.ts";
 import type { ArgsReview, CompletionDecisionInput, RecoveryDecisionInput, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../contracts.ts";
 import type { Platform } from "../environment.ts";
 import { DESTINATIONS } from "../tools/manifest.ts";
@@ -222,12 +223,7 @@ Follow USER.
 ${DATA_NOTICE_EN}`,
 
     buildUserPrompt(data: { readonly view: string; readonly thread?: PreviousTask }): string {
-      const view = data.view
-        .trim()
-        .replace(/^PENDING:\n/m, "### PREVIOUS TO-DO LIST (PENDING):\n")
-        .replace(/^DONE:\n/m, "### COMPLETED TASKS (DONE):\n")
-        .replace(/^FAIL:\n/m, "### FAILED TASKS (REPLACE IN PENDING):\n")
-        .replace(/^USER:\n/m, "### USER INSTRUCTIONS (FOLLOW):\n");
+      const view = retitlePending(data.view);
       // Hilo: la tarea anterior va primero; el pedido nuevo puede decir «eso» o «el primero». Sin hilo, el texto es el de siempre.
       return data.thread === undefined ? view : `${threadBlock(data.thread)}\n\n${view}`;
     },
@@ -461,9 +457,10 @@ Does the PASSAGE contain information that answers the QUESTION?`,
   },
 
   /**
-   * «Recovery» (todavía solo la usa el eval): qué hacer cuando falla el paso de un ítem de la lista reactiva. La vista es la de `pending` (REQUEST, PENDING con el ítem
-   * fallido de primero, DONE, FAIL…) más un bloque con el ítem, la causa, los pasos fallidos del ítem y los ítems de atrás. Dos preguntas: `action` (la principal, cuatro
-   * opciones: ver `RECOVERY_ACTIONS`) e `independent` (`noul`: ¿los ítems de atrás pueden hacerse sin el resultado del fallido?).
+   * «Recovery» (solo el modo sombra y el eval la usan: el motor no actúa con su respuesta): qué hacer cuando falla el paso de un ítem de la lista reactiva. La vista es la
+   * de `pending` (REQUEST, PENDING con el ítem fallido de primero, DONE, FAIL…) más un bloque con el ítem, la causa y los pasos fallidos del ítem. Una sola pregunta, `action`,
+   * con tres opciones (`rewrite_item`, `replan`, `close`; ver `RECOVERY_ACTIONS`). Los ítems de atrás (`data.behind`) NO se muestran a propósito («Items after it: none»):
+   * es la variante `recovery_three_options_nobehind`, la que midió mejor.
    */
   buildRecovery(data: RecoveryDecisionInput): DecisionInput {
     const cause = data.cause === null ? "unknown" : data.cause;

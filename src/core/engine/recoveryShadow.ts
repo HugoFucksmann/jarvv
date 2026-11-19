@@ -5,7 +5,7 @@
  * en la traza; **no actúa**: el motor sigue reescribiendo el ítem con `pending` como siempre (`runTask.ts`). Sirve para medir con tareas reales, antes de dejar que
  * decida, cuánto acierta contra lo que pasó después (ver `eval/GUIA_DECISION.md`, sección 5).
  *
- * Garantías: apagado por defecto en el motor (`EngineDeps.recoveryShadow` omitida) y por configuración (`recoveryShadow`); nunca lanza ni cambia la lista, los contadores, el
+ * Garantías: apagado por defecto en el motor (`EngineDeps.recoveryShadow` omitida) y encendido por defecto en la configuración (`recoveryShadow: true`, para medir con tareas reales); nunca lanza ni cambia la lista, los contadores, el
  * contexto ni el cierre; usa su propio `try/catch` y no pausa ni reintenta si el modelo de decisión no responde (se registra el error y se sigue). Agrega una consulta a
  * Decisión por fallo solo cuando las reglas no deciden.
  *

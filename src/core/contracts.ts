@@ -8,9 +8,9 @@
  */
 
 import type { UserEnvironment } from "./environment.ts";
-import type { FirstQueryKind } from "./engine/firstQuery.ts";
-import type { StepFailureCause } from "./engine/outcomes.ts";
-import type { DiskView } from "./engine/postcondition.ts";
+import type { FirstQueryKind } from "./types/firstQuery.ts";
+import type { StepFailureCause } from "./types/stepFailure.ts";
+import type { DiskView } from "./types/disk.ts";
 import type { MemoryProvider } from "../memory/index.ts";
 import type { IMCPServer } from "./mcp/types.ts";
 import type { TaskEndOutcome } from "./tools/provider.ts";
@@ -197,7 +197,10 @@ export interface RecoveryDecisionInput {
    * intento siguiente.
    */
   readonly attempts: number;
-  /** Los ítems que quedan detrás del fallido. */
+  /**
+   * Los ítems que quedan detrás del fallido. El prompt de producción NO los muestra (variante `recovery_three_options_nobehind`, la que midió mejor); lo usan las demás
+   * variantes del eval.
+   */
   readonly behind: readonly string[];
 }
 

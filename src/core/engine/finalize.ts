@@ -64,7 +64,7 @@ ${note}`;
   }
 
   // Qwen ya repite una vez una salida inválida: aquí no se repite.
-  const query = await queryModel(() => env.llm.generateFinalFromView({ view }, runtime.signal), 0, pauseOf(env, "llm"));
+  const query = await queryModel(() => env.llm.generateFinalFromView({ view }, runtime.signal), pauseOf(env, "llm"));
   if (!query.ok) {
     console.error(`[Engine] LLM 3 falló (${query.failure}); respuesta de respaldo.`);
     return fallback();

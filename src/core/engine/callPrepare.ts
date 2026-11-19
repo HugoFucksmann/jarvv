@@ -62,7 +62,7 @@ export async function selectTool(env: EngineEnv, stepId: string, route: Executab
   // 2. Elegir la herramienta (Decision #2).
   const routeView = ctx.view.forRoute(routeViewOptions(route));
   const options = sortByCatalog(mcp, tools);
-  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, options), runtime.signal), 0, pauseOf(env, "decision")); // DN-3.4: Decision es determinista, repetir da lo mismo
+  const toolQuery = await queryModel(() => env.decision.chooseTool(toolInput(routeView, route, options), runtime.signal), pauseOf(env, "decision")); // DN-3.4: Decision es determinista, repetir da lo mismo
   if (!toolQuery.ok) return stop(fromFailure(env, stepId, toolQuery.failure, toolQuery.error));
   if (runtime.cancelled) return STOP_CANCELLED;
   const tool = toolQuery.value.tool;
@@ -117,7 +117,6 @@ export async function prepareArgs(env: EngineEnv, stepId: string, route: Executa
   // Qwen ya reintenta una vez una salida inválida: aquí no se repite.
   const generation = await queryModel(
     () => env.llm.generateArgumentsFromView(argsInput(tool, environment, rendered.text, priorAttempts), runtime.signal),
-    0,
     pauseOf(env, "llm"),
   );
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;

@@ -91,3 +91,36 @@ test("`core/policy` solo consulta el sistema para el inicio del usuario en un lu
     .map((file) => path.relative(SRC, file));
   assert.deepEqual(offenders, []);
 });
+
+test("los modelos y los contratos no importan el motor (`engine/`): la dependencia va del motor hacia ellos", () => {
+  const engine = path.join(CORE, "engine");
+  const files_ = [...files(path.join(CORE, "models")), path.join(CORE, "contracts.ts")];
+  const offenders = files_.flatMap((file) =>
+    relativeImports(file)
+      .filter((target) => inside(engine, target))
+      .map((target) => `${path.relative(SRC, file)} → ${path.relative(SRC, target)}`),
+  );
+  assert.deepEqual(offenders, []);
+});
+
+test("los renderizadores (`render/`) no importan el motor ni los modelos", () => {
+  const forbidden = ["engine", "models"].map((name) => path.join(CORE, name));
+  const offenders = files(path.join(CORE, "render")).flatMap((file) =>
+    relativeImports(file)
+      .filter((target) => forbidden.some((dir) => inside(dir, target)))
+      .map((target) => `${path.relative(SRC, file)} → ${path.relative(SRC, target)}`),
+  );
+  assert.deepEqual(offenders, []);
+});
+
+test("el contexto (`ctx/`) no importa nada fuera de `ctx/`: ni el núcleo, ni paquetes externos (solo `node:`)", () => {
+  const ctxDir = path.join(CORE, "ctx");
+  const offenders = files(ctxDir).flatMap((file) => {
+    const text = fs.readFileSync(file, "utf8");
+    const specifiers = [...text.matchAll(/^\s*(?:import|export)\s[^;]*?\bfrom\s*["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)/gm)].map((m) => m[1] ?? m[2]);
+    return specifiers
+      .filter((spec) => (spec.startsWith(".") ? !inside(ctxDir, path.resolve(path.dirname(file), spec)) : !spec.startsWith("node:")))
+      .map((spec) => `${path.relative(SRC, file)} → ${spec}`);
+  });
+  assert.deepEqual(offenders, []);
+});

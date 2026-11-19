@@ -8,8 +8,8 @@
  *   con `unrecoverable`.
  * - Desborde del contexto del modelo (`overflow = true`): `overflow`. Se cierra con `unrecoverable` SIN `error` (el servicio no
  *   cayó; repetir daría lo mismo) y sin repetir.
- * - Respuesta inválida (`...ValidationError` sin `overflow`): `invalid`. Se repite la consulta una vez
- *   (`BUDGET.invalidResponseRetries`) cuando el modelo no reintenta por sí mismo; si persiste, quien llama decide (para
+ * - Respuesta inválida (`...ValidationError` sin `overflow`): `invalid`. Aquí NO se repite: Qwen ya reintenta una vez por su cuenta
+ *   (`BUDGET.invalidResponseRetries`, en `models/qwen.ts`) y Decision es determinista (repetir da lo mismo). Quien llama decide (para
  *   Decision y el verificador: igual que `unavailable`; para los argumentos: `args_invalid`).
  * - Cualquier otra excepción es un defecto del código y se propaga.
  *
@@ -17,7 +17,6 @@
  * directo a `forFallback` (FLUJO 9).
  */
 
-import { BUDGET } from "../budget.ts";
 import {
   DecisionServiceUnavailableError,
   DecisionValidationError,
@@ -78,17 +77,11 @@ function waitAbortable(ms: number, signal: AbortSignal): Promise<boolean> {
 }
 
 /**
- * Ejecuta una consulta a un modelo. Ante una respuesta inválida la repite hasta `repeatOnInvalid` veces (0 = no repite: el
- * modelo ya reintenta internamente, como Qwen). Ante un fallo `unavailable` reintentable (red, timeout o HTTP no-OK) pausa la
- * tarea y reintenta con espera creciente (2 s a 30 s) hasta `maxPauseMs` o cancelación. URL sin configurar (`retryable = false`),
- * desborde y cancelación no se pausan ni se repiten.
+ * Ejecuta una consulta a un modelo. Una respuesta inválida no se repite aquí (ver la cabecera). Ante un fallo `unavailable`
+ * reintentable (red, timeout o HTTP no-OK) pausa la tarea y reintenta con espera creciente (2 s a 30 s) hasta `maxPauseMs` o
+ * cancelación. URL sin configurar (`retryable = false`), desborde y cancelación no se pausan ni se repiten.
  */
-export async function queryModel<T>(
-  call: () => Promise<T>,
-  repeatOnInvalid: number = BUDGET.invalidResponseRetries,
-  pause?: ModelPauseContext,
-): Promise<ModelResult<T>> {
-  let invalidAttempts = 0;
+export async function queryModel<T>(call: () => Promise<T>, pause?: ModelPauseContext): Promise<ModelResult<T>> {
   let pauseStartedAt: number | null = null;
   let delayMs = PAUSE_RETRY_MIN_MS;
   try {
@@ -101,11 +94,6 @@ export async function queryModel<T>(
       } catch (error) {
         const failure = classifyModelError(error);
         if (failure === null) throw error;
-        if (failure === "invalid" && invalidAttempts < repeatOnInvalid) {
-          invalidAttempts++;
-          console.warn(`[Engine] respuesta inválida (${errorMessage(error)}); se repite la consulta (${invalidAttempts}/${repeatOnInvalid}).`);
-          continue;
-        }
         if (
           failure === "unavailable" &&
           isRetryableUnavailable(error) &&

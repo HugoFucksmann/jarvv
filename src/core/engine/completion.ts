@@ -61,7 +61,7 @@ export async function confirmCompletion(env: EngineEnv): Promise<CompletionOutco
     }
   }
 
-  const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), 0, pauseOf(env, "decision"));
+  const query = await queryModel(() => env.decision.checkCompletion(completionInput(ctx), runtime.signal), pauseOf(env, "decision"));
   if (!query.ok) {
     // Una respuesta inválida o un desborde de esta consulta no es un modelo caído: es un atajo que no se pudo tomar, y la tarea sigue con la confirmación del LLM.
     if (query.failure === "invalid" || query.failure === "overflow") {

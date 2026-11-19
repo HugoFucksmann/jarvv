@@ -1,7 +1,7 @@
 /**
  * `run_command`: cómo se lanza PowerShell.
  *
- * `powershell.exe -NoLogo -NoProfile -NonInteractive -Command "<prólogo>; <cargar ayudas>; <función script>; script"`:
+ * `powershell.exe -NoLogo -NoProfile -NonInteractive -Command "<prólogo>; <cargar ayudas>; <función script>; script | Out-Default; exit <código>"`:
  * - El prólogo guarda la página OEM de la consola (para las ayudas) y fuerza la salida y la entrada a UTF-8; apaga la barra de progreso.
  * - Las ayudas (`PS_HELPERS`) se leen de un archivo `.ps1` de la carpeta temporal del usuario (`ensureHelpersFile`: ahí está por qué no van en la línea
  *   de comandos). Si no se pueden cargar, el proceso sale sin correr el comando y el proveedor lo relanza sin ayudas. Definen dos cosas:
@@ -12,8 +12,9 @@
  *     (`ipconfig | Select-String …`, `$x = ipconfig`), PowerShell la decodificaba como UTF-8 y las tildes se perdían (`Configuraci�n`). El envoltorio
  *     lanza el `.exe` con `Process`, decodifica cada línea (UTF-8 si lo es; si no, la página que da más letras acentuadas) y deja el código de salida en
  *     `$LASTEXITCODE` (`robocopy` 0–7 cuenta como éxito para el código de salida del proceso). Si algo falla antes de lanzarlo, o recibe entrada por la tubería, o es una consola interactiva sin argumentos, llama al `.exe` como siempre.
- * - El comando del modelo va en base64 dentro de la función `script`, con una última línea que da el código de salida (`EPILOGUE`). Una función (y no un
- *   bloque anónimo) para que un `Write-Error` diga `script : <mensaje>` y no repita como contexto el texto entero del comando y del epílogo.
+ * - El comando del modelo va en base64 dentro de la función `script`, con una última línea que calcula el código de salida (`EPILOGUE`, en `$global:__jvCode`). Una función
+ *   (y no un bloque anónimo) para que un `Write-Error` diga `script : <mensaje>` y no repita como contexto el texto entero del comando y del epílogo. La función se llama
+ *   con su salida entubada a `Out-Default` y el proceso sale después (`exit $global:__jvCode`): un `exit` dentro de la función descartaba los objetos aún sin formatear.
  * No se usa `-EncodedCommand` porque con él PowerShell escribe los errores en CLIXML. El comando no viaja en claro: no hay comillas que escapar.
  */
 
@@ -153,14 +154,17 @@ export function ensureHelpersFile(legacyTools: boolean, dir: string = path.join(
 
 /** Página OEM de la consola (antes de cambiarla), salida y entrada en UTF-8, y sin barras de progreso. Va antes de todo, fuera de la función del comando. */
 export const PROLOGUE =
-  "$global:__jvOem=[Console]::OutputEncoding; [Console]::OutputEncoding=[Text.Encoding]::UTF8; try { [Console]::InputEncoding=[Text.Encoding]::UTF8 } catch {}; $OutputEncoding=[Text.Encoding]::UTF8; $ProgressPreference='SilentlyContinue'";
+  "$global:__jvOem=[Console]::OutputEncoding; [Console]::OutputEncoding=[Text.Encoding]::UTF8; try { [Console]::InputEncoding=[Text.Encoding]::UTF8 } catch {}; $OutputEncoding=[Text.Encoding]::UTF8; $ProgressPreference='SilentlyContinue'; $global:__jvCode=1";
 
 /**
- * Código de salida del proceso: 0 si el último comando salió bien; si no, el del programa externo que falló, o 1. Un envoltorio de herramienta del sistema
- * que salió con error marca `$__jvFail` (una función no deja `$?` en falso).
+ * Código de salida del proceso, calculado al final de la función `script` y guardado en `$global:__jvCode`: 0 si el último comando salió bien; si no, el del
+ * programa externo que falló, o 1. Un envoltorio de herramienta del sistema que salió con error marca `$__jvFail` (una función no deja `$?` en falso).
+ *
+ * NO termina el proceso: el `exit` va DESPUÉS de que la salida pasó por `Out-Default` (ver `buildCommandLine`). Con el `exit` dentro de la función, PowerShell 5.1 se iba antes
+ * de volcar los objetos que el formateador tenía en espera, y un comando como `Get-ChildItem | Select-Object Name, Extension` terminaba con código 0 y la salida vacía.
  */
 export const EPILOGUE =
-  "if ($? -and -not $global:__jvFail) { exit 0 } else { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }";
+  "$global:__jvCode = if ($? -and -not $global:__jvFail) { 0 } elseif ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 }";
 
 /** El comando tal cual (una línea de comentario final no lo anula) y, en otra línea, el cálculo del código de salida. */
 export function buildScript(command: string): string {
@@ -182,7 +186,9 @@ export function buildCommandLine(command: string, options: CommandLineOptions = 
       ? ""
       : `try { . ([scriptblock]::Create([IO.File]::ReadAllText($env:${HELPERS_ENV}))) } catch { [Console]::Error.WriteLine('${HELPERS_UNAVAILABLE}'); exit ${HELPERS_UNAVAILABLE_EXIT} }; `;
   // `script` se llama desde un bloque propio de una sola palabra: la línea de contexto de un error dice `+ script` y no el base64 de alrededor.
-  return `${PROLOGUE}; ${helpers}\${function:script} = ${base64Block(buildScript(command))}; & ([scriptblock]::Create('script'))`;
+  // La salida de la función pasa por `Out-Default` (vuelca los objetos con formato) y recién entonces el proceso sale con el código que dejó el epílogo. Si la función
+  // se corta por un error que termina el script, `$global:__jvCode` sigue en 1 (el prólogo) y el proceso sale con error.
+  return `${PROLOGUE}; ${helpers}\${function:script} = ${base64Block(buildScript(command))}; & ([scriptblock]::Create('script')) | Out-Default; exit $global:__jvCode`;
 }
 
 export const POWERSHELL_ARGS = ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"] as const;

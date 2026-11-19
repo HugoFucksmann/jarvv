@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.tsx",
-    "start": "tsx server.ts",
+    "start": "tsx server.tsx",
     "vite": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",

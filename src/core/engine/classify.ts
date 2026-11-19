@@ -34,7 +34,7 @@ export async function classifyRequest(env: EngineEnv): Promise<ClassifyOutcome> 
   // Solo al empezar: con pasos o llamadas la solicitud ya tomó un camino.
   if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return { kind: "classified", first: null };
 
-  const query = await queryModel(() => decision.firstQuery!({ request: ctx.task.request }, runtime.signal), 0, pauseOf(env, "decision"));
+  const query = await queryModel(() => decision.firstQuery!({ request: ctx.task.request }, runtime.signal), pauseOf(env, "decision"));
   if (!query.ok) {
     if (degradesToDefault(query.failure)) {
       console.warn(`[Engine] D0 sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); la tarea sigue por el flujo de siempre.`);
@@ -57,7 +57,7 @@ export async function detectContinuation(env: EngineEnv): Promise<ContinuationOu
   if (previous === null || decision.continuation === undefined) return { kind: "resolved", previous: null };
   if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return { kind: "resolved", previous: null };
 
-  const query = await queryModel(() => decision.continuation!({ previous, request: ctx.task.request }, runtime.signal), 0, pauseOf(env, "decision"));
+  const query = await queryModel(() => decision.continuation!({ previous, request: ctx.task.request }, runtime.signal), pauseOf(env, "decision"));
   if (!query.ok) {
     if (degradesToDefault(query.failure)) {
       console.warn(`[Engine] continuación sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); sin hilo.`);

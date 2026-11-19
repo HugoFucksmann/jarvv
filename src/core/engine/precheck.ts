@@ -93,7 +93,12 @@ function stringsOf(value: unknown): string[] {
   return [];
 }
 
-const PLACEHOLDER = /<[A-Za-z][\w-]*>|\byour[_ -]|\bexample\.(com|org|net)\b|\/path\/to\b|\bxxx+\b|\bTODO\b|\bplaceholder\b/i;
+const PLACEHOLDER = /<[A-Za-z][\w-]*>|\byour[_ -]|\bexample\.(com|org|net)\b|\/path\/to\b|\bxxx+\b|\bplaceholder\b/i;
+/**
+ * `TODO` como marcador: solo en mayúsculas y como palabra suelta. En español `todo` es una palabra común («todo-lo-que-sabemos» en una URL) y `TODO.md` es un archivo
+ * habitual; ni uno ni otro son un valor sin completar.
+ */
+const TODO_MARKER = /(?<![\w.-])TODO(?![\w.-])/;
 /** Ruta de Linux dentro de un comando (`/etc/hosts`, `/usr/bin/…`): no existe en Windows. */
 const LINUX_PATH = /(^|[\s'"=])\/(etc|usr|var|home|bin|opt|tmp|proc|sys|dev|mnt)\//;
 const SYSTEM_USER_DIRS = new Set(["public", "default", "all users", "default user"]);
@@ -446,7 +451,7 @@ export const VALUE_RULES: readonly PrecheckRule<ValueContext>[] = [
     name: "placeholder",
     applies: (c) => c.role !== "text",
     check: (c) => {
-      const hit = PLACEHOLDER.exec(c.value);
+      const hit = PLACEHOLDER.exec(c.value) ?? TODO_MARKER.exec(c.value);
       return hit === null ? null : invalid(`The argument '${c.key}' contains a placeholder ('${hit[0]}'). Use the real value from the task or from earlier results.`);
     },
   },

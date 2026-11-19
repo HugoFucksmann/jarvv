@@ -110,3 +110,26 @@ test("`recoveryRule`: prerrequisito → replan; parada dura → close; el resto,
   assert.equal(recoveryRule({ ...base, text: "Error: EACCES: permission denied, open 'x'" }), "close");
   assert.equal(recoveryRule({ ...base, text: "Error: Write rejected: a.txt already exists, and no 'mode' was specified." }), null);
 });
+
+// Mensajes reales de un Windows en español (es-AR), como salen en las trazas: sin estos, en este equipo ninguna regla por texto llegaba a disparar.
+test("mensajes en español: programa no reconocido, ruta que falta y puerto ocupado", () => {
+  assert.equal(write("node : El término 'node' no se reconoce como nombre de un cmdlet, función, archivo de script o programa ejecutable. Compruebe si escribió correctamente el nombre."), "program_not_found");
+  assert.equal(write("'pip' no se reconoce como un comando interno o externo, programa o archivo por lotes ejecutable."), "program_not_found");
+  assert.equal(read("Get-ChildItm : El término 'Get-ChildItm' no se reconoce como nombre de un cmdlet, función, archivo de script o programa ejecutable."), null, "un cmdlet mal escrito se corrige");
+  assert.equal(write("grep : El término 'grep' no se reconoce como nombre de un cmdlet, función, archivo de script o programa ejecutable."), null, "grep no existe en PowerShell: Select-String");
+  assert.equal(write("Move-Item : No se encontró una parte de la ruta de acceso 'C:\\Users\\x\\Documents\\Archivo\\2024'."), "missing_destination");
+  assert.equal(write("Solo se permite un uso de cada dirección de socket (protocolo/dirección de red/puerto)"), "port_in_use");
+});
+
+test("mensajes en español: las paradas duras (permiso, red, disco, archivo en uso)", () => {
+  const stop = (text: string, attempts = 1) => hardStop({ kind: "write", text, attempts, cause: "tool_failed" });
+  // El de la traza real gjl8: Get-WindowsPackage sin ser administrador, repetido en dos pasos.
+  assert.equal(stop("Get-WindowsPackage : La operación solicitada requiere elevación.\nEn línea: 1 Carácter: 1"), "permission_denied");
+  assert.equal(stop("Se denegó el acceso a la ruta de acceso 'C:\\Windows\\x.txt'."), "permission_denied");
+  assert.equal(stop("Acceso denegado."), "permission_denied");
+  assert.equal(stop("No es posible conectar con el servidor remoto", 1), null, "un fallo de red puede ser pasajero: hacen falta 2 intentos");
+  assert.equal(stop("No es posible conectar con el servidor remoto", 2), "network_or_service");
+  assert.equal(stop("No hay suficiente espacio en el disco.", 2), "disk");
+  assert.equal(stop("El proceso no puede obtener acceso al archivo porque está siendo utilizado por otro proceso.", 2), "corrupt_or_locked");
+  assert.equal(recoveryRule({ kind: "write", text: "Get-WindowsPackage : La operación solicitada requiere elevación.", attempts: 1, cause: "tool_failed" }), "close");
+});

@@ -63,7 +63,7 @@ export async function generatePlan(env: EngineEnv, request: PlanRequest): Promis
   }
 
   // ── LLM 1. Qwen ya repite una vez una salida inválida: aquí no se repite.
-  const query = await queryModel(() => env.llm.generatePlanFromView(input, runtime.signal), 0, pauseOf(env, "llm"));
+  const query = await queryModel(() => env.llm.generatePlanFromView(input, runtime.signal), pauseOf(env, "llm"));
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
   if (!query.ok) {
     if (query.failure === "invalid") {

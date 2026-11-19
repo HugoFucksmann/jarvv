@@ -34,7 +34,6 @@ test("pausa: el modelo no responde y vuelve: se repite la misma consulta, la tar
       if (calls++ === 0) throw new DecisionServiceUnavailableError("sin conexión (prueba)");
       return "respuesta";
     },
-    0,
     pause,
   );
   assert.deepEqual(result, { ok: true, value: "respuesta" });
@@ -54,7 +53,6 @@ test("pausa: agotado el tope devuelve el fallo `unavailable` y limpia la pausa",
       calls++;
       throw new LLMServiceUnavailableError("caído (prueba)");
     },
-    0,
     { ...pause, model: "llm" },
   );
   assert.equal(result.ok, false);
@@ -75,7 +73,7 @@ test("pausa: no se pausa lo que esperar no arregla (URL sin configurar, desborde
   for (const [name, fail] of cases) {
     const { pause, marks } = pauseContext(60_000);
     let calls = 0;
-    const result = await queryModel(async () => { calls++; return fail(); }, 0, pause);
+    const result = await queryModel(async () => { calls++; return fail(); }, pause);
     assert.equal(result.ok, false, name);
     assert.equal(calls, 1, `${name}: una sola consulta`);
     assert.deepEqual(marks, [], `${name}: nunca se pausó`);
@@ -85,18 +83,19 @@ test("pausa: no se pausa lo que esperar no arregla (URL sin configurar, desborde
 test("pausa: sin contexto de pausa o con tope 0 el fallo es inmediato (los tests y los usos viejos siguen igual)", async () => {
   for (const pause of [undefined, pauseContext(0).pause]) {
     let calls = 0;
-    const result = await queryModel(async () => { calls++; throw new DecisionServiceUnavailableError("caído"); }, 0, pause);
+    const result = await queryModel(async () => { calls++; throw new DecisionServiceUnavailableError("caído"); }, pause);
     assert.equal(result.ok, false);
     assert.equal(calls, 1);
   }
 });
 
-test("pausa: una respuesta inválida se repite según repeatOnInvalid, sin pausar", async () => {
+test("pausa: una respuesta inválida no se repite aquí (Qwen reintenta por su cuenta) ni pausa", async () => {
   const { pause, marks } = pauseContext(60_000);
   let calls = 0;
-  const result = await queryModel(async () => { calls++; throw new DecisionValidationError("formato"); }, 1, pause);
+  const result = await queryModel(async () => { calls++; throw new DecisionValidationError("formato"); }, pause);
   assert.equal(result.ok, false);
-  assert.equal(calls, 2);
+  if (!result.ok) assert.equal(result.failure, "invalid");
+  assert.equal(calls, 1);
   assert.deepEqual(marks, []);
 });
 
@@ -105,7 +104,7 @@ test("pausa: cancelar la tarea durante la espera corta la pausa y devuelve `canc
   const { pause, marks } = pauseContext(60_000, controller.signal);
   setTimeout(() => controller.abort(), 40);
   const t0 = Date.now();
-  const result = await queryModel(async () => { throw new DecisionServiceUnavailableError("caído"); }, 0, { ...pause, runtime: { ...pause.runtime, get cancelled() { return controller.signal.aborted; } } });
+  const result = await queryModel(async () => { throw new DecisionServiceUnavailableError("caído"); }, { ...pause, runtime: { ...pause.runtime, get cancelled() { return controller.signal.aborted; } } });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.failure, "cancelled");
   assert.ok(Date.now() - t0 < PAUSE_RETRY_MIN_MS, "no esperó el retraso completo");

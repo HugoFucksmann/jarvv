@@ -137,7 +137,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 | | `user_rejected` | El usuario rechazó la operación |
 
 - **Veredicto**: `approved` o `rejected`. Se verifican las llamadas ejecutadas salvo `interrupted`, `waiting_input` y `denied`. Un rechazo lleva un motivo: `no_usable_data` o `not_accomplished`.
-- **Efecto**: una escritura con `status = ok`, con cualquier veredicto. Una escritura que terminó en `tool_error`, `exception` o `interrupted` se registra como **posible efecto**: pudo dejar cambios parciales y se muestra aparte.
+- **Efecto**: una escritura con `status = ok`, con cualquier veredicto. Una escritura que terminó en `tool_error`, `exception`, `interrupted` o `waiting_input` se registra como **posible efecto**: pudo dejar cambios parciales y se muestra aparte.
 - **Texto fijo**: lo que se le dice a los modelos sobre un estado o un motivo son frases fijas, nunca prosa de un modelo.
 
 ## 3. Se Deriva, No se Guarda
@@ -145,7 +145,7 @@ Todo lo que no es un dato primario se recalcula desde `calls`, `steps`, `plans` 
 
 | Derivación | Definición |
 |---|---|
-| Efectos / posibles efectos | Escrituras `ok` / escrituras con `tool_error`, `exception` o `interrupted`. Sin tope |
+| Efectos / posibles efectos | Escrituras `ok` / escrituras con `tool_error`, `exception`, `interrupted` o `waiting_input`. Sin tope |
 | Hechas | Llamadas con veredicto `approved` |
 | Intentos | Llamadas sin veredicto `approved` (fallos, rechazos y no ejecutadas) |
 | Último resultado | Última llamada aprobada que no es un efecto |
@@ -222,7 +222,7 @@ El contexto de una tarea nace vacío y recibe los aportes externos por `apply` e
 
 | Memoria | Qué guarda | Dónde | Cuándo entra a `recalled` y a los prompts |
 |---|---|---|---|
-| **Hechos del usuario** (`src/memory`) | Pares `clave → valor` (y `aliases` opcionales) que el usuario escribió a mano | `data/memory.json` (junto a `refsDir`, ignorado por git; caché por `mtimeMs`) | Al iniciar la tarea (`request`) y en cada paso (`request + paso`), sin duplicar `(source, key)`. En v1 se lee en `forArgs`, `forFinal` y como fuente del pre-chequeo |
+| **Hechos del usuario** (`src/memory`) | Pares `clave → valor` (y `aliases` opcionales) que el usuario escribió a mano | `data/memory.json` (junto a `refsDir`, ignorado por git; caché por `mtimeMs`) | Al iniciar la tarea (`request`) y en cada preparación de llamada (`request + paso`, en `prepareArgs`), sin duplicar `(source, key)`. En v1 se lee en `forArgs`, `forFinal` y como fuente del pre-chequeo |
 | **Hilo** (`engine/thread.ts`) | La última tarea `completed` con respuesta del modelo: pedido y 500 caracteres de respuesta | RAM de `TaskManager` (10 minutos); se copia a `recalled` al iniciar si continúa | Si `detectContinuation` (`d3`, umbral 0,3) responde que continúa, se copian `previous_request` y `previous_answer` con `from` = id anterior. Entra a `pending`, `forArgs`, `forFinal` y pre-chequeo |
 
 - **Regla:** la confianza y la visibilidad de cada fuente se derivan de `source` en `recalledPolicy.ts`. Sin coincidencia no se agrega nada y no cambia ningún token.

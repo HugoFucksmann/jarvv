@@ -9,7 +9,8 @@
  *
  * Lo que las reglas NO deciden (error de tipeo, argumentos mal puestos, ambigüedades) queda para el modelo: devuelven `null`.
  *
- * Función pura y sin estado. TODAVÍA no está conectada al motor: se mide en `eval/` (ver `eval/GUIA_DECISION.md`, sección 5) antes de integrarla.
+ * Función pura y sin estado. Hoy solo la usa el modo sombra (`recoveryShadow.ts`), que registra qué decidiría en la traza: el motor NO actúa con su resultado. Se mide
+ * en `eval/` y con trazas reales (ver `eval/GUIA_DECISION.md`, sección 5) antes de dejar que decida.
  *
  * Las reglas son conservadoras a propósito: ante la duda devuelven `null`. Un `ENOENT` al LEER no basta (puede ser un nombre mal escrito o un archivo en
  * otro lugar); un `ENOENT` al ESCRIBIR sí (escribir crea el archivo, así que solo falla si falta la carpeta de arriba).
@@ -26,12 +27,15 @@ export interface FailedCallText {
   readonly text: string;
 }
 
-const PORT_IN_USE = /EADDRINUSE|address already in use/i;
+// Los mensajes de PowerShell, de .NET y de Windows salen en el idioma del sistema: acá se reconocen los de inglés y los de español (el equipo de desarrollo es es-AR; con
+// solo los de inglés, en las trazas reales ninguna regla por texto llegó a disparar). Otro idioma: no hay regla y decide el modelo.
+const PORT_IN_USE = /EADDRINUSE|address already in use|solo se permite un uso de cada direcci[óo]n de socket/i;
 const UNSUPPORTED_FORMAT = /\bUnsupported (?:image |file |binary )?(?:format|type)\b/i;
-const MISSING_PART_OF_PATH = /Could not find a part of the path/i;
+const MISSING_PART_OF_PATH = /Could not find a part of the path|No se encontr[óo] una parte de la ruta/i;
 const WRITE_ENOENT = /\bENOENT\b/;
-const PS_NOT_RECOGNIZED = /The term '([^']+)' is not recognized as the name of a cmdlet, function, script file, or operable program/i;
-const CMD_NOT_RECOGNIZED = /(?:^|\s)'?([\w.-]+)'? is not recognized as an internal or external command/i;
+// Dos grupos de captura (inglés y español): el nombre del programa es el que haya coincidido.
+const PS_NOT_RECOGNIZED = /The term '([^']+)' is not recognized as the name of a cmdlet, function, script file, or operable program|El término '([^']+)' no se reconoce como nombre de un cmdlet, función, archivo de script o programa ejecutable/i;
+const CMD_NOT_RECOGNIZED = /(?:^|\s)'?([\w.-]+)'? is not recognized as an internal or external command|(?:^|\s)'?([\w.-]+)'? no se reconoce como un comando interno o externo/i;
 /** El propio mensaje dice qué argumento lo resuelve (`Pass recursive: true to create missing parents`): se corrige la llamada, no hace falta un paso nuevo. */
 const SELF_FIX = /recursive: true|create missing parents/i;
 /** Comandos de Unix que no existen en PowerShell y tienen equivalente (`grep` → `Select-String`): hay que reescribir el comando, no instalar nada. */
@@ -51,11 +55,11 @@ export function missingPrerequisite(call: FailedCallText): PrerequisiteSignal | 
   if (UNSUPPORTED_FORMAT.test(text)) return "unsupported_format";
   const ps = PS_NOT_RECOGNIZED.exec(text);
   if (ps !== null) {
-    const term = ps[1] ?? "";
+    const term = ps[1] ?? ps[2] ?? "";
     return looksLikeCmdlet(term) || UNIX_ONLY.has(term.toLowerCase()) ? null : "program_not_found";
   }
   const cmd = CMD_NOT_RECOGNIZED.exec(text);
-  if (cmd !== null) return UNIX_ONLY.has((cmd[1] ?? "").toLowerCase()) ? null : "program_not_found";
+  if (cmd !== null) return UNIX_ONLY.has((cmd[1] ?? cmd[2] ?? "").toLowerCase()) ? null : "program_not_found";
   if (SELF_FIX.test(text)) return null;
   if (MISSING_PART_OF_PATH.test(text)) return "missing_destination";
   if (kind === "write" && WRITE_ENOENT.test(text)) return "missing_destination";
@@ -78,15 +82,15 @@ export type HardStopSignal =
 /** Causas del motor que ya significan «no»: reintentar sería ir contra lo que se decidió. */
 const REFUSED_CAUSES: readonly StepFailureCause[] = ["user_rejected", "denied", "repeat_blocked"];
 
-const PERMISSION = /\bEACCES\b|\bEPERM\b|permission denied|access (?:to the path )?is denied|operation not permitted/i;
+const PERMISSION = /\bEACCES\b|\bEPERM\b|permission denied|access (?:to the path )?is denied|operation not permitted|requires elevation|acceso denegado|se deneg[óo] el acceso|requiere elevaci[óo]n/i;
 const TESTS_OR_BUILD = /\b\d+ (?:tests? )?failed\b|\bFAILED\b|Build FAILED|could not compile|error CS\d+|error\[E\d+\]/;
-const NETWORK = /ENETUNREACH|ENOTFOUND|getaddrinfo|ECONNREFUSED|ECONNRESET|CERT_[A-Z_]+|certificate has expired|HTTP (?:401|403|429|5\d\d)\b|timed out|status: timeout/i;
-const DISK = /ENOSPC|EROFS|no space left|not enough space|read-only file system/i;
-const CORRUPT_OR_LOCKED = /Invalid (?:PDF|xlsx|docx|zip)\b|corrupt|end-of-central-directory|\bEBUSY\b|resource busy or locked/i;
+const NETWORK = /ENETUNREACH|ENOTFOUND|getaddrinfo|ECONNREFUSED|ECONNRESET|CERT_[A-Z_]+|certificate has expired|HTTP (?:401|403|429|5\d\d)\b|timed out|status: timeout|no es posible conectar con el servidor remoto|no se (?:pudo|puede|pueden) resolver el nombre|se agot[óo] el tiempo de espera/i;
+const DISK = /ENOSPC|EROFS|no space left|not enough space|read-only file system|no hay suficiente espacio en el disco/i;
+const CORRUPT_OR_LOCKED = /Invalid (?:PDF|xlsx|docx|zip)\b|corrupt|end-of-central-directory|\bEBUSY\b|resource busy or locked|being used by another process|est[áa] siendo utilizado por otro proceso/i;
 const NO_DATA = /status: no_data|no passages matched/i;
 /** `Start-Process <nombre>` sin ruta ni extensión: una aplicación de escritorio que no está instalada (un archivo que falta tiene ruta o extensión). */
 const START_APP = /Start-Process\s+['"]?([A-Za-z0-9_.-]+)['"]?\s*$/;
-const CANNOT_FIND_FILE = /cannot find the file specified/i;
+const CANNOT_FIND_FILE = /cannot find the file specified|el sistema no puede encontrar el archivo especificado/i;
 
 /** Lo que necesitan las reglas de parada: el texto del error, los intentos del ítem y la causa del motor. */
 export interface RecoveryRuleInput extends FailedCallText {

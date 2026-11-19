@@ -82,7 +82,7 @@ export async function askUser(env: EngineEnv, stepId: string, literalQuestion?: 
     const view = renderAsk(ctx.view.forAsk(), askRenderOptions());
 
     // El LLM ya reintentó una vez una salida inválida (Qwen): aquí no se repite (D29).
-    const generated = await queryModel(() => env.llm.generateQuestion({ view }, runtime.signal), 0, pauseOf(env, "llm"));
+    const generated = await queryModel(() => env.llm.generateQuestion({ view }, runtime.signal), pauseOf(env, "llm"));
     if (!generated.ok) {
       const closure = closeOnFailure(env, stepId, generated.failure, generated.error);
       return closure.kind === "cancelled" ? { kind: "cancelled" } : UNRECOVERABLE;

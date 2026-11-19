@@ -14,6 +14,26 @@ export interface PendingRenderOptions {
   readonly caps: ViewCaps;
 }
 
+/**
+ * Encabezados con los que los prompts de `pending`, de Decisión 5 y de `recovery` muestran las secciones de `renderPending`. Las claves son los encabezados que emite
+ * `renderPending` (`PENDING:`, `DONE:`, `FAIL:`, `USER:`); si se cambia uno allí, hay que cambiarlo acá: `tests/render.test.ts` lo comprueba.
+ */
+export const PENDING_PROMPT_TITLES = {
+  PENDING: "### PREVIOUS TO-DO LIST (PENDING):",
+  DONE: "### COMPLETED TASKS (DONE):",
+  FAIL: "### FAILED TASKS (REPLACE IN PENDING):",
+  USER: "### USER INSTRUCTIONS (FOLLOW):",
+} as const;
+
+/** El texto de `renderPending` con los encabezados de los prompts (`PENDING_PROMPT_TITLES`). Solo cambia la primera línea de cada sección. */
+export function retitlePending(rendered: string): string {
+  let out = rendered.trim();
+  for (const [label, title] of Object.entries(PENDING_PROMPT_TITLES)) {
+    out = out.replace(new RegExp(`^${label}:\\n`, "m"), `${title}\n`);
+  }
+  return out;
+}
+
 export function renderPending(view: PendingView, options: PendingRenderOptions): string {
   const caps = options.caps;
   const previous = view.previous.map((item, i) => `${i + 1}. ${clipMarked(oneLine(item), caps.step)}`);

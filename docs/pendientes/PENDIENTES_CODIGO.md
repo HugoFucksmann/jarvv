@@ -22,10 +22,10 @@ Todo lo que se cierra **programando** o con una **decisión de producto o de seg
 
 ## 1. Guard de `Host` y tests que fallan
 
-- **Guard de `Host` desactivado.** En [`src/server/localOnly.ts`](../../src/server/localOnly.ts) el chequeo de `Host` está comentado por compatibilidad con el proxy de AI Studio Build. Mientras esté así, un sitio web puede llegar a la API local con un dominio que resuelve a `127.0.0.1` (DNS rebinding), y esa API ejecuta comandos en la PC sin autenticación. El servidor ya no arranca si `HOST` no es loopback, pero eso no frena el rebinding. **Decisión:** restaurar el guard (y perder esa compatibilidad) o dejarlo así y cambiar el test para que lo refleje.
+- **Guard de `Host` desactivado.** En [`src/server/localOnly.ts`](../../src/server/localOnly.ts) el chequeo de `Host` está comentado por compatibilidad con el proxy de AI Studio Build. Mientras esté así, un sitio web puede llegar a la API local con un dominio que resuelve a `127.0.0.1` (DNS rebinding), y esa API ejecuta comandos en la PC sin autenticación. Hoy tampoco rigen la validación de loopback del arranque ni el middleware `localOnly` (están comentados en `server.tsx` y `HOST` es `0.0.0.0` por defecto): el proyecto se corre así a propósito en otros entornos durante el desarrollo. **Decisión:** restaurar el guard (y perder esa compatibilidad) o dejarlo así y cambiar el test para que lo refleje.
 - **Tests que ya fallaban antes del refactor de refs:**
   - `tests/http.test.ts:86` («Host local… DNS rebinding»): responde 200 en vez de 403. Es la consecuencia de lo anterior.
-  - `tests/run_command.test.ts:522`: el test espera `data.exitCode` al continuar un proceso ya terminado, pero el código no lo incluye a propósito (el código de salida queda en el texto, para no registrar un segundo `tool_error`). El test está desactualizado; se decidió dejarlo.
+  - ~~`tests/run_command.test.ts:522`~~ **Resuelto:** el test ahora comprueba que `data.exitCode` no está (a propósito: el código de salida queda en el texto, para no registrar un segundo `tool_error`) y que el texto lo dice.
 
 ## 2. Memoria del usuario
 

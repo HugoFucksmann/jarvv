@@ -90,7 +90,7 @@ export function completionInput(ctx: TaskContext): CompletionDecisionInput {
 }
 
 /**
- * Entrada de la decisión «recovery» (todavía solo la usa el eval): la vista de `forPending` con la lista de la vuelta (el ítem fallido de primero) y lo que se sabe del
+ * Entrada de la decisión «recovery» (la usan el modo sombra, `recoveryShadow.ts`, y el eval): la vista de `forPending` con la lista de la vuelta (el ítem fallido de primero) y lo que se sabe del
  * fallo (la causa y cuántos pasos fallidos lleva el ítem).
  */
 export function recoveryInput(ctx: TaskContext, previous: readonly string[], cause: StepFailureCause | null, attempts: number): RecoveryDecisionInput {

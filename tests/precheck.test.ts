@@ -26,6 +26,19 @@ test("marcadores de posición se rechazan, pero no dentro de un texto que se esc
   assert.equal(await precheckCall(input({ tool: "write_file", kind: "write", args: { path: "C:\\Users\\Ana\\Documents\\n.txt", content: "usar <usuario> aquí" } }), noAnalyzer), null);
 });
 
+test("`TODO` solo es un marcador en mayúsculas y suelto: `todo` en español, en una URL o en `TODO.md` es un valor real", async () => {
+  const url = "https://felloai.com/es/todo-lo-que-sabemos-sobre-google-gemini-4";
+  const known = { text: normalizeText(`${url} C:\\Users\\Ana\\Documents\\TODO.md`), complete: true };
+  assert.equal(await precheckCall(input({ tool: "fetch", args: { url }, sources: known }), noAnalyzer), null, "una URL con `todo` en el nombre no es un marcador");
+  assert.equal(await precheckCall(input({ tool: "read_file", args: { path: "C:\\Users\\Ana\\Documents\\TODO.md" }, sources: known }), noAnalyzer), null, "`TODO.md` es un archivo");
+  for (const value of ["TODO", "C:\\Users\\TODO\\a.txt", "https://sitio.com/TODO"]) {
+    const key = value.startsWith("http") ? "url" : "path";
+    const found = await precheckCall(input({ tool: key === "url" ? "fetch" : "read_file", args: { [key]: value } }), noAnalyzer);
+    assert.equal(found?.review, "args_invalid", `${value} sí es un marcador`);
+    assert.match(found?.reason ?? "", /placeholder/, `${value}: rechazado por la regla de marcadores, no por otra`);
+  }
+});
+
 test("una ruta bajo la carpeta de otro usuario se rechaza; las carpetas del sistema no", async () => {
   const other = await precheckCall(input({ tool: "read_file", args: { path: "C:\\Users\\Pedro\\Documents\\informe.txt" } }), noAnalyzer);
   assert.equal(other?.review, "args_invalid");

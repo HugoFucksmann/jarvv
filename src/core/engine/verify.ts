@@ -92,7 +92,7 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
   const view = verifyInput(ctx.view.forVerify(callId));
   // Una lectura determinista con contenido (listado, archivo, procesos) ya tiene `ok` resuelto: el modelo solo juzga si cumple lo pedido.
   const input = codeAnswersOk(call.tool, call.status, call.summary) ? { ...view, known: { ok: 1 } } : view;
-  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), 0, pauseOf(env, "decision"));
+  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), pauseOf(env, "decision"));
 
   if (!query.ok) {
     const closure = closeOnFailure(env, call.stepId, query.failure, query.error);
