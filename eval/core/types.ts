@@ -195,14 +195,14 @@ export interface D5Output {
 
 // recovery (qué hacer cuando falla el paso de un ítem de la lista reactiva; `src/core/contracts.ts`, todavía no integrada en el motor)
 export interface RecoveryExpect {
-  expectedAction: "close" | "skip_continue" | "rewrite_item" | "replan";
+  expectedAction: "close" | "rewrite_item" | "replan";
   /** Probabilidad mínima de la acción esperada. */
   minProbability?: number;
   /** Preguntas secundarias; `independent` (`noul`) mide la dependencia de los ítems de atrás. */
   answers?: AnswerExpects;
 }
 export interface RecoveryOutput {
-  action: "close" | "skip_continue" | "rewrite_item" | "replan";
+  action: "close" | "rewrite_item" | "replan";
   /** Probabilidades de la pregunta `action`. */
   probabilities: Record<string, number>;
 }

@@ -103,6 +103,11 @@ export interface JarvisConfig {
   reviewReads: boolean;
   completionCoverageGuard: boolean;
   /**
+   * Modo sombra de la recuperación tras un paso fallido (`engine/recoveryShadow.ts`): tras cada fallo del reactivo calcula qué haría y lo registra en la traza SIN actuar. No cambia
+   * lo que hace Jarvis; agrega una consulta a Decisión por fallo cuando las reglas no deciden. Se lee en cada fallo. Encendido por defecto: es el instrumento para medir `recovery` con tareas reales.
+   */
+  recoveryShadow: boolean;
+  /**
    * `web_search`: puntuar los fragmentos con el modelo de decisión (2B). Apagado, el estado y los fragmentos salen solo del orden léxico (BM25). Se lee en cada llamada.
    * Empieza encendido: en la evaluación (scripts/validate/web_eval/RESULTADOS.md) sin el modelo la tool responde algo en 4 de 5 preguntas sin respuesta; con él, en 1 de 5.
    */
@@ -215,6 +220,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   reviewFullView: false,
   reviewReads: false,
   completionCoverageGuard: false,
+  recoveryShadow: true,
   webSearchUseJudge: true,
   voiceEnabled: false,
   telegramVoice: false,
@@ -337,6 +343,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     reviewFullView: typeof r.reviewFullView === "boolean" ? r.reviewFullView : d.reviewFullView,
     reviewReads: typeof r.reviewReads === "boolean" ? r.reviewReads : d.reviewReads,
     completionCoverageGuard: typeof r.completionCoverageGuard === "boolean" ? r.completionCoverageGuard : d.completionCoverageGuard,
+    recoveryShadow: typeof r.recoveryShadow === "boolean" ? r.recoveryShadow : d.recoveryShadow,
     webSearchUseJudge: typeof r.webSearchUseJudge === "boolean" ? r.webSearchUseJudge : d.webSearchUseJudge,
     voiceEnabled: typeof r.voiceEnabled === "boolean" ? r.voiceEnabled : d.voiceEnabled,
     telegramVoice: typeof r.telegramVoice === "boolean" ? r.telegramVoice : d.telegramVoice,

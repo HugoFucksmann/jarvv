@@ -373,6 +373,8 @@ export interface JarvisConfig {
   reviewFullView?: boolean;
   reviewReads?: boolean;
   completionCoverageGuard?: boolean;
+  /** Modo sombra de la recuperación tras un paso fallido: registra qué haría en la traza, sin actuar. */
+  recoveryShadow?: boolean;
   webSearchUseJudge?: boolean;
   voiceEnabled?: boolean;
   telegramVoice?: boolean;

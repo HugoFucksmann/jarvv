@@ -5,19 +5,24 @@
  * punto 6): el prompt base («prod») es `DECISION_PROMPTS.buildRecovery`, escrito en `src/` sin conectarlo al flujo, para medir cómo responde el modelo de decisión
  * antes de integrarla.
  *
- * Evalúa `buildRecovery(recoveryInput(ctx, previous, cause, attempts))`. Pregunta principal `action` (`choice`: close, skip_continue, rewrite_item, replan); la
- * pregunta `independent` (`noul`) se mide con `expect.answers.independent`.
+ * Evalúa `buildRecovery(recoveryInput(ctx, previous, cause, attempts))`. Pregunta principal `action` (`choice`: close, rewrite_item, replan; no hay `skip_continue`). Una variante puede no traer
+ * `action` y usar en su lugar dos `noul` (`blocked`, `prereq`) que esta etapa combina (ver `parseOutput`). Las reglas deterministas de `src/core/engine/recoveryRules.ts` no pasan por
+ * acá: se miden contra los resultados guardados (`eval/GUIA_DECISION.md`, sección 5).
  */
 
 import { recoveryInput } from "../../../src/core/engine/adapters.ts";
 import type { StepFailureCause } from "../../../src/core/engine/outcomes.ts";
-import { RECOVERY_ACTIONS, RECOVERY_INDEPENDENT_KEY, RECOVERY_KEY, STEP_FAILURE_CAUSES } from "../contract.ts";
+import { RECOVERY_ACTIONS, RECOVERY_KEY, STEP_FAILURE_CAUSES } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { RecoveryLabelGrader } from "../graders/label.ts";
 import type { ChoiceQ, DecisionRequest, NoulQ, RecoveryExpect, RecoveryOutput } from "../types.ts";
-import { DecisionParseError, mainChoice, parseAnswers } from "../variants/labels.ts";
+import { DecisionParseError, extractNoul, mainChoice, parseAnswers } from "../variants/labels.ts";
 import type { DecisionStageEntry } from "./index.ts";
 import { checkRange01 } from "./shared.ts";
+
+/** Claves de las dos preguntas `noul` de la variante por ejes (`recovery_two_axes`). */
+const AXIS_BLOCKED_KEY = "blocked";
+const AXIS_PREREQ_KEY = "prereq";
 
 const isAction = (v: string): v is RecoveryOutput["action"] => (RECOVERY_ACTIONS as readonly string[]).includes(v);
 
@@ -49,7 +54,21 @@ export const recoveryStage: DecisionStageEntry<RecoveryOutput, RecoveryExpect> =
     return h.decision(h.effectivePrompts(ov).D.buildRecovery(recoveryInput(ctx, previous, cause, attempts)));
   },
   parseOutput(rawOutput: string, sentReq: DecisionRequest): RecoveryOutput {
-    const { choice, probabilities } = mainChoice("recovery", RECOVERY_KEY, parseAnswers(rawOutput), sentReq);
+    const answers = parseAnswers(rawOutput);
+    const questions = sentReq.questions;
+    let choice: string;
+    let probabilities: Record<string, number>;
+    if (questions[RECOVERY_KEY] !== undefined) {
+      ({ choice, probabilities } = mainChoice("recovery", RECOVERY_KEY, answers, sentReq));
+    } else if (questions[AXIS_BLOCKED_KEY] !== undefined && questions[AXIS_PREREQ_KEY] !== undefined) {
+      // Variante por ejes (dos `noul`): bloqueado >= 0,5 → close; si no, falta un prerrequisito >= 0,5 → replan; si no, rewrite_item.
+      const blocked = extractNoul(answers, AXIS_BLOCKED_KEY);
+      const prereq = extractNoul(answers, AXIS_PREREQ_KEY);
+      choice = blocked >= 0.5 ? "close" : prereq >= 0.5 ? "replan" : "rewrite_item";
+      probabilities = { close: blocked, replan: (1 - blocked) * prereq, rewrite_item: (1 - blocked) * (1 - prereq) };
+    } else {
+      throw new DecisionParseError("La variante de 'recovery' no trae la pregunta 'action' ni los ejes 'blocked' y 'prereq'.");
+    }
     if (isAction(choice)) return { action: choice, probabilities };
     throw new DecisionParseError(`La acción '${choice}' no es válida (${RECOVERY_ACTIONS.join("|")}).`);
   },
@@ -63,8 +82,6 @@ export const recoveryStage: DecisionStageEntry<RecoveryOutput, RecoveryExpect> =
     return req.questions[RECOVERY_KEY] === undefined ? [] : [{ question: RECOVERY_KEY, expected: canonicalExpected }];
   },
   oracleAnswer(key, q: ChoiceQ | NoulQ, expect) {
-    if (q.type === "choice") return key === RECOVERY_KEY ? expect.expectedAction : undefined;
-    // `independent`: salvo que el caso diga otra cosa en `expect.answers`, solo `skip_continue` supone que los ítems de atrás son independientes.
-    return key === RECOVERY_INDEPENDENT_KEY ? expect.expectedAction === "skip_continue" : undefined;
+    return q.type === "choice" && key === RECOVERY_KEY ? expect.expectedAction : undefined;
   },
 };

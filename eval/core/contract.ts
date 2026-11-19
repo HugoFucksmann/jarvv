@@ -19,7 +19,7 @@ export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/
 export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvider.ts";
 export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";
 export { NOUL_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
-export { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_INDEPENDENT_KEY, RECOVERY_KEY } from "../../src/core/contracts.ts";
+export { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY } from "../../src/core/contracts.ts";
 export { STEP_FAILURE_CAUSES } from "../../src/core/engine/outcomes.ts";
 export { estimateTokens } from "../../src/core/models/transport.ts";
 export { retryNote } from "../../src/core/models/prompts.ts";

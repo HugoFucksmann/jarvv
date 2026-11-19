@@ -3,7 +3,7 @@
  * `trace/`) y el laboratorio de evaluación usan estos ids; agregar una etapa es agregarla aquí y clasificarla en `STAGE_KIND`.
  */
 
-export const STAGES = ["probe", "continuation", "first_query", "route", "tool", "review", "verify", "completion", "args", "question", "plan", "final", "pending"] as const;
+export const STAGES = ["probe", "continuation", "first_query", "route", "tool", "review", "verify", "completion", "recovery", "args", "question", "plan", "final", "pending"] as const;
 export type StageId = (typeof STAGES)[number];
 
 /** Qué modelo corre cada etapa: el de decisión (d3) o el generativo (LLM). `satisfies` obliga a clasificar toda etapa. */
@@ -16,6 +16,7 @@ export const STAGE_KIND = {
   review: "decision",
   verify: "decision",
   completion: "decision",
+  recovery: "decision",
   args: "generative",
   question: "generative",
   plan: "generative",

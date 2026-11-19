@@ -12,7 +12,7 @@ import {
   type DecisionQuestionNoul,
   type MCPTool,
 } from "../types.ts";
-import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_INDEPENDENT_KEY, RECOVERY_KEY } from "../contracts.ts";
+import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_KEY } from "../contracts.ts";
 import type { ContinuationInput, FirstQueryInput, PreviousTask } from "../contracts.ts";
 import { threadBlock } from "../engine/thread.ts";
 import type { ArgsReview, CompletionDecisionInput, RecoveryDecisionInput, DecisionAttempt, DecisionFrame, ReviewDecisionInput, RouteDecisionInput, ToolDecisionInput, VerifyCheckKey, VerifyDecisionInput } from "../contracts.ts";
@@ -22,18 +22,6 @@ import { clip, clipTail } from "../utils.ts";
 
 const MAX_ENV_CHARS = 800;
 const MAX_ERROR_NOTE_CHARS = 300;
-
-/** Por qué falló un paso, en palabras para el modelo de decisión («recovery»). Indexado por `StepFailureCause`. */
-export const RECOVERY_CAUSE_NOTES: Readonly<Record<string, string>> = {
-  tool_failed: "the tool returned an error",
-  verify_rejected: "the call ran but its result did not accomplish the item",
-  review_rejected: "the arguments were rejected as invalid before running",
-  call_cap: "too many calls without success",
-  repeat_blocked: "the same call was repeated",
-  user_rejected: "the user refused the operation",
-  denied: "the security policy denied the operation",
-  no_tools: "no tool was available for it",
-};
 
 // Los helpers y las tablas de abajo se exportan para que un archivo de prompts del eval (variante con `prompts`) los reutilice.
 /**
@@ -478,38 +466,25 @@ Does the PASSAGE contain information that answers the QUESTION?`,
    * opciones: ver `RECOVERY_ACTIONS`) e `independent` (`noul`: ¿los ítems de atrás pueden hacerse sin el resultado del fallido?).
    */
   buildRecovery(data: RecoveryDecisionInput): DecisionInput {
-    const behind = data.behind.length > 0 ? data.behind.map((item, i) => `${i + 1}) ${safe(item)}`).join(" ") : "none";
-    const cause = data.cause === null ? "unknown" : (RECOVERY_CAUSE_NOTES[data.cause] ?? data.cause);
+    const cause = data.cause === null ? "unknown" : data.cause;
     const failedBlock = [
       "### THE STEP THAT JUST FAILED",
       `Item: ${safe(data.failed)}`,
       `Why it failed: ${cause}`,
-      `Failed steps on this item so far: ${data.attempts}`,
-      `Items after it: ${behind}`,
+      `Attempts so far: ${data.attempts}`,
+      "Items after it: none",
     ].join("\n");
     return {
       state: `${PROMPTS.PENDING_VIEW.buildUserPrompt({ view: data.view })}\n\n${failedBlock}`,
       questions: {
         [RECOVERY_KEY]: {
           type: "choice",
-          instructions: "The step for the item that just failed did not work. Pick what to do next.",
+          instructions: "Choose the recovery action based on the failure reason, attempts count, and pending items:",
           criteria: {
-            rewrite_item:
-              "The goal is still valid and the failure looks fixable (a wrong or missing argument, a wrong format, a typo, another wording or another approach). Try the same goal again; the items after it stay as they are.",
-            replan:
-              "The failure shows that something the plan assumed is missing or wrong (for example a folder or file that must be created or found first). What remains must be rebuilt.",
-            skip_continue:
-              "The failed item cannot be fixed, but none of the items after it needs its result. Leave it and continue with them.",
+            rewrite_item: "First attempt (1 attempt) with a fixable command, parameter, format, or typo on this step. Retry.",
+            replan: "A prerequisite step or dependency is missing first (install package, create folder, free port, convert format). Rebuild plan.",
             close:
-              "The failed item cannot be fixed (or the user or the security policy refused it) and the task cannot go on without it, or there is nothing left to do.",
-          },
-        },
-        [RECOVERY_INDEPENDENT_KEY]: {
-          type: "noul",
-          instructions: "Can every item after the failed one be done without the result of the failed item?",
-          criteria: {
-            true: "None of the items after it needs the failed item's result, or there are no items after it.",
-            false: "At least one of the items after it needs what the failed item was supposed to produce.",
+              "The item cannot be completed (persistent error, blocked, denied, application does not exist, tests fail, or 2+ attempts), or no items remain. Stop.",
           },
         },
       },

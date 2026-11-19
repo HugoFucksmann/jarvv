@@ -82,6 +82,8 @@ interface Scenario {
   readonly follows?: number;
   /** La consulta de continuación falla (`"unavailable"` cierra la tarea; `"invalid"`/`"overflow"` siguen sin hilo). */
   readonly continuationFails?: FailKind;
+  /** Modo sombra de `recovery` encendido (`recoveryShadow`); `choose` = lo que responde el doble de Decisión (`"fail"` = el servicio falla; sin él, el doble no implementa `chooseRecovery`). */
+  readonly shadow?: { readonly choose?: "close" | "rewrite_item" | "replan" | "fail" };
 }
 
 type FailKind = "unavailable" | "invalid" | "overflow";
@@ -106,6 +108,9 @@ interface Outcome {
   readonly finalViews: string[];
   /** El texto que recibió el LLM en cada generación de argumentos (la memoria y el hilo llegan como bloque `MEMORY`). */
   readonly argViews: string[];
+  /** Eventos `recovery` que llegaron al receptor de la traza y consultas del modo sombra a Decisión. */
+  readonly shadowEvents: { readonly stage: string; readonly input: string | null; readonly output: string | null; readonly error: string | null }[];
+  readonly shadowQueries: number;
 }
 
 async function run(s: Scenario): Promise<Outcome> {
@@ -119,6 +124,8 @@ async function run(s: Scenario): Promise<Outcome> {
   const threads = { pending: [] as unknown[], final: [] as unknown[], memory: [] as unknown[] };
   const finalViews: string[] = [];
   const argViews: string[] = [];
+  const shadowEvents: { stage: string; input: string | null; output: string | null; error: string | null }[] = [];
+  let shadowQueries = 0;
 
   const ended: string[] = [];
   let generated = 0;
@@ -176,6 +183,15 @@ async function run(s: Scenario): Promise<Outcome> {
               return { follows: s.follows as number, rawInput: "", rawOutput: "" };
             },
           }),
+      ...(s.shadow?.choose === undefined
+        ? {}
+        : {
+            chooseRecovery: async () => {
+              shadowQueries++;
+              if (s.shadow?.choose === "fail") throw decisionFailure("unavailable");
+              return { action: s.shadow?.choose as "close" | "rewrite_item" | "replan", probabilities: {}, rawInput: "entrada de recovery", rawOutput: "salida de recovery" };
+            },
+          }),
       checkCompletion: async () => {
         completionChecks++;
         if (s.completionFails !== undefined && s.completionFails !== false) throw decisionFailure(s.completionFails === true ? "unavailable" : s.completionFails);
@@ -200,6 +216,7 @@ async function run(s: Scenario): Promise<Outcome> {
     approvalTiers: () => s.tiers ?? false,
     completionCoverageGuard: () => s.coverageGuard ?? false,
     previousTask: s.previous ?? null,
+    ...(s.shadow === undefined ? {} : { recoveryShadow: () => true, sink: { llm: (e) => void (e.stage === "recovery" && shadowEvents.push({ stage: e.stage, input: e.input, output: e.output, error: e.error })), tool: () => undefined } }),
   };
 
   // Con D0 el paso recibe `ctx.task.request` (no la lista del doble de `pending`): la tarea nace con la solicitud del escenario.
@@ -212,7 +229,7 @@ async function run(s: Scenario): Promise<Outcome> {
   runtime = new TaskRuntime({ onChange: (waiting) => waiting !== null && s.onWait !== undefined && queueMicrotask(() => s.onWait!(waiting, runtime)) });
   await runTask(ctx, runtime, deps);
   fs.rmSync(dir, { recursive: true, force: true });
-  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads, finalViews, argViews };
+  return { ctx, dispatched, reviews, ended, pendingQueries, completionChecks, threads, finalViews, argViews, shadowEvents, shadowQueries };
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
@@ -1197,4 +1214,77 @@ test("C: el reintento idéntico es uno solo: si también falla por errores de la
   assert.deepEqual(ctx.find("steps", {}).map((s) => s.state), ["failed", "failed"], "el paso y su único reintento idéntico");
   assert.equal(ctx.task.stopReason, "no_alternatives");
   assert.equal(ctx.task.state, "failed", "sin efectos ni llamadas aprobadas");
+});
+
+// ───────────────────────── Recuperación en modo sombra (`recoveryShadow`) ─────────────────────────
+
+const EBUSY = { content: [{ type: "text" as const, text: "EBUSY: resource busy" }], isError: true };
+const failingList = { request: DOCS, tool: "list_directory", args: LIST, resultFor: () => EBUSY, pendingAlways: true } as const;
+const shapeOf = (o: Outcome) => ({
+  state: o.ctx.task.state,
+  stop: o.ctx.task.stopReason,
+  dispatched: o.dispatched.length,
+  pending: o.pendingQueries,
+  steps: o.ctx.find("steps", {}).map((st) => st.state),
+  calls: o.ctx.find("calls", {}).map((c) => c.status),
+});
+
+test("modo sombra: registra qué haría `recovery` tras el paso fallido y NO cambia nada de lo que hace el motor", async () => {
+  const off = await run({ ...failingList });
+  const on = await run({ ...failingList, shadow: { choose: "rewrite_item" } });
+  assert.deepEqual(shapeOf(on), shapeOf(off), "con el modo sombra la tarea hace exactamente lo mismo");
+  assert.equal(off.shadowEvents.length, 0, "apagado no registra nada");
+  assert.ok(on.shadowEvents.length >= 1, "encendido registra al menos una evaluación");
+  const event = on.shadowEvents[0];
+  assert.equal(event.stage, "recovery");
+  const record = JSON.parse(event.output ?? "null");
+  assert.equal(record.cause, "tool_failed");
+  assert.equal(record.attempts, 1, "pasos fallidos seguidos, no llamadas");
+  assert.equal(record.callsInStep, 2, "el paso falló tras dos errores de la herramienta");
+  assert.equal(record.rule, null, "EBUSY con un solo paso fallido: las reglas no deciden");
+  assert.equal(record.model, "rewrite_item");
+  assert.equal(record.final, "rewrite_item");
+  assert.equal(record.source, "model");
+  assert.equal(record.ruleIfCalls, "close", "contando llamadas, un recurso bloqueado dos veces es una parada dura");
+  assert.equal(event.input, "entrada de recovery", "queda la entrada cruda enviada a Decisión");
+  // El segundo fallo del mismo ítem (2 pasos fallidos seguidos, otra vez un recurso bloqueado) ya lo cierra una regla: no consulta a Decisión.
+  assert.equal(on.shadowEvents.length, 2);
+  const second = JSON.parse(on.shadowEvents[1].output ?? "null");
+  assert.equal(second.attempts, 2);
+  assert.equal(second.rule, "close");
+  assert.equal(second.source, "rule");
+  assert.equal(on.shadowEvents[1].input, null, "decidió una regla: no hubo entrada a Decisión");
+  assert.equal(on.shadowQueries, 1, "solo el primer fallo llegó al modelo");
+});
+
+test("modo sombra: si una regla decide, no consulta a Decisión", async () => {
+  const { shadowEvents, shadowQueries } = await run({
+    ...failingList,
+    resultFor: () => ({ content: [{ type: "text", text: "Error: listen EADDRINUSE: address already in use :::3000" }], isError: true }),
+    shadow: { choose: "close" },
+  });
+  const record = JSON.parse(shadowEvents[0].output ?? "null");
+  assert.equal(record.rule, "replan");
+  assert.equal(record.final, "replan");
+  assert.equal(record.source, "rule");
+  assert.equal(record.model, null);
+  assert.equal(shadowQueries, 0);
+});
+
+test("modo sombra: si Decisión falla, se registra el error y la tarea sigue igual (sin pausas ni cierre)", async () => {
+  const off = await run({ ...failingList });
+  const on = await run({ ...failingList, shadow: { choose: "fail" } });
+  assert.deepEqual(shapeOf(on), shapeOf(off));
+  assert.ok(on.shadowEvents.length >= 1);
+  assert.match(on.shadowEvents[0].error ?? "", /Decisión caída/);
+  const record = JSON.parse(on.shadowEvents[0].output ?? "null");
+  assert.equal(record.source, "none");
+  assert.equal(record.final, null);
+});
+
+test("modo sombra: sin `chooseRecovery` en Decisión solo corren las reglas", async () => {
+  const { shadowEvents } = await run({ ...failingList, shadow: {} });
+  const record = JSON.parse(shadowEvents[0].output ?? "null");
+  assert.equal(record.model, null);
+  assert.equal(record.source, "none");
 });

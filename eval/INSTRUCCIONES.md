@@ -35,7 +35,7 @@ Atajos de `package.json`:
 | Decisión | `result_verification` | Veredictos `ok` y `cumple` |
 | Decisión | `fragment_judge` | Por cada fragmento de `web_search`, si responde la pregunta (probabilidad `>= JUDGE_FOUND`, 0.6) |
 | Decisión | `d5` | Cierre del reactivo con lista vacía: si `DONE` cumple todo `REQUEST` (`COMPLETION_APPROVE` = 0.75) |
-| Decisión | `recovery` | Qué hacer cuando falla el paso de un ítem de la lista reactiva: `close`, `skip_continue`, `rewrite_item` o `replan`, y si los ítems de atrás son independientes. **No existe en el motor todavía** (`prod` es `DECISION_PROMPTS.buildRecovery`, sin conectar al flujo) |
+| Decisión | `recovery` | Qué hacer cuando falla el paso de un ítem de la lista reactiva: `close`, `rewrite_item` o `replan` (sin `skip_continue`). En el motor corre solo en **modo sombra** (`recoveryShadow`: registra en la traza, no actúa); `prod` es `DECISION_PROMPTS.buildRecovery` |
 | Generativa | `plan` | Cantidad de pasos, rutas permitidas y requeridas, palabras clave |
 | Generativa | `arguments` | Campos requeridos, valores exactos, valores prohibidos |
 | Generativa | `final` | Datos y efectos que debe mencionar, alucinaciones prohibidas |
@@ -189,10 +189,10 @@ Solo modo `reactive`, con el contexto en condiciones de cerrar (`ctx.canFinish()
 ### Etapa `recovery` (qué hacer tras un paso fallido)
 
 ```json
-{"id":"rec-rp-01","stage":"recovery","scenario":{"mode":"reactive","request":"...","steps":[{"instruction":"...","state":"failed"}],"calls":[{"route":"files","tool":"write_file","kind":"write","status":"tool_error","summary":"Error: ENOENT...","verdict":"rejected","reason":"no_usable_data"}],"at":{"previous":["<ítem fallido>","<ítem de atrás>"],"cause":"tool_failed","attempts":1}},"expect":{"expectedAction":"replan","answers":{"independent":{"yes":false}}}}
+{"id":"rec-rp-01","stage":"recovery","scenario":{"mode":"reactive","request":"...","steps":[{"instruction":"...","state":"failed"}],"calls":[{"route":"files","tool":"write_file","kind":"write","status":"tool_error","summary":"Error: ENOENT...","verdict":"rejected","reason":"no_usable_data"}],"at":{"previous":["<ítem fallido>","<ítem de atrás>"],"cause":"tool_failed","attempts":1}},"expect":{"expectedAction":"replan"}}
 ```
 
-Solo modo `reactive`, con un paso `failed`. `at.previous` es la lista de la vuelta con el ítem fallido de primero; `at.cause`, la causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`); `at.attempts`, los pasos fallidos del ítem (≥ 1). `expect.expectedAction` es `close`, `skip_continue`, `rewrite_item` o `replan`; `expect.answers.independent` mide la pregunta de dependencia. Construye el request con `recoveryInput(ctx, previous, cause, attempts)` y `DECISION_PROMPTS.buildRecovery`. Con temperatura 0, repetir (`--repeat`) no aporta nada. La regla de etiquetado y los ids están en `eval/datasets/recovery/README.md`.
+Solo modo `reactive`, con un paso `failed`. `at.previous` es la lista de la vuelta con el ítem fallido de primero; `at.cause`, la causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`); `at.attempts`, los pasos fallidos del ítem (≥ 1). `expect.expectedAction` es `close`, `rewrite_item` o `replan`. Construye el request con `recoveryInput(ctx, previous, cause, attempts)` y `DECISION_PROMPTS.buildRecovery`. Con temperatura 0, repetir (`--repeat`) no aporta nada. La regla de etiquetado y los ids están en `eval/datasets/recovery/README.md`.
 
 ### Etapa `fragment_judge` y cómo sumar una etapa nueva
 El caso de `fragment_judge` trae solo la necesidad y los fragmentos (`at.fragments`, de 1 a 5 fragmentos `JUDGE_BATCH`, y `expectedRelevant` en orden):

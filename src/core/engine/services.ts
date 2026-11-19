@@ -31,6 +31,8 @@ export interface EngineServices {
   readonly approvalTiers?: () => boolean;
   readonly reviewReads?: () => boolean;
   readonly completionCoverageGuard?: () => boolean;
+  /** Modo sombra de `recovery` (config `recoveryShadow`, leída en cada fallo): registra qué haría, no actúa. */
+  readonly recoveryShadow?: () => boolean;
   /** Override de plazo (ms) por herramienta desde la configuración, leído en cada llamada. */
   readonly toolTimeoutMs?: (server: string, tool: string) => number | undefined;
   /** Carpeta de trabajo de las herramientas de archivos (`desktopCommanderMcp.cwd`, o la del proceso). */
@@ -95,6 +97,7 @@ export function createEngineServices(getConfig: ConfigSource, options: EngineSer
     approvalTiers: () => getConfig().approvalTiers,
     reviewReads: () => getConfig().reviewReads,
     completionCoverageGuard: () => getConfig().completionCoverageGuard,
+    recoveryShadow: () => getConfig().recoveryShadow,
     toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
     toolBaseDir: () => getConfig().desktopCommanderMcp.cwd ?? process.cwd(),
     allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],

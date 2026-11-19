@@ -1,81 +1,67 @@
 # Dataset `recovery`
 
-Casos de la etapa `recovery`: **qué hacer cuando falla el paso de un ítem de la lista del modo reactivo.** Es una consulta al modelo de decisión que **todavía no existe en el motor**: se evalúa aquí primero, para ver cómo responde, antes de integrarla. El diseño completo está en [`docs/pendientes/PENDIENTES_CODIGO.md`](../../../docs/pendientes/PENDIENTES_CODIGO.md), §9.1, punto 6 («Idea acordada»).
+Casos de la etapa `recovery`: **qué hacer cuando falla el paso de un ítem de la lista del modo reactivo.** En el motor corre solo en **modo sombra** (`src/core/engine/recoveryShadow.ts`, config `recoveryShadow`): registra qué haría y no actúa. El diseño está en [`docs/pendientes/PENDIENTES_CODIGO.md`](../../../docs/pendientes/PENDIENTES_CODIGO.md), §9.1, punto 6; los resultados, los descartes y cómo leer las trazas, en [`eval/GUIA_DECISION.md`](../../GUIA_DECISION.md) (sección 5).
 
-El prompt base (`prod`) es `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts`, escrito sin conectarlo al flujo. Las variantes de esta etapa viven en `eval/variants/recovery/`.
+El prompt de producción (`prod`) es `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts`. Las variantes viven en `eval/variants/recovery/`; las de la época de cuatro opciones están archivadas en `eval/variants/_archivo_recovery_4_opciones/` (no se pueden correr).
 
 ## Cómo correrlo
 
 ```bash
-npm run eval -- --client=oracle --dataset=eval/datasets/recovery --stages=recovery        # valida casos y graders: debe dar 100 %
-npm run eval -- --dataset=eval/datasets/recovery --stages=recovery                        # modelo real (d3:2b-text), baseline prod
-npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --variant=prod,recovery_neutral_labels
-npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --ids=rec-rp-02 --dry-run --client=mock   # ver el prompt de un caso
+npm run eval -- --client=oracle --dataset=eval/datasets/recovery --stages=recovery            # valida casos y graders: debe dar 100 %
+npm run eval -- --dataset=eval/datasets/recovery --stages=recovery                            # modelo real (d3:2b-text), baseline prod
+npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --variant=prod,recovery_two_axes
+npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --ids=n1-rp-04 --dry-run --client=mock   # ver el prompt de un caso
 ```
 
-El modelo de decisión trabaja con temperatura 0: **repetir la corrida (`--repeat`) no aporta nada**. Lo que cambia los resultados es la variante de prompt y el tamaño del dataset. `--client=oracle` solo vale con `prod`.
+El modelo de decisión trabaja con temperatura 0: **repetir la corrida (`--repeat`) no aporta nada**. `--client=oracle` solo vale con `prod`. La carpeta se pasa completa; para un solo archivo, `--dataset=eval/datasets/recovery/recovery_n4.jsonl`.
 
 ## Qué decide la consulta
 
-Dos preguntas en el mismo request:
-
-| Pregunta | Tipo | Qué dice |
-|---|---|---|
-| `action` (principal) | `choice` | Una de cuatro acciones: `close`, `skip_continue`, `rewrite_item`, `replan` |
-| `independent` | `noul` | ¿Los ítems de atrás pueden hacerse sin el resultado del fallido? (se mide con `expect.answers.independent`) |
+Una pregunta `action` (`choice`) con tres opciones: `rewrite_item` (el fallo se arregla reintentando el ítem), `replan` (falta un prerrequisito: hay que rehacer lo que queda) y `close` (no tiene arreglo o el usuario o la política lo rechazaron). **No hay `skip_continue`**: un ítem existe porque el pedido lo necesita, y si no se puede hacer lo honesto y seguro es cerrar. Los casos que antes eran `skip_continue` se reetiquetaron a `close` (conservan el tag `was_skip_continue`).
 
 ## Regla de etiquetado
 
-Para etiquetar un caso se sigue este orden. Es una regla de trabajo para tener etiquetas consistentes, no una verdad: **hay que revisarla con una persona**, y los casos que no encajan limpiamente van como `isRaw: true` con el tag `borderline`.
+Es una regla de trabajo para tener etiquetas consistentes, no una verdad: **hay que revisarla con una persona**, y los casos que no encajan limpiamente van como `isRaw: true` con el tag `borderline`.
 
-1. **¿El objetivo sigue siendo válido y el fallo parece corregible?** (un argumento mal puesto o faltante, un formato, un typo, otra redacción u otro enfoque) → `rewrite_item`. Vale aunque los ítems de atrás sean independientes: primero se intenta arreglar. Suele ser el primer o segundo fallo de un ítem.
-2. **¿El fallo muestra que el plan supone algo que falta o está mal?** (una carpeta o un archivo que hay que crear o ubicar antes; el pedido dice que existe pero no está donde se lo busca) → `replan`.
-3. **Si no tiene arreglo** (la red caída tras dos intentos, no hay permiso, la aplicación no existe, los tests del proyecto fallan de verdad):
-   - todos los ítems de atrás son independientes → `skip_continue`;
-   - algún ítem de atrás depende del resultado, **o no hay ítems detrás** → `close`.
-4. **El usuario o la política de seguridad rechazaron la operación**, y no hay otra forma de hacerlo → `close`. (Si hubiera ítems independientes detrás, la regla da `skip_continue`; es discutible y está como `rec-bd-01`, borderline.)
+1. **¿El objetivo sigue siendo válido y el fallo parece corregible?** (un argumento mal puesto o faltante, un formato, un tipeo, otra redacción u otro enfoque, un comando de otra shell que se reescribe) → `rewrite_item`.
+2. **¿El fallo muestra que el plan supone algo que falta?** (la carpeta destino no existe, un programa de desarrollo no está instalado, un puerto ocupado, un formato no soportado, el archivo está en otra carpeta) → `replan`.
+3. **Si no tiene arreglo** (la red caída tras dos intentos, no hay permiso, la aplicación de escritorio no existe, los tests o la compilación del proyecto fallan de verdad, disco lleno, archivo corrupto) → `close`.
+4. **El usuario o la política de seguridad rechazaron la operación** → `close`.
 
-`at.attempts` (pasos fallidos del ítem hasta ahora) pesa en la regla 1: con un solo intento y un error que parece transitorio o corregible se espera `rewrite_item`; con dos o más intentos y el mismo tipo de error, no.
+Un programa de desarrollo que falta (`node`, `pip`, `git`) se etiquetó `replan` (se puede instalar); una aplicación de escritorio que falta (Photoshop, Word) se etiquetó `close`. Es un criterio, no una verdad.
+
+`at.attempts` pesa en la regla 1: con un solo intento y un error corregible se espera `rewrite_item`; con dos o más intentos y el mismo tipo de error, no. **Ojo:** en estos datasets `attempts` cuenta las llamadas fallidas del caso; en el motor, el prompt recibe los **pasos fallidos seguidos** (y un paso falla tras 2 o 3 errores de la herramienta). Ver `eval/GUIA_DECISION.md`, «Modo sombra».
 
 ## Formato de un caso
 
 ```json
-{"id":"rec-rp-02","stage":"recovery","tags":["recovery","replan"],"description":"...",
+{"id":"n1-rp-01","stage":"recovery","tags":["recovery","replan","tool_failed","attempts_1","alone"],"description":"...",
  "scenario":{"mode":"reactive","request":"...",
-   "steps":[{"instruction":"Listar la carpeta Documentos","state":"completed"},{"instruction":"Leer presupuesto.xlsx de Documentos","state":"failed"}],
-   "calls":[{"step":0,"route":"files","tool":"list_directory","status":"ok","args":{...},"summary":"...","verdict":"approved"},
-            {"step":1,"route":"files","tool":"read_file","status":"tool_error","args":{...},"summary":"Error: ENOENT...","verdict":"rejected","reason":"no_usable_data"}],
-   "at":{"previous":["Leer presupuesto.xlsx de Documentos","Decir cuál es el total"],"cause":"tool_failed","attempts":1}},
- "expect":{"expectedAction":"replan","answers":{"independent":{"yes":false}}}}
+   "steps":[{"instruction":"Listar el escritorio","state":"completed"},{"instruction":"Crear clientes.txt dentro de la carpeta Clientes del escritorio","state":"failed"}],
+   "calls":[{"step":0,"route":"files","tool":"list_directory","kind":"read","status":"ok","args":{...},"summary":"...","verdict":"approved"},
+            {"step":1,"route":"files","tool":"write_file","kind":"write","status":"tool_error","args":{...},"summary":"Error: ENOENT...","verdict":"rejected","reason":"no_usable_data"}],
+   "at":{"previous":["Crear clientes.txt dentro de la carpeta Clientes del escritorio"],"cause":"tool_failed","attempts":1}},
+ "expect":{"expectedAction":"replan"}}
 ```
 
 - El último paso en `steps` debe estar `failed`; sus llamadas fallidas se escriben como las registra el motor (`tool_error` y `exception` con `verdict: rejected` y `reason: no_usable_data`; un resultado que no sirve, `ok` con `verdict: rejected` y `reason: not_accomplished`; `args_invalid` y `tool_rejected` sin veredicto).
-- `at.previous`: la lista de la vuelta, con el ítem fallido de primero; lo que viene detrás son los ítems restantes.
-- `at.cause`: una de las causas del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`). `at.attempts`: entero ≥ 1 (por defecto 1).
-- `expect.expectedAction` (obligatoria), `expect.minProbability` (opcional) y `expect.answers.independent` (`yes: true/false`; ponerlo en todos los casos que tengan ítems detrás, para medir también la dependencia).
+- `at.previous`: la lista de la vuelta, con el ítem fallido de primero. `at.cause`: una causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`). `at.attempts`: entero ≥ 1.
+- `expect.expectedAction` (obligatoria) y `expect.minProbability` (opcional).
 
-## Lo que contiene hoy (semilla, 30 casos)
+## Qué contiene
 
-| Acción esperada | Casos | Ids |
+| Archivo | Casos | Quién lo escribió / uso |
 |---|---:|---|
-| `rewrite_item` | 11 | `rec-rw-01` … `rec-rw-11` (`rw-11` es un hard negative de `skip_continue`) |
-| `replan` | 5 | `rec-rp-01` … `rec-rp-05` |
-| `skip_continue` | 7 | `rec-sk-01` … `rec-sk-06` y `rec-bd-01` (borderline, `isRaw`) |
-| `close` | 7 | `rec-cl-01` … `rec-cl-07` |
+| `recovery_casos.jsonl` | 30 | semilla original (11 `rewrite_item`, 5 `replan`, 14 `close`, varios con mensajes de error reales) |
+| `recovery2.jsonl`, `recovery3.jsonl` | 48 + 48 | casos añadidos en la ronda de cuatro opciones (reetiquetados) |
+| `recovery_n1.jsonl`, `recovery_n2.jsonl`, `recovery_n3.jsonl` | 30 + 25 + 36 | escritos a mano para la ronda sin `skip_continue`: conjunto de ajuste |
+| `recovery_n4.jsonl` | 30 | holdout de esa ronda; **ya se midió una vez, no es un holdout limpio** |
 
-Es una **semilla pequeña**: sirve para que la etapa funcione y para una primera lectura, no para decidir. Los casos reales de fallos son escasos (las trazas tenían apenas 4 errores de herramienta); casi todo es sintético, aunque varios mensajes de error son los reales (`write_file` «already exists», `.xlsx` con formato inválido, `web_search` con más de 5 URLs). Para decidir hace falta ampliarlo, sobre todo con más casos reales de `skip_continue` y `close` y más ejemplos de dependencia sutil.
+Tres casos con `Remove-Item` sin `-Recurse` (`n1-rp-08`, `n3-rp-09`, `n4-rp-08`) están como `isRaw` + `borderline`: se arreglan con un argumento (`rewrite_item`) y la etiqueta `replan` es discutible. Casi todo es sintético; los casos reales de fallos son escasos. Para decidir hace falta ampliarlo con **trazas reales** (el modo sombra las produce).
 
 ## Errores que importan más
 
 No todos los errores cuestan lo mismo. Al leer los resultados conviene separar, además del acierto por acción:
 
-- **Falso `skip_continue`**: se ejecutan ítems que dependían del fallido.
 - **Falso `close`**: se corta una tarea que se podía arreglar.
-- En la pregunta `independent`: un **falso «independiente»** es el error caro; un falso «dependiente» solo cierra de más (lado seguro).
-
-## Cosas para explorar con variantes
-
-- La vista que se envía es la de `pending`, y rotula los fallos como `FAILED TASKS (REPLACE IN PENDING)`, una instrucción que pertenece a otra consulta. `recovery_neutral_labels` la reemplaza (y quita la pregunta `independent`): sirve de plantilla y como primera hipótesis.
-- Si el modelo usa el número de intentos (`at.attempts`) y la causa que se le da.
-- Si separar las preguntas (una por acción, o dependencia en una consulta aparte) mejora el acierto frente a una sola pregunta de cuatro opciones.
-- La probabilidad de la acción elegida y si sirve para decidir cuándo dudar (un umbral por debajo del cual se mantiene la conducta de hoy).
+- **Falso reintento**: se insiste en algo que ya se sabe que no tiene arreglo (gasta pasos y confunde al usuario).

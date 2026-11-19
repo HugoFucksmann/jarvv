@@ -172,19 +172,17 @@ export interface CompletionDecisionInput {
 export const COMPLETION_KEY = "request_complete";
 
 /**
- * Decisión «recovery»: qué hacer cuando falla el paso de un ítem de la lista reactiva. TODAVÍA NO la usa el motor: existe para evaluarla en `eval/` antes de integrarla
- * (`docs/pendientes/PENDIENTES_CODIGO.md` §9.1, punto 6). Cuatro opciones lejanas entre sí:
+ * Qué hacer tras un paso fallido del reactivo (`docs/pendientes/PENDIENTES_CODIGO.md` §9.1, punto 6). Tres opciones lejanas entre sí; no hay «saltar el ítem»: un ítem
+ * existe porque el pedido lo necesita, y si no se puede hacer lo honesto y seguro es cerrar.
  * - `rewrite_item`: el objetivo sigue siendo válido y el fallo parece corregible: se reintenta el mismo ítem con otros argumentos u otro enfoque.
  * - `replan`: el fallo muestra que el plan supone algo que falta o está mal (un prerrequisito): hay que rehacer lo que queda.
- * - `skip_continue`: el ítem no tiene arreglo, pero ninguno de los de atrás necesita su resultado: se deja y se sigue con ellos.
- * - `close`: el ítem no tiene arreglo (o el usuario o la política lo rechazaron) y la tarea no puede seguir sin él, o no queda nada más por hacer.
+ * - `close`: el ítem no tiene arreglo (o el usuario o la política lo rechazaron) o no queda nada más por hacer.
  */
-export const RECOVERY_ACTIONS = ["close", "skip_continue", "rewrite_item", "replan"] as const;
+export const RECOVERY_ACTIONS = ["close", "rewrite_item", "replan"] as const;
 export type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
 
-/** Claves de las preguntas de «recovery»: `action` (`choice`, la principal) e `independent` (`noul`: ¿los ítems de atrás no necesitan el resultado del fallido?). */
+/** Clave de la pregunta de «recovery» (`choice`). */
 export const RECOVERY_KEY = "action";
-export const RECOVERY_INDEPENDENT_KEY = "independent";
 
 /** Lo que recibe la decisión «recovery». */
 export interface RecoveryDecisionInput {
@@ -202,6 +200,9 @@ export interface RecoveryDecisionInput {
   /** Los ítems que quedan detrás del fallido. */
   readonly behind: readonly string[];
 }
+
+/** Lo que devuelve «recovery»: la acción elegida con las probabilidades de las tres. Solo informa: ver `engine/recoveryShadow.ts` (modo sombra). */
+export type RecoveryDecision = Omit<DecisionTrace, "probabilities"> & { readonly action: RecoveryAction; readonly probabilities: Record<string, number> };
 
 /** Decisión 5: probabilidad de que la solicitud completa ya esté cumplida con lo hecho, sin umbral aplicado: el cierre es de `confirmCompletion` (`engine/completion.ts`). */
 export type CompletionDecision = Omit<DecisionTrace, "probabilities"> & { readonly requestComplete: number };
@@ -254,6 +255,8 @@ export interface IActionDecision {
   firstQuery?(input: FirstQueryInput, signal?: AbortSignal): Promise<FirstQueryDecision>;
   /** Una pregunta de una sonda de verificación (`tools/probes.ts`) sobre una llamada. Opcional: sin ella no se comprueban las sondas. */
   probe?(input: ProbeQuery, signal?: AbortSignal): Promise<ProbeAnswer>;
+  /** Qué hacer tras un paso fallido (`recovery`). Opcional y SOLO en modo sombra (`engine/recoveryShadow.ts`): el motor no actúa con su respuesta. */
+  chooseRecovery?(input: RecoveryDecisionInput, signal?: AbortSignal): Promise<RecoveryDecision>;
   /** Hilo: ¿el pedido nuevo continúa la tarea anterior? Opcional: sin ella no hay hilo. */
   continuation?(input: ContinuationInput, signal?: AbortSignal): Promise<ContinuationDecision>;
 }
@@ -370,6 +373,8 @@ export interface EngineDeps {
   readonly reviewReads?: () => boolean;
   /** Experimental (config `completionCoverageGuard`): Decisión 5 no cierra si un archivo nombrado en el pedido no aparece en ninguna llamada. Omitida = apagada. */
   readonly completionCoverageGuard?: () => boolean;
+  /** Config `recoveryShadow`: tras cada paso fallido del reactivo, calcula qué haría `recovery` y lo registra en la traza SIN actuar. Omitida = apagada. */
+  readonly recoveryShadow?: () => boolean;
   /** Override de plazo (ms) de una herramienta desde la configuración (`toolTimeoutsMs`); `undefined` = rige el del catálogo. */
   readonly toolTimeoutMs?: (server: string, tool: string) => number | undefined;
   /** Carpeta de trabajo de las herramientas de archivos (contra ella se resuelven las rutas relativas al clasificar el nivel de riesgo). Omitida = las relativas quedan sin resolver. */

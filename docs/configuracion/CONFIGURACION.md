@@ -12,6 +12,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | `decisionModel` | `"d3:2b"` | `"d3:2b-text"` | Modelo de decisión (`/v1/systemone`) |
 | `autoMode` | `false` | `true` | Omitir la confirmación humana de lo amarillo (D3 lo revisa; lo verde nunca pide); lo rojo y lo obligatorio de Guard siempre se confirman |
 | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | `false` | `false` | Experimentales, apagados: D3 con lecturas y entorno; lecturas por D3; D5 con guarda de cobertura (ver `PENDIENTES_EVAL.md` §1 y §3) |
+| `recoveryShadow` | `true` | `true` | Modo sombra de la recuperación tras un paso fallido del reactivo: calcula qué haría (reglas de `recoveryRules.ts` y, si no deciden, una consulta de Decisión) y lo registra en la traza (etapa `recovery`). **No actúa ni cambia lo que hace Jarvis**; agrega una consulta a Decisión por fallo solo cuando las reglas no deciden. Se lee en cada fallo (ver `eval/GUIA_DECISION.md`, sección 5) |
 | `approvalTiers` | `true` | `true` | Clasificación verde/amarillo/rojo para escrituras; funciona con `autoMode` activo (ver `CORE_FLOW.md`) |
 
 ## 2. Claves principales (`jarvis-config.json`)

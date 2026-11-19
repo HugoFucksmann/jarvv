@@ -1,7 +1,7 @@
 # Índice de Datasets del Eval (`eval/datasets/`)
 
 > Inventario completo y verificado contra `npx tsx eval/cli.ts --client=oracle` y `npx tsx eval/cli.ts --list`.
-> **Totales en `eval/datasets/`:** **65 archivos `.jsonl`** · **1 352 casos** (**1 315 canónicos** + **37 adversariales con `isRaw: true`**) cubriendo las **13 etapas** del eval. (Las filas por etapa de abajo se actualizaron solo para `recovery` y `smoke`; el recuento total sale de contar los archivos.)
+> **Totales en `eval/datasets/`:** **71 archivos `.jsonl`** · **1 569 casos** (**1 526 canónicos** + **43 adversariales con `isRaw: true`**) cubriendo las **13 etapas** del eval. (Las filas por etapa de abajo se actualizaron solo para `recovery` y `smoke`; el recuento total sale de contar los archivos.)
 > **Complemento offline en `eval/exp/`:** `eval/exp/memory_matching_cases.json` (**32 casos**, sin modelos).
 
 ---
@@ -17,14 +17,14 @@
 | `result_verification` | Decisión | 10 | 229 | 225 | 4 | Decisión 4 (`ok` y `cumple`) |
 | `fragment_judge` | Decisión | 4 | 42 | 42 | 0 | Juez de fragmentos web (`web_search`) |
 | `d5` | Decisión | 2 | 51 | 47 | 4 | Decisión 5 (cierre de tarea reactiva) |
-| `recovery` | Decisión | 2 | 31 | 30 | 1 | Qué hacer tras un paso fallido (`close` / `skip_continue` / `rewrite_item` / `replan`). **Todavía no existe en el motor**: se evalúa antes de integrarla |
+| `recovery` | Decisión | 8 | 248 | 241 | 7 | Qué hacer tras un paso fallido (`close` / `rewrite_item` / `replan`). En el motor corre solo en modo sombra |
 | `plan` | Generativa | 3 | 48 | 48 | 0 | Planificación y replanning deliberativo |
 | `arguments` | Generativa | 8 | 163 | 159 | 4 | Generación JSON de argumentos (incluye `recalled`) |
 | `final` | Generativa | 6 | 80 | 76 | 4 | Respuesta final (incluye `recalled` y tamaños) |
 | `question` | Generativa | 4 | 90 | 90 | 0 | Pregunta al usuario ante `info_missing` |
 | `pending` | Generativa | 5 | 109 | 105 | 4 | Lista de pendientes del motor reactivo |
 | *Multietapa* (`smoke`) | Mixto | 1 | 11 | 11 | 0 | 1 caso por etapa (`route`..`d5` y `recovery`, excepto `fragment_judge` y `d0`) |
-| **Total `.jsonl`** | — | **65** | **1 352** | **1 315** | **37** | — |
+| **Total `.jsonl`** | — | **71** | **1 569** | **1 526** | **43** | — |
 
 ---
 
@@ -103,7 +103,9 @@
 ### `recovery/` (`recovery`)
 | Archivo | Total | Canónicos | `isRaw` | Qué cubre |
 |---|---:|---:|---:|---|
-| `eval/datasets/recovery/recovery_casos.jsonl` | 30 | 29 | 1 | Semilla: 11 `rewrite_item` (`rec-rw-*`), 5 `replan` (`rec-rp-*`), 7 `skip_continue` (`rec-sk-*`, `rec-bd-01` borderline) y 7 `close` (`rec-cl-*`), con la pregunta `independent` (dependencia de los ítems de atrás) en los casos que tienen ítems detrás. La regla de etiquetado está en `eval/datasets/recovery/README.md`. |
+| `eval/datasets/recovery/recovery_casos.jsonl` | 30 | 29 | 1 | Semilla: 11 `rewrite_item` (`rec-rw-*`), 5 `replan` (`rec-rp-*`), 7 que eran `skip_continue` y hoy son `close` (`rec-sk-*`, `rec-bd-01` borderline) y 7 `close` (`rec-cl-*`), con la pregunta `independent` (dependencia de los ítems de atrás) en los casos que tienen ítems detrás. La regla de etiquetado está en `eval/datasets/recovery/README.md`. |
+| `eval/datasets/recovery/recovery2.jsonl`, `recovery3.jsonl` | 48 + 48 | 47 + 46 | 1 + 2 | Casos añadidos con la ronda de variantes de cuatro opciones (sus `skip_continue` se reetiquetaron a `close`) |
+| `eval/datasets/recovery/recovery_n1.jsonl` a `recovery_n4.jsonl` | 30 + 25 + 36 + 30 | 29 + 25 + 35 + 29 | 1 + 0 + 1 + 1 | **Sin `skip_continue`** (tres acciones: `rewrite_item`, `replan`, `close`); `n4` fue el holdout. Detalle en `eval/datasets/recovery/README.md` |
 
 ### `plan/` (`plan`)
 | Archivo | Total | Canónicos | `isRaw` | Qué cubre |

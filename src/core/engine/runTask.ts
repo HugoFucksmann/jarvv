@@ -35,6 +35,7 @@ import type { Closing } from "./finalize.ts";
 import { classifyRequest, detectContinuation } from "./classify.ts";
 import { generatePending } from "./pending.ts";
 import { ReactiveList } from "./reactiveList.ts";
+import { shadowRecovery } from "./recoveryShadow.ts";
 import { confirmPlan, generatePlan } from "./planner.ts";
 import type { PlanOutcome } from "./planner.ts";
 import { recordInitialRecalled, recordUserMemory } from "./recalled.ts";
@@ -146,6 +147,7 @@ async function runReactive(env: EngineEnv): Promise<Closing> {
         // Una racha de pasos fallidos sin ningún paso completado en el medio agota la recuperación (`BUDGET.maxEscalations`). Antes de eso, se reescribe el ítem; si el
         // modelo lo repite idéntico, se cierra (`applyModelList`).
         if (escalationsExceeded(ctx)) return stop("no_alternatives");
+        await shadowRecovery(env, list.pending, outcome.cause); // modo sombra: registra qué haría `recovery`, no actúa
         list.failHead(outcome.cause);
         continue;
       case "close":

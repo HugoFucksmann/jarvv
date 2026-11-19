@@ -41,8 +41,10 @@ import type {
   VerifyCheckKey,
   VerifyDecision,
   VerifyDecisionInput,
+  RecoveryDecision,
+  RecoveryDecisionInput,
 } from "../contracts.ts";
-import { ARGS_REVIEWS, COMPLETION_KEY, VERIFY_CHECKS } from "../contracts.ts";
+import { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY, VERIFY_CHECKS } from "../contracts.ts";
 import { firstQueryKind } from "../engine/firstQuery.ts";
 import { isExecutableRoute } from "../types/routes.ts";
 import type { ConfigSource, JarvisConfig } from "../config.ts";
@@ -381,6 +383,26 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
       const follows = noulAnswer(response, "follow").noul;
       console.log(`[Continuation ${this.getConfig().decisionModel}] follow=${follows.toFixed(2)} duration=${Date.now() - t0}ms`);
       return { follows, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
+    } catch (err) {
+      withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
+    }
+  }
+
+  /**
+   * Qué hacer tras un paso fallido del reactivo: una pregunta `choice` con tres opciones (`rewrite_item`, `replan`, `close`). Devuelve la elegida con las probabilidades.
+   * SOLO la usa el modo sombra (`engine/recoveryShadow.ts`): el motor no actúa con ella.
+   */
+  async chooseRecovery(input: RecoveryDecisionInput, signal?: AbortSignal): Promise<RecoveryDecision> {
+    const { state, questions } = this.prompts.buildRecovery(input);
+
+    const t0 = Date.now();
+    const response = await this.ask("Recovery", state, questions, signal);
+    try {
+      const { choice, probabilities } = choiceAnswer(response, RECOVERY_KEY);
+      const action = (RECOVERY_ACTIONS as readonly string[]).includes(choice) ? (choice as RecoveryDecision["action"]) : null;
+      if (action === null) throw new DecisionValidationError(`Recovery: acción desconocida '${choice}'.`);
+      console.log(`[Recovery ${this.getConfig().decisionModel}] action=${action} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
+      return { action, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
     }
