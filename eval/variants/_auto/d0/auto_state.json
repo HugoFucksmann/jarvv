@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "stage": "d0",
+  "fingerprint": {
+    "client": "real",
+    "model": "qwen3.5:4b-text",
+    "decisionModel": "d3:2b-text",
+    "thinking": "off",
+    "includeShortcut": false,
+    "repeat": 1,
+    "metric": "passRate",
+    "stageConfigHash": "b3337b0bcf548052",
+    "devHashes": {
+      "d0_real_usuario_dev": "f5051b9919c29606",
+      "d0_variedad": "74f939cc2ae3b015"
+    },
+    "devCasesHashes": {
+      "d0_real_usuario_dev": "41cbcd02958cf87a",
+      "d0_variedad": "f0b3b37bc36990db"
+    }
+  },
+  "completedRounds": 3,
+  "top2": [
+    "auto_d0_20261119_224745_cs10_r2_a",
+    "d0_r1_action_axes"
+  ],
+  "top2Summaries": [
+    {
+      "variant": "auto_d0_20261119_224745_cs10_r2_a",
+      "passRate": 0.9351851851851852,
+      "macroPassRate": 0.9351851851851852,
+      "score": 0.9351851851851852,
+      "passedRuns": 101,
+      "totalRuns": 108,
+      "clientFailedRuns": 0,
+      "retriedRuns": 0,
+      "regressions": 2,
+      "improvements": 8,
+      "signTestP": 0.109375,
+      "p50DurationMs": 136,
+      "avgPromptTokens": 409,
+      "deltaPassRate": 0.056,
+      "deltaMacroPassRate": 0.056
+    },
+    {
+      "variant": "d0_r1_action_axes",
+      "passRate": 0.9259259259259259,
+      "macroPassRate": 0.9259259259259259,
+      "score": 0.9259259259259259,
+      "passedRuns": 100,
+      "totalRuns": 108,
+      "clientFailedRuns": 0,
+      "retriedRuns": 0,
+      "regressions": 2,
+      "improvements": 7,
+      "signTestP": 0.1796875,
+      "p50DurationMs": 125,
+      "avgPromptTokens": 305,
+      "deltaPassRate": 0.046,
+      "deltaMacroPassRate": 0.046
+    }
+  ],
+  "prodSummary": {
+    "variant": "prod",
+    "passRate": 0.8796296296296297,
+    "macroPassRate": 0.8796296296296297,
+    "score": 0.8796296296296297,
+    "passedRuns": 95,
+    "totalRuns": 108,
+    "clientFailedRuns": 0,
+    "retriedRuns": 0,
+    "regressions": 0,
+    "improvements": 0,
+    "p50DurationMs": 130,
+    "avgPromptTokens": 347
+  },
+  "bestNonProd": {
+    "variant": "auto_d0_20261119_224745_cs10_r2_a",
+    "score": 0.9351851851851852,
+    "round": 3
+  },
+  "updatedAt": "2026-11-20T01:51:09.051Z"
+}
