@@ -172,12 +172,12 @@ test("una lectura ejecutada en el medio habilita repetir la escritura", () => {
 
 test("el catálogo asigna la política: sondeos allow, web retry_failed, el resto strict", async () => {
   const { getToolPolicy } = await import("../src/core/tools/manifest.ts");
-  assert.equal(getToolPolicy("desktop_commander", "get_more_search_results").repeat, "allow");
+  assert.equal(getToolPolicy("jarvis_files", "get_more_search_results").repeat, "allow");
   assert.equal(getToolPolicy("jarvis_terminal", "run_command").repeat, "strict", "un comando idéntico pudo duplicar sus efectos");
-  assert.equal(getToolPolicy("desktop_commander", "read_file").repeat, "strict");
+  assert.equal(getToolPolicy("jarvis_files", "read_file").repeat, "strict");
   assert.equal(getToolPolicy("jarvis_web", "web_search").repeat, "retry_failed");
   assert.equal(getToolPolicy("free_search", "fetch").repeat, "retry_failed");
-  assert.equal(getToolPolicy("desktop_commander", "herramienta_inventada").repeat, "strict");
+  assert.equal(getToolPolicy("jarvis_files", "herramienta_inventada").repeat, "strict");
 });
 
 // ───────────────────────── Política `rerun` (RC-21) ─────────────────────────

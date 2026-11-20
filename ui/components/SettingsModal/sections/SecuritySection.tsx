@@ -20,7 +20,7 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
   const [newPattern, setNewPattern] = useState("");
   const [newReason, setNewReason] = useState("");
 
-  const allowedDirs = config.desktopCommanderMcp?.allowedDirectories || [];
+  const allowedDirs = config.workspace?.allowedDirectories || [];
   const blacklist = config.blacklist || [];
 
   const handleAddAllowedDir = () => {

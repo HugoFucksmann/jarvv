@@ -4,8 +4,7 @@
  * Invariantes:
  * - Ningún modelo puede eludir Guard.
  * - Patrones destructivos sobre el SO y comandos catastróficos (nivel `guard` de `commandRules.ts`: discos, raíz del sistema) => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
- *   escanean los de `free_search` ni `jarvis_web` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
- *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `run_command`, que siempre pide aprobación).
+ *   escanean los de `free_search` ni `jarvis_web` (consultas y URLs).
  * - Ruta sensible (`sensitivePaths.ts`: claves, credenciales, navegadores, lugares de inicio automático, el sistema) => APPROVAL obligatorio,
  *   también con `autoMode`: `GuardDecision.mandatory`. Se mira antes que el modo de solo lectura de un comando.
  * - Datos sensibles en lo que `web_search` envía a internet (`egress.ts`: claves, tokens, rutas del usuario) => APPROVAL obligatorio, también con `autoMode`.
@@ -138,16 +137,10 @@ export class Guard {
     return { decision: "ALLOW", capability };
   }
 
-  /** Argumentos sobre los que se aplica el DENY. `null` = sin escaneo (free_search); en write_file se omite `content`. */
+  /** Argumentos sobre los que se aplica el DENY. `null` = sin escaneo (free_search y jarvis_web). */
   private static denyScanArgs(mcp: string, tool: string, args: Record<string, unknown>): Record<string, unknown> | null {
     const server = mcp.toLowerCase();
-    const name = tool.toLowerCase();
     if (server === "free_search" || server === "jarvis_web") return null;
-    if (server === "desktop_commander" && name === "write_file") {
-      const rest = { ...args };
-      delete rest.content;
-      return rest;
-    }
     return args;
   }
 

@@ -228,8 +228,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       prev
         ? {
             ...prev,
-            desktopCommanderMcp: {
-              ...prev.desktopCommanderMcp,
+            workspace: {
+              ...prev.workspace,
               allowedDirectories,
             },
           }
@@ -296,7 +296,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const {
         refsDir: _refsDir,
         tracePath: _tracePath,
-        desktopCommanderMcp,
+        workspace,
         freeSearchMcp: _freeSearchMcp,
         toolTimeoutsMs: _toolTimeoutsMs,
         modelTimeoutsMs: _modelTimeoutsMs,
@@ -306,8 +306,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       } = config;
       const patch: ConfigPatch = {
         ...editable,
-        ...(desktopCommanderMcp?.allowedDirectories !== undefined
-          ? { desktopCommanderMcp: { allowedDirectories: desktopCommanderMcp.allowedDirectories } }
+        ...(workspace?.allowedDirectories !== undefined
+          ? { workspace: { allowedDirectories: workspace.allowedDirectories } }
           : {}),
       };
       const updated = await jarvisApi.updateConfig(patch);

@@ -81,7 +81,7 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
   });
 
   const servers: Record<string, IMCPServer> = {
-    desktop_commander: provider("desktop_commander", FILE_TOOLS),
+    jarvis_files: provider("jarvis_files", FILE_TOOLS),
     jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS),
   };
 

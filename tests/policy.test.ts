@@ -13,7 +13,7 @@ import os from "node:os";
 import type { JarvisConfig } from "../src/core/config.ts";
 import { createEngineServices } from "../src/core/engine/services.ts";
 
-const DC = "desktop_commander";
+const DC = "jarvis_files";
 const scope: ProtectedPaths = { protectedDirs: [path.resolve("data/refs")], relativeBases: [process.cwd()] };
 
 test("Guard: una lectura se permite y una escritura pide aprobación", () => {
@@ -151,7 +151,7 @@ test("invariante 8 en run_command: leer sigue permitido y lo que no toca lo prot
 
 test("createEngineServices: el alcance del Guard cubre refs, logs, proyecto y el memory.json de la carpeta de datos", () => {
   const root = path.resolve("datos-prueba");
-  const config = { refsDir: path.join(root, "refs"), tracePath: path.join(root, "traces.jsonl"), desktopCommanderMcp: { command: "x", args: [] }, blacklist: [] } as unknown as JarvisConfig;
+  const config = { refsDir: path.join(root, "refs"), tracePath: path.join(root, "traces.jsonl"), workspace: { allowedDirectories: [] }, blacklist: [] } as unknown as JarvisConfig;
   const { guardScope } = createEngineServices(() => config);
   assert.deepEqual(guardScope.protectedDirs, [path.join(root, "refs"), path.join(root, "tasks"), process.cwd()]);
   assert.deepEqual(guardScope.protectedFiles, [path.join(root, "memory.json")]);

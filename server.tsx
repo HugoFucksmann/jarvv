@@ -14,7 +14,6 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { DesktopCommanderMCPServer } from './src/core/mcp/desktopCommanderMcp.ts';
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
 import type { IMCPServer } from './src/core/mcp/types.ts';
 import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
@@ -86,23 +85,21 @@ async function main() {
 
   const getConfig = () => ConfigManager.getConfig();
 
-  const desktopServer = new DesktopCommanderMCPServer(getConfig);
   const freeSearchServer = new FreeSearchMCPServer(getConfig);
 
   // El 2B de las decisiones puntúa los fragmentos de `web_search` solo si la configuración lo enciende (se lee en cada llamada).
   const decisionEngine = new Decision20Engine(getConfig);
   const servers: Record<string, IMCPServer> = {
-    desktop_commander: desktopServer,
     free_search: freeSearchServer,
     // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
     // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
     jarvis_files: new FilesProvider({
-      allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+      allowedDirectories: () => getConfig().workspace.allowedDirectories,
       environment: getUserEnvironment,
     }),
     jarvis_terminal: new TerminalProvider({
       envRemove: [...dotenvKeys(), ...SECRET_KEYS],
-      allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+      allowedDirectories: () => getConfig().workspace.allowedDirectories,
       waitSec: () => ({ default: getConfig().runCommandDefaultWaitSec, max: getConfig().runCommandMaxWaitSec }),
     }),
     jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined), judgeTimeoutMs: () => getConfig().webJudgeTimeoutMs }),

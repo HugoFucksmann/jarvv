@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { Guard } from "../src/core/policy/guard.ts";
 import { isReadOnlyCall, isReadOnlyCommand } from "../src/core/policy/readOnly.ts";
 
-const DC = "desktop_commander";
+const DC = "jarvis_files";
 
 test("consultas simples y tuberías de filtrado son de lectura", () => {
   for (const command of [

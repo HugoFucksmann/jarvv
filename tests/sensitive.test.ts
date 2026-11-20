@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { Guard } from "../src/core/policy/guard.ts";
 import { sensitivePathFinding } from "../src/core/policy/sensitivePaths.ts";
 
-const DC = "desktop_commander";
+const DC = "jarvis_files";
 const find = (args: Record<string, unknown>, write = false) => sensitivePathFinding(args, write)?.id ?? null;
 
 test("secretos: se detectan al leer y al escribir, con cualquier forma de ruta", () => {

@@ -292,7 +292,12 @@ export interface StdioServerConfig {
   args: string[];
   env?: Record<string, string>;
   cwd?: string;
-  allowedDirectories?: string[];
+}
+
+/** Dónde pueden trabajar las herramientas de archivos y de terminal (vacío = sin restricción). */
+export interface WorkspaceConfig {
+  cwd?: string;
+  allowedDirectories: string[];
 }
 
 export interface QwenMaxTokens {
@@ -351,7 +356,7 @@ export interface JarvisConfig {
   decisionMaxContext: number;
   decisionTimeoutMs: number;
   modelUnavailablePauseMaxMs?: number;
-  desktopCommanderMcp: StdioServerConfig;
+  workspace: WorkspaceConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
   toolTimeoutsMs?: Record<string, number>;
@@ -383,9 +388,9 @@ export interface JarvisConfig {
 }
 
 export type ConfigPatch = Partial<
-  Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
+  Omit<JarvisConfig, "workspace" | "freeSearchMcp" | "qwenMaxTokens">
 > & {
-  desktopCommanderMcp?: Partial<StdioServerConfig>;
+  workspace?: Partial<WorkspaceConfig>;
   freeSearchMcp?: Partial<StdioServerConfig>;
   qwenMaxTokens?: Partial<QwenMaxTokens>;
 };

@@ -17,11 +17,7 @@
   "decisionMaxContext": 16384,
   "decisionTimeoutMs": 30000,
   "modelUnavailablePauseMaxMs": 600000,
-  "desktopCommanderMcp": {
-    "command": "node",
-    "args": [
-      "node_modules/@wonderwhy-er/desktop-commander/dist/index.js"
-    ],
+  "workspace": {
     "allowedDirectories": []
   },
   "freeSearchMcp": {

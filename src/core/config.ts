@@ -16,7 +16,12 @@ export interface StdioServerConfig {
   args: string[];
   env?: Record<string, string>;
   cwd?: string;
-  allowedDirectories?: string[];
+}
+
+/** Dónde pueden trabajar las herramientas de archivos y de terminal: carpeta base (por omisión, la del proceso) y carpetas permitidas (vacío = sin restricción). */
+export interface WorkspaceConfig {
+  cwd?: string;
+  allowedDirectories: string[];
 }
 
 /** Tope de tokens de salida por etapa del LLM. */
@@ -53,7 +58,7 @@ export interface JarvisConfig {
   decisionTimeoutMs: number;
   /** Pausa acumulada máxima (ms) por consulta cuando el LLM o Decision no responden; 0 = sin pausa. */
   modelUnavailablePauseMaxMs: number;
-  desktopCommanderMcp: StdioServerConfig;
+  workspace: WorkspaceConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
   /** Overrides de plazo (ms) por herramienta: clave `servidor:herramienta` o `herramienta`. Ganan sobre el plazo del catálogo y sobre `mcpTimeoutMs` (`timeouts.ts`). */
@@ -146,9 +151,9 @@ export const FILE_ONLY_KEYS = ["refsDir", "tracePath"] as const;
 
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
 export type ConfigPatch = Partial<
-  Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
+  Omit<JarvisConfig, "workspace" | "freeSearchMcp" | "qwenMaxTokens">
 > & {
-  desktopCommanderMcp?: Partial<StdioServerConfig>;
+  workspace?: Partial<WorkspaceConfig>;
   freeSearchMcp?: Partial<StdioServerConfig>;
   qwenMaxTokens?: Partial<QwenMaxTokens>;
 };
@@ -167,6 +172,9 @@ export function timeoutMap(v: unknown): Record<string, number> {
   return out;
 }
 
+/** Normaliza una configuración cruda (lo que hay en el archivo o llega por HTTP); sirve para probar la migración de claves anteriores. */
+export const normalizeConfig = (raw: unknown): JarvisConfig => normalize(raw);
+
 const CONFIG_FILE_PATH = path.resolve(process.cwd(), "jarvis-config.json");
 
 const DEFAULT_CONFIG: JarvisConfig = {
@@ -183,15 +191,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   decisionMaxContext: 16384,
   decisionTimeoutMs: TIMEOUT_DEFAULTS.decisionMs,
   modelUnavailablePauseMaxMs: DEFAULT_MODEL_PAUSE_MAX_MS,
-  desktopCommanderMcp: {
-    // Desktop Commander es una dependencia del proyecto (`package.json`, versión exacta; el lockfile fija el resto) y se lanza con `node` directo:
-    // arranca en ~1,4 s contra ~2,7 s con `npx`, no consulta el registro y no depende de la red. La ruta es relativa al directorio de trabajo de
-    // Jarvis (la raíz del proyecto). Para subir la versión: `npm install --save-exact --ignore-scripts @wonderwhy-er/desktop-commander@<x>` (sin scripts: el `postinstall` del paquete manda
-    // una estadística de instalación; el binario de `rg` viene en un paquete por plataforma y no necesita script) y probar.
-    command: "node",
-    args: ["node_modules/@wonderwhy-er/desktop-commander/dist/index.js"],
-    allowedDirectories: [],
-  },
+  workspace: { allowedDirectories: [] },
   freeSearchMcp: {
     // `mcp/free-search/constraints.txt` fija las ~90 dependencias transitivas (las genera `uv pip compile` desde `requirements.in`); sin él `uvx`
     // las resuelve por rangos y dos arranques en fechas distintas podrían traer versiones distintas. La ruta es relativa a la raíz del proyecto.
@@ -286,10 +286,15 @@ function normalizeServer(raw: unknown, base: StdioServerConfig): StdioServerConf
   const cwd = nonEmptyText(r.cwd, base.cwd ?? "");
   if (cwd) server.cwd = cwd;
 
-  const allowed = stringList(r.allowedDirectories) ?? base.allowedDirectories;
-  if (allowed) server.allowedDirectories = [...allowed];
-
   return server;
+}
+
+function normalizeWorkspace(raw: unknown, base: WorkspaceConfig): WorkspaceConfig {
+  const r = isRecord(raw) ? raw : {};
+  const workspace: WorkspaceConfig = { allowedDirectories: [...(stringList(r.allowedDirectories) ?? base.allowedDirectories)] };
+  const cwd = nonEmptyText(r.cwd, base.cwd ?? "");
+  if (cwd) workspace.cwd = cwd;
+  return workspace;
 }
 
 /**
@@ -321,7 +326,8 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     decisionMaxContext: positiveInt(r.decisionMaxContext, d.decisionMaxContext),
     decisionTimeoutMs: positiveInt(r.decisionTimeoutMs, d.decisionTimeoutMs),
     modelUnavailablePauseMaxMs: nonNegativeInt(r.modelUnavailablePauseMaxMs, d.modelUnavailablePauseMaxMs),
-    desktopCommanderMcp: normalizeServer(r.desktopCommanderMcp, d.desktopCommanderMcp),
+    // `desktopCommanderMcp` era donde vivían `cwd` y `allowedDirectories`: un jarvis-config.json anterior conserva sus carpetas permitidas.
+    workspace: normalizeWorkspace(r.workspace ?? r.desktopCommanderMcp, d.workspace),
     freeSearchMcp: normalizeServer(r.freeSearchMcp, d.freeSearchMcp),
     mcpTimeoutMs: positiveInt(r.mcpTimeoutMs, d.mcpTimeoutMs),
     toolTimeoutsMs: timeoutMap(r.toolTimeoutsMs),
@@ -374,7 +380,7 @@ export class ConfigManager {
     const next = normalize({
       ...prev,
       ...patch,
-      desktopCommanderMcp: { ...prev.desktopCommanderMcp, ...patch.desktopCommanderMcp },
+      workspace: { ...prev.workspace, ...patch.workspace },
       freeSearchMcp: { ...prev.freeSearchMcp, ...patch.freeSearchMcp },
       qwenMaxTokens: { ...prev.qwenMaxTokens, ...patch.qwenMaxTokens },
     }, prev);

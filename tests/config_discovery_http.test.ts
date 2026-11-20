@@ -165,7 +165,7 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
     { name: "write_file", description: "write", inputSchema: {} },
   ];
   const fakeServer: IMCPServer = {
-    name: "desktop_commander",
+    name: "jarvis_files",
     version: "1",
     listTools: async () => fakeTools,
     callTool: async (name) => {
@@ -254,26 +254,26 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
     );
 
     // MCP router: status, tools, reconnect, call read ALLOW vs mutate DENY/APPROVAL (403)
-    assert.deepEqual(await (await fetch(`${base}/api/mcp/desktop_commander/status`)).json(), { connected: true });
-    assert.equal(((await (await fetch(`${base}/api/mcp/desktop_commander/tools`)).json()) as { tools: unknown[] }).tools.length, 2);
+    assert.deepEqual(await (await fetch(`${base}/api/mcp/jarvis_files/status`)).json(), { connected: true });
+    assert.equal(((await (await fetch(`${base}/api/mcp/jarvis_files/tools`)).json()) as { tools: unknown[] }).tools.length, 2);
     assert.equal((await fetch(`${base}/api/mcp/inexistente/tools`)).status, 404);
-    assert.deepEqual(await (await fetch(`${base}/api/mcp/desktop_commander/reconnect`, { method: "POST" })).json(), { ok: true });
+    assert.deepEqual(await (await fetch(`${base}/api/mcp/jarvis_files/reconnect`, { method: "POST" })).json(), { ok: true });
 
-    const badArgs = await fetch(`${base}/api/mcp/desktop_commander/call`, {
+    const badArgs = await fetch(`${base}/api/mcp/jarvis_files/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "read_file", args: ["no_objeto"] }),
     });
     assert.equal(badArgs.status, 400);
 
-    const blockedMut = await fetch(`${base}/api/mcp/desktop_commander/call`, {
+    const blockedMut = await fetch(`${base}/api/mcp/jarvis_files/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "write_file", args: { path: path.join(dir, "x.txt"), content: "hola" } }),
     });
     assert.equal(blockedMut.status, 403);
 
-    const allowedRead = await fetch(`${base}/api/mcp/desktop_commander/call`, {
+    const allowedRead = await fetch(`${base}/api/mcp/jarvis_files/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "read_file", args: { path: path.join(dir, "x.txt") } }),

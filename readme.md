@@ -94,7 +94,7 @@ JARVIS incluye herramientas nativas de alto rendimiento y canales de interacció
 | 📁 | `files` | Leer, crear, guardar y mover archivos y carpetas |
 | 🔎 | `locate` | Encontrar archivos por nombre o por contenido |
 
-Los archivos y la búsqueda local se ejecutan mediante [Desktop Commander](https://github.com/wonderwhy-er/DesktopCommanderMCP); `run_command` y `web_search` son herramientas propias y nativas en proceso. Telegram y la voz operan de forma desacoplada y opcional.
+`run_command` y `web_search` son herramientas propias y nativas en proceso (Desktop Commander se retiró; las herramientas nativas de archivos y búsqueda local se están sumando por etapas, ver `docs/pendientes/DISENO_TOOLS_NATIVAS.md`). Telegram y la voz operan de forma desacoplada y opcional.
 
 ### 📏 Y se puede medir
 
@@ -108,7 +108,7 @@ JARVIS trae su propio laboratorio de evaluación: mide prompts y modelos contra 
 
 | | Requisito | Para qué |
 |:-:|---|---|
-| 🟢 | [Node.js](https://nodejs.org) 22.12 o superior | Servidor, interfaz y Desktop Commander (que se instala con `npm install` y se lanza con `node`) |
+| 🟢 | [Node.js](https://nodejs.org) 22.12 o superior | Servidor e interfaz |
 | 🦙 | [Ollama](https://ollama.com) en ejecución | Modelos `qwen3.5:4b` y `d3:2b`. En 8 GB de VRAM conviene usar las variantes sin visión `qwen3.5:4b-text` y `d3:2b-text` ([`OLLAMA_MODELOS_TEXTO`](docs/operacion/OLLAMA_MODELOS_TEXTO.md)) |
 | 🐍 | [uv](https://docs.astral.sh/uv/) (`uvx`) | Free Search, la herramienta de la ruta `web` |
 
@@ -185,7 +185,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `modelKeepAlive` | `30m` | `keep_alive` de Ollama que se manda con cada consulta a los dos modelos (`30m`, `2h`, `-1` = sin límite). Ver [`OLLAMA_MODELOS_TEXTO`](docs/operacion/OLLAMA_MODELOS_TEXTO.md) |
 | `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
 | `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |
-| `desktopCommanderMcp.allowedDirectories` | `[]` | Carpetas a las que se limita toda herramienta con ruta, incluido `run_command` (su `cwd` y las rutas que detecta el análisis de PowerShell). Se lee en cada llamada y compara con `realpathSync`; lo que no se puede resolver pide confirmación. Vacía = sin restricción |
+| `workspace.allowedDirectories` | `[]` | Carpetas a las que se limita toda herramienta con ruta, incluido `run_command` (su `cwd` y las rutas que detecta el análisis de PowerShell). Se lee en cada llamada y compara con `realpathSync`; lo que no se puede resolver pide confirmación. Vacía = sin restricción |
 | `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
 | `retentionDays` | `10` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar por antigüedad). Las refs de una tarea retenida en memoria no se tocan |
@@ -235,7 +235,7 @@ Esta es una **versión temprana ([v0.7.0](CHANGELOG.md))**: el flujo completo fu
 | **Tareas largas** | ⚠️ Con muchos pasos y reintentos el contexto crece y el modelo chico pierde precisión; hay compactación, pero falta medirla |
 | **Validaciones** | ⚠️ La revisión de argumentos (Decisión 3) y la verificación de resultados (Decisión 4) usan umbrales iniciales (0,6) sin calibrar con uso real |
 | **Evaluación** | ⚠️ El laboratorio funciona, pero los datasets y las variantes se cargan a mano: no es 100 % autónomo y aún no evalúa tareas completas de punta a punta |
-| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` es `false` por defecto en código (`true` en el `jarvis-config.json` incluido, junto con `approvalTiers: true`); con niveles activos solo lo rojo y lo obligatorio piden confirmación humana. La API no tiene autenticación (`localOnly.ts` define el filtro de `Host`/`Origin`, actualmente comentado junto al chequeo de loopback en `server.tsx` por compatibilidad con AI Studio Build) y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Los servidores MCP se lanzan con versión fija (Desktop Commander `0.3.2`). **No expongas el servidor fuera de `localhost`** |
+| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` es `false` por defecto en código (`true` en el `jarvis-config.json` incluido, junto con `approvalTiers: true`); con niveles activos solo lo rojo y lo obligatorio piden confirmación humana. La API no tiene autenticación (`localOnly.ts` define el filtro de `Host`/`Origin`, actualmente comentado junto al chequeo de loopback en `server.tsx` por compatibilidad con AI Studio Build) y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Free Search se lanza con versión fija. **No expongas el servidor fuera de `localhost`** |
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
 | **Herramientas** | 12 herramientas en cuatro destinos; el catálogo es cerrado a propósito |
 

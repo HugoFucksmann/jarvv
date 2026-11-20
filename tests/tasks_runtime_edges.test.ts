@@ -32,7 +32,7 @@ function makeTempEnv() {
     decisionModel: "d",
     autoMode: false,
     approvalTiers: false,
-    desktopCommanderMcp: { ...base.desktopCommanderMcp, allowedDirectories: [] },
+    workspace: { ...base.workspace, allowedDirectories: [] },
   });
   const services: EngineServices = {
     vault: createRefVault({ dir: path.join(root, "data", "refs") }),
@@ -249,7 +249,7 @@ test("TaskManager: waitId estricto rechaza esperas ajenas y approveCall(remember
   let mcpExecutions = 0;
   const discovery: IDiscoveryEngine = {
     getServer: () => ({
-      name: "desktop_commander",
+      name: "jarvis_files",
       version: "1",
       isConnected: () => true,
       reconnect: async () => undefined,
@@ -260,9 +260,9 @@ test("TaskManager: waitId estricto rechaza esperas ajenas y approveCall(remember
         return { content: [{ type: "text", text: "ok" }], isError: false };
       },
     }),
-    getDiscoveredTools: async (s) => (s === "desktop_commander" ? [writeTool] : []),
+    getDiscoveredTools: async (s) => (s === "jarvis_files" ? [writeTool] : []),
     getUnavailableServers: () => ({}),
-    validateToolExists: async (s, t) => s === "desktop_commander" && t === "write_file",
+    validateToolExists: async (s, t) => s === "jarvis_files" && t === "write_file",
   };
   const llm: EngineLLM = {
     generatePendingFromView: async () => ({ pending: ["Escribir cabecera inicial", "Agregar sección final"], rawInput: "", rawOutput: "" }),
