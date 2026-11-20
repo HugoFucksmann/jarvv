@@ -14,7 +14,7 @@ export const SCHEMA_VERSION = 3 as const;
 
 // ───────────────────────── Etapas ─────────────────────────
 
-export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge" | "d5" | "recovery";
+export type DecisionStage = "d0" | "route" | "tool_choice" | "args_review" | "result_verification" | "fragment_judge" | "d5" | "recovery" | "continuation";
 export type GenerativeStage = "plan" | "arguments" | "final" | "question" | "pending";
 export type StageName = DecisionStage | GenerativeStage;
 
@@ -207,6 +207,18 @@ export interface RecoveryOutput {
   probabilities: Record<string, number>;
 }
 
+// continuation (hilo: ¿el pedido nuevo depende de la tarea anterior? `src/core/engine/thread.ts`)
+export interface ContinuationExpect {
+  expectedFollows: boolean;
+  minProbability?: number;
+  maxProbability?: number;
+  answers?: AnswerExpects;
+}
+export interface ContinuationOutput {
+  follows: boolean;
+  probability: number;
+}
+
 // plan
 export interface PlanStep {
   goal: string;
@@ -289,6 +301,7 @@ export type StageExpect =
   | FragmentJudgeExpect
   | D5Expect
   | RecoveryExpect
+  | ContinuationExpect
   | PlanExpect
   | ArgumentsExpect
   | FinalExpect
@@ -324,6 +337,8 @@ export interface DecisionReaders {
   fragment_judge?: (answers: Record<string, ReadAnswer>) => { probabilities: number[]; relevant: boolean[] };
   /** `d5`: de las respuestas de todas las preguntas enviadas al veredicto de cierre y su probabilidad. */
   d5?: (answers: Record<string, ReadAnswer>) => { complete?: boolean; probability: number };
+  /** `continuation`: de las respuestas de todas las preguntas enviadas al veredicto de continuación y su probabilidad. */
+  continuation?: (answers: Record<string, ReadAnswer>) => { follows?: boolean; probability: number };
 }
 
 /**

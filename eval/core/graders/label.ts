@@ -4,7 +4,7 @@
  * Graders de coincidencia de etiquetas para las etapas de decisión.
  */
 
-import { COMPLETION_KEY } from "../contract.ts";
+import { COMPLETION_KEY, CONTINUATION_KEY } from "../contract.ts";
 import type {
   ArgsReviewExpect,
   ArgsReviewOutput,
@@ -24,6 +24,8 @@ import type {
   RouteOutput,
   ToolChoiceExpect,
   ToolChoiceOutput,
+  ContinuationExpect,
+  ContinuationOutput,
 } from "../types.ts";
 
 /**
@@ -219,6 +221,34 @@ export const D5LabelGrader: Grader<D5Output, D5Expect> = {
         "max_probability_met",
         Number.isFinite(output.probability) && output.probability <= expect.maxProbability,
         `Probabilidad ${output.probability.toFixed(3)} de '${COMPLETION_KEY}' mayor al máximo ${expect.maxProbability}.`,
+      );
+    }
+  },
+};
+
+export const ContinuationLabelGrader: Grader<ContinuationOutput, ContinuationExpect> = {
+  name: "continuation_label",
+  grade(output, expect, _ctx, col) {
+    if (!output) {
+      col.check("continuation_valid", false, "No se pudo obtener la decisión de continuación.");
+      return;
+    }
+
+    col.measure("follows_prob", output.probability);
+    col.check(
+      "follows_match",
+      output.follows === expect.expectedFollows,
+      `Continuación decidió ${output.follows ? "sigue" : "no sigue"} (prob=${output.probability.toFixed(3)}) y se esperaba ${expect.expectedFollows ? "sigue" : "no sigue"}.`,
+    );
+
+    if (expect.minProbability !== undefined) {
+      checkMinProbability(col, "min_probability_met", CONTINUATION_KEY, output.probability, expect.minProbability);
+    }
+    if (expect.maxProbability !== undefined) {
+      col.check(
+        "max_probability_met",
+        Number.isFinite(output.probability) && output.probability <= expect.maxProbability,
+        `Probabilidad ${output.probability.toFixed(3)} de '${CONTINUATION_KEY}' mayor al máximo ${expect.maxProbability}.`,
       );
     }
   },

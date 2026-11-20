@@ -586,7 +586,7 @@ test("paso 6c con el analizador real de PowerShell: una ruta fuera del alcance s
     const variable = await runSingleCall({
       ...common,
       request: "Leer un archivo en una variable",
-      args: { command: "Get-Content $env:TEMP\algo.txt", cwd: sb.allowedDir },
+      args: { command: "Get-Content $env:TEMP\\algo.txt", cwd: sb.allowedDir },
     });
     assert.equal(variable.dispatched.length, 0, "una ruta que no se puede resolver no se despacha sin confirmación");
     assert.equal(variable.approvals.length, 1, "una ruta con variable pide confirmación al usuario");

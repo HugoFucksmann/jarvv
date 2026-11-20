@@ -239,8 +239,8 @@ test("find_files: respeta maxResults, lista de exclusión, symlinks fuera de ra�
   writeFileSized(path.join(root, ".git", "head.log"), "5");
   writeFileSized(path.join(outside, "externo.log"), "6");
 
-  // Symlink que apunta fuera de `root`: debe omitirse y contarse en `skipped`
-  fs.symlinkSync(outside, path.join(root, "enlace_externo"));
+  // Enlace que apunta fuera de `root`: debe omitirse y contarse en `skipped`. En Windows un symlink pide privilegios (EPERM); una unión (junction) no.
+  fs.symlinkSync(outside, path.join(root, "enlace_externo"), process.platform === "win32" ? "junction" : "dir");
 
   const provider = new FilesProvider({
     allowedDirectories: () => [root],

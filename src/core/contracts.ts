@@ -84,6 +84,11 @@ export interface RouteDecisionInput extends DecisionFrame {
 }
 
 export interface ToolDecisionInput extends DecisionFrame {
+  /**
+   * La solicitud del usuario (reactivo), saneada y recortada como la de Decisión 1; `null` o ausente en deliberativo. El prompt de producción de Decisión 2 NO la usa
+   * (ve solo el paso): está para las variantes del eval que prueban la línea `Request:`.
+   */
+  readonly request?: string | null;
   /** Ruta elegida; los intentos del marco ya están filtrados a ella. */
   readonly route: ExecutableRoute;
   /** Herramientas usables de la ruta, ya filtradas. */

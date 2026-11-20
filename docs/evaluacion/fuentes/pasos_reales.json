@@ -1,0 +1,968 @@
+[
+ {
+  "tarea": "mwho",
+  "pedido": "busca el ultimo modelo de GPT",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ec1y",
+  "pedido": "decime los 5 procesos que mas ram esten consumiendo",
+  "paso": "Obtener la lista de los 5 procesos que están consumiendo más RAM",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "i3q1",
+  "pedido": "cuantas carpetas tengo en mi escritorio ?",
+  "paso": "Contar el número de carpetas en el escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "iehh",
+  "pedido": "busca el ultimo modelo de GPT y el ultimo de gemini",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "iehh",
+  "pedido": "busca el ultimo modelo de GPT y el ultimo de gemini",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "rqgo",
+  "pedido": "busca las ultimas noticias de argentina",
+  "paso": "Buscar las últimas noticias de Argentina",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "i6vv",
+  "pedido": "busca quien es el mejor jugador de ajedrez",
+  "paso": "Identificar al mejor jugador de ajedrez",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "af98",
+  "pedido": "decime los 4 procesos que mas ram esten consumiendo.",
+  "paso": "Obtener la lista de los 4 procesos que están consumiendo más RAM",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "kfag",
+  "pedido": "ejecutá en la terminal: Write-Output hola",
+  "paso": "Escribir 'hola' en el archivo de salida estándar usando PowerShell",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xyms",
+  "pedido": "ejecutá en la terminal: Get-ChildItem C:\\Windows | Select-Object -First 5 | Format-Table Name,FullName",
+  "paso": "Obtener una lista de los primeros 5 elementos del directorio C:\\Windows y mostrarlos en formato tabla con las columnas Nombre y Ruta completa",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "n4lx",
+  "pedido": "usa la terminal, ejecutá en la terminal: Get-ChildItem C:\\Windows | Select-Object -First 5 | Format-Table Name,FullName",
+  "paso": "Obtener una lista de los primeros 5 archivos en C:\\Windows y mostrar sus nombres y rutas completas en formato tabla",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qfeu",
+  "pedido": "ejecutá en la terminal: Get-Date y luego volvé a consultar la hora dos veces",
+  "paso": "Ejecutar 'Get-Date' en la terminal",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qfeu",
+  "pedido": "ejecutá en la terminal: Get-Date y luego volvé a consultar la hora dos veces",
+  "paso": "Consultar la hora nuevamente en la terminal",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qfeu",
+  "pedido": "ejecutá en la terminal: Get-Date y luego volvé a consultar la hora dos veces",
+  "paso": "Consultar la hora dos veces",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "87la",
+  "pedido": "Crea antes C:\\Temp\\rc_a con un archivo. Luego: ejecutá en la terminal: robocopy C:\\Temp\\rc_a C:\\Temp\\rc_b /E",
+  "paso": "Crear el directorio C:\\Temp\\rc_a",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "87la",
+  "pedido": "Crea antes C:\\Temp\\rc_a con un archivo. Luego: ejecutá en la terminal: robocopy C:\\Temp\\rc_a C:\\Temp\\rc_b /E",
+  "paso": "Ejecutar el comando robocopy C:\\Temp\\rc_a C:\\Temp\\rc_b /E en la terminal",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "cqd8",
+  "pedido": "ejecutá en la terminal: New-Item -ItemType Directory C:\\Temp\\rc_a -Force; Set-Content C:\\Temp\\rc_a\\hola.txt hola",
+  "paso": "Crear el directorio C:\\Temp\\rc_a",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "csig",
+  "pedido": "ejecutá en la terminal: robocopy C:\\Temp\\rc_a C:\\Temp\\rc_b /E",
+  "paso": "Copiar el contenido de la carpeta 'rc_a' a la carpeta 'rc_b', incluyendo subcarpetas, desde la ruta C:\\Temp\\",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "83zv",
+  "pedido": "Busca el ultimo modelo de GPT y gemini",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "83zv",
+  "pedido": "Busca el ultimo modelo de GPT y gemini",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "6hns",
+  "pedido": "Decime los 5 procesos que mas ram esten consumiendo.",
+  "paso": "Obtener la lista de los 5 procesos que están consumiendo más RAM",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "7xst",
+  "pedido": "Busca el ultimo modelo de GPT y guarda el resultado en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "7xst",
+  "pedido": "Busca el ultimo modelo de GPT y guarda el resultado en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar los resultados en una hoja de cálculo de Excel",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "2xdr",
+  "pedido": "Busca el ultimo modelo de GPT",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ica4",
+  "pedido": "Busca las ultimas noticias de argentina.",
+  "paso": "Buscar las últimas noticias de Argentina",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "t96l",
+  "pedido": "busca en internet Cuando se estrena avengers doomsday ?",
+  "paso": "Buscar información sobre la fecha de estreno de Avengers: Doomsday en internet",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "d4p4",
+  "pedido": "Busca y decime cual es la pagina de lost en imdb",
+  "paso": "Buscar la página de Lost en IMDb",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "u3b4",
+  "pedido": "Busca cual es la ultima pelicula de nolan",
+  "paso": "Buscar información sobre la última película dirigida por Christopher Nolan",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "uhpn",
+  "pedido": "Busca cual es la ultima pelicula de nolan",
+  "paso": "Identificar el nombre de la última película dirigida por Christopher Nolan",
+  "modo": "deliberative"
+ },
+ {
+  "tarea": "qz5l",
+  "pedido": "busca ultimas noticias de argentina",
+  "paso": "Buscar las últimas noticias de Argentina",
+  "modo": "deliberative"
+ },
+ {
+  "tarea": "s7ax",
+  "pedido": "busca el ultimo modelo de gemini",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "j99y",
+  "pedido": "busca el ultimo modelo de GPT y de gemini",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "j99y",
+  "pedido": "busca el ultimo modelo de GPT y de gemini",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "odwg",
+  "pedido": "abri la calculadora",
+  "paso": "Abrir la aplicación de la calculadora",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "6749",
+  "pedido": "Busca el ultimo modelo de openai y de google",
+  "paso": "Buscar información sobre el último modelo de OpenAI",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "6749",
+  "pedido": "Busca el ultimo modelo de openai y de google",
+  "paso": "Buscar información sobre el último modelo de Google",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "smfz",
+  "pedido": "busca el ultimo modelo de GPT",
+  "paso": "busca el ultimo modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ld88",
+  "pedido": "Busca el ultimo modelo de gemini",
+  "paso": "Busca el ultimo modelo de gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "sdir",
+  "pedido": "Decime los 5 procesos que mas ram estenconsumiendo",
+  "paso": "Decime los 5 procesos que mas ram estenconsumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "5v5y",
+  "pedido": "Lista los 5 procesos que mas ram esten consumiendo",
+  "paso": "Lista los 5 procesos que mas ram esten consumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "v4po",
+  "pedido": "Crea un md con la informacion del ultimo modelo de GPT",
+  "paso": "Crea un md con la informacion del ultimo modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "iex8",
+  "pedido": "busca en internet el ultimo modelo de gpt y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Buscar información actualizada sobre el último modelo de GPT disponible en internet",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "iex8",
+  "pedido": "busca en internet el ultimo modelo de gpt y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información obtenida en un archivo .md dentro de la carpeta 'jarvis' del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "rjfx",
+  "pedido": "Crea un md dentro de la carpeta jarvis con la informacion que sepas de gpt",
+  "paso": "Crea un md dentro de la carpeta jarvis con la informacion que sepas de gpt",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "rjfx",
+  "pedido": "Crea un md dentro de la carpeta jarvis con la informacion que sepas de gpt",
+  "paso": "Crear la carpeta jarvis si no existe y luego crear el archivo gpt_info.md con información sobre GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ma99",
+  "pedido": "Busca el ultimo modelo de GPT y de Gemini",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ma99",
+  "pedido": "Busca el ultimo modelo de GPT y de Gemini",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "o9d7",
+  "pedido": "lista los 5 procesos que mas ram esten consumiendo",
+  "paso": "lista los 5 procesos que mas ram esten consumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gv4m",
+  "pedido": "lista las carpetas que hay en mi escritorio",
+  "paso": "lista las carpetas que hay en mi escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gw7b",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio.",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gw7b",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio.",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gw7b",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio.",
+  "paso": "Guardar la información recopilada en un archivo .md en la carpeta 'jarvis' del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "k9xc",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio. guardalos en archivos eparados",
+  "paso": "Guardar la información de Gemini 4 Carbon en un archivo separado llamado gemini.md en C:\\Users\\hugof\\Desktop\\jarvis\\",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "k9xc",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio. guardalos en archivos eparados",
+  "paso": "Guardar la información de GPT-6.1 Sol en un archivo separado llamado gpt.md en C:\\Users\\hugof\\Desktop\\jarvis\\",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "cl2a",
+  "pedido": "que archivos hay en la carpeta jarvis de documentos ?",
+  "paso": "Listar los archivos en la carpeta 'jarvis' dentro de Documentos",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ot5b",
+  "pedido": "y en la de escritorio ?",
+  "paso": "y en la de escritorio ?",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "uoly",
+  "pedido": "que hay en la carpeta jarvis del escritorio",
+  "paso": "Obtener el contenido de la carpeta 'jarvis' ubicada en el escritorio de usuario `hugof`",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "yj94",
+  "pedido": "que hay en la carpeta jarvis de documentos",
+  "paso": "que hay en la carpeta jarvis de documentos",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ydbl",
+  "pedido": "Busca el ultimo modelo de GPT",
+  "paso": "Busca el ultimo modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "9r6e",
+  "pedido": "decime los 10 procesos que mas ram esten consumiendo",
+  "paso": "decime los 10 procesos que mas ram esten consumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "et4l",
+  "pedido": "decime los 5 procesos que mas ram esten consumiendo",
+  "paso": "decime los 5 procesos que mas ram esten consumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gocm",
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gocm",
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gocm",
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en una hoja de cálculo Excel en la carpeta 'jarvis' del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gocm",
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini y GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gocm",
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información en un archivo Excel dentro de la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ip21",
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en un archivo Excel dentro de la carpeta 'jarvis' del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "wfzo",
+  "pedido": "Busca el ultimo modelo de GPT y gemini y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "wfzo",
+  "pedido": "Busca el ultimo modelo de GPT y gemini y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "wfzo",
+  "pedido": "Busca el ultimo modelo de GPT y gemini y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Crear archivo markdown con la información recopilada en la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "s5gp",
+  "pedido": "Busca el ultimo modelo de GPT y gemini y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en un archivo .md dentro de la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "lbwk",
+  "pedido": "lista los 10 procesos que mas ram esten consimiendo",
+  "paso": "lista los 10 procesos que mas ram esten consimiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "4cs5",
+  "pedido": "Busca el ultimo modelo de GPT y gemini. guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "4cs5",
+  "pedido": "Busca el ultimo modelo de GPT y gemini. guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "4cs5",
+  "pedido": "Busca el ultimo modelo de GPT y gemini. guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en un archivo .md dentro de la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "14oh",
+  "pedido": "Busca el ultimo modelo de GPT y de gemini, guarda la info en un archivo md dentro de la carpte jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "14oh",
+  "pedido": "Busca el ultimo modelo de GPT y de gemini, guarda la info en un archivo md dentro de la carpte jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "14oh",
+  "pedido": "Busca el ultimo modelo de GPT y de gemini, guarda la info en un archivo md dentro de la carpte jarvis del escritorio",
+  "paso": "Crear archivo markdown con la información recopilada en la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "8xir",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "8xir",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "8xir",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en un archivo .md en la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "mmi3",
+  "pedido": "cual es el ultimo modelo de GPT ?",
+  "paso": "cual es el ultimo modelo de GPT ?",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "84qc",
+  "pedido": "crea un md que diga hola adentro en el escritorio",
+  "paso": "crea un md que diga hola adentro en el escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "kfa4",
+  "pedido": "Crea un MD en la carpeta jarvis con la informacion de las ultimas noticias de argentina.",
+  "paso": "Obtener las últimas noticias de Argentina",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "kfa4",
+  "pedido": "Crea un MD en la carpeta jarvis con la informacion de las ultimas noticias de argentina.",
+  "paso": "Crear un archivo Markdown con la información obtenida",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "kfa4",
+  "pedido": "Crea un MD en la carpeta jarvis con la informacion de las ultimas noticias de argentina.",
+  "paso": "Guardar el archivo en la carpeta jarvis",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "khp8",
+  "pedido": "ahora crea un MD en la carpeta jarvis con la informacion del ultimo modelo de CLAUDE",
+  "paso": "Crear un archivo Markdown en la carpeta jarvis con información sobre el último modelo de Claude",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "u9j6",
+  "pedido": "busca y decime que archivos hay en mi escritorio",
+  "paso": "busca y decime que archivos hay en mi escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ca6v",
+  "pedido": "Busca el ultimo modelo de gemini y gpt",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ca6v",
+  "pedido": "Busca el ultimo modelo de gemini y gpt",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jd40",
+  "pedido": "Decime los 5 procesos que mas ram esten consumiendo",
+  "paso": "Decime los 5 procesos que mas ram esten consumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xo44",
+  "pedido": "Busca el ultimo modelo de gemini y de GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Buscar información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xo44",
+  "pedido": "Busca el ultimo modelo de gemini y de GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Buscar información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xo44",
+  "pedido": "Busca el ultimo modelo de gemini y de GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Guardar la información recopilada en un archivo .md dentro de la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "vk60",
+  "pedido": "lista los 4 procesos que mas ram esten consumiendo",
+  "paso": "lista los 4 procesos que mas ram esten consumiendo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qab0",
+  "pedido": "Busca el ultimo modelo de gemini",
+  "paso": "Identificar el nombre del último modelo de Gemini disponible y su fecha de lanzamiento.",
+  "modo": "deliberative"
+ },
+ {
+  "tarea": "poc2",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Identificar los últimos modelos de Gemini y GPT con fecha de lanzamiento.",
+  "modo": "deliberative"
+ },
+ {
+  "tarea": "poc2",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Asegurar que la carpeta jarvis en el escritorio exista.",
+  "modo": "deliberative"
+ },
+ {
+  "tarea": "poc2",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en un archivo markdown dentro de la carpeta jarvis.",
+  "modo": "deliberative"
+ },
+ {
+  "tarea": "qpa6",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qpa6",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qpa6",
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar la información recopilada en un archivo .md dentro de la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ju0i",
+  "pedido": "busca las ultimas noticias de argentina",
+  "paso": "busca las ultimas noticias de argentina",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ksjq",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de Gemini",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ksjq",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Obtener información sobre el último modelo de GPT",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ksjq",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Crear un archivo de resumen en formato markdown",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ksjq",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar el archivo de resumen en la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "5ac7",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Crear un archivo de texto Markdown con el resumen",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "5ac7",
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "paso": "Guardar el archivo en la carpeta jarvis del escritorio",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "asem",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información de hospedaje en Mendoza, Argentina",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "asem",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Crear archivo markdown en la carpeta jarvis del escritorio con la información recopilada",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "asem",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información de pasajes aéreos o terrestres a Mendoza, Argentina",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "0gqw",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "0gqw",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "buscar carpeta jarvv en C:\\Users\\hugof usando otros términos de búsqueda",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "0gqw",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "buscar carpeta jarvv en C:\\Users\\hugof usando términos más amplios como 'jarvis' o 'proyecto']",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "uhfp",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "buscar carpeta jarvv en C:\\Users\\hugof usando patrones más amplios como 'jarvis' o 'proyecto']",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ypo8",
+  "pedido": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "paso": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ypo8",
+  "pedido": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "paso": "Buscar la carpeta que contiene los datasets en el escritorio de forma diferente a mover archivos",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "ypo8",
+  "pedido": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "paso": "Localizar la carpeta que contiene los datasets en el escritorio usando otros términos de búsqueda",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "q28b",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Proponé una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Analizar el contenido de los archivos en el escritorio para identificar su tipo (documentos, imágenes, comprimidos, u otros).",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "q28b",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Proponé una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Proponer una estructura de carpetas basada en la clasificación encontrada.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "q28b",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Proponé una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Generar un informe detallado con los movimientos realizados sin eliminar ningún archivo original.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "q28b",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Proponé una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Crear un informe detallado con los movimientos realizados y la nueva estructura propuesta.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "fg4n",
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, rendimiento y facilidad de implementación. Consultá documentación oficial y generá una tabla comparativa en un archivo Markdown dentro de la carpeta jarvis del escritorio",
+  "paso": "Investigar tres alternativas de bases de datos gratuitas para aplicaciones locales (SQLite, DuckDB, PostgreSQL) consultando documentación oficial.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "fg4n",
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, rendimiento y facilidad de implementación. Consultá documentación oficial y generá una tabla comparativa en un archivo Markdown dentro de la carpeta jarvis del escritorio",
+  "paso": "Investigar documentación oficial de SQLite, DuckDB y PostgreSQL para bases de datos locales gratuitas.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "fg4n",
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, rendimiento y facilidad de implementación. Consultá documentación oficial y generá una tabla comparativa en un archivo Markdown dentro de la carpeta jarvis del escritorio",
+  "paso": "Investigar documentación oficial de SQLite, DuckDB y PostgreSQL para bases de datos locales gratuitas utilizando las URLs encontradas en los resultados de búsqueda (Zaira Labs, The best DuckDB alternatives) en lugar de intentar acceder directamente a enlaces no válidos o inexistentes.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "fg4n",
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, rendimiento y facilidad de implementación. Consultá documentación oficial y generá una tabla comparativa en un archivo Markdown dentro de la carpeta jarvis del escritorio",
+  "paso": "Investigar documentación oficial de SQLite, DuckDB y PostgreSQL utilizando las URLs encontradas en los resultados de búsqueda (Zaira Labs, The best DuckDB alternatives) para obtener información sobre ventajas, limitaciones, rendimiento y facilidad de implementación.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "fg4n",
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, rendimiento y facilidad de implementación. Consultá documentación oficial y generá una tabla comparativa en un archivo Markdown dentro de la carpeta jarvis del escritorio",
+  "paso": "Investigar documentación oficial de SQLite y PostgreSQL utilizando las URLs encontradas en los resultados de búsqueda para obtener información sobre ventajas, limitaciones, rendimiento y facilidad de implementación.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "fg4n",
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, rendimiento y facilidad de implementación. Consultá documentación oficial y generá una tabla comparativa en un archivo Markdown dentro de la carpeta jarvis del escritorio",
+  "paso": "Investigar documentación oficial de SQLite y PostgreSQL utilizando URLs válidas encontradas en los resultados de búsqueda para obtener información sobre ventajas, limitaciones, rendimiento y facilidad de implementación.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gjl8",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gjl8",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificar hardware, sistema operativo y espacio disponible en discos",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gjl8",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificar procesos que más recursos consumen",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gjl8",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificar servicios activos",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "gjl8",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificar herramientas de desarrollo instaladas",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xybi",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información de pasajes aéreos o terrestres a Mendoza, Argentina.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xybi",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Identificar lugares turísticos principales para recorrer en Mendoza, Argentina.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xybi",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Agregar la información recopilada sobre hospedaje, pasajes y lugares turísticos al archivo viaje_mendoza.md en la carpeta jarvis del escritorio.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xybi",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información de pasajes aéreos o terrestres a Mendoza, Argentina y agregarla al archivo md",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "5q4w",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "buscar la carpeta jarvv en el proyecto de JARVIS usando otras palabras clave o rutas",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jjg1",
+  "pedido": "busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "9bpm",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Propone una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Analizar el contenido de los archivos en el escritorio para identificar su tipo (documentos, imágenes, comprimidos, u otros).",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "9bpm",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Propone una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Analizar el contenido de los archivos en el escritorio para identificar su tipo (documentos, imágenes, comprimidos, u otros) usando una nueva consulta que no sea repetida.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "9bpm",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Propone una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Analizar el contenido de los archivos en el escritorio para identificar su tipo (documentos, imágenes, comprimidos, u otros) usando una consulta con argumentos diferentes a las anteriores.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jq6t",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificá el hardware y el sistema operativo usando PowerShell",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jq6t",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Obtené el espacio disponible en los discos duros con PowerShell",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jq6t",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Listá los servicios activos con PowerShell",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jq6t",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Buscá las herramientas de desarrollo instaladas con PowerShell",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "jq6t",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificar los procesos que más recursos consumen",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "km8t",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Identificar lugares turísticos principales para recorrer en Mendoza y alrededores.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "km8t",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información de pasajes aéreos o trenes a Mendoza, Argentina.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "km8t",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información sobre lugares turísticos y actividades en Mendoza, Argentina.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "km8t",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Agregar la información recopilada al archivo viaje_mendoza.md en la carpeta jarvis del escritorio.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "km8t",
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la información en un md dentro de la carpeta jarvis del escritorio.",
+  "paso": "Recopilar información sobre pasajes aéreos y ferroviarios para llegar a Mendoza",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "nfpe",
+  "pedido": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "paso": "buscar la carpeta que contiene los datasets en el escritorio sin mover archivos",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "nfpe",
+  "pedido": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "paso": "buscar la carpeta que contiene los datasets en el escritorio usando otros términos de búsqueda",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qcnw",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "buscar carpeta jarvv en C:\\Users\\hugof usando patrones más amplios como 'jarvis' o nombres de archivos comunes",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "qcnw",
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "paso": "buscar carpeta jarvv en C:\\Users\\hugof usando patrones más amplios como 'jarvis', 'jarv' o nombres de archivos comunes",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "uhx3",
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Propone una estructura de carpetas. No elimines nada y generá un informe con los movimientos realizados.",
+  "paso": "Proponer una estructura de carpetas basada en la clasificación encontrada.",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "xmu2",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios activos y herramientas de desarrollo instaladas.",
+  "paso": "Identificar el hardware del equipo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "5h1m",
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos",
+  "paso": "Identificar el hardware del equipo",
+  "modo": "reactive"
+ },
+ {
+  "tarea": "1hq0",
+  "pedido": "Buscá los datasets disponibles en mi ordenador. Seleccioná los que contengan datos estructurados (CSV, JSON, XLSX). Analizá su estructura, cantidad de registros, columnas, valores faltantes, duplicados y estadísticas relevantes. Generá un informe Markdown con los resultados y posibles problemas de calidad de datos. No modifiques los archivos originales.",
+  "paso": "Buscar datasets en el ordenador",
+  "modo": "reactive"
+ }
+]

@@ -29,7 +29,8 @@ export const toolChoiceStage: DecisionStageEntry<ToolChoiceOutput, ToolChoiceExp
     const { ctx } = h.buildContext(sc);
     const at = sc.at ?? {};
     const route = h.need(at.route, "route", "tool_choice");
-    const names = at.tools ?? SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route).map((d) => d.name);
+    // Sin `at.tools`, las herramientas de la ruta que el motor ofrece: las internas (por ejemplo `jarvis_files`, etapa 1) no se ofrecen a D2 en producción.
+    const names = at.tools ?? SYSTEM_TOOL_MANIFEST.filter((d) => d.route === route && d.internal !== true).map((d) => d.name);
     const tools = names.map((n) => h.toolOf(route, n));
     return h.decision(h.effectivePrompts(ov).D.buildToolChoice(toolInput(ctx.view.forRoute(routeViewOptions(route)), route, tools)));
   },

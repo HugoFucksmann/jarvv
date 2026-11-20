@@ -1,6 +1,6 @@
 # Guía de Uso del Framework de Evaluación (`eval`)
 
-Cómo correr el eval, escribir casos y variantes e interpretar los resultados. Presentación breve: [`README.md`](./README.md).
+Cómo correr el eval, escribir casos y variantes e interpretar los resultados. Presentación breve: [`README.md`](./README.md). Comandos listos para las variantes y datasets de 2026-11-19: [`EJECUTAR_VARIANTES.md`](./EJECUTAR_VARIANTES.md).
 
 ---
 

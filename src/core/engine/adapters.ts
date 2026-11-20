@@ -183,7 +183,8 @@ export function routeInput(view: RouteView, flags: RouteChoiceFlags): RouteDecis
 
 /** `view` es `forRoute` con `route`: los intentos ya están filtrados a la ruta elegida. */
 export function toolInput(view: RouteView, route: ExecutableRoute, tools: MCPTool[]): ToolDecisionInput {
-  return { ...decisionFrame(view), route, tools };
+  const request = view.request === null ? null : clipMarked(oneLine(view.request), caps.routeRequest);
+  return { ...decisionFrame(view), request, route, tools };
 }
 
 // ───────────────────────── Decision #3 ─────────────────────────

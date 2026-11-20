@@ -78,6 +78,22 @@ test("comandos en Windows: ruta Linux, sintaxis, comando inexistente y opciones 
   assert.equal(await run("Get-Process", async () => ({ syntaxErrors: [], commands: [{ name: "Get-Process", kind: "Cmdlet", dashOptions: [] }] })), null);
 });
 
+test("`$env:` con un nombre que no existe se rechaza; los estándar, los del proceso y los definidos en el propio comando pasan", async () => {
+  // La regla solo juzga si la carpeta de inicio del entorno existe en esta PC.
+  const real = { platform: "windows" as const, home: process.cwd(), documents: process.cwd() };
+  const run = (command: string, env = real) => precheckCall(input({ tool: "run_command", kind: "read", args: { command }, environment: env }), noAnalyzer);
+
+  const bad = await run("Get-ChildItem $env:desktop");
+  assert.equal(bad?.review, "args_invalid");
+  assert.match(bad?.reason ?? "", /\$env:desktop/);
+  assert.equal((await run("Get-ChildItem ${env:Escritorio}"))?.review, "args_invalid");
+
+  assert.equal(await run("Get-ChildItem $env:USERPROFILE\\Desktop"), null);
+  assert.equal(await run("Get-ChildItem $env:LocalAppData"), null);
+  assert.equal(await run("$env:MI_RUTA = 'C:\\Temp'; Get-ChildItem $env:MI_RUTA"), null, "definida en el mismo comando");
+  assert.equal(await run("Get-ChildItem $env:desktop", environment), null, "sin disco real no se juzga");
+});
+
 test("si el analizador falla (null), el comando no se rechaza", async () => {
   assert.equal(await precheckCall(input({ tool: "run_command", kind: "write", args: { command: "Get-Process" } }), noAnalyzer), null);
 });

@@ -623,6 +623,28 @@ const textArg = (input: PrecheckInput, key: string): string | null => {
   const v = input.args[key];
   return typeof v === "string" ? v : null;
 };
+/** Variables de entorno de Windows que siempre existen aunque el proceso del servidor no las herede. */
+const STANDARD_ENV = new Set(
+  [
+    "userprofile", "appdata", "localappdata", "temp", "tmp", "homedrive", "homepath", "computername", "username", "userdomain", "path", "pathext", "systemroot", "systemdrive",
+    "windir", "programfiles", "programfiles(x86)", "programw6432", "programdata", "public", "allusersprofile", "os", "comspec", "psmodulepath", "onedrive",
+    "processor_architecture", "number_of_processors", "commonprogramfiles", "commonprogramfiles(x86)",
+  ],
+);
+
+/** El primer `$env:NOMBRE` (o `${env:NOMBRE}`) del comando que no existe en esta PC ni se define en el propio comando, o null. */
+export function unknownEnvVariable(command: string): string | null {
+  const defined = new Set<string>();
+  for (const m of command.matchAll(/\$(?:env:([\w()]+)|\{env:([^}]+)\})\s*(?:\+|-|\*|\/)?=(?!=)/gi)) defined.add((m[1] ?? m[2]).toLowerCase());
+  const present = new Set(Object.keys(process.env).map((k) => k.toLowerCase()));
+  for (const m of command.matchAll(/\$(?:env:([A-Za-z_][\w()]*)|\{env:([^}]+)\})/gi)) {
+    const name = m[1] ?? m[2];
+    const key = name.toLowerCase();
+    if (!STANDARD_ENV.has(key) && !present.has(key) && !defined.has(key) && !key.startsWith("jarvis_")) return name;
+  }
+  return null;
+}
+
 const isPowerShellCommand = (input: PrecheckInput): boolean =>
   input.tool === "run_command" && typeof input.args.command === "string" && input.environment.platform === "windows";
 
@@ -660,6 +682,20 @@ export const CALL_RULES: readonly PrecheckRule<CallContext>[] = [
       LINUX_PATH.test(input.args.command as string)
         ? invalid("The command uses a Linux path (such as /etc/... or /usr/...), which does not exist on this computer (Windows). Use a Windows path.")
         : null,
+  },
+  {
+    // `$env:desktop` no existe: PowerShell lo expande a vacío y `Get-ChildItem $env:desktop` lista la carpeta actual en vez del escritorio. Solo se juzga contra el entorno
+    // de esta PC (como `diskIsReal`), y no si el propio comando define la variable.
+    name: "unknown-env-variable",
+    applies: ({ input }) => isPowerShellCommand(input) && diskIsReal(input.environment),
+    check: ({ input }) => {
+      const missingName = unknownEnvVariable(input.args.command as string);
+      return missingName === null
+        ? null
+        : invalid(
+            `The command uses $env:${missingName}, which is not an environment variable on this computer: PowerShell expands it to an empty string. For the desktop use [Environment]::GetFolderPath('Desktop'); for the user folder, $env:USERPROFILE.`,
+          );
+    },
   },
   {
     name: "wrapped-powershell",

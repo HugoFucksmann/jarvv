@@ -162,3 +162,22 @@
 2. **Corrección en `eval/datasets/route_D1/route_context.jsonl:11` (`rt-ctx-10`):**
    El caso tenía `status: "tool_rejected"` y `reason: "wrong_tool"`, ambos inválidos en el esquema actual de llamadas (`scenario.ts`). En el escenario, `move_file` con comodín (`*.tmp`) hacia `nul` devolvió *"No matched files moved (wildcards not supported by move_file)"*: la llamada se ejecutó sin cumplir el objetivo pedido, por eso quedó normalizada con `status: "ok"`, `verdict: "rejected"` y `reason: "not_accomplished"`.
 3. **Regla de unicidad en el cargador:** `eval/core/datasets.ts` exige que el nombre base de cada `.jsonl` (sin ruta ni extensión) sea único en todo `eval/datasets/`.
+
+---
+
+## Nuevos (2026-11-19): validados con `--client=oracle` (100 %)
+
+> Los totales de arriba (71 archivos, 1 569 casos) **no incluyen** estos archivos. Cada dataset tiene cuatro partes: `_dev`, `_dev2`, `_holdout`, `_holdout2` (la tabla lista `_dev` y `_holdout`; las otras dos tienen el mismo formato y cobertura). Todos los casos son sintéticos (tag `synthetic`). Para correrlos: `eval/EJECUTAR_VARIANTES.md`. El holdout se corre **una sola vez**, al final, con la variante ganadora.
+
+| Archivo | Etapa | Total | `isRaw` | Qué cubre |
+|---|---|---:|---:|---|
+| `eval/datasets/D0/d0_real_usuario_dev.jsonl` | `d0` | 106 | 9 | Pedidos `chat`/`single`/`multi`: saludos, conocimiento estable, hechos que cambian, enumeraciones de tres o más cosas y `single` largos que parecen compuestos. |
+| `eval/datasets/D0/d0_real_usuario_holdout.jsonl` | `d0` | 45 | 4 | Pedidos `chat`/`single`/`multi`: saludos, conocimiento estable, hechos que cambian, enumeraciones de tres o más cosas y `single` largos que parecen compuestos. |
+| `eval/datasets/route_D1/route_pasos_reales_dev.jsonl` | `route` | 48 | 6 | Pasos (no pedidos) con el pedido original: investigación posterior a crear un archivo (`web`), hardware/servicios/procesos (`terminal`), ubicación desconocida (`locate`), pasos abstractos y con tipeos. |
+| `eval/datasets/route_D1/route_pasos_reales_holdout.jsonl` | `route` | 21 | 3 | Pasos (no pedidos) con el pedido original: investigación posterior a crear un archivo (`web`), hardware/servicios/procesos (`terminal`), ubicación desconocida (`locate`), pasos abstractos y con tipeos. |
+| `eval/datasets/tool_choice_D2/tool_choice_terminal_locate_dev.jsonl` | `tool_choice` | 42 | 3 | Ruta `terminal` (`run_command`, `list_processes`, `stop_process`) y `locate` (`start_search`, `get_more_search_results`), con y sin intentos previos (`rejected`, `loop_blocked`). |
+| `eval/datasets/tool_choice_D2/tool_choice_terminal_locate_holdout.jsonl` | `tool_choice` | 18 | 1 | Ruta `terminal` (`run_command`, `list_processes`, `stop_process`) y `locate` (`start_search`, `get_more_search_results`), con y sin intentos previos (`rejected`, `loop_blocked`). |
+| `eval/datasets/d4/verify_pasos_reales_dev.jsonl` | `result_verification` | 60 | 5 | Salidas de herramientas con su `ok` y `cumple`: listados correctos, salida basura, carpeta equivocada, búsquedas `RUNNING`/`COMPLETED` sin resultados, condicionales, `web_search` `found`/`partial`, escrituras en lugar o formato equivocado, copiar vs mover. |
+| `eval/datasets/d4/verify_pasos_reales_holdout.jsonl` | `result_verification` | 26 | 2 | Salidas de herramientas con su `ok` y `cumple`: listados correctos, salida basura, carpeta equivocada, búsquedas `RUNNING`/`COMPLETED` sin resultados, condicionales, `web_search` `found`/`partial`, escrituras en lugar o formato equivocado, copiar vs mover. |
+| `eval/datasets/continuation/continuation_dev.jsonl` | `continuation` | 58 | 3 | Etapa `continuation` (`follow`). Pares tarea anterior + pedido nuevo: seguimientos (pronombres, elipsis, ordinales) e independientes difíciles. |
+| `eval/datasets/continuation/continuation_holdout.jsonl` | `continuation` | 25 | 1 | Etapa `continuation` (`follow`). Pares tarea anterior + pedido nuevo: seguimientos (pronombres, elipsis, ordinales) e independientes difíciles. |

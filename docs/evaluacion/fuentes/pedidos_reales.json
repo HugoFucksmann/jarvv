@@ -1,0 +1,622 @@
+[
+ {
+  "pedido": "busca el ultimo modelo de GPT",
+  "veces": 7,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "crea un md en la carpeta jarvis del escritorio con la informacion que encuentres del ultimo modelo de gpt y de gemini.",
+  "veces": 1,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gpt y de gemini. guarda la info en un md en la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "dame una lista de las 10 tareas que mas ram ocupen.",
+  "veces": 1,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "crea un md en la carpeta jarvis con la informacion del ultimo modelo de gpt y de gemini.",
+  "veces": 1,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gemini y de gpt y guarda la info en un md en la carpeta jarvis del escritorio.",
+  "veces": 1,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gemini y de gpt y guarda la informacion en un md en la carpeta jarvis del escritorio.",
+  "veces": 3,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gemini y de gpt y guarda la informacion en un md en la carpeta jarvis del escritorio",
+  "veces": 2,
+  "primer_dia": "2026-11-07"
+ },
+ {
+  "pedido": "busca y lista los 10 procesos que mas ram esten consumiendo.",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "estoy en windows. busca y lista los 10 procesos que mas ram esten consumiendo.",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gpt",
+  "veces": 5,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "como podria ordenar mi escritorio ?",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "sugerime como podria ordenar mi escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gpt y de gemini, decime cuales son",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "lista los procesos que mas ram consuman",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "decime los 10 procesos que mas ram esten consumiendo",
+  "veces": 2,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "dame una lista ordenada de todos los archivos y carpetas en el escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gemini y el de gpt, y luego guarda la informacion en un md dentro de la carpeta jarvis del escritorio.",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "dame el arbol de carpetas y archivos de la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "lista los 10 procesos que mas ram esten consumiendo",
+  "veces": 4,
+  "primer_dia": "2026-11-08"
+ },
+ {
+  "pedido": "Reproduci ac dc en youtube",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "lista los 10 procesos que mas ram consuman",
+  "veces": 3,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "busca los procesos que corren en ram, luego de obtenerlos decime cuales son los 10 que mas consumen",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "lista los 10 procesos que mas ram consuman.",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "Listar los 10 procesos con mayor consumo de RAM",
+  "veces": 3,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "lista las 10 tareas que mas ram esten consumiendo.",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "decime cuales son los 5 archivos mas pesados que tengo en el escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "que archivos hay en mi escritorio ?",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "abri la pagina de imdb en el navegador",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "abri la calculadora",
+  "veces": 5,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "abri el navegador chrome",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "abri la pagina de imdb en el navegador chrome",
+  "veces": 1,
+  "primer_dia": "2026-11-09"
+ },
+ {
+  "pedido": "baja el volumen un 10%",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "decime los 5 archivos mas pesados que hay en el escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "busca en internet el ultimo modelo de gemini y de gpt, luego guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "reproduci en youtube \"back in black\" de acdc.",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gpt y de gemini, crea un md en la carpeta jarvis con la informacion encontrada",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "busca la pagina de lost en imdb y luego abrila en el navegador.",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "saca una captura de pantalla",
+  "veces": 1,
+  "primer_dia": "2026-11-10"
+ },
+ {
+  "pedido": "cual es el ultimo modelo de gemini",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "busca los 10 procesos que mas ram esten consumiendo",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "hola como andas",
+  "veces": 2,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "hola, responde en español, decime si ves algo raro en tu sistema",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "hola, en español decime como andas",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "Hola como estas",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "hola, como estas ? responde en español",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "Hola como estas ?",
+  "veces": 2,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "cuanto es 2 mas 2",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "lista los 3 procesos que mas ram consumen",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "hola",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT",
+  "veces": 4,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "hola como estas",
+  "veces": 2,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gpt y gemini",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "Lista los 5 procesos que mas ram esten consumiendo",
+  "veces": 4,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y de gemini. guarda la informacion en un md en la carpeta jarvis del escritorio.",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y guarda la info en un exel en la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "decime los 5 procesos que mas ram esten consumiendo",
+  "veces": 5,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "cuantas carpetas tengo en mi escritorio ?",
+  "veces": 1,
+  "primer_dia": "2026-11-11"
+ },
+ {
+  "pedido": "busca el ultimo modelo de GPT y el ultimo de gemini",
+  "veces": 1,
+  "primer_dia": "2026-11-12"
+ },
+ {
+  "pedido": "busca las ultimas noticias de argentina",
+  "veces": 2,
+  "primer_dia": "2026-11-12"
+ },
+ {
+  "pedido": "quien es el mejor jugador de ajedrez ?",
+  "veces": 1,
+  "primer_dia": "2026-11-12"
+ },
+ {
+  "pedido": "busca quien es el mejor jugador de ajedrez",
+  "veces": 1,
+  "primer_dia": "2026-11-12"
+ },
+ {
+  "pedido": "decime los 4 procesos que mas ram esten consumiendo.",
+  "veces": 1,
+  "primer_dia": "2026-11-12"
+ },
+ {
+  "pedido": "ejecutá en la terminal: Write-Output hola",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "ejecutá en la terminal: Get-ChildItem C:\\Windows | Select-Object -First 5 | Format-Table Name,FullName",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "usa la terminal, ejecutá en la terminal: Get-ChildItem C:\\Windows | Select-Object -First 5 | Format-Table Name,FullName",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "ejecutá en la terminal: Get-Date y luego volvé a consultar la hora dos veces",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Crea antes C:\\Temp\\rc_a con un archivo. Luego: ejecutá en la terminal: robocopy C:\\Temp\\rc_a C:\\Temp\\rc_b /E",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "ejecutá en la terminal: New-Item -ItemType Directory C:\\Temp\\rc_a -Force; Set-Content C:\\Temp\\rc_a\\hola.txt hola",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "ejecutá en la terminal: robocopy C:\\Temp\\rc_a C:\\Temp\\rc_b /E",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y gemini",
+  "veces": 2,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Decime los 5 procesos que mas ram esten consumiendo.",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y guarda el resultado en un exel dentro de la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Busca las ultimas noticias de argentina.",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Cuando se estrena avengers doomsday ?",
+  "veces": 2,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "busca en internet Cuando se estrena avengers doomsday ?",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Busca y decime cual es la pagina de lost en imdb",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Busca cual es la ultima pelicula de nolan",
+  "veces": 2,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "busca ultimas noticias de argentina",
+  "veces": 2,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gemini",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "busca el ultimo modelo de GPT y de gemini",
+  "veces": 2,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de openai y de google",
+  "veces": 1,
+  "primer_dia": "2026-11-13"
+ },
+ {
+  "pedido": "hola jarvis. como estas ?",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini",
+  "veces": 4,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Decime los 5 procesos que mas ram estenconsumiendo",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Crea un md con la informacion del ultimo modelo de GPT",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "busca en internet el ultimo modelo de gpt y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Crea un md dentro de la carpeta jarvis con la informacion que sepas de gpt",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y de Gemini",
+  "veces": 2,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "lista los 5 procesos que mas ram esten consumiendo",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "lista las carpetas que hay en mi escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio.",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md en la carpeta jarvis del escritorio. guardalos en archivos eparados",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "que archivos hay en la carpeta jarvis de documentos ?",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "y en la de escritorio ?",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "que hay en la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "que hay en la carpeta jarvis de documentos",
+  "veces": 1,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "busca el ultimo modelo de gemini y de gpt, guarda la info en un exel dentro de la carpeta jarvis del escritorio",
+  "veces": 2,
+  "primer_dia": "2026-11-14"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y gemini y guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "veces": 2,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "lista los 10 procesos que mas ram esten consimiendo",
+  "veces": 1,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y gemini. guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de GPT y de gemini, guarda la info en un archivo md dentro de la carpte jarvis del escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio",
+  "veces": 3,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "cual es el ultimo modelo de GPT ?",
+  "veces": 1,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "crea un md que diga hola adentro en el escritorio",
+  "veces": 2,
+  "primer_dia": "2026-11-15"
+ },
+ {
+  "pedido": "Crea un MD en la carpeta jarvis con la informacion de las ultimas noticias de argentina.",
+  "veces": 1,
+  "primer_dia": "2026-11-16"
+ },
+ {
+  "pedido": "ahora crea un MD en la carpeta jarvis con la informacion del ultimo modelo de CLAUDE",
+  "veces": 1,
+  "primer_dia": "2026-11-16"
+ },
+ {
+  "pedido": "busca y decime que archivos hay en mi escritorio",
+  "veces": 1,
+  "primer_dia": "2026-11-16"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y gpt",
+  "veces": 1,
+  "primer_dia": "2026-11-16"
+ },
+ {
+  "pedido": "Decime los 5 procesos que mas ram esten consumiendo",
+  "veces": 2,
+  "primer_dia": "2026-11-16"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y de GPT y guarda la info en un archivo md dentro de la carpeta jarvis del escritorio.",
+  "veces": 1,
+  "primer_dia": "2026-11-17"
+ },
+ {
+  "pedido": "lista los 4 procesos que mas ram esten consumiendo",
+  "veces": 2,
+  "primer_dia": "2026-11-17"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y gpt, guarda la info en un md dentro de la carpeta jarvis del escritorio",
+  "veces": 3,
+  "primer_dia": "2026-11-18"
+ },
+ {
+  "pedido": "Busca el ultimo modelo de gemini y GPT y guarda el resumen en un md dentro de la carpeta jarvis del escritorio",
+  "veces": 2,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Quiero organizar un viaje a la provicia de Mendoza, Argentina. Recopila información de hospedaje, pasajes, lugares para recorrer, y anda agregando la informaci…",
+  "veces": 3,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "solo lectura y exploracion. busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "veces": 4,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "bucsa en mi escritorio la carpeta que contiene los datasets",
+  "veces": 3,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Proponé una estructura de carpetas. No …",
+  "veces": 1,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Investigá tres alternativas de bases de datos gratuitas para aplicaciones locales. Compará SQLite, DuckDB y PostgreSQL considerando ventajas, limitaciones, ren…",
+  "veces": 1,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos, procesos que más recursos consumen, servicios ac…",
+  "veces": 3,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "busca en mi ordenador si encontras la carpeta jarvv de mi proyecto",
+  "veces": 1,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Analizá los archivos del escritorio, identificá cuáles son documentos, imágenes, archivos comprimidos y otros formatos. Propone una estructura de carpetas. No …",
+  "veces": 2,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Revisá mi equipo mediante PowerShell: identificá el hardware, sistema operativo, espacio disponible en discos",
+  "veces": 1,
+  "primer_dia": "2026-11-19"
+ },
+ {
+  "pedido": "Buscá los datasets disponibles en mi ordenador. Seleccioná los que contengan datos estructurados (CSV, JSON, XLSX). Analizá su estructura, cantidad de registro…",
+  "veces": 1,
+  "primer_dia": "2026-11-19"
+ }
+]

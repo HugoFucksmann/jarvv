@@ -129,6 +129,7 @@
     "env": [
       "process=4321"
     ],
+    "request": "Busca los informes de ventas y guarda un resumen en resumen.txt",
     "route": "files",
     "tools": [
       {
@@ -346,6 +347,7 @@
     "env": [
       "process=4321"
     ],
+    "request": null,
     "route": "files",
     "tools": [
       {
