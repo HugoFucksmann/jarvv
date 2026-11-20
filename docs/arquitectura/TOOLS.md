@@ -1,13 +1,13 @@
 # Herramientas y Catálogo
 
-JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herramientas visibles** repartidas en **4 rutas** (`EXECUTABLE_ROUTES`), combinando un servidor MCP por stdio (`free_search`, interno de `web_search`) y proveedores nativos en proceso (`jarvis_files`, `jarvis_terminal`, `jarvis_web` en `src/tools/`).
+JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herramientas visibles** repartidas en **4 rutas** (`EXECUTABLE_ROUTES`), combinando servidores MCP por stdio (`desktop_commander`, `free_search`) y proveedores nativos en proceso (`jarvis_files`, `jarvis_terminal`, `jarvis_web` en `src/tools/`).
 
 ## 1. Catálogo vigente
 
 | Ruta (D1) | Servidor | Herramientas visibles (D2) | Notas clave |
 |---|---|---|---|
-| `files` | `jarvis_files` (nativo, **pendiente**: Desktop Commander se retiró) | `read_file`, `read_multiple_files`, `write_file`, `create_directory`, `list_directory`, `move_file` (declaradas en el manifiesto; el proveedor aún no las expone, así que D1 no ofrece esta ruta) | Archivos y carpetas locales con ruta conocida. `list_directory` solo devuelve nombres (sin tamaños ni fechas) |
-| `locate` | `jarvis_files` (nativo, **pendiente**) | `start_search`, `get_more_search_results` (declaradas, aún sin proveedor; D1 no ofrece esta ruta) | Búsqueda por nombre o contenido. `get_more_search_results` requiere búsqueda activa (`requires: "search"`) |
+| `files` | `desktop_commander` | `read_file`, `read_multiple_files`, `write_file`, `create_directory`, `list_directory`, `move_file` | Archivos y carpetas locales con ruta conocida. `list_directory` solo devuelve nombres (sin tamaños ni fechas) |
+| `locate` | `desktop_commander` | `start_search`, `get_more_search_results` | Búsqueda por nombre o contenido. `get_more_search_results` requiere búsqueda activa (`requires: "search"`) |
 | `terminal` | `jarvis_terminal` (nativo) | `run_command`, `list_processes`, `stop_process` | Solo Windows/PowerShell; ver detalle operativo en [`../operacion/WINDOWS_TERMINAL.md`](../operacion/WINDOWS_TERMINAL.md) |
 | `web` | `jarvis_web` (nativo) | `web_search` | Búsqueda y lectura web; usa internamente `free_search` (`search`, `fetch`, `read_doc`) |
 

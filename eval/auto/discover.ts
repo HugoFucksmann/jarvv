@@ -1,0 +1,178 @@
+/**
+ * eval/auto/discover.ts
+ *
+ * Descubrimiento automático de datasets y variantes aplicables a `--stage`.
+ * - Excluye `smoke.jsonl` y `*_holdout*.jsonl` del conjunto de entrenamiento salvo que se pasen explícitamente.
+ * - Excluye `prod`, `decision_all_stages_example`, `_archivo_*`, `_auto/<otra_etapa>/` y `descartadas/`
+ *   al descubrir variantes activas iniciales para Vuelta 0.
+ */
+
+import { readFileSync } from "node:fs";
+import { basename, relative, resolve } from "node:path";
+import { loadDatasets, resolveDatasetPaths, type Dataset } from "../core/datasets.ts";
+import { objectHash } from "../core/results.ts";
+import type { StageName } from "../core/types.ts";
+import { listActiveVariantFiles, loadVariantSpec } from "../core/variants/load.ts";
+import type { Variant } from "../core/variants/types.ts";
+import { getStageContract } from "./stageContract.ts";
+
+const HOLDOUT_FILENAME_RE = /(?:^|[_-])holdout\d*\.jsonl$/i;
+
+export interface DiscoveredDatasets {
+  dev: Dataset[];
+  holdout: Dataset[];
+  /** Mapa `datasetName -> datasetHash` para verificar compatibilidad de resultados cacheados. */
+  devHashes: Record<string, string>;
+  /** Mapa `datasetName -> casesHash` (igual a `RunMeta.cases.hash`) para comparar huellas exactas. */
+  devCasesHashes: Record<string, string>;
+}
+
+export interface DiscoveredVariant {
+  name: string;
+  path: string;
+  hash: string;
+  variant: Variant;
+  isAuto: boolean;
+}
+
+/** Verifica rápidamente si un `.jsonl` tiene al menos un caso de `stage` sin materializar escenarios de otras etapas. */
+function jsonlContainsStage(filePath: string, stage: StageName): boolean {
+  const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as { stage?: unknown };
+      if (parsed.stage === stage) return true;
+    } catch {
+      // Si hay una línea inválida en el archivo, dejamos que loadDatasets la reporte normalmente.
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Descubre y carga los datasets de trabajo (`dev`) y los opcionales de `--holdout` para `stage`.
+ * Lanza error descriptivo si no quedan datasets o si `dev` y `holdout` se solapan.
+ */
+export function discoverStageDatasets(
+  stage: StageName,
+  explicitDatasets: string[],
+  holdoutSpecs: string[],
+): DiscoveredDatasets {
+  const holdoutPaths = holdoutSpecs.length > 0 ? resolveDatasetPaths(holdoutSpecs).map((p) => resolve(p)) : [];
+  const holdoutPathSet = new Set(holdoutPaths);
+
+  let devPaths: string[];
+  if (explicitDatasets.length > 0) {
+    devPaths = resolveDatasetPaths(explicitDatasets);
+    const overlap = devPaths.filter((p) => holdoutPathSet.has(resolve(p)));
+    if (overlap.length > 0) {
+      throw new Error(
+        `Los datasets de --dataset y --holdout no pueden solaparse: ${overlap.join(", ")}.`,
+      );
+    }
+  } else {
+    const allJsonl = resolveDatasetPaths(["eval/datasets/"]);
+    devPaths = allJsonl.filter((p) => {
+      const fileName = basename(p);
+      if (fileName === "smoke.jsonl") return false;
+      if (HOLDOUT_FILENAME_RE.test(fileName)) return false;
+      if (holdoutPathSet.has(resolve(p))) return false;
+      return jsonlContainsStage(p, stage);
+    });
+  }
+
+  if (devPaths.length === 0) {
+    throw new Error(
+      `No se encontraron datasets de trabajo para la etapa '${stage}' en eval/datasets/ (excluyendo smoke y holdout).`,
+    );
+  }
+
+  const devLoaded = loadDatasets(devPaths, { stages: [stage] });
+  const dev = devLoaded.filter((d) => d.cases.length > 0);
+  if (explicitDatasets.length > 0) {
+    const empty = devLoaded.filter((d) => d.cases.length === 0).map((d) => d.name);
+    if (empty.length > 0) {
+      throw new Error(
+        `Los siguientes datasets de --dataset no tienen casos de la etapa '${stage}': ${empty.join(", ")}.`,
+      );
+    }
+  }
+  if (dev.length === 0) {
+    throw new Error(`Ninguno de los datasets cargados contiene casos de la etapa '${stage}'.`);
+  }
+
+  let holdout: Dataset[] = [];
+  if (holdoutPaths.length > 0) {
+    const holdoutLoaded = loadDatasets(holdoutPaths, { stages: [stage] });
+    const emptyHoldout = holdoutLoaded.filter((d) => d.cases.length === 0).map((d) => d.name);
+    if (emptyHoldout.length > 0) {
+      throw new Error(
+        `Los siguientes datasets de --holdout no tienen casos de la etapa '${stage}': ${emptyHoldout.join(", ")}.`,
+      );
+    }
+    holdout = holdoutLoaded;
+  }
+
+  const devHashes: Record<string, string> = {};
+  const devCasesHashes: Record<string, string> = {};
+  for (const ds of dev) {
+    devHashes[ds.name] = ds.hash;
+    devCasesHashes[ds.name] = objectHash(ds.cases.map((c) => c.id).sort());
+  }
+
+  return { dev, holdout, devHashes, devCasesHashes };
+}
+
+/** True si el archivo pertenece al directorio aislado de variantes generadas para `stage`. */
+export function isAutoVariantPathForStage(filePath: string, stage: StageName): boolean {
+  const rel = relative(resolve("eval/variants"), resolve(filePath)).replace(/\\/g, "/");
+  return rel.startsWith(`_auto/${stage}/`) && !rel.includes("/descartadas/");
+}
+
+function belongsToOtherAutoStage(filePath: string, stage: StageName): boolean {
+  const rel = relative(resolve("eval/variants"), resolve(filePath)).replace(/\\/g, "/");
+  if (!rel.startsWith("_auto/")) return false;
+  return !rel.startsWith(`_auto/${stage}/`);
+}
+
+/**
+ * Descubre todas las variantes activas en `eval/variants/` que definen el prompt de `stage`
+ * (excluyendo `prod`, `decision_all_stages_example`, `descartadas/`, `_archivo_*` y `_auto/<otra_etapa>/`).
+ */
+export async function discoverStageVariants(stage: StageName): Promise<DiscoveredVariant[]> {
+  const contract = getStageContract(stage);
+  const files = listActiveVariantFiles();
+  const discovered: DiscoveredVariant[] = [];
+
+  for (const filePath of files) {
+    const name = basename(filePath, ".ts");
+    if (name === "prod" || name === "decision_all_stages_example") continue;
+    if (belongsToOtherAutoStage(filePath, stage)) continue;
+
+    // Filtro rápido por texto antes de importar dinámicamente módulos de otras etapas.
+    const raw = readFileSync(filePath, "utf8");
+    if (!raw.includes(contract.promptKey)) continue;
+
+    try {
+      const { variant, hash } = await loadVariantSpec(name);
+      const groupObj = variant.prompts?.[contract.promptGroup] as Record<string, unknown> | undefined;
+      if (!groupObj || !(contract.promptKey in groupObj) || groupObj[contract.promptKey] === undefined) {
+        continue;
+      }
+      discovered.push({
+        name,
+        path: resolve(filePath),
+        hash,
+        variant,
+        isAuto: isAutoVariantPathForStage(filePath, stage),
+      });
+    } catch {
+      // Si alguna variante heredada falla al cargar, se omite del descubrimiento automático (y si la piden explícitamente en --seed-top fallará allí).
+    }
+  }
+
+  return discovered.sort((a, b) => a.name.localeCompare(b.name));
+}

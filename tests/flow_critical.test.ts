@@ -53,7 +53,7 @@ test("reactivo: un ítem nunca se abandona con otros detrás; al 2.º fallo cier
     const ctx = makeCtx("task_no_abandon_fail", "Primero fallido, segundo dependiente");
     const fileTools = ["read_file", "write_file"].map(tool);
     const server: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => fileTools,
       callTool: async (t) => ({ content: [{ type: "text", text: t === "write_file" ? "ok" : "error" }], ...(t === "read_file" ? { isError: true } : {}) }),
@@ -62,8 +62,8 @@ test("reactivo: un ítem nunca se abandona con otros detrás; al 2.º fallo cier
     };
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? server : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : []),
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -155,7 +155,7 @@ test("reactivo: MAX_REOPENS = 2 detiene reaperturas infinitas provocadas por D5"
     const ctx = makeCtx("task_reopen", "Crear carpeta y archivo");
     const fileTools = [tool("write_file")];
     const server: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => fileTools,
       callTool: async () => ({ content: [{ type: "text", text: "ok" }] }),
@@ -164,8 +164,8 @@ test("reactivo: MAX_REOPENS = 2 detiene reaperturas infinitas provocadas por D5"
     };
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? server : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : []),
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -227,7 +227,7 @@ test("reactivo: un solo ítem cierra no_alternatives al 2.º fallo y respuestas 
     const ctx = makeCtx("task_esc", "Falla dos veces y pregunta al usuario");
     const fileTools = [tool("write_file")];
     const server: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => fileTools,
       callTool: async () => ({ content: [{ type: "text", text: "ok" }] }),
@@ -237,8 +237,8 @@ test("reactivo: un solo ítem cierra no_alternatives al 2.º fallo y respuestas 
     let argN = 0;
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? server : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : []),
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -323,7 +323,7 @@ test("callRunner: allowedDirectories revisa args.paths[] y omite isUrl en read_f
     const ctx = makeCtx("task_live_bl", `Leer ${path.join(dir, "fuera", "x.txt")} y https://api.acme-corp.invalid/data.json y luego ejecutar comando sensible`);
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" || n === "jarvis_terminal" ? server(n) : undefined),
+        getServer: (n) => (n === "desktop_commander" || n === "jarvis_terminal" ? server(n) : undefined),
         getDiscoveredTools: async () => tools,
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
@@ -429,7 +429,7 @@ test("callRunner: raceCancel registra interrupted ante cancelación en vuelo y d
     const rtCancel = new TaskRuntime();
     let rejectLate!: (err: Error) => void;
     const slowServer: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => [tool("read_file")],
       callTool: () =>
@@ -442,8 +442,8 @@ test("callRunner: raceCancel registra interrupted ante cancelación en vuelo y d
     };
     const baseDeps = (srv: IMCPServer, vault: ReturnType<typeof createRefVault>, llm3Calls: number[]): EngineDeps => ({
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? srv : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? [tool("read_file")] : []),
+        getServer: (n) => (n === "desktop_commander" ? srv : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? [tool("read_file")] : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -487,7 +487,7 @@ test("callRunner: raceCancel registra interrupted ante cancelación en vuelo y d
 
     // 2) RefVaultError al guardar resultado truncado -> registra llamada sin ref + service_unavailable + unrecoverable + isLlmDown
     const bigServer: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => [tool("read_file")],
       callTool: async () => ({ content: [{ type: "text", text: "L".repeat(BUDGET.summaryMax + 1000) }] }),
@@ -539,7 +539,7 @@ test("finalize: compone statusNote + stripNoChangesFiller + placeNote en tarea p
     const ctx = makeCtx("task_place", "Guardar informe en Documentos");
     const tools = [tool("write_file")];
     const srv: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => tools,
       callTool: async (_t, a) => {
@@ -552,7 +552,7 @@ test("finalize: compone statusNote + stripNoChangesFiller + placeNote en tarea p
     let n = 0;
     const deps: EngineDeps = {
       discovery: {
-        getServer: (name) => (name === "jarvis_files" ? srv : undefined),
+        getServer: (name) => (name === "desktop_commander" ? srv : undefined),
         getDiscoveredTools: async () => tools,
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
@@ -621,8 +621,8 @@ test("RC-21 + maxCallsPerStep: rerun bloqueado hasta escritura intermedia", asyn
     let stepNum = 0;
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? srv(n, fileTools) : n === "jarvis_terminal" ? srv(n, termTools) : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : n === "jarvis_terminal" ? termTools : []),
+        getServer: (n) => (n === "desktop_commander" ? srv(n, fileTools) : n === "jarvis_terminal" ? srv(n, termTools) : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : n === "jarvis_terminal" ? termTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -700,8 +700,8 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
     const ctx = makeCtx("task_exhaust", "Listar archivos de C:\\Users\\Ana");
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? srv(n, fileTools) : n === "jarvis_terminal" ? srv(n, termTools) : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : n === "jarvis_terminal" ? termTools : []),
+        getServer: (n) => (n === "desktop_commander" ? srv(n, fileTools) : n === "jarvis_terminal" ? srv(n, termTools) : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : n === "jarvis_terminal" ? termTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -794,7 +794,7 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
     let llm3Called = 0;
     let writeN = 0;
     const bigSrv: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => [tool("write_file")],
       callTool: async () => ({ content: [{ type: "text", text: "W".repeat(2400) }] }),
@@ -805,8 +805,8 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
     const items = Array.from({ length: 9 }, (_, i) => `Crear archivo número_${i}`);
     const depsFinOver: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? bigSrv : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? [tool("write_file")] : []),
+        getServer: (n) => (n === "desktop_commander" ? bigSrv : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? [tool("write_file")] : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -859,7 +859,7 @@ test("reactivo: si pending tras un fallo devuelve solo un ítem ya cumplido, no 
     const ctx = makeCtx("task_empty_after_fail", "Escribir primero y luego leer imposible");
     const fileTools = ["read_file", "write_file"].map(tool);
     const server: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => fileTools,
       callTool: async (t) => ({ content: [{ type: "text", text: t === "write_file" ? "ok" : "error" }], ...(t === "read_file" ? { isError: true } : {}) }),
@@ -868,8 +868,8 @@ test("reactivo: si pending tras un fallo devuelve solo un ítem ya cumplido, no 
     };
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? server : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : []),
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,
@@ -926,7 +926,7 @@ test("reactivo: si pending repite exactamente el texto normalizado tras fallo o 
   try {
     const fileTools = ["read_file", "write_file"].map(tool);
     const server: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => fileTools,
       callTool: async () => ({ content: [{ type: "text", text: "error" }], isError: true }),
@@ -938,8 +938,8 @@ test("reactivo: si pending repite exactamente el texto normalizado tras fallo o 
       let argN = 0;
       return {
         discovery: {
-          getServer: (name) => (name === "jarvis_files" ? server : undefined),
-          getDiscoveredTools: async (name) => (name === "jarvis_files" ? fileTools : []),
+          getServer: (name) => (name === "desktop_commander" ? server : undefined),
+          getDiscoveredTools: async (name) => (name === "desktop_commander" ? fileTools : []),
           getUnavailableServers: () => ({}),
           validateToolExists: async () => true,
           notifyTaskEnd: async () => undefined,
@@ -997,7 +997,7 @@ test("reactivo: si pending repite exactamente el texto normalizado tras fallo o 
     const ctxDone = makeCtx("task_done_after_fail", "Escribir, leer imposible, escribir dependiente");
     await runTask(ctxDone, new TaskRuntime(), {
       ...depsDone,
-      discovery: { ...depsDone.discovery, getServer: (name) => (name === "jarvis_files" ? partialServer : undefined) },
+      discovery: { ...depsDone.discovery, getServer: (name) => (name === "desktop_commander" ? partialServer : undefined) },
       decision: {
         ...depsDone.decision,
         chooseTool: async (inp) => ({
@@ -1035,7 +1035,7 @@ async function escalationScenario(recovers: boolean): Promise<TaskContext> {
     const fileTools = [tool("read_file")];
     let stepIdx = 0;
     const server: IMCPServer = {
-      name: "jarvis_files",
+      name: "desktop_commander",
       version: "t",
       listTools: async () => fileTools,
       callTool: async (_t, a) => {
@@ -1050,8 +1050,8 @@ async function escalationScenario(recovers: boolean): Promise<TaskContext> {
     const ctx = makeCtx(recovers ? "task_esc_recovers" : "task_esc_streak", "Ocho pasos donde cada ítem falla una vez y se reescribe");
     const deps: EngineDeps = {
       discovery: {
-        getServer: (n) => (n === "jarvis_files" ? server : undefined),
-        getDiscoveredTools: async (n) => (n === "jarvis_files" ? fileTools : []),
+        getServer: (n) => (n === "desktop_commander" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "desktop_commander" ? fileTools : []),
         getUnavailableServers: () => ({}),
         validateToolExists: async () => true,
         notifyTaskEnd: async () => undefined,

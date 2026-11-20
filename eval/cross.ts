@@ -26,6 +26,7 @@ import { analyzePowerShell } from "../src/core/engine/precheck.ts";
 import { NOUL_APPROVE } from "../src/core/engine/verify.ts";
 import { getToolPolicy, serverOf } from "../src/core/tools/manifest.ts";
 import { datasetName, resolveDatasetPaths } from "./core/datasets.ts";
+import { signTestP } from "./core/report.ts";
 import type { Scenario } from "./core/scenario.ts";
 import { scenarioPrecheck } from "./core/scenario.ts";
 
@@ -70,20 +71,6 @@ function loadCases(dataset: string): Array<{ dataset: string; cases: RawCase[] }
 // ───────────────────────── Estadística ─────────────────────────
 
 const pct = (n: number, d: number): string => (d === 0 ? "—" : `${((100 * n) / d).toFixed(0)} % (${n}/${d})`);
-
-/** p exacto, dos colas, del test de signos sobre los discordantes (b = mejora, c = empeora). */
-function signTestP(b: number, c: number): number {
-  const n = b + c;
-  if (n === 0) return 1;
-  const k = Math.min(b, c);
-  let cum = 0;
-  let term = 0.5 ** n;
-  for (let i = 0; i <= k; i++) {
-    cum += term;
-    term = (term * (n - i)) / (i + 1);
-  }
-  return Math.min(1, 2 * cum);
-}
 
 // ───────────────────────── Pre-chequeo sobre los datasets ─────────────────────────
 
@@ -247,7 +234,7 @@ function crossReport(rows: CaseRow[], runs: D3Run[]): { md: string[]; json: unkn
         if (x.ok) b++;
         else c++;
       }
-      const cmp = variant === baseline && pipe === "d3" ? "—" : paired === 0 ? "—" : `${b}/${c}, p=${signTestP(b, c).toFixed(2)}`;
+      const cmp = variant === baseline && pipe === "d3" ? "—" : paired === 0 ? "—" : `${b}/${c}, p=${(signTestP(b, c) ?? 1).toFixed(2)}`;
       md.push(`| ${variant} | ${pipe} | ${all.length} | ${pct(all.filter((x) => x.ok).length, all.length)} | ${pct(fp, good.length)} | ${pct(right, bad.length)} | ${pct(passed, bad.length)} | ${cmp} |`);
       json.push({ variant, pipe, n: all.length, acierto: all.filter((x) => x.ok).length, falsosRechazos: fp, aprobadas: good.length, malasCorrectas: right, malas: bad.length, malasAprobadas: passed, mejora: b, empeora: c });
     }

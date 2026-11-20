@@ -2,7 +2,7 @@
 
 > Mide cómo decide y responde Jarvis, y valida cada cambio de prompt contra producción antes de tocar `src`.
 
-Evalúa las trece etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
+Evalúa las catorce etapas del flujo, compara variantes de prompt y deja cada resultado trazable.
 
 ---
 
@@ -11,7 +11,7 @@ Evalúa las trece etapas del flujo, compara variantes de prompt y deja cada resu
 | | |
 |---|---|
 | **Contexto real de Jarvis** | Los casos por escenario describen la situación y el eval arma el prompt con el mismo código que usa Jarvis: vistas, mensajes fijos, renderizadores y parámetros de cada etapa. Si `src` cambia, el eval se actualiza solo. |
-| **Cobertura completa** | Ocho etapas de decisión (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5` y `recovery` en modo sombra) y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
+| **Cobertura completa** | Nueve etapas de decisión (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery` en modo sombra y `continuation`) y cinco generativas, cada una con graders propios: etiqueta y probabilidad en las decisiones; estructura y contenido en las salidas generativas. |
 | **A/B de prompts sin riesgo** | Las variantes se aplican en memoria y se comparan contra la baseline `prod`: deltas, regresiones y mejoras caso por caso, prueba de signos y promedio por etapa. No modifica `src` ni los casos. |
 | **Lectura por tipo de modelo** | El resumen separa etapas generativas y de decisión, y avisa cuando una variante mejora un tipo y empeora el otro, para que el total no engañe. |
 | **Fiel a producción** | Mismos reintentos, mismos criterios de validación y un `pass` estricto: un run solo pasa si no registra ningún error. |
@@ -68,9 +68,9 @@ eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval
 
 ---
 
-## Datasets generados y cruce con el pre-chequeo
+## Datasets y cruce con el pre-chequeo
 
-Los datasets de `eval/datasets/<etapa>/` se cargan a mano (casos por escenario, hoy con ayuda de otros modelos y revisión humana); no hay generación automática de casos. Los scripts de `eval/gen/` (`mutaciones.ts`, `ram_real.ts`, `ram_retry.ts`, `repeticiones.ts`) generan casos sintéticos puntuales y escriben `eval/datasets/*.jsonl`: no se editan a mano los archivos generados. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Las variantes descartadas se eliminaron el 2026-11-07 (lista y motivos en la sección 8 de [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md)). Resultados y conclusiones: [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las mejores variantes por etapa) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
+Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Resultados y conclusiones vigentes: [`conclusiones.md`](./conclusiones.md), [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
 
 ## Documentación
 

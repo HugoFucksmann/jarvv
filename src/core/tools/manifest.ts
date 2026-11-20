@@ -77,11 +77,11 @@ export const DESTINATIONS: Readonly<
   Record<ExecutableRoute, { readonly server: McpServerName; readonly description: string }>
 > = {
   files: {
-    server: "jarvis_files",
+    server: "desktop_commander",
     description: "Read, create, save or move files and folders, and list a folder (names only, without sizes or dates), when the path is already known.",
   },
   locate: {
-    server: "jarvis_files",
+    server: "desktop_commander",
     description: "Find files by name or by text inside files when the location is unknown.",
   },
   terminal: {
@@ -169,9 +169,6 @@ const internalDef = (server: McpServerName, route: ExecutableRoute, name: string
   def(route, name, capability, description, opts, server, true);
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
-  // Herramientas de archivos y búsqueda que antes daba Desktop Commander (retirado). Siguen declaradas aquí con su política, sondas y descripciones porque son lo
-  // que el proveedor nativo `jarvis_files` va a implementar con los mismos nombres: mientras no las exponga, `applyDestination` no las ofrece y D1 no propone
-  // las rutas `files` ni `locate` (solo `terminal` y `web`).
   // Sin `isUrl`: las URL las cubre `fetch`. `offset` y `length` cuentan líneas en archivos de texto (observado); en PDF o Excel no se verificó.
   def("files", "read_file", "FILE_READ", "Read a local text/PDF/Excel file (offset, sheet, range).", {
     emptyIsError: true,
@@ -414,7 +411,7 @@ export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool
   const allowed: MCPTool[] = [];
   for (const t of tools) {
     const d = lookup(server, t.name);
-    if (d?.route !== route || d.internal === true) continue;
+    if (d?.route !== route) continue;
     let inputSchema = d.params ? restrictParams(t.inputSchema, d.params) : t.inputSchema;
     if (d.notes) inputSchema = annotateParams(inputSchema, t.name, d.notes);
     allowed.push({ ...t, description: d.description, inputSchema });

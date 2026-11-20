@@ -26,7 +26,7 @@ export function objectHash(obj: unknown): string {
  * (`< > : " / \ | ? *` y control) y recorta puntos/espacios finales.
  * Para nombres ya válidos (p. ej. `qwen3.5:4b` → `qwen3.5_4b`) el resultado no cambia.
  */
-function safeName(name: string): string {
+export function safeName(name: string): string {
   const out = name.replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_").replace(/[. ]+$/, "");
   return out || "_";
 }

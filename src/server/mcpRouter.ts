@@ -18,7 +18,7 @@ export function createMcpRouter(discoveryEngine: DiscoveryEngine): express.Route
       const tools = await discoveryEngine.discoverAll();
       res.json(tools);
     } catch (err) {
-      res.json({ free_search: [], error: errorMessage(err) });
+      res.json({ desktop_commander: [], free_search: [], error: errorMessage(err) });
     }
   });
 

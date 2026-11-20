@@ -94,7 +94,6 @@ Un porcentaje global alto puede esconder un error caro.
 4. **No ajustar y validar en el mismo dataset.** Una diferencia de 1–3 casos está dentro del ruido; con n < 50, +3 puntos no es significativo (usar comparación pareada, McNemar, antes de afirmar que una variante gana).
 5. **Cuidado con los datasets chicos.** `recovery` tiene 30 casos: sirve para ver qué pasa, **no para decidir**. Ampliar con casos reales antes de adoptar un prompt.
 6. **No tocar `src/`** desde una variante. Una variante vive en `eval/variants/<etapa>/` y reemplaza **builders enteros** de `DECISION_PROMPTS`/`PROMPTS` (se fusionan con `effectivePrompts`). Si el cambio necesita código, anotarlo como **(requiere código)** y probarlo simulándolo en el dataset.
-7. Los datasets generados (`reales_*`, `mut_*`, `old_*`, `fail_*`, `ram_*`) se regeneran con `eval/gen/*.ts`: no se editan a mano.
 
 ### Comandos
 
@@ -116,17 +115,17 @@ Cada punto tiene su evidencia en el documento enlazado. **No volver a probarlo s
 
 - **Repetir corridas (`--repeat`) con D**: no mide nada (temperatura 0). Ver 2.1.
 - **Cambiar nombres de claves** de las preguntas: sin efecto (D4: 131/172 en las cuatro redacciones). Ver 2.2.
-- **`tool_fit` como pregunta de D3**: da 0,06–0,07 a comandos correctos; juzga el contenido del comando, no el tipo de herramienta (causa de falsos `tool_rejected`). [`CONCLUSIONES_HISTORICAS` §2.1]
-- **Preguntas binarias de D3 con regla en código como reemplazo de la pregunta única** (`args_grounded`, `needs_user`, con/sin `criteria`, AND/promedio/«cualquiera»): bajan los falsos rechazos (19 % → 0–3 %) pero dejan pasar 64–89 % de las malas. Ninguna gana a `prod` en D3 solo. [§2.2]
-- **Votación por mayoría 2 de 3** para verificar: no aporta; el AND estricto da lo mismo. [§2.3]
-- **«Reescribilo desde cero, no copies el anterior»** en la razón del rechazo: empeora (55 % → 20 % de comandos válidos). [§2.4]
-- **Subir la temperatura del reintento** (generativo, `pending`, 0,2 y 0,3): sin ganancia; el fallo que busca arreglar no ocurre. [§2.4b]
+- **`tool_fit` como pregunta de D3**: da 0,06–0,07 a comandos correctos; juzga el contenido del comando, no el tipo de herramienta (causa de falsos `tool_rejected`).
+- **Preguntas binarias de D3 con regla en código como reemplazo de la pregunta única** (`args_grounded`, `needs_user`, con/sin `criteria`, AND/promedio/«cualquiera»): bajan los falsos rechazos (19 % → 0–3 %) pero dejan pasar 64–89 % de las malas. Ninguna gana a `prod` en D3 solo.
+- **Votación por mayoría 2 de 3** para verificar: no aporta; el AND estricto da lo mismo.
+- **«Reescribilo desde cero, no copies el anterior»** en la razón del rechazo: empeora (55 % → 20 % de comandos válidos).
+- **Subir la temperatura del reintento** (generativo, `pending`, 0,2 y 0,3): sin ganancia; el fallo que busca arreglar no ocurre.
 - **Una `noul` por herramienta en D2**: empeora (20/22) y es 3 veces más lenta. **La opción `none`** («ninguna herramienta sirve») no es confiable: falsos `none` en casos válidos; el umbral no la separa. [`limitaciones/d3-2b`]
 - **Una `noul` por ruta en D1** en lugar de un `choice`: 4 preguntas y 229 ms contra 80 ms, y `locate` cae a 4/6. [`limitaciones/d3-2b`]
 - **Preguntas detalladas en D5**: una pregunta mínima ganó (2 falsos «sí» contra 5 con la detallada). [`limitaciones/d3-2b`]
 - **Aplicar una regla a todos los pasos** («A copy is not a move.» en todos): sube `cumple` en casos ajenos (−3 de 164). Hay que condicionarla (solo pasos de mover/renombrar). [`limitaciones/d3-2b`]
 - **Fiarse de la probabilidad** como confianza (recovery): no separa aciertos de errores. Ver 2.4.
-- *(Los puntos de `recovery` de abajo se midieron con la versión de cuatro opciones; las variantes están en `eval/variants/_archivo_recovery_4_opciones/`.)*
+- *(Los puntos de `recovery` de abajo se midieron con la versión anterior de cuatro opciones, ya eliminada tras migrar a 3 opciones.)*
 - **Rótulo neutro `FAILED CALLS` sin `independent` en `recovery` (`recovery_neutral_labels`)**: baja de 58,6 % a 55,2 % (-3,4 %, 2 regresiones `rec-rw-05`, `rec-rw-10` y 1 mejora `rec-cl-05`). Quitar el contexto de reemplazo sesga negativamente las decisiones de reintento.
 - **Redefinir `replan` como prerrequisito faltante en `recovery` (`recovery_replan_prereq`)**: cae bruscamente a 41,4 % (-17,2 %, 5 regresiones graves en `rec-rw-05`, `rec-rw-07`, `rec-rp-01`, `rec-cl-02`, `rec-cl-07`). El 2B confunde "prerequisite" y manda a replan casos de cierre o de reescritura.
 - **Eliminar `PENDING_VIEW` para dejar solo estado ultra-compacto en `recovery` (`recovery_compact_state`)**: colapsa `replan` a 0/16 aciertos en los dos datasets (18 regresiones vs prod), perdiendo completamente la capacidad de detectar necesidad de replanificar por falta del historial de llamadas previas.
@@ -224,7 +223,7 @@ Cautelas: los mensajes de error de los datasets los escribí yo a partir de form
 
 | Tema | Documento |
 |---|---|
-| Conclusiones históricas del eval (qué sirve y qué no, por etapa) | [`CONCLUSIONES_HISTORICAS.md`](./CONCLUSIONES_HISTORICAS.md) |
+| Conclusiones actuales del eval | [`conclusiones.md`](./conclusiones.md) |
 | Mejores variantes por etapa y rondas de prueba | [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) |
 | Cómo correr el eval, formato de casos, etapas | [`INSTRUCCIONES.md`](./INSTRUCCIONES.md), [`README.md`](./README.md) |
 | Límites medidos de `d3:2b` por etapa | [`../docs/evaluacion/limitaciones/d3-2b.md`](../docs/evaluacion/limitaciones/d3-2b.md) |

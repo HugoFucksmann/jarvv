@@ -36,6 +36,7 @@ Atajos de `package.json`:
 | Decisión | `fragment_judge` | Por cada fragmento de `web_search`, si responde la pregunta (probabilidad `>= JUDGE_FOUND`, 0.5) |
 | Decisión | `d5` | Cierre del reactivo con lista vacía: si `DONE` cumple todo `REQUEST` (`COMPLETION_APPROVE` = 0.75) |
 | Decisión | `recovery` | Qué hacer cuando falla el paso de un ítem de la lista reactiva: `close`, `rewrite_item` o `replan` (sin `skip_continue`). En el motor corre solo en **modo sombra** (`recoveryShadow`: registra en la traza, no actúa); `prod` es `DECISION_PROMPTS.buildRecovery` |
+| Decisión | `continuation` | Hilo de conversación: si el nuevo pedido depende de la tarea anterior o refiere a su resultado (`follow`, umbral `CONTINUATION_APPROVE` = 0.3) |
 | Generativa | `plan` | Cantidad de pasos, rutas permitidas y requeridas, palabras clave |
 | Generativa | `arguments` | Campos requeridos, valores exactos, valores prohibidos |
 | Generativa | `final` | Datos y efectos que debe mencionar, alucinaciones prohibidas |
@@ -136,7 +137,7 @@ Una línea por caso; las vacías y las que empiezan con `#` se ignoran. Un caso 
 | Campo | Descripción |
 |---|---|
 | `id` | Único dentro del dataset |
-| `stage` | Una de las trece etapas |
+| `stage` | Una de las catorce etapas |
 | `scenario` | La situación y el punto de decisión (abajo) |
 | `expect` | Lo que debe cumplir la salida; claves cerradas por etapa |
 | `tags`, `description` | Opcionales; los tags sirven con `--tags=` |
@@ -251,7 +252,7 @@ Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es
 
 | Etapa | Qué escribe la variante |
 |---|---|
-| `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildFirstQuery`, `buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`, `buildCompletionCheck`, `buildRecovery`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`). |
+| `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery`, `continuation` | El constructor entero en `prompts.DECISION_PROMPTS` (`buildFirstQuery`, `buildRouteChoice`, `buildToolChoice`, `buildArgsReview`, `buildResultVerification`, `buildFragmentJudge`, `buildCompletionCheck`, `buildRecovery`, `buildContinuation`). Recibe los datos del caso y devuelve `{ state, questions }`; cada pregunta lleva `type`, `instructions` y, según el tipo, `criteria` (`choice`: una opción por clave; `noul`: opcionalmente `{ true, false }`). |
 | `plan`, `arguments`, `final`, `question`, `pending` | La vista entera en `prompts.PROMPTS` (`PLAN_VIEW`, `ARGUMENTS_VIEW`, `FINAL_VIEW`, `QUESTION`, `PENDING_VIEW`), con todas sus piezas. |
 
 ```ts
@@ -304,3 +305,40 @@ npm run eval:cross -- --dataset=<a,b> [--runs=<carpeta de la corrida>] [--label=
 ```
 
 `--dataset` acepta nombres (`args_review_D3/args_review_16_cases`), con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y las compara contra `prod`/`d3`, y resume D4 con `NOUL_APPROVE`. Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).
+
+---
+
+## 9. Optimización autónoma de prompts (`--auto`)
+
+Bucle iterativo integrado en `eval/cli.ts` (`--auto`, o directamente vía `eval/auto.ts`) que reutiliza `eval/core/batch.ts` (`loadDatasets`, `runDataset`, `comparison.json`) mientras un LLM optimizador externo genera hasta 2 variantes por vuelta en `eval/variants/_auto/<stage>/` hasta alcanzar `--target` o `--max-loops`.
+
+```bash
+npm run eval -- --auto \
+  --stage=args_review \
+  --max-loops=8 \
+  --target=0.80 \
+  --optimizer-model=qwen3:32b \
+  [--optimizer-url=http://127.0.0.1:11434] \
+  [--optimizer-api-key-env=OPENAI_API_KEY] \
+  [--optimizer-timeout=120000] \
+  [--conclusions=eval/variants/_auto/args_review/conclusiones.md] \
+  [--dataset=args_review_16_cases,args_review_gemai] \
+  [--holdout=args_review_gemaiL] \
+  [--model=qwen3.5:4b+d3:2b] \
+  [--repeat=1] [--concurrency=3] [--thinking=off] [--timeout=...] \
+  [--metric=passRate|macroPassRate] \
+  [--seed-top=v1,v2] [--archive-losers=true|false] \
+  [--client=real|mock] [--include-shortcut]
+```
+
+*(Equivalente directo: `npx tsx eval/auto.ts ...`.)*
+
+- **Inicialización:** busca en `eval/results/` corridas previas 100 % compatibles en huella (`datasetHash`, `cases.hash`, modelo, `thinking`, `stageConfigHash`, `repeat`, `variantHash`, sin filtros) para `prod` y las variantes activas de la etapa; si faltan, corre Vuelta 0 automática (o usa `--seed-top=v1,v2`). Si existe `auto_state.json` con la misma huella, conserva el historial de la mejor variante.
+- **Datasets por defecto:** al omitir `--dataset`, descubre los `.jsonl` con casos de `--stage` excluyendo `smoke.jsonl` y archivos `*_holdout*.jsonl` (que deben pedirse explícitamente en `--dataset` o `--holdout`).
+- **Seguridad y validación:** antes de evaluar, valida cada variante generada con TypeScript (`esbuild`: allowlist de imports hacia `src/core/**` y `eval/core/variants/types.ts`, bloqueo de `params`, `read` y código dinámico), normaliza `name`, deduplica por hash e importa en ESM ejecutando `loadDatasets` y verificando presupuesto de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`). Si falla, pide reparación al optimizador (hasta 2 reintentos).
+- **Ranking, archivado y `conclusiones.md`:** corre `[prod, ...top2, nueva_a, nueva_b]` en un solo lote; ordena en código por `passRate`/`macroPassRate` y desempates deterministas (`clientFailedRuns`, `retriedRuns`, ventaja neta y `signTestP` vs `prod`, `p50DurationMs`, `avgPromptTokens`). Las variantes generadas fuera del Top-2 que no superan a `prod` se mueven a `eval/variants/_auto/<stage>/descartadas/` (excluidas de `listVariantNames()`). Al cerrar cada vuelta, consulta al optimizador si corresponde actualizar `conclusiones.md` (`update: boolean`) y persiste `eval/variants/_auto/<stage>/auto_state.json`.
+- **Códigos de salida:** `0` si alguna variante `!= prod` alcanza `--target` (confirmando `--holdout` si se indicó; si cae en holdout, registra alerta de sobreajuste y continúa); `1` si se agota `--max-loops` sin alcanzar `--target`; `2` ante error de configuración, datasets o transporte/infraestructura (sin tocar `conclusiones.md` ni `auto_state.json`).
+
+Ver ayuda completa con `npm run eval -- --auto --help` y diseño completo en [`DISENO_EVAL_AUTONOMO.md`](../docs/evaluacion/DISENO_EVAL_AUTONOMO.md).
+
+

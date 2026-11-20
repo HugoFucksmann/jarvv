@@ -304,4 +304,42 @@ Para que el código (sin depender de parsear markdown) sepa siempre con exactitu
 7. **Conservación de variantes descartadas:** no eliminar archivos; mover las perdedoras a `eval/variants/_auto/<stage>/descartadas/` para poder revisarlas o borrar esa subcarpeta en bloque más adelante.
 8. **Alcance de edición:** el optimizador solo modifica el texto y estructura del prompt de la etapa (`DECISION_PROMPTS.*` o `PROMPTS.*`), sin tocar `params` ni `read.*`.
 
+---
+
+## 11. Estado de implementación, cambios fuera de `eval/` y dudas resueltas
+
+La maquinaria del bucle quedó implementada y refactorizada íntegramente dentro de `eval/`:
+- **Entrada unificada:** `eval/cli.ts --auto ...` (`npm run eval -- --auto ...`) delega a `runAutoCli` en `eval/auto.ts`, por lo que tanto `eval/cli.ts --auto` como `npx tsx eval/auto.ts` ejecutan exactamente el mismo orquestador.
+- **Cero lógica duplicada:** se extrajo `eval/core/batch.ts` (`createEvalClients`, `executeComparisonBatch`) y los primitivos compartidos de flags/sanitización en `eval/core/config.ts` y `eval/core/results.ts` (`safeName`) para que `eval/cli.ts` y `eval/auto.ts` usen exactamente el mismo ejecutor de lotes, clientes, `meta.json`, `scores.json` y `comparison.{json,md}`.
+- Se excluyeron `descartadas/` y `_archivo_*` del listado por defecto en `eval/core/variants/load.ts` y se documentó `--auto` en `eval/ui/views/help.ts` y `eval/INSTRUCCIONES.md`.
+
+### 11.1. Cambios requeridos fuera de `eval/` (pendientes de aplicar si se aprueban)
+
+Como el alcance de esta implementación se restringió estrictamente a `eval/`, quedaron anotados para aplicar fuera de `eval/`:
+
+1. **`package.json` (`scripts`):**
+   - El flujo ya funciona sin tocar `package.json` vía `npm run eval -- --auto ...`. Opcionalmente se puede sumar el atajo `"eval:auto": "tsx eval/auto.ts"`.
+   - Opcionalmente integrar los tests de `eval:auto` en `"test": "tsx --test --test-timeout=30000 tests/*.test.ts"` (actualmente viven en `eval/auto/eval_auto.test.ts` y se ejecutan con `npx tsx --test eval/auto/eval_auto.test.ts`, o moviendo el archivo a `tests/eval_auto.test.ts` según mencionaba la §8 Fase 1).
+2. **`.gitignore`:**
+   - Decidir si `eval/variants/_auto/` (o solo `eval/variants/_auto/**/auto_state.json` y `descartadas/`) debe ignorarse en Git o versionarse como parte de las corridas de laboratorio.
+3. **`npm run lint` (`tsc --noEmit`):**
+   - Verificar periódicamente si querés incluir o excluir archivos en `_auto/` cuando acumules muchas variantes experimentales (hoy `validateVariant.ts` valida tipado/sintaxis con `esbuild` antes de persistir cada archivo).
+
+### 11.2. Aclaraciones y dudas detectadas respecto al borrador inicial
+
+1. **14 etapas en el codebase vs 13 mencionadas en el doc (§3 y §8):**
+   - El registro actual de `eval/core/stages/index.ts` tiene **14** etapas: se incorporó `continuation` (`eval/core/stages/continuation.ts`, `PROMPTS.CONTINUATION_VIEW`). `eval/auto/config.ts` y `eval/auto/stageContract.ts` cubren las **14** etapas leyendo `allStageNames()` dinámicamente.
+2. **Exclusión por defecto de datasets `*_holdout*.jsonl` en `--dataset` automático (§2.1 y §2.5):**
+   - El repo ya cuenta con archivos holdout dedicados en varias etapas (`d0_real_usuario_holdout*.jsonl`, `route_pasos_reales_holdout*.jsonl`, `tool_choice_terminal_locate_holdout*.jsonl`, `verify_pasos_reales_holdout*.jsonl`, `continuation_holdout*.jsonl`).
+   - **Criterio adoptado:** si `--dataset` se omite, `discoverStageDatasets` excluye tanto `smoke.jsonl` como cualquier archivo cuyo nombre contenga `holdout` (`*_holdout*.jsonl`) para evitar fuga involuntaria al loop dev. Siguen disponibles si se pasan explícitamente en `--holdout=...` o en `--dataset=...`.
+3. **Variantes archivadas heredadas (`eval/variants/_archivo_recovery_4_opciones/`):**
+   - Esa carpeta tenía variantes antiguas con el esquema viejo de 4 opciones (`skip_continue`). Se actualizó `eval/core/variants/load.ts` para que `listVariantNames()` y `discoverStageVariants()` ignoren cualquier directorio `descartadas` o `_archivo_*` (y `_auto/<otra_etapa>/`), manteniendo su carga explícita si alguna corrida vieja las nombra.
+4. **Propiedad `read.*` en variantes humanas preexistentes vs variantes generadas por LLM:**
+   - Variantes humanas previas (por ej. en `args_review` o `result_verification`) sí pueden usar `read.*`. Para no romper Vuelta 0 ni comparativas existentes, las variantes humanas previas pueden competir normalmente en Vuelta 0 / Top-2, mientras que `validateVariant.ts` aplica la prohibición estricta de `params` y `read` solo sobre las variantes nuevas generadas en `_auto/<stage>/`.
+5. **Desempate por `signTestP` frente a `prod` (§6.1):**
+   - `signTestP` es un *p*-value bilateral (menor = más significativo estadísticamente, tanto a favor como en contra). Para evitar favorecer variantes que empatan con muchas regresiones y `signTestP` chico, el desempate implementado compara primero ventaja neta `(improvements - regressions)`, luego menor número de `regressions`, y recién a igualdad de ventaja neta positiva elige el **menor `signTestP`** (evidencia estadísticamente más fuerte a favor).
+6. **Validación previa en `validateVariant.ts` (§5.3):**
+   - Además de la allowlist de imports y carga ESM (`?v=...` cache-busting para poder re-importar archivos durante reparación), el validador exige que no haya referencias no declaradas a constantes no exportadas de `src/core/models/prompts.ts` (ej. `ROUTE_HINTS`, `POWERSHELL_RULES`), verifica compatibilidad con `loadDatasets`, comprueba el presupuesto de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`) y verifica invariantes específicas de etapa (claves fijas en `route` / `tool_choice` / `fragment_judge`, ausencia de `read` o `params`).
+
+
 

@@ -182,7 +182,7 @@ Las lecturas no pasan por niveles ni por D3. `DENY` de Guard, `blocked` de la li
 
 **Con `autoMode` apagado:** verde pasa sin pedir; amarillo y rojo piden confirmación al usuario (su aprobación sustituye a D3). **Aprobar una vez / siempre en esta tarea:** el diálogo ofrece las dos (UI y Telegram). «Siempre» vive solo en la RAM de la tarea, con clave herramienta + comando normalizado o ruta normalizada (`policy/approvalKey.ts`); lo obligatorio de Guard, la lista negra y lo no resoluble para `allowedDirectories` solo admiten «una vez». **Tras un rechazo del usuario** no se repite la misma pregunta en esa tarea (la llamada queda `user_rejected`). No hay lista de permitidos persistente.
 
-**Rutas relativas en los niveles:** una ruta relativa se resuelve contra la carpeta de trabajo de la herramienta (`workspace.cwd` o la del proceso) antes de mirar si existe y si está en las carpetas del usuario; sin una base absoluta queda en amarillo. `edit_block` (herramienta en pausa, fuera del catálogo) sigue en rojo.
+**Rutas relativas en los niveles:** una ruta relativa se resuelve contra la carpeta de trabajo de la herramienta (`desktopCommanderMcp.cwd` o la del proceso) antes de mirar si existe y si está en las carpetas del usuario; sin una base absoluta queda en amarillo. `edit_block` (herramienta en pausa, fuera del catálogo) sigue en rojo.
 
 **Opciones experimentales (apagadas por defecto, en `jarvis-config.json`):** `reviewFullView` (D3 recibe también lecturas recientes y entorno), `reviewReads` (las lecturas también pasan por D3) y `completionCoverageGuard` (D5 no cierra si el pedido nombra un archivo que ninguna llamada menciona). Ver [`../pendientes/PENDIENTES_EVAL.md`](../pendientes/PENDIENTES_EVAL.md) §1 y §3.
 

@@ -18,15 +18,21 @@ import type { Variant } from "./types.ts";
 /** Directorio donde viven las variantes (relativo al CWD). */
 const VARIANTS_DIR = "eval/variants";
 
+/** Carpetas de archivo o descarte que se excluyen del listado automático de variantes activas. */
+function isArchivedVariantDir(dirName: string): boolean {
+  return dirName === "descartadas" || dirName.startsWith("_archivo_");
+}
+
 /** Busca recursivamente todos los archivos .ts bajo un directorio, en orden estable. */
-function findVariantFiles(dir: string): string[] {
+function findVariantFiles(dir: string, includeArchived = true): string[] {
   const results: string[] = [];
   try {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
-        results.push(...findVariantFiles(fullPath));
+        if (!includeArchived && isArchivedVariantDir(entry.name)) continue;
+        results.push(...findVariantFiles(fullPath, includeArchived));
       } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) {
         results.push(fullPath);
       }
@@ -37,9 +43,14 @@ function findVariantFiles(dir: string): string[] {
   return results.sort();
 }
 
+/** Rutas `.ts` de variantes activas bajo `eval/variants/` (excluye `descartadas/` y `_archivo_*`). */
+export function listActiveVariantFiles(): string[] {
+  return findVariantFiles(VARIANTS_DIR, false);
+}
+
 /** Archivos de `eval/variants` (raíz y subcarpetas) cuyo nombre sin extensión es `name`. */
 function variantMatches(name: string): string[] {
-  return findVariantFiles(VARIANTS_DIR).filter((f) => basename(f, ".ts") === name);
+  return findVariantFiles(VARIANTS_DIR, true).filter((f) => basename(f, ".ts") === name);
 }
 
 /** Hash del contenido del archivo de variante (`variantHash` en `RunMeta`). */
@@ -53,9 +64,9 @@ export function variantFilePath(name: string): string {
   return resolve(first ?? `${VARIANTS_DIR}/${name}.ts`);
 }
 
-/** Nombres de las variantes disponibles (archivos `.ts` en eval/variants y subcarpetas), sin repetidos y ordenados. */
+/** Nombres de las variantes disponibles (archivos `.ts` activos en eval/variants y subcarpetas, sin `descartadas/` ni `_archivo_*`), sin repetidos y ordenados. */
 export function listVariantNames(): string[] {
-  return [...new Set(findVariantFiles(VARIANTS_DIR).map((f) => basename(f, ".ts")))].sort();
+  return [...new Set(listActiveVariantFiles().map((f) => basename(f, ".ts")))].sort();
 }
 
 /** Lanza con un mensaje de error de configuración si el archivo no existe o el nombre está en más de un archivo. */

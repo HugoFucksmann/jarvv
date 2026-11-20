@@ -98,7 +98,12 @@ const RENAMED_FLAGS: Record<string, string> = {
 
 // ───────────────────────── Parseo ─────────────────────────
 
-function parseArgs(argv: string[]): Map<string, string | true> {
+/** Parseo estricto de argv (`--flag=valor` o `--flag`) contra un conjunto cerrado de flags permitidos. */
+export function parseArgvFlags(
+  argv: string[],
+  knownFlags: Set<string>,
+  renamedFlags: Record<string, string> = {},
+): Map<string, string | true> {
   const result = new Map<string, string | true>();
   for (const arg of argv) {
     if (!arg.startsWith("--")) {
@@ -108,8 +113,8 @@ function parseArgs(argv: string[]): Map<string, string | true> {
     const key = eq === -1 ? arg.slice(2) : arg.slice(2, eq);
     if (result.has(key)) throw new Error(`Flag repetido: '--${key}'.`);
     const value = eq === -1 ? true : arg.slice(eq + 1);
-    if (!KNOWN_FLAGS.has(key)) {
-      const renamed = RENAMED_FLAGS[key];
+    if (!knownFlags.has(key)) {
+      const renamed = renamedFlags[key];
       throw new Error(`Flag desconocido: '--${key}'.${renamed ? ` Ahora se llama '--${renamed}'.` : ""}`);
     }
     result.set(key, value);
@@ -117,39 +122,39 @@ function parseArgs(argv: string[]): Map<string, string | true> {
   return result;
 }
 
-function str(flags: Map<string, string | true>, key: string): string | undefined {
+export function flagStr(flags: Map<string, string | true>, key: string): string | undefined {
   const v = flags.get(key);
   // `--model` sin valor antes se ignoraba en silencio y se usaba el default.
   if (v === true) throw new Error(`--${key} requiere un valor (--${key}=valor).`);
   // `--min-pass-rate=` se leía como umbral 0 (siempre pasa).
   if (typeof v === "string" && v.trim() === "") throw new Error(`--${key} no puede estar vacío.`);
-  return typeof v === "string" ? v : undefined;
+  return typeof v === "string" ? v.trim() : undefined;
 }
 
-function bool(flags: Map<string, string | true>, key: string): boolean {
+export function flagBool(flags: Map<string, string | true>, key: string, defaultValue = false): boolean {
   const v = flags.get(key);
-  if (v === undefined) return false;
+  if (v === undefined) return defaultValue;
   // Antes `--dry-run=false` se leía como true (solo se miraba si la clave existía).
   if (v === true || v === "true") return true;
   if (v === "false") return false;
   throw new Error(`--${key} es booleano: use --${key}, --${key}=true o --${key}=false (recibido: '${v}').`);
 }
 
-function int(flags: Map<string, string | true>, key: string, min: number): number | undefined {
-  const v = str(flags, key);
+export function flagInt(flags: Map<string, string | true>, key: string, min: number): number | undefined {
+  const v = flagStr(flags, key);
   if (v === undefined) return undefined;
-  const n = /^\d+$/.test(v.trim()) ? Number(v) : NaN;
+  const n = /^\d+$/.test(v) ? Number(v) : NaN;
   if (!Number.isInteger(n) || n < min) {
     throw new Error(`--${key} debe ser un entero >= ${min}, recibido: '${v}'.`);
   }
   return n;
 }
 
-function float(flags: Map<string, string | true>, key: string): number | undefined {
-  const v = str(flags, key);
+export function flagFloat(flags: Map<string, string | true>, key: string): number | undefined {
+  const v = flagStr(flags, key);
   if (v === undefined) return undefined;
   // Solo decimales simples (0.5, -1, 2): `0x10`, `1e3` o `.5` no se aceptan.
-  if (!/^-?\d+(\.\d+)?$/.test(v.trim())) throw new Error(`--${key} debe ser un número decimal simple (ej. 0.5), recibido: '${v}'.`);
+  if (!/^-?\d+(\.\d+)?$/.test(v)) throw new Error(`--${key} debe ser un número decimal simple (ej. 0.5), recibido: '${v}'.`);
   return Number(v);
 }
 
@@ -157,15 +162,15 @@ function float(flags: Map<string, string | true>, key: string): number | undefin
  * `--model=<generativo>[+<decisión>]`: un modelo generativo y uno de decisión. Un lado vacío usa el default
  * (`--model=qwen3.5:4b` = ese generativo con el de decisión por defecto; `--model=+d3:2b` al revés).
  */
-function parseModel(raw: string): { model: string; decisionModel: string } {
+export function parseModelSpec(raw: string): { model: string; decisionModel: string } {
   if (raw.includes(",")) throw new Error(`--model: '${raw}' tiene más de una configuración; el eval corre un solo modelo generativo y uno de decisión.`);
   const parts = raw.split("+");
   if (parts.length > 2) throw new Error(`--model: '${raw}' tiene más de un '+' (formato: <generativo>+<decisión>).`);
   return { model: parts[0].trim() || DEFAULT_MODEL, decisionModel: (parts[1] ?? "").trim() || DEFAULT_DECISION_MODEL };
 }
 
-function csvList(flags: Map<string, string | true>, key: string): string[] {
-  const v = str(flags, key);
+export function flagCsv(flags: Map<string, string | true>, key: string): string[] {
+  const v = flagStr(flags, key);
   if (!v) return [];
   const list = v.split(",").map((s) => s.trim()).filter(Boolean);
   // `--stages=,` o `--ids=,` dejaban una lista vacía y se corría todo en silencio.
@@ -175,11 +180,11 @@ function csvList(flags: Map<string, string | true>, key: string): string[] {
 
 /** Parsea `argv` (sin el binario ni el script) y devuelve `EvalConfig`. Lanza en error de config. */
 export function parseConfig(argv: string[]): EvalConfig {
-  const flags = parseArgs(argv);
+  const flags = parseArgvFlags(argv, KNOWN_FLAGS, RENAMED_FLAGS);
 
   // stages
   const stageNames = allStageNames();
-  const stagesRaw = csvList(flags, "stages");
+  const stagesRaw = flagCsv(flags, "stages");
   const stages: StageName[] = [];
   for (const s of stagesRaw) {
     if (!(stageNames as string[]).includes(s)) {
@@ -190,48 +195,48 @@ export function parseConfig(argv: string[]): EvalConfig {
 
   // thinking
   // Por defecto SIN thinking: con él cada llamada generativa tarda decenas de segundos y Jarvis no lo usa; sin la bandera el modelo piensa por su cuenta.
-  const thinkingRaw = str(flags, "thinking") ?? "off";
+  const thinkingRaw = flagStr(flags, "thinking") ?? "off";
   if (!["prod", "on", "off", "both"].includes(thinkingRaw)) {
     throw new Error(`--thinking: valor inválido '${thinkingRaw}' (prod|on|off|both).`);
   }
   const thinking = thinkingRaw as ThinkingMode;
 
   // client
-  const clientRaw = str(flags, "client") ?? "real";
+  const clientRaw = flagStr(flags, "client") ?? "real";
   if (clientRaw !== "real" && clientRaw !== "mock" && clientRaw !== "oracle") {
     throw new Error(`--client: debe ser 'real', 'mock' u 'oracle', recibido: '${clientRaw}'.`);
   }
 
-  const decisionUrl = str(flags, "decision-url") ?? DEFAULT_DECISION_URL;
+  const decisionUrl = flagStr(flags, "decision-url") ?? DEFAULT_DECISION_URL;
 
   // variants: `prod` se agrega si falta (la comparación usa la spec exacta), sin duplicados
   // `--no-baseline`: no se agrega `prod`; sin `--baseline` explícito, la baseline es la primera variante.
-  const noBaseline = bool(flags, "no-baseline");
-  if (noBaseline && str(flags, "variant") === undefined) {
+  const noBaseline = flagBool(flags, "no-baseline");
+  if (noBaseline && flagStr(flags, "variant") === undefined) {
     throw new Error("--no-baseline requiere --variant con al menos una variante.");
   }
-  const variantSpecs = parseVariantSpecs(str(flags, "variant") ?? "prod", !noBaseline);
+  const variantSpecs = parseVariantSpecs(flagStr(flags, "variant") ?? "prod", !noBaseline);
   if (clientRaw === "oracle") {
     const other = variantSpecs.filter((v) => v !== "prod");
     if (other.length > 0) {
       throw new Error(`--client=oracle solo vale con la variante 'prod' (el oráculo responde en sus términos); no se puede con: ${other.join(", ")}.`);
     }
   }
-  const baseline = str(flags, "baseline") ?? (noBaseline ? variantSpecs[0] : "prod");
+  const baseline = flagStr(flags, "baseline") ?? (noBaseline ? variantSpecs[0] : "prod");
   if (!variantSpecs.includes(baseline)) {
     throw new Error(`--baseline: '${baseline}' no está entre las variantes (${variantSpecs.join(", ")}).`);
   }
 
   // min-pass-rate: passRate vive en [0,1]; `--min-pass-rate=95` fallaría siempre
-  const minPassRate = float(flags, "min-pass-rate");
+  const minPassRate = flagFloat(flags, "min-pass-rate");
   if (minPassRate !== undefined && (minPassRate < 0 || minPassRate > 1)) {
     throw new Error(`--min-pass-rate debe estar entre 0 y 1 (ej. 0.95), recibido: '${minPassRate}'.`);
   }
 
-  const modelRaw = str(flags, "model");
-  const { model, decisionModel } = modelRaw !== undefined ? parseModel(modelRaw) : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
+  const modelRaw = flagStr(flags, "model");
+  const { model, decisionModel } = modelRaw !== undefined ? parseModelSpec(modelRaw) : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
 
-  const datasetList = csvList(flags, "dataset");
+  const datasetList = flagCsv(flags, "dataset");
   const datasetSpecs = datasetList.length > 0 ? datasetList : [DEFAULT_DATASETS];
 
   return {
@@ -239,22 +244,22 @@ export function parseConfig(argv: string[]): EvalConfig {
     variantSpecs,
     baseline,
     stages,
-    tags: csvList(flags, "tags"),
-    ids: csvList(flags, "ids"),
-    limit: int(flags, "limit", 1),
-    repeat: int(flags, "repeat", 1) ?? 1,
-    concurrency: int(flags, "concurrency", 1) ?? 3,
+    tags: flagCsv(flags, "tags"),
+    ids: flagCsv(flags, "ids"),
+    limit: flagInt(flags, "limit", 1),
+    repeat: flagInt(flags, "repeat", 1) ?? 1,
+    concurrency: flagInt(flags, "concurrency", 1) ?? 3,
     model,
-    url: str(flags, "url") ?? DEFAULT_URL,
+    url: flagStr(flags, "url") ?? DEFAULT_URL,
     decisionUrl,
     decisionModel,
     thinking,
-    timeoutMs: int(flags, "timeout", 1),
+    timeoutMs: flagInt(flags, "timeout", 1),
     client: clientRaw as "real" | "mock" | "oracle",
-    dryRun: bool(flags, "dry-run"),
-    list: bool(flags, "list"),
-    includeShortcut: bool(flags, "include-shortcut"),
-    label: str(flags, "label"),
+    dryRun: flagBool(flags, "dry-run"),
+    list: flagBool(flags, "list"),
+    includeShortcut: flagBool(flags, "include-shortcut"),
+    label: flagStr(flags, "label"),
     minPassRate,
   };
 }

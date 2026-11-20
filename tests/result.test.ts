@@ -9,7 +9,7 @@ import { processResult } from "../src/core/result/processResult.ts";
 import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
 
-const DC = "jarvis_files";
+const DC = "desktop_commander";
 const TERMINAL = "jarvis_terminal";
 const WEB = "jarvis_web";
 const text = (t: string, extra: Partial<MCPCallResult> = {}): MCPCallResult => ({ content: [{ type: "text", text: t }], ...extra });

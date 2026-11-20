@@ -14,8 +14,7 @@ import type { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { PromptSet, StageRequest } from "../../../src/core/models/stageRequests.ts";
 import type { MCPTool } from "../../../src/core/types.ts";
 import type { ExecutableRoute } from "../../../src/core/types/routes.ts";
-import type { DecisionClient } from "../client/decision.ts";
-import type { GenerativeCallContext, GenerativeClient, PreparedRequest } from "../client/generative.ts";
+import type { GenerativeCallContext, PreparedRequest } from "../client/generative.ts";
 import type { ToolInputSchema, VariantPrompts } from "../contract.ts";
 import type { Materialized, Scenario, ScenarioAt } from "../scenario.ts";
 import type {
@@ -142,13 +141,7 @@ export interface GenerativeStageEntry<TOutput, TExpect> {
   ): string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyStageEntry = DecisionStageEntry<any, any> | GenerativeStageEntry<any, any>;
-
-export type StageEntry<TOutput = unknown, TExpect = unknown, TReq = unknown> =
-  TReq extends DecisionRequest
-    ? DecisionStageEntry<TOutput, TExpect>
-    : GenerativeStageEntry<TOutput, TExpect>;
 
 // ───────────────────────── Registro ─────────────────────────
 
@@ -224,10 +217,3 @@ export function runGraders<TOutput, TExpect>(
     grader.grade(output, expect, ctx, collector);
   }
 }
-
-// ───────────────────────── Clientes (usado en F4) ─────────────────────────
-
-export type Clients = {
-  generative: GenerativeClient;
-  decision: DecisionClient;
-};

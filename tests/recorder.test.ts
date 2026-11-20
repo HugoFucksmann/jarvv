@@ -22,7 +22,7 @@ const lines = (file: string): string[] => fs.readFileSync(file, "utf8").split("\
 
 test("finish toma lo reunido al instante, libera la memoria y escribe la carpeta y su línea en index.jsonl al esperar la promesa", async () => {
   const { root, traces, recorder, held } = setup();
-  recorder.sink.tool({ mcp: "jarvis_files", tool: "read_file", args: { path: "C:\\x" }, startedAt: 1, durationMs: 2, result: { content: [{ type: "text", text: "x".repeat(5000) }] }, error: null });
+  recorder.sink.tool({ mcp: "desktop_commander", tool: "read_file", args: { path: "C:\\x" }, startedAt: 1, durationMs: 2, result: { content: [{ type: "text", text: "x".repeat(5000) }] }, error: null });
   recorder.sink.llm({ stage: "args", n: 1, startedAt: 1, durationMs: 2, input: "prompt largo", output: "respuesta", error: null });
   assert.ok(held.tools.length + held.models.length > 0, "antes de terminar, lo crudo está en memoria");
 
@@ -50,8 +50,8 @@ test("finish es idempotente: devuelve la misma promesa y no duplica la traza", a
 test("el resultado crudo se serializa al escribir: se registra su largo y, si falló la herramienta, queda en null", async () => {
   const { root, traces, recorder } = setup();
   const big = { content: [{ type: "text", text: "y".repeat(30_000) }] };
-  recorder.sink.tool({ mcp: "jarvis_files", tool: "read_file", args: {}, startedAt: 1, durationMs: 1, result: big, error: null });
-  recorder.sink.tool({ mcp: "jarvis_files", tool: "list_directory", args: {}, startedAt: 2, durationMs: 1, result: null, error: "boom" });
+  recorder.sink.tool({ mcp: "desktop_commander", tool: "read_file", args: {}, startedAt: 1, durationMs: 1, result: big, error: null });
+  recorder.sink.tool({ mcp: "desktop_commander", tool: "list_directory", args: {}, startedAt: 2, durationMs: 1, result: null, error: "boom" });
   await recorder.finish();
 
   const folder = fs.readdirSync(traces).find((n) => n !== "index.jsonl")!;
@@ -87,7 +87,7 @@ test("con ref, la traza guarda la referencia y no el texto del resultado, pero r
   const ctx = newContext("reactive");
   const recorder = new TaskTraceRecorder(ctx, config);
   const big = { content: [{ type: "text", text: "z".repeat(30_000) }] };
-  recorder.sink.tool({ mcp: "jarvis_files", tool: "read_file", args: {}, startedAt: 1, durationMs: 1, result: big, error: null });
+  recorder.sink.tool({ mcp: "desktop_commander", tool: "read_file", args: {}, startedAt: 1, durationMs: 1, result: big, error: null });
 
   const step = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "Leer", route: null, expected: null } }).ids[0];
   const ref = ctx.apply({ op: "add", target: "refs", value: { stepId: step, label: "read_file", size: 30000, where: path.join(root, "r1.txt") } }).ids[0];

@@ -186,7 +186,7 @@ const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length
  * de mejorar o empeorar. Un p alto significa que el resultado es compatible con ruido, no que no haya efecto. Con menos
  * de 6 casos que cambian, nunca baja de 0.05.
  */
-function signTestP(better: number, worse: number): number | undefined {
+export function signTestP(better: number, worse: number): number | undefined {
   const n = better + worse;
   if (n === 0) return undefined;
   let tail = 0;

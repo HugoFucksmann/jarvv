@@ -19,6 +19,7 @@ import type { JarvisConfig } from "../../src/core/config.ts";
 import { ConfigManager } from "../../src/core/config.ts";
 import { createEngineServices, memoryFileOf } from "../../src/core/engine/services.ts";
 import { createJsonMemoryProvider } from "../../src/memory/index.ts";
+import { DesktopCommanderMCPServer } from "../../src/core/mcp/desktopCommanderMcp.ts";
 import { DiscoveryEngine } from "../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../src/core/mcp/freeSearchMcp.ts";
 import { Decision20Engine } from "../../src/core/models/decision.ts";
@@ -57,6 +58,7 @@ const getConfig = (): JarvisConfig => ({
 
 const decision = new Decision20Engine(getConfig);
 const providers: ToolProvider[] = [
+  new DesktopCommanderMCPServer(getConfig),
   new FreeSearchMCPServer(getConfig),
   new TerminalProvider(),
   new WebSearchProvider({ judge: () => undefined }),

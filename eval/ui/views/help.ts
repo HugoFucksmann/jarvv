@@ -16,6 +16,7 @@ export function printHelp(): void {
   section("Opciones");
   kv([
     ["--menu", "asistente interactivo: elige modelos, datasets, variantes, etapas y opciones, y ejecuta"],
+    ["--auto", "bucle autónomo de optimización de prompts para una etapa (usa flags de eval:auto)"],
     ["--list", "muestra etapas, variantes y datasets disponibles"],
     ["--help, -h", "muestra esta ayuda"],
   ]);
@@ -24,6 +25,7 @@ export function printHelp(): void {
   console.log(`  ${sym.bar} npm run eval -- --menu`);
   console.log(`  ${sym.bar} npm run eval -- --dataset=smoke --variant=prod,mi_variante`);
   console.log(`  ${sym.bar} npm run eval -- --dataset=smoke --dry-run --ids=<caso>   ${c.gray("imprime el prompt que recibe el modelo (copiable para armar una variante)")}`);
+  console.log(`  ${sym.bar} npm run eval -- --auto --stage=args_review --max-loops=6 --target=0.80 --optimizer-model=qwen3:32b`);
   console.log(`\n  ${c.gray("Datasets y variantes se pueden escribir solo por nombre.")}`);
   console.log(`  ${c.gray("Referencia completa de flags:")} ${c.cyan("eval/INSTRUCCIONES.md")}\n`);
 }

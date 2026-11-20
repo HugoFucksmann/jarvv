@@ -143,8 +143,8 @@ async function run(s: Scenario): Promise<Outcome> {
     reconnect: async () => undefined,
   });
   const terminalTools = s.noTerminalTools === true ? [] : TERMINAL_TOOLS;
-  const servers: Record<string, IMCPServer> = { jarvis_files: provider("jarvis_files", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", terminalTools) };
-  const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? terminalTools : name === "jarvis_files" ? FILE_TOOLS : []);
+  const servers: Record<string, IMCPServer> = { desktop_commander: provider("desktop_commander", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", terminalTools) };
+  const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? terminalTools : name === "desktop_commander" ? FILE_TOOLS : []);
 
   const deps: EngineDeps = {
     discovery: {
