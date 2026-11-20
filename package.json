@@ -15,14 +15,17 @@
     "lint": "tsc --noEmit",
     "test": "tsx --test --test-timeout=30000 tests/*.test.ts eval/core/*.test.ts eval/auto/*.test.ts",
     "eval": "tsx eval/cli.ts",
+    "eval:auto": "tsx eval/auto.ts",
     "eval:menu": "tsx eval/cli.ts --menu",
     "eval:cross": "tsx eval/cross.ts",
     "eval:psvalid": "tsx eval/psvalid.ts",
+    "eval:traces": "tsx eval/traces.ts",
     "eval:smoke": "tsx eval/cli.ts --client=mock --dataset=eval/datasets/smoke.jsonl --dry-run"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "@wonderwhy-er/desktop-commander": "0.3.2",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "grammy": "^1.46.0",

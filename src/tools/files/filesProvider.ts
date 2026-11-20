@@ -7,7 +7,6 @@
  */
 
 import { getUserEnvironment, type UserEnvironment } from "../../core/environment.ts";
-import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import type { ToolCallOptions, ToolProvider } from "../../core/tools/provider.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
@@ -179,8 +178,6 @@ export class FilesProvider implements ToolProvider {
 
   private readonly getAllowedDirectories: () => readonly string[];
   private readonly getEnvironment: () => Promise<UserEnvironment>;
-  private readonly platform: NodeJS.Platform;
-  private readonly customReader: Partial<SystemReader> | undefined;
   private readonly reader: SystemReader;
   private readonly now: () => number;
   private readonly findTimeoutMs: number;
@@ -192,25 +189,20 @@ export class FilesProvider implements ToolProvider {
   constructor(options: FilesProviderOptions = {}) {
     this.getAllowedDirectories = options.allowedDirectories ?? (() => []);
     this.getEnvironment = options.environment ?? getUserEnvironment;
-    this.platform = options.platform ?? process.platform;
-    this.customReader = options.systemReader;
     this.now = options.now ?? (() => Date.now());
     this.findTimeoutMs = options.findTimeoutMs ?? DEFAULT_FIND_TIMEOUT_MS;
     this.findMaxDepth = options.findMaxDepth ?? DEFAULT_FIND_MAX_DEPTH;
     this.findMaxEntries = options.findMaxEntries ?? DEFAULT_FIND_MAX_ENTRIES;
     this.listTimeoutMs = options.listTimeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
     this.systemTimeoutMs = options.systemTimeoutMs ?? DEFAULT_SYSTEM_TIMEOUT_MS;
-    this.reader = this.buildReader(this.systemTimeoutMs);
-  }
 
-  private buildReader(timeoutMs: number): SystemReader {
-    const defaults = createDefaultSystemReader(this.platform, timeoutMs);
-    return {
-      readHost: this.customReader?.readHost ?? defaults.readHost,
-      readGpus: this.customReader?.readGpus ?? defaults.readGpus,
-      readDisks: this.customReader?.readDisks ?? defaults.readDisks,
-      readServices: this.customReader?.readServices ?? defaults.readServices,
-      readDevTools: this.customReader?.readDevTools ?? defaults.readDevTools,
+    const defaults = createDefaultSystemReader(options.platform ?? process.platform, this.systemTimeoutMs);
+    this.reader = {
+      readHost: options.systemReader?.readHost ?? defaults.readHost,
+      readGpus: options.systemReader?.readGpus ?? defaults.readGpus,
+      readDisks: options.systemReader?.readDisks ?? defaults.readDisks,
+      readServices: options.systemReader?.readServices ?? defaults.readServices,
+      readDevTools: options.systemReader?.readDevTools ?? defaults.readDevTools,
     };
   }
 
@@ -250,18 +242,15 @@ export class FilesProvider implements ToolProvider {
           },
           { signal: options.signal, timeoutMs: options.timeoutMs },
         );
-      case SYSTEM_INFO: {
-        const limitMs = effectiveTimeoutMs(this.systemTimeoutMs, options.timeoutMs);
-        const reader = limitMs === this.systemTimeoutMs ? this.reader : this.buildReader(limitMs);
+      case SYSTEM_INFO:
         return runSystemInfo(
           args,
           {
-            reader,
-            defaultTimeoutMs: limitMs,
+            reader: this.reader,
+            defaultTimeoutMs: this.systemTimeoutMs,
           },
           { signal: options.signal },
         );
-      }
       default:
         return fail(`Unknown tool: '${name}'.`);
     }

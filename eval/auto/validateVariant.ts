@@ -14,9 +14,7 @@
 import { transformSync } from "esbuild";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { basename, dirname, join, normalize, resolve } from "node:path";
-import vm from "node:vm";
 import { DECISION_MAX_CONTEXT, estimateDecisionPromptTokens } from "../core/client/decision.ts";
 import { reserveCompletionTokens } from "../core/client/generative.ts";
 import { ConfigManager, PROMPTS_MODULE_EXPORTS } from "../core/contract.ts";
@@ -26,6 +24,7 @@ import type { DecisionRequest, GenerativeRequest, StageName } from "../core/type
 import { invalidateVariantCache, VARIANTS_DIR } from "../core/variants/load.ts";
 import type { Variant } from "../core/variants/types.ts";
 import { autoStageDir } from "./config.ts";
+import { evaluateCjsVariantModule } from "./ephemeralVariant.ts";
 import { getStageContract } from "./stageContract.ts";
 import { findMatchingBraceToken, SyntaxKind, tokenizeTs, type TsToken } from "./tsScanner.ts";
 
@@ -687,23 +686,7 @@ function runStaticAstValidation(
  * sin escribir a disco ni ensuciar el registro de módulos ESM de V8 en intentos rechazados.
  */
 function loadVariantInSandbox(cjsCode: string, virtualFilePath: string): unknown {
-  const hostRequire = createRequire(virtualFilePath);
-  const safeRequire = (specifier: string): unknown => {
-    const specErr = validateImportSpecifier(specifier, virtualFilePath);
-    if (specErr) throw new Error(specErr);
-    return hostRequire(specifier);
-  };
-  const mod: { exports: Record<string, unknown> } = { exports: {} };
-  vm.runInNewContext(
-    cjsCode,
-    {
-      module: mod,
-      exports: mod.exports,
-      require: safeRequire,
-    },
-    { filename: virtualFilePath, timeout: 2000 },
-  );
-  return mod.exports.default ?? mod.exports;
+  return evaluateCjsVariantModule(cjsCode, virtualFilePath, validateImportSpecifier);
 }
 
 function validateRuntimeVariantShape(variant: unknown, variantName: string, stage: StageName): string | null {

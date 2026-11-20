@@ -2,7 +2,7 @@
  * JARVIS Core — Resolución canónica y verificación de `allowedDirectories`.
  *
  * Comparte la lógica entre el motor (`engine/callRunner.ts`, `tiers.ts`, `sensitivePaths.ts`) y los proveedores
- * (`FilesProvider`, `TerminalProvider`):
+ * (`DesktopCommanderMCPServer`, `TerminalProvider`):
  * - Resuelve enlaces simbólicos (`fs.realpathSync`) sobre rutas reales, descendiendo desde el ancestro existente cuando la hoja todavía no existe.
  * - Maneja prefijos extendidos de Windows (`\\?\`, `\\.\`, `\\?\UNC\`) y rutas UNC (`\\servidor\recurso`).
  * - Conserva comportamiento determinista para rutas de Windows en pruebas que corren bajo Linux (`process.platform !== "win32"`).

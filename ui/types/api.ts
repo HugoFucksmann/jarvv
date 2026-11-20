@@ -292,6 +292,7 @@ export interface StdioServerConfig {
   args: string[];
   env?: Record<string, string>;
   cwd?: string;
+  allowedDirectories?: string[];
 }
 
 export interface QwenMaxTokens {
@@ -350,7 +351,7 @@ export interface JarvisConfig {
   decisionMaxContext: number;
   decisionTimeoutMs: number;
   modelUnavailablePauseMaxMs?: number;
-  allowedDirectories?: string[];
+  desktopCommanderMcp: StdioServerConfig;
   freeSearchMcp: StdioServerConfig;
   mcpTimeoutMs: number;
   toolTimeoutsMs?: Record<string, number>;
@@ -382,8 +383,9 @@ export interface JarvisConfig {
 }
 
 export type ConfigPatch = Partial<
-  Omit<JarvisConfig, "freeSearchMcp" | "qwenMaxTokens">
+  Omit<JarvisConfig, "desktopCommanderMcp" | "freeSearchMcp" | "qwenMaxTokens">
 > & {
+  desktopCommanderMcp?: Partial<StdioServerConfig>;
   freeSearchMcp?: Partial<StdioServerConfig>;
   qwenMaxTokens?: Partial<QwenMaxTokens>;
 };

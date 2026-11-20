@@ -92,14 +92,20 @@ export function validateConclusionsMarkdown(
   }
 
   if (ranked.length > 0) {
-    const scoreByVariant = new Map(ranked.map((r) => [r.variant, r.score * 100]));
-    const citedRe = /`([a-zA-Z0-9_-]+)`\s*(?:\(|:\s*)(\d{1,3}(?:\.\d+)?)\s*%/g;
-    for (const match of trimmed.matchAll(citedRe)) {
-      const name = match[1];
-      const citedPct = Number(match[2]);
-      const actualPct = scoreByVariant.get(name);
-      if (actualPct !== undefined && Number.isFinite(citedPct) && Math.abs(citedPct - actualPct) > 1.5) {
-        return `porcentaje inconsistente para '${name}' (${citedPct.toFixed(1)}% vs ${actualPct.toFixed(1)}% medido)`;
+    const currentSection = /^##\s+Estado actual\b[^\n]*\n([\s\S]*?)(?=^##\s+|$)/im.exec(trimmed);
+    if (currentSection) {
+      const scoreByVariant = new Map(ranked.map((r) => [r.variant, r.score * 100]));
+      const citedRe = /`([a-zA-Z0-9_-]+)`\s*(?:\(|:\s*)(\d{1,3}(?:\.\d+)?)\s*%/g;
+      for (const line of currentSection[1].split("\n")) {
+        if (/\b(holdout|ronda\s*\d+|R\d+)\b/i.test(line)) continue;
+        for (const match of line.matchAll(citedRe)) {
+          const name = match[1];
+          const citedPct = Number(match[2]);
+          const actualPct = scoreByVariant.get(name);
+          if (actualPct !== undefined && Number.isFinite(citedPct) && Math.abs(citedPct - actualPct) > 1.5) {
+            return `porcentaje inconsistente para '${name}' (${citedPct.toFixed(1)}% vs ${actualPct.toFixed(1)}% medido)`;
+          }
+        }
       }
     }
   }

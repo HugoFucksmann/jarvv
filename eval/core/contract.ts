@@ -24,6 +24,7 @@ export { ConfigManager } from "../../src/core/config.ts";
 export { create } from "../../src/core/ctx/index.ts";
 export type {
   CallStatus,
+  ContextData,
   JsonObject,
   Op,
   StepState,
@@ -67,6 +68,7 @@ export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/
 export { DECISION_PROMPTS, PROMPTS, retryNote } from "../../src/core/models/prompts.ts";
 export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/models/qwen.ts";
 export {
+  argsTemperature,
   argumentsStageRequest,
   BASE_TEMPERATURE,
   finalStageRequest,

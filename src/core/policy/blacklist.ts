@@ -14,7 +14,7 @@
  *    `blacklist` esté vacía, a todo argumento `command`/`cmd` de una herramienta que modifica el sistema.
  * 2. Entradas de la configuración (abajo). Sin `level` valen `blocked`.
  *
- * Cada entrada nombra una herramienta (`run_command` o `jarvis_terminal:run_command`, sin distinguir mayúsculas) y, si se
+ * Cada entrada nombra una herramienta (`start_process` o `desktop_commander:start_process`, sin distinguir mayúsculas) y, si se
  * quiere, un patrón que se prueba sobre los argumentos escritos como Guard los lee (JSON en minúsculas, `\\` → `/`, espacios
  * colapsados). Sin patrón se rechaza toda llamada a la herramienta y esta deja de ofrecerse a la decisión de herramienta.
  */

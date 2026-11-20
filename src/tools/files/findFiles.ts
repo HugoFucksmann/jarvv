@@ -14,18 +14,15 @@ import { BUDGET } from "../../core/budget.ts";
 import { omissionMarker } from "../../core/text.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
+import { errorMessage } from "../../core/utils.ts";
 import {
-  effectiveTimeoutMs,
-  fitLinesToBudget,
   formatSize,
   isCanonicalDescendant,
-  isExcludedSubdir,
   joinEntryPath,
-  raceAbort,
   resolveFolderPath,
   yieldEventLoop,
-} from "../../core/tools/filePaths.ts";
-import { matchName, parsePattern, type MatchRank } from "../../core/tools/globPattern.ts";
+} from "./paths.ts";
+import { matchName, parsePattern, type MatchRank } from "./pattern.ts";
 
 export const DEFAULT_FIND_TIMEOUT_MS = 8_000;
 export const DEFAULT_FIND_MAX_DEPTH = 10;
@@ -38,7 +35,25 @@ type EntryTypeFilter = (typeof VALID_TYPES)[number];
 type StoppedBy = "time" | "entries" | "depth";
 type FindState = "found" | "partial" | "no_results" | "incomplete" | "cancelled";
 
+/**
+ * Carpetas excluidas por defecto durante el recorrido descendente:
+ * - `node_modules`, `.git`: árboles enormes de dependencias e historial.
+ * - `$recycle.bin`, `recycler`, `.trash`: papelera del sistema.
+ * - `system volume information`: metadatos protegidos de volúmenes NTFS.
+ * - `windows/winsxs`: almacén de componentes de Windows (decenas de miles de enlaces duros).
+ * Si el usuario nombra explícitamente alguna de estas como `path`, sí se recorre.
+ */
+export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
+  "node_modules",
+  ".git",
+  "$recycle.bin",
+  "recycler",
+  ".trash",
+  "system volume information",
+]);
+
 const YIELD_EVERY_ENTRIES = 64;
+const HEADER_RESERVE_CHARS = 180;
 
 export interface FindFilesDeps {
   readonly getAllowedDirectories: () => readonly string[];
@@ -67,6 +82,12 @@ interface FindMatch {
 
 const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
   toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
+
+export function isExcludedSubdir(dirName: string, fullPath: string): boolean {
+  if (EXCLUDED_DIR_NAMES.has(dirName.toLowerCase())) return true;
+  const normalized = fullPath.replace(/\\/g, "/").toLowerCase();
+  return normalized.endsWith("/windows/winsxs");
+}
 
 function parseArgs(raw: Record<string, unknown>): { readonly ok: true; readonly args: ParsedFindArgs } | { readonly ok: false; readonly message: string } {
   if (typeof raw.pattern !== "string" || raw.pattern.trim() === "") {
@@ -98,8 +119,48 @@ function parseArgs(raw: Record<string, unknown>): { readonly ok: true; readonly 
   return { ok: true, args: { pattern: raw.pattern, path: pathArg, type: typeArg, maxResults } };
 }
 
+function effectiveLimitMs(defaultTimeoutMs: number, optionTimeoutMs: number | undefined): number {
+  if (optionTimeoutMs === undefined) return defaultTimeoutMs;
+  if (optionTimeoutMs <= 2_000) return Math.min(defaultTimeoutMs, Math.max(optionTimeoutMs, 0));
+  return Math.min(defaultTimeoutMs, optionTimeoutMs - 1_500);
+}
+
+async function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<{ readonly aborted: true } | { readonly aborted: false; readonly value: T }> {
+  if (signal?.aborted) return { aborted: true };
+  if (signal === undefined) return { aborted: false, value: await promise };
+
+  let onAbort: (() => void) | undefined;
+  const abortPromise = new Promise<{ readonly aborted: true }>((resolve) => {
+    onAbort = () => resolve({ aborted: true });
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ aborted: false as const, value })),
+      abortPromise,
+    ]);
+  } finally {
+    if (onAbort !== undefined) signal.removeEventListener("abort", onAbort);
+  }
+}
+
 function formatMatchLine(m: FindMatch): string {
   return m.isDir ? `[DIR]  ${m.path}` : `[FILE] ${m.path} (${formatSize(m.size)})`;
+}
+
+function fitLinesToBudget(header: string, lines: readonly string[], budget: number): { readonly shown: readonly string[]; readonly truncated: boolean } {
+  const maxBody = Math.max(budget - Math.max(header.length + 1, HEADER_RESERVE_CHARS), 200);
+  const shown: string[] = [];
+  let used = 0;
+
+  for (const line of lines) {
+    const cost = line.length + (shown.length > 0 ? 1 : 0);
+    if (shown.length > 0 && used + cost > maxBody) break;
+    shown.push(line);
+    used += cost;
+  }
+
+  return { shown, truncated: shown.length < lines.length };
 }
 
 export async function runFindFiles(
@@ -134,7 +195,7 @@ export async function runFindFiles(
   const { matchers } = patternParsed;
   const { type: wantType, maxResults } = parsed.args;
 
-  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
+  const limitMs = effectiveLimitMs(deps.defaultTimeoutMs, options.timeoutMs);
   const startedAt = deps.now();
   const deadline = startedAt + limitMs;
 
@@ -400,4 +461,8 @@ export async function runFindFiles(
       totalMatches,
     },
   });
+}
+
+export function isFindErrorMessage(err: unknown): string {
+  return errorMessage(err);
 }

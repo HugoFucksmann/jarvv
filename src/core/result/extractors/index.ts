@@ -14,8 +14,8 @@ import { extractGeneric } from "./generic.ts";
 import { extractStructured } from "./structured.ts";
 
 const ENTRIES: ReadonlyArray<readonly [server: string, tool: string, extractor: Extractor]> = [
-    ["jarvis_files", "list_directory", extractListDirectory],
-    ["jarvis_files", "read_file", extractReadFile],
+    ["desktop_commander", "list_directory", extractListDirectory],
+    ["desktop_commander", "read_file", extractReadFile],
 ];
 
 const REGISTRY = new Map<string, Extractor>();

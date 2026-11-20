@@ -1,6 +1,6 @@
 # Guía de Uso del Framework de Evaluación (`eval`)
 
-Cómo correr el eval, escribir casos y variantes e interpretar los resultados. Presentación breve: [`README.md`](./README.md). Comandos listos para las variantes y datasets de 2026-11-19: [`EJECUTAR_VARIANTES.md`](./EJECUTAR_VARIANTES.md).
+Cómo correr el eval, escribir casos y variantes e interpretar los resultados. Presentación breve: [`README.md`](./README.md). Mediciones y comandos pendientes de ejecución: [`EJECUTAR_VARIANTES.md`](./EJECUTAR_VARIANTES.md).
 
 ---
 
@@ -17,10 +17,12 @@ Atajos de `package.json`:
 | Comando | Qué hace |
 |---|---|
 | `npm run eval -- [flags]` | Igual que `npx tsx eval/cli.ts [flags]` |
+| `npm run eval:auto -- [flags]` | Igual que `npx tsx eval/auto.ts [flags]` (optimización autónoma) |
 | `npm run eval:smoke` | `smoke` con el mock en `--dry-run`, sin modelos |
 | `npm run eval:menu` | Asistente interactivo |
 | `npm run eval:cross` | Cruza el pre-chequeo con una corrida de `args_review` (sección 8) |
 | `npm run eval:psvalid` | Mide cuántos `command` de `arguments` de una corrida son PowerShell válido; recibe la carpeta de la corrida |
+| `npm run eval:traces -- [flags]` | Convierte carpetas reales de `jarvis-traces/` (`trace.json` + `full.json.gz`) a casos `.jsonl` validados (expect borrador) |
 
 **Sintaxis de flags:** `--flag=valor` para valores y `--flag` (o `--flag=false`) para booleanos. Es error de configuración (código 2): un flag desconocido, repetido, sin valor o con valor vacío (`--model=`), un número que no sea entero/decimal simple (`--limit=1e3`, `--min-pass-rate=.9`; usar `0.9`) o una lista CSV vacía (`--stages=,`).
 
@@ -195,7 +197,7 @@ Solo modo `reactive`, con el contexto en condiciones de cerrar (`ctx.canFinish()
 {"id":"rec-rp-01","stage":"recovery","scenario":{"mode":"reactive","request":"...","steps":[{"instruction":"...","state":"failed"}],"calls":[{"route":"files","tool":"write_file","kind":"write","status":"tool_error","summary":"Error: ENOENT...","verdict":"rejected","reason":"no_usable_data"}],"at":{"previous":["<ítem fallido>","<ítem de atrás>"],"cause":"tool_failed","attempts":1}},"expect":{"expectedAction":"replan"}}
 ```
 
-Solo modo `reactive`, con un paso `failed`. `at.previous` es la lista de la vuelta con el ítem fallido de primero; `at.cause`, la causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`); `at.attempts` (≥ 1) indica los intentos fallidos (nota: en producción cuenta pasos fallidos seguidos, mientras que en los datasets vigentes de `recovery/` suele contar llamadas fallidas; ver `eval/datasets/recovery/README.md`). `expect.expectedAction` es `close`, `rewrite_item` o `replan`. Construye el request con `recoveryInput(ctx, previous, cause, attempts)` y `DECISION_PROMPTS.buildRecovery`. Con temperatura 0, repetir (`--repeat`) no aporta nada. La regla de etiquetado y los ids están en `eval/datasets/recovery/README.md`.
+Solo modo `reactive`, con el último paso `failed` (si `at.attempts` > 1, los últimos `attempts` pasos seguidos en estado `failed`, con cada llamada apuntando a su `step`). `at.previous` es la lista de la vuelta con el ítem fallido de primero; `at.cause`, la causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`); `at.attempts` (≥ 1) debe coincidir con los pasos fallidos seguidos (`ctx.consecutiveFailures()`), igual que en `src/core/engine/recoveryShadow.ts` (ver `eval/datasets/recovery/README.md`). `expect.expectedAction` es `close`, `rewrite_item` o `replan`. Construye el request con `recoveryInput(ctx, previous, cause, attempts)` y `DECISION_PROMPTS.buildRecovery`. Con temperatura 0, repetir (`--repeat`) no aporta nada. La regla de etiquetado y los ids están en `eval/datasets/recovery/README.md`.
 
 ### Etapa `fragment_judge` y cómo sumar una etapa nueva
 El caso de `fragment_judge` trae solo la necesidad y los fragmentos (`at.fragments`, de 1 a 5 fragmentos `JUDGE_BATCH`, y `expectedRelevant` en orden):
@@ -302,10 +304,10 @@ export default mi_variante;
 ## 8. Cruce con el pre-chequeo (`eval:cross`)
 
 ```bash
-npm run eval:cross -- --dataset=<a,b> [--runs=<carpeta de la corrida>] [--label=x]
+npm run eval:cross -- [--dataset=<a,b>] [--runs=<carpeta de la corrida>] [--baseline=<variante>] [--label=x] [--help]
 ```
 
-`--dataset` acepta nombres (`args_review_D3/args_review_16_cases`), con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y las compara contra `prod`/`d3`, y resume D4 con `NOUL_APPROVE`. Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).
+Usa parseo estricto de flags (falla con exit `2` ante flags desconocidos, vacíos o carpetas inexistentes). `--dataset` acepta nombres (`args_review_D3/args_review_16_cases`), con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y las compara contra `--baseline`/`d3` (`prod` por defecto), y resume D4 con `NOUL_APPROVE`. Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).
 
 ---
 

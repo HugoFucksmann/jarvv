@@ -10,13 +10,13 @@ const U = ["C:", "Users", "Hugo F"].join(BS);
 
 test("catálogo: cada herramienta declara sus sondas", () => {
   const ids = (server: string, tool: string): string[] => probesOf(server, tool).map((p) => p.id);
-  assert.deepEqual(ids("jarvis_files", "write_file"), ["place", "position"]);
-  assert.deepEqual(ids("jarvis_files", "create_directory"), ["place"]);
-  assert.deepEqual(ids("jarvis_files", "move_file"), ["place"]);
-  assert.deepEqual(ids("jarvis_files", "read_file"), ["item"]);
-  assert.deepEqual(ids("jarvis_files", "list_directory"), ["attribute"]);
-  assert.deepEqual(ids("jarvis_files", "start_search"), ["scope"]);
-  assert.deepEqual(ids("jarvis_files", "no_existe"), []);
+  assert.deepEqual(ids("desktop_commander", "write_file"), ["place", "position"]);
+  assert.deepEqual(ids("desktop_commander", "create_directory"), ["place"]);
+  assert.deepEqual(ids("desktop_commander", "move_file"), ["place"]);
+  assert.deepEqual(ids("desktop_commander", "read_file"), ["item"]);
+  assert.deepEqual(ids("desktop_commander", "list_directory"), ["attribute"]);
+  assert.deepEqual(ids("desktop_commander", "start_search"), ["scope"]);
+  assert.deepEqual(ids("desktop_commander", "no_existe"), []);
 });
 
 test("ubicación: dos etapas; carpeta nueva se lista completa; el movimiento usa el destino", () => {

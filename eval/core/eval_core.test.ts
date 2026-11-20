@@ -7,10 +7,11 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
+import { gzipSync } from "node:zlib";
 import { createEvalClients, executeComparisonBatch } from "./batch.ts";
 import { createDecisionClient } from "./client/decision.ts";
 import { createMockGenerativeClient } from "./client/mock.ts";
@@ -27,6 +28,10 @@ import { allStageNames, isDecisionStage } from "./stages/index.ts";
 import { SCHEMA_VERSION, type RunRecord } from "./types.ts";
 import { listVariantNames, loadVariantSpec, parseVariantSpecs } from "./variants/load.ts";
 import { printGlobalSummary } from "../ui/views/run.ts";
+import { parseCrossConfig, runCrossCli } from "../cross.ts";
+import { materializeScenario } from "./scenario.ts";
+import { convertTraces } from "./traces.ts";
+import { parseTracesConfig, runTracesCli } from "../traces.ts";
 
 const tempDirs: string[] = [];
 
@@ -336,5 +341,285 @@ describe("eval/core runner + batch con cliente oracle", () => {
     assert.equal(runOut.allNetworkFailed, true);
 
     assert.doesNotThrow(() => printGlobalSummary([]));
+  });
+
+  it("cross.ts rechaza flags desconocidos/vacíos, soporta --help y recovery exige que at.attempts coincida con pasos fallidos seguidos", async () => {
+    assert.throws(() => parseCrossConfig(["--unknown=1"]), /Flag desconocido/);
+    assert.throws(() => parseCrossConfig(["--dataset="]), /no puede estar vacío/);
+    assert.throws(() => parseCrossConfig(["--baseline=prod", "--baseline=otro"]), /Flag repetido/);
+
+    const origLog = console.log;
+    const origErr = console.error;
+    let out = "";
+    console.log = (...args: unknown[]) => {
+      out += args.map(String).join(" ") + "\n";
+    };
+    console.error = (...args: unknown[]) => {
+      out += args.map(String).join(" ") + "\n";
+    };
+    try {
+      assert.equal(await runCrossCli(["--help"]), 0);
+      assert.match(out, /eval:cross/);
+      assert.equal(await runCrossCli(["--typo-flag=1"]), 2);
+      assert.equal(await runCrossCli(["--runs=eval/results/no-existe-esta-carpeta"]), 2);
+    } finally {
+      console.log = origLog;
+      console.error = origErr;
+    }
+
+    assert.throws(
+      () =>
+        materializeScenario("recovery", {
+          mode: "reactive",
+          request: "Buscar archivo",
+          steps: [{ instruction: "Leer archivo", state: "failed" }],
+          calls: [{ route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" }],
+          at: { previous: ["Leer archivo"], cause: "tool_failed", attempts: 2 },
+        }),
+      /pasos fallidos seguidos/,
+    );
+
+    const aligned = materializeScenario("recovery", {
+      mode: "reactive",
+      request: "Buscar archivo",
+      steps: [
+        { instruction: "Leer archivo", state: "failed" },
+        { instruction: "Leer archivo", state: "failed" },
+      ],
+      calls: [
+        { step: 0, route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
+        { step: 1, route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
+      ],
+      at: { previous: ["Leer archivo"], cause: "tool_failed", attempts: 2 },
+    });
+    assert.equal(aligned.request.type, "decision");
+    assert.match(aligned.request.state, /Attempts so far: 2/);
+  });
+
+  it("D8: arguments deriva priorAttempts de llamadas previas no aprobadas y respeta at.priorAttempts en temperatura", () => {
+    const schema = {
+      type: "object",
+      properties: { command: { type: "string" } },
+      required: ["command"],
+      additionalProperties: false,
+    };
+
+    const t0 = materializeScenario("arguments", {
+      mode: "reactive",
+      request: "Listar procesos",
+      steps: [{ state: "running" }],
+      at: { route: "terminal", tool: "run_command", inputSchema: schema },
+    });
+    assert.equal(t0.request.type, "generative");
+    if (t0.request.type === "generative") assert.equal(t0.request.temperature, 0.1);
+
+    const t1 = materializeScenario("arguments", {
+      mode: "reactive",
+      request: "Listar procesos",
+      steps: [{ state: "running" }],
+      calls: [
+        { route: "terminal", tool: "run_command", status: "ok", args: { command: "ps" }, verdict: "rejected", reason: "not_accomplished" },
+      ],
+      at: { route: "terminal", tool: "run_command", inputSchema: schema },
+    });
+    assert.equal(t1.request.type, "generative");
+    if (t1.request.type === "generative") assert.equal(t1.request.temperature, 0.3);
+
+    const t2 = materializeScenario("arguments", {
+      mode: "reactive",
+      request: "Listar procesos",
+      steps: [{ state: "running" }],
+      at: { route: "terminal", tool: "run_command", inputSchema: schema, priorAttempts: 2 },
+    });
+    assert.equal(t2.request.type, "generative");
+    if (t2.request.type === "generative") assert.equal(t2.request.temperature, 0.5);
+
+    // waiting_input no cuenta como intento previo fallido
+    const tWaiting = materializeScenario("arguments", {
+      mode: "reactive",
+      request: "Responder prompt",
+      steps: [{ state: "running" }],
+      calls: [{ route: "terminal", tool: "run_command", status: "waiting_input", args: { command: "node script.js" } }],
+      at: { route: "terminal", tool: "run_command", inputSchema: schema },
+    });
+    assert.equal(tWaiting.request.type, "generative");
+    if (tWaiting.request.type === "generative") assert.equal(tWaiting.request.temperature, 0.1);
+
+    // Validación de valor inválido en at.priorAttempts
+    assert.throws(
+      () =>
+        materializeScenario("arguments", {
+          mode: "reactive",
+          request: "Listar procesos",
+          steps: [{ state: "running" }],
+          at: { route: "terminal", tool: "run_command", inputSchema: schema, priorAttempts: -1 },
+        }),
+      /priorAttempts/,
+    );
+
+    // Dataset real existente con 2 intentos previos fallidos
+    const [blockedDs] = loadDatasets(resolveDatasetPaths(["args_blocked_repeat"]));
+    assert.ok(blockedDs.cases.length >= 1);
+    for (const c of blockedDs.cases) {
+      assert.equal(c.request.type, "generative");
+      if (c.request.type === "generative") assert.equal(c.request.temperature, 0.5);
+    }
+  });
+
+  it("traces.ts convierte jarvis-traces/ (trace.json + full.json.gz) a .jsonl validados y ejecutables por oracle", async () => {
+    const tracesRoot = createTempDir("eval-traces-in-");
+    const taskDir = join(tracesRoot, "20261119-120000_t1");
+    const outDir = createTempDir("eval-traces-out-");
+    mkdirSync(taskDir, { recursive: true });
+
+    const runCmdSchema = {
+      type: "object",
+      properties: { command: { type: "string" } },
+      required: ["command"],
+      additionalProperties: false,
+    };
+
+    const slimTrace = {
+      v: 3,
+      taskId: "t1",
+      meta: {
+        formatVersion: 3,
+        gitSha: "abc1234",
+        environment: {
+          home: "C:\\Users\\Alice",
+          desktop: "C:\\Users\\Alice\\Desktop",
+          documents: "C:\\Users\\Alice\\Documents",
+          downloads: "C:\\Users\\Alice\\Downloads",
+        },
+        toolSchemas: { run_command: runCmdSchema },
+      },
+      snapshot: {
+        v: 1,
+        task: {
+          id: "t1",
+          mode: "reactive",
+          request: "Listá los archivos de C:\\Users\\Alice\\Documents y decime cuántos son",
+          state: "completed",
+          stopReason: null,
+          startedAt: 1000,
+        },
+        plans: [],
+        steps: [
+          { id: "s1", at: 1050, planId: null, instruction: "Listar Documentos", route: null, expected: null, state: "failed", superseded: false },
+          { id: "s2", at: 2000, planId: null, instruction: "Contar archivos en Documentos", route: null, expected: null, state: "completed", superseded: false },
+        ],
+        calls: [
+          {
+            id: "c1",
+            stepId: "s1",
+            at: 1200,
+            route: "terminal",
+            tool: "run_command",
+            kind: "read",
+            args: { command: "badcmd" },
+            sig: "sig1",
+            status: "tool_error",
+            verdict: "rejected",
+            reason: "no_usable_data",
+            summary: "Command not found",
+            ref: null,
+          },
+          {
+            id: "c2",
+            stepId: "s2",
+            at: 2200,
+            route: "terminal",
+            tool: "run_command",
+            kind: "read",
+            args: { command: "Get-ChildItem C:\\Users\\Alice\\Documents" },
+            sig: "sig2",
+            status: "ok",
+            verdict: "approved",
+            reason: null,
+            summary: "3 files found",
+            ref: null,
+          },
+        ],
+        errors: [],
+        facts: {},
+        refs: [],
+        recalled: [
+          { id: "rec1", at: 1005, stepId: null, source: "thread", key: "previous_request", value: "Qué hay en Escritorio?", from: "t0" },
+          { id: "rec2", at: 1006, stepId: null, source: "thread", key: "previous_answer", value: "Hay 2 carpetas.", from: "t0" },
+        ],
+        result: { text: "Hay 3 archivos en Documents.", origin: "model" },
+      },
+      queries: [
+        { seq: 1, stage: "continuation", step: null, n: 1, startedAt: 1010, output: { follow: { noul: 0.1 } }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h1" },
+        { seq: 2, stage: "first_query", step: null, n: 1, startedAt: 1020, output: { kind: { choice: "single", p: { chat: 0.02, single: 0.9, multi: 0.08 } }, multi: { noul: 0.1 } }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h2" },
+        { seq: 3, stage: "route", step: "s1", n: 2, startedAt: 1100, offered: ["files", "locate", "terminal", "web"], output: { route: { choice: "terminal", p: { terminal: 0.9 } } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h3" },
+        { seq: 4, stage: "tool", step: "s1", n: 2, startedAt: 1120, offered: ["run_command", "list_processes", "stop_process"], output: { selected_tool: { choice: "run_command", p: { run_command: 0.9 } } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h4" },
+        { seq: 5, stage: "args", step: "s1", n: 2, startedAt: 1150, offered: null, output: { command: "badcmd" }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h5" },
+        { seq: 6, stage: "verify", step: "s1", n: 3, startedAt: 1250, offered: ["ok", "cumple"], output: { ok: { noul: 0.1 }, cumple: { noul: 0.05 } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h6" },
+        { seq: 7, stage: "recovery", step: "s1", n: 4, startedAt: 1300, offered: null, output: { action: { choice: "rewrite_item", p: { rewrite_item: 0.8 } } }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h7" },
+        { seq: 8, stage: "pending", step: null, n: 5, startedAt: 2300, offered: null, output: { pending: [] }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h8" },
+        { seq: 9, stage: "completion", step: null, n: 5, startedAt: 2350, offered: null, output: { request_complete: { noul: 0.92 } }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h9" },
+        { seq: 10, stage: "final", step: null, n: 6, startedAt: 2400, offered: null, output: "Hay 3 archivos en Documents.", error: null, link: { call: null, plan: null, fact: null, result: true }, inputHash: "h10" },
+      ],
+      tools: [{ call: "c2", mcp: "jarvis_terminal", tool: "run_command", args: { command: "Get-ChildItem C:\\Users\\Alice\\Documents" }, resultHead: "3 files", ref: null, error: null }],
+    };
+
+    const fullTrace = {
+      v: 3,
+      kind: "full",
+      models: [
+        {
+          seq: 7,
+          stage: "recovery",
+          input: JSON.stringify({
+            state: "REQUEST:\nList\n\nPENDING:\n1. Listar Documentos\n\n### THE STEP THAT JUST FAILED\nItem: Listar Documentos\nWhy it failed: tool_failed\nAttempts so far: 1\nItems after it: none",
+          }),
+        },
+        {
+          seq: 8,
+          stage: "pending",
+          input: JSON.stringify({
+            messages: [{ role: "user", content: "REQUEST:\nList\n\nPENDING:\n1. Contar archivos en Documentos" }],
+          }),
+        },
+      ],
+    };
+
+    writeFileSync(join(taskDir, "trace.json"), JSON.stringify(slimTrace), "utf8");
+    writeFileSync(join(taskDir, "full.json.gz"), gzipSync(Buffer.from(JSON.stringify(fullTrace), "utf8")));
+
+    const outJsonl = join(outDir, "from_traces.jsonl");
+    const conv = convertTraces({ inputPath: tracesRoot, outPath: outJsonl, anonymize: true });
+    assert.equal(conv.filesScanned, 1);
+    assert.equal(conv.cases.length, 10);
+    assert.equal(conv.skipped.length, 0);
+    assert.equal(existsSync(outJsonl), true);
+
+    const text = readFileSync(outJsonl, "utf8");
+    assert.equal(text.includes("Alice"), false, "anonymize debe ocultar el usuario");
+    assert.equal(conv.cases.some((c) => c.scenario.request.includes("C:\\Users\\usuario")), true);
+
+    // Verificar que los casos convertidos cargan y pasan 100 % con oracle
+    const [loaded] = loadDatasets([outJsonl]);
+    assert.equal(loaded.cases.length, 10);
+    const oracleRoot = createTempDir("eval-traces-oracle-");
+    const cfg = parseConfig(["--client=oracle", "--label=traces_oracle"]);
+    const prod = await loadVariantSpec("prod");
+    const batch = await executeComparisonBatch({
+      cfg,
+      variants: [{ spec: "prod", hash: prod.hash, variant: prod.variant }],
+      datasetsByVariant: new Map([["prod", [loaded]]]),
+      stageFilter: allStageNames(),
+      clients: createEvalClients(cfg),
+      resultsRoot: oracleRoot,
+    });
+    assert.equal(batch.ok, true);
+    if (batch.ok) assert.equal(batch.cells[0].scores.passRate, 1);
+
+    // CLI config + flags + help
+    assert.throws(() => parseTracesConfig(["--unknown=1"]), /Flag desconocido/);
+    assert.equal(await runTracesCli(["--help"]), 0);
+    assert.equal(await runTracesCli(["--input=" + join(tracesRoot, "no-existe")]), 2);
+    assert.equal(await runTracesCli([`--input=${tracesRoot}`, `--out=${outJsonl}`, "--dry-run"]), 0);
   });
 });

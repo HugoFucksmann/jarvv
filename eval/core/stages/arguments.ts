@@ -115,8 +115,15 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
     const route = h.need(at.route, "route", "arguments");
     const tool = h.toolOf(route, h.need(at.tool, "tool", "arguments"), at.inputSchema);
     const { kind, sources, environment: env } = h.precheckBase(ctx, route, tool.name, at.environment);
-    // Sin `priorAttempts`: un caso `arguments` es siempre el primer intento (`argsInput` aplica 0).
-    const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text), h.config(), h.effectivePrompts(ov).P);
+    if (at.priorAttempts !== undefined && (!Number.isInteger(at.priorAttempts) || at.priorAttempts < 0)) {
+      throw new Error(`etapa 'arguments': scenario.at.priorAttempts debe ser un entero >= 0 (recibido: ${String(at.priorAttempts)}).`);
+    }
+    const activeStep = ctx.find("steps", { state: "running", superseded: false }).at(-1) ?? ctx.find("steps", {}).at(-1);
+    const ctxPriorAttempts = activeStep
+      ? ctx.find("calls", { stepId: activeStep.id, tool: tool.name }).filter((c) => c.verdict !== "approved" && c.status !== "waiting_input").length
+      : 0;
+    const priorAttempts = at.priorAttempts ?? ctxPriorAttempts;
+    const request = argumentsStageRequest(argsInput(tool, env, renderArgsView(ctx, tool.name).text, priorAttempts), h.config(), h.effectivePrompts(ov).P);
     return {
       request: h.generative(request),
       toolSchema: tool.inputSchema as ToolInputSchema,

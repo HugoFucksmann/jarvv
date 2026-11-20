@@ -9,7 +9,7 @@ import { processResult } from "../src/core/result/processResult.ts";
 import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
 
-const FILES = "jarvis_files";
+const DC = "desktop_commander";
 const TERMINAL = "jarvis_terminal";
 const WEB = "jarvis_web";
 const text = (t: string, extra: Partial<MCPCallResult> = {}): MCPCallResult => ({ content: [{ type: "text", text: t }], ...extra });
@@ -19,36 +19,36 @@ const native = (data: Record<string, unknown>, shown: string, raw = shown, isErr
 // ───────────────────────── processResult ─────────────────────────
 
 test("resultado normal: ok, con resumen y sin truncar", () => {
-  const r = processResult(FILES, "list_directory", text("[FILE] a.txt\n[DIR] fotos"), { path: "C:\\x" });
+  const r = processResult(DC, "list_directory", text("[FILE] a.txt\n[DIR] fotos"), { path: "C:\\x" });
   assert.equal(r.status, "ok");
   assert.ok(r.summary?.includes("a.txt"));
   assert.equal(r.truncated, false);
 });
 
 test("[DENIED] o 'access denied' en un error es denied; en un resultado exitoso es solo un dato", () => {
-  assert.equal(processResult(FILES, "read_file", text("[DENIED] fuera de allowedDirectories", { isError: true }), {}).status, "denied");
-  assert.equal(processResult(FILES, "read_file", text("el archivo dice: access denied", {}), {}).status, "ok");
+  assert.equal(processResult(DC, "read_file", text("[DENIED] fuera de allowedDirectories", { isError: true }), {}).status, "denied");
+  assert.equal(processResult(DC, "read_file", text("el archivo dice: access denied", {}), {}).status, "ok");
 });
 
 test("not_found: marcador al inicio, o error con 'not found' / ENOENT", () => {
-  assert.equal(processResult(FILES, "read_file", text("[NOT_FOUND] sin archivo"), {}).status, "not_found");
-  assert.equal(processResult(FILES, "read_file", text("ENOENT: no such file or directory", { isError: true }), {}).status, "not_found");
+  assert.equal(processResult(DC, "read_file", text("[NOT_FOUND] sin archivo"), {}).status, "not_found");
+  assert.equal(processResult(DC, "read_file", text("ENOENT: no such file or directory", { isError: true }), {}).status, "not_found");
 });
 
 test("tool_error: error, success=false, tiempo agotado o código de salida distinto de 0", () => {
-  assert.equal(processResult(FILES, "read_file", text("falló", { isError: true }), {}).status, "tool_error");
-  assert.equal(processResult(FILES, "read_file", text("x", { success: false }), {}).status, "tool_error");
-  assert.equal(processResult(FILES, "read_file", text('{"exit_code": 2, "pid": 9}'), {}).status, "tool_error");
+  assert.equal(processResult(DC, "read_file", text("falló", { isError: true }), {}).status, "tool_error");
+  assert.equal(processResult(DC, "read_file", text("x", { success: false }), {}).status, "tool_error");
+  assert.equal(processResult(DC, "read_file", text('{"exit_code": 2, "pid": 9}'), {}).status, "tool_error");
   assert.equal(processResult(TERMINAL, "run_command", native({ state: "finished", pid: 7, exitCode: 1 }, "boom"), {}).status, "tool_error", "un proceso nativo que termina con código distinto de 0");
 });
 
 test("no_data: una herramienta que no admite salida vacía y devuelve vacío", () => {
-  assert.equal(processResult(FILES, "read_file", text(""), {}).status, "no_data");
+  assert.equal(processResult(DC, "read_file", text(""), {}).status, "no_data");
 });
 
 test("un resumen nunca supera el tope y marca truncated; el texto completo se conserva para la ref", () => {
   const big = "línea de datos\n".repeat(2000);
-  const r = processResult(FILES, "read_file", text(big), { path: "C:\\x\\grande.txt" });
+  const r = processResult(DC, "read_file", text(big), { path: "C:\\x\\grande.txt" });
   assert.ok((r.summary?.length ?? 0) <= BUDGET.summaryMax);
   assert.equal(r.truncated, true);
   assert.equal(r.fullText, big.trim());
@@ -120,13 +120,13 @@ test("resultado nativo: waiting_input trae el prompt y no es un fallo; sin resul
 });
 
 test("un resultado de error nunca usa un extractor específico (no hay resumen de éxito de algo que falló)", () => {
-  const r = processResult(FILES, "list_directory", text("EPERM: operation not permitted", { isError: true }), {});
+  const r = processResult(DC, "list_directory", text("EPERM: operation not permitted", { isError: true }), {});
   assert.equal(r.status, "tool_error");
   assert.ok(r.summary?.includes("EPERM"));
 });
 
 test("los bloques que no son texto no aportan contenido", () => {
-  const r = processResult(FILES, "read_file", { content: [{ type: "image", data: "AAA", mimeType: "image/png" } as never, { type: "text", text: "hola" }] }, {});
+  const r = processResult(DC, "read_file", { content: [{ type: "image", data: "AAA", mimeType: "image/png" } as never, { type: "text", text: "hola" }] }, {});
   assert.equal(r.fullText, "hola");
 });
 

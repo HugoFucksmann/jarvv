@@ -77,8 +77,8 @@ test("/config: el parche descarta command, args, env y cwd de los servidores MCP
   const { withoutLaunchFields } = await import("../src/server/jarvisRouter.ts");
   const patch = withoutLaunchFields({
     autoMode: true,
-    allowedDirectories: ["C:\\Users"],
-    freeSearchMcp: { command: "evil", args: ["-x"], env: { A: "1" }, cwd: "C:\\" },
+    desktopCommanderMcp: { command: "calc.exe", args: ["-x"], env: { A: "1" }, cwd: "C:\\", allowedDirectories: ["C:\\Users"] },
+    freeSearchMcp: { command: "evil" },
   });
-  assert.deepEqual(patch, { autoMode: true, allowedDirectories: ["C:\\Users"], freeSearchMcp: {} });
+  assert.deepEqual(patch, { autoMode: true, desktopCommanderMcp: { allowedDirectories: ["C:\\Users"] }, freeSearchMcp: {} });
 });

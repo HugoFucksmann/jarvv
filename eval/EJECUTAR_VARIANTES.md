@@ -1,86 +1,79 @@
-# Cómo correr las variantes (guía de ejecución)
+# Cómo correr lo que falta en `eval/`
 
-Comandos de referencia para correr las etapas de decisión con las variantes activas en `eval/variants/` (los nombres archivados en `_archivo_legacy/` siguen cargando si se pasan por nombre explícito en `--variant`). Para validar sintaxis y tests antes de correr modelos reales: `npx tsc --noEmit` y `npx tsx --test eval/core/eval_core.test.ts eval/auto/eval_auto.test.ts`.
+Comandos pendientes de ejecución sobre variantes y datasets activos en `eval/`. Las tandas de decisión ya ejecutadas el 2026-11-19 (`tool_choice`, `d0`, `result_verification`, `route` y `continuation` en `dev`/`holdout`) están consolidadas en [`conclusiones.md`](./conclusiones.md).
+
+Antes de correr modelos reales, validar offline:
+`npx tsc --noEmit` y `npx tsx --test eval/core/eval_core.test.ts eval/auto/eval_auto.test.ts`.
 
 ## Reglas del juego
 
-1. **Primero `dev`, después `holdout`, una sola vez.** Se compara y se elige con `dev` y `dev2`. `holdout` y `holdout2` solo se corren para confirmar a las ganadoras, una vez; si se vuelve a mirar `holdout` para ajustar, deja de servir.
-2. **Sin `--repeat`.** El modelo de decisión es determinista (temperatura 0): repetir da lo mismo. Con 40 a 60 casos por dataset, **una diferencia de 1 caso es ruido**; solo cuentan diferencias de 3 o más, o que se repitan en `dev` y `dev2`. Para comparar latencias (`p50`/`p95`), usar `--concurrency=1`.
-3. **Se mira más que el porcentaje.** En D4 y en continuación importan las «malas aprobadas» (aprobar lo que no debía) por separado de las «buenas rechazadas». En D0 importan los falsos `chat`.
-4. **`prod` se agrega solo** como línea base. Cada variante cambia una sola cosa respecto de `prod`.
-5. Hace falta Ollama con el modelo de siempre. Si no está, `--dry-run` sirve para ver el prompt, pero no mide nada. Cerrar otras aplicaciones pesadas: el modelo local se degrada si falta memoria.
+1. **Primero `dev`, después `holdout`, una sola vez.** Se compara con `dev`/`dev2`; `holdout`/`holdout2` solo confirman ganadoras una vez.
+2. **Sin `--repeat` en decisión.** D trabaja a temperatura 0. Con 40–60 casos, 1 caso de diferencia es ruido; usar `--concurrency=1` para medir latencias (`p50`/`p95`).
+3. **Mirar errores asimétricos.** En D4/D5/continuación separar falsos aprobados de falsos rechazos; en D0 falsos `chat`; en `recovery` falso `close` vs falso reintento.
+4. **`prod` se agrega solo** como baseline. Hace falta Ollama activo con los modelos de `jarvis-config.json`.
 
-Cada comando deja una carpeta `eval/results/<modelo>/<fecha>_<label>/` con `comparison.md` (la tabla) y, por celda, `runs.jsonl`. *(En etapas puras de decisión, `<modelo>` es el `decisionModel`; en generativas o mixtas, el modelo generativo.)*
+---
 
-## Pasada 1: `dev` y `dev2` (una etapa por vez)
+## 1. Pendientes en etapas de decisión y scripts offline
 
-### D2: elección de herramienta (descripciones y pedido original)
-
-```powershell
-npx tsx eval/cli.ts --stages=tool_choice --dataset=tool_choice_terminal_locate_dev,tool_choice_terminal_locate_dev2 --variant=tool_choice_desc_a,tool_choice_desc_b,tool_choice_desc_a_request,tool_choice_precision_criteria --concurrency=1 --label=d2_dev
-```
-
-Qué mide: si descripciones más claras (`desc_a`, `desc_b`), mostrar el pedido original (`desc_a_request`) o criterios de precisión mejoran la elección entre `run_command`, `find_files`, `list_folder` y compañía.
-
-### D0: primera consulta (criterio de `multi` y límites de chat)
+### D3 (`args_review`): vista completa y cruce con pre-chequeo (`PENDIENTES_EVAL.md` §1)
 
 ```powershell
-npx tsx eval/cli.ts --stages=d0 --dataset=d0_real_usuario_dev,d0_real_usuario_dev2 --variant=d0_multi_short,d0_r1_action_axes,d0_chat_balanced --concurrency=1 --label=d0_dev
+npx tsx eval/cli.ts --stages=args_review --dataset=args_review_16_cases,args_review_gemai,args_review_gemaiL,args_review_current,args_review_jarvis_runtime,args_review_variedad --variant=args_review_fullview_clean,args_review_compact --concurrency=1 --label=d3_fullview
+npx tsx eval/cross.ts --dataset=args_review_16_cases,args_review_gemai,args_review_gemaiL,args_review_current,args_review_jarvis_runtime,args_review_variedad --runs=eval/results/<modelo>/<carpeta_d3_fullview>
 ```
 
-Después, **sin llamar a ningún modelo**, se compara cómo combinar las dos preguntas de D0:
+### D5: cierre reactivo y `d5_variedad` (`PENDIENTES_EVAL.md` §3)
 
 ```powershell
-npx tsx eval/exp/d0_rules.ts eval/results/<modelo>/<carpeta de la corrida d0_dev>
+npx tsx eval/cli.ts --stages=d5 --dataset=d5_close_check,d5_variedad --variant=d5_evidence_strict,d5_noul_calibrated --concurrency=1 --label=d5_variedad
 ```
 
-### D4: verificación (`cumple`)
+### Análisis offline de reglas D0 y cortes `noul` (requiere `runs.jsonl` reales de `prod`)
 
 ```powershell
-npx tsx eval/cli.ts --stages=result_verification --dataset=verify_pasos_reales_dev,verify_pasos_reales_dev2 --variant=d4_cumple_has_data,d4_concise_precision,d4_precision_calibrated --concurrency=1 --label=d4_dev
+npx tsx eval/exp/d0_rules.ts eval/results/<modelo>/<carpeta_con_corrida_d0>
+npx tsx eval/exp/noul_cuts.ts eval/results/<modelo>/<carpeta_de_corrida>
 ```
 
-### D1: ruta
+`noul_cuts.ts` acepta `--variant=`, `--dataset=`, `--bucket=canonical|raw|all`, `--best-range=0.25-0.75` o la carpeta entera del modelo.
+
+---
+
+## 2. Pendientes en etapas generativas y memoria (`PLAN_DE_MEDICION.md`)
+
+### `arguments`: suite completa post-eliminación de `REFS` + validez PowerShell
 
 ```powershell
-npx tsx eval/cli.ts --stages=route --dataset=route_pasos_reales_dev,route_pasos_reales_dev2 --variant=route_concrete_signals,route_research_aware,route_clean_hints --concurrency=1 --label=route_dev
+npx tsx eval/cli.ts --stages=arguments --dataset=llm_arguments,llm_arguments_hard,llm_arguments_cmd,llm_arguments_extra_hard,args_blocked_repeat,arguments_current_tools,arguments_jarvis_runtime,arguments_recalled_variedad --variant=args_structured_brief,arguments_clean_prod,arguments_strict_context --concurrency=1 --label=args_full
+npm run eval:psvalid -- eval/results/<modelo>/<carpeta_args_full>
 ```
 
-### Continuación del hilo (`follow`)
+*(Si se amplía el dataset con `recalled`, re-verificar `args_structured_brief` contra `prod`.)*
+
+### `pending`: `pending_variedad` y variantes de hechos / contexto
 
 ```powershell
-npx tsx eval/cli.ts --stages=continuation --dataset=continuation_dev,continuation_dev2 --variant=follow_examples,follow_nocriteria,follow_short,continuation_explicit_reference --concurrency=1 --label=follow_dev
+npx tsx eval/cli.ts --stages=pending --dataset=llm_pending,llm_pending_hard,llm_gemai,pending_jarvis_runtime,pending_variedad --variant=pending_facts_safe,pending_conditional_clean --concurrency=1 --label=pending_full
 ```
 
-## Pasada 2: confirmar con `holdout` (solo las ganadoras)
-
-Se repite el comando de la etapa cambiando los datasets por `*_holdout,*_holdout2` y dejando **solo** las variantes que ganaron en `dev`. Ejemplo para D2 si ganó `desc_a`:
+### `question`: verificar los 3 casos migrados de `refs_unresolved` a `info_missing`
 
 ```powershell
-npx tsx eval/cli.ts --stages=tool_choice --dataset=tool_choice_terminal_locate_holdout,tool_choice_terminal_locate_holdout2 --variant=tool_choice_desc_a --concurrency=1 --label=d2_holdout
+npx tsx eval/cli.ts --stages=question --dataset=llm_question,llm_question_hard,llm_question_gemai,question_jarvis_runtime --concurrency=1 --label=question_check
 ```
 
-Una variante se aplica a producción solo si mejora o empata en `holdout` y no empeora las «malas aprobadas». Si gana en `dev` y pierde en `holdout`, era ruido.
-
-## Cortes de las preguntas `noul` (sin modelo)
-
-Con corridas de `prod` ya hechas (las de la pasada 1 las incluyen) se puede medir qué pasa con cada corte:
+### Aplazados por latencia (correr solo cuando se decida habilitar `thinking`)
 
 ```powershell
-npx tsx eval/exp/noul_cuts.ts eval/results/<modelo>/<carpeta de la corrida>
+npx tsx eval/cli.ts --stages=plan --dataset=plan_16_cases,plan_gemai,plan_jarvis_runtime --thinking=prod --concurrency=1 --label=plan_thinking
+npx tsx eval/cli.ts --stages=final --dataset=final_16_cases,final_gemai,final_gemai2,final_jarvis_runtime,final_recalled_variedad --thinking=both --concurrency=1 --label=final_thinking
 ```
 
-Imprime, por pregunta (`ok`, `cumple`, D5, `multi`, continuación, juez de fragmentos): el porcentaje de «sí» reales por tramo de probabilidad, los errores de cada corte entre 0,10 y 0,90, y una comparación de tres juegos de cortes (producción, mejor medido, mejor medido menos 5 puntos). Opciones: `--variant=`, `--dataset=texto`, `--bucket=canonical|raw|all`, `--best-range=0.25-0.75`. Sirve también la carpeta del modelo entera para juntar varias corridas.
+---
 
-Cortes de producción hoy: `ok` 0,3 · `cumple` 0,6 · D5 0,75 · juez de fragmentos 0,5 · `multi` 0,5 · continuación 0,3. Un corte más bajo aprueba más; el error caro es aprobar lo malo, no rechazar lo bueno.
+## Referencias
 
-## Si algo no anda
-
-| Síntoma | Qué hacer |
-|---|---|
-| El modelo no responde | Verificar que Ollama corre y que el modelo está descargado (`ollama list`). |
-| Un caso falla en `--client=oracle` | El problema es el caso, un grader o el parseo, no el modelo: `npx tsx eval/cli.ts --client=oracle --dataset=<nombre>`. |
-| Ver el prompt exacto de una variante | `npx tsx eval/cli.ts --dataset=<nombre> --variant=<variante> --ids=<caso> --dry-run` |
-| `noul_cuts.ts` dice que no hay respuestas | La carpeta no tiene celdas `prod__<dataset>`; correr con `--variant=` de una que sí tenga. |
-
-Más sobre flags, formato de datasets y cómo escribir variantes: `eval/INSTRUCCIONES.md`. Cómo decidir con los números: `eval/GUIA_DECISION.md`. Plan y motivo de cada dataset y variante: `docs/evaluacion/PLAN_DATASETS_Y_VARIANTES_2026-11-19.md`.
+- Flags y contratos de etapas: [`INSTRUCCIONES.md`](./INSTRUCCIONES.md)
+- Reglas del modelo de decisión y `recovery`: [`GUIA_DECISION.md`](./GUIA_DECISION.md)
+- Lista completa de pendientes de medición e infraestructura: [`INCONSISTENCIAS_EVAL_2026-11-20.md`](./INCONSISTENCIAS_EVAL_2026-11-20.md)

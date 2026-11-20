@@ -13,8 +13,8 @@ import { loadDatasets, resolveDatasetPaths, type Dataset, type RawDatasetCache }
 import { forEachJsonlLineSync } from "../core/io.ts";
 import { objectHash } from "../core/results.ts";
 import type { StageName } from "../core/types.ts";
-import { listActiveVariantFiles, loadVariantSpec, VARIANTS_DIR } from "../core/variants/load.ts";
-import type { Variant } from "../core/variants/types.ts";
+import { listActiveVariantFiles, VARIANTS_DIR } from "../core/variants/load.ts";
+import { loadVariantSpecEphemeral } from "./ephemeralVariant.ts";
 import { getStageContract } from "./stageContract.ts";
 
 const HOLDOUT_FILENAME_RE = /(?:^|[_-])holdout\d*\.jsonl$/i;
@@ -32,7 +32,6 @@ export interface DiscoveredVariant {
   name: string;
   path: string;
   hash: string;
-  variant: Variant;
   isAuto: boolean;
 }
 
@@ -166,7 +165,7 @@ export async function discoverStageVariants(stage: StageName, variantsRoot = VAR
     if (!raw.includes(contract.promptKey)) continue;
 
     try {
-      const { variant, hash } = await loadVariantSpec(name, filePath, variantsRoot);
+      const { variant, hash } = loadVariantSpecEphemeral(name, filePath, variantsRoot);
       const groupObj = variant.prompts?.[contract.promptGroup] as Record<string, unknown> | undefined;
       if (!groupObj || !(contract.promptKey in groupObj) || groupObj[contract.promptKey] === undefined) {
         continue;
@@ -175,7 +174,6 @@ export async function discoverStageVariants(stage: StageName, variantsRoot = VAR
         name,
         path: resolve(filePath),
         hash,
-        variant,
         isAuto: isAutoVariantPathForStage(filePath, stage, variantsRoot),
       });
     } catch (e) {

@@ -15,20 +15,25 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Worker } from "node:worker_threads";
 import { PROD_SHORTCUT_TAG } from "./core/case.ts";
-import { createEvalClients, executeComparisonBatch, type BatchVariantInput, type EvalClients } from "./core/batch.ts";
-import { createRawDatasetCache, loadDatasets, type Dataset, type RawDatasetCache } from "./core/datasets.ts";
+import { createEvalClients, type EvalClients } from "./core/batch.ts";
+import { createRawDatasetCache, type Dataset, type RawDatasetCache } from "./core/datasets.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "./core/report-format.ts";
 import type { ComparisonReport, InputCell } from "./core/report.ts";
 import { isDecisionStage } from "./core/stages/index.ts";
 import type { Case, StageName } from "./core/types.ts";
-import { loadVariantSpec, VARIANTS_DIR, variantFilePath } from "./core/variants/load.ts";
-import type { Variant } from "./core/variants/types.ts";
+import { VARIANTS_DIR, variantFilePath } from "./core/variants/load.ts";
 import { c, fail, section, sym } from "./ui/style.ts";
+import {
+  executeAutoBatchInProcess,
+  type AutoBatchOutcome,
+  type RunAutoBatchPayload,
+} from "./auto/batchRunner.ts";
+import type { AutoBatchWorkerMessage } from "./auto/batchWorker.ts";
 import {
   printAutoHelp,
   parseAutoConfig,
-  toEvalConfig,
   type AutoConfig,
 } from "./auto/config.ts";
 import {
@@ -45,6 +50,7 @@ import {
   discoverStageVariants,
   isAutoVariantPathForStage,
 } from "./auto/discover.ts";
+import { loadVariantSpecEphemeral } from "./auto/ephemeralVariant.ts";
 import {
   extractFailureSamples,
   extractVariantDatasetStats,
@@ -63,7 +69,6 @@ import {
   buildFingerprint,
   fingerprintsEqual,
   loadAutoState,
-  rankParticipants,
   saveAutoState,
   scanReusableInitialRanking,
   type AutoSessionState,
@@ -80,19 +85,7 @@ export interface AutoLoopDeps {
   silent?: boolean;
 }
 
-interface BatchRunOutput {
-  ok: true;
-  rootDir: string;
-  cells: InputCell[];
-  report: ComparisonReport;
-  ranked: RankedVariant[];
-  loadedVariants: Map<string, { variant: Variant; hash: string; filePath: string }>;
-}
-
-interface BatchRunFailed {
-  ok: false;
-  reason: string;
-}
+const BATCH_WORKER_URL = new URL("./auto/batchWorker.ts", import.meta.url);
 
 function makeRunTag(): string {
   const d = new Date();
@@ -100,14 +93,6 @@ function makeRunTag(): string {
   const datePart = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   const rand = randomUUID().replace(/-/g, "").slice(0, 4);
   return `${datePart}_${rand}`;
-}
-
-function uniqueStrings(items: string[]): string[] {
-  const out: string[] = [];
-  for (const item of items) {
-    if (!out.includes(item)) out.push(item);
-  }
-  return out;
 }
 
 function makeCaseLookup(datasets: Dataset[]): Map<string, Case> {
@@ -132,65 +117,79 @@ function countCanonicalCases(datasets: Dataset[], includeShortcut: boolean): num
   return count;
 }
 
+async function runComparativeBatchInWorker(
+  payload: RunAutoBatchPayload,
+  silent?: boolean,
+): Promise<AutoBatchOutcome> {
+  const worker = new Worker(BATCH_WORKER_URL, { workerData: payload });
+  try {
+    return await new Promise<AutoBatchOutcome>((resolvePromise) => {
+      let settled = false;
+      const finish = (outcome: AutoBatchOutcome): void => {
+        if (settled) return;
+        settled = true;
+        resolvePromise(outcome);
+      };
+
+      worker.on("message", (msg: AutoBatchWorkerMessage) => {
+        if (msg.type === "rootReady") {
+          if (!silent) console.log(`${c.gray("Resultados en")} ${c.cyan(msg.rootDir)}`);
+        } else if (msg.type === "cellEnd") {
+          if (!silent) console.log(`  ${msg.variantSpec.padEnd(28)} ${msg.datasetName.padEnd(24)} ${msg.passCount}/${msg.runCount}`);
+        } else if (msg.type === "done") {
+          finish(msg.outcome);
+        } else if (msg.type === "error") {
+          finish({ ok: false, reason: `Error en worker de evaluación: ${msg.message}` });
+        }
+      });
+
+      worker.once("error", (err) => {
+        finish({ ok: false, reason: `Error en worker de evaluación: ${err.message}` });
+      });
+
+      worker.once("exit", (code) => {
+        finish({ ok: false, reason: `Worker de evaluación terminó inesperadamente (exit ${code}).` });
+      });
+    });
+  } finally {
+    await worker.terminate().catch(() => {});
+  }
+}
+
 async function runComparativeBatch(opts: {
   cfg: AutoConfig;
   variantNames: string[];
   datasetPaths: string[];
   label: string;
-  clients: EvalClients;
+  customClients?: EvalClients;
   resultsRoot?: string;
   variantsRoot?: string;
   rawCache?: RawDatasetCache;
   silent?: boolean;
-}): Promise<BatchRunOutput | BatchRunFailed> {
-  const { cfg, variantNames, datasetPaths, label, clients, resultsRoot, variantsRoot, rawCache, silent } = opts;
-  const participants = uniqueStrings(["prod", ...variantNames]);
-  const evalCfg = toEvalConfig(cfg, {
-    datasetSpecs: datasetPaths,
-    variantSpecs: participants,
-    baseline: "prod",
-    label,
-  });
-
-  const batchVariants: BatchVariantInput[] = [];
-  const loadedVariants = new Map<string, { variant: Variant; hash: string; filePath: string }>();
-  const datasetsByVariant = new Map<string, Dataset[]>();
-
-  for (const spec of participants) {
-    const { variant, hash } = await loadVariantSpec(spec, undefined, variantsRoot);
-    const filePath = variantFilePath(spec, variantsRoot);
-    batchVariants.push({ spec, hash, variant });
-    loadedVariants.set(spec, { variant, hash, filePath });
-    datasetsByVariant.set(spec, loadDatasets(datasetPaths, { stages: [cfg.stage] }, variant, rawCache));
-  }
-
-  const batch = await executeComparisonBatch({
-    cfg: evalCfg,
-    variants: batchVariants,
-    datasetsByVariant,
-    stageFilter: [cfg.stage],
-    clients,
-    resultsRoot,
-    onRootReady: (rootDir) => {
-      if (!silent) console.log(`${c.gray("Resultados en")} ${c.cyan(rootDir)}`);
-    },
-    onCellEnd: ({ variantSpec, dataset, passCount, runCount }) => {
-      if (!silent) console.log(`  ${variantSpec.padEnd(28)} ${dataset.name.padEnd(24)} ${passCount}/${runCount}`);
-    },
-  });
-
-  if (!batch.ok) {
-    return { ok: false, reason: batch.reason };
-  }
-
-  return {
-    ok: true,
-    rootDir: batch.rootDir,
-    cells: batch.cells,
-    report: batch.report,
-    ranked: rankParticipants(batch.report, cfg.metric, batch.cells),
-    loadedVariants,
+}): Promise<AutoBatchOutcome> {
+  const payload: RunAutoBatchPayload = {
+    cfg: opts.cfg,
+    variantNames: opts.variantNames,
+    datasetPaths: opts.datasetPaths,
+    label: opts.label,
+    resultsRoot: opts.resultsRoot,
+    variantsRoot: opts.variantsRoot,
   };
+
+  if (!opts.customClients) {
+    return runComparativeBatchInWorker(payload, opts.silent);
+  }
+
+  return executeAutoBatchInProcess(payload, {
+    clients: opts.customClients,
+    rawCache: opts.rawCache,
+    onRootReady: (rootDir) => {
+      if (!opts.silent) console.log(`${c.gray("Resultados en")} ${c.cyan(rootDir)}`);
+    },
+    onCellEnd: ({ variantSpec, datasetName, passCount, runCount }) => {
+      if (!opts.silent) console.log(`  ${variantSpec.padEnd(28)} ${datasetName.padEnd(24)} ${passCount}/${runCount}`);
+    },
+  });
 }
 
 function readVariantSourceForPrompt(name: string, stage: StageName, variantsRoot?: string): string {
@@ -280,10 +279,14 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   const devDatasetNames = new Set(discovered.dev.map((d) => d.name));
   const caseLookup = makeCaseLookup(discovered.dev);
 
-  // 2. Clientes del sistema evaluado (reutiliza fábrica compartida de eval/core/batch.ts)
-  let clients: EvalClients;
+  // 2. Validar/construir clientes del sistema evaluado (solo se retienen si los inyecta `deps.makeClients`)
+  let customClients: EvalClients | undefined;
   try {
-    clients = (deps.makeClients ?? createEvalClients)(cfg);
+    if (deps.makeClients) {
+      customClients = deps.makeClients(cfg);
+    } else {
+      createEvalClients(cfg);
+    }
   } catch (e) {
     fail(`Error de configuración de modelos evaluados: ${e instanceof Error ? e.message : String(e)}`);
     return 2;
@@ -347,11 +350,11 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   };
 
   if (cfg.seedTop.length > 0) {
-    // Validar existencia y cargar una única vez las variantes de --seed-top
+    // Validar existencia y cargar de forma efímera las variantes de --seed-top (sin ESM cache)
     const seedSpecs: Array<{ name: string; hash: string }> = [];
     for (const s of cfg.seedTop) {
       try {
-        const loaded = await loadVariantSpec(s, undefined, variantsRoot);
+        const loaded = loadVariantSpecEphemeral(s, undefined, variantsRoot);
         seedSpecs.push({ name: s, hash: loaded.hash });
       } catch (e) {
         fail(`Error en --seed-top='${s}': ${e instanceof Error ? e.message : String(e)}`);
@@ -360,7 +363,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }
     currentTop2 = [...cfg.seedTop];
 
-    const prodSpec = await loadVariantSpec("prod", undefined, variantsRoot);
+    const prodSpec = loadVariantSpecEphemeral("prod", undefined, variantsRoot);
     const cacheCheck = scanReusableInitialRanking({
       cfg,
       variants: [{ name: "prod", hash: prodSpec.hash }, ...seedSpecs.filter((s) => s.name !== "prod")],
@@ -375,7 +378,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }
   } else {
     // Intentar reutilizar resultados compatibles en eval/results/ para prod + variantes activas
-    const prodSpec = await loadVariantSpec("prod", undefined, variantsRoot);
+    const prodSpec = loadVariantSpecEphemeral("prod", undefined, variantsRoot);
     const variantsForScan = [
       { name: "prod", hash: prodSpec.hash },
       ...activeVariants.map((v) => ({ name: v.name, hash: v.hash })),
@@ -410,7 +413,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         variantNames: initialNames,
         datasetPaths: devPaths,
         label: `auto_${cfg.stage}_r0`,
-        clients,
+        customClients,
         resultsRoot: deps.resultsRoot,
         variantsRoot,
         rawCache,
@@ -541,7 +544,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       variantNames: [...currentTop2, ...newNames],
       datasetPaths: devPaths,
       label: `auto_${cfg.stage}_r${round}`,
-      clients,
+      customClients,
       resultsRoot: deps.resultsRoot,
       variantsRoot,
       rawCache,
@@ -558,12 +561,9 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     printRankedTable(batch.ranked, nextTop2, cfg, silent);
 
     // 4.4 Archivar variantes generadas perdedoras en `_auto/<stage>/descartadas/`
-    const autoCandidatesInBatch: Array<{ name: string; filePath: string }> = [];
-    for (const [name, info] of batch.loadedVariants.entries()) {
-      if (isAutoVariantPathForStage(info.filePath, cfg.stage, variantsRoot)) {
-        autoCandidatesInBatch.push({ name, filePath: info.filePath });
-      }
-    }
+    const autoCandidatesInBatch: Array<{ name: string; filePath: string }> = batch.loadedFiles
+      .filter((info) => isAutoVariantPathForStage(info.filePath, cfg.stage, variantsRoot))
+      .map((info) => ({ name: info.name, filePath: info.filePath }));
     const archived = archiveLosingAutoVariants({
       stage: cfg.stage,
       candidateFiles: autoCandidatesInBatch,
@@ -607,7 +607,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
             variantNames: [candidateToTest.variant],
             datasetPaths: holdoutPaths,
             label: `auto_${cfg.stage}_r${round}_holdout`,
-            clients,
+            customClients,
             resultsRoot: deps.resultsRoot,
             variantsRoot,
             rawCache,

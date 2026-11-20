@@ -91,8 +91,9 @@ export interface ScenarioAt {
   // fragment_judge: la necesidad (la pregunta de `web_search`) y los fragmentos a puntuar (hasta `JUDGE_BATCH`). No usa el resto del escenario.
   need?: string;
   fragments?: string[];
-  // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC).
+  // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC) e intentos previos rechazados de la herramienta.
   environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
+  priorAttempts?: number;
 }
 
 export interface ScenarioRecalled {

@@ -40,7 +40,7 @@ export function withoutLaunchFields(body: Record<string, unknown>): Record<strin
     delete patch[key];
     console.warn(`[Config] se ignora '${key}' (solo se cambia en jarvis-config.json).`);
   }
-  for (const server of ['freeSearchMcp']) {
+  for (const server of ['desktopCommanderMcp', 'freeSearchMcp']) {
     const value = patch[server];
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue;
     const rest = { ...(value as Record<string, unknown>) };
@@ -64,6 +64,7 @@ function omitServerEnv(server: StdioServerConfig): StdioServerConfig {
 export function sanitizeConfigForHttp(config: JarvisConfig): JarvisConfig {
   return {
     ...config,
+    desktopCommanderMcp: omitServerEnv(config.desktopCommanderMcp),
     freeSearchMcp: omitServerEnv(config.freeSearchMcp),
   };
 }

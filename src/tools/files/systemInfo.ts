@@ -17,7 +17,7 @@ import { omissionMarker } from "../../core/text.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
-import { fitLinesToBudget, formatSize } from "../../core/tools/filePaths.ts";
+import { formatSize } from "./paths.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -291,6 +291,19 @@ function formatDiskLine(d: DiskInfo): string {
   return `${d.letter}${label} [${d.fileSystem}] ${formatSize(d.freeBytes)} free / ${formatSize(d.sizeBytes)} (${d.usedPercent}% used)`;
 }
 
+function fitToSummary(header: string, lines: readonly string[]): { readonly shown: readonly string[]; readonly truncated: boolean } {
+  const maxBody = Math.max(BUDGET.summaryMax - Math.max(header.length + 1, 160), 200);
+  const shown: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const cost = line.length + (shown.length > 0 ? 1 : 0);
+    if (shown.length > 0 && used + cost > maxBody) break;
+    shown.push(line);
+    used += cost;
+  }
+  return { shown, truncated: shown.length < lines.length };
+}
+
 export async function runSystemInfo(
   rawArgs: Record<string, unknown>,
   deps: SystemInfoDeps,
@@ -410,7 +423,7 @@ export async function runSystemInfo(
     if (!disksRes.ok) return fail(`Could not read disk info: ${disksRes.reason}`);
     const lines = disksRes.disks.length === 0 ? ["No fixed disks detected."] : disksRes.disks.map(formatDiskLine);
     const header = `status: ok · section: disks (${disksRes.disks.length})`;
-    const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax, 160);
+    const fitted = fitToSummary(header, lines);
     const text = [header, ...fitted.shown, ...(fitted.truncated ? [omissionMarker(lines.length - fitted.shown.length, "discos")] : [])].join("\n");
     const raw = [header, ...lines].join("\n");
     return toolResult({
@@ -470,7 +483,7 @@ export async function runSystemInfo(
     const limited = filtered.slice(0, limit);
     const lines = limited.map((s) => `[${s.status}] ${s.name} — ${s.displayName}`);
     const prelimHeader = `status: ok · section: services (${status}) · showing ${limited.length} of ${filtered.length}`;
-    const fitted = fitLinesToBudget(prelimHeader, lines, BUDGET.summaryMax);
+    const fitted = fitToSummary(prelimHeader, lines);
     const shownCount = fitted.shown.length;
     const truncated = shownCount < filtered.length;
     const header =

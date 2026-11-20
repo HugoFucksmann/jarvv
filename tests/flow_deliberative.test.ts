@@ -68,14 +68,14 @@ async function runDelib(s: DelibScenario) {
     reconnect: async () => undefined,
   });
   const servers: Record<string, IMCPServer> = {
-    jarvis_files: makeServer("jarvis_files", fileTools),
+    desktop_commander: makeServer("desktop_commander", fileTools),
     jarvis_terminal: makeServer("jarvis_terminal", terminalTools),
   };
 
   const deps: EngineDeps = {
     discovery: {
       getServer: (name) => servers[name],
-      getDiscoveredTools: async (name) => (name === "jarvis_files" ? fileTools : name === "jarvis_terminal" ? terminalTools : []),
+      getDiscoveredTools: async (name) => (name === "desktop_commander" ? fileTools : name === "jarvis_terminal" ? terminalTools : []),
       getUnavailableServers: () => ({}),
       validateToolExists: async () => true,
       notifyTaskEnd: async () => undefined,

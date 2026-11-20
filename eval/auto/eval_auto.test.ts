@@ -15,6 +15,7 @@ import { runAutoLoop } from "../auto.ts";
 import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, type AutoConfig } from "./config.ts";
 import { readConclusionsBounded, validateConclusionsMarkdown } from "./conclusions.ts";
 import { discoverStageDatasets, discoverStageVariants } from "./discover.ts";
+import { loadVariantSpecEphemeral } from "./ephemeralVariant.ts";
 import { extractFailureSamples } from "./feedback.ts";
 import {
   defaultOptimizerLlmCall,
@@ -1149,6 +1150,27 @@ describe("eval/auto E2E runAutoLoop", () => {
       ]),
       null,
     );
+    assert.equal(
+      validateConclusionsMarkdown(
+        [
+          "# Conclusiones — route",
+          "",
+          "## Estado actual (auto-actualizado)",
+          "- Top 1: `prod` (50.0%)",
+          "- Alerta holdout: `prod` (99.0% en holdout)",
+          "- Ronda anterior R1: `prod` (30.0%)",
+          "",
+          "## Descartadas (qué empeora — no repetir)",
+          "- `prod` (90.0% en `route_gemai` pero regresiona en variedad)",
+          "",
+          "## Últimas rondas (máx. 5)",
+          "- R1: `prod` (40.0%)",
+        ].join("\n"),
+        "route",
+        [{ variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 }],
+      ),
+      null,
+    );
 
     // 2) Vuelta sin variantes válidas registra progreso y nota en conclusiones
     const { conclusionsPath: invConc, resultsRoot: invRoot, variantsRoot: invVariants } = setupTempAutoDir("route", "invalidround");
@@ -1247,5 +1269,82 @@ describe("eval/auto E2E runAutoLoop", () => {
     const alertMatches = hoMd.match(/Alerta holdout/g) ?? [];
     assert.equal(alertMatches.length, 1, "No debe duplicar alertas holdout para la misma variante");
     assert.equal(holdoutEvalCalls, 16, "Solo debe evaluar los 16 casos de holdout una única vez en R1");
+  });
+
+  it("carga variantes de forma efímera sin caché ESM y aísla corridas en Worker cuando no hay makeClients", async () => {
+    // 1) loadVariantSpecEphemeral tiene paridad de hash con loadVariantSpec y recarga cambios sin quedar fijada en ESM ModuleMap
+    const variantsRoot = setupIsolatedVariantsRoot("ephemeral");
+    const prodEphemeral = loadVariantSpecEphemeral("prod", undefined, variantsRoot);
+    const prodEsm = await loadVariantSpec("prod", undefined, variantsRoot);
+    assert.equal(prodEphemeral.variant.name, "prod");
+    assert.equal(prodEphemeral.hash, prodEsm.hash);
+
+    const dynDir = autoStageDir("route", variantsRoot);
+    mkdirSync(dynDir, { recursive: true });
+    const dynName = "auto_route_ephemeral_tmp";
+    const dynPath = join(dynDir, `${dynName}.ts`);
+    const tpl1 = getStageContract("route").minimalTemplate(dynName).replace("Choose the route that handles the next step.", "EPHEMERAL_V1");
+    writeFileSync(dynPath, tpl1, "utf8");
+    const sampleRouteInput = {
+      routes: ["files", "locate", "terminal", "web"],
+      request: "hola",
+      step: { instruction: "hola" },
+      done: [],
+      attempts: [],
+      userInput: [],
+      env: [],
+    } as never;
+    const loaded1 = loadVariantSpecEphemeral(dynName, dynPath, variantsRoot);
+    const fn1 = loaded1.variant.prompts?.DECISION_PROMPTS?.buildRouteChoice;
+    assert.ok(typeof fn1 === "function");
+    assert.match(fn1(sampleRouteInput).questions.route.instructions, /EPHEMERAL_V1/);
+
+    const tpl2 = getStageContract("route").minimalTemplate(dynName).replace("Choose the route that handles the next step.", "EPHEMERAL_V2");
+    writeFileSync(dynPath, tpl2, "utf8");
+    const loaded2 = loadVariantSpecEphemeral(dynName, dynPath, variantsRoot);
+    assert.notEqual(loaded2.hash, loaded1.hash);
+    const fn2 = loaded2.variant.prompts?.DECISION_PROMPTS?.buildRouteChoice;
+    assert.ok(typeof fn2 === "function");
+    assert.match(fn2(sampleRouteInput).questions.route.instructions, /EPHEMERAL_V2/);
+
+    // 2) runAutoLoop sin deps.makeClients ejecuta Vuelta 0 y Vuelta 1 dentro de Workers efímeros
+    const { conclusionsPath: wConc, resultsRoot: wRoot, variantsRoot: wVariants } = setupTempAutoDir("route", "worker");
+    const wCfg = parseAutoConfig([
+      "--stage=route",
+      "--max-loops=1",
+      "--target=0.99",
+      "--optimizer-model=mock-opt",
+      `--conclusions=${wConc}`,
+      "--dataset=route_16_cases",
+      "--client=mock",
+      "--concurrency=2",
+    ]);
+    const wTpl = getStageContract("route").minimalTemplate("base");
+    let wCalls = 0;
+    const wCode = await runAutoLoop(wCfg, {
+      callOptimizer: async ({ schemaName }) => {
+        if (schemaName === "optimizer_variants") {
+          wCalls++;
+          return JSON.stringify({
+            analysis: "Worker test",
+            variants: [
+              { suffix: "a", hypothesis: "Worker A", code: wTpl.replace("Choose the route that handles the next step.", "WORKER_A") },
+              { suffix: "b", hypothesis: "Worker B", code: wTpl.replace("Choose the route that handles the next step.", "WORKER_B") },
+            ],
+          });
+        }
+        return JSON.stringify({ update: false, reason: "mock" });
+      },
+      resultsRoot: wRoot,
+      variantsRoot: wVariants,
+      silent: true,
+    });
+    assert.equal(wCode, 1);
+    assert.equal(wCalls, 1);
+    assert.ok(existsSync(autoStatePath("route", wVariants)));
+    const state = JSON.parse(readFileSync(autoStatePath("route", wVariants), "utf8")) as { completedRounds: number; top2: string[] };
+    assert.equal(state.completedRounds, 1);
+    assert.equal(state.top2.length, 2);
+    assert.ok(state.top2.some((v) => v.includes("_r1_")));
   });
 });
