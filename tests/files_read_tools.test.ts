@@ -326,3 +326,34 @@ test("search_content: omite archivos grandes, symlinks salientes, corta por maxR
   const cancelled = await provider.callTool("search_content", { query: "clave", path: root }, { signal: ac.signal });
   assert.equal(readToolResult(cancelled)?.data.state, "cancelled");
 });
+
+test("regresiones files_read: abortar a mitad de stream en read_file y search_content cierra limpiamente sin errores no capturados", async () => {
+  const root = makeTempDir();
+  const bigTextFile = path.join(root, "stream_largo.txt");
+  const line = "linea de prueba para streaming seguro en nodejs 0123456789abcdef\n";
+  writeFile(bigTextFile, line.repeat(120_000));
+
+  const provider = new FilesReadProvider({
+    allowedDirectories: () => [root],
+    environment: async () => ({ platform: "linux", home: root }),
+  });
+
+  const acRead = new AbortController();
+  setTimeout(() => acRead.abort(), 2);
+  const readAbortRes = await provider.callTool("read_file", { path: bigTextFile, limit: 2000 }, { signal: acRead.signal });
+  assert.equal(readAbortRes.isError, false);
+  const readAbortState = readToolResult(readAbortRes)?.data.state;
+  assert.ok(readAbortState === "cancelled" || readAbortState === "ok");
+
+  const acSearch = new AbortController();
+  setTimeout(() => acSearch.abort(), 2);
+  const searchAbortRes = await provider.callTool(
+    "search_content",
+    { query: "cadena_inexistente_en_el_stream", path: bigTextFile, maxResults: 200 },
+    { signal: acSearch.signal },
+  );
+  assert.equal(searchAbortRes.isError, false);
+  const searchAbortState = readToolResult(searchAbortRes)?.data.state;
+  assert.ok(searchAbortState === "cancelled" || searchAbortState === "no_results");
+});
+

@@ -14,6 +14,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
@@ -104,18 +105,88 @@ const PS_MEDIA_SESSION_SCRIPT = [
   "[pscustomobject]@{ active = $true; title = $props.Title; artist = $props.Artist; album = $props.AlbumTitle; sourceApp = $session.SourceAppUserModelId; playbackStatus = $pb.PlaybackStatus.ToString() } | ConvertTo-Json -Compress",
 ].join("; ");
 
+const CORE_AUDIO_CSHARP = [
+  "using System;",
+  "using System.Runtime.InteropServices;",
+  '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]',
+  "internal class JarvisMMDeviceEnumerator {}",
+  '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "internal interface IJarvisMMDeviceEnumerator {",
+  "  [PreserveSig] int EnumAudioEndpoints(int dataFlow, int dwStateMask, out IntPtr ppDevices);",
+  "  [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IJarvisMMDevice ppEndpoint);",
+  "}",
+  '[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "internal interface IJarvisMMDevice {",
+  "  [PreserveSig] int Activate(ref Guid iid, int dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);",
+  "}",
+  '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "internal interface IJarvisAudioEndpointVolume {",
+  "  [PreserveSig] int RegisterControlChangeNotify(IntPtr pNotify);",
+  "  [PreserveSig] int UnregisterControlChangeNotify(IntPtr pNotify);",
+  "  [PreserveSig] int GetChannelCount(out uint pnChannelCount);",
+  "  [PreserveSig] int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);",
+  "  [PreserveSig] int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);",
+  "  [PreserveSig] int GetMasterVolumeLevel(out float pfLevelDB);",
+  "  [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);",
+  "  [PreserveSig] int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);",
+  "  [PreserveSig] int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);",
+  "  [PreserveSig] int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);",
+  "  [PreserveSig] int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);",
+  "  [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);",
+  "  [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);",
+  "}",
+  "public static class JarvisCoreAudio {",
+  "  private static void CheckHr(int hr) { if (hr != 0) Marshal.ThrowExceptionForHR(hr); }",
+  "  public static int[] Apply(string action, int targetLevel, float stepFraction) {",
+  "    IJarvisMMDeviceEnumerator de = null;",
+  "    IJarvisMMDevice dev = null;",
+  "    object obj = null;",
+  "    IJarvisAudioEndpointVolume epv = null;",
+  "    try {",
+  "      de = (IJarvisMMDeviceEnumerator)(new JarvisMMDeviceEnumerator());",
+  "      int hr = de.GetDefaultAudioEndpoint(0, 1, out dev);",
+  "      if (hr != 0 || dev == null) hr = de.GetDefaultAudioEndpoint(0, 0, out dev);",
+  "      CheckHr(hr);",
+  "      Guid iid = typeof(IJarvisAudioEndpointVolume).GUID;",
+  "      CheckHr(dev.Activate(ref iid, 23, IntPtr.Zero, out obj));",
+  "      epv = (IJarvisAudioEndpointVolume)obj;",
+  "      Guid ctx = Guid.Empty;",
+  "      float cur = 0f;",
+  "      bool muted = false;",
+  '      if (action == "set_volume") {',
+  "        float next = Math.Max(0f, Math.Min(1f, targetLevel / 100f));",
+  "        CheckHr(epv.SetMasterVolumeLevelScalar(next, ref ctx));",
+  '      } else if (action == "volume_up" || action == "volume_down") {',
+  "        CheckHr(epv.GetMasterVolumeLevelScalar(out cur));",
+  '        float delta = action == "volume_up" ? stepFraction : -stepFraction;',
+  "        float next = Math.Max(0f, Math.Min(1f, cur + delta));",
+  "        CheckHr(epv.SetMasterVolumeLevelScalar(next, ref ctx));",
+  '      } else if (action == "mute") {',
+  "        CheckHr(epv.SetMute(true, ref ctx));",
+  '      } else if (action == "unmute") {',
+  "        CheckHr(epv.SetMute(false, ref ctx));",
+  '      } else if (action == "toggle_mute") {',
+  "        CheckHr(epv.GetMute(out muted));",
+  "        CheckHr(epv.SetMute(!muted, ref ctx));",
+  "      }",
+  "      CheckHr(epv.GetMasterVolumeLevelScalar(out cur));",
+  "      CheckHr(epv.GetMute(out muted));",
+  "      return new int[] { (int)Math.Round(cur * 100f), muted ? 1 : 0 };",
+  "    } finally {",
+  "      if (epv != null) Marshal.ReleaseComObject(epv);",
+  "      else if (obj != null) Marshal.ReleaseComObject(obj);",
+  "      if (dev != null) Marshal.ReleaseComObject(dev);",
+  "      if (de != null) Marshal.ReleaseComObject(de);",
+  "    }",
+  "  }",
+  "}",
+].join(" ");
+
 const PS_VOLUME_SCRIPT = [
   PS_UTF8_PREFIX,
-  "$wsh = New-Object -ComObject WScript.Shell",
-  "$act = $env:JARVIS_MEDIA_ACTION",
-  "if ($act -eq 'toggle_mute' -or $act -eq 'mute' -or $act -eq 'unmute') { $wsh.SendKeys([char]173) }",
-  "elseif ($act -eq 'volume_up') { 1..5 | ForEach-Object { $wsh.SendKeys([char]175) } }",
-  "elseif ($act -eq 'volume_down') { 1..5 | ForEach-Object { $wsh.SendKeys([char]174) } }",
-  "elseif ($act -eq 'set_volume') {",
-  "  1..50 | ForEach-Object { $wsh.SendKeys([char]174) }",
-  "  $steps = [int][Math]::Round(([int]$env:JARVIS_MEDIA_LEVEL) / 2)",
-  "  if ($steps -gt 0) { 1..$steps | ForEach-Object { $wsh.SendKeys([char]175) } }",
-  "}",
+  "if (-not ('JarvisCoreAudio' -as [type])) { Add-Type -TypeDefinition '" + CORE_AUDIO_CSHARP + "' }",
+  "$r = [JarvisCoreAudio]::Apply($env:JARVIS_MEDIA_ACTION, [int]$env:JARVIS_MEDIA_LEVEL, [float]::Parse($env:JARVIS_MEDIA_STEP, [System.Globalization.CultureInfo]::InvariantCulture))",
+  "[pscustomobject]@{ level = $r[0]; muted = ($r[1] -eq 1) } | ConvertTo-Json -Compress",
 ].join("; ");
 
 const VOLUME_ACTIONS: ReadonlySet<MediaAction> = new Set([
@@ -138,20 +209,42 @@ export function createDefaultMediaControlDriver(
       }
 
       if (VOLUME_ACTIONS.has(action)) {
-        await execFileAsync(
+        const { stdout } = await execFileAsync(
           "powershell.exe",
           ["-NoProfile", "-NonInteractive", "-Command", PS_VOLUME_SCRIPT],
           {
             timeout: timeoutMs,
             windowsHide: true,
+            maxBuffer: 1024 * 1024,
             signal,
             env: {
               ...process.env,
               JARVIS_MEDIA_ACTION: action,
               JARVIS_MEDIA_LEVEL: String(level ?? 50),
+              JARVIS_MEDIA_STEP: String(DEFAULT_VOLUME_STEP / 100),
             },
           },
         );
+        const trimmed = stdout.trim();
+        if (trimmed !== "") {
+          const parsed: unknown = JSON.parse(trimmed);
+          if (isRecord(parsed)) {
+            return {
+              ...(typeof parsed.level === "number" && Number.isFinite(parsed.level)
+                ? { volumeLevel: parsed.level }
+                : level !== undefined
+                  ? { volumeLevel: level }
+                  : {}),
+              ...(typeof parsed.muted === "boolean"
+                ? { muted: parsed.muted }
+                : action === "mute"
+                  ? { muted: true }
+                  : action === "unmute"
+                    ? { muted: false }
+                    : {}),
+            };
+          }
+        }
         return {
           ...(level !== undefined ? { volumeLevel: level } : {}),
           ...(action === "mute" ? { muted: true } : action === "unmute" ? { muted: false } : {}),
@@ -164,6 +257,7 @@ export function createDefaultMediaControlDriver(
         {
           timeout: timeoutMs,
           windowsHide: true,
+          maxBuffer: 1024 * 1024,
           signal,
           env: {
             ...process.env,
@@ -196,7 +290,7 @@ export function createDefaultMediaControlDriver(
 export async function runMediaControl(
   rawArgs: Record<string, unknown>,
   deps: MediaControlDeps = {},
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -229,9 +323,8 @@ export async function runMediaControl(
     level = rawArgs.level;
   }
 
-  const driver =
-    deps.driver ??
-    createDefaultMediaControlDriver(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_MEDIA_CONTROL_TIMEOUT_MS);
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_MEDIA_CONTROL_TIMEOUT_MS, options.timeoutMs);
+  const driver = deps.driver ?? createDefaultMediaControlDriver(deps.platform ?? process.platform, timeoutMs);
 
   try {
     const out = await driver.execute({ action, seconds, level, signal: options.signal });
@@ -256,12 +349,18 @@ export async function runMediaControl(
       });
     }
 
-    const detail =
-      action === "set_volume"
-        ? ` (${level}%)`
-        : action === "seek_forward" || action === "seek_backward"
-          ? ` (${seconds}s)`
-          : "";
+    const resolvedLevel = out.volumeLevel ?? level;
+    let detail = "";
+    if (action === "seek_forward" || action === "seek_backward") {
+      detail = ` (${seconds}s)`;
+    } else if (action === "mute" || action === "unmute" || action === "toggle_mute") {
+      const muteParts: string[] = [];
+      if (out.muted !== undefined) muteParts.push(out.muted ? "muted" : "unmuted");
+      if (resolvedLevel !== undefined) muteParts.push(`${resolvedLevel}%`);
+      if (muteParts.length > 0) detail = ` (${muteParts.join(", ")})`;
+    } else if (resolvedLevel !== undefined) {
+      detail = ` (${resolvedLevel}%${out.muted ? ", muted" : ""})`;
+    }
     const text = `status: ok · media_control '${action}'${detail}`;
     return toolResult({
       text,

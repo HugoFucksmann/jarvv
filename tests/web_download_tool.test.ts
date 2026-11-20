@@ -299,4 +299,68 @@ test("download_file: corta descargas demasiado grandes, maneja errores HTTP, tim
   );
   assert.equal(deniedLink.isError, true);
   assert.equal(readToolResult(deniedLink)?.data.reason, "denied");
+
+  // Symlink colgante apuntando fuera -> denied sin descargar ni crear destino externo
+  const danglingTarget = path.join(outside, "dangling_dl.bin");
+  const danglingLink = path.join(root, "dangling.bin");
+  fs.symlinkSync(danglingTarget, danglingLink);
+  const deniedDangling = await runDownloadFile(
+    { url: "https://public.example.com/ok.bin", destination: danglingLink, overwrite: true },
+    { ...baseDeps, fetchFn: async () => new Response("ok", { status: 200 }) },
+  );
+  assert.equal(deniedDangling.isError, true);
+  assert.equal(readToolResult(deniedDangling)?.data.reason, "denied");
+  assert.equal(fs.existsSync(danglingTarget), false);
+
+  // Stream colgado (pull nunca resuelve) debe respetar timeoutMs y limpiar el .part
+  const stalledRes = await runDownloadFile(
+    { url: "https://public.example.com/stalled.bin", filename: "stalled.bin", timeoutMs: 100 },
+    {
+      ...baseDeps,
+      fetchFn: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              return new Promise(() => {});
+            },
+          }),
+          { status: 200 },
+        ),
+    },
+  );
+  assert.equal(stalledRes.isError, true);
+  assert.equal(readToolResult(stalledRes)?.data.reason, "timeout");
+  assert.equal(fs.existsSync(path.join(env.downloads!, "stalled.bin")), false);
+  assert.equal(
+    fs.readdirSync(env.downloads!).some((n) => n.endsWith(".part")),
+    false,
+    "archivo .part debe eliminarse tras timeout de stream colgado",
+  );
+
+  // AbortSignal externo en stream colgado debe cancelar limpiamente y borrar el .part
+  const midAc = new AbortController();
+  setTimeout(() => midAc.abort(), 30);
+  const abortedStalled = await runDownloadFile(
+    { url: "https://public.example.com/stalled2.bin", filename: "stalled2.bin" },
+    {
+      ...baseDeps,
+      fetchFn: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              return new Promise(() => {});
+            },
+          }),
+          { status: 200 },
+        ),
+    },
+    { signal: midAc.signal },
+  );
+  assert.equal(abortedStalled.isError, false);
+  assert.equal(readToolResult(abortedStalled)?.data.state, "cancelled");
+  assert.equal(
+    fs.readdirSync(env.downloads!).some((n) => n.endsWith(".part")),
+    false,
+  );
 });
+

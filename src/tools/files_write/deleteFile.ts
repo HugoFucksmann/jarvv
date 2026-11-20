@@ -14,7 +14,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
-import { isProtectedUserOrSystemRoot, resolveExistingPath } from "../../core/tools/filePaths.ts";
+import { effectiveTimeoutMs, isProtectedUserOrSystemRoot, resolveExistingPath } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -81,7 +81,7 @@ export function createDefaultTrashHandler(
 export async function runDeleteFile(
   rawArgs: Record<string, unknown>,
   deps: DeleteFileDeps,
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -138,9 +138,8 @@ export async function runDeleteFile(
   if (options.signal?.aborted) return cancelledResult();
 
   if (!permanent && !isSymlink) {
-    const handler =
-      deps.trashHandler ??
-      createDefaultTrashHandler(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_DELETE_TIMEOUT_MS);
+    const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_DELETE_TIMEOUT_MS, options.timeoutMs);
+    const handler = deps.trashHandler ?? createDefaultTrashHandler(deps.platform ?? process.platform, timeoutMs);
     try {
       await handler({ targetPath, isDirectory, signal: options.signal });
       const text = `status: ok · moved ${isDirectory ? "folder" : "file"} to Recycle Bin: ${targetPath}`;

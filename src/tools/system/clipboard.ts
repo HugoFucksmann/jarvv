@@ -10,12 +10,14 @@
 import { spawn } from "node:child_process";
 import { BUDGET } from "../../core/budget.ts";
 import { headTailNeutral } from "../../core/text.ts";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
 export const DEFAULT_CLIPBOARD_TIMEOUT_MS = 5_000;
 export const MAX_CLIPBOARD_WRITE_CHARS = 1_000_000;
+const MAX_STDERR_BYTES = 64 * 1024;
 
 export interface ClipboardDriver {
   read(signal?: AbortSignal): Promise<string>;
@@ -68,6 +70,7 @@ function runPowerShellIo(
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
     let settled = false;
 
     const cleanup = () => {
@@ -75,6 +78,9 @@ function runPowerShellIo(
       if (onAbort !== undefined && signal !== undefined) {
         signal.removeEventListener("abort", onAbort);
       }
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.stderr.destroy();
     };
 
     const finishErr = (err: Error) => {
@@ -108,19 +114,28 @@ function runPowerShellIo(
       signal.addEventListener("abort", onAbort, { once: true });
     }
 
+    child.stdin.on("error", () => {});
+    child.stdout.on("error", () => {});
+    child.stderr.on("error", () => {});
     child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
+    child.stderr.on("data", (chunk: Buffer) => {
+      if (stderrBytes >= MAX_STDERR_BYTES) return;
+      const slice = chunk.length + stderrBytes > MAX_STDERR_BYTES ? chunk.subarray(0, MAX_STDERR_BYTES - stderrBytes) : chunk;
+      stderrChunks.push(slice);
+      stderrBytes += slice.length;
+    });
     child.on("error", (err) => finishErr(err));
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
+      const stdoutText = Buffer.concat(stdoutChunks).toString("utf8");
+      const errText = Buffer.concat(stderrChunks).toString("utf8").trim();
       cleanup();
       if (code !== 0) {
-        const errText = Buffer.concat(stderrChunks).toString("utf8").trim();
         reject(new Error(errText || `PowerShell exited with code ${code}`));
         return;
       }
-      resolve(Buffer.concat(stdoutChunks).toString("utf8"));
+      resolve(stdoutText);
     });
 
     if (stdinText !== undefined) {
@@ -156,7 +171,7 @@ export function createDefaultClipboardDriver(
 export async function runClipboard(
   rawArgs: Record<string, unknown>,
   deps: ClipboardDeps = {},
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -164,9 +179,8 @@ export async function runClipboard(
     return fail(`'action' is required and must be one of: ${VALID_ACTIONS.join(", ")}.`);
   }
   const action = rawArgs.action as ClipboardAction;
-  const driver =
-    deps.driver ??
-    createDefaultClipboardDriver(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_CLIPBOARD_TIMEOUT_MS);
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_CLIPBOARD_TIMEOUT_MS, options.timeoutMs);
+  const driver = deps.driver ?? createDefaultClipboardDriver(deps.platform ?? process.platform, timeoutMs);
 
   if (action === "write") {
     if (typeof rawArgs.text !== "string") {

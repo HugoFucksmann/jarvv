@@ -11,6 +11,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -148,7 +149,7 @@ function buildTarget(
 export async function runPlayMedia(
   rawArgs: Record<string, unknown>,
   deps: PlayMediaDeps = {},
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -179,9 +180,8 @@ export async function runPlayMedia(
   const target = buildTarget(query, platformPref, mediaType);
   if (!target.ok) return fail(target.message);
 
-  const driver =
-    deps.driver ??
-    createDefaultPlayMediaDriver(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_PLAY_MEDIA_TIMEOUT_MS);
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_PLAY_MEDIA_TIMEOUT_MS, options.timeoutMs);
+  const driver = deps.driver ?? createDefaultPlayMediaDriver(deps.platform ?? process.platform, timeoutMs);
 
   try {
     const out = await driver.play({

@@ -13,7 +13,9 @@ import type { UserEnvironment } from "../../core/environment.ts";
 import { canonicalPath } from "../../core/policy/allowedDirs.ts";
 import {
   dirnameOf,
+  effectiveTimeoutMs,
   formatSize,
+  inspectDestinationTarget,
   isCanonicalDescendant,
   isCanonicalWithinAllowedDirs,
   joinEntryPath,
@@ -128,107 +130,123 @@ export async function copyPathControlled(params: {
 
   if (signal?.aborted) return { ok: false, cancelled: true, message: "cancelled" };
 
-  if (!isSourceDir) {
-    let st: fs.Stats;
-    try {
-      st = await fs.promises.stat(realSource);
-    } catch (error) {
-      return { ok: false, message: `Cannot read source '${sourcePath}': ${errorMessage(error)}` };
-    }
-    if (st.size > maxBytes) {
-      return { ok: false, message: `Source file '${sourcePath}' exceeds copy size limit (${formatSize(st.size)} > ${formatSize(maxBytes)}).` };
-    }
-    const mode = overwrite ? 0 : fs.constants.COPYFILE_EXCL;
-    await fs.promises.copyFile(realSource, destinationPath, mode);
-    return { ok: true, filesCopied: 1, dirsCreated: 0, bytesCopied: st.size };
-  }
-
-  const visitedDirs = new Set<string>([realSource]);
-  const queue: Array<{ readonly srcDir: string; readonly dstDir: string }> = [
-    { srcDir: sourcePath, dstDir: destinationPath },
-  ];
-
-  let filesCopied = 0;
-  let dirsCreated = 0;
-  let bytesCopied = 0;
-  let processed = 0;
-
-  await fs.promises.mkdir(destinationPath, { recursive: true });
-  dirsCreated++;
-
-  for (let qi = 0; qi < queue.length; qi++) {
-    if (signal?.aborted) return { ok: false, cancelled: true, message: "cancelled" };
-    if (now() >= deadline) {
-      return { ok: false, message: `Copy exceeded time limit after ${filesCopied} file(s).` };
+  try {
+    if (!isSourceDir) {
+      let st: fs.Stats;
+      try {
+        st = await fs.promises.stat(realSource);
+      } catch (error) {
+        return { ok: false, message: `Cannot read source '${sourcePath}': ${errorMessage(error)}` };
+      }
+      if (st.size > maxBytes) {
+        return { ok: false, message: `Source file '${sourcePath}' exceeds copy size limit (${formatSize(st.size)} > ${formatSize(maxBytes)}).` };
+      }
+      const mode = overwrite ? 0 : fs.constants.COPYFILE_EXCL;
+      await fs.promises.copyFile(realSource, destinationPath, mode);
+      return { ok: true, filesCopied: 1, dirsCreated: 0, bytesCopied: st.size };
     }
 
-    const { srcDir, dstDir } = queue[qi];
-    const entries = await fs.promises.readdir(srcDir, { withFileTypes: true });
+    const visitedDirs = new Set<string>([realSource]);
+    const queue: Array<{ readonly srcDir: string; readonly dstDir: string }> = [
+      { srcDir: sourcePath, dstDir: destinationPath },
+    ];
 
-    for (const entry of entries) {
+    let filesCopied = 0;
+    let dirsCreated = 0;
+    let bytesCopied = 0;
+    let processed = 0;
+
+    await fs.promises.mkdir(destinationPath, { recursive: true });
+    dirsCreated++;
+
+    for (let qi = 0; qi < queue.length; qi++) {
       if (signal?.aborted) return { ok: false, cancelled: true, message: "cancelled" };
       if (now() >= deadline) {
         return { ok: false, message: `Copy exceeded time limit after ${filesCopied} file(s).` };
       }
 
-      processed++;
-      if (processed > maxEntries) {
-        return { ok: false, message: `Copy exceeded entry limit (${maxEntries} entries).` };
-      }
-      if (processed % YIELD_EVERY_ENTRIES === 0) {
-        await yieldEventLoop();
-      }
+      const { srcDir, dstDir } = queue[qi];
+      const entries = await fs.promises.readdir(srcDir, { withFileTypes: true });
 
-      const srcEntry = joinEntryPath(srcDir, entry.name);
-      const dstEntry = joinEntryPath(dstDir, entry.name);
-
-      let isDir = entry.isDirectory();
-      let isFile = entry.isFile();
-      let realEntry = srcEntry;
-      let size = 0;
-
-      if (entry.isSymbolicLink()) {
-        realEntry = await fs.promises.realpath(srcEntry);
-        if (!isCanonicalDescendant(realSource, realEntry) || !isCanonicalWithinAllowedDirs(realEntry, allowedDirs, home)) {
-          return {
-            ok: false,
-            denied: true,
-            message: `[DENIED] Symbolic link '${srcEntry}' points outside source tree or allowedDirectories.`,
-          };
+      for (const entry of entries) {
+        if (signal?.aborted) return { ok: false, cancelled: true, message: "cancelled" };
+        if (now() >= deadline) {
+          return { ok: false, message: `Copy exceeded time limit after ${filesCopied} file(s).` };
         }
-        const st = await fs.promises.stat(realEntry);
-        isDir = st.isDirectory();
-        isFile = st.isFile();
-        size = isDir ? 0 : st.size;
-      } else if (isFile) {
-        const st = await fs.promises.stat(srcEntry);
-        size = st.size;
-      } else if (!isDir) {
-        const st = await fs.promises.stat(srcEntry);
-        isDir = st.isDirectory();
-        isFile = st.isFile();
-        size = isDir ? 0 : st.size;
-      }
 
-      if (isDir) {
-        if (visitedDirs.has(realEntry)) continue;
-        visitedDirs.add(realEntry);
-        await fs.promises.mkdir(dstEntry, { recursive: true });
-        dirsCreated++;
-        queue.push({ srcDir: srcEntry, dstDir: dstEntry });
-      } else if (isFile) {
-        if (bytesCopied + size > maxBytes) {
-          return { ok: false, message: `Copy exceeded total byte limit (${formatSize(maxBytes)}).` };
+        processed++;
+        if (processed > maxEntries) {
+          return { ok: false, message: `Copy exceeded entry limit (${maxEntries} entries).` };
         }
-        const mode = overwrite ? 0 : fs.constants.COPYFILE_EXCL;
-        await fs.promises.copyFile(realEntry, dstEntry, mode);
-        filesCopied++;
-        bytesCopied += size;
+        if (processed % YIELD_EVERY_ENTRIES === 0) {
+          await yieldEventLoop();
+        }
+
+        const srcEntry = joinEntryPath(srcDir, entry.name);
+        const dstEntry = joinEntryPath(dstDir, entry.name);
+
+        let isDir = entry.isDirectory();
+        let isFile = entry.isFile();
+        let realEntry = srcEntry;
+        let size = 0;
+
+        if (entry.isSymbolicLink()) {
+          try {
+            realEntry = await fs.promises.realpath(srcEntry);
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            return {
+              ok: false,
+              message:
+                code === "ENOENT" || code === "ENOTDIR"
+                  ? `Cannot copy broken symbolic link '${srcEntry}'.`
+                  : `Cannot resolve symbolic link '${srcEntry}': ${errorMessage(error)}`,
+            };
+          }
+          if (!isCanonicalDescendant(realSource, realEntry) || !isCanonicalWithinAllowedDirs(realEntry, allowedDirs, home)) {
+            return {
+              ok: false,
+              denied: true,
+              message: `[DENIED] Symbolic link '${srcEntry}' points outside source tree or allowedDirectories.`,
+            };
+          }
+          const st = await fs.promises.stat(realEntry);
+          isDir = st.isDirectory();
+          isFile = st.isFile();
+          size = isDir ? 0 : st.size;
+        } else if (isFile) {
+          const st = await fs.promises.stat(srcEntry);
+          size = st.size;
+        } else if (!isDir) {
+          const st = await fs.promises.stat(srcEntry);
+          isDir = st.isDirectory();
+          isFile = st.isFile();
+          size = isDir ? 0 : st.size;
+        }
+
+        if (isDir) {
+          if (visitedDirs.has(realEntry)) continue;
+          visitedDirs.add(realEntry);
+          await fs.promises.mkdir(dstEntry, { recursive: true });
+          dirsCreated++;
+          queue.push({ srcDir: srcEntry, dstDir: dstEntry });
+        } else if (isFile) {
+          if (bytesCopied + size > maxBytes) {
+            return { ok: false, message: `Copy exceeded total byte limit (${formatSize(maxBytes)}).` };
+          }
+          const mode = overwrite ? 0 : fs.constants.COPYFILE_EXCL;
+          await fs.promises.copyFile(realEntry, dstEntry, mode);
+          filesCopied++;
+          bytesCopied += size;
+        }
       }
     }
-  }
 
-  return { ok: true, filesCopied, dirsCreated, bytesCopied };
+    return { ok: true, filesCopied, dirsCreated, bytesCopied };
+  } catch (error) {
+    if (signal?.aborted) return { ok: false, cancelled: true, message: "cancelled" };
+    return { ok: false, message: `Copy failed for '${sourcePath}': ${errorMessage(error)}` };
+  }
 }
 
 export async function runCopyFile(
@@ -296,39 +314,28 @@ export async function runCopyFile(
     return fail(`Cannot inspect destination parent '${parentDir}': ${errorMessage(error)}`);
   }
 
-  try {
-    const dstLst = await fs.promises.lstat(dstResolved.targetPath);
-    if (dstLst.isSymbolicLink()) {
-      const realDst = await fs.promises.realpath(dstResolved.targetPath);
-      if (!isCanonicalWithinAllowedDirs(realDst, allowedDirs, dstResolved.env.home)) {
-        return fail(`[DENIED] Destination symlink '${dstResolved.targetPath}' points outside allowedDirectories.`, {
-          reason: "denied",
-        });
-      }
-    }
-    const dstStat = await fs.promises.stat(dstResolved.targetPath);
+  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
+  if (dstInspection.status === "denied") {
+    return fail(dstInspection.message, { reason: "denied" });
+  }
+  if (dstInspection.status === "error") {
+    return fail(dstInspection.message);
+  }
+  if (dstInspection.status === "exists") {
     if (!args.overwrite) {
       return fail(`Destination already exists: '${dstResolved.targetPath}'. Pass overwrite: true to replace.`, {
         reason: "already_exists",
       });
     }
-    if (dstStat.isDirectory() !== srcResolved.isDirectory) {
+    if (dstInspection.isDirectory !== srcResolved.isDirectory) {
       return fail(
-        `Cannot overwrite ${dstStat.isDirectory() ? "folder" : "file"} '${dstResolved.targetPath}' with a ${srcResolved.isDirectory ? "folder" : "file"}.`,
+        `Cannot overwrite ${dstInspection.isDirectory ? "folder" : "file"} '${dstResolved.targetPath}' with a ${srcResolved.isDirectory ? "folder" : "file"}.`,
         { reason: "kind_mismatch" },
       );
     }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      return fail(`Cannot inspect destination '${dstResolved.targetPath}': ${errorMessage(error)}`);
-    }
   }
 
-  const limitMs =
-    options.timeoutMs !== undefined
-      ? Math.min(deps.defaultTimeoutMs, Math.max(options.timeoutMs > 2_000 ? options.timeoutMs - 1_500 : options.timeoutMs, 1))
-      : deps.defaultTimeoutMs;
+  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
   const deadline = deps.now() + limitMs;
 
   try {

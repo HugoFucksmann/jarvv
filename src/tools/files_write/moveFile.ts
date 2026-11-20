@@ -14,8 +14,9 @@ import type { UserEnvironment } from "../../core/environment.ts";
 import { canonicalPath } from "../../core/policy/allowedDirs.ts";
 import {
   dirnameOf,
+  effectiveTimeoutMs,
+  inspectDestinationTarget,
   isCanonicalDescendant,
-  isCanonicalWithinAllowedDirs,
   isProtectedUserOrSystemRoot,
   resolveExistingPath,
   resolvePathTarget,
@@ -162,21 +163,17 @@ async function moveSingleItem(
     };
   }
 
-  let dstExists = false;
-  try {
-    const dstLst = await fs.promises.lstat(dstResolved.targetPath);
-    dstExists = true;
-    if (dstLst.isSymbolicLink()) {
-      const realDst = await fs.promises.realpath(dstResolved.targetPath);
-      if (!isCanonicalWithinAllowedDirs(realDst, allowedDirs, dstResolved.env.home)) {
-        return {
-          source: srcResolved.targetPath,
-          destination: dstResolved.targetPath,
-          status: "failed",
-          message: `[DENIED] Destination symlink '${dstResolved.targetPath}' points outside allowedDirectories.`,
-        };
-      }
-    }
+  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
+  if (dstInspection.status === "denied" || dstInspection.status === "error") {
+    return {
+      source: srcResolved.targetPath,
+      destination: dstResolved.targetPath,
+      status: "failed",
+      message: dstInspection.message,
+    };
+  }
+  const dstExists = dstInspection.status === "exists";
+  if (dstInspection.status === "exists") {
     if (!overwrite) {
       return {
         source: srcResolved.targetPath,
@@ -185,18 +182,13 @@ async function moveSingleItem(
         message: `Destination already exists: '${dstResolved.targetPath}'. Pass overwrite: true to replace.`,
       };
     }
-    const dstStat = await fs.promises.stat(dstResolved.targetPath);
-    if (dstStat.isDirectory() !== srcResolved.isDirectory) {
+    if (dstInspection.isDirectory !== srcResolved.isDirectory) {
       return {
         source: srcResolved.targetPath,
         destination: dstResolved.targetPath,
         status: "failed",
-        message: `Cannot overwrite ${dstStat.isDirectory() ? "folder" : "file"} with a ${srcResolved.isDirectory ? "folder" : "file"}.`,
+        message: `Cannot overwrite ${dstInspection.isDirectory ? "folder" : "file"} with a ${srcResolved.isDirectory ? "folder" : "file"}.`,
       };
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: errorMessage(error) };
     }
   }
 
@@ -204,48 +196,61 @@ async function moveSingleItem(
     return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: "cancelled" };
   }
 
-  if (dstExists && overwrite && srcResolved.isDirectory) {
-    await fs.promises.rm(dstResolved.targetPath, { recursive: true, force: false });
-  }
-
   try {
-    await fs.promises.rename(srcResolved.targetPath, dstResolved.targetPath);
+    if (dstInspection.status === "exists" && overwrite && srcResolved.isDirectory) {
+      if (dstInspection.isSymlink) {
+        await fs.promises.unlink(dstResolved.targetPath);
+      } else {
+        await fs.promises.rm(dstResolved.targetPath, { recursive: true, force: false });
+      }
+    }
+
+    try {
+      await fs.promises.rename(srcResolved.targetPath, dstResolved.targetPath);
+      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EXDEV") {
+        return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: errorMessage(error) };
+      }
+    }
+
+    // Fallback entre volúmenes distintos (`EXDEV`): copia controlada + borrado del origen.
+    if (srcResolved.isSymlink) {
+      const linkTarget = await fs.promises.readlink(srcResolved.targetPath);
+      if (dstExists && overwrite) await fs.promises.rm(dstResolved.targetPath, { force: true });
+      await fs.promises.symlink(linkTarget, dstResolved.targetPath);
+      await fs.promises.unlink(srcResolved.targetPath);
+      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
+    }
+
+    const copied = await copyPathControlled({
+      sourcePath: srcResolved.targetPath,
+      realSource: srcResolved.realTarget,
+      isSourceDir: srcResolved.isDirectory,
+      destinationPath: dstResolved.targetPath,
+      overwrite,
+      allowedDirs,
+      home: dstResolved.env.home,
+      now: deps.now,
+      deadline,
+      maxEntries: DEFAULT_COPY_MAX_ENTRIES,
+      maxBytes: DEFAULT_COPY_MAX_BYTES,
+      signal,
+    });
+    if (!copied.ok) {
+      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: copied.message };
+    }
+    await fs.promises.rm(srcResolved.targetPath, { recursive: srcResolved.isDirectory, force: false });
     return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EXDEV") {
-      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: errorMessage(error) };
-    }
+    return {
+      source: srcResolved.targetPath,
+      destination: dstResolved.targetPath,
+      status: "failed",
+      message: errorMessage(error),
+    };
   }
-
-  // Fallback entre volúmenes distintos (`EXDEV`): copia controlada + borrado del origen.
-  if (srcResolved.isSymlink) {
-    const linkTarget = await fs.promises.readlink(srcResolved.targetPath);
-    if (dstExists && overwrite) await fs.promises.rm(dstResolved.targetPath, { force: true });
-    await fs.promises.symlink(linkTarget, dstResolved.targetPath);
-    await fs.promises.unlink(srcResolved.targetPath);
-    return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
-  }
-
-  const copied = await copyPathControlled({
-    sourcePath: srcResolved.targetPath,
-    realSource: srcResolved.realTarget,
-    isSourceDir: srcResolved.isDirectory,
-    destinationPath: dstResolved.targetPath,
-    overwrite,
-    allowedDirs,
-    home: dstResolved.env.home,
-    now: deps.now,
-    deadline,
-    maxEntries: DEFAULT_COPY_MAX_ENTRIES,
-    maxBytes: DEFAULT_COPY_MAX_BYTES,
-    signal,
-  });
-  if (!copied.ok) {
-    return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: copied.message };
-  }
-  await fs.promises.rm(srcResolved.targetPath, { recursive: srcResolved.isDirectory, force: false });
-  return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
 }
 
 export async function runMoveFile(
@@ -259,10 +264,7 @@ export async function runMoveFile(
   if (!parsed.ok) return fail(parsed.message);
 
   const timeoutMs = deps.defaultTimeoutMs ?? DEFAULT_COPY_TIMEOUT_MS;
-  const limitMs =
-    options.timeoutMs !== undefined
-      ? Math.min(timeoutMs, Math.max(options.timeoutMs > 2_000 ? options.timeoutMs - 1_500 : options.timeoutMs, 1))
-      : timeoutMs;
+  const limitMs = effectiveTimeoutMs(timeoutMs, options.timeoutMs);
   const deadline = deps.now() + limitMs;
 
   const outcomes: MoveItemOutcome[] = [];

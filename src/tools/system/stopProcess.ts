@@ -11,6 +11,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
@@ -173,7 +174,7 @@ function isProtectedProcessName(normalizedName: string): boolean {
 export async function runStopProcess(
   rawArgs: Record<string, unknown>,
   deps: StopProcessDeps = {},
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -231,14 +232,8 @@ export async function runStopProcess(
     return fail(`[DENIED] Refusing to stop critical system process '${name}'.`, { reason: "denied" });
   }
 
-  const killer =
-    deps.killer ??
-    createDefaultProcessKiller(
-      platform,
-      deps.defaultTimeoutMs ?? DEFAULT_STOP_PROCESS_TIMEOUT_MS,
-      selfPid,
-      parentPid,
-    );
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_STOP_PROCESS_TIMEOUT_MS, options.timeoutMs);
+  const killer = deps.killer ?? createDefaultProcessKiller(platform, timeoutMs, selfPid, parentPid);
 
   try {
     const stopped =

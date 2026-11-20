@@ -14,6 +14,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -94,6 +95,7 @@ const PS_GET_DARK_MODE = [
 const PS_SET_DARK_MODE = [
   PS_UTF8_PREFIX,
   "$p = 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize'",
+  "if (-not (Test-Path $p)) { New-Item -Path $p -Force | Out-Null }",
   "$light = if ($env:JARVIS_TOGGLE -eq 'on') { 0 } else { 1 }",
   "Set-ItemProperty -Path $p -Name AppsUseLightTheme -Value $light -Type DWord -ErrorAction Stop",
   "Set-ItemProperty -Path $p -Name SystemUsesLightTheme -Value $light -Type DWord -ErrorAction Stop",
@@ -256,7 +258,7 @@ function normalizeToggleValue(raw: unknown): { readonly ok: true; readonly value
 export async function runPcSettings(
   rawArgs: Record<string, unknown>,
   deps: PcSettingsDeps = {},
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -270,9 +272,8 @@ export async function runPcSettings(
   }
   const action = rawArgs.action as PcSettingAction;
 
-  const driver =
-    deps.driver ??
-    createDefaultPcSettingsDriver(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_PC_SETTINGS_TIMEOUT_MS);
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_PC_SETTINGS_TIMEOUT_MS, options.timeoutMs);
+  const driver = deps.driver ?? createDefaultPcSettingsDriver(deps.platform ?? process.platform, timeoutMs);
 
   if (action === "get") {
     try {

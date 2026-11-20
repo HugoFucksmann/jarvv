@@ -14,6 +14,7 @@ import { BUDGET } from "../../core/budget.ts";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { omissionMarker } from "../../core/text.ts";
 import {
+  effectiveTimeoutMs,
   fitLinesToBudget,
   isCanonicalDescendant,
   isExcludedSubdir,
@@ -197,10 +198,20 @@ async function scanSingleFile(
   const matches: ContentMatch[] = [];
   let lineNo = 0;
   let onAbort: (() => void) | undefined;
+  let closedEarly = false;
+  let streamError: Error | undefined;
+  const onStreamError = (err: Error) => {
+    if (!signal?.aborted && !closedEarly) {
+      streamError = err;
+    }
+  };
+  stream.on("error", onStreamError);
+  rl.on("error", onStreamError);
 
   try {
     if (signal !== undefined) {
       onAbort = () => {
+        closedEarly = true;
         rl.close();
         stream.destroy();
       };
@@ -212,14 +223,20 @@ async function scanSingleFile(
       lineNo++;
       if (matcher(line)) {
         matches.push({ filePath: displayPath, line: lineNo, text: clipSnippet(line) });
-        if (matches.length >= maxMatches) break;
+        if (matches.length >= maxMatches) {
+          closedEarly = true;
+          break;
+        }
       }
     }
-    return { aborted: Boolean(signal?.aborted), matches };
+    if (signal?.aborted) return { aborted: true, matches };
+    if (streamError !== undefined) throw streamError;
+    return { aborted: false, matches };
   } finally {
     if (onAbort !== undefined && signal !== undefined) {
       signal.removeEventListener("abort", onAbort);
     }
+    closedEarly = true;
     rl.close();
     stream.destroy();
   }
@@ -257,10 +274,7 @@ export async function runSearchContent(
   }
   if (options.signal?.aborted) return cancelledResult();
 
-  const limitMs =
-    options.timeoutMs !== undefined
-      ? Math.min(deps.defaultTimeoutMs, Math.max(options.timeoutMs > 2_000 ? options.timeoutMs - 1_500 : options.timeoutMs, 1))
-      : deps.defaultTimeoutMs;
+  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
   const startedAt = deps.now();
   const deadline = startedAt + limitMs;
 

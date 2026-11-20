@@ -92,6 +92,9 @@ test("media_control: controla transporte, seek, volumen, silencio y now_playing"
   const actions: Array<{ action: MediaAction; seconds?: number; level?: number }> = [];
   let active = true;
 
+  let volume = 30;
+  let muted = false;
+
   const fakeControl: MediaControlDriver = {
     async execute({ action, seconds, level }) {
       actions.push({ action, seconds, level });
@@ -109,8 +112,30 @@ test("media_control: controla transporte, seek, volumen, silencio y now_playing"
             : { active: false },
         };
       }
-      if (action === "set_volume") return { volumeLevel: level };
-      if (action === "mute") return { muted: true };
+      if (action === "set_volume") {
+        volume = level ?? volume;
+        return { volumeLevel: volume, muted };
+      }
+      if (action === "volume_up") {
+        volume = Math.min(100, volume + 10);
+        return { volumeLevel: volume, muted };
+      }
+      if (action === "volume_down") {
+        volume = Math.max(0, volume - 10);
+        return { volumeLevel: volume, muted };
+      }
+      if (action === "mute") {
+        muted = true;
+        return { volumeLevel: volume, muted };
+      }
+      if (action === "unmute") {
+        muted = false;
+        return { volumeLevel: volume, muted };
+      }
+      if (action === "toggle_mute") {
+        muted = !muted;
+        return { volumeLevel: volume, muted };
+      }
       return {};
     },
   };
@@ -127,13 +152,26 @@ test("media_control: controla transporte, seek, volumen, silencio y now_playing"
   const seekCustom = await provider.callTool("media_control", { action: "seek_backward", seconds: 30 });
   assert.equal(readToolResult(seekCustom)?.data.seconds, 30);
 
-  // Volumen
+  // Volumen exacto y relativo
   const volRes = await provider.callTool("media_control", { action: "set_volume", level: 45 });
   assert.equal(volRes.isError, false);
   assert.equal(readToolResult(volRes)?.data.level, 45);
 
+  const volUp = await provider.callTool("media_control", { action: "volume_up" });
+  assert.equal(readToolResult(volUp)?.data.level, 55);
+
+  const volDown = await provider.callTool("media_control", { action: "volume_down" });
+  assert.equal(readToolResult(volDown)?.data.level, 45);
+
+  // Mute / unmute idempotentes y toggle_mute
   const muteRes = await provider.callTool("media_control", { action: "mute" });
   assert.equal(readToolResult(muteRes)?.data.muted, true);
+  const muteAgain = await provider.callTool("media_control", { action: "mute" });
+  assert.equal(readToolResult(muteAgain)?.data.muted, true);
+  const unmuteRes = await provider.callTool("media_control", { action: "unmute" });
+  assert.equal(readToolResult(unmuteRes)?.data.muted, false);
+  const toggleRes = await provider.callTool("media_control", { action: "toggle_mute" });
+  assert.equal(readToolResult(toggleRes)?.data.muted, true);
 
   // now_playing activo e inactivo
   const npActive = await provider.callTool("media_control", { action: "now_playing" });

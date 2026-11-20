@@ -129,13 +129,13 @@ export class MultimediaProvider implements ToolProvider {
         return runPlayMedia(
           args,
           { driver: this.playDriver, platform: this.platform, defaultTimeoutMs: this.playTimeoutMs },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case MEDIA_CONTROL:
         return runMediaControl(
           args,
           { driver: this.controlDriver, platform: this.platform, defaultTimeoutMs: this.controlTimeoutMs },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       default:
         return fail(`Unknown tool: '${name}'.`);

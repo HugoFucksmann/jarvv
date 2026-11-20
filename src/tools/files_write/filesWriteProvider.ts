@@ -364,7 +364,7 @@ export class FilesWriteProvider implements ToolProvider {
             trashHandler: this.trashHandler,
             defaultTimeoutMs: this.deleteTimeoutMs,
           },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case ARCHIVE_FILES:
         return runArchiveFiles(

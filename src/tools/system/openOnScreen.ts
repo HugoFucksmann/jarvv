@@ -13,7 +13,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { isAnyAbsolute } from "../../core/policy/allowedDirs.ts";
-import { KNOWN_ALIASES, resolveExistingPath } from "../../core/tools/filePaths.ts";
+import { effectiveTimeoutMs, KNOWN_ALIASES, resolveExistingPath } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -95,7 +95,7 @@ function validateSafeAppTarget(target: string): string | null {
 export async function runOpenOnScreen(
   rawArgs: Record<string, unknown>,
   deps: OpenOnScreenDeps,
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -148,9 +148,8 @@ export async function runOpenOnScreen(
 
   if (options.signal?.aborted) return cancelledResult();
 
-  const opener =
-    deps.opener ??
-    createDefaultScreenOpener(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_OPEN_TIMEOUT_MS);
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_OPEN_TIMEOUT_MS, options.timeoutMs);
+  const opener = deps.opener ?? createDefaultScreenOpener(deps.platform ?? process.platform, timeoutMs);
 
   try {
     await opener.open({ target: resolvedTarget, kind, signal: options.signal });

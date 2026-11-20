@@ -181,6 +181,14 @@ async function readPlainText(ctx: ReadDriverContext): Promise<MCPCallResult> {
   const stream = fs.createReadStream(ctx.realTarget, { encoding: ctx.encoding });
   const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
   let onAbort: (() => void) | undefined;
+  let streamError: Error | undefined;
+  const onStreamError = (err: Error) => {
+    if (!ctx.signal?.aborted) {
+      streamError = err;
+    }
+  };
+  stream.on("error", onStreamError);
+  rl.on("error", onStreamError);
 
   try {
     if (ctx.signal !== undefined) {
@@ -207,6 +215,7 @@ async function readPlainText(ctx: ReadDriverContext): Promise<MCPCallResult> {
   }
 
   if (ctx.signal?.aborted) return cancelledResult();
+  if (streamError !== undefined) throw streamError;
 
   if (startLine > totalLines) {
     return fail(`Requested offset line ${startLine} exceeds total line count (${totalLines}) of '${ctx.targetPath}'.`, {

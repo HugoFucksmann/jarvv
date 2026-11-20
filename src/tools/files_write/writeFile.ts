@@ -15,7 +15,7 @@ import type { UserEnvironment } from "../../core/environment.ts";
 import {
   dirnameOf,
   formatSize,
-  isCanonicalWithinAllowedDirs,
+  inspectDestinationTarget,
   resolvePathTarget,
 } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
@@ -203,26 +203,17 @@ export async function runWriteFile(
     }
   }
 
-  let existedBefore = false;
-  try {
-    const lst = await fs.promises.lstat(targetPath);
-    existedBefore = true;
-    if (lst.isSymbolicLink()) {
-      const realTarget = await fs.promises.realpath(targetPath);
-      if (!isCanonicalWithinAllowedDirs(realTarget, allowedDirs, env.home)) {
-        return fail(`[DENIED] Symbolic link '${targetPath}' points outside allowedDirectories.`, { reason: "denied" });
-      }
-    }
-    const st = await fs.promises.stat(targetPath);
-    if (st.isDirectory()) {
-      return fail(`'${targetPath}' is a folder, not a file.`, { reason: "path_is_directory" });
-    }
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      return fail(`Cannot inspect target '${targetPath}': ${errorMessage(error)}`);
-    }
+  const dstInspection = await inspectDestinationTarget(targetPath, allowedDirs, env.home);
+  if (dstInspection.status === "denied") {
+    return fail(dstInspection.message, { reason: "denied" });
   }
+  if (dstInspection.status === "error") {
+    return fail(dstInspection.message);
+  }
+  if (dstInspection.status === "exists" && dstInspection.isDirectory) {
+    return fail(`'${targetPath}' is a folder, not a file.`, { reason: "path_is_directory" });
+  }
+  const existedBefore = dstInspection.status === "exists";
 
   if (args.mode === "create_only" && existedBefore) {
     return fail(`File '${targetPath}' already exists and mode is 'create_only'.`, { reason: "already_exists" });

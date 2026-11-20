@@ -15,9 +15,11 @@ import path from "node:path";
 import type { UserEnvironment } from "../../core/environment.ts";
 import {
   dirnameOf,
+  effectiveTimeoutMs as computeEffectiveTimeoutMs,
   formatSize,
-  isCanonicalWithinAllowedDirs,
+  inspectDestinationTarget,
   joinEntryPath,
+  raceAbort,
   resolveFolderPath,
   resolvePathTarget,
 } from "../../core/tools/filePaths.ts";
@@ -301,9 +303,18 @@ async function writeBodyStreamToFile(
   const reader = body.getReader();
   const ws = fs.createWriteStream(partPath, { flags: "wx" });
   let totalBytes = 0;
+  let wsError: Error | undefined;
+
+  ws.on("error", (err) => {
+    wsError = err;
+  });
 
   const writeChunk = (chunk: Uint8Array): Promise<void> =>
     new Promise((resolve, reject) => {
+      if (wsError !== undefined) {
+        reject(wsError);
+        return;
+      }
       const onError = (err: Error) => {
         ws.removeListener("drain", onDrain);
         reject(err);
@@ -324,17 +335,37 @@ async function writeBodyStreamToFile(
 
   const closeStream = (): Promise<void> =>
     new Promise((resolve, reject) => {
-      ws.once("error", reject);
-      ws.end(() => {
-        ws.removeListener("error", reject);
+      if (wsError !== undefined) {
+        reject(wsError);
+        return;
+      }
+      const onError = (err: Error) => {
+        ws.removeListener("close", onClose);
+        reject(err);
+      };
+      const onClose = () => {
+        ws.removeListener("error", onError);
         resolve();
-      });
+      };
+      ws.once("error", onError);
+      ws.once("close", onClose);
+      ws.end();
     });
+
+  const destroyAndWaitClose = async (): Promise<void> => {
+    if (ws.closed) return;
+    await new Promise<void>((resolve) => {
+      ws.once("close", () => resolve());
+      ws.destroy();
+    });
+  };
 
   try {
     while (true) {
       if (signal.aborted) throw new Error("Download aborted");
-      const { done, value } = await reader.read();
+      const readRes = await raceAbort(reader.read(), signal);
+      if (readRes.aborted) throw new Error("Download aborted");
+      const { done, value } = readRes.value;
       if (done) break;
       if (!value || value.byteLength === 0) continue;
       totalBytes += value.byteLength;
@@ -351,7 +382,7 @@ async function writeBodyStreamToFile(
     } catch {
       // ignore cancel errors during cleanup
     }
-    ws.destroy();
+    await destroyAndWaitClose();
     throw err;
   } finally {
     reader.releaseLock();
@@ -371,8 +402,7 @@ export async function runDownloadFile(
   if (!parsed.ok) return fail(parsed.message);
   const args = parsed.args;
 
-  const effectiveTimeoutMs =
-    options.timeoutMs !== undefined ? Math.min(args.timeoutMs, Math.max(options.timeoutMs - 1_000, 500)) : args.timeoutMs;
+  const effectiveTimeoutMs = computeEffectiveTimeoutMs(args.timeoutMs, options.timeoutMs, 1_000);
   const fetchFn: FetchLike = deps.fetchFn ?? fetch;
   const lookupHost: LookupLike = deps.lookupHost ?? defaultLookupHost;
   const allowPrivate = deps.allowPrivateNetwork === true;
@@ -472,19 +502,17 @@ export async function runDownloadFile(
       );
 
     // Verificar allowedDirectories + symlinks sobre la ruta final resuelta.
-    try {
-      const lst = await fs.promises.lstat(finalPath);
-      if (lst.isSymbolicLink()) {
-        const realDst = await fs.promises.realpath(finalPath);
-        if (!isCanonicalWithinAllowedDirs(realDst, allowedDirs, userHome)) {
-          await response.body?.cancel().catch(() => {});
-          return fail(`[DENIED] Destination symlink '${finalPath}' points outside allowedDirectories.`, {
-            reason: "denied",
-          });
-        }
-      }
-      const st = await fs.promises.stat(finalPath);
-      if (st.isDirectory()) {
+    const dstInspection = await inspectDestinationTarget(finalPath, allowedDirs, userHome);
+    if (dstInspection.status === "denied") {
+      await response.body?.cancel().catch(() => {});
+      return fail(dstInspection.message, { reason: "denied" });
+    }
+    if (dstInspection.status === "error") {
+      await response.body?.cancel().catch(() => {});
+      return fail(dstInspection.message);
+    }
+    if (dstInspection.status === "exists") {
+      if (dstInspection.isDirectory) {
         await response.body?.cancel().catch(() => {});
         return fail(`Destination '${finalPath}' is a folder, not a file.`);
       }
@@ -493,11 +521,6 @@ export async function runDownloadFile(
         return fail(`Destination already exists: '${finalPath}'. Pass overwrite: true to replace.`, {
           reason: "already_exists",
         });
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        await response.body?.cancel().catch(() => {});
-        return fail(`Cannot inspect destination '${finalPath}': ${errorMessage(error)}`);
       }
     }
 

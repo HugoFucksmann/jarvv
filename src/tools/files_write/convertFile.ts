@@ -17,8 +17,9 @@ import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
 import {
   dirnameOf,
+  effectiveTimeoutMs,
   formatSize,
-  isCanonicalWithinAllowedDirs,
+  inspectDestinationTarget,
   joinEntryPath,
   resolveExistingPath,
   resolvePathTarget,
@@ -31,6 +32,7 @@ const execFileAsync = promisify(execFile);
 
 export const DEFAULT_CONVERT_TIMEOUT_MS = 60_000;
 const MAX_DIMENSION = 16_384;
+const MAX_STDERR_BYTES = 64 * 1024;
 
 export const IMAGE_EXTS: ReadonlySet<string> = new Set(["png", "jpg", "jpeg", "webp", "bmp", "gif", "tiff", "ico", "avif"]);
 export const AUDIO_EXTS: ReadonlySet<string> = new Set(["mp3", "wav", "ogg", "flac", "aac", "m4a", "opus", "wma"]);
@@ -133,8 +135,9 @@ function runProcess(
       return;
     }
 
-    const child = spawn(command, [...args], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, [...args], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
     const stderrChunks: Buffer[] = [];
+    let stderrBytes = 0;
     let settled = false;
 
     const cleanup = () => {
@@ -142,6 +145,7 @@ function runProcess(
       if (onAbort !== undefined && signal !== undefined) {
         signal.removeEventListener("abort", onAbort);
       }
+      child.stderr.destroy();
     };
 
     const failWith = (err: Error) => {
@@ -175,17 +179,23 @@ function runProcess(
       signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    child.stderr.on("data", (c: Buffer) => stderrChunks.push(c));
+    child.stderr.on("error", () => {});
+    child.stderr.on("data", (c: Buffer) => {
+      if (stderrBytes >= MAX_STDERR_BYTES) return;
+      const slice = c.length + stderrBytes > MAX_STDERR_BYTES ? c.subarray(0, MAX_STDERR_BYTES - stderrBytes) : c;
+      stderrChunks.push(slice);
+      stderrBytes += slice.length;
+    });
     child.on("error", (err) => failWith(err));
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
+      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
       cleanup();
       if (code === 0) {
         resolve();
         return;
       }
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
       reject(new Error(stderr || `${command} exited with code ${code}`));
     });
   });
@@ -396,36 +406,25 @@ export async function runConvertFile(
     return fail(`Destination parent folder does not exist: '${dstParent}'.`);
   }
 
-  try {
-    const dstLst = await fs.promises.lstat(dstResolved.targetPath);
-    if (dstLst.isSymbolicLink()) {
-      const realDst = await fs.promises.realpath(dstResolved.targetPath);
-      if (!isCanonicalWithinAllowedDirs(realDst, allowedDirs, dstResolved.env.home)) {
-        return fail(`[DENIED] Destination symlink '${dstResolved.targetPath}' points outside allowedDirectories.`, {
-          reason: "denied",
-        });
-      }
-    }
-    const dstStat = await fs.promises.stat(dstResolved.targetPath);
-    if (dstStat.isDirectory()) return fail(`Destination '${dstResolved.targetPath}' is a folder, not a file.`);
+  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
+  if (dstInspection.status === "denied") {
+    return fail(dstInspection.message, { reason: "denied" });
+  }
+  if (dstInspection.status === "error") {
+    return fail(dstInspection.message);
+  }
+  if (dstInspection.status === "exists") {
+    if (dstInspection.isDirectory) return fail(`Destination '${dstResolved.targetPath}' is a folder, not a file.`);
     if (!overwrite) {
       return fail(`Destination already exists: '${dstResolved.targetPath}'. Pass overwrite: true to replace.`, {
         reason: "already_exists",
       });
     }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      return fail(`Cannot inspect destination '${dstResolved.targetPath}': ${errorMessage(error)}`);
-    }
   }
 
   if (options.signal?.aborted) return cancelledResult();
 
-  const defaultTimeout = deps.defaultTimeoutMs ?? DEFAULT_CONVERT_TIMEOUT_MS;
-  const timeoutMs =
-    options.timeoutMs !== undefined
-      ? Math.min(defaultTimeout, Math.max(options.timeoutMs - 1_500, 500))
-      : defaultTimeout;
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_CONVERT_TIMEOUT_MS, options.timeoutMs);
   const driver = deps.driver ?? createDefaultConvertDriver(deps.platform ?? process.platform);
 
   try {

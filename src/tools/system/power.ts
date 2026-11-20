@@ -9,6 +9,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -91,7 +92,7 @@ export function createDefaultPowerController(
 export async function runPower(
   rawArgs: Record<string, unknown>,
   deps: PowerDeps = {},
-  options: { readonly signal?: AbortSignal } = {},
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
@@ -122,9 +123,8 @@ export async function runPower(
     force = rawArgs.force;
   }
 
-  const controller =
-    deps.controller ??
-    createDefaultPowerController(deps.platform ?? process.platform, deps.defaultTimeoutMs ?? DEFAULT_POWER_TIMEOUT_MS);
+  const timeoutMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_POWER_TIMEOUT_MS, options.timeoutMs);
+  const controller = deps.controller ?? createDefaultPowerController(deps.platform ?? process.platform, timeoutMs);
 
   try {
     await controller.execute({ action, delaySec, force, signal: options.signal });

@@ -719,3 +719,151 @@ test("convert_file: convierte/redimensiona mediante driver, valida categorías, 
   );
   assert.equal(readToolResult(cancelled)?.data.state, "cancelled");
 });
+
+// ───────────────────────── Regresiones de symlinks y lotes ─────────────────────────
+
+test("regresiones files_write: bloquea symlinks colgantes en destino, symlinks preexistentes al extraer y symlinks rotos en origen", async () => {
+  const root = makeTempDir();
+  const outside = makeTempDir("jarvis-reg-out-");
+  const env = makeEnv(root);
+
+  const srcFile = path.join(root, "origen.txt");
+  const imgSrc = path.join(root, "img.png");
+  fs.writeFileSync(srcFile, "contenido");
+  fs.writeFileSync(imgSrc, "png-bytes");
+
+  const provider = new FilesWriteProvider({
+    allowedDirectories: () => [root],
+    environment: async () => env,
+    convertDriver: {
+      async convert(req) {
+        fs.writeFileSync(req.destinationPath, "converted");
+        return { backend: "mock" };
+      },
+    },
+  });
+
+  // Symlink colgante apuntando fuera de allowedDirectories
+  const danglingTarget = path.join(outside, "escapado.txt");
+  const danglingLink = path.join(root, "colgante.txt");
+  fs.symlinkSync(danglingTarget, danglingLink);
+
+  const danglingWrite = await provider.callTool("write_file", { path: danglingLink, content: "malo" });
+  assert.equal(danglingWrite.isError, true);
+  assert.equal(readToolResult(danglingWrite)?.data.reason, "denied");
+  assert.equal(fs.existsSync(danglingTarget), false);
+
+  const danglingCopy = await provider.callTool("copy_file", { source: srcFile, destination: danglingLink, overwrite: true });
+  assert.equal(danglingCopy.isError, true);
+  assert.equal(readToolResult(danglingCopy)?.data.reason, "denied");
+  assert.equal(fs.existsSync(danglingTarget), false);
+
+  for (const overwrite of [false, true]) {
+    const danglingMove = await provider.callTool("move_file", {
+      items: [{ source: srcFile, destination: danglingLink }],
+      overwrite,
+    });
+    assert.equal(danglingMove.isError, true);
+    assert.match(readToolResult(danglingMove)?.text ?? "", /\[DENIED\]/);
+    assert.equal(fs.existsSync(srcFile), true);
+    assert.equal(fs.existsSync(danglingTarget), false);
+  }
+
+  const danglingZipTarget = path.join(outside, "ext.zip");
+  const danglingZipLink = path.join(root, "colgante.zip");
+  fs.symlinkSync(danglingZipTarget, danglingZipLink);
+  const danglingCompress = await provider.callTool("archive_files", {
+    action: "compress",
+    sources: [srcFile],
+    destination: danglingZipLink,
+    overwrite: true,
+  });
+  assert.equal(danglingCompress.isError, true);
+  assert.equal(readToolResult(danglingCompress)?.data.reason, "denied");
+  assert.equal(fs.existsSync(danglingZipTarget), false);
+
+  const danglingImgTarget = path.join(outside, "out.webp");
+  const danglingImgLink = path.join(root, "colgante.webp");
+  fs.symlinkSync(danglingImgTarget, danglingImgLink);
+  const danglingConvert = await provider.callTool("convert_file", {
+    source: imgSrc,
+    destination: danglingImgLink,
+    overwrite: true,
+  });
+  assert.equal(danglingConvert.isError, true);
+  assert.equal(readToolResult(danglingConvert)?.data.reason, "denied");
+  assert.equal(fs.existsSync(danglingImgTarget), false);
+
+  // Symlink preexistente dentro de carpeta destino durante archive extract (overwrite: true)
+  const payloadFile = path.join(root, "sub", "item.txt");
+  fs.mkdirSync(path.dirname(payloadFile), { recursive: true });
+  fs.writeFileSync(payloadFile, "seguro");
+  const goodZip = path.join(root, "good.zip");
+  const zipRes = await provider.callTool("archive_files", {
+    action: "compress",
+    sources: [path.join(root, "sub")],
+    destination: goodZip,
+  });
+  assert.equal(zipRes.isError, false);
+
+  const extractDest = path.join(root, "extract_symlink_trap");
+  fs.mkdirSync(path.join(extractDest, "sub"), { recursive: true });
+  const trapTarget = path.join(outside, "intacto.txt");
+  fs.writeFileSync(trapTarget, "original");
+  fs.symlinkSync(trapTarget, path.join(extractDest, "sub", "item.txt"));
+
+  const extTrap = await provider.callTool("archive_files", {
+    action: "extract",
+    source: goodZip,
+    destination: extractDest,
+    overwrite: true,
+  });
+  assert.equal(extTrap.isError, true);
+  assert.equal(readToolResult(extTrap)?.data.reason, "denied");
+  assert.equal(fs.readFileSync(trapTarget, "utf8"), "original");
+
+  // Symlink roto en carpeta origen devuelve error estructurado (no excepción no capturada)
+  const brokenDir = path.join(root, "con_roto");
+  fs.mkdirSync(brokenDir, { recursive: true });
+  fs.symlinkSync(path.join(root, "no_existe_archivo.txt"), path.join(brokenDir, "roto.txt"));
+
+  const copyBroken = await provider.callTool("copy_file", {
+    source: brokenDir,
+    destination: path.join(root, "copia_roto"),
+  });
+  assert.equal(copyBroken.isError, true);
+  assert.match(readToolResult(copyBroken)?.text ?? "", /broken symbolic link/i);
+
+  const compressBroken = await provider.callTool("archive_files", {
+    action: "compress",
+    sources: [brokenDir],
+    destination: path.join(root, "broken.zip"),
+  });
+  assert.equal(compressBroken.isError, true);
+  assert.match(readToolResult(compressBroken)?.text ?? "", /broken symbolic link/i);
+
+  // Lote move_file: un item con destino de tipo incompatible/error no aborta al siguiente válido
+  const m1 = path.join(root, "m1.txt");
+  const m2 = path.join(root, "m2.txt");
+  const occupiedDir = path.join(root, "carpeta_ocupada");
+  fs.writeFileSync(m1, "m1");
+  fs.writeFileSync(m2, "m2");
+  fs.mkdirSync(occupiedDir);
+
+  const batchCont = await provider.callTool("move_file", {
+    items: [
+      { source: m1, destination: occupiedDir },
+      { source: m2, destination: path.join(root, "m2_movido.txt") },
+    ],
+    overwrite: true,
+  });
+  const batchData = readToolResult(batchCont);
+  assert.ok(batchData);
+  assert.equal(batchCont.isError, false);
+  assert.equal(batchData.data.state, "partial");
+  assert.equal(batchData.data.moved, 1);
+  assert.equal(batchData.data.failed, 1);
+  assert.equal(fs.existsSync(m1), true);
+  assert.equal(fs.existsSync(path.join(root, "m2_movido.txt")), true);
+});
+

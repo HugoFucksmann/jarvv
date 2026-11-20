@@ -18,7 +18,9 @@ import type { UserEnvironment } from "../../core/environment.ts";
 import { canonicalPath } from "../../core/policy/allowedDirs.ts";
 import {
   dirnameOf,
+  effectiveTimeoutMs,
   formatSize,
+  inspectDestinationTarget,
   isCanonicalDescendant,
   isCanonicalWithinAllowedDirs,
   isExcludedSubdir,
@@ -351,20 +353,45 @@ function sanitizeZipEntryRelPath(rawName: string): string {
   return parts.join("/");
 }
 
+/** Verifica que ningún segmento ya existente dentro de `realDest` sea un symlink antes de crear o escribir. */
+async function assertNoSymlinkSegments(realDest: string, relParts: readonly string[], rawName: string): Promise<void> {
+  let cursor = realDest;
+  for (let i = 0; i < relParts.length; i++) {
+    cursor = path.join(cursor, relParts[i]);
+    try {
+      const lst = await fs.promises.lstat(cursor);
+      if (lst.isSymbolicLink()) {
+        throw new Error(`[DENIED] Refusing to extract '${rawName}' through symbolic link '${cursor}'.`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        // Ni este segmento ni los más profundos existen todavía en disco.
+        return;
+      }
+      throw error;
+    }
+  }
+}
+
 async function extractZipEntries(params: {
   readonly zipBuf: Buffer;
   readonly entries: readonly ParsedCentralEntry[];
   readonly destinationDir: string;
+  readonly allowedDirs: readonly string[];
+  readonly home: string;
   readonly overwrite: boolean;
   readonly maxExtractBytes: number;
   readonly now: () => number;
   readonly deadline: number;
   readonly signal?: AbortSignal;
 }): Promise<{ readonly filesExtracted: number; readonly dirsCreated: number; readonly bytesExtracted: number }> {
-  const { zipBuf, entries, destinationDir, overwrite, maxExtractBytes, now, deadline, signal } = params;
+  const { zipBuf, entries, destinationDir, allowedDirs, home, overwrite, maxExtractBytes, now, deadline, signal } = params;
 
   await fs.promises.mkdir(destinationDir, { recursive: true });
   const realDest = await fs.promises.realpath(destinationDir);
+  if (!isCanonicalWithinAllowedDirs(realDest, allowedDirs, home)) {
+    throw new Error(`[DENIED] Destination folder '${destinationDir}' resolves outside allowedDirectories.`);
+  }
 
   let filesExtracted = 0;
   let dirsCreated = 0;
@@ -383,11 +410,14 @@ async function extractZipEntries(params: {
     const relPosix = sanitizeZipEntryRelPath(entry.rawName);
     if (relPosix === "") continue;
 
-    const targetPath = path.join(realDest, ...relPosix.split("/"));
+    const relParts = relPosix.split("/");
+    const targetPath = path.join(realDest, ...relParts);
     const resolvedCheck = path.resolve(targetPath);
     if (!isCanonicalDescendant(realDest, resolvedCheck) || resolvedCheck === realDest) {
       throw new Error(`[DENIED] ZIP entry escapes destination folder: '${entry.rawName}'.`);
     }
+
+    await assertNoSymlinkSegments(realDest, relParts, entry.rawName);
 
     if (entry.isDir) {
       await fs.promises.mkdir(resolvedCheck, { recursive: true });
@@ -434,11 +464,12 @@ async function extractZipEntries(params: {
     }
 
     await fs.promises.mkdir(path.dirname(resolvedCheck), { recursive: true });
-    // Asegurar que ningún ancestro existente escape mediante symlink
+    // Asegurar de nuevo que ningún ancestro ni el archivo destino sea symlink antes de escribir
     const realParent = await fs.promises.realpath(path.dirname(resolvedCheck));
     if (!isCanonicalDescendant(realDest, realParent)) {
       throw new Error(`[DENIED] Parent folder of '${entry.rawName}' resolves outside destination.`);
     }
+    await assertNoSymlinkSegments(realDest, relParts, entry.rawName);
 
     await fs.promises.writeFile(resolvedCheck, data, { flag: overwrite ? "w" : "wx" });
     filesExtracted++;
@@ -533,7 +564,18 @@ async function collectCompressEntries(params: {
         let realTarget = fullPath;
 
         if (entry.isSymbolicLink()) {
-          realTarget = await fs.promises.realpath(fullPath);
+          try {
+            realTarget = await fs.promises.realpath(fullPath);
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            return {
+              ok: false,
+              message:
+                code === "ENOENT" || code === "ENOTDIR"
+                  ? `Cannot compress broken symbolic link '${fullPath}'.`
+                  : `Cannot resolve symbolic link '${fullPath}': ${errorMessage(error)}`,
+            };
+          }
           if (!isCanonicalDescendant(realRoot, realTarget) || !isCanonicalWithinAllowedDirs(realTarget, allowedDirs, resolved.env.home)) {
             return {
               ok: false,
@@ -608,11 +650,7 @@ export async function runArchiveFiles(
     includeHidden = rawArgs.includeHidden;
   }
 
-  const defaultTimeout = deps.defaultTimeoutMs ?? DEFAULT_ARCHIVE_TIMEOUT_MS;
-  const limitMs =
-    options.timeoutMs !== undefined
-      ? Math.min(defaultTimeout, Math.max(options.timeoutMs > 2_000 ? options.timeoutMs - 1_500 : options.timeoutMs, 1))
-      : defaultTimeout;
+  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_ARCHIVE_TIMEOUT_MS, options.timeoutMs);
   const deadline = deps.now() + limitMs;
   const maxEntries = deps.maxEntries ?? DEFAULT_ARCHIVE_MAX_ENTRIES;
   const maxInputBytes = deps.maxInputBytes ?? DEFAULT_ARCHIVE_MAX_INPUT_BYTES;
@@ -652,41 +690,40 @@ export async function runArchiveFiles(
     }
 
     const parentDir = dirnameOf(dstPath);
+    let realParentDir: string;
     try {
       const parentStat = await fs.promises.stat(parentDir);
       if (!parentStat.isDirectory()) return fail(`Destination parent '${parentDir}' is not a folder.`);
+      realParentDir = await fs.promises.realpath(parentDir);
+      if (!isCanonicalWithinAllowedDirs(realParentDir, allowedDirs, dstResolved.env.home)) {
+        return fail(`[DENIED] Destination parent '${parentDir}' resolves outside allowedDirectories.`, { reason: "denied" });
+      }
     } catch {
       return fail(`Destination parent folder does not exist: '${parentDir}'.`);
     }
 
-    try {
-      const dstLst = await fs.promises.lstat(dstPath);
-      if (dstLst.isSymbolicLink()) {
-        const realDst = await fs.promises.realpath(dstPath);
-        if (!isCanonicalWithinAllowedDirs(realDst, allowedDirs, dstResolved.env.home)) {
-          return fail(`[DENIED] Destination symlink '${dstPath}' points outside allowedDirectories.`, {
-            reason: "denied",
-          });
-        }
-      }
-      const dstStat = await fs.promises.stat(dstPath);
-      if (dstStat.isDirectory()) return fail(`Destination '${dstPath}' is a folder, not a file.`);
+    const dstInspection = await inspectDestinationTarget(dstPath, allowedDirs, dstResolved.env.home);
+    if (dstInspection.status === "denied") {
+      return fail(dstInspection.message, { reason: "denied" });
+    }
+    if (dstInspection.status === "error") {
+      return fail(dstInspection.message);
+    }
+    if (dstInspection.status === "exists") {
+      if (dstInspection.isDirectory) return fail(`Destination '${dstPath}' is a folder, not a file.`);
       if (!overwrite) {
         return fail(`Destination archive already exists: '${dstPath}'. Pass overwrite: true to replace.`, {
           reason: "already_exists",
         });
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        return fail(`Cannot inspect destination '${dstPath}': ${errorMessage(error)}`);
-      }
     }
 
+    const destinationCanon = canonicalPath(joinEntryPath(realParentDir, path.basename(dstPath)));
     const gathered = await collectCompressEntries({
       sources,
       getEnvironment: deps.getEnvironment,
       allowedDirs,
-      destinationCanon: canonicalPath(dstPath),
+      destinationCanon,
       includeHidden,
       maxEntries,
       maxInputBytes,
@@ -758,24 +795,15 @@ export async function runArchiveFiles(
     return fail(dstResolved.message, dstResolved.denied ? { reason: "denied" } : {});
   }
 
-  try {
-    const dstLst = await fs.promises.lstat(dstResolved.targetPath);
-    if (dstLst.isSymbolicLink()) {
-      const realDst = await fs.promises.realpath(dstResolved.targetPath);
-      if (!isCanonicalWithinAllowedDirs(realDst, allowedDirs, dstResolved.env.home)) {
-        return fail(`[DENIED] Destination symlink '${dstResolved.targetPath}' points outside allowedDirectories.`, {
-          reason: "denied",
-        });
-      }
-    }
-    const dstStat = await fs.promises.stat(dstResolved.targetPath);
-    if (!dstStat.isDirectory()) {
-      return fail(`Destination '${dstResolved.targetPath}' is a file, not a folder.`);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      return fail(`Cannot inspect destination '${dstResolved.targetPath}': ${errorMessage(error)}`);
-    }
+  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
+  if (dstInspection.status === "denied") {
+    return fail(dstInspection.message, { reason: "denied" });
+  }
+  if (dstInspection.status === "error") {
+    return fail(dstInspection.message);
+  }
+  if (dstInspection.status === "exists" && !dstInspection.isDirectory) {
+    return fail(`Destination '${dstResolved.targetPath}' is a file, not a folder.`);
   }
 
   try {
@@ -786,6 +814,8 @@ export async function runArchiveFiles(
       zipBuf,
       entries,
       destinationDir: dstResolved.targetPath,
+      allowedDirs,
+      home: dstResolved.env.home,
       overwrite,
       maxExtractBytes,
       now: deps.now,

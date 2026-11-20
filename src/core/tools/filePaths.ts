@@ -390,6 +390,104 @@ export async function resolveExistingPath(
   };
 }
 
+export type DestinationInspection =
+  | { readonly status: "missing" }
+  | {
+      readonly status: "exists";
+      readonly realTarget: string;
+      readonly isDirectory: boolean;
+      readonly isFile: boolean;
+      readonly isSymlink: boolean;
+    }
+  | { readonly status: "denied"; readonly message: string }
+  | { readonly status: "error"; readonly message: string };
+
+/**
+ * Inspecciona una ruta de destino antes de escribir o sobrescribir:
+ * - Separa `lstat` de `realpath` para que un enlace simbólico colgante (`ENOENT` en `realpath`)
+ *   nunca se trate como archivo inexistente ni permita escribir a través del enlace.
+ * - Rechaza con `denied` cualquier symlink saliente o irresoluble.
+ */
+export async function inspectDestinationTarget(
+  targetPath: string,
+  allowedDirs: readonly string[],
+  home: string,
+): Promise<DestinationInspection> {
+  let lst: fs.Stats;
+  try {
+    lst = await fs.promises.lstat(targetPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { status: "missing" };
+    }
+    return { status: "error", message: `Cannot inspect destination '${targetPath}': ${errorMessage(error)}` };
+  }
+
+  if (lst.isSymbolicLink()) {
+    let realTarget: string;
+    try {
+      realTarget = await fs.promises.realpath(targetPath);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ENOTDIR") {
+        return {
+          status: "denied",
+          message: `[DENIED] Destination symbolic link '${targetPath}' is dangling and cannot be verified within allowedDirectories.`,
+        };
+      }
+      return {
+        status: "denied",
+        message: `[DENIED] Destination symbolic link '${targetPath}' could not be resolved: ${errorMessage(error)}`,
+      };
+    }
+
+    if (!isCanonicalWithinAllowedDirs(realTarget, allowedDirs, home)) {
+      return {
+        status: "denied",
+        message: `[DENIED] Destination symlink '${targetPath}' points outside allowedDirectories.`,
+      };
+    }
+
+    try {
+      const st = await fs.promises.stat(realTarget);
+      return {
+        status: "exists",
+        realTarget,
+        isDirectory: st.isDirectory(),
+        isFile: st.isFile(),
+        isSymlink: true,
+      };
+    } catch (error) {
+      return { status: "error", message: `Cannot inspect destination '${targetPath}': ${errorMessage(error)}` };
+    }
+  }
+
+  let realTarget = targetPath;
+  try {
+    realTarget = await fs.promises.realpath(targetPath);
+  } catch {
+    realTarget = targetPath;
+  }
+
+  return {
+    status: "exists",
+    realTarget,
+    isDirectory: lst.isDirectory(),
+    isFile: lst.isFile(),
+    isSymlink: false,
+  };
+}
+
+/** Calcula el presupuesto efectivo de tiempo reservando un margen para el cierre limpio del host. */
+export function effectiveTimeoutMs(defaultMs: number, optionTimeoutMs?: number, marginMs = 1_500): number {
+  if (optionTimeoutMs === undefined) return defaultMs;
+  if (optionTimeoutMs <= marginMs + 500) {
+    return Math.min(defaultMs, Math.max(optionTimeoutMs, 1));
+  }
+  return Math.min(defaultMs, optionTimeoutMs - marginMs);
+}
+
 /** Cede el turno al bucle de eventos para no bloquearlo en recorridos largos. */
 export const yieldEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 

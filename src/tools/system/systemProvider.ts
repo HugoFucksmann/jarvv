@@ -7,6 +7,7 @@
  */
 
 import { getUserEnvironment, type UserEnvironment } from "../../core/environment.ts";
+import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
 import type { ToolCallOptions, ToolProvider } from "../../core/tools/provider.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../../core/types.ts";
@@ -232,7 +233,8 @@ export class SystemProvider implements ToolProvider {
   private readonly getAllowedDirectories: () => readonly string[];
   private readonly getEnvironment: () => Promise<UserEnvironment>;
   private readonly platform: NodeJS.Platform;
-  private readonly reader: SystemReader;
+  private readonly customReader: Partial<SystemReader> | undefined;
+  private readonly defaultReader: SystemReader;
   private readonly processKiller: ProcessKiller | undefined;
   private readonly pcSettingsDriver: PcSettingsDriver | undefined;
   private readonly powerController: PowerController | undefined;
@@ -258,18 +260,8 @@ export class SystemProvider implements ToolProvider {
     this.openTimeoutMs = options.openTimeoutMs ?? DEFAULT_OPEN_TIMEOUT_MS;
     this.clipboardTimeoutMs = options.clipboardTimeoutMs ?? DEFAULT_CLIPBOARD_TIMEOUT_MS;
 
-    const defaults = createDefaultSystemReader(this.platform, this.systemTimeoutMs);
-    this.reader = {
-      readHost: options.systemReader?.readHost ?? defaults.readHost,
-      readGpus: options.systemReader?.readGpus ?? defaults.readGpus,
-      readDisks: options.systemReader?.readDisks ?? defaults.readDisks,
-      readServices: options.systemReader?.readServices ?? defaults.readServices,
-      readDevTools: options.systemReader?.readDevTools ?? defaults.readDevTools,
-      readNetwork: options.systemReader?.readNetwork ?? defaults.readNetwork,
-      readProcesses: options.systemReader?.readProcesses ?? defaults.readProcesses,
-      readPorts: options.systemReader?.readPorts ?? defaults.readPorts,
-      readDateTime: options.systemReader?.readDateTime ?? defaults.readDateTime,
-    };
+    this.customReader = options.systemReader;
+    this.defaultReader = this.buildReader(this.systemTimeoutMs);
 
     this.processKiller = options.processKiller;
     this.pcSettingsDriver = options.pcSettingsDriver;
@@ -278,6 +270,21 @@ export class SystemProvider implements ToolProvider {
     this.clipboardDriver = options.clipboardDriver;
     this.selfPid = options.selfPid;
     this.parentPid = options.parentPid;
+  }
+
+  private buildReader(timeoutMs: number): SystemReader {
+    const defaults = createDefaultSystemReader(this.platform, timeoutMs);
+    return {
+      readHost: this.customReader?.readHost ?? defaults.readHost,
+      readGpus: this.customReader?.readGpus ?? defaults.readGpus,
+      readDisks: this.customReader?.readDisks ?? defaults.readDisks,
+      readServices: this.customReader?.readServices ?? defaults.readServices,
+      readDevTools: this.customReader?.readDevTools ?? defaults.readDevTools,
+      readNetwork: this.customReader?.readNetwork ?? defaults.readNetwork,
+      readProcesses: this.customReader?.readProcesses ?? defaults.readProcesses,
+      readPorts: this.customReader?.readPorts ?? defaults.readPorts,
+      readDateTime: this.customReader?.readDateTime ?? defaults.readDateTime,
+    };
   }
 
   async listTools(): Promise<MCPTool[]> {
@@ -292,12 +299,11 @@ export class SystemProvider implements ToolProvider {
 
   async callTool(name: string, args: Record<string, unknown>, options: ToolCallOptions = {}): Promise<MCPCallResult> {
     switch (name) {
-      case SYSTEM_INFO:
-        return runSystemInfo(
-          args,
-          { reader: this.reader, defaultTimeoutMs: this.systemTimeoutMs },
-          { signal: options.signal },
-        );
+      case SYSTEM_INFO: {
+        const limitMs = effectiveTimeoutMs(this.systemTimeoutMs, options.timeoutMs);
+        const reader = limitMs === this.systemTimeoutMs ? this.defaultReader : this.buildReader(limitMs);
+        return runSystemInfo(args, { reader, defaultTimeoutMs: limitMs }, { signal: options.signal });
+      }
       case STOP_PROCESS:
         return runStopProcess(
           args,
@@ -308,7 +314,7 @@ export class SystemProvider implements ToolProvider {
             selfPid: this.selfPid,
             parentPid: this.parentPid,
           },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case PC_SETTINGS_TOOL_NAME:
         return runPcSettings(
@@ -318,7 +324,7 @@ export class SystemProvider implements ToolProvider {
             platform: this.platform,
             defaultTimeoutMs: this.pcSettingsTimeoutMs,
           },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case POWER_TOOL_NAME:
         return runPower(
@@ -328,7 +334,7 @@ export class SystemProvider implements ToolProvider {
             platform: this.platform,
             defaultTimeoutMs: this.powerTimeoutMs,
           },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case OPEN_ON_SCREEN:
         return runOpenOnScreen(
@@ -340,7 +346,7 @@ export class SystemProvider implements ToolProvider {
             platform: this.platform,
             defaultTimeoutMs: this.openTimeoutMs,
           },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       case CLIPBOARD:
         return runClipboard(
@@ -350,7 +356,7 @@ export class SystemProvider implements ToolProvider {
             platform: this.platform,
             defaultTimeoutMs: this.clipboardTimeoutMs,
           },
-          { signal: options.signal },
+          { signal: options.signal, timeoutMs: options.timeoutMs },
         );
       default:
         return fail(`Unknown tool: '${name}'.`);

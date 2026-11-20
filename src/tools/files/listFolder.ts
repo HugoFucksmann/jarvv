@@ -15,6 +15,8 @@ import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 import {
+  effectiveTimeoutMs,
+  fitLinesToBudget,
   formatLocalDateTime,
   formatSize,
   isCanonicalDescendant,
@@ -37,7 +39,6 @@ type SortBy = (typeof VALID_SORT_BY)[number];
 type SortOrder = (typeof VALID_ORDER)[number];
 type EntryTypeFilter = (typeof VALID_TYPES)[number];
 
-const HEADER_RESERVE_CHARS = 180;
 const YIELD_EVERY_ENTRIES = 64;
 
 export interface ListFolderDeps {
@@ -172,20 +173,6 @@ function formatRawLine(entry: FolderEntry, multiDepth: boolean): string {
     : `[FILE] ${label}  ${entry.size} B (${formatSize(entry.size)})  —  ${date}`;
 }
 
-function fitLines(header: string, lines: readonly string[], budget: number): readonly string[] {
-  const maxBody = Math.max(budget - Math.max(header.length + 1, HEADER_RESERVE_CHARS), 200);
-  const shown: string[] = [];
-  let used = 0;
-
-  for (const line of lines) {
-    const cost = line.length + (shown.length > 0 ? 1 : 0);
-    if (shown.length > 0 && used + cost > maxBody) break;
-    shown.push(line);
-    used += cost;
-  }
-  return shown;
-}
-
 export async function runListFolder(
   rawArgs: Record<string, unknown>,
   deps: ListFolderDeps,
@@ -206,9 +193,7 @@ export async function runListFolder(
   }
 
   const { targetPath, realRoot } = resolved;
-  const limitMs = options.timeoutMs !== undefined
-    ? Math.min(deps.defaultTimeoutMs, Math.max(options.timeoutMs > 2_000 ? options.timeoutMs - 1_500 : options.timeoutMs, 1))
-    : deps.defaultTimeoutMs;
+  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
   const deadline = deps.now() + limitMs;
 
   const visitedDirs = new Set<string>([realRoot]);
@@ -346,7 +331,7 @@ export async function runListFolder(
   const rawBodyLines = entries.map((e) => formatRawLine(e, multiDepth));
 
   const prelimHeader = `status: ok · showing ${limited.length} of ${total} (sorted by ${args.sortBy} ${args.order})`;
-  const shownTextLines = fitLines(prelimHeader, textBodyLines, BUDGET.summaryMax);
+  const shownTextLines = fitLinesToBudget(prelimHeader, textBodyLines, BUDGET.summaryMax).shown;
   const shown = shownTextLines.length;
   const truncated = shown < total;
 
