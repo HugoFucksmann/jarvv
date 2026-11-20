@@ -21,7 +21,7 @@ import {
   joinEntryPath,
   resolveFolderPath,
   yieldEventLoop,
-} from "./paths.ts";
+} from "../../core/tools/filePaths.ts";
 
 export const DEFAULT_LIST_TIMEOUT_MS = 8_000;
 export const DEFAULT_LIST_DEPTH = 1;

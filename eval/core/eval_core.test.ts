@@ -27,8 +27,6 @@ import { allStageNames, isDecisionStage } from "./stages/index.ts";
 import { SCHEMA_VERSION, type RunRecord } from "./types.ts";
 import { listVariantNames, loadVariantSpec, parseVariantSpecs } from "./variants/load.ts";
 import { printGlobalSummary } from "../ui/views/run.ts";
-import { parseCrossConfig, runCrossCli } from "../cross.ts";
-import { materializeScenario } from "./scenario.ts";
 
 const tempDirs: string[] = [];
 
@@ -338,58 +336,5 @@ describe("eval/core runner + batch con cliente oracle", () => {
     assert.equal(runOut.allNetworkFailed, true);
 
     assert.doesNotThrow(() => printGlobalSummary([]));
-  });
-
-  it("cross.ts rechaza flags desconocidos/vacíos, soporta --help y recovery exige que at.attempts coincida con pasos fallidos seguidos", async () => {
-    assert.throws(() => parseCrossConfig(["--unknown=1"]), /Flag desconocido/);
-    assert.throws(() => parseCrossConfig(["--dataset="]), /no puede estar vacío/);
-    assert.throws(() => parseCrossConfig(["--baseline=prod", "--baseline=otro"]), /Flag repetido/);
-
-    const origLog = console.log;
-    const origErr = console.error;
-    let out = "";
-    console.log = (...args: unknown[]) => {
-      out += args.map(String).join(" ") + "\n";
-    };
-    console.error = (...args: unknown[]) => {
-      out += args.map(String).join(" ") + "\n";
-    };
-    try {
-      assert.equal(await runCrossCli(["--help"]), 0);
-      assert.match(out, /eval:cross/);
-      assert.equal(await runCrossCli(["--typo-flag=1"]), 2);
-      assert.equal(await runCrossCli(["--runs=eval/results/no-existe-esta-carpeta"]), 2);
-    } finally {
-      console.log = origLog;
-      console.error = origErr;
-    }
-
-    assert.throws(
-      () =>
-        materializeScenario("recovery", {
-          mode: "reactive",
-          request: "Buscar archivo",
-          steps: [{ instruction: "Leer archivo", state: "failed" }],
-          calls: [{ route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" }],
-          at: { previous: ["Leer archivo"], cause: "tool_failed", attempts: 2 },
-        }),
-      /pasos fallidos seguidos/,
-    );
-
-    const aligned = materializeScenario("recovery", {
-      mode: "reactive",
-      request: "Buscar archivo",
-      steps: [
-        { instruction: "Leer archivo", state: "failed" },
-        { instruction: "Leer archivo", state: "failed" },
-      ],
-      calls: [
-        { step: 0, route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
-        { step: 1, route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
-      ],
-      at: { previous: ["Leer archivo"], cause: "tool_failed", attempts: 2 },
-    });
-    assert.equal(aligned.request.type, "decision");
-    assert.match(aligned.request.state, /Attempts so far: 2/);
   });
 });

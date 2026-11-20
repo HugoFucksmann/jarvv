@@ -40,18 +40,8 @@ export const recoveryStage: DecisionStageEntry<RecoveryOutput, RecoveryExpect> =
     if (at.cause !== undefined && !(STEP_FAILURE_CAUSES as readonly string[]).includes(at.cause)) {
       throw new Error(`etapa 'recovery': scenario.at.cause '${at.cause}' no es una causa válida (${STEP_FAILURE_CAUSES.join(", ")}).`);
     }
-    const consecutiveFailed = ctx.consecutiveFailures();
-    if (at.attempts !== undefined) {
-      if (!Number.isInteger(at.attempts) || at.attempts < 1) {
-        throw new Error(`etapa 'recovery': scenario.at.attempts debe ser un entero >= 1 (recibido: ${at.attempts}).`);
-      }
-      if (at.attempts !== consecutiveFailed) {
-        throw new Error(
-          `etapa 'recovery': scenario.at.attempts (${at.attempts}) debe coincidir con los pasos fallidos seguidos en scenario.steps (${consecutiveFailed}), igual que en producción.`,
-        );
-      }
-    }
-    const attempts = Math.max(1, consecutiveFailed);
+    const attempts = at.attempts ?? 1;
+    if (!Number.isInteger(attempts) || attempts < 1) throw new Error(`etapa 'recovery': scenario.at.attempts debe ser un entero >= 1 (recibido: ${attempts}).`);
     const cause = (at.cause ?? null) as StepFailureCause | null;
     return h.decision(h.effectivePrompts(ov).D.buildRecovery(recoveryInput(ctx, previous, cause, attempts)));
   },

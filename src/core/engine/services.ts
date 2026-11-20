@@ -35,7 +35,7 @@ export interface EngineServices {
   readonly recoveryShadow?: () => boolean;
   /** Override de plazo (ms) por herramienta desde la configuración, leído en cada llamada. */
   readonly toolTimeoutMs?: (server: string, tool: string) => number | undefined;
-  /** Carpeta de trabajo de las herramientas de archivos (`desktopCommanderMcp.cwd`, o la del proceso). */
+  /** Carpeta de trabajo de las herramientas de archivos (la del proceso). */
   readonly toolBaseDir?: () => string;
   /** Directorios permitidos leídos en vivo desde la configuración en cada llamada. */
   readonly allowedDirectories?: () => readonly string[];
@@ -82,12 +82,7 @@ export function createEngineServices(getConfig: ConfigSource, options: EngineSer
     guardScope: {
       protectedDirs: [refsDir, tasksDir, process.cwd()],
       protectedFiles: [memoryFile],
-      get relativeBases(): readonly string[] {
-        const bases = new Set<string>([process.cwd()]);
-        const cwd = getConfig().desktopCommanderMcp.cwd;
-        if (cwd) bases.add(path.resolve(cwd));
-        return [...bases];
-      },
+      relativeBases: [process.cwd()],
       commandBases: [os.homedir()],
       homeDirs: [os.homedir()],
     },
@@ -99,8 +94,8 @@ export function createEngineServices(getConfig: ConfigSource, options: EngineSer
     completionCoverageGuard: () => getConfig().completionCoverageGuard,
     recoveryShadow: () => getConfig().recoveryShadow,
     toolTimeoutMs: (server, tool) => resolveToolTimeoutMs(getConfig(), server, tool),
-    toolBaseDir: () => getConfig().desktopCommanderMcp.cwd ?? process.cwd(),
-    allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+    toolBaseDir: () => process.cwd(),
+    allowedDirectories: () => getConfig().allowedDirectories ?? [],
     ...(options.memoryProvider === undefined ? {} : { memoryProvider: options.memoryProvider }),
     modelUnavailablePauseMaxMs: () => getConfig().modelUnavailablePauseMaxMs,
   };

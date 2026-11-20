@@ -140,7 +140,7 @@ export const PlanReview: React.FC<PlanReviewProps> = ({
                 if (e.key === "Enter" && feedbackText.trim() && !isSubmitting) handleSendModify();
                 if (e.key === "Escape") setShowModifyPanel(false);
               }}
-              placeholder="Ej: Omitir la búsqueda web y usar Desktop Commander directamente..."
+              placeholder="Ej: Omitir la búsqueda web e ir directo a la terminal..."
               className="flex-1 min-w-0 px-3 py-2 bg-slate-900 border border-slate-700 focus:border-accent-500/70 focus:ring-2 focus:ring-accent-500/20 rounded-md text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none transition-colors"
               autoFocus
             />

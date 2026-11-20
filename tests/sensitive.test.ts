@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { Guard } from "../src/core/policy/guard.ts";
 import { sensitivePathFinding } from "../src/core/policy/sensitivePaths.ts";
 
-const DC = "desktop_commander";
+const FILES = "jarvis_files";
 const find = (args: Record<string, unknown>, write = false) => sensitivePathFinding(args, write)?.id ?? null;
 
 test("secretos: se detectan al leer y al escribir, con cualquier forma de ruta", () => {
@@ -80,21 +80,21 @@ test("no se miran el contenido que se escribe, las URL ni las búsquedas", () =>
 });
 
 test("Guard: una ruta sensible exige confirmación obligatoria, incluso de solo lectura; lo común sigue como antes", () => {
-  const sensitive = Guard.evaluate(DC, "read_file", { path: "C:\\Users\\Ana\\.ssh\\id_rsa" });
+  const sensitive = Guard.evaluate(FILES, "read_file", { path: "C:\\Users\\Ana\\.ssh\\id_rsa" });
   assert.equal(sensitive.decision, "APPROVAL");
   assert.equal(sensitive.mandatory, true);
   assert.match(sensitive.reason ?? "", /ssh-keys/);
 
-  const command = Guard.evaluate(DC, "start_process", { command: "Get-Content C:\\Users\\Ana\\.ssh\\id_rsa" });
+  const command = Guard.evaluate(FILES, "start_process", { command: "Get-Content C:\\Users\\Ana\\.ssh\\id_rsa" });
   assert.equal(command.decision, "APPROVAL", "un comando de solo lectura sobre una ruta sensible ya no se permite solo");
   assert.equal(command.mandatory, true);
 
-  assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Windows\\evil.dll", content: "x" }).mandatory, true);
-  assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Users\\Ana\\Documents\\n.txt", content: "x" }).mandatory, undefined);
-  assert.equal(Guard.evaluate(DC, "read_file", { path: "C:\\Users\\Ana\\Documents\\n.txt" }).decision, "ALLOW");
-  assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Users\\Ana\\Documents\\notas.txt", content: "mi clave está en ~/.ssh/id_rsa" }).mandatory, undefined);
+  assert.equal(Guard.evaluate(FILES, "write_file", { path: "C:\\Windows\\evil.dll", content: "x" }).mandatory, true);
+  assert.equal(Guard.evaluate(FILES, "write_file", { path: "C:\\Users\\Ana\\Documents\\n.txt", content: "x" }).mandatory, undefined);
+  assert.equal(Guard.evaluate(FILES, "read_file", { path: "C:\\Users\\Ana\\Documents\\n.txt" }).decision, "ALLOW");
+  assert.equal(Guard.evaluate(FILES, "write_file", { path: "C:\\Users\\Ana\\Documents\\notas.txt", content: "mi clave está en ~/.ssh/id_rsa" }).mandatory, undefined);
 });
 
 test("Guard: DENY sigue por encima de la ruta sensible", () => {
-  assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Windows\\System32\\drivers\\etc\\hosts", content: "x" }).decision, "DENY");
+  assert.equal(Guard.evaluate(FILES, "write_file", { path: "C:\\Windows\\System32\\drivers\\etc\\hosts", content: "x" }).decision, "DENY");
 });

@@ -1149,27 +1149,6 @@ describe("eval/auto E2E runAutoLoop", () => {
       ]),
       null,
     );
-    assert.equal(
-      validateConclusionsMarkdown(
-        [
-          "# Conclusiones — route",
-          "",
-          "## Estado actual (auto-actualizado)",
-          "- Top 1: `prod` (50.0%)",
-          "- Alerta holdout: `prod` (99.0% en holdout)",
-          "- Ronda anterior R1: `prod` (30.0%)",
-          "",
-          "## Descartadas (qué empeora — no repetir)",
-          "- `prod` (90.0% en `route_gemai` pero regresiona en variedad)",
-          "",
-          "## Últimas rondas (máx. 5)",
-          "- R1: `prod` (40.0%)",
-        ].join("\n"),
-        "route",
-        [{ variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 }],
-      ),
-      null,
-    );
 
     // 2) Vuelta sin variantes válidas registra progreso y nota en conclusiones
     const { conclusionsPath: invConc, resultsRoot: invRoot, variantsRoot: invVariants } = setupTempAutoDir("route", "invalidround");

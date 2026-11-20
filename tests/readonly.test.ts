@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { Guard } from "../src/core/policy/guard.ts";
 import { isReadOnlyCall, isReadOnlyCommand } from "../src/core/policy/readOnly.ts";
 
-const DC = "desktop_commander";
+const FILES = "jarvis_files";
 
 test("consultas simples y tuberías de filtrado son de lectura", () => {
   for (const command of [
@@ -82,7 +82,7 @@ test("isReadOnlyCall: solo run_command de jarvis_terminal: un comando de PowerSh
   assert.equal(isReadOnlyCall(TERMINAL, "run_command", {}), false);
   assert.equal(isReadOnlyCall(TERMINAL, "otra_herramienta", { command: "Get-Process" }), false);
   assert.equal(isReadOnlyCall("otro_servidor", "run_command", { command: "Get-Process" }), false);
-  assert.equal(isReadOnlyCall(DC, "start_process", { command: "Get-Process" }), false, "las tools de proceso de Desktop Commander ya no están en el catálogo");
+  assert.equal(isReadOnlyCall(FILES, "start_process", { command: "Get-Process" }), false, "las tools legacy de proceso ya no están en el catálogo");
 });
 
 test("Guard: un comando de lectura se permite sin confirmación; uno que escribe sigue pidiéndola; lo catastrófico se deniega igual", () => {

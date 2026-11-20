@@ -11,7 +11,7 @@ import { containsTerm } from "./common.ts";
  * Fugas de identificadores internos: ids de producción (c1, s2, r3), nombres de herramientas
  * conocidos y cualquier identificador snake_case (read_file, write_file, start_process, ...).
  */
-const INTERNAL_LEAK_RE = /\b(?:[a-z]+_[a-z0-9_]+|[csr]\d+|desktop_commander)\b/;
+const INTERNAL_LEAK_RE = /\b(?:[a-z]+_[a-z0-9_]+|[csr]\d+)\b/;
 
 /**
  * Nombres de archivo o ruta (`mi_archivo.txt`, `C:\\a\\b_c.ts`): no son identificadores internos, así que se

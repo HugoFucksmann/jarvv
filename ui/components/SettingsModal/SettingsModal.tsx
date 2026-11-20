@@ -111,8 +111,6 @@ const CATEGORIES: CategoryMeta[] = [
     keywords: [
       "mcp",
       "stdio",
-      "desktop",
-      "commander",
       "search",
       "web",
       "juez",
@@ -224,17 +222,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const updateAllowedDirs = useCallback((allowedDirectories: string[]) => {
     setSaved(false);
-    setConfig((prev) =>
-      prev
-        ? {
-            ...prev,
-            desktopCommanderMcp: {
-              ...prev.desktopCommanderMcp,
-              allowedDirectories,
-            },
-          }
-        : prev
-    );
+    setConfig((prev) => (prev ? { ...prev, allowedDirectories } : prev));
   }, []);
 
   const handleValidityChange = useCallback((id: string, isValid: boolean) => {
@@ -296,7 +284,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const {
         refsDir: _refsDir,
         tracePath: _tracePath,
-        desktopCommanderMcp,
         freeSearchMcp: _freeSearchMcp,
         toolTimeoutsMs: _toolTimeoutsMs,
         modelTimeoutsMs: _modelTimeoutsMs,
@@ -306,9 +293,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       } = config;
       const patch: ConfigPatch = {
         ...editable,
-        ...(desktopCommanderMcp?.allowedDirectories !== undefined
-          ? { desktopCommanderMcp: { allowedDirectories: desktopCommanderMcp.allowedDirectories } }
-          : {}),
       };
       const updated = await jarvisApi.updateConfig(patch);
       setInitialConfig(updated);
@@ -368,7 +352,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }
             forceOpenMcp={
               isSearching &&
-              ["mcp", "desktop", "commander", "search", "stdio", "comando"].some((k) =>
+              ["mcp", "search", "stdio", "comando"].some((k) =>
                 normalizedQuery.includes(k) || k.includes(normalizedQuery)
               )
             }

@@ -77,11 +77,11 @@ export const DESTINATIONS: Readonly<
   Record<ExecutableRoute, { readonly server: McpServerName; readonly description: string }>
 > = {
   files: {
-    server: "desktop_commander",
+    server: "jarvis_files",
     description: "Read, create, save or move files and folders, and list a folder (names only, without sizes or dates), when the path is already known.",
   },
   locate: {
-    server: "desktop_commander",
+    server: "jarvis_files",
     description: "Find files by name or by text inside files when the location is unknown.",
   },
   terminal: {
@@ -411,7 +411,7 @@ export function applyDestination(route: ExecutableRoute, tools: readonly MCPTool
   const allowed: MCPTool[] = [];
   for (const t of tools) {
     const d = lookup(server, t.name);
-    if (d?.route !== route) continue;
+    if (d?.route !== route || d.internal === true) continue;
     let inputSchema = d.params ? restrictParams(t.inputSchema, d.params) : t.inputSchema;
     if (d.notes) inputSchema = annotateParams(inputSchema, t.name, d.notes);
     allowed.push({ ...t, description: d.description, inputSchema });

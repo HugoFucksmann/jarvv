@@ -21,8 +21,8 @@ import {
   joinEntryPath,
   resolveFolderPath,
   yieldEventLoop,
-} from "./paths.ts";
-import { matchName, parsePattern, type MatchRank } from "./pattern.ts";
+} from "../../core/tools/filePaths.ts";
+import { matchName, parsePattern, type MatchRank } from "../../core/tools/globPattern.ts";
 
 export const DEFAULT_FIND_TIMEOUT_MS = 8_000;
 export const DEFAULT_FIND_MAX_DEPTH = 10;

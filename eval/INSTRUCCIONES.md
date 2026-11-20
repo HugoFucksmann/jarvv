@@ -195,7 +195,7 @@ Solo modo `reactive`, con el contexto en condiciones de cerrar (`ctx.canFinish()
 {"id":"rec-rp-01","stage":"recovery","scenario":{"mode":"reactive","request":"...","steps":[{"instruction":"...","state":"failed"}],"calls":[{"route":"files","tool":"write_file","kind":"write","status":"tool_error","summary":"Error: ENOENT...","verdict":"rejected","reason":"no_usable_data"}],"at":{"previous":["<ítem fallido>","<ítem de atrás>"],"cause":"tool_failed","attempts":1}},"expect":{"expectedAction":"replan"}}
 ```
 
-Solo modo `reactive`, con el último paso `failed` (si `at.attempts` > 1, los últimos `attempts` pasos seguidos en estado `failed`, con cada llamada apuntando a su `step`). `at.previous` es la lista de la vuelta con el ítem fallido de primero; `at.cause`, la causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`); `at.attempts` (≥ 1) debe coincidir con los pasos fallidos seguidos (`ctx.consecutiveFailures()`), igual que en `src/core/engine/recoveryShadow.ts` (ver `eval/datasets/recovery/README.md`). `expect.expectedAction` es `close`, `rewrite_item` o `replan`. Construye el request con `recoveryInput(ctx, previous, cause, attempts)` y `DECISION_PROMPTS.buildRecovery`. Con temperatura 0, repetir (`--repeat`) no aporta nada. La regla de etiquetado y los ids están en `eval/datasets/recovery/README.md`.
+Solo modo `reactive`, con un paso `failed`. `at.previous` es la lista de la vuelta con el ítem fallido de primero; `at.cause`, la causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`); `at.attempts` (≥ 1) indica los intentos fallidos (nota: en producción cuenta pasos fallidos seguidos, mientras que en los datasets vigentes de `recovery/` suele contar llamadas fallidas; ver `eval/datasets/recovery/README.md`). `expect.expectedAction` es `close`, `rewrite_item` o `replan`. Construye el request con `recoveryInput(ctx, previous, cause, attempts)` y `DECISION_PROMPTS.buildRecovery`. Con temperatura 0, repetir (`--repeat`) no aporta nada. La regla de etiquetado y los ids están en `eval/datasets/recovery/README.md`.
 
 ### Etapa `fragment_judge` y cómo sumar una etapa nueva
 El caso de `fragment_judge` trae solo la necesidad y los fragmentos (`at.fragments`, de 1 a 5 fragmentos `JUDGE_BATCH`, y `expectedRelevant` en orden):
@@ -302,10 +302,10 @@ export default mi_variante;
 ## 8. Cruce con el pre-chequeo (`eval:cross`)
 
 ```bash
-npm run eval:cross -- [--dataset=<a,b>] [--runs=<carpeta de la corrida>] [--baseline=<variante>] [--label=x] [--help]
+npm run eval:cross -- --dataset=<a,b> [--runs=<carpeta de la corrida>] [--label=x]
 ```
 
-Usa parseo estricto de flags (falla con exit `2` ante flags desconocidos, vacíos o carpetas inexistentes). `--dataset` acepta nombres (`args_review_D3/args_review_16_cases`), con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y las compara contra `--baseline`/`d3` (`prod` por defecto), y resume D4 con `NOUL_APPROVE`. Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).
+`--dataset` acepta nombres (`args_review_D3/args_review_16_cases`), con `.jsonl` o rutas a un `.jsonl` (no carpetas ni globs). Sin `--runs` mide solo el pre-chequeo de producción sobre los casos `args_review`; con `--runs` compone cuatro tuberías con las etiquetas de D3 y las compara contra `prod`/`d3`, y resume D4 con `NOUL_APPROVE`. Salida en `eval/results/_cross/<YYYY-MM-DD-HH-mm>[_<label>]/` (`cross.md`, `cross.json`).
 
 ---
 

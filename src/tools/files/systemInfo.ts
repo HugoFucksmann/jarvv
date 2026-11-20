@@ -17,7 +17,7 @@ import { omissionMarker } from "../../core/text.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
-import { formatSize } from "./paths.ts";
+import { formatSize } from "../../core/tools/filePaths.ts";
 
 const execFileAsync = promisify(execFile);
 

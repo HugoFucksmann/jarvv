@@ -1,9 +1,8 @@
 /**
- * `jarvis_files`: comparación de nombres de archivos y carpetas para `find_files`.
+ * JARVIS Core — Comparación literal de nombres de archivos y carpetas mediante comodines (`*`, `?`, `|`).
  *
  * Sin `*` ni `?`, busca subcadena (sin distinguir mayúsculas); con `*` o `?`, coincide con el
  * nombre completo usando comodines literales (nunca regex: `\`, `(`, `[` y `.` son literales).
- * Se aceptan alternativas separadas por `|`.
  */
 
 /** Prioridad de ordenamiento: `0` = exacto, `1` = prefijo, `2` = contiene / comodín inicial. */
@@ -55,13 +54,13 @@ export function globMatch(pattern: string, text: string): boolean {
   return pi === p.length;
 }
 
-export function parsePattern(raw: string): ParsedPattern {
+export function parsePattern(raw: string, fieldName = "pattern"): ParsedPattern {
   const trimmed = raw.trim();
   if (trimmed === "") {
-    return { ok: false, message: "'pattern' is required and must not be empty." };
+    return { ok: false, message: `'${fieldName}' is required and must not be empty.` };
   }
   if (trimmed.length > MAX_PATTERN_CHARS) {
-    return { ok: false, message: `'pattern' is too long (max ${MAX_PATTERN_CHARS} characters).` };
+    return { ok: false, message: `'${fieldName}' is too long (max ${MAX_PATTERN_CHARS} characters).` };
   }
 
   const parts = trimmed
@@ -70,7 +69,7 @@ export function parsePattern(raw: string): ParsedPattern {
     .filter((part) => part !== "");
 
   if (parts.length === 0) {
-    return { ok: false, message: "'pattern' must contain at least one non-empty name or wildcard." };
+    return { ok: false, message: `'${fieldName}' must contain at least one non-empty name or wildcard.` };
   }
 
   const matchers: PatternMatcher[] = parts.map((part) => {

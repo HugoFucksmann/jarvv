@@ -142,8 +142,8 @@ async function observe(s: Scenario): Promise<Observed> {
       isConnected: () => true,
       reconnect: async () => undefined,
     });
-    const servers: Record<string, IMCPServer> = { desktop_commander: provider("desktop_commander", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS) };
-    const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? TERMINAL_TOOLS : name === "desktop_commander" ? FILE_TOOLS : []);
+    const servers: Record<string, IMCPServer> = { jarvis_files: provider("jarvis_files", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS) };
+    const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? TERMINAL_TOOLS : name === "jarvis_files" ? FILE_TOOLS : []);
 
     const entries: BlacklistEntry[] =
       s.list === undefined ? [] : [{ tool: op.tool, pattern: s.listPattern ?? "nueva|existe|a\\.txt", reason: "Regla de prueba.", level: s.list }];

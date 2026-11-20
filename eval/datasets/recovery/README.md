@@ -30,7 +30,7 @@ Es una regla de trabajo para tener etiquetas consistentes, no una verdad: **hay 
 
 Un programa de desarrollo que falta (`node`, `pip`, `git`) se etiquetó `replan` (se puede instalar); una aplicación de escritorio que falta (Photoshop, Word) se etiquetó `close`. Es un criterio, no una verdad.
 
-`at.attempts` pesa en la regla 1: con un solo intento y un error corregible se espera `rewrite_item`; con dos o más intentos y el mismo tipo de error, no. Tanto estos datasets como el motor (`src/core/engine/recoveryShadow.ts`) miden `attempts` como **pasos fallidos seguidos** (`ctx.consecutiveFailures()`); en los casos de 2 o 3 intentos, `scenario.steps` termina con 2 o 3 pasos `failed` seguidos (cada uno con su llamada asociada vía `step`). Ver `eval/GUIA_DECISION.md`, «Modo sombra».
+`at.attempts` pesa en la regla 1: con un solo intento y un error corregible se espera `rewrite_item`; con dos o más intentos y el mismo tipo de error, no. **Ojo:** en estos datasets `attempts` cuenta las llamadas fallidas del caso; en el motor, el prompt recibe los **pasos fallidos seguidos** (y un paso falla tras 2 o 3 errores de la herramienta). Ver `eval/GUIA_DECISION.md`, «Modo sombra».
 
 ## Formato de un caso
 
@@ -44,8 +44,8 @@ Un programa de desarrollo que falta (`node`, `pip`, `git`) se etiquetó `replan`
  "expect":{"expectedAction":"replan"}}
 ```
 
-- El último paso en `steps` debe estar `failed` (si `at.attempts` > 1, los últimos `attempts` pasos de `steps` deben ser `failed` seguidos, con sus llamadas atribuidas vía `step` para coincidir con `ctx.consecutiveFailures()`). Las llamadas fallidas se escriben como las registra el motor (`tool_error` y `exception` con `verdict: rejected` y `reason: no_usable_data`; un resultado que no sirve, `ok` con `verdict: rejected` y `reason: not_accomplished`; `args_invalid` y `tool_rejected` sin veredicto).
-- `at.previous`: la lista de la vuelta, con el ítem fallido de primero. `at.cause`: una causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`). `at.attempts`: entero ≥ 1 igual al total de pasos `failed` seguidos al final de `steps`.
+- El último paso en `steps` debe estar `failed`; sus llamadas fallidas se escriben como las registra el motor (`tool_error` y `exception` con `verdict: rejected` y `reason: no_usable_data`; un resultado que no sirve, `ok` con `verdict: rejected` y `reason: not_accomplished`; `args_invalid` y `tool_rejected` sin veredicto).
+- `at.previous`: la lista de la vuelta, con el ítem fallido de primero. `at.cause`: una causa del motor (`tool_failed`, `verify_rejected`, `review_rejected`, `call_cap`, `repeat_blocked`, `user_rejected`, `denied`, `no_tools`). `at.attempts`: entero ≥ 1.
 - `expect.expectedAction` (obligatoria) y `expect.minProbability` (opcional).
 
 ## Qué contiene
