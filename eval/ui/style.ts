@@ -30,7 +30,7 @@ export const vlen = (s: string): number => s.replace(ANSI_RE, "").length;
 /** `padEnd` que ignora las secuencias ANSI. */
 export const padEnd = (s: string, n: number): string => s + " ".repeat(Math.max(0, n - vlen(s)));
 
-export const WIDTH = Math.max(56, Math.min(process.stdout.columns ?? 80, 84));
+export const getWidth = (): number => Math.max(56, Math.min(process.stdout.columns ?? 80, 84));
 
 export const sym = {
   pointer: c.cyan("❯"),
@@ -62,12 +62,12 @@ export function clip(s: string, n: number): string {
 }
 
 /** Línea horizontal del ancho de la consola (`heavy` = trazo grueso). */
-export const rule = (heavy = false): string => c.gray((heavy ? "━" : "─").repeat(WIDTH));
+export const rule = (heavy = false): string => c.gray((heavy ? "━" : "─").repeat(getWidth()));
 
-/** Caja con bordes redondeados. Las líneas que superan `WIDTH - 4` caracteres visibles se recortan con "…". */
+/** Caja con bordes redondeados. Las líneas que superan `getWidth() - 4` caracteres visibles se recortan con "…". */
 export function box(lines: string[], opts: { title?: string; color?: (s: string) => string } = {}): string {
   const color = opts.color ?? c.gray;
-  const inner = WIDTH - 2;
+  const inner = getWidth() - 2;
   const title = opts.title ? clip(opts.title, inner - 4) : undefined;
   const top = title
     ? `${color("╭─")} ${c.bold(title)} ${color("─".repeat(Math.max(0, inner - vlen(title) - 3)) + "╮")}`
@@ -77,7 +77,7 @@ export function box(lines: string[], opts: { title?: string; color?: (s: string)
 }
 
 /** Título de sección con línea separadora (como texto, para componer vistas sin imprimir). */
-export const heading = (title: string): string => `\n${c.violet(c.bold(title))}\n${c.gray("─".repeat(WIDTH))}`;
+export const heading = (title: string): string => `\n${c.violet(c.bold(title))}\n${c.gray("─".repeat(getWidth()))}`;
 
 /** Imprime un título de sección. */
 export function section(title: string): void {
@@ -127,7 +127,7 @@ export function columns(
 ): string[] {
   const { cols: maxCols = 2, gap = 4, indent = 2, minItems = 4, rowGap = 0 } = opts;
   if (cells.length === 0) return [];
-  const avail = WIDTH - indent;
+  const avail = getWidth() - indent;
   const natural = Math.max(...cells.flatMap((cell) => cell.split("\n")).map(vlen));
   let cols = cells.length >= minItems ? maxCols : 1;
   while (cols > 1 && cols * natural + (cols - 1) * gap > avail) cols--;
@@ -151,7 +151,7 @@ export function columns(
   return lines;
 }
 
-/** Encabezado de paso: título, barra de progreso y breadcrumb (omitido si no entra en `WIDTH`). */
+/** Encabezado de paso: título, barra de progreso y breadcrumb (omitido si no entra en `getWidth()`). */
 export function stepHeader(n: number, labels: readonly string[]): void {
   const bar = labels.map((_, i) => (i < n ? c.cyan("▰▰") : c.gray("▱▱"))).join(" ");
   const crumbs = labels
@@ -160,14 +160,14 @@ export function stepHeader(n: number, labels: readonly string[]): void {
   console.log();
   console.log(rule(true));
   console.log(`${c.violet(c.bold(`PASO ${n}/${labels.length}`))}  ${c.bold(labels[n - 1])}   ${bar}`);
-  if (vlen(crumbs) <= WIDTH) console.log(crumbs);
+  if (vlen(crumbs) <= getWidth()) console.log(crumbs);
   console.log(rule());
 }
 
 /** Caja clave/valor; los valores separados por ", " se parten en varias líneas si no entran. */
 export function kvBox(rows: Array<[string, string]>, opts: { title?: string; color?: (s: string) => string } = {}): string {
   const keyW = Math.max(...rows.map(([k]) => k.length));
-  const valW = Math.max(10, WIDTH - 4 - (keyW + 4));
+  const valW = Math.max(10, getWidth() - 4 - (keyW + 4));
   const lines: string[] = [];
   for (const [k, v] of rows) {
     wrapList(v.split(", "), valW, ", ").forEach((part, i) => {

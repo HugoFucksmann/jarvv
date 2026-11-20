@@ -4,12 +4,13 @@
  * Etapa D0: primera consulta de la tarea reactiva (charla, una acción o varias).
  */
 
-import { FIRST_QUERY_KINDS, firstQueryKind } from "../../../src/core/engine/firstQuery.ts";
+import { FIRST_QUERY_KINDS, firstQueryKind } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { D0LabelGrader } from "../graders/label.ts";
 import type { ChoiceQ, D0Expect, D0Output, DecisionRequest, NoulQ } from "../types.ts";
 import { extractNoul, mainChoice, parseAnswers } from "../variants/labels.ts";
-import type { DecisionStageEntry } from "./index.ts";
+import { checkRange01 } from "./shared.ts";
+import type { DecisionStageEntry } from "./types.ts";
 
 export const d0Stage: DecisionStageEntry<D0Output, D0Expect> = {
   stageName: "d0",
@@ -18,12 +19,26 @@ export const d0Stage: DecisionStageEntry<D0Output, D0Expect> = {
     keys: { expectedKind: "string", minChatProbability: "number", maxChatProbability: "number", answers: "object" },
     required: ["expectedKind"],
     enums: { expectedKind: FIRST_QUERY_KINDS as readonly string[] },
+    validate(expectObj, errs) {
+      checkRange01(expectObj, ["minChatProbability", "maxChatProbability"], errs);
+    },
   },
   graders: [LatencyGrader, D0LabelGrader],
   buildRequest(sc, ov, h) {
     // La primera consulta de la tarea: solo la solicitud, sin contexto (como `Decision20Engine.firstQuery`).
     if (sc.mode !== "reactive") throw new Error("etapa 'd0': la primera consulta solo existe en modo reactivo.");
     return h.decision(h.effectivePrompts(ov).D.buildFirstQuery({ request: sc.request }));
+  },
+  validateRequest(req) {
+    const kindQ = req.questions.kind;
+    if (!kindQ || kindQ.type !== "choice") return "d0 requiere pregunta choice 'kind'.";
+    for (const k of FIRST_QUERY_KINDS) {
+      if (!(k in kindQ.criteria)) return `kind.criteria debe incluir '${k}'.`;
+    }
+    if (!req.questions.multi || req.questions.multi.type !== "noul") {
+      return "d0 requiere pregunta noul 'multi'.";
+    }
+    return null;
   },
   parseOutput(rawOutput: string, sentReq: DecisionRequest): D0Output {
     const answers = parseAnswers(rawOutput);

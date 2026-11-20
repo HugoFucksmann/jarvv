@@ -6,142 +6,21 @@
  * Agregar una etapa nueva al eval requiere solo su módulo en `stages/`, variantes y dataset.
  */
 
-import type { ConfigManager } from "../../../src/core/config.ts";
-import type { TaskContext } from "../../../src/core/ctx/index.ts";
-import type { PrecheckSources } from "../../../src/core/engine/precheck.ts";
-import type { UserEnvironment } from "../../../src/core/environment.ts";
-import type { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
-import type { PromptSet, StageRequest } from "../../../src/core/models/stageRequests.ts";
-import type { MCPTool } from "../../../src/core/types.ts";
-import type { ExecutableRoute } from "../../../src/core/types/routes.ts";
-import type { GenerativeCallContext, PreparedRequest } from "../client/generative.ts";
-import type { ToolInputSchema, VariantPrompts } from "../contract.ts";
-import type { Materialized, Scenario, ScenarioAt } from "../scenario.ts";
-import type {
-  Case,
-  ChoiceQ,
-  DecisionReaders,
-  DecisionRequest,
-  DecisionStage,
-  GenerativeRequest,
-  Grader,
-  GraderCollector,
-  GraderContext,
-  NoulQ,
-  StageName,
-} from "../types.ts";
+import type { DecisionStage, Grader, GraderCollector, GraderContext, StageName } from "../types.ts";
+import type { AnyStageEntry, DecisionStageEntry, GenerativeStageEntry } from "./types.ts";
 
-// ───────────────────────── Tipos del registro ─────────────────────────
-
-/** Info de etiqueta producida por cada etapa para el registro RunRecord. */
-export interface LabelInfo {
-  predicted: string | null;
-  expected: string | null;
-  rawScore: number | null;
-  probabilities: Record<string, number> | null;
-}
-
-export type ExpectKind = "string" | "number" | "boolean" | "string[]" | "boolean[]" | "object";
-
-export interface ExpectSpec {
-  keys: Record<string, ExpectKind>;
-  /** Al menos una de estas claves debe estar presente (un `expect` sin ningún check no es válido). */
-  atLeastOne?: string[];
-  required?: string[];
-  enums?: Record<string, readonly string[]>;
-  /** Validaciones semánticas específicas de la etapa sobre `expect`. */
-  validate?: (expectObj: Record<string, unknown>, errs: string[], request?: unknown) => void;
-}
-
-export interface MainBinding {
-  question: string;
-  expected: string | null;
-}
-
-export interface ScenarioHelpers {
-  buildContext(sc: Scenario): { ctx: TaskContext; callIds: string[] };
-  effectivePrompts(ov?: VariantPrompts): { P: PromptSet; D: typeof DECISION_PROMPTS };
-  decision(d: { state: string; questions: unknown }): Materialized;
-  generative(r: StageRequest, schemaName?: string): GenerativeRequest;
-  precheckBase(
-    ctx: TaskContext,
-    route: ExecutableRoute,
-    toolName: string,
-    atEnvironment: ScenarioAt["environment"],
-  ): { kind: "read" | "write"; sources: PrecheckSources; environment: UserEnvironment };
-  toolOf(route: ExecutableRoute, name: string, inputSchema?: ToolInputSchema): MCPTool;
-  need<T>(value: T | undefined, what: string, stage: string): T;
-  config(): ReturnType<typeof ConfigManager.getConfig>;
-}
-
-export interface OracleHelpers {
-  rec(v: unknown): Record<string, unknown>;
-  strs(v: unknown): string[];
-  num(v: unknown): number | undefined;
-  firstAlt(terms: string[]): string[];
-  allAlts(terms: string[]): string[];
-  fold(s: string): string;
-  mockPlanRoute(prepared: PreparedRequest): string;
-}
-
-export interface GenerativePostCheckContext<TOutput> {
-  parsed: TOutput;
-  fc: Case;
-  collector: GraderCollector;
-}
-
-/** Entrada del registro para una etapa de decisión. */
-export interface DecisionStageEntry<TOutput, TExpect> {
-  stageName: StageName;
-  requestType: "decision";
-  /** Pregunta cuya única opción dispara el atajo de producción (`prod_shortcut`). */
-  shortcutQuestion?: string;
-  expectSpec: ExpectSpec;
-  /** Lista de graders a ejecutar (en orden). */
-  graders: Grader<TOutput, TExpect>[];
-  buildRequest(sc: Scenario, ov: VariantPrompts | undefined, h: ScenarioHelpers): Materialized;
-  /** Parsea el texto crudo de la respuesta. Lanza en error de parseo. */
-  parseOutput(
-    rawOutput: string,
-    sentReq: DecisionRequest,
-    read: DecisionReaders | undefined,
-  ): TOutput;
-  /** Calcula etiquetas para scoring (7.8). */
-  label(output: TOutput | undefined, expect: TExpect | undefined): LabelInfo;
-  /** Preguntas principales que alimentan la salida canónica de la etapa. */
-  mainQuestionBindings(req: DecisionRequest, canonicalExpected: string | null, expect: TExpect): MainBinding[];
-  /** Respuesta ideal del oráculo para una pregunta de esta etapa. */
-  oracleAnswer(key: string, q: ChoiceQ | NoulQ, expect: TExpect): string | boolean | undefined;
-}
-
-/** Entrada del registro para una etapa generativa. */
-export interface GenerativeStageEntry<TOutput, TExpect> {
-  stageName: StageName;
-  requestType: "generative";
-  /** true → una salida truncada (`finishReason === "length"`) se rechaza siempre. */
-  rejectTruncated: boolean;
-  expectSpec: ExpectSpec;
-  graders: Grader<TOutput, TExpect>[];
-  buildRequest(sc: Scenario, ov: VariantPrompts | undefined, h: ScenarioHelpers): Materialized;
-  /** Parsea el texto crudo de la respuesta (ya sin <think> para final/question). Lanza en error. */
-  parseOutput(
-    rawOutput: string,
-    sentReq: GenerativeRequest,
-    toolSchema?: ToolInputSchema,
-  ): TOutput;
-  label(output: TOutput | undefined, expect: TExpect | undefined): LabelInfo;
-  /** Chequeos deterministas posteriores sobre la salida parseada (solo cliente real). */
-  postCheck?: (ctx: GenerativePostCheckContext<TOutput>) => Promise<void> | void;
-  /** Salida sintética válida para `--client=oracle`. */
-  oracleOutput(
-    prepared: PreparedRequest,
-    ctx: GenerativeCallContext | undefined,
-    expect: Record<string, unknown>,
-    h: OracleHelpers,
-  ): string;
-}
-
-export type AnyStageEntry = DecisionStageEntry<any, any> | GenerativeStageEntry<any, any>;
+export type {
+  AnyStageEntry,
+  DecisionStageEntry,
+  ExpectKind,
+  ExpectSpec,
+  GenerativePostCheckContext,
+  GenerativeStageEntry,
+  LabelInfo,
+  MainBinding,
+  OracleHelpers,
+  ScenarioHelpers,
+} from "./types.ts";
 
 // ───────────────────────── Registro ─────────────────────────
 

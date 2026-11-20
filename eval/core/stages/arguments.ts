@@ -4,31 +4,45 @@
  * Etapa generativa `arguments`: generación de argumentos para una herramienta.
  */
 
-import { argsInput, renderArgsView } from "../../../src/core/engine/adapters.ts";
-import { analyzePowerShell, precheckCall } from "../../../src/core/engine/precheck.ts";
-import type { CommandAnalyzer } from "../../../src/core/engine/precheck.ts";
-import { argumentsStageRequest } from "../../../src/core/models/stageRequests.ts";
-import { argsProblemText, isRecord, NOT_JSON_ERROR, parseJsonObject, validateArgs } from "../contract.ts";
-import type { ToolInputSchema } from "../contract.ts";
+import {
+  analyzePowerShell,
+  argsInput,
+  argsProblemText,
+  argumentsStageRequest,
+  isRecord,
+  NOT_JSON_ERROR,
+  parseJsonObject,
+  precheckCall,
+  renderArgsView,
+  validateArgs,
+} from "../contract.ts";
+import type { CommandAnalyzer, ToolInputSchema } from "../contract.ts";
 import { ArgumentsGrader } from "../graders/arguments.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import type { ArgumentsExpect, ArgumentsOutput, GenerativeRequest } from "../types.ts";
-import type { GenerativeStageEntry, OracleHelpers } from "./index.ts";
 import { noLabel } from "./shared.ts";
+import type { GenerativeStageEntry, OracleHelpers } from "./types.ts";
 
-/** El analizador de producción, con caché acotado por comando (cada análisis lanza un PowerShell). */
+/** El analizador de producción, con caché LRU acotado por comando (cada análisis lanza un PowerShell). */
 const MAX_ANALYSIS_CACHE = 512;
 const analysisCache = new Map<string, ReturnType<CommandAnalyzer>>();
 const cachedAnalyze: CommandAnalyzer = (command) => {
-  let r = analysisCache.get(command);
-  if (r === undefined) {
-    if (analysisCache.size >= MAX_ANALYSIS_CACHE) {
-      const oldest = analysisCache.keys().next().value;
-      if (oldest !== undefined) analysisCache.delete(oldest);
-    }
-    r = analyzePowerShell(command);
-    analysisCache.set(command, r);
+  const existing = analysisCache.get(command);
+  if (existing !== undefined) {
+    // Reciente al final (LRU real).
+    analysisCache.delete(command);
+    analysisCache.set(command, existing);
+    return existing;
   }
+  if (analysisCache.size >= MAX_ANALYSIS_CACHE) {
+    const oldest = analysisCache.keys().next().value;
+    if (oldest !== undefined) analysisCache.delete(oldest);
+  }
+  const r = analyzePowerShell(command);
+  analysisCache.set(command, r);
+  r.catch(() => {
+    if (analysisCache.get(command) === r) analysisCache.delete(command);
+  });
   return r;
 };
 

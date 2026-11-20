@@ -8,9 +8,9 @@
  * - Decide condicionalmente si actualizar `conclusiones.md` al final de cada vuelta (§7.1).
  */
 
-import { parseJsonObject, stripThink } from "../../src/core/models/qwen.ts";
-import { postJson as prodPostJson, TransportError } from "../../src/core/models/transport.ts";
 import { resolveUrl } from "../core/client/generative.ts";
+import { parseJsonObject, postJson as prodPostJson, stripThink, TransportError } from "../core/contract.ts";
+import type { RawDatasetCache } from "../core/datasets.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
 import { isDecisionStage } from "../core/stages/index.ts";
 import type { AutoConfig } from "./config.ts";
@@ -265,15 +265,20 @@ function formatFailuresBlock(samples: FailureSample[]): string {
     return "No hubo fallos en los casos evaluados del Top-1.";
   }
   return samples
-    .map((s, i) => [
-      `### Caso ${i + 1}: ${s.id} [${s.dataset}] (${s.priority})`,
-      `Checks fallidos: ${s.failedChecks.join(", ") || "ninguno"}`,
-      s.errors.length > 0 ? `Errores: ${s.errors.join(" | ")}` : null,
-      `Expected: ${s.expected}`,
-      `Predicted: ${s.predicted}`,
-      `Input:\n${s.inputCompact}`,
-      s.rawOutput ? `RawOutput: ${s.rawOutput}` : null,
-    ].filter(Boolean).join("\n"))
+    .map((s, i) => {
+      const rateInfo = s.totalAttempts && s.totalAttempts > 1
+        ? `, falló ${s.failedAttempts ?? "?"}/${s.totalAttempts} intentos`
+        : "";
+      return [
+        `### Caso ${i + 1}: ${s.id} [${s.dataset}] (${s.priority}${rateInfo})`,
+        `Checks fallidos: ${s.failedChecks.join(", ") || "ninguno"}`,
+        s.errors.length > 0 ? `Errores: ${s.errors.join(" | ")}` : null,
+        `Expected: ${s.expected}`,
+        `Predicted: ${s.predicted}`,
+        `Input:\n${s.inputCompact}`,
+        s.rawOutput ? `RawOutput: ${s.rawOutput}` : null,
+      ].filter(Boolean).join("\n");
+    })
     .join("\n\n");
 }
 
@@ -420,9 +425,11 @@ export async function generateVariantsForRound(opts: {
   failureSamples: FailureSample[];
   devDatasetPaths: string[];
   knownHashes: Set<string>;
+  variantsRoot?: string;
+  rawCache?: RawDatasetCache;
   callLlm?: OptimizerLlmCaller;
 }): Promise<RoundGenerationOutput> {
-  const { cfg, round, runTag, devDatasetPaths, knownHashes } = opts;
+  const { cfg, round, runTag, devDatasetPaths, knownHashes, variantsRoot, rawCache } = opts;
   const llm = opts.callLlm ?? defaultOptimizerLlmCall;
   const apiKey = cfg.optimizerApiKeyEnv ? process.env[cfg.optimizerApiKeyEnv] : undefined;
   const prodPromptSource = extractProdPromptSource(cfg.stage);
@@ -499,6 +506,8 @@ export async function generateVariantsForRound(opts: {
         rawCode: candidate.code,
         devDatasetPaths,
         knownHashes: roundHashes,
+        variantsRoot,
+        rawCache,
       });
 
       if (validation.ok) {

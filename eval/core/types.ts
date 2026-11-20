@@ -1,13 +1,11 @@
 /**
  * eval/core/types.ts
  *
- * Tipos del eval de prompts (esquema v3). Importa tipos de `contract.ts` (que los toma de `src/`) y, directamente, `UserEnvironment` y `PrecheckSources` de `src/`.
+ * Tipos del eval de prompts (esquema v3). Importa tipos de `contract.ts` (que los reexporta desde `src/`).
  * Un solo formato de caso (el escenario, `scenario.ts`) y un solo formato de variante (prompts enteros, `Variant`).
  */
 
-import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
-import type { UserEnvironment } from "../../src/core/environment.ts";
-import type { PrecheckSources } from "../../src/core/engine/precheck.ts";
+import type { PrecheckSources, ToolInputSchema, UserEnvironment, VariantPrompts } from "./contract.ts";
 
 /** Versión del esquema de salida. Incrementar al cambiar campos incompatibles. */
 export const SCHEMA_VERSION = 3 as const;
@@ -277,10 +275,7 @@ export interface QuestionExpect {
 
 // pending (lista de pendientes del reactivo)
 export interface PendingOutput {
-  /** Textos de los pendientes (en la variante con objetos, el `goal` de cada ítem que lo trae). */
   pending: string[];
-  /** Solo si el modelo devolvió objetos (variante `pending2`): los ítems tal cual, para validar su estructura. */
-  rich?: unknown[];
 }
 export interface PendingExpect {
   /** `true`: la lista debe venir vacía (nada por hacer); `false`: debe tener al menos un pendiente. */
@@ -310,37 +305,6 @@ export type StageExpect =
 
 // ───────────────────────── Variantes ─────────────────────────
 
-/** Parámetros de una etapa generativa que no son texto del prompt (valores, no ediciones). */
-export interface ParamsOverride {
-  thinking?: boolean;
-  maxTokens?: number;
-  temperature?: number;
-  schema?: Record<string, unknown>;
-  reasoningEffort?: string;
-}
-
-/** Respuesta de una pregunta enviada, tal como la lee el eval: `noul` con su valor, `choice` con sus probabilidades. */
-export type ReadAnswer = { probabilities?: Record<string, number>; noul?: number };
-
-/**
- * Cómo interpretar las respuestas cuando la variante cambia el conjunto de preguntas de la etapa. Opcional: si la variante conserva
- * las preguntas de producción (`review`; `ok` y `cumple`, ambas `noul`), se usa la lectura de producción y no hace falta escribir nada.
- */
-export interface DecisionReaders {
-  /** `args_review`: de las respuestas `noul` enviadas (clave → probabilidad de sí) a la etiqueta y sus probabilidades. */
-  args_review?: (answers: Record<string, number>) => { choice: string; probabilities: Record<string, number> };
-  /** `args_review` (con cualquier tipo de pregunta, `choice` y `noul`): recibe `ReadAnswer` por clave. */
-  args_review_read?: (answers: Record<string, ReadAnswer>) => { choice: string; probabilities: Record<string, number> };
-  /** `result_verification`: de las respuestas de todas las preguntas enviadas a las probabilidades de `ok` y `cumple`. */
-  result_verification?: (answers: Record<string, ReadAnswer>) => { ok: number; cumple: number };
-  /** `fragment_judge`: de las respuestas enviadas por pregunta a las probabilidades o relevancia por fragmento. */
-  fragment_judge?: (answers: Record<string, ReadAnswer>) => { probabilities: number[]; relevant: boolean[] };
-  /** `d5`: de las respuestas de todas las preguntas enviadas al veredicto de cierre y su probabilidad. */
-  d5?: (answers: Record<string, ReadAnswer>) => { complete?: boolean; probability: number };
-  /** `continuation`: de las respuestas de todas las preguntas enviadas al veredicto de continuación y su probabilidad. */
-  continuation?: (answers: Record<string, ReadAnswer>) => { follows?: boolean; probability: number };
-}
-
 /**
  * Una variante es un archivo `variants/<nombre>.ts` con prompts ENTEROS (ver `VariantPrompts`). No hay ediciones sobre el prompt de
  * producción ni composición de variantes: el texto que se prueba es el que está escrito en el archivo.
@@ -350,10 +314,6 @@ export interface Variant {
   name: string;
   /** Vistas generativas completas (`PROMPTS.<vista>`) y constructores de decisión completos (`DECISION_PROMPTS.<constructor>`). */
   prompts?: VariantPrompts;
-  /** Parámetros por etapa generativa (única perilla que no es texto). */
-  params?: Partial<Record<GenerativeStage, ParamsOverride>>;
-  /** Lectura de las respuestas si cambia el conjunto de preguntas. */
-  read?: DecisionReaders;
 }
 
 // ───────────────────────── Resultados ─────────────────────────
@@ -419,7 +379,7 @@ export interface RunRecord {
   };
   /**
    * sha256 (16 hex) del PRIMER request ya transformado: identifica el prompt del caso y no cambia si el modelo necesitó un
-   * reintento (que es azaroso). En decisiones el reintento repite el mismo request.
+   * reintento generativo.
    */
   requestHash: string;
   /** Body del último intento enviado, el que produjo `rawOutput`. Con reintento generativo lleva la nota de error y los parámetros de reintento. */

@@ -4,8 +4,7 @@
  * Cliente de las etapas de decisión (route, tool_choice, args_review, result_verification).
  */
 
-import { ConfigManager } from "../../../src/core/config.ts";
-import { estimateTokens } from "../contract.ts";
+import { ConfigManager, estimateTokens } from "../contract.ts";
 import type { DecisionRequest } from "../types.ts";
 import { postJson } from "./generative.ts";
 import type { PreparedRequest } from "./generative.ts";

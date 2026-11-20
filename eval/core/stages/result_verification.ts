@@ -4,15 +4,13 @@
  * Etapa `result_verification` (Decisión 4): verificar si el resultado cumple el paso.
  */
 
-import { verifyInput } from "../../../src/core/engine/adapters.ts";
-import { codeAnswersOk } from "../../../src/core/engine/postcondition.ts";
-import { VERIFY_APPROVE } from "../contract.ts";
+import { codeAnswersOk, VERIFY_APPROVE, verifyInput } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ResultVerificationGrader } from "../graders/label.ts";
-import type { ChoiceQ, DecisionReaders, DecisionRequest, NoulQ, ResultVerificationExpect, ResultVerificationOutput } from "../types.ts";
-import { extractNoul, parseAnswers, readAllAnswers } from "../variants/labels.ts";
-import type { DecisionStageEntry } from "./index.ts";
+import type { ChoiceQ, DecisionRequest, NoulQ, ResultVerificationExpect, ResultVerificationOutput } from "../types.ts";
+import { extractNoul, parseAnswers } from "../variants/labels.ts";
 import { checkRange01, NO, YES } from "./shared.ts";
+import type { DecisionStageEntry } from "./types.ts";
 
 export const resultVerificationStage: DecisionStageEntry<ResultVerificationOutput, ResultVerificationExpect> = {
   stageName: "result_verification",
@@ -55,18 +53,20 @@ export const resultVerificationStage: DecisionStageEntry<ResultVerificationOutpu
       }),
     );
   },
-  parseOutput(rawOutput: string, sentReq: DecisionRequest, read: DecisionReaders | undefined): ResultVerificationOutput {
-    const answers = parseAnswers(rawOutput);
-    const reader = read?.result_verification;
-    let ok: number;
-    let cumple: number;
-    if (reader) {
-      ({ ok, cumple } = reader(readAllAnswers(sentReq, answers)));
-    } else {
-      // Producción responde `ok` por código en lecturas deterministas con contenido (`known`): la pregunta no se envía y vale 1.
-      ok = sentReq.questions.ok === undefined ? 1 : extractNoul(answers, "ok");
-      cumple = extractNoul(answers, "cumple");
+  validateRequest(req) {
+    if (!req.questions.cumple || req.questions.cumple.type !== "noul") {
+      return "result_verification requiere pregunta noul 'cumple'.";
     }
+    if (req.questions.ok !== undefined && req.questions.ok.type !== "noul") {
+      return "la pregunta 'ok' debe ser type: 'noul'.";
+    }
+    return null;
+  },
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): ResultVerificationOutput {
+    const answers = parseAnswers(rawOutput);
+    // Producción responde `ok` por código en lecturas deterministas con contenido (`known`): la pregunta no se envía y vale 1.
+    const ok = sentReq.questions.ok === undefined ? 1 : extractNoul(answers, "ok");
+    const cumple = extractNoul(answers, "cumple");
     return { ok: ok >= VERIFY_APPROVE.ok, cumple: cumple >= VERIFY_APPROVE.cumple, okProbability: ok, cumpleProbability: cumple };
   },
   label(output, expect) {

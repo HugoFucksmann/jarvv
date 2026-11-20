@@ -7,7 +7,7 @@
 
 import { isRecord } from "./contract.ts";
 import { allStageNames, getStage, hasStage } from "./stages/index.ts";
-import type { ExpectKind } from "./stages/index.ts";
+import type { ExpectKind } from "./stages/types.ts";
 import type { Case, StageName } from "./types.ts";
 
 /** Tag automático: decisión con una sola opción (producción omitiría la llamada). */

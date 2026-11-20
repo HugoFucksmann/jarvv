@@ -19,13 +19,12 @@
  * rechazados (buenos que no pasan) y el peor caso malo (la mayor probabilidad de aprobar entre los malos: menos es mejor).
  */
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import type { CommandReport } from "../src/core/engine/precheck.ts";
-import { analyzePowerShell } from "../src/core/engine/precheck.ts";
-import { NOUL_APPROVE, OK_APPROVE } from "../src/core/engine/verify.ts";
-import { getToolPolicy, serverOf } from "../src/core/tools/manifest.ts";
+import { analyzePowerShell, getToolPolicy, NOUL_APPROVE, OK_APPROVE, serverOf } from "./core/contract.ts";
+import type { CommandReport } from "./core/contract.ts";
 import { datasetName, resolveDatasetPaths } from "./core/datasets.ts";
+import { atomicWriteFileSync, forEachJsonlLineSync } from "./core/io.ts";
 import { signTestP } from "./core/report.ts";
 import type { Scenario } from "./core/scenario.ts";
 import { scenarioPrecheck } from "./core/scenario.ts";
@@ -58,17 +57,17 @@ function flag(name: string): string | undefined {
 function loadCases(dataset: string): Array<{ dataset: string; cases: RawCase[] }> {
   return resolveDatasetPaths([dataset]).map((path) => {
     const cases: RawCase[] = [];
-    for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+    forEachJsonlLineSync(path, (line) => {
       const t = line.trim();
-      if (t === "" || t.startsWith("#")) continue;
+      if (t === "" || t.startsWith("#")) return;
       let c: RawCase;
       try {
         c = JSON.parse(t) as RawCase;
       } catch {
-        continue;
+        return;
       }
       if (c.stage === "args_review" && c.scenario !== undefined && c.expect?.expectedReview !== undefined) cases.push(c);
-    }
+    });
     return { dataset: datasetName(path), cases };
   });
 }
@@ -146,16 +145,16 @@ function loadRuns(dir: string): D3Run[] {
     const file = join(dir, entry.name, "runs.jsonl");
     if (!existsSync(file)) continue;
     const byCase = new Map<string, string>();
-    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-      if (line.trim() === "") continue;
+    forEachJsonlLineSync(file, (line) => {
+      if (line.trim() === "") return;
       let r: { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
       try {
         r = JSON.parse(line) as { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
       } catch {
-        continue;
+        return;
       }
       if (r.stage === "args_review" && r.iteration === 1 && r.predictedLabel !== null) byCase.set(r.caseId, r.predictedLabel);
-    }
+    });
     if (byCase.size > 0) out.push({ variant: entry.name.slice(0, i), dataset: entry.name.slice(i + 2), byCase });
   }
   return out;
@@ -274,21 +273,21 @@ function d4Report(dir: string): string[] {
     const i = entry.name.lastIndexOf("__");
     const file = join(dir, entry.name, "runs.jsonl");
     if (!existsSync(file)) continue;
-    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-      if (line.trim() === "") continue;
+    forEachJsonlLineSync(file, (line) => {
+      if (line.trim() === "") return;
       let r: { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
       try {
         r = JSON.parse(line) as { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
       } catch {
-        continue;
+        return;
       }
-      if (r.stage !== "result_verification" || r.iteration !== 1 || r.parsedOutput?.okProbability === undefined || r.parsedOutput.cumpleProbability === undefined) continue;
+      if (r.stage !== "result_verification" || r.iteration !== 1 || r.parsedOutput?.okProbability === undefined || r.parsedOutput.cumpleProbability === undefined) return;
       const sample = { ok: r.parsedOutput.okProbability, cumple: r.parsedOutput.cumpleProbability };
       const v = byVariant.get(entry.name.slice(0, i)) ?? { good: [], bad: [], dataset: new Set<string>() };
       (r.expectedLabel === "ok=true,cumple=true" ? v.good : v.bad).push(sample);
       v.dataset.add(entry.name.slice(i + 2));
       byVariant.set(entry.name.slice(0, i), v);
-    }
+    });
   }
   if (byVariant.size === 0) return [];
   const approved = (s: { ok: number; cumple: number }) => s.ok >= OK_APPROVE && s.cumple >= NOUL_APPROVE;
@@ -333,8 +332,8 @@ async function main(): Promise<void> {
   const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
   const dir = join("eval/results", "_cross", `${stamp}${label ? `_${label}` : ""}`);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "cross.md"), `${md.join("\n")}\n`);
-  writeFileSync(join(dir, "cross.json"), JSON.stringify({ datasets, runsDir: runsDir ?? null, rows, pipelines: json }, null, 2));
+  atomicWriteFileSync(join(dir, "cross.md"), `${md.join("\n")}\n`);
+  atomicWriteFileSync(join(dir, "cross.json"), JSON.stringify({ datasets, runsDir: runsDir ?? null, rows, pipelines: json }, null, 2));
   console.log(md.join("\n"));
   console.log(`\nGuardado en ${dir}`);
 }

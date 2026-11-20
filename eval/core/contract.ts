@@ -1,13 +1,14 @@
 /**
  * eval/core/contract.ts
  *
- * Constantes y helpers de producción que usa el eval. No se copian: se reexportan desde `src/`, así un cambio allí se refleja
- * aquí sin que nada quede desactualizado en silencio. Solo se adaptan tres firmas: `validateArgs` devuelve la lista de
- * problemas (producción: un texto unido con `; `), `parsePlanSteps` devuelve `null` ante un error (producción: `{ error }`)
- * y `schemaTypes` devuelve un arreglo (producción: un `Set`).
+ * Fachada única de constantes, adaptadores, tipos y helpers de producción (`src/core/`) que usa `eval/`.
+ * Las variantes bajo `eval/variants/` siguen importando directo desde `src/core/` por compatibilidad,
+ * mientras que toda la infraestructura de `eval/` (`core/`, `stages/`, `auto/`, `cross.ts`, `psvalid.ts`)
+ * consume producción a través de este módulo.
  */
 
 import { BUDGET } from "../../src/core/budget.ts";
+import * as PROD_PROMPTS_MODULE from "../../src/core/models/prompts.ts";
 import type { DECISION_PROMPTS } from "../../src/core/models/prompts.ts";
 import type { PromptSet } from "../../src/core/models/stageRequests.ts";
 import { NOT_JSON, parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/models/qwen.ts";
@@ -15,34 +16,83 @@ import { schemaTypes as prodSchemaTypes } from "../../src/core/utils.ts";
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
-export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
-export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvider.ts";
+/** Nombres exportados en tiempo de ejecución por `src/core/models/prompts.ts`. */
+export const PROMPTS_MODULE_EXPORTS: ReadonlySet<string> = new Set(Object.keys(PROD_PROMPTS_MODULE));
+
+export { BUDGET } from "../../src/core/budget.ts";
+export { ConfigManager } from "../../src/core/config.ts";
+export { create } from "../../src/core/ctx/index.ts";
+export type {
+  CallStatus,
+  JsonObject,
+  Op,
+  StepState,
+  StopReason,
+  TaskContext,
+  TerminalTaskState,
+  VerdictReason,
+} from "../../src/core/ctx/index.ts";
+export {
+  argsInput,
+  askRenderOptions,
+  completionInput,
+  finalRenderOptions,
+  finalViewOptions,
+  pendingInput,
+  planInput,
+  recoveryInput,
+  renderArgsView,
+  reviewInput,
+  reviewViewOptions,
+  routeInput,
+  routeViewOptions,
+  toolInput,
+  verifyInput,
+} from "../../src/core/engine/adapters.ts";
 export { CONTINUATION_APPROVE } from "../../src/core/engine/thread.ts";
 export const CONTINUATION_KEY = "follow";
 export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";
-export { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_MULTI_APPROVE } from "../../src/core/types/firstQuery.ts";
+export { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_KINDS, FIRST_QUERY_MULTI_APPROVE, firstQueryKind } from "../../src/core/engine/firstQuery.ts";
 export type { FirstQueryKind } from "../../src/core/types/firstQuery.ts";
-export { NOUL_APPROVE, OK_APPROVE, VERIFY_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
-export { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY } from "../../src/core/contracts.ts";
 export { STEP_FAILURE_CAUSES } from "../../src/core/engine/outcomes.ts";
-export { estimateTokens } from "../../src/core/models/transport.ts";
-export { retryNote } from "../../src/core/models/prompts.ts";
+export type { StepFailureCause } from "../../src/core/engine/outcomes.ts";
+export { codeAnswersOk } from "../../src/core/engine/postcondition.ts";
+export { analyzePowerShell, collectSources, MAY_BE_EMPTY, precheckCall } from "../../src/core/engine/precheck.ts";
+export type { CommandAnalyzer, CommandReport, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
+export { NOUL_APPROVE, OK_APPROVE, VERIFY_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
+export type { UserEnvironment } from "../../src/core/environment.ts";
+export { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY } from "../../src/core/contracts.ts";
+export type { PreviousTask } from "../../src/core/contracts.ts";
+export { JUDGE_BATCH, parseAnswersObject, validateAnswer } from "../../src/core/models/decision.ts";
+export { DECISION_PROMPTS, PROMPTS, retryNote } from "../../src/core/models/prompts.ts";
 export { parseJsonObject, parsePendingList, stripThink } from "../../src/core/models/qwen.ts";
 export {
+  argumentsStageRequest,
+  BASE_TEMPERATURE,
+  finalStageRequest,
+  pendingStageRequest,
+  planStageRequest,
   planViewSchema as buildPlanSchema,
+  questionStageRequest,
   RETRY_TEMPERATURE,
   RETRY_TOKEN_FACTOR,
   TRUNCATED as TRUNCATED_ERROR,
 } from "../../src/core/models/stageRequests.ts";
-/** Error que producción devuelve al modelo cuando la salida JSON no se puede extraer (texto idéntico). */
-export const NOT_JSON_ERROR = NOT_JSON;
-export { MAY_BE_EMPTY } from "../../src/core/engine/precheck.ts";
+export type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
+export { estimateTokens, postJson, TransportError } from "../../src/core/models/transport.ts";
+export { renderAsk, renderFinal } from "../../src/core/render/index.ts";
+export { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+export type { MCPTool } from "../../src/core/types.ts";
 export { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../../src/core/types/limits.ts";
-export const LLM_INVALID_OUTPUT_RETRIES = BUDGET.invalidResponseRetries;
-export const MAX_STEPS = BUDGET.maxSteps;
 export { EXECUTABLE_ROUTES, isExecutableRoute } from "../../src/core/types/routes.ts";
 export type { ExecutableRoute } from "../../src/core/types/routes.ts";
 export { isRecord } from "../../src/core/utils.ts";
+export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvider.ts";
+
+/** Error que producción devuelve al modelo cuando la salida JSON no se puede extraer (texto idéntico). */
+export const NOT_JSON_ERROR = NOT_JSON;
+export const LLM_INVALID_OUTPUT_RETRIES = BUDGET.invalidResponseRetries;
+export const MAX_STEPS = BUDGET.maxSteps;
 
 // ───────────────────────── Prompts de una variante ─────────────────────────
 

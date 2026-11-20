@@ -7,12 +7,25 @@
  * (parser oficial de PowerShell y `Get-Command`): válido = sin errores de sintaxis y con todos los comandos existentes.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { analyzePowerShell } from "../src/core/engine/precheck.ts";
+import { analyzePowerShell } from "./core/contract.ts";
+import { forEachJsonlLineAsync } from "./core/io.ts";
+
+function printUsage(): void {
+  console.log("Uso: npm run eval:psvalid -- <carpeta de la corrida>");
+  console.log("");
+  console.log("Analiza los comandos generados en <variante>__<dataset>/runs.jsonl para la etapa 'arguments'");
+  console.log("usando el analizador de PowerShell del pre-chequeo de producción.");
+}
 
 async function main(): Promise<void> {
-  const dir = process.argv[2];
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    printUsage();
+    return;
+  }
+  const dir = args[0];
   if (dir === undefined) throw new Error("Uso: npm run eval:psvalid -- <carpeta de la corrida>");
   if (!existsSync(dir)) throw new Error(`No existe la carpeta '${dir}'.`);
   const cache = new Map<string, boolean>();
@@ -33,19 +46,19 @@ async function main(): Promise<void> {
     const i = entry.name.lastIndexOf("__");
     let n = 0;
     let ok = 0;
-    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-      if (line.trim() === "") continue;
+    await forEachJsonlLineAsync(file, async (line) => {
+      if (line.trim() === "") return;
       let r: { stage: string; parsedOutput?: { args?: { command?: unknown } } };
       try {
         r = JSON.parse(line) as { stage: string; parsedOutput?: { args?: { command?: unknown } } };
       } catch {
-        continue;
+        return;
       }
       const command = r.stage === "arguments" ? r.parsedOutput?.args?.command : undefined;
-      if (typeof command !== "string") continue;
+      if (typeof command !== "string") return;
       n++;
       if (await valid(command)) ok++;
-    }
+    });
     if (n > 0) console.log(`| ${entry.name.slice(0, i)} | ${entry.name.slice(i + 2)} | ${n} | ${((100 * ok) / n).toFixed(0)} % (${ok}/${n}) |`);
   }
 }

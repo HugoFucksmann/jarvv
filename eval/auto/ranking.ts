@@ -6,14 +6,16 @@
  * y archivado de variantes generadas perdedoras en `descartadas/` (`§2.4`).
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { atomicWriteFileSync, forEachJsonlLineSync } from "../core/io.ts";
 import { generateComparisonReport, type ComparisonReport, type InputCell, type VariantSummary } from "../core/report.ts";
 import { evaluatedModelDirName, safeName } from "../core/results.ts";
 import { promptEnvironment } from "../core/scenario.ts";
 import { computeScoreSummary } from "../core/scoring.ts";
 import { isDecisionStage } from "../core/stages/index.ts";
 import type { GlobalScoreSummary, RunMeta, RunRecord, StageName } from "../core/types.ts";
+import { invalidateVariantCache, VARIANTS_DIR } from "../core/variants/load.ts";
 import type { AutoConfig, AutoMetric } from "./config.ts";
 import { autoStageDir, autoStatePath } from "./config.ts";
 
@@ -178,8 +180,8 @@ export function rankParticipants(
   return ranked;
 }
 
-export function loadAutoState(stage: StageName): AutoSessionState | null {
-  const path = resolve(autoStatePath(stage));
+export function loadAutoState(stage: StageName, variantsRoot = VARIANTS_DIR): AutoSessionState | null {
+  const path = resolve(autoStatePath(stage, variantsRoot));
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as AutoSessionState;
@@ -192,16 +194,37 @@ export function loadAutoState(stage: StageName): AutoSessionState | null {
   }
 }
 
-export function saveAutoState(state: AutoSessionState): void {
-  const stageDir = resolve(autoStageDir(state.stage));
-  mkdirSync(stageDir, { recursive: true });
-  writeFileSync(resolve(autoStatePath(state.stage)), JSON.stringify(state, null, 2), "utf8");
+export function saveAutoState(state: AutoSessionState, variantsRoot = VARIANTS_DIR): void {
+  atomicWriteFileSync(resolve(autoStatePath(state.stage, variantsRoot)), JSON.stringify(state, null, 2));
 }
 
-function parseJsonlRecords(filePath: string): RunRecord[] {
-  const raw = readFileSync(filePath, "utf8").trim();
-  if (!raw) return [];
-  return raw.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as RunRecord);
+function slimRecordForMemory(r: RunRecord): RunRecord {
+  return {
+    ...r,
+    errors: [],
+    warnings: [],
+    rawInput: undefined,
+    rawOutput: "",
+    parsedOutput: undefined,
+    probabilities: undefined,
+    rawScore: undefined,
+    questions: undefined,
+  };
+}
+
+function parseJsonlRecordsForStage(filePath: string, stage: StageName): { allCount: number; stageRecords: RunRecord[] } {
+  let allCount = 0;
+  const stageRecords: RunRecord[] = [];
+  forEachJsonlLineSync(filePath, (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    allCount++;
+    const rec = JSON.parse(trimmed) as RunRecord;
+    if (rec.stage === stage) {
+      stageRecords.push(rec);
+    }
+  });
+  return { allCount, stageRecords };
 }
 
 /**
@@ -302,13 +325,12 @@ export function scanReusableInitialRanking(opts: {
   for (const v of variants) {
     for (const ds of datasets) {
       const list = candidatesByPair.get(`${v.name}\u0000${ds.name}`) ?? [];
-      let loaded: { scores: GlobalScoreSummary; records: RunRecord[] } | null = null;
+      let loaded: { scores: GlobalScoreSummary; records: RunRecord[]; cellDir: string } | null = null;
 
       for (const cand of list) {
         try {
           const rawScores = JSON.parse(readFileSync(resolve(cand.cellDir, "scores.json"), "utf8")) as GlobalScoreSummary;
-          const allRecords = parseJsonlRecords(resolve(cand.cellDir, "runs.jsonl"));
-          const stageRecords = allRecords.filter((r) => r.stage === cfg.stage);
+          const { allCount, stageRecords } = parseJsonlRecordsForStage(resolve(cand.cellDir, "runs.jsonl"), cfg.stage);
           if (stageRecords.length === 0) continue;
 
           // Verificar que haya casos canónicos y que no hayan fallado completamente por red.
@@ -317,8 +339,12 @@ export function scanReusableInitialRanking(opts: {
             continue;
           }
 
-          const scores = stageRecords.length === allRecords.length ? rawScores : computeScoreSummary(stageRecords);
-          loaded = { scores, records: stageRecords };
+          const scores = stageRecords.length === allCount ? rawScores : computeScoreSummary(stageRecords);
+          loaded = {
+            scores,
+            records: stageRecords.map(slimRecordForMemory),
+            cellDir: cand.cellDir,
+          };
           break;
         } catch {
           continue;
@@ -331,6 +357,7 @@ export function scanReusableInitialRanking(opts: {
         datasetName: ds.name,
         scores: loaded.scores,
         records: loaded.records,
+        cellDir: loaded.cellDir,
       });
     }
   }
@@ -356,12 +383,13 @@ export function archiveLosingAutoVariants(opts: {
   top2: string[];
   ranked: RankedVariant[];
   archiveLosers: boolean;
+  variantsRoot?: string;
 }): string[] {
   if (!opts.archiveLosers || opts.candidateFiles.length === 0) return [];
 
   const prodScore = opts.ranked.find((r) => r.variant === "prod")?.score ?? 0;
   const top2Set = new Set(opts.top2);
-  const discardedDir = resolve(autoStageDir(opts.stage), "descartadas");
+  const discardedDir = resolve(autoStageDir(opts.stage, opts.variantsRoot), "descartadas");
   const moved: string[] = [];
 
   for (const cand of opts.candidateFiles) {
@@ -372,9 +400,17 @@ export function archiveLosingAutoVariants(opts: {
 
     if (!existsSync(cand.filePath)) continue;
     mkdirSync(discardedDir, { recursive: true });
-    const dest = resolve(discardedDir, basename(cand.filePath));
+    const baseName = basename(cand.filePath, ".ts");
+    let dest = resolve(discardedDir, `${baseName}.ts`);
+    for (let n = 2; existsSync(dest); n++) {
+      dest = resolve(discardedDir, `${baseName}-${n}.ts`);
+    }
     renameSync(cand.filePath, dest);
     moved.push(cand.name);
+  }
+
+  if (moved.length > 0) {
+    invalidateVariantCache(opts.variantsRoot);
   }
 
   return moved;

@@ -4,14 +4,12 @@
  * Etapa generativa `plan`: planificación deliberativa por pasos.
  */
 
-import { planInput } from "../../../src/core/engine/adapters.ts";
-import { planStageRequest } from "../../../src/core/models/stageRequests.ts";
-import { MAX_STEPS, NOT_JSON_ERROR, parseJsonObject, parsePlanStepsResult } from "../contract.ts";
+import { MAX_STEPS, NOT_JSON_ERROR, parseJsonObject, parsePlanStepsResult, planInput, planStageRequest } from "../contract.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import { PlanStepsGrader } from "../graders/plan.ts";
 import type { GenerativeRequest, PlanExpect, PlanOutput, PlanStep } from "../types.ts";
-import type { GenerativeStageEntry } from "./index.ts";
 import { checkIntMin1, checkRoute, checkRouteList, noLabel } from "./shared.ts";
+import type { GenerativeStageEntry } from "./types.ts";
 
 /** Lee el `maxItems` del schema **enviado** (si no hay, usa MAX_STEPS). */
 function maxItemsFromSchema(req: GenerativeRequest): number {

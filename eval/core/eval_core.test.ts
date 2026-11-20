@@ -159,11 +159,12 @@ describe("eval/core etapas y variantes", () => {
       assert.equal(names.includes(archived), false, `archivada '${archived}' no debe listarse como activa`);
     }
 
-    // Variantes archivadas siguen cargando si se solicitan explícitamente y ctx_pending_facts es autónoma
-    const archivedPending = await loadVariantSpec("pending2");
-    assert.equal(archivedPending.variant.name, "pending2");
-    const ctxFacts = await loadVariantSpec("ctx_pending_facts");
-    assert.equal(ctxFacts.variant.name, "ctx_pending_facts");
+    // Todas las variantes activas listadas cargan con nombre y forma válidos
+    for (const activeName of names) {
+      const loaded = await loadVariantSpec(activeName);
+      assert.equal(loaded.variant.name, activeName);
+      assert.equal(loaded.hash.length, 16);
+    }
 
     // Carga de .jsonl con finales CRLF (\r\n)
     const crlfDir = createTempDir("eval-crlf-");

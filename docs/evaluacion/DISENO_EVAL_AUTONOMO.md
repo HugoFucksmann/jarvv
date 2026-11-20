@@ -105,7 +105,7 @@ npm run eval:auto -- \
 
 | Flag | Obligatorio | Default | Descripción |
 |---|---|---|---|
-| `--stage` | Sí | — | Etapa única a optimizar (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery`, `plan`, `arguments`, `final`, `question`, `pending`). |
+| `--stage` | Sí | — | Etapa única a optimizar (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery`, `continuation`, `plan`, `arguments`, `final`, `question`, `pending`). |
 | `--max-loops` | Sí | — | Entero `>= 1`. Límite de iteraciones de generación + evaluación (`Vuelta 1..N`). |
 | `--target` | Sí | — | Decimal en `(0, 1]` (ej. `0.8` o `0.85`). Umbral de corte sobre `--metric`. |
 | `--optimizer-model` | Sí | — | Modelo LLM que lee `conclusiones.md` y redacta las 2 variantes nuevas. |
@@ -132,8 +132,9 @@ eval/
 │   ├── discover.ts             # Descubre datasets de la etapa y variantes existentes aplicables
 │   ├── optimizer.ts            # Cliente del LLM optimizador, armado de contexto y parser de salida
 │   ├── stageContract.ts        # Prompt/plantilla por etapa (helpers permitidos, firma de Variant, claves fijas)
-│   ├── validateVariant.ts      # Allowlist estática + write temp + loadVariant + loadDatasets (smoke estructural)
-│   ├── feedback.ts             # Extrae resumen de `comparison.json` + muestra compacta de fallos de `runs.jsonl`
+│   ├── tsScanner.ts            # Tokenizador TypeScript (createScanner) usado por stageContract y validateVariant
+│   ├── validateVariant.ts      # Allowlist estática + sandbox node:vm + loadDatasets (smoke estructural)
+│   ├── feedback.ts             # Extrae resumen de `comparison.json` + streaming de fallos de `runs.jsonl`
 │   ├── ranking.ts              # Cálculo de Top-2, desempates y estado persistido (`auto_state.json`)
 │   └── conclusions.ts          # Lectura acotada y actualización estructurada de `conclusiones.md`
 └── variants/
@@ -269,7 +270,7 @@ Para que el código (sin depender de parsear markdown) sepa siempre con exactitu
 4. Probar el pipeline completo con `--client=mock` y variantes ficticias en tests unitarios (`tests/eval_auto.test.ts`).
 
 ### Fase 2 — Integración del optimizador y `conclusiones.md`
-1. Crear `eval/auto/stageContract.ts` cubriendo las 13 etapas (empezando por las prioritarias: `args_review`, `result_verification`, `d0`, `d5`, `recovery`, `pending`, `arguments`, `final`).
+1. Crear `eval/auto/stageContract.ts` cubriendo las 14 etapas (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery`, `continuation`, `plan`, `arguments`, `final`, `question`, `pending`).
 2. Implementar `eval/auto/optimizer.ts` (reutilizando `postJson` / `src/core/models/transport.ts`, con soporte opcional de API key por variable de entorno y reintentos de reparación ante código inválido).
 3. Implementar `eval/auto/conclusions.ts` con límite de tamaño y `update: boolean`.
 4. Agregar `"eval:auto": "tsx eval/auto.ts"` en `package.json` y documentar su uso en `eval/INSTRUCCIONES.md`.
@@ -318,8 +319,7 @@ La maquinaria del bucle quedó implementada y refactorizada íntegramente dentro
 Como el alcance de esta implementación se restringió estrictamente a `eval/`, quedaron anotados para aplicar fuera de `eval/`:
 
 1. **`package.json` (`scripts`):**
-   - El flujo ya funciona sin tocar `package.json` vía `npm run eval -- --auto ...`. Opcionalmente se puede sumar el atajo `"eval:auto": "tsx eval/auto.ts"`.
-   - Opcionalmente integrar los tests de `eval:auto` en `"test": "tsx --test --test-timeout=30000 tests/*.test.ts"` (actualmente viven en `eval/auto/eval_auto.test.ts` y se ejecutan con `npx tsx --test eval/auto/eval_auto.test.ts`, o moviendo el archivo a `tests/eval_auto.test.ts` según mencionaba la §8 Fase 1).
+   - Ya quedaron configurados `"eval:auto": "tsx eval/auto.ts"` e integrados `eval/core/*.test.ts` y `eval/auto/*.test.ts` dentro de `"test"`.
 2. **`.gitignore`:**
    - Decidir si `eval/variants/_auto/` (o solo `eval/variants/_auto/**/auto_state.json` y `descartadas/`) debe ignorarse en Git o versionarse como parte de las corridas de laboratorio.
 3. **`npm run lint` (`tsc --noEmit`):**
@@ -332,10 +332,10 @@ Como el alcance de esta implementación se restringió estrictamente a `eval/`, 
 2. **Exclusión por defecto de datasets `*_holdout*.jsonl` en `--dataset` automático (§2.1 y §2.5):**
    - El repo ya cuenta con archivos holdout dedicados en varias etapas (`d0_real_usuario_holdout*.jsonl`, `route_pasos_reales_holdout*.jsonl`, `tool_choice_terminal_locate_holdout*.jsonl`, `verify_pasos_reales_holdout*.jsonl`, `continuation_holdout*.jsonl`).
    - **Criterio adoptado:** si `--dataset` se omite, `discoverStageDatasets` excluye tanto `smoke.jsonl` como cualquier archivo cuyo nombre contenga `holdout` (`*_holdout*.jsonl`) para evitar fuga involuntaria al loop dev. Siguen disponibles si se pasan explícitamente en `--holdout=...` o en `--dataset=...`.
-3. **Variantes archivadas heredadas (`eval/variants/_archivo_recovery_4_opciones/`):**
-   - Esa carpeta tenía variantes antiguas con el esquema viejo de 4 opciones (`skip_continue`). Se actualizó `eval/core/variants/load.ts` para que `listVariantNames()` y `discoverStageVariants()` ignoren cualquier directorio `descartadas` o `_archivo_*` (y `_auto/<otra_etapa>/`), manteniendo su carga explícita si alguna corrida vieja las nombra.
-4. **Propiedad `read.*` en variantes humanas preexistentes vs variantes generadas por LLM:**
-   - Variantes humanas previas (por ej. en `args_review` o `result_verification`) sí pueden usar `read.*`. Para no romper Vuelta 0 ni comparativas existentes, las variantes humanas previas pueden competir normalmente en Vuelta 0 / Top-2, mientras que `validateVariant.ts` aplica la prohibición estricta de `params` y `read` solo sobre las variantes nuevas generadas en `_auto/<stage>/`.
+3. **Variantes archivadas heredadas:**
+   - Las antiguas variantes de 4 opciones (`skip_continue`) y las variantes legacy con `params`/`read` fueron retiradas del repositorio (`eval/variants/_archivo_legacy/` eliminado). `eval/core/variants/load.ts` excluye carpetas `_auto/<otra_etapa>/` y `descartadas/` del descubrimiento por defecto.
+4. **Contrato uniforme sin `params` ni `read`:**
+   - El soporte heredado de `params`, `read` y lectores de decisión personalizados fue retirado completamente de `eval/core/`; todas las variantes activas y generadas siguen el contrato uniforme de constructores enteros (`DECISION_PROMPTS` o `PROMPTS`).
 5. **Desempate por `signTestP` frente a `prod` (§6.1):**
    - `signTestP` es un *p*-value bilateral (menor = más significativo estadísticamente, tanto a favor como en contra). Para evitar favorecer variantes que empatan con muchas regresiones y `signTestP` chico, el desempate implementado compara primero ventaja neta `(improvements - regressions)`, luego menor número de `regressions`, y recién a igualdad de ventaja neta positiva elige el **menor `signTestP`** (evidencia estadísticamente más fuerte a favor).
 6. **Validación previa en `validateVariant.ts` (§5.3):**

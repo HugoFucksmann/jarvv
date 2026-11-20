@@ -9,7 +9,7 @@
 
 import { createEvalClients, executeComparisonBatch } from "./core/batch.ts";
 import { parseConfig } from "./core/config.ts";
-import { loadDatasets } from "./core/datasets.ts";
+import { createRawDatasetCache, loadDatasets } from "./core/datasets.ts";
 import { fmtPct } from "./core/report-format.ts";
 import { runDataset } from "./core/runner.ts";
 import { allStageNames } from "./core/stages/index.ts";
@@ -71,9 +71,10 @@ async function main(): Promise<number> {
     ids: cfg.ids.length > 0 ? cfg.ids : undefined,
     limit: cfg.limit,
   };
+  const rawDatasetCache = createRawDatasetCache();
   let datasets;
   try {
-    datasets = loadDatasets(cfg.datasetSpecs, datasetFilters);
+    datasets = loadDatasets(cfg.datasetSpecs, datasetFilters, undefined, rawDatasetCache);
   } catch (e) {
     fail(`Error de dataset: ${e instanceof Error ? e.message : String(e)}`);
     return 2;
@@ -115,7 +116,7 @@ async function main(): Promise<number> {
       continue;
     }
     try {
-      const own = loadDatasets(cfg.datasetSpecs, datasetFilters, vr.variant);
+      const own = loadDatasets(cfg.datasetSpecs, datasetFilters, vr.variant, rawDatasetCache);
       if (own.every((d) => d.cases.length === 0)) {
         fail(`La variante '${vr.spec}' no dejó ningún caso para correr.`);
         return 2;

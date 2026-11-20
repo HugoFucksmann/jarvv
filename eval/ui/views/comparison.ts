@@ -6,9 +6,9 @@
  */
 
 import { fmtDeltaPct, fmtMs, fmtPct, variantTableHead, variantTableRows } from "../../core/report-format.ts";
-import type { CellStageReport, ComparisonReport } from "../../core/report.ts";
+import type { CellStageReport, ComparisonReport } from "../../core/report-types.ts";
 import type { QuestionScore } from "../../core/types.ts";
-import { c, padEnd, rateColor, section, sym, table, vlen, WIDTH } from "../style.ts";
+import { c, getWidth, padEnd, rateColor, section, sym, table, vlen } from "../style.ts";
 
 const log = (s = ""): void => console.log(s);
 
@@ -84,9 +84,10 @@ export function printVariantSummary(report: ComparisonReport): void {
     const right = keep.flatMap((i, k) => (head[i] === "Tipo" || head[i] === "Variante" ? [] : [k]));
     return table(shown, rows.map((r) => keep.map((i) => r[i])), { right });
   };
+  const width = getWidth();
   let lines = render();
   for (const h of droppable) {
-    if (vlen(lines[0]) <= WIDTH) break;
+    if (vlen(lines[0]) <= width) break;
     dropped.add(h);
     lines = render();
   }

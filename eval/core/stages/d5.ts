@@ -5,14 +5,13 @@
  * Evalúa `DECISION_PROMPTS.buildCompletionCheck(completionInput(ctx))` con umbral `COMPLETION_APPROVE` (0.75).
  */
 
-import { completionInput } from "../../../src/core/engine/adapters.ts";
-import { COMPLETION_APPROVE, COMPLETION_KEY } from "../contract.ts";
+import { COMPLETION_APPROVE, COMPLETION_KEY, completionInput } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { D5LabelGrader } from "../graders/label.ts";
-import type { ChoiceQ, D5Expect, D5Output, DecisionReaders, DecisionRequest, NoulQ } from "../types.ts";
-import { extractNoul, parseAnswers, readAllAnswers } from "../variants/labels.ts";
-import type { DecisionStageEntry } from "./index.ts";
+import type { ChoiceQ, D5Expect, D5Output, DecisionRequest, NoulQ } from "../types.ts";
+import { extractNoul, parseAnswers } from "../variants/labels.ts";
 import { checkRange01, NO, YES } from "./shared.ts";
+import type { DecisionStageEntry } from "./types.ts";
 
 export const d5Stage: DecisionStageEntry<D5Output, D5Expect> = {
   stageName: "d5",
@@ -41,16 +40,14 @@ export const d5Stage: DecisionStageEntry<D5Output, D5Expect> = {
     }
     return h.decision(h.effectivePrompts(ov).D.buildCompletionCheck(completionInput(ctx)));
   },
-  parseOutput(rawOutput: string, sentReq: DecisionRequest, read: DecisionReaders | undefined): D5Output {
-    const answers = parseAnswers(rawOutput);
-    const reader = read?.d5;
-    if (reader) {
-      const out = reader(readAllAnswers(sentReq, answers));
-      return {
-        complete: out.complete ?? out.probability >= COMPLETION_APPROVE,
-        probability: out.probability,
-      };
+  validateRequest(req) {
+    if (!req.questions[COMPLETION_KEY] || req.questions[COMPLETION_KEY].type !== "noul") {
+      return `d5 requiere pregunta noul '${COMPLETION_KEY}'.`;
     }
+    return null;
+  },
+  parseOutput(rawOutput: string): D5Output {
+    const answers = parseAnswers(rawOutput);
     const probability = extractNoul(answers, COMPLETION_KEY);
     return { complete: probability >= COMPLETION_APPROVE, probability };
   },

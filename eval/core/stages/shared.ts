@@ -5,7 +5,7 @@
  */
 
 import { EXECUTABLE_ROUTES, isExecutableRoute } from "../contract.ts";
-import type { LabelInfo } from "./index.ts";
+import type { LabelInfo } from "./types.ts";
 
 export const YES = "yes";
 export const NO = "no";

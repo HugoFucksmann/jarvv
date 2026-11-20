@@ -9,10 +9,11 @@
 
 import { readFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
-import { loadDatasets, resolveDatasetPaths, type Dataset } from "../core/datasets.ts";
+import { loadDatasets, resolveDatasetPaths, type Dataset, type RawDatasetCache } from "../core/datasets.ts";
+import { forEachJsonlLineSync } from "../core/io.ts";
 import { objectHash } from "../core/results.ts";
 import type { StageName } from "../core/types.ts";
-import { listActiveVariantFiles, loadVariantSpec } from "../core/variants/load.ts";
+import { listActiveVariantFiles, loadVariantSpec, VARIANTS_DIR } from "../core/variants/load.ts";
 import type { Variant } from "../core/variants/types.ts";
 import { getStageContract } from "./stageContract.ts";
 
@@ -35,21 +36,28 @@ export interface DiscoveredVariant {
   isAuto: boolean;
 }
 
-/** Verifica rápidamente si un `.jsonl` tiene al menos un caso de `stage` sin materializar escenarios de otras etapas. */
+const STOP_STAGE_SCAN = Symbol("STOP_STAGE_SCAN");
+
+/** Verifica rápidamente si un `.jsonl` tiene al menos un caso de `stage` sin cargar todo el archivo en RAM ni materializar escenarios. */
 function jsonlContainsStage(filePath: string, stage: StageName): boolean {
-  const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as { stage?: unknown };
-      if (parsed.stage === stage) return true;
-    } catch {
-      // Si hay una línea inválida en el archivo, dejamos que loadDatasets la reporte normalmente.
-      return true;
-    }
+  try {
+    forEachJsonlLineSync(filePath, (line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return;
+      try {
+        const parsed = JSON.parse(trimmed) as { stage?: unknown };
+        if (parsed.stage === stage) throw STOP_STAGE_SCAN;
+      } catch (err) {
+        if (err === STOP_STAGE_SCAN) throw err;
+        // Si hay una línea inválida en el archivo, dejamos que loadDatasets la reporte normalmente.
+        throw STOP_STAGE_SCAN;
+      }
+    });
+    return false;
+  } catch (err) {
+    if (err === STOP_STAGE_SCAN) return true;
+    throw err;
   }
-  return false;
 }
 
 /**
@@ -60,6 +68,7 @@ export function discoverStageDatasets(
   stage: StageName,
   explicitDatasets: string[],
   holdoutSpecs: string[],
+  rawCache?: RawDatasetCache,
 ): DiscoveredDatasets {
   const holdoutPaths = holdoutSpecs.length > 0 ? resolveDatasetPaths(holdoutSpecs).map((p) => resolve(p)) : [];
   const holdoutPathSet = new Set(holdoutPaths);
@@ -90,7 +99,7 @@ export function discoverStageDatasets(
     );
   }
 
-  const devLoaded = loadDatasets(devPaths, { stages: [stage] });
+  const devLoaded = loadDatasets(devPaths, { stages: [stage] }, undefined, rawCache);
   const dev = devLoaded.filter((d) => d.cases.length > 0);
   if (explicitDatasets.length > 0) {
     const empty = devLoaded.filter((d) => d.cases.length === 0).map((d) => d.name);
@@ -106,7 +115,7 @@ export function discoverStageDatasets(
 
   let holdout: Dataset[] = [];
   if (holdoutPaths.length > 0) {
-    const holdoutLoaded = loadDatasets(holdoutPaths, { stages: [stage] });
+    const holdoutLoaded = loadDatasets(holdoutPaths, { stages: [stage] }, undefined, rawCache);
     const emptyHoldout = holdoutLoaded.filter((d) => d.cases.length === 0).map((d) => d.name);
     if (emptyHoldout.length > 0) {
       throw new Error(
@@ -127,37 +136,37 @@ export function discoverStageDatasets(
 }
 
 /** True si el archivo pertenece al directorio aislado de variantes generadas para `stage`. */
-export function isAutoVariantPathForStage(filePath: string, stage: StageName): boolean {
-  const rel = relative(resolve("eval/variants"), resolve(filePath)).replace(/\\/g, "/");
+export function isAutoVariantPathForStage(filePath: string, stage: StageName, variantsRoot = VARIANTS_DIR): boolean {
+  const rel = relative(resolve(variantsRoot), resolve(filePath)).replace(/\\/g, "/");
   return rel.startsWith(`_auto/${stage}/`) && !rel.includes("/descartadas/");
 }
 
-function belongsToOtherAutoStage(filePath: string, stage: StageName): boolean {
-  const rel = relative(resolve("eval/variants"), resolve(filePath)).replace(/\\/g, "/");
+function belongsToOtherAutoStage(filePath: string, stage: StageName, variantsRoot = VARIANTS_DIR): boolean {
+  const rel = relative(resolve(variantsRoot), resolve(filePath)).replace(/\\/g, "/");
   if (!rel.startsWith("_auto/")) return false;
   return !rel.startsWith(`_auto/${stage}/`);
 }
 
 /**
- * Descubre todas las variantes activas en `eval/variants/` que definen el prompt de `stage`
+ * Descubre todas las variantes activas en `variantsRoot` que definen el prompt de `stage`
  * (excluyendo `prod`, `decision_all_stages_example`, `descartadas/`, `_archivo_*` y `_auto/<otra_etapa>/`).
  */
-export async function discoverStageVariants(stage: StageName): Promise<DiscoveredVariant[]> {
+export async function discoverStageVariants(stage: StageName, variantsRoot = VARIANTS_DIR): Promise<DiscoveredVariant[]> {
   const contract = getStageContract(stage);
-  const files = listActiveVariantFiles();
+  const files = listActiveVariantFiles(variantsRoot);
   const discovered: DiscoveredVariant[] = [];
 
   for (const filePath of files) {
     const name = basename(filePath, ".ts");
     if (name === "prod" || name === "decision_all_stages_example") continue;
-    if (belongsToOtherAutoStage(filePath, stage)) continue;
+    if (belongsToOtherAutoStage(filePath, stage, variantsRoot)) continue;
 
     // Filtro rápido por texto antes de importar dinámicamente módulos de otras etapas.
     const raw = readFileSync(filePath, "utf8");
     if (!raw.includes(contract.promptKey)) continue;
 
     try {
-      const { variant, hash } = await loadVariantSpec(name, filePath);
+      const { variant, hash } = await loadVariantSpec(name, filePath, variantsRoot);
       const groupObj = variant.prompts?.[contract.promptGroup] as Record<string, unknown> | undefined;
       if (!groupObj || !(contract.promptKey in groupObj) || groupObj[contract.promptKey] === undefined) {
         continue;
@@ -167,7 +176,7 @@ export async function discoverStageVariants(stage: StageName): Promise<Discovere
         path: resolve(filePath),
         hash,
         variant,
-        isAuto: isAutoVariantPathForStage(filePath, stage),
+        isAuto: isAutoVariantPathForStage(filePath, stage, variantsRoot),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

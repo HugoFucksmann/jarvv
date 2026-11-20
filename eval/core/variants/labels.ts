@@ -6,7 +6,7 @@
  */
 
 import { parseAnswersObject, validateAnswer } from "../contract.ts";
-import type { ChoiceQ, DecisionRequest, ReadAnswer } from "../types.ts";
+import type { ChoiceQ, DecisionRequest } from "../types.ts";
 
 // ───────────────────────── Error de parseo ─────────────────────────
 
@@ -81,17 +81,3 @@ export function mainChoice(
   return extractChoice(answers, questionKey, (q as ChoiceQ).criteria);
 }
 
-/** Convierte todas las preguntas enviadas en `ReadAnswer` para los `read` de variantes. */
-export function readAllAnswers(
-  sentReq: DecisionRequest,
-  answers: Record<string, ParsedAnswer>,
-): Record<string, ReadAnswer> {
-  const values: Record<string, ReadAnswer> = {};
-  for (const [key, q] of Object.entries(sentReq.questions)) {
-    values[key] =
-      q.type === "noul"
-        ? { noul: extractNoul(answers, key) }
-        : { probabilities: extractChoice(answers, key, (q as ChoiceQ).criteria).probabilities };
-  }
-  return values;
-}

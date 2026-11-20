@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
@@ -29,7 +29,7 @@ import { createMockDecisionClient, createMockGenerativeClient } from "../core/cl
 import { generateComparisonReport, type InputCell } from "../core/report.ts";
 import { allStageNames } from "../core/stages/index.ts";
 import type { GlobalScoreSummary, RunRecord, StageName } from "../core/types.ts";
-import { listVariantNames, loadVariantSpec } from "../core/variants/load.ts";
+import { invalidateVariantCache, listVariantNames, loadVariantSpec } from "../core/variants/load.ts";
 
 const tempPathsToClean: string[] = [];
 
@@ -38,28 +38,27 @@ function trackTemp(p: string): string {
   return p;
 }
 
-function trackDirIfCreated(dirPath: string): void {
-  const abs = resolve(dirPath);
-  if (!existsSync(abs)) {
-    tempPathsToClean.push(abs);
-  }
+function setupIsolatedVariantsRoot(tag: string): string {
+  const tmpRoot = trackTemp(mkdtempSync(join(tmpdir(), `jarvis-eval-vroot-${tag}-`)));
+  symlinkSync(resolve("src"), join(tmpRoot, "src"), "dir");
+  mkdirSync(join(tmpRoot, "eval", "variants"), { recursive: true });
+  symlinkSync(resolve("eval/core"), join(tmpRoot, "eval", "core"), "dir");
+  const variantsRoot = join(tmpRoot, "eval", "variants");
+  copyFileSync(resolve("eval/variants/prod.ts"), join(variantsRoot, "prod.ts"));
+  return variantsRoot;
 }
 
 afterEach(() => {
   while (tempPathsToClean.length > 0) {
     const p = tempPathsToClean.pop()!;
+    invalidateVariantCache(join(p, "eval", "variants"));
     try {
       rmSync(p, { recursive: true, force: true });
     } catch {
       // Ignorar fallos de limpieza
     }
   }
-  const autoRoot = resolve("eval/variants/_auto");
-  try {
-    if (existsSync(autoRoot)) rmdirSync(autoRoot);
-  } catch {
-    // Solo se elimina si quedó vacío
-  }
+  invalidateVariantCache();
 });
 
 describe("eval/auto config", () => {
@@ -187,22 +186,29 @@ describe("eval/auto discover y exclusiones", () => {
   });
 
   it("excluye _archivo_* y descartadas/ de listVariantNames y discoverStageVariants", async () => {
-    const tmpArchiveDir = resolve("eval/variants/_archivo_test_tmp");
-    const tmpDescartadasDir = join(autoStageDir("recovery"), "descartadas");
-    trackDirIfCreated("eval/variants/_auto");
-    trackDirIfCreated(autoStageDir("recovery"));
-    trackDirIfCreated(tmpArchiveDir);
-    trackDirIfCreated(tmpDescartadasDir);
+    const variantsRoot = setupIsolatedVariantsRoot("discover");
+    const tmpArchiveDir = join(variantsRoot, "_archivo_test_tmp");
+    const tmpActiveDir = join(variantsRoot, "recovery");
+    const tmpDescartadasDir = join(autoStageDir("recovery", variantsRoot), "descartadas");
     mkdirSync(tmpArchiveDir, { recursive: true });
+    mkdirSync(tmpActiveDir, { recursive: true });
     mkdirSync(tmpDescartadasDir, { recursive: true });
+
     const tplArchive = getStageContract("recovery").minimalTemplate("_tmp_archived_variant");
     const tplDesc = getStageContract("recovery").minimalTemplate("_tmp_discarded_variant");
+    copyFileSync(
+      resolve("eval/variants/recovery/recovery_three_options_nobehind.ts"),
+      join(tmpActiveDir, "recovery_three_options_nobehind.ts"),
+    );
     writeFileSync(join(tmpArchiveDir, "_tmp_archived_variant.ts"), tplArchive, "utf8");
     writeFileSync(join(tmpDescartadasDir, "_tmp_discarded_variant.ts"), tplDesc, "utf8");
-    const names = listVariantNames();
+
+    const names = listVariantNames(variantsRoot);
+    assert.equal(names.includes("recovery_three_options_nobehind"), true);
     assert.equal(names.includes("_tmp_archived_variant"), false);
     assert.equal(names.includes("_tmp_discarded_variant"), false);
-    const recoveryVariants = await discoverStageVariants("recovery");
+
+    const recoveryVariants = await discoverStageVariants("recovery", variantsRoot);
     assert.ok(recoveryVariants.some((v) => v.name === "recovery_three_options_nobehind"));
     assert.equal(recoveryVariants.some((v) => v.name === "_tmp_archived_variant" || v.name === "_tmp_discarded_variant"), false);
   });
@@ -224,10 +230,8 @@ describe("eval/auto stageContract", () => {
 });
 
 describe("eval/auto validateVariant", () => {
-  const testStageDir = autoStageDir("args_review");
-
-  it("rechaza imports prohibidos, params, read, POWERSHELL_RULES no exportado y código inseguro sin dejar basura en disco", async () => {
-    trackDirIfCreated(testStageDir);
+  it("rechaza imports prohibidos, re-exports, params, read, ROUTE_HINTS no exportado y código inseguro sin dejar basura en disco", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("badcases");
     const devDs = discoverStageDatasets("args_review", ["args_review_16_cases"], []);
     const devPaths = devDs.dev.map((d) => d.path);
     const known = new Set<string>();
@@ -241,6 +245,10 @@ describe("eval/auto validateVariant", () => {
       {
         code: `import {\n  readFileSync\n} from "node:fs";\n${validCode}`,
         expectRe: /Import prohibido/,
+      },
+      {
+        code: `export { ROUTE_HINTS } from "../../../../src/core/models/prompts.ts";\n${validCode}`,
+        expectRe: /Prohibido re-exportar/,
       },
       {
         code: `import { ROUTE_HINTS } from "../../../../src/core/models/prompts.ts";\n${validCode}`,
@@ -274,16 +282,15 @@ describe("eval/auto validateVariant", () => {
     for (let i = 0; i < badCases.length; i++) {
       const bc = badCases[i];
       const stage = bc.stage ?? "args_review";
-      trackDirIfCreated(autoStageDir(stage));
       const vName = `auto_${stage}_badtest_${i}`;
-      const expectedFile = resolve(autoStageDir(stage), `${vName}.ts`);
-      trackTemp(expectedFile);
+      const expectedFile = resolve(autoStageDir(stage, variantsRoot), `${vName}.ts`);
       const res = await validateAndWriteVariant({
         stage,
         variantName: vName,
         rawCode: bc.code,
         devDatasetPaths: bc.devPathsOverride ?? devPaths,
         knownHashes: known,
+        variantsRoot,
       });
       assert.equal(res.ok, false);
       assert.match(res.error, bc.expectRe);
@@ -292,13 +299,12 @@ describe("eval/auto validateVariant", () => {
   });
 
   it("inyecta name, valida plantilla ESM + loadDatasets + deduplicación por hash", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("validtest");
     const devDs = discoverStageDatasets("args_review", ["args_review_16_cases"], []);
     const devPaths = devDs.dev.map((d) => d.path);
     const known = new Set<string>();
 
-    trackDirIfCreated(testStageDir);
     const vName = "auto_args_review_validtest_a";
-    trackTemp(resolve(testStageDir, `${vName}.ts`));
     const code = getStageContract("args_review").minimalTemplate("wrong_name_from_llm");
 
     const ok1 = await validateAndWriteVariant({
@@ -307,6 +313,7 @@ describe("eval/auto validateVariant", () => {
       rawCode: code,
       devDatasetPaths: devPaths,
       knownHashes: known,
+      variantsRoot,
     });
     assert.equal(ok1.ok, true);
     assert.equal(ok1.variant.name, vName);
@@ -314,19 +321,19 @@ describe("eval/auto validateVariant", () => {
 
     // El mismo código con otro nombre debe detectarse como duplicado
     const vDup = "auto_args_review_validtest_b";
-    trackTemp(resolve(testStageDir, `${vDup}.ts`));
     const dup = await validateAndWriteVariant({
       stage: "args_review",
       variantName: vDup,
       rawCode: code,
       devDatasetPaths: devPaths,
       knownHashes: known,
+      variantsRoot,
     });
     assert.equal(dup.ok, false);
     assert.match(dup.error, /duplicada/i);
   });
 
-  it("carga todas las variantes activas en eval/variants/ sin errores y soporta recovery de 2 ejes", async () => {
+  it("carga todas las variantes activas en eval/variants/, rechaza recovery de 2 ejes, acepta RegExp con llaves y no toca disco si falla runtime", async () => {
     const names = listVariantNames();
     assert.ok(names.includes("continuation_explicit_reference"));
     assert.ok(names.includes("fragment_judge_calibrated_signal"));
@@ -335,12 +342,12 @@ describe("eval/auto validateVariant", () => {
       assert.equal(loaded.variant.name, name);
     }
 
+    const variantsRoot = setupIsolatedVariantsRoot("recoveryval");
     const recoveryDs = discoverStageDatasets("recovery", ["recovery_casos"], []);
     const recoveryPaths = recoveryDs.dev.map((d) => d.path);
-    const twoAxesDir = autoStageDir("recovery");
-    trackDirIfCreated(twoAxesDir);
-    const twoAxesName = "auto_recovery_twoaxes_test_a";
-    trackTemp(resolve(twoAxesDir, `${twoAxesName}.ts`));
+    const recoveryStageDir = autoStageDir("recovery", variantsRoot);
+
+    // El formato legado de 2 ejes (blocked/prereq sin action) debe ser rechazado por recoveryStage.validateRequest
     const twoAxesCode = `import type { RecoveryDecisionInput } from "../../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../../src/core/models/prompts.ts";
 import type { Variant } from "../../../core/variants/types.ts";
@@ -355,52 +362,53 @@ function buildRecovery(data: RecoveryDecisionInput): DecisionInput {
   };
 }
 
-const ${twoAxesName}: Variant = {
-  name: "${twoAxesName}",
+const auto_recovery_twoaxes_legacy: Variant = {
+  name: "auto_recovery_twoaxes_legacy",
   prompts: { DECISION_PROMPTS: { buildRecovery } },
 };
 
-export default ${twoAxesName};`;
-    const recRes = await validateAndWriteVariant({
+export default auto_recovery_twoaxes_legacy;`;
+    const legacyRes = await validateAndWriteVariant({
       stage: "recovery",
-      variantName: twoAxesName,
+      variantName: "auto_recovery_twoaxes_legacy",
       rawCode: twoAxesCode,
       devDatasetPaths: recoveryPaths,
       knownHashes: new Set(),
+      variantsRoot,
     });
-    assert.equal(recRes.ok, true, recRes.ok ? "" : recRes.error);
+    assert.equal(legacyRes.ok, false);
+    assert.match(legacyRes.error, /recovery requiere pregunta choice/);
 
-    // RegExp con llaves '{', '}' y comillas no debe desbalancear maskCodePreserveOffsets
+    // RegExp con llaves '{', '}' y comillas no debe desbalancear el analizador léxico de TS 7
     const regexName = "auto_recovery_regex_test_a";
-    trackTemp(resolve(twoAxesDir, `${regexName}.ts`));
-    const regexCode = twoAxesCode
-      .replace(
-        "function buildRecovery(data: RecoveryDecisionInput): DecisionInput {",
-        `function buildRecovery(data: RecoveryDecisionInput): DecisionInput {\n  const _re = /\\{foo['"\\}]/;\n  void _re.test(data.failed);`,
-      )
-      .replaceAll(twoAxesName, regexName);
+    const baseRecoveryCode = getStageContract("recovery").minimalTemplate(regexName);
+    const regexCode = baseRecoveryCode.replace(
+      "function buildRecovery(data: RecoveryDecisionInput): DecisionInput {",
+      `function buildRecovery(data: RecoveryDecisionInput): DecisionInput {\n  const _re = /\\{foo['"\\}]/;\n  void _re.test(data.failed);`,
+    );
     const regexOk = await validateAndWriteVariant({
       stage: "recovery",
       variantName: regexName,
       rawCode: regexCode,
       devDatasetPaths: recoveryPaths,
       knownHashes: new Set(),
+      variantsRoot,
     });
     assert.equal(regexOk.ok, true, regexOk.ok ? "" : regexOk.error);
 
     // Si falla en validación runtime/contexto, nunca debe tocar disco
     const badRtName = "auto_recovery_badrt_test_a";
-    const badRtFile = resolve(twoAxesDir, `${badRtName}.ts`);
-    trackTemp(badRtFile);
-    const badRtCode = twoAxesCode
-      .replace("state: data.failed,", 'state: "",')
-      .replaceAll(twoAxesName, badRtName);
+    const badRtFile = resolve(recoveryStageDir, `${badRtName}.ts`);
+    const badRtCode = baseRecoveryCode
+      .replace("state: `${PROMPTS.PENDING_VIEW.buildUserPrompt({ view: data.view })}\\n\\n${failedBlock}`,", 'state: "",')
+      .replaceAll(regexName, badRtName);
     const badRtRes = await validateAndWriteVariant({
       stage: "recovery",
       variantName: badRtName,
       rawCode: badRtCode,
       devDatasetPaths: recoveryPaths,
       knownHashes: new Set(),
+      variantsRoot,
     });
     assert.equal(badRtRes.ok, false);
     assert.equal(existsSync(badRtFile), false, "variante fallida en runtime/contexto no debe escribirse en disco");
@@ -504,7 +512,7 @@ describe("eval/auto ranking, archiving y feedback", () => {
     );
   });
 
-  it("filtra holdout de muestras de fallo y archiva perdedoras en descartadas/", () => {
+  it("filtra holdout de muestras de fallo, hidrata desde runs.jsonl en streaming con tasa repeat y archiva sin colisiones invalidando caché", () => {
     const prodRecs = [
       mkRecord({ variant: "prod", dataset: "dev_ds", caseId: "c1", passed: true, durationMs: 50 }),
       mkRecord({ variant: "prod", dataset: "hold_ds", caseId: "h1", passed: true, durationMs: 50 }),
@@ -527,14 +535,37 @@ describe("eval/auto ranking, archiving y feedback", () => {
     assert.equal(samples[0].id, "c1");
     assert.equal(samples[0].priority, "regression_vs_prod");
 
-    const stageDir = resolve(autoStageDir("d0"));
-    trackDirIfCreated(stageDir);
+    // Verificar hidratación bajo demanda desde runs.jsonl cuando RAM está aligerada + cálculo de tasa en repeat > 1
+    const cellDir = trackTemp(mkdtempSync(join(tmpdir(), "jarvis-fb-stream-")));
+    const fullFail1 = mkRecord({ variant: "v1", dataset: "dev_ds", caseId: "c1", passed: false, durationMs: 50 });
+    fullFail1.errors = ["exact error from disk"];
+    fullFail1.rawOutput = "raw-output-on-disk";
+    const fullPass2 = { ...mkRecord({ variant: "v1", dataset: "dev_ds", caseId: "c1", passed: true, durationMs: 50 }), iteration: 2 };
+    writeFileSync(join(cellDir, "runs.jsonl"), `${JSON.stringify(fullFail1)}\n${JSON.stringify(fullPass2)}\n`, "utf8");
+    const slimRecs = [fullFail1, fullPass2].map((r) => ({ ...r, errors: [], rawInput: undefined, rawOutput: "" }));
+
+    const streamedSamples = extractFailureSamples({
+      focusVariant: "v1",
+      cells: [{ variantSpec: "v1", datasetName: "dev_ds", scores: {} as GlobalScoreSummary, records: slimRecs, cellDir }],
+      devDatasetNames: new Set(["dev_ds"]),
+    });
+    assert.equal(streamedSamples.length, 1);
+    assert.deepEqual(streamedSamples[0].errors, ["exact error from disk"]);
+    assert.equal(streamedSamples[0].rawOutput, "raw-output-on-disk");
+    assert.equal(streamedSamples[0].failedAttempts, 1);
+    assert.equal(streamedSamples[0].totalAttempts, 2);
+
+    const variantsRoot = setupIsolatedVariantsRoot("archive");
+    const stageDir = resolve(autoStageDir("d0", variantsRoot));
     mkdirSync(stageDir, { recursive: true });
+    mkdirSync(resolve(stageDir, "descartadas"), { recursive: true });
     const loserFile = resolve(stageDir, "auto_d0_losertest_b.ts");
-    const destFile = resolve(stageDir, "descartadas", "auto_d0_losertest_b.ts");
-    writeFileSync(loserFile, "export default {};\n", "utf8");
-    trackTemp(loserFile);
-    trackTemp(destFile);
+    const existingDiscarded = resolve(stageDir, "descartadas", "auto_d0_losertest_b.ts");
+    const destWithSuffix = resolve(stageDir, "descartadas", "auto_d0_losertest_b-2.ts");
+    writeFileSync(loserFile, 'export default { name: "auto_d0_losertest_b" };\n', "utf8");
+    writeFileSync(existingDiscarded, 'export default { name: "auto_d0_losertest_b" };\n', "utf8");
+    // Poblar caché antes de archivar
+    assert.equal(listVariantNames(variantsRoot).includes("auto_d0_losertest_b"), true);
 
     const moved = archiveLosingAutoVariants({
       stage: "d0",
@@ -546,16 +577,19 @@ describe("eval/auto ranking, archiving y feedback", () => {
         { variant: "auto_d0_losertest_b", passRate: 0.6, macroPassRate: 0.6, score: 0.6, passedRuns: 6, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 2, improvements: 0 },
       ],
       archiveLosers: true,
+      variantsRoot,
     });
     assert.deepEqual(moved, ["auto_d0_losertest_b"]);
     assert.equal(existsSync(loserFile), false);
-    assert.equal(existsSync(destFile), true);
+    assert.equal(existsSync(existingDiscarded), true);
+    assert.equal(existsSync(destWithSuffix), true);
+    assert.equal(listVariantNames(variantsRoot).includes("auto_d0_losertest_b"), false);
   });
 });
 
 describe("eval/auto optimizer reparación", () => {
   it("reintenta reparación cuando una variante falla validación y conserva la válida", async () => {
-    trackDirIfCreated(autoStageDir("d0"));
+    const variantsRoot = setupIsolatedVariantsRoot("repair");
     const devDs = discoverStageDatasets("d0", ["d0_variedad"], []);
     const cfg = parseAutoConfig([
       "--stage=d0",
@@ -599,11 +633,10 @@ describe("eval/auto optimizer reparación", () => {
       allRanked: [],
       failureSamples: [],
       devDatasetPaths: devDs.dev.map((d) => d.path),
-      knownHashes: collectKnownVariantHashes("d0"),
+      knownHashes: collectKnownVariantHashes("d0", [], variantsRoot),
+      variantsRoot,
       callLlm: mockCaller,
     });
-
-    for (const v of res.validVariants) trackTemp(v.filePath);
 
     assert.equal(calls, 2);
     assert.equal(res.validVariants.length, 2);
@@ -612,7 +645,7 @@ describe("eval/auto optimizer reparación", () => {
   });
 
   it("limpia fences ```ts en code cuando el optimizador envuelve el código dentro del JSON", async () => {
-    trackDirIfCreated(autoStageDir("d0"));
+    const variantsRoot = setupIsolatedVariantsRoot("fences");
     const devDs = discoverStageDatasets("d0", ["d0_variedad"], []);
     const cfg = parseAutoConfig([
       "--stage=d0",
@@ -645,11 +678,11 @@ describe("eval/auto optimizer reparación", () => {
       allRanked: [],
       failureSamples: [],
       devDatasetPaths: devDs.dev.map((d) => d.path),
-      knownHashes: collectKnownVariantHashes("d0"),
+      knownHashes: collectKnownVariantHashes("d0", [], variantsRoot),
+      variantsRoot,
       callLlm: fencedCaller,
     });
 
-    for (const v of res.validVariants) trackTemp(v.filePath);
     assert.equal(res.validVariants.length, 2);
     assert.equal(res.validVariants[0].code.includes("```"), false);
   });
@@ -744,17 +777,20 @@ describe("eval/auto optimizer reparación", () => {
 });
 
 describe("eval/auto E2E runAutoLoop", () => {
-  function setupTempAutoDir(stage: StageName, tag: string): { conclusionsPath: string; resultsRoot: string } {
+  function setupTempAutoDir(_stage: StageName, tag: string): {
+    conclusionsPath: string;
+    resultsRoot: string;
+    variantsRoot: string;
+  } {
+    const variantsRoot = setupIsolatedVariantsRoot(`e2e-${tag}`);
     const tmpDir = trackTemp(mkdtempSync(join(tmpdir(), `jarvis-eval-auto-${tag}-`)));
     const resultsRoot = join(tmpDir, "results");
     mkdirSync(resultsRoot, { recursive: true });
-    trackDirIfCreated(autoStageDir(stage));
-    tempPathsToClean.push(resolve(autoStatePath(stage)));
-    return { conclusionsPath: join(tmpDir, "conclusiones.md"), resultsRoot };
+    return { conclusionsPath: join(tmpDir, "conclusiones.md"), resultsRoot, variantsRoot };
   }
 
   it("termina con exit 0 cuando variante != prod alcanza --target, actualiza conclusiones y archiva perdedora", async () => {
-    const { conclusionsPath, resultsRoot } = setupTempAutoDir("route", "hit");
+    const { conclusionsPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "hit");
     const cfg: AutoConfig = parseAutoConfig([
       "--stage=route",
       "--max-loops=2",
@@ -816,16 +852,17 @@ describe("eval/auto E2E runAutoLoop", () => {
       callOptimizer: mockOptimizer,
       makeClients: smartMakeClients,
       resultsRoot,
+      variantsRoot,
       silent: true,
     });
 
     assert.equal(code, 0);
     assert.equal(readConclusionsBounded(conclusionsPath).content.includes("# Conclusiones — route"), true);
-    assert.equal(existsSync(resolve(autoStatePath("route"))), true);
+    assert.equal(existsSync(resolve(autoStatePath("route", variantsRoot))), true);
   });
 
   it("con --holdout: sobreajuste en holdout alerta conclusiones y continúa hasta --max-loops (exit 1)", async () => {
-    const { conclusionsPath, resultsRoot } = setupTempAutoDir("route", "overfit");
+    const { conclusionsPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "overfit");
     const cfg: AutoConfig = parseAutoConfig([
       "--stage=route",
       "--max-loops=1",
@@ -875,6 +912,7 @@ describe("eval/auto E2E runAutoLoop", () => {
       callOptimizer: mockOptimizer,
       makeClients,
       resultsRoot,
+      variantsRoot,
       silent: true,
     });
 
@@ -884,7 +922,7 @@ describe("eval/auto E2E runAutoLoop", () => {
   });
 
   it("aborta con exit 2 sin tocar conclusiones.md ni auto_state.json si falla transporte del optimizador", async () => {
-    const { conclusionsPath, resultsRoot } = setupTempAutoDir("route", "infra");
+    const { conclusionsPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "infra");
     const cfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=2",
@@ -903,12 +941,13 @@ describe("eval/auto E2E runAutoLoop", () => {
     const code = await runAutoLoop(cfg, {
       callOptimizer: failingOptimizer,
       resultsRoot,
+      variantsRoot,
       silent: true,
     });
 
     assert.equal(code, 2);
     assert.equal(existsSync(conclusionsPath), false);
-    assert.equal(existsSync(resolve(autoStatePath("route"))), false);
+    assert.equal(existsSync(resolve(autoStatePath("route", variantsRoot))), false);
   });
 
   it("reutiliza resultados cacheados en disco si coincide exactamente la huella Meta", async () => {
@@ -1112,7 +1151,7 @@ describe("eval/auto E2E runAutoLoop", () => {
     );
 
     // 2) Vuelta sin variantes válidas registra progreso y nota en conclusiones
-    const { conclusionsPath: invConc, resultsRoot: invRoot } = setupTempAutoDir("route", "invalidround");
+    const { conclusionsPath: invConc, resultsRoot: invRoot, variantsRoot: invVariants } = setupTempAutoDir("route", "invalidround");
     const invCfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=1",
@@ -1130,13 +1169,14 @@ describe("eval/auto E2E runAutoLoop", () => {
           variants: [{ suffix: "a", hypothesis: "Bad import", code: 'import fs from "node:fs"; export default {};' }],
         }),
       resultsRoot: invRoot,
+      variantsRoot: invVariants,
       silent: true,
     });
     assert.equal(invCode, 1);
     assert.match(readConclusionsBounded(invConc).content, /Vuelta sin válidas/);
 
     // 3) Holdout fallido en R1 no se re-evalúa en R2 sobre la misma variante
-    const { conclusionsPath: hoConc, resultsRoot: hoRoot } = setupTempAutoDir("route", "holdoutonce");
+    const { conclusionsPath: hoConc, resultsRoot: hoRoot, variantsRoot: hoVariants } = setupTempAutoDir("route", "holdoutonce");
     const hoCfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=2",
@@ -1199,6 +1239,7 @@ describe("eval/auto E2E runAutoLoop", () => {
       callOptimizer: hoOpt,
       makeClients: hoMakeClients,
       resultsRoot: hoRoot,
+      variantsRoot: hoVariants,
       silent: true,
     });
     assert.equal(hoCode, 1);

@@ -6,10 +6,11 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, extname } from "node:path";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
 import { validateCase } from "./case.ts";
 import { globBaseDir, isGlob, matchGlob, normalizePath } from "./glob.ts";
+import { forEachJsonlLineSync } from "./io.ts";
 import { materializeScenario } from "./scenario.ts";
 import type { Scenario } from "./scenario.ts";
 import type { Case, Variant } from "./types.ts";
@@ -145,6 +146,115 @@ export function resolveDatasetPaths(specs: string[]): string[] {
   return result;
 }
 
+export interface RawDatasetEntry {
+  lineNo: number;
+  scenario: Scenario;
+  rest: Record<string, unknown>;
+  rawId?: string;
+  rawStage: string;
+  rawTags: string[];
+}
+
+export interface RawDatasetFile {
+  hash: string;
+  entries: RawDatasetEntry[];
+  errors: string[];
+}
+
+/** Caché en memoria de archivos `.jsonl` ya leídos y parseados para reutilizar entre múltiples variantes. */
+export type RawDatasetCache = Map<string, RawDatasetFile>;
+
+export function createRawDatasetCache(): RawDatasetCache {
+  return new Map();
+}
+
+function parseRawDatasetFile(path: string): RawDatasetFile {
+  const hasher = createHash("sha256");
+  const entries: RawDatasetEntry[] = [];
+  const errors: string[] = [];
+  const idLines = new Map<string, number>();
+
+  forEachJsonlLineSync(
+    path,
+    (text, lineNo) => {
+      const trimmed = text.trim();
+      if (trimmed === "" || trimmed.startsWith("#")) return;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (e) {
+        errors.push(`${path}:${lineNo}: JSON inválido (${e instanceof Error ? e.message : String(e)}).`);
+        return;
+      }
+
+      // Un solo formato de caso: el escenario. El `request` se arma con el código de producción y los prompts de la variante.
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        errors.push(`${path}:${lineNo}: la línea debe ser un objeto JSON.`);
+        return;
+      }
+      if ("request" in parsed) {
+        errors.push(`${path}:${lineNo}: un caso no trae 'request' (prompt armado a mano): describí la situación en 'scenario'. El prompt lo arma la variante.`);
+        return;
+      }
+      if (!("scenario" in parsed)) {
+        errors.push(`${path}:${lineNo}: falta 'scenario' (la situación del caso).`);
+        return;
+      }
+
+      const { scenario, ...rest } = parsed as Record<string, unknown>;
+      // Un `meta` que no es objeto se rechazaba o se pisaba en silencio al fusionarlo con el `toolSchema` del escenario.
+      if (rest.meta !== undefined && (rest.meta === null || typeof rest.meta !== "object" || Array.isArray(rest.meta))) {
+        errors.push(`${path}:${lineNo}: meta debe ser un objeto.`);
+        return;
+      }
+
+      const rawId = typeof rest.id === "string" ? rest.id : undefined;
+      if (rawId !== undefined) {
+        const firstLine = idLines.get(rawId);
+        if (firstLine !== undefined) {
+          errors.push(`${path}:${lineNo}: id '${rawId}' duplicado (ya definido en la línea ${firstLine}).`);
+          return;
+        }
+        idLines.set(rawId, lineNo);
+      }
+
+      const rawStage = typeof rest.stage === "string" ? rest.stage : "";
+      const rawTags = Array.isArray(rest.tags) ? rest.tags.filter((t): t is string => typeof t === "string") : [];
+      entries.push({
+        lineNo,
+        scenario: scenario as Scenario,
+        rest,
+        rawId,
+        rawStage,
+        rawTags,
+      });
+    },
+    (chunk) => hasher.update(chunk),
+  );
+
+  return {
+    hash: hasher.digest("hex").slice(0, 16),
+    entries,
+    errors,
+  };
+}
+
+/** Conteo rápido de casos y etapas de un `.jsonl` sin materializar escenarios ni prompts (ideal para `--list`). */
+export function countDatasetStages(path: string): { total: number; byStage: Array<[string, number]> } {
+  const by = new Map<string, number>();
+  let total = 0;
+  forEachJsonlLineSync(path, (line) => {
+    const trimmed = line.trim();
+    if (trimmed === "" || trimmed.startsWith("#")) return;
+    const obj = JSON.parse(trimmed) as { stage?: unknown };
+    if (typeof obj.stage !== "string") throw new Error("stage inválido");
+    total++;
+    by.set(obj.stage, (by.get(obj.stage) ?? 0) + 1);
+  });
+  return { total, byStage: [...by.entries()] };
+}
+
 /** Lee y valida un archivo. Acumula errores `archivo:línea: mensaje` en `errors` y registra IDs en `knownIds`. */
 function loadFile(
   path: string,
@@ -152,9 +262,16 @@ function loadFile(
   filters: CaseFilters,
   variant?: Variant,
   knownIds?: Set<string>,
+  rawCache?: RawDatasetCache,
 ): Dataset {
-  const content = readFileSync(path, "utf8");
-  const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
+  const cacheKey = resolve(path);
+  let raw = rawCache?.get(cacheKey);
+  if (!raw) {
+    raw = parseRawDatasetFile(path);
+    rawCache?.set(cacheKey, raw);
+  }
+  errors.push(...raw.errors);
+
   const cases: Case[] = [];
   const idLines = new Map<string, number>();
 
@@ -162,90 +279,54 @@ function loadFile(
   const tagSet = filters.tags && filters.tags.length > 0 ? new Set(filters.tags) : null;
   const idSet = filters.ids && filters.ids.length > 0 ? new Set(filters.ids) : null;
 
-  const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
-  lines.forEach((text, i) => {
-    const lineNo = i + 1;
-    const trimmed = text.trim();
-    if (trimmed === "" || trimmed.startsWith("#")) return;
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (e) {
-      errors.push(`${path}:${lineNo}: JSON inválido (${e instanceof Error ? e.message : String(e)}).`);
-      return;
-    }
-
-    // Un solo formato de caso: el escenario. El `request` se arma con el código de producción y los prompts de la variante.
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      errors.push(`${path}:${lineNo}: la línea debe ser un objeto JSON.`);
-      return;
-    }
-    if ("request" in parsed) {
-      errors.push(`${path}:${lineNo}: un caso no trae 'request' (prompt armado a mano): describí la situación en 'scenario'. El prompt lo arma la variante.`);
-      return;
-    }
-    if (!("scenario" in parsed)) {
-      errors.push(`${path}:${lineNo}: falta 'scenario' (la situación del caso).`);
-      return;
-    }
-
-    const { scenario, ...rest } = parsed as Record<string, unknown>;
-    // Un `meta` que no es objeto se rechazaba o se pisaba en silencio al fusionarlo con el `toolSchema` del escenario.
-    if (rest.meta !== undefined && (rest.meta === null || typeof rest.meta !== "object" || Array.isArray(rest.meta))) {
-      errors.push(`${path}:${lineNo}: meta debe ser un objeto.`);
-      return;
-    }
-
-    const rawId = typeof rest.id === "string" ? rest.id : undefined;
+  for (const entry of raw.entries) {
+    const { lineNo, scenario, rest, rawId, rawStage, rawTags } = entry;
     if (rawId !== undefined) {
-      const firstLine = idLines.get(rawId);
-      if (firstLine !== undefined) {
-        errors.push(`${path}:${lineNo}: id '${rawId}' duplicado (ya definido en la línea ${firstLine}).`);
-        return;
-      }
       idLines.set(rawId, lineNo);
       knownIds?.add(rawId);
     }
 
     // Pre-filtro rápido antes de materializar el escenario y construir prompts.
-    const rawStage = typeof rest.stage === "string" ? rest.stage : "";
-    if (stageSet && !stageSet.has(rawStage)) return;
-    if (tagSet) {
-      const rawTags = Array.isArray(rest.tags) ? rest.tags : [];
-      if (!rawTags.some((t) => typeof t === "string" && tagSet.has(t))) return;
-    }
-    if (idSet && (rawId === undefined || !idSet.has(rawId))) return;
-    if (filters.limit !== undefined && cases.length >= filters.limit) return;
+    if (stageSet && !stageSet.has(rawStage)) continue;
+    if (tagSet && !rawTags.some((t) => tagSet.has(t))) continue;
+    if (idSet && (rawId === undefined || !idSet.has(rawId))) continue;
+    if (filters.limit !== undefined && cases.length >= filters.limit) continue;
 
+    let parsed: unknown;
     try {
-      const m = materializeScenario(String(rest.stage), scenario as Scenario, variant);
+      const m = materializeScenario(String(rest.stage), scenario, variant);
       const meta = (rest.meta ?? {}) as Record<string, unknown>;
-      parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema, toolName: m.toolName, environment: m.environment, precheck: m.precheck } } : {}) };
+      parsed = {
+        ...rest,
+        request: m.request,
+        ...(m.toolSchema
+          ? { meta: { ...meta, toolSchema: m.toolSchema, toolName: m.toolName, environment: m.environment, precheck: m.precheck } }
+          : {}),
+      };
     } catch (e) {
       errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);
-      return;
+      continue;
     }
 
     const v = validateCase(parsed);
     if (!v.ok) {
       for (const msg of v.errors) errors.push(`${path}:${lineNo}: ${msg}`);
-      return;
+      continue;
     }
 
     if (rawId === undefined) {
       const firstLine = idLines.get(v.case.id);
       if (firstLine !== undefined) {
         errors.push(`${path}:${lineNo}: id '${v.case.id}' duplicado (ya definido en la línea ${firstLine}).`);
-        return;
+        continue;
       }
       idLines.set(v.case.id, lineNo);
       knownIds?.add(v.case.id);
     }
     cases.push(v.case);
-  });
+  }
 
-  return { name: datasetName(path), path, hash, cases };
+  return { name: datasetName(path), path, hash: raw.hash, cases };
 }
 
 export function filterCases(cases: Case[], f: CaseFilters): Case[] {
@@ -261,7 +342,12 @@ export function filterCases(cases: Case[], f: CaseFilters): Case[] {
  * Resuelve, valida (estructura e ids de todos los archivos) y materializa los casos filtrados.
  * `variant`: la variante con cuyos prompts se arman los casos (sin ella, los de producción).
  */
-export function loadDatasets(specs: string[], filters: CaseFilters = {}, variant?: Variant): Dataset[] {
+export function loadDatasets(
+  specs: string[],
+  filters: CaseFilters = {},
+  variant?: Variant,
+  rawCache?: RawDatasetCache,
+): Dataset[] {
   const paths = resolveDatasetPaths(specs);
 
   const byName = new Map<string, string>();
@@ -276,7 +362,7 @@ export function loadDatasets(specs: string[], filters: CaseFilters = {}, variant
 
   const errors: string[] = [];
   const knownIds = new Set<string>();
-  const datasets = paths.map((p) => loadFile(p, errors, filters, variant, knownIds));
+  const datasets = paths.map((p) => loadFile(p, errors, filters, variant, knownIds, rawCache));
   if (errors.length > 0) throw new Error(errors.join("\n"));
 
   // Un id que no existe en ningún dataset (typo) se ignoraba si otros ids sí coincidían.

@@ -9,10 +9,10 @@
 import { CONTINUATION_APPROVE, CONTINUATION_KEY } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ContinuationLabelGrader } from "../graders/label.ts";
-import type { ChoiceQ, ContinuationExpect, ContinuationOutput, DecisionReaders, DecisionRequest, NoulQ } from "../types.ts";
-import { extractNoul, parseAnswers, readAllAnswers } from "../variants/labels.ts";
-import type { DecisionStageEntry } from "./index.ts";
+import type { ChoiceQ, ContinuationExpect, ContinuationOutput, NoulQ } from "../types.ts";
+import { extractNoul, parseAnswers } from "../variants/labels.ts";
 import { checkRange01, NO, YES } from "./shared.ts";
+import type { DecisionStageEntry } from "./types.ts";
 
 export const continuationStage: DecisionStageEntry<ContinuationOutput, ContinuationExpect> = {
   stageName: "continuation",
@@ -47,16 +47,14 @@ export const continuationStage: DecisionStageEntry<ContinuationOutput, Continuat
       }),
     );
   },
-  parseOutput(rawOutput: string, sentReq: DecisionRequest, read: DecisionReaders | undefined): ContinuationOutput {
-    const answers = parseAnswers(rawOutput);
-    const reader = read?.continuation;
-    if (reader) {
-      const out = reader(readAllAnswers(sentReq, answers));
-      return {
-        follows: out.follows ?? out.probability >= CONTINUATION_APPROVE,
-        probability: out.probability,
-      };
+  validateRequest(req) {
+    if (!req.questions[CONTINUATION_KEY] || req.questions[CONTINUATION_KEY].type !== "noul") {
+      return `continuation requiere pregunta noul '${CONTINUATION_KEY}'.`;
     }
+    return null;
+  },
+  parseOutput(rawOutput: string): ContinuationOutput {
+    const answers = parseAnswers(rawOutput);
     const probability = extractNoul(answers, CONTINUATION_KEY);
     return { follows: probability >= CONTINUATION_APPROVE, probability };
   },

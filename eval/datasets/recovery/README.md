@@ -2,14 +2,14 @@
 
 Casos de la etapa `recovery`: **qué hacer cuando falla el paso de un ítem de la lista del modo reactivo.** En el motor corre solo en **modo sombra** (`src/core/engine/recoveryShadow.ts`, config `recoveryShadow`): registra qué haría y no actúa. El diseño está en [`docs/pendientes/PENDIENTES_CODIGO.md`](../../../docs/pendientes/PENDIENTES_CODIGO.md), §9.1, punto 1; los resultados, los descartes y cómo leer las trazas, en [`eval/GUIA_DECISION.md`](../../GUIA_DECISION.md) (sección 5).
 
-El prompt de producción (`prod`) es `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts`. Las variantes viven en `eval/variants/recovery/`; las de la época de cuatro opciones están archivadas en `eval/variants/_archivo_recovery_4_opciones/` (no se pueden correr).
+El prompt de producción (`prod`) es `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts`. Las variantes activas vigentes (tres opciones) viven en `eval/variants/recovery/` (las variantes heredadas de cuatro opciones y las de dos ejes fueron retiradas).
 
 ## Cómo correrlo
 
 ```bash
 npm run eval -- --client=oracle --dataset=eval/datasets/recovery --stages=recovery            # valida casos y graders: debe dar 100 %
 npm run eval -- --dataset=eval/datasets/recovery --stages=recovery                            # modelo real (d3:2b-text), baseline prod
-npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --variant=prod,recovery_two_axes
+npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --variant=prod,recovery_three_options_nobehind
 npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --ids=n1-rp-04 --dry-run --client=mock   # ver el prompt de un caso
 ```
 

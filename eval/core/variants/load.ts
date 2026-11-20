@@ -15,8 +15,20 @@ import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Variant } from "./types.ts";
 
-/** Directorio donde viven las variantes (relativo al CWD). */
-const VARIANTS_DIR = "eval/variants";
+/** Directorio por defecto donde viven las variantes (relativo al CWD). */
+export const VARIANTS_DIR = "eval/variants";
+
+/** Caché del escaneo del directorio por ruta absoluta de raíz de variantes. */
+const variantScanCache = new Map<string, { active: string[]; all: string[] }>();
+
+/** Invalida el caché de escaneo de variantes (total o para una raíz puntual). */
+export function invalidateVariantCache(variantsRoot?: string): void {
+  if (variantsRoot === undefined) {
+    variantScanCache.clear();
+  } else {
+    variantScanCache.delete(resolve(variantsRoot));
+  }
+}
 
 /** Carpetas de archivo o descarte que se excluyen del listado automático de variantes activas. */
 function isArchivedVariantDir(dirName: string): boolean {
@@ -24,7 +36,7 @@ function isArchivedVariantDir(dirName: string): boolean {
 }
 
 /** Busca recursivamente todos los archivos .ts bajo un directorio, en orden estable. */
-function findVariantFiles(dir: string, includeArchived = true): string[] {
+function scanVariantFiles(dir: string, includeArchived = true): string[] {
   const results: string[] = [];
   try {
     const entries = readdirSync(dir, { withFileTypes: true });
@@ -32,7 +44,7 @@ function findVariantFiles(dir: string, includeArchived = true): string[] {
       const fullPath = `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
         if (!includeArchived && isArchivedVariantDir(entry.name)) continue;
-        results.push(...findVariantFiles(fullPath, includeArchived));
+        results.push(...scanVariantFiles(fullPath, includeArchived));
       } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) {
         results.push(fullPath);
       }
@@ -43,23 +55,36 @@ function findVariantFiles(dir: string, includeArchived = true): string[] {
   return results.sort();
 }
 
-/** Rutas `.ts` de variantes activas bajo `eval/variants/` (excluye `descartadas/` y `_archivo_*`). */
-export function listActiveVariantFiles(): string[] {
-  return findVariantFiles(VARIANTS_DIR, false);
+function getScan(variantsRoot = VARIANTS_DIR): { active: string[]; all: string[] } {
+  const key = resolve(variantsRoot);
+  let entry = variantScanCache.get(key);
+  if (!entry) {
+    entry = {
+      active: scanVariantFiles(variantsRoot, false),
+      all: scanVariantFiles(variantsRoot, true),
+    };
+    variantScanCache.set(key, entry);
+  }
+  return entry;
 }
 
-/** Archivos de `eval/variants` (raíz y subcarpetas) cuyo nombre sin extensión es `name`. */
-function variantMatches(name: string): string[] {
-  return findVariantFiles(VARIANTS_DIR, true).filter((f) => basename(f, ".ts") === name);
+/** Rutas `.ts` de variantes activas bajo `variantsRoot` (excluye `descartadas/` y `_archivo_*`). */
+export function listActiveVariantFiles(variantsRoot = VARIANTS_DIR): string[] {
+  return [...getScan(variantsRoot).active];
+}
+
+/** Archivos de `variantsRoot` (raíz y subcarpetas) cuyo nombre sin extensión es `name`. */
+function variantMatches(name: string, variantsRoot = VARIANTS_DIR): string[] {
+  return getScan(variantsRoot).all.filter((f) => basename(f, ".ts") === name);
 }
 
 /** Resuelve y valida en un único recorrido el archivo de una variante. */
-function resolveUniqueVariantFile(name: string): string {
-  const matches = variantMatches(name);
+function resolveUniqueVariantFile(name: string, variantsRoot = VARIANTS_DIR): string {
+  const matches = variantMatches(name, variantsRoot);
   if (matches.length > 1) {
     throw new Error(`Variante '${name}' ambigua: el nombre está en ${matches.length} archivos (${matches.join(", ")}). Los nombres deben ser únicos.`);
   }
-  const path = resolve(matches[0] ?? `${VARIANTS_DIR}/${name}.ts`);
+  const path = resolve(matches[0] ?? `${variantsRoot}/${name}.ts`);
   if (!existsSync(path)) throw new Error(`Variante '${name}' no encontrada (${path}).`);
   return path;
 }
@@ -69,20 +94,23 @@ export function variantFileHash(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath, "utf8")).digest("hex").slice(0, 16);
 }
 
-/** Ruta del archivo de una variante dado su nombre (raíz o subcarpetas de eval/variants). Si no existe, la ruta esperada en la raíz. */
-export function variantFilePath(name: string): string {
-  const [first] = variantMatches(name);
-  return resolve(first ?? `${VARIANTS_DIR}/${name}.ts`);
+/** Ruta del archivo de una variante dado su nombre (raíz o subcarpetas de variantsRoot). Lanza si es ambigua; si no existe, la ruta esperada en la raíz. */
+export function variantFilePath(name: string, variantsRoot = VARIANTS_DIR): string {
+  const matches = variantMatches(name, variantsRoot);
+  if (matches.length > 1) {
+    throw new Error(`Variante '${name}' ambigua: el nombre está en ${matches.length} archivos (${matches.join(", ")}). Los nombres deben ser únicos.`);
+  }
+  return resolve(matches[0] ?? `${variantsRoot}/${name}.ts`);
 }
 
-/** Nombres de las variantes disponibles (archivos `.ts` activos en eval/variants y subcarpetas, sin `descartadas/` ni `_archivo_*`), sin repetidos y ordenados. */
-export function listVariantNames(): string[] {
-  return [...new Set(listActiveVariantFiles().map((f) => basename(f, ".ts")))].sort();
+/** Nombres de las variantes disponibles (archivos `.ts` activos en variantsRoot y subcarpetas, sin `descartadas/` ni `_archivo_*`), sin repetidos y ordenados. */
+export function listVariantNames(variantsRoot = VARIANTS_DIR): string[] {
+  return [...new Set(listActiveVariantFiles(variantsRoot).map((f) => basename(f, ".ts")))].sort();
 }
 
 /** Lanza con un mensaje de error de configuración si el archivo no existe o el nombre está en más de un archivo. */
-export function requireVariantFile(name: string): string {
-  return resolveUniqueVariantFile(name);
+export function requireVariantFile(name: string, variantsRoot = VARIANTS_DIR): string {
+  return resolveUniqueVariantFile(name, variantsRoot);
 }
 
 async function importVariantFromPath(name: string, path: string): Promise<Variant> {
@@ -96,8 +124,8 @@ async function importVariantFromPath(name: string, path: string): Promise<Varian
 }
 
 /** Carga una variante desde su archivo mediante dynamic import. Lanza si no existe o `name` no coincide con el archivo. */
-export async function loadVariant(name: string): Promise<Variant> {
-  return importVariantFromPath(name, resolveUniqueVariantFile(name));
+export async function loadVariant(name: string, variantsRoot = VARIANTS_DIR): Promise<Variant> {
+  return importVariantFromPath(name, resolveUniqueVariantFile(name, variantsRoot));
 }
 
 /**
@@ -114,9 +142,13 @@ export function parseVariantSpecs(raw: string, withBaseline = true): string[] {
   return parts;
 }
 
-/** Carga una variante y su hash sin recorrer `eval/variants/` múltiples veces. */
-export async function loadVariantSpec(spec: string, resolvedPath?: string): Promise<{ variant: Variant; hash: string }> {
-  const path = resolvedPath ? resolve(resolvedPath) : resolveUniqueVariantFile(spec);
+/** Carga una variante y su hash sin recorrer `variantsRoot` múltiples veces. */
+export async function loadVariantSpec(
+  spec: string,
+  resolvedPath?: string,
+  variantsRoot = VARIANTS_DIR,
+): Promise<{ variant: Variant; hash: string }> {
+  const path = resolvedPath ? resolve(resolvedPath) : resolveUniqueVariantFile(spec, variantsRoot);
   const variant = await importVariantFromPath(spec, path);
   return { variant, hash: variantFileHash(path) };
 }

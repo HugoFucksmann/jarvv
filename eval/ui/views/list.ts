@@ -5,10 +5,10 @@
  * Separada en dos pasos: `collectListData` lee del disco y `renderList` solo arma texto (sin I/O).
  */
 
-import { datasetName, listDatasetNames, loadDatasets, resolveDatasetPaths } from "../../core/datasets.ts";
+import { countDatasetStages, DATASETS_DIR, datasetName, resolveDatasetPaths } from "../../core/datasets.ts";
 import { listVariantNames } from "../../core/variants/load.ts";
 import { baselineFirst, groupStages } from "../order.ts";
-import { box, c, clip, columns, heading, padEnd, sym, WIDTH, wrapList } from "../style.ts";
+import { box, c, clip, columns, getWidth, heading, padEnd, sym, wrapList } from "../style.ts";
 
 interface DatasetInfo {
   total: number;
@@ -27,14 +27,10 @@ interface ListData {
 
 // ───────────────────────── Datos ─────────────────────────
 
-/** Lee un dataset para contar sus casos por etapa; `null` si no se puede cargar (no debe romper el listado). */
-function datasetInfo(name: string): DatasetInfo | null {
+/** Lee un archivo .jsonl de dataset para contar sus casos por etapa sin materializar prompts. */
+function datasetInfoFromPath(path: string): DatasetInfo | null {
   try {
-    const [ds] = loadDatasets([name], {});
-    if (!ds) return null;
-    const by = new Map<string, number>();
-    for (const k of ds.cases) by.set(k.stage, (by.get(k.stage) ?? 0) + 1);
-    return { total: ds.cases.length, byStage: [...by.entries()] };
+    return countDatasetStages(path);
   } catch {
     return null;
   }
@@ -42,7 +38,16 @@ function datasetInfo(name: string): DatasetInfo | null {
 
 function collectListData(baseline: string, datasetSpecs: string[]): ListData {
   const stageGroups = groupStages();
-  const names = listDatasetNames();
+  let paths: string[] = [];
+  try {
+    paths = resolveDatasetPaths([DATASETS_DIR]);
+  } catch {
+    // Carpeta inexistente o vacía: el listado no debe romper.
+  }
+  const byName = paths
+    .map((path) => ({ name: datasetName(path), path }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const names = byName.map((d) => d.name);
 
   let selected = new Set<string>();
   try {
@@ -60,7 +65,7 @@ function collectListData(baseline: string, datasetSpecs: string[]): ListData {
     stageGroups,
     stageCount: stageGroups.reduce((n, [, items]) => n + items.length, 0),
     variants,
-    datasets: names.map((name) => ({ name, info: datasetInfo(name) })),
+    datasets: byName.map(({ name, path }) => ({ name, info: datasetInfoFromPath(path) })),
     selected,
   };
 }
@@ -74,7 +79,7 @@ function renderStages(d: ListData): string[] {
   const labelW = Math.max(0, ...groups.map(([label]) => label.length)) + 2;
   const out: string[] = [];
   for (const [label, items] of groups) {
-    const lines = wrapList(items.map((s) => c.cyan(s)), WIDTH - 2 - labelW, c.gray(" · "));
+    const lines = wrapList(items.map((s) => c.cyan(s)), getWidth() - 2 - labelW, c.gray(" · "));
     lines.forEach((ln, i) => out.push(`  ${i === 0 ? c.gray(label.padEnd(labelW)) : " ".repeat(labelW)}${ln}`));
   }
   return out;
@@ -99,7 +104,7 @@ function renderDatasets(d: ListData): string[] {
   const totalW = Math.max(...d.datasets.map((x) => (x.info ? String(x.info.total).length : 1)));
   const headW = 2 + nameW + 2 + totalW + " casos".length;
   // Ancho de cada columna si entran dos: el desglose por etapa aprovecha todo el ancho disponible.
-  const cellW = Math.max(headW, Math.floor((WIDTH - 2 - 4) / 2));
+  const cellW = Math.max(headW, Math.floor((getWidth() - 2 - 4) / 2));
 
   const cells = d.datasets.map(({ name, info }) => {
     const sel = d.selected.has(name);

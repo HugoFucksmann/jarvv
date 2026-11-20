@@ -4,15 +4,12 @@
  * Etapa generativa `final`: respuesta final al usuario.
  */
 
-import { finalRenderOptions, finalViewOptions } from "../../../src/core/engine/adapters.ts";
-import { finalStageRequest } from "../../../src/core/models/stageRequests.ts";
-import { renderFinal } from "../../../src/core/render/index.ts";
-import { stripThink } from "../contract.ts";
+import { finalRenderOptions, finalStageRequest, finalViewOptions, renderFinal, stripThink } from "../contract.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import { FinalResponseGrader } from "../graders/final.ts";
 import type { FinalExpect, FinalOutput } from "../types.ts";
-import type { GenerativeStageEntry } from "./index.ts";
 import { noLabel } from "./shared.ts";
+import type { GenerativeStageEntry } from "./types.ts";
 
 export const finalStage: GenerativeStageEntry<FinalOutput, FinalExpect> = {
   stageName: "final",

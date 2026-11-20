@@ -5,6 +5,7 @@
  * las primitivas compartidas de `eval/core/config.ts` para evitar duplicación.
  */
 
+import { join } from "node:path";
 import {
   DEFAULT_DECISION_MODEL,
   DEFAULT_DECISION_URL,
@@ -21,6 +22,7 @@ import {
 } from "../core/config.ts";
 import { allStageNames } from "../core/stages/index.ts";
 import type { StageName, ThinkingMode } from "../core/types.ts";
+import { VARIANTS_DIR } from "../core/variants/load.ts";
 
 export type AutoMetric = "passRate" | "macroPassRate";
 export type OptimizerThinkingMode = "off" | "on";
@@ -91,16 +93,16 @@ function dedupedCsv(flags: Map<string, string | true>, key: string): string[] {
   return [...new Set(flagCsv(flags, key))];
 }
 
-export function defaultConclusionsPath(stage: StageName): string {
-  return `eval/variants/_auto/${stage}/conclusiones.md`;
+export function autoStageDir(stage: StageName, variantsRoot = VARIANTS_DIR): string {
+  return join(variantsRoot, "_auto", stage);
 }
 
-export function autoStageDir(stage: StageName): string {
-  return `eval/variants/_auto/${stage}`;
+export function defaultConclusionsPath(stage: StageName, variantsRoot = VARIANTS_DIR): string {
+  return join(autoStageDir(stage, variantsRoot), "conclusiones.md");
 }
 
-export function autoStatePath(stage: StageName): string {
-  return `${autoStageDir(stage)}/auto_state.json`;
+export function autoStatePath(stage: StageName, variantsRoot = VARIANTS_DIR): string {
+  return join(autoStageDir(stage, variantsRoot), "auto_state.json");
 }
 
 /** Parsea `argv` (sin `--auto`, binario ni script) y devuelve `AutoConfig`. Lanza ante errores de configuración. */

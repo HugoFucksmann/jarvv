@@ -17,12 +17,12 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PROD_SHORTCUT_TAG } from "./core/case.ts";
 import { createEvalClients, executeComparisonBatch, type BatchVariantInput, type EvalClients } from "./core/batch.ts";
-import { loadDatasets, type Dataset } from "./core/datasets.ts";
+import { createRawDatasetCache, loadDatasets, type Dataset, type RawDatasetCache } from "./core/datasets.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "./core/report-format.ts";
 import type { ComparisonReport, InputCell } from "./core/report.ts";
 import { isDecisionStage } from "./core/stages/index.ts";
 import type { Case, StageName } from "./core/types.ts";
-import { loadVariantSpec, variantFilePath } from "./core/variants/load.ts";
+import { loadVariantSpec, VARIANTS_DIR, variantFilePath } from "./core/variants/load.ts";
 import type { Variant } from "./core/variants/types.ts";
 import { c, fail, section, sym } from "./ui/style.ts";
 import {
@@ -76,6 +76,7 @@ export interface AutoLoopDeps {
   callOptimizer?: OptimizerLlmCaller;
   makeClients?: (cfg: AutoConfig) => EvalClients;
   resultsRoot?: string;
+  variantsRoot?: string;
   silent?: boolean;
 }
 
@@ -138,9 +139,11 @@ async function runComparativeBatch(opts: {
   label: string;
   clients: EvalClients;
   resultsRoot?: string;
+  variantsRoot?: string;
+  rawCache?: RawDatasetCache;
   silent?: boolean;
 }): Promise<BatchRunOutput | BatchRunFailed> {
-  const { cfg, variantNames, datasetPaths, label, clients, resultsRoot, silent } = opts;
+  const { cfg, variantNames, datasetPaths, label, clients, resultsRoot, variantsRoot, rawCache, silent } = opts;
   const participants = uniqueStrings(["prod", ...variantNames]);
   const evalCfg = toEvalConfig(cfg, {
     datasetSpecs: datasetPaths,
@@ -154,11 +157,11 @@ async function runComparativeBatch(opts: {
   const datasetsByVariant = new Map<string, Dataset[]>();
 
   for (const spec of participants) {
-    const { variant, hash } = await loadVariantSpec(spec);
-    const filePath = variantFilePath(spec);
+    const { variant, hash } = await loadVariantSpec(spec, undefined, variantsRoot);
+    const filePath = variantFilePath(spec, variantsRoot);
     batchVariants.push({ spec, hash, variant });
     loadedVariants.set(spec, { variant, hash, filePath });
-    datasetsByVariant.set(spec, loadDatasets(datasetPaths, { stages: [cfg.stage] }, variant));
+    datasetsByVariant.set(spec, loadDatasets(datasetPaths, { stages: [cfg.stage] }, variant, rawCache));
   }
 
   const batch = await executeComparisonBatch({
@@ -190,12 +193,12 @@ async function runComparativeBatch(opts: {
   };
 }
 
-function readVariantSourceForPrompt(name: string, stage: StageName): string {
+function readVariantSourceForPrompt(name: string, stage: StageName, variantsRoot?: string): string {
   if (name === "prod") {
     return extractProdPromptSource(stage);
   }
   try {
-    const filePath = variantFilePath(name);
+    const filePath = variantFilePath(name, variantsRoot);
     if (existsSync(filePath)) return readFileSync(filePath, "utf8");
   } catch {
     // Fallback
@@ -208,6 +211,7 @@ function buildTop2Contexts(
   ranked: RankedVariant[],
   stats: VariantDatasetStat[],
   stage: StageName,
+  variantsRoot?: string,
 ): TopVariantContext[] {
   const contexts: TopVariantContext[] = [];
   for (const name of top2Names) {
@@ -225,7 +229,7 @@ function buildTop2Contexts(
     };
     contexts.push({
       name,
-      code: readVariantSourceForPrompt(name, stage),
+      code: readVariantSourceForPrompt(name, stage, variantsRoot),
       summary,
       perDataset: stats.filter((s) => s.variant === name),
     });
@@ -251,6 +255,8 @@ function printRankedTable(ranked: RankedVariant[], top2: string[], cfg: AutoConf
 
 export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Promise<number> {
   const silent = deps.silent ?? false;
+  const variantsRoot = deps.variantsRoot ?? VARIANTS_DIR;
+  const rawCache = createRawDatasetCache();
   const log = (...args: unknown[]) => {
     if (!silent) console.log(...args);
   };
@@ -258,7 +264,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   // 1. Descubrir datasets dev y holdout opcional
   let discovered;
   try {
-    discovered = discoverStageDatasets(cfg.stage, cfg.datasetSpecs, cfg.holdoutSpecs);
+    discovered = discoverStageDatasets(cfg.stage, cfg.datasetSpecs, cfg.holdoutSpecs, rawCache);
   } catch (e) {
     fail(`Error de dataset: ${e instanceof Error ? e.message : String(e)}`);
     return 2;
@@ -284,10 +290,10 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   }
 
   // 3. Descubrir variantes activas de la etapa y preparar inicialización Top-2
-  const activeVariants = await discoverStageVariants(cfg.stage);
-  const knownHashes = collectKnownVariantHashes(cfg.stage, activeVariants.map((v) => v.path));
+  const activeVariants = await discoverStageVariants(cfg.stage, variantsRoot);
+  const knownHashes = collectKnownVariantHashes(cfg.stage, activeVariants.map((v) => v.path), variantsRoot);
   const fingerprint = buildFingerprint(cfg, discovered.devHashes, discovered.devCasesHashes);
-  const priorState = loadAutoState(cfg.stage);
+  const priorState = loadAutoState(cfg.stage, variantsRoot);
   const sameFingerprintState = priorState && fingerprintsEqual(priorState.fingerprint, fingerprint) ? priorState : null;
   const runTag = makeRunTag();
 
@@ -334,16 +340,19 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
           focusVariant: top2[0] ?? "prod",
           cells,
           devDatasetNames,
+          devDatasetPaths: devPaths,
           caseLookup,
         })
       : [];
   };
 
   if (cfg.seedTop.length > 0) {
-    // Validar existencia de --seed-top
+    // Validar existencia y cargar una única vez las variantes de --seed-top
+    const seedSpecs: Array<{ name: string; hash: string }> = [];
     for (const s of cfg.seedTop) {
       try {
-        await loadVariantSpec(s);
+        const loaded = await loadVariantSpec(s, undefined, variantsRoot);
+        seedSpecs.push({ name: s, hash: loaded.hash });
       } catch (e) {
         fail(`Error en --seed-top='${s}': ${e instanceof Error ? e.message : String(e)}`);
         return 2;
@@ -351,13 +360,10 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }
     currentTop2 = [...cfg.seedTop];
 
-    const prodSpec = await loadVariantSpec("prod");
-    const seedSpecs = await Promise.all(
-      currentTop2.map(async (name) => ({ name, ...(await loadVariantSpec(name)) })),
-    );
+    const prodSpec = await loadVariantSpec("prod", undefined, variantsRoot);
     const cacheCheck = scanReusableInitialRanking({
       cfg,
-      variants: [{ name: "prod", hash: prodSpec.hash }, ...seedSpecs.filter((s) => s.name !== "prod").map((s) => ({ name: s.name, hash: s.hash }))],
+      variants: [{ name: "prod", hash: prodSpec.hash }, ...seedSpecs.filter((s) => s.name !== "prod")],
       datasets: discovered.dev.map((d) => ({ name: d.name, hash: d.hash, casesHash: discovered.devCasesHashes[d.name] })),
       resultsRoot: deps.resultsRoot,
     });
@@ -369,7 +375,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }
   } else {
     // Intentar reutilizar resultados compatibles en eval/results/ para prod + variantes activas
-    const prodSpec = await loadVariantSpec("prod");
+    const prodSpec = await loadVariantSpec("prod", undefined, variantsRoot);
     const variantsForScan = [
       { name: "prod", hash: prodSpec.hash },
       ...activeVariants.map((v) => ({ name: v.name, hash: v.hash })),
@@ -406,6 +412,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         label: `auto_${cfg.stage}_r0`,
         clients,
         resultsRoot: deps.resultsRoot,
+        variantsRoot,
+        rawCache,
         silent,
       });
       if (!batch0.ok) {
@@ -439,7 +447,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         ? { holdoutChecked: Object.fromEntries(testedHoldoutVariants.entries()) }
         : {}),
       updatedAt: new Date().toISOString(),
-    });
+    }, variantsRoot);
   };
 
   const ensureConclusionsInitialized = (roundNote: string): void => {
@@ -469,7 +477,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
 
     const conclusionsForPrompt = formatConclusionsForPrompt(cfg.conclusionsPath);
     const failureSamples: FailureSample[] = lastFailureSamples;
-    const top2Contexts = buildTop2Contexts(currentTop2, lastRanked, lastStats, cfg.stage);
+    const top2Contexts = buildTop2Contexts(currentTop2, lastRanked, lastStats, cfg.stage, variantsRoot);
 
     // 4.1 & 4.2 Generar + validar hasta 2 variantes nuevas
     let generation;
@@ -484,6 +492,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         failureSamples,
         devDatasetPaths: devPaths,
         knownHashes,
+        variantsRoot,
+        rawCache,
         callLlm: deps.callOptimizer,
       });
     } catch (e) {
@@ -533,6 +543,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       label: `auto_${cfg.stage}_r${round}`,
       clients,
       resultsRoot: deps.resultsRoot,
+      variantsRoot,
+      rawCache,
       silent,
     });
 
@@ -548,7 +560,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     // 4.4 Archivar variantes generadas perdedoras en `_auto/<stage>/descartadas/`
     const autoCandidatesInBatch: Array<{ name: string; filePath: string }> = [];
     for (const [name, info] of batch.loadedVariants.entries()) {
-      if (isAutoVariantPathForStage(info.filePath, cfg.stage)) {
+      if (isAutoVariantPathForStage(info.filePath, cfg.stage, variantsRoot)) {
         autoCandidatesInBatch.push({ name, filePath: info.filePath });
       }
     }
@@ -558,6 +570,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       top2: nextTop2,
       ranked: batch.ranked,
       archiveLosers: cfg.archiveLosers,
+      variantsRoot,
     });
     if (archived.length > 0) {
       log(`  ${c.gray("Archivadas en descartadas/:")} ${archived.join(", ")}`);
@@ -596,6 +609,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
             label: `auto_${cfg.stage}_r${round}_holdout`,
             clients,
             resultsRoot: deps.resultsRoot,
+            variantsRoot,
+            rawCache,
             silent,
           });
           if (!holdoutBatch.ok) {

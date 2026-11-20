@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { COMPLETION_KEY, CONTINUATION_KEY, RECOVERY_KEY } from "../core/contract.ts";
 import type { DecisionStage, GenerativeStage, StageName } from "../core/types.ts";
+import { findMatchingBraceToken, SyntaxKind, tokenizeTs } from "./tsScanner.ts";
 
 export interface StageContract {
   stage: StageName;
@@ -744,133 +745,139 @@ export function getStageContract(stage: StageName): StageContract {
 
 /**
  * Extrae del archivo fuente `src/core/models/prompts.ts` el bloque exacto de la propiedad `promptKey`
- * (ya sea método/función en `DECISION_PROMPTS` u objeto en `PROMPTS`), para mostrarlo como código `prod`
- * sin mantener copias desactualizadas.
+ * (ya sea método/función en `DECISION_PROMPTS` u objeto en `PROMPTS`), usando el escáner léxico de TS 7
+ * para no mantener copias desactualizadas ni depender de heurísticas frágiles de regex/caracteres.
  */
 export function extractProdPromptSource(stage: StageName): string {
   const contract = getStageContract(stage);
   const promptsPath = resolve("src/core/models/prompts.ts");
   const content = readFileSync(promptsPath, "utf8");
-  const needle = contract.promptGroup === "DECISION_PROMPTS"
-    ? new RegExp(`^\\s*${contract.promptKey}\\s*\\(`, "m")
-    : new RegExp(`^\\s*${contract.promptKey}\\s*:\\s*\\{`, "m");
+  const tokens = tokenizeTs(content);
 
-  const match = needle.exec(content);
-  if (!match) {
-    return `// No se pudo extraer ${contract.promptGroup}.${contract.promptKey} desde src/core/models/prompts.ts`;
+  // Ubicar `export const <promptGroup> = {`
+  let groupOpenBrace = -1;
+  for (let i = 0; i + 4 < tokens.length; i++) {
+    if (
+      tokens[i].kind === SyntaxKind.ExportKeyword &&
+      tokens[i + 1].kind === SyntaxKind.ConstKeyword &&
+      tokens[i + 2].kind === SyntaxKind.Identifier &&
+      tokens[i + 2].text === contract.promptGroup &&
+      tokens[i + 3].kind === SyntaxKind.EqualsToken &&
+      tokens[i + 4].kind === SyntaxKind.OpenBraceToken
+    ) {
+      groupOpenBrace = i + 4;
+      break;
+    }
+  }
+  if (groupOpenBrace === -1) {
+    return `// No se pudo ubicar ${contract.promptGroup} en src/core/models/prompts.ts`;
   }
 
-  const start = match.index;
-  // Avanzar hasta abrir '{' del bloque principal (puede haber un `{ readonly ... }` en parámetros de buildUserPrompt/options)
-  let i = content.indexOf("{", start);
-  if (contract.promptGroup === "DECISION_PROMPTS") {
-    // Saltar paréntesis de firma de parámetros `(...)` antes del `{` de cuerpo
-    let parens = 0;
-    let p = start;
-    while (p < content.length) {
-      const ch = content[p];
-      if (ch === "(") parens++;
-      else if (ch === ")") {
-        parens--;
-        if (parens === 0) break;
-      }
-      p++;
-    }
-    i = content.indexOf("{", p);
-  }
-  if (i === -1) return content.slice(start, start + 1200);
-
-  let depth = 0;
-  let inSingle = false;
-  let inDouble = false;
-  let inTemplate = false;
-  let inLineComment = false;
-  let inBlockComment = false;
-  let inRegex = false;
-  let inRegexClass = false;
-  let escaped = false;
-  let lastSig = "{";
-
-  for (let pos = i; pos < content.length; pos++) {
-    const ch = content[pos];
-    const next = content[pos + 1];
-
-    if (inLineComment) {
-      if (ch === "\n") inLineComment = false;
-      continue;
-    }
-    if (inBlockComment) {
-      if (ch === "*" && next === "/") {
-        inBlockComment = false;
-        pos++;
-      }
-      continue;
-    }
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (inRegex) {
-      if (ch === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (ch === "[" && !inRegexClass) {
-        inRegexClass = true;
-        continue;
-      }
-      if (ch === "]" && inRegexClass) {
-        inRegexClass = false;
-        continue;
-      }
-      if (ch === "/" && !inRegexClass) {
-        inRegex = false;
-        lastSig = "/";
-      } else if (ch === "\n") {
-        inRegex = false;
-        inRegexClass = false;
-      }
-      continue;
-    }
-    if (inSingle || inDouble || inTemplate) {
-      if (ch === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (inSingle && ch === "'") { inSingle = false; lastSig = "'"; }
-      else if (inDouble && ch === "\"") { inDouble = false; lastSig = "\""; }
-      else if (inTemplate && ch === "`") { inTemplate = false; lastSig = "`"; }
-      continue;
-    }
-
-    if (ch === "/" && next === "/") {
-      inLineComment = true;
-      pos++;
-      continue;
-    }
-    if (ch === "/" && next === "*") {
-      inBlockComment = true;
-      pos++;
-      continue;
-    }
-    if (ch === "/" && /[=(,[{:!&|?^~+\-*%<>]/.test(lastSig)) {
-      inRegex = true;
-      inRegexClass = false;
-      continue;
-    }
-    if (ch === "'") { inSingle = true; continue; }
-    if (ch === "\"") { inDouble = true; continue; }
-    if (ch === "`") { inTemplate = true; continue; }
-
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        return content.slice(start, pos + 1).trim();
-      }
-    }
-    if (!/\s/.test(ch)) lastSig = ch;
+  const groupCloseBrace = findMatchingBraceToken(tokens, groupOpenBrace);
+  if (groupCloseBrace === -1) {
+    return `// No se pudo cerrar ${contract.promptGroup} en src/core/models/prompts.ts`;
   }
 
-  return content.slice(start, start + 1500).trim();
+  // Buscar el miembro directo `<promptKey>` dentro del objeto literal (braceDepth=1, parenDepth=0, bracketDepth=0)
+  let braceDepth = 0;
+  let parenDepth = 0;
+  let bracketDepth = 0;
+
+  for (let i = groupOpenBrace; i < groupCloseBrace; i++) {
+    const t = tokens[i];
+    if (t.kind === SyntaxKind.OpenBraceToken) {
+      braceDepth++;
+      continue;
+    }
+    if (t.kind === SyntaxKind.CloseBraceToken) {
+      braceDepth--;
+      continue;
+    }
+    if (t.kind === SyntaxKind.OpenParenToken) {
+      parenDepth++;
+      continue;
+    }
+    if (t.kind === SyntaxKind.CloseParenToken) {
+      parenDepth = Math.max(0, parenDepth - 1);
+      continue;
+    }
+    if (t.kind === SyntaxKind.OpenBracketToken) {
+      bracketDepth++;
+      continue;
+    }
+    if (t.kind === SyntaxKind.CloseBracketToken) {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      continue;
+    }
+
+    if (braceDepth !== 1 || parenDepth !== 0 || bracketDepth !== 0) continue;
+    if (t.kind !== SyntaxKind.Identifier || t.text !== contract.promptKey) continue;
+
+    const declStart = t.start;
+    const next = tokens[i + 1];
+    if (!next) break;
+
+    if (contract.promptGroup === "PROMPTS" && next.kind === SyntaxKind.ColonToken) {
+      const openTok = tokens[i + 2];
+      if (!openTok || openTok.kind !== SyntaxKind.OpenBraceToken) break;
+      const closeTok = findMatchingBraceToken(tokens, i + 2);
+      if (closeTok === -1) break;
+      return content.slice(declStart, tokens[closeTok].end).trim();
+    }
+
+    if (contract.promptGroup === "DECISION_PROMPTS" && next.kind === SyntaxKind.OpenParenToken) {
+      // Saltar lista de parámetros `(...)` (que puede contener `{ ... }` en anotaciones de tipo) hasta `)`.
+      let p = i + 1;
+      let pDepth = 0;
+      for (; p < groupCloseBrace; p++) {
+        if (tokens[p].kind === SyntaxKind.OpenParenToken) pDepth++;
+        else if (tokens[p].kind === SyntaxKind.CloseParenToken) {
+          pDepth--;
+          if (pDepth === 0) break;
+        }
+      }
+      // Saltar posible anotación de tipo `: ReturnType` (sin confundir llaves de tipo con el cuerpo si las hubiera)
+      let bodyOpenIdx = p + 1;
+      if (tokens[bodyOpenIdx]?.kind === SyntaxKind.ColonToken) {
+        let typeAngle = 0;
+        let typeParen = 0;
+        let typeBrace = 0;
+        let typeBracket = 0;
+        bodyOpenIdx++;
+        for (; bodyOpenIdx < groupCloseBrace; bodyOpenIdx++) {
+          const tk = tokens[bodyOpenIdx].kind;
+          if (tk === SyntaxKind.LessThanToken) typeAngle++;
+          else if (tk === SyntaxKind.GreaterThanToken) typeAngle = Math.max(0, typeAngle - 1);
+          else if (tk === SyntaxKind.OpenParenToken) typeParen++;
+          else if (tk === SyntaxKind.CloseParenToken) typeParen = Math.max(0, typeParen - 1);
+          else if (tk === SyntaxKind.OpenBracketToken) typeBracket++;
+          else if (tk === SyntaxKind.CloseBracketToken) typeBracket = Math.max(0, typeBracket - 1);
+          else if (tk === SyntaxKind.OpenBraceToken) {
+            if (typeAngle === 0 && typeParen === 0 && typeBracket === 0 && typeBrace === 0) {
+              // Puede ser el cuerpo `{ ... }` de la función si el tipo previo no abre otro literal después
+              const matching = findMatchingBraceToken(tokens, bodyOpenIdx);
+              const after = matching !== -1 ? tokens[matching + 1] : undefined;
+              // Si justo tras `}` viene `{` entonces el anterior `{...}` era un tipo retorno inline
+              if (after?.kind === SyntaxKind.OpenBraceToken) {
+                bodyOpenIdx = matching;
+                continue;
+              }
+              break;
+            }
+            typeBrace++;
+          } else if (tk === SyntaxKind.CloseBraceToken) {
+            typeBrace = Math.max(0, typeBrace - 1);
+          }
+        }
+      }
+      if (tokens[bodyOpenIdx]?.kind === SyntaxKind.OpenBraceToken) {
+        const closeTok = findMatchingBraceToken(tokens, bodyOpenIdx);
+        if (closeTok !== -1) {
+          return content.slice(declStart, tokens[closeTok].end).trim();
+        }
+      }
+    }
+  }
+
+  return `// No se pudo extraer ${contract.promptGroup}.${contract.promptKey} desde src/core/models/prompts.ts`;
 }

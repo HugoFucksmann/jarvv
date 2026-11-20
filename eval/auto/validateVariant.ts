@@ -2,32 +2,32 @@
  * eval/auto/validateVariant.ts
  *
  * Validación previa de variantes TypeScript generadas por el optimizador (`§2.4`, `§5.3`, `§9`):
- * 1. Normaliza/inyecta `name` exacto en el export default mediante análisis léxico/estructural.
+ * 1. Normaliza/inyecta `name` exacto en el export default mediante tokens léxicos oficiales de TS 7.
  * 2. Valida sintaxis TypeScript con `esbuild.transformSync` y prohíbe imports fuera de `src/core/**` y `eval/core/variants/types.ts`.
  * 3. Prohíbe APIs inseguras (`eval`, `Function`, `require`, `import()`, `process`, `fetch`, etc.) y las propiedades `params` y `read`.
  * 4. Verifica deduplicación por hash normalizado de código/prompt contra variantes previas/descartadas.
- * 5. Escribe el archivo en `eval/variants/_auto/<stage>/`, hace import ESM con cache-busting, valida forma runtime,
- *    materializa todos los casos con `loadDatasets` y chequea presupuesto de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`).
- *    Si falla algún paso, elimina el archivo temporal para mantener `eval/variants/` y `tsc` limpios.
+ * 5. Evalúa en memoria (`node:vm`) sin tocar disco ni contaminar ESM, valida forma runtime y los invariantes
+ *    de cada etapa vía `getStage(stage).validateRequest`, materializa casos con `loadDatasets` y chequea presupuesto
+ *    de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`). Solo escribe el `.ts` en disco si pasa todo.
  */
 
 import { transformSync } from "esbuild";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { basename, dirname, normalize, resolve } from "node:path";
+import { basename, dirname, join, normalize, resolve } from "node:path";
 import vm from "node:vm";
-import { ConfigManager } from "../../src/core/config.ts";
-import * as PROMPTS_MOD from "../../src/core/models/prompts.ts";
 import { DECISION_MAX_CONTEXT, estimateDecisionPromptTokens } from "../core/client/decision.ts";
 import { reserveCompletionTokens } from "../core/client/generative.ts";
-import { COMPLETION_KEY, CONTINUATION_KEY, RECOVERY_KEY } from "../core/contract.ts";
-import { loadDatasets } from "../core/datasets.ts";
+import { ConfigManager, PROMPTS_MODULE_EXPORTS } from "../core/contract.ts";
+import { createRawDatasetCache, loadDatasets, type RawDatasetCache } from "../core/datasets.ts";
+import { getStage } from "../core/stages/index.ts";
 import type { DecisionRequest, GenerativeRequest, StageName } from "../core/types.ts";
-import { fragmentKeys } from "../core/variants/labels.ts";
+import { invalidateVariantCache, VARIANTS_DIR } from "../core/variants/load.ts";
 import type { Variant } from "../core/variants/types.ts";
 import { autoStageDir } from "./config.ts";
 import { getStageContract } from "./stageContract.ts";
+import { findMatchingBraceToken, SyntaxKind, tokenizeTs, type TsToken } from "./tsScanner.ts";
 
 const BANNED_IDENTIFIERS = new Set([
   "eval",
@@ -40,22 +40,6 @@ const BANNED_IDENTIFIERS = new Set([
   "globalThis",
   "Bun",
   "Deno",
-]);
-
-const REGEX_PRE_KEYWORDS = new Set([
-  "return",
-  "throw",
-  "case",
-  "in",
-  "of",
-  "typeof",
-  "void",
-  "delete",
-  "await",
-  "yield",
-  "else",
-  "do",
-  "new",
 ]);
 
 export interface ValidationSuccess {
@@ -76,19 +60,29 @@ export type ValidationResult = ValidationSuccess | ValidationFailure;
 
 /** Hash normalizado del código fuente ignorando comentarios, espacios y el nombre de la variante. */
 export function normalizedVariantCodeHash(code: string, variantName?: string): string {
-  let stripped = code
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "");
-  if (variantName) {
-    const escaped = variantName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    stripped = stripped.replace(new RegExp(`\\b${escaped}\\b`, "g"), "__VARIANT_NAME__");
-  }
-  stripped = stripped.replace(/\s+/g, " ").trim();
-  return createHash("sha256").update(stripped).digest("hex").slice(0, 16);
+  const tokens = tokenizeTs(code);
+  const normalizedTokens = tokens.map((t) => {
+    if (!variantName) return t.text;
+    if (t.kind === SyntaxKind.Identifier && t.text === variantName) {
+      return "__VARIANT_NAME__";
+    }
+    if (
+      (t.kind === SyntaxKind.StringLiteral || t.kind === SyntaxKind.NoSubstitutionTemplateLiteral) &&
+      t.text.slice(1, -1) === variantName
+    ) {
+      return JSON.stringify("__VARIANT_NAME__");
+    }
+    return t.text;
+  });
+  return createHash("sha256").update(normalizedTokens.join(" ")).digest("hex").slice(0, 16);
 }
 
 /** Recopila hashes normalizados de todas las variantes existentes de `stage` (activas + descartadas). */
-export function collectKnownVariantHashes(stage: StageName, extraVariantPaths: string[] = []): Set<string> {
+export function collectKnownVariantHashes(
+  stage: StageName,
+  extraVariantPaths: string[] = [],
+  variantsRoot = VARIANTS_DIR,
+): Set<string> {
   const hashes = new Set<string>();
   const addFile = (filePath: string): void => {
     try {
@@ -101,7 +95,7 @@ export function collectKnownVariantHashes(stage: StageName, extraVariantPaths: s
 
   for (const p of extraVariantPaths) addFile(p);
 
-  const stageDir = resolve(autoStageDir(stage));
+  const stageDir = resolve(autoStageDir(stage, variantsRoot));
   for (const dir of [stageDir, resolve(stageDir, "descartadas")]) {
     if (!existsSync(dir)) continue;
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -120,205 +114,31 @@ function validateImportSpecifier(specifier: string, targetFilePath: string): str
   }
   const targetDir = dirname(resolve(targetFilePath));
   const resolved = normalize(resolve(targetDir, specifier));
-  const srcCoreRoot = resolve("src/core");
-  const variantTypesPath = resolve("eval/core/variants/types.ts");
+  const srcCoreRoot = realpathSync(resolve("src/core"));
+  const variantTypesPath = realpathSync(resolve("eval/core/variants/types.ts"));
 
-  const inSrcCore = resolved.startsWith(`${srcCoreRoot}/`) || resolved.startsWith(`${srcCoreRoot}\\`);
-  const isVariantTypes = resolved === variantTypesPath;
+  const isPathAllowed = (candidate: string): boolean =>
+    candidate.startsWith(`${srcCoreRoot}/`) ||
+    candidate.startsWith(`${srcCoreRoot}\\`) ||
+    candidate === variantTypesPath;
 
-  if (!inSrcCore && !isVariantTypes) {
-    return `Import fuera de allowlist '${specifier}' (resuelve a '${resolved}'): solo se permite src/core/* y eval/core/variants/types.ts.`;
-  }
-  if (!existsSync(resolved)) {
-    return `Import inexistente '${specifier}' (no existe '${resolved}'). Verificá los niveles '../' desde eval/variants/_auto/<stage>/.`;
-  }
-  return null;
-}
-
-/**
- * Detecta si `/` en la posición actual inicia un literal RegExp (y no un operador de división).
- */
-function isRegexStart(src: string, maskedOut: string[], slashIdx: number): boolean {
-  let p = slashIdx - 1;
-  while (p >= 0 && /\s/.test(src[p])) p--;
-  if (p < 0) return true;
-
-  // Mirar el carácter anterior en la salida ya procesada (para saltar comentarios previos)
-  while (p >= 0 && /\s/.test(maskedOut[p])) p--;
-  if (p < 0) return true;
-
-  const ch = maskedOut[p];
-  if (/[A-Za-z0-9_$]/.test(ch)) {
-    let start = p;
-    while (start > 0 && /[A-Za-z0-9_$]/.test(maskedOut[start - 1])) start--;
-    const word = maskedOut.slice(start, p + 1).join("");
-    return REGEX_PRE_KEYWORDS.has(word);
-  }
-  if (ch === ")" || ch === "]") return false;
-  if (ch === "+" && p > 0 && maskedOut[p - 1] === "+") return false;
-  if (ch === "-" && p > 0 && maskedOut[p - 1] === "-") return false;
-  return true;
-}
-
-/**
- * Enmascara comentarios, RegExp literals y contenido de strings/plantillas estáticas con espacios
- * preservando longitudes e índices exactos; las expresiones `${...}` dentro de templates se conservan.
- */
-function maskCodePreserveOffsets(src: string): string {
-  const out = new Array<string>(src.length);
-  const templateDepthStack: number[] = [];
-  let inTemplateText = false;
-  let i = 0;
-
-  while (i < src.length) {
-    const ch = src[i];
-
-    if (inTemplateText) {
-      if (ch === "\\" && i + 1 < src.length) {
-        out[i] = " ";
-        out[i + 1] = src[i + 1] === "\n" ? "\n" : " ";
-        i += 2;
-        continue;
-      }
-      if (ch === "`") {
-        out[i] = "`";
-        inTemplateText = false;
-        i++;
-        continue;
-      }
-      if (ch === "$" && src[i + 1] === "{") {
-        out[i] = "$";
-        out[i + 1] = "{";
-        templateDepthStack.push(1);
-        inTemplateText = false;
-        i += 2;
-        continue;
-      }
-      out[i] = ch === "\n" ? "\n" : " ";
-      i++;
-      continue;
+  if (existsSync(resolved)) {
+    const realResolved = realpathSync(resolved);
+    if (!isPathAllowed(realResolved)) {
+      return `Import fuera de allowlist '${specifier}' (resuelve a '${realResolved}'): solo se permite src/core/* y eval/core/variants/types.ts.`;
     }
-
-    // Comentario de línea
-    if (ch === "/" && src[i + 1] === "/") {
-      while (i < src.length && src[i] !== "\n") {
-        out[i++] = " ";
-      }
-      continue;
-    }
-
-    // Comentario de bloque
-    if (ch === "/" && src[i + 1] === "*") {
-      out[i++] = " ";
-      out[i++] = " ";
-      while (i < src.length && !(src[i] === "*" && src[i + 1] === "/")) {
-        out[i] = src[i] === "\n" ? "\n" : " ";
-        i++;
-      }
-      if (i < src.length) {
-        out[i++] = " ";
-        out[i++] = " ";
-      }
-      continue;
-    }
-
-    // Literal RegExp: preserva delimitadores `/`, enmascara patrón interno (respetando escapes y `[...]`)
-    if (ch === "/" && isRegexStart(src, out, i)) {
-      out[i++] = "/";
-      let inClass = false;
-      while (i < src.length) {
-        const rc = src[i];
-        if (rc === "\n") break;
-        if (rc === "\\" && i + 1 < src.length) {
-          out[i] = " ";
-          out[i + 1] = src[i + 1] === "\n" ? "\n" : " ";
-          i += 2;
-          continue;
-        }
-        if (rc === "[" && !inClass) {
-          inClass = true;
-          out[i++] = " ";
-          continue;
-        }
-        if (rc === "]" && inClass) {
-          inClass = false;
-          out[i++] = " ";
-          continue;
-        }
-        if (rc === "/" && !inClass) {
-          out[i++] = "/";
-          break;
-        }
-        out[i++] = " ";
-      }
-      continue;
-    }
-
-    // Strings simples / dobles: preserva delimitadores, enmascara contenido
-    if (ch === "'" || ch === '"') {
-      const quote = ch;
-      out[i++] = quote;
-      while (i < src.length) {
-        if (src[i] === "\\" && i + 1 < src.length) {
-          out[i] = " ";
-          out[i + 1] = src[i + 1] === "\n" ? "\n" : " ";
-          i += 2;
-          continue;
-        }
-        if (src[i] === quote) {
-          out[i++] = quote;
-          break;
-        }
-        out[i] = src[i] === "\n" ? "\n" : " ";
-        i++;
-      }
-      continue;
-    }
-
-    // Inicio de template literal
-    if (ch === "`") {
-      out[i++] = "`";
-      inTemplateText = true;
-      continue;
-    }
-
-    // Control de llaves dentro de ${ ... }
-    if (templateDepthStack.length > 0) {
-      if (ch === "{") {
-        templateDepthStack[templateDepthStack.length - 1]++;
-      } else if (ch === "}") {
-        templateDepthStack[templateDepthStack.length - 1]--;
-        if (templateDepthStack[templateDepthStack.length - 1] === 0) {
-          templateDepthStack.pop();
-          out[i++] = "}";
-          inTemplateText = true;
-          continue;
-        }
-      }
-    }
-
-    out[i] = ch;
-    i++;
+    return null;
   }
 
-  return out.join("");
-}
+  const parentDir = dirname(resolved);
+  const candidateForMissingCheck = existsSync(parentDir)
+    ? join(realpathSync(parentDir), basename(resolved))
+    : resolved;
 
-function findMatchingBrace(masked: string, openBraceIdx: number): number {
-  let depth = 0;
-  for (let i = openBraceIdx; i < masked.length; i++) {
-    if (masked[i] === "{") depth++;
-    else if (masked[i] === "}") {
-      depth--;
-      if (depth === 0) return i;
-    }
+  if (!isPathAllowed(candidateForMissingCheck)) {
+    return `Import fuera de allowlist '${specifier}' (resuelve a '${candidateForMissingCheck}'): solo se permite src/core/* y eval/core/variants/types.ts.`;
   }
-  return -1;
-}
-
-function skipWs(s: string, i: number): number {
-  while (i < s.length && /\s/.test(s[i])) i++;
-  return i;
+  return `Import inexistente '${specifier}' (no existe '${resolved}'). Verificá los niveles '../' desde eval/variants/_auto/<stage>/.`;
 }
 
 interface ObjectEntry {
@@ -326,190 +146,230 @@ interface ObjectEntry {
   key?: string;
   keyStart: number;
   keyEnd: number;
+  valueTokIdx?: number;
   valueStart?: number;
   valueEnd?: number;
 }
 
-function parseTopLevelObjectEntries(raw: string, masked: string, openBraceIdx: number): ObjectEntry[] {
-  const closeIdx = findMatchingBrace(masked, openBraceIdx);
-  if (closeIdx === -1) return [];
+function unquoteToken(t: TsToken): string {
+  if (t.kind === SyntaxKind.StringLiteral || t.kind === SyntaxKind.NoSubstitutionTemplateLiteral) {
+    return t.text.slice(1, -1);
+  }
+  return t.text;
+}
+
+function isPropertyKeyToken(t: TsToken): boolean {
+  return (
+    t.kind === SyntaxKind.Identifier ||
+    t.kind === SyntaxKind.StringLiteral ||
+    t.kind === SyntaxKind.NoSubstitutionTemplateLiteral ||
+    t.kind === SyntaxKind.DefaultKeyword ||
+    t.kind === SyntaxKind.TypeKeyword
+  );
+}
+
+function parseTopLevelObjectEntries(tokens: readonly TsToken[], openBraceTokIdx: number): ObjectEntry[] {
+  const closeTokIdx = findMatchingBraceToken(tokens, openBraceTokIdx);
+  if (closeTokIdx === -1) return [];
 
   const entries: ObjectEntry[] = [];
-  let i = openBraceIdx + 1;
+  let i = openBraceTokIdx + 1;
 
-  while (i < closeIdx) {
-    i = skipWs(masked, i);
-    if (i >= closeIdx) break;
-    if (masked[i] === ",") {
+  const advanceToCommaOrEnd = (startIdx: number): number => {
+    let idx = startIdx;
+    let brace = 0;
+    let paren = 0;
+    let bracket = 0;
+    while (idx < closeTokIdx) {
+      const k = tokens[idx].kind;
+      if (k === SyntaxKind.OpenBraceToken) brace++;
+      else if (k === SyntaxKind.CloseBraceToken) brace--;
+      else if (k === SyntaxKind.OpenParenToken) paren++;
+      else if (k === SyntaxKind.CloseParenToken) paren--;
+      else if (k === SyntaxKind.OpenBracketToken) bracket++;
+      else if (k === SyntaxKind.CloseBracketToken) bracket--;
+      else if (k === SyntaxKind.CommaToken && brace === 0 && paren === 0 && bracket === 0) break;
+      idx++;
+    }
+    return idx;
+  };
+
+  while (i < closeTokIdx) {
+    const t = tokens[i];
+    if (t.kind === SyntaxKind.CommaToken) {
       i++;
       continue;
     }
 
-    if (masked.startsWith("...", i)) {
-      const start = i;
-      let depth = 0;
-      while (i < closeIdx) {
-        const c = masked[i];
-        if (c === "{" || c === "(" || c === "[") depth++;
-        else if (c === "}" || c === ")" || c === "]") depth--;
-        else if (c === "," && depth === 0) break;
-        i++;
-      }
-      entries.push({ kind: "spread", keyStart: start, keyEnd: i });
+    if (t.kind === SyntaxKind.DotDotDotToken) {
+      const end = advanceToCommaOrEnd(i);
+      entries.push({ kind: "spread", keyStart: t.start, keyEnd: tokens[end - 1].end });
+      i = end;
       continue;
     }
 
-    if (masked[i] === "[") {
-      const start = i;
-      let depth = 0;
-      while (i < closeIdx) {
-        const c = masked[i];
-        if (c === "{" || c === "(" || c === "[") depth++;
-        else if (c === "}" || c === ")" || c === "]") depth--;
-        else if (c === "," && depth === 0) break;
-        i++;
-      }
-      entries.push({ kind: "computed", keyStart: start, keyEnd: i });
+    if (t.kind === SyntaxKind.OpenBracketToken) {
+      const end = advanceToCommaOrEnd(i);
+      entries.push({ kind: "computed", keyStart: t.start, keyEnd: tokens[end - 1].end });
+      i = end;
       continue;
     }
 
-    const keyStart = i;
-    let key: string | undefined;
-    if (masked[i] === "'" || masked[i] === '"' || masked[i] === "`") {
-      const quote = masked[i];
-      const endQ = masked.indexOf(quote, i + 1);
-      if (endQ === -1 || endQ >= closeIdx) break;
-      key = raw.slice(i + 1, endQ);
-      i = endQ + 1;
-    } else {
-      const m = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(masked.slice(i, closeIdx));
-      if (!m) break;
-      key = m[0];
-      i += m[0].length;
-    }
-    const keyEnd = i;
-    i = skipWs(masked, i);
+    if (!isPropertyKeyToken(t)) break;
+    const key = unquoteToken(t);
+    const keyStart = t.start;
+    const keyEnd = t.end;
+    const next = tokens[i + 1];
 
-    if (i < closeIdx && masked[i] === "(") {
+    if (next && next.kind === SyntaxKind.OpenParenToken && i + 1 < closeTokIdx) {
       // Method declaration foo(...) { ... }
-      let depth = 0;
-      while (i < closeIdx) {
-        const c = masked[i];
-        if (c === "{" || c === "(" || c === "[") depth++;
-        else if (c === "}" || c === ")" || c === "]") {
-          depth--;
-          if (depth === 0 && c === "}") {
-            i++;
-            break;
-          }
+      let idx = i + 1;
+      let pDepth = 0;
+      for (; idx < closeTokIdx; idx++) {
+        if (tokens[idx].kind === SyntaxKind.OpenParenToken) pDepth++;
+        else if (tokens[idx].kind === SyntaxKind.CloseParenToken) {
+          pDepth--;
+          if (pDepth === 0) break;
         }
-        i++;
+      }
+      // Buscar el `{` del cuerpo del método y cerrarlo
+      let bIdx = idx + 1;
+      while (bIdx < closeTokIdx && tokens[bIdx].kind !== SyntaxKind.OpenBraceToken) bIdx++;
+      if (bIdx < closeTokIdx && tokens[bIdx].kind === SyntaxKind.OpenBraceToken) {
+        const bClose = findMatchingBraceToken(tokens, bIdx);
+        i = bClose !== -1 && bClose < closeTokIdx ? bClose + 1 : closeTokIdx;
+      } else {
+        i = closeTokIdx;
       }
       entries.push({ kind: "method", key, keyStart, keyEnd });
       continue;
     }
 
-    if (i >= closeIdx || masked[i] === ",") {
+    if (!next || next.kind === SyntaxKind.CommaToken || i + 1 >= closeTokIdx) {
       entries.push({ kind: "shorthand", key, keyStart, keyEnd });
+      i++;
       continue;
     }
 
-    if (masked[i] !== ":") break;
-    i++; // saltar ':'
-    const valueStart = skipWs(masked, i);
-    let depth = 0;
-    while (i < closeIdx) {
-      const c = masked[i];
-      if (c === "{" || c === "(" || c === "[") depth++;
-      else if (c === "}" || c === ")" || c === "]") depth--;
-      else if (c === "," && depth === 0) break;
-      i++;
-    }
-    let valueEnd = i;
-    while (valueEnd > valueStart && /\s/.test(masked[valueEnd - 1])) valueEnd--;
-    entries.push({ kind: "prop", key, keyStart, keyEnd, valueStart, valueEnd });
+    if (next.kind !== SyntaxKind.ColonToken) break;
+
+    const valueTokIdx = i + 2;
+    const endIdx = advanceToCommaOrEnd(valueTokIdx);
+    const valueLastTok = tokens[Math.max(valueTokIdx, endIdx - 1)];
+    entries.push({
+      kind: "prop",
+      key,
+      keyStart,
+      keyEnd,
+      valueTokIdx,
+      valueStart: tokens[valueTokIdx]?.start,
+      valueEnd: valueLastTok?.end,
+    });
+    i = endIdx;
   }
 
   return entries;
 }
 
-function findExportedVariantObjectBrace(raw: string): { openBraceIdx: number; masked: string } | null {
-  const masked = maskCodePreserveOffsets(raw);
-  const expMatch = /\bexport\s+default\b/.exec(masked);
-  if (!expMatch) return null;
-
-  let pos = skipWs(masked, expMatch.index + expMatch[0].length);
-  while (pos < masked.length && masked[pos] === "(") {
-    pos = skipWs(masked, pos + 1);
-  }
-
-  if (masked[pos] === "{") {
-    return { openBraceIdx: pos, masked };
-  }
-
-  const idMatch = /^([A-Za-z_$][A-Za-z0-9_$]*)/.exec(masked.slice(pos));
-  if (!idMatch) return null;
-  const varName = idMatch[1];
-
-  // Buscar `const|let|var <varName> [: Type] = (`*` {`
-  const declRe = new RegExp(`\\b(?:const|let|var)\\s+${varName}\\b`);
-  let searchFrom = 0;
-  while (searchFrom < masked.length) {
-    const m = declRe.exec(masked.slice(searchFrom));
-    if (!m) break;
-    const afterName = searchFrom + m.index + m[0].length;
-    // Saltar anotación de tipo hasta '=' top-level
-    let p = afterName;
-    let angle = 0;
-    let paren = 0;
-    let brace = 0;
-    let bracket = 0;
-    let eqIdx = -1;
-    while (p < masked.length) {
-      const ch = masked[p];
-      if (ch === "<") angle++;
-      else if (ch === ">") angle = Math.max(0, angle - 1);
-      else if (ch === "(") paren++;
-      else if (ch === ")") paren--;
-      else if (ch === "{") brace++;
-      else if (ch === "}") brace--;
-      else if (ch === "[") bracket++;
-      else if (ch === "]") bracket--;
-      else if (ch === "=" && masked[p + 1] !== ">" && angle === 0 && paren === 0 && brace === 0 && bracket === 0) {
-        eqIdx = p;
-        break;
-      } else if ((ch === ";" || ch === "\n") && angle === 0 && paren === 0 && brace === 0 && bracket === 0) {
-        break;
-      }
-      p++;
-    }
-    if (eqIdx !== -1) {
-      let rhs = skipWs(masked, eqIdx + 1);
-      while (rhs < masked.length && masked[rhs] === "(") rhs = skipWs(masked, rhs + 1);
-      if (masked[rhs] === "{") {
-        return { openBraceIdx: rhs, masked };
-      }
-    }
-    searchFrom = afterName;
-  }
-
-  return null;
+function skipLeadingParens(tokens: readonly TsToken[], idx: number): number {
+  let p = idx;
+  while (p < tokens.length && tokens[p].kind === SyntaxKind.OpenParenToken) p++;
+  return p;
 }
 
-function applyNameOverride(code: string, variantName: string): { code: string; error?: string } {
-  const found = findExportedVariantObjectBrace(code);
-  if (!found) {
+function findExportedVariantObjectBrace(tokens: readonly TsToken[]): number {
+  let braceDepth = 0;
+  let expDefaultIdx = -1;
+
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    const k = tokens[i].kind;
+    if (k === SyntaxKind.OpenBraceToken) braceDepth++;
+    else if (k === SyntaxKind.CloseBraceToken) braceDepth = Math.max(0, braceDepth - 1);
+    else if (braceDepth === 0 && k === SyntaxKind.ExportKeyword && tokens[i + 1].kind === SyntaxKind.DefaultKeyword) {
+      expDefaultIdx = i;
+      break;
+    }
+  }
+  if (expDefaultIdx === -1) return -1;
+
+  const rhsStart = skipLeadingParens(tokens, expDefaultIdx + 2);
+  if (tokens[rhsStart]?.kind === SyntaxKind.OpenBraceToken) {
+    return rhsStart;
+  }
+  if (tokens[rhsStart]?.kind !== SyntaxKind.Identifier) return -1;
+  const varName = tokens[rhsStart].text;
+
+  // Buscar `const|let|var <varName> [: Type] = (`*` {` a nivel superior
+  let depth = 0;
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    const k = tokens[i].kind;
+    if (k === SyntaxKind.OpenBraceToken) {
+      depth++;
+      continue;
+    }
+    if (k === SyntaxKind.CloseBraceToken) {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (depth !== 0) continue;
+
+    if (
+      (k === SyntaxKind.ConstKeyword || k === SyntaxKind.LetKeyword || k === SyntaxKind.VarKeyword) &&
+      tokens[i + 1].kind === SyntaxKind.Identifier &&
+      tokens[i + 1].text === varName
+    ) {
+      let p = i + 2;
+      let angle = 0;
+      let paren = 0;
+      let brace = 0;
+      let bracket = 0;
+      let eqIdx = -1;
+      while (p < tokens.length) {
+        const pk = tokens[p].kind;
+        if (pk === SyntaxKind.LessThanToken) angle++;
+        else if (pk === SyntaxKind.GreaterThanToken) angle = Math.max(0, angle - 1);
+        else if (pk === SyntaxKind.OpenParenToken) paren++;
+        else if (pk === SyntaxKind.CloseParenToken) paren = Math.max(0, paren - 1);
+        else if (pk === SyntaxKind.OpenBraceToken) brace++;
+        else if (pk === SyntaxKind.CloseBraceToken) brace = Math.max(0, brace - 1);
+        else if (pk === SyntaxKind.OpenBracketToken) bracket++;
+        else if (pk === SyntaxKind.CloseBracketToken) bracket = Math.max(0, bracket - 1);
+        else if (pk === SyntaxKind.EqualsToken && angle === 0 && paren === 0 && brace === 0 && bracket === 0) {
+          eqIdx = p;
+          break;
+        } else if (pk === SyntaxKind.SemicolonToken && angle === 0 && paren === 0 && brace === 0 && bracket === 0) {
+          break;
+        }
+        p++;
+      }
+      if (eqIdx !== -1) {
+        const valIdx = skipLeadingParens(tokens, eqIdx + 1);
+        if (tokens[valIdx]?.kind === SyntaxKind.OpenBraceToken) {
+          return valIdx;
+        }
+      }
+    }
+  }
+
+  return -1;
+}
+
+function applyNameOverride(code: string, tokens: readonly TsToken[], variantName: string): { code: string; error?: string } {
+  const openBraceTokIdx = findExportedVariantObjectBrace(tokens);
+  if (openBraceTokIdx === -1) {
     return { code, error: "El archivo debe tener `export default` de un objeto `Variant` (literal o variable const)." };
   }
 
-  const entries = parseTopLevelObjectEntries(code, found.masked, found.openBraceIdx);
+  const entries = parseTopLevelObjectEntries(tokens, openBraceTokIdx);
   for (const entry of entries) {
     if (entry.key !== "name") continue;
-    if (entry.kind === "prop" && entry.valueStart !== undefined && entry.valueEnd !== undefined) {
-      const valMasked = found.masked.slice(entry.valueStart, entry.valueEnd).trim();
-      const first = valMasked[0];
-      const last = valMasked[valMasked.length - 1];
-      if ((first === '"' && last === '"') || (first === "'" && last === "'") || (first === "`" && last === "`")) {
+    if (entry.kind === "prop" && entry.valueTokIdx !== undefined && entry.valueStart !== undefined && entry.valueEnd !== undefined) {
+      const valTok = tokens[entry.valueTokIdx];
+      const nextAfterVal = tokens[entry.valueTokIdx + 1];
+      const isSingleString =
+        (valTok?.kind === SyntaxKind.StringLiteral || valTok?.kind === SyntaxKind.NoSubstitutionTemplateLiteral) &&
+        (!nextAfterVal || nextAfterVal.kind === SyntaxKind.CommaToken || nextAfterVal.kind === SyntaxKind.CloseBraceToken);
+      if (isSingleString) {
         const patched = `${code.slice(0, entry.valueStart)}${JSON.stringify(variantName)}${code.slice(entry.valueEnd)}`;
         return { code: patched };
       }
@@ -521,7 +381,7 @@ function applyNameOverride(code: string, variantName: string): { code: string; e
     }
   }
 
-  const insertAt = found.openBraceIdx + 1;
+  const insertAt = tokens[openBraceTokIdx].end;
   const patched = `${code.slice(0, insertAt)}\n  name: ${JSON.stringify(variantName)},${code.slice(insertAt)}`;
   return { code: patched };
 }
@@ -532,9 +392,57 @@ function getPromptsExportedTypes(): Set<string> {
   const set = new Set<string>();
   try {
     const src = readFileSync(resolve("src/core/models/prompts.ts"), "utf8");
-    const re = /^export\s+(?:type|interface)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(src)) !== null) set.add(m[1]);
+    const tokens = tokenizeTs(src);
+    let braceDepth = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (t.kind === SyntaxKind.OpenBraceToken) {
+        braceDepth++;
+        continue;
+      }
+      if (t.kind === SyntaxKind.CloseBraceToken) {
+        braceDepth = Math.max(0, braceDepth - 1);
+        continue;
+      }
+      if (braceDepth !== 0 || t.kind !== SyntaxKind.ExportKeyword) continue;
+
+      const t1 = tokens[i + 1];
+      if (!t1) continue;
+
+      if ((t1.kind === SyntaxKind.TypeKeyword || t1.kind === SyntaxKind.InterfaceKeyword) && tokens[i + 2]?.kind === SyntaxKind.Identifier) {
+        set.add(tokens[i + 2].text);
+        continue;
+      }
+
+      // `export type { A, B as C }` o `export { type A, B }`
+      const isTypeBlock = t1.kind === SyntaxKind.TypeKeyword && tokens[i + 2]?.kind === SyntaxKind.OpenBraceToken;
+      const braceIdx = isTypeBlock ? i + 2 : t1.kind === SyntaxKind.OpenBraceToken ? i + 1 : -1;
+      if (braceIdx !== -1) {
+        const closeIdx = findMatchingBraceToken(tokens, braceIdx);
+        if (closeIdx !== -1) {
+          let k = braceIdx + 1;
+          while (k < closeIdx) {
+            let itemIsType = isTypeBlock;
+            if (tokens[k].kind === SyntaxKind.TypeKeyword) {
+              itemIsType = true;
+              k++;
+            }
+            if (k < closeIdx && tokens[k].kind === SyntaxKind.Identifier) {
+              let exportedName = tokens[k].text;
+              k++;
+              if (k + 1 < closeIdx && tokens[k].kind === SyntaxKind.AsKeyword && tokens[k + 1].kind === SyntaxKind.Identifier) {
+                exportedName = tokens[k + 1].text;
+                k += 2;
+              }
+              if (itemIsType) set.add(exportedName);
+            }
+            while (k < closeIdx && tokens[k].kind !== SyntaxKind.CommaToken) k++;
+            if (tokens[k]?.kind === SyntaxKind.CommaToken) k++;
+          }
+          i = closeIdx;
+        }
+      }
+    }
   } catch {
     // fallback vacío
   }
@@ -542,86 +450,121 @@ function getPromptsExportedTypes(): Set<string> {
   return set;
 }
 
-function checkImportsAndExports(
-  rawCode: string,
-  targetFilePath: string,
-): string | null {
-  const masked = maskCodePreserveOffsets(rawCode);
+function isFromKeywordToken(t: TsToken | undefined): boolean {
+  return Boolean(t && (t.kind === SyntaxKind.FromKeyword || (t.kind === SyntaxKind.Identifier && t.text === "from")));
+}
 
-  if (/\bimport\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*require\s*\(/.test(masked)) {
-    return "Prohibido usar `import = require(...)` en variantes generadas.";
-  }
+function checkImportsAndExports(tokens: readonly TsToken[], targetFilePath: string): string | null {
+  let braceDepth = 0;
 
-  const reExportRe = /\bexport\s+(?:\*|\{[^}]*\})\s+from\s+(['"`][^'"`]*['"`])/g;
-  if (reExportRe.test(masked)) {
-    return "Prohibido re-exportar módulos desde variantes generadas.";
-  }
-
-  // Chequear todas las cláusulas `import ... from "<spec>"` o `import "<spec>"` (incluyendo multilínea).
-  const importHeadRe = /(?:^|[;\n}])\s*import\b/gm;
-  let m: RegExpExecArray | null;
-  while ((m = importHeadRe.exec(masked)) !== null) {
-    const kwIdx = masked.indexOf("import", m.index);
-    const afterKw = skipWs(masked, kwIdx + "import".length);
-
-    if (masked[afterKw] === "(") {
-      return "Prohibido usar dynamic `import(...)` en variantes generadas.";
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t.kind === SyntaxKind.OpenBraceToken) {
+      braceDepth++;
+      continue;
     }
-    if (masked[afterKw] === ".") {
-      // `import.meta`
+    if (t.kind === SyntaxKind.CloseBraceToken) {
+      braceDepth = Math.max(0, braceDepth - 1);
       continue;
     }
 
-    // Avanzar hasta `;` o fin de línea tras `from "..."` / `import "..."`
-    let end = afterKw;
-    let braceDepth = 0;
-    while (end < masked.length) {
-      const ch = masked[end];
-      if (ch === "{") braceDepth++;
-      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
-      else if (ch === ";" && braceDepth === 0) {
-        end++;
-        break;
-      } else if (ch === "\n" && braceDepth === 0) {
-        const soFar = masked.slice(kwIdx, end);
-        if (/\bfrom\s*(['"])[^'"]*\1/.test(soFar) || /^import\s*(['"])[^'"]*\1/.test(soFar)) {
+    if (t.kind === SyntaxKind.ImportKeyword) {
+      const next = tokens[i + 1];
+      if (!next) continue;
+      if (next.kind === SyntaxKind.OpenParenToken) {
+        return "Prohibido usar dynamic `import(...)` en variantes generadas.";
+      }
+      if (next.kind === SyntaxKind.DotToken) {
+        continue; // import.meta
+      }
+      if (
+        next.kind === SyntaxKind.Identifier &&
+        tokens[i + 2]?.kind === SyntaxKind.EqualsToken &&
+        tokens[i + 3]?.kind === SyntaxKind.Identifier &&
+        tokens[i + 3]?.text === "require"
+      ) {
+        return "Prohibido usar `import = require(...)` en variantes generadas.";
+      }
+
+      if (braceDepth !== 0) continue;
+
+      const isTypeOnlyImport = next.kind === SyntaxKind.TypeKeyword;
+
+      // Side-effect import: `import "spec";`
+      if (next.kind === SyntaxKind.StringLiteral) {
+        const specErr = validateImportSpecifier(unquoteToken(next), targetFilePath);
+        if (specErr) return specErr;
+        continue;
+      }
+
+      // Cláusula `import ... from "spec"`
+      let k = i + 1;
+      let localDepth = 0;
+      let braceStart = -1;
+      let braceEnd = -1;
+      let specToken: TsToken | null = null;
+      while (k < tokens.length) {
+        const kt = tokens[k];
+        if (kt.kind === SyntaxKind.OpenBraceToken) {
+          if (localDepth === 0) braceStart = k;
+          localDepth++;
+        } else if (kt.kind === SyntaxKind.CloseBraceToken) {
+          localDepth = Math.max(0, localDepth - 1);
+          if (localDepth === 0 && braceStart !== -1 && braceEnd === -1) braceEnd = k;
+        } else if (localDepth === 0 && isFromKeywordToken(kt) && tokens[k + 1]?.kind === SyntaxKind.StringLiteral) {
+          specToken = tokens[k + 1];
+          break;
+        } else if (localDepth === 0 && (kt.kind === SyntaxKind.SemicolonToken || kt.kind === SyntaxKind.ImportKeyword || kt.kind === SyntaxKind.ExportKeyword)) {
           break;
         }
+        k++;
       }
-      end++;
+
+      if (!specToken) continue;
+      const specifier = unquoteToken(specToken);
+      const specErr = validateImportSpecifier(specifier, targetFilePath);
+      if (specErr) return specErr;
+
+      if (!isTypeOnlyImport && specifier.endsWith("/models/prompts.ts") && braceStart !== -1 && braceEnd !== -1) {
+        const exportedTypes = getPromptsExportedTypes();
+        let b = braceStart + 1;
+        while (b < braceEnd) {
+          if (tokens[b].kind === SyntaxKind.CommaToken) {
+            b++;
+            continue;
+          }
+          if (tokens[b].kind === SyntaxKind.TypeKeyword) {
+            // `import { type Foo [as Bar] }`
+            while (b < braceEnd && tokens[b].kind !== SyntaxKind.CommaToken) b++;
+            continue;
+          }
+          if (tokens[b].kind === SyntaxKind.Identifier) {
+            const importedName = tokens[b].text;
+            if (!PROMPTS_MODULE_EXPORTS.has(importedName) && !exportedTypes.has(importedName)) {
+              return `'${importedName}' NO está exportado desde src/core/models/prompts.ts; definilo como const local en tu variante.`;
+            }
+          }
+          while (b < braceEnd && tokens[b].kind !== SyntaxKind.CommaToken) b++;
+        }
+      }
+      continue;
     }
 
-    const rawStmt = rawCode.slice(kwIdx, end);
-    const maskedStmt = masked.slice(kwIdx, end);
-    importHeadRe.lastIndex = Math.max(importHeadRe.lastIndex, end);
-
-    const fromMatch = /\bfrom\s*(['"])([^'"]*)\1/.exec(maskedStmt);
-    const sideEffectMatch = /^import\s*(['"])([^'"]*)\1/.exec(maskedStmt);
-    const specSpan = fromMatch ?? sideEffectMatch;
-    if (!specSpan) continue;
-
-    const specIdxInStmt = specSpan.index + specSpan[0].indexOf(specSpan[1]) + 1;
-    const specEndInStmt = specIdxInStmt + specSpan[2].length;
-    const specifier = rawStmt.slice(specIdxInStmt, specEndInStmt);
-
-    const specErr = validateImportSpecifier(specifier, targetFilePath);
-    if (specErr) return specErr;
-
-    if (specifier.endsWith("/models/prompts.ts") && !/^import\s+type\b/.test(rawStmt)) {
-      const namedBrace = rawStmt.match(/\{([^}]*)\}/);
-      if (namedBrace) {
-        const exportedTypes = getPromptsExportedTypes();
-        const items = namedBrace[1].split(",").map((s) => s.trim()).filter(Boolean);
-        for (const item of items) {
-          if (/^type\s+/.test(item)) continue;
-          const importedName = item.split(/\s+as\s+/)[0].trim();
-          if (
-            importedName &&
-            !Object.prototype.hasOwnProperty.call(PROMPTS_MOD, importedName) &&
-            !exportedTypes.has(importedName)
-          ) {
-            return `'${importedName}' NO está exportado desde src/core/models/prompts.ts; definilo como const local en tu variante.`;
-          }
+    if (braceDepth === 0 && t.kind === SyntaxKind.ExportKeyword) {
+      const t1 = tokens[i + 1];
+      if (!t1) continue;
+      if (t1.kind === SyntaxKind.AsteriskToken) {
+        return "Prohibido re-exportar módulos desde variantes generadas.";
+      }
+      const braceIdx = t1.kind === SyntaxKind.TypeKeyword && tokens[i + 2]?.kind === SyntaxKind.OpenBraceToken
+        ? i + 2
+        : t1.kind === SyntaxKind.OpenBraceToken
+          ? i + 1
+          : -1;
+      if (braceIdx !== -1) {
+        const closeIdx = findMatchingBraceToken(tokens, braceIdx);
+        if (closeIdx !== -1 && isFromKeywordToken(tokens[closeIdx + 1]) && tokens[closeIdx + 2]?.kind === SyntaxKind.StringLiteral) {
+          return "Prohibido re-exportar módulos desde variantes generadas.";
         }
       }
     }
@@ -630,14 +573,9 @@ function checkImportsAndExports(
   return null;
 }
 
-function stripAsAndParensStart(masked: string, idx: number): number {
-  let p = skipWs(masked, idx);
-  while (p < masked.length && masked[p] === "(") p = skipWs(masked, p + 1);
-  return p;
-}
-
 function runStaticAstValidation(
   code: string,
+  tokens: readonly TsToken[],
   targetFilePath: string,
   stage: StageName,
 ): { error: string } | { error: null; cjsCode: string } {
@@ -660,18 +598,18 @@ function runStaticAstValidation(
     return { error: `Error de sintaxis TypeScript: ${msg.split("\n").slice(0, 4).join(" | ")}` };
   }
 
-  // 2. Allowlist de imports (sobre el TS original para cubrir `import type` y runtime)
-  const importErr = checkImportsAndExports(code, targetFilePath);
+  // 2. Allowlist de imports/re-exports sobre el TS original (cubre `import type` y runtime)
+  const importErr = checkImportsAndExports(tokens, targetFilePath);
   if (importErr) return { error: importErr };
 
   // 3. Estructura estática del objeto Variant en `export default`
-  const found = findExportedVariantObjectBrace(code);
-  if (!found) {
+  const rootOpenBrace = findExportedVariantObjectBrace(tokens);
+  if (rootOpenBrace === -1) {
     return { error: "Debe exportar un objeto `Variant` válido en `export default`." };
   }
 
   const contract = getStageContract(stage);
-  const rootEntries = parseTopLevelObjectEntries(code, found.masked, found.openBraceIdx);
+  const rootEntries = parseTopLevelObjectEntries(tokens, rootOpenBrace);
   for (const prop of rootEntries) {
     if (prop.kind === "spread" || prop.kind === "computed") {
       return { error: "No se permiten spreads dinámicos ni propiedades computadas en el objeto raíz `Variant`." };
@@ -686,10 +624,10 @@ function runStaticAstValidation(
     if (key && key !== "name" && key !== "prompts") {
       return { error: `Propiedad no permitida en Variant: '${key}'. Solo se permiten 'name' y 'prompts'.` };
     }
-    if (key === "prompts" && prop.valueStart !== undefined) {
-      const pBrace = stripAsAndParensStart(found.masked, prop.valueStart);
-      if (found.masked[pBrace] === "{") {
-        const grpEntries = parseTopLevelObjectEntries(code, found.masked, pBrace);
+    if (key === "prompts" && prop.valueTokIdx !== undefined) {
+      const pBrace = skipLeadingParens(tokens, prop.valueTokIdx);
+      if (tokens[pBrace]?.kind === SyntaxKind.OpenBraceToken) {
+        const grpEntries = parseTopLevelObjectEntries(tokens, pBrace);
         for (const grpProp of grpEntries) {
           const grpKey = grpProp.key;
           if (grpKey !== contract.promptGroup) {
@@ -698,10 +636,10 @@ function runStaticAstValidation(
                 `\`prompts\` solo puede definir \`${contract.promptGroup}.${contract.promptKey}\` (recibido '${grpKey ?? "dinámico"}').`,
             };
           }
-          if (grpProp.valueStart !== undefined) {
-            const gBrace = stripAsAndParensStart(found.masked, grpProp.valueStart);
-            if (found.masked[gBrace] === "{") {
-              const stEntries = parseTopLevelObjectEntries(code, found.masked, gBrace);
+          if (grpProp.valueTokIdx !== undefined) {
+            const gBrace = skipLeadingParens(tokens, grpProp.valueTokIdx);
+            if (tokens[gBrace]?.kind === SyntaxKind.OpenBraceToken) {
+              const stEntries = parseTopLevelObjectEntries(tokens, gBrace);
               for (const stProp of stEntries) {
                 if (stProp.key !== contract.promptKey) {
                   return {
@@ -717,30 +655,28 @@ function runStaticAstValidation(
     }
   }
 
-  // 4. Escaneo de seguridad sobre el JS sin anotaciones de tipo ni strings/comentarios
-  const maskedJs = maskCodePreserveOffsets(esmCode);
-  if (/\bimport\s*\(/.test(maskedJs)) {
-    return { error: "Prohibido usar dynamic `import(...)` en variantes generadas." };
-  }
+  // 4. Escaneo léxico de seguridad sobre el JS emitido por esbuild
+  const jsTokens = tokenizeTs(esmCode);
+  for (let i = 0; i < jsTokens.length; i++) {
+    const t = jsTokens[i];
+    const next = jsTokens[i + 1];
+    const prev = jsTokens[i - 1];
 
-  const idRe = /[A-Za-z_$][A-Za-z0-9_$]*/g;
-  let idMatch: RegExpExecArray | null;
-  while ((idMatch = idRe.exec(maskedJs)) !== null) {
-    const id = idMatch[0];
-    if (!BANNED_IDENTIFIERS.has(id)) continue;
-
-    // Ignorar propiedad de acceso `obj.fetch` o clave de objeto `{ process: 1 }`
-    let prev = idMatch.index - 1;
-    while (prev >= 0 && /\s/.test(maskedJs[prev])) prev--;
-    if (prev >= 0 && maskedJs[prev] === ".") continue;
-
-    let next = idMatch.index + id.length;
-    while (next < maskedJs.length && /\s/.test(maskedJs[next])) next++;
-    if (next < maskedJs.length && maskedJs[next] === ":" && !(prev >= 0 && maskedJs[prev] === "?")) {
-      continue;
+    if (t.kind === SyntaxKind.ImportKeyword && next?.kind === SyntaxKind.OpenParenToken) {
+      return { error: "Prohibido usar dynamic `import(...)` en variantes generadas." };
     }
 
-    return { error: `Identificador prohibido en variante generada: '${id}'.` };
+    if (t.kind === SyntaxKind.Identifier && BANNED_IDENTIFIERS.has(t.text)) {
+      // Ignorar acceso a propiedad `obj.fetch` / `obj?.fetch` o clave literal de objeto `{ process: 1 }`
+      if (prev?.kind === SyntaxKind.DotToken || prev?.kind === SyntaxKind.QuestionDotToken) continue;
+      if (
+        (prev?.kind === SyntaxKind.OpenBraceToken || prev?.kind === SyntaxKind.CommaToken) &&
+        next?.kind === SyntaxKind.ColonToken
+      ) {
+        continue;
+      }
+      return { error: `Identificador prohibido en variante generada: '${t.text}'.` };
+    }
   }
 
   return { error: null, cjsCode };
@@ -816,9 +752,15 @@ function validateRuntimeVariantShape(variant: unknown, variantName: string, stag
   return null;
 }
 
-function validateStageRequestsAndContext(stage: StageName, devPaths: string[], variant: Variant): string | null {
-  const datasets = loadDatasets(devPaths, { stages: [stage] }, variant);
+function validateStageRequestsAndContext(
+  stage: StageName,
+  devPaths: string[],
+  variant: Variant,
+  rawCache: RawDatasetCache,
+): string | null {
+  const datasets = loadDatasets(devPaths, { stages: [stage] }, variant, rawCache);
   const numCtx = ConfigManager.getConfig().qwenNumCtx;
+  const stageEntry = getStage(stage);
   const overflowCases: string[] = [];
 
   for (const ds of datasets) {
@@ -828,85 +770,13 @@ function validateStageRequestsAndContext(stage: StageName, devPaths: string[], v
         if (!req.state || !req.state.trim()) {
           return `Caso '${ds.name}/${fc.id}': DecisionRequest.state quedó vacío.`;
         }
-        const qKeys = Object.keys(req.questions ?? {});
-        if (qKeys.length === 0) {
+        if (Object.keys(req.questions ?? {}).length === 0) {
           return `Caso '${ds.name}/${fc.id}': DecisionRequest.questions quedó vacío.`;
         }
-        if (stage === "d0") {
-          const kindQ = req.questions.kind;
-          if (!kindQ || kindQ.type !== "choice") return `Caso '${ds.name}/${fc.id}': d0 requiere pregunta choice 'kind'.`;
-          for (const k of ["chat", "single", "multi"]) {
-            if (!(k in kindQ.criteria)) return `Caso '${ds.name}/${fc.id}': kind.criteria debe incluir '${k}'.`;
-          }
-          if (!req.questions.multi || req.questions.multi.type !== "noul") {
-            return `Caso '${ds.name}/${fc.id}': d0 requiere pregunta noul 'multi'.`;
-          }
-        } else if (stage === "route") {
-          if (!req.questions.route || req.questions.route.type !== "choice") {
-            return `Caso '${ds.name}/${fc.id}': route requiere pregunta choice 'route'.`;
-          }
-        } else if (stage === "tool_choice") {
-          if (!req.questions.selected_tool || req.questions.selected_tool.type !== "choice") {
-            return `Caso '${ds.name}/${fc.id}': tool_choice requiere pregunta choice 'selected_tool'.`;
-          }
-        } else if (stage === "args_review") {
-          const rev = req.questions.review;
-          if (!rev || rev.type !== "choice") {
-            return `Caso '${ds.name}/${fc.id}': args_review requiere pregunta choice 'review'.`;
-          }
-          for (const opt of ["approved", "args_invalid", "info_missing"]) {
-            if (!(opt in rev.criteria)) {
-              return `Caso '${ds.name}/${fc.id}': questions.review.criteria debe incluir '${opt}'.`;
-            }
-          }
-        } else if (stage === "result_verification") {
-          if (!req.questions.cumple || req.questions.cumple.type !== "noul") {
-            return `Caso '${ds.name}/${fc.id}': result_verification requiere pregunta noul 'cumple'.`;
-          }
-          if (req.questions.ok !== undefined && req.questions.ok.type !== "noul") {
-            return `Caso '${ds.name}/${fc.id}': la pregunta 'ok' debe ser type: 'noul'.`;
-          }
-        } else if (stage === "fragment_judge") {
-          const fKeys = fragmentKeys(req);
-          if (fKeys.length === 0 || fKeys.some((k) => req.questions[k]?.type !== "noul")) {
-            return `Caso '${ds.name}/${fc.id}': fragment_judge requiere preguntas noul f0, f1...`;
-          }
-          const expectedRelevant = (fc.expect as { expectedRelevant?: unknown }).expectedRelevant;
-          if (Array.isArray(expectedRelevant)) {
-            if (fKeys.length !== expectedRelevant.length) {
-              return `Caso '${ds.name}/${fc.id}': fragment_judge generó ${fKeys.length} preguntas y el caso tiene ${expectedRelevant.length} fragmentos.`;
-            }
-            for (let fi = 0; fi < expectedRelevant.length; fi++) {
-              if (!req.questions[`f${fi}`] || req.questions[`f${fi}`].type !== "noul") {
-                return `Caso '${ds.name}/${fc.id}': falta la pregunta noul 'f${fi}'.`;
-              }
-            }
-          }
-        } else if (stage === "d5") {
-          if (!req.questions[COMPLETION_KEY] || req.questions[COMPLETION_KEY].type !== "noul") {
-            return `Caso '${ds.name}/${fc.id}': d5 requiere pregunta noul '${COMPLETION_KEY}'.`;
-          }
-        } else if (stage === "recovery") {
-          const act = req.questions[RECOVERY_KEY];
-          const twoAxes = req.questions.blocked?.type === "noul" && req.questions.prereq?.type === "noul";
-          if (act !== undefined) {
-            if (act.type !== "choice") {
-              return `Caso '${ds.name}/${fc.id}': recovery requiere pregunta choice '${RECOVERY_KEY}'.`;
-            }
-            for (const opt of ["close", "rewrite_item", "replan"]) {
-              if (!(opt in act.criteria)) {
-                return `Caso '${ds.name}/${fc.id}': recovery.action.criteria debe incluir '${opt}'.`;
-              }
-            }
-          } else if (!twoAxes) {
-            return `Caso '${ds.name}/${fc.id}': recovery requiere pregunta choice '${RECOVERY_KEY}' o los ejes noul 'blocked' y 'prereq'.`;
-          }
-        } else if (stage === "continuation") {
-          if (!req.questions[CONTINUATION_KEY] || req.questions[CONTINUATION_KEY].type !== "noul") {
-            return `Caso '${ds.name}/${fc.id}': continuation requiere pregunta noul '${CONTINUATION_KEY}'.`;
-          }
+        if (stageEntry.requestType === "decision" && stageEntry.validateRequest) {
+          const err = stageEntry.validateRequest(req, fc);
+          if (err) return `Caso '${ds.name}/${fc.id}': ${err}`;
         }
-
         if (!fc.isRaw) {
           const est = estimateDecisionPromptTokens(req);
           if (est > DECISION_MAX_CONTEXT) {
@@ -920,6 +790,10 @@ function validateStageRequestsAndContext(stage: StageName, devPaths: string[], v
         }
         if (!req.user || !req.user.trim()) {
           return `Caso '${ds.name}/${fc.id}': GenerativeRequest.user quedó vacío.`;
+        }
+        if (stageEntry.requestType === "generative" && stageEntry.validateRequest) {
+          const err = stageEntry.validateRequest(req, fc);
+          if (err) return `Caso '${ds.name}/${fc.id}': ${err}`;
         }
         if (!fc.isRaw && reserveCompletionTokens(req, numCtx) === null) {
           overflowCases.push(`${fc.id}(sin margen en qwenNumCtx=${numCtx})`);
@@ -937,7 +811,7 @@ function validateStageRequestsAndContext(stage: StageName, devPaths: string[], v
 
 /**
  * Valida, normaliza, evalúa en memoria (sandbox `node:vm` + CJS sin contaminar ESM ni disco),
- * verifica `loadDatasets` + presupuesto de contexto, y solo escribe `eval/variants/_auto/<stage>/<variantName>.ts` si pasa todo.
+ * verifica `loadDatasets` + presupuesto de contexto, y solo escribe `<variantsRoot>/_auto/<stage>/<variantName>.ts` si pasa todo.
  */
 export async function validateAndWriteVariant(opts: {
   stage: StageName;
@@ -945,22 +819,27 @@ export async function validateAndWriteVariant(opts: {
   rawCode: string;
   devDatasetPaths: string[];
   knownHashes: Set<string>;
+  variantsRoot?: string;
+  rawCache?: RawDatasetCache;
 }): Promise<ValidationResult> {
-  const { stage, variantName, rawCode, devDatasetPaths, knownHashes } = opts;
+  const { stage, variantName, rawCode, devDatasetPaths, knownHashes, variantsRoot } = opts;
 
   if (!rawCode || !rawCode.trim()) {
     return { ok: false, error: "El código de la variante está vacío." };
   }
 
-  const stageDir = resolve(autoStageDir(stage));
+  const stageDir = resolve(autoStageDir(stage, variantsRoot));
   const filePath = resolve(stageDir, `${variantName}.ts`);
 
-  const patched = applyNameOverride(rawCode.trim() + "\n", variantName);
+  const sourceWithNewline = `${rawCode.trim()}\n`;
+  const rawTokens = tokenizeTs(sourceWithNewline);
+  const patched = applyNameOverride(sourceWithNewline, rawTokens, variantName);
   if (patched.error) {
     return { ok: false, error: patched.error };
   }
 
-  const staticRes = runStaticAstValidation(patched.code, filePath, stage);
+  const patchedTokens = tokenizeTs(patched.code);
+  const staticRes = runStaticAstValidation(patched.code, patchedTokens, filePath, stage);
   if (staticRes.error !== null) {
     return { ok: false, error: staticRes.error };
   }
@@ -982,13 +861,15 @@ export async function validateAndWriteVariant(opts: {
     }
 
     const variant = loaded as Variant;
-    const reqErr = validateStageRequestsAndContext(stage, devDatasetPaths, variant);
+    const rawCache = opts.rawCache ?? createRawDatasetCache();
+    const reqErr = validateStageRequestsAndContext(stage, devDatasetPaths, variant, rawCache);
     if (reqErr) {
       return { ok: false, error: reqErr };
     }
 
     mkdirSync(stageDir, { recursive: true });
     writeFileSync(filePath, patched.code, "utf8");
+    invalidateVariantCache(variantsRoot);
 
     return {
       ok: true,

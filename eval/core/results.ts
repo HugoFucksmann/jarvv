@@ -6,9 +6,10 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, writeSync } from "node:fs";
 import { resolve } from "node:path";
 import type { EvalConfig } from "./config.ts";
+import { atomicWriteFileSync } from "./io.ts";
 import { promptEnvironment } from "./scenario.ts";
 import { computeScoreSummary } from "./scoring.ts";
 import { isDecisionStage } from "./stages/index.ts";
@@ -118,24 +119,39 @@ export function createCellWriter(rootDir: string, variantSpec: string, datasetNa
   mkdirSync(cellDir, { recursive: true });
 
   const records: RunRecord[] = [];
-  // Parte siempre de un runs.jsonl vacío: nunca se anexa a restos de otra corrida.
-  writeFileSync(`${cellDir}/runs.jsonl`, "", "utf8");
+  // Descriptor único para toda la celda: evita abrir/cerrar el archivo en cada RunRecord.
+  let fd: number | null = openSync(`${cellDir}/runs.jsonl`, "w");
 
   return {
     cellDir,
     get records() { return records; },
     writeRun(record: RunRecord) {
-      records.push(record);
-      appendFileSync(`${cellDir}/runs.jsonl`, JSON.stringify(record) + "\n", "utf8");
+      if (fd === null) throw new Error("CellWriter ya cerrado.");
+      writeSync(fd, JSON.stringify(record) + "\n", null, "utf8");
+      // En RAM retenemos solo lo necesario para scoring/report; el detalle completo queda en runs.jsonl.
+      records.push({
+        ...record,
+        errors: [],
+        warnings: [],
+        rawInput: undefined,
+        rawOutput: "",
+        parsedOutput: undefined,
+        probabilities: undefined,
+        rawScore: undefined,
+      });
     },
     close(meta: RunMeta): GlobalScoreSummary {
+      if (fd !== null) {
+        closeSync(fd);
+        fd = null;
+      }
       const scores: GlobalScoreSummary = computeScoreSummary(records);
-      const scoresTmp = `${cellDir}/scores.json.tmp`;
-      const metaTmp = `${cellDir}/meta.json.tmp`;
-      writeFileSync(scoresTmp, JSON.stringify(scores, null, 2), "utf8");
-      renameSync(scoresTmp, `${cellDir}/scores.json`);
-      writeFileSync(metaTmp, JSON.stringify(meta, null, 2), "utf8");
-      renameSync(metaTmp, `${cellDir}/meta.json`);
+      // Después de scoreQuestions, `report.ts` solo consume `scores.stages[k].questions`.
+      for (const r of records) {
+        if (r.questions !== undefined) r.questions = undefined;
+      }
+      atomicWriteFileSync(`${cellDir}/scores.json`, JSON.stringify(scores, null, 2));
+      atomicWriteFileSync(`${cellDir}/meta.json`, JSON.stringify(meta, null, 2));
       return scores;
     },
   };

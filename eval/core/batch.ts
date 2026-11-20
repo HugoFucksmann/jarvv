@@ -173,6 +173,7 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
         datasetName: ds.name,
         scores,
         records: writer.records,
+        cellDir: writer.cellDir,
       });
     }
   }

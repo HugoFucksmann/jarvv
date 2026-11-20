@@ -14,7 +14,7 @@
 
 import { NOUL_APPROVE, VERIFY_APPROVE, validateAnswer } from "./contract.ts";
 import { getStage } from "./stages/index.ts";
-import type { DecisionStageEntry } from "./stages/index.ts";
+import type { DecisionStageEntry } from "./stages/types.ts";
 import type {
   AnswerExpects,
   ChoiceQ,

@@ -25,7 +25,7 @@ import { PROD_SHORTCUT_TAG } from "./case.ts";
 import { createCollector } from "./graders/common.ts";
 import { buildQuestionResults, gradeExtraQuestions } from "./questions.ts";
 import { getStage, isDecisionStage, runGraders } from "./stages/index.ts";
-import type { DecisionStageEntry, GenerativeStageEntry } from "./stages/index.ts";
+import type { DecisionStageEntry, GenerativeStageEntry } from "./stages/types.ts";
 import { SCHEMA_VERSION } from "./types.ts";
 import type {
   AnswerExpects,
@@ -33,7 +33,6 @@ import type {
   DecisionRequest,
   DecisionStage,
   GenerativeRequest,
-  GenerativeStage,
   QuestionResult,
   RunRecord,
   StageName,
@@ -66,7 +65,7 @@ function addTokens(acc: TokenTotals | undefined, next: TokenTotals | undefined):
   };
 }
 
-/** Parámetros generativos finales (sección 7.1): variante.params > valor del caso. */
+/** Parámetros generativos finales: override de `--thinking` sobre el caso. */
 function resolveGenerativeRequest(
   req: GenerativeRequest,
   thinkingOverride?: boolean,
@@ -93,16 +92,10 @@ function expandThinking(
   stage: StageName,
   caseThinking: boolean,
   cfg: EvalConfig,
-  variantFixedThinking?: boolean,
 ): ThinkingExpansion[] {
   const entry = getStage(stage);
   if (entry.requestType === "decision") {
     return [{ thinking: false, stageKey: stage }];
-  }
-
-  // Si la variante fija params.thinking → no se expande, stageKey = stage
-  if (variantFixedThinking !== undefined) {
-    return [{ thinking: variantFixedThinking, stageKey: stage }];
   }
 
   const mode = cfg.thinking;
@@ -217,7 +210,7 @@ async function runDecision(
   dryRun: boolean,
   baseRecord: BaseRecord,
 ): Promise<RunResult> {
-  const { fc, variant } = task;
+  const { fc } = task;
   const sentReq = fc.request as DecisionRequest;
   const prepared = client.prepare(sentReq);
   const hash = requestHash(prepared.body);
@@ -255,34 +248,11 @@ async function runDecision(
   const callCtx = { stage: fc.stage, expect: fc.expect };
   const entry = getStage(fc.stage) as DecisionStageEntry<unknown, unknown>;
 
-  // Como producción (`queryModel`): una respuesta que no pasa la validación se consulta de nuevo, hasta
-  // `LLM_INVALID_OUTPUT_RETRIES` veces y con el mismo request (sin nota de error ni cambio de parámetros).
-  let result = await client.call(sentReq, timeoutMs, callCtx);
-  let durationMs = result.durationMs;
-  let parsed: unknown;
-  let parseError: string | undefined;
-  const retryErrors: string[] = [];
-  let tokens: TokenTotals | undefined;
-
-  for (let attempt = 0; ; attempt++) {
-    if (!result.ok) break;
-    tokens = addTokens(tokens, result.tokens);
-    parsed = undefined;
-    parseError = undefined;
-    try {
-      parsed = entry.parseOutput(result.rawOutput, sentReq, variant.read);
-    } catch (e) {
-      parseError = e instanceof Error ? e.message : String(e);
-    }
-    if (parseError === undefined || attempt >= LLM_INVALID_OUTPUT_RETRIES) break;
-    retryErrors.push(parseError);
-    result = await client.call(sentReq, timeoutMs, callCtx);
-    durationMs += result.durationMs;
-  }
+  // Una sola consulta por caso (sin reintento por respuesta inválida, alineado con producción).
+  const result = await client.call(sentReq, timeoutMs, callCtx);
+  const durationMs = result.durationMs;
 
   if (!result.ok) {
-    retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por respuesta inválida: ${e}`));
-    if (retryErrors.length > 0) measurements.attempts = retryErrors.length + 1;
     collector.check("client_call_ok", false, result.error);
     return makeRecord(baseRecord, {
       rawInput: prepared.body,
@@ -295,13 +265,20 @@ async function runDecision(
       warnings,
       metrics,
       measurements,
-      ...(tokens ? { tokens } : {}),
-      tokensEstimated: true,
     });
   }
 
+  let parsed: unknown;
+  let parseError: string | undefined;
+  try {
+    parsed = entry.parseOutput(result.rawOutput, sentReq);
+  } catch (e) {
+    parseError = e instanceof Error ? e.message : String(e);
+  }
+
+  const tokens: TokenTotals | undefined = result.tokens;
   const rawOutput = result.rawOutput;
-  finalizeAttemptChecks(collector, measurements, warnings, retryErrors, parseError, "respuesta inválida");
+  finalizeAttemptChecks(collector, measurements, warnings, [], parseError, "respuesta inválida");
 
   const labelInfo = entry.label(parsed, fc.expect as never);
   gradeWithGuard(entry, parsed, fc.expect, { rawOutput, durationMs }, collector, metrics);
@@ -555,7 +532,7 @@ async function runWithConcurrency<T>(
 export interface RunnerInput {
   cases: Case[];
   datasetName: string;
-  /** La variante: aporta cómo leer las respuestas (`read`) y los parámetros; los casos ya traen sus prompts. */
+  /** La variante usada en la ejecución; los casos ya traen sus prompts materializados. */
   variant: Variant;
   variantSpec: string;
   cfg: EvalConfig;
@@ -586,12 +563,8 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
 
   const tasks: RunTask[] = [];
   for (const fc of filtered) {
-    const entry = getStage(fc.stage);
-    const variantFixedThinking =
-      entry.requestType === "generative" ? variant.params?.[fc.stage as GenerativeStage]?.thinking : undefined;
-
     const caseThinking = fc.request.type === "generative" ? fc.request.thinking : false;
-    const expansions = expandThinking(fc.stage, caseThinking, cfg, variantFixedThinking);
+    const expansions = expandThinking(fc.stage, caseThinking, cfg);
 
     for (const exp of expansions) {
       for (let iter = 1; iter <= cfg.repeat; iter++) {

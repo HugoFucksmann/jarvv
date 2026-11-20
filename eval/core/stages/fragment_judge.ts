@@ -7,10 +7,10 @@
 import { isRecord, JUDGE_BATCH, JUDGE_FOUND } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { FragmentJudgeGrader } from "../graders/label.ts";
-import type { ChoiceQ, DecisionReaders, DecisionRequest, FragmentJudgeExpect, FragmentJudgeOutput, NoulQ } from "../types.ts";
-import { DecisionParseError, extractNoul, fragmentKeys, parseAnswers, readAllAnswers } from "../variants/labels.ts";
-import type { DecisionStageEntry } from "./index.ts";
+import type { ChoiceQ, DecisionRequest, FragmentJudgeExpect, FragmentJudgeOutput, NoulQ } from "../types.ts";
+import { DecisionParseError, extractNoul, fragmentKeys, parseAnswers } from "../variants/labels.ts";
 import { checkRange01, NO, YES } from "./shared.ts";
+import type { DecisionStageEntry } from "./types.ts";
 
 const judgeLabel = (flags: readonly boolean[]): string => flags.map((v, i) => `f${i}=${v}`).join(",");
 
@@ -40,13 +40,28 @@ export const fragmentJudgeStage: DecisionStageEntry<FragmentJudgeOutput, Fragmen
     }
     return h.decision(h.effectivePrompts(ov).D.buildFragmentJudge({ need: h.need(at.need, "need", "fragment_judge"), fragments }));
   },
-  parseOutput(rawOutput: string, sentReq: DecisionRequest, read: DecisionReaders | undefined): FragmentJudgeOutput {
+  validateRequest(req, fc) {
+    const fKeys = fragmentKeys(req);
+    if (fKeys.length === 0 || fKeys.some((k) => req.questions[k]?.type !== "noul")) {
+      return "fragment_judge requiere preguntas noul f0, f1...";
+    }
+    const expectedRelevant = (fc.expect as { expectedRelevant?: unknown }).expectedRelevant;
+    if (Array.isArray(expectedRelevant)) {
+      if (fKeys.length !== expectedRelevant.length) {
+        return `fragment_judge generó ${fKeys.length} preguntas y el caso tiene ${expectedRelevant.length} fragmentos.`;
+      }
+      for (let fi = 0; fi < expectedRelevant.length; fi++) {
+        if (!req.questions[`f${fi}`] || req.questions[`f${fi}`].type !== "noul") {
+          return `falta la pregunta noul 'f${fi}'.`;
+        }
+      }
+    }
+    return null;
+  },
+  parseOutput(rawOutput: string, sentReq: DecisionRequest): FragmentJudgeOutput {
     const answers = parseAnswers(rawOutput);
     const keys = fragmentKeys(sentReq);
     if (keys.length === 0) throw new DecisionParseError("El request no trae preguntas de fragmento (f0, f1…).");
-
-    const reader = read?.fragment_judge;
-    if (reader) return reader(readAllAnswers(sentReq, answers));
 
     const probabilities = keys.map((k) => extractNoul(answers, k));
     return { probabilities, relevant: probabilities.map((p) => p >= JUDGE_FOUND) };

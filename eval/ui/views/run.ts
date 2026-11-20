@@ -6,7 +6,7 @@
  */
 
 import type { parseConfig } from "../../core/config.ts";
-import type { InputCell } from "../../core/report.ts";
+import type { InputCell } from "../../core/report-types.ts";
 import type { RunRecord } from "../../core/types.ts";
 import { fmtPct } from "../../core/report-format.ts";
 import { c, kv, padEnd, rateColor, section, sym } from "../style.ts";

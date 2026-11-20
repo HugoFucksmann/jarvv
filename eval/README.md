@@ -70,7 +70,7 @@ eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval
 
 ## Datasets y cruce con el pre-chequeo
 
-Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Resultados y conclusiones vigentes: [`conclusiones.md`](./conclusiones.md), [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) y `conclusiones_*.md` en la carpeta de cada etapa de `variants/`.
+Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Resultados y conclusiones consolidadas: [`conclusiones.md`](./conclusiones.md) y [`MEJORES_VARIANTES.md`](./MEJORES_VARIANTES.md) (las notas históricas por etapa están en los `conclusiones_*.md` de cada carpeta en `variants/`).
 
 ## Documentación
 

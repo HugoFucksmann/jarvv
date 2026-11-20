@@ -6,7 +6,7 @@
  * Flag desconocido → lanza error de configuración.
  */
 
-import { ConfigManager } from "../../src/core/config.ts";
+import { ConfigManager } from "./contract.ts";
 import type { StageName, ThinkingMode } from "./types.ts";
 import { allStageNames } from "./stages/index.ts";
 import { parseVariantSpecs } from "./variants/load.ts";

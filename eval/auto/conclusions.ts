@@ -5,8 +5,9 @@
  * de `conclusiones.md` al cierre de cada vuelta (`§7`).
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { atomicWriteFileSync } from "../core/io.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
 import { allStageNames, isDecisionStage } from "../core/stages/index.ts";
 import type { StageName } from "../core/types.ts";
@@ -60,9 +61,7 @@ export function compactMarkdownToLimits(markdown: string): string {
 }
 
 export function writeConclusionsFile(filePath: string, markdown: string): void {
-  const abs = resolve(filePath);
-  mkdirSync(dirname(abs), { recursive: true });
-  writeFileSync(abs, compactMarkdownToLimits(markdown), "utf8");
+  atomicWriteFileSync(resolve(filePath), compactMarkdownToLimits(markdown));
 }
 
 /**

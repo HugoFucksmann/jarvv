@@ -13,23 +13,51 @@
  */
 
 import { createHash } from "node:crypto";
-import { BUDGET } from "../../src/core/budget.ts";
-import { ConfigManager } from "../../src/core/config.ts";
-import { create } from "../../src/core/ctx/index.ts";
-import type { CallStatus, JsonObject, Op, StepState, StopReason, TaskContext, TerminalTaskState, VerdictReason } from "../../src/core/ctx/index.ts";
-import { collectSources, precheckCall } from "../../src/core/engine/precheck.ts";
-import type { CommandAnalyzer, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
-import type { UserEnvironment } from "../../src/core/environment.ts";
-import { DECISION_PROMPTS, PROMPTS } from "../../src/core/models/prompts.ts";
-import { BASE_TEMPERATURE } from "../../src/core/models/stageRequests.ts";
-import type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
-import { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
-import type { MCPTool } from "../../src/core/types.ts";
-import type { ExecutableRoute } from "../../src/core/types/routes.ts";
-import type { ToolInputSchema, VariantPrompts } from "./contract.ts";
+import {
+  argsMax,
+  BASE_TEMPERATURE,
+  BUDGET,
+  collectSources,
+  ConfigManager,
+  create,
+  DECISION_PROMPTS,
+  getToolPolicy,
+  precheckCall,
+  PROMPTS,
+  serverOf,
+  SYSTEM_TOOL_MANIFEST,
+} from "./contract.ts";
+import type {
+  CommandAnalyzer,
+  ExecutableRoute,
+  MCPTool,
+  PrecheckFinding,
+  PrecheckSources,
+  PromptSet,
+  StageRequest,
+  TaskContext,
+  ToolInputSchema,
+  UserEnvironment,
+  VariantPrompts,
+} from "./contract.ts";
 import { getStage, hasStage } from "./stages/index.ts";
-import type { ScenarioHelpers } from "./stages/index.ts";
-import type { DecisionRequest, GenerativeRequest, GenerativeStage, Variant } from "./types.ts";
+import type {
+  Materialized,
+  Scenario,
+  ScenarioAt,
+  ScenarioHelpers,
+  ScenarioStep,
+} from "./stages/types.ts";
+import type { DecisionRequest, GenerativeRequest, Variant } from "./types.ts";
+
+export type {
+  Materialized,
+  Scenario,
+  ScenarioAt,
+  ScenarioCall,
+  ScenarioRecalled,
+  ScenarioStep,
+} from "./stages/types.ts";
 
 /**
  * Lo que, además de `src/`, cambia los prompts de los casos por escenario: la fecha (`TODAY`) y la configuración que fija
@@ -46,87 +74,7 @@ export function promptEnvironment(): { date: string; stageConfigHash: string } {
   };
 }
 
-// ───────────────────────── Forma del escenario ─────────────────────────
-
-export interface ScenarioStep {
-  /** Deliberativo: la del plan. Reactivo: el primer pendiente (default: la solicitud). */
-  instruction?: string;
-  route?: string;
-  expected?: string;
-  /** Estado final del paso (default `pending`). `completed` y `failed` pasan antes por `running`. */
-  state?: StepState;
-}
-
-export interface ScenarioCall {
-  /** Índice del paso en `steps` (default: el último). */
-  step?: number;
-  route: string;
-  tool: string;
-  /** Default `read`. */
-  kind?: "read" | "write";
-  status: CallStatus;
-  /** Default `{}`; `null` solo con `args_invalid`. */
-  args?: JsonObject | null;
-  summary?: string | null;
-  verdict?: "approved" | "rejected";
-  reason?: VerdictReason | null;
-  /** Resultado guardado aparte: el resumen no lo contiene completo. */
-  ref?: { label: string; size: number; where: string };
-}
-
-/** Parámetros del punto de decisión; cada etapa lee solo los suyos. */
-export interface ScenarioAt {
-  // route
-  routes?: ExecutableRoute[];
-  // tool_choice, args_review, arguments
-  route?: ExecutableRoute;
-  /** tool_choice: nombres del manifest (default: todas las de la ruta). */
-  tools?: string[];
-  /** args_review y arguments: herramienta (nombre del manifest) con su schema de entrada. */
-  tool?: string;
-  inputSchema?: ToolInputSchema;
-  /** args_review: argumentos propuestos. */
-  args?: JsonObject;
-  // result_verification: índice de la llamada evaluada en `calls` (default: la última).
-  call?: number;
-  /** result_verification: el ítem verificado es el último; la variante recibe `request` (la solicitud completa). */
-  lastItem?: boolean;
-  // plan: instrucción del usuario (replan por feedback).
-  feedback?: string;
-  // pending: la lista de pendientes de la vuelta anterior (vacía o ausente en la primera vuelta).
-  previous?: string[];
-  // recovery: la causa del fallo (`StepFailureCause`) y los pasos fallidos del ítem hasta ahora (default 1). `previous` trae la lista de la vuelta con el ítem fallido de primero.
-  cause?: string;
-  attempts?: number;
-  // fragment_judge: la necesidad (la pregunta de `web_search`) y los fragmentos a puntuar (hasta `JUDGE_BATCH`). No usa el resto del escenario.
-  need?: string;
-  fragments?: string[];
-  // arguments: rutas del usuario (default fijo, para que el caso no dependa de la PC).
-  environment?: { home: string; desktop?: string; documents?: string; downloads?: string };
-}
-
-export interface ScenarioRecalled {
-  /** Hechos del usuario (`source: "user_memory"`): `{ key, value }`, como los devuelve `MemoryProvider.recall`. */
-  user_memory?: Array<{ key: string; value: string; from?: string }>;
-  /** Hilo reciente (`source: "thread"`): las dos entradas que usa producción. */
-  thread?: { previous_request?: string; previous_answer?: string };
-}
-
-export interface Scenario {
-  mode: "reactive" | "deliberative";
-  request: string;
-  steps?: ScenarioStep[];
-  calls?: ScenarioCall[];
-  /** Hechos de entorno (hoy solo `process`). */
-  facts?: Record<string, string>;
-  /** Aportes recuperados de memoria (`user_memory` y `thread`: `previous_request`, `previous_answer`). */
-  recalled?: ScenarioRecalled;
-  /** Respuestas del usuario a preguntas anteriores (`answer_<paso>_<n>`), en orden. */
-  userInput?: string[];
-  /** Cierre de la tarea (para `final`). */
-  finish?: { state: TerminalTaskState; stopReason?: StopReason | null };
-  at?: ScenarioAt;
-}
+// ───────────────────────── Entorno por defecto ─────────────────────────
 
 /** Rutas de una PC Windows (las de los datasets: `C:/Users/hugof/...`); los casos que necesiten otras fijan `at.environment`. */
 const DEFAULT_ENVIRONMENT = {
@@ -162,7 +110,7 @@ function buildContext(sc: Scenario): Built {
       jsonMaxDepth: BUDGET.jsonMaxDepth,
     },
   );
-  const addOne = (op: Op): string => ctx.apply(op).ids[0];
+  const addOne = (op: Parameters<TaskContext["apply"]>[0]): string => ctx.apply(op).ids[0];
 
   // Deliberativo: un plan inicial al que pertenecen los pasos. Reactivo: sin plan; cada paso nace `running`.
   const deliberative = sc.mode === "deliberative";
@@ -290,17 +238,6 @@ function need<T>(value: T | undefined, what: string, stage: string): T {
 
 // ───────────────────────── Armado por etapa ─────────────────────────
 
-export interface Materialized {
-  request: DecisionRequest | GenerativeRequest;
-  /** `arguments`: schema real de la herramienta, para validar la salida. */
-  toolSchema?: ToolInputSchema;
-  /** `arguments`: herramienta y entorno del caso, para repetir el pre-chequeo de producción sobre la salida. */
-  toolName?: string;
-  environment?: UserEnvironment;
-  /** `arguments`: `kind` de la herramienta y fuentes de la tarea, como los arma producción (`callRunner`); completan ese pre-chequeo. */
-  precheck?: { kind: "read" | "write"; sources: PrecheckSources };
-}
-
 const decision = (d: { state: string; questions: unknown }): Materialized => ({
   request: { type: "decision", state: d.state, questions: d.questions as DecisionRequest["questions"] },
 });
@@ -371,14 +308,10 @@ export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer):
 }
 
 /**
- * Arma el `request` de una etapa a partir del escenario, con los prompts de producción o los de la variante, y le aplica los
- * parámetros de la variante (`params`: temperatura, tokens, thinking…). Lanza `Error` con el motivo si el escenario no sirve.
+ * Arma el `request` de una etapa a partir del escenario, con los prompts de producción o los de la variante.
+ * Lanza `Error` con el motivo si el escenario no sirve.
  */
 export function materializeScenario(stage: string, sc: Scenario, variant?: Variant): Materialized {
   if (!hasStage(stage)) throw new Error(`etapa '${stage}' desconocida para un escenario.`);
-  const built = getStage(stage).buildRequest(sc, variant?.prompts, scenarioHelpers);
-  const params = variant?.params?.[stage as GenerativeStage];
-  if (params === undefined || built.request.type !== "generative") return built;
-  const defined = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined));
-  return { ...built, request: { ...built.request, ...defined } };
+  return getStage(stage).buildRequest(sc, variant?.prompts, scenarioHelpers);
 }

@@ -5,7 +5,7 @@
  * Lo usan comparison.md (`report.ts`) y la consola (`ui/views/comparison.ts`), para que ambos muestren lo mismo.
  */
 
-import type { ComparisonReport, VariantSummary } from "./report.ts";
+import type { ComparisonReport, VariantSummary } from "./report-types.ts";
 
 /** Por debajo de esto, el p95 por rango más cercano es el máximo de la muestra: no se publica su delta. */
 export const MIN_P95_SAMPLES = 20;

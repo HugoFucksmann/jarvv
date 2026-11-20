@@ -6,6 +6,10 @@
  * a lo que cabe en `qwenNumCtx` y un prompt sin margen de salida no se envía (`reserveCompletionTokens`).
  */
 
+import { ConfigManager, estimateTokens, postJson as prodPostJson, TransportError } from "../contract.ts";
+import type { ToolInputSchema } from "../contract.ts";
+import type { GenerativeRequest } from "../types.ts";
+
 /** Margen mínimo de salida (`MIN_COMPLETION_TOKENS` de producción, que no lo exporta). */
 const MIN_COMPLETION_TOKENS = 256;
 
@@ -22,11 +26,6 @@ export function reserveCompletionTokens(req: GenerativeRequest, numCtx: number):
   return Math.min(req.maxTokens, available);
 }
 
-import { ConfigManager } from "../../../src/core/config.ts";
-import { postJson as prodPostJson, TransportError } from "../../../src/core/models/transport.ts";
-import { estimateTokens } from "../contract.ts";
-import type { ToolInputSchema } from "../contract.ts";
-import type { GenerativeRequest } from "../types.ts";
 
 /** Lo que se enviaría (o se envió): lo imprime `--dry-run` y lo usa el mock. */
 export interface PreparedRequest {

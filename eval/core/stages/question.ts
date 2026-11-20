@@ -4,15 +4,12 @@
  * Etapa generativa `question`: pregunta al usuario cuando falta información.
  */
 
-import { askRenderOptions } from "../../../src/core/engine/adapters.ts";
-import { questionStageRequest } from "../../../src/core/models/stageRequests.ts";
-import { renderAsk } from "../../../src/core/render/index.ts";
-import { stripThink } from "../contract.ts";
+import { askRenderOptions, questionStageRequest, renderAsk, stripThink } from "../contract.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import { QuestionGrader } from "../graders/question.ts";
 import type { QuestionExpect, QuestionOutput } from "../types.ts";
-import type { GenerativeStageEntry } from "./index.ts";
 import { checkIntMin1, noLabel } from "./shared.ts";
+import type { GenerativeStageEntry } from "./types.ts";
 
 export const questionStage: GenerativeStageEntry<QuestionOutput, QuestionExpect> = {
   stageName: "question",

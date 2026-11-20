@@ -81,7 +81,7 @@ export const ROUTE_LIST = EXECUTABLE_ROUTES.map((r) => `"${r}"`).join(", ");
 /** Nota de corrección que se añade al prompt en el reintento por salida inválida. */
 export const retryNote = (previousError?: string): string =>
   previousError
-    ? `\n\nERROR_PREVIO: tu respuesta anterior fue inválida (${safe(clip(previousError, MAX_ERROR_NOTE_CHARS))}). Corrígela y responde de nuevo.`
+    ? `\n\nPREVIOUS_ERROR: your previous response was invalid (${safe(clip(previousError, MAX_ERROR_NOTE_CHARS))}). Fix it and reply again.`
     : "";
 
 /** Reglas de comandos para Windows (PowerShell 5.1): los errores de sintaxis medidos en el eval (`&&`, `@{...}` calculados en pipelines, comas en hashtables). */

@@ -4,10 +4,16 @@
  * Extrae resumen estructurado por variante/dataset de `ComparisonReport` y una muestra acotada
  * de hasta 14 casos fallidos reales del Top-1 vigente para alimentar al agente optimizador (`§5.1`).
  * Nunca incluye casos de `--holdout`.
+ * Cuando las celdas en RAM vienen aligeradas (con `cellDir`), hidrata el detalle de errores/entradas
+ * leyendo en streaming únicamente los casos seleccionados desde `<cellDir>/runs.jsonl`.
  */
 
-import type { Case, RunRecord } from "../core/types.ts";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { datasetName } from "../core/datasets.ts";
+import { forEachJsonlLineSync } from "../core/io.ts";
 import type { ComparisonReport, InputCell } from "../core/report.ts";
+import type { Case, RunRecord } from "../core/types.ts";
 
 export interface FailureSample {
   id: string;
@@ -19,6 +25,9 @@ export interface FailureSample {
   failedChecks: string[];
   errors: string[];
   rawOutput: string;
+  /** Intentos fallidos del caso cuando `--repeat > 1` (sobre intentos canónicos válidos). */
+  failedAttempts?: number;
+  totalAttempts?: number;
 }
 
 export interface VariantDatasetStat {
@@ -94,6 +103,10 @@ function formatExpected(r: RunRecord, caseMap: Map<string, Case>): string {
   return "(ver métricas)";
 }
 
+function recordLookupKey(r: Pick<RunRecord, "dataset" | "caseId" | "stageKey" | "iteration">): string {
+  return `${r.dataset}\u0000${r.caseId}\u0000${r.stageKey}\u0000${r.iteration}`;
+}
+
 /** Construye estadísticas por variante y dataset a partir del reporte comparativo. */
 export function extractVariantDatasetStats(report: ComparisonReport, cells: InputCell[]): VariantDatasetStat[] {
   const deltaMap = new Map<string, number>();
@@ -139,18 +152,28 @@ export function extractFailureSamples(opts: {
   focusVariant: string;
   cells: InputCell[];
   devDatasetNames: Set<string>;
+  devDatasetPaths?: string[];
   caseLookup?: Map<string, Case>;
   limit?: number;
 }): FailureSample[] {
   const limit = opts.limit ?? MAX_SAMPLES;
   const caseMap = opts.caseLookup ?? new Map<string, Case>();
 
+  // Filtro estricto de datasets dev para nunca filtrar casos de --holdout al optimizador.
+  const devPathNames = opts.devDatasetPaths && opts.devDatasetPaths.length > 0
+    ? new Set(opts.devDatasetPaths.map((p) => datasetName(p)))
+    : null;
+  const isAllowedDevDataset = (name: string): boolean => {
+    if (devPathNames && !devPathNames.has(name)) return false;
+    if (opts.devDatasetNames.size > 0 && !opts.devDatasetNames.has(name)) return false;
+    return devPathNames !== null || opts.devDatasetNames.size > 0;
+  };
+
   const prodStatus = new Map<string, boolean>();
-  const focusRecordsByCase = new Map<string, RunRecord[]>();
+  const focusRecordsByCase = new Map<string, Array<{ record: RunRecord; cellDir?: string }>>();
 
   for (const cell of opts.cells) {
-    // Seguridad: nunca incluir datasets holdout ni bucket raw en el feedback del optimizador.
-    if (!opts.devDatasetNames.has(cell.datasetName)) continue;
+    if (!isAllowedDevDataset(cell.datasetName)) continue;
 
     for (const r of cell.records) {
       if (r.bucket !== "canonical") continue;
@@ -163,23 +186,31 @@ export function extractFailureSamples(opts: {
       }
       if (cell.variantSpec === opts.focusVariant) {
         const list = focusRecordsByCase.get(key) ?? [];
-        list.push(r);
+        list.push({ record: r, cellDir: cell.cellDir });
         focusRecordsByCase.set(key, list);
       }
     }
   }
 
-  interface ScoredCandidate {
-    sample: FailureSample;
+  interface CandidateMeta {
     tier: number;
     diversityKey: string;
+    priority: FailureSample["priority"];
+    slimRecord: RunRecord;
+    cellDir?: string;
+    failedChecks: string[];
+    expected: string;
+    failedAttempts: number;
+    totalAttempts: number;
   }
 
-  const candidates: ScoredCandidate[] = [];
-  for (const [key, recs] of focusRecordsByCase.entries()) {
-    const failedRec = recs.find((r) => !r.passed);
-    if (!failedRec) continue;
+  const candidates: CandidateMeta[] = [];
+  for (const [key, items] of focusRecordsByCase.entries()) {
+    const failedItems = items.filter((item) => !item.record.passed);
+    if (failedItems.length === 0) continue;
 
+    const failedItem = failedItems[0];
+    const failedRec = failedItem.record;
     const prodOk = prodStatus.get(key);
     const priority: FailureSample["priority"] =
       prodOk === true
@@ -199,45 +230,93 @@ export function extractFailureSamples(opts: {
     candidates.push({
       tier,
       diversityKey,
-      sample: {
-        id: failedRec.caseId,
-        dataset: failedRec.dataset,
-        priority,
-        inputCompact: compactRawInput(failedRec.rawInput),
-        expected,
-        predicted: formatPredicted(failedRec),
-        failedChecks,
-        errors: failedRec.errors.slice(0, 3).map((e) => clipText(e, 220)),
-        rawOutput: clipText(failedRec.rawOutput ?? "", MAX_RAW_OUTPUT_CHARS),
-      },
+      priority,
+      slimRecord: failedRec,
+      cellDir: failedItem.cellDir,
+      failedChecks,
+      expected,
+      failedAttempts: failedItems.length,
+      totalAttempts: items.length,
     });
   }
 
-  candidates.sort((a, b) => a.tier - b.tier || a.sample.dataset.localeCompare(b.sample.dataset) || a.sample.id.localeCompare(b.sample.id));
+  candidates.sort(
+    (a, b) =>
+      a.tier - b.tier ||
+      a.slimRecord.dataset.localeCompare(b.slimRecord.dataset) ||
+      a.slimRecord.caseId.localeCompare(b.slimRecord.caseId),
+  );
 
   // Selección con diversidad: primera pasada tomando un representante por (tier, diversityKey), luego completar hasta limit.
-  const picked: FailureSample[] = [];
+  const pickedMeta: CandidateMeta[] = [];
   const pickedIds = new Set<string>();
   const seenDiversity = new Set<string>();
 
-  for (const c of candidates) {
-    if (picked.length >= limit) break;
-    const key = `${c.tier}::${c.diversityKey}`;
+  for (const cand of candidates) {
+    if (pickedMeta.length >= limit) break;
+    const key = `${cand.tier}::${cand.diversityKey}`;
     if (!seenDiversity.has(key)) {
       seenDiversity.add(key);
-      picked.push(c.sample);
-      pickedIds.add(`${c.sample.dataset}\u0000${c.sample.id}`);
+      pickedMeta.push(cand);
+      pickedIds.add(`${cand.slimRecord.dataset}\u0000${cand.slimRecord.caseId}`);
     }
   }
 
-  for (const c of candidates) {
-    if (picked.length >= limit) break;
-    const uid = `${c.sample.dataset}\u0000${c.sample.id}`;
+  for (const cand of candidates) {
+    if (pickedMeta.length >= limit) break;
+    const uid = `${cand.slimRecord.dataset}\u0000${cand.slimRecord.caseId}`;
     if (!pickedIds.has(uid)) {
       pickedIds.add(uid);
-      picked.push(c.sample);
+      pickedMeta.push(cand);
     }
   }
 
-  return picked;
+  // Hidratación bajo demanda desde `<cellDir>/runs.jsonl` únicamente para los casos elegidos.
+  const neededByDir = new Map<string, Set<string>>();
+  for (const meta of pickedMeta) {
+    if (!meta.cellDir) continue;
+    let keys = neededByDir.get(meta.cellDir);
+    if (!keys) {
+      keys = new Set<string>();
+      neededByDir.set(meta.cellDir, keys);
+    }
+    keys.add(recordLookupKey(meta.slimRecord));
+  }
+
+  const hydratedRecords = new Map<string, RunRecord>();
+  for (const [cellDir, targetKeys] of neededByDir.entries()) {
+    const runsPath = join(cellDir, "runs.jsonl");
+    if (!existsSync(runsPath)) continue;
+    try {
+      forEachJsonlLineSync(runsPath, (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        const rec = JSON.parse(trimmed) as RunRecord;
+        const rk = recordLookupKey(rec);
+        if (targetKeys.has(rk)) {
+          hydratedRecords.set(`${cellDir}\u0000${rk}`, rec);
+        }
+      });
+    } catch {
+      // Si falla la lectura parcial en disco, caemos al record resumido en RAM.
+    }
+  }
+
+  return pickedMeta.map((meta) => {
+    const fullRec = meta.cellDir
+      ? hydratedRecords.get(`${meta.cellDir}\u0000${recordLookupKey(meta.slimRecord)}`) ?? meta.slimRecord
+      : meta.slimRecord;
+    return {
+      id: fullRec.caseId,
+      dataset: fullRec.dataset,
+      priority: meta.priority,
+      inputCompact: compactRawInput(fullRec.rawInput),
+      expected: meta.expected,
+      predicted: formatPredicted(fullRec),
+      failedChecks: meta.failedChecks,
+      errors: fullRec.errors.slice(0, 3).map((e) => clipText(e, 220)),
+      rawOutput: clipText(fullRec.rawOutput ?? "", MAX_RAW_OUTPUT_CHARS),
+      ...(meta.totalAttempts > 1 ? { failedAttempts: meta.failedAttempts, totalAttempts: meta.totalAttempts } : {}),
+    };
+  });
 }

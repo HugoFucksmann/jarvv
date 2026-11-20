@@ -4,14 +4,13 @@
  * Etapa `route` (Decisión 1): elegir ruta ejecutable.
  */
 
-import { routeInput, routeViewOptions } from "../../../src/core/engine/adapters.ts";
-import { EXECUTABLE_ROUTES, isExecutableRoute } from "../contract.ts";
+import { EXECUTABLE_ROUTES, isExecutableRoute, routeInput, routeViewOptions } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { RouteLabelGrader } from "../graders/label.ts";
 import type { ChoiceQ, DecisionRequest, NoulQ, RouteExpect, RouteOutput } from "../types.ts";
 import { DecisionParseError, mainChoice, parseAnswers } from "../variants/labels.ts";
-import type { DecisionStageEntry } from "./index.ts";
 import { checkRange01, checkRoute } from "./shared.ts";
+import type { DecisionStageEntry } from "./types.ts";
 
 export const routeStage: DecisionStageEntry<RouteOutput, RouteExpect> = {
   stageName: "route",
@@ -30,6 +29,12 @@ export const routeStage: DecisionStageEntry<RouteOutput, RouteExpect> = {
     const { ctx } = h.buildContext(sc);
     const flags = { routes: sc.at?.routes ?? [...EXECUTABLE_ROUTES] };
     return h.decision(h.effectivePrompts(ov).D.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
+  },
+  validateRequest(req) {
+    if (!req.questions.route || req.questions.route.type !== "choice") {
+      return "route requiere pregunta choice 'route'.";
+    }
+    return null;
   },
   parseOutput(rawOutput: string, sentReq: DecisionRequest): RouteOutput {
     const { choice, probabilities } = mainChoice("route", "route", parseAnswers(rawOutput), sentReq);
