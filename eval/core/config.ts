@@ -84,16 +84,15 @@ export function resolveDecisionTimeout(cfg: EvalConfig): number {
 
 const KNOWN_FLAGS = new Set([
   "dataset", "variant", "baseline", "stages", "tags", "ids", "limit",
-  "repeat", "concurrency", "model", "url", "decision-url",
+  "repeat", "concurrency", "model", "decision-model", "generative-model", "url", "decision-url",
   "thinking", "timeout", "client",
   "dry-run", "list", "label", "min-pass-rate", "include-shortcut", "no-baseline",
 ]);
 
 /** Flags que cambiaron de nombre: el error de "flag desconocido" indica el nuevo. */
 const RENAMED_FLAGS: Record<string, string> = {
-  "decision-model": "model=+<decisión>",
-  "d-model": "model=+<decisión>",
-  "llm-model": "model=<generativo>",
+  "d-model": "decision-model=<id>",
+  "llm-model": "generative-model=<id>",
 };
 
 // ───────────────────────── Parseo ─────────────────────────
@@ -169,6 +168,31 @@ export function parseModelSpec(raw: string): { model: string; decisionModel: str
   return { model: parts[0].trim() || DEFAULT_MODEL, decisionModel: (parts[1] ?? "").trim() || DEFAULT_DECISION_MODEL };
 }
 
+/** Resuelve `--model`, `--generative-model` y `--decision-model` de forma uniforme en normal y `--auto`. */
+export function resolveEvaluatedModels(flags: Map<string, string | true>): { model: string; decisionModel: string } {
+  const modelRaw = flagStr(flags, "model");
+  const genOverride = flagStr(flags, "generative-model");
+  const decOverride = flagStr(flags, "decision-model");
+
+  const parsed = modelRaw !== undefined
+    ? parseModelSpec(modelRaw)
+    : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
+  const explicitGen = modelRaw !== undefined ? modelRaw.split("+")[0].trim() : "";
+  const explicitDec = modelRaw !== undefined ? (modelRaw.split("+")[1] ?? "").trim() : "";
+
+  if (genOverride && explicitGen && genOverride !== explicitGen) {
+    throw new Error(`--generative-model='${genOverride}' entra en conflicto con --model='${modelRaw}'. Use solo uno.`);
+  }
+  if (decOverride && explicitDec && decOverride !== explicitDec) {
+    throw new Error(`--decision-model='${decOverride}' entra en conflicto con --model='${modelRaw}'. Use solo uno.`);
+  }
+
+  return {
+    model: genOverride ?? parsed.model,
+    decisionModel: decOverride ?? parsed.decisionModel,
+  };
+}
+
 export function flagCsv(flags: Map<string, string | true>, key: string): string[] {
   const v = flagStr(flags, key);
   if (!v) return [];
@@ -233,8 +257,7 @@ export function parseConfig(argv: string[]): EvalConfig {
     throw new Error(`--min-pass-rate debe estar entre 0 y 1 (ej. 0.95), recibido: '${minPassRate}'.`);
   }
 
-  const modelRaw = flagStr(flags, "model");
-  const { model, decisionModel } = modelRaw !== undefined ? parseModelSpec(modelRaw) : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
+  const { model, decisionModel } = resolveEvaluatedModels(flags);
 
   const datasetList = flagCsv(flags, "dataset");
   const datasetSpecs = datasetList.length > 0 ? datasetList : [DEFAULT_DATASETS];

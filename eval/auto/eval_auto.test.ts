@@ -13,7 +13,7 @@ import { basename, join, resolve } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { runAutoLoop } from "../auto.ts";
 import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, type AutoConfig } from "./config.ts";
-import { readConclusionsBounded } from "./conclusions.ts";
+import { readConclusionsBounded, validateConclusionsMarkdown } from "./conclusions.ts";
 import { discoverStageDatasets, discoverStageVariants } from "./discover.ts";
 import { extractFailureSamples } from "./feedback.ts";
 import {
@@ -29,7 +29,7 @@ import { createMockDecisionClient, createMockGenerativeClient } from "../core/cl
 import { generateComparisonReport, type InputCell } from "../core/report.ts";
 import { allStageNames } from "../core/stages/index.ts";
 import type { GlobalScoreSummary, RunRecord, StageName } from "../core/types.ts";
-import { listVariantNames } from "../core/variants/load.ts";
+import { listVariantNames, loadVariantSpec } from "../core/variants/load.ts";
 
 const tempPathsToClean: string[] = [];
 
@@ -324,6 +324,86 @@ describe("eval/auto validateVariant", () => {
     });
     assert.equal(dup.ok, false);
     assert.match(dup.error, /duplicada/i);
+  });
+
+  it("carga todas las variantes activas en eval/variants/ sin errores y soporta recovery de 2 ejes", async () => {
+    const names = listVariantNames();
+    assert.ok(names.includes("continuation_explicit_reference"));
+    assert.ok(names.includes("fragment_judge_calibrated_signal"));
+    for (const name of names) {
+      const loaded = await loadVariantSpec(name);
+      assert.equal(loaded.variant.name, name);
+    }
+
+    const recoveryDs = discoverStageDatasets("recovery", ["recovery_casos"], []);
+    const recoveryPaths = recoveryDs.dev.map((d) => d.path);
+    const twoAxesDir = autoStageDir("recovery");
+    trackDirIfCreated(twoAxesDir);
+    const twoAxesName = "auto_recovery_twoaxes_test_a";
+    trackTemp(resolve(twoAxesDir, `${twoAxesName}.ts`));
+    const twoAxesCode = `import type { RecoveryDecisionInput } from "../../../../src/core/contracts.ts";
+import type { DecisionInput } from "../../../../src/core/models/prompts.ts";
+import type { Variant } from "../../../core/variants/types.ts";
+
+function buildRecovery(data: RecoveryDecisionInput): DecisionInput {
+  return {
+    state: data.failed,
+    questions: {
+      blocked: { type: "noul", instructions: "Is it blocked?" },
+      prereq: { type: "noul", instructions: "Missing prerequisite?" },
+    },
+  };
+}
+
+const ${twoAxesName}: Variant = {
+  name: "${twoAxesName}",
+  prompts: { DECISION_PROMPTS: { buildRecovery } },
+};
+
+export default ${twoAxesName};`;
+    const recRes = await validateAndWriteVariant({
+      stage: "recovery",
+      variantName: twoAxesName,
+      rawCode: twoAxesCode,
+      devDatasetPaths: recoveryPaths,
+      knownHashes: new Set(),
+    });
+    assert.equal(recRes.ok, true, recRes.ok ? "" : recRes.error);
+
+    // RegExp con llaves '{', '}' y comillas no debe desbalancear maskCodePreserveOffsets
+    const regexName = "auto_recovery_regex_test_a";
+    trackTemp(resolve(twoAxesDir, `${regexName}.ts`));
+    const regexCode = twoAxesCode
+      .replace(
+        "function buildRecovery(data: RecoveryDecisionInput): DecisionInput {",
+        `function buildRecovery(data: RecoveryDecisionInput): DecisionInput {\n  const _re = /\\{foo['"\\}]/;\n  void _re.test(data.failed);`,
+      )
+      .replaceAll(twoAxesName, regexName);
+    const regexOk = await validateAndWriteVariant({
+      stage: "recovery",
+      variantName: regexName,
+      rawCode: regexCode,
+      devDatasetPaths: recoveryPaths,
+      knownHashes: new Set(),
+    });
+    assert.equal(regexOk.ok, true, regexOk.ok ? "" : regexOk.error);
+
+    // Si falla en validación runtime/contexto, nunca debe tocar disco
+    const badRtName = "auto_recovery_badrt_test_a";
+    const badRtFile = resolve(twoAxesDir, `${badRtName}.ts`);
+    trackTemp(badRtFile);
+    const badRtCode = twoAxesCode
+      .replace("state: data.failed,", 'state: "",')
+      .replaceAll(twoAxesName, badRtName);
+    const badRtRes = await validateAndWriteVariant({
+      stage: "recovery",
+      variantName: badRtName,
+      rawCode: badRtCode,
+      devDatasetPaths: recoveryPaths,
+      knownHashes: new Set(),
+    });
+    assert.equal(badRtRes.ok, false);
+    assert.equal(existsSync(badRtFile), false, "variante fallida en runtime/contexto no debe escribirse en disco");
   });
 });
 
@@ -1010,5 +1090,121 @@ describe("eval/auto E2E runAutoLoop", () => {
       console.log = origLog;
       console.error = origErr;
     }
+  });
+
+  it("evita re-evaluar holdout sobre la misma variante, registra vueltas sin válidas y valida conclusiones", async () => {
+    // 1) Validación de markdown en conclusiones
+    assert.match(validateConclusionsMarkdown('{"raw":1}', "route") ?? "", /JSON|fence/);
+    assert.match(validateConclusionsMarkdown("# Conclusiones — d0\n\n## Estado actual\n- x", "route") ?? "", /etapa/);
+    assert.match(
+      validateConclusionsMarkdown(
+        "# Conclusiones — route\n\n## Estado actual\n- `prod` (99.0%)",
+        "route",
+        [{ variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 }],
+      ) ?? "",
+      /inconsistente/,
+    );
+    assert.equal(
+      validateConclusionsMarkdown("# Conclusiones — route\n\n## Estado actual\n- Top 1: `prod` (50.0%)", "route", [
+        { variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 },
+      ]),
+      null,
+    );
+
+    // 2) Vuelta sin variantes válidas registra progreso y nota en conclusiones
+    const { conclusionsPath: invConc, resultsRoot: invRoot } = setupTempAutoDir("route", "invalidround");
+    const invCfg = parseAutoConfig([
+      "--stage=route",
+      "--max-loops=1",
+      "--target=0.95",
+      "--optimizer-model=mock-opt",
+      `--conclusions=${invConc}`,
+      "--dataset=route_16_cases",
+      "--seed-top=prod",
+      "--client=mock",
+    ]);
+    const invCode = await runAutoLoop(invCfg, {
+      callOptimizer: async () =>
+        JSON.stringify({
+          analysis: "Solo inválidas",
+          variants: [{ suffix: "a", hypothesis: "Bad import", code: 'import fs from "node:fs"; export default {};' }],
+        }),
+      resultsRoot: invRoot,
+      silent: true,
+    });
+    assert.equal(invCode, 1);
+    assert.match(readConclusionsBounded(invConc).content, /Vuelta sin válidas/);
+
+    // 3) Holdout fallido en R1 no se re-evalúa en R2 sobre la misma variante
+    const { conclusionsPath: hoConc, resultsRoot: hoRoot } = setupTempAutoDir("route", "holdoutonce");
+    const hoCfg = parseAutoConfig([
+      "--stage=route",
+      "--max-loops=2",
+      "--target=0.50",
+      "--optimizer-model=mock-opt",
+      `--conclusions=${hoConc}`,
+      "--dataset=route_16_cases",
+      "--holdout=route_gemai",
+      "--seed-top=prod",
+      "--client=mock",
+      "--concurrency=2",
+    ]);
+    const baseTpl = getStageContract("route").minimalTemplate("base");
+    let holdoutEvalCalls = 0;
+    let roundOpt = 0;
+    const hoOpt: OptimizerLlmCaller = async ({ schemaName }) => {
+      if (schemaName === "optimizer_variants") {
+        roundOpt++;
+        const tag = roundOpt === 1 ? "MOCK_DEV_ONLY_WIN_R1" : `MOCK_ALT_R${roundOpt}`;
+        return JSON.stringify({
+          analysis: `Round ${roundOpt}`,
+          variants: [
+            { suffix: "a", hypothesis: `Hyp A ${roundOpt}`, code: baseTpl.replace("Choose the route that handles the next step.", tag) },
+            { suffix: "b", hypothesis: `Hyp B ${roundOpt}`, code: baseTpl.replace("Choose the route that handles the next step.", `MOCK_LOSE_B_R${roundOpt}`) },
+          ],
+        });
+      }
+      return JSON.stringify({ update: false, reason: "sin cambios" });
+    };
+    const isHoldoutGemRequest = (state: string): boolean =>
+      /docker-compose|build:ci|rotados|Stripe|origin\/main|nginx|monorepo|zustand|RAM|\.gitignore|\.spec\.tsx|OpenSSL|prisma|localhost:8080|\.whl|changelog/i.test(
+        state,
+      );
+    const hoMakeClients = (c: AutoConfig) => ({
+      genClient: createMockGenerativeClient({ url: c.url, model: c.model }),
+      decClient: createMockDecisionClient({ url: c.decisionUrl, model: c.decisionModel }, (_prepared, req) => {
+        const inst = req.questions.route?.instructions ?? "";
+        const inHoldout = isHoldoutGemRequest(req.state);
+        if (inst.includes("MOCK_DEV_ONLY_WIN_R1") && inHoldout) {
+          holdoutEvalCalls++;
+        }
+        if (inst.includes("MOCK_DEV_ONLY_WIN_R1")) {
+          if (inHoldout) {
+            return JSON.stringify({ answers: { route: { choice: "locate", probabilities: { locate: 0.9 } } } });
+          }
+          const pick = /Buenos Aires|inteligencia artificial|asyncio|dólar oficial/i.test(req.state)
+            ? "web"
+            : /calculadora|npm run build|puertos TCP|PID 1420/i.test(req.state)
+              ? "terminal"
+              : /package\.json|escritorio|resumen\.txt|config\.default/i.test(req.state)
+                ? "files"
+                : "locate";
+          return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
+        }
+        return JSON.stringify({ answers: { route: { choice: "locate", probabilities: { locate: 0.9 } } } });
+      }),
+    });
+
+    const hoCode = await runAutoLoop(hoCfg, {
+      callOptimizer: hoOpt,
+      makeClients: hoMakeClients,
+      resultsRoot: hoRoot,
+      silent: true,
+    });
+    assert.equal(hoCode, 1);
+    const hoMd = readConclusionsBounded(hoConc).content;
+    const alertMatches = hoMd.match(/Alerta holdout/g) ?? [];
+    assert.equal(alertMatches.length, 1, "No debe duplicar alertas holdout para la misma variante");
+    assert.equal(holdoutEvalCalls, 16, "Solo debe evaluar los 16 casos de holdout una única vez en R1");
   });
 });

@@ -20,8 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { COMPLETION_APPROVE, CONTINUATION_APPROVE, JUDGE_FOUND, VERIFY_APPROVE } from "../core/contract.ts";
-import { FIRST_QUERY_MULTI_APPROVE } from "../../src/core/types/firstQuery.ts";
+import { COMPLETION_APPROVE, CONTINUATION_APPROVE, FIRST_QUERY_MULTI_APPROVE, JUDGE_FOUND, VERIFY_APPROVE } from "../core/contract.ts";
 
 /** Una respuesta `noul` con su respuesta esperada. */
 interface Sample {
@@ -109,14 +108,19 @@ function collect(options: Options): Map<Family, Sample[]> {
 
   for (const file of findRuns(options.root)) {
     const cell = path.basename(path.dirname(file));
-    const sep = cell.indexOf("__");
+    const sep = cell.lastIndexOf("__");
     if (sep < 0 || cell.slice(0, sep) !== options.variant) continue;
     const dataset = cell.slice(sep + 2);
     if (options.dataset !== undefined && !dataset.includes(options.dataset)) continue;
 
-    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
       if (line.trim() === "") continue;
-      const run: unknown = JSON.parse(line);
+      let run: unknown;
+      try {
+        run = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (!isRecord(run) || run.iteration !== 1) continue;
       if (options.bucket !== "all" && run.bucket !== options.bucket) continue;
 
@@ -132,7 +136,12 @@ function collect(options: Options): Map<Family, Sample[]> {
           add("Continuación", noulOf(run, "follow"), dataset);
           break;
         case "fragment_judge":
-          for (let i = 0; i < 5; i++) add("Juez de fragmentos", noulOf(run, `f${i}`), dataset);
+          if (isRecord(run.questions)) {
+            const fKeys = Object.keys(run.questions)
+              .filter((k) => /^f\d+$/.test(k))
+              .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+            for (const key of fKeys) add("Juez de fragmentos", noulOf(run, key), dataset);
+          }
           break;
         case "d0": {
           // La respuesta esperada de `multi` sale de la etiqueta del caso (`expectedKind`).

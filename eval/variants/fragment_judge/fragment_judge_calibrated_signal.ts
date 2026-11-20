@@ -1,5 +1,4 @@
-import type { FragmentJudgeInput } from "../../../src/core/contracts.ts";
-import type { DecisionInput } from "../../../src/core/models/prompts.ts";
+import type { DecisionInput, FragmentJudgeInput } from "../../../src/core/models/prompts.ts";
 import type { DecisionQuestion } from "../../../src/core/types.ts";
 import type { Variant } from "../../core/variants/types.ts";
 

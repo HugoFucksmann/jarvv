@@ -11,6 +11,7 @@
  *   npx tsx eval/auto.ts --stage=args_review --max-loops=8 --target=0.80 --optimizer-model=qwen3:32b [flags]
  */
 
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -36,6 +37,7 @@ import {
   formatObjectiveRoundFacts,
   readConclusionsBounded,
   recordHoldoutOverfitAlert,
+  recordInvalidRoundNote,
   writeConclusionsFile,
 } from "./auto/conclusions.ts";
 import {
@@ -47,6 +49,7 @@ import {
   extractFailureSamples,
   extractVariantDatasetStats,
   type FailureSample,
+  type VariantDatasetStat,
 } from "./auto/feedback.ts";
 import {
   decideConclusionsUpdate,
@@ -94,7 +97,7 @@ function makeRunTag(): string {
   const d = new Date();
   const pad = (n: number, len = 2) => String(n).padStart(len, "0");
   const datePart = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  const rand = Math.random().toString(36).slice(2, 6);
+  const rand = randomUUID().replace(/-/g, "").slice(0, 4);
   return `${datePart}_${rand}`;
 }
 
@@ -203,11 +206,9 @@ function readVariantSourceForPrompt(name: string, stage: StageName): string {
 function buildTop2Contexts(
   top2Names: string[],
   ranked: RankedVariant[],
-  report: ComparisonReport | null,
-  cells: InputCell[],
+  stats: VariantDatasetStat[],
   stage: StageName,
 ): TopVariantContext[] {
-  const stats = report ? extractVariantDatasetStats(report, cells) : [];
   const contexts: TopVariantContext[] = [];
   for (const name of top2Names) {
     const summary = ranked.find((r) => r.variant === name) ?? {
@@ -311,11 +312,32 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   }
 
   let currentTop2: string[] = [];
-  let lastCells: InputCell[] = [];
-  let lastReport: ComparisonReport | null = null;
+  let lastStats: VariantDatasetStat[] = [];
+  let lastFailureSamples: FailureSample[] = [];
   let lastRanked: RankedVariant[] = [];
   let bestNonProd: AutoSessionState["bestNonProd"] | undefined = sameFingerprintState?.bestNonProd;
   let completedRounds = sameFingerprintState?.completedRounds ?? 0;
+  const testedHoldoutVariants = new Map<string, { score: number; confirmed: boolean; round: number }>(
+    Object.entries(sameFingerprintState?.holdoutChecked ?? {}),
+  );
+
+  const summarizeBatchMemory = (
+    top2: string[],
+    ranked: RankedVariant[],
+    report: ComparisonReport,
+    cells: InputCell[],
+  ): void => {
+    lastRanked = ranked;
+    lastStats = extractVariantDatasetStats(report, cells);
+    lastFailureSamples = cells.length > 0
+      ? extractFailureSamples({
+          focusVariant: top2[0] ?? "prod",
+          cells,
+          devDatasetNames,
+          caseLookup,
+        })
+      : [];
+  };
 
   if (cfg.seedTop.length > 0) {
     // Validar existencia de --seed-top
@@ -340,9 +362,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       resultsRoot: deps.resultsRoot,
     });
     if (cacheCheck) {
-      lastCells = cacheCheck.cells;
-      lastReport = cacheCheck.report;
-      lastRanked = cacheCheck.ranked;
+      summarizeBatchMemory(currentTop2, cacheCheck.ranked, cacheCheck.report, cacheCheck.cells);
       log(`\n${sym.ok} Top-2 fijado por --seed-top (${currentTop2.join(", ")}) con resultados cacheados reutilizados.`);
     } else {
       log(`\n${sym.bullet} Top-2 inicial fijado por --seed-top (${currentTop2.join(", ")}); Vuelta 0 omitida.`);
@@ -368,10 +388,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     });
 
     if (reused) {
-      lastCells = reused.cells;
-      lastReport = reused.report;
-      lastRanked = reused.ranked;
       currentTop2 = reused.ranked.slice(0, 2).map((r) => r.variant);
+      summarizeBatchMemory(currentTop2, reused.ranked, reused.report, reused.cells);
       if (!silent) {
         section("Inicialización Top-2 (resultados cacheados reutilizados)");
         printRankedTable(reused.ranked, currentTop2, cfg, silent);
@@ -394,10 +412,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         fail(batch0.reason);
         return 2;
       }
-      lastCells = batch0.cells;
-      lastReport = batch0.report;
-      lastRanked = batch0.ranked;
       currentTop2 = batch0.ranked.slice(0, 2).map((r) => r.variant);
+      summarizeBatchMemory(currentTop2, batch0.ranked, batch0.report, batch0.cells);
       printRankedTable(batch0.ranked, currentTop2, cfg, silent);
     }
 
@@ -419,6 +435,9 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         .filter((r): r is RankedVariant => Boolean(r)),
       prodSummary: lastRanked.find((r) => r.variant === "prod"),
       bestNonProd,
+      ...(testedHoldoutVariants.size > 0
+        ? { holdoutChecked: Object.fromEntries(testedHoldoutVariants.entries()) }
+        : {}),
       updatedAt: new Date().toISOString(),
     });
   };
@@ -449,16 +468,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }
 
     const conclusionsForPrompt = formatConclusionsForPrompt(cfg.conclusionsPath);
-    const focusVariant = currentTop2[0] ?? "prod";
-    const failureSamples: FailureSample[] = lastCells.length > 0
-      ? extractFailureSamples({
-          focusVariant,
-          cells: lastCells,
-          devDatasetNames,
-          caseLookup,
-        })
-      : [];
-    const top2Contexts = buildTop2Contexts(currentTop2, lastRanked, lastReport, lastCells, cfg.stage);
+    const failureSamples: FailureSample[] = lastFailureSamples;
+    const top2Contexts = buildTop2Contexts(currentTop2, lastRanked, lastStats, cfg.stage);
 
     // 4.1 & 4.2 Generar + validar hasta 2 variantes nuevas
     let generation;
@@ -495,7 +506,21 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }
 
     if (generation.validVariants.length === 0) {
-      log(`  ${sym.warn} ${c.yellow("Ninguna variante pasó validación en esta vuelta; continuando a la siguiente.")}`);
+      log(`  ${sym.warn} ${c.yellow("Ninguna variante pasó validación en esta vuelta; registrando fallo y continuando.")}`);
+      completedRounds += 1;
+      recordInvalidRoundNote({
+        filePath: cfg.conclusionsPath,
+        stage: cfg.stage,
+        round,
+        rejectedNotes: generation.rejectedNotes,
+        target: cfg.target,
+        metric: cfg.metric,
+        model: cfg.model,
+        decisionModel: cfg.decisionModel,
+        ranked: lastRanked,
+        top2: currentTop2,
+      });
+      persistSessionState();
       continue;
     }
 
@@ -547,38 +572,53 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     let holdoutConfirmed = false;
     let holdoutOverfitNote: string | undefined;
     let holdoutFailedScore: number | undefined;
+    let holdoutEvaluatedCandidate: RankedVariant | undefined;
 
     if (roundBestNonProd && roundBestNonProd.score >= cfg.target) {
       if (holdoutPaths.length > 0) {
-        if (!silent) {
-          log(`\n  ${sym.bullet} '${roundBestNonProd.variant}' alcanzó ${fmtPct(roundBestNonProd.score)} en dev; validando contra --holdout...`);
-        }
-        const holdoutBatch = await runComparativeBatch({
-          cfg,
-          variantNames: [roundBestNonProd.variant],
-          datasetPaths: holdoutPaths,
-          label: `auto_${cfg.stage}_r${round}_holdout`,
-          clients,
-          resultsRoot: deps.resultsRoot,
-          silent,
-        });
-        if (!holdoutBatch.ok) {
-          fail(holdoutBatch.reason);
-          return 2;
-        }
-        const holdoutRow = holdoutBatch.ranked.find((r) => r.variant === roundBestNonProd.variant);
-        const holdoutScore = holdoutRow?.score ?? 0;
-        if (holdoutScore >= cfg.target) {
-          holdoutConfirmed = true;
-          if (bestNonProd) bestNonProd.confirmedHoldout = true;
-          log(`  ${sym.ok} ${c.green(`Holdout confirmado: ${fmtPct(holdoutScore)} >= ${fmtPct(cfg.target)}`)}`);
+        const candidateToTest = batch.ranked.find(
+          (r) => r.variant !== "prod" && r.score >= cfg.target && !testedHoldoutVariants.has(r.variant),
+        );
+        if (!candidateToTest) {
+          const prev = testedHoldoutVariants.get(roundBestNonProd.variant);
+          log(
+            `\n  ${sym.warn} '${roundBestNonProd.variant}' alcanzó ${fmtPct(roundBestNonProd.score)} en dev pero ya falló --holdout en R${prev?.round ?? "?"} (${fmtPct(prev?.score ?? 0)}); se omite re-evaluación.`,
+          );
         } else {
-          holdoutFailedScore = holdoutScore;
-          holdoutOverfitNote = `'${roundBestNonProd.variant}' obtuvo ${fmtPct(roundBestNonProd.score)} en dev pero cayó a ${fmtPct(holdoutScore)} en holdout (< ${fmtPct(cfg.target)}) — posible sobreajuste.`;
-          log(`  ${sym.warn} ${c.yellow(holdoutOverfitNote)}`);
+          holdoutEvaluatedCandidate = candidateToTest;
+          if (!silent) {
+            log(`\n  ${sym.bullet} '${candidateToTest.variant}' alcanzó ${fmtPct(candidateToTest.score)} en dev; validando contra --holdout...`);
+          }
+          const holdoutBatch = await runComparativeBatch({
+            cfg,
+            variantNames: [candidateToTest.variant],
+            datasetPaths: holdoutPaths,
+            label: `auto_${cfg.stage}_r${round}_holdout`,
+            clients,
+            resultsRoot: deps.resultsRoot,
+            silent,
+          });
+          if (!holdoutBatch.ok) {
+            fail(holdoutBatch.reason);
+            return 2;
+          }
+          const holdoutRow = holdoutBatch.ranked.find((r) => r.variant === candidateToTest.variant);
+          const holdoutScore = holdoutRow?.score ?? 0;
+          const passedHoldout = holdoutScore >= cfg.target;
+          testedHoldoutVariants.set(candidateToTest.variant, { score: holdoutScore, confirmed: passedHoldout, round });
+          if (passedHoldout) {
+            holdoutConfirmed = true;
+            bestNonProd = { variant: candidateToTest.variant, score: candidateToTest.score, round, confirmedHoldout: true };
+            log(`  ${sym.ok} ${c.green(`Holdout confirmado: ${fmtPct(holdoutScore)} >= ${fmtPct(cfg.target)}`)}`);
+          } else {
+            holdoutFailedScore = holdoutScore;
+            holdoutOverfitNote = `'${candidateToTest.variant}' obtuvo ${fmtPct(candidateToTest.score)} en dev pero cayó a ${fmtPct(holdoutScore)} en holdout (< ${fmtPct(cfg.target)}) — posible sobreajuste.`;
+            log(`  ${sym.warn} ${c.yellow(holdoutOverfitNote)}`);
+          }
         }
       } else {
         holdoutConfirmed = true;
+        holdoutEvaluatedCandidate = roundBestNonProd;
       }
     }
 
@@ -609,6 +649,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         cfg,
         currentConclusions,
         roundFacts,
+        ranked: batch.ranked,
         callLlm: deps.callOptimizer,
       });
     } catch (e) {
@@ -626,12 +667,12 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       log(`  ${c.gray(`conclusiones.md sin cambios (${decision.reason || "sin novedad relevante"}).`)}`);
     }
 
-    if (holdoutOverfitNote && holdoutFailedScore !== undefined && roundBestNonProd) {
+    if (holdoutOverfitNote && holdoutFailedScore !== undefined && holdoutEvaluatedCandidate) {
       recordHoldoutOverfitAlert({
         filePath: cfg.conclusionsPath,
         stage: cfg.stage,
-        candidate: roundBestNonProd.variant,
-        devScore: roundBestNonProd.score,
+        candidate: holdoutEvaluatedCandidate.variant,
+        devScore: holdoutEvaluatedCandidate.score,
         holdoutScore: holdoutFailedScore,
         target: cfg.target,
         metric: cfg.metric,
@@ -645,15 +686,14 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
 
     completedRounds += 1;
     currentTop2 = nextTop2;
-    lastCells = batch.cells;
-    lastReport = batch.report;
-    lastRanked = batch.ranked;
+    summarizeBatchMemory(nextTop2, batch.ranked, batch.report, batch.cells);
 
     persistSessionState();
 
-    if (holdoutConfirmed && roundBestNonProd) {
-      ensureConclusionsInitialized(`R${round}: '${roundBestNonProd.variant}' alcanzó objetivo ${fmtPct(roundBestNonProd.score)}.`);
-      log(`\n${sym.ok} ${c.green(`Objetivo cumplido en Vuelta ${round}: '${roundBestNonProd.variant}' (${fmtPct(roundBestNonProd.score)} >= ${fmtPct(cfg.target)})`)}`);
+    const winner = holdoutEvaluatedCandidate ?? roundBestNonProd;
+    if (holdoutConfirmed && winner) {
+      ensureConclusionsInitialized(`R${round}: '${winner.variant}' alcanzó objetivo ${fmtPct(winner.score)}.`);
+      log(`\n${sym.ok} ${c.green(`Objetivo cumplido en Vuelta ${round}: '${winner.variant}' (${fmtPct(winner.score)} >= ${fmtPct(cfg.target)})`)}`);
       return 0;
     }
   }

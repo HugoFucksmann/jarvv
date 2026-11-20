@@ -16,11 +16,16 @@ import type { ArgumentsExpect, ArgumentsOutput, GenerativeRequest } from "../typ
 import type { GenerativeStageEntry, OracleHelpers } from "./index.ts";
 import { noLabel } from "./shared.ts";
 
-/** El analizador de producción, con caché por comando (cada análisis lanza un PowerShell). */
+/** El analizador de producción, con caché acotado por comando (cada análisis lanza un PowerShell). */
+const MAX_ANALYSIS_CACHE = 512;
 const analysisCache = new Map<string, ReturnType<CommandAnalyzer>>();
 const cachedAnalyze: CommandAnalyzer = (command) => {
   let r = analysisCache.get(command);
   if (r === undefined) {
+    if (analysisCache.size >= MAX_ANALYSIS_CACHE) {
+      const oldest = analysisCache.keys().next().value;
+      if (oldest !== undefined) analysisCache.delete(oldest);
+    }
     r = analyzePowerShell(command);
     analysisCache.set(command, r);
   }

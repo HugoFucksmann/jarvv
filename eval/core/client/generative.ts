@@ -46,6 +46,11 @@ export function isTransportError(error: string): boolean {
   return error === "timeout" || error.startsWith("network:") || error.startsWith("http_");
 }
 
+/** Incluye errores de transporte y errores fatales de configuración (`config:`). */
+export function isFatalClientError(error: string): boolean {
+  return isTransportError(error) || error.startsWith("config:");
+}
+
 /**
  * Delega en `src/core/models/transport.ts` (`postJson`) para heredar la política de timeout y reintento único en red/503.
  * Traduce la respuesta al contrato `{ ok, text | error, durationMs }` (`timeout` / `network: …` / `http_<status>`).

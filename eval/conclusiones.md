@@ -12,33 +12,39 @@ Modelo de decisión: `d3:2b-text` @ Ollama
 | Etapa | Estado | Decisión / Recomendación | Detalle medido |
 |---|---|---|---|
 | `tool_choice` (D2) | **Confirmada** | **Aplicar `tool_choice_desc_a`** | Supera netamente a `prod` en dev (+13.8%, 11 mejoras, 0 regresiones) y confirmada en holdout (+17.6%, 6 mejoras, 0 regresiones). Resuelve la confusión entre `run_command` y `list_processes`. |
-| `d0` | Concluida | `prod` se mantiene | Ninguna variante superó el umbral neto sin regresiones (`d0_multi_nocriteria` -4.5%; `d0_multi_short` +1.5% sin mejora en dev1). 0 falsos `chat`. |
-| `result_verification` (D4) | Concluida | `prod` se mantiene | `d4_cumple_goal_aware` empeoró (-9.3%, 12 regresiones). `d4_cumple_has_data` (+0.9%) está en rango de ruido y aumentó malas aprobadas en dev2. |
-| `route` (D1) | Concluida | `prod` se mantiene | Empate exacto en 90.0% (`route_concrete_signals` y `route_research_aware` 0.0% delta). |
+| `d0` | Concluida | `prod` se mantiene | Ninguna variante de esa tanda superó el umbral neto sin regresiones (`d0_multi_short` +1.5% sin mejora consistente en dev1; 0 falsos `chat`). |
+| `result_verification` (D4) | Concluida | `prod` se mantiene | Variantes históricas probadas (ej. `d4_cumple_goal_aware` ya eliminada, -9.3%). `d4_cumple_has_data` (+0.9%) estuvo en rango de ruido y aumentó malas aprobadas en dev2. |
+| `route` (D1) | Concluida | `prod` se mantiene | Empate exacto en 90.0% (`route_concrete_signals` y `route_research_aware` 0.0% delta en esa tanda). |
 | `continuation` | Concluida | `prod` se mantiene | `follow_examples` subió en dev (+7.3%) pero en holdout perdió (-2.1%, regresión en `cont-055`). Descartada por ruido. |
-| `args_review` (D3) | Concluida | `prod` se mantiene | Evaluadas 23 variantes en 2 tandas. `args_review_choice_plus_probe` lideró con 79.4% (+2.9%, +1 caso neto, dentro de ruido). Las demás sufrieron regresiones severas. |
-| `d5` | Concluida | `prod` se mantiene | Evaluadas 29 variantes en 2 tandas. `d5_it6_move_aware_choice` y `d5_it7_apex_choice` alcanzaron 91.7% (+8.3%), pero en 36 casos eso representa solo +3 casos de ventaja; `prod` se mantiene como base consolidada. |
-| `fragment_judge` | Concluida | `prod` se mantiene | `prod` alcanzó 85.7% (36/42). Ninguna variante lo superó (`fragment_judge_balanced`, `concise`, `ranking` y `ternary` empataron en 85.7%). |
+| `args_review` (D3) | Concluida | `prod` se mantiene | Evaluadas 23 variantes en 2 tandas. `args_review_choice_plus_probe` *(movida luego a `_archivo_legacy/` por usar `read`)* lideró con 79.4% (+2.9%, +1 caso neto, dentro de ruido). Las demás sufrieron regresiones severas. |
+| `d5` | Concluida | `prod` se mantiene | Evaluadas 29 variantes en 2 tandas. `d5_it6_move_aware_choice` y `d5_it7_apex_choice` *(archivadas en `_archivo_legacy/` por usar `read`)* alcanzaron 91.7% (+8.3%), pero en 36 casos representa solo +3 casos de ventaja; `prod` se mantiene como base consolidada. |
+| `fragment_judge` | Concluida | `prod` se mantiene | `prod` alcanzó 85.7% (36/42). Ninguna variante lo superó (`fragment_judge_balanced`, `concise`, `ranking` y `ternary` *(archivada por usar `read`)* empataron en 85.7%). |
 | `recovery` | Concluida | `prod` se mantiene | `prod` lideró con 73.7% (56/76). `recovery_three_options_nobehind` empató (73.7%) y las demás variantes cayeron hasta -7.9%. |
 
 ---
 
-## 2. Resumen de Limpieza: Top 3 Variantes Conservadas por Etapa
+## 2. Inventario Actual en `eval/variants/`
 
-Se corrieron todas las variantes de las 9 etapas de decisión (en tandas para las etapas con alto volumen) y se eliminaron 102 archivos de variantes obsoletas o con regresiones marcadas, preservando únicamente las 3 mejores por etapa:
+Además de los archivos de campaña histórica (las notas por carpeta `conclusiones_*.md` reflejan mediciones previas por etapa), se consolidó el inventario activo en `eval/variants/`. Las 8 variantes heredadas con `params` o `read` obsoletos quedaron archivadas en `eval/variants/_archivo_legacy/` (excluidas de `--list` y de `--auto`, pero invocables por nombre si hace falta reproducir una corrida histórica).
 
-| Etapa | Top 3 Variantes Conservadas | Variantes Eliminadas |
-|---|---|---:|
-| `d0` | `d0_multi_short`, `d0_domain_boundaries`, `d0_concise_calibrated` | 2 |
-| `route_D1` | `route_concrete_signals`, `route_research_aware`, `route_clean_hints` | 10 |
-| `tool_choice_D2` | `tool_choice_desc_a`, `tool_choice_desc_b`, `tool_choice_desc_a_request` | 11 |
-| `args_review_D3` | `args_review_choice_plus_probe`, `args_review_fullview_clean`, `args_review_compact` | 20 |
-| `d4` | `d4_cumple_has_data`, `d4_concise_precision`, `d4_precision_calibrated` *(+2 utilitarios de exp)* | 25 |
-| `fragment_judge` | `fragment_judge_balanced`, `fragment_judge_concise`, `fragment_judge_ternary` | 6 |
-| `d5` | `d5_it6_move_aware_choice`, `d5_it7_apex_choice`, `d5_it8_apex_calibrated` | 26 |
-| `recovery` | `recovery_three_options_nobehind`, `recovery_rewrite_or_close`, `recovery_three_options_examples` | 2 |
-| `continuation` | `follow_examples`, `follow_nocriteria`, `follow_short` | 0 |
-| **Total Eliminadas** | — | **102** |
+| Carpeta | Variantes activas actuales | Cantidad activa (.ts) | Archivadas (`_archivo_legacy`) |
+|---|---|---:|---:|
+| *(raíz)* | `prod`, `decision_elite_fusion`, `decision_all_stages_example` | 3 | — |
+| `d0` | `d0_action_boundary`, `d0_chat_balanced`, `d0_chat_strict`, `d0_concise_calibrated`, `d0_domain_boundaries`, `d0_multi_short`, `d0_multi_subordinate`, `d0_r1_action_axes`, `d0_r1_concise_verbs` | 9 | 0 |
+| `route_D1` | `route_clean_hints`, `route_concrete_signals`, `route_research_aware` | 3 | 0 |
+| `tool_choice_D2` | `tool_choice_desc_a`, `tool_choice_desc_b`, `tool_choice_desc_a_request`, `tool_choice_hybrid_calibrated`, `tool_choice_precision_criteria`, `tool_choice_r1_action_verbs` | 6 | 0 |
+| `args_review_D3` | `args_review_compact`, `args_review_fullview_clean` | 2 | 1 (`args_review_choice_plus_probe`) |
+| `d4` | `d4_concise_precision`, `d4_cumple_has_data`, `d4_precision_calibrated`, `d4_prod_hint`, `d4_request_done`, `verify_concrete_evidence` | 6 | 0 |
+| `fragment_judge` | `fragment_judge_balanced`, `fragment_judge_calibrated_signal`, `fragment_judge_concise`, `fragment_judge_direct_evidence`, `fragment_judge_r1_facts_focused`, `fragment_judge_r1_signal_short`, `fragment_judge_signal_clean` | 7 | 1 (`fragment_judge_ternary`) |
+| `d5` | `d5_evidence_strict`, `d5_noul_calibrated` | 2 | 3 (`d5_it6_move_aware_choice`, `d5_it7_apex_choice`, `d5_it8_apex_calibrated`) |
+| `recovery` | `recovery_boundary_calibrated`, `recovery_rewrite_or_close`, `recovery_three_options_examples`, `recovery_three_options_nobehind` | 4 | 0 |
+| `continuation` | `continuation_explicit_reference`, `continuation_lean_focus`, `follow_examples`, `follow_nocriteria`, `follow_short` | 5 | 0 |
+| `plan` | `plan_adaptive`, `plan_concise`, `plan_effects_grounded`, `plan_windows_routes` | 4 | 0 |
+| `arguments` | `args_g`, `args_g_sinej`, `args_mem_explicit`, `args_ps_elite`, `args_ps_objetive`, `args_ps_perfect`, `args_structured_brief`, `arguments_clean_prod`, `arguments_strict_context` | 9 | 0 |
+| `final` | `final_direct`, `final_faithful_status`, `final_lang_natural`, `final_structured_strict`, `final_summary`, `final_summary_answerfirst`, `final_summary_facts`, `final_summary_notoday`, `final_summary_short`, `final_thread_grounded` | 10 | 0 |
+| `question` | `question_clean_view`, `question_direct`, `question_focus_rejected`, `question_objective`, `question_precision_elite`, `question_prod_dedup`, `question_prod_trailer`, `question_prod_trailer2`, `question_short`, `question_short_trailer`, `question_structured_ask`, `question_tiny`, `question_zero_jargon` | 13 | 0 |
+| `Pending` | 17 variantes (`pending_*`) | 17 | 3 (`pending2`, `pending2_obj`, `pending2_exp`) |
+| `ctx` | `ctx_args_by_tool`, `ctx_d4_norecent`, `ctx_final_clean`, `ctx_final_nofiller`, `ctx_pending_facts` | 5 | 0 |
 
 ---
 

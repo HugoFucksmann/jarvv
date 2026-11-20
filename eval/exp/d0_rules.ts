@@ -14,7 +14,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_MULTI_APPROVE, type FirstQueryKind } from "../../src/core/types/firstQuery.ts";
+import { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_MULTI_APPROVE, type FirstQueryKind } from "../core/contract.ts";
 
 interface Sample {
   readonly id: string;
@@ -84,14 +84,19 @@ function collect(options: Options): Sample[] {
   const samples: Sample[] = [];
   for (const file of findRuns(options.root)) {
     const cell = path.basename(path.dirname(file));
-    const sep = cell.indexOf("__");
+    const sep = cell.lastIndexOf("__");
     if (sep < 0 || cell.slice(0, sep) !== options.variant) continue;
     const dataset = cell.slice(sep + 2);
     if (options.dataset !== undefined && !dataset.includes(options.dataset)) continue;
 
-    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
       if (line.trim() === "") continue;
-      const run: unknown = JSON.parse(line);
+      let run: unknown;
+      try {
+        run = JSON.parse(line);
+      } catch {
+        continue;
+      }
       if (!isRecord(run) || run.stage !== "d0" || run.iteration !== 1) continue;
       if (options.bucket !== "all" && run.bucket !== options.bucket) continue;
       const out = run.parsedOutput;

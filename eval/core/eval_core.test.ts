@@ -7,22 +7,26 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { createEvalClients, executeComparisonBatch } from "./batch.ts";
+import { createDecisionClient } from "./client/decision.ts";
+import { createMockGenerativeClient } from "./client/mock.ts";
 import { parseConfig, parseModelSpec } from "./config.ts";
 import { loadDatasets, resolveDatasetPaths } from "./datasets.ts";
 import { globBaseDir, isGlob, matchGlob, normalizePath } from "./glob.ts";
 import { containsTerm, createCollector } from "./graders/common.ts";
 import { ContinuationLabelGrader, D0LabelGrader, RecoveryLabelGrader, RouteLabelGrader } from "./graders/label.ts";
 import { signTestP } from "./report.ts";
-import { safeName } from "./results.ts";
+import { evaluatedModelDirName, runRootDir, safeName } from "./results.ts";
+import { runDataset } from "./runner.ts";
 import { computeScoreSummary, percentile } from "./scoring.ts";
 import { allStageNames, isDecisionStage } from "./stages/index.ts";
 import { SCHEMA_VERSION, type RunRecord } from "./types.ts";
 import { listVariantNames, loadVariantSpec, parseVariantSpecs } from "./variants/load.ts";
+import { printGlobalSummary } from "../ui/views/run.ts";
 
 const tempDirs: string[] = [];
 
@@ -69,8 +73,16 @@ describe("eval/core config y variantes", () => {
   });
 
   it("parseConfig rechaza flags desconocidos, repetidos, vacíos y combinaciones inválidas", () => {
+    const split = parseConfig(["--decision-model=dec-x", "--generative-model=gen-y"]);
+    assert.equal(split.decisionModel, "dec-x");
+    assert.equal(split.model, "gen-y");
+    const merged = parseConfig(["--model=gen-only+", "--decision-model=dec-y"]);
+    assert.equal(merged.model, "gen-only");
+    assert.equal(merged.decisionModel, "dec-y");
+
     assert.throws(() => parseConfig(["--desconocido=1"]), /Flag desconocido/);
-    assert.throws(() => parseConfig(["--decision-model=x"]), /Ahora se llama/);
+    assert.throws(() => parseConfig(["--d-model=x"]), /Ahora se llama/);
+    assert.throws(() => parseConfig(["--model=g1+d1", "--decision-model=d2"]), /entra en conflicto/);
     assert.throws(() => parseConfig(["--limit=1", "--limit=2"]), /Flag repetido/);
     assert.throws(() => parseConfig(["--model="]), /no puede estar vacío/);
     assert.throws(() => parseConfig(["--limit=1e2"]), /entero >= 1/);
@@ -134,6 +146,35 @@ describe("eval/core etapas y variantes", () => {
     const names = listVariantNames();
     assert.ok(names.includes("prod"));
     assert.equal(names.some((n) => n.startsWith("recovery_calibrated_")), false);
+    for (const archived of [
+      "pending2",
+      "pending2_obj",
+      "pending2_exp",
+      "d5_it6_move_aware_choice",
+      "d5_it7_apex_choice",
+      "d5_it8_apex_calibrated",
+      "fragment_judge_ternary",
+      "args_review_choice_plus_probe",
+    ]) {
+      assert.equal(names.includes(archived), false, `archivada '${archived}' no debe listarse como activa`);
+    }
+
+    // Variantes archivadas siguen cargando si se solicitan explícitamente y ctx_pending_facts es autónoma
+    const archivedPending = await loadVariantSpec("pending2");
+    assert.equal(archivedPending.variant.name, "pending2");
+    const ctxFacts = await loadVariantSpec("ctx_pending_facts");
+    assert.equal(ctxFacts.variant.name, "ctx_pending_facts");
+
+    // Carga de .jsonl con finales CRLF (\r\n)
+    const crlfDir = createTempDir("eval-crlf-");
+    const crlfFile = join(crlfDir, "crlf_smoke.jsonl");
+    const firstSmokeLine = readFileSync(resolveDatasetPaths(["smoke"])[0], "utf8")
+      .split(/\r?\n/)
+      .find((l) => l.trim() !== "" && !l.trim().startsWith("#"));
+    assert.ok(firstSmokeLine);
+    writeFileSync(crlfFile, `${firstSmokeLine}\r\n`, "utf8");
+    const [loadedCrlf] = loadDatasets([crlfFile]);
+    assert.equal(loadedCrlf.cases.length, 1);
   });
 });
 
@@ -262,5 +303,37 @@ describe("eval/core runner + batch con cliente oracle", () => {
 
     const md = readFileSync(join(res.rootDir, "comparison.md"), "utf8");
     assert.ok(md.includes("prod"));
+  });
+
+  it("valida URL vacía en createDecisionClient, trata config: como fatal en runner y usa decisionModel en runRootDir", async () => {
+    assert.throws(() => createDecisionClient({ url: "   ", model: "d3:2b" }), /Decision 2\.0/);
+
+    const decCfg = parseConfig(["--stages=d0", "--model=gen-m+dec:2b"]);
+    assert.equal(evaluatedModelDirName(decCfg), "dec_2b");
+    assert.match(runRootDir(decCfg, "2026-11-19_120000"), /^eval\/results\/dec_2b\//);
+
+    const genCfg = parseConfig(["--stages=plan", "--model=gen-m+dec:2b"]);
+    assert.equal(evaluatedModelDirName(genCfg), "gen-m");
+    assert.match(runRootDir(genCfg, "2026-11-19_120000"), /^eval\/results\/gen-m\//);
+
+    const [d0Ds] = loadDatasets(resolveDatasetPaths(["d0_variedad"]), { stages: ["d0"] });
+    assert.ok(d0Ds.cases.length >= 1);
+    const prod = await loadVariantSpec("prod");
+    const runOut = await runDataset({
+      cases: d0Ds.cases.slice(0, 1),
+      datasetName: d0Ds.name,
+      variant: prod.variant,
+      variantSpec: "prod",
+      cfg: decCfg,
+      genClient: createMockGenerativeClient({ url: decCfg.url, model: decCfg.model }),
+      decClient: {
+        prepare: (req) => ({ url: "http://127.0.0.1:11434/v1/systemone", body: { state: req.state, questions: req.questions } }),
+        call: async () => ({ ok: false, error: "config: missing decision url", durationMs: 0 }),
+      },
+      stageFilter: ["d0"],
+    });
+    assert.equal(runOut.allNetworkFailed, true);
+
+    assert.doesNotThrow(() => printGlobalSummary([]));
   });
 });

@@ -1,3 +1,5 @@
+> **Registro histórico (2026-11-09).** Documento de archivo de las rondas 1–5; varias variantes citadas aquí fueron incorporadas a `prod` o eliminadas en la limpieza posterior. Para las conclusiones e inventario vigente ver [`conclusiones.md`](./conclusiones.md) y [`GUIA_DECISION.md`](./GUIA_DECISION.md).
+
 ---
 
 # 10. Quinta Ronda: dos rondas de variantes nuevas (6 etapas, thinking=off)
@@ -140,6 +142,8 @@ Evaluación enfocada en las 3 etapas solicitadas, agregando un dataset nuevo a c
   * **`pending_objective`:** 77.9% (60/77) | Δ -2.6% — p50 225ms
 * **Ganador indiscutido:** `pending_tiny`.
 
+
+# 6. Primera Ronda de Evaluación (Base Inicial)
 
 Fecha: 2026-11-09
 Configuración de ejecución: Modelos qwen3.5:4b (generativo) + d3:2b (decisión). Etapas generativas con `thinking=off`, `concurrency=1`. Etapas de decisión a `concurrency=2`.

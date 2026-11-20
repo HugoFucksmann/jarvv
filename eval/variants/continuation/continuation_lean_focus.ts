@@ -1,4 +1,4 @@
-import type { ContinuationDecisionInput } from "../../../src/core/contracts.ts";
+import type { ContinuationInput } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
@@ -8,11 +8,11 @@ import type { Variant } from "../../core/variants/types.ts";
  * funciona bien pero carece de criterios true/false concretos.
  * Añadir criterios noul simétricos y ultra-claros para true y false sin palabras rebuscadas.
  */
-function buildContinuation(data: ContinuationDecisionInput): DecisionInput {
+function buildContinuation(data: ContinuationInput): DecisionInput {
   const state = [
-    `Previous request: ${data.previousRequest}`,
-    data.previousAnswer ? `Previous answer: ${data.previousAnswer}` : null,
-    `New request: ${data.newRequest}`,
+    `Previous request: ${data.previous.request}`,
+    data.previous.answer ? `Previous answer: ${data.previous.answer}` : null,
+    `New request: ${data.request}`,
   ].filter(Boolean).join("\n");
 
   return {

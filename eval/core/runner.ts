@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import type { DecisionClient } from "./client/decision.ts";
 import { DECISION_MAX_CONTEXT, estimateDecisionPromptTokens } from "./client/decision.ts";
 import type { GenerativeCallContext, GenerativeClient, PreparedRequest } from "./client/generative.ts";
-import { isTransportError } from "./client/generative.ts";
+import { isFatalClientError } from "./client/generative.ts";
 import type { EvalConfig } from "./config.ts";
 import { resolveDecisionTimeout, resolveGenerativeTimeout } from "./config.ts";
 import {
@@ -282,6 +282,7 @@ async function runDecision(
 
   if (!result.ok) {
     retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por respuesta inválida: ${e}`));
+    if (retryErrors.length > 0) measurements.attempts = retryErrors.length + 1;
     collector.check("client_call_ok", false, result.error);
     return makeRecord(baseRecord, {
       rawInput: prepared.body,
@@ -294,6 +295,7 @@ async function runDecision(
       warnings,
       metrics,
       measurements,
+      ...(tokens ? { tokens } : {}),
       tokensEstimated: true,
     });
   }
@@ -389,10 +391,12 @@ async function runGenerative(
   let parseError: string | undefined;
   const retryErrors: string[] = [];
   let tokens: TokenTotals | undefined;
+  let tokensEstimated = false;
 
   for (let attempt = 0; ; attempt++) {
     if (!result.ok) break;
     tokens = addTokens(tokens, result.tokens);
+    if (result.tokensEstimated) tokensEstimated = true;
     parsed = undefined;
     parseError = undefined;
     try {
@@ -422,6 +426,8 @@ async function runGenerative(
   const requestParams = paramsOf(curReq);
 
   if (!result.ok) {
+    retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por salida inválida: ${e}`));
+    if (retryErrors.length > 0) measurements.attempts = retryErrors.length + 1;
     collector.check("client_call_ok", false, result.error);
     return makeRecord(baseRecord, {
       rawInput: usedBody,
@@ -434,6 +440,8 @@ async function runGenerative(
       warnings,
       metrics,
       measurements,
+      ...(tokens ? { tokens } : {}),
+      ...(tokensEstimated ? { tokensEstimated: true } : {}),
       requestParams,
     });
   }
@@ -555,6 +563,8 @@ export interface RunnerInput {
   decClient: DecisionClient;
   stageFilter: StageName[];     // vacío = todos
   onRecord?: (record: RunRecord) => void;
+  /** Si es `false` y se usa `onRecord`, evita duplicar `records` en el retorno. Por defecto `true`. */
+  collectRecords?: boolean;
   dryRun?: boolean;
 }
 
@@ -567,7 +577,7 @@ export interface RunnerOutput {
 export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
   const {
     cases, datasetName, variant, variantSpec, cfg,
-    genClient, decClient, stageFilter, onRecord, dryRun = false,
+    genClient, decClient, stageFilter, onRecord, collectRecords = true, dryRun = false,
   } = input;
 
   const filtered = stageFilter.length > 0
@@ -597,17 +607,17 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
     const result = await runOne(task, cfg, genClient, decClient, dryRun);
     if (!dryRun && result.record.metrics.client_call_ok === false) {
       const err = result.record.errors[result.record.errors.length - 1] ?? "";
-      if (isTransportError(err)) networkFailCount++;
+      if (isFatalClientError(err)) networkFailCount++;
     }
     if (!dryRun && result.record.metrics.client_call_ok !== undefined) callCount++;
     onRecord?.(result.record);
-    return result.record;
+    return collectRecords ? result.record : (undefined as unknown as RunRecord);
   });
 
-  const records = await runWithConcurrency(fns, cfg.concurrency);
+  const collected = await runWithConcurrency(fns, cfg.concurrency);
 
   return {
-    records,
+    records: collectRecords ? collected : [],
     allNetworkFailed: callCount > 0 && networkFailCount === callCount,
   };
 }

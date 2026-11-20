@@ -72,6 +72,7 @@ export function printCellResult(passCount: number, runCount: number, failedCalls
 
 /** Tabla de resumen global: una fila por celda (variante × dataset). */
 export function printGlobalSummary(cells: InputCell[]): void {
+  if (cells.length === 0) return;
   const rows = cells.map((cell) => {
     const s = cell.scores;
     return {

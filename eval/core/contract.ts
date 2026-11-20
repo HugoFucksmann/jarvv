@@ -20,6 +20,8 @@ export { JUDGE_FOUND, JUDGE_PARTIAL } from "../../src/tools/web/webSearchProvide
 export { CONTINUATION_APPROVE } from "../../src/core/engine/thread.ts";
 export const CONTINUATION_KEY = "follow";
 export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";
+export { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_MULTI_APPROVE } from "../../src/core/types/firstQuery.ts";
+export type { FirstQueryKind } from "../../src/core/types/firstQuery.ts";
 export { NOUL_APPROVE, OK_APPROVE, VERIFY_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";
 export { ARGS_REVIEWS, COMPLETION_KEY, RECOVERY_ACTIONS, RECOVERY_KEY } from "../../src/core/contracts.ts";
 export { STEP_FAILURE_CAUSES } from "../../src/core/engine/outcomes.ts";

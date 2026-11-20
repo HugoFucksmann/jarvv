@@ -14,6 +14,7 @@ import { resolveUrl } from "../core/client/generative.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
 import { isDecisionStage } from "../core/stages/index.ts";
 import type { AutoConfig } from "./config.ts";
+import { validateConclusionsMarkdown } from "./conclusions.ts";
 import type { FailureSample, VariantDatasetStat } from "./feedback.ts";
 import type { RankedVariant } from "./ranking.ts";
 import { extractProdPromptSource, getStageContract } from "./stageContract.ts";
@@ -558,6 +559,7 @@ export async function decideConclusionsUpdate(opts: {
   cfg: AutoConfig;
   currentConclusions: string;
   roundFacts: string;
+  ranked?: RankedVariant[];
   callLlm?: OptimizerLlmCaller;
 }): Promise<ConclusionsDecision> {
   const { cfg, currentConclusions, roundFacts } = opts;
@@ -623,6 +625,15 @@ export async function decideConclusionsUpdate(opts: {
   const markdown = typeof obj.markdown === "string" ? obj.markdown.trim() : undefined;
   if (obj.update && (!markdown || markdown.length === 0)) {
     return { update: false, reason: reason || "update=true sin contenido markdown." };
+  }
+  if (obj.update && markdown) {
+    const invalid = validateConclusionsMarkdown(markdown, cfg.stage, opts.ranked);
+    if (invalid) {
+      return {
+        update: false,
+        reason: `Markdown de conclusiones rechazado (${invalid}); se conserva el archivo actual.`,
+      };
+    }
   }
   return { update: obj.update, reason, markdown };
 }

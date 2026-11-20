@@ -110,6 +110,10 @@ async function main(): Promise<number> {
   // ── Casos de cada variante: se arman una vez con los prompts de la variante (los escenarios + sus prompts enteros); el runner solo envía ──
   const datasetsByVariant = new Map<string, typeof datasets>();
   for (const vr of variantResults) {
+    if (vr.spec === "prod") {
+      datasetsByVariant.set(vr.spec, datasets);
+      continue;
+    }
     try {
       const own = loadDatasets(cfg.datasetSpecs, datasetFilters, vr.variant);
       if (own.every((d) => d.cases.length === 0)) {
@@ -128,7 +132,7 @@ async function main(): Promise<number> {
   try {
     clients = createEvalClients(cfg);
   } catch (e) {
-    fail(`Error de configuración de URL generativa: ${e instanceof Error ? e.message : String(e)}`);
+    fail(`Error de configuración de modelos/URLs: ${e instanceof Error ? e.message : String(e)}`);
     return 2;
   }
 

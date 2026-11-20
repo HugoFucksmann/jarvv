@@ -4,13 +4,14 @@
  * Escritura de runs.jsonl, scores.json y meta.json por celda (variante × dataset).
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { EvalConfig } from "./config.ts";
 import { promptEnvironment } from "./scenario.ts";
 import { computeScoreSummary } from "./scoring.ts";
+import { isDecisionStage } from "./stages/index.ts";
 import type { GlobalScoreSummary, RunMeta, RunRecord, StageName } from "./types.ts";
 import { SCHEMA_VERSION } from "./types.ts";
 
@@ -46,6 +47,12 @@ export function cellDirName(variantSpec: string, datasetName: string): string {
   return `${safeName(variantSpec)}__${safeName(datasetName)}`;
 }
 
+/** Nombre de carpeta del modelo evaluado real: `decisionModel` si todas las etapas son de decisión; si no, `model`. */
+export function evaluatedModelDirName(cfg: Pick<EvalConfig, "stages" | "model" | "decisionModel">): string {
+  const onlyDecision = cfg.stages.length > 0 && cfg.stages.every((s) => isDecisionStage(s));
+  return safeName(onlyDecision ? cfg.decisionModel : cfg.model);
+}
+
 /**
  * Directorio raíz de resultados para una corrida. El timestamp tiene resolución de segundo: si la
  * carpeta ya existe (dos corridas en el mismo segundo) se agrega `-2`, `-3`… para no mezclar `runs.jsonl`.
@@ -60,8 +67,7 @@ export function runRootDir(cfg: EvalConfig, ts: string): string {
     for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
     return dir;
   }
-  // La carpeta nombra el modelo generativo.
-  const modelDir = safeName(cfg.model);
+  const modelDir = evaluatedModelDirName(cfg);
   const base = `eval/results/${modelDir}/${ts}${label}`;
   let dir = base;
   for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
@@ -100,8 +106,8 @@ export function gitInfo(): { gitCommit?: string; gitDirty?: boolean } {
 export interface CellWriter {
   /** Escribe una línea en runs.jsonl y acumula el record para scoring. */
   writeRun(record: RunRecord): void;
-  /** Cierra la celda: escribe scores.json y meta.json. */
-  close(meta: RunMeta): void;
+  /** Cierra la celda: escribe scores.json y meta.json y devuelve el resumen calculado. */
+  close(meta: RunMeta): GlobalScoreSummary;
   /** Records acumulados (alimentan el reporte de comparación). */
   readonly records: RunRecord[];
   readonly cellDir: string;
@@ -122,10 +128,15 @@ export function createCellWriter(rootDir: string, variantSpec: string, datasetNa
       records.push(record);
       appendFileSync(`${cellDir}/runs.jsonl`, JSON.stringify(record) + "\n", "utf8");
     },
-    close(meta: RunMeta) {
+    close(meta: RunMeta): GlobalScoreSummary {
       const scores: GlobalScoreSummary = computeScoreSummary(records);
-      writeFileSync(`${cellDir}/scores.json`, JSON.stringify(scores, null, 2), "utf8");
-      writeFileSync(`${cellDir}/meta.json`, JSON.stringify(meta, null, 2), "utf8");
+      const scoresTmp = `${cellDir}/scores.json.tmp`;
+      const metaTmp = `${cellDir}/meta.json.tmp`;
+      writeFileSync(scoresTmp, JSON.stringify(scores, null, 2), "utf8");
+      renameSync(scoresTmp, `${cellDir}/scores.json`);
+      writeFileSync(metaTmp, JSON.stringify(meta, null, 2), "utf8");
+      renameSync(metaTmp, `${cellDir}/meta.json`);
+      return scores;
     },
   };
 }
@@ -133,7 +144,7 @@ export function createCellWriter(rootDir: string, variantSpec: string, datasetNa
 // ───────────────────────── runId / timestamp ─────────────────────────
 
 export function newRunId(): string {
-  return createHash("sha256").update(Math.random().toString() + Date.now()).digest("hex").slice(0, 16);
+  return randomUUID().replace(/-/g, "").slice(0, 16);
 }
 
 // ───────────────────────── Construcción de RunMeta ─────────────────────────

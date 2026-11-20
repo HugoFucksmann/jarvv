@@ -145,12 +145,22 @@ export function resolveDatasetPaths(specs: string[]): string[] {
   return result;
 }
 
-/** Lee y valida un archivo. Acumula errores `archivo:línea: mensaje` en `errors`. */
-function loadFile(path: string, errors: string[], variant?: Variant): Dataset {
+/** Lee y valida un archivo. Acumula errores `archivo:línea: mensaje` en `errors` y registra IDs en `knownIds`. */
+function loadFile(
+  path: string,
+  errors: string[],
+  filters: CaseFilters,
+  variant?: Variant,
+  knownIds?: Set<string>,
+): Dataset {
   const content = readFileSync(path, "utf8");
   const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
   const cases: Case[] = [];
   const idLines = new Map<string, number>();
+
+  const stageSet = filters.stages && filters.stages.length > 0 ? new Set(filters.stages) : null;
+  const tagSet = filters.tags && filters.tags.length > 0 ? new Set(filters.tags) : null;
+  const idSet = filters.ids && filters.ids.length > 0 ? new Set(filters.ids) : null;
 
   const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
   lines.forEach((text, i) => {
@@ -179,21 +189,42 @@ function loadFile(path: string, errors: string[], variant?: Variant): Dataset {
       errors.push(`${path}:${lineNo}: falta 'scenario' (la situación del caso).`);
       return;
     }
-    {
-      const { scenario, ...rest } = parsed as Record<string, unknown>;
-      // Un `meta` que no es objeto se rechazaba o se pisaba en silencio al fusionarlo con el `toolSchema` del escenario.
-      if (rest.meta !== undefined && (rest.meta === null || typeof rest.meta !== "object" || Array.isArray(rest.meta))) {
-        errors.push(`${path}:${lineNo}: meta debe ser un objeto.`);
+
+    const { scenario, ...rest } = parsed as Record<string, unknown>;
+    // Un `meta` que no es objeto se rechazaba o se pisaba en silencio al fusionarlo con el `toolSchema` del escenario.
+    if (rest.meta !== undefined && (rest.meta === null || typeof rest.meta !== "object" || Array.isArray(rest.meta))) {
+      errors.push(`${path}:${lineNo}: meta debe ser un objeto.`);
+      return;
+    }
+
+    const rawId = typeof rest.id === "string" ? rest.id : undefined;
+    if (rawId !== undefined) {
+      const firstLine = idLines.get(rawId);
+      if (firstLine !== undefined) {
+        errors.push(`${path}:${lineNo}: id '${rawId}' duplicado (ya definido en la línea ${firstLine}).`);
         return;
       }
-      try {
-        const m = materializeScenario(String(rest.stage), scenario as Scenario, variant);
-        const meta = (rest.meta ?? {}) as Record<string, unknown>;
-        parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema, toolName: m.toolName, environment: m.environment, precheck: m.precheck } } : {}) };
-      } catch (e) {
-        errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);
-        return;
-      }
+      idLines.set(rawId, lineNo);
+      knownIds?.add(rawId);
+    }
+
+    // Pre-filtro rápido antes de materializar el escenario y construir prompts.
+    const rawStage = typeof rest.stage === "string" ? rest.stage : "";
+    if (stageSet && !stageSet.has(rawStage)) return;
+    if (tagSet) {
+      const rawTags = Array.isArray(rest.tags) ? rest.tags : [];
+      if (!rawTags.some((t) => typeof t === "string" && tagSet.has(t))) return;
+    }
+    if (idSet && (rawId === undefined || !idSet.has(rawId))) return;
+    if (filters.limit !== undefined && cases.length >= filters.limit) return;
+
+    try {
+      const m = materializeScenario(String(rest.stage), scenario as Scenario, variant);
+      const meta = (rest.meta ?? {}) as Record<string, unknown>;
+      parsed = { ...rest, request: m.request, ...(m.toolSchema ? { meta: { ...meta, toolSchema: m.toolSchema, toolName: m.toolName, environment: m.environment, precheck: m.precheck } } : {}) };
+    } catch (e) {
+      errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);
+      return;
     }
 
     const v = validateCase(parsed);
@@ -202,12 +233,15 @@ function loadFile(path: string, errors: string[], variant?: Variant): Dataset {
       return;
     }
 
-    const firstLine = idLines.get(v.case.id);
-    if (firstLine !== undefined) {
-      errors.push(`${path}:${lineNo}: id '${v.case.id}' duplicado (ya definido en la línea ${firstLine}).`);
-      return;
+    if (rawId === undefined) {
+      const firstLine = idLines.get(v.case.id);
+      if (firstLine !== undefined) {
+        errors.push(`${path}:${lineNo}: id '${v.case.id}' duplicado (ya definido en la línea ${firstLine}).`);
+        return;
+      }
+      idLines.set(v.case.id, lineNo);
+      knownIds?.add(v.case.id);
     }
-    idLines.set(v.case.id, lineNo);
     cases.push(v.case);
   });
 
@@ -224,9 +258,8 @@ export function filterCases(cases: Case[], f: CaseFilters): Case[] {
 }
 
 /**
- * Resuelve, valida (todos los archivos, antes de filtrar) y filtra. `variant`: la variante con cuyos prompts se arman
- * los casos (sin ella, los de producción). Lanza `Error` con un mensaje por línea
- * si hay datasets inválidos o nombres de dataset repetidos.
+ * Resuelve, valida (estructura e ids de todos los archivos) y materializa los casos filtrados.
+ * `variant`: la variante con cuyos prompts se arman los casos (sin ella, los de producción).
  */
 export function loadDatasets(specs: string[], filters: CaseFilters = {}, variant?: Variant): Dataset[] {
   const paths = resolveDatasetPaths(specs);
@@ -242,17 +275,17 @@ export function loadDatasets(specs: string[], filters: CaseFilters = {}, variant
   }
 
   const errors: string[] = [];
-  const datasets = paths.map((p) => loadFile(p, errors, variant));
+  const knownIds = new Set<string>();
+  const datasets = paths.map((p) => loadFile(p, errors, filters, variant, knownIds));
   if (errors.length > 0) throw new Error(errors.join("\n"));
 
   // Un id que no existe en ningún dataset (typo) se ignoraba si otros ids sí coincidían.
   if (filters.ids && filters.ids.length > 0) {
-    const known = new Set(datasets.flatMap((d) => d.cases.map((c) => c.id)));
-    const unknown = filters.ids.filter((id) => !known.has(id));
+    const unknown = filters.ids.filter((id) => !knownIds.has(id));
     if (unknown.length > 0) {
       throw new Error(`--ids: no existe ningún caso con id ${unknown.map((i) => `'${i}'`).join(", ")} en los datasets cargados.`);
     }
   }
 
-  return datasets.map((d) => ({ ...d, cases: filterCases(d.cases, filters) }));
+  return datasets;
 }

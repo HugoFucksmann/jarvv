@@ -14,6 +14,7 @@ import { analyzePowerShell } from "../src/core/engine/precheck.ts";
 async function main(): Promise<void> {
   const dir = process.argv[2];
   if (dir === undefined) throw new Error("Uso: npm run eval:psvalid -- <carpeta de la corrida>");
+  if (!existsSync(dir)) throw new Error(`No existe la carpeta '${dir}'.`);
   const cache = new Map<string, boolean>();
   const valid = async (command: string): Promise<boolean> => {
     let v = cache.get(command);
@@ -32,9 +33,14 @@ async function main(): Promise<void> {
     const i = entry.name.lastIndexOf("__");
     let n = 0;
     let ok = 0;
-    for (const line of readFileSync(file, "utf8").split(String.fromCharCode(10))) {
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
       if (line.trim() === "") continue;
-      const r = JSON.parse(line) as { stage: string; parsedOutput?: { args?: { command?: unknown } } };
+      let r: { stage: string; parsedOutput?: { args?: { command?: unknown } } };
+      try {
+        r = JSON.parse(line) as { stage: string; parsedOutput?: { args?: { command?: unknown } } };
+      } catch {
+        continue;
+      }
       const command = r.stage === "arguments" ? r.parsedOutput?.args?.command : undefined;
       if (typeof command !== "string") continue;
       n++;

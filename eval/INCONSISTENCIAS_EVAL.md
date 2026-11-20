@@ -1,24 +1,31 @@
 # Auditoría e Inconsistencias de `eval/`
 
-Diagnóstico integral del módulo `eval/` (alcance exclusivo `eval/`). Revisa compilación, contratos, fugas de memoria, E/S y rendimiento, bugs lógicos, sobreingeniería, código legacy, desalineación documental y cobertura de tests antes de iniciar refactors o nuevas funciones.
+Diagnóstico integral del módulo `eval/` (alcance exclusivo `eval/`). Revisa compilación, contratos, fugas de memoria, E/S y rendimiento, bugs lógicos, sobreingeniería, código legacy, desalineación documental y cobertura de tests.
+
+## Estado tras corrección (Fases 1–4 completadas)
+
+| Fase | Estado | Qué se resolvió |
+|---|---|---|
+| **Fase 1** (compilación, contratos y abortos) | **Completada** | Corregidos los 5 imports en `continuation/` y `fragment_judge/` (`0` errores `tsc` dentro de `eval/`); `discoverStageVariants` reporta errores de carga vía `console.warn`; `createDecisionClient` valida URL (`config:`) y `runner.ts` aborta errores `config:`; `runGenerative` preserva `retryErrors` y tokens en fallos tras reintento; corregidos `printGlobalSummary([])`, `lastIndexOf("__")`, CRLF y guardas en `cross.ts`, `psvalid.ts` y `exp/*`. |
+| **Fase 2** (lógica `--auto` y resultados) | **Completada** | `runRootDir` y caché indexados por `evaluatedModelDirName(cfg)` (usa `decisionModel` en etapas puras de decisión); `auto.ts` no re-evalúa `--holdout` sobre la misma variante ya rechazada y registra vueltas con `0` variantes válidas; `conclusiones.md` contrasta cifras y estructura mínimas; `validateStageRequestsAndContext` soporta `f0..fN` y `recovery` de 2 ejes; escritura atómica con `atomicWriteFileSync`. |
+| **Fase 3** (memoria, E/S y CLI) | **Completada** | `validateVariant.ts` valida y ejecuta en sandbox efímero `node:vm` + CJS sin escribir archivos rechazados ni fugar módulos ESM, valida exports de `prompts.ts` dinámicamente y maneja literales RegExp; eliminada la retención duplicada/triple de `RunRecord[]` en RAM (`batch.ts`/`runner.ts`/`results.ts`/`auto.ts`); acotado `analysisCache` (512 entradas); índice de `variants/load.ts` y pre-filtrado previo a materialización en `datasets.ts` / `cli.ts`; escaneo en 2 fases de `ranking.ts`; unificado `--decision-model`/`--generative-model`/`--model` en `core/config.ts` y `auto/config.ts`. |
+| **Fase 4** (legacy, docs y tests) | **Completada** | 8 variantes con `params`/`read` obsoletos y `runner/README.md` archivados en `eval/variants/_archivo_legacy/`; `ctx_pending_facts.ts` desacoplado de `.replace()`; sincronizados `EJECUTAR_VARIANTES.md`, `conclusiones.md`, `GUIA_DECISION.md`, `MEJORES_VARIANTES.md`, `INSTRUCCIONES.md` y `ui/views/help.ts`; ampliada cobertura de tests en `eval_core.test.ts` y `eval_auto.test.ts`. |
+
+*(Nota de alcance: `tests/workspace_config.test.ts:6` pertenece a `tests/` fuera de `eval/`, por lo que no se toca.)*
 
 ---
 
-## Resumen ejecutivo
+## Resumen histórico del diagnóstico inicial
 
 | Categoría | Crítico / Alto | Medio | Bajo | Principales focos |
 |---|---:|---:|---:|---|
 | 1. Compilación, dependencias y contratos rotos | 3 | 2 | — | 10 errores `tsc` en `eval/variants/`, imports inexistentes en `stageContract.ts`, `discover.ts` silencia errores |
 | 2. Fugas de memoria, RAM y E/S | 2 | 4 | 1 | Leak ESM en `validateVariant.ts`, retención duplicada/triple de `RunRecord[]`, `analysisCache` global, re-lectura N×4 de archivos |
 | 3. Bugs lógicos e inconsistencias | 4 | 5 | 2 | `runRootDir` indexado por modelo generativo, `DecisionClient` sin validación temprana, re-evaluación repetida de holdout, pérdida de `retryErrors`/`tokens` |
-| 4. Sobreingeniería y duplicación | 2 | 2 | 1 | Parser TS manual (~500 líneas) en `validateVariant.ts` + `stageContract.ts` teniendo `esbuild`/`typescript`; CLI inconsistente entre `--auto` y normal |
+| 4. Sobreingeniería y duplicación | 2 | 2 | 1 | Parser TS manual (~500 líneas) en `validateVariant.ts` + `stageContract.ts`; CLI inconsistente entre `--auto` y normal |
 | 5. Código legacy y desorden en `eval/variants/` | — | 3 | 2 | Variantes con `params`/`read` obsoletos, `runner/README.md` vacío, nombres mixtos (`Pending/` vs minúsculas, `d4/` vs `result_verification`) |
 | 6. Documentación desalineada | — | 4 | 1 | `EJECUTAR_VARIANTES.md`, `conclusiones.md`, `GUIA_DECISION.md` y `MEJORES_VARIANTES.md` citan variantes borradas o afirmaciones falsas |
 | 7. Brechas de tests | 1 | 2 | — | Sin test de compilación/carga de variantes activas ni cobertura de `cross.ts`, `psvalid.ts`, `exp/*` o holdout repetido |
-
-**Hallazgos inmediatos de verificación estática (`npx tsc --noEmit`):**
-- **`10` errores TypeScript dentro de `eval/variants/`** (`TS2724`, `TS2305`, `TS7006`), en 5 archivos de `continuation/` y `fragment_judge/`. *(Nota de contexto fuera de alcance: `tests/workspace_config.test.ts:6` también falla `TS2305`, no debe tocarse desde `eval/`.)*
-- **`0` errores** actuales en la ejecución de `eval/core/eval_core.test.ts` y `eval/auto/eval_auto.test.ts` sobre los módulos core/auto, pero ninguno valida las variantes de `eval/variants/` en disco.
 
 ---
 

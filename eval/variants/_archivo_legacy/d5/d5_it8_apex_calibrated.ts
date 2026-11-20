@@ -1,7 +1,7 @@
-import type { CompletionDecisionInput } from "../../../src/core/contracts.ts";
-import type { DecisionInput } from "../../../src/core/models/prompts.ts";
-import { PROMPTS } from "../../../src/core/models/prompts.ts";
-import type { Variant, ReadAnswer } from "../../core/variants/types.ts";
+import type { CompletionDecisionInput } from "../../../../src/core/contracts.ts";
+import type { DecisionInput } from "../../../../src/core/models/prompts.ts";
+import { PROMPTS } from "../../../../src/core/models/prompts.ts";
+import type { Variant, ReadAnswer } from "../../../core/variants/types.ts";
 
 /**
  * Iteración 8 - Variante A (Optimización fina de apex_choice):

@@ -8,7 +8,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
-import { isDecisionStage } from "../core/stages/index.ts";
+import { allStageNames, isDecisionStage } from "../core/stages/index.ts";
 import type { StageName } from "../core/types.ts";
 import type { AutoMetric } from "./config.ts";
 import type { RankedVariant } from "./ranking.ts";
@@ -63,6 +63,49 @@ export function writeConclusionsFile(filePath: string, markdown: string): void {
   const abs = resolve(filePath);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, compactMarkdownToLimits(markdown), "utf8");
+}
+
+/**
+ * Validación estructural y de consistencia factual para evitar que modelos chicos
+ * sobrescriban `conclusiones.md` con JSON, texto truncado o métricas alucinadas.
+ */
+export function validateConclusionsMarkdown(
+  markdown: string,
+  stage: StageName,
+  ranked: RankedVariant[] = [],
+): string | null {
+  const trimmed = markdown.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("```")) return "markdown envuelto en JSON o fence de código";
+  if (trimmed.length < 20) return "markdown demasiado corto";
+  if (!/^#\s+\S/m.test(trimmed)) return "falta encabezado principal `# ...`";
+  if (!/^##\s+\S/m.test(trimmed)) return "falta al menos una sección `## ...`";
+
+  const otherStages = allStageNames().filter((s) => s !== stage);
+  const titleMatch = /^#\s+Conclusiones\s+[—-]\s+([a-z0-9_]+)/im.exec(trimmed);
+  if (titleMatch && titleMatch[1] !== stage) {
+    return `el título referencia etapa '${titleMatch[1]}' en lugar de '${stage}'`;
+  }
+
+  for (const other of otherStages) {
+    if (new RegExp(`\\bauto_${other}_`, "i").test(trimmed)) {
+      return `referencia variante de otra etapa ('auto_${other}_...')`;
+    }
+  }
+
+  if (ranked.length > 0) {
+    const scoreByVariant = new Map(ranked.map((r) => [r.variant, r.score * 100]));
+    const citedRe = /`([a-zA-Z0-9_-]+)`\s*(?:\(|:\s*)(\d{1,3}(?:\.\d+)?)\s*%/g;
+    for (const match of trimmed.matchAll(citedRe)) {
+      const name = match[1];
+      const citedPct = Number(match[2]);
+      const actualPct = scoreByVariant.get(name);
+      if (actualPct !== undefined && Number.isFinite(citedPct) && Math.abs(citedPct - actualPct) > 1.5) {
+        return `porcentaje inconsistente para '${name}' (${citedPct.toFixed(1)}% vs ${actualPct.toFixed(1)}% medido)`;
+      }
+    }
+  }
+
+  return null;
 }
 
 export interface RoundFactsInput {
@@ -187,7 +230,7 @@ export function recordHoldoutOverfitAlert(opts: {
         decisionModel: opts.decisionModel,
         ranked: opts.ranked,
         top2: opts.top2,
-        roundNote: note,
+        roundNote: `[Alerta holdout] ${note}`,
       }),
     );
     return;
@@ -195,5 +238,45 @@ export function recordHoldoutOverfitAlert(opts: {
 
   const lines = existing.replace(/\r\n/g, "\n").trimEnd().split("\n");
   lines.push(`- [Alerta holdout] ${note}`);
+  writeConclusionsFile(opts.filePath, lines.join("\n"));
+}
+
+/** Registra en `conclusiones.md` una vuelta en la que ninguna propuesta pasó validación. */
+export function recordInvalidRoundNote(opts: {
+  filePath: string;
+  stage: StageName;
+  round: number;
+  rejectedNotes: string[];
+  target: number;
+  metric: AutoMetric;
+  model: string;
+  decisionModel: string;
+  ranked: RankedVariant[];
+  top2: string[];
+}): void {
+  const summary = opts.rejectedNotes.length > 0
+    ? opts.rejectedNotes.slice(0, 2).join(" | ").slice(0, 220)
+    : "todas las propuestas fallaron validación";
+  const line = `- [Vuelta sin válidas] R${opts.round}: ${summary}`;
+  const existing = readConclusionsBounded(opts.filePath).content;
+  if (!existing.trim()) {
+    writeConclusionsFile(
+      opts.filePath,
+      buildBaselineConclusionsMarkdown({
+        stage: opts.stage,
+        target: opts.target,
+        metric: opts.metric,
+        model: opts.model,
+        decisionModel: opts.decisionModel,
+        ranked: opts.ranked,
+        top2: opts.top2,
+        roundNote: line.slice(2),
+      }),
+    );
+    return;
+  }
+
+  const lines = existing.replace(/\r\n/g, "\n").trimEnd().split("\n");
+  lines.push(line);
   writeConclusionsFile(opts.filePath, lines.join("\n"));
 }

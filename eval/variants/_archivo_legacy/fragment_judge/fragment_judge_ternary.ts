@@ -13,10 +13,10 @@
  * Aprueba si P(solves) >= 0.5 o score >= 0.55.
  */
 
-import type { FragmentJudgeInput } from "../../../src/core/models/prompts.ts";
-import type { DecisionInput } from "../../../src/core/models/prompts.ts";
-import type { DecisionQuestion } from "../../../src/core/types.ts";
-import type { Variant, ReadAnswer } from "../../core/variants/types.ts";
+import type { FragmentJudgeInput } from "../../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../../src/core/models/prompts.ts";
+import type { DecisionQuestion } from "../../../../src/core/types.ts";
+import type { Variant, ReadAnswer } from "../../../core/variants/types.ts";
 
 function buildFragmentJudge(data: FragmentJudgeInput): DecisionInput {
   const questions: Record<string, DecisionQuestion> = {};

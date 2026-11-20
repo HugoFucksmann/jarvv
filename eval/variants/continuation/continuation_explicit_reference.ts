@@ -1,4 +1,4 @@
-import type { ContinuationDecisionInput } from "../../../src/core/contracts.ts";
+import type { ContinuationInput } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
@@ -9,11 +9,11 @@ import type { Variant } from "../../core/variants/types.ts";
  * Criterios noul con true/false explícitos: true si el nuevo pedido depende gramatical
  * o contextualmente del anterior; false si es una orden autónoma que se entiende por sí sola.
  */
-function buildContinuation(data: ContinuationDecisionInput): DecisionInput {
+function buildContinuation(data: ContinuationInput): DecisionInput {
   const state = [
-    `Previous request: ${data.previousRequest}`,
-    data.previousAnswer ? `Previous answer: ${data.previousAnswer}` : null,
-    `New request: ${data.newRequest}`,
+    `Previous request: ${data.previous.request}`,
+    data.previous.answer ? `Previous answer: ${data.previous.answer}` : null,
+    `New request: ${data.request}`,
   ].filter(Boolean).join("\n");
 
   return {

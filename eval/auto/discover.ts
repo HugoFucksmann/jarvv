@@ -157,7 +157,7 @@ export async function discoverStageVariants(stage: StageName): Promise<Discovere
     if (!raw.includes(contract.promptKey)) continue;
 
     try {
-      const { variant, hash } = await loadVariantSpec(name);
+      const { variant, hash } = await loadVariantSpec(name, filePath);
       const groupObj = variant.prompts?.[contract.promptGroup] as Record<string, unknown> | undefined;
       if (!groupObj || !(contract.promptKey in groupObj) || groupObj[contract.promptKey] === undefined) {
         continue;
@@ -169,8 +169,9 @@ export async function discoverStageVariants(stage: StageName): Promise<Discovere
         variant,
         isAuto: isAutoVariantPathForStage(filePath, stage),
       });
-    } catch {
-      // Si alguna variante heredada falla al cargar, se omite del descubrimiento automático (y si la piden explícitamente en --seed-top fallará allí).
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[eval/auto] Variante '${name}' (${filePath}) omitida por error de carga: ${msg}`);
     }
   }
 

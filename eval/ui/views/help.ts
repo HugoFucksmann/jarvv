@@ -23,7 +23,7 @@ export function printHelp(): void {
 
   section("Ejemplos");
   console.log(`  ${sym.bar} npm run eval -- --menu`);
-  console.log(`  ${sym.bar} npm run eval -- --dataset=smoke --variant=prod,mi_variante`);
+  console.log(`  ${sym.bar} npm run eval -- --dataset=smoke --variant=prod,mi_variante --decision-model=d3:2b-text`);
   console.log(`  ${sym.bar} npm run eval -- --dataset=smoke --dry-run --ids=<caso>   ${c.gray("imprime el prompt que recibe el modelo (copiable para armar una variante)")}`);
   console.log(`  ${sym.bar} npm run eval -- --auto --stage=args_review --decision-model=d3:2b-text --optimizer-model=qwen3:32b --max-loops=6 --target=0.80`);
   console.log(`  ${sym.bar} npm run eval -- --auto --help   ${c.gray("flags completos del bucle autónomo")}`);

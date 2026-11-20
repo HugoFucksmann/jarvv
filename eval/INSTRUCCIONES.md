@@ -80,6 +80,8 @@ Los defaults salen de `jarvis-config.json` (sin él, de los valores por defecto 
 | Flag | Default | Descripción |
 |---|---|---|
 | `--model` | `qwen3.5:4b+d3:2b` | `<generativo>[+<decisión>]`; un lado vacío usa su default (`--model=+lfm3:1.7b`). Un solo modelo de cada tipo por corrida: para comparar modelos, correr dos veces. |
+| `--decision-model` | *(según `jarvis-config.json`)* | Modelo de decisión explícito (equivalente a `--model=+<id>`). No puede contradecir a `--model`. |
+| `--generative-model` | *(según `jarvis-config.json`)* | Modelo generativo explícito (equivalente a `--model=<id>`). No puede contradecir a `--model`. |
 | `--url` | `http://127.0.0.1:11434` | Endpoint del modelo generativo. |
 | `--decision-url` | `http://127.0.0.1:11434` | Endpoint del de decisión (se le agrega `/v1/systemone`). |
 | `--client` | `real` | `mock`: respuestas genéricas sin red (prueba la maquinaria). `oracle`: responde lo que pide el `expect` de cada caso; debe dar 100 %, y si un caso falla el problema está en el caso, un grader o el parseo, no en el modelo. `oracle` solo vale con la variante `prod`. |
@@ -109,7 +111,7 @@ Los defaults salen de `jarvis-config.json` (sin él, de los valores por defecto 
 
 ## 3. Resultados
 
-`eval/results/<modelo generativo>/<YYYY-MM-DD_HHmmss>[_<label>]/` (con `--client=oracle` o `mock`: `eval/results/_oracle/…` y `_mock/…`). Una colisión en el mismo segundo agrega `-2`, `-3`…
+`eval/results/<modelo evaluado>/<YYYY-MM-DD_HHmmss>[_<label>]/` (en corridas solo de etapas de decisión, `<modelo evaluado>` es `decisionModel`; en generativas o mixtas, el modelo generativo; con `--client=oracle` o `mock`: `eval/results/_oracle/…` y `_mock/…`). Una colisión en el mismo segundo agrega `-2`, `-3`…
 
 | Archivo | Contenido |
 |---|---|
@@ -277,8 +279,7 @@ const mi_variante: Variant = {
 export default mi_variante;
 ```
 
-- **Parámetros** de una etapa generativa: `params: { pending: { temperature: 0.2, maxTokens: 512 } }` (`thinking`, `maxTokens`, `temperature`, `schema`, `reasoningEffort`). Si la variante fija `thinking`, no se expande con `--thinking`.
-- **Preguntas propias:** si cambia el conjunto de preguntas de `args_review` o `result_verification`, `read.args_review` / `read.result_verification` dicen cómo salen la etiqueta o `ok`/`cumple`. Las claves de `route` (`route`) y `tool_choice` (`selected_tool`) son fijas.
+- **Parámetros / `read` heredados:** `params` (p. ej. temperatura o schema en generativas) y `read` (mapeos personalizados de respuestas en decisión) solo están soportados para variantes manuales históricas (archivadas en `eval/variants/_archivo_legacy/`) y están prohibidos en `--auto` y en el contrato vigente de nuevas variantes.
 - Los helpers de `prompts.ts` (`frameLines`, `listBlock`, `lastFailedBy`, `REVIEW_OPTIONS`, `VERIFY_QUESTIONS`, `join`, `todayLine`…) están exportados para reutilizar lo que no cambia. Para partir del texto actual, usar `--dry-run`.
 - Un error en el constructor o un request mal formado es error de carga.
 - Plantilla de las cuatro etapas de decisión: `variants/decision_all_stages_example.ts`. Se corre con `--variant=prod,mi_variante`.
@@ -336,12 +337,12 @@ npm run eval -- --auto \
 
 *(Equivalente directo: `npx tsx eval/auto.ts ...`.)*
 
-- **Modelos:** el modelo **evaluado** se elige según la etapa con `--decision-model=<id>` (etapas de decisión) o `--generative-model=<id>` (etapas generativas), o en forma combinada con `--model=<gen>[+<dec>]` (por defecto lee `jarvis-config.json`). `--optimizer-model=<id>` define únicamente el LLM coordinador que propone variantes y evalúa `conclusiones.md` (por defecto con `--optimizer-thinking=off` para evitar respuestas vacías en modelos híbridos tipo Qwen 3.5 con `json_schema`).
-- **Inicialización:** busca en `eval/results/` corridas previas 100 % compatibles en huella (`datasetHash`, `cases.hash`, modelo, `thinking`, `stageConfigHash`, `repeat`, `variantHash`, sin filtros) para `prod` y las variantes activas de la etapa; si faltan, corre Vuelta 0 automática (o usa `--seed-top=v1,v2`). Si existe `auto_state.json` con la misma huella, conserva el historial de la mejor variante.
+- **Modelos:** el modelo **evaluado** se elige con `--decision-model=<id>`, `--generative-model=<id>` o `--model=<gen>[+<dec>]` (compatibles en modo normal y `--auto`; por defecto lee `jarvis-config.json`). `--optimizer-model=<id>` define únicamente el LLM coordinador que propone variantes y evalúa `conclusiones.md` (por defecto con `--optimizer-thinking=off` para evitar respuestas vacías en modelos híbridos tipo Qwen 3.5 con `json_schema`).
+- **Inicialización:** busca en `eval/results/` corridas previas 100 % compatibles en huella (`datasetHash`, `cases.hash`, modelo evaluado según tipo de etapa, `thinking`, `stageConfigHash`, `repeat`, `variantHash`, `includeShortcut`, sin filtros) para `prod` y las variantes activas de la etapa; si faltan, corre Vuelta 0 automática (o usa `--seed-top=v1,v2`). Si existe `auto_state.json` con la misma huella, conserva el historial de la mejor variante.
 - **Datasets por defecto:** al omitir `--dataset`, descubre los `.jsonl` con casos de `--stage` excluyendo `smoke.jsonl` y archivos `*_holdout*.jsonl` (que deben pedirse explícitamente en `--dataset` o `--holdout`).
-- **Seguridad y validación:** antes de evaluar, valida cada variante generada con TypeScript (`esbuild`: allowlist de imports hacia `src/core/**` y `eval/core/variants/types.ts`, bloqueo de `params`, `read` y código dinámico), normaliza `name`, deduplica por hash e importa en ESM ejecutando `loadDatasets` y verificando presupuesto de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`). Si falla, pide reparación al optimizador (hasta 2 reintentos).
-- **Ranking, archivado y `conclusiones.md`:** corre `[prod, ...top2, nueva_a, nueva_b]` en un solo lote; ordena en código por `passRate`/`macroPassRate` y desempates deterministas (`clientFailedRuns`, `retriedRuns`, ventaja neta y `signTestP` vs `prod`, `p50DurationMs`, `avgPromptTokens`). Las variantes generadas fuera del Top-2 que no superan a `prod` se mueven a `eval/variants/_auto/<stage>/descartadas/` (excluidas de `listVariantNames()`). Al cerrar cada vuelta, consulta al optimizador si corresponde actualizar `conclusiones.md` (`update: boolean`) y persiste `eval/variants/_auto/<stage>/auto_state.json`.
-- **Códigos de salida:** `0` si alguna variante `!= prod` alcanza `--target` (confirmando `--holdout` si se indicó; si cae en holdout, registra alerta de sobreajuste y continúa); `1` si se agota `--max-loops` sin alcanzar `--target`; `2` ante error de configuración, datasets o transporte/infraestructura (sin tocar `conclusiones.md` ni `auto_state.json`).
+- **Seguridad y validación:** antes de evaluar o escribir a disco, compila cada variante con `esbuild`, verifica allowlist de imports (`src/core/**` y `eval/core/variants/types.ts`), valida dinámicamente las exportaciones de `prompts.ts`, bloquea `params`/`read`/código dinámico, normaliza `name`, deduplica por hash y la ejecuta en un sandbox aislado (`node:vm`) corriendo `loadDatasets` y verificando presupuesto de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`). Solo si pasa todo se escribe en `eval/variants/_auto/<stage>/`; si falla, pide reparación al optimizador (hasta 2 reintentos).
+- **Ranking, archivado y `conclusiones.md`:** corre `[prod, ...top2, nueva_a, nueva_b]` en un solo lote; ordena en código por `passRate`/`macroPassRate` y desempates deterministas (`clientFailedRuns`, `retriedRuns`, ventaja neta y `signTestP` vs `prod`, `p50DurationMs`, `avgPromptTokens`). Las variantes generadas fuera del Top-2 que no superan a `prod` se mueven a `eval/variants/_auto/<stage>/descartadas/` (excluidas de `listVariantNames()`). Al cerrar cada vuelta, contrasta cifras y consulta al optimizador si corresponde actualizar `conclusiones.md` (`update: boolean`) y persiste `eval/variants/_auto/<stage>/auto_state.json`.
+- **Códigos de salida:** `0` si alguna variante `!= prod` alcanza `--target` (confirmando `--holdout` si se indicó; una variante que cae en holdout no vuelve a re-evaluarse contra holdout en vueltas siguientes, registra alerta de sobreajuste y continúa); `1` si se agota `--max-loops` sin alcanzar `--target`; `2` ante error de configuración, datasets o transporte/infraestructura (sin tocar `conclusiones.md` ni `auto_state.json`).
 
 Ver ayuda completa con `npm run eval -- --auto --help` y diseño completo en [`DISENO_EVAL_AUTONOMO.md`](../docs/evaluacion/DISENO_EVAL_AUTONOMO.md).
 

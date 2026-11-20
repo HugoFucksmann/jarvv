@@ -1,5 +1,5 @@
-import { DATA_NOTICE_EN, PROMPTS } from "../../../src/core/models/prompts.ts";
-import type { Variant } from "../../core/variants/types.ts";
+import { DATA_NOTICE_EN, PROMPTS } from "../../../../src/core/models/prompts.ts";
+import type { Variant } from "../../../core/variants/types.ts";
 
 /**
  * pending2 con prompt conciso que explica el propósito de cada campo (quién lo lee y para qué), sin ejemplos

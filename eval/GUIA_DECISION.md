@@ -2,7 +2,7 @@
 
 Leer **antes** de tocar un prompt, una variante o un dataset de una etapa de decisión. Es una entrada corta: lo que ya se sabe, lo que no vale la pena probar y cómo medir sin engañarse. El detalle histórico está en los documentos enlazados al final; si algo de acá lo contradice una medición nueva y bien hecha, actualizar esta guía.
 
-Etapas de decisión del eval: `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery` (y `plan`/`pending`/`question`/`final` son del generativo, no de este modelo).
+Etapas de decisión del eval: `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery`, `continuation` (`plan`, `arguments`, `pending`, `question` y `final` son del generativo, no de este modelo).
 
 ---
 
@@ -103,7 +103,7 @@ npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --variant=pro
 npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --ids=rec-rp-02 --dry-run --client=mock
 ```
 
-- La carpeta del dataset se pasa **completa**: `--dataset=eval/datasets/<carpeta>` (`--dataset=recovery` no se resuelve).
+- Los **archivos** `.jsonl` se resuelven por nombre corto en cualquier subcarpeta (ej. `--dataset=recovery_casos`); para correr una **carpeta** entera hay que pasar la ruta (`--dataset=eval/datasets/recovery`), porque el resolvedor corto busca archivos y globs, no nombres de subcarpetas.
 - Los resultados van a `eval/results/` (ignorado por git).
 - Una corrida mide una variante contra `prod` en los mismos casos: incluir siempre `prod` en `--variant`.
 
@@ -125,15 +125,15 @@ Cada punto tiene su evidencia en el documento enlazado. **No volver a probarlo s
 - **Preguntas detalladas en D5**: una pregunta mínima ganó (2 falsos «sí» contra 5 con la detallada). [`limitaciones/d3-2b`]
 - **Aplicar una regla a todos los pasos** («A copy is not a move.» en todos): sube `cumple` en casos ajenos (−3 de 164). Hay que condicionarla (solo pasos de mover/renombrar). [`limitaciones/d3-2b`]
 - **Fiarse de la probabilidad** como confianza (recovery): no separa aciertos de errores. Ver 2.4.
-- *(Los puntos de `recovery` de abajo se midieron con la versión anterior de cuatro opciones, ya eliminada tras migrar a 3 opciones.)*
-- **Rótulo neutro `FAILED CALLS` sin `independent` en `recovery` (`recovery_neutral_labels`)**: baja de 58,6 % a 55,2 % (-3,4 %, 2 regresiones `rec-rw-05`, `rec-rw-10` y 1 mejora `rec-cl-05`). Quitar el contexto de reemplazo sesga negativamente las decisiones de reintento.
-- **Redefinir `replan` como prerrequisito faltante en `recovery` (`recovery_replan_prereq`)**: cae bruscamente a 41,4 % (-17,2 %, 5 regresiones graves en `rec-rw-05`, `rec-rw-07`, `rec-rp-01`, `rec-cl-02`, `rec-cl-07`). El 2B confunde "prerequisite" y manda a replan casos de cierre o de reescritura.
-- **Eliminar `PENDING_VIEW` para dejar solo estado ultra-compacto en `recovery` (`recovery_compact_state`)**: colapsa `replan` a 0/16 aciertos en los dos datasets (18 regresiones vs prod), perdiendo completamente la capacidad de detectar necesidad de replanificar por falta del historial de llamadas previas.
-- **Reglas negativas en la instrucción de recovery ("If attempts >= 2 do NOT choose rewrite_item") (`recovery_attempt_constraint` / `recovery_precise_attempts`)**: empeoran el passRate general frente a prod (-3,3 % y -4,9 %, con 20 y 19 regresiones). El 2B atiende a la mención del token ("rewrite_item") o se confunde con la negación lógica compleja, colapsando el recall de `close` (a 0-8 %) y disparando falsos `rewrite_item`.
-- **Simplificación extrema en una frase por opción (`recovery_concise_rules`)**: cae a 38,5 % (-4,9 % vs prod), disparando falsos replan (19 falsos en recovery3) al quedar el criterio de replan demasiado laxo ("an essential prerequisite step is missing or wrong").
-- **Intentar forzar routing por intento en la instrucción de action (`recovery_attempt_routed`)**: rinde 62,3 % global (+16,4 %), pero genera 9 falsos `skip_continue` y 17 regresiones vs prod. La instrucción condicional larga sobrecarga la atención del 2B frente a criterios independientes claros.
-- **Ampliar palabras clave de prerrequisito en replan (`recovery_synthesis_prereq_boost` y `recovery_boundary_balance`)**: baja el passRate a 61,5 % y 59,0 % (perdiendo 5 y 9 puntos frente al 66,4 % de `recovery_calibrated_synthesis`). Introducir términos de servicios, paquetes o múltiples ejemplos induce falsos `close` o canibaliza `rewrite_item`.
-- **Más texto en el prompt para que «entienda mejor»**: el 2B responde mejor a menos texto y rótulos. Ver 2.2.
+- *(Los puntos de `recovery` de abajo corresponden a mediciones históricas con versiones anteriores, varias ya eliminadas tras consolidar `prod` en 3 opciones.)*
+- **Rótulo neutro `FAILED CALLS` sin `independent` en `recovery` (`recovery_neutral_labels`, histórica eliminada):** baja de 58,6 % a 55,2 % (-3,4 %, 2 regresiones `rec-rw-05`, `rec-rw-10` y 1 mejora `rec-cl-05`). Quitar el contexto de reemplazo sesga negativamente las decisiones de reintento.
+- **Redefinir `replan` como prerrequisito faltante en `recovery` (`recovery_replan_prereq`, histórica eliminada):** cae bruscamente a 41,4 % (-17,2 %, 5 regresiones graves en `rec-rw-05`, `rec-rw-07`, `rec-rp-01`, `rec-cl-02`, `rec-cl-07`). El 2B confunde "prerequisite" y manda a replan casos de cierre o de reescritura.
+- **Eliminar `PENDING_VIEW` para dejar solo estado ultra-compacto en `recovery` (`recovery_compact_state`, histórica eliminada):** colapsa `replan` a 0/16 aciertos en los dos datasets (18 regresiones vs prod), perdiendo completamente la capacidad de detectar necesidad de replanificar por falta del historial de llamadas previas.
+- **Reglas negativas en la instrucción de recovery ("If attempts >= 2 do NOT choose rewrite_item") (`recovery_attempt_constraint` / `recovery_precise_attempts`, históricas eliminadas):** empeoran el passRate general frente a prod (-3,3 % y -4,9 %, con 20 y 19 regresiones). El 2B atiende a la mención del token ("rewrite_item") o se confunde con la negación lógica compleja, colapsando el recall de `close` (a 0-8 %) y disparando falsos `rewrite_item`.
+- **Simplificación extrema en una frase por opción (`recovery_concise_rules`, histórica eliminada):** cae a 38,5 % (-4,9 % vs prod), disparando falsos replan (19 falsos en recovery3) al quedar el criterio de replan demasiado laxo ("an essential prerequisite step is missing or wrong").
+- **Intentar forzar routing por intento en la instrucción de action (`recovery_attempt_routed`, histórica eliminada):** rinde 62,3 % global (+16,4 %), pero genera 9 falsos `skip_continue` y 17 regresiones vs prod. La instrucción condicional larga sobrecarga la atención del 2B frente a criterios independientes claros.
+- **Ampliar palabras clave de prerrequisito en replan (`recovery_synthesis_prereq_boost` y `recovery_boundary_balance`, históricas eliminadas frente a `recovery_calibrated_synthesis`):** baja el passRate a 61,5 % y 59,0 %. Introducir términos de servicios, paquetes o múltiples ejemplos induce falsos `close` o canibaliza `rewrite_item`.
+- **Más texto en el prompt para que «entienda mejor»:** el 2B responde mejor a menos texto y rótulos. Ver 2.2.
 
 ### Límites conocidos que los prompts no arreglan
 D1 falla casi siempre en «hacé ping a google.com» (la palabra de dominio lo manda a `web`) y cuando el verbo de archivo (crear, mover) pesa más que «en la terminal»; D4/D5 aprueban «copiar» donde se pidió «mover» (0,97–0,99) y rechazan pedidos condicionales completos (0,09–0,19). Eso se arregla con **código** (pre-chequeos, tablas), no con prompts. Ver [`docs/evaluacion/limitaciones/d3-2b.md`].
@@ -144,7 +144,7 @@ D1 falla casi siempre en «hacé ping a google.com» (la palabra de dominio lo m
 
 Consulta de Decisión **tras un paso fallido**: qué hacer con el ítem (`close`, `rewrite_item` o `replan`; sin `skip_continue`). **En el motor corre solo en modo sombra** (ver «Modo sombra» abajo): registra qué haría y no actúa; el diseño y el despliegue están en `docs/pendientes/PENDIENTES_CODIGO.md` §9.1, punto 6.
 
-- Etapa: `eval/core/stages/recovery.ts`. Prompt de producción (`prod`): `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts` (es `recovery_three_options_nobehind`). Datasets y regla de etiquetado: `eval/datasets/recovery/README.md`. Plantilla de variante: `eval/variants/recovery/recovery_three_options.ts`.
+- Etapa: `eval/core/stages/recovery.ts`. Prompt de producción (`prod`): `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts` (basado en `recovery_three_options_nobehind`). Datasets y regla de etiquetado: `eval/datasets/recovery/README.md`. Variantes activas actuales en `eval/variants/recovery/`: `recovery_three_options_nobehind`, `recovery_three_options_examples`, `recovery_rewrite_or_close`, `recovery_boundary_calibrated`.
 - **Con el prompt de producción actual** sobre los 240 casos de `eval/datasets/recovery/` (los 7 datasets, `skip_continue` reetiquetado a `close`): 78 % (186/240); `rewrite_item` 91 %, `replan` 52 %, `close` 81 %. Es el mismo número que `recovery_three_options_nobehind`.
 - **Dónde se pierde:** `replan` (lo cubren las reglas de `recoveryRules.ts`) y los `close` que el modelo manda a reintentar. Las reglas delante del modelo suben el acierto a ~95 % en `n1`–`n4` (ver arriba), con la salvedad de la circularidad.
 - Recordar 2.3: `rewrite_item` y `replan` son opciones parecidas: es lo que más confunde el 2B y lo que cubren las reglas.

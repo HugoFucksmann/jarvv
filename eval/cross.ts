@@ -23,7 +23,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from "node:path";
 import type { CommandReport } from "../src/core/engine/precheck.ts";
 import { analyzePowerShell } from "../src/core/engine/precheck.ts";
-import { NOUL_APPROVE } from "../src/core/engine/verify.ts";
+import { NOUL_APPROVE, OK_APPROVE } from "../src/core/engine/verify.ts";
 import { getToolPolicy, serverOf } from "../src/core/tools/manifest.ts";
 import { datasetName, resolveDatasetPaths } from "./core/datasets.ts";
 import { signTestP } from "./core/report.ts";
@@ -61,7 +61,12 @@ function loadCases(dataset: string): Array<{ dataset: string; cases: RawCase[] }
     for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
       const t = line.trim();
       if (t === "" || t.startsWith("#")) continue;
-      const c = JSON.parse(t) as RawCase;
+      let c: RawCase;
+      try {
+        c = JSON.parse(t) as RawCase;
+      } catch {
+        continue;
+      }
       if (c.stage === "args_review" && c.scenario !== undefined && c.expect?.expectedReview !== undefined) cases.push(c);
     }
     return { dataset: datasetName(path), cases };
@@ -133,6 +138,7 @@ interface D3Run {
 }
 
 function loadRuns(dir: string): D3Run[] {
+  if (!existsSync(dir)) return [];
   const out: D3Run[] = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.includes("__")) continue;
@@ -140,9 +146,14 @@ function loadRuns(dir: string): D3Run[] {
     const file = join(dir, entry.name, "runs.jsonl");
     if (!existsSync(file)) continue;
     const byCase = new Map<string, string>();
-    for (const line of readFileSync(file, "utf8").split("\n")) {
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
       if (line.trim() === "") continue;
-      const r = JSON.parse(line) as { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
+      let r: { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
+      try {
+        r = JSON.parse(line) as { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
+      } catch {
+        continue;
+      }
       if (r.stage === "args_review" && r.iteration === 1 && r.predictedLabel !== null) byCase.set(r.caseId, r.predictedLabel);
     }
     if (byCase.size > 0) out.push({ variant: entry.name.slice(0, i), dataset: entry.name.slice(i + 2), byCase });
@@ -171,7 +182,11 @@ function preReport(rows: CaseRow[]): string[] {
   md.push("### Recall por modo de falla (etiqueta de tag)", "", "| Tag | Casos | Marcadas |", "|---|---|---|");
   const tags = new Map<string, CaseRow[]>();
   for (const r of rows.filter((x) => x.expected !== "approved")) {
-    for (const t of r.tags.filter((x) => !["escenario", "args_review", "mutacion", "traza"].includes(x))) tags.set(t, [...(tags.get(t) ?? []), r]);
+    for (const t of r.tags.filter((x) => !["escenario", "args_review", "mutacion", "traza"].includes(x))) {
+      const list = tags.get(t);
+      if (list) list.push(r);
+      else tags.set(t, [r]);
+    }
   }
   for (const [t, rs] of [...tags.entries()].sort((a, b) => b[1].length - a[1].length)) {
     md.push(`| ${t} | ${rs.length} | ${pct(rs.filter((r) => r.pre !== null).length, rs.length)} |`);
@@ -187,20 +202,25 @@ function preReport(rows: CaseRow[]): string[] {
   return md;
 }
 
-function crossReport(rows: CaseRow[], runs: D3Run[]): { md: string[]; json: unknown[] } {
+function crossReport(rows: CaseRow[], runs: D3Run[], baseline = "prod"): { md: string[]; json: unknown[] } {
   const md: string[] = ["", "## Tuberías con D3 (etiquetas de la primera repetición)", ""];
   const json: unknown[] = [];
   const index = new Map(rows.map((r) => [`${r.dataset}/${r.id}`, r]));
-  const variants = [...new Set(runs.map((r) => r.variant))];
-  const baseline = "prod";
-  if (!variants.includes(baseline)) {
+  const runsByVariant = new Map<string, D3Run[]>();
+  for (const r of runs) {
+    const list = runsByVariant.get(r.variant);
+    if (list) list.push(r);
+    else runsByVariant.set(r.variant, [r]);
+  }
+  const variants = [...runsByVariant.keys()];
+  if (!runsByVariant.has(baseline)) {
     md.push(`> ⚠ La corrida no tiene la variante \`${baseline}\` (¿se corrió con \`--no-baseline\`?): la columna de comparación queda sin datos (—).`, "");
     console.warn(`⚠ La corrida no tiene la variante '${baseline}': no hay comparación pareada.`);
   }
 
   const outcome = (variant: string, pipe: Pipe): Map<string, { ok: boolean; got: string; row: CaseRow }> => {
     const m = new Map<string, { ok: boolean; got: string; row: CaseRow }>();
-    for (const run of runs.filter((r) => r.variant === variant)) {
+    for (const run of runsByVariant.get(variant) ?? []) {
       for (const [id, d3] of run.byCase) {
         const row = index.get(`${run.dataset}/${id}`);
         if (row === undefined) continue;
@@ -246,33 +266,40 @@ function crossReport(rows: CaseRow[], runs: D3Run[]): { md: string[]; json: unkn
 // ───────────────────────── D4 (result_verification) ─────────────────────────
 
 function d4Report(dir: string): string[] {
+  if (!existsSync(dir)) return [];
   const md: string[] = ["", "## D4 (result_verification)", ""];
-  const byVariant = new Map<string, { good: number[]; bad: number[]; dataset: Set<string> }>();
+  const byVariant = new Map<string, { good: Array<{ ok: number; cumple: number }>; bad: Array<{ ok: number; cumple: number }>; dataset: Set<string> }>();
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.includes("__")) continue;
     const i = entry.name.lastIndexOf("__");
     const file = join(dir, entry.name, "runs.jsonl");
     if (!existsSync(file)) continue;
-    for (const line of readFileSync(file, "utf8").split(String.fromCharCode(10))) {
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
       if (line.trim() === "") continue;
-      const r = JSON.parse(line) as { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
+      let r: { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
+      try {
+        r = JSON.parse(line) as { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
+      } catch {
+        continue;
+      }
       if (r.stage !== "result_verification" || r.iteration !== 1 || r.parsedOutput?.okProbability === undefined || r.parsedOutput.cumpleProbability === undefined) continue;
-      const approve = Math.min(r.parsedOutput.okProbability, r.parsedOutput.cumpleProbability);
+      const sample = { ok: r.parsedOutput.okProbability, cumple: r.parsedOutput.cumpleProbability };
       const v = byVariant.get(entry.name.slice(0, i)) ?? { good: [], bad: [], dataset: new Set<string>() };
-      (r.expectedLabel === "ok=true,cumple=true" ? v.good : v.bad).push(approve);
+      (r.expectedLabel === "ok=true,cumple=true" ? v.good : v.bad).push(sample);
       v.dataset.add(entry.name.slice(i + 2));
       byVariant.set(entry.name.slice(0, i), v);
     }
   }
   if (byVariant.size === 0) return [];
-  md.push(`| Variante | Buenos | Buenos aprobados (≥ ${NOUL_APPROVE}) | Buenos auto-aprobados (≥ 0,9) | Malos | Falsos aprobados (≥ ${NOUL_APPROVE}) | Peor caso malo |`);
+  const approved = (s: { ok: number; cumple: number }) => s.ok >= OK_APPROVE && s.cumple >= NOUL_APPROVE;
+  md.push(`| Variante | Buenos | Buenos aprobados (ok≥${OK_APPROVE}, cumple≥${NOUL_APPROVE}) | Buenos auto-aprobados (≥ 0,9) | Malos | Falsos aprobados | Peor caso malo (min) |`);
   md.push("|---|---|---|---|---|---|---|");
   for (const [variant, v] of byVariant) {
     md.push(
-      `| ${variant} | ${v.good.length} | ${pct(v.good.filter((p) => p >= NOUL_APPROVE).length, v.good.length)} | ${pct(v.good.filter((p) => p >= 0.9).length, v.good.length)} | ${v.bad.length} | ${pct(v.bad.filter((p) => p >= NOUL_APPROVE).length, v.bad.length)} | ${v.bad.length === 0 ? "—" : Math.max(...v.bad).toFixed(3)} |`,
+      `| ${variant} | ${v.good.length} | ${pct(v.good.filter(approved).length, v.good.length)} | ${pct(v.good.filter((s) => Math.min(s.ok, s.cumple) >= 0.9).length, v.good.length)} | ${v.bad.length} | ${pct(v.bad.filter(approved).length, v.bad.length)} | ${v.bad.length === 0 ? "—" : Math.max(...v.bad.map((s) => Math.min(s.ok, s.cumple))).toFixed(3)} |`,
     );
   }
-  md.push("", `Aprobar = el mínimo entre \`ok\` y \`cumple\` llega a \`NOUL_APPROVE\` (${NOUL_APPROVE}); aproximación: en producción \`ok\` aprueba desde \`OK_APPROVE\` (0,3) y \`cumple\` desde \`NOUL_APPROVE\`. Buenos = esperado \`ok\` y \`cumple\`; malos = cualquier otro.`);
+  md.push("", `Aprobar = \`ok >= OK_APPROVE\` (${OK_APPROVE}) y \`cumple >= NOUL_APPROVE\` (${NOUL_APPROVE}), igual que producción. Buenos = esperado \`ok\` y \`cumple\`; malos = cualquier otro.`);
   return md;
 }
 
@@ -281,6 +308,7 @@ function d4Report(dir: string): string[] {
 async function main(): Promise<void> {
   const datasets = (flag("dataset") ?? "scenarios_args_review").split(",").map((s) => s.trim()).filter(Boolean);
   const runsDir = flag("runs");
+  const baseline = flag("baseline") ?? "prod";
   const label = flag("label") ?? "";
   console.log(`Pre-chequeo sobre ${datasets.join(", ")}…`);
   const rows = await precheckRows(datasets);
@@ -288,11 +316,14 @@ async function main(): Promise<void> {
   const md = ["# Cruce del pre-chequeo con D3", "", `Datasets: ${datasets.join(", ")}${runsDir ? ` · corrida: \`${runsDir}\`` : ""}`, "", ...preReport(rows)];
   let json: unknown[] = [];
   if (runsDir !== undefined) {
+    if (!existsSync(runsDir)) {
+      throw new Error(`No existe la carpeta de corridas '${runsDir}'.`);
+    }
     const datasetNames = new Set(resolveDatasetPaths(datasets).map(datasetName));
     const runs = loadRuns(runsDir).filter((r) => datasetNames.has(r.dataset));
     if (runs.length === 0) console.warn("⚠ La corrida no tiene resultados de args_review para esos datasets.");
     else {
-      const x = crossReport(rows, runs);
+      const x = crossReport(rows, runs, baseline);
       md.push(...x.md);
       json = x.json;
     }

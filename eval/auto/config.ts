@@ -16,7 +16,7 @@ import {
   flagInt,
   flagStr,
   parseArgvFlags,
-  parseModelSpec,
+  resolveEvaluatedModels,
   type EvalConfig,
 } from "../core/config.ts";
 import { allStageNames } from "../core/stages/index.ts";
@@ -163,25 +163,7 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
     throw new Error("--seed-top: las variantes no se componen con '+'.");
   }
 
-  const modelRaw = flagStr(flags, "model");
-  const genOverride = flagStr(flags, "generative-model");
-  const decOverride = flagStr(flags, "decision-model");
-
-  const parsedModel = modelRaw !== undefined
-    ? parseModelSpec(modelRaw)
-    : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
-  const explicitGenInModel = modelRaw !== undefined ? modelRaw.split("+")[0].trim() : "";
-  const explicitDecInModel = modelRaw !== undefined ? (modelRaw.split("+")[1] ?? "").trim() : "";
-
-  if (genOverride && explicitGenInModel && genOverride !== explicitGenInModel) {
-    throw new Error(`--generative-model='${genOverride}' entra en conflicto con --model='${modelRaw}'. Use solo uno.`);
-  }
-  if (decOverride && explicitDecInModel && decOverride !== explicitDecInModel) {
-    throw new Error(`--decision-model='${decOverride}' entra en conflicto con --model='${modelRaw}'. Use solo uno.`);
-  }
-
-  const model = genOverride ?? parsedModel.model;
-  const decisionModel = decOverride ?? parsedModel.decisionModel;
+  const { model, decisionModel } = resolveEvaluatedModels(flags);
 
   const optimizerApiKeyEnv = flagStr(flags, "optimizer-api-key-env");
   if (optimizerApiKeyEnv && !process.env[optimizerApiKeyEnv]?.trim()) {

@@ -49,6 +49,9 @@ export function estimateDecisionPromptTokens(req: DecisionRequest): number {
 
 export function createDecisionClient(cfg: DecisionClientConfig): DecisionClient {
   const base = cfg.url.trim().replace(/\/+$/, "");
+  if (!base) {
+    throw new Error("La URL de Decision 2.0 no está configurada. Configúrela con --decision-url o en jarvis-config.json.");
+  }
 
   // Closure en vez de `this.prepare`: `const { call } = client` ya no rompe.
   const prepare = (req: DecisionRequest): PreparedRequest => {
@@ -59,10 +62,6 @@ export function createDecisionClient(cfg: DecisionClientConfig): DecisionClient 
   return {
     prepare,
     async call(req, timeoutMs) {
-      // Como `Decision20Engine.systemOne`: sin URL configurada no se envía nada (error de configuración, no de red).
-      if (!base) {
-        return { ok: false, error: "config: la URL de Decision 2.0 no está configurada (--decision-url o jarvis-config.json).", durationMs: 0 };
-      }
       const { url, body } = prepare(req);
       const res = await postJson(url, body, timeoutMs);
       if (!res.ok) return res;

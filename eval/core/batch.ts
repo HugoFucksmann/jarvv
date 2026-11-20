@@ -17,7 +17,6 @@ import type { Dataset } from "./datasets.ts";
 import { generateComparisonReport, writeComparison, type ComparisonReport, type InputCell } from "./report.ts";
 import { buildRunMeta, createCellWriter, newRunId, runRootDir, safeName, timestampDir } from "./results.ts";
 import { runDataset } from "./runner.ts";
-import { computeScoreSummary } from "./scoring.ts";
 import type { RunRecord, StageName } from "./types.ts";
 import type { Variant } from "./variants/types.ts";
 
@@ -121,6 +120,7 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
       const writer = createCellWriter(rootDir, vr.spec, ds.name);
       let runCount = 0;
       let passCount = 0;
+      let failedCalls = 0;
 
       const meta = buildRunMeta({
         cfg,
@@ -134,6 +134,7 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
       });
 
       let result;
+      let scores;
       try {
         result = await runDataset({
           cases,
@@ -144,17 +145,19 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
           genClient: clients.genClient,
           decClient: clients.decClient,
           stageFilter,
+          collectRecords: false,
           onRecord: (record: RunRecord) => {
             writer.writeRun(record);
             if (record.bucket === "canonical") {
               runCount++;
               if (record.passed) passCount++;
+              if (record.metrics.client_call_ok === false) failedCalls++;
             }
             opts.onRecord?.(record);
           },
         });
       } finally {
-        writer.close(meta);
+        scores = writer.close(meta);
       }
 
       if (result.allNetworkFailed) {
@@ -163,15 +166,12 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
         allNetworkFailed = false;
       }
 
-      const failedCalls = result.records.filter(
-        (r) => r.bucket === "canonical" && r.metrics.client_call_ok === false,
-      ).length;
       opts.onCellEnd?.({ variantSpec: vr.spec, dataset: ds, passCount, runCount, failedCalls });
 
       comparisonCells.push({
         variantSpec: vr.spec,
         datasetName: ds.name,
-        scores: computeScoreSummary(writer.records),
+        scores,
         records: writer.records,
       });
     }

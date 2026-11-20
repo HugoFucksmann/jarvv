@@ -13,15 +13,18 @@
 
 import { transformSync } from "esbuild";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { basename, dirname, normalize, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import vm from "node:vm";
 import { ConfigManager } from "../../src/core/config.ts";
+import * as PROMPTS_MOD from "../../src/core/models/prompts.ts";
 import { DECISION_MAX_CONTEXT, estimateDecisionPromptTokens } from "../core/client/decision.ts";
 import { reserveCompletionTokens } from "../core/client/generative.ts";
 import { COMPLETION_KEY, CONTINUATION_KEY, RECOVERY_KEY } from "../core/contract.ts";
 import { loadDatasets } from "../core/datasets.ts";
 import type { DecisionRequest, GenerativeRequest, StageName } from "../core/types.ts";
+import { fragmentKeys } from "../core/variants/labels.ts";
 import type { Variant } from "../core/variants/types.ts";
 import { autoStageDir } from "./config.ts";
 import { getStageContract } from "./stageContract.ts";
@@ -39,7 +42,21 @@ const BANNED_IDENTIFIERS = new Set([
   "Deno",
 ]);
 
-const UNEXPORTED_PROMPTS_HELPERS = new Set(["POWERSHELL_RULES", "ROUTE_HINTS"]);
+const REGEX_PRE_KEYWORDS = new Set([
+  "return",
+  "throw",
+  "case",
+  "in",
+  "of",
+  "typeof",
+  "void",
+  "delete",
+  "await",
+  "yield",
+  "else",
+  "do",
+  "new",
+]);
 
 export interface ValidationSuccess {
   ok: true;
@@ -119,8 +136,33 @@ function validateImportSpecifier(specifier: string, targetFilePath: string): str
 }
 
 /**
- * Enmascara comentarios y contenido de strings/plantillas estáticas con espacios preservando longitudes
- * e índices exactos; las expresiones `${...}` dentro de templates se conservan como código activo.
+ * Detecta si `/` en la posición actual inicia un literal RegExp (y no un operador de división).
+ */
+function isRegexStart(src: string, maskedOut: string[], slashIdx: number): boolean {
+  let p = slashIdx - 1;
+  while (p >= 0 && /\s/.test(src[p])) p--;
+  if (p < 0) return true;
+
+  // Mirar el carácter anterior en la salida ya procesada (para saltar comentarios previos)
+  while (p >= 0 && /\s/.test(maskedOut[p])) p--;
+  if (p < 0) return true;
+
+  const ch = maskedOut[p];
+  if (/[A-Za-z0-9_$]/.test(ch)) {
+    let start = p;
+    while (start > 0 && /[A-Za-z0-9_$]/.test(maskedOut[start - 1])) start--;
+    const word = maskedOut.slice(start, p + 1).join("");
+    return REGEX_PRE_KEYWORDS.has(word);
+  }
+  if (ch === ")" || ch === "]") return false;
+  if (ch === "+" && p > 0 && maskedOut[p - 1] === "+") return false;
+  if (ch === "-" && p > 0 && maskedOut[p - 1] === "-") return false;
+  return true;
+}
+
+/**
+ * Enmascara comentarios, RegExp literals y contenido de strings/plantillas estáticas con espacios
+ * preservando longitudes e índices exactos; las expresiones `${...}` dentro de templates se conservan.
  */
 function maskCodePreserveOffsets(src: string): string {
   const out = new Array<string>(src.length);
@@ -175,6 +217,38 @@ function maskCodePreserveOffsets(src: string): string {
       }
       if (i < src.length) {
         out[i++] = " ";
+        out[i++] = " ";
+      }
+      continue;
+    }
+
+    // Literal RegExp: preserva delimitadores `/`, enmascara patrón interno (respetando escapes y `[...]`)
+    if (ch === "/" && isRegexStart(src, out, i)) {
+      out[i++] = "/";
+      let inClass = false;
+      while (i < src.length) {
+        const rc = src[i];
+        if (rc === "\n") break;
+        if (rc === "\\" && i + 1 < src.length) {
+          out[i] = " ";
+          out[i + 1] = src[i + 1] === "\n" ? "\n" : " ";
+          i += 2;
+          continue;
+        }
+        if (rc === "[" && !inClass) {
+          inClass = true;
+          out[i++] = " ";
+          continue;
+        }
+        if (rc === "]" && inClass) {
+          inClass = false;
+          out[i++] = " ";
+          continue;
+        }
+        if (rc === "/" && !inClass) {
+          out[i++] = "/";
+          break;
+        }
         out[i++] = " ";
       }
       continue;
@@ -452,6 +526,22 @@ function applyNameOverride(code: string, variantName: string): { code: string; e
   return { code: patched };
 }
 
+let cachedPromptsExportedTypes: Set<string> | null = null;
+function getPromptsExportedTypes(): Set<string> {
+  if (cachedPromptsExportedTypes) return cachedPromptsExportedTypes;
+  const set = new Set<string>();
+  try {
+    const src = readFileSync(resolve("src/core/models/prompts.ts"), "utf8");
+    const re = /^export\s+(?:type|interface)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(src)) !== null) set.add(m[1]);
+  } catch {
+    // fallback vacío
+  }
+  cachedPromptsExportedTypes = set;
+  return set;
+}
+
 function checkImportsAndExports(
   rawCode: string,
   targetFilePath: string,
@@ -517,14 +607,19 @@ function checkImportsAndExports(
     const specErr = validateImportSpecifier(specifier, targetFilePath);
     if (specErr) return specErr;
 
-    if (specifier.endsWith("/models/prompts.ts")) {
-      const namedBrace = rawStmt.match(/\{([\s\S]*?)\}/);
+    if (specifier.endsWith("/models/prompts.ts") && !/^import\s+type\b/.test(rawStmt)) {
+      const namedBrace = rawStmt.match(/\{([^}]*)\}/);
       if (namedBrace) {
+        const exportedTypes = getPromptsExportedTypes();
         const items = namedBrace[1].split(",").map((s) => s.trim()).filter(Boolean);
         for (const item of items) {
-          const clean = item.replace(/^type\s+/, "");
-          const importedName = clean.split(/\s+as\s+/)[0].trim();
-          if (UNEXPORTED_PROMPTS_HELPERS.has(importedName)) {
+          if (/^type\s+/.test(item)) continue;
+          const importedName = item.split(/\s+as\s+/)[0].trim();
+          if (
+            importedName &&
+            !Object.prototype.hasOwnProperty.call(PROMPTS_MOD, importedName) &&
+            !exportedTypes.has(importedName)
+          ) {
             return `'${importedName}' NO está exportado desde src/core/models/prompts.ts; definilo como const local en tu variante.`;
           }
         }
@@ -545,46 +640,51 @@ function runStaticAstValidation(
   code: string,
   targetFilePath: string,
   stage: StageName,
-): string | null {
-  // 1. Chequeo de sintaxis TypeScript y borrado de tipos vía esbuild
-  let jsCode: string;
+): { error: string } | { error: null; cjsCode: string } {
+  // 1. Chequeo de sintaxis TypeScript y borrado de tipos vía esbuild (ESM para inspección + CJS para sandbox VM)
+  let esmCode: string;
+  let cjsCode: string;
   try {
-    const res = transformSync(code, {
+    esmCode = transformSync(code, {
       loader: "ts",
       format: "esm",
       sourcefile: targetFilePath,
-    });
-    jsCode = res.code;
+    }).code;
+    cjsCode = transformSync(code, {
+      loader: "ts",
+      format: "cjs",
+      sourcefile: targetFilePath,
+    }).code;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return `Error de sintaxis TypeScript: ${msg.split("\n").slice(0, 4).join(" | ")}`;
+    return { error: `Error de sintaxis TypeScript: ${msg.split("\n").slice(0, 4).join(" | ")}` };
   }
 
   // 2. Allowlist de imports (sobre el TS original para cubrir `import type` y runtime)
   const importErr = checkImportsAndExports(code, targetFilePath);
-  if (importErr) return importErr;
+  if (importErr) return { error: importErr };
 
   // 3. Estructura estática del objeto Variant en `export default`
   const found = findExportedVariantObjectBrace(code);
   if (!found) {
-    return "Debe exportar un objeto `Variant` válido en `export default`.";
+    return { error: "Debe exportar un objeto `Variant` válido en `export default`." };
   }
 
   const contract = getStageContract(stage);
   const rootEntries = parseTopLevelObjectEntries(code, found.masked, found.openBraceIdx);
   for (const prop of rootEntries) {
     if (prop.kind === "spread" || prop.kind === "computed") {
-      return "No se permiten spreads dinámicos ni propiedades computadas en el objeto raíz `Variant`.";
+      return { error: "No se permiten spreads dinámicos ni propiedades computadas en el objeto raíz `Variant`." };
     }
     const key = prop.key;
     if (key === "params") {
-      return "Prohibido definir `params`: el optimizador solo puede editar texto/estructura del prompt.";
+      return { error: "Prohibido definir `params`: el optimizador solo puede editar texto/estructura del prompt." };
     }
     if (key === "read") {
-      return "Prohibido definir `read`: el optimizador solo puede editar texto/estructura del prompt sin cambiar el esquema de preguntas.";
+      return { error: "Prohibido definir `read`: el optimizador solo puede editar texto/estructura del prompt sin cambiar el esquema de preguntas." };
     }
     if (key && key !== "name" && key !== "prompts") {
-      return `Propiedad no permitida en Variant: '${key}'. Solo se permiten 'name' y 'prompts'.`;
+      return { error: `Propiedad no permitida en Variant: '${key}'. Solo se permiten 'name' y 'prompts'.` };
     }
     if (key === "prompts" && prop.valueStart !== undefined) {
       const pBrace = stripAsAndParensStart(found.masked, prop.valueStart);
@@ -593,8 +693,10 @@ function runStaticAstValidation(
         for (const grpProp of grpEntries) {
           const grpKey = grpProp.key;
           if (grpKey !== contract.promptGroup) {
-            return `Para la etapa '${stage}', ` +
-              `\`prompts\` solo puede definir \`${contract.promptGroup}.${contract.promptKey}\` (recibido '${grpKey ?? "dinámico"}').`;
+            return {
+              error: `Para la etapa '${stage}', ` +
+                `\`prompts\` solo puede definir \`${contract.promptGroup}.${contract.promptKey}\` (recibido '${grpKey ?? "dinámico"}').`,
+            };
           }
           if (grpProp.valueStart !== undefined) {
             const gBrace = stripAsAndParensStart(found.masked, grpProp.valueStart);
@@ -602,8 +704,10 @@ function runStaticAstValidation(
               const stEntries = parseTopLevelObjectEntries(code, found.masked, gBrace);
               for (const stProp of stEntries) {
                 if (stProp.key !== contract.promptKey) {
-                  return `Para la etapa '${stage}', ` +
-                    `solo se puede definir \`${contract.promptKey}\` dentro de \`${contract.promptGroup}\` (recibido '${stProp.key ?? "dinámico"}').`;
+                  return {
+                    error: `Para la etapa '${stage}', ` +
+                      `solo se puede definir \`${contract.promptKey}\` dentro de \`${contract.promptGroup}\` (recibido '${stProp.key ?? "dinámico"}').`,
+                  };
                 }
               }
             }
@@ -614,9 +718,9 @@ function runStaticAstValidation(
   }
 
   // 4. Escaneo de seguridad sobre el JS sin anotaciones de tipo ni strings/comentarios
-  const maskedJs = maskCodePreserveOffsets(jsCode);
+  const maskedJs = maskCodePreserveOffsets(esmCode);
   if (/\bimport\s*\(/.test(maskedJs)) {
-    return "Prohibido usar dynamic `import(...)` en variantes generadas.";
+    return { error: "Prohibido usar dynamic `import(...)` en variantes generadas." };
   }
 
   const idRe = /[A-Za-z_$][A-Za-z0-9_$]*/g;
@@ -636,10 +740,34 @@ function runStaticAstValidation(
       continue;
     }
 
-    return `Identificador prohibido en variante generada: '${id}'.`;
+    return { error: `Identificador prohibido en variante generada: '${id}'.` };
   }
 
-  return null;
+  return { error: null, cjsCode };
+}
+
+/**
+ * Evalúa el CJS compilado dentro de un contexto `node:vm` efímero y con `require` restringido,
+ * sin escribir a disco ni ensuciar el registro de módulos ESM de V8 en intentos rechazados.
+ */
+function loadVariantInSandbox(cjsCode: string, virtualFilePath: string): unknown {
+  const hostRequire = createRequire(virtualFilePath);
+  const safeRequire = (specifier: string): unknown => {
+    const specErr = validateImportSpecifier(specifier, virtualFilePath);
+    if (specErr) throw new Error(specErr);
+    return hostRequire(specifier);
+  };
+  const mod: { exports: Record<string, unknown> } = { exports: {} };
+  vm.runInNewContext(
+    cjsCode,
+    {
+      module: mod,
+      exports: mod.exports,
+      require: safeRequire,
+    },
+    { filename: virtualFilePath, timeout: 2000 },
+  );
+  return mod.exports.default ?? mod.exports;
 }
 
 function validateRuntimeVariantShape(variant: unknown, variantName: string, stage: StageName): string | null {
@@ -739,8 +867,20 @@ function validateStageRequestsAndContext(stage: StageName, devPaths: string[], v
             return `Caso '${ds.name}/${fc.id}': la pregunta 'ok' debe ser type: 'noul'.`;
           }
         } else if (stage === "fragment_judge") {
-          if (!req.questions.f0 || req.questions.f0.type !== "noul") {
+          const fKeys = fragmentKeys(req);
+          if (fKeys.length === 0 || fKeys.some((k) => req.questions[k]?.type !== "noul")) {
             return `Caso '${ds.name}/${fc.id}': fragment_judge requiere preguntas noul f0, f1...`;
+          }
+          const expectedRelevant = (fc.expect as { expectedRelevant?: unknown }).expectedRelevant;
+          if (Array.isArray(expectedRelevant)) {
+            if (fKeys.length !== expectedRelevant.length) {
+              return `Caso '${ds.name}/${fc.id}': fragment_judge generó ${fKeys.length} preguntas y el caso tiene ${expectedRelevant.length} fragmentos.`;
+            }
+            for (let fi = 0; fi < expectedRelevant.length; fi++) {
+              if (!req.questions[`f${fi}`] || req.questions[`f${fi}`].type !== "noul") {
+                return `Caso '${ds.name}/${fc.id}': falta la pregunta noul 'f${fi}'.`;
+              }
+            }
           }
         } else if (stage === "d5") {
           if (!req.questions[COMPLETION_KEY] || req.questions[COMPLETION_KEY].type !== "noul") {
@@ -748,13 +888,18 @@ function validateStageRequestsAndContext(stage: StageName, devPaths: string[], v
           }
         } else if (stage === "recovery") {
           const act = req.questions[RECOVERY_KEY];
-          if (!act || act.type !== "choice") {
-            return `Caso '${ds.name}/${fc.id}': recovery requiere pregunta choice '${RECOVERY_KEY}'.`;
-          }
-          for (const opt of ["close", "rewrite_item", "replan"]) {
-            if (!(opt in act.criteria)) {
-              return `Caso '${ds.name}/${fc.id}': recovery.action.criteria debe incluir '${opt}'.`;
+          const twoAxes = req.questions.blocked?.type === "noul" && req.questions.prereq?.type === "noul";
+          if (act !== undefined) {
+            if (act.type !== "choice") {
+              return `Caso '${ds.name}/${fc.id}': recovery requiere pregunta choice '${RECOVERY_KEY}'.`;
             }
+            for (const opt of ["close", "rewrite_item", "replan"]) {
+              if (!(opt in act.criteria)) {
+                return `Caso '${ds.name}/${fc.id}': recovery.action.criteria debe incluir '${opt}'.`;
+              }
+            }
+          } else if (!twoAxes) {
+            return `Caso '${ds.name}/${fc.id}': recovery requiere pregunta choice '${RECOVERY_KEY}' o los ejes noul 'blocked' y 'prereq'.`;
           }
         } else if (stage === "continuation") {
           if (!req.questions[CONTINUATION_KEY] || req.questions[CONTINUATION_KEY].type !== "noul") {
@@ -791,9 +936,8 @@ function validateStageRequestsAndContext(stage: StageName, devPaths: string[], v
 }
 
 /**
- * Valida, normaliza, escribe en `eval/variants/_auto/<stage>/<variantName>.ts`,
- * verifica carga ESM (aislada con cache-busting) + `loadDatasets` + presupuesto de contexto.
- * En caso de fallo borra cualquier archivo temporal escrito y retorna `{ ok: false, error }`.
+ * Valida, normaliza, evalúa en memoria (sandbox `node:vm` + CJS sin contaminar ESM ni disco),
+ * verifica `loadDatasets` + presupuesto de contexto, y solo escribe `eval/variants/_auto/<stage>/<variantName>.ts` si pasa todo.
  */
 export async function validateAndWriteVariant(opts: {
   stage: StageName;
@@ -809,7 +953,6 @@ export async function validateAndWriteVariant(opts: {
   }
 
   const stageDir = resolve(autoStageDir(stage));
-  mkdirSync(stageDir, { recursive: true });
   const filePath = resolve(stageDir, `${variantName}.ts`);
 
   const patched = applyNameOverride(rawCode.trim() + "\n", variantName);
@@ -817,9 +960,9 @@ export async function validateAndWriteVariant(opts: {
     return { ok: false, error: patched.error };
   }
 
-  const staticErr = runStaticAstValidation(patched.code, filePath, stage);
-  if (staticErr) {
-    return { ok: false, error: staticErr };
+  const staticRes = runStaticAstValidation(patched.code, filePath, stage);
+  if (staticRes.error !== null) {
+    return { ok: false, error: staticRes.error };
   }
 
   const normalizedHash = normalizedVariantCodeHash(patched.code, variantName);
@@ -830,25 +973,22 @@ export async function validateAndWriteVariant(opts: {
     };
   }
 
-  // Escribimos el archivo temporal para importar con query string cache-busting; si falla lo borramos antes de retornar.
-  writeFileSync(filePath, patched.code, "utf8");
   try {
-    const bustUrl = `${pathToFileURL(filePath).href}?v=${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const mod = (await import(bustUrl)) as { default?: unknown };
-    const loaded = mod.default ?? mod;
+    const loaded = loadVariantInSandbox(staticRes.cjsCode, filePath);
 
     const runtimeErr = validateRuntimeVariantShape(loaded, variantName, stage);
     if (runtimeErr) {
-      safeUnlink(filePath);
       return { ok: false, error: runtimeErr };
     }
 
     const variant = loaded as Variant;
     const reqErr = validateStageRequestsAndContext(stage, devDatasetPaths, variant);
     if (reqErr) {
-      safeUnlink(filePath);
       return { ok: false, error: reqErr };
     }
+
+    mkdirSync(stageDir, { recursive: true });
+    writeFileSync(filePath, patched.code, "utf8");
 
     return {
       ok: true,
@@ -859,18 +999,9 @@ export async function validateAndWriteVariant(opts: {
       variant,
     };
   } catch (e) {
-    safeUnlink(filePath);
     return {
       ok: false,
       error: `Error cargando o materializando la variante '${variantName}': ${e instanceof Error ? e.message : String(e)}`,
     };
-  }
-}
-
-function safeUnlink(filePath: string): void {
-  try {
-    if (existsSync(filePath)) unlinkSync(filePath);
-  } catch {
-    // Ignorar fallo de limpieza
   }
 }

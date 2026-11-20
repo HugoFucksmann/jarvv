@@ -786,7 +786,10 @@ export function extractProdPromptSource(stage: StageName): string {
   let inTemplate = false;
   let inLineComment = false;
   let inBlockComment = false;
+  let inRegex = false;
+  let inRegexClass = false;
   let escaped = false;
+  let lastSig = "{";
 
   for (let pos = i; pos < content.length; pos++) {
     const ch = content[pos];
@@ -807,14 +810,36 @@ export function extractProdPromptSource(stage: StageName): string {
       escaped = false;
       continue;
     }
+    if (inRegex) {
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === "[" && !inRegexClass) {
+        inRegexClass = true;
+        continue;
+      }
+      if (ch === "]" && inRegexClass) {
+        inRegexClass = false;
+        continue;
+      }
+      if (ch === "/" && !inRegexClass) {
+        inRegex = false;
+        lastSig = "/";
+      } else if (ch === "\n") {
+        inRegex = false;
+        inRegexClass = false;
+      }
+      continue;
+    }
     if (inSingle || inDouble || inTemplate) {
       if (ch === "\\") {
         escaped = true;
         continue;
       }
-      if (inSingle && ch === "'") inSingle = false;
-      else if (inDouble && ch === "\"") inDouble = false;
-      else if (inTemplate && ch === "`") inTemplate = false;
+      if (inSingle && ch === "'") { inSingle = false; lastSig = "'"; }
+      else if (inDouble && ch === "\"") { inDouble = false; lastSig = "\""; }
+      else if (inTemplate && ch === "`") { inTemplate = false; lastSig = "`"; }
       continue;
     }
 
@@ -828,6 +853,11 @@ export function extractProdPromptSource(stage: StageName): string {
       pos++;
       continue;
     }
+    if (ch === "/" && /[=(,[{:!&|?^~+\-*%<>]/.test(lastSig)) {
+      inRegex = true;
+      inRegexClass = false;
+      continue;
+    }
     if (ch === "'") { inSingle = true; continue; }
     if (ch === "\"") { inDouble = true; continue; }
     if (ch === "`") { inTemplate = true; continue; }
@@ -839,6 +869,7 @@ export function extractProdPromptSource(stage: StageName): string {
         return content.slice(start, pos + 1).trim();
       }
     }
+    if (!/\s/.test(ch)) lastSig = ch;
   }
 
   return content.slice(start, start + 1500).trim();

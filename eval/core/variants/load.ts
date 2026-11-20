@@ -53,6 +53,17 @@ function variantMatches(name: string): string[] {
   return findVariantFiles(VARIANTS_DIR, true).filter((f) => basename(f, ".ts") === name);
 }
 
+/** Resuelve y valida en un único recorrido el archivo de una variante. */
+function resolveUniqueVariantFile(name: string): string {
+  const matches = variantMatches(name);
+  if (matches.length > 1) {
+    throw new Error(`Variante '${name}' ambigua: el nombre está en ${matches.length} archivos (${matches.join(", ")}). Los nombres deben ser únicos.`);
+  }
+  const path = resolve(matches[0] ?? `${VARIANTS_DIR}/${name}.ts`);
+  if (!existsSync(path)) throw new Error(`Variante '${name}' no encontrada (${path}).`);
+  return path;
+}
+
 /** Hash del contenido del archivo de variante (`variantHash` en `RunMeta`). */
 export function variantFileHash(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath, "utf8")).digest("hex").slice(0, 16);
@@ -71,25 +82,22 @@ export function listVariantNames(): string[] {
 
 /** Lanza con un mensaje de error de configuración si el archivo no existe o el nombre está en más de un archivo. */
 export function requireVariantFile(name: string): string {
-  const matches = variantMatches(name);
-  if (matches.length > 1) {
-    throw new Error(`Variante '${name}' ambigua: el nombre está en ${matches.length} archivos (${matches.join(", ")}). Los nombres deben ser únicos.`);
-  }
-  const path = variantFilePath(name);
-  if (!existsSync(path)) throw new Error(`Variante '${name}' no encontrada (${path}).`);
-  return path;
+  return resolveUniqueVariantFile(name);
 }
 
-/** Carga una variante desde su archivo mediante dynamic import. Lanza si no existe o `name` no coincide con el archivo. */
-export async function loadVariant(name: string): Promise<Variant> {
-  const path = requireVariantFile(name);
+async function importVariantFromPath(name: string, path: string): Promise<Variant> {
   // En Windows `import("E:\\...")` falla: el loader ESM toma "E:" como esquema de URL. `pathToFileURL` produce un file:// válido.
-  const mod = (await import(pathToFileURL(path).href)) as { default?: unknown;[k: string]: unknown };
+  const mod = (await import(pathToFileURL(path).href)) as { default?: unknown; [k: string]: unknown };
   const v = mod.default ?? mod;
   if (!v || typeof v !== "object" || (v as Record<string, unknown>).name !== name) {
     throw new Error(`Variante '${name}': el export default debe ser un objeto con name="${name}".`);
   }
   return v as Variant;
+}
+
+/** Carga una variante desde su archivo mediante dynamic import. Lanza si no existe o `name` no coincide con el archivo. */
+export async function loadVariant(name: string): Promise<Variant> {
+  return importVariantFromPath(name, resolveUniqueVariantFile(name));
 }
 
 /**
@@ -106,8 +114,9 @@ export function parseVariantSpecs(raw: string, withBaseline = true): string[] {
   return parts;
 }
 
-/** Carga una variante y su hash. */
-export async function loadVariantSpec(spec: string): Promise<{ variant: Variant; hash: string }> {
-  const variant = await loadVariant(spec);
-  return { variant, hash: variantFileHash(requireVariantFile(spec)) };
+/** Carga una variante y su hash sin recorrer `eval/variants/` múltiples veces. */
+export async function loadVariantSpec(spec: string, resolvedPath?: string): Promise<{ variant: Variant; hash: string }> {
+  const path = resolvedPath ? resolve(resolvedPath) : resolveUniqueVariantFile(spec);
+  const variant = await importVariantFromPath(spec, path);
+  return { variant, hash: variantFileHash(path) };
 }

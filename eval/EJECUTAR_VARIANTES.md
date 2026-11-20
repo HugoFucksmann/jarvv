@@ -1,31 +1,31 @@
-# Cómo correr las variantes nuevas (guía de ejecución)
+# Cómo correr las variantes (guía de ejecución)
 
-Estado al 2026-11-19: todo compila (`npx tsc --noEmit`), el cliente `oracle` da 100 % en los 21 datasets nuevos y en `smoke`, y todas las variantes nuevas pasan `--dry-run`. **Todavía no hay corridas con modelo real**: lo que sigue es lo que falta correr.
+Comandos de referencia para correr las etapas de decisión con las variantes activas en `eval/variants/` (los nombres archivados en `_archivo_legacy/` siguen cargando si se pasan por nombre explícito en `--variant`). Para validar sintaxis y tests antes de correr modelos reales: `npx tsc --noEmit` y `npx tsx --test eval/core/eval_core.test.ts eval/auto/eval_auto.test.ts`.
 
 ## Reglas del juego
 
 1. **Primero `dev`, después `holdout`, una sola vez.** Se compara y se elige con `dev` y `dev2`. `holdout` y `holdout2` solo se corren para confirmar a las ganadoras, una vez; si se vuelve a mirar `holdout` para ajustar, deja de servir.
-2. **Sin `--repeat`.** El modelo es determinista: repetir da lo mismo. Con 40 a 60 casos por dataset, **una diferencia de 1 caso es ruido**; solo cuentan diferencias de 3 o más, o que se repitan en `dev` y `dev2`.
+2. **Sin `--repeat`.** El modelo de decisión es determinista (temperatura 0): repetir da lo mismo. Con 40 a 60 casos por dataset, **una diferencia de 1 caso es ruido**; solo cuentan diferencias de 3 o más, o que se repitan en `dev` y `dev2`. Para comparar latencias (`p50`/`p95`), usar `--concurrency=1`.
 3. **Se mira más que el porcentaje.** En D4 y en continuación importan las «malas aprobadas» (aprobar lo que no debía) por separado de las «buenas rechazadas». En D0 importan los falsos `chat`.
 4. **`prod` se agrega solo** como línea base. Cada variante cambia una sola cosa respecto de `prod`.
 5. Hace falta Ollama con el modelo de siempre. Si no está, `--dry-run` sirve para ver el prompt, pero no mide nada. Cerrar otras aplicaciones pesadas: el modelo local se degrada si falta memoria.
 
-Cada comando deja una carpeta `eval/results/<modelo>/<fecha>_<label>/` con `comparison.md` (la tabla) y, por celda, `runs.jsonl`.
+Cada comando deja una carpeta `eval/results/<modelo>/<fecha>_<label>/` con `comparison.md` (la tabla) y, por celda, `runs.jsonl`. *(En etapas puras de decisión, `<modelo>` es el `decisionModel`; en generativas o mixtas, el modelo generativo.)*
 
 ## Pasada 1: `dev` y `dev2` (una etapa por vez)
 
-### D2: elección de herramienta (descripciones, marcador de fallo, pedido original)
+### D2: elección de herramienta (descripciones y pedido original)
 
 ```powershell
-npx tsx eval/cli.ts --stages=tool_choice --dataset=tool_choice_terminal_locate_dev,tool_choice_terminal_locate_dev2 --variant=tool_choice_desc_a,tool_choice_desc_b,tool_choice_nomarker,tool_choice_request,tool_choice_desc_a_request --concurrency=2 --label=d2_dev
+npx tsx eval/cli.ts --stages=tool_choice --dataset=tool_choice_terminal_locate_dev,tool_choice_terminal_locate_dev2 --variant=tool_choice_desc_a,tool_choice_desc_b,tool_choice_desc_a_request,tool_choice_precision_criteria --concurrency=1 --label=d2_dev
 ```
 
-Qué mide: si descripciones más claras (`desc_a`, `desc_b`), quitar el marcador `[FAILED - AVOID]` (`nomarker`) o mostrar el pedido original (`request`, `desc_a_request`) mejoran la elección entre `run_command`, `find_files`, `list_folder` y compañía. La evidencia previa favorece `desc_a`; falta confirmarla acá.
+Qué mide: si descripciones más claras (`desc_a`, `desc_b`), mostrar el pedido original (`desc_a_request`) o criterios de precisión mejoran la elección entre `run_command`, `find_files`, `list_folder` y compañía.
 
-### D0: primera consulta (criterio de `multi`)
+### D0: primera consulta (criterio de `multi` y límites de chat)
 
 ```powershell
-npx tsx eval/cli.ts --stages=d0 --dataset=d0_real_usuario_dev,d0_real_usuario_dev2 --variant=d0_multi_nocriteria,d0_multi_short --concurrency=2 --label=d0_dev
+npx tsx eval/cli.ts --stages=d0 --dataset=d0_real_usuario_dev,d0_real_usuario_dev2 --variant=d0_multi_short,d0_r1_action_axes,d0_chat_balanced --concurrency=1 --label=d0_dev
 ```
 
 Después, **sin llamar a ningún modelo**, se compara cómo combinar las dos preguntas de D0:
@@ -37,19 +37,19 @@ npx tsx eval/exp/d0_rules.ts eval/results/<modelo>/<carpeta de la corrida d0_dev
 ### D4: verificación (`cumple`)
 
 ```powershell
-npx tsx eval/cli.ts --stages=result_verification --dataset=verify_pasos_reales_dev,verify_pasos_reales_dev2 --variant=d4_cumple_goal_aware,d4_cumple_has_data --concurrency=2 --label=d4_dev
+npx tsx eval/cli.ts --stages=result_verification --dataset=verify_pasos_reales_dev,verify_pasos_reales_dev2 --variant=d4_cumple_has_data,d4_concise_precision,d4_precision_calibrated --concurrency=1 --label=d4_dev
 ```
 
 ### D1: ruta
 
 ```powershell
-npx tsx eval/cli.ts --stages=route --dataset=route_pasos_reales_dev,route_pasos_reales_dev2 --variant=route_concrete_signals,route_research_aware --concurrency=2 --label=route_dev
+npx tsx eval/cli.ts --stages=route --dataset=route_pasos_reales_dev,route_pasos_reales_dev2 --variant=route_concrete_signals,route_research_aware,route_clean_hints --concurrency=1 --label=route_dev
 ```
 
 ### Continuación del hilo (`follow`)
 
 ```powershell
-npx tsx eval/cli.ts --stages=continuation --dataset=continuation_dev,continuation_dev2 --variant=follow_examples,follow_nocriteria,follow_short --concurrency=2 --label=follow_dev
+npx tsx eval/cli.ts --stages=continuation --dataset=continuation_dev,continuation_dev2 --variant=follow_examples,follow_nocriteria,follow_short,continuation_explicit_reference --concurrency=1 --label=follow_dev
 ```
 
 ## Pasada 2: confirmar con `holdout` (solo las ganadoras)
@@ -57,7 +57,7 @@ npx tsx eval/cli.ts --stages=continuation --dataset=continuation_dev,continuatio
 Se repite el comando de la etapa cambiando los datasets por `*_holdout,*_holdout2` y dejando **solo** las variantes que ganaron en `dev`. Ejemplo para D2 si ganó `desc_a`:
 
 ```powershell
-npx tsx eval/cli.ts --stages=tool_choice --dataset=tool_choice_terminal_locate_holdout,tool_choice_terminal_locate_holdout2 --variant=tool_choice_desc_a --concurrency=2 --label=d2_holdout
+npx tsx eval/cli.ts --stages=tool_choice --dataset=tool_choice_terminal_locate_holdout,tool_choice_terminal_locate_holdout2 --variant=tool_choice_desc_a --concurrency=1 --label=d2_holdout
 ```
 
 Una variante se aplica a producción solo si mejora o empata en `holdout` y no empeora las «malas aprobadas». Si gana en `dev` y pierde en `holdout`, era ruido.

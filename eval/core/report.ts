@@ -290,14 +290,23 @@ export function generateComparisonReport(opts: {
   const rawImprovements: CaseComparison[] = [];
   const unpairedByVariant = new Map<string, number>();
 
+  const cellKey = (variant: string, dataset: string): string => `${variant}\u0000${dataset}`;
+  const cellsByKey = new Map<string, InputCell>();
+  for (const c of cells) cellsByKey.set(cellKey(c.variantSpec, c.datasetName), c);
+
+  const reportsByCell = new Map<string, CellStageReport[]>();
+  for (const cr of cellReports) {
+    const k = cellKey(cr.variant, cr.dataset);
+    const list = reportsByCell.get(k);
+    if (list) list.push(cr);
+    else reportsByCell.set(k, [cr]);
+  }
   const reportsOf = (cell: InputCell): CellStageReport[] =>
-    cellReports.filter((c) => c.variant === cell.variantSpec && c.dataset === cell.datasetName);
+    reportsByCell.get(cellKey(cell.variantSpec, cell.datasetName)) ?? [];
 
   for (const cell of cells) {
     if (cell.variantSpec === baseline) continue;
-    const base = cells.find(
-      (c) => c.variantSpec === baseline && c.datasetName === cell.datasetName,
-    );
+    const base = cellsByKey.get(cellKey(baseline, cell.datasetName));
     if (!base) continue;
 
     const inBucket = (c: InputCell, bucket: RunRecord["bucket"]): RunRecord[] => c.records.filter((r) => r.bucket === bucket);
@@ -440,7 +449,11 @@ function summarizeVariants(baseline: string, cells: InputCell[]): VariantSummary
       const passedRuns = canonical.filter((r) => r.passed).length;
 
       const byStage = new Map<string, RunRecord[]>();
-      for (const r of canonical) byStage.set(r.stage, [...(byStage.get(r.stage) ?? []), r]);
+      for (const r of canonical) {
+        const list = byStage.get(r.stage);
+        if (list) list.push(r);
+        else byStage.set(r.stage, [r]);
+      }
       const stageRates = [...byStage.values()].map((rs) => rs.filter((r) => r.passed).length / rs.length);
 
       const row: VariantSummary = {

@@ -9,9 +9,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { generateComparisonReport, type ComparisonReport, type InputCell, type VariantSummary } from "../core/report.ts";
-import { safeName } from "../core/results.ts";
+import { evaluatedModelDirName, safeName } from "../core/results.ts";
 import { promptEnvironment } from "../core/scenario.ts";
 import { computeScoreSummary } from "../core/scoring.ts";
+import { isDecisionStage } from "../core/stages/index.ts";
 import type { GlobalScoreSummary, RunMeta, RunRecord, StageName } from "../core/types.ts";
 import type { AutoConfig, AutoMetric } from "./config.ts";
 import { autoStageDir, autoStatePath } from "./config.ts";
@@ -61,6 +62,7 @@ export interface AutoSessionState {
     round: number;
     confirmedHoldout?: boolean;
   };
+  holdoutChecked?: Record<string, { score: number; confirmed: boolean; round: number }>;
   updatedAt: string;
 }
 
@@ -216,32 +218,45 @@ export function scanReusableInitialRanking(opts: {
 }): { ranked: RankedVariant[]; report: ComparisonReport; cells: InputCell[] } | null {
   const { cfg, variants, datasets } = opts;
   const stageConfigHash = promptEnvironment().stageConfigHash;
+  const decisionOnly = isDecisionStage(cfg.stage);
 
-  const baseDir = opts.resultsRoot
-    ? resolve(opts.resultsRoot)
-    : cfg.client === "real"
-      ? resolve(`eval/results/${safeName(cfg.model)}`)
-      : resolve(`eval/results/_${cfg.client}`);
+  const candidateDirs: string[] = opts.resultsRoot
+    ? [resolve(opts.resultsRoot)]
+    : cfg.client !== "real"
+      ? [resolve(`eval/results/_${cfg.client}`)]
+      : [
+          resolve(`eval/results/${evaluatedModelDirName({ stages: [cfg.stage], model: cfg.model, decisionModel: cfg.decisionModel })}`),
+          ...(decisionOnly && cfg.model !== cfg.decisionModel ? [resolve(`eval/results/${safeName(cfg.model)}`)] : []),
+        ];
 
-  if (!existsSync(baseDir)) return null;
+  const baseDirs = [...new Set(candidateDirs)].filter((d) => existsSync(d));
+  if (baseDirs.length === 0) return null;
 
-  // Listar carpetas de corridas en orden inverso (más reciente primero).
-  const runDirs = readdirSync(baseDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name)
-    .sort()
-    .reverse();
+  // Listar carpetas de corridas en orden inverso (más reciente primero) por cada raíz compatible.
+  const runDirs: Array<{ baseDir: string; runName: string }> = [];
+  for (const baseDir of baseDirs) {
+    const names = readdirSync(baseDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort()
+      .reverse();
+    for (const runName of names) runDirs.push({ baseDir, runName });
+  }
 
   if (runDirs.length === 0) return null;
 
-  const matchedCells: InputCell[] = [];
+  // Fase 1: buscar celdas compatibles leyendo solo `meta.json` (y validando existencia de scores.json/runs.jsonl).
+  // Fase 2: leer `scores.json` y `runs.jsonl` únicamente cuando TODAS las celdas `(variante × dataset)` tuvieron candidato compatible.
+  type CandidateCell = { variantName: string; datasetName: string; cellDir: string };
+  const matchedCandidates: CandidateCell[] = [];
+  const candidatesByPair = new Map<string, CandidateCell[]>();
 
   for (const v of variants) {
     for (const ds of datasets) {
-      let found: { scores: GlobalScoreSummary; records: RunRecord[] } | null = null;
       const expectedCellDir = `${safeName(v.name)}__${safeName(ds.name)}`;
+      const matches: CandidateCell[] = [];
 
-      for (const runName of runDirs) {
+      for (const { baseDir, runName } of runDirs) {
         const cellDir = resolve(baseDir, runName, expectedCellDir);
         const metaPath = resolve(cellDir, "meta.json");
         const scoresPath = resolve(cellDir, "scores.json");
@@ -250,9 +265,11 @@ export function scanReusableInitialRanking(opts: {
 
         try {
           const meta = JSON.parse(readFileSync(metaPath, "utf8")) as RunMeta;
+          const modelMatches = decisionOnly
+            ? meta.decisionModel === cfg.decisionModel
+            : meta.model === cfg.model;
           const metaMatches =
-            meta.model === cfg.model &&
-            meta.decisionModel === cfg.decisionModel &&
+            modelMatches &&
             meta.variantHash === v.hash &&
             meta.datasetHash === ds.hash &&
             meta.cases?.hash === ds.casesHash &&
@@ -265,10 +282,32 @@ export function scanReusableInitialRanking(opts: {
             (meta.filters?.ids?.length ?? 0) === 0 &&
             meta.filters?.limit === null;
 
-          if (!metaMatches) continue;
+          if (metaMatches) {
+            matches.push({ variantName: v.name, datasetName: ds.name, cellDir });
+          }
+        } catch {
+          continue;
+        }
+      }
 
-          const rawScores = JSON.parse(readFileSync(scoresPath, "utf8")) as GlobalScoreSummary;
-          const allRecords = parseJsonlRecords(runsPath);
+      if (matches.length === 0) return null;
+      candidatesByPair.set(`${v.name}\u0000${ds.name}`, matches);
+      matchedCandidates.push(matches[0]);
+    }
+  }
+
+  if (matchedCandidates.length === 0) return null;
+
+  const matchedCells: InputCell[] = [];
+  for (const v of variants) {
+    for (const ds of datasets) {
+      const list = candidatesByPair.get(`${v.name}\u0000${ds.name}`) ?? [];
+      let loaded: { scores: GlobalScoreSummary; records: RunRecord[] } | null = null;
+
+      for (const cand of list) {
+        try {
+          const rawScores = JSON.parse(readFileSync(resolve(cand.cellDir, "scores.json"), "utf8")) as GlobalScoreSummary;
+          const allRecords = parseJsonlRecords(resolve(cand.cellDir, "runs.jsonl"));
           const stageRecords = allRecords.filter((r) => r.stage === cfg.stage);
           if (stageRecords.length === 0) continue;
 
@@ -279,19 +318,19 @@ export function scanReusableInitialRanking(opts: {
           }
 
           const scores = stageRecords.length === allRecords.length ? rawScores : computeScoreSummary(stageRecords);
-          found = { scores, records: stageRecords };
+          loaded = { scores, records: stageRecords };
           break;
         } catch {
           continue;
         }
       }
 
-      if (!found) return null;
+      if (!loaded) return null;
       matchedCells.push({
         variantSpec: v.name,
         datasetName: ds.name,
-        scores: found.scores,
-        records: found.records,
+        scores: loaded.scores,
+        records: loaded.records,
       });
     }
   }

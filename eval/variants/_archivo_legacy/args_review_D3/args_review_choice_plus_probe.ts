@@ -1,9 +1,9 @@
 // Hipótesis: mantener la pregunta `review` de 3 opciones (`choice`) junto con dos sondas binarias (`has_fabricated_or_contradicted` y `missing_from_user`) en la misma consulta mejora el contraste sobre `Recent reads` y `Environment`, y un veto con umbral alto (0.70) frena aprobaciones de valores inventados sin disparar falsos rechazos.
 
-import type { ReviewDecisionInput } from "../../../src/core/contracts.ts";
-import { listBlock } from "../../../src/core/models/prompts.ts";
-import type { DecisionInput } from "../../../src/core/models/prompts.ts";
-import type { ReadAnswer, Variant } from "../../core/variants/types.ts";
+import type { ReviewDecisionInput } from "../../../../src/core/contracts.ts";
+import { listBlock } from "../../../../src/core/models/prompts.ts";
+import type { DecisionInput } from "../../../../src/core/models/prompts.ts";
+import type { ReadAnswer, Variant } from "../../../core/variants/types.ts";
 
 const REVIEW_CRITERIA = {
   approved: "Arguments are valid, logical, and safe for this action (user folders from Environment are valid).",

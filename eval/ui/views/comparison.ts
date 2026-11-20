@@ -106,7 +106,9 @@ export function printStageSummary(report: ComparisonReport): void {
   const groups = new Map<string, CellStageReport[]>();
   for (const cell of report.cells) {
     const k = `${cell.dataset}\u0000${cell.stageKey}`;
-    groups.set(k, [...(groups.get(k) ?? []), cell]);
+    const list = groups.get(k);
+    if (list) list.push(cell);
+    else groups.set(k, [cell]);
   }
   const isBase = (cell: CellStageReport): boolean => cell.variant === report.baseline;
   const labelOf = (cell: CellStageReport): string => (isBase(cell) ? `${cell.variant} (base)` : cell.variant);
