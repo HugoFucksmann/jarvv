@@ -23,6 +23,7 @@ import { allStageNames } from "../core/stages/index.ts";
 import type { StageName, ThinkingMode } from "../core/types.ts";
 
 export type AutoMetric = "passRate" | "macroPassRate";
+export type OptimizerThinkingMode = "off" | "on";
 
 export interface AutoConfig {
   stage: StageName;
@@ -32,6 +33,7 @@ export interface AutoConfig {
   optimizerUrl: string;
   optimizerApiKeyEnv?: string;
   optimizerTimeoutMs: number;
+  optimizerThinking: OptimizerThinkingMode;
   conclusionsPath: string;
   datasetSpecs: string[];
   holdoutSpecs: string[];
@@ -60,10 +62,13 @@ const KNOWN_FLAGS = new Set([
   "optimizer-url",
   "optimizer-api-key-env",
   "optimizer-timeout",
+  "optimizer-thinking",
   "conclusions",
   "dataset",
   "holdout",
   "model",
+  "decision-model",
+  "generative-model",
   "url",
   "decision-url",
   "repeat",
@@ -76,6 +81,11 @@ const KNOWN_FLAGS = new Set([
   "client",
   "include-shortcut",
 ]);
+
+const RENAMED_FLAGS: Record<string, string> = {
+  "d-model": "decision-model=<id>",
+  "llm-model": "generative-model=<id>",
+};
 
 function dedupedCsv(flags: Map<string, string | true>, key: string): string[] {
   return [...new Set(flagCsv(flags, key))];
@@ -95,7 +105,7 @@ export function autoStatePath(stage: StageName): string {
 
 /** Parsea `argv` (sin `--auto`, binario ni script) y devuelve `AutoConfig`. Lanza ante errores de configuración. */
 export function parseAutoConfig(argv: string[]): AutoConfig {
-  const flags = parseArgvFlags(argv, KNOWN_FLAGS);
+  const flags = parseArgvFlags(argv, KNOWN_FLAGS, RENAMED_FLAGS);
   const validStages = allStageNames();
 
   const stageRaw = flagStr(flags, "stage");
@@ -125,6 +135,11 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
     throw new Error("Falta --optimizer-model=<id>.");
   }
 
+  const optimizerThinkingRaw = flagStr(flags, "optimizer-thinking") ?? "off";
+  if (optimizerThinkingRaw !== "off" && optimizerThinkingRaw !== "on") {
+    throw new Error(`--optimizer-thinking: valor inválido '${optimizerThinkingRaw}' (off|on).`);
+  }
+
   const thinkingRaw = flagStr(flags, "thinking") ?? "off";
   if (!["prod", "on", "off", "both"].includes(thinkingRaw)) {
     throw new Error(`--thinking: valor inválido '${thinkingRaw}' (prod|on|off|both).`);
@@ -149,9 +164,24 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
   }
 
   const modelRaw = flagStr(flags, "model");
-  const { model, decisionModel } = modelRaw !== undefined
+  const genOverride = flagStr(flags, "generative-model");
+  const decOverride = flagStr(flags, "decision-model");
+
+  const parsedModel = modelRaw !== undefined
     ? parseModelSpec(modelRaw)
     : { model: DEFAULT_MODEL, decisionModel: DEFAULT_DECISION_MODEL };
+  const explicitGenInModel = modelRaw !== undefined ? modelRaw.split("+")[0].trim() : "";
+  const explicitDecInModel = modelRaw !== undefined ? (modelRaw.split("+")[1] ?? "").trim() : "";
+
+  if (genOverride && explicitGenInModel && genOverride !== explicitGenInModel) {
+    throw new Error(`--generative-model='${genOverride}' entra en conflicto con --model='${modelRaw}'. Use solo uno.`);
+  }
+  if (decOverride && explicitDecInModel && decOverride !== explicitDecInModel) {
+    throw new Error(`--decision-model='${decOverride}' entra en conflicto con --model='${modelRaw}'. Use solo uno.`);
+  }
+
+  const model = genOverride ?? parsedModel.model;
+  const decisionModel = decOverride ?? parsedModel.decisionModel;
 
   const optimizerApiKeyEnv = flagStr(flags, "optimizer-api-key-env");
   if (optimizerApiKeyEnv && !process.env[optimizerApiKeyEnv]?.trim()) {
@@ -166,6 +196,7 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
     optimizerUrl: flagStr(flags, "optimizer-url") ?? DEFAULT_URL,
     optimizerApiKeyEnv,
     optimizerTimeoutMs: flagInt(flags, "optimizer-timeout", 1) ?? DEFAULT_OPTIMIZER_TIMEOUT_MS,
+    optimizerThinking: optimizerThinkingRaw,
     conclusionsPath: flagStr(flags, "conclusions") ?? defaultConclusionsPath(stage),
     datasetSpecs: dedupedCsv(flags, "dataset"),
     holdoutSpecs: dedupedCsv(flags, "holdout"),
@@ -227,32 +258,40 @@ Uso:
   npm run eval -- --auto --stage=<etapa> --max-loops=<n> --target=<0..1> --optimizer-model=<llm> [flags]
   npx tsx eval/auto.ts --stage=<etapa> --max-loops=<n> --target=<0..1> --optimizer-model=<llm> [flags]
 
-Flags obligatorios:
-  --stage=<etapa>             Etapa única (${stages})
-  --max-loops=<n>             Entero >= 1. Iteraciones máximas de generación + evaluación
-  --target=<decimal>          Decimal en (0, 1] (ej. 0.80). Umbral sobre --metric
-  --optimizer-model=<id>      Modelo LLM optimizador compatible con /v1/chat/completions
+Ejemplo con modelo evaluado explícito:
+  npm run eval -- --auto --stage=route --decision-model=${DEFAULT_DECISION_MODEL} --optimizer-model=qwen3:32b --max-loops=4 --target=0.95
 
-Flags opcionales:
-  --optimizer-url=<url>       Endpoint OpenAI-compatible (default: ${DEFAULT_URL})
-  --optimizer-api-key-env=<v> Variable de entorno para Bearer token del optimizador
-  --optimizer-timeout=<ms>    Timeout HTTP del optimizador en ms (default: ${DEFAULT_OPTIMIZER_TIMEOUT_MS})
-  --conclusions=<ruta>        Markdown por etapa (default: eval/variants/_auto/<stage>/conclusiones.md)
-  --dataset=<csv>             Datasets de trabajo (default: todos los de --stage, sin smoke ni holdout)
-  --holdout=<csv>             Dataset(s) ocultos al feedback; confirman solo al alcanzar --target
-  --model=<gen>[+<dec>]       Modelos evaluados (default: ${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL})
-  --url=<url>                 Endpoint del modelo generativo evaluado
-  --decision-url=<url>        Endpoint del modelo de decisión evaluado
-  --repeat=<n>                Repeticiones por caso (default: 1)
-  --concurrency=<n>           Concurrencia del runner (default: 3)
-  --thinking=<modo>           prod | on | off | both (default: off)
-  --timeout=<ms>              Timeout de llamadas evaluadas en ms
-  --metric=<m>                passRate | macroPassRate (default: passRate)
-  --seed-top=<v1,v2>          Salta Vuelta 0 fijando hasta 2 variantes iniciales
-  --archive-losers=<bool>     Mueve perdedoras generadas a descartadas/ (default: true)
-  --client=<real|mock>        Cliente evaluado (default: real)
-  --include-shortcut          Incluye casos prod_shortcut en el bucket canonical
-  --help, -h                  Muestra esta ayuda
+Flags obligatorios:
+  --stage=<etapa>               Etapa única (${stages})
+  --max-loops=<n>               Entero >= 1. Iteraciones máximas de generación + evaluación
+  --target=<decimal>            Decimal en (0, 1] (ej. 0.80). Umbral sobre --metric
+  --optimizer-model=<id>        Modelo LLM optimizador (coordina/propone variantes vía /v1/chat/completions)
+
+Modelos evaluados (opcionales; por defecto toma jarvis-config.json):
+  --decision-model=<id>         Modelo de decisión a evaluar (default: ${DEFAULT_DECISION_MODEL})
+  --generative-model=<id>       Modelo generativo a evaluar (default: ${DEFAULT_MODEL})
+  --model=<gen>[+<dec>]         Forma combinada equivalente (default: ${DEFAULT_MODEL}+${DEFAULT_DECISION_MODEL})
+  --url=<url>                   Endpoint del modelo generativo evaluado
+  --decision-url=<url>          Endpoint del modelo de decisión evaluado
+
+Flags opcionales del optimizador y ejecución:
+  --optimizer-url=<url>         Endpoint OpenAI-compatible del optimizador (default: ${DEFAULT_URL})
+  --optimizer-api-key-env=<v>   Variable de entorno para Bearer token del optimizador
+  --optimizer-timeout=<ms>      Timeout HTTP del optimizador en ms (default: ${DEFAULT_OPTIMIZER_TIMEOUT_MS})
+  --optimizer-thinking=<off|on> Razonamiento del optimizador: off | on (default: off)
+  --conclusions=<ruta>          Markdown por etapa (default: eval/variants/_auto/<stage>/conclusiones.md)
+  --dataset=<csv>               Datasets de trabajo (default: todos los de --stage, sin smoke ni holdout)
+  --holdout=<csv>               Dataset(s) ocultos al feedback; confirman solo al alcanzar --target
+  --repeat=<n>                  Repeticiones por caso (default: 1)
+  --concurrency=<n>             Concurrencia del runner (default: 3)
+  --thinking=<modo>             Thinking del generativo evaluado: prod | on | off | both (default: off)
+  --timeout=<ms>                Timeout de llamadas evaluadas en ms
+  --metric=<m>                  passRate | macroPassRate (default: passRate)
+  --seed-top=<v1,v2>            Salta Vuelta 0 fijando hasta 2 variantes iniciales
+  --archive-losers=<bool>       Mueve perdedoras generadas a descartadas/ (default: true)
+  --client=<real|mock>          Cliente evaluado (default: real)
+  --include-shortcut            Incluye casos prod_shortcut en el bucket canonical
+  --help, -h                    Muestra esta ayuda
 
 Códigos de salida:
   0  Al menos una variante != prod alcanzó --target (y --holdout si se configuró)

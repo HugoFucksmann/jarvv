@@ -467,25 +467,48 @@ function checkImportsAndExports(
     return "Prohibido re-exportar módulos desde variantes generadas.";
   }
 
-  // Chequear todas las cláusulas `import ... from "<spec>"` o `import "<spec>"`
-  const importStmtRe = /(?:^|;|\n)\s*import\s+([\s\S]*?)(?=;|\n|$)/gm;
+  // Chequear todas las cláusulas `import ... from "<spec>"` o `import "<spec>"` (incluyendo multilínea).
+  const importHeadRe = /(?:^|[;\n}])\s*import\b/gm;
   let m: RegExpExecArray | null;
-  while ((m = importStmtRe.exec(masked)) !== null) {
-    const stmtStart = m.index;
-    const stmtEnd = m.index + m[0].length;
-    const rawStmt = rawCode.slice(stmtStart, stmtEnd);
-    const maskedStmt = m[0];
+  while ((m = importHeadRe.exec(masked)) !== null) {
+    const kwIdx = masked.indexOf("import", m.index);
+    const afterKw = skipWs(masked, kwIdx + "import".length);
 
-    // Solo declaraciones top-level `import` con `from "..."` o `import "..."`
-    const fromMatch = /\bfrom\s*(['"])([^'"]*)\1/.exec(maskedStmt);
-    const sideEffectMatch = /^\s*import\s*(['"])([^'"]*)\1/.exec(maskedStmt);
-    const specSpan = fromMatch ?? sideEffectMatch;
-    if (!specSpan) {
-      if (/\bimport\s*\(/.test(maskedStmt)) {
-        return "Prohibido usar dynamic `import(...)` en variantes generadas.";
-      }
+    if (masked[afterKw] === "(") {
+      return "Prohibido usar dynamic `import(...)` en variantes generadas.";
+    }
+    if (masked[afterKw] === ".") {
+      // `import.meta`
       continue;
     }
+
+    // Avanzar hasta `;` o fin de línea tras `from "..."` / `import "..."`
+    let end = afterKw;
+    let braceDepth = 0;
+    while (end < masked.length) {
+      const ch = masked[end];
+      if (ch === "{") braceDepth++;
+      else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+      else if (ch === ";" && braceDepth === 0) {
+        end++;
+        break;
+      } else if (ch === "\n" && braceDepth === 0) {
+        const soFar = masked.slice(kwIdx, end);
+        if (/\bfrom\s*(['"])[^'"]*\1/.test(soFar) || /^import\s*(['"])[^'"]*\1/.test(soFar)) {
+          break;
+        }
+      }
+      end++;
+    }
+
+    const rawStmt = rawCode.slice(kwIdx, end);
+    const maskedStmt = masked.slice(kwIdx, end);
+    importHeadRe.lastIndex = Math.max(importHeadRe.lastIndex, end);
+
+    const fromMatch = /\bfrom\s*(['"])([^'"]*)\1/.exec(maskedStmt);
+    const sideEffectMatch = /^import\s*(['"])([^'"]*)\1/.exec(maskedStmt);
+    const specSpan = fromMatch ?? sideEffectMatch;
+    if (!specSpan) continue;
 
     const specIdxInStmt = specSpan.index + specSpan[0].indexOf(specSpan[1]) + 1;
     const specEndInStmt = specIdxInStmt + specSpan[2].length;
@@ -495,7 +518,7 @@ function checkImportsAndExports(
     if (specErr) return specErr;
 
     if (specifier.endsWith("/models/prompts.ts")) {
-      const namedBrace = rawStmt.match(/\{([^}]*)\}/);
+      const namedBrace = rawStmt.match(/\{([\s\S]*?)\}/);
       if (namedBrace) {
         const items = namedBrace[1].split(",").map((s) => s.trim()).filter(Boolean);
         for (const item of items) {

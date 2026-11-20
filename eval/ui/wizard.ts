@@ -7,8 +7,11 @@
  */
 
 import { createInterface } from "node:readline/promises";
-import { DEFAULT_DECISION_MODEL, DEFAULT_MODEL } from "../core/config.ts";
+import { discoverStageDatasets } from "../auto/discover.ts";
+import { DEFAULT_DECISION_MODEL, DEFAULT_DECISION_URL, DEFAULT_MODEL, DEFAULT_URL } from "../core/config.ts";
 import { listDatasetNames } from "../core/datasets.ts";
+import { isDecisionStage } from "../core/stages/index.ts";
+import type { StageName } from "../core/types.ts";
 import { listVariantNames } from "../core/variants/load.ts";
 import { orderedStages } from "./order.ts";
 import { box, c, columns, kvBox, say, stepHeader, sym } from "./style.ts";
@@ -22,6 +25,7 @@ type Ask = (prompt: string) => Promise<string>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 const STEPS = ["Modelos", "Datasets", "Variantes", "Etapas", "Avanzado"] as const;
+const AUTO_STEPS = ["Etapa", "Modelos", "Objetivo", "Datasets", "Avanzado"] as const;
 const { hint, warn, note, done } = say;
 
 const prompt = (label: string, def?: string): string =>
@@ -35,6 +39,14 @@ const prompt = (label: string, def?: string): string =>
 async function text(ask: Ask, label: string, def?: string): Promise<string> {
   const a = (await ask(prompt(label, def))).trim();
   return a === "" ? (def ?? "") : a;
+}
+
+async function nonEmptyText(ask: Ask, label: string, def?: string): Promise<string> {
+  for (; ;) {
+    const v = await text(ask, label, def);
+    if (v.trim() !== "") return v.trim();
+    warn("El valor no puede quedar vacío.");
+  }
 }
 
 async function confirm(ask: Ask, label: string, def: boolean): Promise<boolean> {
@@ -124,6 +136,203 @@ function quoteArg(a: string): string {
   return /[\s"'`$&|<>*?;()]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a;
 }
 
+async function runAutoWizard(ask: Ask): Promise<{ argv: string[]; summary: Array<[string, string]> }> {
+  const argv: string[] = ["--auto"];
+  const summary: Array<[string, string]> = [["Modo", "Optimización autónoma (--auto)"]];
+
+  // 1. Etapa única
+  stepHeader(1, AUTO_STEPS);
+  const stagePool = orderedStages() as StageName[];
+  const stage = await pickOne(
+    ask,
+    "Etapa a optimizar",
+    stagePool.map((s) => ({
+      value: s,
+      text: `${s.padEnd(20)} ${c.gray(isDecisionStage(s) ? "(decisión)" : "(generativa)")}`,
+    })),
+  );
+  const decisionStage = isDecisionStage(stage);
+  argv.push(`--stage=${stage}`);
+  summary.push(["Etapa", `${stage} (${decisionStage ? "decisión" : "generativa"})`]);
+  done("Etapa", stage);
+
+  // 2. Modelos (evaluado según tipo de etapa + optimizador coordinador)
+  stepHeader(2, AUTO_STEPS);
+  hint(
+    decisionStage
+      ? "Esta etapa usa el modelo de decisión para evaluarse y el LLM optimizador para proponer variantes."
+      : "Esta etapa usa el modelo generativo para evaluarse y el LLM optimizador para proponer variantes.",
+  );
+  console.log();
+  if (decisionStage) {
+    const decModel = await nonEmptyText(ask, "Modelo de decisión a evaluar", DEFAULT_DECISION_MODEL);
+    argv.push(`--decision-model=${decModel}`);
+    summary.push(["Evaluado (decisión)", decModel]);
+  } else {
+    const genModel = await nonEmptyText(ask, "Modelo generativo a evaluar", DEFAULT_MODEL);
+    argv.push(`--generative-model=${genModel}`);
+    summary.push(["Evaluado (generativo)", genModel]);
+  }
+
+  const optModel = await nonEmptyText(ask, "Modelo optimizador (coordina/propone variantes)", DEFAULT_MODEL);
+  argv.push(`--optimizer-model=${optModel}`);
+  const optThinking = await pickOne(ask, "Thinking del optimizador", [
+    { value: "off", text: `off  ${c.gray("recomendado para JSON estable (ej. qwen3.5)")}` },
+    { value: "on", text: "on" },
+  ]);
+  if (optThinking !== "off") {
+    argv.push(`--optimizer-thinking=${optThinking}`);
+  }
+  summary.push(["Optimizador", `${optModel} (thinking=${optThinking})`]);
+  done("Modelos", `${optModel} como optimizador`);
+
+  // 3. Objetivo y vueltas
+  stepHeader(3, AUTO_STEPS);
+  let maxLoops = "4";
+  for (; ;) {
+    const v = await text(ask, "Máximo de vueltas (--max-loops)", "4");
+    if (/^\d+$/.test(v) && Number(v) >= 1) {
+      maxLoops = v;
+      break;
+    }
+    warn("Debe ser un entero >= 1.");
+  }
+  let target = "0.90";
+  for (; ;) {
+    const v = await text(ask, "Target en (0, 1] (ej. 0.90)", "0.90");
+    const num = Number(v);
+    if (/^\d+(\.\d+)?$/.test(v) && num > 0 && num <= 1) {
+      target = v;
+      break;
+    }
+    warn("Debe ser un decimal en (0, 1], por ejemplo 0.90.");
+  }
+  const metric = await pickOne(ask, "Métrica objetivo", [
+    { value: "passRate", text: `passRate       ${c.gray("tasa global de aprobación (por defecto)")}` },
+    { value: "macroPassRate", text: `macroPassRate  ${c.gray("promedio equiponderado")}` },
+  ]);
+  argv.push(`--max-loops=${maxLoops}`, `--target=${target}`);
+  if (metric !== "passRate") argv.push(`--metric=${metric}`);
+  summary.push(["Objetivo", `${metric} >= ${target} (máx. ${maxLoops} vueltas)`]);
+  done("Objetivo", `${metric} >= ${target}`);
+
+  // 4. Datasets dev y holdout opcional
+  stepHeader(4, AUTO_STEPS);
+  let stageDatasets: string[] = [];
+  try {
+    stageDatasets = discoverStageDatasets(stage, [], []).dev.map((d) => d.name);
+  } catch {
+    stageDatasets = listDatasetNames();
+  }
+
+  let datasetSummary = "todos los dev de la etapa";
+  let chosenDev: string[] = [];
+  if (stageDatasets.length > 0) {
+    chosenDev = await pickMany(ask, `Datasets dev de '${stage}'`, stageDatasets, {
+      def: [],
+      defLabel: "todos los dev de la etapa",
+      hint: "Números o nombres separados por coma  ·  Enter o 'a' = todos los dev (sin smoke ni holdout)",
+    });
+    if (chosenDev.length > 0 && chosenDev.length < stageDatasets.length) {
+      argv.push(`--dataset=${chosenDev.join(",")}`);
+      datasetSummary = chosenDev.join(", ");
+    }
+  } else {
+    note(`No se descubrieron datasets dev automáticos para '${stage}'.`);
+  }
+  summary.push(["Datasets dev", datasetSummary]);
+
+  const allDatasets = listDatasetNames();
+  const devUsed = new Set(chosenDev.length > 0 ? chosenDev : stageDatasets);
+  const holdoutPool = allDatasets.filter((d) => !devUsed.has(d) && d !== "smoke");
+  if (holdoutPool.length > 0 && (await confirm(ask, "¿Agregar dataset(s) holdout para validar al alcanzar target?", false))) {
+    const holdout = await pickMany(ask, "Datasets holdout disponibles", holdoutPool, {
+      def: [],
+      defLabel: "ninguno",
+      hint: "Números o nombres separados por coma  ·  Enter = ninguno",
+    });
+    if (holdout.length > 0) {
+      argv.push(`--holdout=${holdout.join(",")}`);
+      summary.push(["Holdout", holdout.join(", ")]);
+    }
+  }
+  done("Datasets", datasetSummary);
+
+  // 5. Avanzado
+  stepHeader(5, AUTO_STEPS);
+  if (await confirm(ask, "¿Configurar cliente, repeticiones, concurrencia, URLs, seed-top...?", false)) {
+    const client = await pickOne(ask, "Cliente evaluado", [
+      { value: "real", text: `real  ${c.gray("llama a los modelos")}` },
+      { value: "mock", text: `mock  ${c.gray("respuestas genéricas (solo prueba de flujo)")}` },
+    ]);
+    if (client !== "real") {
+      argv.push(`--client=${client}`);
+      summary.push(["Cliente", client]);
+    }
+
+    const positiveInt = async (label: string, def: string, flag: string, title: string): Promise<void> => {
+      for (; ;) {
+        const v = await text(ask, label, def);
+        if (/^\d+$/.test(v) && Number(v) >= 1) {
+          if (v !== def) {
+            argv.push(`--${flag}=${v}`);
+            summary.push([title, v]);
+          }
+          return;
+        }
+        warn("Debe ser un entero >= 1.");
+      }
+    };
+    await positiveInt("Repeticiones por caso", "1", "repeat", "Repeticiones");
+    await positiveInt("Concurrencia", "3", "concurrency", "Concurrencia");
+
+    if (!decisionStage) {
+      const thinking = await pickOne(ask, "Thinking del generativo evaluado", [
+        { value: "off", text: `off  ${c.gray("por defecto")}` },
+        { value: "prod", text: "prod" },
+        { value: "on", text: "on" },
+        { value: "both", text: "both" },
+      ]);
+      if (thinking !== "off") {
+        argv.push(`--thinking=${thinking}`);
+        summary.push(["Thinking eval", thinking]);
+      }
+    }
+
+    if (decisionStage) {
+      const decUrl = await text(ask, "Endpoint del modelo de decisión", DEFAULT_DECISION_URL);
+      if (decUrl !== DEFAULT_DECISION_URL) {
+        argv.push(`--decision-url=${decUrl}`);
+        summary.push(["URL decisión", decUrl]);
+      }
+    } else {
+      const genUrl = await text(ask, "Endpoint del modelo generativo", DEFAULT_URL);
+      if (genUrl !== DEFAULT_URL) {
+        argv.push(`--url=${genUrl}`);
+        summary.push(["URL generativo", genUrl]);
+      }
+    }
+
+    const optUrl = await text(ask, "Endpoint del optimizador", DEFAULT_URL);
+    if (optUrl !== DEFAULT_URL) {
+      argv.push(`--optimizer-url=${optUrl}`);
+      summary.push(["URL optimizador", optUrl]);
+    }
+
+    const seedTop = await text(ask, "Variantes seed-top (máx. 2 separadas por coma, vacío = auto)", "");
+    if (seedTop !== "") {
+      argv.push(`--seed-top=${seedTop}`);
+      summary.push(["Seed-top", seedTop]);
+    }
+    done("Opciones", "personalizadas");
+  } else {
+    hint("Se usan los valores por defecto.");
+    done("Opciones", "por defecto");
+  }
+
+  return { argv, summary };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Asistente
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,6 +368,29 @@ export async function runWizard(): Promise<string[] | null> {
         { color: c.violet },
       ),
     );
+
+    const mode = await pickOne(ask, "Modo de ejecución", [
+      { value: "compare", text: `Evaluación comparativa        ${c.gray("mide variantes/modelos sobre datasets")}` },
+      { value: "auto", text: `Optimización autónoma (--auto) ${c.gray("elige modelo evaluado y optimizador")}` },
+    ]);
+
+    if (mode === "auto") {
+      const { argv, summary } = await runAutoWizard(ask);
+      console.log();
+      console.log();
+      console.log(kvBox(summary, { title: "Resumen (--auto)", color: c.violet }));
+
+      const cmd = `npm run eval -- ${argv.map(quoteArg).join(" ")}`.trimEnd();
+      console.log(`\n  ${c.gray("Comando equivalente")}`);
+      console.log(`  ${sym.bar} ${c.bold(cmd)}\n`);
+
+      if (!(await confirm(ask, "¿Ejecutar ahora?", true))) {
+        console.log(`\n  ${c.gray("Nada que ejecutar. Hasta luego.")}\n`);
+        return null;
+      }
+      console.log(`\n  ${sym.ok} ${c.green("Lanzando optimización autónoma…")}\n`);
+      return argv;
+    }
 
     const argv: string[] = [];
     const summary: Array<[string, string]> = [];

@@ -12,6 +12,7 @@ import { parseJsonObject, stripThink } from "../../src/core/models/qwen.ts";
 import { postJson as prodPostJson, TransportError } from "../../src/core/models/transport.ts";
 import { resolveUrl } from "../core/client/generative.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
+import { isDecisionStage } from "../core/stages/index.ts";
 import type { AutoConfig } from "./config.ts";
 import type { FailureSample, VariantDatasetStat } from "./feedback.ts";
 import type { RankedVariant } from "./ranking.ts";
@@ -34,6 +35,8 @@ export interface OptimizerCallParams {
   schemaName: string;
   schema: Record<string, unknown>;
   temperature?: number;
+  maxTokens?: number;
+  reasoningEffort?: "none" | "low";
 }
 
 export type OptimizerLlmCaller = (params: OptimizerCallParams) => Promise<string>;
@@ -105,7 +108,10 @@ const CONCLUSIONS_UPDATE_SCHEMA: Record<string, unknown> = {
 
 /**
  * Cliente por defecto contra `/v1/chat/completions` usando `src/core/models/transport.ts` (`postJson`).
- * Degrada automáticamente `json_schema` -> `json_object` -> sin `response_format` ante HTTP 400.
+ * Envía `reasoning_effort` (`"none"` por defecto para evitar que modelos híbridos tipo Qwen 3.5 consuman el presupuesto
+ * en `<think>` o dejen `content` vacío con `json_schema`) y `max_tokens`.
+ * Degrada automáticamente `json_schema` -> `json_object` -> sin `response_format` ante HTTP 400/422 o `content` vacío,
+ * y reintenta sin `reasoning_effort` si el endpoint lo rechaza con HTTP 400/422.
  */
 export async function defaultOptimizerLlmCall(params: OptimizerCallParams): Promise<string> {
   const endpoint = resolveUrl(params.url);
@@ -123,56 +129,94 @@ export async function defaultOptimizerLlmCall(params: OptimizerCallParams): Prom
     undefined,
   ];
 
-  for (let i = 0; i < formats.length; i++) {
-    const responseFormat = formats[i];
-    const body: Record<string, unknown> = {
-      model: params.model,
-      messages: params.messages,
-      temperature: params.temperature ?? 0.3,
-      stream: false,
-      ...(responseFormat ? { response_format: responseFormat } : {}),
-    };
+  const reasoningModes: Array<"none" | "low" | undefined> = params.reasoningEffort
+    ? [params.reasoningEffort, undefined]
+    : [undefined];
 
-    let res;
-    try {
-      res = await prodPostJson({
-        url: endpoint,
-        body: JSON.stringify(body),
-        timeoutMs: params.timeoutMs,
-        headers,
-      });
-    } catch (e) {
-      if (e instanceof TransportError) {
-        throw new OptimizerTransportError(`Error de transporte llamando al optimizador (${e.kind}): ${e.message}`, e);
+  let lastEmptyNote = "";
+
+  for (let rIdx = 0; rIdx < reasoningModes.length; rIdx++) {
+    const reasoningEffort = reasoningModes[rIdx];
+    let sawClientRejection = false;
+
+    for (let i = 0; i < formats.length; i++) {
+      const responseFormat = formats[i];
+      const body: Record<string, unknown> = {
+        model: params.model,
+        messages: params.messages,
+        temperature: params.temperature ?? 0.3,
+        max_tokens: params.maxTokens ?? 4096,
+        stream: false,
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+        ...(responseFormat ? { response_format: responseFormat } : {}),
+      };
+
+      let res;
+      try {
+        res = await prodPostJson({
+          url: endpoint,
+          body: JSON.stringify(body),
+          timeoutMs: params.timeoutMs,
+          headers,
+        });
+      } catch (e) {
+        if (e instanceof TransportError) {
+          throw new OptimizerTransportError(`Error de transporte llamando al optimizador (${e.kind}): ${e.message}`, e);
+        }
+        throw new OptimizerTransportError(`Error de red llamando al optimizador: ${e instanceof Error ? e.message : String(e)}`, e);
       }
-      throw new OptimizerTransportError(`Error de red llamando al optimizador: ${e instanceof Error ? e.message : String(e)}`, e);
-    }
 
-    if (!res.ok) {
-      // Si el servidor rechaza response_format con 400/422, probamos el siguiente modo de compatibilidad.
-      if ((res.status === 400 || res.status === 422) && i < formats.length - 1) {
-        continue;
+      if (!res.ok) {
+        if (res.status === 400 || res.status === 422) {
+          sawClientRejection = true;
+          if (i < formats.length - 1) continue;
+          if (rIdx < reasoningModes.length - 1) break;
+        }
+        throw new OptimizerTransportError(
+          `Optimizador devolvió HTTP ${res.status} (${res.statusText}): ${res.text.slice(0, 300)}`,
+        );
       }
-      throw new OptimizerTransportError(
-        `Optimizador devolvió HTTP ${res.status} (${res.statusText}): ${res.text.slice(0, 300)}`,
-      );
+
+      let parsedResp: {
+        choices?: Array<{
+          finish_reason?: unknown;
+          message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown };
+        }>;
+      };
+      try {
+        parsedResp = JSON.parse(res.text) as typeof parsedResp;
+      } catch {
+        throw new OptimizerTransportError(`Respuesta del optimizador no es JSON válido: ${res.text.slice(0, 200)}`);
+      }
+
+      const choice = parsedResp.choices?.[0];
+      const content = choice?.message?.content;
+      if (typeof content === "string" && content.trim()) {
+        return content;
+      }
+
+      const finishReason = typeof choice?.finish_reason === "string" ? choice.finish_reason : "unknown";
+      const reasoningRaw = choice?.message?.reasoning ?? choice?.message?.reasoning_content;
+      const reasoningLen = typeof reasoningRaw === "string" ? reasoningRaw.trim().length : 0;
+      const formatLabel = (responseFormat as { type?: string } | undefined)?.type ?? "plain";
+      lastEmptyNote = `format=${formatLabel}, finish_reason=${finishReason}${reasoningLen > 0 ? `, reasoning=${reasoningLen} chars sin content` : ""}`;
     }
 
-    let parsedResp: { choices?: Array<{ message?: { content?: unknown } }> };
-    try {
-      parsedResp = JSON.parse(res.text) as { choices?: Array<{ message?: { content?: unknown } }> };
-    } catch {
-      throw new OptimizerTransportError(`Respuesta del optimizador no es JSON válido: ${res.text.slice(0, 200)}`);
+    if (!sawClientRejection) {
+      break;
     }
-
-    const content = parsedResp.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      throw new OptimizerTransportError("El optimizador devolvió una respuesta vacía.");
-    }
-    return content;
   }
 
-  throw new OptimizerTransportError("No se pudo invocar al optimizador en ninguno de los modos de formato.");
+  throw new OptimizerTransportError(
+    `El optimizador devolvió una respuesta vacía tras probar todos los modos (${lastEmptyNote || "sin detalles"}).` +
+    " Verifique `--optimizer-thinking=off` y que `num_ctx` del servidor soporte el prompt.",
+  );
+}
+
+function stripCodeFences(code: string): string {
+  const trimmed = code.trim();
+  const match = /^```(?:ts|typescript|js|javascript)?\s*\n([\s\S]*?)\n```\s*$/i.exec(trimmed);
+  return match ? match[1].trim() : trimmed;
 }
 
 function parseJsonResponse(raw: string): Record<string, unknown> | null {
@@ -246,8 +290,11 @@ function buildGenerationMessages(opts: {
   const { cfg, round, nameA, nameB, conclusionsText, prodPromptSource, top2Contexts, allRanked, failureSamples } = opts;
   const contract = getStageContract(cfg.stage);
 
+  const evaluatedRole = isDecisionStage(cfg.stage) ? "decisión" : "generativo";
+  const evaluatedModel = isDecisionStage(cfg.stage) ? cfg.decisionModel : cfg.model;
+
   const system = [
-    "Sos un ingeniero experto en diseño y optimización de prompts para modelos pequeños (Qwen 4B generativo y D3 2B de decisión).",
+    `Sos un ingeniero experto en diseño y optimización de prompts para el modelo de ${evaluatedRole} \`${evaluatedModel}\`.`,
     "Tu tarea es proponer exactamente 2 variantes nuevas de prompt en TypeScript (`a` y `b`) para mejorar la etapa indicada.",
     "",
     "RESTRICCIONES ESTRICTAS:",
@@ -273,7 +320,7 @@ function buildGenerationMessages(opts: {
     `## Objetivo y Ronda`,
     `- Etapa: \`${cfg.stage}\` (${contract.requestType})`,
     `- Ronda actual: Vuelta ${round} de ${cfg.maxLoops}`,
-    `- Meta: \`${cfg.metric} >= ${fmtPct(cfg.target)}\` (modelos evaluados: \`${cfg.model}\` + \`${cfg.decisionModel}\`)`,
+    `- Meta: \`${cfg.metric} >= ${fmtPct(cfg.target)}\` (modelo evaluado [${evaluatedRole}]: \`${evaluatedModel}\`)`,
     `- Nombres exactos a generar: \`${nameA}\` (suffix \`a\`) y \`${nameB}\` (suffix \`b\`)`,
     "",
     `## Contrato de la Etapa`,
@@ -339,10 +386,11 @@ function extractProposal(raw: string, expectedSuffixes: Array<"a" | "b">): { pro
     const item = rawVars[i] as Record<string, unknown> | null;
     if (!item || typeof item !== "object") continue;
     const rawSuffix = typeof item.suffix === "string" ? item.suffix.trim().toLowerCase() : expectedSuffixes[i];
-    const suffix = (rawSuffix === "a" || rawSuffix === "b") ? rawSuffix : expectedSuffixes[i];
+    const suffixMatch = /(?:^|_)([ab])$/.exec(rawSuffix ?? "");
+    const suffix = suffixMatch ? (suffixMatch[1] as "a" | "b") : expectedSuffixes[i];
     if (!suffix) continue;
     const hypothesis = typeof item.hypothesis === "string" ? item.hypothesis.trim() : "(sin hipótesis)";
-    const code = typeof item.code === "string" ? item.code.trim() : "";
+    const code = typeof item.code === "string" ? stripCodeFences(item.code) : "";
     if (!code) continue;
     // Evitar duplicado por suffix dentro de la misma respuesta
     if (!entries.some((e) => e.suffix === suffix)) {
@@ -406,6 +454,8 @@ export async function generateVariantsForRound(opts: {
       schemaName: "optimizer_variants",
       schema: GENERATE_VARIANTS_SCHEMA,
       temperature: attempt === 0 ? 0.35 : 0.2,
+      maxTokens: 4096,
+      reasoningEffort: cfg.optimizerThinking === "on" ? "low" : "none",
     });
 
     const pendingSuffixes = (["a", "b"] as const).filter((s) => !validBySuffix.has(s));
@@ -561,6 +611,8 @@ export async function decideConclusionsUpdate(opts: {
     schemaName: "conclusions_update",
     schema: CONCLUSIONS_UPDATE_SCHEMA,
     temperature: 0.2,
+    maxTokens: 2048,
+    reasoningEffort: cfg.optimizerThinking === "on" ? "low" : "none",
   });
 
   const obj = parseJsonResponse(raw);

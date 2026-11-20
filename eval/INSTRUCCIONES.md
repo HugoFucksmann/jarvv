@@ -317,14 +317,17 @@ npm run eval -- --auto \
   --stage=args_review \
   --max-loops=8 \
   --target=0.80 \
+  --decision-model=d3:2b-text \
   --optimizer-model=qwen3:32b \
   [--optimizer-url=http://127.0.0.1:11434] \
   [--optimizer-api-key-env=OPENAI_API_KEY] \
   [--optimizer-timeout=120000] \
+  [--optimizer-thinking=off|on] \
   [--conclusions=eval/variants/_auto/args_review/conclusiones.md] \
   [--dataset=args_review_16_cases,args_review_gemai] \
   [--holdout=args_review_gemaiL] \
-  [--model=qwen3.5:4b+d3:2b] \
+  [--generative-model=qwen3.5:4b-text | --model=qwen3.5:4b+d3:2b] \
+  [--url=...] [--decision-url=...] \
   [--repeat=1] [--concurrency=3] [--thinking=off] [--timeout=...] \
   [--metric=passRate|macroPassRate] \
   [--seed-top=v1,v2] [--archive-losers=true|false] \
@@ -333,6 +336,7 @@ npm run eval -- --auto \
 
 *(Equivalente directo: `npx tsx eval/auto.ts ...`.)*
 
+- **Modelos:** el modelo **evaluado** se elige según la etapa con `--decision-model=<id>` (etapas de decisión) o `--generative-model=<id>` (etapas generativas), o en forma combinada con `--model=<gen>[+<dec>]` (por defecto lee `jarvis-config.json`). `--optimizer-model=<id>` define únicamente el LLM coordinador que propone variantes y evalúa `conclusiones.md` (por defecto con `--optimizer-thinking=off` para evitar respuestas vacías en modelos híbridos tipo Qwen 3.5 con `json_schema`).
 - **Inicialización:** busca en `eval/results/` corridas previas 100 % compatibles en huella (`datasetHash`, `cases.hash`, modelo, `thinking`, `stageConfigHash`, `repeat`, `variantHash`, sin filtros) para `prod` y las variantes activas de la etapa; si faltan, corre Vuelta 0 automática (o usa `--seed-top=v1,v2`). Si existe `auto_state.json` con la misma huella, conserva el historial de la mejor variante.
 - **Datasets por defecto:** al omitir `--dataset`, descubre los `.jsonl` con casos de `--stage` excluyendo `smoke.jsonl` y archivos `*_holdout*.jsonl` (que deben pedirse explícitamente en `--dataset` o `--holdout`).
 - **Seguridad y validación:** antes de evaluar, valida cada variante generada con TypeScript (`esbuild`: allowlist de imports hacia `src/core/**` y `eval/core/variants/types.ts`, bloqueo de `params`, `read` y código dinámico), normaliza `name`, deduplica por hash e importa en ESM ejecutando `loadDatasets` y verificando presupuesto de contexto (`DECISION_MAX_CONTEXT` / `reserveCompletionTokens`). Si falla, pide reparación al optimizador (hasta 2 reintentos).

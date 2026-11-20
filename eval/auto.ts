@@ -19,6 +19,7 @@ import { createEvalClients, executeComparisonBatch, type BatchVariantInput, type
 import { loadDatasets, type Dataset } from "./core/datasets.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "./core/report-format.ts";
 import type { ComparisonReport, InputCell } from "./core/report.ts";
+import { isDecisionStage } from "./core/stages/index.ts";
 import type { Case, StageName } from "./core/types.ts";
 import { loadVariantSpec, variantFilePath } from "./core/variants/load.ts";
 import type { Variant } from "./core/variants/types.ts";
@@ -290,10 +291,15 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   const runTag = makeRunTag();
 
   if (!silent) {
+    const decisionStage = isDecisionStage(cfg.stage);
     section(`eval --auto — etapa '${cfg.stage}'`);
     log(`  Objetivo: ${cfg.metric} >= ${fmtPct(cfg.target)} | Máx. vueltas: ${cfg.maxLoops}`);
-    log(`  Evaluado: ${cfg.model} + ${cfg.decisionModel} (client=${cfg.client}, thinking=${cfg.thinking}, repeat=${cfg.repeat})`);
-    log(`  Optimizador: ${cfg.optimizerModel} (${cfg.optimizerUrl})`);
+    if (decisionStage) {
+      log(`  Modelo evaluado (decisión): ${cfg.decisionModel} (${cfg.decisionUrl}) [client=${cfg.client}, repeat=${cfg.repeat}]`);
+    } else {
+      log(`  Modelo evaluado (generativo): ${cfg.model} (${cfg.url}) [client=${cfg.client}, thinking=${cfg.thinking}, repeat=${cfg.repeat}]`);
+    }
+    log(`  Optimizador: ${cfg.optimizerModel} (${cfg.optimizerUrl}, thinking=${cfg.optimizerThinking})`);
     log(`  Datasets dev (${discovered.dev.length}): ${discovered.dev.map((d) => `${d.name}(${d.cases.length})`).join(", ")}`);
     if (discovered.holdout.length > 0) {
       log(`  Holdout (${discovered.holdout.length}): ${discovered.holdout.map((d) => `${d.name}(${d.cases.length})`).join(", ")}`);

@@ -7,6 +7,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -15,7 +16,12 @@ import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, type AutoCo
 import { readConclusionsBounded } from "./conclusions.ts";
 import { discoverStageDatasets, discoverStageVariants } from "./discover.ts";
 import { extractFailureSamples } from "./feedback.ts";
-import { generateVariantsForRound, OptimizerTransportError, type OptimizerLlmCaller } from "./optimizer.ts";
+import {
+  defaultOptimizerLlmCall,
+  generateVariantsForRound,
+  OptimizerTransportError,
+  type OptimizerLlmCaller,
+} from "./optimizer.ts";
 import { archiveLosingAutoVariants, rankParticipants, scanReusableInitialRanking } from "./ranking.ts";
 import { extractProdPromptSource, getStageContract } from "./stageContract.ts";
 import { collectKnownVariantHashes, validateAndWriteVariant } from "./validateVariant.ts";
@@ -95,6 +101,73 @@ describe("eval/auto config", () => {
     assert.equal(evalCfg.client, "mock");
     assert.equal(evalCfg.repeat, 2);
   });
+
+  it("soporta --decision-model, --generative-model, --optimizer-thinking y detecta conflictos con --model", () => {
+    const cfg = parseAutoConfig([
+      "--stage=route",
+      "--max-loops=2",
+      "--target=0.90",
+      "--decision-model=d3:2b-custom",
+      "--generative-model=qwen-custom",
+      "--optimizer-model=qwen3.5:4b-text",
+      "--optimizer-thinking=on",
+    ]);
+    assert.equal(cfg.decisionModel, "d3:2b-custom");
+    assert.equal(cfg.model, "qwen-custom");
+    assert.equal(cfg.optimizerThinking, "on");
+
+    // --model con lado vacío permite complementar sin conflicto
+    const merged = parseAutoConfig([
+      "--stage=route",
+      "--max-loops=2",
+      "--target=0.90",
+      "--model=qwen-gen+",
+      "--decision-model=d3:2b-custom",
+      "--optimizer-model=opt-m",
+    ]);
+    assert.equal(merged.model, "qwen-gen");
+    assert.equal(merged.decisionModel, "d3:2b-custom");
+
+    assert.throws(
+      () =>
+        parseAutoConfig([
+          "--stage=route",
+          "--max-loops=2",
+          "--target=0.90",
+          "--model=gen1+dec1",
+          "--decision-model=dec2",
+          "--optimizer-model=opt-m",
+        ]),
+      /entra en conflicto/,
+    );
+    assert.throws(
+      () =>
+        parseAutoConfig([
+          "--stage=plan",
+          "--max-loops=2",
+          "--target=0.90",
+          "--model=gen1+dec1",
+          "--generative-model=gen2",
+          "--optimizer-model=opt-m",
+        ]),
+      /entra en conflicto/,
+    );
+    assert.throws(
+      () =>
+        parseAutoConfig([
+          "--stage=route",
+          "--max-loops=2",
+          "--target=0.90",
+          "--optimizer-model=opt-m",
+          "--optimizer-thinking=maybe",
+        ]),
+      /--optimizer-thinking/,
+    );
+    assert.throws(
+      () => parseAutoConfig(["--stage=route", "--max-loops=2", "--target=0.90", "--d-model=x", "--optimizer-model=m"]),
+      /Ahora se llama '--decision-model=<id>'/,
+    );
+  });
 });
 
 describe("eval/auto discover y exclusiones", () => {
@@ -166,7 +239,15 @@ describe("eval/auto validateVariant", () => {
         expectRe: /Import prohibido/,
       },
       {
+        code: `import {\n  readFileSync\n} from "node:fs";\n${validCode}`,
+        expectRe: /Import prohibido/,
+      },
+      {
         code: `import { ROUTE_HINTS } from "../../../../src/core/models/prompts.ts";\n${validCode}`,
+        expectRe: /NO está exportado/,
+      },
+      {
+        code: `import {\n  ROUTE_HINTS\n} from "../../../../src/core/models/prompts.ts";\n${validCode}`,
         expectRe: /NO está exportado/,
       },
       {
@@ -448,6 +529,137 @@ describe("eval/auto optimizer reparación", () => {
     assert.equal(res.validVariants.length, 2);
     assert.equal(res.validVariants[0].name, "auto_d0_repairtest_r1_a");
     assert.equal(res.validVariants[1].name, "auto_d0_repairtest_r1_b");
+  });
+
+  it("limpia fences ```ts en code cuando el optimizador envuelve el código dentro del JSON", async () => {
+    trackDirIfCreated(autoStageDir("d0"));
+    const devDs = discoverStageDatasets("d0", ["d0_variedad"], []);
+    const cfg = parseAutoConfig([
+      "--stage=d0",
+      "--max-loops=1",
+      "--target=0.90",
+      "--optimizer-model=mock-opt",
+      "--client=mock",
+    ]);
+
+    const tpl = getStageContract("d0").minimalTemplate("placeholder");
+    const fencedCaller: OptimizerLlmCaller = async () =>
+      JSON.stringify({
+        analysis: "Con fence ts",
+        variants: [
+          { suffix: "a", hypothesis: "Con fence", code: `\`\`\`ts\n${tpl}\n\`\`\`` },
+          {
+            suffix: "b",
+            hypothesis: "Sin fence",
+            code: tpl.replace("One single action is enough.", "Single action is enough."),
+          },
+        ],
+      });
+
+    const res = await generateVariantsForRound({
+      cfg,
+      round: 1,
+      runTag: "fencetest",
+      conclusionsText: "(vacío)",
+      top2Contexts: [],
+      allRanked: [],
+      failureSamples: [],
+      devDatasetPaths: devDs.dev.map((d) => d.path),
+      knownHashes: collectKnownVariantHashes("d0"),
+      callLlm: fencedCaller,
+    });
+
+    for (const v of res.validVariants) trackTemp(v.filePath);
+    assert.equal(res.validVariants.length, 2);
+    assert.equal(res.validVariants[0].code.includes("```"), false);
+  });
+
+  it("defaultOptimizerLlmCall envía reasoning_effort='none', degrada cuando json_schema devuelve vacío y reintenta si reasoning_effort es rechazado", async () => {
+    const receivedBodies: Array<Record<string, unknown>> = [];
+    let scenario: "empty_schema_then_ok" | "reject_reasoning_effort" | "always_empty" = "empty_schema_then_ok";
+
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      req.on("end", () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+        receivedBodies.push(body);
+
+        if (scenario === "empty_schema_then_ok") {
+          const fmt = (body.response_format as { type?: string } | undefined)?.type;
+          res.writeHead(200, { "Content-Type": "application/json" });
+          if (fmt === "json_schema") {
+            res.end(
+              JSON.stringify({
+                choices: [{ finish_reason: "stop", message: { content: "", reasoning: "thinking..." } }],
+              }),
+            );
+          } else {
+            res.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }] }));
+          }
+          return;
+        }
+
+        if (scenario === "reject_reasoning_effort") {
+          if ("reasoning_effort" in body) {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: { message: "Unknown field: reasoning_effort" } }));
+            return;
+          }
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: '{"ok":true}' } }] }));
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ choices: [{ finish_reason: "length", message: { content: "   ", reasoning: "abc" } }] }));
+      });
+    });
+
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    const addr = server.address();
+    assert.ok(addr && typeof addr === "object");
+    const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+    try {
+      const baseCall = {
+        url: baseUrl,
+        model: "qwen3.5:4b-text",
+        timeoutMs: 5000,
+        messages: [{ role: "user" as const, content: "hola" }],
+        schemaName: "test_schema",
+        schema: { type: "object" },
+        reasoningEffort: "none" as const,
+        maxTokens: 1024,
+      };
+
+      const out1 = await defaultOptimizerLlmCall(baseCall);
+      assert.equal(out1, '{"ok":true}');
+      assert.equal(receivedBodies.length, 2);
+      assert.equal(receivedBodies[0].reasoning_effort, "none");
+      assert.equal(receivedBodies[0].max_tokens, 1024);
+      assert.equal((receivedBodies[0].response_format as { type: string }).type, "json_schema");
+      assert.equal((receivedBodies[1].response_format as { type: string }).type, "json_object");
+
+      receivedBodies.length = 0;
+      scenario = "reject_reasoning_effort";
+      const out2 = await defaultOptimizerLlmCall(baseCall);
+      assert.equal(out2, '{"ok":true}');
+      assert.equal(receivedBodies.some((b) => "reasoning_effort" in b), true);
+      assert.equal(receivedBodies.some((b) => !("reasoning_effort" in b)), true);
+
+      receivedBodies.length = 0;
+      scenario = "always_empty";
+      await assert.rejects(
+        () => defaultOptimizerLlmCall(baseCall),
+        (err: unknown) =>
+          err instanceof OptimizerTransportError &&
+          /respuesta vacía/.test(err.message) &&
+          /reasoning=3 chars sin content/.test(err.message),
+      );
+    } finally {
+      await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
+    }
   });
 });
 
@@ -742,6 +954,37 @@ describe("eval/auto E2E runAutoLoop", () => {
       resultsRoot: resultsDir,
     });
     assert.equal(mismatch, null);
+
+    // Si runs.jsonl mezcla varias etapas (ej. smoke), recalcula scores solo para cfg.stage
+    const otherStageRec: RunRecord = {
+      ...mockRec,
+      caseId: "other-route-1",
+      stage: "route",
+      stageKey: "route",
+      passed: false,
+    };
+    const mixedScores: GlobalScoreSummary = {
+      ...scores,
+      totalRuns: 2,
+      passedRuns: 1,
+      passRate: 0.5,
+      passAllRate: 0.5,
+    };
+    writeFileSync(resolve(runDir, "scores.json"), JSON.stringify(mixedScores), "utf8");
+    writeFileSync(
+      resolve(runDir, "runs.jsonl"),
+      `${JSON.stringify(mockRec)}\n${JSON.stringify(otherStageRec)}\n`,
+      "utf8",
+    );
+    const mixedReused = scanReusableInitialRanking({
+      cfg,
+      variants: [{ name: "prod", hash: prodSpec.hash }],
+      datasets: [{ name: ds.name, hash: ds.hash, casesHash: meta.cases.hash }],
+      resultsRoot: resultsDir,
+    });
+    assert.ok(mixedReused !== null);
+    assert.equal(mixedReused.ranked[0].passRate, 1);
+    assert.equal(mixedReused.ranked[0].totalRuns, 1);
     void basename(runDir);
   });
 

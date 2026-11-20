@@ -8,9 +8,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
+import { isDecisionStage } from "../core/stages/index.ts";
 import type { StageName } from "../core/types.ts";
 import type { AutoMetric } from "./config.ts";
 import type { RankedVariant } from "./ranking.ts";
+
+function evaluatedModelLabel(stage: StageName, model: string, decisionModel: string): string {
+  return isDecisionStage(stage) ? `decisión: ${decisionModel}` : `generativo: ${model}`;
+}
 
 export const MAX_CONCLUSIONS_CHARS = 12_000;
 export const MAX_CONCLUSIONS_LINES = 150;
@@ -82,7 +87,7 @@ export function formatObjectiveRoundFacts(input: RoundFactsInput): string {
 
   const lines: string[] = [
     `Etapa: ${input.stage} | Vuelta: R${input.round} | Objetivo: >= ${fmtPct(input.target)} (${input.metric})`,
-    `Modelo evaluado: ${input.model} + ${input.decisionModel}`,
+    `Modelo evaluado: ${evaluatedModelLabel(input.stage, input.model, input.decisionModel)}`,
     `Top-2 anterior: ${input.previousTop2.join(", ") || "ninguno"}`,
     `Top-2 actual (${topChanged ? "CAMBIÓ" : "sin cambio"}): ${input.top2.join(", ")}`,
     `Baseline prod: ${prod ? `${fmtPct(prod.score)} (${prod.passedRuns}/${prod.totalRuns}, p50 ${fmtMs(prod.p50DurationMs)})` : "N/A"}`,
@@ -138,7 +143,7 @@ export function buildBaselineConclusionsMarkdown(input: {
   return compactMarkdownToLimits(`# Conclusiones — ${input.stage}
 
 ## Estado actual (auto-actualizado)
-- Objetivo: >= ${fmtPct(input.target)} (\`${input.metric}\`) · Modelo evaluado: \`${input.model} + ${input.decisionModel}\`
+- Objetivo: >= ${fmtPct(input.target)} (\`${input.metric}\`) · Modelo evaluado: \`${evaluatedModelLabel(input.stage, input.model, input.decisionModel)}\`
 - Top 1: ${top1 ? `\`${top1.variant}\` (${fmtPct(top1.score)}, p50 ${fmtMs(top1.p50DurationMs)})` : "—"}
 - Top 2: ${top2 ? `\`${top2.variant}\` (${fmtPct(top2.score)}, p50 ${fmtMs(top2.p50DurationMs)})` : "—"}
 - Baseline \`prod\`: ${prod ? fmtPct(prod.score) : "—"}

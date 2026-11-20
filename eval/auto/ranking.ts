@@ -11,6 +11,7 @@ import { basename, resolve } from "node:path";
 import { generateComparisonReport, type ComparisonReport, type InputCell, type VariantSummary } from "../core/report.ts";
 import { safeName } from "../core/results.ts";
 import { promptEnvironment } from "../core/scenario.ts";
+import { computeScoreSummary } from "../core/scoring.ts";
 import type { GlobalScoreSummary, RunMeta, RunRecord, StageName } from "../core/types.ts";
 import type { AutoConfig, AutoMetric } from "./config.ts";
 import { autoStageDir, autoStatePath } from "./config.ts";
@@ -266,17 +267,18 @@ export function scanReusableInitialRanking(opts: {
 
           if (!metaMatches) continue;
 
-          const scores = JSON.parse(readFileSync(scoresPath, "utf8")) as GlobalScoreSummary;
+          const rawScores = JSON.parse(readFileSync(scoresPath, "utf8")) as GlobalScoreSummary;
           const allRecords = parseJsonlRecords(runsPath);
           const stageRecords = allRecords.filter((r) => r.stage === cfg.stage);
           if (stageRecords.length === 0) continue;
 
-          // Verificar que ninguna llamada del dataset completo falló completamente por red.
+          // Verificar que haya casos canónicos y que no hayan fallado completamente por red.
           const canonical = stageRecords.filter((r) => r.bucket === "canonical");
-          if (canonical.length > 0 && canonical.every((r) => r.metrics?.client_call_ok === false)) {
+          if (canonical.length === 0 || canonical.every((r) => r.metrics?.client_call_ok === false)) {
             continue;
           }
 
+          const scores = stageRecords.length === allRecords.length ? rawScores : computeScoreSummary(stageRecords);
           found = { scores, records: stageRecords };
           break;
         } catch {
