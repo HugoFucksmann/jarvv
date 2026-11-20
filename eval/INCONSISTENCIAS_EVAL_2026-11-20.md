@@ -7,7 +7,7 @@ Documento único y verificado contra el código y archivos vigentes (`eval/`, `s
 | Comprobación | Resultado | Detalle |
 |---|---|---|
 | `npm run lint` (`npx tsc --noEmit`) | **Pasa** | `0` errores de TypeScript |
-| `npx tsx --test eval/core/eval_core.test.ts eval/auto/eval_auto.test.ts` | **32 pasan, 0 fallan** | 12 suites; `eval/variants/_auto/` ya no se crea ni queda residual |
+| `npx tsx --test eval/core/eval_core.test.ts eval/auto/eval_auto.test.ts` | **33 pasan, 0 fallan** | 12 suites; `eval/variants/_auto/` ya no se crea ni queda residual |
 | `npm run eval:smoke` / `npx tsx eval/psvalid.ts --help` / `npx tsx eval/cli.ts --list` | **Pasa** | Salida `0`; `14 etapas · 105 variantes · 91 datasets · 2464 casos` |
 | Grafo de imports en `eval/` (`madge --circular --extensions ts`, `.madgerc = {}`) | **0 ciclos** | `172` archivos analizados sin excluir ciclos de tipos |
 | `npx tsx --test --test-timeout=30000 tests/eval_arguments.test.ts tests/noul_cuts.test.ts` | **19 pasan, 2 fallan** | Las únicas 2 fallas son `tests/eval_arguments.test.ts:85-86` (PowerShell en Linux, diferido) |
@@ -22,20 +22,14 @@ Documento único y verificado contra el código y archivos vigentes (`eval/`, `s
 ### A.2 [MEDIO — Sin nuevas funcionalidades] `arguments` no ejercita `priorAttempts > 0` (`desalineaciones-eval.md` D8)
 - `eval/core/stages/arguments.ts` llama siempre a `argsInput(...)` con `priorAttempts = 0` (`temperature = 0.1`), sin cubrir la subida de temperatura (`0.3` / `0.5`) en reintentos de producción (`src/core/engine/adapters.ts`). No se agregó para no introducir nuevas funcionalidades.
 
-### A.3 [MEDIO — Pendiente] `at.attempts` en `recovery` mide magnitudes distintas (`PENDIENTES_CODIGO.md` §9.1)
-- En producción (`src/core/engine/recoveryShadow.ts:13, 58`), `attempts` cuenta **pasos fallidos seguidos**.
-- En los datasets vigentes de `eval/datasets/recovery/` (`eval/datasets/recovery/README.md:33`), `at.attempts` cuenta **llamadas fallidas** del caso. Se aclaró la diferencia en `eval/INSTRUCCIONES.md`, dejando datasets y `src/` sin cambios.
-
-### A.4 [MEDIO — Pendiente de decisión sobre `src/`] `tool_choice_desc_a` aprobada en `eval/conclusiones.md` sin aplicar en `src/`
+### A.3 [MEDIO — Pendiente de decisión sobre `src/`] `tool_choice_desc_a` aprobada en `eval/conclusiones.md` sin aplicar en `src/`
 - `eval/conclusiones.md` marca `tool_choice_desc_a` como confirmada en dev/holdout e indica actualizar `src/core/tools/manifest.ts:206`; en `src/` sigue el texto anterior.
 
-### A.5 [BAJO — Sin nuevas funcionalidades] Conversor de trazas reales `jarvis-traces/` → escenarios (`PENDIENTES_EVAL.md` §6)
+### A.4 [BAJO — Sin nuevas funcionalidades] Conversor de trazas reales `jarvis-traces/` → escenarios (`PENDIENTES_EVAL.md` §6)
 - No existe script que convierta carpetas de `jarvis-traces/` a `.jsonl` de `eval/datasets/`. No se agregó por la restricción de no incorporar funcionalidades nuevas.
 
-### A.6 [Pendientes de decisión de diseño / alcance]
+### A.5 [Pendientes de decisión de diseño / alcance]
 - **Caché ESM de V8 en `--auto` (`eval/core/variants/load.ts` / `eval/auto.ts`):** las candidatas válidas aceptadas durante una sesión de `--auto` se importan vía ESM en el proceso principal (V8 no descarga módulos ESM hasta terminar el proceso). Queda pendiente decidir si aislar cada evaluación de variante en un subproceso/worker.
-- **Validación de porcentajes en `eval/auto/conclusions.ts` (`validateConclusionsMarkdown`):** la expresión regular sigue comparando cualquier `` `variante` (XX%) `` contra el `score` global de la ronda actual, pudiendo rechazar porcentajes legítimos de un dataset individual, holdout o rondas previas.
-- **Flags y baseline en `eval/cross.ts`:** sigue ignorando flags desconocidos en silencio (vs `parseArgvFlags` estricto) y fijando `baseline = "prod"` / `iteration === 1`.
 - **Reorganización de `eval/variants/` y `conclusiones_*.md`:** persisten nombres mixtos de subcarpetas (`Pending/`, `route_D1/`, `tool_choice_D2/`, `args_review_D3/` vs `d0/`, `d4/`, `d5/`, `ctx/`) y archivos históricos `conclusiones_*.md` repartidos en subcarpetas.
 
 ---
@@ -67,8 +61,12 @@ Documento único y verificado contra el código y archivos vigentes (`eval/`, `s
 7. **Eliminación de código legacy y mejoras menores de CLI/UI:**
    - Retirados `ParamsOverride`, `ReadAnswer`, `DecisionReaders`, `Variant.params`, `Variant.read`, `readAllAnswers`, `PendingOutput.rich`, `gradeRich`, variantes de `recovery` en 2 ejes (`recovery_two_axes` rechazada en validación/tests) y aserciones heredadas.
    - Agregado `--help` en `eval/psvalid.ts` y ancho de terminal dinámico (`getTerminalWidth()`) en `eval/ui/style.ts`.
-8. **Documentación sincronizada:**
-   - Actualizados `eval/datasets/INDEX.md` (91 archivos, 2 464 casos, 14 etapas, sin referencias rotas a `eval/exp/memory_matching*`), `eval/datasets/recovery/README.md`, `eval/core/stages/recovery.ts`, `eval/INSTRUCCIONES.md`, `eval/README.md`, `docs/evaluacion/PLAN_DE_MEDICION.md`, `docs/evaluacion/DISENO_EVAL_AUTONOMO.md` y `docs/evaluacion/desalineaciones-eval.md`.
+8. **Validación de `conclusiones.md`, CLI estricto en `eval/cross.ts` y alineación de `recovery` (`eval/auto/conclusions.ts`, `eval/cross.ts`, `eval/core/stages/recovery.ts`, `eval/datasets/recovery/*.jsonl`):**
+   - `validateConclusionsMarkdown` limita el chequeo de porcentajes contra `ranked` a la sección `## Estado actual` y omite líneas de `holdout` / rondas previas (`R1`, `ronda ...`), evitando falsos rechazos en `## Descartadas` o `## Últimas rondas`.
+   - `eval/cross.ts` reemplaza el parseo permisivo por `parseArgvFlags` / `flagStr` / `flagCsv` (whitelist `dataset`, `runs`, `baseline`, `label`, `help`), soporta `--help` (exit `0`) y sale con código `2` ante flags desconocidos, vacíos o carpetas `--runs` inexistentes.
+   - `eval/core/stages/recovery.ts` calcula `attempts` con `Math.max(1, ctx.consecutiveFailures())` y exige que `scenario.at.attempts` coincida con los pasos fallidos seguidos en `scenario.steps`, alineado con `src/core/engine/recoveryShadow.ts`. Actualizados los 92 casos de 2–3 intentos en `eval/datasets/recovery/*.jsonl` para que cada intento sea un paso `failed` consecutivo con su llamada asociada vía `step`.
+9. **Documentación sincronizada:**
+   - Actualizados `eval/datasets/INDEX.md` (91 archivos, 2 464 casos, 14 etapas, sin referencias rotas a `eval/exp/memory_matching*`), `eval/datasets/recovery/README.md`, `eval/core/stages/recovery.ts`, `eval/INSTRUCCIONES.md`, `eval/GUIA_DECISION.md`, `eval/README.md`, `docs/evaluacion/PLAN_DE_MEDICION.md`, `docs/evaluacion/DISENO_EVAL_AUTONOMO.md` y `docs/evaluacion/desalineaciones-eval.md`.
 
 ---
 

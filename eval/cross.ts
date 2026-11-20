@@ -20,7 +20,9 @@
  */
 
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { flagCsv, flagStr, parseArgvFlags } from "./core/config.ts";
 import { analyzePowerShell, getToolPolicy, NOUL_APPROVE, OK_APPROVE, serverOf } from "./core/contract.ts";
 import type { CommandReport } from "./core/contract.ts";
 import { datasetName, resolveDatasetPaths } from "./core/datasets.ts";
@@ -49,9 +51,37 @@ interface CaseRow {
   reason: string | null;
 }
 
-function flag(name: string): string | undefined {
-  const a = process.argv.slice(2).find((x) => x.startsWith(`--${name}=`));
-  return a === undefined ? undefined : a.slice(name.length + 3);
+const CROSS_KNOWN_FLAGS = new Set(["dataset", "runs", "baseline", "label", "help"]);
+
+export interface CrossConfig {
+  datasets: string[];
+  runsDir?: string;
+  baseline: string;
+  label: string;
+  help: boolean;
+}
+
+export function parseCrossConfig(argv: string[]): CrossConfig {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    return { datasets: ["scenarios_args_review"], baseline: "prod", label: "", help: true };
+  }
+  const flags = parseArgvFlags(argv, CROSS_KNOWN_FLAGS);
+  if (flags.has("help")) {
+    return { datasets: ["scenarios_args_review"], baseline: "prod", label: "", help: true };
+  }
+  const parsedDatasets = flagCsv(flags, "dataset");
+  const datasets = parsedDatasets.length > 0 ? parsedDatasets : ["scenarios_args_review"];
+  const runsDir = flagStr(flags, "runs");
+  const baseline = flagStr(flags, "baseline") ?? "prod";
+  const label = flagStr(flags, "label") ?? "";
+  return { datasets, runsDir, baseline, label, help: false };
+}
+
+function printCrossUsage(): void {
+  console.log("Uso: npm run eval:cross -- [--dataset=<a,b>] [--runs=<carpeta>] [--baseline=<variante>] [--label=<nombre>]");
+  console.log("");
+  console.log("Cruza el pre-chequeo determinista de src/core/engine/precheck.ts contra casos de 'args_review'");
+  console.log("y, con --runs, compone tuberías con los resultados guardados de D3 y resume D4.");
 }
 
 function loadCases(dataset: string): Array<{ dataset: string; cases: RawCase[] }> {
@@ -304,41 +334,72 @@ function d4Report(dir: string): string[] {
 
 // ───────────────────────── Principal ─────────────────────────
 
-async function main(): Promise<void> {
-  const datasets = (flag("dataset") ?? "scenarios_args_review").split(",").map((s) => s.trim()).filter(Boolean);
-  const runsDir = flag("runs");
-  const baseline = flag("baseline") ?? "prod";
-  const label = flag("label") ?? "";
-  console.log(`Pre-chequeo sobre ${datasets.join(", ")}…`);
-  const rows = await precheckRows(datasets);
+export async function runCrossCli(argv: string[]): Promise<number> {
+  let cfg: CrossConfig;
+  try {
+    cfg = parseCrossConfig(argv);
+  } catch (e) {
+    console.error(`Error de configuración: ${e instanceof Error ? e.message : String(e)}`);
+    return 2;
+  }
 
-  const md = ["# Cruce del pre-chequeo con D3", "", `Datasets: ${datasets.join(", ")}${runsDir ? ` · corrida: \`${runsDir}\`` : ""}`, "", ...preReport(rows)];
+  if (cfg.help) {
+    printCrossUsage();
+    return 0;
+  }
+
+  let resolvedDatasets: string[];
+  try {
+    resolvedDatasets = resolveDatasetPaths(cfg.datasets);
+  } catch (e) {
+    console.error(`Error de dataset: ${e instanceof Error ? e.message : String(e)}`);
+    return 2;
+  }
+
+  if (cfg.runsDir !== undefined && !existsSync(cfg.runsDir)) {
+    console.error(`Error de entrada: No existe la carpeta de corridas '${cfg.runsDir}'.`);
+    return 2;
+  }
+
+  console.log(`Pre-chequeo sobre ${cfg.datasets.join(", ")}…`);
+  const rows = await precheckRows(cfg.datasets);
+
+  const md = [
+    "# Cruce del pre-chequeo con D3",
+    "",
+    `Datasets: ${cfg.datasets.join(", ")}${cfg.runsDir ? ` · corrida: \`${cfg.runsDir}\`` : ""}`,
+    "",
+    ...preReport(rows),
+  ];
   let json: unknown[] = [];
-  if (runsDir !== undefined) {
-    if (!existsSync(runsDir)) {
-      throw new Error(`No existe la carpeta de corridas '${runsDir}'.`);
-    }
-    const datasetNames = new Set(resolveDatasetPaths(datasets).map(datasetName));
-    const runs = loadRuns(runsDir).filter((r) => datasetNames.has(r.dataset));
+  if (cfg.runsDir !== undefined) {
+    const datasetNames = new Set(resolvedDatasets.map(datasetName));
+    const runs = loadRuns(cfg.runsDir).filter((r) => datasetNames.has(r.dataset));
     if (runs.length === 0) console.warn("⚠ La corrida no tiene resultados de args_review para esos datasets.");
     else {
-      const x = crossReport(rows, runs, baseline);
+      const x = crossReport(rows, runs, cfg.baseline);
       md.push(...x.md);
       json = x.json;
     }
-    md.push(...d4Report(runsDir));
+    md.push(...d4Report(cfg.runsDir));
   }
 
   const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
-  const dir = join("eval/results", "_cross", `${stamp}${label ? `_${label}` : ""}`);
+  const dir = join("eval/results", "_cross", `${stamp}${cfg.label ? `_${cfg.label}` : ""}`);
   mkdirSync(dir, { recursive: true });
   atomicWriteFileSync(join(dir, "cross.md"), `${md.join("\n")}\n`);
-  atomicWriteFileSync(join(dir, "cross.json"), JSON.stringify({ datasets, runsDir: runsDir ?? null, rows, pipelines: json }, null, 2));
+  atomicWriteFileSync(join(dir, "cross.json"), JSON.stringify({ datasets: cfg.datasets, runsDir: cfg.runsDir ?? null, rows, pipelines: json }, null, 2));
   console.log(md.join("\n"));
   console.log(`\nGuardado en ${dir}`);
+  return 0;
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
-});
+const isEntrypoint = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+if (isEntrypoint) {
+  runCrossCli(process.argv.slice(2))
+    .then((code) => process.exit(code))
+    .catch((e) => {
+      console.error(e instanceof Error ? e.message : e);
+      process.exit(1);
+    });
+}
