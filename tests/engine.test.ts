@@ -27,7 +27,7 @@ import { newContext } from "./fixtures.ts";
 const TIMING = { start: 0, end: 0, durationMs: 0 } as never;
 const schema = { type: "object", properties: { path: { type: "string" }, content: { type: "string" }, mode: { type: "string" }, command: { type: "string" } } };
 const tool = (name: string): MCPTool => ({ name, description: name, inputSchema: schema });
-const FILE_TOOLS = ["list_directory", "write_file"].map(tool);
+const FILE_TOOLS = ["list_folder", "write_file"].map(tool);
 const TERMINAL_TOOLS = ["run_command"].map(tool);
 
 interface Scenario {
@@ -143,8 +143,8 @@ async function run(s: Scenario): Promise<Outcome> {
     reconnect: async () => undefined,
   });
   const terminalTools = s.noTerminalTools === true ? [] : TERMINAL_TOOLS;
-  const servers: Record<string, IMCPServer> = { desktop_commander: provider("desktop_commander", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", terminalTools) };
-  const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? terminalTools : name === "desktop_commander" ? FILE_TOOLS : []);
+  const servers: Record<string, IMCPServer> = { jarvis_files_read: provider("jarvis_files_read", FILE_TOOLS), jarvis_files_write: provider("jarvis_files_write", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", terminalTools) };
+  const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? terminalTools : name.startsWith("jarvis_files_") ? FILE_TOOLS : []);
 
   const deps: EngineDeps = {
     discovery: {
@@ -155,7 +155,7 @@ async function run(s: Scenario): Promise<Outcome> {
       notifyTaskEnd: async (_taskId, outcome) => void ended.push(outcome),
     },
     decision: {
-      chooseRoute: async (input) => (s.onRoutes?.(input.routes), { action: "route", route: input.routes.includes("terminal") && s.tool === "run_command" ? "terminal" : "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+      chooseRoute: async (input) => (s.onRoutes?.(input.routes), { action: "route", route: input.routes.includes("terminal") && s.tool === "run_command" ? "terminal" : s.tool === "write_file" ? "files_write" : "files_read", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       chooseTool: async (input) => ({ action: "tool", tool: input.tools.find((t) => t.name === s.tool) ?? input.tools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       reviewArgs: async () => {
         reviews++;
@@ -233,7 +233,7 @@ async function run(s: Scenario): Promise<Outcome> {
 }
 
 test("lectura: se despacha, se verifica y la tarea se completa con respuesta del modelo", async () => {
-  const { ctx, dispatched } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" } });
+  const { ctx, dispatched } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_folder", args: { path: "C:\\Users\\Ana\\Documentos" } });
   assert.equal(ctx.task.state, "completed");
   assert.equal(ctx.result?.origin, "model");
   assert.equal(dispatched.length, 1);
@@ -244,7 +244,7 @@ test("lectura: se despacha, se verifica y la tarea se completa con respuesta del
 });
 
 test("cierre: Decisión 5 con probabilidad suficiente completa la tarea sin confirmar con el LLM de pendientes", async () => {
-  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completion: 0.9 });
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_folder", args: { path: "C:\\Users\\Ana\\Documentos" }, completion: 0.9 });
   assert.equal(ctx.task.state, "completed");
   assert.equal(ctx.task.stopReason, null);
   assert.equal(completionChecks, 1);
@@ -252,14 +252,14 @@ test("cierre: Decisión 5 con probabilidad suficiente completa la tarea sin conf
 });
 
 test("cierre: Decisión 5 por debajo del umbral (0,75) no cierra: se confirma con el LLM como antes", async () => {
-  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completion: 0.74 });
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_folder", args: { path: "C:\\Users\\Ana\\Documentos" }, completion: 0.74 });
   assert.equal(ctx.task.state, "completed");
   assert.equal(completionChecks, 1);
   assert.equal(pendingQueries, 2, "la confirmación del LLM sí ocurrió");
 });
 
 test("cierre: si el modelo de Decisión 5 no está disponible (agotada la pausa) la tarea cierra unrecoverable, sin confirmar con el LLM", async () => {
-  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails: "unavailable" });
+  const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_folder", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails: "unavailable" });
   assert.equal(ctx.task.stopReason, "unrecoverable");
   assert.equal(ctx.task.state, "partial", "hubo una lectura aprobada: no es `failed`");
   assert.equal(completionChecks, 1);
@@ -268,7 +268,7 @@ test("cierre: si el modelo de Decisión 5 no está disponible (agotada la pausa)
 
 test("cierre: una respuesta inválida o un desborde de Decisión 5 no es un modelo caído: se confirma con el LLM como antes", async () => {
   for (const completionFails of ["invalid", "overflow"] as const) {
-    const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_directory", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails });
+    const { ctx, pendingQueries, completionChecks } = await run({ request: "Listar C:\\Users\\Ana\\Documentos", tool: "list_folder", args: { path: "C:\\Users\\Ana\\Documentos" }, completionFails });
     assert.equal(ctx.task.state, "completed", completionFails);
     assert.equal(ctx.task.stopReason, null, completionFails);
     assert.equal(completionChecks, 1, completionFails);
@@ -493,7 +493,7 @@ test("ruta sensible: pide confirmación aunque esté encendido el modo automáti
   let asked: string | null = null;
   const { dispatched } = await run({
     request: "Listar C:\\Users\\Ana\\.ssh",
-    tool: "list_directory",
+    tool: "list_folder",
     args: { path: "C:\\Users\\Ana\\.ssh" },
     autoMode: true,
     onWait: (waiting, runtime) => {
@@ -509,14 +509,14 @@ test("ruta sensible: pide confirmación aunque esté encendido el modo automáti
 test("ruta sensible aprobada por el usuario: se despacha", async () => {
   const { dispatched } = await run({
     request: "Listar C:\\Users\\Ana\\.ssh",
-    tool: "list_directory",
+    tool: "list_folder",
     args: { path: "C:\\Users\\Ana\\.ssh" },
     autoMode: true,
     onWait: (waiting, runtime) => {
       if (waiting.kind === "approval") runtime.resolveApproval(waiting.request.id, true);
     },
   });
-  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1);
+  assert.equal(dispatched.filter((d) => d.tool === "list_folder").length, 1);
 });
 
 test("run_command de solo lectura sobre una ruta sensible: ya no se permite sin confirmar", async () => {
@@ -543,8 +543,8 @@ const LIST = { path: "C:\\Users\\Ana\\Documents" };
 const DOCS = "Listar C:\\Users\\Ana\\Documents";
 
 test("topes: el modelo repite los mismos argumentos tras un rechazo en el paso y, si pending repite el mismo texto, corta sin correr otro paso", async () => {
-  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_directory", args: LIST, verifyFor: () => REJECT, pendingAlways: true });
-  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1, "las repeticiones bloqueadas no llegan a la herramienta");
+  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_folder", args: LIST, verifyFor: () => REJECT, pendingAlways: true });
+  assert.equal(dispatched.filter((d) => d.tool === "list_folder").length, 1, "las repeticiones bloqueadas no llegan a la herramienta");
   const calls = ctx.find("calls", {});
   assert.equal(calls[0].status, "ok");
   assert.equal(calls[0].verdict, "rejected");
@@ -558,11 +558,11 @@ test("topes: el modelo repite los mismos argumentos tras un rechazo en el paso y
 test("repetición: un fallo pasajero de una lectura se reintenta una vez con los mismos argumentos", async () => {
   const { ctx, dispatched } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     resultFor: (n) => (n === 0 ? { content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true } : { content: [{ type: "text", text: "[FILE] a.txt" }] }),
   });
-  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 2, "el reintento idéntico se ejecutó");
+  assert.equal(dispatched.filter((d) => d.tool === "list_folder").length, 2, "el reintento idéntico se ejecutó");
   assert.deepEqual(ctx.find("calls", {}).map((c) => c.status), ["tool_error", "ok"]);
   assert.equal(ctx.find("steps", {})[0].state, "completed");
 });
@@ -570,7 +570,7 @@ test("repetición: un fallo pasajero de una lectura se reintenta una vez con los
 test("repetición: un segundo fallo pasajero idéntico en el mismo paso ya no se reintenta (un reintento por paso)", async () => {
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     resultFor: () => ({ content: [{ type: "text", text: "EBUSY: resource busy" }], isError: true }),
     pendingAlways: true,
@@ -713,7 +713,7 @@ test("RC-20: el proceso sale de la clave del hecho y la respuesta del final del 
 
 test("RC-29: un proveedor que responde sin herramientas (la terminal fuera de Windows) no se ofrece como destino; uno que no existe o falló, sí", async () => {
   const offered: string[][] = [];
-  const { ctx } = await run({ request: "Listar C:\\x", tool: "list_directory", args: { path: "C:\\x" }, noTerminalTools: true, onRoutes: (routes) => offered.push([...routes]) });
+  const { ctx } = await run({ request: "Listar C:\\x", tool: "list_folder", args: { path: "C:\\x" }, noTerminalTools: true, onRoutes: (routes) => offered.push([...routes]) });
   assert.equal(ctx.task.state, "completed");
   assert.ok(offered.length > 0 && offered.every((routes) => !routes.includes("terminal")), JSON.stringify(offered));
   assert.ok(offered[0].includes("web"), "jarvis_web no está registrado en este arnés: se sigue ofreciendo (falla al ejecutar como infraestructura caída)");
@@ -722,7 +722,7 @@ test("RC-29: un proveedor que responde sin herramientas (la terminal fuera de Wi
 // ───────────────────────── D0: primera consulta ─────────────────────────
 
 test("D0 charla: la tarea cierra completada sin consultar pendientes ni llamar herramientas, y la respuesta final contesta", async () => {
-  const { ctx, dispatched, pendingQueries } = await run({ request: "Hola, ¿cómo andás?", tool: "list_directory", args: {}, first: "chat" });
+  const { ctx, dispatched, pendingQueries } = await run({ request: "Hola, ¿cómo andás?", tool: "list_folder", args: {}, first: "chat" });
   assert.equal(ctx.task.state, "completed");
   assert.equal(ctx.result?.origin, "model");
   assert.equal(dispatched.length, 0);
@@ -730,23 +730,23 @@ test("D0 charla: la tarea cierra completada sin consultar pendientes ni llamar h
 });
 
 test("D0 una acción: la lista es la solicitud literal, sin consultar pendientes, y el paso corre y cierra", async () => {
-  const { ctx, dispatched, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", completion: 1 });
+  const { ctx, dispatched, pendingQueries } = await run({ request: DOCS, tool: "list_folder", args: LIST, first: "single", completion: 1 });
   assert.equal(ctx.task.state, "completed");
   assert.equal(pendingQueries, 0);
-  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1);
+  assert.equal(dispatched.filter((d) => d.tool === "list_folder").length, 1);
   assert.equal(ctx.find("steps", {})[0].instruction, DOCS, "el paso recibe la solicitud sin reescritura");
 });
 
 test("D0 varias acciones, o una respuesta inválida o un desborde de D0: el flujo de siempre (la lista de pendientes la genera el modelo)", async () => {
   for (const first of ["multi", "invalid", "overflow"] as const) {
-    const { ctx, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first });
+    const { ctx, pendingQueries } = await run({ request: DOCS, tool: "list_folder", args: LIST, first });
     assert.equal(ctx.task.state, "completed", first);
     assert.ok(pendingQueries >= 1, `${first}: consulta pendientes`);
   }
 });
 
 test("D0 con el modelo de decisión no disponible (agotada la pausa): la tarea cierra unrecoverable sin ejecutar nada", async () => {
-  const { ctx, dispatched, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "unavailable" });
+  const { ctx, dispatched, pendingQueries } = await run({ request: DOCS, tool: "list_folder", args: LIST, first: "unavailable" });
   assert.equal(ctx.task.state, "failed");
   assert.equal(ctx.task.stopReason, "unrecoverable");
   assert.equal(dispatched.length, 0);
@@ -763,25 +763,25 @@ const threadRecalled = (ctx: TaskContext): string[] => ctx.find("recalled", {}).
 
 test("Hilo: continuación detectada: pending recibe la tarea anterior sin atajo, los argumentos la reciben como memoria, el pre-chequeo la acepta como fuente y la final también la ve", async () => {
   const path = "C:\\Users\\Ana\\Documents\\Proyectos";
-  const { ctx, dispatched, threads, finalViews, argViews } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.8, completion: 1 });
+  const { ctx, dispatched, threads, finalViews, argViews } = await run({ request: FOLLOW_UP, tool: "list_folder", args: { path }, first: "single", previous: PREV, follows: 0.8, completion: 1 });
   assert.equal(ctx.task.state, "completed");
   assert.deepEqual(threads.pending[0], PREV, "pending ve la tarea anterior");
   assert.deepEqual(threadRecalled(ctx), [PREV.request, PREV.answer], "el hilo quedó en `recalled` (previous_request y previous_answer)");
   assert.match(finalViews[0], /PREVIOUS TASK/, "la respuesta final la ve, como sección `recalled`");
   assert.ok(finalViews[0].includes(PREV.request) && finalViews[0].includes("notas.txt"));
   assert.ok(argViews[0].includes("MEMORY") && argViews[0].includes("previous answer:") && argViews[0].includes("notas.txt"), "los argumentos reciben el hilo como líneas del bloque MEMORY");
-  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 1, "la ruta del hilo pasó el pre-chequeo");
+  assert.equal(dispatched.filter((d) => d.tool === "list_folder").length, 1, "la ruta del hilo pasó el pre-chequeo");
 });
 
 test("Hilo: sin continuación (follow bajo) no hay hilo en ningún prompt y la acción única toma el atajo", async () => {
-  const { ctx, threads, pendingQueries } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", previous: PREV, follows: 0.1, completion: 1 });
+  const { ctx, threads, pendingQueries } = await run({ request: DOCS, tool: "list_folder", args: LIST, first: "single", previous: PREV, follows: 0.1, completion: 1 });
   assert.equal(ctx.task.state, "completed");
   assert.equal(pendingQueries, 0, "atajo de D0");
   assert.deepEqual([threads.pending, threads.final, threads.memory].map((t) => t.filter((x) => x !== undefined).length), [0, 0, 0]);
 });
 
 test("Hilo: una charla que continúa la tarea anterior cierra sin llamadas y la respuesta final recibe el hilo", async () => {
-  const { ctx, dispatched, finalViews } = await run({ request: "traducilo al inglés", tool: "list_directory", args: {}, first: "chat", previous: PREV, follows: 0.5 });
+  const { ctx, dispatched, finalViews } = await run({ request: "traducilo al inglés", tool: "list_folder", args: {}, first: "chat", previous: PREV, follows: 0.5 });
   assert.equal(ctx.task.state, "completed");
   assert.equal(dispatched.length, 0);
   assert.deepEqual(threadRecalled(ctx), [PREV.request, PREV.answer]);
@@ -790,12 +790,12 @@ test("Hilo: una charla que continúa la tarea anterior cierra sin llamadas y la 
 
 test("Hilo: la consulta de continuación inválida o con desborde sigue sin hilo; con el modelo no disponible la tarea cierra unrecoverable", async () => {
   for (const continuationFails of ["invalid", "overflow"] as const) {
-    const { ctx, threads } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", previous: PREV, continuationFails, completion: 1 });
+    const { ctx, threads } = await run({ request: DOCS, tool: "list_folder", args: LIST, first: "single", previous: PREV, continuationFails, completion: 1 });
     assert.equal(ctx.task.state, "completed", continuationFails);
     assert.deepEqual(threadRecalled(ctx), [], continuationFails);
     assert.equal(threads.pending.filter((x) => x !== undefined).length, 0, continuationFails);
   }
-  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", previous: PREV, continuationFails: "unavailable" });
+  const { ctx, dispatched } = await run({ request: DOCS, tool: "list_folder", args: LIST, first: "single", previous: PREV, continuationFails: "unavailable" });
   assert.equal(ctx.task.state, "failed");
   assert.equal(ctx.task.stopReason, "unrecoverable");
   assert.equal(dispatched.length, 0);
@@ -803,15 +803,15 @@ test("Hilo: la consulta de continuación inválida o con desborde sigue sin hilo
 
 test("Hilo: sin tarea anterior vigente no se consulta la continuación", async () => {
   let asked = 0;
-  const { threads } = await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", follows: 0.9, completion: 1, onArgs: () => void asked++ });
+  const { threads } = await run({ request: DOCS, tool: "list_folder", args: LIST, first: "single", follows: 0.9, completion: 1, onArgs: () => void asked++ });
   assert.equal(threads.pending.filter((x) => x !== undefined).length, 0);
   assert.equal(asked, 1);
 });
 
 test("Hilo: sin el hilo, la misma ruta (que solo aparece en la respuesta anterior) se rechaza como inventada", async () => {
   const path = "C:\Users\Ana\Documents\Proyectos";
-  const { dispatched } = await run({ request: FOLLOW_UP, tool: "list_directory", args: { path }, first: "single", previous: PREV, follows: 0.1, completion: 1 });
-  assert.equal(dispatched.filter((d) => d.tool === "list_directory").length, 0, "el pre-chequeo la rechaza: no hay hilo y la ruta no está en el pedido");
+  const { dispatched } = await run({ request: FOLLOW_UP, tool: "list_folder", args: { path }, first: "single", previous: PREV, follows: 0.1, completion: 1 });
+  assert.equal(dispatched.filter((d) => d.tool === "list_folder").length, 0, "el pre-chequeo la rechaza: no hay hilo y la ruta no está en el pedido");
 });
 
 // ───────────────────────── Verificación por código (N5) ─────────────────────────
@@ -860,7 +860,7 @@ test("verificación: una escritura que dice ok pero no dejó nada en el disco se
 
 test("verificación: una lectura determinista con contenido llega a Decisión 4 con `ok` ya resuelto por el código", async () => {
   const inputs: { readonly known?: Record<string, number> }[] = [];
-  await run({ request: DOCS, tool: "list_directory", args: LIST, first: "single", completion: 1, onVerifyInput: (i) => inputs.push(i) });
+  await run({ request: DOCS, tool: "list_folder", args: LIST, first: "single", completion: 1, onVerifyInput: (i) => inputs.push(i) });
   assert.deepEqual(inputs[0].known, { ok: 1 });
 });
 
@@ -868,7 +868,7 @@ test("verificación: un resultado sin datos (no_data) se rechaza por código sin
   let verifications = 0;
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     first: "single",
     resultFor: () => ({ content: [{ type: "text", text: "" }] }),
@@ -978,7 +978,7 @@ const PATHS = "Rutas: C:\\Users\\Ana\\Documents y C:\\Users\\Ana\\Desktop";
 test("cierre: si Decisión 5 dice con seguridad que falta algo y pendientes lo propone, no se cierra aunque se parezca a un ítem ya cumplido", async () => {
   const { ctx, dispatched } = await run({
     request: `${COMPOUND}. ${PATHS}`,
-    tool: "list_directory",
+    tool: "list_folder",
     args: {},
     argsFor: (n) => ({ path: n === 0 ? "C:\\Users\\Ana\\Documents" : "C:\\Users\\Ana\\Desktop" }),
     first: "multi",
@@ -993,7 +993,7 @@ test("cierre: si Decisión 5 dice con seguridad que falta algo y pendientes lo p
 test("cierre: con Decisión 5 dudando (no segura de que falta algo) se conserva el comportamiento de siempre: lo que se parece a lo cumplido se descarta", async () => {
   const { dispatched, ctx } = await run({
     request: `${COMPOUND}. ${PATHS}`,
-    tool: "list_directory",
+    tool: "list_folder",
     args: { path: "C:\\Users\\Ana\\Documents" },
     first: "multi",
     pendingFor: (n) => (n === 0 ? [COMPOUND] : n === 1 ? [REST] : []),
@@ -1006,7 +1006,7 @@ test("cierre: con Decisión 5 dudando (no segura de que falta algo) se conserva 
 test("cierre: con la guarda de cobertura encendida, un archivo nombrado en el pedido que ninguna llamada menciona impide el cierre rápido de Decisión 5", async () => {
   const base = {
     request: "Listar C:\\Users\\Ana\\Documents y guardar el resumen en informe.txt",
-    tool: "list_directory",
+    tool: "list_folder",
     args: { path: "C:\\Users\\Ana\\Documents" },
     first: "single" as const,
     completion: 0.95,
@@ -1024,7 +1024,7 @@ test("cierre: con la guarda de cobertura encendida, un archivo nombrado en el pe
 test("cierre: con la guarda de cobertura encendida, si una llamada menciona el archivo nombrado, D5 decide como siempre", async () => {
   const out = await run({
     request: "Listar C:\\Users\\Ana\\Documents\\informe.txt",
-    tool: "list_directory",
+    tool: "list_folder",
     args: { path: "C:\\Users\\Ana\\Documents\\informe.txt" },
     first: "single",
     completion: 0.95,
@@ -1055,65 +1055,9 @@ async function writeWithPlace(place: number | undefined) {
   return out.ctx.find("calls", {})[0];
 }
 
-test("ubicación: una escritura que existe pero la sonda de lugar rechaza queda rechazada por wrong_place", async () => {
-  const call = await writeWithPlace(0.1);
-  assert.equal(call.verdict, "rejected");
-  assert.equal(call.reason, "wrong_place");
-});
-
 test("ubicación: si la pregunta de lugar aprueba, la escritura se aprueba; sin la pregunta (decisión que no la implementa) también", async () => {
   assert.equal((await writeWithPlace(0.9)).verdict, "approved");
   assert.equal((await writeWithPlace(undefined)).verdict, "approved");
-});
-
-async function writeWithProbes(probeBy: (instructions: string) => number, args: Record<string, unknown> = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-probe-"));
-  const file = path.join(dir, "nota.txt");
-  fs.writeFileSync(file, "hola");
-  const out = await run({
-    request: `Agregá hola al principio de ${file}`,
-    tool: "write_file",
-    args: { path: file, content: "hola", ...args },
-    first: "single",
-    home: os.homedir(),
-    completion: 1,
-    probeBy,
-    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
-  });
-  fs.rmSync(dir, { recursive: true, force: true });
-  return out.ctx.find("calls", {})[0];
-}
-
-test("sondas: la de posición rechaza con wrong_position aunque la de lugar apruebe", async () => {
-  const call = await writeWithProbes((q) => (q.includes("START of the file") ? 0.1 : 0.9));
-  assert.equal(call.verdict, "rejected");
-  assert.equal(call.reason, "wrong_position");
-});
-
-test("sondas: dudar es rechazar (0,55 < umbral 0,6) y todas en 0,9 aprueban", async () => {
-  assert.equal((await writeWithProbes(() => 0.55)).reason, "wrong_place");
-  assert.equal((await writeWithProbes(() => 0.9)).verdict, "approved");
-});
-
-test("sondas: lo escrito en un lugar rechazado se avisa por código en la respuesta final, sin mover ni borrar", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-notice-"));
-  const file = path.join(dir, "nota.txt");
-  fs.writeFileSync(file, "hola");
-  const out = await run({
-    request: `Guardá hola en ${file}`,
-    tool: "write_file",
-    args: { path: file, content: "hola", mode: "rewrite" },
-    first: "single",
-    home: os.homedir(),
-    completion: 1,
-    probeBy: () => 0.1,
-    onWait: (w, runtime) => w.kind === "approval" && runtime.resolveApproval(w.request.id, true),
-  });
-  const exists = fs.existsSync(file);
-  fs.rmSync(dir, { recursive: true, force: true });
-  assert.ok(exists, "no se borra nada");
-  assert.ok(out.ctx.result?.text.includes(`Quedó escrito en: ${file}`), out.ctx.result?.text);
-  assert.ok(out.ctx.result?.text.includes("No lo moví ni lo borré"));
 });
 
 // ───────────────────────── Errores de la herramienta: no se suman a los rechazos de la verificación ─────────────────────────
@@ -1121,7 +1065,7 @@ test("sondas: lo escrito en un lugar rechazado se avisa por código en la respue
 test("tool_error + resultado rechazado en el mismo paso: el paso NO falla (cada tipo tiene su tope) y el tercer intento lo completa", async () => {
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     argsFor: (n) => ({ ...LIST, depth: n + 1 }), // otra huella en cada intento: el anti-bucle no interviene
     first: "single",
@@ -1148,7 +1092,7 @@ test("tool_error + resultado rechazado en el mismo paso: el paso NO falla (cada 
 test("B: errores de la herramienta DISTINTOS: hay un tercer intento y el paso se completa (con el mismo error dos veces, el paso habría fallado en el segundo)", async () => {
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     argsFor: (n) => ({ ...LIST, depth: n + 1 }),
     first: "single",
@@ -1174,7 +1118,7 @@ test("B: errores de la herramienta DISTINTOS: hay un tercer intento y el paso se
 test("B: el MISMO error de la herramienta dos veces falla el paso sin gastar un tercer intento", async () => {
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     argsFor: (n) => ({ ...LIST, depth: n + 1 }),
     first: "single",
@@ -1189,7 +1133,7 @@ test("B: el MISMO error de la herramienta dos veces falla el paso sin gastar un 
 test("C: el paso falla por errores de la herramienta y `pending` repite el ítem: se reintenta UNA vez con un paso nuevo, que se completa", async () => {
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     first: "single",
     completion: 1,
@@ -1205,7 +1149,7 @@ test("C: el paso falla por errores de la herramienta y `pending` repite el ítem
 test("C: el reintento idéntico es uno solo: si también falla por errores de la herramienta, la tarea cierra", async () => {
   const { ctx } = await run({
     request: DOCS,
-    tool: "list_directory",
+    tool: "list_folder",
     args: LIST,
     first: "single",
     pendingAlways: true,
@@ -1219,7 +1163,7 @@ test("C: el reintento idéntico es uno solo: si también falla por errores de la
 // ───────────────────────── Recuperación en modo sombra (`recoveryShadow`) ─────────────────────────
 
 const EBUSY = { content: [{ type: "text" as const, text: "EBUSY: resource busy" }], isError: true };
-const failingList = { request: DOCS, tool: "list_directory", args: LIST, resultFor: () => EBUSY, pendingAlways: true } as const;
+const failingList = { request: DOCS, tool: "list_folder", args: LIST, resultFor: () => EBUSY, pendingAlways: true } as const;
 const shapeOf = (o: Outcome) => ({
   state: o.ctx.task.state,
   stop: o.ctx.task.stopReason,

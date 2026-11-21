@@ -468,7 +468,7 @@ test("egreso: claves, tokens, contraseñas y rutas del usuario en la consulta ex
   assert.equal(finding({ need: "x", urls: ["https://example.org/un-articulo-con-un-titulo-muy-largo-que-no-es-una-clave-de-nada-importante"] }), null, "un trozo largo de una URL no es un secreto");
   assert.equal(finding({ need: "x", urls: ["https://example.org/a?key=sk-abcdefghijklmnopqrstuvwx"] }), "api-key", "una clave dentro de la URL sí");
   assert.equal(egressFinding("jarvis_web", "otra", { need: "password=hunter2secreto" }), null);
-  assert.equal(egressFinding("desktop_commander", "web_search", { need: "password=hunter2secreto" }), null);
+  assert.equal(egressFinding("jarvis_files", "web_search", { need: "password=hunter2secreto" }), null);
 });
 
 test("Guard: web_search se permite; con un dato sensible pide confirmación obligatoria aun en modo automático; sus consultas no se escanean como comandos", () => {
@@ -482,10 +482,11 @@ test("Guard: web_search se permite; con un dato sensible pide confirmación obli
 
 // ───────────────────────── Manifiesto y dependencias ─────────────────────────
 
-test("manifiesto: web_search es lo único que ofrece la ruta web; fetch es interna y no aparecen en el catálogo", async () => {
+test("manifiesto: la ruta web ofrece web_search y download_file; fetch es interna y no aparece en el catálogo", async () => {
   const provider = new WebSearchProvider();
-  const offered = applyDestination("web", await provider.listTools());
-  assert.deepEqual(offered.map((t) => t.name), ["web_search"]);
+  const allOffered = applyDestination("web", await provider.listTools());
+  assert.deepEqual(allOffered.map((t) => t.name), ["web_search", "download_file"]);
+  const offered = allOffered.filter((t) => t.name === "web_search");
   assert.deepEqual(Object.keys(offered[0].inputSchema.properties ?? {}).sort(), ["domains", "freshness", "need", "urls"]);
   const props = offered[0].inputSchema.properties as Record<string, { maxLength?: number; maxItems?: number; description?: string }>;
   assert.equal(props.need.maxLength, 300, "el esquema declara los límites que parseArgs impone");
@@ -519,7 +520,7 @@ test("ToolHost: solo deja pasar lo que el proveedor declara y las sub-llamadas l
   assert.equal((await host.call({ server: "free_search", tool: "fetch" }, { url: "https://a.org" })).content[0].text, "hecho");
   assert.deepEqual(seen.map((c) => [c.name, c.taskId]), [["search", "task_9"], ["fetch", "task_9"]]);
   await assert.rejects(host.call({ server: "free_search", tool: "download" }, { url: "https://a.org" }), /no figura entre las dependencias/);
-  await assert.rejects(host.call({ server: "desktop_commander", tool: "write_file" }, {}), /no figura entre las dependencias/);
+  await assert.rejects(host.call({ server: "jarvis_files", tool: "write_file" }, {}), /no figura entre las dependencias/);
   assert.equal(seen.length, 2, "lo no declarado nunca llega al servidor");
   assert.deepEqual(captured, ["free_search:search", "free_search:fetch"], "cada sub-llamada pasa por el envoltorio de captura que recibe el host");
 });

@@ -32,7 +32,7 @@ import { FAKE_DISK } from "./fixtures.ts";
 const TIMING = { start: 0, end: 0, durationMs: 0 } as never;
 const SCHEMA = { type: "object", properties: { path: { type: "string" }, content: { type: "string" }, mode: { type: "string" }, command: { type: "string" } } };
 const tool = (name: string): MCPTool => ({ name, description: name, inputSchema: SCHEMA });
-const FILE_TOOLS = ["list_directory", "write_file"].map(tool);
+const FILE_TOOLS = ["list_folder", "write_file"].map(tool);
 const TERMINAL_TOOLS = [tool("run_command")];
 const FINISHED: MCPCallResult = toolResult({
   text: "status: finished · exit code: 0 · duration: 1.0s · pid: 4321\nlisto",
@@ -63,7 +63,7 @@ function buildOp(name: OpName, dir: string): Op {
       fs.writeFileSync(file, "viejo");
       return { tool: "write_file", args: { path: file, content: "más", mode: "append" }, request: `Agregá más a ${file}` };
     case "read":
-      return { tool: "list_directory", args: { path: dir }, request: `Listá ${dir}` };
+      return { tool: "list_folder", args: { path: dir }, request: `Listá ${dir}` };
     case "sensitive_path": {
       const ssh = path.join(dir, ".ssh");
       fs.mkdirSync(ssh);
@@ -142,8 +142,8 @@ async function observe(s: Scenario): Promise<Observed> {
       isConnected: () => true,
       reconnect: async () => undefined,
     });
-    const servers: Record<string, IMCPServer> = { desktop_commander: provider("desktop_commander", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS) };
-    const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? TERMINAL_TOOLS : name === "desktop_commander" ? FILE_TOOLS : []);
+    const servers: Record<string, IMCPServer> = { jarvis_files_read: provider("jarvis_files_read", FILE_TOOLS), jarvis_files_write: provider("jarvis_files_write", FILE_TOOLS), jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS) };
+    const catalog = (name: string): MCPTool[] => (name === "jarvis_terminal" ? TERMINAL_TOOLS : name.startsWith("jarvis_files_") ? FILE_TOOLS : []);
 
     const entries: BlacklistEntry[] =
       s.list === undefined ? [] : [{ tool: op.tool, pattern: s.listPattern ?? "nueva|existe|a\\.txt", reason: "Regla de prueba.", level: s.list }];
@@ -160,7 +160,7 @@ async function observe(s: Scenario): Promise<Observed> {
         notifyTaskEnd: async () => undefined,
       },
       decision: {
-        chooseRoute: async () => ({ action: "route", route: op.tool === "run_command" ? "terminal" : "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        chooseRoute: async () => ({ action: "route", route: op.tool === "run_command" ? "terminal" : op.tool === "write_file" ? "files_write" : "files_read", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
         chooseTool: async (input) => ({ action: "tool", tool: input.tools.find((t) => t.name === op.tool) ?? input.tools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
         reviewArgs: async () => {
           reviews++;

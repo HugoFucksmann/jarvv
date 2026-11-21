@@ -92,7 +92,7 @@
     ],
     "request": "Busca los informes de ventas y guarda un resumen en resumen.txt",
     "routes": [
-      "files",
+      "files_read",
       "terminal"
     ]
   },
@@ -108,20 +108,7 @@
       "c13 s1 files/write_file write ok verdict=approved",
       "c14 s1 files/write_file write ok verdict=approved"
     ],
-    "attempts": [
-      {
-        "route": "files",
-        "tool": "read_file",
-        "failed": true,
-        "text": "c10 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data."
-      },
-      {
-        "route": "files",
-        "tool": "read_file",
-        "failed": true,
-        "text": "c11 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data. | ENOENT: no such file or directory"
-      }
-    ],
+    "attempts": [],
     "userInput": [
       "rejection s2: no crees carpetas nuevas",
       "answer s2: usá la carpeta Documentos"
@@ -130,7 +117,7 @@
       "process=4321"
     ],
     "request": "Busca los informes de ventas y guarda un resumen en resumen.txt",
-    "route": "files",
+    "route": "files_read",
     "tools": [
       {
         "name": "write_file",
@@ -158,7 +145,7 @@
   },
   "reactive/running/reviewInput": {
     "candidate": {
-      "route": "files",
+      "route": "files_read",
       "tool": "write_file",
       "description": "Write or append to a file.",
       "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"},\"mode\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}",
@@ -315,7 +302,7 @@
     ],
     "request": null,
     "routes": [
-      "files",
+      "files_read",
       "terminal"
     ]
   },
@@ -326,20 +313,7 @@
     },
     "lastResult": null,
     "done": [],
-    "attempts": [
-      {
-        "route": "files",
-        "tool": "read_file",
-        "failed": true,
-        "text": "c10 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data."
-      },
-      {
-        "route": "files",
-        "tool": "read_file",
-        "failed": true,
-        "text": "c11 s2 files/read_file read tool_error verdict=rejected — The tool returned an error. — The result has no usable data. | ENOENT: no such file or directory"
-      }
-    ],
+    "attempts": [],
     "userInput": [
       "rejection s2: no crees carpetas nuevas",
       "answer s2: usá la carpeta Documentos"
@@ -348,7 +322,7 @@
       "process=4321"
     ],
     "request": null,
-    "route": "files",
+    "route": "files_read",
     "tools": [
       {
         "name": "write_file",
@@ -376,7 +350,7 @@
   },
   "deliberative/running/reviewInput": {
     "candidate": {
-      "route": "files",
+      "route": "files_read",
       "tool": "write_file",
       "description": "Write or append to a file.",
       "schema": "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"},\"mode\":{\"type\":\"string\"}},\"required\":[\"path\",\"content\"]}",

@@ -27,8 +27,8 @@ test("memoizeDecision: la misma entrada no vuelve a consultar al modelo; otra en
 
 test("sortByCatalog: el orden del catálogo manda sobre el del servidor; lo desconocido va al final en su orden", () => {
   const names = (ts: { name: string }[]) => ts.map((t) => t.name);
-  const ordered = sortByCatalog("desktop_commander", [{ name: "zzz_x" }, { name: "write_file" }, { name: "list_directory" }, { name: "aaa_y" }]);
+  const ordered = sortByCatalog("jarvis_system", [{ name: "zzz_x" }, { name: "stop_process" }, { name: "system_info" }, { name: "aaa_y" }]);
   assert.deepEqual(names(ordered).slice(-2), ["zzz_x", "aaa_y"]);
-  const again = sortByCatalog("desktop_commander", [...ordered].reverse());
+  const again = sortByCatalog("jarvis_system", [...ordered].reverse());
   assert.deepEqual(names(again).slice(0, 2), names(ordered).slice(0, 2));
 });

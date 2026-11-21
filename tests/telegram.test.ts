@@ -52,7 +52,7 @@ test("Progress muestra pasos, qué hace cada llamada, su resultado y su veredict
   );
   assert.ok(p.apply(step) && p.apply(call));
   const working = p.render("⏳ Trabajando…");
-  assert.ok(working.includes("🔄 1. Listar procesos &lt;ram&gt; · Terminal y procesos"));
+  assert.ok(working.includes("🔄 1. Listar procesos &lt;ram&gt; · Terminal"));
   assert.ok(working.includes("<code>run_command</code>") && working.includes("Get-Process | Sort WS") && working.includes("<i>listed</i>"));
 
   assert.ok(p.apply(approve) && p.apply(done));

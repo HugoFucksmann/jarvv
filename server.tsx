@@ -14,7 +14,6 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { DesktopCommanderMCPServer } from './src/core/mcp/desktopCommanderMcp.ts';
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
 import type { IMCPServer } from './src/core/mcp/types.ts';
 import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
@@ -30,7 +29,10 @@ import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { warmUpModels } from './src/core/models/warmup.ts';
 import { startRetention } from './src/core/retention.ts';
-import { FilesProvider } from './src/tools/files/filesProvider.ts';
+import { SystemProvider } from './src/tools/system/systemProvider.ts';
+import { FilesReadProvider } from './src/tools/files_read/filesReadProvider.ts';
+import { FilesWriteProvider } from './src/tools/files_write/filesWriteProvider.ts';
+import { MultimediaProvider } from './src/tools/multimedia/multimediaProvider.ts';
 import { TerminalProvider } from './src/tools/terminal/terminalProvider.ts';
 import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
 import { startTelegram } from './src/telegram/bot.ts';
@@ -86,26 +88,35 @@ async function main() {
 
   const getConfig = () => ConfigManager.getConfig();
 
-  const desktopServer = new DesktopCommanderMCPServer(getConfig);
   const freeSearchServer = new FreeSearchMCPServer(getConfig);
 
   // El 2B de las decisiones puntúa los fragmentos de `web_search` solo si la configuración lo enciende (se lee en cada llamada).
   const decisionEngine = new Decision20Engine(getConfig);
   const servers: Record<string, IMCPServer> = {
-    desktop_commander: desktopServer,
     free_search: freeSearchServer,
     // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
     // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
-    jarvis_files: new FilesProvider({
-      allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+    jarvis_system: new SystemProvider({
+      allowedDirectories: () => getConfig().allowedDirectories,
+      environment: getUserEnvironment,
+      selfPid: process.pid,
+      parentPid: process.ppid,
+    }),
+    jarvis_files_read: new FilesReadProvider({
+      allowedDirectories: () => getConfig().allowedDirectories,
       environment: getUserEnvironment,
     }),
+    jarvis_files_write: new FilesWriteProvider({
+      allowedDirectories: () => getConfig().allowedDirectories,
+      environment: getUserEnvironment,
+    }),
+    jarvis_multimedia: new MultimediaProvider(),
     jarvis_terminal: new TerminalProvider({
       envRemove: [...dotenvKeys(), ...SECRET_KEYS],
-      allowedDirectories: () => getConfig().desktopCommanderMcp.allowedDirectories ?? [],
+      allowedDirectories: () => getConfig().allowedDirectories,
       waitSec: () => ({ default: getConfig().runCommandDefaultWaitSec, max: getConfig().runCommandMaxWaitSec }),
     }),
-    jarvis_web: new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined), judgeTimeoutMs: () => getConfig().webJudgeTimeoutMs }),
+    jarvis_web: new WebSearchProvider({ allowedDirectories: () => getConfig().allowedDirectories, environment: getUserEnvironment, judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined), judgeTimeoutMs: () => getConfig().webJudgeTimeoutMs }),
   };
 
   const discoveryEngine = new DiscoveryEngine(servers);

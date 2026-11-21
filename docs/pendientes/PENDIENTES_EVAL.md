@@ -187,8 +187,8 @@ Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y 
 ## 7. Pruebas en otro entorno
 
 - Tablas de codepage 852 y 857: probarlas en una PC con esa página OEM (no hay una disponible).
-- `notifications/cancelled` por stdio (ya se envía al abortar o vencer una llamada): probar contra Desktop Commander real.
-- Adaptadores `mcp/` contra Desktop Commander real; `allowedDirectories` con Desktop Commander real.
+- `notifications/cancelled` por stdio (ya se envía al abortar o vencer una llamada): probar contra un servidor MCP real.
+- Adaptadores `mcp/` contra un servidor real.
 - `DecisionValidationError` lleva `raw` (`engine/capture.ts`): confirmarlo en una traza real.
 - `GET /tasks/:id/refs/:refId`: validarlo en Windows con una ref real generada en vivo.
 - Symlinks con `allowedDirectories`: el test se salta si el sistema no permite crearlos sin permisos (los junctions sí se prueban).

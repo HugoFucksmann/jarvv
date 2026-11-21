@@ -54,7 +54,6 @@ export const FIXED_TIMEOUTS = {
   spawnMs: 15_000,
   /** Cortar un árbol de procesos o un proceso; tabla de procesos del sistema. */
   killMs: 5_000,
-  processTableMs: 15_000,
   /** Cuánto se conserva un proceso terminado que nadie volvió a leer. */
   retainFinishedMs: 10 * 60_000,
   /** Detección de prompts de un proceso: silencio necesario según la forma de la última línea. */

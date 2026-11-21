@@ -12,7 +12,7 @@
 import type { PathFinding } from "./sensitivePaths.ts";
 
 /** Herramientas cuyos argumentos salen a internet, como `servidor:herramienta` en minúsculas. */
-const EGRESS_TOOLS: ReadonlySet<string> = new Set(["jarvis_web:web_search"]);
+const EGRESS_TOOLS: ReadonlySet<string> = new Set(["jarvis_web:web_search", "jarvis_web:download_file", "jarvis_multimedia:play_media", "jarvis_system:open_on_screen"]);
 
 export const isEgressTool = (mcp: string, tool: string): boolean => EGRESS_TOOLS.has(`${mcp}:${tool}`.toLowerCase());
 
@@ -36,7 +36,7 @@ const RULES: readonly EgressRule[] = [
 const LONG_BLOB_TOKENS = /[A-Za-z0-9+/]{38,}={0,2}/g;
 const HEX_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64}|[0-9a-f]{128})$/i;
 
-const isUrlArg = (key: string): boolean => key === "urls";
+const isUrlArg = (key: string): boolean => key === "urls" || key === "url" || key === "target";
 
 /** Textos de los argumentos de una llamada (un texto o los textos de una lista), con su clave. */
 function texts(args: Readonly<Record<string, unknown>>): { key: string; text: string }[] {

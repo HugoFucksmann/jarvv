@@ -17,15 +17,15 @@
 
 import { execFile } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 import { promisify } from "node:util";
 import type { TaskContext } from "../ctx/index.ts";
 import type { Platform, UserEnvironment } from "../environment.ts";
 import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import { stripExtendedPrefix } from "../policy/allowedDirs.ts";
-import { isPathArgKey, PATH_LIST_KEY } from "../policy/pathArgs.ts";
+import { expandedArgEntries, isPathArgKey, PATH_LIST_KEY } from "../policy/pathArgs.ts";
+import { KNOWN_ALIASES } from "../tools/filePaths.ts";
 import { isPrecheckSource } from "../recalledPolicy.ts";
-import { isPathWriteTool, parentFolderArg } from "../tools/toolTargets.ts";
+import { isPathWriteTool } from "../tools/toolTargets.ts";
 import { reviewViewOptions } from "./adapters.ts";
 
 const execFileAsync = promisify(execFile);
@@ -80,7 +80,7 @@ export const MAY_BE_EMPTY = new Set(["content", "text", "data", "body", "input"]
 
 function roleOf(key: string): Role {
   const k = key.toLowerCase();
-  if (isPathArgKey(k) || k === PATH_LIST_KEY) return "path"; // `paths` (read_multiple_files) es un arreglo de rutas: `stringsOf` revisa cada una
+  if (isPathArgKey(k) || k === PATH_LIST_KEY) return "path"; // `paths` es un arreglo de rutas: `stringsOf` revisa cada una
   if (k === "url" || k === "urls") return "url";
   if (k === "command") return "command";
   return "text";
@@ -223,6 +223,8 @@ function isUnderKnownFolder(path: string, env: UserEnvironment): boolean {
 /** Ruta de lectura "con origen": aparece completa, es una carpeta conocida (o su ancestro) o su nombre de archivo aparece. */
 function pathHasSource(path: string, input: PrecheckInput): boolean {
   const p = normalizeText(path).replace(/\/+$/, "");
+  // Los alias de las herramientas de archivos (`home`, `desktop`, `documents`, `downloads`) y `~` son carpetas conocidas del usuario, no rutas inventadas.
+  if ((KNOWN_ALIASES as readonly string[]).includes(p) || p === "~" || p.startsWith("~/")) return true;
   if (input.sources.text.includes(p)) return true;
   if (knownFolders(input.environment).some((f) => f === p || f.startsWith(`${p}/`))) return true;
   return input.sources.text.includes(baseName(p));
@@ -421,16 +423,6 @@ function diskIsReal(env: UserEnvironment): boolean {
   }
 }
 
-/** Tipo de lo que hay en `p` (`"file"`, `"directory"`, `"other"`) o `null` si no existe o no se puede leer. */
-function diskKind(p: string): "file" | "directory" | "other" | null {
-  try {
-    const st = fs.statSync(p);
-    return st.isDirectory() ? "directory" : st.isFile() ? "file" : "other";
-  } catch {
-    return null;
-  }
-}
-
 const isUrlLike = (value: string): boolean => /^https?:\/\//i.test(value.trim());
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
 
@@ -512,7 +504,7 @@ export const SOURCE_RULES: readonly PrecheckRule<ValueContext>[] = [
         : invalid(`The URL '${c.value}' does not appear in the request or in earlier results. Use a URL from the results, or search first.`),
   },
   {
-    // Destino de una escritura (`path` de `write_file` o `create_directory`, `destination` de `move_file`): si no es una carpeta del usuario, tiene que salir de algún lado.
+    // Destino de una escritura (`path`, `destination`…): si no es una carpeta del usuario, tiene que salir de algún lado.
     // D3 aprobó 5 de 5 destinos inventados (`D:\proyectos\facturacion\backup`…) y con `autoMode` no hay otra barrera.
     name: "write-destination-source",
     applies: (c) => c.writesIt,
@@ -527,14 +519,14 @@ export const SOURCE_RULES: readonly PrecheckRule<ValueContext>[] = [
     check: (c) =>
       pathHasSource(c.value, c.input)
         ? null
-        : invalid(`The path '${c.value}' does not appear in the request or in earlier results. Use a path from the request or from a listing, or locate the file first.`),
+        : invalid(`The path '${c.value}' does not appear in the request or in earlier results. Use a path from the request or from a listing, or find the file first with find_files.`),
   },
 ];
 
 /** Recorre los valores de texto de los argumentos (en el orden de los argumentos) y devuelve el primer rechazo de `rules`. */
 function firstValueFinding(input: PrecheckInput, rules: readonly PrecheckRule<ValueContext>[], keep: (ctx: ValueContext) => boolean): PrecheckFinding | null {
   const home = userSegment(normalizeText(input.environment.home));
-  for (const [key, raw] of Object.entries(input.args)) {
+  for (const [key, raw] of expandedArgEntries(input.args)) {
     const role = roleOf(key);
     const readsIt = role === "path" && (input.kind === "read" || SOURCE_KEYS.has(key.toLowerCase()));
     const writesIt = role === "path" && input.kind === "write" && !readsIt;
@@ -553,76 +545,6 @@ function firstValueFinding(input: PrecheckInput, rules: readonly PrecheckRule<Va
 
 // ── Reglas por llamada ──
 
-/**
- * `write_file` y `move_file` no crean carpetas: si la que contendría al archivo no existe, la herramienta falla (`ENOENT`) y el modelo repetía la misma ruta. El destino
- * se comprueba en el disco solo si la carpeta de inicio del entorno existe en esta PC y solo con rutas absolutas. `create_directory` sí crea las carpetas intermedias.
- */
-function checkParentFolder(input: PrecheckInput): PrecheckFinding | null {
-  const key = parentFolderArg(input.tool);
-  const value = key === null ? undefined : input.args[key];
-  if (typeof value !== "string" || !isAbsolutePath(normalizeText(value))) return null;
-  try {
-    if (!fs.existsSync(input.environment.home)) return null;
-    const parent = path.dirname(value);
-    if (parent === value || fs.existsSync(parent)) return null;
-    return invalid(
-      `The folder '${parent}' does not exist, so '${value}' cannot be written there. Create the folder first with create_directory, or use a folder that exists (ENV lists the user's folders; the folder the user means may be inside one of them).`,
-    );
-  } catch {
-    return null;
-  }
-}
-
-/** Un argumento de ruta absoluta (no una URL) con valor, o `null`. */
-function absolutePathArg(input: PrecheckInput, key: string): string | null {
-  const v = input.args[key];
-  return typeof v === "string" && v.trim() !== "" && !isUrlLike(v) && isAbsolutePath(normalizeText(v)) ? v : null;
-}
-
-/**
- * Lo que hay en disco no es lo que la herramienta espera (carpeta donde va un archivo y al revés, origen de un movimiento que no existe). Una regla por herramienta:
- * agregar una herramienta con rutas es agregar su fila (`path-kind` solo corre para las que están acá).
- */
-const PATH_KIND_CHECKS: ReadonlyMap<string, (input: PrecheckInput) => PrecheckFinding | null> = new Map([
-  [
-    "write_file",
-    (input) => {
-      const p = absolutePathArg(input, "path");
-      return p !== null && diskKind(p) === "directory" ? invalid(`'${p}' is a folder, not a file: write_file needs a file path (for example '${p}\\notes.txt').`) : null;
-    },
-  ],
-  [
-    "read_file",
-    (input) => {
-      const p = absolutePathArg(input, "path");
-      return p !== null && diskKind(p) === "directory" ? invalid(`'${p}' is a folder, not a file: use list_directory to see what it contains, then read_file on a file.`) : null;
-    },
-  ],
-  [
-    "list_directory",
-    (input) => {
-      const p = absolutePathArg(input, "path");
-      return p !== null && diskKind(p) === "file" ? invalid(`'${p}' is a file, not a folder: use read_file to read it.`) : null;
-    },
-  ],
-  [
-    "move_file",
-    (input) => {
-      const p = absolutePathArg(input, "source");
-      return p !== null && diskKind(p) === null ? invalid(`The source '${p}' does not exist, so it cannot be moved. Check the name with list_directory or locate it first.`) : null;
-    },
-  ],
-]);
-
-function checkPathKind(input: PrecheckInput): PrecheckFinding | null {
-  if (!diskIsReal(input.environment)) return null;
-  return PATH_KIND_CHECKS.get(input.tool)?.(input) ?? null;
-}
-
-const textArg = (input: PrecheckInput, key: string): string | null => {
-  const v = input.args[key];
-  return typeof v === "string" ? v : null;
-};
 /** Variables de entorno de Windows que siempre existen aunque el proceso del servidor no las herede. */
 const STANDARD_ENV = new Set(
   [
@@ -650,31 +572,10 @@ const isPowerShellCommand = (input: PrecheckInput): boolean =>
 
 export const CALL_RULES: readonly PrecheckRule<CallContext>[] = [
   {
-    name: "list-directory-depth",
-    applies: ({ input }) => input.tool === "list_directory" && input.args.depth !== undefined && input.args.depth !== null,
-    check: ({ input }) => {
-      const d = input.args.depth;
-      return typeof d !== "number" || !Number.isInteger(d) || d < 1 ? invalid("The 'depth' argument of list_directory must be an integer >= 1 (use 1 or omit for a single level).") : null;
-    },
-  },
-  {
     name: "argument-values",
     applies: () => true,
     check: ({ input }) => firstValueFinding(input, VALUE_RULES, () => true),
   },
-  {
-    name: "same-source-destination",
-    applies: ({ input }) => input.tool === "move_file",
-    check: ({ input }) => {
-      const from = textArg(input, "source");
-      const to = textArg(input, "destination");
-      if (from === null || to === null || from.trim() === "" || to.trim() === "") return null;
-      const flat = (p: string): string => normalizeText(p.trim()).replace(/\/+$/, "");
-      return flat(from) === flat(to) ? invalid("The source and the destination of move_file are the same path: there is nothing to move. Give the new location or the new name.") : null;
-    },
-  },
-  { name: "parent-folder", applies: ({ input }) => parentFolderArg(input.tool) !== null, check: ({ input }) => checkParentFolder(input) },
-  { name: "path-kind", applies: ({ input }) => PATH_KIND_CHECKS.has(input.tool), check: ({ input }) => checkPathKind(input) },
   {
     name: "linux-path-in-command",
     applies: ({ input }) => isPowerShellCommand(input),

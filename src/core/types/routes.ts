@@ -4,11 +4,11 @@
  * prompts, criterios de Decision, validación de planes) debe derivarse de esta constante. Cada destino lo
  * ejecuta un servidor MCP (ver DESTINATIONS en tools/manifest.ts).
  */
-export const EXECUTABLE_ROUTES = ["files", "locate", "terminal", "web"] as const;
+export const EXECUTABLE_ROUTES = ["terminal", "files_read", "files_write", "system", "multimedia", "web"] as const;
 export type ExecutableRoute = (typeof EXECUTABLE_ROUTES)[number];
 
-/** Proveedores de herramientas: los dos servidores MCP de terceros y los nativos (`jarvis_*`, en `src/tools/`). */
-export const MCP_SERVERS = ["desktop_commander", "free_search", "jarvis_files", "jarvis_terminal", "jarvis_web"] as const;
+/** Proveedores de herramientas: el servidor MCP de terceros y los nativos (`jarvis_*`, en `src/tools/`). */
+export const MCP_SERVERS = ["free_search", "jarvis_files_read", "jarvis_files_write", "jarvis_multimedia", "jarvis_system", "jarvis_terminal", "jarvis_web"] as const;
 export type McpServerName = (typeof MCP_SERVERS)[number];
 
 export function isExecutableRoute(route: unknown): route is ExecutableRoute {

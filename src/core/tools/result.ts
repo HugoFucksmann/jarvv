@@ -54,3 +54,6 @@ export function readToolResult(result: MCPCallResult): NativeResult | null {
   const meta = isRecord(result._meta) ? result._meta : {};
   return { text, raw: structured.raw, data: isRecord(structured.data) ? structured.data : {}, meta };
 }
+
+/** Resultado de una herramienta cancelada por la señal de la tarea antes de empezar o mientras corría: sin contenido y sin error. */
+export const cancelledResult = (): MCPCallResult => toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", truncated: false } });

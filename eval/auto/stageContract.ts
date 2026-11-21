@@ -121,7 +121,7 @@ export default ${name};
     outputContract:
       "questions.route debe ser type: 'choice' con criteria exactamente para cada ruta en `data.routes`.",
     graderRules:
-      "mainChoice('route', 'route', ...) elige la opción de mayor probabilidad entre `data.routes` y verifica que sea ruta ejecutable (`files`, `locate`, `terminal`, `web`).",
+      "mainChoice('route', 'route', ...) elige la opción de mayor probabilidad entre `data.routes` y verifica que sea ruta ejecutable (`files`, `terminal`, `web`).",
     allowedHelpers: [
       ...SHARED_IMPORTS_NOTE,
       "Entrada: RouteDecisionInput ({ routes, request?, step, lastResult, done, attempts, userInput, env }).",

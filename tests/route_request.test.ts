@@ -9,7 +9,7 @@ import { routeInput, routeViewOptions } from "../src/core/engine/adapters.ts";
 import { DECISION_PROMPTS, ROUTE_QUESTION } from "../src/core/models/prompts.ts";
 import { newContext } from "./fixtures.ts";
 
-const ROUTES = ["files", "terminal"] as const;
+const ROUTES = ["files_read", "terminal"] as const;
 
 test("la vista forRoute lleva la solicitud en reactivo y no en deliberativo", () => {
   const reactive = newContext("reactive");

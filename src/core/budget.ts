@@ -147,11 +147,6 @@ export const BUDGET = {
    * extractores (`result/extractors/*`), movidos a la tabla única (D7 de la Fase 4).
    */
   extract: {
-    /** `list_directory`: entradas que se muestran. */
-    listDirEntries: 40,
-    /** `read_file`: líneas del inicio y del final que se muestran cuando el contenido es largo. */
-    readFileHeadLines: 15,
-    readFileTailLines: 15,
     /** Texto largo sin extractor propio (genérico): caracteres del inicio y del final que se conservan. */
     textHeadChars: 750,
     textTailChars: 750,

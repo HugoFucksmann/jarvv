@@ -18,7 +18,7 @@ import {
   inspectDestinationTarget,
   resolvePathTarget,
 } from "../../core/tools/filePaths.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -76,9 +76,6 @@ interface ParsedWriteArgs {
 
 const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
   toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
-const cancelledResult = (): MCPCallResult =>
-  toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", truncated: false } });
 
 function parseArgs(
   raw: Record<string, unknown>,

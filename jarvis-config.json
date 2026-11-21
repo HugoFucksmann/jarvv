@@ -17,13 +17,7 @@
   "decisionMaxContext": 16384,
   "decisionTimeoutMs": 30000,
   "modelUnavailablePauseMaxMs": 600000,
-  "desktopCommanderMcp": {
-    "command": "node",
-    "args": [
-      "node_modules/@wonderwhy-er/desktop-commander/dist/index.js"
-    ],
-    "allowedDirectories": []
-  },
+  "allowedDirectories": [],
   "freeSearchMcp": {
     "command": "uvx",
     "args": [
@@ -54,11 +48,12 @@
   "logRetentionDays": 30,
   "retentionMaxMb": 250,
   "blacklist": [],
-  "autoMode": true,
-  "approvalTiers": true,
+  "autoMode": false,
+  "approvalTiers": false,
   "reviewFullView": false,
   "reviewReads": false,
   "completionCoverageGuard": false,
+  "recoveryShadow": true,
   "webSearchUseJudge": true,
   "voiceEnabled": false,
   "telegramVoice": false,

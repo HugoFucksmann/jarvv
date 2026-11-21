@@ -9,7 +9,7 @@ import { processResult } from "../src/core/result/processResult.ts";
 import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult } from "../src/core/types.ts";
 
-const DC = "desktop_commander";
+const DC = "jarvis_files";
 const TERMINAL = "jarvis_terminal";
 const WEB = "jarvis_web";
 const text = (t: string, extra: Partial<MCPCallResult> = {}): MCPCallResult => ({ content: [{ type: "text", text: t }], ...extra });
@@ -43,7 +43,7 @@ test("tool_error: error, success=false, tiempo agotado o código de salida disti
 });
 
 test("no_data: una herramienta que no admite salida vacía y devuelve vacío", () => {
-  assert.equal(processResult(DC, "read_file", text(""), {}).status, "no_data");
+  assert.equal(processResult("free_search", "search", text(""), {}).status, "no_data");
 });
 
 test("un resumen nunca supera el tope y marca truncated; el texto completo se conserva para la ref", () => {

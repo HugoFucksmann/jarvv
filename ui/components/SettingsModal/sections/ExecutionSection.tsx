@@ -121,29 +121,13 @@ export const ExecutionSection: React.FC<ExecutionSectionProps> = ({
     {/* Servidores MCP locales (solo lectura) */}
     <CollapsibleGroup
       title="Comandos de arranque MCP (solo lectura)"
-      subtitle="Desktop Commander y Free Search"
+      subtitle="Free Search"
       forceOpen={forceOpenMcp}
     >
       <p className="text-[11px] text-slate-400 leading-relaxed">
         El comando y los argumentos de arranque son de solo lectura por seguridad. Para modificarlos, edite <code className="font-mono text-slate-200">jarvis-config.json</code> y reinicie el backend.
       </p>
       <div className="grid grid-cols-1 gap-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <ReadOnlyField
-            id="cfg-desktop-cmd"
-            label="Desktop Commander (cmd)"
-            value={config.desktopCommanderMcp?.command || ""}
-            placeholder="node"
-          />
-          <div className="sm:col-span-2">
-            <ReadOnlyField
-              id="cfg-desktop-args"
-              label="Argumentos"
-              value={formatArgs(config.desktopCommanderMcp?.args)}
-              placeholder="node_modules/@wonderwhy-er/desktop-commander/dist/index.js"
-            />
-          </div>
-        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           <ReadOnlyField
             id="cfg-search-cmd"

@@ -36,14 +36,14 @@ after(() => {
 
 // ───────────────────────── Provider metadata ─────────────────────────
 
-test("jarvis_files_read: lista exactamente las tools de solo lectura y rechaza tools desconocidas", async () => {
+test("jarvis_files_read: lista exactamente las tools del grupo files_read y rechaza tools desconocidas", async () => {
   const provider = new FilesReadProvider();
   assert.equal(provider.name, "jarvis_files_read");
   assert.equal(provider.isConnected(), true);
   const tools = await provider.listTools();
   assert.deepEqual(
     tools.map((t) => t.name),
-    ["read_file", "search_content"],
+    ["find_files", "list_folder", "search_content", "read_file"],
   );
   const unknown = await provider.callTool("write_file", {});
   assert.equal(unknown.isError, true);

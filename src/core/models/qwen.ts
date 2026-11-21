@@ -141,8 +141,8 @@ function extractJsonObject(s: string): Record<string, unknown> | null {
 /**
  * Objeto JSON de la salida del modelo, sin bloques <think>. Orden: JSON directo del texto completo, JSON
  * directo del bloque ```json y objeto de llaves balanceadas (primero en el bloque, luego en el texto).
- * El JSON directo va antes que el fence porque sus propios strings pueden contener fences (p. ej. el
- * `content` de write_file con markdown). Un JSON válido que no sea objeto (p. ej. un arreglo) devuelve null.
+ * El JSON directo va antes que el fence porque sus propios strings pueden contener fences (p. ej. un
+ * campo de texto con markdown). Un JSON válido que no sea objeto (p. ej. un arreglo) devuelve null.
  */
 export function parseJsonObject(raw: string): Record<string, unknown> | null {
   const cleaned = stripThink(raw);

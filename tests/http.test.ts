@@ -154,10 +154,10 @@ test("el parche de /config descarta lo que solo se edita en el archivo y conserv
     retentionDays: 7,
     refsDir: "C:\\Users\\Ana\\Documents",
     tracePath: "C:\\Users\\Ana\\Documents.jsonl",
-    desktopCommanderMcp: { command: "calc.exe", args: ["-x"], env: { A: "1" }, cwd: "C:\\", allowedDirectories: ["C:\\Users"] },
-    freeSearchMcp: { command: "evil" },
+    allowedDirectories: ["C:\\Users"],
+    freeSearchMcp: { command: "evil", args: ["-x"], env: { A: "1" }, cwd: "C:\\" },
   });
-  assert.deepEqual(patch, { autoMode: true, retentionDays: 7, desktopCommanderMcp: { allowedDirectories: ["C:\\Users"] }, freeSearchMcp: {} });
+  assert.deepEqual(patch, { autoMode: true, retentionDays: 7, allowedDirectories: ["C:\\Users"], freeSearchMcp: {} });
 });
 
 test("SSE: entrega `snapshot` inicial e ids de evento, reenvía eventos y da de baja el suscriptor al cerrar", async () => {
@@ -230,7 +230,7 @@ test("RC-07: /api/mcp no ejecuta run_command, ni siquiera un comando de solo lec
 
 test("POST /api/mcp/:server/call rechaza args que no sean un objeto JSON con 400", async () => {
   for (const args of ["texto", 123, ["a"], null]) {
-    const reply = await request("POST", "/api/mcp/jarvis_terminal/call", { body: { name: "list_processes", args } });
+    const reply = await request("POST", "/api/mcp/jarvis_terminal/call", { body: { name: "run_command", args } });
     assert.equal(reply.status, 400, JSON.stringify(args));
   }
 });
@@ -239,18 +239,15 @@ test("GET /config omite env de los servidores MCP y sanitizeConfigForHttp no mut
   const original = ConfigManager.getConfig();
   const sample = {
     ...original,
-    desktopCommanderMcp: { ...original.desktopCommanderMcp, env: { SECRET: "token" } },
     freeSearchMcp: { ...original.freeSearchMcp, env: { SEARCH_MCP_AGENT_ENGINES: "off" } },
   };
   const sanitized = sanitizeConfigForHttp(sample);
-  assert.equal("env" in sanitized.desktopCommanderMcp, false);
   assert.equal("env" in sanitized.freeSearchMcp, false);
-  assert.equal(sample.desktopCommanderMcp.env?.SECRET, "token");
+  assert.equal(sample.freeSearchMcp.env?.SEARCH_MCP_AGENT_ENGINES, "off");
 
   const reply = await request("GET", "/api/jarvis/config");
   assert.equal(reply.status, 200);
-  const parsed = JSON.parse(reply.body) as { desktopCommanderMcp: Record<string, unknown>; freeSearchMcp: Record<string, unknown> };
-  assert.equal("env" in parsed.desktopCommanderMcp, false);
+  const parsed = JSON.parse(reply.body) as { freeSearchMcp: Record<string, unknown> };
   assert.equal("env" in parsed.freeSearchMcp, false);
 });
 

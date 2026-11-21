@@ -4,6 +4,21 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 
 ## [Sin publicar]
 
+### Agregado
+- **Grupos nativos de archivos y multimedia:** las rutas de D1 pasan a `files_read`, `files_write`, `terminal`, `multimedia` y `web`. Se cablean `find_files`, `list_folder`, `search_content`, `read_file`, `write_file`, `edit_file`, `convert_file`, `create_folder`, `copy_file`, `move_file`, `delete_file`, `archive_files`, `play_media` y `media_control`, con regla de nivel, poscondición y destino por herramienta. El motor ahora revisa las rutas dentro de lotes (`items`, `sources`) en Guard, aprobaciones, pre-chequeo y `allowedDirectories`.
+
+### Agregado (grupo `system` y descargas)
+- **`system`:** `system_info`, `stop_process`, `pc_settings`, `power`, `open_on_screen` y `clipboard` (`jarvis_system`). `list_processes` pasa a ser la sección `processes` de `system_info`; la `stop_process` del terminal se reemplaza por la de `system`. El grupo `terminal` queda solo con `run_command`, y `TerminalProvider` ya no implementa `list_processes` ni `stop_process` (se retiró también el código que solo ellas usaban: la tabla de procesos del sistema, la lista de procesos protegidos y la lápida «stopped»).
+- **`web`:** `download_file` (`jarvis_web`), con regla de nivel, poscondición y destino. Guard ahora escanea las rutas de una descarga (antes no escaneaba nada de `jarvis_web`).
+- Se retira el proveedor `jarvis_files`: `find_files` y `list_folder` viven en `jarvis_files_read` y `system_info` en `jarvis_system`.
+
+### Seguridad (tools nativas)
+- **`policy/toolRules.ts`:** las tools nativas que modifican tienen la misma clasificación que su comando equivalente: apagar y reiniciar (blocked), borrar raíces de disco o de Windows (guard) y carpetas del sistema o personales enteras (blocked), y descargar o escribir scripts y ejecutables (sensitive). Se integra en Guard y en la lista de reglas integradas.
+- **Egress:** `play_media` y `open_on_screen` también pasan por la revisión de datos sensibles hacia internet.
+
+### Eliminado
+- **Servidor MCP de archivos y búsqueda local:** se quitan el servidor, su dependencia y su configuración. La ruta `locate` y las herramientas `start_search` y `get_more_search_results` desaparecen; `workDir` y `allowedDirectories` pasan a ser claves de primer nivel de `jarvis-config.json`. Hasta que lleguen las herramientas nativas de archivos, la ruta `files` no ofrece herramientas.
+
 ### Seguridad
 - **Aprobación por niveles con `autoMode`:** `approvalTiers` queda encendida por defecto. Con `autoMode`, verde no pide al usuario ni pasa por D3; amarillo no pide al usuario y pasa por D3 estricto; rojo siempre pide al usuario. Guard, la lista negra y el pre-chequeo siguen igual. Toggle en Ajustes.
 - **`allowedDirectories` en todas las herramientas:** aplica también a `run_command` (`cwd` y rutas del análisis de PowerShell), se lee en vivo y usa `realpathSync`; lo no resoluble pide confirmación. Control en Ajustes.
@@ -49,7 +64,7 @@ Primera publicación. El flujo completo funciona de punta a punta y el laborator
 ### Núcleo
 - Flujo por tarea en dos modos, `reactive` y `deliberative`: lista de pendientes, ruta (Decisión 1), herramienta (Decisión 2), argumentos, resolución de referencias, anti-bucle, Guard, lista negra, pre-chequeo determinista, confirmación del usuario, revisión de argumentos (Decisión 3), despacho y verificación del resultado (Decisión 4).
 - Dos modelos locales con Ollama: uno de decisión (`d3:2b`) y uno generativo (`qwen3.5:4b`), con contextos acotados de 16 384 tokens.
-- Catálogo cerrado de 13 herramientas en cuatro destinos (`files`, `locate`, `terminal`, `web`) sobre servidores MCP (Desktop Commander y Free Search).
+- Catálogo cerrado de 13 herramientas en cuatro destinos (`files`, `locate`, `terminal`, `web`) sobre servidores MCP.
 - Contexto único por tarea con vistas por consumidor, resultados voluminosos fuera del contexto (refs) y traza por tarea terminada.
 - Servidor local (`127.0.0.1`, validación de `Host` y `Origin`), API HTTP, eventos en vivo (SSE) e interfaz React.
 

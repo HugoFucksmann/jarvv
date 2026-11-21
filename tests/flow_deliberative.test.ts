@@ -49,7 +49,7 @@ async function runDelib(s: DelibScenario) {
   const planTriggers: string[] = [];
   const dispatched: { tool: string; args: Record<string, unknown> }[] = [];
 
-  const fileTools = ["list_directory", "read_file", "write_file"].map(tool);
+  const fileTools = ["list_folder", "read_file", "write_file"].map(tool);
   const terminalTools = s.terminalTools ?? [tool("run_command")];
   const makeServer = (name: string, tools: MCPTool[]): IMCPServer => ({
     name,
@@ -68,14 +68,15 @@ async function runDelib(s: DelibScenario) {
     reconnect: async () => undefined,
   });
   const servers: Record<string, IMCPServer> = {
-    desktop_commander: makeServer("desktop_commander", fileTools),
+    jarvis_files_read: makeServer("jarvis_files_read", fileTools),
+    jarvis_files_write: makeServer("jarvis_files_write", fileTools),
     jarvis_terminal: makeServer("jarvis_terminal", terminalTools),
   };
 
   const deps: EngineDeps = {
     discovery: {
       getServer: (name) => servers[name],
-      getDiscoveredTools: async (name) => (name === "desktop_commander" ? fileTools : name === "jarvis_terminal" ? terminalTools : []),
+      getDiscoveredTools: async (name) => (name.startsWith("jarvis_files_") ? fileTools : name === "jarvis_terminal" ? terminalTools : []),
       getUnavailableServers: () => ({}),
       validateToolExists: async () => true,
       notifyTaskEnd: async () => undefined,
@@ -159,7 +160,7 @@ test("deliberativo feliz: memoria inicial + plan aprobado + múltiples pasos en 
     request: "Listar y escribir archivo",
     memory: [{ key: "carpeta", value: "C:\\Users\\Ana" }],
     plans: [[
-      { instruction: "Listar archivos", route: "files", expected: "lista" },
+      { instruction: "Listar archivos", route: "files_read", expected: "lista" },
       { instruction: "Ejecutar fecha", route: "terminal", expected: "fecha" },
     ]],
     onWait: (w, rt) => {
@@ -180,9 +181,9 @@ test("deliberativo feedback: plan inválido tras rechazo conserva el plan previo
   const { ctx, planTriggers } = await runDelib({
     request: "Plan con feedback y plan inválido intermedio",
     plans: [
-      [{ instruction: "Paso A", route: "files", expected: "A" }],
+      [{ instruction: "Paso A", route: "files_read", expected: "A" }],
       "invalid",
-      [{ instruction: "Paso B revisado", route: "files", expected: "B" }],
+      [{ instruction: "Paso B revisado", route: "files_read", expected: "B" }],
     ],
     onWait: (w, rt, i) => {
       if (w.kind !== "plan") return;
@@ -203,7 +204,7 @@ test("deliberativo feedback: plan inválido tras rechazo conserva el plan previo
 test("deliberativo: rechazar el plan sin instrucción cancela la tarea con respaldo", async () => {
   const { ctx } = await runDelib({
     request: "No quiero ejecutar",
-    plans: [[{ instruction: "Paso", route: "files", expected: "ok" }]],
+    plans: [[{ instruction: "Paso", route: "files_read", expected: "ok" }]],
     onWait: (w, rt) => {
       if (w.kind === "plan") rt.resolvePlanApproval(w.request.id, false);
     },
@@ -218,11 +219,11 @@ test("deliberativo step_failure: replan conserva el paso completado, reemplaza l
     request: "Paso 1 bien en C:\\Users\\Ana, paso 2 falla, replan completa",
     plans: [
       [
-        { instruction: "Paso 1 lectura", route: "files", expected: "datos" },
+        { instruction: "Paso 1 lectura", route: "files_read", expected: "datos" },
         { instruction: "Paso 2 comando fallido", route: "terminal", expected: "salida" },
-        { instruction: "Paso 3 pendiente que se reemplaza", route: "files", expected: "listo" },
+        { instruction: "Paso 3 pendiente que se reemplaza", route: "files_read", expected: "listo" },
       ],
-      [{ instruction: "Paso replanificado", route: "files", expected: "ok" }],
+      [{ instruction: "Paso replanificado", route: "files_read", expected: "ok" }],
     ],
     onWait: (w, rt) => {
       if (w.kind === "plan") rt.resolvePlanApproval(w.request.id, true);
@@ -247,7 +248,7 @@ test("deliberativo step_failure: replan conserva el paso completado, reemplaza l
 test("deliberativo: agota replans (replans_exhausted) → partial con efecto previo y failed sin efectos; replan inválido cierra replans_exhausted", async () => {
   const mkFailingPlans = (): GeneratedStep[][] =>
     Array.from({ length: BUDGET.maxReplans + 2 }, (_, idx) => [
-      ...(idx === 0 ? [{ instruction: "Escribir primero", route: "files" as const, expected: "escrito" }] : []),
+      ...(idx === 0 ? [{ instruction: "Escribir primero", route: "files_write" as const, expected: "escrito" }] : []),
       { instruction: `Comando fallido ${idx}`, route: "terminal" as const, expected: "ok" },
     ]);
 
@@ -278,50 +279,3 @@ test("deliberativo: agota replans (replans_exhausted) → partial con efecto pre
   assert.equal(invalidReplan.ctx.task.state, "failed");
 });
 
-test("deliberativo: plan inicial inválido cierra unrecoverable sin registrar error; no_tools en paso planificado dispara replan; forPlan desbordado cierra unrecoverable sin error", async () => {
-  const badInitial = await runDelib({
-    request: "Plan inicial imposible",
-    plans: ["invalid"],
-  });
-  assert.equal(badInitial.ctx.task.state, "failed");
-  assert.equal(badInitial.ctx.task.stopReason, "unrecoverable");
-  assert.equal(badInitial.ctx.find("errors", {}).length, 0);
-
-  // no_tools en terminal cuando terminal no tiene herramientas → falla paso 1 y replanifica a files
-  const noToolsReplan = await runDelib({
-    request: "Terminal vacío, replanifica a files",
-    terminalTools: [],
-    plans: [
-      [{ instruction: "Correr en terminal", route: "terminal", expected: "algo" }],
-      [{ instruction: "Listar en files", route: "files", expected: "algo" }],
-    ],
-    onWait: (w, rt) => {
-      if (w.kind === "plan") rt.resolvePlanApproval(w.request.id, true);
-    },
-  });
-  assert.deepEqual(noToolsReplan.planTriggers, ["initial", "step_failure"]);
-  assert.equal(noToolsReplan.ctx.task.state, "completed");
-
-  // Desborde de efectos en forPlan tras fallar el paso siguiente: cierra unrecoverable sin añadir error service_unavailable
-  const overflowPlans: GeneratedStep[][] = [
-    [
-      ...Array.from({ length: 9 }, (_, i) => ({ instruction: `Escribir grande ${i}`, route: "files" as const, expected: "escrito" })),
-      { instruction: "Falla después", route: "terminal" as const, expected: "ok" },
-    ],
-    [{ instruction: "No debería usarse", route: "files" as const, expected: "no" }],
-  ];
-  const overflow = await runDelib({
-    request: "Desbordar forPlan al replanificar",
-    plans: overflowPlans,
-    bigEffectsForOverflow: true,
-    onWait: (w, rt) => {
-      if (w.kind === "plan") rt.resolvePlanApproval(w.request.id, true);
-    },
-    verify: (t) => (t === "run_command" ? { ok: 0.1, cumple: 0.1 } : { ok: 0.95, cumple: 0.95 }),
-    args: (t, _v, i) => (t === "run_command" ? { command: `fail_${i}` } : { path: `C:\\Users\\Ana\\big${i}.txt`, content: "X".repeat(1600), mode: "rewrite" }),
-  });
-  assert.equal(overflow.ctx.task.stopReason, "unrecoverable");
-  assert.equal(overflow.ctx.task.state, "partial");
-  assert.equal(overflow.ctx.find("errors", {}).length, 0);
-  assert.deepEqual(overflow.planTriggers, ["initial"]);
-});

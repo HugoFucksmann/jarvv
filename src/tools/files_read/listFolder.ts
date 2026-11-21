@@ -1,5 +1,5 @@
 /**
- * `jarvis_files`: herramienta `list_folder`.
+ * `jarvis_files_read`: herramienta `list_folder`.
  *
  * Lista una carpeta conocida o ruta absoluta con tipo, tamaño y fecha de modificación.
  * Permite ordenar (`name`, `size`, `modified`), filtrar por tipo y extensiones, y recorrer hasta profundidad 3.
@@ -21,7 +21,7 @@ import {
   joinEntryPath,
   resolveFolderPath,
   yieldEventLoop,
-} from "./paths.ts";
+} from "../../core/tools/filePaths.ts";
 
 export const DEFAULT_LIST_TIMEOUT_MS = 8_000;
 export const DEFAULT_LIST_DEPTH = 1;

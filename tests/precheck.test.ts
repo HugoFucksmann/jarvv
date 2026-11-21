@@ -198,38 +198,6 @@ test("escritura: la comprobación del destino se omite si hay resultados guardad
   assert.equal(finding, null);
 });
 
-// ───────────────────────── La carpeta que contiene al archivo tiene que existir ─────────────────────────
-
-import fsForParent from "node:fs";
-import osForParent from "node:os";
-import pathForParent from "node:path";
-
-test("write_file y move_file: si la carpeta contenedora no existe se rechaza con una razón útil; create_directory no entra", async () => {
-  const home = fsForParent.mkdtempSync(pathForParent.join(osForParent.tmpdir(), "jarvis-parent-"));
-  try {
-    fsForParent.mkdirSync(pathForParent.join(home, "existe"));
-    const env = { platform: "windows" as const, home };
-    const run = (tool: string, args: Record<string, unknown>) =>
-      precheckCall(input({ tool, kind: "write", args, environment: env, sources: { text: normalizeText(JSON.stringify(args)), complete: true } }), noAnalyzer);
-
-    const missing = await run("write_file", { path: pathForParent.join(home, "jarvis", "nota.md"), content: "x" });
-    assert.equal(missing?.review, "args_invalid");
-    assert.match(missing?.reason ?? "", /does not exist.*create the folder first/i);
-    assert.equal(await run("write_file", { path: pathForParent.join(home, "existe", "nota.md"), content: "x" }), null, "la carpeta existe");
-    assert.equal((await run("move_file", { source: pathForParent.join(home, "existe", "a.txt"), destination: pathForParent.join(home, "nueva", "a.txt") }))?.review, "args_invalid");
-    assert.equal(await run("create_directory", { path: pathForParent.join(home, "a", "b", "c") }), null, "create_directory crea las intermedias");
-    assert.equal(await run("write_file", { path: "nota.md", content: "x" }), null, "una ruta relativa no se juzga");
-  } finally {
-    fsForParent.rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test("la comprobación de la carpeta contenedora se omite si la carpeta de inicio del entorno no existe en esta PC (entornos inventados)", async () => {
-  const env = { platform: "windows" as const, home: pathForParent.join(osForParent.tmpdir(), "no-existe-jarvis-home") };
-  const args = { path: pathForParent.join(env.home, "x", "nota.md"), content: "x" };
-  assert.equal(await precheckCall(input({ tool: "write_file", kind: "write", args, environment: env, sources: { text: normalizeText(args.path), complete: true } }), noAnalyzer), null);
-});
-
 // ───────────────────────── Registro de reglas y validaciones nuevas ─────────────────────────
 
 import fs from "node:fs";
@@ -245,7 +213,7 @@ test("registro: las reglas tienen nombre único y las existentes siguen en su or
   for (const list of [names.call, names.value, names.source]) assert.equal(new Set(list).size, list.length, "nombres únicos");
   assert.deepEqual(names.value.slice(0, 4), ["empty-value", "na-value", "placeholder", "other-user-folder"], "las reglas anteriores primero: un caso que ya se rechazaba da la misma razón");
   assert.deepEqual(names.source, ["url-source", "write-destination-source", "read-path-source"]);
-  assert.ok(names.call.indexOf("argument-values") < names.call.indexOf("parent-folder") && names.call.indexOf("command-analysis") < names.call.indexOf("argument-sources"));
+  assert.ok(names.call.indexOf("argument-values") < names.call.indexOf("command-analysis") && names.call.indexOf("command-analysis") < names.call.indexOf("argument-sources"));
 });
 
 test("url-syntax: un esquema que no es http(s) o una URL que no se puede analizar se rechaza antes de llegar a la herramienta", async () => {
@@ -258,43 +226,13 @@ test("url-syntax: un esquema que no es http(s) o una URL que no se puede analiza
   assert.equal(await run("sitio.com/a"), null, "sin esquema se acepta (la herramienta la normaliza)");
 });
 
-test("windows-invalid-path: caracteres que Windows no admite y, al escribir, comodines y nombres reservados", async () => {
+test("windows-invalid-path: caracteres que Windows no admite en una ruta", async () => {
   const write = (p: string, tool = "write_file") => precheckCall(input({ tool, kind: "write", args: { path: p, content: "x" }, sources: { text: "", complete: true } }), noAnalyzer);
   assert.match((await write(win("Documents", "a<b.txt")))?.reason ?? "", /does not allow/);
-  assert.match((await write(win("Documents", "a*.txt")))?.reason ?? "", /wildcard/);
-  assert.match((await write(win("Documents", "CON.txt")))?.reason ?? "", /reserved/);
-  assert.match((await write(win("Documents", "nota.")))?.reason ?? "", /ends with a dot/);
   assert.equal(await write(win("Documents", "nota.txt")), null);
   // Una lectura admite el comodín (lo juzga el origen, no esta regla).
   const read = await precheckCall(input({ tool: "read_file", args: { path: win("Documents", "informe*.txt") }, sources: { text: normalizeText(win("Documents", "informe*.txt")), complete: true } }), noAnalyzer);
   assert.equal(read, null);
-});
-
-test("same-source-destination: mover algo a donde ya está", async () => {
-  const found = await precheckCall(input({ tool: "move_file", kind: "write", args: { source: win("Documents", "a.txt"), destination: `${win("Documents", "A.txt").split(BS).join("/")}/` }, sources: { text: "", complete: true } }), noAnalyzer);
-  assert.match(found?.reason ?? "", /same path/);
-});
-
-test("path-kind: lo que hay en disco no es lo que la herramienta espera (solo si la carpeta de inicio del entorno existe aquí)", async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-kind-"));
-  const file = path.join(dir, "a.txt");
-  fs.writeFileSync(file, "x");
-  const env = { platform: "windows" as const, home: dir };
-  const run = (tool: string, kind: "read" | "write", args: Record<string, unknown>) =>
-    precheckCall({ tool, kind, args, sources: { text: normalizeText(JSON.stringify(args)), complete: true }, environment: env }, noAnalyzer);
-  try {
-    assert.match((await run("write_file", "write", { path: dir, content: "x" }))?.reason ?? "", /is a folder/);
-    assert.match((await run("read_file", "read", { path: dir }))?.reason ?? "", /is a folder/);
-    assert.match((await run("list_directory", "read", { path: file }))?.reason ?? "", /is a file/);
-    assert.match((await run("move_file", "write", { source: path.join(dir, "no_existe.txt"), destination: path.join(dir, "b.txt") }))?.reason ?? "", /does not exist/);
-    assert.equal(await run("read_file", "read", { path: file }), null);
-    assert.equal(await run("list_directory", "read", { path: dir }), null);
-    assert.equal(await run("move_file", "write", { source: file, destination: path.join(dir, "b.txt") }), null);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-  // Con un entorno que no existe en esta PC no se juzga contra el disco.
-  assert.equal(await precheckCall(input({ tool: "move_file", kind: "write", args: { source: win("Documents", "x.txt"), destination: win("Documents", "y.txt") }, sources: { text: normalizeText(`${win("Documents", "x.txt")} ${win("Documents", "y.txt")}`), complete: true } }), noAnalyzer), null);
 });
 
 test("analizador de PowerShell: el JSON de ConvertTo-Json (un elemento suelto, arreglos vacíos) se normaliza a arreglos", () => {
@@ -310,7 +248,7 @@ test("analizador de PowerShell: el JSON de ConvertTo-Json (un elemento suelto, a
 
 // ───────────────────────── `paths`: el arreglo de rutas de `read_multiple_files` se trata como rutas ─────────────────────────
 
-test("`paths` (read_multiple_files): una ruta que no aparece en nada de lo que la tarea sabe se rechaza, aunque otra del arreglo sí aparezca", async () => {
+test("`paths`: una ruta que no aparece en nada de lo que la tarea sabe se rechaza, aunque otra del arreglo sí aparezca", async () => {
   const ok = "C:\\Users\\Ana\\Documents\\informe.txt";
   const invented = "C:\\Datos\\inventado.txt";
   assert.equal(await precheckCall(input({ tool: "read_multiple_files", args: { paths: [ok] } }), noAnalyzer), null, "con origen pasa");

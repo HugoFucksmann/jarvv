@@ -47,9 +47,9 @@ function capture(): Record<string, unknown> {
     out[k("args")] = renderArgsView(ctx, "write_file");
     out[k("argsLastError")] = renderArgsView(ctx, "start_process");
     out[k("argsInput")] = argsInput(tool, { platform: "windows", home: "C:\\Users\\Ana" }, renderArgsView(ctx, "write_file").text, 1);
-    out[k("routeInput")] = routeInput(ctx.view.forRoute(routeViewOptions()), { routes: ["files", "terminal"] });
-    out[k("toolInput")] = toolInput(ctx.view.forRoute(routeViewOptions("files")), "files", [tool]);
-    out[k("reviewInput")] = reviewInput(ctx.view.forReview(reviewViewOptions()), "files", tool, { path: "C:\\x\\resumen.txt", content: "hola", mode: "rewrite" });
+    out[k("routeInput")] = routeInput(ctx.view.forRoute(routeViewOptions()), { routes: ["files_read", "terminal"] });
+    out[k("toolInput")] = toolInput(ctx.view.forRoute(routeViewOptions("files_read")), "files_read", [tool]);
+    out[k("reviewInput")] = reviewInput(ctx.view.forReview(reviewViewOptions()), "files_read", tool, { path: "C:\\x\\resumen.txt", content: "hola", mode: "rewrite" });
     const verifyId = ctx.find("calls", { tool: "list_directory" }).at(-1)!.id;
     out[k("verifyInput")] = verifyInput(ctx.view.forVerify(verifyId));
     out[k("ask")] = renderAsk(ctx.view.forAsk(), askRenderOptions());

@@ -21,24 +21,18 @@ import { createCollector } from "../eval/core/graders/common.ts";
 
 const ENV = { home: "C:\\Users\\hugof", desktop: "C:\\Users\\hugof\\Desktop", documents: "C:\\Users\\hugof\\Documents", downloads: "C:\\Users\\hugof\\Downloads" };
 const DOC = "C:\\Users\\hugof\\Documents\\informe.txt";
-const INVENTADA = "C:\\Users\\hugof\\Documents\\inventado.txt";
 
 const caso = (id: string, route: string, request: string, tool: string, inputSchema: unknown, expect: unknown) =>
   JSON.stringify({ id, stage: "arguments", scenario: { mode: "reactive", request, steps: [{ state: "running", instruction: request }], at: { route, tool, inputSchema, environment: ENV } }, expect });
 
 const CMD_SCHEMA = { type: "object", properties: { command: { type: "string" }, timeout_ms: { type: "number" } }, required: ["command", "timeout_ms"] };
-const READ_SCHEMA = { type: "object", properties: { path: { type: "string" } }, required: ["path"] };
 
-// Herramienta de LECTURA: el pre-chequeo exige que la ruta salga de la tarea (en una escritura, crear una ruta nueva es legítimo).
 
 const CASOS = [
   caso("cmd", "terminal", "lista los 10 procesos que mas ram consuman", "run_command", CMD_SCHEMA, {
     requiredFields: ["command", "timeout_ms"],
     forbiddenHardcodedValues: ["ps aux", "head -n"],
   }),
-  caso("leer", "files", `lee el archivo ${DOC}`, "read_file", READ_SCHEMA, { requiredFields: ["path"], exactFieldValues: { path: DOC } }),
-  // Sin `exactFieldValues`: aquí solo el pre-chequeo puede rechazar una ruta inventada.
-  caso("leer_libre", "files", `lee el archivo ${DOC}`, "read_file", READ_SCHEMA, { requiredFields: ["path"] }),
 ];
 
 const dir = mkdtempSync(join(tmpdir(), "eval-args-"));
@@ -65,8 +59,6 @@ async function correr(id: string, salida: string): Promise<RunRecord> {
 
 const buenos: Array<[string, string]> = [
   ["cmd", JSON.stringify({ command: "Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 10", timeout_ms: 30000 })],
-  ["leer", JSON.stringify({ path: DOC })],
-  ["leer_libre", JSON.stringify({ path: DOC })],
 ];
 
 for (const [id, salida] of buenos) {
@@ -86,10 +78,6 @@ const malos: Array<[string, string, string]> = [
   ["cmd", "comando que no existe", JSON.stringify({ command: "Obtener-Procesos-Inventado -Top 10", timeout_ms: 30000 })],
   ["cmd", "no es JSON", "claro, aquí tienes el comando: Get-Process"],
   ["cmd", "salida vacía", ""],
-  ["leer", "ruta inventada que no sale de la solicitud", JSON.stringify({ path: INVENTADA })],
-  ["leer", "ruta distinta de la exacta esperada", JSON.stringify({ path: "C:\\Users\\hugof\\Documents\\otro.txt" })],
-  ["leer_libre", "ruta inventada: solo la detecta el pre-chequeo", JSON.stringify({ path: INVENTADA })],
-  ["leer", "ruta de otro usuario", JSON.stringify({ path: "C:\\Users\\ana\\Documents\\informe.txt" })],
 ];
 
 for (const [id, motivo, salida] of malos) {

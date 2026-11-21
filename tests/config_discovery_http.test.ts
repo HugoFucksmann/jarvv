@@ -161,15 +161,15 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
 
   let calledReadTool = false;
   const fakeTools = [
-    { name: "read_file", description: "read", inputSchema: {} },
-    { name: "write_file", description: "write", inputSchema: {} },
+    { name: "system_info", description: "read", inputSchema: {} },
+    { name: "stop_process", description: "write", inputSchema: {} },
   ];
   const fakeServer: IMCPServer = {
-    name: "desktop_commander",
+    name: "jarvis_system",
     version: "1",
     listTools: async () => fakeTools,
     callTool: async (name) => {
-      calledReadTool = name === "read_file";
+      calledReadTool = name === "system_info";
       return { content: [{ type: "text", text: "archivo leido" }] };
     },
     isConnected: () => true,
@@ -180,7 +180,7 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
   const deps: Omit<EngineDeps, "vault" | "guardScope" | "blacklist" | "environment" | "autoMode"> = {
     discovery,
     decision: {
-      chooseRoute: async () => ({ action: "route", route: "files", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+      chooseRoute: async () => ({ action: "route", route: "files_read", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       chooseTool: async () => ({ action: "tool", tool: fakeTools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
       reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
       verifyResult: async () => ({ answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" }),
@@ -254,29 +254,29 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
     );
 
     // MCP router: status, tools, reconnect, call read ALLOW vs mutate DENY/APPROVAL (403)
-    assert.deepEqual(await (await fetch(`${base}/api/mcp/desktop_commander/status`)).json(), { connected: true });
-    assert.equal(((await (await fetch(`${base}/api/mcp/desktop_commander/tools`)).json()) as { tools: unknown[] }).tools.length, 2);
+    assert.deepEqual(await (await fetch(`${base}/api/mcp/jarvis_system/status`)).json(), { connected: true });
+    assert.equal(((await (await fetch(`${base}/api/mcp/jarvis_system/tools`)).json()) as { tools: unknown[] }).tools.length, 2);
     assert.equal((await fetch(`${base}/api/mcp/inexistente/tools`)).status, 404);
-    assert.deepEqual(await (await fetch(`${base}/api/mcp/desktop_commander/reconnect`, { method: "POST" })).json(), { ok: true });
+    assert.deepEqual(await (await fetch(`${base}/api/mcp/jarvis_system/reconnect`, { method: "POST" })).json(), { ok: true });
 
-    const badArgs = await fetch(`${base}/api/mcp/desktop_commander/call`, {
+    const badArgs = await fetch(`${base}/api/mcp/jarvis_system/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "read_file", args: ["no_objeto"] }),
+      body: JSON.stringify({ name: "system_info", args: ["no_objeto"] }),
     });
     assert.equal(badArgs.status, 400);
 
-    const blockedMut = await fetch(`${base}/api/mcp/desktop_commander/call`, {
+    const blockedMut = await fetch(`${base}/api/mcp/jarvis_system/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "write_file", args: { path: path.join(dir, "x.txt"), content: "hola" } }),
+      body: JSON.stringify({ name: "stop_process", args: { path: path.join(dir, "x.txt"), content: "hola" } }),
     });
     assert.equal(blockedMut.status, 403);
 
-    const allowedRead = await fetch(`${base}/api/mcp/desktop_commander/call`, {
+    const allowedRead = await fetch(`${base}/api/mcp/jarvis_system/call`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "read_file", args: { path: path.join(dir, "x.txt") } }),
+      body: JSON.stringify({ name: "system_info", args: { path: path.join(dir, "x.txt") } }),
     });
     assert.equal(allowedRead.status, 200);
     assert.equal(calledReadTool, true);

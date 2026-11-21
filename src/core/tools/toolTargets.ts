@@ -15,8 +15,13 @@ interface WriteTarget {
 
 const WRITE_TARGETS: ReadonlyMap<string, WriteTarget> = new Map<string, WriteTarget>([
   ["write_file", { arg: "path", needsParentFolder: true }],
-  ["create_directory", { arg: "path", needsParentFolder: false }],
+  ["edit_file", { arg: "path", needsParentFolder: false }],
+  ["create_folder", { arg: "path", needsParentFolder: false }],
+  ["copy_file", { arg: "destination", needsParentFolder: true }],
   ["move_file", { arg: "destination", needsParentFolder: true }],
+  ["archive_files", { arg: "destination", needsParentFolder: false }],
+  ["convert_file", { arg: "destination", needsParentFolder: false }],
+  ["download_file", { arg: "destination", needsParentFolder: true }],
 ]);
 
 /** ¿La herramienta crea o reemplaza lo que hay en una ruta (ahí no valen comodines ni nombres que Windows no admite)? */
@@ -24,9 +29,3 @@ export const isPathWriteTool = (tool: string): boolean => WRITE_TARGETS.has(tool
 
 /** El argumento con la ruta que dejó la llamada. Las herramientas que no están en la tabla usan `path`. */
 export const placedPathArg = (tool: string): string => WRITE_TARGETS.get(tool)?.arg ?? "path";
-
-/** El argumento con el destino de una escritura cuya carpeta contenedora tiene que existir, o `null` si la herramienta la crea o no escribe. */
-export const parentFolderArg = (tool: string): string | null => {
-  const target = WRITE_TARGETS.get(tool);
-  return target?.needsParentFolder === true ? target.arg : null;
-};

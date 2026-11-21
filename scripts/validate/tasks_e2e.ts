@@ -1,5 +1,5 @@
 /**
- * Tareas reales de punta a punta: compone los servicios igual que `server.ts` (Desktop Commander, Free Search, `run_command`, `web_search`, los modelos de
+ * Tareas reales de punta a punta: compone los servicios igual que `server.ts` (Free Search, `run_command`, `web_search`, los modelos de
  * Ollama y el `TaskManager`), lanza pedidos en lenguaje natural y muestra qué esperas hubo, qué llamadas se hicieron y qué respondió el modelo.
  *
  * Necesita: Ollama con los modelos de `jarvis-config.json` (`qwen3.5:4b` y `d3:2b`), `uvx` y red (Free Search) y Windows.
@@ -21,7 +21,6 @@ import path from "node:path";
 
 import type { JarvisConfig } from "../../src/core/config.ts";
 import { ConfigManager } from "../../src/core/config.ts";
-import { DesktopCommanderMCPServer } from "../../src/core/mcp/desktopCommanderMcp.ts";
 import { DiscoveryEngine } from "../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../src/core/mcp/freeSearchMcp.ts";
 import { Decision20Engine } from "../../src/core/models/decision.ts";
@@ -30,6 +29,10 @@ import { createEngineServices, memoryFileOf } from "../../src/core/engine/servic
 import { createJsonMemoryProvider } from "../../src/memory/index.ts";
 import { TaskManager } from "../../src/core/tasks.ts";
 import type { ToolProvider } from "../../src/core/tools/provider.ts";
+import { FilesReadProvider } from "../../src/tools/files_read/filesReadProvider.ts";
+import { FilesWriteProvider } from "../../src/tools/files_write/filesWriteProvider.ts";
+import { MultimediaProvider } from "../../src/tools/multimedia/multimediaProvider.ts";
+import { SystemProvider } from "../../src/tools/system/systemProvider.ts";
 import { TerminalProvider } from "../../src/tools/terminal/terminalProvider.ts";
 import { WebSearchProvider } from "../../src/tools/web/webSearchProvider.ts";
 
@@ -52,8 +55,11 @@ const getConfig = (): JarvisConfig => ({
 
 const decision = new Decision20Engine(getConfig);
 const providers: ToolProvider[] = [
-  new DesktopCommanderMCPServer(getConfig),
   new FreeSearchMCPServer(getConfig),
+  new FilesReadProvider({ allowedDirectories: () => getConfig().allowedDirectories }),
+  new FilesWriteProvider({ allowedDirectories: () => getConfig().allowedDirectories }),
+  new MultimediaProvider(),
+  new SystemProvider({ allowedDirectories: () => getConfig().allowedDirectories }),
   new TerminalProvider(),
   new WebSearchProvider({ judge: () => (getConfig().webSearchUseJudge ? decision : undefined) }),
 ];

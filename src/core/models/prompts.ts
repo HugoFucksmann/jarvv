@@ -128,7 +128,7 @@ ${DATA_NOTICE_EN}`,
 
     buildSystemPrompt(tool: MCPTool, platform: Platform): string {
       // Las reglas de PowerShell y la línea del sistema operativo solo valen si la herramienta recibe un comando (Frente 2, DN-2.3:
-      // en las demás inducían argumentos inválidos, p. ej. `shell` en `list_directory`) y solo en Windows las de PowerShell.
+      // en las demás inducían argumentos inválidos, p. ej. `shell` en una herramienta sin comando) y solo en Windows las de PowerShell.
       const props = (tool.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties ?? {};
       const takesCommand = "command" in props;
       const system = takesCommand && platform === "windows" ? this.SYSTEM : this.SYSTEM.replace(`${POWERSHELL_RULES}\n`, "");
@@ -346,11 +346,11 @@ export const lastFailedBy = (attempts: readonly DecisionAttempt[], key: (a: Deci
   return m;
 };
 
-/** Aclaraciones de D1 por ruta (medidas en el eval: `files` no abre aplicaciones, `terminal` sí, `locate` tras un not_found). */
+/** Aclaraciones de D1 por ruta (medidas en el eval: los grupos de archivos no abren aplicaciones, `terminal` sí). */
 const ROUTE_HINTS: Record<string, string> = {
-  files: "Not for opening or launching applications.",
+  files_read: "Not for opening or launching applications.",
+  files_write: "Not for opening or launching applications.",
   terminal: "Opening an application such as Notepad or the calculator belongs here.",
-  locate: "Also use it after a file was not found at the path that was tried.",
 };
 
 /**

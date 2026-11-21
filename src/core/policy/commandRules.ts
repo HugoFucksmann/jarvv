@@ -397,7 +397,7 @@ export function classify(command: string, opts: ClassifyOptions = {}, depth = 0)
   return result;
 }
 
-/** Texto del comando de los argumentos de una herramienta (`command`, `cmd` o `input`, la entrada que `interact_with_process` envía a un shell); `null` si no hay. */
+/** Texto del comando de los argumentos de una herramienta (`command`, `cmd` o `input`, la entrada que se envía a un proceso que espera); `null` si no hay. */
 export function commandOf(args: Record<string, unknown>): string | null {
   for (const key of ["command", "cmd", "input"]) {
     const value = args[key];

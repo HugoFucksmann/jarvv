@@ -26,7 +26,7 @@ Orden real entre `callRunner.ts` y `callAuthorize.ts` antes de ejecutar una herr
 | 7 | Confirmación del usuario | `callRunner.ts` | aprobar / rechazar |
 | 8 | D3 `reviewArgs` (solo escrituras no aprobadas y no verdes) | `models/decision.ts` | aprobar / `args_invalid` / rechazo |
 
-Catálogo actual de herramientas (`tools/manifest.ts`): `read_file`, `read_multiple_files`, `write_file`, `create_directory`, `list_directory`, `move_file`, `start_search`, `get_more_search_results`, `run_command`, `list_processes`, `stop_process`, `web_search` y las internas de `free_search`. **`start_process` ya no existe en el catálogo ni en `guard.ts`** (solo queda nombrado en un comentario de `blacklist.ts` y como compatibilidad en `desktopCommanderMcp.ts`).
+Catálogo actual de herramientas (`tools/manifest.ts`): `read_file`, `read_multiple_files`, `write_file`, `create_directory`, `list_directory`, `move_file`, `run_command`, `list_processes`, `stop_process`, `web_search` y las internas de `free_search`. **`start_process` ya no existe en el catálogo ni en `guard.ts`** (solo queda nombrado en un comentario de `blacklist.ts`).
 
 ## 3. Hallazgos de estructura (pendientes)
 

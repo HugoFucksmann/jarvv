@@ -11,7 +11,6 @@ import type { Variant } from "../../core/variants/types.ts";
 const ROUTE_HINTS: Record<string, string> = {
   files: "Read, write, create directory, or move known file paths directly; not for launching apps.",
   terminal: "Run PowerShell commands, launch apps, inspect sizes/dates/totals/archives, or list/stop processes.",
-  locate: "Search files by name/pattern or text inside files; use after a file path was not found.",
   web: "Search the web or read web URLs for online facts or documentation.",
 };
 

@@ -1,12 +1,11 @@
 # Revisión de la tool `run_command` (Jarvis)
 
-**Estado:** cerrada salvo un pendiente menor (séptima pasada: Guard, lista negra, rutas sensibles y manifest leídos; comparación con Desktop Commander hecha en lo que la documentación pública permite) · **Archivos revisados:** `codepages.ts`, `output.ts`, `powershell.ts`, `processTree.ts`, `prompts.ts`, `terminalProvider.ts`, `manifest.ts`, `text.ts`, `result.ts`, `provider.ts`, `readOnly.ts`, `rerun.ts`, `processResult.ts`, `structured.ts`, `budget.ts`, `commandRules.ts`, `callRunner.ts`, `guard.ts`, `blacklist.ts`, `sensitivePaths.ts`, `extractors/types.ts`, `extractors/index.ts`, `extractors/shared.ts`, `extractors/generic.ts`, `extractors/files.ts` (solo como contraste: es de `desktop_commander`, no de la tool) · **Pendiente:** solo quién aplica `timeoutMs` en el proveedor nativo (ver al final)
+**Estado:** cerrada salvo un pendiente menor (séptima pasada: Guard, lista negra, rutas sensibles y manifest leídos) · **Archivos revisados:** `codepages.ts`, `output.ts`, `powershell.ts`, `processTree.ts`, `prompts.ts`, `terminalProvider.ts`, `manifest.ts`, `text.ts`, `result.ts`, `provider.ts`, `readOnly.ts`, `rerun.ts`, `processResult.ts`, `structured.ts`, `budget.ts`, `commandRules.ts`, `callRunner.ts`, `guard.ts`, `blacklist.ts`, `sensitivePaths.ts`, `extractors/types.ts`, `extractors/index.ts`, `extractors/shared.ts`, `extractors/generic.ts` · **Pendiente:** solo quién aplica `timeoutMs` en el proveedor nativo (ver al final)
 
 ## Alcance y método
 
 Revisión estática del código fuente de la tool (`run_command`, `list_processes`, `stop_process`). No se ejecutó ningún test ni se modificó código. Solo se documentan problemas respaldados por el código; lo que depende de archivos que aún no vi queda en la sección «Pendiente de confirmar».
 
-**Límite declarado:** la comparación con Desktop Commander usa solo documentación pública (README y catálogos de terceros). Esas fuentes dan nombres, papel de cada tool y unos pocos parámetros (`timeout_ms`, `offset`/`length`, `pid`), pero no los esquemas completos ni los valores por defecto. Lo que no consta ahí no se compara (ver «Comparación con Desktop Commander»).
 
 ## Cómo funciona (resumen)
 
@@ -195,20 +194,6 @@ La cabecera de `guard.ts` dice que la regla B (proteger `refsDir`) no cubre un c
 
 *Impacto:* en `autoMode`, la escritura en carpetas del sistema la decide D3 en vez del usuario, según cómo escriba la ruta el modelo.
 
-## Comparación con Desktop Commander (parte de procesos)
-
-Alcance: solo lo que documentan las fuentes públicas. No consta ahí ningún esquema completo ni valor por defecto, así que no se comparan.
-
-| Desktop Commander | Jarvis | Observación |
-|---|---|---|
-| `start_process` (comando y `timeout_ms`), `interact_with_process` (`pid` + entrada) y `read_process_output` (`pid`, `offset`/`length`, offset negativo = desde el final) | `run_command` con tres usos: `command` (nuevo), `pid` (continuar) y `pid` + `input` (responder) | Fusión deliberada de tres tools en una (visible en el manifest). Espera en segundos (`timeoutSec`, 30 por defecto, 300 máx.; el proceso no se mata al vencer) en vez de `timeout_ms`; además admite `cwd`. Jarvis no tiene lectura paginada: entrega lo no leído, con tope de inicio y final; lo omitido solo queda en la ref (ver H-13). |
-| `list_sessions` (sesiones de `start_process`; el flag `Blocked` indica que espera entrada) y `list_processes` (procesos del SO) | `list_processes` única, con procesos del sistema y los de `run_command` | Desktop Commander separa sesiones de procesos del SO; Jarvis los mezcla y de ahí sale H-10 (lista procesos huérfanos que `run_command` no deja continuar). No registré si la fila de un proceso gestionado indica que espera entrada, el equivalente de `Blocked` (ver pendientes). |
-| `force_terminate` (cierra una sesión de `start_process`) y `kill_process` (cualquier PID) | `stop_process` única, por `pid` | Unificación, más una lista de procesos protegidos (`CRITICAL_PROCESSES`, estado `protected`) que Desktop Commander no documenta. Esa protección no existe en el camino equivalente de `run_command` (H-20). |
-
-Las diferencias de forma (tres tools en una, cuatro en dos, `timeoutSec` en segundos) son decisiones de diseño y no se registran como defectos. Las únicas desalineaciones con consecuencias son H-10 y H-20.
-
-Fuentes: [py-commander-mcp (PyPI)](https://pypi.org/project/py-commander-mcp/), [Desktop Commander en FlowHunt](https://www.flowhunt.io/integrations/desktopcommander/), [catálogo de Archestra](https://archestra.ai/mcp-catalog/wonderwhy-er__desktopcommandermcp), [skill de resumen de Desktop Commander](https://skillsmp.com/skills/wonderwhy-er-desktopcommandermcp-plugins-cursor-skills-desktop-commander-overview-skill-md), [herramientas en Docker Hub](https://hub.docker.com/mcp/server/desktop-commander/tools).
-
 ## Verificado sin hallazgos
 
 - `manifest.ts`: `repeatByArgs` de `run_command` devuelve `allow` para cualquier llamada con `pid` numérico, así que sondear un proceso con los mismos argumentos no cae en el anti-bucle; un comando nuevo es `rerun` o `strict` según `isRerunnableCommand`. `requirementOf` solo admite `"search"`. `timeoutOf` devuelve `undefined` para `list_processes` y `stop_process` (rige el del transporte), y ambos están acotados además por sus plazos internos (15 s y 5 s).
@@ -246,5 +231,5 @@ Fuentes: [py-commander-mcp (PyPI)](https://pypi.org/project/py-commander-mcp/), 
 
 ## Pendiente de confirmar
 
-- `describe` en `terminalProvider.ts`: si la fila de un proceso gestionado indica que espera entrada (el equivalente del `Blocked` de Desktop Commander).
+- `describe` en `terminalProvider.ts`: si la fila de un proceso gestionado indica que espera entrada.
 - Depende de conocimiento externo, no solo del código: `CRITICAL_PROCESSES` no incluye `svchost`, y cortar la instancia que aloja RPC o DCOM reinicia Windows (solo `killProcess` fallando sin permisos de administrador lo evitaría). Además, `USER_FOLDERS` (`commandRules.ts`) solo reconoce nombres en inglés bajo el perfil; con la redirección de carpetas de OneDrive pueden llevar el nombre localizado (`Documentos`, `Escritorio`) y quedar fuera de la protección.

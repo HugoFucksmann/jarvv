@@ -27,7 +27,7 @@ interface StepView {
   calls: CallView[];
 }
 
-const ROUTES: Record<string, string> = { web: "Web", terminal: "Terminal y procesos", files: "Archivos" };
+const ROUTES: Record<string, string> = { web: "Web", terminal: "Terminal", files_read: "Lectura de archivos", files_write: "Escritura de archivos", system: "Sistema", multimedia: "Multimedia" };
 const STEP_ICON: Record<string, string> = { pending: "⏳", running: "🔄", completed: "✅", failed: "❌" };
 const STEPS_SHOWN = 12;
 const CALLS_SHOWN = 4;

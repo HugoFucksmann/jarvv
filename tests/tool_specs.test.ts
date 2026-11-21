@@ -32,12 +32,10 @@ test("toda herramienta que modifica el sistema tiene poscondición de disco o es
   assert.deepEqual(missing, [], "agregar su fila a POSTCONDITIONS, o a NO_DISK_POSTCONDITION si no deja nada que mirar en el disco");
 });
 
-test("las tablas no listan herramientas que el catálogo no tiene (salvo `edit_block`, en pausa)", () => {
+test("las tablas no listan herramientas que el catálogo no tiene", () => {
   const cataloged = new Set(SYSTEM_TOOL_MANIFEST.map((d) => d.name));
-  const paused = new Set(["edit_block"]);
-  const names = [...mutating.map((d) => d.name), "edit_block", "create_directory", "write_file", "move_file", "run_command", "stop_process"];
-  for (const name of new Set(names)) {
-    if (hasTierRule(name)) assert.ok(cataloged.has(name) || paused.has(name), `TIER_RULES tiene '${name}', que no está en el catálogo`);
+  for (const name of new Set([...mutating.map((d) => d.name), "write_file", "move_file", "run_command", "stop_process"])) {
+    if (hasTierRule(name)) assert.ok(cataloged.has(name), `TIER_RULES tiene '${name}', que no está en el catálogo`);
     if (isPathWriteTool(name)) assert.ok(cataloged.has(name), `toolTargets tiene '${name}', que no está en el catálogo`);
     if (NO_DISK_POSTCONDITION.has(name)) assert.ok(cataloged.has(name), `NO_DISK_POSTCONDITION tiene '${name}', que no está en el catálogo`);
   }

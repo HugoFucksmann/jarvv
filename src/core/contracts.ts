@@ -385,8 +385,6 @@ export interface EngineDeps {
   readonly recoveryShadow?: () => boolean;
   /** Override de plazo (ms) de una herramienta desde la configuración (`toolTimeoutsMs`); `undefined` = rige el del catálogo. */
   readonly toolTimeoutMs?: (server: string, tool: string) => number | undefined;
-  /** Carpeta de trabajo de las herramientas de archivos (contra ella se resuelven las rutas relativas al clasificar el nivel de riesgo). Omitida = las relativas quedan sin resolver. */
-  readonly toolBaseDir?: () => string;
   /** Directorios permitidos leídos en vivo en cada llamada; vacío u omitido = sin restricción. */
   readonly allowedDirectories?: () => readonly string[];
   /** Analizador de comandos inyectable (por defecto PowerShell AST en Windows). */

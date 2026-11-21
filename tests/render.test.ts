@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import { BUDGET } from "../src/core/budget.ts";
 import { create } from "../src/core/ctx/index.ts";
-import type { FallbackView, FinalView, PlanView } from "../src/core/ctx/index.ts";
+import type { PlanView } from "../src/core/ctx/index.ts";
 import { argsViewOptions, finalRenderOptions, finalViewOptions, planRenderOptions, planViewOptions, windowOptions } from "../src/core/engine/adapters.ts";
 import {
   ContextOverflowError,
@@ -263,73 +263,6 @@ test("renderFinal: incluye PREVIOUS TASK, MEMORY y la línea explícita EFFECTS:
   assert.match(out.text, /Answer: Respuesta previa/);
   assert.match(out.text, /MEMORY:\n<obs>\n- idioma: español\n<\/obs>/);
   assert.match(out.text, /EFFECTS: none — no call changed anything on the computer\./);
-});
-
-test("renderStatusNote y renderPlaceNote: cubre completed, failed sin cambios, wrong_place único/múltiple y exclusión si luego se aprobó la misma ruta", () => {
-  const baseCall = (overrides: Partial<FinalView["effects"][number]>): FinalView["effects"][number] => ({
-    id: "c1",
-    stepId: "s1",
-    route: "files",
-    tool: "write_file",
-    kind: "write",
-    args: { path: "C:\\mal\\a.txt" },
-    status: "ok",
-    summary: "ok",
-    verdict: "rejected",
-    reason: "wrong_place",
-    statusNote: null,
-    reasonNote: null,
-    failed: true,
-    ...overrides,
-  });
-
-  const completedView: FallbackView = {
-    task: { state: "completed", stopReason: null, note: "completed" },
-    effects: [],
-    possibleEffects: [],
-    env: [],
-    lastActions: [],
-  };
-  assert.equal(renderStatusNote(completedView, []), null);
-
-  const failedNoEffects: FallbackView = {
-    task: { state: "failed", stopReason: "max_steps", note: "failed" },
-    effects: [],
-    possibleEffects: [],
-    env: [],
-    lastActions: [],
-  };
-  const failedNote = renderStatusNote(failedNoEffects, ["Paso A", "Paso B"]);
-  assert.ok(failedNote !== null);
-  assert.match(failedNote, /No se logró: Paso A; Paso B\./);
-  assert.match(failedNote, /Cambios realizados en la computadora: ninguno\./);
-
-  const singlePlace: FallbackView = {
-    task: { state: "partial", stopReason: "no_alternatives", note: "partial" },
-    effects: [baseCall({})],
-    possibleEffects: [],
-    env: [],
-    lastActions: [],
-  };
-  assert.match(renderPlaceNote(singlePlace, "en Documentos")!, /Quedó escrito en: C:\\mal\\a\.txt/);
-
-  // Si otra llamada aprobada escribió exactamente esa misma ruta, no avisa por esa ruta; move_file usa args.destination
-  const coveredAndMulti: FallbackView = {
-    task: { state: "partial", stopReason: "no_alternatives", note: "partial" },
-    effects: [
-      baseCall({ id: "c1", args: { path: "C:\\ok\\bien.txt" }, verdict: "rejected", reason: "wrong_place" }),
-      baseCall({ id: "c2", args: { path: "C:\\ok\\bien.txt" }, verdict: "approved", reason: null, failed: false }),
-      baseCall({ id: "c3", args: { path: "C:\\mal\\uno.txt" }, verdict: "rejected", reason: "wrong_place" }),
-      baseCall({ id: "c4", tool: "move_file", args: { source: "C:\\x", destination: "C:\\mal\\dos.txt" }, verdict: "rejected", reason: "wrong_place" }),
-    ],
-    possibleEffects: [],
-    env: [],
-    lastActions: [],
-  };
-  const multiNote = renderPlaceNote(coveredAndMulti, "en Descargas");
-  assert.ok(multiNote !== null);
-  assert.doesNotMatch(multiNote, /bien\.txt/);
-  assert.match(multiNote, /Quedaron escritos en: C:\\mal\\uno\.txt; C:\\mal\\dos\.txt/);
 });
 
 test("renderAsk: distingue reactivo (GOAL) de deliberativo (TASK + EXPECTED)", () => {

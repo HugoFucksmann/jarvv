@@ -21,7 +21,7 @@ import {
   timeoutOf,
 } from "../src/core/tools/manifest.ts";
 import { readToolResult } from "../src/core/tools/result.ts";
-import { FilesProvider, type SystemReader } from "../src/tools/files/filesProvider.ts";
+import { FilesReadProvider } from "../src/tools/files_read/filesReadProvider.ts";
 
 const tempDirs: string[] = [];
 
@@ -46,85 +46,24 @@ after(() => {
   }
 });
 
-function fakeReader(overrides: Partial<SystemReader> = {}): SystemReader {
-  return {
-    readHost: () => ({
-      cpuModel: "AMD Ryzen 7 7800X3D",
-      cores: 16,
-      totalMemBytes: 32 * 1024 ** 3,
-      osName: "Windows",
-      osVersion: "Windows 11 Pro",
-      osBuild: "22631",
-      arch: "x64",
-      uptimeSec: 90_060,
-      user: "hugo",
-    }),
-    readGpus: async () => ["NVIDIA GeForce RTX 4070"],
-    readDisks: async () => [
-      {
-        letter: "C:",
-        label: "Sistema",
-        fileSystem: "NTFS",
-        sizeBytes: 500 * 1024 ** 3,
-        freeBytes: 120 * 1024 ** 3,
-        usedPercent: 76,
-      },
-      {
-        letter: "E:",
-        label: "Datos",
-        fileSystem: "NTFS",
-        sizeBytes: 1000 * 1024 ** 3,
-        freeBytes: 600 * 1024 ** 3,
-        usedPercent: 40,
-      },
-    ],
-    readServices: async () => [
-      { name: "wuauserv", displayName: "Windows Update", status: "Stopped" },
-      { name: "Spooler", displayName: "Print Spooler", status: "Running" },
-      { name: "Dnscache", displayName: "DNS Client", status: "Running" },
-      { name: "bits", displayName: "Background Intelligent Transfer", status: "Stopped" },
-    ],
-    readDevTools: async (tools) =>
-      tools.map((name) =>
-        name === "git" || name === "node"
-          ? { name, installed: true, version: `${name} 22.0.0` }
-          : { name, installed: false },
-      ),
-    ...overrides,
-  };
-}
-
 // ───────────────────────── Catálogo y registro interno ─────────────────────────
 
-test("jarvis_files: registrado como interno en el catálogo (sin exponerse a D1 ni D2) y permitido por Guard", async () => {
-  const names = ["find_files", "list_folder", "system_info"];
-  for (const name of names) {
-    const def = SYSTEM_TOOL_MANIFEST.find((d) => d.server === "jarvis_files" && d.name === name);
+test("files_read: find_files y list_folder están en el catálogo y los sirve jarvis_files_read", async () => {
+  for (const name of ["find_files", "list_folder"]) {
+    const def = SYSTEM_TOOL_MANIFEST.find((d) => d.server === "jarvis_files_read" && d.name === name);
     assert.ok(def, `falta ${name} en SYSTEM_TOOL_MANIFEST`);
-    assert.equal(def.internal, true);
+    assert.equal(def.route, "files_read");
+    assert.equal(def.internal, undefined);
     assert.equal(def.policy.mutates, false);
     assert.equal(def.policy.requiresApproval, false);
-    assert.equal(getToolPolicy("jarvis_files", name).capability, "FILE_READ");
-    assert.equal(Guard.evaluate("jarvis_files", name, { path: "/tmp/demo" }).decision, "ALLOW");
+    assert.equal(getToolPolicy("jarvis_files_read", name).capability, "FILE_READ");
+    assert.equal(Guard.evaluate("jarvis_files_read", name, { path: "/tmp/demo" }).decision, "ALLOW");
+    assert.ok(buildCompactCatalog().includes(name), `${name} debe figurar en el catálogo de D1/D2`);
   }
-
-  assert.equal(timeoutOf("jarvis_files", "find_files"), 15_000);
-  assert.equal(timeoutOf("jarvis_files", "list_folder"), 10_000);
-  assert.equal(timeoutOf("jarvis_files", "system_info"), 10_000);
-
-  const catalog = buildCompactCatalog();
-  for (const name of names) {
-    assert.equal(catalog.includes(name), false, `${name} no debe figurar en el catálogo visible para D1/D2`);
-  }
-
-  const provider = new FilesProvider();
-  const tools = await provider.listTools();
-  assert.deepEqual(
-    tools.map((t) => t.name),
-    names,
-  );
-  assert.deepEqual(applyDestination("files", tools), []);
-  assert.deepEqual(applyDestination("locate", tools), []);
+  assert.equal(timeoutOf("jarvis_files_read", "find_files"), 15_000);
+  assert.equal(timeoutOf("jarvis_files_read", "list_folder"), 10_000);
+  const read = await new FilesReadProvider().listTools();
+  assert.deepEqual(applyDestination("files_read", read).map((t) => t.name), ["find_files", "list_folder", "search_content", "read_file"]);
 });
 
 // ───────────────────────── find_files ─────────────────────────
@@ -138,7 +77,7 @@ test("find_files: encuentra carpetas por nombre y prefijo, archivos por *.csv y 
   writeFileSized(path.join(root, "sub", "nota(v1).txt"), "hola");
   writeFileSized(path.join(root, "sub", "otro.md"), "# md");
 
-  const provider = new FilesProvider({
+  const provider = new FilesReadProvider({
     environment: async () => ({ platform: "linux", home: root }),
   });
 
@@ -188,7 +127,7 @@ test("find_files: distingue no_results (recorrido completo) de incomplete (corta
   }
 
   // Recorrido completo sin coincidencias -> no_results -> processResult: no_data
-  const fullProvider = new FilesProvider({ environment: async () => ({ platform: "linux", home: root }) });
+  const fullProvider = new FilesReadProvider({ environment: async () => ({ platform: "linux", home: root }) });
   const noRes = await fullProvider.callTool("find_files", { pattern: "inexistente_xyz", path: root });
   const noRead = readToolResult(noRes);
   assert.ok(noRead);
@@ -199,7 +138,7 @@ test("find_files: distingue no_results (recorrido completo) de incomplete (corta
 
   // Cortado por plazo mínimo -> incomplete -> processResult: ok (NO es no_data)
   let tick = 1000;
-  const timedProvider = new FilesProvider({
+  const timedProvider = new FilesReadProvider({
     environment: async () => ({ platform: "linux", home: root }),
     now: () => (tick += 10),
     findTimeoutMs: 1,
@@ -215,7 +154,7 @@ test("find_files: distingue no_results (recorrido completo) de incomplete (corta
 
   // Coincidencias pero cortado por tope de entradas -> partial
   writeFileSized(path.join(root, "archivo_raiz.txt"), "x");
-  const partialProvider = new FilesProvider({
+  const partialProvider = new FilesReadProvider({
     environment: async () => ({ platform: "linux", home: root }),
     findMaxEntries: 15,
   });
@@ -242,7 +181,7 @@ test("find_files: respeta maxResults, lista de exclusión, symlinks fuera de ra�
   // Enlace que apunta fuera de `root`: debe omitirse y contarse en `skipped`. En Windows un symlink pide privilegios (EPERM); una unión (junction) no.
   fs.symlinkSync(outside, path.join(root, "enlace_externo"), process.platform === "win32" ? "junction" : "dir");
 
-  const provider = new FilesProvider({
+  const provider = new FilesReadProvider({
     allowedDirectories: () => [root],
     environment: async () => ({ platform: "linux", home: root }),
   });
@@ -281,7 +220,7 @@ test("find_files: se corta al instante con la señal de cancelación", async () 
     writeFileSized(path.join(root, `f_${i}.txt`), "x");
   }
 
-  const provider = new FilesProvider({ environment: async () => ({ platform: "linux", home: root }) });
+  const provider = new FilesReadProvider({ environment: async () => ({ platform: "linux", home: root }) });
   const ac = new AbortController();
   ac.abort();
 
@@ -317,7 +256,7 @@ test("list_folder: ordena por tamaño y fecha, filtra por extensión, resuelve d
   writeFileSized(path.join(desktop, "sub", "interno.json"), '{"ok":true}', tNew);
 
   const env: UserEnvironment = { platform: "linux", home: root, desktop };
-  const provider = new FilesProvider({ environment: async () => env });
+  const provider = new FilesReadProvider({ environment: async () => env });
 
   // Alias `desktop`, orden por tamaño desc (por omisión para size) y ocultos fuera
   const bySize = await provider.callTool("list_folder", { path: "desktop", sortBy: "size" });
@@ -364,74 +303,4 @@ test("list_folder: ordena por tamaño y fecha, filtra por extensión, resuelve d
   assert.equal(missing.isError, true);
   const onFile = await provider.callTool("list_folder", { path: path.join(desktop, "chico.csv") });
   assert.equal(onFile.isError, true);
-});
-
-// ───────────────────────── system_info ─────────────────────────
-
-test("system_info: devuelve cada sección con lector falso y degrada a unknown sin romper el resto", async () => {
-  const provider = new FilesProvider({ systemReader: fakeReader() });
-
-  // overview
-  const ov = await provider.callTool("system_info", { section: "overview" });
-  const ovRead = readToolResult(ov);
-  assert.ok(ovRead);
-  assert.equal(ov.isError, false);
-  assert.equal(ovRead.data.state, "ok");
-  assert.ok(ovRead.text.includes("AMD Ryzen 7 7800X3D"));
-  assert.ok(ovRead.text.includes("Windows 11 Pro"));
-  assert.ok(ovRead.text.includes("C: (Sistema)"));
-  assert.equal(processResult("jarvis_files", "system_info", ov, { section: "overview" }).status, "ok");
-
-  // hardware, os, disks
-  for (const section of ["hardware", "os", "disks", "dev_tools"] as const) {
-    const res = await provider.callTool("system_info", { section });
-    const read = readToolResult(res);
-    assert.ok(read);
-    assert.equal(res.isError, false);
-    assert.equal(read.data.state, "ok");
-    const sections = read.data.sections as Record<string, unknown>;
-    assert.ok(sections[section] !== undefined, `falta sección ${section}`);
-  }
-
-  // services con filtro y limit
-  const srvRunning = await provider.callTool("system_info", { section: "services", status: "running", limit: 1 });
-  const srvRead = readToolResult(srvRunning);
-  assert.ok(srvRead);
-  assert.equal(srvRead.data.state, "ok");
-  assert.ok(srvRead.text.includes("Dnscache"));
-  assert.equal(srvRead.text.includes("wuauserv"), false);
-  assert.equal(srvRead.data.truncated, true);
-
-  // Sección ilegible -> sale como unknown sin tirar el resto
-  const partialFailProvider = new FilesProvider({
-    systemReader: fakeReader({
-      readGpus: async () => {
-        throw new Error("WMI sin respuesta");
-      },
-      readDisks: async () => {
-        throw new Error("CIM bloqueado");
-      },
-    }),
-  });
-
-  const degOverview = await partialFailProvider.callTool("system_info", { section: "overview" });
-  const degRead = readToolResult(degOverview);
-  assert.ok(degRead);
-  assert.equal(degOverview.isError, false);
-  assert.equal(degRead.data.state, "ok");
-  assert.ok(degRead.text.includes("AMD Ryzen 7 7800X3D"), "CPU sigue presente");
-  assert.ok(degRead.text.includes("GPU: unknown (WMI sin respuesta)"));
-  assert.ok(degRead.text.includes("Disks: unknown (CIM bloqueado)"));
-
-  const degHardware = await partialFailProvider.callTool("system_info", { section: "hardware" });
-  const hwRead = readToolResult(degHardware);
-  assert.ok(hwRead);
-  assert.equal(degHardware.isError, false);
-  assert.equal(hwRead.data.state, "ok");
-  assert.ok(hwRead.text.includes("GPU: unknown (WMI sin respuesta)"));
-
-  // Si falla todo lo pedido -> isError: true
-  const allDisksFail = await partialFailProvider.callTool("system_info", { section: "disks" });
-  assert.equal(allDisksFail.isError, true);
-  assert.equal(processResult("jarvis_files", "system_info", allDisksFail, { section: "disks" }).status, "tool_error");
 });

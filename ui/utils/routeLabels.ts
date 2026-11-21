@@ -3,12 +3,16 @@
  */
 export function getRouteLabel(route?: string | null): string {
   switch (route) {
-    case "files":
-      return "Archivos";
-    case "locate":
-      return "Búsqueda local";
+    case "files_read":
+      return "Lectura de archivos";
+    case "files_write":
+      return "Escritura de archivos";
+    case "system":
+      return "Sistema";
+    case "multimedia":
+      return "Multimedia";
     case "terminal":
-      return "Terminal y procesos";
+      return "Terminal";
     case "web":
       return "Web";
     default:

@@ -15,7 +15,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { effectiveTimeoutMs } from "../../core/tools/filePaths.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage, isRecord } from "../../core/utils.ts";
 
@@ -72,9 +72,6 @@ export interface MediaControlDeps {
 
 const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
   toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
-const cancelledResult = (): MCPCallResult =>
-  toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", truncated: false } });
 
 const PS_UTF8_PREFIX = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)";
 

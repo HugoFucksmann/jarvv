@@ -248,19 +248,19 @@ test("validateArgs, parsePlanSteps y parsePendingList validan contratos sin infe
   assert.ok("error" in parsePendingList("no_array"));
 
   const okSteps = parsePlanSteps(
-    [{ goal: "Leer", suggested_mcp: "files", expected_outcome: "Texto leído" }],
+    [{ goal: "Leer", suggested_mcp: "files_read", expected_outcome: "Texto leído" }],
     3,
     false,
   );
   assert.deepEqual(okSteps, {
-    steps: [{ id: "s3", instruction: "Leer", route: "files", expectedOutcome: "Texto leído" }],
+    steps: [{ id: "s3", instruction: "Leer", route: "files_read", expectedOutcome: "Texto leído" }],
   });
   assert.ok("error" in parsePlanSteps([], 1, false));
   assert.deepEqual(parsePlanSteps([], 1, true), { steps: [] });
   assert.ok("error" in parsePlanSteps([{ goal: "x", suggested_mcp: "invented", expected_outcome: "y" }], 1, false));
   const tooMany = Array.from({ length: BUDGET.maxSteps + 1 }, () => ({
     goal: "g",
-    suggested_mcp: "files",
+    suggested_mcp: "files_read",
     expected_outcome: "e",
   }));
   assert.ok("error" in parsePlanSteps(tooMany, 1, false));
@@ -364,9 +364,9 @@ test("QwenEngine: sanea rawOutput (sin reasoning/<think>), quita nulls opcionale
 test("QwenEngine: generatePlanFromView rechaza plan que excede maxSteps tras reintento y generateFinalFromView marca truncado en último intento", async () => {
   withHandler((_req, res) => {
     const overSteps = [
-      { goal: "1", suggested_mcp: "files", expected_outcome: "a" },
-      { goal: "2", suggested_mcp: "files", expected_outcome: "b" },
-      { goal: "3", suggested_mcp: "files", expected_outcome: "c" },
+      { goal: "1", suggested_mcp: "files_read", expected_outcome: "a" },
+      { goal: "2", suggested_mcp: "files_read", expected_outcome: "b" },
+      { goal: "3", suggested_mcp: "files_read", expected_outcome: "c" },
     ];
     res.writeHead(200, { "Content-Type": "application/json" }).end(
       JSON.stringify({
@@ -445,7 +445,7 @@ test("Decision20Engine: atajos de opción única, desborde, HTTP 500, verifyResu
   // Atajos de una sola ruta / una sola herramienta: 0 peticiones HTTP
   const engine = new Decision20Engine(() => makeConfig());
   const routeSingle = await engine.chooseRoute({
-    routes: ["files"],
+    routes: ["files_read"],
     step: { instruction: "leer", expected: null },
     lastResult: null,
     done: [],
@@ -454,11 +454,11 @@ test("Decision20Engine: atajos de opción única, desborde, HTTP 500, verifyResu
     env: [],
     request: "leer",
   });
-  assert.equal(routeSingle.route, "files");
+  assert.equal(routeSingle.route, "files_read");
   assert.equal(routeSingle.shortcut, true);
 
   const toolSingle = await engine.chooseTool({
-    route: "files",
+    route: "files_read",
     tools: [FILE_TOOL],
     step: { instruction: "escribir", expected: null },
     lastResult: null,

@@ -2,7 +2,7 @@
  * JARVIS Core — Rutas sensibles.
  *
  * Complementa a las reglas de comando (`commandRules.ts`, que miran el QUÉ hace un comando) con una mirada al DÓNDE: hay lugares que ningún
- * modelo debería leer o modificar sin que el usuario lo confirme, se pida con `read_file`, `write_file`, `move_file` o dentro de un comando.
+ * modelo debería leer o modificar sin que el usuario lo confirme, se pida con una herramienta con rutas o dentro de un comando.
  *
  * Dos listas, sobre rutas con `\` y `/` equivalentes y sin distinguir mayúsculas:
  * - `SECRET_PATTERNS` (siempre, para leer y para escribir): claves y credenciales (`.ssh`, `.env`, `.aws`, claves privadas), datos de los
@@ -18,7 +18,7 @@
  */
 
 import { canonicalPath, isAnyAbsolute, stripExtendedPrefix } from "./allowedDirs.ts";
-import { isPathArgKey, PATH_LIST_KEY } from "./pathArgs.ts";
+import { expandedArgEntries, isPathArgKey, PATH_LIST_KEY } from "./pathArgs.ts";
 
 export interface PathFinding {
   /** Identificador estable de la regla. */
@@ -115,7 +115,7 @@ function addCanonicalVariants(raw: string, out: string[]): void {
 /** Textos de los argumentos que se miran (ver la cabecera), incluyendo la resolución real de enlaces simbólicos. */
 function scannedTexts(args: Readonly<Record<string, unknown>>): string[] {
   const out: string[] = [];
-  for (const [key, value] of Object.entries(args)) {
+  for (const [key, value] of expandedArgEntries(args)) {
     const k = key.toLowerCase();
     const isPath = isPathArgKey(k) || k === PATH_LIST_KEY;
     const isCmd = COMMAND_KEYS.has(k);

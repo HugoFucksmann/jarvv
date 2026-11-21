@@ -25,11 +25,11 @@ test("los valores por defecto son los que regían antes de centralizarlos", () =
 });
 
 test("herramienta: `servidor:herramienta` gana sobre `herramienta`; sin override rige el catálogo (undefined)", () => {
-  assert.equal(resolveToolTimeoutMs(base, "desktop_commander", "read_file"), undefined);
-  const cfg = { ...base, toolTimeoutsMs: { read_file: 90_000, "desktop_commander:read_file": 120_000 } };
-  assert.equal(resolveToolTimeoutMs(cfg, "desktop_commander", "read_file"), 120_000);
+  assert.equal(resolveToolTimeoutMs(base, "jarvis_files", "read_file"), undefined);
+  const cfg = { ...base, toolTimeoutsMs: { read_file: 90_000, "jarvis_files:read_file": 120_000 } };
+  assert.equal(resolveToolTimeoutMs(cfg, "jarvis_files", "read_file"), 120_000);
   assert.equal(resolveToolTimeoutMs(cfg, "otro", "read_file"), 90_000);
-  assert.equal(resolveToolTimeoutMs(cfg, "desktop_commander", "list_directory"), undefined);
+  assert.equal(resolveToolTimeoutMs(cfg, "jarvis_files", "list_directory"), undefined);
 });
 
 test("run_command: el plazo de la herramienta sigue a la espera máxima configurada, salvo un override explícito", () => {

@@ -228,10 +228,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       prev
         ? {
             ...prev,
-            desktopCommanderMcp: {
-              ...prev.desktopCommanderMcp,
-              allowedDirectories,
-            },
+            allowedDirectories,
           }
         : prev
     );
@@ -296,7 +293,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const {
         refsDir: _refsDir,
         tracePath: _tracePath,
-        desktopCommanderMcp,
         freeSearchMcp: _freeSearchMcp,
         toolTimeoutsMs: _toolTimeoutsMs,
         modelTimeoutsMs: _modelTimeoutsMs,
@@ -304,12 +300,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         shutdownDrainMs: _shutdownDrainMs,
         ...editable
       } = config;
-      const patch: ConfigPatch = {
-        ...editable,
-        ...(desktopCommanderMcp?.allowedDirectories !== undefined
-          ? { desktopCommanderMcp: { allowedDirectories: desktopCommanderMcp.allowedDirectories } }
-          : {}),
-      };
+      const patch: ConfigPatch = editable;
       const updated = await jarvisApi.updateConfig(patch);
       setInitialConfig(updated);
       setConfig(updated);
@@ -368,7 +359,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             }
             forceOpenMcp={
               isSearching &&
-              ["mcp", "desktop", "commander", "search", "stdio", "comando"].some((k) =>
+              ["mcp", "search", "stdio", "comando"].some((k) =>
                 normalizedQuery.includes(k) || k.includes(normalizedQuery)
               )
             }

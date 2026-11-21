@@ -32,7 +32,7 @@ function makeTempEnv() {
     decisionModel: "d",
     autoMode: false,
     approvalTiers: false,
-    desktopCommanderMcp: { ...base.desktopCommanderMcp, allowedDirectories: [] },
+    allowedDirectories: [],
   });
   const services: EngineServices = {
     vault: createRefVault({ dir: path.join(root, "data", "refs") }),
@@ -169,7 +169,7 @@ test("TaskManager.prune: si se excede el tope solo con tareas en espera, cancela
     },
     generatePendingFromView: async () => ({ pending: ["hacer algo"], rawInput: "", rawOutput: "" }),
     generatePlanFromView: async () => ({
-      steps: [{ instruction: "listar", route: "files", expected: "listado" }],
+      steps: [{ instruction: "listar", route: "files_read", expected: "listado" }],
       rawInput: "",
       rawOutput: "",
     }),
@@ -231,87 +231,6 @@ test("TaskManager.prune: si se excede el tope solo con tareas en espera, cancela
   tasks.cancelAll();
   await tasks.drain(3000);
   assert.notEqual(tasks.get(extra.task.id)?.task.state, "running");
-  fs.rmSync(root, { recursive: true, force: true });
-});
-
-test("TaskManager: waitId estricto rechaza esperas ajenas y approveCall(remember=true) recuerda aprobaciones en la tarea", async () => {
-  const { root, getConfig, services } = makeTempEnv();
-  let argCall = 0;
-  const writeTool = {
-    name: "write_file",
-    description: "Escribe archivo",
-    inputSchema: {
-      type: "object",
-      properties: { path: { type: "string" }, content: { type: "string" } },
-      required: ["path", "content"],
-    },
-  };
-  let mcpExecutions = 0;
-  const discovery: IDiscoveryEngine = {
-    getServer: () => ({
-      name: "desktop_commander",
-      version: "1",
-      isConnected: () => true,
-      reconnect: async () => undefined,
-      listTools: async () => [writeTool],
-      callTool: async (_name, args) => {
-        mcpExecutions++;
-        fs.writeFileSync(String(args.path), String(args.content ?? ""));
-        return { content: [{ type: "text", text: "ok" }], isError: false };
-      },
-    }),
-    getDiscoveredTools: async (s) => (s === "desktop_commander" ? [writeTool] : []),
-    getUnavailableServers: () => ({}),
-    validateToolExists: async (s, t) => s === "desktop_commander" && t === "write_file",
-  };
-  const llm: EngineLLM = {
-    generatePendingFromView: async () => ({ pending: ["Escribir cabecera inicial", "Agregar sección final"], rawInput: "", rawOutput: "" }),
-    generatePlanFromView: async () => {
-      throw new Error("no se usa");
-    },
-    generateArgumentsFromView: async () => {
-      argCall++;
-      // Mismo destino: con `remember=true`, la segunda llamada NO debe volver a pedir confirmación al usuario.
-      return {
-        args: { path: path.join(root, "mismo.txt"), content: `v${argCall}` },
-        rawInput: "",
-        rawOutput: "",
-        timing: { startedAt: 0, durationMs: 0 },
-      };
-    },
-    generateQuestion: async () => ({ question: "?", rawInput: "", rawOutput: "" }),
-    generateFinalFromView: async () => ({ response: "Escritos.", rawInput: "", rawOutput: "" }),
-  };
-  const decision = {
-    chooseRoute: async () => ({ action: "route" as const, route: "files" as const, probabilities: { files: 1 }, rawInput: "", rawOutput: "" }),
-    chooseTool: async () => ({ action: "tool" as const, tool: writeTool, probabilities: { write_file: 1 }, rawInput: "", rawOutput: "" }),
-    reviewArgs: async () => ({ review: "approved" as const, probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
-    verifyResult: async () => ({ answers: { ok: 1, cumple: 1 }, rawInput: "", rawOutput: "" }),
-    checkCompletion: async () => ({ requestComplete: 1, rawInput: "", rawOutput: "" }),
-  };
-
-  const tasks = new TaskManager({ decision, discovery, llm }, getConfig, services);
-  let approvalsPrompted = 0;
-  let badWaitChecked = false;
-  const off = tasks.addEventListener((e) => {
-    if (e.type !== "waiting" || e.waiting?.kind !== "approval") return;
-    approvalsPrompted++;
-    if (!badWaitChecked) {
-      badWaitChecked = true;
-      assert.equal(tasks.approveCall(e.taskId, "wait_id_ajeno"), "not_waiting", "un waitId distinto no resuelve la espera");
-      assert.equal(tasks.approvePlan(e.taskId, e.waiting.request.id), "not_waiting", "una orden de plan no resuelve una aprobación");
-    }
-    assert.equal(tasks.approveCall(e.taskId, e.waiting.request.id, true), "ok");
-  });
-
-  const dto = tasks.start("escribe dos veces el mismo archivo", "reactive");
-  await tasks.drain(3000);
-  off();
-
-  const done = tasks.get(dto.task.id);
-  assert.equal(done?.task.state, "completed");
-  assert.equal(mcpExecutions, 2);
-  assert.equal(approvalsPrompted, 1, "la segunda escritura idéntica reutilizó remember=true sin volver a preguntar");
   fs.rmSync(root, { recursive: true, force: true });
 });
 

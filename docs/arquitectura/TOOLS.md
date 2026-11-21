@@ -1,27 +1,36 @@
 # Herramientas y Catálogo
 
-JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) de **12 herramientas visibles** repartidas en **4 rutas** (`EXECUTABLE_ROUTES`), combinando servidores MCP por stdio (`desktop_commander`, `free_search`) y proveedores nativos en proceso (`jarvis_files`, `jarvis_terminal`, `jarvis_web` en `src/tools/`).
+JARVIS expone un catálogo cerrado (`src/core/tools/manifest.ts`) repartido en **6 rutas** (`EXECUTABLE_ROUTES`: `terminal`, `files_read`, `files_write`, `system`, `multimedia`, `web`), combinando el servidor MCP por stdio `free_search` y proveedores nativos en proceso (`jarvis_terminal`, `jarvis_files_read`, `jarvis_files_write`, `jarvis_system`, `jarvis_multimedia`, `jarvis_web` en `src/tools/`). Los grupos siguen `JARVIS_TOOLS_Y_GRUPOS_revisado.md`; el grupo `personal` (`email`, `calendar`) todavía no existe.
 
 ## 1. Catálogo vigente
 
 | Ruta (D1) | Servidor | Herramientas visibles (D2) | Notas clave |
 |---|---|---|---|
-| `files` | `desktop_commander` | `read_file`, `read_multiple_files`, `write_file`, `create_directory`, `list_directory`, `move_file` | Archivos y carpetas locales con ruta conocida. `list_directory` solo devuelve nombres (sin tamaños ni fechas) |
-| `locate` | `desktop_commander` | `start_search`, `get_more_search_results` | Búsqueda por nombre o contenido. `get_more_search_results` requiere búsqueda activa (`requires: "search"`) |
-| `terminal` | `jarvis_terminal` (nativo) | `run_command`, `list_processes`, `stop_process` | Solo Windows/PowerShell; ver detalle operativo en [`../operacion/WINDOWS_TERMINAL.md`](../operacion/WINDOWS_TERMINAL.md) |
-| `web` | `jarvis_web` (nativo) | `web_search` | Búsqueda y lectura web; usa internamente `free_search` (`search`, `fetch`, `read_doc`) |
+| `files_read` | `jarvis_files_read` (nativo) | `find_files`, `list_folder`, `search_content`, `read_file` | Solo lectura, sin confirmación. `path` acepta rutas absolutas y los alias `home`, `desktop`, `documents`, `downloads`. `read_file` lee texto por líneas (`offset`, `limit`); PDF, Office e imágenes requieren un driver que aún no está conectado |
+| `files_write` | `jarvis_files_write` (nativo) | `write_file`, `edit_file`, `convert_file`, `create_folder`, `copy_file`, `move_file`, `delete_file`, `archive_files` | Cada una con su regla de nivel (`policy/tiers.ts`), su poscondición de disco (`engine/postcondition.ts`) y, si escribe en una ruta, su destino (`tools/toolTargets.ts`). `move_file` recibe `items: [{ source, destination }]` y `archive_files` recibe `sources`; el motor mira las rutas dentro de esos lotes (`policy/pathArgs.ts`) |
+| `system` | `jarvis_system` (nativo) | `system_info`, `stop_process`, `pc_settings`, `power`, `open_on_screen`, `clipboard` | `system_info` absorbe los procesos (`section: processes`), los puertos, la red y la fecha. Niveles: leer es verde; cambiar un ajuste, bloquear, suspender, escribir el portapapeles y abrir una app son amarillos; reiniciar, apagar y cortar procesos son rojos. `open_on_screen` no devuelve contenido: para leer un archivo se usa `read_file` |
+| `multimedia` | `jarvis_multimedia` (nativo) | `play_media`, `media_control` | Reproducir y controlar música y video (YouTube, Spotify). Son `PROCESS_CONTROL` con nivel verde: no piden confirmación con los niveles encendidos, y no dejan nada en el disco |
+| `terminal` | `jarvis_terminal` (nativo) | `run_command` | Solo Windows/PowerShell; ver detalle operativo en [`../operacion/WINDOWS_TERMINAL.md`](../operacion/WINDOWS_TERMINAL.md) |
+| `web` | `jarvis_web` (nativo) | `web_search`, `download_file` | Búsqueda y lectura web (usa internamente `free_search`: `search`, `fetch`, `read_doc`) y descarga de un archivo desde una URL `http(s)` con protección SSRF. `download_file` es `DOWNLOAD`: nunca verde, y su URL pasa por `policy/egress.ts` |
 
 Además, `SYSTEM_TOOL_MANIFEST` declara entradas `internal: true`:
 - `free_search` (`search`, `fetch`, `read_doc`): usadas internamente por `web_search`.
-- `jarvis_files` (`find_files`, `list_folder`, `system_info`, en `src/tools/files/`): proveedor nativo de solo lectura (etapa 1); tiene política en Guard, pero todavía no se ofrece a D1, D2 ni al planificador.
+
+### Política de las tools que modifican
+
+Toda tool que modifica el sistema pasa por las mismas capas, en este orden: Guard (DENY: patrones destructivos, regla B de las carpetas protegidas, `policy/toolRules.ts` en su nivel `guard`) → lista de reglas (blocked y sensitive: las reglas de comando de `commandRules.ts` para `run_command`, las de `toolRules.ts` para las nativas, y la lista de `jarvis-config.json`) → pre-chequeo → `allowedDirectories` → confirmación del usuario → Decisión 3 → ejecución → verificación (poscondición en el disco por código y, si no hay nada que mirar, Decisión 4).
+
+`policy/toolRules.ts` da a las nativas la misma clasificación que su comando equivalente: `power` shutdown y restart son blocked (como `shutdown`); `delete_file` de una raíz de disco o de Windows es guard, y de una carpeta del sistema o personal entera es blocked; descargar, escribir, copiar, mover o convertir un script o un ejecutable es sensitive.
+
+Efecto de cada nivel: blocked se rechaza con modo automático o con niveles (`tool_rejected`, sin cerrar la tarea) y se le pregunta al usuario sin ellos; sensitive lo decide Decisión 3 con el umbral estricto (0,65) en modo automático y, con niveles, además se le pregunta al usuario. Niveles de aprobación: verde sin confirmación ni Decisión 3, amarillo con Decisión 3 estricta (y confirmación sin modo automático), rojo siempre confirma el usuario. `tests/native_policy_matrix.test.ts` recorre estas combinaciones con proveedores reales.
 
 ## 2. Contrato e infraestructura (`src/core/tools/`)
 
 - **`ToolProvider` (`provider.ts`)**: contrato único que implementa tanto cada servidor MCP como cada proveedor nativo (`callTool(name, args, { signal, timeoutMs, taskId, host })` y `onTaskEnd(taskId, outcome)`).
 - **`ToolHost` (`host.ts`)**: pasarela inyectada a herramientas compuestas; solo permite invocar las `dependencies` declaradas y registra cada sub-llamada en la traza.
 - **Resultado estructurado (`result.ts`, `extractors/structured.ts`)**: los proveedores nativos devuelven `structuredContent` y `_meta` con `schema: 1` (`text` para el modelo, `raw` para ref, `data` y `meta` para señales del motor y traza). `data.truncated` (booleano) indica si el proveedor recortó contenido: solo entonces se crea una ref; si falta, el extractor compara `raw` con `text` (`web_search`). Las refs son solo para depurar y para el pre-chequeo.
-- **Orden y sondas**: `sortByCatalog` fija el orden de opciones en D2; `probesOf` asocia sondas de verificación (`tools/probes.ts`) a `write_file`, `create_directory`, `move_file`, `read_file` (Excel), `start_search` y `list_directory`.
-- **Política de repetición (`repeatPolicyOf`)**: `strict` por defecto, `retry_failed` (`web_search` y `jarvis_files`), `allow` (`get_more_search_results` y continuación `{ pid }` en `run_command`) o `rerun` (comandos de comprobación/compilación en `policy/rerun.ts`).
+- **Orden y sondas**: `sortByCatalog` fija el orden de opciones en D2; `probesOf` asocia sondas de verificación (`tools/probes.ts`) a una herramienta; hoy ninguna las declara.
+- **Política de repetición (`repeatPolicyOf`)**: `strict` por defecto, `retry_failed` (`web_search` y las búsquedas y listados de `files_read`), `allow` (continuación `{ pid }` en `run_command`) o `rerun` (comandos de comprobación/compilación en `policy/rerun.ts`).
 
 ## 3. Pipeline de `web_search` (`src/tools/web/`)
 

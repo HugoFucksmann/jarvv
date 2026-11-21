@@ -4,8 +4,7 @@
  * Invariantes:
  * - Ningún modelo puede eludir Guard.
  * - Patrones destructivos sobre el SO y comandos catastróficos (nivel `guard` de `commandRules.ts`: discos, raíz del sistema) => DENY siempre. Se escanean los argumentos que son rutas o comandos; no se
- *   escanean los de `free_search` ni `jarvis_web` (consultas y URLs) ni el campo `content` de `desktop_commander:write_file` (texto
- *   que se escribe: sus rutas, `path`, sí se escanean, y ejecutarlo exige un `run_command`, que siempre pide aprobación).
+ *   escanean los de `free_search` ni las consultas y URLs de `jarvis_web` ni el texto que escriben `write_file` y `edit_file` (sus rutas sí se escanean).
  * - Ruta sensible (`sensitivePaths.ts`: claves, credenciales, navegadores, lugares de inicio automático, el sistema) => APPROVAL obligatorio,
  *   también con `autoMode`: `GuardDecision.mandatory`. Se mira antes que el modo de solo lectura de un comando.
  * - Datos sensibles en lo que `web_search` envía a internet (`egress.ts`: claves, tokens, rutas del usuario) => APPROVAL obligatorio, también con `autoMode`.
@@ -26,9 +25,11 @@ import type { Capability, GuardDecision } from "../types.ts";
 import { getToolPolicy, isKnownTool } from "../tools/manifest.ts";
 import { classify, commandOf, splitSegments, tokenize } from "./commandRules.ts";
 import { defaultHomeDirs } from "./homeDirs.ts";
+import { expandedArgEntries, isPathArgKey, PATH_LIST_KEY } from "./pathArgs.ts";
 import { isReadOnlyCall } from "./readOnly.ts";
 import { egressFinding } from "./egress.ts";
 import { sensitivePathFinding } from "./sensitivePaths.ts";
+import { classifyToolCall } from "./toolRules.ts";
 
 // Se evalúan sobre el JSON de args en minúsculas, con "\\" -> "/" y espacios colapsados.
 // Los comandos de terminal (Windows y Linux) los analiza además `commandRules.ts` (comando y ruta juntos): `rm -rf /` o `Remove-Item -Recurse C:\`
@@ -68,8 +69,6 @@ function samePath(a: string, b: string): boolean {
   return path.relative(path.resolve(a), path.resolve(b)) === "";
 }
 
-/** Argumentos de las herramientas de escritura que no son rutas (texto que se escribe, modo de escritura). */
-const NON_PATH_ARGS: readonly string[] = ["content", "mode"];
 const COMMAND_ARG_KEYS: readonly string[] = ["command", "cmd", "input"];
 const MAX_WRAPPER_DEPTH = 3;
 const SHELL_WRAPPERS = new Set(["cmd", "powershell", "pwsh", "bash", "sh", "zsh", "dash"]);
@@ -98,6 +97,11 @@ export class Guard {
     const found = command !== null ? classify(command, { homeDirs }) : null;
     if (found?.tier === "guard") {
       return { decision: "DENY", reason: `Operación rechazada (DENY): comando catastrófico prohibido (${found.id}).`, capability };
+    }
+
+    const nativeFound = policy.mutates ? classifyToolCall(tool.toLowerCase(), args, homeDirs) : null;
+    if (nativeFound?.tier === "guard") {
+      return { decision: "DENY", reason: `Operación rechazada (DENY): ${nativeFound.reason} (${nativeFound.id}).`, capability };
     }
 
     const isWrite = capability === "FILE_WRITE" || policy.mutates || command !== null;
@@ -138,14 +142,20 @@ export class Guard {
     return { decision: "ALLOW", capability };
   }
 
-  /** Argumentos sobre los que se aplica el DENY. `null` = sin escaneo (free_search); en write_file se omite `content`. */
+  /** Argumentos sobre los que se aplica el DENY. `null` = sin escaneo (free_search y las consultas de web_search). */
   private static denyScanArgs(mcp: string, tool: string, args: Record<string, unknown>): Record<string, unknown> | null {
     const server = mcp.toLowerCase();
+    if (server === "free_search") return null;
+    if (server === "jarvis_web") {
+      // Las consultas y URLs de `web_search` no son rutas ni órdenes. Una descarga sí escribe en una ruta (`destination`, `folder`): se escanea todo salvo la URL.
+      if (tool.toLowerCase() !== "download_file") return null;
+      const { url: _url, ...rest } = args;
+      return rest;
+    }
     const name = tool.toLowerCase();
-    if (server === "free_search" || server === "jarvis_web") return null;
-    if (server === "desktop_commander" && name === "write_file") {
-      const rest = { ...args };
-      delete rest.content;
+    if (name === "write_file" || name === "edit_file") {
+      // El texto que se escribe no es una orden ni una ruta: sus rutas (`path`) sí se escanean, y ejecutarlo exige un `run_command`, que siempre pide aprobación.
+      const { content: _content, oldText: _old, newText: _new, ...rest } = args;
       return rest;
     }
     return args;
@@ -249,9 +259,9 @@ export class Guard {
   private static touchesProtectedPath(args: Record<string, unknown>, scope: ProtectedPaths, hasCommand: boolean): boolean {
     const relativeBases = scope.relativeBases;
     const home = (scope.homeDirs ?? defaultHomeDirs())[0];
-    for (const [key, value] of Object.entries(args)) {
+    for (const [key, value] of expandedArgEntries(args)) {
       const k = key.toLowerCase();
-      if (NON_PATH_ARGS.includes(k)) continue;
+      if (!isPathArgKey(k) && k !== PATH_LIST_KEY) continue;
       if (hasCommand && COMMAND_ARG_KEYS.includes(k)) continue;
       const values = typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
       for (const item of values) {

@@ -133,7 +133,7 @@ export function withLineCount(base: string, text: string): string {
 }
 
 /**
- * `label` de la ref de una llamada: `read_file /ruta (1240 líneas)`. `args` son los argumentos resueltos (o los
+ * `label` de la ref de una llamada: `run_command Get-Date (3 líneas)`. `args` son los argumentos resueltos (o los
  * propuestos); el argumento principal se sanea y se recorta a `BUDGET.refLabelChars`. `fullText` es el texto de la ref.
  */
 export function callLabel(tool: string, args: Record<string, unknown>, fullText: string): string {

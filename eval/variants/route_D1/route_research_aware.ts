@@ -8,7 +8,6 @@ import type { Variant } from "../../core/variants/types.ts";
  * route_research_aware
  * Clarifica que web es para investigar o buscar información externa (precios, clima, datos)
  * incluso si la tarea incluye crear o guardar en archivos.
- * Clarifica que locate es para buscar archivos o carpetas cuando no se sabe su ruta exacta.
  * Clarifica que files es solo para operar sobre rutas de archivos locales ya conocidas.
  */
 function buildRouteChoice(data: RouteDecisionInput): DecisionInput {
@@ -16,7 +15,6 @@ function buildRouteChoice(data: RouteDecisionInput): DecisionInput {
 
   const hints: Record<string, string> = {
     files: "Only for reading, saving or moving local files at known paths. Not for searching unknown files or online research.",
-    locate: "Find files or folders whose exact path is unknown, or search text inside files.",
     terminal: "Run commands, check hardware, OS info, services or active processes.",
     web: "Look up information online, search the web, research facts, prices, weather or news.",
   };

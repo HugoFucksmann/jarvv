@@ -36,7 +36,7 @@ const SCHEMA = {
   },
 };
 
-const FILE_TOOLS: MCPTool[] = ["read_file", "write_file", "list_directory"].map((name) => ({
+const FILE_TOOLS: MCPTool[] = ["read_file", "write_file", "list_folder"].map((name) => ({
   name,
   description: name,
   inputSchema: SCHEMA,
@@ -81,7 +81,7 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
   });
 
   const servers: Record<string, IMCPServer> = {
-    desktop_commander: provider("desktop_commander", FILE_TOOLS),
+    jarvis_files_read: provider("jarvis_files_read", FILE_TOOLS), jarvis_files_write: provider("jarvis_files_write", FILE_TOOLS),
     jarvis_terminal: provider("jarvis_terminal", TERMINAL_TOOLS),
   };
 
@@ -189,7 +189,7 @@ test("paso 6c: ruta de herramienta de archivos fuera de allowedDirectories se re
   try {
     const res = await runSingleCall({
       request: `Lee el archivo ${sb.outsideFile}`,
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: sb.outsideFile },
       allowedDirs: () => [sb.allowedDir],
@@ -211,7 +211,7 @@ test("paso 6c: ruta dentro de allowedDirectories pasa el filtro y se despacha", 
   try {
     const res = await runSingleCall({
       request: `Lee el archivo ${sb.insideFile}`,
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: sb.insideFile },
       allowedDirs: () => [sb.allowedDir],
@@ -230,7 +230,7 @@ test("paso 6c: ruta no resoluble en herramienta de archivos exige confirmación 
   try {
     const rejected = await runSingleCall({
       request: "Lee el archivo $env:TEMP\\notas.txt",
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: "$env:TEMP\\notas.txt" },
       allowedDirs: () => [sb.allowedDir],
@@ -246,7 +246,7 @@ test("paso 6c: ruta no resoluble en herramienta de archivos exige confirmación 
 
     const approved = await runSingleCall({
       request: "Lee el archivo sub/ok.txt",
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: "sub/ok.txt" },
       allowedDirs: () => [sb.allowedDir],
@@ -400,7 +400,7 @@ test("paso 6c: symlinks dentro de allowedDirectories que apuntan fuera se rechaz
 
     const readLink = await runSingleCall({
       request: `Leer ${linkFile}`,
-      route: "files",
+      route: "files_write",
       tool: "read_file",
       args: { path: linkFile },
       allowedDirs: () => [sb.allowedDir],
@@ -413,7 +413,7 @@ test("paso 6c: symlinks dentro de allowedDirectories que apuntan fuera se rechaz
     const newLeafInsideLinkDir = path.join(linkDir, "nuevo.txt");
     const writeThroughLink = await runSingleCall({
       request: `Escribir ${newLeafInsideLinkDir}`,
-      route: "files",
+      route: "files_write",
       tool: "write_file",
       args: { path: newLeafInsideLinkDir, content: "hola", mode: "rewrite" },
       allowedDirs: () => [sb.allowedDir],
@@ -470,7 +470,7 @@ test("paso 6c: deps.allowedDirectories se lee en vivo entre llamadas y [] desact
 
     const first = await runSingleCall({
       request: `Lee ${sb.outsideFile}`,
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: sb.outsideFile },
       allowedDirs: () => currentDirs,
@@ -482,7 +482,7 @@ test("paso 6c: deps.allowedDirectories se lee en vivo entre llamadas y [] desact
     currentDirs = [sb.allowedDir, sb.outsideDir];
     const second = await runSingleCall({
       request: `Lee ${sb.outsideFile}`,
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: sb.outsideFile },
       allowedDirs: () => currentDirs,
@@ -494,7 +494,7 @@ test("paso 6c: deps.allowedDirectories se lee en vivo entre llamadas y [] desact
     currentDirs = [];
     const unrestricted = await runSingleCall({
       request: `Lee ${sb.outsideFile}`,
-      route: "files",
+      route: "files_read",
       tool: "read_file",
       args: { path: sb.outsideFile },
       allowedDirs: () => currentDirs,
@@ -519,7 +519,7 @@ test("paso 6c: un junction de Windows dentro de allowedDirectories que apunta fu
 
     const read = await runSingleCall({
       request: `Leer ${viaJunction}`,
-      route: "files",
+      route: "files_write",
       tool: "read_file",
       args: { path: viaJunction },
       allowedDirs: () => [sb.allowedDir],
@@ -533,7 +533,7 @@ test("paso 6c: un junction de Windows dentro de allowedDirectories que apunta fu
     const newLeaf = path.join(junction, "nuevo.txt");
     const write = await runSingleCall({
       request: `Escribir ${newLeaf}`,
-      route: "files",
+      route: "files_write",
       tool: "write_file",
       args: { path: newLeaf, content: "hola", mode: "rewrite" },
       allowedDirs: () => [sb.allowedDir],

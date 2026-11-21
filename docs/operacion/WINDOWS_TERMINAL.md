@@ -1,4 +1,4 @@
-# Terminal en Windows (`run_command`, `list_processes`, `stop_process`)
+# Terminal en Windows (`run_command`)
 
 JARVIS está diseñado para **Windows con PowerShell** (sin soporte de Linux/WSL). Las herramientas de terminal viven en el proveedor nativo `jarvis_terminal` (`src/tools/terminal/`). Para el historial detallado de hallazgos y decisiones de diseño (`RC-01` a `RC-41`), ver [`REVISION_run_command.md`](REVISION_run_command.md).
 
@@ -23,10 +23,9 @@ Lanza comandos de PowerShell o interactúa con procesos iniciados dentro de la m
   - Tope de **8 procesos vivos** simultáneos; al completarse una tarea los procesos vivos quedan marcados como huérfanos y se recicla el huérfano más antiguo si hace falta lugar. Si la tarea falla o se cancela, `onTaskEnd` corta todos sus árboles de procesos.
   - No hereda variables cargadas desde `.env` ni `TELEGRAM_*`/`HF_TOKEN`; fija `PYTHONIOENCODING=utf-8` y `PYTHONUNBUFFERED=1` si no existen.
 
-## 2. `list_processes` y `stop_process`
+## 2. Procesos de otras tareas y del sistema
 
-- **`list_processes`**: `all: false` (default) lista los procesos lanzados por `run_command` en la tarea; `all: true` lista procesos de la PC (`pid`, nombre, memoria, sin línea de comandos). Clasificada como lectura (`READ`).
-- **`stop_process`**: finaliza un `pid` (con su árbol si pertenece a `run_command`, o solo ese proceso si es externo). Nunca detiene procesos críticos de Windows, el propio proceso de Jarvis ni sus servidores MCP, ni procesos de otra tarea activa. Clasificada como escritura (`PROCESS_CONTROL`).
+`run_command` solo sigue los procesos que lanzó (para continuarlos con `pid` e `input`). Ver el estado de los procesos de la PC y cortarlos es del grupo `system` (`system_info` con `section: processes` y `stop_process`; ver [`../arquitectura/TOOLS.md`](../arquitectura/TOOLS.md)).
 
 ## 3. Seguridad y políticas asociadas
 

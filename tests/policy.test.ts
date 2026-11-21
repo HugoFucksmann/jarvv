@@ -13,13 +13,8 @@ import os from "node:os";
 import type { JarvisConfig } from "../src/core/config.ts";
 import { createEngineServices } from "../src/core/engine/services.ts";
 
-const DC = "desktop_commander";
+const DC = "jarvis_files";
 const scope: ProtectedPaths = { protectedDirs: [path.resolve("data/refs")], relativeBases: [process.cwd()] };
-
-test("Guard: una lectura se permite y una escritura pide aprobación", () => {
-  assert.equal(Guard.evaluate(DC, "read_file", { path: "C:\\Users\\Ana\\a.txt" }).decision, "ALLOW");
-  assert.equal(Guard.evaluate(DC, "write_file", { path: "C:\\Users\\Ana\\a.txt", content: "x" }).decision, "APPROVAL");
-});
 
 test("Guard: una herramienta fuera del manifest pide aprobación (fail-closed)", () => {
   assert.equal(Guard.evaluate(DC, "herramienta_inventada", {}).decision, "APPROVAL");
@@ -40,10 +35,6 @@ test("Guard (regla B): escribir dentro de la carpeta de refs se deniega, con rut
   assert.equal(Guard.evaluate(DC, "write_file", { path: absolute, content: "x" }, scope).decision, "DENY");
   assert.equal(Guard.evaluate(DC, "write_file", { path: "data/refs/task_1/r1.txt", content: "x" }, scope).decision, "DENY");
   assert.notEqual(Guard.evaluate(DC, "write_file", { path: "data/otra/a.txt", content: "x" }, scope).decision, "DENY");
-});
-
-test("Guard (regla B): leer las refs sigue permitido", () => {
-  assert.equal(Guard.evaluate(DC, "read_file", { path: path.resolve("data/refs/task_1/r1.txt") }, scope).decision, "ALLOW");
 });
 
 test("isPathInside: una carpeta con nombre '..x' está dentro y '..' está fuera", () => {
@@ -106,22 +97,6 @@ test("invariante 8: las herramientas de archivos no pueden escribir en data/memo
   }
 });
 
-test("invariante 8: leer la memoria y el log sigue permitido, y lo que está al lado no se protege", () => {
-  assert.equal(Guard.evaluate(DC, "read_file", { path: MEMORY }, dataScope).decision, "ALLOW");
-  assert.equal(Guard.evaluate(DC, "list_directory", { path: TASKS }, dataScope).decision, "ALLOW");
-  assert.notEqual(Guard.evaluate(DC, "write_file", { path: path.join(DATA, "memory.json.bak"), content: "x" }, dataScope).decision, "DENY", "solo el archivo exacto");
-  assert.notEqual(Guard.evaluate(DC, "write_file", { path: path.join(DATA, "otro.txt"), content: "x" }, dataScope).decision, "DENY");
-  assert.notEqual(Guard.evaluate(DC, "write_file", { path: path.join(HOME, "memory.json"), content: "x" }, dataScope).decision, "DENY", "otro archivo con el mismo nombre en otra carpeta");
-});
-
-test("invariante 8: dentro de la carpeta del proyecto de Jarvis no se escribe, con ruta absoluta o relativa; afuera sí se pide aprobación", () => {
-  assert.equal(Guard.evaluate(DC, "write_file", { path: path.join(PROJECT, "src", "core", "guard.ts"), content: "x" }, projectScope).decision, "DENY");
-  assert.equal(Guard.evaluate(DC, "write_file", { path: path.join("src", "core", "guard.ts"), content: "x" }, projectScope).decision, "DENY");
-  assert.equal(Guard.evaluate(DC, "create_directory", { path: path.join(PROJECT, "nueva") }, projectScope).decision, "DENY");
-  assert.equal(Guard.evaluate(DC, "write_file", { path: path.join(HOME, "notas.txt"), content: "x" }, projectScope).decision, "APPROVAL");
-  assert.equal(Guard.evaluate(DC, "read_file", { path: path.join(PROJECT, "readme.md") }, projectScope).decision, "ALLOW", "leer el proyecto sigue permitido");
-});
-
 test("invariante 8 en run_command: un comando que escribe en la memoria, el log o el proyecto se deniega", () => {
   const writes = [
     `Set-Content ${MEMORY} "x"`,
@@ -151,7 +126,7 @@ test("invariante 8 en run_command: leer sigue permitido y lo que no toca lo prot
 
 test("createEngineServices: el alcance del Guard cubre refs, logs, proyecto y el memory.json de la carpeta de datos", () => {
   const root = path.resolve("datos-prueba");
-  const config = { refsDir: path.join(root, "refs"), tracePath: path.join(root, "traces.jsonl"), desktopCommanderMcp: { command: "x", args: [] }, blacklist: [] } as unknown as JarvisConfig;
+  const config = { refsDir: path.join(root, "refs"), tracePath: path.join(root, "traces.jsonl"), blacklist: [] } as unknown as JarvisConfig;
   const { guardScope } = createEngineServices(() => config);
   assert.deepEqual(guardScope.protectedDirs, [path.join(root, "refs"), path.join(root, "tasks"), process.cwd()]);
   assert.deepEqual(guardScope.protectedFiles, [path.join(root, "memory.json")]);

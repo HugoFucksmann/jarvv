@@ -10,16 +10,18 @@
  * - `sensitive` (nivel 2): manual, se pregunta al usuario; automático, lo decide D3 con el umbral estricto `sensitiveApprove`.
  *
  * Hay dos fuentes de coincidencias, y gana el nivel más grave:
- * 1. Reglas de comando integradas (`commandRules.ts`): Windows y Linux, miran comando y ruta juntos. Se aplican siempre, aunque
- *    `blacklist` esté vacía, a todo argumento `command`/`cmd` de una herramienta que modifica el sistema.
+ * 1. Reglas integradas: las de comando (`commandRules.ts`: Windows y Linux, miran comando y ruta juntos) para todo argumento `command`/`cmd`, y las de las
+ *    tools nativas (`toolRules.ts`: apagar, borrar carpetas críticas, escribir o bajar ejecutables). Se aplican siempre, aunque `blacklist` esté vacía,
+ *    a toda herramienta que modifica el sistema.
  * 2. Entradas de la configuración (abajo). Sin `level` valen `blocked`.
  *
- * Cada entrada nombra una herramienta (`start_process` o `desktop_commander:start_process`, sin distinguir mayúsculas) y, si se
+ * Cada entrada nombra una herramienta (`run_command` o `jarvis_terminal:run_command`, sin distinguir mayúsculas) y, si se
  * quiere, un patrón que se prueba sobre los argumentos escritos como Guard los lee (JSON en minúsculas, `\\` → `/`, espacios
  * colapsados). Sin patrón se rechaza toda llamada a la herramienta y esta deja de ofrecerse a la decisión de herramienta.
  */
 
 import { classify, commandOf } from "./commandRules.ts";
+import { classifyToolCall } from "./toolRules.ts";
 import { defaultHomeDirs } from "./homeDirs.ts";
 
 export type ListLevel = "blocked" | "sensitive";
@@ -106,6 +108,13 @@ export function blacklistMatch(
       const level: ListLevel = found.tier === "sensitive" ? "sensitive" : "blocked";
       consider({ level, id: found.id, reason: level === "blocked" ? `${found.reason} ${BLOCKED_HINT}` : found.reason });
     }
+  }
+
+  // Las tools nativas que modifican el sistema tienen la misma clasificación que su comando equivalente (`toolRules.ts`).
+  const native = classifyToolCall(tool.toLowerCase(), args, homeDirs);
+  if (native !== null) {
+    const level: ListLevel = native.tier === "sensitive" ? "sensitive" : "blocked";
+    consider({ level, id: native.id, reason: level === "blocked" ? `${native.reason} ${BLOCKED_HINT}` : native.reason });
   }
 
   const text = normalizeArgs(args);

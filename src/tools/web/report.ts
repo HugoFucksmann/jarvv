@@ -13,6 +13,8 @@
  * Los desafíos anti-bot (Free Search los devuelve como si fueran páginas, sin marcarlos) se detectan por heurística acotada y no cuentan como páginas leídas.
  */
 
+import { isRecord } from "../../core/utils.ts";
+
 export interface Source {
   readonly n: number;
   readonly title: string;
@@ -72,8 +74,6 @@ const BLOCK_MAX_CHARS = 600;
 export function isBlockPage(body: string): boolean {
   return body.length <= BLOCK_MAX_CHARS && BLOCK_PHRASE.test(body);
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 function parseJson(text: string): Parsed<Record<string, unknown>> {
   let data: unknown;

@@ -19,13 +19,16 @@ import type { JarvisConfig } from "../../src/core/config.ts";
 import { ConfigManager } from "../../src/core/config.ts";
 import { createEngineServices, memoryFileOf } from "../../src/core/engine/services.ts";
 import { createJsonMemoryProvider } from "../../src/memory/index.ts";
-import { DesktopCommanderMCPServer } from "../../src/core/mcp/desktopCommanderMcp.ts";
 import { DiscoveryEngine } from "../../src/core/mcp/discovery.ts";
 import { FreeSearchMCPServer } from "../../src/core/mcp/freeSearchMcp.ts";
 import { Decision20Engine } from "../../src/core/models/decision.ts";
 import { QwenEngine } from "../../src/core/models/qwen.ts";
 import { TaskManager } from "../../src/core/tasks.ts";
 import type { ToolProvider } from "../../src/core/tools/provider.ts";
+import { FilesReadProvider } from "../../src/tools/files_read/filesReadProvider.ts";
+import { FilesWriteProvider } from "../../src/tools/files_write/filesWriteProvider.ts";
+import { MultimediaProvider } from "../../src/tools/multimedia/multimediaProvider.ts";
+import { SystemProvider } from "../../src/tools/system/systemProvider.ts";
 import { TerminalProvider } from "../../src/tools/terminal/terminalProvider.ts";
 import { WebSearchProvider } from "../../src/tools/web/webSearchProvider.ts";
 
@@ -58,8 +61,11 @@ const getConfig = (): JarvisConfig => ({
 
 const decision = new Decision20Engine(getConfig);
 const providers: ToolProvider[] = [
-  new DesktopCommanderMCPServer(getConfig),
   new FreeSearchMCPServer(getConfig),
+  new FilesReadProvider({ allowedDirectories: () => getConfig().allowedDirectories }),
+  new FilesWriteProvider({ allowedDirectories: () => getConfig().allowedDirectories }),
+  new MultimediaProvider(),
+  new SystemProvider({ allowedDirectories: () => getConfig().allowedDirectories }),
   new TerminalProvider(),
   new WebSearchProvider({ judge: () => undefined }),
 ];

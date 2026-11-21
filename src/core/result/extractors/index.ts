@@ -9,13 +9,10 @@
 
 import { isKnownTool, toolKey } from "../../tools/manifest.ts";
 import type { Extractor } from "./types.ts";
-import { extractListDirectory, extractReadFile } from "./files.ts";
 import { extractGeneric } from "./generic.ts";
 import { extractStructured } from "./structured.ts";
 
 const ENTRIES: ReadonlyArray<readonly [server: string, tool: string, extractor: Extractor]> = [
-    ["desktop_commander", "list_directory", extractListDirectory],
-    ["desktop_commander", "read_file", extractReadFile],
 ];
 
 const REGISTRY = new Map<string, Extractor>();

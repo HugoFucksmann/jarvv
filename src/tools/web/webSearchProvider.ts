@@ -15,6 +15,7 @@
  */
 
 import { BUDGET } from "../../core/budget.ts";
+import { getUserEnvironment, type UserEnvironment } from "../../core/environment.ts";
 import type { FragmentJudge } from "../../core/tools/judge.ts";
 import type { ToolCallOptions, ToolProvider, ToolRef } from "../../core/tools/provider.ts";
 import { toolResult } from "../../core/tools/result.ts";
@@ -25,11 +26,13 @@ import { FRESHNESS, MAX_DOMAINS, MAX_NEED_CHARS, MAX_URL_CHARS, MAX_URLS, isInte
 import { CANDIDATES, PER_SOURCE, pickCandidates, rank, type Ranked } from "./bm25.ts";
 import { FIXED_TIMEOUTS, TIMEOUT_DEFAULTS } from "../../core/timeouts.ts";
 import { chunkDocs, dateLabel, snippetChunks } from "./chunks.ts";
+import { runDownloadFile } from "./downloadFile.ts";
 import { callWithDeadline, DeadlineError, FormatError, ToolBudgetError, toolBudgetMessage } from "./hostCall.ts";
 import { parseFetch, parseReadDoc, parseSearch, type Doc, type Material, type Source } from "./report.ts";
 
 export const WEB_SERVER = "jarvis_web";
 export const WEB_SEARCH = "web_search";
+export const DOWNLOAD_FILE = "download_file";
 
 /** Las herramientas de otro proveedor que usa por dentro: lo único que el `ToolHost` le deja llamar. */
 export const WEB_DEPENDENCIES: readonly ToolRef[] = [
@@ -92,6 +95,25 @@ const TOOL: MCPTool = {
       domains: { type: "array", maxItems: MAX_DOMAINS, items: { type: "string" }, description: "Only if the user named a site: domains to restrict the search to (max 5)." },
     },
     required: ["need"],
+    additionalProperties: false,
+  },
+};
+
+const DOWNLOAD_TOOL: MCPTool = {
+  name: DOWNLOAD_FILE,
+  description: "Download a file from an http(s) URL to disk.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "http or https URL of the file." },
+      destination: { type: "string", description: "Full path of the file to create (provide destination or folder, not both)." },
+      folder: { type: "string", description: "Folder or alias (home, desktop, documents, downloads) to save into. Default: downloads." },
+      filename: { type: "string", description: "File name to use with folder (default: taken from the URL or the response)." },
+      overwrite: { type: "boolean", description: "Overwrite the file if it exists (default false)." },
+      maxBytes: { type: "integer", description: "Maximum size in bytes (capped by the tool)." },
+      timeoutMs: { type: "integer", description: "Download time limit in milliseconds." },
+    },
+    required: ["url"],
     additionalProperties: false,
   },
 };
@@ -188,6 +210,10 @@ export interface WebSearchOptions {
   /** Plazo máximo del modelo en una búsqueda (por defecto 20 s); pasado ese plazo se sigue con el orden léxico. */
   /** Tope de cada consulta al juez (ms), o una función que lo da en cada uso. Por defecto 20 s. */
   readonly judgeTimeoutMs?: number | (() => number);
+  /** Carpetas permitidas para el destino de `download_file`, leídas en cada llamada (vacío = sin restricción). */
+  readonly allowedDirectories?: () => readonly string[];
+  /** Carpetas conocidas del usuario (`downloads`, `home`…) para `download_file`. */
+  readonly environment?: () => Promise<UserEnvironment>;
 }
 
 const EMPTY: Material = { sources: [], docs: [], blocked: 0, diagnostics: {} };
@@ -208,9 +234,13 @@ export class WebSearchProvider implements ToolProvider {
   private readonly pages: number;
   private readonly now: () => Date;
   private readonly judgeTimeoutMs: () => number;
+  private readonly getAllowedDirectories: () => readonly string[];
+  private readonly getEnvironment: () => Promise<UserEnvironment>;
 
   constructor(options: WebSearchOptions = {}) {
     this.getJudge = options.judge ?? (() => undefined);
+    this.getAllowedDirectories = options.allowedDirectories ?? (() => []);
+    this.getEnvironment = options.environment ?? getUserEnvironment;
     this.maxAgeHours = options.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
     const judgeTimeout = options.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS;
     this.judgeTimeoutMs = typeof judgeTimeout === "function" ? judgeTimeout : () => judgeTimeout;
@@ -231,7 +261,7 @@ export class WebSearchProvider implements ToolProvider {
   }
 
   async listTools(): Promise<MCPTool[]> {
-    return [TOOL];
+    return [TOOL, DOWNLOAD_TOOL];
   }
 
   isConnected(): boolean {
@@ -241,6 +271,9 @@ export class WebSearchProvider implements ToolProvider {
   async reconnect(): Promise<void> {}
 
   async callTool(name: string, args: Record<string, unknown>, options: ToolCallOptions = {}): Promise<MCPCallResult> {
+    if (name === DOWNLOAD_FILE) {
+      return runDownloadFile(args, { getAllowedDirectories: this.getAllowedDirectories, getEnvironment: this.getEnvironment }, { signal: options.signal, timeoutMs: options.timeoutMs });
+    }
     if (name !== WEB_SEARCH) return fail(`Unknown tool: '${name}'.`);
     if (options.host === undefined) return fail("web_search only runs inside a task: it needs the tool host.");
     const parsed = parseArgs(args);

@@ -152,8 +152,10 @@ test("ui/utils: taskStatus, routeLabels y traceStages", () => {
   assert.equal(formatVerdictReason("wrong_place"), "Ubicación incorrecta (wrong_place)");
   assert.equal(formatVerdictReason("custom"), "custom");
 
-  assert.equal(getRouteLabel("files"), "Archivos");
-  assert.equal(getRouteLabel("terminal"), "Terminal y procesos");
+  assert.equal(getRouteLabel("files_read"), "Lectura de archivos");
+  assert.equal(getRouteLabel("files_write"), "Escritura de archivos");
+  assert.equal(getRouteLabel("multimedia"), "Multimedia");
+  assert.equal(getRouteLabel("terminal"), "Terminal");
   assert.equal(getRouteLabel(undefined), "General");
 
   assert.equal(stageInfo("route").code, "D1");

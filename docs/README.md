@@ -6,7 +6,7 @@
 - [`arquitectura/ARCHITECTURE.md`](arquitectura/ARCHITECTURE.md) — Componentes, dependencias entre capas, invariantes y archivos base del núcleo.
 - [`arquitectura/CORE_FLOW.md`](arquitectura/CORE_FLOW.md) — Ciclo de vida de las tareas, modos reactivo/deliberativo, decisiones D0–D5, Guard, verificación y límites.
 - [`arquitectura/CONTEXT_AND_MEMORY.md`](arquitectura/CONTEXT_AND_MEMORY.md) — `TaskContext`, derivaciones, vistas de prompts, refs en disco, trazas y memoria entre tareas.
-- [`arquitectura/TOOLS.md`](arquitectura/TOOLS.md) — Catálogo cerrado (4 rutas, 12 herramientas), contrato de proveedores nativos/MCP y pipeline de `web_search`.
+- [`arquitectura/TOOLS.md`](arquitectura/TOOLS.md) — Catálogo cerrado (6 rutas), contrato de proveedores nativos/MCP y pipeline de `web_search`.
 
 ## API HTTP
 - [`api/JARVIS_API.md`](api/JARVIS_API.md) — Contrato HTTP/SSE (`/api/jarvis/*` y `/api/mcp/*`), `TaskDto`, esperas y errores.
@@ -17,7 +17,7 @@
 ## Operación y entorno
 - [`operacion/OLLAMA_MODELOS_TEXTO.md`](operacion/OLLAMA_MODELOS_TEXTO.md) — Variantes sin proyector de visión (`-text`), `num_ctx`, `keep_alive` y precalentamiento en 8 GB de VRAM.
 - [`operacion/TELEGRAM_Y_VOZ.md`](operacion/TELEGRAM_Y_VOZ.md) — Bot de Telegram y servidor local TTS (`phonon_server.py` + `ffmpeg`).
-- [`operacion/WINDOWS_TERMINAL.md`](operacion/WINDOWS_TERMINAL.md) — Operación vigente de `run_command`, `list_processes` y `stop_process` en Windows/PowerShell.
+- [`operacion/WINDOWS_TERMINAL.md`](operacion/WINDOWS_TERMINAL.md) — Operación vigente de `run_command` en Windows/PowerShell.
 - [`operacion/free_search_mcp.md`](operacion/free_search_mcp.md) — Referencia externa de `free-search-mcp 0.18.0` (herramientas, filtros, motores y variables).
 - [`operacion/REVISION_run_command.md`](operacion/REVISION_run_command.md) — Bitácora histórica de la revisión de `run_command` (hallazgos `RC-01` a `RC-41`).
 

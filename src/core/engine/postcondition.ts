@@ -1,7 +1,7 @@
 /**
  * JARVIS Core — Poscondiciones de las escrituras del catálogo, comprobadas en el disco (N5, «verificar por código antes de preguntarle al modelo»).
  *
- * Una escritura exitosa deja algo que el código puede mirar: `create_directory` → la carpeta existe; `move_file` → el origen ya no está y el destino sí;
+ * Una escritura exitosa deja algo que el código puede mirar: `create_folder` → la carpeta existe; `move_file` → el origen ya no está y el destino sí;
  * `write_file` → el archivo existe (y no está vacío si se le pidió escribir texto). Decisión 4 fallaba justo en esos hechos: rechazó un `Move-Item` correcto
  * (`ok` 0,51) y aprobó una copia donde se pidió mover (`docs/evaluacion/limitaciones/d3-2b.md`). Cumplida la poscondición el código aprueba sin consultar al modelo; no
  * cumplida, rechaza. Si no se puede comprobar (ruta relativa, referencia sin resolver, otra herramienta, error al leer el disco) devuelve `null` y decide el modelo.
@@ -39,26 +39,11 @@ type PostconditionRule = (args: Readonly<Record<string, unknown>>, disk: DiskVie
  */
 const POSTCONDITIONS: ReadonlyMap<string, PostconditionRule> = new Map<string, PostconditionRule>([
   [
-    "create_directory",
+    "create_folder",
     (args, disk) => {
       const dir = absolutePath(args.path);
       if (dir === null) return null;
       return disk.exists(dir) && disk.isDirectory(dir) ? "met" : "unmet";
-    },
-  ],
-  [
-    "move_file",
-    (args, disk) => {
-      const source = absolutePath(args.source);
-      const destination = absolutePath(args.destination);
-      if (source === null || destination === null) return null;
-      if (disk.exists(source)) return "unmet";
-      if (disk.exists(destination)) {
-        // Mover «a una carpeta» deja el archivo dentro de ella.
-        if (disk.isDirectory(destination)) return disk.exists(path.join(destination, path.basename(source))) ? "met" : "unmet";
-        return "met";
-      }
-      return "unmet";
     },
   ],
   [
@@ -73,10 +58,83 @@ const POSTCONDITIONS: ReadonlyMap<string, PostconditionRule> = new Map<string, P
       return "met";
     },
   ],
+  [
+    "edit_file",
+    (args, disk) => {
+      const file = absolutePath(args.path);
+      if (file === null) return null;
+      return disk.exists(file) && !disk.isDirectory(file) ? "met" : "unmet"; // el disco no dice qué texto cambió: solo que el archivo sigue ahí
+    },
+  ],
+  [
+    "copy_file",
+    (args, disk) => {
+      const source = absolutePath(args.source);
+      const destination = absolutePath(args.destination);
+      if (source === null || destination === null) return null;
+      return disk.exists(destination) && disk.exists(source) ? "met" : "unmet"; // una copia deja las dos
+    },
+  ],
+  [
+    "move_file",
+    (args, disk) => {
+      if (!Array.isArray(args.items) || args.items.length === 0) return null;
+      for (const item of args.items) {
+        if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+        const source = absolutePath((item as Record<string, unknown>).source);
+        const destination = absolutePath((item as Record<string, unknown>).destination);
+        if (source === null || destination === null) return null;
+        // Mover deja el destino y quita el origen (renombrar en el mismo lugar es un caso: el origen ya no existe con ese nombre).
+        if (disk.exists(source) && source.toLowerCase() !== destination.toLowerCase()) return "unmet";
+        if (!disk.exists(destination)) return "unmet";
+      }
+      return "met";
+    },
+  ],
+  [
+    "delete_file",
+    (args, disk) => {
+      const target = absolutePath(args.path);
+      if (target === null) return null;
+      return disk.exists(target) ? "unmet" : "met"; // a la Papelera o permanente, la ruta ya no existe
+    },
+  ],
+  [
+    "archive_files",
+    (args, disk) => {
+      const destination = absolutePath(args.destination);
+      if (destination === null) return null;
+      if (!disk.exists(destination)) return "unmet";
+      if (args.action === "extract") return disk.isDirectory(destination) ? "met" : "unmet";
+      return !disk.isDirectory(destination) && disk.size(destination) > 0 ? "met" : "unmet";
+    },
+  ],
+  [
+    "download_file",
+    (args, disk) => {
+      // Con un destino explícito se comprueba el archivo; con carpeta y nombre deducido el disco no dice cuál es: decide el modelo.
+      const destination = absolutePath(args.destination);
+      if (destination === null) return null;
+      return disk.exists(destination) && !disk.isDirectory(destination) && disk.size(destination) > 0 ? "met" : "unmet";
+    },
+  ],
+  [
+    "convert_file",
+    (args, disk) => {
+      const explicit = typeof args.destination === "string" ? args.destination.trim() : "";
+      const source = typeof args.source === "string" ? args.source.trim() : "";
+      const format = typeof args.format === "string" ? args.format.trim().replace(/^\./, "") : "";
+      const derived = explicit !== "" ? explicit : source !== "" && format !== "" ? `${source.replace(/\.[^\\/.]*$/, "")}.${format}` : "";
+      const destination = absolutePath(derived);
+      if (destination === null) return null;
+      return disk.exists(destination) && !disk.isDirectory(destination) ? "met" : "unmet";
+    },
+  ],
+
 ]);
 
 /** Herramientas que modifican el sistema sin dejar nada que el código pueda comprobar en el disco: las decide el modelo. */
-export const NO_DISK_POSTCONDITION: ReadonlySet<string> = new Set(["run_command", "stop_process"]);
+export const NO_DISK_POSTCONDITION: ReadonlySet<string> = new Set(["run_command", "stop_process", "pc_settings", "power", "open_on_screen", "clipboard", "play_media", "media_control"]);
 
 /** ¿La herramienta declara una poscondición de disco? */
 export const hasPostcondition = (tool: string): boolean => POSTCONDITIONS.has(tool);
@@ -93,7 +151,7 @@ export function postconditionOf(tool: string, args: Readonly<Record<string, unkn
 }
 
 /** Herramientas de lectura cuyo resultado es el dato mismo (no un extracto de un buscador ni la salida de un comando): con estado `ok` y contenido, `ok` lo responde el código. */
-const DETERMINISTIC_READS: ReadonlySet<string> = new Set(["list_directory", "read_file", "read_multiple_files", "list_processes"]);
+const DETERMINISTIC_READS: ReadonlySet<string> = new Set(["list_folder", "read_file", "system_info"]);
 
 /** Resumen que dice que no hay nada: no es un dato aunque el estado sea `ok` (p. ej. «Directorio vacío.» para `depth: 0`). */
 const EMPTY_RESULT = /^\s*(?:directorio vac[ií]o|empty directory|\(?empty\)?|no hay (?:archivos|elementos)|no files)\W*$/i;

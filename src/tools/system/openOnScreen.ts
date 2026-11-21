@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { isAnyAbsolute } from "../../core/policy/allowedDirs.ts";
 import { effectiveTimeoutMs, KNOWN_ALIASES, resolveExistingPath } from "../../core/tools/filePaths.ts";
-import { toolResult } from "../../core/tools/result.ts";
+import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -43,9 +43,6 @@ export interface OpenOnScreenDeps {
 
 const fail = (message: string, data: Record<string, unknown> = {}): MCPCallResult =>
   toolResult({ text: message, raw: message, data: { state: "error", truncated: false, ...data }, isError: true });
-
-const cancelledResult = (): MCPCallResult =>
-  toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", truncated: false } });
 
 const PS_OPEN_SCRIPT = "Start-Process -FilePath $env:JARVIS_OPEN_TARGET";
 

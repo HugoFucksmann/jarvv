@@ -842,7 +842,7 @@ describe("eval/auto E2E runAutoLoop", () => {
           return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
         }
         if (inst.includes("MOCK_LOSE_MARKER")) {
-          return JSON.stringify({ answers: { route: { choice: "locate", probabilities: { locate: 0.9 } } } });
+          return JSON.stringify({ answers: { route: { choice: "web", probabilities: { web: 0.9 } } } });
         }
         return JSON.stringify({ answers: { route: { choice: "files", probabilities: { files: 0.9 } } } });
       }),
@@ -902,10 +902,10 @@ describe("eval/auto E2E runAutoLoop", () => {
         if (inst.includes("MOCK_DEV_ONLY_WIN")) {
           // Acierta >50% en route_16_cases (web+files+terminal keywords), pero falla cuando aparece "gem" o en holdout usando heuristic de route_gemai
           const looksLike16 = /package\.json|README|notepad|desktop|calc|downloads/i.test(req.state);
-          const pick = looksLike16 ? (/notepad|calc|cmd|git|node/i.test(req.state) ? "terminal" : /http|search|version/i.test(req.state) ? "web" : "files") : "locate";
+          const pick = looksLike16 ? (/notepad|calc|cmd|git|node/i.test(req.state) ? "terminal" : /http|search|version/i.test(req.state) ? "web" : "files") : "web";
           return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
         }
-        return JSON.stringify({ answers: { route: { choice: "locate", probabilities: { locate: 0.9 } } } });
+        return JSON.stringify({ answers: { route: { choice: "web", probabilities: { web: 0.9 } } } });
       }),
     });
 
@@ -1242,7 +1242,7 @@ describe("eval/auto E2E runAutoLoop", () => {
         }
         if (inst.includes("MOCK_DEV_ONLY_WIN_R1")) {
           if (inHoldout) {
-            return JSON.stringify({ answers: { route: { choice: "locate", probabilities: { locate: 0.9 } } } });
+            return JSON.stringify({ answers: { route: { choice: "web", probabilities: { web: 0.9 } } } });
           }
           const pick = /Buenos Aires|inteligencia artificial|asyncio|dólar oficial/i.test(req.state)
             ? "web"
@@ -1250,10 +1250,10 @@ describe("eval/auto E2E runAutoLoop", () => {
               ? "terminal"
               : /package\.json|escritorio|resumen\.txt|config\.default/i.test(req.state)
                 ? "files"
-                : "locate";
+                : "web";
           return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
         }
-        return JSON.stringify({ answers: { route: { choice: "locate", probabilities: { locate: 0.9 } } } });
+        return JSON.stringify({ answers: { route: { choice: "web", probabilities: { web: 0.9 } } } });
       }),
     });
 
@@ -1286,7 +1286,7 @@ describe("eval/auto E2E runAutoLoop", () => {
     const tpl1 = getStageContract("route").minimalTemplate(dynName).replace("Choose the route that handles the next step.", "EPHEMERAL_V1");
     writeFileSync(dynPath, tpl1, "utf8");
     const sampleRouteInput = {
-      routes: ["files", "locate", "terminal", "web"],
+      routes: ["files", "terminal", "web"],
       request: "hola",
       step: { instruction: "hola" },
       done: [],

@@ -19,7 +19,7 @@ import { checkAllowedDirectory } from "../policy/allowedDirs.ts";
 import { blacklistMatch } from "../policy/blacklist.ts";
 import type { Blacklist, ListHit } from "../policy/blacklist.ts";
 import { Guard } from "../policy/guard.ts";
-import { PATH_ARG_KEYS, PATH_LIST_KEY } from "../policy/pathArgs.ts";
+import { pathValuesOf } from "../policy/pathArgs.ts";
 import { approvalTierOf } from "../policy/tiers.ts";
 import type { ApprovalTier } from "../policy/tiers.ts";
 import { isKnownTool } from "../tools/manifest.ts";
@@ -80,7 +80,7 @@ export function evaluatePolicy(call: PreparedCall, environment: UserEnvironment,
 
   const auto = deps.autoMode();
   const tiered = deps.approvalTiers?.() === true;
-  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, toolName) ? approvalTierOf(toolName, resolved, environment, undefined, deps.toolBaseDir?.()) : "red") : null;
+  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, toolName) ? approvalTierOf(toolName, resolved, environment) : "red") : null;
   const listed = blacklistMatch(currentBlacklist(deps), mcp, toolName, policy.mutates, resolved, deps.guardScope.homeDirs);
   if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", listed.reason);
 
@@ -115,25 +115,9 @@ export function needsConfirmation({ verdict, known, allowedUnresolvableReason, u
 
 // ───────────────────────── Pre-chequeo y allowedDirectories ─────────────────────────
 
-const ALLOWED_DIR_URL = /^https?:\/\//i;
-
-/** Rutas de los argumentos que `allowedDirectories` debe revisar (una URL de `read_file` con `isUrl` no es una ruta). */
-function toolPathArgs(toolName: string, args: Readonly<Record<string, unknown>>): string[] {
-  const paths: string[] = [];
-  for (const key of PATH_ARG_KEYS) {
-    const val = args[key];
-    if (typeof val === "string" && val.trim() !== "") {
-      if (toolName === "read_file" && args.isUrl === true && ALLOWED_DIR_URL.test(val.trim())) continue;
-      paths.push(val);
-    }
-  }
-  const list = args[PATH_LIST_KEY];
-  if (Array.isArray(list)) {
-    for (const item of list) {
-      if (typeof item === "string" && item.trim() !== "") paths.push(item);
-    }
-  }
-  return paths;
+/** Rutas de los argumentos que `allowedDirectories` debe revisar. */
+function toolPathArgs(args: Readonly<Record<string, unknown>>): string[] {
+  return pathValuesOf(args);
 }
 
 export type ArgsCheck = Rejection | { readonly kind: "cancelled" } | { readonly kind: "ok"; readonly allowedUnresolvableReason: string | null };
@@ -170,7 +154,7 @@ export async function checkCallArgs(env: EngineEnv, call: PreparedCall, environm
   let allowedUnresolvableReason: string | null = null;
   if (allowedDirs.length > 0) {
     const effectiveCwd = typeof resolved.cwd === "string" && resolved.cwd.trim() !== "" ? resolved.cwd.trim() : environment.home;
-    const pathArgs = toolPathArgs(toolName, resolved);
+    const pathArgs = toolPathArgs(resolved);
     for (const p of pathArgs) {
       const res = checkAllowedDirectory(p, allowedDirs, {
         home: environment.home,
