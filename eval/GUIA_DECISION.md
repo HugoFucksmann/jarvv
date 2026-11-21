@@ -223,7 +223,6 @@ Cautelas: los mensajes de error de los datasets los escribí yo a partir de form
 
 | Tema | Documento |
 |---|---|
-| Conclusiones actuales del eval | [`conclusiones.md`](./conclusiones.md) |
 | Cómo correr el eval, formato de casos, etapas | [`INSTRUCCIONES.md`](./INSTRUCCIONES.md), [`README.md`](./README.md) |
 | Límites medidos de `d3:2b` por etapa | [`../docs/evaluacion/limitaciones/d3-2b.md`](../docs/evaluacion/limitaciones/d3-2b.md) |
 | Preguntas de decisión del motor | [`../docs/evaluacion/analisis/PREGUNTAS_DECISION.md`](../docs/evaluacion/analisis/PREGUNTAS_DECISION.md), [`FRENTE_3_DECISION.md`](../docs/evaluacion/analisis/FRENTE_3_DECISION.md) |

@@ -56,7 +56,7 @@ function hasResponseFormat(prepared: PreparedRequest, type: "json_object"): bool
   return isRecord(rf) && rf.type === type;
 }
 
-/** Primera ruta del enum de `suggested_mcp` del schema enviado (o "files"). */
+/** Primera ruta del enum de `suggested_mcp` del schema enviado (o "files_read"). */
 export function mockPlanRoute(prepared: PreparedRequest): string {
   const schema = sentSchema(prepared);
   const props = schema?.properties;
@@ -65,7 +65,7 @@ export function mockPlanRoute(prepared: PreparedRequest): string {
   const itemProps = isRecord(items) ? items.properties : undefined;
   const mcp = isRecord(itemProps) ? itemProps.suggested_mcp : undefined;
   const enumValues = isRecord(mcp) && Array.isArray(mcp.enum) ? mcp.enum : [];
-  return typeof enumValues[0] === "string" ? enumValues[0] : "files";
+  return typeof enumValues[0] === "string" ? enumValues[0] : "files_read";
 }
 
 function mockPlan(prepared: PreparedRequest): string {

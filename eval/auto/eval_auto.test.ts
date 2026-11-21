@@ -6,11 +6,11 @@
  */
 
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import { runAutoLoop } from "../auto.ts";
 import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, type AutoConfig } from "./config.ts";
 import { readConclusionsBounded, validateConclusionsMarkdown } from "./conclusions.ts";
@@ -34,6 +34,23 @@ import { invalidateVariantCache, listVariantNames, loadVariantSpec } from "../co
 
 const tempPathsToClean: string[] = [];
 
+const FIXTURE_DATASETS_SRC = resolve("eval/auto/fixtures/datasets");
+const installedFixtures: string[] = [];
+
+// Los datasets de trabajo reales los carga el usuario aparte: las pruebas traen los suyos mínimos y los instalan solo mientras corren.
+before(() => {
+  for (const file of readdirSync(FIXTURE_DATASETS_SRC)) {
+    const dest = resolve("eval/datasets", file);
+    if (existsSync(dest)) continue;
+    copyFileSync(join(FIXTURE_DATASETS_SRC, file), dest);
+    installedFixtures.push(dest);
+  }
+});
+
+after(() => {
+  while (installedFixtures.length > 0) rmSync(installedFixtures.pop()!, { force: true });
+});
+
 function trackTemp(p: string): string {
   tempPathsToClean.push(p);
   return p;
@@ -41,9 +58,9 @@ function trackTemp(p: string): string {
 
 function setupIsolatedVariantsRoot(tag: string): string {
   const tmpRoot = trackTemp(mkdtempSync(join(tmpdir(), `jarvis-eval-vroot-${tag}-`)));
-  symlinkSync(resolve("src"), join(tmpRoot, "src"), "dir");
+  symlinkSync(resolve("src"), join(tmpRoot, "src"), process.platform === "win32" ? "junction" : "dir");
   mkdirSync(join(tmpRoot, "eval", "variants"), { recursive: true });
-  symlinkSync(resolve("eval/core"), join(tmpRoot, "eval", "core"), "dir");
+  symlinkSync(resolve("eval/core"), join(tmpRoot, "eval", "core"), process.platform === "win32" ? "junction" : "dir");
   const variantsRoot = join(tmpRoot, "eval", "variants");
   copyFileSync(resolve("eval/variants/prod.ts"), join(variantsRoot, "prod.ts"));
   return variantsRoot;
@@ -198,7 +215,7 @@ describe("eval/auto discover y exclusiones", () => {
     const tplArchive = getStageContract("recovery").minimalTemplate("_tmp_archived_variant");
     const tplDesc = getStageContract("recovery").minimalTemplate("_tmp_discarded_variant");
     copyFileSync(
-      resolve("eval/variants/recovery/recovery_three_options_nobehind.ts"),
+      resolve("eval/auto/fixtures/variants/recovery_three_options_nobehind.ts.txt"),
       join(tmpActiveDir, "recovery_three_options_nobehind.ts"),
     );
     writeFileSync(join(tmpArchiveDir, "_tmp_archived_variant.ts"), tplArchive, "utf8");
@@ -275,7 +292,7 @@ describe("eval/auto validateVariant", () => {
           .minimalTemplate("auto_pending_unittest_r1_b")
           .replace("prompts: {", 'params: { pending: { temperature: 0.2 } },\n  prompts: {'),
         stage: "pending",
-        devPathsOverride: discoverStageDatasets("pending", ["llm_gemai"], []).dev.map((d) => d.path),
+        devPathsOverride: discoverStageDatasets("pending", ["pending_min"], []).dev.map((d) => d.path),
         expectRe: /Prohibido definir `params`/,
       },
     ];
@@ -336,8 +353,6 @@ describe("eval/auto validateVariant", () => {
 
   it("carga todas las variantes activas en eval/variants/, rechaza recovery de 2 ejes, acepta RegExp con llaves y no toca disco si falla runtime", async () => {
     const names = listVariantNames();
-    assert.ok(names.includes("continuation_explicit_reference"));
-    assert.ok(names.includes("fragment_judge_calibrated_signal"));
     for (const name of names) {
       const loaded = await loadVariantSpec(name);
       assert.equal(loaded.variant.name, name);
@@ -838,13 +853,13 @@ describe("eval/auto E2E runAutoLoop", () => {
         const inst = req.questions.route?.instructions ?? "";
         if (inst.includes("MOCK_WIN_MARKER")) {
           const isWeb = /internet|noticia|python|cotización/i.test(req.state);
-          const pick = isWeb ? "web" : "files";
+          const pick = isWeb ? "web" : "files_read";
           return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
         }
         if (inst.includes("MOCK_LOSE_MARKER")) {
           return JSON.stringify({ answers: { route: { choice: "web", probabilities: { web: 0.9 } } } });
         }
-        return JSON.stringify({ answers: { route: { choice: "files", probabilities: { files: 0.9 } } } });
+        return JSON.stringify({ answers: { route: { choice: "files_read", probabilities: { files_read: 0.9 } } } });
       }),
     });
     cfg.target = 0.40;
@@ -1249,7 +1264,7 @@ describe("eval/auto E2E runAutoLoop", () => {
             : /calculadora|npm run build|puertos TCP|PID 1420/i.test(req.state)
               ? "terminal"
               : /package\.json|escritorio|resumen\.txt|config\.default/i.test(req.state)
-                ? "files"
+                ? "files_read"
                 : "web";
           return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
         }
@@ -1286,7 +1301,7 @@ describe("eval/auto E2E runAutoLoop", () => {
     const tpl1 = getStageContract("route").minimalTemplate(dynName).replace("Choose the route that handles the next step.", "EPHEMERAL_V1");
     writeFileSync(dynPath, tpl1, "utf8");
     const sampleRouteInput = {
-      routes: ["files", "terminal", "web"],
+      routes: ["files_read", "terminal", "web"],
       request: "hola",
       step: { instruction: "hola" },
       done: [],

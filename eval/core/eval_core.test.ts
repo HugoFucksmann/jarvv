@@ -322,7 +322,7 @@ describe("eval/core runner + batch con cliente oracle", () => {
     assert.equal(evaluatedModelDirName(genCfg), "gen-m");
     assert.match(runRootDir(genCfg, "2026-11-19_120000"), /^eval\/results\/gen-m\//);
 
-    const [d0Ds] = loadDatasets(resolveDatasetPaths(["d0_variedad"]), { stages: ["d0"] });
+    const [d0Ds] = loadDatasets(resolveDatasetPaths(["smoke"]), { stages: ["route"] });
     assert.ok(d0Ds.cases.length >= 1);
     const prod = await loadVariantSpec("prod");
     const runOut = await runDataset({
@@ -336,7 +336,7 @@ describe("eval/core runner + batch con cliente oracle", () => {
         prepare: (req) => ({ url: "http://127.0.0.1:11434/v1/systemone", body: { state: req.state, questions: req.questions } }),
         call: async () => ({ ok: false, error: "config: missing decision url", durationMs: 0 }),
       },
-      stageFilter: ["d0"],
+      stageFilter: ["route"],
     });
     assert.equal(runOut.allNetworkFailed, true);
 
@@ -373,7 +373,7 @@ describe("eval/core runner + batch con cliente oracle", () => {
           mode: "reactive",
           request: "Buscar archivo",
           steps: [{ instruction: "Leer archivo", state: "failed" }],
-          calls: [{ route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" }],
+          calls: [{ route: "files_read", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" }],
           at: { previous: ["Leer archivo"], cause: "tool_failed", attempts: 2 },
         }),
       /pasos fallidos seguidos/,
@@ -387,8 +387,8 @@ describe("eval/core runner + batch con cliente oracle", () => {
         { instruction: "Leer archivo", state: "failed" },
       ],
       calls: [
-        { step: 0, route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
-        { step: 1, route: "files", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
+        { step: 0, route: "files_read", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
+        { step: 1, route: "files_read", tool: "read_file", kind: "read", status: "tool_error", summary: "ENOENT", verdict: "rejected", reason: "no_usable_data" },
       ],
       at: { previous: ["Leer archivo"], cause: "tool_failed", attempts: 2 },
     });
@@ -457,8 +457,12 @@ describe("eval/core runner + batch con cliente oracle", () => {
       /priorAttempts/,
     );
 
-    // Dataset real existente con 2 intentos previos fallidos
-    const [blockedDs] = loadDatasets(resolveDatasetPaths(["args_blocked_repeat"]));
+    // Caso de arguments (smoke) con 2 intentos previos fallidos declarados
+    const smokeArgs = readFileSync("eval/datasets/smoke.jsonl", "utf8").split(/\r?\n/).filter((l) => l.includes('"smoke-args"')).map((l) => JSON.parse(l));
+    smokeArgs[0].scenario.at.priorAttempts = 2;
+    const blockedDir = createTempDir("eval-blocked-");
+    writeFileSync(join(blockedDir, "args_blocked.jsonl"), JSON.stringify(smokeArgs[0]) + "\n");
+    const [blockedDs] = loadDatasets(resolveDatasetPaths([join(blockedDir, "args_blocked.jsonl")]));
     assert.ok(blockedDs.cases.length >= 1);
     for (const c of blockedDs.cases) {
       assert.equal(c.request.type, "generative");
@@ -552,7 +556,7 @@ describe("eval/core runner + batch con cliente oracle", () => {
       queries: [
         { seq: 1, stage: "continuation", step: null, n: 1, startedAt: 1010, output: { follow: { noul: 0.1 } }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h1" },
         { seq: 2, stage: "first_query", step: null, n: 1, startedAt: 1020, output: { kind: { choice: "single", p: { chat: 0.02, single: 0.9, multi: 0.08 } }, multi: { noul: 0.1 } }, error: null, link: { call: null, plan: null, fact: null, result: false }, inputHash: "h2" },
-        { seq: 3, stage: "route", step: "s1", n: 2, startedAt: 1100, offered: ["files", "terminal", "web"], output: { route: { choice: "terminal", p: { terminal: 0.9 } } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h3" },
+        { seq: 3, stage: "route", step: "s1", n: 2, startedAt: 1100, offered: ["files_read", "terminal", "web"], output: { route: { choice: "terminal", p: { terminal: 0.9 } } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h3" },
         { seq: 4, stage: "tool", step: "s1", n: 2, startedAt: 1120, offered: ["run_command", "list_processes", "stop_process"], output: { selected_tool: { choice: "run_command", p: { run_command: 0.9 } } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h4" },
         { seq: 5, stage: "args", step: "s1", n: 2, startedAt: 1150, offered: null, output: { command: "badcmd" }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h5" },
         { seq: 6, stage: "verify", step: "s1", n: 3, startedAt: 1250, offered: ["ok", "cumple"], output: { ok: { noul: 0.1 }, cumple: { noul: 0.05 } }, error: null, link: { call: "c1", plan: null, fact: null, result: false }, inputHash: "h6" },
