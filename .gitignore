@@ -8,12 +8,7 @@ coverage/
 !.env.example
 
 # ── Trazas locales con datos de ejecución ──────────────────────────────────────
-/jarvis-traces.jsonl
-jarvis-traces.jsonl
-/jarvis-traces/
-/jarvis-refs/
-jarvis-refs/*
-.jsonjarvis-traces.jsonl
+
 
 # ── Resultados de evaluación ───────────────────────────────────────────────────
 eval/results/
