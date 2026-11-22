@@ -13,7 +13,7 @@ import { buildContext, newContext } from "./fixtures.ts";
 
 function setup() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-trace-"));
-  const config = (): JarvisConfig => ({ traceEnabled: true, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d" }) as JarvisConfig;
+  const config = (): JarvisConfig => ({ traceEnabled: true, traceDir: path.join(root, "traces"), qwenModel: "q", decisionModel: "d" }) as JarvisConfig;
   const recorder = new TaskTraceRecorder(buildContext("reactive", "closed"), config);
   return { root, traces: path.join(root, "traces"), recorder, held: recorder as unknown as { models: unknown[]; tools: unknown[]; waits: unknown[]; rawResults: Map<unknown, unknown> } };
 }
@@ -65,7 +65,7 @@ test("el resultado crudo se serializa al escribir: se registra su largo y, si fa
 
 test("con la traza desactivada no escribe nada y finish igual resuelve", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-trace-off-"));
-  const config = (): JarvisConfig => ({ traceEnabled: false, tracePath: path.join(root, "traces.jsonl") }) as JarvisConfig;
+  const config = (): JarvisConfig => ({ traceEnabled: false, traceDir: path.join(root, "traces") }) as JarvisConfig;
   const recorder = new TaskTraceRecorder(buildContext("reactive", "closed"), config);
   await recorder.finish();
   assert.deepEqual(fs.readdirSync(root), []);
@@ -75,7 +75,7 @@ test("con la traza desactivada no escribe nada y finish igual resuelve", async (
 test("un fallo al escribir (la ruta de las trazas es un archivo) no rechaza la promesa ni afecta a la tarea", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-trace-bad-"));
   fs.writeFileSync(path.join(root, "traces"), "soy un archivo, no una carpeta");
-  const config = (): JarvisConfig => ({ traceEnabled: true, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d" }) as JarvisConfig;
+  const config = (): JarvisConfig => ({ traceEnabled: true, traceDir: path.join(root, "traces"), qwenModel: "q", decisionModel: "d" }) as JarvisConfig;
   const recorder = new TaskTraceRecorder(buildContext("reactive", "closed"), config);
   await assert.doesNotReject(recorder.finish());
   fs.rmSync(root, { recursive: true, force: true });
@@ -83,7 +83,7 @@ test("un fallo al escribir (la ruta de las trazas es un archivo) no rechaza la p
 
 test("con ref, la traza guarda la referencia y no el texto del resultado, pero registra su largo", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-trace-ref-"));
-  const config = (): JarvisConfig => ({ traceEnabled: true, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d" }) as JarvisConfig;
+  const config = (): JarvisConfig => ({ traceEnabled: true, traceDir: path.join(root, "traces"), qwenModel: "q", decisionModel: "d" }) as JarvisConfig;
   const ctx = newContext("reactive");
   const recorder = new TaskTraceRecorder(ctx, config);
   const big = { content: [{ type: "text", text: "z".repeat(30_000) }] };
@@ -108,8 +108,8 @@ test("readTraceFile devuelve full.json.gz descomprimido, con las entradas y sali
   recorder.sink.llm({ stage: "args", n: 1, startedAt: 1, durationMs: 2, input: "prompt largo", output: "respuesta", error: null });
   await recorder.finish();
   const id = (recorder as unknown as { ctx: { task: { id: string } } }).ctx.task.id;
-  const full = JSON.parse(readTraceFile(path.join(root, "traces.jsonl"), id, "full") ?? "null") as { kind: string; models: { input: string; output: string }[] };
+  const full = JSON.parse(readTraceFile(path.join(root, "traces"), id, "full") ?? "null") as { kind: string; models: { input: string; output: string }[] };
   assert.equal(full.kind, "full");
   assert.deepEqual(full.models.map((m) => [m.input, m.output]), [["prompt largo", "respuesta"]]);
-  assert.equal(readTraceFile(path.join(root, "traces.jsonl"), "otra", "full"), null);
+  assert.equal(readTraceFile(path.join(root, "traces"), "otra", "full"), null);
 });

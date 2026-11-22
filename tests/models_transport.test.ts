@@ -532,3 +532,12 @@ test("Decision20Engine: atajos de opción única, desborde, HTTP 500, verifyResu
   assert.equal(scored.probabilities.length, JUDGE_BATCH + 2);
   assert.deepEqual(scored.probabilities, [0.1, 0.11, 0.12, 0.13, 0.14, 0.2, 0.21]);
 });
+
+test("Decision20Engine.score: una señal ya cancelada aborta incluso con la lista de fragmentos vacía", async () => {
+  const engine = new Decision20Engine(() => makeConfig());
+  const ctrl = new AbortController();
+  ctrl.abort();
+  await assert.rejects(() => engine.score("necesidad", [], ctrl.signal), RequestAbortedError);
+  const ok = await engine.score("necesidad", []);
+  assert.deepEqual(ok.probabilities, []);
+});

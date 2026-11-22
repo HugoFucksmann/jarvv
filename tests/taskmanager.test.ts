@@ -14,7 +14,7 @@ import { createRefVault } from "../src/core/refs/refVault.ts";
 import { TaskManager } from "../src/core/tasks.ts";
 
 function manager(root: string, pending: EngineLLM["generatePendingFromView"], extraDecision: object = {}): TaskManager {
-  const getConfig = (): JarvisConfig => ({ traceEnabled: true, tracePath: path.join(root, "traces.jsonl"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
+  const getConfig = (): JarvisConfig => ({ traceEnabled: true, traceDir: path.join(root, "traces"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
   const services: EngineServices = {
     vault: createRefVault({ dir: path.join(root, "refs") }),
     guardScope: { protectedDirs: [], relativeBases: [root] },

@@ -67,11 +67,11 @@ export type LogReadResult =
     };
 
 /** Carpeta de logs de tareas (`data/tasks`), derivada de la carpeta padre de `refsDir`. */
-export function tasksDirFromConfig(config: Pick<JarvisConfig, "refsDir" | "tracePath">): string {
+export function tasksDirFromConfig(config: Pick<JarvisConfig, "refsDir" | "traceDir">): string {
   const base =
     typeof config.refsDir === "string" && config.refsDir.trim() !== ""
       ? path.dirname(path.resolve(config.refsDir))
-      : path.dirname(path.resolve(config.tracePath || "jarvis-traces.jsonl"));
+      : path.dirname(path.resolve(config.traceDir || "jarvis-traces"));
   return path.join(base, "tasks");
 }
 

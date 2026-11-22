@@ -6,6 +6,7 @@
  * no detiene nada; la primera tarea real lo volverá a ver. No pasa por el motor ni por el contexto de ninguna tarea.
  */
 
+import { chatCompletionsUrl } from "./chatUrl.ts";
 import type { ConfigSource } from "../config.ts";
 import { buildDecisionRequest } from "./decision.ts";
 import { resolveModelTimeoutMs } from "../timeouts.ts";
@@ -15,10 +16,10 @@ type FetchFn = (input: string, init: { method: string; headers: Record<string, s
 
 const JSON_HEADERS = { "content-type": "application/json" };
 
-/** URL de chat del generativo: la base del servidor o `/v1/chat/completions` ya completa (como `QwenEngine.resolveUrl`). */
-export function chatUrl(base: string): string {
-  const trimmed = base.trim().replace(/\/+$/, "");
-  return trimmed.endsWith("/v1/chat/completions") ? trimmed : `${trimmed}/v1/chat/completions`;
+/** URL de chat del generativo (la misma regla que `QwenEngine`), o `null` si la configuración no es válida. */
+export function chatUrl(base: string): string | null {
+  const result = chatCompletionsUrl(base);
+  return result.ok ? result.url : null;
 }
 
 async function ping(label: string, url: string, body: string, timeoutMs: number, fetchFn: FetchFn): Promise<void> {
@@ -46,5 +47,10 @@ export async function warmUpModels(getConfig: ConfigSource, fetchFn: FetchFn = f
     reasoning_effort: "none",
     keep_alive: config.modelKeepAlive,
   });
-  await ping(`generativo ${config.qwenModel}`, chatUrl(config.qwenUrl), chat, resolveModelTimeoutMs(config, config.qwenModel, "qwen"), fetchFn);
+  const url = chatUrl(config.qwenUrl);
+  if (url === null) {
+    console.warn(`[Warmup] generativo ${config.qwenModel} no se pudo precalentar: la URL del modelo no es válida.`);
+    return;
+  }
+  await ping(`generativo ${config.qwenModel}`, url, chat, resolveModelTimeoutMs(config, config.qwenModel, "qwen"), fetchFn);
 }

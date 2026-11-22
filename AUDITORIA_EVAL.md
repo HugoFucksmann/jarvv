@@ -458,3 +458,29 @@ Las siguientes comprobaciones requieren entorno **Windows con `powershell.exe`**
 | 2026-11-21 | Pasada 1 | Auditoría inicial transversal: seguridad de `eval/auto`, entrypoints (`cli`, `auto`, `cross`, `psvalid`), `core` (`runner`, `datasets`, `scenario`, `traces`, `contract`, clientes), desalineación con `src/`, dependencias, tests y docs. | Creación de `AUDITORIA_EVAL.md` con `EV-001`..`EV-017`. *(Nota: la respuesta resumen inicial en chat mostró el informe duplicado; el archivo en disco contenía una única versión limpia de 292 líneas que se conservó íntegra sin pérdida de información).* |
 | 2026-11-21 | Pasada 2 | Revalidación de `EV-001`..`EV-017` (modelo de amenaza + sonda en memoria de `EV-001`, separación bug vs Linux en `EV-002`, verificación de `EV-012`/`EV-017`) y cobertura completa de `eval/auto/*`, `fixtures/**`, las 14 etapas, todos los `graders/*`, `report`, `scoring`, `traces.ts`, UI y suites completas de tests. | Reclasificación de `EV-001` por escenario con evidencia empírica exacta; desdoble de `EV-002`; ampliación de `EV-011` (`decision.ts`), `EV-012` (confirmado vs `thread.ts`), `EV-013` (fixtures fugados) y `EV-017`; adición de **`EV-018`..`EV-024`**; actualización de tabla de dependencias con versiones instaladas y nueva Sección **"Pruebas pendientes para el usuario"**. |
 | 2026-11-21 | Pasada 3 | Construcción y validación sin modelos reales del dataset integral (`eval/datasets/integral_v1.jsonl`, 280 casos = 20×14) y la variante completa (`eval/variants/integral_v1.ts`). | Adición de **`EV-025`** (incapacidad de `scenario.ts` para evaluar `plan` con `TRIGGER: initial`); fila nueva en matriz `eval ↔ src`; nueva Sección 6 **"Dataset y variante creados (Pasada 3)"** con distribución, supuestos, dependencias (`EV-018`, `EV-025`, `EV-012`, `EV-002`) y resultados de validación (`lint`, `--list`, `--dry-run`, `oracle` 280/280, `mock` 276/280); ampliación de pruebas pendientes en Ollama y Windows. |
+
+
+
+Nota de traspaso
+
+Un agente web (solo lectura, Linux, sin Windows ni Ollama) auditó el módulo eval. Todo está en AUDITORIA_EVAL.md.
+
+Hecho:
+- Pasadas 1 y 2: auditoría con 24 hallazgos (EV-001 a EV-024).
+- Pasada 3: dataset y variante integral_v1 (280 casos, 20 por cada una de las 14 etapas) y EV-025. Validado sin modelos reales: lint, --list, --dry-run, oracle 280/280 y mock 276/280. Eso prueba coherencia interna, no calidad de los casos.
+- Variantes y datasets por stage en eval/variants/ y eval/datasets/ (hasta donde llegó el agente antes de cortarse).
+- La revisión final de AUDITORIA_EVAL.md se cortó a medias. Su estado actual es desconocido.
+
+Pendiente en el documento (puede estar aplicado en parte):
+- Reflejar los datasets y variantes por stage y actualizar EV-013.
+- Sección 2 y encabezado deben decir Pasadas 1 a 3.
+- Sección 6: mención obsoleta a "Insumos para la fase siguiente".
+- Sección 7, prueba 1: dice "27/27", pero se ejecutaron 51 pruebas.
+- Sección 8: "DESATADO" parece un error.
+- EV-013: dice que --auto sin --dataset falla "por diseño" y aun así es Alta.
+- Falta una sección que explique cómo funciona --auto.
+- Severidades dudosas: EV-004 (la parte de --target en Vuelta 0 podría ser diseño), EV-010 y EV-016.
+
+No verificado (requiere Windows u Ollama): pruebas de la Sección 7 del documento, incluidas tests y eval:psvalid con powershell.exe, corridas contra Ollama, eval:cross, --auto con holdout y eval:traces.
+
+Hallazgos abiertos que afectan a los casos: EV-018 (args_review), EV-025 (plan), EV-012 (respuestas largas), EV-002 (PowerShell).

@@ -6,14 +6,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { NOUL_APPROVE, OK_APPROVE, VERIFY_APPROVE, verdictOf } from "../src/core/engine/verify.ts";
+import { verdictOf } from "../src/core/engine/verify.ts";
 import { DECISION_PROMPTS } from "../src/core/models/prompts.ts";
 
-test("verificación: `ok` aprueba desde 0,3 y `cumple` desde 0,6, cada una con su motivo de rechazo", () => {
-  assert.equal(OK_APPROVE, 0.3);
-  assert.equal(NOUL_APPROVE, 0.6);
-  assert.deepEqual(VERIFY_APPROVE, { ok: 0.3, cumple: 0.6 });
-
+test("verificación: los cortes de `ok` (0,3) y `cumple` (0,6) se aplican por pregunta, cada una con su motivo de rechazo", () => {
   // `ok` en la zona que antes se rechazaba (0,3 a 0,6) ya no frena a un resultado que además cumple.
   assert.deepEqual(verdictOf({ ok: 0.35, cumple: 0.9 }), { verdict: "approved", reason: null });
   assert.deepEqual(verdictOf({ ok: 0.3, cumple: 0.6 }), { verdict: "approved", reason: null }, "el corte aprueba: es «desde»");

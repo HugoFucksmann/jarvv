@@ -41,7 +41,7 @@ function tempRoot(): Root {
 
 function manager({ root }: Root): TaskManager {
   const getConfig = (): JarvisConfig =>
-    ({ traceEnabled: false, tracePath: path.join(root, "traces.jsonl"), refsDir: path.join(root, "data", "refs"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
+    ({ traceEnabled: false, traceDir: path.join(root, "traces"), refsDir: path.join(root, "data", "refs"), qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
   const services: EngineServices = {
     vault: createRefVault({ dir: path.join(root, "data", "refs") }),
     guardScope: { protectedDirs: [], relativeBases: [root] },

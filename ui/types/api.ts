@@ -218,10 +218,6 @@ export interface McpToolDto {
 
 export type UnavailableServers = Record<string, { reason: string; since: number }>;
 
-export interface ApiErrorBody {
-  error: string;
-}
-
 export interface OkResponse {
   ok?: boolean;
 }
@@ -361,7 +357,7 @@ export interface JarvisConfig {
   sseKeepAliveMs?: number;
   shutdownDrainMs?: number;
   traceEnabled: boolean;
-  tracePath: string;
+  traceDir: string;
   refsDir?: string;
   retentionDays?: number;
   logRetentionDays?: number;

@@ -1,27 +1,17 @@
 # Desalineaciones detectadas en el eval
 
-Estado: actualizado contra el código vigente de `src/` y `eval/` (2026-11-20). Fuente de verdad: `src/`. Lo ya corregido en código o documentación (D1–D7, D9–D30, incluido D16) se quitó (el historial queda en git).
+Estado: actualizado contra el código vigente de `src/` y `eval/` (2026-11-21). Fuente de verdad: `src/`. Lo ya corregido (D1–D30, incluido D8: `arguments` ya modela `priorAttempts`, ver `eval/core/stages/arguments.ts` y su test en `eval_core.test.ts`) se quitó; el historial queda en git. El detalle y el seguimiento viven en `AUDITORIA_EVAL.md` (raíz del repo).
 
-## Índice
+## Abiertas
 
-| ID | Prio | Resumen | Qué lado |
-|---|---|---|---|
-| D8 | B | `arguments` en el eval siempre corre como primer intento (`priorAttempts = 0`) | Eval (`scenario.ts`, `stages/arguments.ts`) |
+| ID (`AUDITORIA_EVAL.md`) | Resumen | Qué lado |
+|---|---|---|
+| EV-025 | La etapa `plan` no puede evaluar `TRIGGER: initial` (`scenario.ts` crea siempre un plan y un paso sintético). Pendiente por decisión: el flujo deliberativo puede cambiar. | Eval (`scenario.ts`) |
+| EV-020 | `scanReusableInitialRanking` no compara `url`, `decisionUrl`, `timeoutMs` ni `promptEnv.date` al reutilizar corridas. Pendiente de discutir. | Eval (`auto/ranking.ts`) |
+| EV-022 | Regex de fuga interna con falsos positivos (`snake_case`), comparaciones asimétricas en graders y `oracleOutput` que ignora restricciones negativas. | Eval (`graders/`, `questions.ts`) |
+| EV-007 | `eval:traces` reconstruye con imprecisiones `recovery` y `result_verification`. | Eval (`core/traces.ts`) |
+| EV-008 | `--limit` no valida el resto del dataset. | Eval (`core/datasets.ts`) |
 
----
+## Resueltas en esta tanda (2026-11-21)
 
-## D8. `arguments` en el eval no ejercita `priorAttempts > 0`
-
-- **Dónde:** `eval/core/stages/arguments.ts` (`buildRequest`, línea 99) y `eval/core/scenario.ts` (`ScenarioAt`) vs `src/core/engine/adapters.ts` (`argsInput`).
-- **Qué pasa:** `scenario.ts` ya toma `temperature` y `retryThinking` de `StageRequest`, y `runner.ts` respeta `req.retryThinking ?? req.thinking` al reintentar. Sin embargo, `ScenarioAt` no modela `priorAttempts`, así que `argumentsStage.buildRequest` llama a `argsInput(tool, env, ...)` siempre con `priorAttempts = 0` (`temperature = 0.1`), sin cubrir la subida de temperatura de producción cuando hay intentos previos (`0.3` / `0.5`).
-
----
-
-## Sin desalineación en lo revisado
-
-- Registro de etapas (`ALL_STAGES`), contrato de validación de datasets (`datasets.ts`, `case.ts`) y constantes reexportadas en `eval/core/contract.ts` (`NOT_JSON_ERROR`, `argsProblemText`, `parsePlanStepsResult`, `NOUL_APPROVE = 0.6`, `reviewOutcome`, `RETRY_TEMPERATURE`, `RETRY_TOKEN_FACTOR`, `TRUNCATED_ERROR`, `LLM_INVALID_OUTPUT_RETRIES`, `MAX_STEPS`).
-- Reintentos en `runner.ts`: `runDecision` ya no reintenta respuestas inválidas (alineado con `src/core/engine/failures.ts`, D16 resuelto); las etapas generativas usan `Math.max(RETRY_TEMPERATURE, req.temperature)`, `req.retryThinking ?? req.thinking` y conservan mensajes/orden de validación de `plan`, `arguments`, `pending`, `final` y `question`.
-- Reserva de contexto y URLs (`client/generative.ts`, `client/decision.ts`): `reserveCompletionTokens` con margen mínimo de 256 tokens, `resolveUrl` con recorte y error de URL vacía, `DECISION_MAX_CONTEXT` desde `ConfigManager`, timeouts desde `PROD`, e `isTransportError` en `runner.ts`.
-- Desborde en decisiones (`runner.ts`): `decision_context_ok` corta antes de llamar al cliente.
-- Oráculo, asistente y CLI (`client/oracle.ts`, `ui/wizard.ts`, `core/config.ts`): `--client=oracle` restringido a `prod`, default de concurrencia `"3"` en el asistente, flags `--no-baseline` / `--baseline`, `stageConfigHash` con `pendingMaxTokens`, documentación de carpetas de resultados (`README.md`, `INSTRUCCIONES.md`) y comentarios de `RunRecord` (`types.ts`).
-- Herramientas de cruce y validación (`cross.ts`, `psvalid.ts`, `INSTRUCCIONES.md`): `eval:cross` usa `resolveDatasetPaths`, `NOUL_APPROVE` (0.6) y avisa cuando falta `prod`; `INSTRUCCIONES.md` documenta `eval:cross`, `eval:psvalid`, `_cross/`, `args_review` sin `tool_rejected`, `forbiddenHardcodedValues` por subcadena y códigos de salida en `--dry-run`.
+- `args_review` evalúa con el umbral estricto de producción y pasa `fullView` (EV-018); `continuation` y `pending` recortan `previous_answer` como `previousTaskOf`, y `stageConfigHash` incluye `qwenNumCtx`, `decisionMaxContext`, `approvalTiers`, `reviewFullView` y `blacklist` (EV-012); los clientes envían `keep_alive` (EV-011); el contrato de `route` usa las rutas reales (EV-010).

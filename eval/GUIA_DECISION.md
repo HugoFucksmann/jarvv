@@ -89,7 +89,7 @@ Un porcentaje global alto puede esconder un error caro.
 ## 3. Cómo medir bien
 
 1. **Primero el oráculo**: `--client=oracle` debe dar 100 % sobre un dataset nuevo (valida casos y graders). **Solo vale con `prod`**: con variantes da error de configuración. Una variante se valida con `--client=mock --dry-run` (muestra el prompt que se enviaría) y luego con el modelo real.
-2. **Una variable por variante.** El nombre y el comentario de cabecera dicen la hipótesis y el dataset que la mide. Componer (`a+b`) solo después de medir cada una.
+2. **Una variable por variante.** El nombre y el comentario de cabecera dicen la hipótesis y el dataset que la mide. La composición `a+b` no existe (el cargador la rechaza): para combinar dos ideas, crear una variante nueva después de medir cada una.
 3. **Reportar caso por caso**: qué casos mejoran y cuáles regresan, no solo el porcentaje; falsos aprobados/rechazados; qué dataset se usó para ajustar y cuál para validar.
 4. **No ajustar y validar en el mismo dataset.** Una diferencia de 1–3 casos está dentro del ruido; con n < 50, +3 puntos no es significativo (usar comparación pareada, McNemar, antes de afirmar que una variante gana).
 5. **Cuidado con los datasets chicos.** `recovery` tiene 30 casos: sirve para ver qué pasa, **no para decidir**. Ampliar con casos reales antes de adoptar un prompt.
@@ -98,9 +98,9 @@ Un porcentaje global alto puede esconder un error caro.
 ### Comandos
 
 ```powershell
-npm run eval -- --client=oracle --dataset=eval/datasets/recovery --stages=recovery
-npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --variant=prod,recovery_three_options_nobehind
-npm run eval -- --dataset=eval/datasets/recovery --stages=recovery --ids=rec-rp-02 --dry-run --client=mock
+npm run eval -- --client=oracle --dataset=recovery_v1 --stages=recovery
+npm run eval -- --dataset=recovery_v1 --stages=recovery --variant=prod,recovery_v1
+npm run eval -- --dataset=recovery_v1 --stages=recovery --ids=rec-rp-02 --dry-run --client=mock
 ```
 
 - Los **archivos** `.jsonl` se resuelven por nombre corto en cualquier subcarpeta (ej. `--dataset=recovery_casos`); para correr una **carpeta** entera hay que pasar la ruta (`--dataset=eval/datasets/recovery`), porque el resolvedor corto busca archivos y globs, no nombres de subcarpetas.
@@ -144,8 +144,8 @@ D1 falla casi siempre en «hacé ping a google.com» (la palabra de dominio lo m
 
 Consulta de Decisión **tras un paso fallido**: qué hacer con el ítem (`close`, `rewrite_item` o `replan`; sin `skip_continue`). **En el motor corre solo en modo sombra** (ver «Modo sombra» abajo): registra qué haría y no actúa; el diseño y el despliegue están en `docs/pendientes/PENDIENTES_CODIGO.md` §9.1, punto 6.
 
-- Etapa: `eval/core/stages/recovery.ts`. Prompt de producción (`prod`): `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts` (basado en `recovery_three_options_nobehind`). Datasets y regla de etiquetado: `eval/datasets/recovery/README.md`. Variantes activas actuales en `eval/variants/recovery/`: `recovery_three_options_nobehind`, `recovery_three_options_examples`, `recovery_rewrite_or_close`, `recovery_boundary_calibrated`.
-- **Con el prompt de producción actual** sobre los 240 casos de `eval/datasets/recovery/` (los 7 datasets, `skip_continue` reetiquetado a `close`): 78 % (186/240); `rewrite_item` 91 %, `replan` 52 %, `close` 81 %. Es el mismo número que `recovery_three_options_nobehind`.
+- Etapa: `eval/core/stages/recovery.ts`. Prompt de producción (`prod`): `DECISION_PROMPTS.buildRecovery` en `src/core/models/prompts.ts` (basado en `recovery_three_options_nobehind`). Dataset: `eval/datasets/recovery/recovery_v1.jsonl` (no hay README propio). Variante activa actual en `eval/variants/recovery/`: `recovery_v1`. (Las variantes `recovery_three_options_*`, `recovery_rewrite_or_close` y `recovery_boundary_calibrated` citadas en esta guía ya no están en el repo: son contexto histórico.)
+- **Con el prompt de producción actual** sobre los 240 casos de `eval/datasets/recovery/` (los 7 datasets, `skip_continue` reetiquetado a `close`): 78 % (186/240); `rewrite_item` 91 %, `replan` 52 %, `close` 81 %. Es el mismo número que `recovery_three_options_nobehind`. *(Histórico: esos 7 datasets ya no están en el repo; hoy solo existe `recovery_v1`.)*
 - **Dónde se pierde:** `replan` (lo cubren las reglas de `recoveryRules.ts`) y los `close` que el modelo manda a reintentar. Las reglas delante del modelo suben el acierto a ~95 % en `n1`–`n4` (ver arriba), con la salvedad de la circularidad.
 - Recordar 2.3: `rewrite_item` y `replan` son opciones parecidas: es lo que más confunde el 2B y lo que cubren las reglas.
 - Las etiquetas son una **regla de trabajo para ser consistentes**, no una verdad: los casos que no encajan van `isRaw: true` con tag `borderline`. Revisarlas con una persona antes de concluir sobre el modelo.
@@ -162,7 +162,7 @@ El `output` del evento es un JSON: `{ cause, attempts, callsInStep, rule, ruleIf
 
 Decisión de diseño: **se quitó `skip_continue` (y `independent`)**. Un ítem existe porque el pedido lo necesita; si no se puede hacer, cerrar es lo honesto y lo seguro, y los casos `skip_continue` de los primeros datasets eran armados (un fallo y un ítem de atrás sin relación). Con datasets sin `skip`, la pregunta de 3 opciones (`rewrite_item`, `replan`, `close`) le gana a la de 4 opciones (82 % contra 78 % en dev; 69 % contra 59 % en holdout). Nombre de la opción de parar (`close` o `skip_continue`) y `rewrite_current_item`: sin efecto.
 
-Datasets de esta ronda (escritos a mano, ya en `eval/datasets/recovery/`): `recovery_n1` y `recovery_n2` (55 casos) y `recovery_n3` (36) fueron el conjunto de ajuste (91); `recovery_n4` (30) fue el holdout y se midió una sola vez. **Ya no es un holdout limpio**: para seguir probando, escribir un dataset nuevo y reservarlo. Tres casos «carpeta con contenido» (`Remove-Item` sin `-Recurse`) se marcaron `isRaw`/`borderline` porque son arreglables con un argumento y la etiqueta `replan` es discutible.
+Datasets de esta ronda (escritos a mano, ya en `eval/datasets/recovery/`): `recovery_n1` y `recovery_n2` (55 casos) y `recovery_n3` (36) fueron el conjunto de ajuste (91); `recovery_n4` (30) fue el holdout y se midió una sola vez. **Ya no es un holdout limpio**: para seguir probando, escribir un dataset nuevo y reservarlo. Tres casos «carpeta con contenido» (`Remove-Item` sin `-Recurse`) se marcaron `isRaw`/`borderline` porque son arreglables con un argumento y la etiqueta `replan` es discutible. *(Histórico: `recovery_n1`..`recovery_n4` ya no están en el repo.)*
 
 | Qué se probó | Resultado (acierto en 3 acciones) |
 |---|---|
@@ -223,8 +223,9 @@ Cautelas: los mensajes de error de los datasets los escribí yo a partir de form
 
 | Tema | Documento |
 |---|---|
-| Cómo correr el eval, formato de casos, etapas | [`INSTRUCCIONES.md`](./INSTRUCCIONES.md), [`README.md`](./README.md) |
+| Cómo correr el eval | [`INSTRUCCIONES.md`](./INSTRUCCIONES.md) |
+| Formato de casos, etapas, variantes y resultados | [`REFERENCIA.md`](./REFERENCIA.md), [`README.md`](./README.md) |
 | Límites medidos de `d3:2b` por etapa | [`../docs/evaluacion/limitaciones/d3-2b.md`](../docs/evaluacion/limitaciones/d3-2b.md) |
 | Preguntas de decisión del motor | [`../docs/evaluacion/analisis/PREGUNTAS_DECISION.md`](../docs/evaluacion/analisis/PREGUNTAS_DECISION.md), [`FRENTE_3_DECISION.md`](../docs/evaluacion/analisis/FRENTE_3_DECISION.md) |
 | Modelos sin proyector de visión, `num_ctx`, `keep_alive` | [`../docs/operacion/OLLAMA_MODELOS_TEXTO.md`](../docs/operacion/OLLAMA_MODELOS_TEXTO.md) |
-| Dataset y regla de la etapa `recovery` | [`datasets/recovery/README.md`](./datasets/recovery/README.md) |
+| Dataset y regla de la etapa `recovery` | `datasets/recovery/recovery_v1.jsonl` (el README histórico ya no existe) |

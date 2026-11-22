@@ -35,6 +35,19 @@ function normValue(s: string): string {
   return s.replace(/\\/g, "/").toLowerCase();
 }
 
+/** Una ruta absoluta (`C:/…`, `C:\\…`, `\\\\servidor\\…`, `/…`, `~/…`): en Windows `/` y `\\` y las mayúsculas no cambian a qué apunta. */
+const ABSOLUTE_PATH_RE = /^(?:[A-Za-z]:[\\/]|\\\\|\/|~[\\/])/;
+
+/**
+ * Igualdad de un valor generado con el esperado: exacta, salvo en rutas absolutas, donde se ignoran `/` frente a `\\` y mayúsculas
+ * (producción las trata igual). Los demás textos (contenido, patrones, comandos) se comparan tal cual.
+ */
+export function sameArgValue(actual: unknown, expected: unknown): boolean {
+  if (typeof expected === "string" && typeof actual === "string" && ABSOLUTE_PATH_RE.test(expected)) return normValue(actual) === normValue(expected);
+  if (Array.isArray(expected) && Array.isArray(actual)) return expected.length === actual.length && expected.every((e, i) => sameArgValue(actual[i], e));
+  return stableStringify(actual) === stableStringify(expected);
+}
+
 export const ArgumentsGrader: Grader<ArgumentsOutput, ArgumentsExpect> = {
   name: "arguments",
   grade(output, expect, _ctx, col) {
@@ -61,7 +74,7 @@ export const ArgumentsGrader: Grader<ArgumentsOutput, ArgumentsExpect> = {
         const actualVal = args[key];
         col.check(
           `field_${key}_match`,
-          stableStringify(actualVal) === stableStringify(expectedVal),
+          sameArgValue(actualVal, expectedVal),
           `Valor para '${key}' (${stableStringify(actualVal)}) no coincide con el esperado (${stableStringify(expectedVal)}).`,
         );
       }

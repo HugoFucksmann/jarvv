@@ -26,7 +26,7 @@ function makeTempEnv() {
   const getConfig = (): JarvisConfig => ({
     ...base,
     traceEnabled: false,
-    tracePath: path.join(root, "traces.jsonl"),
+    traceDir: path.join(root, "traces"),
     refsDir: path.join(root, "data", "refs"),
     qwenModel: "q",
     decisionModel: "d",

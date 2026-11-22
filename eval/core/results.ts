@@ -54,25 +54,38 @@ export function evaluatedModelDirName(cfg: Pick<EvalConfig, "stages" | "model" |
   return safeName(onlyDecision ? cfg.decisionModel : cfg.model);
 }
 
+/** Raíz de todos los resultados. */
+export const RESULTS_ROOT = "eval/results";
+
 /**
- * Directorio raíz de resultados para una corrida. El timestamp tiene resolución de segundo: si la
- * carpeta ya existe (dos corridas en el mismo segundo) se agrega `-2`, `-3`… para no mezclar `runs.jsonl`.
+ * Estructura de `eval/results/`:
+ * - `evals/<modelo evaluado>/<fecha_hora>[_<label>]/`: corridas manuales (`npm run eval`) con un modelo real.
+ * - `auto/<etapa>/<fecha_hora>/`: una carpeta por sesión de `--auto`, con `session.json` y una subcarpeta por ronda (`r0`, `r1`, …, `holdout-prod`).
+ * - `sin-modelo/<mock|oracle>/…`: corridas que no miden ningún modelo.
+ * - `herramientas/cross/…`: salidas de `eval:cross`.
+ * Cada carpeta de corrida lleva `run.json` (qué se corrió) y una carpeta por celda `<variante>__<dataset>` con `meta.json`, `runs.jsonl` y `scores.json`.
  */
-export function runRootDir(cfg: EvalConfig, ts: string): string {
-  const label = cfg.label ? `_${safeName(cfg.label)}` : "";
-  // Las corridas de `oracle` y `mock` no miden ningún modelo: van aparte (`eval/results/_oracle/…`) para que no se mezclen
-  // con las reales al comparar ni al limpiar.
-  if (cfg.client !== "real") {
-    const base = `eval/results/_${cfg.client}/${ts}${label}`;
-    let dir = base;
-    for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
-    return dir;
-  }
-  const modelDir = evaluatedModelDirName(cfg);
-  const base = `eval/results/${modelDir}/${ts}${label}`;
+
+/** `base` si no existe; si no, `base-2`, `base-3`… (dos corridas en el mismo segundo no deben mezclar sus `runs.jsonl`). */
+export function uniqueDir(base: string): string {
   let dir = base;
   for (let n = 2; existsSync(resolve(dir)); n++) dir = `${base}-${n}`;
   return dir;
+}
+
+/** Carpeta de una sesión de `--auto`: `eval/results/auto/<etapa>/<fecha_hora>`. */
+export function autoSessionDir(stage: StageName, ts: string = timestampDir()): string {
+  return uniqueDir(`${RESULTS_ROOT}/auto/${stage}/${ts}`);
+}
+
+/**
+ * Directorio raíz de una corrida manual. El timestamp tiene resolución de segundo: si la carpeta ya existe se agrega `-2`, `-3`…
+ * Las corridas de `oracle` y `mock` no miden ningún modelo: van aparte (`sin-modelo/`) para que no se mezclen con las reales al comparar ni al limpiar.
+ */
+export function runRootDir(cfg: EvalConfig, ts: string): string {
+  const label = cfg.label ? `_${safeName(cfg.label)}` : "";
+  if (cfg.client !== "real") return uniqueDir(`${RESULTS_ROOT}/sin-modelo/${cfg.client}/${ts}${label}`);
+  return uniqueDir(`${RESULTS_ROOT}/evals/${evaluatedModelDirName(cfg)}/${ts}${label}`);
 }
 
 // ───────────────────────── Git info ─────────────────────────

@@ -292,7 +292,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       const {
         refsDir: _refsDir,
-        tracePath: _tracePath,
+        traceDir: _traceDir,
         freeSearchMcp: _freeSearchMcp,
         toolTimeoutsMs: _toolTimeoutsMs,
         modelTimeoutsMs: _modelTimeoutsMs,

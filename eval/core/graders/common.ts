@@ -5,6 +5,7 @@
  * los registra el runner (F4), no un grader.
  */
 
+import { CALL_STATUSES, SYSTEM_TOOL_MANIFEST, VERDICT_REASONS } from "../contract.ts";
 import type { Grader, GraderCollector } from "../types.ts";
 
 /** Normalización de texto: NFD sin diacríticos, minúsculas, espacios colapsados, trim. */
@@ -38,6 +39,18 @@ export function containsTerm(haystack: string, needle: string): boolean {
   const n = norm(needle);
   if (n === "") return false;
   return new RegExp(`(?<![\\p{L}\\p{N}])(?<!\\d[.,])${escapeRegExp(n)}(?![\\p{L}\\p{N}])(?![.,]\\d)`, "u").test(h);
+}
+
+/**
+ * Términos internos que los prompts de producción prohíben mostrar al usuario: nombres de herramientas, estados de llamada, razones del verificador
+ * (todos con guion bajo, así que no chocan con palabras comunes ni con nombres de carpetas del usuario) e ids de llamadas, pasos y resultados.
+ */
+const INTERNAL_TERMS: readonly string[] = [...new Set([...SYSTEM_TOOL_MANIFEST.map((t) => t.name), ...CALL_STATUSES, ...VERDICT_REASONS].filter((w) => w.includes("_")))];
+const INTERNAL_ID_RE = /\b[csr]\d+\b/;
+
+/** El primer término interno (herramienta, estado, razón o id `c1`/`s2`/`r3`) que aparece en `text`, o undefined. */
+export function findInternalLeak(text: string): string | undefined {
+  return INTERNAL_ID_RE.exec(text)?.[0] ?? INTERNAL_TERMS.find((term) => containsTerm(text, term));
 }
 
 export function createCollector(): {

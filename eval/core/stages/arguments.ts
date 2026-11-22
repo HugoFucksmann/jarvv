@@ -103,6 +103,10 @@ export const argumentsStage: GenerativeStageEntry<ArgumentsOutput, ArgumentsExpe
     keys: { requiredFields: "string[]", exactFieldValues: "object", forbiddenHardcodedValues: "string[]" },
     atLeastOne: ["requiredFields", "exactFieldValues", "forbiddenHardcodedValues"],
     validate(expectObj, errs) {
+      // `forbiddenHardcodedValues` solo no mide que los argumentos sean los correctos.
+      if (expectObj.requiredFields === undefined && expectObj.exactFieldValues === undefined) {
+        errs.push("expect debe incluir requiredFields o exactFieldValues: sin ellos no se mide que los argumentos sean los pedidos.");
+      }
       if (isRecord(expectObj.exactFieldValues) && Object.keys(expectObj.exactFieldValues).length === 0) {
         errs.push("expect.exactFieldValues no puede ser un objeto vacío (no generaría ningún check).");
       }

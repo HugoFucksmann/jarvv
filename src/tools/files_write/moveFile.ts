@@ -196,15 +196,7 @@ async function moveSingleItem(
     return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: "cancelled" };
   }
 
-  try {
-    if (dstInspection.status === "exists" && overwrite && srcResolved.isDirectory) {
-      if (dstInspection.isSymlink) {
-        await fs.promises.unlink(dstResolved.targetPath);
-      } else {
-        await fs.promises.rm(dstResolved.targetPath, { recursive: true, force: false });
-      }
-    }
-
+  const performMove = async (): Promise<MoveItemOutcome> => {
     try {
       await fs.promises.rename(srcResolved.targetPath, dstResolved.targetPath);
       return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
@@ -243,13 +235,55 @@ async function moveSingleItem(
     }
     await fs.promises.rm(srcResolved.targetPath, { recursive: srcResolved.isDirectory, force: false });
     return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
+  };
+
+  // Al sobrescribir una carpeta real no se borra el destino por adelantado: se aparta como
+  // respaldo y solo se elimina cuando el movimiento termina bien (si falla, se restaura).
+  let backupPath: string | null = null;
+  const restoreBackup = async (): Promise<void> => {
+    if (backupPath === null) return;
+    try {
+      await fs.promises.rm(dstResolved.targetPath, { recursive: true, force: true });
+      await fs.promises.rename(backupPath, dstResolved.targetPath);
+      backupPath = null;
+    } catch {
+      /* no se pudo restaurar: el respaldo queda en disco y se informa abajo */
+    }
+  };
+  const settle = async (result: MoveItemOutcome): Promise<MoveItemOutcome> => {
+    if (backupPath === null) return result;
+    if (result.status === "moved") {
+      try {
+        await fs.promises.rm(backupPath, { recursive: true, force: true });
+      } catch {
+        return { ...result, message: `Moved, but the previous destination backup could not be removed: '${backupPath}'.` };
+      }
+      return result;
+    }
+    await restoreBackup();
+    if (backupPath !== null) {
+      return { ...result, message: `${result.message ?? "failed"} (the previous destination was kept at '${backupPath}')` };
+    }
+    return result;
+  };
+
+  try {
+    if (dstInspection.status === "exists" && overwrite && srcResolved.isDirectory) {
+      if (dstInspection.isSymlink) {
+        await fs.promises.unlink(dstResolved.targetPath);
+      } else {
+        backupPath = `${dstResolved.targetPath}.jarvis-bak-${process.pid}-${Date.now()}`;
+        await fs.promises.rename(dstResolved.targetPath, backupPath);
+      }
+    }
+    return await settle(await performMove());
   } catch (error) {
-    return {
+    return settle({
       source: srcResolved.targetPath,
       destination: dstResolved.targetPath,
       status: "failed",
       message: errorMessage(error),
-    };
+    });
   }
 }
 

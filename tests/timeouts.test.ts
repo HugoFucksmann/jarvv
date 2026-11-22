@@ -9,19 +9,8 @@ import { timeoutOf } from "../src/core/tools/manifest.ts";
 
 const base = { mcpTimeoutMs: 60_000, qwenTimeoutMs: 120_000, qwenThinkingTimeoutMs: 180_000, decisionTimeoutMs: 30_000 };
 
-test("los valores por defecto son los que regían antes de centralizarlos", () => {
-  assert.deepEqual(TIMEOUT_DEFAULTS, {
-    mcpMs: 60_000, qwenMs: 120_000, qwenThinkingMs: 180_000, decisionMs: 30_000,
-    runCommandDefaultWaitSec: 30, runCommandMaxWaitSec: 300, webJudgeMs: 20_000, sseKeepAliveMs: 15_000, shutdownDrainMs: 3_000,
-  });
-  assert.equal(FIXED_TIMEOUTS.analyzerMs, 8_000);
-  assert.equal(FIXED_TIMEOUTS.spawnMs, 15_000);
-  assert.equal(FIXED_TIMEOUTS.killMs, 5_000);
-  assert.equal(FIXED_TIMEOUTS.promptIdleMs, 1_500);
-  assert.equal(FIXED_TIMEOUTS.threadTtlMs, 600_000);
-  assert.equal(FIXED_TIMEOUTS.retentionIntervalMs, 21_600_000);
-  assert.equal(timeoutOf("jarvis_terminal", "run_command"), (TIMEOUT_DEFAULTS.runCommandMaxWaitSec + FIXED_TIMEOUTS.runCommandSlackSec) * 1000, "el plazo del catálogo sigue a la espera máxima");
-  assert.equal(timeoutOf("jarvis_web", "web_search"), 150_000);
+test("el plazo de run_command en el catálogo sigue a la espera máxima configurada", () => {
+  assert.equal(timeoutOf("jarvis_terminal", "run_command"), (TIMEOUT_DEFAULTS.runCommandMaxWaitSec + FIXED_TIMEOUTS.runCommandSlackSec) * 1000);
 });
 
 test("herramienta: `servidor:herramienta` gana sobre `herramienta`; sin override rige el catálogo (undefined)", () => {

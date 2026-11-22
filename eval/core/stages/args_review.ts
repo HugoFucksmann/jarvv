@@ -4,10 +4,21 @@
  * Etapa `args_review` (Decisión 3): revisar argumentos propuestos antes de ejecutar.
  */
 
-import { ARGS_REVIEWS, reviewInput, reviewOutcome, reviewViewOptions } from "../contract.ts";
+import {
+  approvalTierOf,
+  ARGS_REVIEWS,
+  blacklistMatch,
+  BUDGET,
+  compileBlacklist,
+  isKnownTool,
+  reviewInput,
+  reviewOutcome,
+  reviewViewOptions,
+  serverOf,
+} from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ArgsReviewLabelGrader } from "../graders/label.ts";
-import type { ArgsReviewExpect, ArgsReviewOutput, ChoiceQ, DecisionRequest, NoulQ } from "../types.ts";
+import type { ArgsReviewExpect, ArgsReviewOutput, Case, ChoiceQ, DecisionRequest, NoulQ } from "../types.ts";
 import { DecisionParseError, mainChoice, parseAnswers } from "../variants/labels.ts";
 import { checkRange01 } from "./shared.ts";
 import type { DecisionStageEntry } from "./types.ts";
@@ -29,7 +40,19 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
     const at = sc.at ?? {};
     const route = h.need(at.route, "route", "args_review");
     const tool = h.toolOf(route, h.need(at.tool, "tool", "args_review"), at.inputSchema);
-    return h.decision(h.effectivePrompts(ov).D.buildArgsReview(reviewInput(ctx.view.forReview(reviewViewOptions()), route, tool, at.args ?? {})));
+    const cfg = h.config();
+    const args = at.args ?? {};
+    const input = reviewInput(ctx.view.forReview(reviewViewOptions()), route, tool, args);
+    // Igual que `Decision20Engine.reviewArgs`: la vista completa depende de la configuración.
+    const built = h.decision(h.effectivePrompts(ov).D.buildArgsReview(input, { fullView: cfg.reviewFullView === true }));
+
+    // Igual que `evaluatePolicy` + `reviewIfNeeded` (producción): umbral estricto si la escritura es de nivel amarillo
+    // (solo con `approvalTiers`) o coincide con una entrada `sensitive` de la lista negra.
+    const mcp = serverOf(route);
+    const { kind, environment } = h.precheckBase(ctx, route, tool.name, at.environment);
+    const tier = cfg.approvalTiers === true && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, args, environment) : "red") : null;
+    const listed = blacklistMatch(compileBlacklist(cfg.blacklist), mcp, tool.name, kind === "write", args);
+    return { ...built, reviewStrict: listed?.level === "sensitive" || tier === "yellow" };
   },
   validateRequest(req) {
     const rev = req.questions.review;
@@ -39,14 +62,15 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
     }
     return null;
   },
-  parseOutput(rawOutput: string, sentReq: DecisionRequest): ArgsReviewOutput {
+  parseOutput(rawOutput: string, sentReq: DecisionRequest, fc?: Case): ArgsReviewOutput {
     const answers = parseAnswers(rawOutput);
     const result = mainChoice("args_review", "review", answers, sentReq);
     if (!(ARGS_REVIEWS as readonly string[]).includes(result.choice)) {
       throw new DecisionParseError(`'${result.choice}' no es un valor válido de revisión (${ARGS_REVIEWS.join("|")}).`);
     }
     // Como producción (`callRunner`): aprueba solo si P(approved) llega al umbral; si no, el rechazo más probable.
-    const review = reviewOutcome({ review: result.choice as (typeof ARGS_REVIEWS)[number], probabilities: result.probabilities });
+    const strict = fc?.meta?.reviewStrict === true;
+    const review = reviewOutcome({ review: result.choice as (typeof ARGS_REVIEWS)[number], probabilities: result.probabilities }, strict ? BUDGET.sensitiveApprove : undefined);
     return { review, probabilities: result.probabilities };
   },
   label(output, expect) {

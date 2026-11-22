@@ -6,7 +6,7 @@
  * con umbral `CONTINUATION_APPROVE` (0.3).
  */
 
-import { CONTINUATION_APPROVE, CONTINUATION_KEY } from "../contract.ts";
+import { CONTINUATION_APPROVE, CONTINUATION_KEY, previousTaskOf } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ContinuationLabelGrader } from "../graders/label.ts";
 import type { ChoiceQ, ContinuationExpect, ContinuationOutput, NoulQ } from "../types.ts";
@@ -35,14 +35,12 @@ export const continuationStage: DecisionStageEntry<ContinuationOutput, Continuat
     const thread = sc.recalled?.thread;
     const prevRequest = thread?.previous_request ?? "";
     const rawAnswer = thread?.previous_answer ?? "";
-    const prevAnswer = rawAnswer.length > 500 ? rawAnswer.slice(0, 500) : rawAnswer;
+    // Igual que producción (`previousTaskOf`): recorta con `…` tras `.trim()`.
+    const previous = previousTaskOf(prevRequest, rawAnswer);
 
     return h.decision(
       h.effectivePrompts(ov).D.buildContinuation({
-        previous: {
-          request: prevRequest,
-          answer: prevAnswer,
-        },
+        previous,
         request: sc.request,
       }),
     );

@@ -5,7 +5,7 @@ import type { Variant } from "../../core/variants/types.ts";
 
 /**
  * Hipótesis: la base de tres opciones sin la línea «Items after it» (sin `skip_continue` no se usa) y con «application does not exist, tests fail» en `close`. Mejor pregunta única medida (87 % en ajuste, 79 % en holdout).
- * Sin `skip_continue` ni `independent`: se mide con los datasets `recovery_n1` a `recovery_n4` (nunca con `recovery_casos`, `recovery2` ni `recovery3`, que tienen `skip_continue`). Resultados y descartes: `eval/GUIA_DECISION.md`, sección 5.
+ * FIXTURE DE PRUEBAS (solo descubrimiento por nombre en `eval_auto.test.ts`; no se ejecuta). Conserva modos históricos (`cascade`, `ens`, `argmax3`, `axes`) que `recoveryStage.validateRequest` ya no acepta y las rutas de import `../../../src` válidas solo en la raíz aislada de ese test (en `eval/variants/` real harían falta 3 niveles `../../../` desde `eval/variants/recovery/`, o 4 desde `_auto/recovery/`). No usarla como plantilla: partir de `getStageContract("recovery").minimalTemplate`. Contexto histórico: `eval/GUIA_DECISION.md`, sección 5.
  */
 interface Q {
   instr: string;

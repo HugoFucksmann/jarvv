@@ -125,9 +125,10 @@ async function precheckRows(datasets: string[]): Promise<CaseRow[]> {
         const sc = c.scenario;
         const tool = sc?.at?.tool ?? "";
         const route = sc?.at?.route;
-        const kind = route !== undefined && getToolPolicy(serverOf(route), tool).mutates ? "write" : "read";
+        let kind: "write" | "read" = "read";
         let finding: Awaited<ReturnType<typeof scenarioPrecheck>> = null;
         try {
+          kind = route !== undefined && getToolPolicy(serverOf(route), tool).mutates ? "write" : "read";
           if (sc !== undefined) finding = await scenarioPrecheck(sc, analyze);
         } catch (e) {
           console.warn(`  ⚠ ${dataset}/${c.id}: no se pudo correr el pre-chequeo (${e instanceof Error ? e.message : String(e)})`);
@@ -175,17 +176,24 @@ function loadRuns(dir: string): D3Run[] {
     const file = join(dir, entry.name, "runs.jsonl");
     if (!existsSync(file)) continue;
     const byCase = new Map<string, string>();
+    // Variante y dataset salen del propio registro: partir el nombre de carpeta falla si alguno contiene `__`.
+    let variant = entry.name.slice(0, i);
+    let dataset = entry.name.slice(i + 2);
     forEachJsonlLineSync(file, (line) => {
       if (line.trim() === "") return;
-      let r: { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
+      let r: { stage: string; caseId: string; iteration: number; predictedLabel: string | null; bucket?: string; variant?: string; dataset?: string };
       try {
-        r = JSON.parse(line) as { stage: string; caseId: string; iteration: number; predictedLabel: string | null };
+        r = JSON.parse(line) as typeof r;
       } catch {
         return;
       }
-      if (r.stage === "args_review" && r.iteration === 1 && r.predictedLabel !== null) byCase.set(r.caseId, r.predictedLabel);
+      if (r.stage === "args_review" && r.iteration === 1 && r.bucket !== "raw" && r.predictedLabel !== null) {
+        byCase.set(r.caseId, r.predictedLabel);
+        if (typeof r.variant === "string") variant = r.variant;
+        if (typeof r.dataset === "string") dataset = r.dataset;
+      }
     });
-    if (byCase.size > 0) out.push({ variant: entry.name.slice(0, i), dataset: entry.name.slice(i + 2), byCase });
+    if (byCase.size > 0) out.push({ variant, dataset, byCase });
   }
   return out;
 }
@@ -305,18 +313,21 @@ function d4Report(dir: string): string[] {
     if (!existsSync(file)) continue;
     forEachJsonlLineSync(file, (line) => {
       if (line.trim() === "") return;
-      let r: { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
+      let r: { stage: string; iteration: number; bucket?: string; variant?: string; dataset?: string; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
       try {
-        r = JSON.parse(line) as { stage: string; iteration: number; expectedLabel: string | null; parsedOutput?: { okProbability?: number; cumpleProbability?: number } };
+        r = JSON.parse(line) as typeof r;
       } catch {
         return;
       }
-      if (r.stage !== "result_verification" || r.iteration !== 1 || r.parsedOutput?.okProbability === undefined || r.parsedOutput.cumpleProbability === undefined) return;
+      if (r.stage !== "result_verification" || r.iteration !== 1 || r.bucket === "raw" || r.expectedLabel === null || r.expectedLabel === undefined) return;
+      if (r.parsedOutput?.okProbability === undefined || r.parsedOutput.cumpleProbability === undefined) return;
       const sample = { ok: r.parsedOutput.okProbability, cumple: r.parsedOutput.cumpleProbability };
-      const v = byVariant.get(entry.name.slice(0, i)) ?? { good: [], bad: [], dataset: new Set<string>() };
+      const variantName = typeof r.variant === "string" ? r.variant : entry.name.slice(0, i);
+      const datasetName = typeof r.dataset === "string" ? r.dataset : entry.name.slice(i + 2);
+      const v = byVariant.get(variantName) ?? { good: [], bad: [], dataset: new Set<string>() };
       (r.expectedLabel === "ok=true,cumple=true" ? v.good : v.bad).push(sample);
-      v.dataset.add(entry.name.slice(i + 2));
-      byVariant.set(entry.name.slice(0, i), v);
+      v.dataset.add(datasetName);
+      byVariant.set(variantName, v);
     });
   }
   if (byVariant.size === 0) return [];
@@ -384,8 +395,8 @@ export async function runCrossCli(argv: string[]): Promise<number> {
     md.push(...d4Report(cfg.runsDir));
   }
 
-  const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
-  const dir = join("eval/results", "_cross", `${stamp}${cfg.label ? `_${cfg.label}` : ""}`);
+  const stamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
+  const dir = join("eval/results", "herramientas", "cross", `${stamp}${cfg.label ? `_${cfg.label}` : ""}`);
   mkdirSync(dir, { recursive: true });
   atomicWriteFileSync(join(dir, "cross.md"), `${md.join("\n")}\n`);
   atomicWriteFileSync(join(dir, "cross.json"), JSON.stringify({ datasets: cfg.datasets, runsDir: cfg.runsDir ?? null, rows, pipelines: json }, null, 2));
@@ -400,6 +411,6 @@ if (isEntrypoint) {
     .then((code) => process.exit(code))
     .catch((e) => {
       console.error(e instanceof Error ? e.message : e);
-      process.exit(1);
+      process.exit(2);
     });
 }

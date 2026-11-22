@@ -94,15 +94,6 @@ export function variantFileHash(filePath: string): string {
   return createHash("sha256").update(readFileSync(filePath, "utf8")).digest("hex").slice(0, 16);
 }
 
-/** Ruta del archivo de una variante dado su nombre (raíz o subcarpetas de variantsRoot). Lanza si es ambigua; si no existe, la ruta esperada en la raíz. */
-export function variantFilePath(name: string, variantsRoot = VARIANTS_DIR): string {
-  const matches = variantMatches(name, variantsRoot);
-  if (matches.length > 1) {
-    throw new Error(`Variante '${name}' ambigua: el nombre está en ${matches.length} archivos (${matches.join(", ")}). Los nombres deben ser únicos.`);
-  }
-  return resolve(matches[0] ?? `${variantsRoot}/${name}.ts`);
-}
-
 /** Nombres de las variantes disponibles (archivos `.ts` activos en variantsRoot y subcarpetas, sin `descartadas/` ni `_archivo_*`), sin repetidos y ordenados. */
 export function listVariantNames(variantsRoot = VARIANTS_DIR): string[] {
   return [...new Set(listActiveVariantFiles(variantsRoot).map((f) => basename(f, ".ts")))].sort();

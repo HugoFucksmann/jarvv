@@ -128,6 +128,8 @@ export interface Materialized {
   environment?: UserEnvironment;
   /** `arguments`: `kind` de la herramienta y fuentes de la tarea, como los arma producción (`callRunner`); completan ese pre-chequeo. */
   precheck?: { kind: "read" | "write"; sources: PrecheckSources };
+  /** `args_review`: producción exige el umbral estricto (`BUDGET.sensitiveApprove`) para esta llamada (nivel amarillo o lista negra `sensitive`). */
+  reviewStrict?: boolean;
 }
 
 // ───────────────────────── Registro de etapas ─────────────────────────
@@ -202,7 +204,7 @@ export interface DecisionStageEntry<TOutput, TExpect> {
   /** Valida que el DecisionRequest generado por una variante cumpla los invariantes mínimos de la etapa. */
   validateRequest?(req: DecisionRequest, fc: Case): string | null;
   /** Parsea el texto crudo de la respuesta. Lanza en error de parseo. */
-  parseOutput(rawOutput: string, sentReq: DecisionRequest): TOutput;
+  parseOutput(rawOutput: string, sentReq: DecisionRequest, fc?: Case): TOutput;
   /** Calcula etiquetas para scoring (7.8). */
   label(output: TOutput | undefined, expect: TExpect | undefined): LabelInfo;
   /** Preguntas principales que alimentan la salida canónica de la etapa. */

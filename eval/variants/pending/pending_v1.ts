@@ -6,7 +6,7 @@
  */
 
 import type { PreviousTask } from "../../../src/core/contracts.ts";
-import { DATA_NOTICE_EN, PENDING_FACTS_LOOKUP } from "../../../src/core/models/prompts.ts";
+import { DATA_NOTICE_EN } from "../../../src/core/models/prompts.ts";
 import type { PromptSet } from "../../../src/core/models/stageRequests.ts";
 import { retitlePending } from "../../../src/core/render/pending.ts";
 import { threadBlock } from "../../../src/core/render/thread.ts";
@@ -18,7 +18,7 @@ const PENDING_VIEW: PromptSet["PENDING_VIEW"] = {
 - Otherwise return >= 1 short plain-language goal items in the language of REQUEST describing WHAT remains (never tool names, code, or commands).
 - Keep remaining unfinished items from PENDING, remove items fully completed in DONE, and add any missing sub-goal from REQUEST (resolving references using prior thread context if present). Put the immediate next action first.
 - If FAIL shows a failed attempt on an item, replace it with a concrete alternative goal (e.g., search more broadly first, create missing folder, or use another viable approach) rather than repeating the identical failing step.
-- ${PENDING_FACTS_LOOKUP ? "Time-sensitive factual queries (latest releases, prices, news) require a web lookup item." : "Do not invent web lookups unless REQUEST demands external/current data."}
+- Do not invent web lookups unless REQUEST demands external/current data.
 Follow USER instructions strictly.
 ${DATA_NOTICE_EN}`,
 

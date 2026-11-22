@@ -12,7 +12,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -22,8 +21,7 @@ import { createRawDatasetCache, type Dataset, type RawDatasetCache } from "./cor
 import { fmtDeltaPct, fmtMs, fmtPct } from "./core/report-format.ts";
 import type { ComparisonReport, InputCell } from "./core/report.ts";
 import { isDecisionStage } from "./core/stages/index.ts";
-import type { Case, StageName } from "./core/types.ts";
-import { VARIANTS_DIR, variantFilePath } from "./core/variants/load.ts";
+import { VARIANTS_DIR } from "./core/variants/load.ts";
 import { c, fail, section, sym } from "./ui/style.ts";
 import {
   executeAutoBatchInProcess,
@@ -32,33 +30,41 @@ import {
 } from "./auto/batchRunner.ts";
 import type { AutoBatchWorkerMessage } from "./auto/batchWorker.ts";
 import {
+  defaultLedgerPath,
   printAutoHelp,
   parseAutoConfig,
   type AutoConfig,
 } from "./auto/config.ts";
-import {
-  buildBaselineConclusionsMarkdown,
-  formatConclusionsForPrompt,
-  formatObjectiveRoundFacts,
-  readConclusionsBounded,
-  recordHoldoutOverfitAlert,
-  recordInvalidRoundNote,
-  writeConclusionsFile,
-} from "./auto/conclusions.ts";
+import { appendLedger, formatLedgerForPrompt, type LedgerEntry } from "./auto/ledger.ts";
 import {
   discoverStageDatasets,
   discoverStageVariants,
   isAutoVariantPathForStage,
 } from "./auto/discover.ts";
 import { loadVariantSpecEphemeral } from "./auto/ephemeralVariant.ts";
+import { openAutoSession } from "./auto/session.ts";
 import {
-  extractFailureSamples,
+  argvForStage,
+  checkMultiStageFlags,
+  combineExitCodes,
+  expandStages,
+  formatStageSummary,
+  holdoutFilesOf,
+  isMultiStageArg,
+  type StageOutcome,
+} from "./auto/stages.ts";
+import { collectDecisionRequests, currentSystemText, deriveStateNote, formatCurrentTexts, patchFromRequests, shapeFromRequests } from "./auto/patchVariant.ts";
+import {
+  extractConfusions,
+  extractFailureKinds,
   extractVariantDatasetStats,
-  type FailureSample,
+  formatConfusions,
+  formatFailureKinds,
+  type ConfusionStat,
+  type FailureKind,
   type VariantDatasetStat,
 } from "./auto/feedback.ts";
 import {
-  decideConclusionsUpdate,
   generateVariantsForRound,
   OptimizerTransportError,
   type OptimizerLlmCaller,
@@ -69,18 +75,22 @@ import {
   buildFingerprint,
   fingerprintsEqual,
   loadAutoState,
+  promoteWinningAutoVariants,
   saveAutoState,
   scanReusableInitialRanking,
   type AutoSessionState,
   type RankedVariant,
 } from "./auto/ranking.ts";
-import { extractProdPromptSource } from "./auto/stageContract.ts";
+import { getStageContract } from "./auto/stageContract.ts";
 import { collectKnownVariantHashes } from "./auto/validateVariant.ts";
 
 export interface AutoLoopDeps {
   callOptimizer?: OptimizerLlmCaller;
   makeClients?: (cfg: AutoConfig) => EvalClients;
+  /** Carpeta de la sesión (tests). Sin ella, `eval/results/auto/<etapa>/<fecha_hora>/`. */
   resultsRoot?: string;
+  /** Solo para el escaneo de resultados reutilizables: si no se indica, el escaneo usa las carpetas de resultados habituales. Lo fija `runAutoLoop`. */
+  reuseFrom?: string;
   variantsRoot?: string;
   silent?: boolean;
 }
@@ -93,16 +103,6 @@ function makeRunTag(): string {
   const datePart = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   const rand = randomUUID().replace(/-/g, "").slice(0, 4);
   return `${datePart}_${rand}`;
-}
-
-function makeCaseLookup(datasets: Dataset[]): Map<string, Case> {
-  const map = new Map<string, Case>();
-  for (const ds of datasets) {
-    for (const fc of ds.cases) {
-      map.set(`${ds.name}\u0000${fc.id}`, fc);
-    }
-  }
-  return map;
 }
 
 function countCanonicalCases(datasets: Dataset[], includeShortcut: boolean): number {
@@ -192,25 +192,10 @@ async function runComparativeBatch(opts: {
   });
 }
 
-function readVariantSourceForPrompt(name: string, stage: StageName, variantsRoot?: string): string {
-  if (name === "prod") {
-    return extractProdPromptSource(stage);
-  }
-  try {
-    const filePath = variantFilePath(name, variantsRoot);
-    if (existsSync(filePath)) return readFileSync(filePath, "utf8");
-  } catch {
-    // Fallback
-  }
-  return `// Código fuente de '${name}' no disponible.`;
-}
-
 function buildTop2Contexts(
   top2Names: string[],
   ranked: RankedVariant[],
   stats: VariantDatasetStat[],
-  stage: StageName,
-  variantsRoot?: string,
 ): TopVariantContext[] {
   const contexts: TopVariantContext[] = [];
   for (const name of top2Names) {
@@ -228,7 +213,6 @@ function buildTop2Contexts(
     };
     contexts.push({
       name,
-      code: readVariantSourceForPrompt(name, stage, variantsRoot),
       summary,
       perDataset: stats.filter((s) => s.variant === name),
     });
@@ -252,7 +236,19 @@ function printRankedTable(ranked: RankedVariant[], top2: string[], cfg: AutoConf
   }
 }
 
+/** Corre el bucle dentro de una sesión (`session.json` + una carpeta por ronda) y registra cómo terminó. */
 export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Promise<number> {
+  const session = openAutoSession(cfg, deps.resultsRoot);
+  let code = 2;
+  try {
+    code = await runAutoLoopInSession(cfg, { ...deps, resultsRoot: session.dir, reuseFrom: deps.resultsRoot });
+    return code;
+  } finally {
+    session.close(code);
+  }
+}
+
+async function runAutoLoopInSession(cfg: AutoConfig, deps: AutoLoopDeps): Promise<number> {
   const silent = deps.silent ?? false;
   const variantsRoot = deps.variantsRoot ?? VARIANTS_DIR;
   const rawCache = createRawDatasetCache();
@@ -277,7 +273,6 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   const devPaths = discovered.dev.map((d) => d.path);
   const holdoutPaths = discovered.holdout.map((d) => d.path);
   const devDatasetNames = new Set(discovered.dev.map((d) => d.name));
-  const caseLookup = makeCaseLookup(discovered.dev);
 
   // 2. Validar/construir clientes del sistema evaluado (solo se retienen si los inyecta `deps.makeClients`)
   let customClients: EvalClients | undefined;
@@ -314,7 +309,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     if (discovered.holdout.length > 0) {
       log(`  Holdout (${discovered.holdout.length}): ${discovered.holdout.map((d) => `${d.name}(${d.cases.length})`).join(", ")}`);
     }
-    log(`  Conclusiones: ${cfg.conclusionsPath}`);
+    log(`  Historial de ideas: ${cfg.ledgerPath}`);
     if (sameFingerprintState) {
       log(`  ${c.gray(`Sesión previa compatible detectada (${sameFingerprintState.completedRounds} vuelta(s), Top-2=${sameFingerprintState.top2.join(", ")}).`)}`);
     }
@@ -322,7 +317,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
 
   let currentTop2: string[] = [];
   let lastStats: VariantDatasetStat[] = [];
-  let lastFailureSamples: FailureSample[] = [];
+  let lastFailureKinds: FailureKind[] = [];
+  let lastConfusions: ConfusionStat[] = [];
   let lastRanked: RankedVariant[] = [];
   let bestNonProd: AutoSessionState["bestNonProd"] | undefined = sameFingerprintState?.bestNonProd;
   let completedRounds = sameFingerprintState?.completedRounds ?? 0;
@@ -338,15 +334,9 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   ): void => {
     lastRanked = ranked;
     lastStats = extractVariantDatasetStats(report, cells);
-    lastFailureSamples = cells.length > 0
-      ? extractFailureSamples({
-          focusVariant: top2[0] ?? "prod",
-          cells,
-          devDatasetNames,
-          devDatasetPaths: devPaths,
-          caseLookup,
-        })
-      : [];
+    lastConfusions = cells.length > 0 ? extractConfusions({ focusVariant: top2[0] ?? "prod", cells, devDatasetNames, devDatasetPaths: devPaths }) : [];
+    // Ninguna etapa muestra casos al optimizador: las de decisión ven errores por etiqueta; las generativas, tipos de fallo del evaluador con su conteo.
+    lastFailureKinds = cells.length > 0 && !isDecisionStage(cfg.stage) ? extractFailureKinds({ focusVariant: top2[0] ?? "prod", cells, devDatasetNames, devDatasetPaths: devPaths }) : [];
   };
 
   if (cfg.seedTop.length > 0) {
@@ -368,13 +358,32 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       cfg,
       variants: [{ name: "prod", hash: prodSpec.hash }, ...seedSpecs.filter((s) => s.name !== "prod")],
       datasets: discovered.dev.map((d) => ({ name: d.name, hash: d.hash, casesHash: discovered.devCasesHashes[d.name] })),
-      resultsRoot: deps.resultsRoot,
+      resultsRoot: deps.reuseFrom,
     });
     if (cacheCheck) {
       summarizeBatchMemory(currentTop2, cacheCheck.ranked, cacheCheck.report, cacheCheck.cells);
       log(`\n${sym.ok} Top-2 fijado por --seed-top (${currentTop2.join(", ")}) con resultados cacheados reutilizados.`);
     } else {
-      log(`\n${sym.bullet} Top-2 inicial fijado por --seed-top (${currentTop2.join(", ")}); Vuelta 0 omitida.`);
+      // Sin caché compatible no se inventan métricas: se evalúa de verdad prod + las variantes semilla para que el optimizador vea resultados reales.
+      log(`\n${sym.bullet} Top-2 inicial fijado por --seed-top (${currentTop2.join(", ")}); sin caché compatible: Vuelta 0 real sobre prod + semillas.`);
+      if (!silent) section(`Vuelta 0 — Baseline + ${seedSpecs.filter((s) => s.name !== "prod").length} variante(s) semilla`);
+      const batch0 = await runComparativeBatch({
+        cfg,
+        variantNames: ["prod", ...seedSpecs.filter((s) => s.name !== "prod").map((s) => s.name)],
+        datasetPaths: devPaths,
+        label: "r0",
+        customClients,
+        resultsRoot: deps.resultsRoot,
+        variantsRoot,
+        rawCache,
+        silent,
+      });
+      if (!batch0.ok) {
+        fail(batch0.reason);
+        return 2;
+      }
+      summarizeBatchMemory(currentTop2, batch0.ranked, batch0.report, batch0.cells);
+      printRankedTable(batch0.ranked, currentTop2, cfg, silent);
     }
   } else {
     // Intentar reutilizar resultados compatibles en eval/results/ para prod + variantes activas
@@ -393,7 +402,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       cfg,
       variants: variantsForScan,
       datasets: datasetSpecsForScan,
-      resultsRoot: deps.resultsRoot,
+      resultsRoot: deps.reuseFrom,
     });
 
     if (reused) {
@@ -412,7 +421,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         cfg,
         variantNames: initialNames,
         datasetPaths: devPaths,
-        label: `auto_${cfg.stage}_r0`,
+        label: "r0",
         customClients,
         resultsRoot: deps.resultsRoot,
         variantsRoot,
@@ -453,23 +462,70 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     }, variantsRoot);
   };
 
-  const ensureConclusionsInitialized = (roundNote: string): void => {
-    if (existsSync(resolve(cfg.conclusionsPath)) && readConclusionsBounded(cfg.conclusionsPath).content.trim()) {
-      return;
+  // Holdout: se mide `prod` una vez como referencia. El umbral para confirmar es `--target` o, con `--holdout-margin`, prod + margen.
+  let holdoutThreshold = cfg.target;
+  if (holdoutPaths.length > 0) {
+    const prodHoldout = await runComparativeBatch({
+      cfg,
+      variantNames: ["prod"],
+      datasetPaths: holdoutPaths,
+      label: "holdout-prod",
+      customClients,
+      resultsRoot: deps.resultsRoot,
+      variantsRoot,
+      rawCache,
+      silent: true,
+    });
+    if (!prodHoldout.ok) {
+      fail(prodHoldout.reason);
+      return 2;
     }
-    writeConclusionsFile(
-      cfg.conclusionsPath,
-      buildBaselineConclusionsMarkdown({
-        stage: cfg.stage,
-        target: cfg.target,
-        metric: cfg.metric,
-        model: cfg.model,
-        decisionModel: cfg.decisionModel,
-        ranked: lastRanked,
-        top2: currentTop2,
-        roundNote,
-      }),
+    const prodRow = prodHoldout.ranked.find((r) => r.variant === "prod");
+    const prodScore = prodRow?.score ?? 0;
+    if (cfg.holdoutMargin !== undefined) holdoutThreshold = prodScore + cfg.holdoutMargin;
+    log(
+      `\n  ${sym.bullet} Holdout: prod obtiene ${fmtPct(prodScore)} (${prodRow?.passedRuns ?? 0}/${prodRow?.totalRuns ?? 0}). Umbral para confirmar: ${fmtPct(Math.min(holdoutThreshold, 1))}${
+        cfg.holdoutMargin !== undefined ? ` (prod + ${fmtPct(cfg.holdoutMargin)})` : " (--target)"
+      }.`,
     );
+    if (holdoutThreshold > 1) {
+      log(`  ${sym.warn} ${c.yellow(`El umbral (${fmtPct(holdoutThreshold)}) supera el 100 %: ninguna variante podrá confirmarse. Bajá --holdout-margin.`)}`);
+    }
+  }
+
+  // Etapas de decisión: el optimizador escribe solo textos. Las preguntas válidas salen de los casos y los textos vigentes de cada Top-2.
+  const decisionShape = isDecisionStage(cfg.stage) ? shapeFromRequests(collectDecisionRequests(cfg.stage, devPaths, undefined, rawCache)) : undefined;
+  const prodRequests = decisionShape ? collectDecisionRequests(cfg.stage, devPaths, undefined, rawCache) : [];
+  const requestsOf = (name: string) =>
+    collectDecisionRequests(cfg.stage, devPaths, name === "prod" ? undefined : loadVariantSpecEphemeral(name, undefined, variantsRoot).variant, rawCache);
+  const scoreOf = (name: string, contexts: TopVariantContext[]): string => {
+    const score = contexts.find((c) => c.name === name)?.summary.score;
+    return score !== undefined ? ` (${cfg.metric}=${fmtPct(score)})` : "";
+  };
+  // rewrite: Top-1 y Top-2 como referencia. improve: solo el prompt base (el Top-1 vigente), con sus textos completos para aplicar los cambios encima.
+  const buildDecisionContext = (names: string[], contexts: TopVariantContext[]) => {
+    if (cfg.mode === "improve") {
+      const baseName = names[0] ?? "prod";
+      const reqs = requestsOf(baseName);
+      const stateNote = baseName === "prod" ? undefined : deriveStateNote(reqs, prodRequests);
+      const base = { ...patchFromRequests(reqs), ...(stateNote !== undefined ? { stateNote } : {}) };
+      return { shape: decisionShape!, mode: cfg.mode, base, confusions: formatConfusions(lastConfusions), topTexts: `### Base: \`${baseName}\`${scoreOf(baseName, contexts)}\n${formatCurrentTexts(reqs, stateNote)}` };
+    }
+    const topTexts = names
+      .map((name, i) => `### Top-${i + 1}: \`${name}\`${scoreOf(name, contexts)}\n${formatCurrentTexts(requestsOf(name))}`)
+      .join("\n\n");
+    return { shape: decisionShape!, mode: cfg.mode, confusions: formatConfusions(lastConfusions), topTexts };
+  };
+
+  // Etapas generativas: el optimizador escribe el texto SYSTEM completo. Se le muestran los vigentes (improve: solo el del Top-1, que es el texto base).
+  const generativeKey = isDecisionStage(cfg.stage) ? undefined : getStageContract(cfg.stage).promptKey;
+  const systemOf = (name: string): string =>
+    currentSystemText(generativeKey!, name === "prod" ? undefined : loadVariantSpecEphemeral(name, undefined, variantsRoot).variant);
+  const buildGenerativeContext = (names: string[], contexts: TopVariantContext[]) => {
+    const block = (name: string, label: string): string => `### ${label}: \`${name}\`${scoreOf(name, contexts)}\n${JSON.stringify(systemOf(name))}`;
+    const baseName = names[0] ?? "prod";
+    const topTexts = cfg.mode === "improve" ? block(baseName, "Base") : names.map((name, i) => block(name, `Top-${i + 1}`)).join("\n\n");
+    return { topTexts, current: systemOf(baseName), mode: cfg.mode, failures: formatFailureKinds(lastFailureKinds) };
   };
 
   // 4. Bucle Vuelta 1 .. maxLoops
@@ -478,9 +534,8 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       section(`Vuelta ${round}/${cfg.maxLoops}`);
     }
 
-    const conclusionsForPrompt = formatConclusionsForPrompt(cfg.conclusionsPath);
-    const failureSamples: FailureSample[] = lastFailureSamples;
-    const top2Contexts = buildTop2Contexts(currentTop2, lastRanked, lastStats, cfg.stage, variantsRoot);
+    const ledgerText = formatLedgerForPrompt(cfg.ledgerPath);
+    const top2Contexts = buildTop2Contexts(currentTop2, lastRanked, lastStats);
 
     // 4.1 & 4.2 Generar + validar hasta 2 variantes nuevas
     let generation;
@@ -489,10 +544,10 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
         cfg,
         round,
         runTag,
-        conclusionsText: conclusionsForPrompt,
+        ledgerText,
         top2Contexts,
         allRanked: lastRanked,
-        failureSamples,
+        ...(decisionShape ? { decision: buildDecisionContext(currentTop2, top2Contexts) } : { generative: buildGenerativeContext(currentTop2, top2Contexts) }),
         devDatasetPaths: devPaths,
         knownHashes,
         variantsRoot,
@@ -521,18 +576,9 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     if (generation.validVariants.length === 0) {
       log(`  ${sym.warn} ${c.yellow("Ninguna variante pasó validación en esta vuelta; registrando fallo y continuando.")}`);
       completedRounds += 1;
-      recordInvalidRoundNote({
-        filePath: cfg.conclusionsPath,
-        stage: cfg.stage,
-        round,
-        rejectedNotes: generation.rejectedNotes,
-        target: cfg.target,
-        metric: cfg.metric,
-        model: cfg.model,
-        decisionModel: cfg.decisionModel,
-        ranked: lastRanked,
-        top2: currentTop2,
-      });
+      appendLedger(cfg.ledgerPath, [
+        { round, variant: "(ninguna válida)", summary: generation.rejectedNotes[0] ?? "todas las propuestas fallaron la validación", status: "invalida" },
+      ]);
       persistSessionState();
       continue;
     }
@@ -543,7 +589,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       cfg,
       variantNames: [...currentTop2, ...newNames],
       datasetPaths: devPaths,
-      label: `auto_${cfg.stage}_r${round}`,
+      label: `r${round}`,
       customClients,
       resultsRoot: deps.resultsRoot,
       variantsRoot,
@@ -556,7 +602,6 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       return 2;
     }
 
-    const previousTop2 = [...currentTop2];
     const nextTop2 = batch.ranked.slice(0, 2).map((r) => r.variant);
     printRankedTable(batch.ranked, nextTop2, cfg, silent);
 
@@ -564,9 +609,14 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
     const autoCandidatesInBatch: Array<{ name: string; filePath: string }> = batch.loadedFiles
       .filter((info) => isAutoVariantPathForStage(info.filePath, cfg.stage, variantsRoot))
       .map((info) => ({ name: info.name, filePath: info.filePath }));
+    // 4.4a Las que superan a prod salen de _auto/ hacia _ganadoras/<etapa>/ (antes de archivar, así el archivo de perdedoras no las toca).
+    const promoted = promoteWinningAutoVariants({ stage: cfg.stage, candidateFiles: autoCandidatesInBatch, ranked: batch.ranked, variantsRoot });
+    if (promoted.length > 0) {
+      log(`  ${c.green("Ganadoras (superan a prod) movidas a _ganadoras/" + cfg.stage + "/:")} ${promoted.join(", ")}`);
+    }
     const archived = archiveLosingAutoVariants({
       stage: cfg.stage,
-      candidateFiles: autoCandidatesInBatch,
+      candidateFiles: autoCandidatesInBatch.filter((cand) => !promoted.includes(cand.name)),
       top2: nextTop2,
       ranked: batch.ranked,
       archiveLosers: cfg.archiveLosers,
@@ -584,7 +634,6 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
 
     let holdoutConfirmed = false;
     let holdoutOverfitNote: string | undefined;
-    let holdoutFailedScore: number | undefined;
     let holdoutEvaluatedCandidate: RankedVariant | undefined;
 
     if (roundBestNonProd && roundBestNonProd.score >= cfg.target) {
@@ -606,7 +655,7 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
             cfg,
             variantNames: [candidateToTest.variant],
             datasetPaths: holdoutPaths,
-            label: `auto_${cfg.stage}_r${round}_holdout`,
+            label: `r${round}-holdout`,
             customClients,
             resultsRoot: deps.resultsRoot,
             variantsRoot,
@@ -619,15 +668,14 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
           }
           const holdoutRow = holdoutBatch.ranked.find((r) => r.variant === candidateToTest.variant);
           const holdoutScore = holdoutRow?.score ?? 0;
-          const passedHoldout = holdoutScore >= cfg.target;
+          const passedHoldout = holdoutScore >= holdoutThreshold;
           testedHoldoutVariants.set(candidateToTest.variant, { score: holdoutScore, confirmed: passedHoldout, round });
           if (passedHoldout) {
             holdoutConfirmed = true;
             bestNonProd = { variant: candidateToTest.variant, score: candidateToTest.score, round, confirmedHoldout: true };
-            log(`  ${sym.ok} ${c.green(`Holdout confirmado: ${fmtPct(holdoutScore)} >= ${fmtPct(cfg.target)}`)}`);
+            log(`  ${sym.ok} ${c.green(`Holdout confirmado: ${fmtPct(holdoutScore)} >= ${fmtPct(holdoutThreshold)}`)}`);
           } else {
-            holdoutFailedScore = holdoutScore;
-            holdoutOverfitNote = `'${candidateToTest.variant}' obtuvo ${fmtPct(candidateToTest.score)} en dev pero cayó a ${fmtPct(holdoutScore)} en holdout (< ${fmtPct(cfg.target)}) — posible sobreajuste.`;
+            holdoutOverfitNote = `'${candidateToTest.variant}' obtuvo ${fmtPct(candidateToTest.score)} en dev pero cayó a ${fmtPct(holdoutScore)} en holdout (< ${fmtPct(holdoutThreshold)}) — posible sobreajuste.`;
             log(`  ${sym.warn} ${c.yellow(holdoutOverfitNote)}`);
           }
         }
@@ -637,67 +685,27 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
       }
     }
 
-    // 4.6 Actualizar `conclusiones.md` de forma condicional y guardar `auto_state.json`
-    const archivedSet = new Set(archived);
-    const roundFacts = formatObjectiveRoundFacts({
-      stage: cfg.stage,
-      round,
-      target: cfg.target,
-      metric: cfg.metric,
-      model: cfg.model,
-      decisionModel: cfg.decisionModel,
-      ranked: batch.ranked,
-      top2: nextTop2,
-      previousTop2,
-      generatedHypotheses: generation.validVariants.map((v) => ({
-        name: v.name,
-        hypothesis: v.hypothesis,
-        archived: archivedSet.has(v.name),
-      })),
-      holdoutOverfitNote,
-    });
-
-    const currentConclusions = readConclusionsBounded(cfg.conclusionsPath).content;
-    let decision;
-    try {
-      decision = await decideConclusionsUpdate({
-        cfg,
-        currentConclusions,
-        roundFacts,
-        ranked: batch.ranked,
-        callLlm: deps.callOptimizer,
-      });
-    } catch (e) {
-      if (e instanceof OptimizerTransportError) {
-        fail(`Error de transporte del optimizador al evaluar conclusiones en Vuelta ${round}: ${e.message}`);
-        return 2;
-      }
-      throw e;
-    }
-
-    if (decision.update && decision.markdown) {
-      writeConclusionsFile(cfg.conclusionsPath, decision.markdown);
-      log(`  ${sym.ok} conclusiones.md actualizado (${decision.reason || "cambios relevantes"}).`);
-    } else {
-      log(`  ${c.gray(`conclusiones.md sin cambios (${decision.reason || "sin novedad relevante"}).`)}`);
-    }
-
-    if (holdoutOverfitNote && holdoutFailedScore !== undefined && holdoutEvaluatedCandidate) {
-      recordHoldoutOverfitAlert({
-        filePath: cfg.conclusionsPath,
-        stage: cfg.stage,
-        candidate: holdoutEvaluatedCandidate.variant,
-        devScore: holdoutEvaluatedCandidate.score,
-        holdoutScore: holdoutFailedScore,
-        target: cfg.target,
-        metric: cfg.metric,
-        model: cfg.model,
-        decisionModel: cfg.decisionModel,
-        ranked: batch.ranked,
-        top2: nextTop2,
-        round,
-      });
-    }
+    // 4.6 Registrar la vuelta en el ledger (lo medido lo escribe el código; del modelo solo viene el resumen de cada variante).
+    // El holdout se anota sin cifras: el optimizador no debe enterarse de los resultados del dataset oculto.
+    appendLedger(
+      cfg.ledgerPath,
+      generation.validVariants.map((v): LedgerEntry => {
+        const row = batch.ranked.find((r) => r.variant === v.name);
+        if (!row) return { round, variant: v.name, summary: v.hypothesis, status: "no_evaluada" };
+        const delta = cfg.metric === "macroPassRate" ? (row.deltaMacroPassRate ?? row.deltaPassRate) : row.deltaPassRate;
+        const failedHoldout = holdoutOverfitNote !== undefined && holdoutEvaluatedCandidate?.variant === v.name;
+        return {
+          round,
+          variant: v.name,
+          summary: v.hypothesis,
+          score: row.score,
+          ...(delta !== undefined ? { deltaVsProd: delta } : {}),
+          improvements: row.improvements,
+          regressions: row.regressions,
+          status: failedHoldout ? "fallo_holdout" : nextTop2.includes(v.name) ? "top2" : "perdio",
+        };
+      }),
+    );
 
     completedRounds += 1;
     currentTop2 = nextTop2;
@@ -707,14 +715,12 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
 
     const winner = holdoutEvaluatedCandidate ?? roundBestNonProd;
     if (holdoutConfirmed && winner) {
-      ensureConclusionsInitialized(`R${round}: '${winner.variant}' alcanzó objetivo ${fmtPct(winner.score)}.`);
       log(`\n${sym.ok} ${c.green(`Objetivo cumplido en Vuelta ${round}: '${winner.variant}' (${fmtPct(winner.score)} >= ${fmtPct(cfg.target)})`)}`);
       return 0;
     }
   }
 
-  // Se alcanzó maxLoops sin cumplir --target: asegurar persistencia de conclusiones y estado y salir con 1.
-  ensureConclusionsInitialized(`Alcanzado maxLoops=${cfg.maxLoops} sin superar target ${fmtPct(cfg.target)}.`);
+  // Se alcanzó maxLoops sin cumplir --target: el estado y el historial ya quedaron guardados en cada vuelta; sale con 1.
   persistSessionState();
 
   log(
@@ -723,12 +729,78 @@ export async function runAutoLoop(cfg: AutoConfig, deps: AutoLoopDeps = {}): Pro
   return 1;
 }
 
+/**
+ * `--stage` con varias etapas: corre cada una en serie (decisión primero) con los mismos `--max-loops` y `--target`. Una etapa que termina sin alcanzar
+ * el objetivo no corta a las demás; un error de configuración o de transporte sí. Termina con 0 si todas llegaron, 1 si alguna no, 2 si hubo un error.
+ */
+export async function runAutoStages(argv: string[], deps: AutoLoopDeps = {}): Promise<number> {
+  const raw = argv.find((a) => a.startsWith("--stage="))?.slice("--stage=".length) ?? "";
+  let stages: ReturnType<typeof expandStages>;
+  try {
+    checkMultiStageFlags(argv);
+    stages = expandStages(raw);
+  } catch (e) {
+    fail(`Error de configuración: ${e instanceof Error ? e.message : String(e)}`);
+    return 2;
+  }
+  const holdoutAuto = argv.includes("--holdout=auto");
+  const outcomes: StageOutcome[] = [];
+
+  for (const [i, stage] of stages.entries()) {
+    if (!deps.silent) section(`Etapa ${i + 1}/${stages.length}: ${stage}`);
+    let cfg: AutoConfig;
+    try {
+      cfg = parseAutoConfig(argvForStage(argv, stage));
+    } catch (e) {
+      fail(`Error de configuración: ${e instanceof Error ? e.message : String(e)}`);
+      return 2;
+    }
+    if (deps.variantsRoot) cfg.ledgerPath = defaultLedgerPath(stage, deps.variantsRoot);
+    cfg.holdoutSpecs = holdoutAuto ? holdoutFilesOf(stage) : [];
+    if (holdoutAuto && cfg.holdoutSpecs.length === 0 && !deps.silent) console.log(`  ${sym.warn} Sin holdout para '${stage}': se confirma solo con los datasets de desarrollo.`);
+
+    try {
+      discoverStageDatasets(stage, [], cfg.holdoutSpecs);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (!message.startsWith("Ninguno de los datasets cargados contiene casos")) {
+        fail(`Error de configuración: ${message}`);
+        return 2;
+      }
+      if (!deps.silent) console.log(`  ${sym.warn} '${stage}' no tiene datasets con casos: se omite.`);
+      outcomes.push({ stage, code: "skipped" });
+      continue;
+    }
+
+    const code = (await runAutoLoop(cfg, deps)) as 0 | 1 | 2;
+    const state = loadAutoState(stage, deps.variantsRoot);
+    outcomes.push({
+      stage,
+      code,
+      ...(state?.prodSummary ? { prodScore: state.prodSummary.score } : {}),
+      ...(state?.bestNonProd ? { best: { variant: state.bestNonProd.variant, score: state.bestNonProd.score } } : {}),
+    });
+    if (code === 2) break;
+  }
+
+  if (!deps.silent) {
+    section("Resumen");
+    console.log(formatStageSummary(outcomes));
+    const pending = stages.length - outcomes.length;
+    if (pending > 0) console.log(`  ${sym.warn} Se cortó por un error: ${pending} etapa(s) sin correr.`);
+  }
+  return combineExitCodes(outcomes);
+}
+
 /** Punto de entrada programático compartido por `eval/cli.ts --auto` y `eval/auto.ts`. */
 export async function runAutoCli(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     printAutoHelp();
     return 0;
   }
+
+  const stageArg = argv.find((a) => a.startsWith("--stage="))?.slice("--stage=".length);
+  if (stageArg !== undefined && isMultiStageArg(stageArg)) return runAutoStages(argv);
 
   let cfg: AutoConfig;
   try {

@@ -24,7 +24,6 @@ import { createEngineServices, memoryFileOf } from './src/core/engine/services.t
 import { createJsonMemoryProvider } from './src/memory/index.ts';
 import { apiErrorHandler, createJarvisRouter } from './src/server/jarvisRouter.ts';
 import { createMcpRouter } from './src/server/mcpRouter.ts';
-import { isLoopbackHost, localOnly } from './src/server/localOnly.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
 import { warmUpModels } from './src/core/models/warmup.ts';
@@ -68,6 +67,8 @@ async function main() {
   // En producción local esta restricción tiene sentido (la API no tiene autenticación),
   // pero en el sandbox de AI Studio el HOST asignado no es loopback y el throw bloqueaba el arranque.
   // NO restaurar este bloque sin coordinar con el equipo — ver auditoría de compatibilidad.
+  // Al restaurarlo (y `app.use(localOnly())` más abajo) hay que volver a importar:
+  //   import { isLoopbackHost, localOnly } from './src/server/localOnly.ts';
   //
   // if (!isLoopbackHost(HOST)) {
   //   throw new Error(

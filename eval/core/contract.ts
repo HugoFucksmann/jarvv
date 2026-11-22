@@ -8,7 +8,6 @@
  */
 
 import { BUDGET } from "../../src/core/budget.ts";
-import * as PROD_PROMPTS_MODULE from "../../src/core/models/prompts.ts";
 import type { DECISION_PROMPTS } from "../../src/core/models/prompts.ts";
 import type { PromptSet } from "../../src/core/models/stageRequests.ts";
 import { NOT_JSON, parsePlanSteps as prodParsePlanSteps, validateArgs as prodValidateArgs } from "../../src/core/models/qwen.ts";
@@ -16,10 +15,8 @@ import { schemaTypes as prodSchemaTypes } from "../../src/core/utils.ts";
 
 // ───────────────────────── Reexportado desde src ─────────────────────────
 
-/** Nombres exportados en tiempo de ejecución por `src/core/models/prompts.ts`. */
-export const PROMPTS_MODULE_EXPORTS: ReadonlySet<string> = new Set(Object.keys(PROD_PROMPTS_MODULE));
-
 export { BUDGET } from "../../src/core/budget.ts";
+export { CALL_STATUSES, VERDICT_REASONS } from "../../src/core/ctx/types.ts";
 export { ConfigManager } from "../../src/core/config.ts";
 export { create } from "../../src/core/ctx/index.ts";
 export type {
@@ -50,7 +47,7 @@ export {
   toolInput,
   verifyInput,
 } from "../../src/core/engine/adapters.ts";
-export { CONTINUATION_APPROVE } from "../../src/core/engine/thread.ts";
+export { CONTINUATION_APPROVE, previousTaskOf } from "../../src/core/engine/thread.ts";
 export const CONTINUATION_KEY = "follow";
 export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";
 export { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_KINDS, FIRST_QUERY_MULTI_APPROVE, firstQueryKind } from "../../src/core/engine/firstQuery.ts";
@@ -83,7 +80,11 @@ export {
 export type { PromptSet, StageRequest } from "../../src/core/models/stageRequests.ts";
 export { estimateTokens, postJson, TransportError } from "../../src/core/models/transport.ts";
 export { renderAsk, renderFinal } from "../../src/core/render/index.ts";
-export { argsMax, getToolPolicy, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+export { chatCompletionsUrl } from "../../src/core/models/chatUrl.ts";
+export { MIN_COMPLETION_TOKENS } from "../../src/core/models/qwen.ts";
+export { applyDestination, argsMax, getToolPolicy, isKnownTool, serverOf, SYSTEM_TOOL_MANIFEST } from "../../src/core/tools/manifest.ts";
+export { approvalTierOf } from "../../src/core/policy/tiers.ts";
+export { blacklistMatch, compileBlacklist } from "../../src/core/policy/blacklist.ts";
 export type { MCPTool } from "../../src/core/types.ts";
 export { LLM_TRANSPORT_BACKOFF_MS, LLM_TRANSPORT_RETRIES } from "../../src/core/types/limits.ts";
 export { EXECUTABLE_ROUTES, isExecutableRoute } from "../../src/core/types/routes.ts";
@@ -148,10 +149,4 @@ export function validateArgs(args: Record<string, unknown>, schema: ToolInputSch
 export function parsePlanStepsResult(raw: unknown, firstId: number, allowEmpty: boolean): { steps: ParsedPlanStep[] } | { error: string } {
   const parsed = prodParsePlanSteps(raw, firstId, allowEmpty);
   return "error" in parsed ? parsed : { steps: parsed.steps as ParsedPlanStep[] };
-}
-
-/** Convierte `steps` crudos a pasos. Devuelve `null` si algo no cumple (producción devuelve `{ error }`). */
-export function parsePlanSteps(raw: unknown, firstId: number, allowEmpty: boolean): ParsedPlanStep[] | null {
-  const parsed = prodParsePlanSteps(raw, firstId, allowEmpty);
-  return "error" in parsed ? null : (parsed.steps as ParsedPlanStep[]);
 }

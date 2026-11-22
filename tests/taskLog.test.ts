@@ -239,7 +239,7 @@ test("listTaskLogFiles solo ve los archivos con el nombre de Jarvis, en orden de
 });
 
 test("la carpeta del log sale de la carpeta padre de refsDir, igual que memory.json", () => {
-  const dir = tasksDirFromConfig({ refsDir: path.join("datos", "refs"), tracePath: "x" } as never);
+  const dir = tasksDirFromConfig({ refsDir: path.join("datos", "refs"), traceDir: "x" } as never);
   assert.equal(dir, path.join(path.resolve("datos"), "tasks"));
   assert.equal(taskLogPath(dir, ID), path.join(dir, `${ID}.jsonl`));
 });

@@ -244,11 +244,18 @@ function parseRawDatasetFile(path: string): RawDatasetFile {
 export function countDatasetStages(path: string): { total: number; byStage: Array<[string, number]> } {
   const by = new Map<string, number>();
   let total = 0;
+  let lineNo = 0;
   forEachJsonlLineSync(path, (line) => {
+    lineNo++;
     const trimmed = line.trim();
     if (trimmed === "" || trimmed.startsWith("#")) return;
-    const obj = JSON.parse(trimmed) as { stage?: unknown };
-    if (typeof obj.stage !== "string") throw new Error("stage inválido");
+    let obj: { stage?: unknown };
+    try {
+      obj = JSON.parse(trimmed) as { stage?: unknown };
+    } catch (e) {
+      throw new Error(`${path}:${lineNo}: JSON inválido (${e instanceof Error ? e.message : String(e)})`);
+    }
+    if (typeof obj.stage !== "string") throw new Error(`${path}:${lineNo}: stage inválido`);
     total++;
     by.set(obj.stage, (by.get(obj.stage) ?? 0) + 1);
   });
@@ -290,7 +297,6 @@ function loadFile(
     if (stageSet && !stageSet.has(rawStage)) continue;
     if (tagSet && !rawTags.some((t) => tagSet.has(t))) continue;
     if (idSet && (rawId === undefined || !idSet.has(rawId))) continue;
-    if (filters.limit !== undefined && cases.length >= filters.limit) continue;
 
     let parsed: unknown;
     try {
@@ -301,7 +307,9 @@ function loadFile(
         request: m.request,
         ...(m.toolSchema
           ? { meta: { ...meta, toolSchema: m.toolSchema, toolName: m.toolName, environment: m.environment, precheck: m.precheck } }
-          : {}),
+          : m.reviewStrict !== undefined
+            ? { meta: { ...meta, reviewStrict: m.reviewStrict } }
+            : {}),
       };
     } catch (e) {
       errors.push(`${path}:${lineNo}: scenario: ${e instanceof Error ? e.message : String(e)}`);
@@ -323,19 +331,11 @@ function loadFile(
       idLines.set(v.case.id, lineNo);
       knownIds?.add(v.case.id);
     }
-    cases.push(v.case);
+    // `--limit` recorta el resultado, no la validación: un caso roto más allá del límite también se informa.
+    if (filters.limit === undefined || cases.length < filters.limit) cases.push(v.case);
   }
 
   return { name: datasetName(path), path, hash: raw.hash, cases };
-}
-
-export function filterCases(cases: Case[], f: CaseFilters): Case[] {
-  let out = cases;
-  if (f.stages && f.stages.length > 0) out = out.filter((c) => f.stages!.includes(c.stage));
-  if (f.tags && f.tags.length > 0) out = out.filter((c) => (c.tags ?? []).some((t) => f.tags!.includes(t)));
-  if (f.ids && f.ids.length > 0) out = out.filter((c) => f.ids!.includes(c.id));
-  if (f.limit !== undefined) out = out.slice(0, f.limit);
-  return out;
 }
 
 /**

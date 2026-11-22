@@ -6,7 +6,7 @@
  */
 
 import type { Grader, PendingExpect, PendingOutput } from "../types.ts";
-import { containsTerm } from "./common.ts";
+import { containsTerm, findInternalLeak } from "./common.ts";
 
 export const PendingGrader: Grader<PendingOutput, PendingExpect> = {
   name: "pending",
@@ -36,6 +36,10 @@ export const PendingGrader: Grader<PendingOutput, PendingExpect> = {
         `La lista tiene ${list.length} pendientes, más que el máximo (${expect.maxItems}).`,
       );
     }
+
+    // El prompt pide ítems en lenguaje natural, sin nombres de herramientas: vale en todos los casos.
+    const leaked = list.map(findInternalLeak).find((l) => l !== undefined);
+    col.check("no_internal_terms", leaked === undefined, `Un pendiente nombra un término interno (herramienta, estado o id): '${leaked}'`);
 
     const first = list[0] ?? "";
     (expect.requiredKeywordsInFirst ?? []).forEach((kw, i) => {

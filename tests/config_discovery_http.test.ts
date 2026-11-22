@@ -156,7 +156,7 @@ test("DiscoveryEngine: caché, servidores caídos con stale cache, forceRefresh,
 
 test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /tts y /:server/*", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-http2-"));
-  const tracePath = path.join(dir, "traces.jsonl");
+  const traceDir = path.join(dir, "traces");
   const vault = createRefVault({ dir: path.join(dir, "refs") });
 
   let calledReadTool = false;
@@ -176,7 +176,7 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
     reconnect: async () => undefined,
   };
   const discovery = new DiscoveryEngine([fakeServer]);
-  const getConfig = (): JarvisConfig => ({ traceEnabled: true, tracePath, qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
+  const getConfig = (): JarvisConfig => ({ traceEnabled: true, traceDir, qwenModel: "q", decisionModel: "d", autoMode: false }) as JarvisConfig;
   const deps: Omit<EngineDeps, "vault" | "guardScope" | "blacklist" | "environment" | "autoMode"> = {
     discovery,
     decision: {
@@ -217,9 +217,9 @@ test("HTTP jarvisRouter & mcpRouter: /tasks/:id, /refs/:refId, /trace, /state, /
     await tasks.drain(3000);
 
     // Traza escrita por drain legible desde readTraceFile
-    assert.ok(readTraceFile(tracePath, started.task.id, "summary"));
-    assert.ok(readTraceFile(tracePath, started.task.id, "json"));
-    assert.equal(readTraceFile(tracePath, "no_existe", "summary"), null);
+    assert.ok(readTraceFile(traceDir, started.task.id, "summary"));
+    assert.ok(readTraceFile(traceDir, started.task.id, "json"));
+    assert.equal(readTraceFile(traceDir, "no_existe", "summary"), null);
 
     // /tasks/:id y /state
     assert.equal((await fetch(`${base}/api/jarvis/tasks/no_existe`)).status, 404);

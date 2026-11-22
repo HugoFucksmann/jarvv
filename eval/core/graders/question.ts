@@ -5,19 +5,7 @@
  */
 
 import type { Grader, QuestionExpect, QuestionOutput } from "../types.ts";
-import { containsTerm } from "./common.ts";
-
-/**
- * Fugas de identificadores internos: ids de producción (c1, s2, r3), nombres de herramientas
- * conocidos y cualquier identificador snake_case (read_file, write_file, start_process, ...).
- */
-const INTERNAL_LEAK_RE = /\b(?:[a-z]+_[a-z0-9_]+|[csr]\d+)\b/;
-
-/**
- * Nombres de archivo o ruta (`mi_archivo.txt`, `C:\\a\\b_c.ts`): no son identificadores internos, así que se
- * quitan antes de buscar fugas. Los ids de producción son minúsculas (c1, s2, r3): "S3" o "C1" no cuentan.
- */
-const FILE_LIKE_RE = /[\w./\\:~-]+\.[A-Za-z0-9]{1,5}\b/g;
+import { containsTerm, findInternalLeak } from "./common.ts";
 
 export const QuestionGrader: Grader<QuestionOutput, QuestionExpect> = {
   name: "question",
@@ -38,7 +26,8 @@ export const QuestionGrader: Grader<QuestionOutput, QuestionExpect> = {
       );
     }
 
-    if (expect.singleQuestionOnly) {
+    // El prompt pide UNA pregunta: vale en todos los casos salvo que el caso diga `singleQuestionOnly: false`.
+    if (expect.singleQuestionOnly !== false) {
       // Exactamente una pregunta: "Dime el nombre del archivo" (0 signos) ya no pasa.
       const qMarks = (q.match(/\?/g) || []).length;
       col.check(
@@ -50,13 +39,9 @@ export const QuestionGrader: Grader<QuestionOutput, QuestionExpect> = {
       );
     }
 
-    // Regla de producción: no debe filtrar nombres de herramientas internas ni identificadores (c1, s2, r3, MCPs)
-    const leaks = q.replace(FILE_LIKE_RE, " ").match(INTERNAL_LEAK_RE);
-    col.check(
-      "no_internal_leaks",
-      !leaks,
-      `La pregunta filtra identificadores o herramientas internas: '${leaks?.[0]}'`,
-    );
+    // Regla de producción: no debe filtrar nombres de herramientas, estados internos ni ids (c1, s2, r3).
+    const leak = findInternalLeak(q);
+    col.check("no_internal_leaks", leak === undefined, `La pregunta filtra un término interno: '${leak}'`);
 
     (expect.mustContainKeywords ?? []).forEach((kw, i) => {
       col.check(

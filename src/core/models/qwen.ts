@@ -13,6 +13,7 @@
  *   persiste tras el reintento, `LLMValidationError` y quien ejecuta decide.
  */
 
+import { chatCompletionsUrl } from "./chatUrl.ts";
 import { BUDGET } from "../budget.ts";
 import {
   EXECUTABLE_ROUTES,
@@ -274,7 +275,8 @@ const parseObjectOutput = (r: LlmDispatchResult): Validation<Record<string, unkn
   return parsed ? ok(parsed) : fail(NOT_JSON);
 };
 
-const MIN_COMPLETION_TOKENS = 256;
+/** Margen mínimo de tokens de salida: con menos, la consulta no se envía (`reserveCompletionTokens`). */
+export const MIN_COMPLETION_TOKENS = 256;
 
 interface DispatchOptions {
   stage: string;
@@ -350,20 +352,16 @@ export class QwenEngine implements EngineLLM {
   }
 
   private resolveUrl(raw: string): string {
-    const base = raw.trim().replace(/\/+$/, "");
-    if (!base) {
-      throw new LLMServiceUnavailableError("La URL de Qwen no está configurada. Configúrela en la barra de configuración.", undefined, undefined, false);
-    }
-    if (base.endsWith("/v1/chat/completions")) return base;
-    if (/\/(generate|api\/chat)$/.test(base)) {
-      throw new LLMServiceUnavailableError(
-        `La URL de Qwen debe ser la base del servidor o terminar en /v1/chat/completions (recibido: ${base}). Los endpoints /generate y /api/chat ya no se admiten.`,
-        undefined,
-        undefined,
-        false,
-      );
-    }
-    return base.endsWith("/v1") ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
+    const result = chatCompletionsUrl(raw);
+    if (result.ok) return result.url;
+    throw new LLMServiceUnavailableError(
+      result.reason === "empty"
+        ? "La URL de Qwen no está configurada. Configúrela en la barra de configuración."
+        : `La URL de Qwen debe ser la base del servidor o terminar en /v1/chat/completions (recibido: ${result.base}). Los endpoints /generate y /api/chat ya no se admiten.`,
+      undefined,
+      undefined,
+      false,
+    );
   }
 
   /**

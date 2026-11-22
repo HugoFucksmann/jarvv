@@ -20,6 +20,8 @@ export const questionStage: GenerativeStageEntry<QuestionOutput, QuestionExpect>
     atLeastOne: ["maxChars", "mustContainKeywords", "forbiddenKeywords", "singleQuestionOnly"],
     validate(expectObj, errs) {
       checkIntMin1(expectObj, ["maxChars"], errs);
+      // Que sea una sola pregunta y no filtre términos internos se mide siempre; lo que decide si pregunta lo correcto es lo que pide.
+      if (expectObj.mustContainKeywords === undefined) errs.push("expect.mustContainKeywords es obligatorio: sin él no se mide que la pregunta pida lo que falta.");
     },
   },
   graders: [LatencyGrader, NotTruncatedGrader, QuestionGrader],

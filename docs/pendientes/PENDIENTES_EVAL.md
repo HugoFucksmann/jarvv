@@ -90,7 +90,7 @@ Detalle en [`../evaluacion/INFORME_MEDICION_2026-11-17.md`](../evaluacion/INFORM
 - `src/core/engine/firstQuery.ts`: `FIRST_QUERY_CHAT_APPROVE = 0.7`, `firstQueryKind`.
 - `src/core/engine/classify.ts`: `classifyRequest`, `detectContinuation`.
 - `src/core/engine/runTask.ts`: enrutado por `first` y `follow.thread` .
-- `eval/datasets/pending/llm_pending_hard.jsonl` y `eval/variants/Pending/conclusiones_pending.md`.
+- `eval/datasets/pending/pending_v1.jsonl` y `eval/variants/pending/pending_v1.ts`.
 
 ---
 
@@ -118,7 +118,7 @@ B (barata y determinista) detrás de flag, y validar con datos reales antes de t
 `completionCoverageGuard` en `jarvis-config.json`: `completion.ts#uncoveredArtifacts` extrae los nombres de archivo del pedido (extensiones: txt, md, json, csv, ps1, py, js, ts, pdf, docx, xlsx, png, jpg, zip, html, css, log, xml, yml, ini, bat, cmd, exe, mp3, mp4…) y, si alguno no aparece (sin mayúsculas, sin separadores) en los argumentos ni en el resumen de ninguna llamada, `confirmCompletion` devuelve `false` sin consultar a D5. Tests: `uncoveredArtifacts` (`tests/hardening.test.ts`) y el flujo con el flag encendido y apagado (`tests/engine.test.ts`, «cierre: … guarda de cobertura …»).
 
 ### Qué medir tú
-Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y `d5_variedad` en `eval/`) y trazas reales: falsos cierres (tarea `completed` con partes sin hacer), cierres que pasan al LLM por la guarda (falsos bloqueos) y latencia media por tarea.
+Con el flag apagado y encendido, sobre la etapa formal `d5` (`eval/datasets/d5/d5_v1.jsonl`) y trazas reales: falsos cierres (tarea `completed` con partes sin hacer), cierres que pasan al LLM por la guarda (falsos bloqueos) y latencia media por tarea.
 
 ---
 
@@ -181,7 +181,7 @@ Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y 
 - **Restos fuera de `eval/`:** en `tests/eval_arguments.test.ts` quedan los casos `conRef` (no tocados; actualizar cuando se revise ese test).
 - **Datasets de `question/`:** 3 casos usaban el estado `refs_unresolved` (eliminado) y pasaron a `info_missing`; medir si la pregunta del modelo cambia con la otra frase de estado.
 - **Correr** los evals de `arguments` (el prompt ya no tiene `REFS`), `question/`, `d5`, memoria (`recalled`) y el resto del plan de medición (`docs/evaluacion/PLAN_DE_MEDICION.md`).
-- **Trazas reales:** sumar un script que convierta las carpetas de `jarvis-traces/` en escenarios.
+- **Trazas reales:** `npm run eval:traces` (`eval/traces.ts`) ya convierte `jarvis-traces/` en escenarios; quedan imprecisiones en la reconstrucción (EV-007 de `AUDITORIA_EVAL.md`).
 - Desalineaciones detalladas entre `eval/` y `src/`: [`../evaluacion/desalineaciones-eval.md`](../evaluacion/desalineaciones-eval.md). Plan operativo: [`../evaluacion/PLAN_DE_MEDICION.md`](../evaluacion/PLAN_DE_MEDICION.md).
 
 ## 7. Pruebas en otro entorno
@@ -192,3 +192,20 @@ Con el flag apagado y encendido, sobre la etapa formal `d5` (`d5_close_check` y 
 - `DecisionValidationError` lleva `raw` (`engine/capture.ts`): confirmarlo en una traza real.
 - `GET /tasks/:id/refs/:refId`: validarlo en Windows con una ref real generada en vivo.
 - Symlinks con `allowedDirectories`: el test se salta si el sistema no permite crearlos sin permisos (los junctions sí se prueban).
+
+---
+
+## Modo `--auto` y etapas generativas: lo que queda abierto (2026-11-22)
+
+El modo `--auto` corre de punta a punta en las 14 etapas (decisión: textos de instrucciones y opciones; generativas: texto `SYSTEM`). Lo que falta:
+
+1. **Plurales en las palabras clave de las generativas.** `containsTerm` busca palabra completa: `test` no coincide con «tests» ni `disco` con «discos». Es deliberado, pero produce falsos fallos del modelo (dos casos de `pending_v1`). Propuesta: aceptar `s`/`es` final. Decisión pendiente.
+2. **Pensamiento por defecto.** `--thinking=off` evalúa `plan` sin pensamiento aunque producción lo usa en esa etapa (y `final` según la configuración). Medir `plan` con `--thinking=prod` sigue aplazado por el tiempo por llamada.
+3. **Criterio de la caché de `--auto`.** Qué compara `scanReusableInitialRanking` (url, timeout, fecha) para reutilizar resultados: sin discutir.
+4. **Objetivo ya cumplido en la Vuelta 0.** Qué hace el bucle si una variante existente ya supera `--target` antes de generar nada: sin revisar.
+5. **Comparar optimizadores.** `qwen3.5:4b` contra `qwen3.5:9b` sin pensamiento: nunca se completó.
+6. **Repetibilidad.** Cada etapa se probó con una sola vuelta; una corrida buena no prueba que el método mejore de forma estable. Repetir `route` varias veces con holdout.
+7. **Datasets.** Las etapas de decisión y las generativas las están preparando agentes aparte (`INSTRUCCIONES_AGENTE_DATASETS*.md`). `--auto` junta todos los datasets de desarrollo de la etapa (cualquier `<etapa>_v*.jsonl` sin `_holdout`): si se agregan versiones con distinta dificultad, los puntajes se mezclan.
+8. **`args-v1-18`.** Exige `folder` pero la herramienta también admite `destination`; revisar con la contraprueba del encargo.
+9. **Artefactos de pruebas.** Las corridas de verificación dejaron variantes y registros en `eval/variants/_auto/<etapa>/` y resultados en `eval/results/` (361 MB). Las variantes y los `ledger.jsonl` entran en las corridas siguientes de la etapa. Todo queda en `eval/variants/_auto/`, `eval/variants/_ganadoras/` y `eval/results/auto/`; las variantes que superan a `prod` se mueven solas a `_ganadoras/<etapa>/`.
+10. **`export` innecesarios.** Unas 90 funciones y tipos de `eval/` están exportados pero solo se usan dentro de su archivo; es ruido, no un error.

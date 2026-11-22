@@ -67,7 +67,7 @@ test("runRetention: si refsDir apunta a una carpeta del usuario no borra nada qu
   folder(docs, "Fotos 2019", 900);
   folder(docs, "Facturas", 900);
   folder(docs, VIEJA, 900);
-  const config = (): JarvisConfig => ({ refsDir: docs, tracePath: path.join(root, "traces.jsonl"), retentionDays: 30 }) as JarvisConfig;
+  const config = (): JarvisConfig => ({ refsDir: docs, traceDir: path.join(root, "traces"), retentionDays: 30 }) as JarvisConfig;
 
   await runRetention(config, () => [], NOW);
   assert.deepEqual(fs.readdirSync(docs).sort(), ["Facturas", "Fotos 2019"]);
@@ -89,7 +89,7 @@ test("runRetention: aplica retentionDays a refs y trazas, protege las refs de ta
   ].map((e) => JSON.stringify(e));
   fs.writeFileSync(path.join(traces, "index.jsonl"), `${index.join("\n")}\nlínea ilegible\n`);
 
-  const config = (retentionDays: number) => (): JarvisConfig => ({ refsDir, tracePath: path.join(root, "traces.jsonl"), retentionDays }) as JarvisConfig;
+  const config = (retentionDays: number) => (): JarvisConfig => ({ refsDir, traceDir: path.join(root, "traces"), retentionDays }) as JarvisConfig;
 
   await runRetention(config(0), () => [], NOW);
   assert.equal(fs.readdirSync(refsDir).length, 3, "0 no borra nada");
@@ -103,8 +103,10 @@ test("runRetention: aplica retentionDays a refs y trazas, protege las refs de ta
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("pruneTraceIndex: sin index.jsonl no hace nada", async () => {
-  await pruneTraceIndex(path.join(os.tmpdir(), "no-existe-jarvis-xyz"));
+test("pruneTraceIndex: sin index.jsonl no hace nada ni crea archivos", async () => {
+  const missing = path.join(os.tmpdir(), "no-existe-jarvis-xyz");
+  await assert.doesNotReject(() => pruneTraceIndex(missing));
+  assert.equal(fs.existsSync(path.join(missing, "index.jsonl")), false);
 });
 
 // ───────────────────────── Logs de eventos de las tareas ─────────────────────────
@@ -129,7 +131,7 @@ function logFile(tasksDir: string, id: string, ageDays: number, options: { reado
 }
 
 const configWith = (root: string, extra: Partial<JarvisConfig>) => (): JarvisConfig =>
-  ({ refsDir: path.join(root, "data", "refs"), tracePath: path.join(root, "traces.jsonl"), retentionDays: 10, logRetentionDays: 30, retentionMaxMb: 0, ...extra }) as JarvisConfig;
+  ({ refsDir: path.join(root, "data", "refs"), traceDir: path.join(root, "traces"), retentionDays: 10, logRetentionDays: 30, retentionMaxMb: 0, ...extra }) as JarvisConfig;
 
 test("los logs se reconocen por el nombre que Jarvis les da: `<id de tarea>.jsonl`", () => {
   assert.ok(LOG_FILE.test(`${VIEJA}.jsonl`));

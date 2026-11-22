@@ -159,10 +159,26 @@ async function runOne(
     timestamp,
   };
 
-  if (isDecisionStage(stage)) {
-    return runDecision(task, cfg, decClient, dryRun, baseRecord);
+  try {
+    if (isDecisionStage(stage)) {
+      return await runDecision(task, cfg, decClient, dryRun, baseRecord);
+    }
+    return await runGenerative(task, cfg, genClient, dryRun, baseRecord, thinkingExp.thinking);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return makeRecord(baseRecord, {
+      rawInput: null,
+      rawOutput: "",
+      requestHash: "",
+      durationMs: 0,
+      model: isDecisionStage(stage) ? cfg.decisionModel : cfg.model,
+      passed: false,
+      errors: [`exception: ${message}`],
+      warnings: [],
+      metrics: { client_call_ok: false },
+      measurements: {},
+    });
   }
-  return runGenerative(task, cfg, genClient, dryRun, baseRecord, thinkingExp.thinking);
 }
 
 /**
@@ -271,7 +287,7 @@ async function runDecision(
   let parsed: unknown;
   let parseError: string | undefined;
   try {
-    parsed = entry.parseOutput(result.rawOutput, sentReq);
+    parsed = entry.parseOutput(result.rawOutput, sentReq, fc);
   } catch (e) {
     parseError = e instanceof Error ? e.message : String(e);
   }
@@ -385,7 +401,7 @@ async function runGenerative(
     const truncated = result.finishReason === "length";
     const error = entry.rejectTruncated
       ? (truncated ? TRUNCATED_ERROR : parseError)
-      : (parseError ?? (truncated && !isLast ? TRUNCATED_ERROR : undefined));
+      : (truncated && !isLast ? TRUNCATED_ERROR : parseError);
     if (!error || isLast) break;
     retryErrors.push(error);
     curReq = {

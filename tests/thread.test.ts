@@ -24,3 +24,11 @@ test("buildContinuation: una pregunta noul con la tarea anterior y el pedido nue
   assert.deepEqual(Object.keys(q.questions), ["follow"]);
   assert.equal(q.questions.follow.type, "noul");
 });
+
+test("previousTaskOf: un pedido más largo que el tope del hilo se recorta (si no, la tarea siguiente fallaba al validar el contexto)", async () => {
+  const { BUDGET } = await import("../src/core/budget.ts");
+  const huge = "p".repeat(BUDGET.threadValueMax + 500);
+  const prev = previousTaskOf(huge, "ok");
+  assert.equal(prev.request.length, BUDGET.threadValueMax);
+  assert.ok(prev.request.endsWith("…"));
+});

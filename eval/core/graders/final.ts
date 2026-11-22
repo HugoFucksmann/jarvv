@@ -5,7 +5,10 @@
  */
 
 import type { FinalExpect, FinalOutput, Grader } from "../types.ts";
-import { containsTerm } from "./common.ts";
+import { containsTerm, findInternalLeak } from "./common.ts";
+
+/** El prompt pide empezar directo con la respuesta, sin saludo. */
+const GREETING_RE = /^[\s¡!¿?"'«*_#>-]*(?:hola|buen(?:os|as)|hello|hi|hey|saludos|estimad[oa])\b/i;
 
 export const FinalResponseGrader: Grader<FinalOutput, FinalExpect> = {
   name: "final_response",
@@ -16,6 +19,11 @@ export const FinalResponseGrader: Grader<FinalOutput, FinalExpect> = {
     }
 
     const text = output.response;
+
+    // Reglas del prompt de producción que valen para toda respuesta final, con o sin `expect`.
+    const leak = findInternalLeak(text);
+    col.check("no_internal_leaks", leak === undefined, `La respuesta filtra un término interno (herramienta, estado o id): '${leak}'`);
+    col.check("no_greeting", !GREETING_RE.test(text), "La respuesta empieza con un saludo: debe empezar directo con la respuesta.");
 
     // Las claves llevan índice: dos textos con el mismo prefijo ya no se pisan.
     (expect.mustContainFacts ?? []).forEach((fact, i) => {

@@ -1,7 +1,7 @@
 /**
  * eval/psvalid.ts — De una corrida del eval con la etapa `arguments`, cuántos comandos generados son PowerShell válido.
  *
- * Uso: npm run eval:psvalid -- eval/results/<modelo>/<corrida>
+ * Uso: npm run eval:psvalid -- eval/results/evals/<modelo>/<corrida>
  *
  * Por cada `<variante>__<dataset>/runs.jsonl`, toma el `command` de cada salida y lo pasa por el analizador del pre-chequeo
  * (parser oficial de PowerShell y `Get-Command`): válido = sin errores de sintaxis y con todos los comandos existentes.
@@ -28,6 +28,10 @@ async function main(): Promise<void> {
   const dir = args[0];
   if (dir === undefined) throw new Error("Uso: npm run eval:psvalid -- <carpeta de la corrida>");
   if (!existsSync(dir)) throw new Error(`No existe la carpeta '${dir}'.`);
+  // Sin `powershell.exe` el analizador devuelve null para todo y el informe daría 0 % engañoso: se corta con un error claro.
+  if ((await analyzePowerShell("Get-Date")) === null) {
+    throw new Error("No se pudo ejecutar powershell.exe (analyzePowerShell devolvió null): eval:psvalid solo es válido donde exista powershell.exe.");
+  }
   const cache = new Map<string, boolean>();
   const valid = async (command: string): Promise<boolean> => {
     let v = cache.get(command);
@@ -48,12 +52,14 @@ async function main(): Promise<void> {
     let ok = 0;
     await forEachJsonlLineAsync(file, async (line) => {
       if (line.trim() === "") return;
-      let r: { stage: string; parsedOutput?: { args?: { command?: unknown } } };
+      let r: { stage: string; iteration?: number; bucket?: string; parsedOutput?: { args?: { command?: unknown } } };
       try {
-        r = JSON.parse(line) as { stage: string; parsedOutput?: { args?: { command?: unknown } } };
+        r = JSON.parse(line) as typeof r;
       } catch {
         return;
       }
+      // Solo la primera repetición del bucket canónico: las repeticiones y los casos raw distorsionan el porcentaje.
+      if (r.iteration !== 1 || r.bucket === "raw") return;
       const command = r.stage === "arguments" ? r.parsedOutput?.args?.command : undefined;
       if (typeof command !== "string") return;
       n++;
@@ -65,5 +71,5 @@ async function main(): Promise<void> {
 
 main().catch((e) => {
   console.error(e instanceof Error ? e.message : e);
-  process.exit(1);
+  process.exit(2);
 });

@@ -71,8 +71,8 @@ export interface JarvisConfig {
   shutdownDrainMs: number;
   /** Registro de trazas: una carpeta por tarea terminada más una línea en `index.jsonl` (lo consume el laboratorio; Jarvis nunca lo lee). */
   traceEnabled: boolean;
-  /** Solo fija la ubicación: las trazas van a la carpeta homónima sin extensión (`jarvis-traces.jsonl` → `jarvis-traces/`); el archivo `.jsonl` no se escribe. Una ruta relativa se resuelve contra el directorio de trabajo del proceso. */
-  tracePath: string;
+  /** Carpeta donde se guardan las trazas (una subcarpeta por tarea terminada). Una ruta relativa se resuelve contra el directorio de trabajo. Se cambia solo en `jarvis-config.json`. */
+  traceDir: string;
   /** Días que se conservan los resultados crudos (`refsDir`) y las trazas; lo más viejo se borra al arrancar y cada 6 horas. 0 = no se borra nada. Las refs de una tarea retenida en memoria no se tocan. */
   retentionDays: number;
   /** Días que se conservan los logs de eventos de tareas terminales (`data/tasks/*.jsonl`); 0 = no se borran por antigüedad. */
@@ -139,10 +139,11 @@ export type ConfigChangeListener = (event: ConfigChangeEvent) => void;
 export const LAUNCH_ONLY_KEYS = ["command", "args", "env", "cwd"] as const;
 
 /**
- * Claves de primer nivel que dicen DÓNDE escribe o borra Jarvis (`refsDir`, `tracePath`: la retención y las trazas actúan sobre esas carpetas).
+ * Claves de primer nivel que dicen DÓNDE escribe o borra Jarvis (`refsDir`, `traceDir`: la retención y las trazas actúan sobre esas carpetas). `tracePath` es el nombre
+ * anterior de `traceDir` (se sigue leyendo del archivo, ver `legacyTraceDir`) y también se ignora por HTTP.
  * Igual que `LAUNCH_ONLY_KEYS`, solo se cambian editando `jarvis-config.json`.
  */
-export const FILE_ONLY_KEYS = ["refsDir", "tracePath"] as const;
+export const FILE_ONLY_KEYS = ["refsDir", "traceDir", "tracePath"] as const;
 
 /** Parche parcial: los servidores MCP y qwenMaxTokens se fusionan campo a campo. */
 export type ConfigPatch = Partial<
@@ -200,7 +201,7 @@ const DEFAULT_CONFIG: JarvisConfig = {
   sseKeepAliveMs: TIMEOUT_DEFAULTS.sseKeepAliveMs,
   shutdownDrainMs: TIMEOUT_DEFAULTS.shutdownDrainMs,
   traceEnabled: true,
-  tracePath: "jarvis-traces.jsonl",
+  traceDir: "jarvis-traces",
   refsDir: "data/refs",
   retentionDays: 10,
   logRetentionDays: 30,
@@ -225,6 +226,17 @@ const text = (v: unknown, fallback: string): string =>
 
 const nonEmptyText = (v: unknown, fallback: string): string =>
   typeof v === "string" && v.trim() ? v.trim() : fallback;
+
+/**
+ * Nombre anterior de `traceDir`: `tracePath` era un archivo (`jarvis-traces.jsonl`) que nunca se escribía y cuya ruta sin extensión daba la carpeta.
+ * Un `jarvis-config.json` viejo sigue funcionando: la carpeta es esa misma ruta sin la extensión.
+ */
+export const legacyTraceDir = (tracePath: unknown, fallback: string): string => {
+  if (typeof tracePath !== "string" || tracePath.trim() === "") return fallback;
+  const file = tracePath.trim();
+  const ext = path.extname(file);
+  return ext === "" ? file : file.slice(0, -ext.length);
+};
 
 const positiveInt = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.floor(v) : fallback;
@@ -320,7 +332,7 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     sseKeepAliveMs: positiveInt(r.sseKeepAliveMs, d.sseKeepAliveMs),
     shutdownDrainMs: positiveInt(r.shutdownDrainMs, d.shutdownDrainMs),
     traceEnabled: typeof r.traceEnabled === "boolean" ? r.traceEnabled : d.traceEnabled,
-    tracePath: nonEmptyText(r.tracePath, d.tracePath),
+    traceDir: nonEmptyText(r.traceDir, legacyTraceDir(r.tracePath, d.traceDir)),
     refsDir: nonEmptyText(r.refsDir, d.refsDir),
     retentionDays: nonNegativeInt(r.retentionDays, d.retentionDays),
     logRetentionDays: nonNegativeInt(r.logRetentionDays, d.logRetentionDays),

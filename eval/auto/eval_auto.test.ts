@@ -11,28 +11,35 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { after, afterEach, before, describe, it } from "node:test";
-import { runAutoLoop } from "../auto.ts";
-import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, type AutoConfig } from "./config.ts";
-import { readConclusionsBounded, validateConclusionsMarkdown } from "./conclusions.ts";
+import { runAutoLoop, runAutoStages } from "../auto.ts";
+import { argvForStage, checkMultiStageFlags, combineExitCodes, expandStages, formatStageSummary, holdoutFilesOf, isMultiStageArg } from "./stages.ts";
+import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, winnersStageDir, type AutoConfig } from "./config.ts";
+import { appendLedger, clipSummary, formatLedgerForPrompt, LEDGER_PROMPT_ENTRIES, readLedger } from "./ledger.ts";
 import { discoverStageDatasets, discoverStageVariants } from "./discover.ts";
+import { extractConfusions, formatConfusions } from "./feedback.ts";
+import { buildPatchedVariantSource, buildSystemVariantSource, collectDecisionRequests, currentSystemText, formatCurrentTexts, mergePatch, patchFromRaw, patchFromRequests, shapeFromRequests, systemFromRaw } from "./patchVariant.ts";
 import { loadVariantSpecEphemeral } from "./ephemeralVariant.ts";
-import { extractFailureSamples } from "./feedback.ts";
+import { extractFailureKinds, failureKindOf, formatFailureKinds } from "./feedback.ts";
 import {
   defaultOptimizerLlmCall,
   generateVariantsForRound,
   OptimizerTransportError,
   type OptimizerLlmCaller,
 } from "./optimizer.ts";
-import { archiveLosingAutoVariants, rankParticipants, scanReusableInitialRanking } from "./ranking.ts";
-import { extractProdPromptSource, getStageContract } from "./stageContract.ts";
+import { archiveLosingAutoVariants, promoteWinningAutoVariants, rankParticipants, reusableResultsDirs, scanReusableInitialRanking } from "./ranking.ts";
+import { getStageContract } from "./stageContract.ts";
 import { collectKnownVariantHashes, validateAndWriteVariant } from "./validateVariant.ts";
 import { createMockDecisionClient, createMockGenerativeClient } from "../core/client/mock.ts";
 import { generateComparisonReport, type InputCell } from "../core/report.ts";
-import { allStageNames } from "../core/stages/index.ts";
+import { allStageNames, isDecisionStage } from "../core/stages/index.ts";
 import type { GlobalScoreSummary, RunRecord, StageName } from "../core/types.ts";
 import { invalidateVariantCache, listVariantNames, loadVariantSpec } from "../core/variants/load.ts";
 
 const tempPathsToClean: string[] = [];
+
+/** Código válido de una variante de decisión, armado como lo hace el modo auto a partir de textos. `key` es la pregunta cuya instrucción se reemplaza. */
+const decisionVariantCode = (stage: StageName, variantName: string, instruction = "Pick one.", key = "route"): string =>
+  buildPatchedVariantSource({ promptKey: getStageContract(stage).promptKey, variantName, patch: { instructions: { [key]: instruction } } });
 
 const FIXTURE_DATASETS_SRC = resolve("eval/auto/fixtures/datasets");
 const installedFixtures: string[] = [];
@@ -64,6 +71,15 @@ function setupIsolatedVariantsRoot(tag: string): string {
   const variantsRoot = join(tmpRoot, "eval", "variants");
   copyFileSync(resolve("eval/variants/prod.ts"), join(variantsRoot, "prod.ts"));
   return variantsRoot;
+}
+
+/** Directorios temporales aislados de un E2E de `runAutoLoop`: historial, resultados y raíz de variantes. */
+function setupTempAutoDir(_stage: StageName, tag: string): { ledgerPath: string; resultsRoot: string; variantsRoot: string } {
+  const variantsRoot = setupIsolatedVariantsRoot(`e2e-${tag}`);
+  const tmpDir = trackTemp(mkdtempSync(join(tmpdir(), `jarvis-eval-auto-${tag}-`)));
+  const resultsRoot = join(tmpDir, "results");
+  mkdirSync(resultsRoot, { recursive: true });
+  return { ledgerPath: join(tmpDir, "ledger.jsonl"), resultsRoot, variantsRoot };
 }
 
 afterEach(() => {
@@ -212,8 +228,8 @@ describe("eval/auto discover y exclusiones", () => {
     mkdirSync(tmpActiveDir, { recursive: true });
     mkdirSync(tmpDescartadasDir, { recursive: true });
 
-    const tplArchive = getStageContract("recovery").minimalTemplate("_tmp_archived_variant");
-    const tplDesc = getStageContract("recovery").minimalTemplate("_tmp_discarded_variant");
+    const tplArchive = decisionVariantCode("recovery", "_tmp_archived_variant");
+    const tplDesc = decisionVariantCode("recovery", "_tmp_discarded_variant");
     copyFileSync(
       resolve("eval/auto/fixtures/variants/recovery_three_options_nobehind.ts.txt"),
       join(tmpActiveDir, "recovery_three_options_nobehind.ts"),
@@ -233,125 +249,117 @@ describe("eval/auto discover y exclusiones", () => {
 });
 
 describe("eval/auto stageContract", () => {
-  it("cubre las 14 etapas registradas con plantilla y código prod en vivo", () => {
+  it("cubre las 14 etapas registradas (decisión: clave del constructor; generativas: contrato y texto SYSTEM de prod)", () => {
     const stages = allStageNames();
     assert.equal(stages.length, 14);
     for (const s of stages) {
       const c = getStageContract(s);
       assert.equal(c.stage, s);
-      const tpl = c.minimalTemplate(`auto_${s}_test_r1_a`);
-      assert.ok(tpl.includes("export default"));
-      const prodSrc = extractProdPromptSource(s);
-      assert.ok(prodSrc.length > 30 && !prodSrc.startsWith("// No se pudo extraer"), `prod source missing for ${s}`);
+      if (c.requestType === "generative") {
+        // Las generativas cambian solo el texto SYSTEM: tiene que existir en prod, y el contrato dice qué formato exige.
+        assert.equal(c.promptGroup, "PROMPTS");
+        assert.ok(c.outputContract.length > 20 && c.graderRules.length > 20);
+        assert.ok(currentSystemText(c.promptKey).length > 30, `prod SYSTEM missing for ${s}`);
+      } else {
+        assert.equal(c.promptGroup, "DECISION_PROMPTS");
+        assert.match(c.promptKey, /^build[A-Z]/);
+      }
     }
   });
 });
 
 describe("eval/auto validateVariant", () => {
-  it("rechaza imports prohibidos, re-exports, params, read, ROUTE_HINTS no exportado y código inseguro sin dejar basura en disco", async () => {
+  it("rechaza lo que no compila, no carga o no tiene la forma de la etapa, sin dejar archivos en disco", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("badcases");
-    const devDs = discoverStageDatasets("args_review", ["args_review_16_cases"], []);
-    const devPaths = devDs.dev.map((d) => d.path);
-    const known = new Set<string>();
-    const validCode = getStageContract("args_review").minimalTemplate("auto_args_review_unittest_r1_a");
+    const devPaths = discoverStageDatasets("args_review", ["args_review_16_cases"], []).dev.map((d) => d.path);
+    const validCode = decisionVariantCode("args_review", "auto_args_review_unittest_r1_a", "Review the call.", "review");
 
-    const badCases: Array<{ code: string; expectRe: RegExp; stage?: StageName; devPathsOverride?: string[] }> = [
+    const badCases: Array<{ code: string; expectRe: RegExp; name?: string; stage?: StageName; devPathsOverride?: string[] }> = [
+      { code: "const x: = ;", expectRe: /Error de sintaxis TypeScript/ },
+      { code: `import { readFileSync } from "node:fs";\nvoid readFileSync;\n${validCode}`, expectRe: /Import prohibido/ },
       {
-        code: `import { readFileSync } from "node:fs";\n${validCode}`,
-        expectRe: /Import prohibido/,
+        code: validCode.replace("prompts: { DECISION_PROMPTS: { buildArgsReview } },", 'prompts: { DECISION_PROMPTS: { buildArgsReview } },\n  read: { args_review: () => ({ choice: "approved", probabilities: { approved: 1 } }) },'),
+        expectRe: /no `params` ni `read`/,
       },
       {
-        code: `import {\n  readFileSync\n} from "node:fs";\n${validCode}`,
-        expectRe: /Import prohibido/,
-      },
-      {
-        code: `export { ROUTE_HINTS } from "../../../../src/core/models/prompts.ts";\n${validCode}`,
-        expectRe: /Prohibido re-exportar/,
-      },
-      {
-        code: `import { ROUTE_HINTS } from "../../../../src/core/models/prompts.ts";\n${validCode}`,
-        expectRe: /NO está exportado/,
-      },
-      {
-        code: `import {\n  ROUTE_HINTS\n} from "../../../../src/core/models/prompts.ts";\n${validCode}`,
-        expectRe: /NO está exportado/,
-      },
-      {
-        code: validCode.replace("export default", "const x = eval('1');\nexport default"),
-        expectRe: /Identificador prohibido.*eval/,
-      },
-      {
-        code: validCode.replace(
-          'prompts: { DECISION_PROMPTS: { buildArgsReview } },',
-          'prompts: { DECISION_PROMPTS: { buildArgsReview } },\n  read: { args_review: () => ({ choice: "approved", probabilities: { approved: 1 } }) },',
-        ),
-        expectRe: /Prohibido definir `read`/,
-      },
-      {
-        code: getStageContract("pending")
-          .minimalTemplate("auto_pending_unittest_r1_b")
-          .replace("prompts: {", 'params: { pending: { temperature: 0.2 } },\n  prompts: {'),
+        // Un archivo de decisión no sirve para una etapa generativa.
+        code: validCode.replaceAll("auto_args_review_unittest_r1_a", "auto_pending_badtest_1"),
+        name: "auto_pending_badtest_1",
         stage: "pending",
         devPathsOverride: discoverStageDatasets("pending", ["pending_min"], []).dev.map((d) => d.path),
-        expectRe: /Prohibido definir `params`/,
+        expectRe: /solo puede definir 'PROMPTS'/,
+      },
+      {
+        code: buildSystemVariantSource({ promptKey: "PENDING_VIEW", variantName: "otro_nombre", system: "Texto de prueba." }),
+        name: "auto_pending_badtest_4",
+        stage: "pending",
+        devPathsOverride: discoverStageDatasets("pending", ["pending_min"], []).dev.map((d) => d.path),
+        expectRe: /no coincide/,
       },
     ];
 
     for (let i = 0; i < badCases.length; i++) {
       const bc = badCases[i];
       const stage = bc.stage ?? "args_review";
-      const vName = `auto_${stage}_badtest_${i}`;
+      const vName = bc.name ?? "auto_args_review_unittest_r1_a";
       const expectedFile = resolve(autoStageDir(stage, variantsRoot), `${vName}.ts`);
       const res = await validateAndWriteVariant({
         stage,
         variantName: vName,
         rawCode: bc.code,
         devDatasetPaths: bc.devPathsOverride ?? devPaths,
-        knownHashes: known,
+        knownHashes: new Set<string>(),
         variantsRoot,
       });
-      assert.equal(res.ok, false);
-      assert.match(res.error, bc.expectRe);
+      assert.equal(res.ok, false, `caso ${i}`);
+      assert.match(res.error, bc.expectRe, `caso ${i}`);
       assert.equal(existsSync(expectedFile), false, "un archivo inválido debe limpiarse");
     }
   });
 
-  it("inyecta name, valida plantilla ESM + loadDatasets + deduplicación por hash", async () => {
+  it("valida el archivo armado, lo escribe y detecta como duplicada una variante con los mismos textos aunque tenga otro nombre", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("validtest");
-    const devDs = discoverStageDatasets("args_review", ["args_review_16_cases"], []);
-    const devPaths = devDs.dev.map((d) => d.path);
+    const devPaths = discoverStageDatasets("args_review", ["args_review_16_cases"], []).dev.map((d) => d.path);
     const known = new Set<string>();
 
     const vName = "auto_args_review_validtest_a";
-    const code = getStageContract("args_review").minimalTemplate("wrong_name_from_llm");
-
     const ok1 = await validateAndWriteVariant({
       stage: "args_review",
       variantName: vName,
-      rawCode: code,
+      rawCode: decisionVariantCode("args_review", vName, "Review the call.", "review"),
       devDatasetPaths: devPaths,
       knownHashes: known,
       variantsRoot,
     });
     assert.equal(ok1.ok, true);
     assert.equal(ok1.variant.name, vName);
+    assert.equal(existsSync(ok1.filePath), true);
     known.add(ok1.normalizedHash);
 
-    // El mismo código con otro nombre debe detectarse como duplicado
     const vDup = "auto_args_review_validtest_b";
     const dup = await validateAndWriteVariant({
       stage: "args_review",
       variantName: vDup,
-      rawCode: code,
+      rawCode: decisionVariantCode("args_review", vDup, "Review the call.", "review"),
       devDatasetPaths: devPaths,
       knownHashes: known,
       variantsRoot,
     });
     assert.equal(dup.ok, false);
     assert.match(dup.error, /duplicada/i);
+
+    const other = await validateAndWriteVariant({
+      stage: "args_review",
+      variantName: "auto_args_review_validtest_c",
+      rawCode: decisionVariantCode("args_review", "auto_args_review_validtest_c", "Review the call carefully.", "review"),
+      devDatasetPaths: devPaths,
+      knownHashes: known,
+      variantsRoot,
+    });
+    assert.equal(other.ok, true, other.ok ? "" : other.error);
   });
 
-  it("carga todas las variantes activas en eval/variants/, rechaza recovery de 2 ejes, acepta RegExp con llaves y no toca disco si falla runtime", async () => {
+  it("carga todas las variantes activas en eval/variants/, rechaza recovery de 2 ejes y no toca disco si falla al materializar los casos", async () => {
     const names = listVariantNames();
     for (const name of names) {
       const loaded = await loadVariantSpec(name);
@@ -359,8 +367,7 @@ describe("eval/auto validateVariant", () => {
     }
 
     const variantsRoot = setupIsolatedVariantsRoot("recoveryval");
-    const recoveryDs = discoverStageDatasets("recovery", ["recovery_casos"], []);
-    const recoveryPaths = recoveryDs.dev.map((d) => d.path);
+    const recoveryPaths = discoverStageDatasets("recovery", ["recovery_casos"], []).dev.map((d) => d.path);
     const recoveryStageDir = autoStageDir("recovery", variantsRoot);
 
     // El formato legado de 2 ejes (blocked/prereq sin action) debe ser rechazado por recoveryStage.validateRequest
@@ -395,29 +402,14 @@ export default auto_recovery_twoaxes_legacy;`;
     assert.equal(legacyRes.ok, false);
     assert.match(legacyRes.error, /recovery requiere pregunta choice/);
 
-    // RegExp con llaves '{', '}' y comillas no debe desbalancear el analizador léxico de TS 7
-    const regexName = "auto_recovery_regex_test_a";
-    const baseRecoveryCode = getStageContract("recovery").minimalTemplate(regexName);
-    const regexCode = baseRecoveryCode.replace(
-      "function buildRecovery(data: RecoveryDecisionInput): DecisionInput {",
-      `function buildRecovery(data: RecoveryDecisionInput): DecisionInput {\n  const _re = /\\{foo['"\\}]/;\n  void _re.test(data.failed);`,
-    );
-    const regexOk = await validateAndWriteVariant({
-      stage: "recovery",
-      variantName: regexName,
-      rawCode: regexCode,
-      devDatasetPaths: recoveryPaths,
-      knownHashes: new Set(),
-      variantsRoot,
-    });
-    assert.equal(regexOk.ok, true, regexOk.ok ? "" : regexOk.error);
-
-    // Si falla en validación runtime/contexto, nunca debe tocar disco
+    // Un constructor que lanza al ejecutarse sobre los casos: la validación debe rechazarlo sin escribir nada.
     const badRtName = "auto_recovery_badrt_test_a";
     const badRtFile = resolve(recoveryStageDir, `${badRtName}.ts`);
-    const badRtCode = baseRecoveryCode
-      .replace("state: `${PROMPTS.PENDING_VIEW.buildUserPrompt({ view: data.view })}\\n\\n${failedBlock}`,", 'state: "",')
-      .replaceAll(regexName, badRtName);
+    const badRtCode = decisionVariantCode("recovery", badRtName, "Pick one.", "action").replace(
+      "const base = DECISION_PROMPTS.buildRecovery(data);",
+      'const base = DECISION_PROMPTS.buildRecovery(data);\n  if (data) throw new Error("falla simulada");',
+    );
+    assert.ok(badRtCode.includes("falla simulada"));
     const badRtRes = await validateAndWriteVariant({
       stage: "recovery",
       variantName: badRtName,
@@ -427,7 +419,47 @@ export default auto_recovery_twoaxes_legacy;`;
       variantsRoot,
     });
     assert.equal(badRtRes.ok, false);
-    assert.equal(existsSync(badRtFile), false, "variante fallida en runtime/contexto no debe escribirse en disco");
+    assert.equal(existsSync(badRtFile), false, "variante fallida al materializar los casos no debe escribirse en disco");
+  });
+});
+
+describe("eval/auto: variantes ganadoras", () => {
+  const row = (variant: string, score: number) => ({ variant, passRate: score, macroPassRate: score, score, passedRuns: score * 10, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 });
+
+  it("mueve a _ganadoras/<etapa>/ solo las que superan a prod, sin pisar archivos ni tocar las demás", () => {
+    const variantsRoot = setupIsolatedVariantsRoot("winners");
+    const dir = resolve(autoStageDir("d0", variantsRoot));
+    mkdirSync(dir, { recursive: true });
+    const files = ["auto_d0_w_a", "auto_d0_w_b", "auto_d0_w_c", "auto_d0_w_d"].map((name) => {
+      const filePath = resolve(dir, `${name}.ts`);
+      writeFileSync(filePath, `export default { name: "${name}" };\n`, "utf8");
+      return { name, filePath };
+    });
+    // Ya hay un archivo con el nombre de la d en _ganadoras: no se pisa.
+    mkdirSync(winnersStageDir("d0", variantsRoot), { recursive: true });
+    writeFileSync(join(winnersStageDir("d0", variantsRoot), "auto_d0_w_d.ts"), "// anterior\n", "utf8");
+
+    const moved = promoteWinningAutoVariants({
+      stage: "d0",
+      candidateFiles: files,
+      ranked: [row("prod", 0.8), row("auto_d0_w_a", 0.9), row("auto_d0_w_b", 0.8), row("auto_d0_w_c", 0.7), row("auto_d0_w_d", 0.95)],
+      variantsRoot,
+    });
+    assert.deepEqual(moved, ["auto_d0_w_a"]);
+    assert.equal(existsSync(join(winnersStageDir("d0", variantsRoot), "auto_d0_w_a.ts")), true);
+    assert.equal(existsSync(files[0].filePath), false);
+    // Empata con prod (b), pierde (c) o ya existe el destino (d): quedan donde estaban.
+    for (const i of [1, 2, 3]) assert.equal(existsSync(files[i].filePath), true);
+    assert.equal(readFileSync(join(winnersStageDir("d0", variantsRoot), "auto_d0_w_d.ts"), "utf8"), "// anterior\n");
+  });
+
+  it("los hashes de las ganadoras cuentan como conocidos, así no se vuelve a probar el mismo texto", () => {
+    const variantsRoot = setupIsolatedVariantsRoot("winnerhash");
+    const winners = winnersStageDir("d0", variantsRoot);
+    mkdirSync(winners, { recursive: true });
+    const code = decisionVariantCode("d0", "auto_d0_h_a", "Pick one.", "kind");
+    writeFileSync(join(winners, "auto_d0_h_a.ts"), code, "utf8");
+    assert.equal(collectKnownVariantHashes("d0", [], variantsRoot).size, 1);
   });
 });
 
@@ -528,48 +560,37 @@ describe("eval/auto ranking, archiving y feedback", () => {
     );
   });
 
-  it("filtra holdout de muestras de fallo, hidrata desde runs.jsonl en streaming con tasa repeat y archiva sin colisiones invalidando caché", () => {
-    const prodRecs = [
-      mkRecord({ variant: "prod", dataset: "dev_ds", caseId: "c1", passed: true, durationMs: 50 }),
-      mkRecord({ variant: "prod", dataset: "hold_ds", caseId: "h1", passed: true, durationMs: 50 }),
-    ];
-    const v1Recs = [
-      mkRecord({ variant: "v1", dataset: "dev_ds", caseId: "c1", passed: false, durationMs: 50 }),
-      mkRecord({ variant: "v1", dataset: "hold_ds", caseId: "h1", passed: false, durationMs: 50 }),
-    ];
-    const samples = extractFailureSamples({
+  it("resume tipos de fallo sin holdout ni casos y archiva sin colisiones invalidando caché", () => {
+    const recordWithErrors = (variant: string, dataset: string, caseId: string, errors: string[]) => ({
+      ...mkRecord({ variant, dataset, caseId, passed: errors.length === 0, durationMs: 50 }),
+      errors,
+    });
+    const kinds = extractFailureKinds({
       focusVariant: "v1",
       cells: [
-        { variantSpec: "prod", datasetName: "dev_ds", scores: {} as GlobalScoreSummary, records: prodRecs.slice(0, 1) },
-        { variantSpec: "prod", datasetName: "hold_ds", scores: {} as GlobalScoreSummary, records: prodRecs.slice(1) },
-        { variantSpec: "v1", datasetName: "dev_ds", scores: {} as GlobalScoreSummary, records: v1Recs.slice(0, 1) },
-        { variantSpec: "v1", datasetName: "hold_ds", scores: {} as GlobalScoreSummary, records: v1Recs.slice(1) },
+        {
+          variantSpec: "v1",
+          datasetName: "dev_ds",
+          scores: {} as GlobalScoreSummary,
+          records: [
+            recordWithErrors("v1", "dev_ds", "c1", ["Pasos generados (1) menor al mínimo esperado (2).", "Rutas requeridas faltantes: files_write"]),
+            recordWithErrors("v1", "dev_ds", "c2", ["Pasos generados (1) menor al mínimo esperado (3)."]),
+            recordWithErrors("v1", "dev_ds", "c3", []),
+          ],
+        },
+        { variantSpec: "v1", datasetName: "hold_ds", scores: {} as GlobalScoreSummary, records: [recordWithErrors("v1", "hold_ds", "h1", ["Error de holdout"])] },
       ],
       devDatasetNames: new Set(["dev_ds"]),
     });
-    assert.equal(samples.length, 1);
-    assert.equal(samples[0].id, "c1");
-    assert.equal(samples[0].priority, "regression_vs_prod");
-
-    // Verificar hidratación bajo demanda desde runs.jsonl cuando RAM está aligerada + cálculo de tasa en repeat > 1
-    const cellDir = trackTemp(mkdtempSync(join(tmpdir(), "jarvis-fb-stream-")));
-    const fullFail1 = mkRecord({ variant: "v1", dataset: "dev_ds", caseId: "c1", passed: false, durationMs: 50 });
-    fullFail1.errors = ["exact error from disk"];
-    fullFail1.rawOutput = "raw-output-on-disk";
-    const fullPass2 = { ...mkRecord({ variant: "v1", dataset: "dev_ds", caseId: "c1", passed: true, durationMs: 50 }), iteration: 2 };
-    writeFileSync(join(cellDir, "runs.jsonl"), `${JSON.stringify(fullFail1)}\n${JSON.stringify(fullPass2)}\n`, "utf8");
-    const slimRecs = [fullFail1, fullPass2].map((r) => ({ ...r, errors: [], rawInput: undefined, rawOutput: "" }));
-
-    const streamedSamples = extractFailureSamples({
-      focusVariant: "v1",
-      cells: [{ variantSpec: "v1", datasetName: "dev_ds", scores: {} as GlobalScoreSummary, records: slimRecs, cellDir }],
-      devDatasetNames: new Set(["dev_ds"]),
-    });
-    assert.equal(streamedSamples.length, 1);
-    assert.deepEqual(streamedSamples[0].errors, ["exact error from disk"]);
-    assert.equal(streamedSamples[0].rawOutput, "raw-output-on-disk");
-    assert.equal(streamedSamples[0].failedAttempts, 1);
-    assert.equal(streamedSamples[0].totalAttempts, 2);
+    assert.deepEqual(kinds, [
+      { kind: "Pasos generados (N) menor al mínimo esperado (N).", count: 2, total: 3 },
+      { kind: "Rutas requeridas faltantes", count: 1, total: 3 },
+    ]);
+    assert.equal(failureKindOf('Pregunta no contiene la palabra clave esperada: "ubuntu"'), "Pregunta no contiene la palabra clave esperada");
+    assert.equal(failureKindOf("Primer paso usa 'web' en vez de 'files_read'."), "Primer paso usa … en vez de ….");
+    const text = formatFailureKinds(kinds);
+    assert.match(text, /2 de 3 casos/);
+    assert.doesNotMatch(text, /files_write|holdout/);
 
     const variantsRoot = setupIsolatedVariantsRoot("archive");
     const stageDir = resolve(autoStageDir("d0", variantsRoot));
@@ -604,39 +625,29 @@ describe("eval/auto ranking, archiving y feedback", () => {
 });
 
 describe("eval/auto optimizer reparación", () => {
-  it("reintenta reparación cuando una variante falla validación y conserva la válida", async () => {
+  it("reintenta reparación cuando una variante de decisión falla validación y conserva la válida", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("repair");
-    const devDs = discoverStageDatasets("d0", ["d0_variedad"], []);
-    const cfg = parseAutoConfig([
-      "--stage=d0",
-      "--max-loops=2",
-      "--target=0.90",
-      "--optimizer-model=mock-opt",
-      "--client=mock",
-    ]);
+    const devPath = resolve("eval/datasets/d0/d0_v1.jsonl");
+    const shape = shapeFromRequests(collectDecisionRequests("d0", [devPath]));
+    const cfg = parseAutoConfig(["--stage=d0", "--max-loops=2", "--target=0.90", "--optimizer-model=mock-opt", "--client=mock"]);
 
-    const tpl = getStageContract("d0").minimalTemplate("placeholder");
     let calls = 0;
-    const mockCaller: OptimizerLlmCaller = async () => {
+    const repairs: string[] = [];
+    const mockCaller: OptimizerLlmCaller = async ({ messages }) => {
       calls++;
       if (calls === 1) {
         return JSON.stringify({
           analysis: "Intento 1",
           variants: [
-            { suffix: "a", hypothesis: "Válida A", code: tpl },
-            { suffix: "b", hypothesis: "Inválida con fs", code: `import { existsSync } from "node:fs";\n${tpl}` },
+            { suffix: "a", hypothesis: "Válida A", instructions: { kind: "Classify the request." } },
+            { suffix: "b", hypothesis: "Inválida: pregunta inexistente", instructions: { no_existe: "x" } },
           ],
         });
       }
+      repairs.push(messages[messages.length - 1].content);
       return JSON.stringify({
         analysis: "Reparación",
-        variants: [
-          {
-            suffix: "b",
-            hypothesis: "Reparada B",
-            code: tpl.replace("One single action is enough.", "Exactly one action is enough."),
-          },
-        ],
+        variants: [{ suffix: "b", hypothesis: "Reparada B", instructions: { kind: "Classify the request as chat, single or multi." } }],
       });
     };
 
@@ -644,63 +655,77 @@ describe("eval/auto optimizer reparación", () => {
       cfg,
       round: 1,
       runTag: "repairtest",
-      conclusionsText: "(vacío)",
+      ledgerText: "(vacío)",
       top2Contexts: [],
       allRanked: [],
-      failureSamples: [],
-      devDatasetPaths: devDs.dev.map((d) => d.path),
+      decision: { shape, mode: "rewrite", topTexts: "### Top-1: `prod`" },
+      devDatasetPaths: [devPath],
       knownHashes: collectKnownVariantHashes("d0", [], variantsRoot),
       variantsRoot,
       callLlm: mockCaller,
     });
 
     assert.equal(calls, 2);
+    assert.match(repairs[0], /la pregunta no existe/, "la reparación le devuelve el error exacto");
     assert.equal(res.validVariants.length, 2);
     assert.equal(res.validVariants[0].name, "auto_d0_repairtest_r1_a");
     assert.equal(res.validVariants[1].name, "auto_d0_repairtest_r1_b");
   });
 
-  it("limpia fences ```ts en code cuando el optimizador envuelve el código dentro del JSON", async () => {
-    const variantsRoot = setupIsolatedVariantsRoot("fences");
-    const devDs = discoverStageDatasets("d0", ["d0_variedad"], []);
-    const cfg = parseAutoConfig([
-      "--stage=d0",
-      "--max-loops=1",
-      "--target=0.90",
-      "--optimizer-model=mock-opt",
-      "--client=mock",
-    ]);
+  it("exige el contexto de textos para las etapas de decisión", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("needctx");
+    await assert.rejects(
+      () =>
+        generateVariantsForRound({
+          cfg: parseAutoConfig(["--stage=d0", "--max-loops=1", "--target=0.90", "--optimizer-model=mock-opt", "--client=mock"]),
+          round: 1,
+          runTag: "needctx",
+          ledgerText: "(vacío)",
+          top2Contexts: [],
+          allRanked: [],
+              devDatasetPaths: [resolve("eval/datasets/d0/d0_v1.jsonl")],
+          knownHashes: new Set(),
+          variantsRoot,
+          callLlm: async () => "{}",
+        }),
+      /requiere el contexto de textos/,
+    );
+  });
 
-    const tpl = getStageContract("d0").minimalTemplate("placeholder");
-    const fencedCaller: OptimizerLlmCaller = async () =>
+  it("etapas generativas: el modelo escribe solo el texto SYSTEM, el código arma el archivo y rechaza lo que no cambia nada", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("systext");
+    const devPath = resolve("eval/datasets/pending/pending_v1.jsonl");
+    const cfg = parseAutoConfig(["--stage=pending", "--max-loops=1", "--target=0.90", "--optimizer-model=mock-opt", "--client=mock"]);
+    const current = currentSystemText("PENDING_VIEW");
+    const inject = 'texto con ``` comillas " y ${no_se_evalua}';
+    const caller: OptimizerLlmCaller = async () =>
       JSON.stringify({
-        analysis: "Con fence ts",
+        analysis: "Prueba",
         variants: [
-          { suffix: "a", hypothesis: "Con fence", code: `\`\`\`ts\n${tpl}\n\`\`\`` },
-          {
-            suffix: "b",
-            hypothesis: "Sin fence",
-            code: tpl.replace("One single action is enough.", "Single action is enough."),
-          },
+          { suffix: "a", hypothesis: "Igual al vigente", system: current },
+          { suffix: "b", hypothesis: "Distinto", system: `${current}\nExtra: ${inject}` },
         ],
       });
-
     const res = await generateVariantsForRound({
       cfg,
       round: 1,
-      runTag: "fencetest",
-      conclusionsText: "(vacío)",
+      runTag: "systext",
+      ledgerText: "(vacío)",
       top2Contexts: [],
       allRanked: [],
-      failureSamples: [],
-      devDatasetPaths: devDs.dev.map((d) => d.path),
-      knownHashes: collectKnownVariantHashes("d0", [], variantsRoot),
+      generative: { topTexts: JSON.stringify(current), current, mode: "rewrite", failures: "(sin fallos)" },
+      devDatasetPaths: [devPath],
+      knownHashes: collectKnownVariantHashes("pending", [], variantsRoot),
       variantsRoot,
-      callLlm: fencedCaller,
+      callLlm: caller,
     });
-
-    assert.equal(res.validVariants.length, 2);
-    assert.equal(res.validVariants[0].code.includes("```"), false);
+    assert.equal(res.validVariants.length, 1, "la igual al vigente se rechaza y la distinta se acepta");
+    assert.ok(res.validVariants[0].code.includes(JSON.stringify(`${current}\nExtra: ${inject}`)), "el texto va incrustado como cadena");
+    assert.ok(res.rejectedNotes.some((n) => /igual al texto vigente/.test(n)));
+    assert.equal(systemFromRaw("", current).error !== undefined, true);
+    assert.match(systemFromRaw("Hacé una lista.", current, ["\"pending\""]).error ?? "", /conservar el formato/);
+    assert.equal(systemFromRaw(`${current} \"pending\"`, current, ["\"pending\""]).error, undefined);
+    assert.equal(systemFromRaw("x".repeat(7000), current).error !== undefined, true);
   });
 
   it("defaultOptimizerLlmCall envía reasoning_effort='none', degrada cuando json_schema devuelve vacío y reintenta si reasoning_effort es rechazado", async () => {
@@ -793,58 +818,33 @@ describe("eval/auto optimizer reparación", () => {
 });
 
 describe("eval/auto E2E runAutoLoop", () => {
-  function setupTempAutoDir(_stage: StageName, tag: string): {
-    conclusionsPath: string;
-    resultsRoot: string;
-    variantsRoot: string;
-  } {
-    const variantsRoot = setupIsolatedVariantsRoot(`e2e-${tag}`);
-    const tmpDir = trackTemp(mkdtempSync(join(tmpdir(), `jarvis-eval-auto-${tag}-`)));
-    const resultsRoot = join(tmpDir, "results");
-    mkdirSync(resultsRoot, { recursive: true });
-    return { conclusionsPath: join(tmpDir, "conclusiones.md"), resultsRoot, variantsRoot };
-  }
 
-  it("termina con exit 0 cuando variante != prod alcanza --target, actualiza conclusiones y archiva perdedora", async () => {
-    const { conclusionsPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "hit");
+  it("termina con exit 0 cuando variante != prod alcanza --target, registra el historial y archiva perdedora", async () => {
+    const { ledgerPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "hit");
     const cfg: AutoConfig = parseAutoConfig([
       "--stage=route",
       "--max-loops=2",
       "--target=0.80",
       "--optimizer-model=mock-opt",
-      `--conclusions=${conclusionsPath}`,
+      `--ledger=${ledgerPath}`,
       "--dataset=route_16_cases",
       "--seed-top=prod",
       "--client=mock",
       "--concurrency=2",
     ]);
 
-    const baseTpl = getStageContract("route").minimalTemplate("base");
-    // Truco limpio: una variante pone la respuesta esperada primero según instrucción para simular mejora real en mock
-    const winCode = baseTpl.replace(
-      "Choose the route that handles the next step.",
-      "MOCK_WIN_MARKER: Prioritize the exact matching route.",
-    );
-    const loseCode = baseTpl.replace(
-      "Choose the route that handles the next step.",
-      "MOCK_LOSE_MARKER: Broad route check.",
-    );
 
     const mockOptimizer: OptimizerLlmCaller = async ({ schemaName }) => {
       if (schemaName === "optimizer_variants") {
         return JSON.stringify({
           analysis: "Enfocar criterios por ruta",
           variants: [
-            { suffix: "a", hypothesis: "Ganadora A", code: winCode },
-            { suffix: "b", hypothesis: "Perdedora B", code: loseCode },
+            { suffix: "a", hypothesis: "Ganadora A", instructions: { route: "MOCK_WIN_MARKER: Prioritize the exact matching route." } },
+            { suffix: "b", hypothesis: "Perdedora B", instructions: { route: "MOCK_LOSE_MARKER: Broad route check." } },
           ],
         });
       }
-      return JSON.stringify({
-        update: true,
-        reason: "Nueva variante ganadora superó target",
-        markdown: "# Conclusiones — route\n\n## Estado actual (auto-actualizado)\n- Top 1: ganadora >= 80%\n",
-      });
+      throw new Error(`esquema de optimizador inesperado: ${schemaName}`);
     };
 
     const smartMakeClients = (c: AutoConfig) => ({
@@ -873,18 +873,27 @@ describe("eval/auto E2E runAutoLoop", () => {
     });
 
     assert.equal(code, 0);
-    assert.equal(readConclusionsBounded(conclusionsPath).content.includes("# Conclusiones — route"), true);
+    const entries = readLedger(ledgerPath);
+    assert.ok(entries.some((e) => e.summary === "Ganadora A" && e.status === "top2" && typeof e.score === "number"), "el ledger registra la ganadora con su nota medida");
+    assert.ok(entries.some((e) => e.summary === "Perdedora B" && e.status === "perdio"), "y la perdedora");
     assert.equal(existsSync(resolve(autoStatePath("route", variantsRoot))), true);
+
+    // La que superó a prod sale de _auto/ hacia _ganadoras/<etapa>/ y la perdedora va a descartadas/.
+    const winnerName = entries.find((e) => e.summary === "Ganadora A")!.variant;
+    const loserName = entries.find((e) => e.summary === "Perdedora B")!.variant;
+    assert.equal(existsSync(join(winnersStageDir("route", variantsRoot), `${winnerName}.ts`)), true, "la ganadora queda en _ganadoras/route/");
+    assert.equal(existsSync(join(autoStageDir("route", variantsRoot), `${winnerName}.ts`)), false, "y ya no está en _auto/route/");
+    assert.equal(existsSync(join(autoStageDir("route", variantsRoot), "descartadas", `${loserName}.ts`)), true);
   });
 
-  it("con --holdout: sobreajuste en holdout alerta conclusiones y continúa hasta --max-loops (exit 1)", async () => {
-    const { conclusionsPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "overfit");
+  it("con --holdout: sobreajuste en holdout queda en el historial (sin cifras) y continúa hasta --max-loops (exit 1)", async () => {
+    const { ledgerPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "overfit");
     const cfg: AutoConfig = parseAutoConfig([
       "--stage=route",
       "--max-loops=1",
-      "--target=0.50",
+      "--target=0.35",
       "--optimizer-model=mock-opt",
-      `--conclusions=${conclusionsPath}`,
+      `--ledger=${ledgerPath}`,
       "--dataset=route_16_cases",
       "--holdout=route_gemai",
       "--seed-top=prod",
@@ -892,21 +901,18 @@ describe("eval/auto E2E runAutoLoop", () => {
       "--concurrency=2",
     ]);
 
-    const baseTpl = getStageContract("route").minimalTemplate("base");
-    const devOverfitCode = baseTpl.replace("Choose the route that handles the next step.", "MOCK_DEV_ONLY_WIN");
-    const altCode = baseTpl.replace("Choose the route that handles the next step.", "MOCK_ALT");
 
     const mockOptimizer: OptimizerLlmCaller = async ({ schemaName }) => {
       if (schemaName === "optimizer_variants") {
         return JSON.stringify({
           analysis: "Sobreajuste simulado",
           variants: [
-            { suffix: "a", hypothesis: "Overfit A", code: devOverfitCode },
-            { suffix: "b", hypothesis: "Alt B", code: altCode },
+            { suffix: "a", hypothesis: "Overfit A", instructions: { route: "MOCK_DEV_ONLY_WIN" } },
+            { suffix: "b", hypothesis: "Alt B", instructions: { route: "MOCK_ALT" } },
           ],
         });
       }
-      return JSON.stringify({ update: false, reason: "sin cambios aún" });
+      throw new Error(`esquema de optimizador inesperado: ${schemaName}`);
     };
 
     // En route_16_cases acierta mucho; en route_gemai (o en cualquier otro) responde una ruta minoritaria para simular caída < target
@@ -917,7 +923,7 @@ describe("eval/auto E2E runAutoLoop", () => {
         if (inst.includes("MOCK_DEV_ONLY_WIN")) {
           // Acierta >50% en route_16_cases (web+files+terminal keywords), pero falla cuando aparece "gem" o en holdout usando heuristic de route_gemai
           const looksLike16 = /package\.json|README|notepad|desktop|calc|downloads/i.test(req.state);
-          const pick = looksLike16 ? (/notepad|calc|cmd|git|node/i.test(req.state) ? "terminal" : /http|search|version/i.test(req.state) ? "web" : "files") : "web";
+          const pick = looksLike16 ? (/notepad|calc|cmd|git|node/i.test(req.state) ? "terminal" : /http|search|version/i.test(req.state) ? "web" : "files_read") : "web";
           return JSON.stringify({ answers: { route: { choice: pick, probabilities: { [pick]: 0.9 } } } });
         }
         return JSON.stringify({ answers: { route: { choice: "web", probabilities: { web: 0.9 } } } });
@@ -933,18 +939,19 @@ describe("eval/auto E2E runAutoLoop", () => {
     });
 
     assert.equal(code, 1);
-    const md = readConclusionsBounded(conclusionsPath).content;
-    assert.match(md, /Alerta holdout|sobreajuste|Alcanzado maxLoops/i);
+    const failed = readLedger(ledgerPath).filter((e) => e.status === "fallo_holdout");
+    assert.ok(failed.length >= 1, "el historial anota que la variante falló el holdout");
+    assert.ok(failed.every((e) => !/holdout/i.test(e.summary)), "el resumen no mezcla datos del holdout");
   });
 
-  it("aborta con exit 2 sin tocar conclusiones.md ni auto_state.json si falla transporte del optimizador", async () => {
-    const { conclusionsPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "infra");
+  it("aborta con exit 2 sin escribir historial ni auto_state.json si falla transporte del optimizador", async () => {
+    const { ledgerPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", "infra");
     const cfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=2",
       "--target=0.80",
       "--optimizer-model=mock-opt",
-      `--conclusions=${conclusionsPath}`,
+      `--ledger=${ledgerPath}`,
       "--dataset=route_16_cases",
       "--seed-top=prod",
       "--client=mock",
@@ -962,8 +969,15 @@ describe("eval/auto E2E runAutoLoop", () => {
     });
 
     assert.equal(code, 2);
-    assert.equal(existsSync(conclusionsPath), false);
+    assert.equal(existsSync(ledgerPath), false);
     assert.equal(existsSync(resolve(autoStatePath("route", variantsRoot))), false);
+    // EV-004: con --seed-top y sin caché se corre una Vuelta 0 real (no se inventan métricas 0/0 para el optimizador).
+    assert.ok(existsSync(join(resultsRoot, "r0", "run.json")), "debe existir la corrida de la Vuelta 0 dentro de la sesión");
+    const session = JSON.parse(readFileSync(join(resultsRoot, "session.json"), "utf8")) as { status: string; exitCode: number; stage: string; runs: string[] };
+    assert.equal(session.exitCode, 2);
+    assert.equal(session.status, "error");
+    assert.equal(session.stage, "route");
+    assert.ok(session.runs.includes("r0"));
   });
 
   it("reutiliza resultados cacheados en disco si coincide exactamente la huella Meta", async () => {
@@ -1147,54 +1161,15 @@ describe("eval/auto E2E runAutoLoop", () => {
     }
   });
 
-  it("evita re-evaluar holdout sobre la misma variante, registra vueltas sin válidas y valida conclusiones", async () => {
-    // 1) Validación de markdown en conclusiones
-    assert.match(validateConclusionsMarkdown('{"raw":1}', "route") ?? "", /JSON|fence/);
-    assert.match(validateConclusionsMarkdown("# Conclusiones — d0\n\n## Estado actual\n- x", "route") ?? "", /etapa/);
-    assert.match(
-      validateConclusionsMarkdown(
-        "# Conclusiones — route\n\n## Estado actual\n- `prod` (99.0%)",
-        "route",
-        [{ variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 }],
-      ) ?? "",
-      /inconsistente/,
-    );
-    assert.equal(
-      validateConclusionsMarkdown("# Conclusiones — route\n\n## Estado actual\n- Top 1: `prod` (50.0%)", "route", [
-        { variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 },
-      ]),
-      null,
-    );
-    assert.equal(
-      validateConclusionsMarkdown(
-        [
-          "# Conclusiones — route",
-          "",
-          "## Estado actual (auto-actualizado)",
-          "- Top 1: `prod` (50.0%)",
-          "- Alerta holdout: `prod` (99.0% en holdout)",
-          "- Ronda anterior R1: `prod` (30.0%)",
-          "",
-          "## Descartadas (qué empeora — no repetir)",
-          "- `prod` (90.0% en `route_gemai` pero regresiona en variedad)",
-          "",
-          "## Últimas rondas (máx. 5)",
-          "- R1: `prod` (40.0%)",
-        ].join("\n"),
-        "route",
-        [{ variant: "prod", passRate: 0.5, macroPassRate: 0.5, score: 0.5, passedRuns: 5, totalRuns: 10, clientFailedRuns: 0, retriedRuns: 0, regressions: 0, improvements: 0 }],
-      ),
-      null,
-    );
-
-    // 2) Vuelta sin variantes válidas registra progreso y nota en conclusiones
-    const { conclusionsPath: invConc, resultsRoot: invRoot, variantsRoot: invVariants } = setupTempAutoDir("route", "invalidround");
+  it("evita re-evaluar holdout sobre la misma variante y registra vueltas sin válidas", async () => {
+    // 1) Vuelta sin variantes válidas registra progreso y una entrada en el historial
+    const { ledgerPath: invLedger, resultsRoot: invRoot, variantsRoot: invVariants } = setupTempAutoDir("route", "invalidround");
     const invCfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=1",
       "--target=0.95",
       "--optimizer-model=mock-opt",
-      `--conclusions=${invConc}`,
+      `--ledger=${invLedger}`,
       "--dataset=route_16_cases",
       "--seed-top=prod",
       "--client=mock",
@@ -1203,30 +1178,29 @@ describe("eval/auto E2E runAutoLoop", () => {
       callOptimizer: async () =>
         JSON.stringify({
           analysis: "Solo inválidas",
-          variants: [{ suffix: "a", hypothesis: "Bad import", code: 'import fs from "node:fs"; export default {};' }],
+          variants: [{ suffix: "a", hypothesis: "Pregunta inexistente", instructions: { no_existe: "x" } }],
         }),
       resultsRoot: invRoot,
       variantsRoot: invVariants,
       silent: true,
     });
     assert.equal(invCode, 1);
-    assert.match(readConclusionsBounded(invConc).content, /Vuelta sin válidas/);
+    assert.ok(readLedger(invLedger).some((e) => e.status === "invalida"), "queda anotada la vuelta sin variantes válidas");
 
-    // 3) Holdout fallido en R1 no se re-evalúa en R2 sobre la misma variante
-    const { conclusionsPath: hoConc, resultsRoot: hoRoot, variantsRoot: hoVariants } = setupTempAutoDir("route", "holdoutonce");
+    // 2) Holdout fallido en R1 no se re-evalúa en R2 sobre la misma variante
+    const { ledgerPath: hoLedger, resultsRoot: hoRoot, variantsRoot: hoVariants } = setupTempAutoDir("route", "holdoutonce");
     const hoCfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=2",
       "--target=0.50",
       "--optimizer-model=mock-opt",
-      `--conclusions=${hoConc}`,
+      `--ledger=${hoLedger}`,
       "--dataset=route_16_cases",
       "--holdout=route_gemai",
       "--seed-top=prod",
       "--client=mock",
       "--concurrency=2",
     ]);
-    const baseTpl = getStageContract("route").minimalTemplate("base");
     let holdoutEvalCalls = 0;
     let roundOpt = 0;
     const hoOpt: OptimizerLlmCaller = async ({ schemaName }) => {
@@ -1236,12 +1210,12 @@ describe("eval/auto E2E runAutoLoop", () => {
         return JSON.stringify({
           analysis: `Round ${roundOpt}`,
           variants: [
-            { suffix: "a", hypothesis: `Hyp A ${roundOpt}`, code: baseTpl.replace("Choose the route that handles the next step.", tag) },
-            { suffix: "b", hypothesis: `Hyp B ${roundOpt}`, code: baseTpl.replace("Choose the route that handles the next step.", `MOCK_LOSE_B_R${roundOpt}`) },
+            { suffix: "a", hypothesis: `Hyp A ${roundOpt}`, instructions: { route: tag } },
+            { suffix: "b", hypothesis: `Hyp B ${roundOpt}`, instructions: { route: `MOCK_LOSE_B_R${roundOpt}` } },
           ],
         });
       }
-      return JSON.stringify({ update: false, reason: "sin cambios" });
+      throw new Error(`esquema de optimizador inesperado: ${schemaName}`);
     };
     const isHoldoutGemRequest = (state: string): boolean =>
       /docker-compose|build:ci|rotados|Stripe|origin\/main|nginx|monorepo|zustand|RAM|\.gitignore|\.spec\.tsx|OpenSSL|prisma|localhost:8080|\.whl|changelog/i.test(
@@ -1280,9 +1254,8 @@ describe("eval/auto E2E runAutoLoop", () => {
       silent: true,
     });
     assert.equal(hoCode, 1);
-    const hoMd = readConclusionsBounded(hoConc).content;
-    const alertMatches = hoMd.match(/Alerta holdout/g) ?? [];
-    assert.equal(alertMatches.length, 1, "No debe duplicar alertas holdout para la misma variante");
+    const holdoutFailures = readLedger(hoLedger).filter((e) => e.status === "fallo_holdout");
+    assert.equal(holdoutFailures.length, 1, "No debe duplicar el fallo de holdout para la misma variante");
     assert.equal(holdoutEvalCalls, 16, "Solo debe evaluar los 16 casos de holdout una única vez en R1");
   });
 
@@ -1298,7 +1271,7 @@ describe("eval/auto E2E runAutoLoop", () => {
     mkdirSync(dynDir, { recursive: true });
     const dynName = "auto_route_ephemeral_tmp";
     const dynPath = join(dynDir, `${dynName}.ts`);
-    const tpl1 = getStageContract("route").minimalTemplate(dynName).replace("Choose the route that handles the next step.", "EPHEMERAL_V1");
+    const tpl1 = decisionVariantCode("route", dynName, "EPHEMERAL_V1");
     writeFileSync(dynPath, tpl1, "utf8");
     const sampleRouteInput = {
       routes: ["files_read", "terminal", "web"],
@@ -1314,7 +1287,7 @@ describe("eval/auto E2E runAutoLoop", () => {
     assert.ok(typeof fn1 === "function");
     assert.match(fn1(sampleRouteInput).questions.route.instructions, /EPHEMERAL_V1/);
 
-    const tpl2 = getStageContract("route").minimalTemplate(dynName).replace("Choose the route that handles the next step.", "EPHEMERAL_V2");
+    const tpl2 = decisionVariantCode("route", dynName, "EPHEMERAL_V2");
     writeFileSync(dynPath, tpl2, "utf8");
     const loaded2 = loadVariantSpecEphemeral(dynName, dynPath, variantsRoot);
     assert.notEqual(loaded2.hash, loaded1.hash);
@@ -1323,18 +1296,17 @@ describe("eval/auto E2E runAutoLoop", () => {
     assert.match(fn2(sampleRouteInput).questions.route.instructions, /EPHEMERAL_V2/);
 
     // 2) runAutoLoop sin deps.makeClients ejecuta Vuelta 0 y Vuelta 1 dentro de Workers efímeros
-    const { conclusionsPath: wConc, resultsRoot: wRoot, variantsRoot: wVariants } = setupTempAutoDir("route", "worker");
+    const { ledgerPath: wLedger, resultsRoot: wRoot, variantsRoot: wVariants } = setupTempAutoDir("route", "worker");
     const wCfg = parseAutoConfig([
       "--stage=route",
       "--max-loops=1",
       "--target=0.99",
       "--optimizer-model=mock-opt",
-      `--conclusions=${wConc}`,
+      `--ledger=${wLedger}`,
       "--dataset=route_16_cases",
       "--client=mock",
       "--concurrency=2",
     ]);
-    const wTpl = getStageContract("route").minimalTemplate("base");
     let wCalls = 0;
     const wCode = await runAutoLoop(wCfg, {
       callOptimizer: async ({ schemaName }) => {
@@ -1343,12 +1315,12 @@ describe("eval/auto E2E runAutoLoop", () => {
           return JSON.stringify({
             analysis: "Worker test",
             variants: [
-              { suffix: "a", hypothesis: "Worker A", code: wTpl.replace("Choose the route that handles the next step.", "WORKER_A") },
-              { suffix: "b", hypothesis: "Worker B", code: wTpl.replace("Choose the route that handles the next step.", "WORKER_B") },
+              { suffix: "a", hypothesis: "Worker A", instructions: { route: "WORKER_A" } },
+              { suffix: "b", hypothesis: "Worker B", instructions: { route: "WORKER_B" } },
             ],
           });
         }
-        return JSON.stringify({ update: false, reason: "mock" });
+        throw new Error(`esquema de optimizador inesperado: ${schemaName}`);
       },
       resultsRoot: wRoot,
       variantsRoot: wVariants,
@@ -1361,5 +1333,465 @@ describe("eval/auto E2E runAutoLoop", () => {
     assert.equal(state.completedRounds, 1);
     assert.equal(state.top2.length, 2);
     assert.ok(state.top2.some((v) => v.includes("_r1_")));
+  });
+});
+
+describe("eval/auto ledger (historial de ideas probadas)", () => {
+  it("clipSummary deja una sola línea y recorta a 120 caracteres", () => {
+    assert.equal(clipSummary("a\n  b\tc"), "a b c");
+    assert.equal(clipSummary("x".repeat(500)).length, 120);
+    assert.equal(clipSummary("   "), "(sin resumen)");
+  });
+
+  it("guarda todo en disco pero al prompt solo van las últimas entradas, con la cantidad omitida", () => {
+    const dir = trackTemp(mkdtempSync(join(tmpdir(), "jarvis-ledger-")));
+    const file = join(dir, "sub", "ledger.jsonl");
+    const entries = Array.from({ length: LEDGER_PROMPT_ENTRIES + 5 }, (_, i) => ({
+      round: i + 1,
+      variant: `v${i + 1}`,
+      summary: `idea ${i + 1}`,
+      score: 0.5,
+      deltaVsProd: 0.05,
+      improvements: 2,
+      regressions: 1,
+      status: "perdio" as const,
+    }));
+    appendLedger(file, entries);
+    assert.equal(readLedger(file).length, entries.length);
+    const text = formatLedgerForPrompt(file);
+    assert.match(text, /5 entrada\(s\) anterior\(es\) no mostradas/);
+    assert.ok(text.includes("idea 15") && !text.includes("idea 5`") && !text.includes("«idea 5»"));
+    assert.equal(text.split("\n").length, LEDGER_PROMPT_ENTRIES + 1);
+  });
+
+  it("tolera líneas corruptas y un archivo inexistente", () => {
+    const dir = trackTemp(mkdtempSync(join(tmpdir(), "jarvis-ledger-")));
+    const file = join(dir, "ledger.jsonl");
+    assert.match(formatLedgerForPrompt(file), /primera iteración/);
+    appendLedger(file, [{ round: 1, variant: "a", summary: "ok", status: "top2" }]);
+    writeFileSync(file, readFileSync(file, "utf8") + "{no es json\n", "utf8");
+    assert.equal(readLedger(file).length, 1);
+  });
+});
+
+describe("eval/auto variantes de decisión armadas por código (solo textos)", () => {
+  const routeShape = () => shapeFromRequests(collectDecisionRequests("route", [resolve("eval/datasets/route/route_v1.jsonl")]));
+
+  it("conoce las preguntas y opciones reales de la etapa a partir de los casos", () => {
+    const shape = routeShape();
+    assert.deepEqual(shape.questions.map((q) => q.key), ["route"]);
+    assert.ok(shape.questions[0].options.includes("files_read") && shape.questions[0].options.includes("web"));
+    const texts = formatCurrentTexts(collectDecisionRequests("route", [resolve("eval/datasets/route/route_v1.jsonl")]));
+    assert.match(texts, /^instructions.route: "/m);
+    assert.match(texts, /^criteria.route.web: "/m);
+  });
+
+  it("patchFromRaw rechaza preguntas u opciones inexistentes, textos vacíos o largos y variantes que no cambian nada", () => {
+    const shape = routeShape();
+    assert.match(patchFromRaw({ instructions: { pregunta: "x" } }, shape).errors.join(" "), /la pregunta no existe/);
+    assert.match(patchFromRaw({ criteria: { route: { nube: "x" } } }, shape).errors.join(" "), /la opción no existe/);
+    assert.match(patchFromRaw({ instructions: { route: "  " } }, shape).errors.join(" "), /texto no vacío/);
+    assert.match(patchFromRaw({ instructions: { route: "x".repeat(5000) } }, shape).errors.join(" "), /máximo/);
+    assert.match(patchFromRaw({}, shape).errors.join(" "), /no cambia nada/);
+    const ok = patchFromRaw({ instructions: { route: " Pick one. " }, state_note: "Be specific." }, shape);
+    assert.deepEqual(ok.patch, { instructions: { route: "Pick one." }, stateNote: "Be specific." });
+  });
+
+  it("el archivo generado pasa la validación, aplica solo los textos, conserva la marca de intento fallido y no ejecuta texto del modelo", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("patchbuild");
+    const hostile = "Use `terminal` ${globalThis.hacked = true} */ process.exit(1) //";
+    const { patch, errors } = patchFromRaw(
+      { instructions: { route: hostile }, criteria: { route: { web: "Online lookups only." } }, state_note: "Be specific." },
+      routeShape(),
+    );
+    assert.deepEqual(errors, []);
+    const code = buildPatchedVariantSource({ promptKey: "buildRouteChoice", variantName: "auto_route_patchtest_r1_a", patch: patch! });
+    const res = await validateAndWriteVariant({
+      stage: "route",
+      variantName: "auto_route_patchtest_r1_a",
+      rawCode: code,
+      devDatasetPaths: [resolve("eval/datasets/route/route_v1.jsonl")],
+      knownHashes: new Set<string>(),
+      variantsRoot,
+    });
+    assert.equal(res.ok, true, res.ok ? "" : res.error);
+    if (!res.ok) return;
+    const build = res.variant.prompts?.DECISION_PROMPTS?.buildRouteChoice;
+    assert.ok(typeof build === "function");
+    const input = {
+      routes: ["files_read", "terminal", "web"],
+      request: "hola",
+      step: { instruction: "hola" },
+      done: [],
+      attempts: [{ stepId: "s1", route: "web", tool: "x", status: "tool_error" }],
+      userInput: [],
+      env: [],
+    } as never;
+    const out = build(input);
+    assert.equal(out.questions.route.instructions, hostile, "el texto queda literal, sin interpretarse");
+    assert.equal((globalThis as Record<string, unknown>).hacked, undefined);
+    assert.ok(out.state.startsWith("Be specific.\n"));
+    const criteria = (out.questions.route as { criteria: Record<string, string> }).criteria;
+    assert.match(criteria.web, /^Online lookups only./);
+    assert.match(criteria.terminal, /Run a command/, "las opciones sin cambio quedan como en producción");
+  });
+});
+
+describe("eval/auto: umbral de holdout relativo a prod y modo improve", () => {
+  const baseArgs = (extra: string[]) => ["--stage=route", "--max-loops=1", "--optimizer-model=mock-opt", "--client=mock", ...extra];
+
+  it("valida las opciones --holdout-margin, --mode y --base", () => {
+    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--holdout-margin=0.1"])), /requiere --holdout/);
+    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--holdout=route_gemai", "--holdout-margin=2"])), /\(0, 1\]/);
+    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--mode=otro"])), /rewrite' o 'improve/);
+    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--base=prod"])), /solo vale con --mode=improve/);
+    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--mode=improve", "--base=prod", "--seed-top=prod"])), /no se combinan/);
+    const ok = parseAutoConfig(baseArgs(["--target=0.9", "--mode=improve", "--base=route_v1", "--holdout=route_gemai", "--holdout-margin=0.1"]));
+    assert.equal(ok.mode, "improve");
+    assert.deepEqual(ok.seedTop, ["route_v1"]);
+    assert.equal(ok.holdoutMargin, 0.1);
+    assert.equal(parseAutoConfig(baseArgs(["--target=0.9"])).mode, "rewrite");
+  });
+
+  it("con --holdout-margin se confirma al superar a prod por el margen aunque no se llegue a --target", async () => {
+    const run = async (margin: string): Promise<{ code: number; statuses: string[] }> => {
+      const tag = `margin${margin.replace(".", "")}`;
+      const { ledgerPath, resultsRoot, variantsRoot } = setupTempAutoDir("route", tag);
+      const cfg = parseAutoConfig(baseArgs(["--target=0.01", `--ledger=${ledgerPath}`, "--dataset=route_16_cases", "--holdout=route_gemai", `--holdout-margin=${margin}`, "--concurrency=2"]));
+      const pick = (req: { questions: Record<string, { criteria?: Record<string, string> }> }, wanted: string): string => {
+        const options = Object.keys(req.questions.route?.criteria ?? {});
+        return options.includes(wanted) ? wanted : options[0];
+      };
+      const makeClients = (c: AutoConfig) => ({
+        genClient: createMockGenerativeClient({ url: c.url, model: c.model }),
+        decClient: createMockDecisionClient({ url: c.decisionUrl, model: c.decisionModel }, (_p, req) => {
+          const candidate = (req.questions.route?.instructions ?? "").includes("MOCK_CANDIDATE");
+          const choice = pick(req as never, candidate ? "files_read" : "files_write");
+          return JSON.stringify({ answers: { route: { choice, probabilities: { [choice]: 0.9 } } } });
+        }),
+      });
+      const code = await runAutoLoop(cfg, {
+        callOptimizer: async ({ schemaName }) =>
+          schemaName === "optimizer_variants"
+            ? JSON.stringify({ analysis: "x", variants: [{ suffix: "a", hypothesis: "Candidata", instructions: { route: "MOCK_CANDIDATE pick one." } }, { suffix: "b", hypothesis: "Otra", instructions: { route: "MOCK_OTHER pick one." } }] })
+            : (() => { throw new Error("esquema de optimizador inesperado"); })(),
+        makeClients,
+        resultsRoot,
+        variantsRoot,
+        silent: true,
+      });
+      return { code, statuses: readLedger(ledgerPath).map((e) => e.status) };
+    };
+    const easy = await run("0.01");
+    assert.equal(easy.code, 0, "supera a prod por >= 1 punto: se confirma");
+    const hard = await run("0.9");
+    assert.equal(hard.code, 1, "no supera a prod por 90 puntos: no se confirma");
+    assert.ok(hard.statuses.includes("fallo_holdout"));
+  });
+
+  it("el modo improve muestra solo el prompt base, aplica los cambios sobre sus textos y el modo rewrite no", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("improvemode");
+    const devPath = resolve("eval/datasets/route/route_v1.jsonl");
+    const requests = collectDecisionRequests("route", [devPath]);
+    const shape = shapeFromRequests(requests);
+    const base = patchFromRequests(requests);
+    assert.ok(Object.keys(base.criteria?.route ?? {}).length >= 6, "el base incluye todas las opciones, no solo las de un caso");
+    assert.deepEqual(mergePatch(base, { instructions: { route: "Nueva." } }).instructions, { route: "Nueva." });
+    assert.equal(mergePatch({ stateNote: "base" }, { instructions: { route: "x" } }).stateNote, "base");
+
+    const seen: string[] = [];
+    const caller: OptimizerLlmCaller = async ({ messages }) => {
+      seen.push(messages.map((m) => m.content).join("\n"));
+      return JSON.stringify({
+        analysis: "x",
+        variants: [
+          { suffix: "a", hypothesis: "A", instructions: { route: "Pick the best route A." } },
+          { suffix: "b", hypothesis: "B", instructions: { route: "Pick the best route B." } },
+        ],
+      });
+    };
+    const make = (mode: "improve" | "rewrite") =>
+      generateVariantsForRound({
+        cfg: parseAutoConfig(baseArgs(["--target=0.9", `--mode=${mode}`])),
+        round: 1,
+        runTag: `mode${mode}`,
+        ledgerText: "(vacío)",
+        top2Contexts: [],
+        allRanked: [],
+          decision: { shape, mode, ...(mode === "improve" ? { base } : {}), topTexts: "### Base: `prod`\ninstructions.route: \"x\"" },
+        devDatasetPaths: [devPath],
+        knownHashes: collectKnownVariantHashes("route", [], variantsRoot),
+        variantsRoot,
+        callLlm: caller,
+      });
+    const improved = await make("improve");
+    const rewritten = await make("rewrite");
+    assert.equal(improved.validVariants.length, 2);
+    assert.match(seen[0], /Te damos un prompt base/);
+    assert.match(seen[0], /Prompt base \(el que tenés que mejorar\)/);
+    assert.match(seen[1], /Proponé prompts nuevos/);
+    assert.doesNotMatch(seen[1], /Te damos un prompt base/);
+    // improve conserva los textos base de las opciones que el modelo no tocó; rewrite las deja a cargo de producción.
+    const unchangedBaseText = base.criteria!.route.web;
+    assert.ok(improved.validVariants[0].code.includes(JSON.stringify(unchangedBaseText).slice(1, -1)));
+    assert.ok(!rewritten.validVariants[0].code.includes(JSON.stringify(unchangedBaseText).slice(1, -1)));
+    for (const text of seen) assert.doesNotMatch(text, /Expected:|Predicted:|expectedRoute/, "no se le muestran casos ni respuestas esperadas");
+  });
+});
+
+describe("eval/auto: resumen de confusiones para el optimizador (solo etiquetas)", () => {
+  const rec = (expectedLabel: string | null, predictedLabel: string | null, passed: boolean, extra: Record<string, unknown> = {}) =>
+    ({ bucket: "canonical", passed, expectedLabel, predictedLabel, metrics: { client_call_ok: true }, ...extra }) as never;
+
+  it("cuenta errores por etiqueta de la variante enfocada, solo en desarrollo y sin casos ni textos", () => {
+    const cells = [
+      {
+        variantSpec: "prod",
+        datasetName: "route_dev",
+        records: [
+          rec("system", "terminal", false),
+          rec("system", "terminal", false),
+          rec("system", "system", true),
+          rec("web", "web", true),
+          rec("files_read", null, false), // sin respuesta válida
+          rec("web", "web", false), // falló por otro motivo: no es una confusión de etiqueta
+          rec("web", "terminal", false, { bucket: "raw" }), // raw: no cuenta
+          rec("web", "terminal", false, { metrics: { client_call_ok: false } }), // falla de cliente: no cuenta
+          rec(null, null, false), // sin etiqueta esperada: no cuenta
+        ],
+      },
+      { variantSpec: "prod", datasetName: "route_holdout", records: [rec("web", "terminal", false), rec("web", "terminal", false), rec("web", "terminal", false)] },
+      { variantSpec: "otra", datasetName: "route_dev", records: [rec("system", "web", false)] },
+    ] as never;
+    const confusions = extractConfusions({ focusVariant: "prod", cells, devDatasetNames: new Set(["route_dev"]) });
+    assert.deepEqual(confusions, [
+      { expected: "system", predicted: "terminal", count: 2, expectedTotal: 3 },
+      { expected: "files_read", predicted: "(sin respuesta válida)", count: 1, expectedTotal: 1 },
+    ]);
+    const text = formatConfusions(confusions);
+    assert.match(text, /Cuando lo correcto era `system`, eligió `terminal`: 2 de 3 casos\./);
+    assert.match(formatConfusions([]), /no tiene errores de etiqueta/);
+  });
+
+  it("el prompt de decisión incluye el resumen de confusiones y ningún caso ni respuesta esperada", async () => {
+    const variantsRoot = setupIsolatedVariantsRoot("confusions");
+    const devPath = resolve("eval/datasets/route/route_v1.jsonl");
+    const requests = collectDecisionRequests("route", [devPath]);
+    let prompt = "";
+    await generateVariantsForRound({
+      cfg: parseAutoConfig(["--stage=route", "--max-loops=1", "--target=0.9", "--optimizer-model=mock-opt", "--client=mock"]),
+      round: 1,
+      runTag: "conf",
+      ledgerText: "(vacío)",
+      top2Contexts: [],
+      allRanked: [],
+      decision: {
+        shape: shapeFromRequests(requests),
+        mode: "rewrite",
+        topTexts: "### Top-1: `prod`",
+        confusions: formatConfusions([{ expected: "system", predicted: "terminal", count: 3, expectedTotal: 7 }]),
+      },
+      devDatasetPaths: [devPath],
+      knownHashes: collectKnownVariantHashes("route", [], variantsRoot),
+      variantsRoot,
+      callLlm: async ({ messages }) => {
+        prompt = messages.map((m) => m.content).join("\n");
+        return JSON.stringify({ analysis: "x", variants: [{ suffix: "a", hypothesis: "A", instructions: { route: "Pick A." } }, { suffix: "b", hypothesis: "B", instructions: { route: "Pick B." } }] });
+      },
+    });
+    assert.match(prompt, /## Errores del Top-1 en desarrollo \(solo etiquetas; sin casos ni textos\)/);
+    assert.match(prompt, /Cuando lo correcto era `system`, eligió `terminal`: 3 de 7 casos\./);
+    assert.doesNotMatch(prompt, /Expected:|Predicted:|expectedRoute|route-v1-|Request:/);
+  });
+});
+
+describe("eval/auto: dónde se buscan resultados reutilizables", () => {
+  const cfgFor = (extra: string[] = []) => parseAutoConfig(["--stage=route", "--max-loops=1", "--target=0.9", "--optimizer-model=mock-opt", ...extra]);
+
+  it("busca en las corridas manuales del modelo, en las sesiones --auto anteriores de la etapa y en la estructura anterior; las sesiones más recientes primero", () => {
+    const root = trackTemp(mkdtempSync(join(tmpdir(), "jarvis-results-")));
+    mkdirSync(join(root, "auto", "route", "2026-11-21_100000", "r0"), { recursive: true });
+    mkdirSync(join(root, "auto", "route", "2026-11-21_120000", "r0"), { recursive: true });
+    mkdirSync(join(root, "auto", "args_review", "2026-11-21_110000"), { recursive: true });
+    writeFileSync(join(root, "auto", "route", "session.json"), "{}"); // un archivo suelto no es una sesión
+
+    // Etapa de decisión con otro modelo generativo: se mira la carpeta de ambos modelos.
+    const dirs = reusableResultsDirs(cfgFor(["--decision-model=dec-x", "--generative-model=gen-y"]), undefined, root);
+    assert.deepEqual(dirs, [
+      resolve(root, "evals", "dec-x"),
+      resolve(root, "evals", "gen-y"),
+      resolve(root, "auto", "route", "2026-11-21_120000"),
+      resolve(root, "auto", "route", "2026-11-21_100000"),
+      resolve(root, "dec-x"),
+      resolve(root, "gen-y"),
+    ]);
+    assert.ok(!dirs.some((d) => d.includes("args_review")), "no mezcla sesiones de otra etapa");
+  });
+
+  it("con resultsRoot solo mira esa carpeta, y los clientes mock y oracle usan sin-modelo/", () => {
+    const root = "raiz-falsa";
+    assert.deepEqual(reusableResultsDirs(cfgFor(), "una/carpeta", root), [resolve("una/carpeta")]);
+    assert.deepEqual(reusableResultsDirs(cfgFor(["--client=mock"]), undefined, root), [resolve(root, "sin-modelo", "mock"), resolve(root, "_mock")]);
+  });
+});
+
+describe("eval/auto: bucle completo en las 14 etapas (cliente y optimizador simulados)", () => {
+  for (const stage of allStageNames()) {
+    it(`${stage}: genera variantes válidas, las evalúa y registra el historial sin errores`, async () => {
+      const { ledgerPath, resultsRoot, variantsRoot } = setupTempAutoDir(stage, `all-${stage}`);
+      const datasetPath = resolve(`eval/datasets/${stage}/${stage}_v1.jsonl`);
+      const cfg: AutoConfig = parseAutoConfig([
+        `--stage=${stage}`,
+        "--max-loops=1",
+        "--target=0.99",
+        "--optimizer-model=mock-opt",
+        `--ledger=${ledgerPath}`,
+        `--dataset=${stage}_v1`,
+        "--seed-top=prod",
+        "--client=mock",
+        "--concurrency=2",
+      ]);
+
+      let variantsAsked: unknown[];
+      if (isDecisionStage(stage)) {
+        const shape = shapeFromRequests(collectDecisionRequests(stage, [datasetPath]));
+        const firstKey = shape.questions[0].key;
+        const mark = shape.dynamic?.[firstKey] ? ` ${"{{DATA}}"}` : "";
+        variantsAsked = ["a", "b"].map((suffix) => ({ suffix, hypothesis: `Prueba ${suffix}`, instructions: { [firstKey]: `Variante ${suffix}: elegí con cuidado la opción correcta.${mark}` } }));
+      } else {
+        const current = currentSystemText(getStageContract(stage).promptKey);
+        variantsAsked = ["a", "b"].map((suffix) => ({ suffix, hypothesis: `Prueba ${suffix}`, system: `${current}\nVariante ${suffix}: sé preciso.` }));
+      }
+      const mockOptimizer: OptimizerLlmCaller = async () => JSON.stringify({ analysis: "Prueba", variants: variantsAsked });
+
+      const code = await runAutoLoop(cfg, {
+        callOptimizer: mockOptimizer,
+        makeClients: (c: AutoConfig) => ({
+          genClient: createMockGenerativeClient({ url: c.url, model: c.model }),
+          decClient: createMockDecisionClient({ url: c.decisionUrl, model: c.decisionModel }),
+        }),
+        resultsRoot,
+        variantsRoot,
+        silent: true,
+      });
+
+      assert.ok(code === 0 || code === 1, `terminó con código ${code}`);
+      const entries = readLedger(ledgerPath);
+      assert.ok(entries.length >= 1, "el historial registra las variantes probadas");
+      assert.ok(entries.every((e) => e.status !== "invalida"), "ninguna variante fue inválida");
+    });
+  }
+});
+
+describe("eval/auto: instrucciones con texto propio de cada caso", () => {
+  const devPath = resolve("eval/datasets/fragment_judge/fragment_judge_v1.jsonl");
+
+  it("el texto editable no trae datos de casos: lleva {{DATA}} y agrupa f0, f1… bajo f*", () => {
+    const reqs = collectDecisionRequests("fragment_judge", [devPath]);
+    const shape = shapeFromRequests(reqs);
+    assert.deepEqual(shape.questions.map((q) => q.key), ["f*"]);
+    const texts = formatCurrentTexts(reqs);
+    assert.match(texts, /\{\{DATA\}\}/);
+    assert.doesNotMatch(texts, /etanol|boletín|postgresql/i, "ningún fragmento de caso llega al optimizador");
+  });
+
+  it("exige conservar {{DATA}} y la variante generada conserva el fragmento de cada caso", async () => {
+    const reqs = collectDecisionRequests("fragment_judge", [devPath]);
+    const shape = shapeFromRequests(reqs);
+    assert.ok(patchFromRaw({ instructions: { "f*": "Sin marcador." } }, shape).errors.length > 0);
+    const { patch } = patchFromRaw({ instructions: { "f*": 'NUEVO\n"""\n{{DATA}}\n"""\nFIN?' } }, shape);
+    assert.ok(patch);
+    const variantsRoot = setupIsolatedVariantsRoot("dyn");
+    const res = await validateAndWriteVariant({
+      stage: "fragment_judge",
+      variantName: "auto_fragment_judge_dyn_r1_a",
+      rawCode: buildPatchedVariantSource({ promptKey: "buildFragmentJudge", variantName: "auto_fragment_judge_dyn_r1_a", patch: patch!, dynamic: shape.dynamic }),
+      devDatasetPaths: [devPath],
+      knownHashes: new Set(),
+      variantsRoot,
+    });
+    assert.ok(res.ok, res.ok ? "" : res.error);
+    const variant = loadVariantSpecEphemeral("auto_fragment_judge_dyn_r1_a", undefined, variantsRoot).variant;
+    const patched = collectDecisionRequests("fragment_judge", [devPath], variant);
+    assert.match(patched[0].questions.f0.instructions, /^NUEVO\n"""\nEl etanol puro/);
+    assert.match(patched[0].questions.f0.instructions, /\n"""\nFIN\?$/);
+    assert.notEqual(patched[0].questions.f0.instructions, patched[1].questions.f0.instructions);
+  });
+});
+
+describe("eval/auto: varias etapas en una corrida", () => {
+  it("expande la lista con las etapas de decisión primero, sin repetidas, y entiende all, decision y generative", () => {
+    assert.deepEqual(expandStages("pending,d0,route,d0"), ["d0", "route", "pending"]);
+    assert.deepEqual(expandStages("generative").every((s) => !isDecisionStage(s)), true);
+    const all = expandStages("all");
+    assert.equal(all.length, 14);
+    assert.equal(all.slice(0, 9).every((s) => isDecisionStage(s)), true, "las 9 de decisión van primero");
+    assert.equal(isMultiStageArg("route"), false);
+    assert.equal(isMultiStageArg("route,d0"), true);
+    assert.equal(isMultiStageArg("all"), true);
+    assert.throws(() => expandStages("route,nada"), /etapa 'nada' desconocida/);
+  });
+
+  it("rechaza los flags de una sola etapa y deja --holdout solo como --holdout=auto", () => {
+    for (const flag of ["--dataset=route_v1", "--seed-top=prod", "--base=prod", "--ledger=x.jsonl"]) {
+      assert.throws(() => checkMultiStageFlags(["--stage=route,d0", flag]), /es de una sola etapa/);
+    }
+    assert.throws(() => checkMultiStageFlags(["--stage=route,d0", "--holdout=route_v1_holdout"]), /solo admite --holdout=auto/);
+    assert.doesNotThrow(() => checkMultiStageFlags(["--stage=route,d0", "--holdout=auto"]));
+    assert.deepEqual(argvForStage(["--stage=route,d0", "--max-loops=2", "--holdout=auto"], "d0"), ["--stage=d0", "--max-loops=2"]);
+  });
+
+  it("holdoutFilesOf solo devuelve los *_holdout*.jsonl de la etapa", () => {
+    const files = holdoutFilesOf("route");
+    assert.ok(files.length > 0 && files.every((f) => /holdout\d*\.jsonl$/.test(f) && f.includes("route")));
+    assert.deepEqual(holdoutFilesOf("route", "carpeta/que/no/existe"), []);
+  });
+
+  it("corre las etapas en serie con decisión primero y sigue con la siguiente aunque una no alcance el objetivo", async () => {
+    const { resultsRoot, variantsRoot } = setupTempAutoDir("d0", "multi");
+    const order: string[] = [];
+    const mockOptimizer: OptimizerLlmCaller = async ({ messages }) => {
+      const stage = /Etapa\n- `(\w+)`/.exec(messages.at(-1)?.content ?? "")?.[1] ?? "";
+      const firstKey = isDecisionStage(stage as StageName) ? shapeFromRequests(collectDecisionRequests(stage as StageName, [resolve(`eval/datasets/${stage}/${stage}_v1.jsonl`)])).questions[0].key : "";
+      const text = (suffix: string) => `Variante ${suffix}: elegí con cuidado la opción correcta.${firstKey && shapeFromRequests(collectDecisionRequests(stage as StageName, [resolve(`eval/datasets/${stage}/${stage}_v1.jsonl`)])).dynamic?.[firstKey] ? " {{DATA}}" : ""}`;
+      const variants = isDecisionStage(stage as StageName)
+        ? ["a", "b"].map((suffix) => ({ suffix, hypothesis: `Prueba ${suffix}`, instructions: { [firstKey]: text(suffix) } }))
+        : ["a", "b"].map((suffix) => ({ suffix, hypothesis: `Prueba ${suffix}`, system: `${currentSystemText(getStageContract(stage as StageName).promptKey)}\nVariante ${suffix}.` }));
+      return JSON.stringify({ analysis: "Prueba", variants });
+    };
+
+    const code = await runAutoStages(
+      ["--stage=pending,d0,route", "--max-loops=1", "--target=0.99", "--optimizer-model=mock-opt", "--client=mock", "--concurrency=2"],
+      {
+        callOptimizer: mockOptimizer,
+        makeClients: (c: AutoConfig) => {
+          if (order[order.length - 1] !== c.stage) order.push(c.stage);
+          return {
+            genClient: createMockGenerativeClient({ url: c.url, model: c.model }),
+            decClient: createMockDecisionClient({ url: c.decisionUrl, model: c.decisionModel }),
+          };
+        },
+        resultsRoot,
+        variantsRoot,
+        silent: true,
+      },
+    );
+
+    assert.deepEqual(order, ["d0", "route", "pending"], "decisión primero y las tres corrieron");
+    assert.equal(code, 1, "ninguna llegó al 99 %: código 1, pero ninguna cortó a las demás");
+    for (const stage of ["d0", "route", "pending"]) {
+      assert.equal(existsSync(autoStatePath(stage as StageName, variantsRoot)), true, `${stage} guardó su estado`);
+    }
+  });
+
+  it("combina los códigos de salida y arma la tabla de resumen", () => {
+    assert.equal(combineExitCodes([{ stage: "d0", code: 0 }, { stage: "route", code: 0 }]), 0);
+    assert.equal(combineExitCodes([{ stage: "d0", code: 0 }, { stage: "route", code: 1 }]), 1);
+    assert.equal(combineExitCodes([{ stage: "d0", code: 1 }, { stage: "route", code: 2 }]), 2);
+    assert.equal(combineExitCodes([{ stage: "d0", code: "skipped" }, { stage: "route", code: 0 }]), 0);
+    assert.equal(combineExitCodes([{ stage: "d0", code: "skipped" }]), 2, "si no corrió ninguna, es error");
+    const table = formatStageSummary([{ stage: "d0", code: 0, prodScore: 0.9, best: { variant: "auto_d0_x", score: 1 } }, { stage: "route", code: "skipped" }]);
+    assert.match(table, /d0\s+objetivo alcanzado\s+90\.0%\s+100\.0%\s+auto_d0_x/);
+    assert.match(table, /route\s+sin datasets/);
   });
 });

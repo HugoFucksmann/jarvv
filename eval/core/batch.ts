@@ -6,8 +6,8 @@
  * Reutilizado por `eval/cli.ts` y `eval/auto.ts` para evitar duplicación.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createDecisionClient, type DecisionClient } from "./client/decision.ts";
 import { createGenerativeClient, type GenerativeClient } from "./client/generative.ts";
 import { createMockDecisionClient, createMockGenerativeClient } from "./client/mock.ts";
@@ -15,7 +15,8 @@ import { oracleDecisionResponder, oracleGenerativeResponder } from "./client/ora
 import type { EvalConfig } from "./config.ts";
 import type { Dataset } from "./datasets.ts";
 import { generateComparisonReport, writeComparison, type ComparisonReport, type InputCell } from "./report.ts";
-import { buildRunMeta, createCellWriter, newRunId, runRootDir, safeName, timestampDir } from "./results.ts";
+import { atomicWriteFileSync } from "./io.ts";
+import { buildRunMeta, createCellWriter, gitInfo, newRunId, runRootDir, safeName, timestampDir, uniqueDir } from "./results.ts";
 import { runDataset } from "./runner.ts";
 import type { RunRecord, StageName } from "./types.ts";
 import type { Variant } from "./variants/types.ts";
@@ -85,13 +86,65 @@ export type ExecuteBatchResult =
       rootDir: string;
     };
 
+/**
+ * Con `resultsRoot` explícito (una sesión de `--auto` o un test) la corrida va en `<resultsRoot>/<label>` (sin fecha: la sesión ya la lleva);
+ * sin `label`, en `<resultsRoot>/<fecha_hora>`.
+ */
 function resolveBatchRootDir(cfg: EvalConfig, ts: string, resultsRoot?: string): string {
   if (!resultsRoot) return runRootDir(cfg, ts);
-  const label = cfg.label ? `_${safeName(cfg.label)}` : "";
-  const base = resolve(resultsRoot, `${ts}${label}`);
-  let dir = base;
-  for (let n = 2; existsSync(dir); n++) dir = `${base}-${n}`;
-  return dir;
+  return resolve(uniqueDir(resolve(resultsRoot, cfg.label ? safeName(cfg.label) : ts)));
+}
+
+type RunStatus = "ok" | "network_failure" | "empty";
+
+/** `run.json`: qué se corrió, con qué modelos y cómo salió, sin abrir las celdas. */
+function writeRunManifest(
+  rootDir: string,
+  info: {
+    cfg: EvalConfig;
+    runId: string;
+    startedAt: string;
+    status: RunStatus;
+    variants: BatchVariantInput[];
+    datasetsByVariant: Map<string, Dataset[]>;
+    stages: StageName[];
+    cells: InputCell[];
+  },
+): void {
+  const { cfg } = info;
+  const git = gitInfo();
+  const datasets = new Map<string, { name: string; path: string; hash: string; cases: number }>();
+  for (const list of info.datasetsByVariant.values()) {
+    for (const ds of list) datasets.set(ds.name, { name: ds.name, path: ds.path, hash: ds.hash, cases: ds.cases.length });
+  }
+  const manifest = {
+    schemaVersion: 1,
+    runId: info.runId,
+    startedAt: info.startedAt,
+    endedAt: new Date().toISOString(),
+    status: info.status,
+    ...(cfg.label ? { label: cfg.label } : {}),
+    client: cfg.client,
+    stages: info.stages,
+    models: { generative: cfg.model, decision: cfg.decisionModel },
+    urls: { generative: cfg.url, decision: cfg.decisionUrl },
+    baseline: cfg.baseline,
+    repeat: cfg.repeat,
+    thinking: cfg.thinking,
+    variants: info.variants.map((v) => ({ name: v.spec, hash: v.hash })),
+    datasets: [...datasets.values()],
+    ...(git.gitCommit ? { gitCommit: git.gitCommit } : {}),
+    ...(git.gitDirty !== undefined ? { gitDirty: git.gitDirty } : {}),
+    cells: info.cells.map((c) => ({
+      dir: c.cellDir === undefined ? `${safeName(c.variantSpec)}__${safeName(c.datasetName)}` : c.cellDir.split(/[\\/]/).pop(),
+      variant: c.variantSpec,
+      dataset: c.datasetName,
+      passRate: c.scores.passRate,
+      passedRuns: c.scores.passedRuns,
+      totalRuns: c.scores.totalRuns,
+    })),
+  };
+  atomicWriteFileSync(join(resolve(rootDir), "run.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 /**
@@ -178,7 +231,10 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
     }
   }
 
+  const manifestBase = { cfg, runId, startedAt, variants, datasetsByVariant, stages: stageFilter, cells: comparisonCells };
+
   if (anyNetworkFailed && allNetworkFailed) {
+    writeRunManifest(rootDir, { ...manifestBase, status: "network_failure" });
     return {
       ok: false,
       kind: "network",
@@ -188,6 +244,7 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
   }
 
   if (comparisonCells.every((cell) => cell.scores.totalRuns === 0)) {
+    writeRunManifest(rootDir, { ...manifestBase, status: "empty" });
     return {
       ok: false,
       kind: "empty",
@@ -202,6 +259,7 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
     concurrency: cfg.concurrency,
   });
   writeComparison(rootDir, report);
+  writeRunManifest(rootDir, { ...manifestBase, status: "ok" });
 
   return {
     ok: true,

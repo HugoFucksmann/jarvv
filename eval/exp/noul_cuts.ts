@@ -10,7 +10,7 @@
  *   3. el comparativo de tres juegos de cortes: producción actual, mejor medido y mejor medido menos 5 puntos.
  *
  * Uso: npx tsx eval/exp/noul_cuts.ts <carpeta de resultados> [--variant=prod] [--dataset=texto] [--bucket=canonical|raw|all] [--best-range=0.25-0.75]
- *   - `<carpeta de resultados>`: una corrida (`eval/results/<modelo>/<corrida>/`) o la carpeta de un modelo; se buscan todos los `runs.jsonl` por debajo.
+ *   - `<carpeta de resultados>`: una corrida (`eval/results/evals/<modelo>/<corrida>/`) o la carpeta de un modelo o de una sesión `--auto`; se buscan todos los `runs.jsonl` por debajo.
  *   - `--variant`: solo las celdas de esa variante (el nombre de la carpeta es `<variante>__<dataset>`). Por omisión, `prod`.
  *   - `--dataset`: solo las celdas cuyo nombre de dataset contiene ese texto.
  *   - `--bucket`: por omisión, `canonical` (los adversariales `isRaw` quedan fuera).

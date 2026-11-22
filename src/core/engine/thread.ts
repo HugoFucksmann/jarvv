@@ -7,6 +7,7 @@
  * cambia nada. Una tarea anterior es texto que escribió el usuario y la respuesta que él ya vio: nunca prosa nueva de un modelo.
  */
 
+import { BUDGET } from "../budget.ts";
 import { FIXED_TIMEOUTS } from "../timeouts.ts";
 import type { PreviousTask } from "../contracts.ts";
 
@@ -23,7 +24,12 @@ export const CONTINUATION_APPROVE = 0.3;
 /** La tarea anterior, con la respuesta recortada. */
 export function previousTaskOf(request: string, answer: string): PreviousTask {
   const text = answer.trim();
-  return { request: request.trim(), answer: text.length > THREAD_ANSWER_CHARS ? `${text.slice(0, THREAD_ANSWER_CHARS)}…` : text };
+  // El pedido también se acota (al tope del hilo en el contexto): sin esto, un pedido largo hacía fallar la tarea siguiente con un `ContextError`.
+  const ask = request.trim();
+  return {
+    request: ask.length > BUDGET.threadValueMax ? `${ask.slice(0, BUDGET.threadValueMax - 1)}…` : ask,
+    answer: text.length > THREAD_ANSWER_CHARS ? `${text.slice(0, THREAD_ANSWER_CHARS)}…` : text,
+  };
 }
 
 /** El bloque de texto del hilo vive en `render/thread.ts` (los modelos no importan del motor); se reexporta por comodidad. */

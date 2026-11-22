@@ -57,7 +57,16 @@ flowchart LR
 Cada corrida ejecuta **variante × dataset × caso × repetición** y guarda el resultado en `eval/results/`:
 
 ```
-eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval/results/_oracle/ y _mock/; una colisión en el mismo segundo agrega -2, -3)
+eval/results/
+├── evals/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/     corridas manuales (npm run eval)
+├── auto/<etapa>/<YYYY-MM-DD_HHmmss>/                 una sesión de --auto
+│   ├── session.json                                  qué se pidió y cómo terminó (código de salida)
+│   └── r0/  r1/  r2/ …  holdout-prod/  r1-holdout/   una carpeta por ronda (cada una es una corrida normal)
+├── sin-modelo/<mock|oracle>/…                        corridas que no miden ningún modelo
+└── herramientas/cross/…                              salidas de eval:cross
+
+<carpeta de corrida>/
+├── run.json                       qué se corrió: modelos, variantes, datasets, commit y resultado por celda
 ├── comparison.md                  reporte para leer
 ├── comparison.json
 └── <variante>__<dataset>/
@@ -66,14 +75,28 @@ eval/results/<modelo>/<YYYY-MM-DD_HHmmss>[_<label>]/   (oracle y mock van a eval
     └── meta.json                  configuración, commit, hashes, filtros y casos
 ```
 
+Una colisión en el mismo segundo agrega `-2`, `-3`. Las carpetas anteriores a esta estructura (`eval/results/<modelo>/…`) siguen siendo legibles y `--auto` las sigue reutilizando.
+
 ---
 
 ## Datasets y cruce con el pre-chequeo
 
-Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). Los datasets y variantes se están rehaciendo: por ahora solo está `eval/datasets/smoke.jsonl` (humo del arnés) y la variante `prod`; las pruebas de `eval/auto` traen sus propios datasets mínimos en `eval/auto/fixtures/`.
+Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). `eval/datasets/smoke.jsonl` es el humo del arnés (un caso por etapa); los datasets de trabajo y los holdouts de cada etapa están en `eval/datasets/<etapa>/`.
+
+## Agregar una etapa nueva (para quien desarrolla el eval)
+
+Las etapas son enchufables y viven en `eval/core/stages/`. Para sumar una etapa nueva:
+1. **Módulo de etapa (`eval/core/stages/<etapa>.ts`):** implementar `DecisionStageEntry` o `GenerativeStageEntry` con su `expectSpec` (claves, requeridas, enums y validación semántica), `buildRequest`, `parseOutput`, `label`, `graders`, `oracleAnswer` o `oracleOutput` y (en decisiones) `mainQuestionBindings`.
+2. **Registro (`eval/core/stages/index.ts`):** importar la entrada y agregarla a `REGISTRY`.
+3. **Tipos (`eval/core/types.ts`):** sumar el nombre a `DecisionStage` o `GenerativeStage` y definir `*Expect` y `*Output` (agregando `*Expect` a `StageExpect`).
+4. **Contrato y graders (`eval/core/contract.ts`, `eval/core/graders/`):** reexportar constantes de `src/` si hacen falta y sumar un grader propio (p. ej. en `graders/label.ts`) si los existentes no cubren el `expect`.
+5. **Caso de humo, dataset y variantes:** agregar un caso en `eval/datasets/smoke.jsonl`, datasets en `eval/datasets/<etapa>/` y variantes en `eval/variants/<etapa>/`.
+
+---
 
 ## Documentación
 
 **Si vas a tocar prompts, variantes o datasets de las etapas de decisión (`d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `d5`, `recovery`), leé primero [`GUIA_DECISION.md`](./GUIA_DECISION.md)**: cómo funciona el modelo de decisión, qué no funcionó y cómo medir sin engañarte.
 
-Toda la referencia está en [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): flags, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas y estructura del código.
+- [`INSTRUCCIONES.md`](./INSTRUCCIONES.md): comandos y flags, con ejemplos para tener a mano.
+- [`REFERENCIA.md`](./REFERENCIA.md): etapas, formato de casos y escenarios, cómo escribir variantes, estructura de resultados, interpretación de métricas, cruce con el pre-chequeo y el modo `--auto`.

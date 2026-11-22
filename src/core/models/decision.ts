@@ -54,6 +54,7 @@ import {
   postJson,
   DecisionServiceUnavailableError,
   DecisionValidationError,
+  RequestAbortedError,
   TransportError,
 } from "./transport.ts";
 import { resolveModelTimeoutMs } from "../timeouts.ts";
@@ -413,6 +414,8 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
    * El texto de la pregunta lo arma `DECISION_PROMPTS.buildFragmentJudge` (el fragmento es no confiable: lo único que sale de él es una probabilidad).
    */
   async score(need: string, fragments: readonly string[], signal?: AbortSignal): Promise<FragmentScores> {
+    // Con la lista vacía no hay consulta que aborte: sin este chequeo una llamada ya cancelada devolvía un resultado normal.
+    if (signal?.aborted) throw new RequestAbortedError();
     const t0 = Date.now();
     const probabilities: number[] = [];
     const inputs: string[] = [];

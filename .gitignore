@@ -12,6 +12,8 @@ coverage/
 
 # ── Resultados de evaluación ───────────────────────────────────────────────────
 eval/results/
+eval/variants/_auto/
+eval/variants/_ganadoras/
 /scripts/eval-next/results/
 
 # ── Resultados de scripts de validación (web_eval captures) ───────────────────

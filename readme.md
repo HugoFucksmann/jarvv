@@ -188,7 +188,7 @@ Todo vive en `jarvis-config.json`. Se edita desde el diálogo de ajustes de la i
 | `qwenThinkingTimeoutMs` | `180000` | Timeout del modelo generativo con razonamiento extendido |
 | `qwenMaxTokens` | `{ arguments: 2048, plan: 4096, replan: 4096, final: 2048 }` | Tope de tokens de salida por etapa del modelo generativo |
 | `allowedDirectories` | `[]` | Carpetas a las que se limita toda herramienta con ruta, incluido `run_command` (su `cwd` y las rutas que detecta el análisis de PowerShell). Se lee en cada llamada y compara con `realpathSync`; lo que no se puede resolver pide confirmación. Vacía = sin restricción |
-| `traceEnabled` · `tracePath` | `true` · `jarvis-traces.jsonl` | Traza por tarea terminada, en una carpeta `jarvis-traces/` junto a `tracePath` (`summary.md`, `trace.json`, `full.json.gz`); el archivo `.jsonl` ya no se escribe |
+| `traceEnabled` · `traceDir` | `true` · `jarvis-traces` | Traza por tarea terminada, en una subcarpeta de `traceDir` (`summary.md`, `trace.json`, `full.json.gz`). La clave anterior `tracePath` (`jarvis-traces.jsonl`) se sigue leyendo |
 | `refsDir` | `data/refs` | Dónde se guardan los resultados completos de las herramientas |
 | `retentionDays` | `10` | Días que se conservan las refs y las trazas: lo más viejo se borra al arrancar y cada 6 horas (`0` = no borrar por antigüedad). Las refs de una tarea retenida en memoria no se tocan |
 | `logRetentionDays` | `30` | Días que se conserva el log de eventos de cada tarea (`data/tasks/<id>.jsonl`), solo si la tarea ya cerró (`0` = no borrar logs por antigüedad) |

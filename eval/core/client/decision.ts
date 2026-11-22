@@ -55,7 +55,7 @@ export function createDecisionClient(cfg: DecisionClientConfig): DecisionClient 
   // Closure en vez de `this.prepare`: `const { call } = client` ya no rompe.
   const prepare = (req: DecisionRequest): PreparedRequest => {
     const url = base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
-    return { url, body: { model: cfg.model, state: req.state, questions: req.questions } };
+    return { url, body: { model: cfg.model, state: req.state, questions: req.questions, keep_alive: ConfigManager.getConfig().modelKeepAlive } };
   };
 
   return {

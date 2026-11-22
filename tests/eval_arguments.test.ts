@@ -25,12 +25,12 @@ const DOC = "C:\\Users\\hugof\\Documents\\informe.txt";
 const caso = (id: string, route: string, request: string, tool: string, inputSchema: unknown, expect: unknown) =>
   JSON.stringify({ id, stage: "arguments", scenario: { mode: "reactive", request, steps: [{ state: "running", instruction: request }], at: { route, tool, inputSchema, environment: ENV } }, expect });
 
-const CMD_SCHEMA = { type: "object", properties: { command: { type: "string" }, timeout_ms: { type: "number" } }, required: ["command", "timeout_ms"] };
+const CMD_SCHEMA = { type: "object", properties: { command: { type: "string" }, timeoutSec: { type: "number" } }, required: ["command", "timeoutSec"] };
 
 
 const CASOS = [
   caso("cmd", "terminal", "lista los 10 procesos que mas ram consuman", "run_command", CMD_SCHEMA, {
-    requiredFields: ["command", "timeout_ms"],
+    requiredFields: ["command", "timeoutSec"],
     forbiddenHardcodedValues: ["ps aux", "head -n"],
   }),
 ];
@@ -58,7 +58,7 @@ async function correr(id: string, salida: string): Promise<RunRecord> {
 }
 
 const buenos: Array<[string, string]> = [
-  ["cmd", JSON.stringify({ command: "Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 10", timeout_ms: 30000 })],
+  ["cmd", JSON.stringify({ command: "Get-Process | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 10", timeoutSec: 30000 })],
 ];
 
 for (const [id, salida] of buenos) {
@@ -70,12 +70,12 @@ for (const [id, salida] of buenos) {
 
 const malos: Array<[string, string, string]> = [
   ["cmd", "falta un campo requerido", JSON.stringify({ command: "Get-Process" })],
-  ["cmd", "tipo equivocado (timeout_ms texto)", JSON.stringify({ command: "Get-Process", timeout_ms: "mucho" })],
-  ["cmd", "comando de Linux prohibido", JSON.stringify({ command: "ps aux | head -n 10", timeout_ms: 30000 })],
-  ["cmd", "comando vacío", JSON.stringify({ command: "", timeout_ms: 30000 })],
-  ["cmd", "marcador N/A", JSON.stringify({ command: "N/A", timeout_ms: 30000 })],
-  ["cmd", "sintaxis PowerShell inválida", JSON.stringify({ command: "Get-Process | Sort-Object -Property {", timeout_ms: 30000 })],
-  ["cmd", "comando que no existe", JSON.stringify({ command: "Obtener-Procesos-Inventado -Top 10", timeout_ms: 30000 })],
+  ["cmd", "tipo equivocado (timeoutSec texto)", JSON.stringify({ command: "Get-Process", timeoutSec: "mucho" })],
+  ["cmd", "comando de Linux prohibido", JSON.stringify({ command: "ps aux | head -n 10", timeoutSec: 30000 })],
+  ["cmd", "comando vacío", JSON.stringify({ command: "", timeoutSec: 30000 })],
+  ["cmd", "marcador N/A", JSON.stringify({ command: "N/A", timeoutSec: 30000 })],
+  ["cmd", "sintaxis PowerShell inválida", JSON.stringify({ command: "Get-Process | Sort-Object -Property {", timeoutSec: 30000 })],
+  ["cmd", "comando que no existe", JSON.stringify({ command: "Obtener-Procesos-Inventado -Top 10", timeoutSec: 30000 })],
   ["cmd", "no es JSON", "claro, aquí tienes el comando: Get-Process"],
   ["cmd", "salida vacía", ""],
 ];

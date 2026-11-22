@@ -10,14 +10,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "no
 import { basename, resolve } from "node:path";
 import { atomicWriteFileSync, forEachJsonlLineSync } from "../core/io.ts";
 import { generateComparisonReport, type ComparisonReport, type InputCell, type VariantSummary } from "../core/report.ts";
-import { evaluatedModelDirName, safeName } from "../core/results.ts";
+import { evaluatedModelDirName, RESULTS_ROOT, safeName } from "../core/results.ts";
 import { promptEnvironment } from "../core/scenario.ts";
 import { computeScoreSummary } from "../core/scoring.ts";
 import { isDecisionStage } from "../core/stages/index.ts";
 import type { GlobalScoreSummary, RunMeta, RunRecord, StageName } from "../core/types.ts";
 import { invalidateVariantCache, VARIANTS_DIR } from "../core/variants/load.ts";
 import type { AutoConfig, AutoMetric } from "./config.ts";
-import { autoStageDir, autoStatePath } from "./config.ts";
+import { autoStageDir, autoStatePath, winnersStageDir } from "./config.ts";
 
 export interface RankedVariant {
   variant: string;
@@ -227,6 +227,40 @@ function parseJsonlRecordsForStage(filePath: string, stage: StageName): { allCou
   return { allCount, stageRecords };
 }
 
+/** Nombres de carpeta de modelo donde pueden estar las corridas compatibles (decisión: el de decisión y, si difiere, el generativo). */
+function evaluatedModelFolders(cfg: AutoConfig, decisionOnly: boolean): string[] {
+  const main = evaluatedModelDirName({ stages: [cfg.stage], model: cfg.model, decisionModel: cfg.decisionModel });
+  return decisionOnly && cfg.model !== cfg.decisionModel ? [main, safeName(cfg.model)] : [main];
+}
+
+/** Sesiones `--auto` anteriores de la etapa (más recientes primero): cada una contiene sus rondas. */
+function autoSessionFolders(stage: string, root: string): string[] {
+  const base = resolve(`${root}/auto/${stage}`);
+  if (!existsSync(base)) return [];
+  return readdirSync(base, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .sort()
+    .reverse()
+    .map((name) => resolve(base, name));
+}
+
+/**
+ * Carpetas que pueden contener corridas reutilizables (cada una guarda carpetas de corrida con sus celdas). Con `resultsRoot` solo esa;
+ * si no: las corridas manuales del modelo, las rondas de sesiones `--auto` anteriores de la etapa y la carpeta anterior a la reorganización
+ * (`<raíz>/<modelo>/`, cuyos resultados siguen siendo reutilizables). `root` se parametriza para poder probarlo.
+ */
+export function reusableResultsDirs(cfg: AutoConfig, resultsRoot?: string, root: string = RESULTS_ROOT): string[] {
+  if (resultsRoot) return [resolve(resultsRoot)];
+  if (cfg.client !== "real") return [resolve(`${root}/sin-modelo/${cfg.client}`), resolve(`${root}/_${cfg.client}`)];
+  const models = evaluatedModelFolders(cfg, isDecisionStage(cfg.stage));
+  return [
+    ...models.map((m) => resolve(`${root}/evals/${m}`)),
+    ...autoSessionFolders(cfg.stage, root),
+    ...models.map((m) => resolve(`${root}/${m}`)),
+  ];
+}
+
 /**
  * Escanea `eval/results/` buscando celdas vigentes y 100 % comparables para `prod` y todas las
  * variantes activas pasadas. Solo reutiliza si TODAS las combinaciones `(variante × dataset)`
@@ -243,14 +277,7 @@ export function scanReusableInitialRanking(opts: {
   const stageConfigHash = promptEnvironment().stageConfigHash;
   const decisionOnly = isDecisionStage(cfg.stage);
 
-  const candidateDirs: string[] = opts.resultsRoot
-    ? [resolve(opts.resultsRoot)]
-    : cfg.client !== "real"
-      ? [resolve(`eval/results/_${cfg.client}`)]
-      : [
-          resolve(`eval/results/${evaluatedModelDirName({ stages: [cfg.stage], model: cfg.model, decisionModel: cfg.decisionModel })}`),
-          ...(decisionOnly && cfg.model !== cfg.decisionModel ? [resolve(`eval/results/${safeName(cfg.model)}`)] : []),
-        ];
+  const candidateDirs = reusableResultsDirs(cfg, opts.resultsRoot);
 
   const baseDirs = [...new Set(candidateDirs)].filter((d) => existsSync(d));
   if (baseDirs.length === 0) return null;
@@ -371,6 +398,35 @@ export function scanReusableInitialRanking(opts: {
   });
   const ranked = rankParticipants(report, cfg.metric, matchedCells);
   return { ranked, report, cells: matchedCells };
+}
+
+/**
+ * Mueve a `eval/variants/_ganadoras/<etapa>/` las variantes generadas que superaron a `prod` en esta corrida, para que no se mezclen con
+ * las que quedan en `_auto/<etapa>/`. Se mueven, no se copian (el nombre de una variante debe ser único) y nunca se pisa un archivo existente.
+ * Siguen cargándose por nombre y como variantes activas en las corridas siguientes, pero ya no se archivan ni se descartan.
+ */
+export function promoteWinningAutoVariants(opts: {
+  stage: StageName;
+  candidateFiles: Array<{ name: string; filePath: string }>;
+  ranked: RankedVariant[];
+  variantsRoot?: string;
+}): string[] {
+  const prodScore = opts.ranked.find((r) => r.variant === "prod")?.score ?? 0;
+  const winnersDir = resolve(winnersStageDir(opts.stage, opts.variantsRoot));
+  const moved: string[] = [];
+
+  for (const cand of opts.candidateFiles) {
+    const row = opts.ranked.find((r) => r.variant === cand.name);
+    if (!row || row.score <= prodScore + SCORE_EPS || !existsSync(cand.filePath)) continue;
+    const dest = resolve(winnersDir, basename(cand.filePath));
+    if (existsSync(dest)) continue;
+    mkdirSync(winnersDir, { recursive: true });
+    renameSync(cand.filePath, dest);
+    moved.push(cand.name);
+  }
+
+  if (moved.length > 0) invalidateVariantCache(opts.variantsRoot);
+  return moved;
 }
 
 /**

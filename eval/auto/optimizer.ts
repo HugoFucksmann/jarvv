@@ -3,9 +3,8 @@
  *
  * Agente optimizador externo (`/v1/chat/completions`, reutilizando `postJson` de `src/core/models/transport.ts`
  * y `resolveUrl` de `eval/core/client/generative.ts`):
- * - Arma el contexto acotado (§5.1): contrato de etapa, `conclusiones.md`, prompt `prod`, Top-2 con métricas y fallos reales.
+ * - Arma el contexto acotado (§5.1): contrato de etapa, historial de ideas probadas (`ledger.jsonl`), prompt `prod`, Top-2 con métricas y fallos reales.
  * - Exige 2 hipótesis distintas (`a` y `b`) en JSON estricto (§5.2) y reintenta reparación hasta 2 veces con el error exacto (§5.3).
- * - Decide condicionalmente si actualizar `conclusiones.md` al final de cada vuelta (§7.1).
  */
 
 import { resolveUrl } from "../core/client/generative.ts";
@@ -13,11 +12,20 @@ import { parseJsonObject, postJson as prodPostJson, stripThink, TransportError }
 import type { RawDatasetCache } from "../core/datasets.ts";
 import { fmtDeltaPct, fmtMs, fmtPct } from "../core/report-format.ts";
 import { isDecisionStage } from "../core/stages/index.ts";
-import type { AutoConfig } from "./config.ts";
-import { validateConclusionsMarkdown } from "./conclusions.ts";
-import type { FailureSample, VariantDatasetStat } from "./feedback.ts";
+import type { AutoConfig, AutoMode } from "./config.ts";
+import {
+  buildPatchedVariantSource,
+  buildSystemVariantSource,
+  formatShape,
+  mergePatch,
+  patchFromRaw,
+  systemFromRaw,
+  type DecisionShape,
+  type PromptPatch,
+} from "./patchVariant.ts";
+import type { VariantDatasetStat } from "./feedback.ts";
 import type { RankedVariant } from "./ranking.ts";
-import { extractProdPromptSource, getStageContract } from "./stageContract.ts";
+import { getGenerativeContract, getStageContract } from "./stageContract.ts";
 import { validateAndWriteVariant, type ValidationSuccess } from "./validateVariant.ts";
 
 export class OptimizerTransportError extends Error {
@@ -44,7 +52,6 @@ export type OptimizerLlmCaller = (params: OptimizerCallParams) => Promise<string
 
 export interface TopVariantContext {
   name: string;
-  code: string;
   summary: RankedVariant;
   perDataset: VariantDatasetStat[];
 }
@@ -64,15 +71,10 @@ export interface RoundGenerationOutput {
   rejectedNotes: string[];
 }
 
-export interface ConclusionsDecision {
-  update: boolean;
-  reason: string;
-  markdown?: string;
-}
-
 const MAX_REPAIR_RETRIES = 2;
 
-const GENERATE_VARIANTS_SCHEMA: Record<string, unknown> = {
+/** Formato de respuesta de las etapas generativas: solo el texto SYSTEM; el código arma el archivo de la variante. */
+const SYSTEM_TEXT_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
     analysis: { type: "string" },
@@ -85,9 +87,9 @@ const GENERATE_VARIANTS_SCHEMA: Record<string, unknown> = {
         properties: {
           suffix: { type: "string", enum: ["a", "b"] },
           hypothesis: { type: "string" },
-          code: { type: "string" },
+          system: { type: "string" },
         },
-        required: ["suffix", "hypothesis", "code"],
+        required: ["suffix", "hypothesis", "system"],
         additionalProperties: false,
       },
     },
@@ -96,14 +98,28 @@ const GENERATE_VARIANTS_SCHEMA: Record<string, unknown> = {
   additionalProperties: false,
 };
 
-const CONCLUSIONS_UPDATE_SCHEMA: Record<string, unknown> = {
+/** Formato de respuesta de las etapas de decisión: solo textos; el código arma el archivo de la variante. */
+const DECISION_PATCH_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
-    update: { type: "boolean" },
-    reason: { type: "string" },
-    markdown: { type: "string" },
+    analysis: { type: "string" },
+    variants: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          suffix: { type: "string", enum: ["a", "b"] },
+          hypothesis: { type: "string" },
+          instructions: { type: "object", additionalProperties: { type: "string" } },
+          criteria: { type: "object", additionalProperties: { type: "object", additionalProperties: { type: "string" } } },
+          state_note: { type: "string" },
+        },
+        required: ["suffix", "hypothesis"],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ["update", "reason"],
+  required: ["analysis", "variants"],
   additionalProperties: false,
 };
 
@@ -214,12 +230,6 @@ export async function defaultOptimizerLlmCall(params: OptimizerCallParams): Prom
   );
 }
 
-function stripCodeFences(code: string): string {
-  const trimmed = code.trim();
-  const match = /^```(?:ts|typescript|js|javascript)?\s*\n([\s\S]*?)\n```\s*$/i.exec(trimmed);
-  return match ? match[1].trim() : trimmed;
-}
-
 function parseJsonResponse(raw: string): Record<string, unknown> | null {
   const cleaned = stripThink(raw).trim();
   const direct = parseJsonObject(cleaned);
@@ -260,153 +270,222 @@ function formatMetricsSummary(
   return lines.join("\n");
 }
 
-function formatFailuresBlock(samples: FailureSample[]): string {
-  if (samples.length === 0) {
-    return "No hubo fallos en los casos evaluados del Top-1.";
-  }
-  return samples
-    .map((s, i) => {
-      const rateInfo = s.totalAttempts && s.totalAttempts > 1
-        ? `, falló ${s.failedAttempts ?? "?"}/${s.totalAttempts} intentos`
-        : "";
-      return [
-        `### Caso ${i + 1}: ${s.id} [${s.dataset}] (${s.priority}${rateInfo})`,
-        `Checks fallidos: ${s.failedChecks.join(", ") || "ninguno"}`,
-        s.errors.length > 0 ? `Errores: ${s.errors.join(" | ")}` : null,
-        `Expected: ${s.expected}`,
-        `Predicted: ${s.predicted}`,
-        `Input:\n${s.inputCompact}`,
-        s.rawOutput ? `RawOutput: ${s.rawOutput}` : null,
-      ].filter(Boolean).join("\n");
-    })
-    .join("\n\n");
+/** Contexto de las etapas generativas: el texto SYSTEM vigente y de dónde partir (el código arma el archivo de la variante). */
+export interface SystemPromptContext {
+  /** Bloque con el texto SYSTEM vigente de las variantes de referencia (ya armado por quien llama). */
+  topTexts: string;
+  /** Texto SYSTEM del que parte la propuesta (el del Top-1); el modelo no puede devolverlo igual. */
+  current: string;
+  mode: AutoMode;
+  /** Tipos de fallo del Top-1 en desarrollo con su conteo (ya formateado; sin casos). */
+  failures: string;
 }
 
-function buildGenerationMessages(opts: {
+/**
+ * Instrucciones para etapas generativas: el modelo escribe solo el texto SYSTEM completo. Ve los textos vigentes, las notas, el historial
+ * y los tipos de fallo del evaluador con su conteo. No se le muestra ningún caso ni respuesta esperada.
+ */
+function buildSystemTextMessages(opts: {
   cfg: AutoConfig;
   round: number;
-  nameA: string;
-  nameB: string;
-  conclusionsText: string;
-  prodPromptSource: string;
+  context: SystemPromptContext;
+  ledgerText: string;
   top2Contexts: TopVariantContext[];
   allRanked: RankedVariant[];
-  failureSamples: FailureSample[];
 }): Array<{ role: "system" | "user"; content: string }> {
-  const { cfg, round, nameA, nameB, conclusionsText, prodPromptSource, top2Contexts, allRanked, failureSamples } = opts;
-  const contract = getStageContract(cfg.stage);
-
-  const evaluatedRole = isDecisionStage(cfg.stage) ? "decisión" : "generativo";
-  const evaluatedModel = isDecisionStage(cfg.stage) ? cfg.decisionModel : cfg.model;
-
+  const { cfg, round, context, ledgerText, top2Contexts, allRanked } = opts;
+  const contract = getGenerativeContract(cfg.stage);
+  const improve = context.mode === "improve";
   const system = [
-    `Sos un ingeniero experto en diseño y optimización de prompts para el modelo de ${evaluatedRole} \`${evaluatedModel}\`.`,
-    "Tu tarea es proponer exactamente 2 variantes nuevas de prompt en TypeScript (`a` y `b`) para mejorar la etapa indicada.",
+    `Mejorás el texto SYSTEM (las instrucciones) de una etapa de JARVIS. El modelo que lo lee es \`${cfg.model}\`.`,
+    ...(improve
+      ? ["Te damos el texto base. Mejoralo agregando y quitando lo que haga falta; si lo necesitás, podés cambiarlo entero."]
+      : ["Proponé textos nuevos: podés reescribirlo por completo."]),
+    "Devolvé exactamente 2 variantes (a y b), con enfoques distintos entre sí. Cada una es el texto SYSTEM completo; no escribas código ni el mensaje del usuario.",
     "",
-    "RESTRICCIONES ESTRICTAS:",
-    "1. Editá ÚNICAMENTE el texto y estructura del prompt de la etapa indicada (`PROMPTS.<vista>` o `DECISION_PROMPTS.<fn>`).",
-    "2. PROHIBIDO definir `params` o `read` en el objeto `Variant` exportado.",
-    "3. PROHIBIDO importar módulos fuera de `../../../../src/core/*` y `../../../core/variants/types.ts` (nada de `fs`, `path`, `eval`, `fetch`, etc.).",
-    "4. Devolvé código TypeScript completo y autocontenido en cada variante (sin placeholders ni comentarios tipo '// ...resto igual').",
-    "5. Diversidad obligatoria entre las 2 variantes:",
-    "   - Variante `a`: refinamiento conservador y focalizado sobre el Top-1 actual (o `prod`) atacando el patrón #1 de error.",
-    "   - Variante `b`: hipótesis estructural alternativa (reordenar bloques, podar ruido, reformular criterios/instrucciones) evitando ideas listadas en `Descartadas`.",
-    "6. Respondé EXCLUSIVAMENTE con un JSON válido que siga el esquema `{ analysis, variants: [{ suffix: 'a'|'b', hypothesis, code }] }`.",
+    "Reglas:",
+    "1. Escribí el texto en inglés, igual que el actual, y sin ejemplos de pedidos concretos de usuarios.",
+    "2. Conservá lo que el modelo evaluado necesita para responder en el formato exigido (ver «Formato de la respuesta»): si el texto actual nombra campos o claves de la respuesta, mantenelos.",
+    "3. a: un cambio acotado que corrija el error más frecuente. b: otro enfoque (otra redacción o estructura). No repitas lo que perdió en el historial.",
+    "",
+    'Respondé solo con JSON: {"analysis":"<una frase>","variants":[{"suffix":"a","hypothesis":"<una frase>","system":"<texto SYSTEM completo>"},{"suffix":"b","hypothesis":"<una frase>","system":"<texto SYSTEM completo>"}]}',
   ].join("\n");
 
-  const prodInTop2 = top2Contexts.some((t) => t.name === "prod");
-  const top2Section = top2Contexts
-    .map(
-      (t, idx) =>
-        `### Top-${idx + 1}: \`${t.name}\` (${cfg.metric}=${fmtPct(t.summary.score)}, p50=${fmtMs(t.summary.p50DurationMs)})\n\`\`\`ts\n${t.code.trim()}\n\`\`\``,
-    )
-    .join("\n\n");
-
-  const userParts = [
-    `## Objetivo y Ronda`,
-    `- Etapa: \`${cfg.stage}\` (${contract.requestType})`,
-    `- Ronda actual: Vuelta ${round} de ${cfg.maxLoops}`,
-    `- Meta: \`${cfg.metric} >= ${fmtPct(cfg.target)}\` (modelo evaluado [${evaluatedRole}]: \`${evaluatedModel}\`)`,
-    `- Nombres exactos a generar: \`${nameA}\` (suffix \`a\`) y \`${nameB}\` (suffix \`b\`)`,
+  const user = [
+    "## Etapa",
+    `- \`${cfg.stage}\` · Vuelta ${round} de ${cfg.maxLoops} · meta: \`${cfg.metric} >= ${fmtPct(cfg.target)}\``,
     "",
-    `## Contrato de la Etapa`,
-    `- Grupo y clave en \`Variant.prompts\`: \`${contract.promptGroup}.${contract.promptKey}\``,
-    `- Contrato de salida/preguntas: ${contract.outputContract}`,
-    `- Reglas de parseo y grader: ${contract.graderRules}`,
-    ...contract.allowedHelpers.map((h) => `- ${h}`),
-    ...(contract.unexportedWarnings.length > 0
-      ? ["", "ATENCIÓN — Símbolos NO exportados en prompts.ts:", ...contract.unexportedWarnings.map((w) => `- ${w}`)]
-      : []),
+    "## Formato de la respuesta del modelo evaluado",
+    contract.outputContract,
     "",
-    "### Plantilla mínima compilable para esta carpeta (`eval/variants/_auto/<stage>/`):",
-    "```ts",
-    contract.minimalTemplate(nameA).trim(),
-    "```",
+    "## Cómo se evalúa",
+    contract.graderRules,
     "",
-    "## Memoria acumulada (`conclusiones.md`)",
-    conclusionsText,
+    improve ? "## Texto base (el que tenés que mejorar)" : "## Textos de referencia",
+    context.topTexts,
     "",
-    "## Métricas actuales",
+    "## Historial de ideas probadas (lo mide el código; no repitas lo que perdió)",
+    ledgerText,
+    "",
+    "## Notas actuales",
     formatMetricsSummary(top2Contexts, allRanked, cfg),
     "",
-    ...(prodInTop2
-      ? []
-      : [
-          "## Código fuente de referencia `prod` (bloque en `src/core/models/prompts.ts`)",
-          "```ts",
-          prodPromptSource.trim(),
-          "```",
-          "",
-        ]),
-    "## Código fuente completo de Top-2 vigente",
-    top2Section || "(sin variantes adicionales en Top-2; usar `prod` como base)",
-    "",
-    `## Muestra acotada de fallos del Top-1 (${failureSamples.length} casos)`,
-    formatFailuresBlock(failureSamples),
-  ];
+    "## Fallos del Top-1 en desarrollo (tipos de fallo del evaluador; sin casos)",
+    context.failures,
+  ].join("\n");
 
   return [
     { role: "system", content: system },
-    { role: "user", content: userParts.join("\n") },
+    { role: "user", content: user },
   ];
+}
+
+/** Contexto extra de las etapas de decisión: preguntas válidas y los textos vigentes del Top-2 (ya armados por quien llama). */
+export interface DecisionPromptContext {
+  shape: DecisionShape;
+  /** Bloque de texto con los textos vigentes (rewrite: Top-1 y Top-2 como referencia; improve: solo el prompt base). */
+  topTexts: string;
+  /** `rewrite`: prompts nuevos. `improve`: mejora un prompt base. */
+  mode: AutoMode;
+  /** Solo `improve`: textos completos del prompt base; los cambios del modelo se aplican encima. */
+  base?: PromptPatch;
+  /** Errores del Top-1 por etiqueta (solo etiquetas y conteos; ya formateado). */
+  confusions?: string;
+}
+
+interface RawPatch {
+  instructions?: unknown;
+  criteria?: unknown;
+  state_note?: unknown;
 }
 
 interface ParsedProposal {
   analysis: string;
-  entries: Array<{ suffix: "a" | "b"; hypothesis: string; code: string }>;
+  entries: Array<{ suffix: "a" | "b"; hypothesis: string; patchRaw?: RawPatch; systemRaw?: unknown }>;
 }
 
-function extractProposal(raw: string, expectedSuffixes: Array<"a" | "b">): { proposal?: ParsedProposal; error?: string } {
+/**
+ * Instrucciones para etapas de decisión: el modelo escribe solo textos. No se le muestra ningún caso de evaluación ni respuesta esperada
+ * (solo notas, los textos vigentes y el historial medido por el código).
+ */
+function buildDecisionPatchMessages(opts: {
+  cfg: AutoConfig;
+  round: number;
+  context: DecisionPromptContext;
+  ledgerText: string;
+  top2Contexts: TopVariantContext[];
+  allRanked: RankedVariant[];
+}): Array<{ role: "system" | "user"; content: string }> {
+  const { cfg, round, context, ledgerText, top2Contexts, allRanked } = opts;
+  const firstChoice = context.shape.questions.find((q) => q.type === "choice");
+  const exampleKey = (firstChoice ?? context.shape.questions[0]).key;
+  const exampleVariant = (suffix: string): string =>
+    JSON.stringify({
+      suffix,
+      hypothesis: "...",
+      instructions: { [exampleKey]: "..." },
+      ...(firstChoice ? { criteria: { [firstChoice.key]: { [firstChoice.options[0] ?? "..."]: "..." } } } : {}),
+      state_note: "...",
+    });
+  const improve = context.mode === "improve";
+  const system = [
+    `Mejorás los textos del prompt de una etapa de decisión de JARVIS. El modelo que los lee es \`${cfg.decisionModel}\`.`,
+    ...(improve
+      ? [
+          "Te damos un prompt base. Mejoralo agregando y quitando lo que haga falta; si lo necesitás, podés cambiarlo entero.",
+          "Devolvé exactamente 2 variantes (a y b), distintas entre sí. Cada una cambia solo textos; no escribas código.",
+        ]
+      : [
+          "Proponé prompts nuevos: podés reescribir los textos por completo.",
+          "Devolvé exactamente 2 variantes (a y b), con enfoques distintos entre sí. Cada una cambia solo textos; no escribas código.",
+        ]),
+    "No se te muestran casos de evaluación: guiate por los textos actuales, el resumen de errores por etiqueta, el historial de ideas probadas y las notas.",
+    "",
+    "Reglas:",
+    "1. Escribí los textos en inglés, igual que los actuales, y sin ejemplos de pedidos concretos de usuarios.",
+    improve
+      ? "2. Lo que no escribas queda igual que en el prompt base."
+      : "2. Lo que no escribas queda como en producción (`prod`).",
+    "3. No repitas lo que perdió en el historial.",
+    "4. Cada error de la lista dice que el modelo eligió una etiqueta (la \"elegida\") cuando lo correcto era otra (la \"correcta\"). Para corregirlo, ampliá la descripción de la correcta para que cubra esos pedidos, o acotá la de la elegida. No hagas lo contrario: no quites de la correcta lo que ya le pertenece.",
+    "",
+    "Respondé solo con JSON, con este formato (los \"...\" son los textos que escribís; los nombres de pregunta y opción son los reales de esta etapa; `criteria` y `state_note` son opcionales):",
+    `{"analysis":"...","variants":[${exampleVariant("a")},${exampleVariant("b")}]}`,
+  ].join("\n");
+
+  const user = [
+    "## Etapa",
+    `- \`${cfg.stage}\` · Vuelta ${round} de ${cfg.maxLoops} · meta: \`${cfg.metric} >= ${fmtPct(cfg.target)}\``,
+    "",
+    "## Qué podés cambiar",
+    "- `instructions.<pregunta>`: la instrucción de la pregunta.",
+    "- `criteria.<pregunta>.<opción>`: la descripción de una opción.",
+    "- `state_note`: una línea breve que se antepone al estado (opcional).",
+    "Preguntas y opciones válidas:",
+    formatShape(context.shape),
+    "",
+    improve ? "## Prompt base (el que tenés que mejorar)" : "## Textos de referencia",
+    context.topTexts,
+    "",
+    ...(context.confusions !== undefined ? ["## Errores del Top-1 en desarrollo (solo etiquetas; sin casos ni textos)", context.confusions, ""] : []),
+    "## Historial de ideas probadas (lo mide el código; no repitas lo que perdió)",
+    ledgerText,
+    "",
+    "## Notas actuales",
+    formatMetricsSummary(top2Contexts, allRanked, cfg),
+  ].join("\n");
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
+function extractDecisionProposal(raw: string, expectedSuffixes: Array<"a" | "b">): { proposal?: ParsedProposal; error?: string } {
   const obj = parseJsonResponse(raw);
-  if (!obj) {
-    return { error: "La respuesta del optimizador no contiene un objeto JSON válido." };
-  }
+  if (!obj) return { error: "La respuesta del optimizador no contiene un objeto JSON válido." };
   const analysis = typeof obj.analysis === "string" ? obj.analysis.trim() : "";
   const rawVars = obj.variants;
-  if (!Array.isArray(rawVars) || rawVars.length === 0) {
-    return { error: "El JSON debe incluir un array `variants` no vacío." };
-  }
+  if (!Array.isArray(rawVars) || rawVars.length === 0) return { error: "El JSON debe incluir un array `variants` no vacío." };
 
-  const entries: Array<{ suffix: "a" | "b"; hypothesis: string; code: string }> = [];
+  const entries: ParsedProposal["entries"] = [];
   for (let i = 0; i < rawVars.length; i++) {
     const item = rawVars[i] as Record<string, unknown> | null;
     if (!item || typeof item !== "object") continue;
     const rawSuffix = typeof item.suffix === "string" ? item.suffix.trim().toLowerCase() : expectedSuffixes[i];
-    const suffixMatch = /(?:^|_)([ab])$/.exec(rawSuffix ?? "");
-    const suffix = suffixMatch ? (suffixMatch[1] as "a" | "b") : expectedSuffixes[i];
-    if (!suffix) continue;
+    const match = /(?:^|_)([ab])$/.exec(rawSuffix ?? "");
+    const suffix = match ? (match[1] as "a" | "b") : expectedSuffixes[i];
+    if (!suffix || entries.some((e) => e.suffix === suffix)) continue;
     const hypothesis = typeof item.hypothesis === "string" ? item.hypothesis.trim() : "(sin hipótesis)";
-    const code = typeof item.code === "string" ? stripCodeFences(item.code) : "";
-    if (!code) continue;
-    // Evitar duplicado por suffix dentro de la misma respuesta
-    if (!entries.some((e) => e.suffix === suffix)) {
-      entries.push({ suffix, hypothesis, code });
-    }
+    entries.push({
+      suffix,
+      hypothesis,
+      patchRaw: { instructions: item.instructions, criteria: item.criteria, state_note: item.state_note },
+    });
   }
+  if (entries.length === 0) return { error: "Ninguna entrada en `variants` es un objeto válido." };
+  return { proposal: { analysis, entries } };
+}
 
-  if (entries.length === 0) {
-    return { error: "Ninguna entrada en `variants` trajo `code` válido." };
+function extractSystemProposal(raw: string, expectedSuffixes: Array<"a" | "b">): { proposal?: ParsedProposal; error?: string } {
+  const obj = parseJsonResponse(raw);
+  if (!obj) return { error: "La respuesta del optimizador no contiene un objeto JSON válido." };
+  const analysis = typeof obj.analysis === "string" ? obj.analysis.trim() : "";
+  const rawVars = obj.variants;
+  if (!Array.isArray(rawVars) || rawVars.length === 0) return { error: "El JSON debe incluir un array `variants` no vacío." };
+
+  const entries: ParsedProposal["entries"] = [];
+  for (let i = 0; i < rawVars.length; i++) {
+    const item = rawVars[i] as Record<string, unknown> | null;
+    if (!item || typeof item !== "object") continue;
+    const rawSuffix = typeof item.suffix === "string" ? item.suffix.trim().toLowerCase() : expectedSuffixes[i];
+    const match = /(?:^|_)([ab])$/.exec(rawSuffix ?? "");
+    const suffix = match ? (match[1] as "a" | "b") : expectedSuffixes[i];
+    if (!suffix || entries.some((e) => e.suffix === suffix)) continue;
+    const hypothesis = typeof item.hypothesis === "string" ? item.hypothesis.trim() : "(sin hipótesis)";
+    entries.push({ suffix, hypothesis, systemRaw: item.system });
   }
+  if (entries.length === 0) return { error: "Ninguna entrada en `variants` es un objeto válido." };
   return { proposal: { analysis, entries } };
 }
 
@@ -419,10 +498,13 @@ export async function generateVariantsForRound(opts: {
   cfg: AutoConfig;
   round: number;
   runTag: string;
-  conclusionsText: string;
+  ledgerText: string;
   top2Contexts: TopVariantContext[];
   allRanked: RankedVariant[];
-  failureSamples: FailureSample[];
+  /** Etapas de decisión: preguntas válidas y textos vigentes. */
+  decision?: DecisionPromptContext;
+  /** Etapas generativas: el texto SYSTEM vigente. */
+  generative?: SystemPromptContext;
   devDatasetPaths: string[];
   knownHashes: Set<string>;
   variantsRoot?: string;
@@ -432,7 +514,14 @@ export async function generateVariantsForRound(opts: {
   const { cfg, round, runTag, devDatasetPaths, knownHashes, variantsRoot, rawCache } = opts;
   const llm = opts.callLlm ?? defaultOptimizerLlmCall;
   const apiKey = cfg.optimizerApiKeyEnv ? process.env[cfg.optimizerApiKeyEnv] : undefined;
-  const prodPromptSource = extractProdPromptSource(cfg.stage);
+  const decision = isDecisionStage(cfg.stage) ? opts.decision : undefined;
+  if (isDecisionStage(cfg.stage) && !decision) {
+    throw new Error(`La etapa de decisión '${cfg.stage}' requiere el contexto de textos (decision): el optimizador no escribe archivos completos para ellas.`);
+  }
+  const generative = isDecisionStage(cfg.stage) ? undefined : opts.generative;
+  if (!isDecisionStage(cfg.stage) && !generative) {
+    throw new Error(`La etapa generativa '${cfg.stage}' requiere el contexto del texto SYSTEM (generative): el optimizador no escribe archivos completos.`);
+  }
 
   const nameFor = (suffix: "a" | "b"): string => `auto_${cfg.stage}_${runTag}_r${round}_${suffix}`;
   const validBySuffix = new Map<"a" | "b", GeneratedVariantResult>();
@@ -440,17 +529,23 @@ export async function generateVariantsForRound(opts: {
   const roundHashes = new Set<string>(knownHashes);
 
   let analysis = "";
-  let messages: OptimizerCallParams["messages"] = buildGenerationMessages({
-    cfg,
-    round,
-    nameA: nameFor("a"),
-    nameB: nameFor("b"),
-    conclusionsText: opts.conclusionsText,
-    prodPromptSource,
-    top2Contexts: opts.top2Contexts,
-    allRanked: opts.allRanked,
-    failureSamples: opts.failureSamples,
-  });
+  let messages: OptimizerCallParams["messages"] = decision
+    ? buildDecisionPatchMessages({
+        cfg,
+        round,
+        context: decision,
+        ledgerText: opts.ledgerText,
+        top2Contexts: opts.top2Contexts,
+        allRanked: opts.allRanked,
+      })
+    : buildSystemTextMessages({
+        cfg,
+        round,
+        context: generative!,
+        ledgerText: opts.ledgerText,
+        top2Contexts: opts.top2Contexts,
+        allRanked: opts.allRanked,
+      });
 
   for (let attempt = 0; attempt <= MAX_REPAIR_RETRIES; attempt++) {
     const raw = await llm({
@@ -460,14 +555,14 @@ export async function generateVariantsForRound(opts: {
       timeoutMs: cfg.optimizerTimeoutMs,
       messages,
       schemaName: "optimizer_variants",
-      schema: GENERATE_VARIANTS_SCHEMA,
+      schema: decision ? DECISION_PATCH_SCHEMA : SYSTEM_TEXT_SCHEMA,
       temperature: attempt === 0 ? 0.35 : 0.2,
-      maxTokens: 4096,
+      maxTokens: decision ? 2048 : 4096,
       reasoningEffort: cfg.optimizerThinking === "on" ? "low" : "none",
     });
 
     const pendingSuffixes = (["a", "b"] as const).filter((s) => !validBySuffix.has(s));
-    const extracted = extractProposal(raw, [...pendingSuffixes]);
+    const extracted = decision ? extractDecisionProposal(raw, [...pendingSuffixes]) : extractSystemProposal(raw, [...pendingSuffixes]);
 
     if (!extracted.proposal) {
       const errMsg = extracted.error ?? "Formato JSON inválido.";
@@ -500,10 +595,30 @@ export async function generateVariantsForRound(opts: {
         continue;
       }
 
+      let rawCode: string;
+      if (decision) {
+        // El modelo solo escribió textos: se validan contra las preguntas reales y el código arma el archivo.
+        const { patch, errors } = patchFromRaw(candidate.patchRaw ?? {}, decision.shape);
+        if (!patch) {
+          attemptErrors.push(`- ${variantName} (suffix '${s}'): ${errors.join(" ")}`);
+          continue;
+        }
+        // `improve`: los cambios se aplican sobre los textos del prompt base (lo que el modelo no escribe queda como en el base).
+        const finalPatch = decision.mode === "improve" && decision.base ? mergePatch(decision.base, patch) : patch;
+        rawCode = buildPatchedVariantSource({ promptKey: getStageContract(cfg.stage).promptKey, variantName, patch: finalPatch, dynamic: decision.shape.dynamic });
+      } else {
+        const { system: text, error } = systemFromRaw(candidate.systemRaw, generative!.current, getGenerativeContract(cfg.stage).requiredText);
+        if (text === undefined) {
+          attemptErrors.push(`- ${variantName} (suffix '${s}'): ${error}`);
+          continue;
+        }
+        rawCode = buildSystemVariantSource({ promptKey: getStageContract(cfg.stage).promptKey, variantName, system: text });
+      }
+
       const validation: ValidationSuccess | { ok: false; error: string } = await validateAndWriteVariant({
         stage: cfg.stage,
         variantName,
-        rawCode: candidate.code,
+        rawCode,
         devDatasetPaths,
         knownHashes: roundHashes,
         variantsRoot,
@@ -535,12 +650,19 @@ export async function generateVariantsForRound(opts: {
     }
 
     const stillMissing = (["a", "b"] as const).filter((s) => !validBySuffix.has(s));
-    const repairPrompt = [
-      "Falló la validación previa de una o ambas variantes:",
-      ...attemptErrors,
-      "",
-      `Generá únicamente las variantes faltantes corregidas (${stillMissing.map((s) => `suffix '${s}' -> ${nameFor(s)}`).join(", ")}), respetando exactamente el contrato, las rutas relativas desde \`eval/variants/_auto/${cfg.stage}/\` y sin \`params\` ni \`read\`.`,
-    ].join("\n");
+    const repairPrompt = decision
+      ? [
+          "Falló la validación de una o ambas variantes:",
+          ...attemptErrors,
+          "",
+          `Devolvé el JSON completo con el mismo formato, corrigiendo solo: ${stillMissing.map((s) => `suffix '${s}'`).join(", ")}. Usá exactamente los nombres de preguntas y opciones válidos.`,
+        ].join("\n")
+      : [
+          "Falló la validación de una o ambas variantes:",
+          ...attemptErrors,
+          "",
+          `Devolvé el JSON completo con el mismo formato, corrigiendo solo: ${stillMissing.map((s) => `suffix '${s}'`).join(", ")}. \`system\` es el texto completo, distinto del vigente.`,
+        ].join("\n");
 
     messages = [
       ...messages,
@@ -558,91 +680,4 @@ export async function generateVariantsForRound(opts: {
     validVariants: (["a", "b"] as const).map((s) => validBySuffix.get(s)).filter((v): v is GeneratedVariantResult => Boolean(v)),
     rejectedNotes,
   };
-}
-
-/**
- * Consulta al optimizador al final de una vuelta para decidir si `conclusiones.md` necesita actualizarse.
- * Propaga `OptimizerTransportError` en errores de infraestructura.
- */
-export async function decideConclusionsUpdate(opts: {
-  cfg: AutoConfig;
-  currentConclusions: string;
-  roundFacts: string;
-  ranked?: RankedVariant[];
-  callLlm?: OptimizerLlmCaller;
-}): Promise<ConclusionsDecision> {
-  const { cfg, currentConclusions, roundFacts } = opts;
-  const llm = opts.callLlm ?? defaultOptimizerLlmCall;
-  const apiKey = cfg.optimizerApiKeyEnv ? process.env[cfg.optimizerApiKeyEnv] : undefined;
-
-  const system = [
-    "Sos el cronista técnico de un bucle autónomo de optimización de prompts.",
-    "Recibís el `conclusiones.md` actual y los hechos objetivos medidos en la última vuelta.",
-    "Decidí si hay un aprendizaje nuevo, una regresión clara o un cambio relevante de Top-2 que valga guardar.",
-    "Si no hay cambios relevantes respecto de lo ya registrado, devolvé `{\"update\":false,\"reason\":\"...\"}`.",
-    "Si `update: true`, devolvé el markdown completo actualizado en `markdown` respetando esta plantilla compacta (<= 150 líneas, <= 12 000 chars):",
-    "",
-    `# Conclusiones — ${cfg.stage}`,
-    "",
-    "## Estado actual (auto-actualizado)",
-    "- Objetivo: ...",
-    "- Top 1: ...",
-    "- Top 2: ...",
-    "- Baseline `prod`: ...",
-    "",
-    "## Reglas confirmadas (qué ayuda)",
-    "- ...",
-    "",
-    "## Descartadas (qué empeora — no repetir)",
-    "- ...",
-    "",
-    "## Últimas rondas (máx. 5)",
-    "- ...",
-  ].join("\n");
-
-  const user = [
-    "## `conclusiones.md` actual",
-    currentConclusions.trim() ? currentConclusions : "(vacío)",
-    "",
-    "## Hechos medidos de esta vuelta",
-    roundFacts,
-    "",
-    "Respondé SOLO con JSON `{ \"update\": boolean, \"reason\": string, \"markdown\"?: string }`.",
-  ].join("\n");
-
-  const raw = await llm({
-    url: cfg.optimizerUrl,
-    model: cfg.optimizerModel,
-    apiKey,
-    timeoutMs: cfg.optimizerTimeoutMs,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    schemaName: "conclusions_update",
-    schema: CONCLUSIONS_UPDATE_SCHEMA,
-    temperature: 0.2,
-    maxTokens: 2048,
-    reasoningEffort: cfg.optimizerThinking === "on" ? "low" : "none",
-  });
-
-  const obj = parseJsonResponse(raw);
-  if (!obj || typeof obj.update !== "boolean") {
-    return { update: false, reason: "Respuesta de conclusiones no parseable; se conserva el archivo actual." };
-  }
-  const reason = typeof obj.reason === "string" ? obj.reason.trim() : "";
-  const markdown = typeof obj.markdown === "string" ? obj.markdown.trim() : undefined;
-  if (obj.update && (!markdown || markdown.length === 0)) {
-    return { update: false, reason: reason || "update=true sin contenido markdown." };
-  }
-  if (obj.update && markdown) {
-    const invalid = validateConclusionsMarkdown(markdown, cfg.stage, opts.ranked);
-    if (invalid) {
-      return {
-        update: false,
-        reason: `Markdown de conclusiones rechazado (${invalid}); se conserva el archivo actual.`,
-      };
-    }
-  }
-  return { update: obj.update, reason, markdown };
 }

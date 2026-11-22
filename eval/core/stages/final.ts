@@ -18,6 +18,12 @@ export const finalStage: GenerativeStageEntry<FinalOutput, FinalExpect> = {
   expectSpec: {
     keys: { mustContainFacts: "string[]", mustMentionEffects: "string[]", forbiddenHallucinations: "string[]" },
     atLeastOne: ["mustContainFacts", "mustMentionEffects", "forbiddenHallucinations"],
+    validate(expectObj, errs) {
+      // Que no filtre ids ni empiece con saludo se mide siempre; lo que decide si responde bien son los datos o los cambios que exige.
+      if (expectObj.mustContainFacts === undefined && expectObj.mustMentionEffects === undefined) {
+        errs.push("expect debe incluir mustContainFacts o mustMentionEffects: sin ellos no se mide que la respuesta diga lo que pasó.");
+      }
+    },
   },
   graders: [LatencyGrader, NotTruncatedGrader, FinalResponseGrader],
   buildRequest(sc, ov, h) {

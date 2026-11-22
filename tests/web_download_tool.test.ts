@@ -15,6 +15,7 @@ import { after, test } from "node:test";
 import type { UserEnvironment } from "../src/core/environment.ts";
 import { readToolResult } from "../src/core/tools/result.ts";
 import { isPrivateOrReservedIp, runDownloadFile } from "../src/tools/web/downloadFile.ts";
+import { SYMLINKS_SKIP } from "./helpers/symlinks.ts";
 
 const tempDirs: string[] = [];
 
@@ -207,7 +208,7 @@ test("download_file: descarga por stream usando Content-Disposition sanitizado, 
 
 // ───────────────────────── Límites, errores, timeout y AbortSignal ─────────────────────────
 
-test("download_file: corta descargas demasiado grandes, maneja errores HTTP, timeout, AbortSignal y limpia .part", async () => {
+test("download_file: corta descargas demasiado grandes, maneja errores HTTP, timeout, AbortSignal y limpia .part", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-dl-out-");
   const env = makeEnv(root);

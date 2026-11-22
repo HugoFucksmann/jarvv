@@ -42,7 +42,7 @@
   "sseKeepAliveMs": 15000,
   "shutdownDrainMs": 3000,
   "traceEnabled": true,
-  "tracePath": "jarvis-traces.jsonl",
+  "traceDir": "jarvis-traces",
   "refsDir": "data/refs",
   "retentionDays": 10,
   "logRetentionDays": 30,

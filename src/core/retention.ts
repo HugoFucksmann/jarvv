@@ -6,7 +6,7 @@
  * límite; nunca archivos sueltos (por ejemplo `index.jsonl` de las trazas) ni nada fuera de esas dos carpetas. Las refs de una tarea
  * que sigue retenida en memoria no se tocan: la API las sirve (`GET /tasks/:id/refs/:refId`) y una tarea puede esperar días una respuesta.
  *
- * Solo se borran carpetas con el NOMBRE que Jarvis les da (`REFS_FOLDER`, `TRACE_FOLDER`): `refsDir` y `tracePath` son configurables y, si
+ * Solo se borran carpetas con el NOMBRE que Jarvis les da (`REFS_FOLDER`, `TRACE_FOLDER`): `refsDir` y `traceDir` son configurables y, si
  * apuntaran a una carpeta del usuario, la retención no debe tocar lo que no creó. `index.jsonl` pierde las líneas de las carpetas borradas.
  *
  * El borrado nunca interrumpe nada: un fallo se informa y se sigue.
@@ -247,7 +247,7 @@ export async function runRetention(getConfig: ConfigSource, protectedTaskIds: ()
   const keptRefFolders = new Set([...rawKeptIds].map(taskFolderName));
   const refsDir = path.resolve(config.refsDir);
   const tasksDir = tasksDirFromConfig(config);
-  const traceBase = traceBaseDir(config.tracePath);
+  const traceBase = traceBaseDir(config.traceDir);
 
   let refsByAge = 0;
   let tracesByAge = 0;

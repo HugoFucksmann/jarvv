@@ -223,7 +223,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   router.get('/tasks/:taskId/trace', (req, res) => {
     const format = text(req.query.format) ?? 'summary';
     if (!Object.hasOwn(TRACE_FILES, format)) return void res.status(400).json({ error: `format inválido; use ${Object.keys(TRACE_FILES).join(' o ')}.` });
-    const body = readTraceFile(ConfigManager.getConfig().tracePath, req.params.taskId, format as TraceFile);
+    const body = readTraceFile(ConfigManager.getConfig().traceDir, req.params.taskId, format as TraceFile);
     if (body === null) return void res.status(404).json({ error: 'No hay traza para esa tarea (sigue en curso o la traza está desactivada).' });
     res.type(format === 'summary' ? 'text/markdown' : 'application/json').send(body);
   });

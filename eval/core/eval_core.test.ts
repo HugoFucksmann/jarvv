@@ -18,13 +18,17 @@ import { createMockGenerativeClient } from "./client/mock.ts";
 import { parseConfig, parseModelSpec } from "./config.ts";
 import { loadDatasets, resolveDatasetPaths } from "./datasets.ts";
 import { globBaseDir, isGlob, matchGlob, normalizePath } from "./glob.ts";
-import { containsTerm, createCollector } from "./graders/common.ts";
+import { ArgumentsGrader, sameArgValue } from "./graders/arguments.ts";
+import { containsTerm, createCollector, findInternalLeak } from "./graders/common.ts";
+import { FinalResponseGrader } from "./graders/final.ts";
+import { PendingGrader } from "./graders/pending.ts";
+import { QuestionGrader } from "./graders/question.ts";
 import { ContinuationLabelGrader, D0LabelGrader, RecoveryLabelGrader, RouteLabelGrader } from "./graders/label.ts";
 import { signTestP } from "./report.ts";
 import { evaluatedModelDirName, runRootDir, safeName } from "./results.ts";
 import { runDataset } from "./runner.ts";
 import { computeScoreSummary, percentile } from "./scoring.ts";
-import { allStageNames, isDecisionStage } from "./stages/index.ts";
+import { allStageNames, getStage, isDecisionStage } from "./stages/index.ts";
 import { SCHEMA_VERSION, type RunRecord } from "./types.ts";
 import { listVariantNames, loadVariantSpec, parseVariantSpecs } from "./variants/load.ts";
 import { printGlobalSummary } from "../ui/views/run.ts";
@@ -316,11 +320,11 @@ describe("eval/core runner + batch con cliente oracle", () => {
 
     const decCfg = parseConfig(["--stages=d0", "--model=gen-m+dec:2b"]);
     assert.equal(evaluatedModelDirName(decCfg), "dec_2b");
-    assert.match(runRootDir(decCfg, "2026-11-19_120000"), /^eval\/results\/dec_2b\//);
+    assert.match(runRootDir(decCfg, "2026-11-19_120000"), /^eval\/results\/evals\/dec_2b\//);
 
     const genCfg = parseConfig(["--stages=plan", "--model=gen-m+dec:2b"]);
     assert.equal(evaluatedModelDirName(genCfg), "gen-m");
-    assert.match(runRootDir(genCfg, "2026-11-19_120000"), /^eval\/results\/gen-m\//);
+    assert.match(runRootDir(genCfg, "2026-11-19_120000"), /^eval\/results\/evals\/gen-m\//);
 
     const [d0Ds] = loadDatasets(resolveDatasetPaths(["smoke"]), { stages: ["route"] });
     assert.ok(d0Ds.cases.length >= 1);
@@ -625,5 +629,213 @@ describe("eval/core runner + batch con cliente oracle", () => {
     assert.equal(await runTracesCli(["--help"]), 0);
     assert.equal(await runTracesCli(["--input=" + join(tracesRoot, "no-existe")]), 2);
     assert.equal(await runTracesCli([`--input=${tracesRoot}`, `--out=${outJsonl}`, "--dry-run"]), 0);
+  });
+});
+
+describe("args_review: reglas de producción (umbral estricto y vista completa)", () => {
+  const scenarioFor = (route: string, tool: string, args: Record<string, unknown>) => ({
+    mode: "reactive" as const,
+    request: "tarea de prueba",
+    steps: [{ state: "running" as const, instruction: "paso de prueba" }],
+    at: { route, tool, args },
+  });
+
+  it("marca reviewStrict solo para escrituras amarillas con approvalTiers activo", async () => {
+    const { ConfigManager } = await import("../../src/core/config.ts");
+    const real = ConfigManager.getConfig();
+    const original = ConfigManager.getConfig;
+    const strictOf = (cfg: Partial<typeof real>, route: string, tool: string, args: Record<string, unknown>) => {
+      ConfigManager.getConfig = () => ({ ...real, ...cfg });
+      try {
+        const m = materializeScenario("args_review", scenarioFor(route, tool, args) as never);
+        return { strict: m.reviewStrict, text: JSON.stringify(m.request) };
+      } finally {
+        ConfigManager.getConfig = original;
+      }
+    };
+    assert.equal(strictOf({ approvalTiers: true, blacklist: [] }, "system", "power", { action: "sleep" }).strict, true, "power/sleep es amarillo");
+    assert.equal(strictOf({ approvalTiers: false, blacklist: [] }, "system", "power", { action: "sleep" }).strict, false, "sin approvalTiers no hay nivel");
+    assert.equal(strictOf({ approvalTiers: true, blacklist: [] }, "files_read", "read_file", { path: "C:/Users/hugof/Desktop/n.txt" }).strict, false, "una lectura no es estricta");
+  });
+
+  it("parseOutput aplica 0.65 cuando el caso es estricto y 0.60 cuando no", async () => {
+    const { getStage } = await import("./stages/index.ts");
+    const entry = getStage("args_review") as unknown as { parseOutput(raw: string, req: unknown, fc?: unknown): { review: string } };
+    const m = materializeScenario("args_review", scenarioFor("files_read", "read_file", { path: "C:/Users/hugof/Desktop/n.txt" }) as never);
+    const raw = JSON.stringify({
+      answers: { review: { choice: "approved", probabilities: { approved: 0.62, args_invalid: 0.2, info_missing: 0.1, wrong_tool: 0.08 } } },
+    });
+    assert.equal(entry.parseOutput(raw, m.request).review, "approved");
+    assert.equal(entry.parseOutput(raw, m.request, { meta: { reviewStrict: false } }).review, "approved");
+    assert.notEqual(entry.parseOutput(raw, m.request, { meta: { reviewStrict: true } }).review, "approved");
+  });
+});
+
+describe("eval ↔ producción: hilo previo y keep_alive", () => {
+  it("continuation y pending recortan la respuesta previa como previousTaskOf (500 caracteres + …)", () => {
+    const long = `  ${"a".repeat(600)}  `;
+    const sc = { mode: "reactive" as const, request: "y ahora traducilo", steps: [{ state: "running" as const, instruction: "x" }], recalled: { thread: { previous_request: "  pedido  ", previous_answer: long } } };
+    const cont = JSON.stringify(materializeScenario("continuation", sc as never).request);
+    assert.ok(cont.includes(`${"a".repeat(500)}…`), "continuation: 500 caracteres y …");
+    assert.ok(!cont.includes("a".repeat(501)));
+    const pend = JSON.stringify(materializeScenario("pending", sc as never).request);
+    assert.ok(pend.includes(`${"a".repeat(500)}…`), "pending: recortado como producción");
+    assert.ok(!pend.includes("a".repeat(501)));
+  });
+
+  it("los clientes de decisión y generativo envían keep_alive como producción", async () => {
+    const { ConfigManager } = await import("../../src/core/config.ts");
+    const keep = ConfigManager.getConfig().modelKeepAlive;
+    const dec = createDecisionClient({ url: "http://127.0.0.1:1", model: "m" } as never).prepare({ type: "decision", state: "s", questions: {} } as never);
+    assert.equal((dec.body as Record<string, unknown>).keep_alive, keep);
+    const { buildGenerativeBody } = await import("./client/generative.ts");
+    const body = buildGenerativeBody("m", { system: "s", user: "u", temperature: 0, maxTokens: 10 } as never);
+    assert.equal(body.keep_alive, keep);
+    const keys = Object.keys(body);
+    assert.ok(keys.indexOf("keep_alive") > keys.indexOf("reasoning_effort"));
+  });
+});
+
+describe("datasets: --limit no oculta casos rotos (EV-008)", () => {
+  it("informa un caso inválido aunque quede más allá del --limit, con archivo:línea", () => {
+    const dir = createTempDir("eval-limit-");
+    const lines = readFileSync("eval/datasets/smoke.jsonl", "utf8").split(/\r?\n/).filter((l) => l.trim() !== "");
+    const good = lines.slice(0, 2);
+    const bad = JSON.stringify({ id: "roto", stage: "d0", scenario: { mode: "reactive", request: "x" }, expect: {} });
+    writeFileSync(join(dir, "mixto.jsonl"), [...good, bad].join("\n") + "\n");
+    const path = join(dir, "mixto.jsonl");
+    assert.throws(() => loadDatasets(resolveDatasetPaths([path]), { limit: 1 }), /mixto\.jsonl:3/);
+  });
+});
+
+describe("eval/results: estructura de carpetas y run.json", () => {
+  it("las corridas manuales van a evals/<modelo>/ y las que no miden un modelo a sin-modelo/<cliente>/, con la etiqueta en el nombre", () => {
+    const real = parseConfig(["--stages=d0", "--model=gen-m+dec:2b", "--label=mi prueba"]);
+    assert.match(runRootDir(real, "2026-11-19_120000"), /^eval\/results\/evals\/dec_2b\/2026-11-19_120000_mi prueba$/);
+    const mock = parseConfig(["--stages=d0", "--client=mock"]);
+    assert.match(runRootDir(mock, "2026-11-19_120000"), /^eval\/results\/sin-modelo\/mock\/2026-11-19_120000$/);
+    const oracle = parseConfig(["--stages=d0", "--client=oracle"]);
+    assert.match(runRootDir(oracle, "2026-11-19_120000"), /^eval\/results\/sin-modelo\/oracle\//);
+  });
+
+  it("con resultsRoot explícito la corrida va en <resultsRoot>/<label>, sin fecha, y escribe run.json con modelos, datasets y resultado", async () => {
+    const outRoot = createTempDir("eval-layout-");
+    const cfg = parseConfig(["--client=oracle", "--dataset=smoke", "--label=r1"]);
+    const clients = createEvalClients(cfg);
+    const [ds] = loadDatasets(resolveDatasetPaths(["smoke"]), {});
+    const prod = await loadVariantSpec("prod");
+    const res = await executeComparisonBatch({
+      cfg,
+      variants: [{ spec: "prod", hash: "h", variant: prod.variant }],
+      datasetsByVariant: new Map([["prod", [ds]]]),
+      stageFilter: ["route"],
+      clients,
+      resultsRoot: outRoot,
+    });
+    assert.equal(res.ok, true);
+    if (!res.ok) return;
+    assert.equal(res.rootDir, join(outRoot, "r1"));
+    const manifest = JSON.parse(readFileSync(join(res.rootDir, "run.json"), "utf8")) as Record<string, unknown> & {
+      models: { generative: string; decision: string };
+      datasets: Array<{ name: string; cases: number }>;
+      variants: Array<{ name: string }>;
+      cells: Array<{ dir: string; passRate: number }>;
+    };
+    assert.equal(manifest.status, "ok");
+    assert.equal(manifest.label, "r1");
+    assert.equal(manifest.client, "oracle");
+    assert.deepEqual(manifest.stages, ["route"]);
+    assert.equal(typeof manifest.models.decision, "string");
+    assert.deepEqual(manifest.variants.map((v) => v.name), ["prod"]);
+    assert.equal(manifest.datasets[0].name, "smoke");
+    assert.equal(manifest.cells[0].dir, "prod__smoke");
+    assert.ok(existsSync(join(res.rootDir, manifest.cells[0].dir, "runs.jsonl")));
+    assert.ok(existsSync(join(res.rootDir, "comparison.md")));
+
+    // Segunda corrida con la misma etiqueta: no pisa la anterior.
+    const again = await executeComparisonBatch({
+      cfg,
+      variants: [{ spec: "prod", hash: "h", variant: prod.variant }],
+      datasetsByVariant: new Map([["prod", [ds]]]),
+      stageFilter: ["route"],
+      clients,
+      resultsRoot: outRoot,
+    });
+    assert.ok(again.ok && again.rootDir === join(outRoot, "r1-2"));
+  });
+});
+
+describe("graders de las etapas generativas: reglas de producción que valen para toda salida", () => {
+  const ctx = { rawOutput: "", durationMs: 1 };
+  const run = <O, E>(grader: { grade(o: O | undefined, e: E, c: typeof ctx, col: ReturnType<typeof createCollector>["collector"]): void }, output: O, expect: E) => {
+    const c = createCollector();
+    grader.grade(output, expect, ctx, c.collector);
+    return c;
+  };
+
+  it("findInternalLeak detecta herramientas, estados internos e ids, y no confunde nombres de carpetas del usuario", () => {
+    assert.equal(findInternalLeak("Usé read_file para abrirlo"), "read_file");
+    assert.equal(findInternalLeak("quedó en estado loop_blocked"), "loop_blocked");
+    assert.equal(findInternalLeak("según c1 y s2"), "c1");
+    assert.equal(findInternalLeak("la carpeta mis_fotos_2024 tiene 3 archivos"), undefined);
+    assert.equal(findInternalLeak("El disco C1 de la tabla"), undefined);
+  });
+
+  it("final: filtrar un id o una herramienta, o empezar con saludo, falla aunque el caso no lo declare", () => {
+    const expect = { mustContainFacts: ["19.6 GB"] };
+    assert.equal(run(FinalResponseGrader, { response: "Tenés 19.6 GB libres." }, expect).passed, true);
+    assert.equal(run(FinalResponseGrader, { response: "Según c1, tenés 19.6 GB libres." }, expect).passed, false);
+    assert.equal(run(FinalResponseGrader, { response: "Usé system_info y tenés 19.6 GB." }, expect).passed, false);
+    assert.equal(run(FinalResponseGrader, { response: "¡Hola! Tenés 19.6 GB libres." }, expect).passed, false);
+    assert.equal(run(FinalResponseGrader, { response: "Hello, you have 19.6 GB free." }, expect).passed, false);
+    assert.equal(run(FinalResponseGrader, { response: "Holanda no tiene relación: 19.6 GB." }, expect).passed, true);
+  });
+
+  it("question: una sola pregunta salvo singleQuestionOnly:false, y un nombre de carpeta con guion bajo no es una fuga", () => {
+    const expect = { mustContainKeywords: ["mis_fotos"] };
+    assert.equal(run(QuestionGrader, { question: "¿Querés borrar la carpeta mis_fotos?" }, expect).passed, true);
+    assert.equal(run(QuestionGrader, { question: "¿Qué carpeta? ¿Y en qué disco? mis_fotos" }, expect).passed, false);
+    assert.equal(run(QuestionGrader, { question: "¿Qué carpeta? ¿Y en qué disco? mis_fotos" }, { ...expect, singleQuestionOnly: false }).passed, true);
+    assert.equal(run(QuestionGrader, { question: "Decime la carpeta mis_fotos" }, expect).passed, false, "sin signo de pregunta no es una pregunta");
+    assert.equal(run(QuestionGrader, { question: "¿Borro mis_fotos con delete_file?" }, expect).passed, false, "nombra una herramienta");
+  });
+
+  it("pending: un ítem que nombra una herramienta falla en todos los casos", () => {
+    assert.equal(run(PendingGrader, { pending: ["Leer el archivo resumen.md"] }, { requiredKeywordsInFirst: ["resumen.md"] }).passed, true);
+    assert.equal(run(PendingGrader, { pending: ["Usar read_file sobre resumen.md"] }, { requiredKeywordsInFirst: ["resumen.md"] }).passed, false);
+  });
+
+  it("arguments: las rutas absolutas son iguales con / o barra invertida y sin mayúsculas; los demás textos y tipos se comparan tal cual", () => {
+    assert.equal(sameArgValue("C:\\Users\\Ana\\Desktop\\a.txt", "C:/users/ana/desktop/A.txt"), true);
+    assert.equal(sameArgValue("desktop", "Desktop"), false);
+    assert.equal(sameArgValue("Hola", "hola"), false);
+    assert.equal(sameArgValue(20, "20"), false);
+    assert.equal(sameArgValue(["C:\\a\\b", "x"], ["C:/a/b", "x"]), true);
+    const c = run(ArgumentsGrader, { args: { path: "C:\\Users\\Ana\\a.txt", limit: 5 } }, { exactFieldValues: { path: "C:/Users/Ana/a.txt", limit: 5 } });
+    assert.equal(c.passed, true);
+  });
+
+  it("la carga de casos exige lo mínimo que mide la corrección de cada etapa", () => {
+    const errsOf = (stage: "question" | "final" | "arguments" | "pending", expectObj: Record<string, unknown>): string[] => {
+      const errs: string[] = [];
+      (getStage(stage) as unknown as { expectSpec: { validate?: (e: Record<string, unknown>, errs: string[]) => void } }).expectSpec.validate?.(expectObj, errs);
+      return errs;
+    };
+    assert.equal(errsOf("question", { maxChars: 100 }).length, 1);
+    assert.equal(errsOf("question", { mustContainKeywords: ["archivo"] }).length, 0);
+    assert.equal(errsOf("final", { forbiddenHallucinations: ["Hola"] }).length, 1);
+    assert.equal(errsOf("final", { mustContainFacts: ["12 GB"] }).length, 0);
+    assert.equal(errsOf("arguments", { forbiddenHardcodedValues: ["x"] }).length, 1);
+    assert.equal(errsOf("arguments", { requiredFields: ["path"] }).length, 0);
+    assert.equal(errsOf("pending", { maxItems: 3 }).length, 1);
+    assert.equal(errsOf("pending", { expectEmpty: true }).length, 0);
+  });
+
+  it("arguments: el schema que ve el modelo es el de producción (notas de formato, solo los parámetros ofrecidos) y un parámetro no ofrecido es error", () => {
+    const base = { mode: "reactive", request: "Leé el archivo C:/Users/usuario/a.txt desde la línea 20", steps: [{ instruction: "Leer" }] };
+    const at = (props: Record<string, unknown>) => ({ route: "files_read", tool: "read_file", environment: { home: "C:/Users/usuario", desktop: "C:/Users/usuario/Desktop", documents: "C:/Users/usuario/Documents", downloads: "C:/Users/usuario/Downloads" }, inputSchema: { type: "object", properties: props, required: ["path"] } });
+    const m = materializeScenario("arguments", { ...base, at: at({ path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }) } as never);
+    assert.match(JSON.stringify(m.request), /1-based first line to read/);
+    assert.throws(() => materializeScenario("arguments", { ...base, at: at({ path: { type: "string" }, encoding: { type: "string" } }) } as never), /producción no ofrece/);
   });
 });

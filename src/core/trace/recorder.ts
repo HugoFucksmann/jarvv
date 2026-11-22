@@ -4,7 +4,7 @@
  * La traza queda FUERA del contexto: depende de él (se suscribe a `change`) y de los bordes del motor (`CaptureSink`: las
  * consultas a los modelos y las llamadas a herramientas), no al revés. Si se borra `trace/`, el motor compila y funciona igual.
  *
- * Qué reúne, por tarea (`traceEnabled`, `tracePath`):
+ * Qué reúne, por tarea (`traceEnabled`, `traceDir`):
  * - `models`: entrada y salida crudas de cada consulta a un modelo, con su etapa, `n` (versión del contexto al empezar), el
  *   paso en curso y a qué quedó enlazada: la llamada que se registró después (`route`, `tool`, `args`, `review`) o a la que
  *   se verificó (`verify`); el plan (`plan`); el hecho de la respuesta (`question`) o `result` (`final`).
@@ -13,7 +13,7 @@
  * - `waits`: las esperas del usuario (plan, aprobación, pregunta) con su intervalo: explican los huecos entre etapas.
  * - `snapshot`: el contexto completo al terminar (5.4 y 4).
  *
- * Al terminar (`finish`) toma lo reunido al instante y escribe, en segundo plano y sin bloquear el servidor, una carpeta por tarea, `<dir de tracePath>/<nombre sin extensión>/AAAAMMDD-HHMMSS_<id>/` (con el valor por
+ * Al terminar (`finish`) toma lo reunido al instante y escribe, en segundo plano y sin bloquear el servidor, una carpeta por tarea, `<traceDir>/AAAAMMDD-HHMMSS_<id>/` (con el valor por
  * defecto, `jarvis-traces/…`; ver `format.ts`):
  * - `summary.md`: lo que se lee o se pega a un agente.
  * - `trace.json`: la traza liviana (contexto, consultas con la salida interpretada, herramientas con un fragmento).
@@ -33,6 +33,7 @@ import zlib from "node:zlib";
 
 import type { ConfigSource } from "../config.ts";
 import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
+import { traceBaseDir } from "./files.ts";
 import { NULL_SINK } from "./sink.ts";
 import type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
 import type { ModelPause, Waiting } from "../engine/runtime.ts";
@@ -281,8 +282,7 @@ export class TaskTraceRecorder {
       pauses,
       refs: refInfos(snapshot.refs),
     };
-    const file = path.resolve(process.cwd(), config.tracePath);
-    const base = path.join(path.dirname(file), path.basename(file, path.extname(file)));
+    const base = traceBaseDir(config.traceDir);
     const folder = folderName(startedAt, snapshot.task.id);
     const dir = path.join(base, folder);
     await fs.mkdir(dir, { recursive: true });

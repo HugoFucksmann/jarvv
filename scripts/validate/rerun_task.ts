@@ -55,7 +55,7 @@ const getConfig = (): JarvisConfig => ({
   autoMode: flag("auto") ?? base.autoMode,
   approvalTiers: flag("tiers") ?? base.approvalTiers,
   traceEnabled: true,
-  tracePath: path.join(root, "traces"),
+  traceDir: path.join(root, "traces"),
   refsDir: path.join(root, "refs"),
 });
 

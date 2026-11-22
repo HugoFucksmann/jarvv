@@ -14,6 +14,7 @@ import { after, test } from "node:test";
 
 import { readToolResult, toolResult } from "../src/core/tools/result.ts";
 import { FilesReadProvider, type ReadFileDriver } from "../src/tools/files_read/filesReadProvider.ts";
+import { SYMLINKS_SKIP } from "./helpers/symlinks.ts";
 
 const tempDirs: string[] = [];
 
@@ -152,7 +153,7 @@ test("read_file: rechaza binarios con bytes NUL y extensiones estructuradas sin 
   assert.equal(readToolResult(docxStillErr)?.data.reason, "unsupported_format");
 });
 
-test("read_file: valida allowedDirectories, symlinks que escapan, argumentos inválidos y AbortSignal", async () => {
+test("read_file: valida allowedDirectories, symlinks que escapan, argumentos inválidos y AbortSignal", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-outside-read-");
   const insideFile = path.join(root, "ok.txt");
@@ -260,7 +261,7 @@ test("search_content: busca literal y regex, filtra filePattern, respeta límite
   assert.equal(readToolResult(noneRes)?.data.complete, true);
 });
 
-test("search_content: omite archivos grandes, symlinks salientes, corta por maxResults/tiempo y respeta AbortSignal", async () => {
+test("search_content: omite archivos grandes, symlinks salientes, corta por maxResults/tiempo y respeta AbortSignal", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-search-out-");
   writeFile(path.join(root, "a.txt"), "clave\nclave\nclave");

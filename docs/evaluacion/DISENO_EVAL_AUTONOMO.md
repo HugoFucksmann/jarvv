@@ -1,5 +1,7 @@
 # Diseño de Implementación: `eval` Autónomo (`eval:auto`)
 
+> **Nota (2026-11-21):** este diseño original usaba `conclusiones.md` reescrito por el modelo. Se reemplazó por `ledger.jsonl`, que escribe el código con datos medidos (ver `eval/INSTRUCCIONES.md`, sección `--auto`). Las partes de este documento sobre `conclusiones.md` son históricas. También son históricas las partes donde el optimizador escribe archivos `.ts` completos con plantilla: hoy, en las 14 etapas, escribe solo textos (decisión: instrucciones y descripciones de opciones; generativas: el `SYSTEM`) y el código arma el archivo; ver `eval/INSTRUCCIONES.md` §9. Las carpetas de resultados también cambiaron: cada sesión es `eval/results/auto/<etapa>/<fecha_hora>/` con `session.json` y una carpeta por ronda (`r0`, `r1`, …); ver `eval/README.md`.
+
 Especificación técnica para incorporar un modo iterativo autónomo en `eval/`: un LLM optimizador lee `conclusiones.md`, genera 2 variantes nuevas por vuelta, las evalúa frente a `prod` y las 2 mejores variantes vigentes sobre los datasets de la etapa, actualiza `conclusiones.md` cuando hay evidencia nueva y repite hasta alcanzar `--target` o `--max-loops`.
 
 ---
@@ -51,7 +53,7 @@ En `eval/core/config.ts`, `--model=<generativo>+<decisión>` define **los modelo
 - **Decisión:** separar explícitamente `--optimizer-model=<id>` (y `--optimizer-url`, `--optimizer-api-key-env` opcional) de `--model=<gen>+<dec>` (el sujeto evaluado).
 
 ### 2.3. Cómo determinar "las 2 mejores variantes actuales" en código (sin LLM)
-`eval/MEJORES_VARIANTES.md` es un resumen narrativo para humanos; además, `INSTRUCCIONES.md` §7 recuerda que dos corridas solo son comparables si comparten **`datasetHash`**, **`cases.hash`**, **modelos evaluados (`--model`)**, **`--thinking`** y **`promptEnv.stageConfigHash`**.
+`eval/MEJORES_VARIANTES.md` es un resumen narrativo para humanos; además, `eval/REFERENCIA.md` §5 recuerda que dos corridas solo son comparables si comparten **`datasetHash`**, **`cases.hash`**, **modelos evaluados (`--model`)**, **`--thinking`** y **`promptEnv.stageConfigHash`**.
 - **Decisión:** la selección del Top-2 se resuelve **100 % en código** a partir de métricas medidas (`scores.json` / `comparison.json`), sin gastar inferencia de modelos:
   - **Reutilización previa:** antes de correr nada, el código escanea `auto_state.json` y los `meta.json` + `scores.json` ya existentes en `eval/results/<modelo>/`. Si encuentra corridas vigentes con exactamente la misma huella `(stage, datasetHashes, cases.hash, model, decisionModel, thinking, stageConfigHash, variantHash actual)` para `prod` y las variantes activas de la etapa (excluyendo `_auto/<stage>/descartadas/`), arma el **Top-2 inicial sin re-ejecutar**.
   - **Vuelta 0 (solo si faltan datos comparables):** corre `prod` + las variantes existentes de la etapa en `eval/variants/` (sin `descartadas/`) sobre los datasets de la etapa para calcular el Top-2 real. Puede omitirse con `--seed-top=v1,v2`.
@@ -132,8 +134,7 @@ eval/
 │   ├── discover.ts             # Descubre datasets de la etapa y variantes existentes aplicables
 │   ├── optimizer.ts            # Cliente del LLM optimizador, armado de contexto y parser de salida
 │   ├── stageContract.ts        # Prompt/plantilla por etapa (helpers permitidos, firma de Variant, claves fijas)
-│   ├── tsScanner.ts            # Tokenizador TypeScript (createScanner) usado por stageContract y validateVariant
-│   ├── validateVariant.ts      # Allowlist estática + sandbox node:vm + loadDatasets (smoke estructural)
+│   ├── validateVariant.ts      # Compila, sandbox node:vm, forma de la variante, duplicados y materialización de casos (ya no analiza código ajeno)
 │   ├── feedback.ts             # Extrae resumen de `comparison.json` + streaming de fallos de `runs.jsonl`
 │   ├── ranking.ts              # Cálculo de Top-2, desempates y estado persistido (`auto_state.json`)
 │   └── conclusions.ts          # Lectura acotada y actualización estructurada de `conclusiones.md`

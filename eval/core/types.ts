@@ -78,6 +78,8 @@ export interface Case {
       kind: "read" | "write";
       sources: PrecheckSources;
     };
+    /** `args_review`: la llamada se revisa con el umbral estricto de producción (se calcula al materializar el caso). */
+    reviewStrict?: boolean;
     origin?: { id: string; commit?: string };
   };
 }

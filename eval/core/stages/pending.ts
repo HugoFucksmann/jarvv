@@ -4,7 +4,7 @@
  * Etapa generativa `pending`: lista de pendientes del modo reactivo.
  */
 
-import { NOT_JSON_ERROR, parseJsonObject, parsePendingList, pendingInput, pendingStageRequest } from "../contract.ts";
+import { NOT_JSON_ERROR, parseJsonObject, parsePendingList, pendingInput, pendingStageRequest, previousTaskOf } from "../contract.ts";
 import type { PreviousTask } from "../contract.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import { PendingGrader } from "../graders/pending.ts";
@@ -21,6 +21,10 @@ export const pendingStage: GenerativeStageEntry<PendingOutput, PendingExpect> = 
     atLeastOne: ["expectEmpty", "maxItems", "requiredKeywordsInFirst", "forbiddenKeywords"],
     validate(expectObj, errs) {
       checkIntMin1(expectObj, ["maxItems"], errs);
+      // Sin esto una lista vacía (o con cualquier cosa) pasaría: hay que decir si la lista debe venir vacía o por qué ítem empieza.
+      if (expectObj.expectEmpty === undefined && expectObj.requiredKeywordsInFirst === undefined) {
+        errs.push("expect debe incluir expectEmpty o requiredKeywordsInFirst: sin uno de los dos no se mide si la lista tiene que traer algo.");
+      }
       if (expectObj.expectEmpty === true && expectObj.requiredKeywordsInFirst !== undefined) {
         errs.push("expect.requiredKeywordsInFirst contradice expectEmpty=true (una lista vacía no tiene primer pendiente).");
       }
@@ -34,7 +38,7 @@ export const pendingStage: GenerativeStageEntry<PendingOutput, PendingExpect> = 
     const t = sc.recalled?.thread;
     const thread: PreviousTask | undefined =
       t && (t.previous_request !== undefined || t.previous_answer !== undefined)
-        ? { request: t.previous_request ?? "", answer: t.previous_answer ?? "" }
+        ? previousTaskOf(t.previous_request ?? "", t.previous_answer ?? "")
         : undefined;
     const input = { ...pendingInput(ctx, at.previous ?? []), ...(thread ? { thread } : {}) };
     return {

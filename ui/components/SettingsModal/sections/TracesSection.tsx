@@ -75,10 +75,10 @@ export const TracesSection: React.FC<TracesSectionProps> = ({
       <GroupHeading title="Ubicaciones en disco" subtitle="Se cambian en jarvis-config.json" />
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <ReadOnlyField
-          id="cfg-trace-path"
-          label="Ruta base de trazas"
-          value={config.tracePath || ""}
-          placeholder="jarvis-traces.jsonl"
+          id="cfg-trace-dir"
+          label="Carpeta de trazas (traceDir)"
+          value={config.traceDir || ""}
+          placeholder="jarvis-traces"
         />
         <ReadOnlyField
           id="cfg-refs-dir"

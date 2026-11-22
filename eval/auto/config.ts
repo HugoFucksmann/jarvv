@@ -36,9 +36,13 @@ export interface AutoConfig {
   optimizerApiKeyEnv?: string;
   optimizerTimeoutMs: number;
   optimizerThinking: OptimizerThinkingMode;
-  conclusionsPath: string;
+  ledgerPath: string;
   datasetSpecs: string[];
   holdoutSpecs: string[];
+  /** Con holdout: la variante lo confirma si supera a `prod` en el holdout por al menos este margen (en lugar de llegar a `--target`). */
+  holdoutMargin?: number;
+  /** `rewrite`: propone prompts nuevos; `improve`: parte de un prompt base y lo mejora agregando y quitando (puede cambiarlo entero). */
+  mode: AutoMode;
   model: string;
   decisionModel: string;
   url: string;
@@ -54,6 +58,8 @@ export interface AutoConfig {
   includeShortcut: boolean;
 }
 
+export type AutoMode = "rewrite" | "improve";
+
 const DEFAULT_OPTIMIZER_TIMEOUT_MS = 120_000;
 
 const KNOWN_FLAGS = new Set([
@@ -65,9 +71,12 @@ const KNOWN_FLAGS = new Set([
   "optimizer-api-key-env",
   "optimizer-timeout",
   "optimizer-thinking",
-  "conclusions",
+  "ledger",
   "dataset",
   "holdout",
+  "holdout-margin",
+  "mode",
+  "base",
   "model",
   "decision-model",
   "generative-model",
@@ -97,8 +106,13 @@ export function autoStageDir(stage: StageName, variantsRoot = VARIANTS_DIR): str
   return join(variantsRoot, "_auto", stage);
 }
 
-export function defaultConclusionsPath(stage: StageName, variantsRoot = VARIANTS_DIR): string {
-  return join(autoStageDir(stage, variantsRoot), "conclusiones.md");
+/** Carpeta de las variantes que superaron a `prod`: `<variantsRoot>/_ganadoras/<etapa>/`. */
+export function winnersStageDir(stage: StageName, variantsRoot = VARIANTS_DIR): string {
+  return join(variantsRoot, "_ganadoras", stage);
+}
+
+export function defaultLedgerPath(stage: StageName, variantsRoot = VARIANTS_DIR): string {
+  return join(autoStageDir(stage, variantsRoot), "ledger.jsonl");
 }
 
 export function autoStatePath(stage: StageName, variantsRoot = VARIANTS_DIR): string {
@@ -157,12 +171,34 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
     throw new Error(`--client: en modo --auto debe ser 'real' o 'mock', recibido: '${clientRaw}'.`);
   }
 
-  const seedTop = dedupedCsv(flags, "seed-top");
+  let seedTop = dedupedCsv(flags, "seed-top");
   if (seedTop.length > 2) {
     throw new Error(`--seed-top admite como máximo 2 variantes (recibidas: ${seedTop.join(", ")}).`);
   }
   if (seedTop.some((v) => v.includes("+"))) {
     throw new Error("--seed-top: las variantes no se componen con '+'.");
+  }
+
+  const holdoutMargin = flagFloat(flags, "holdout-margin");
+  if (holdoutMargin !== undefined) {
+    if (!(holdoutMargin > 0 && holdoutMargin <= 1)) {
+      throw new Error(`--holdout-margin debe estar en (0, 1] (ej. 0.10 = 10 puntos sobre prod), recibido: '${holdoutMargin}'.`);
+    }
+    if (dedupedCsv(flags, "holdout").length === 0) {
+      throw new Error("--holdout-margin requiere --holdout=<dataset>.");
+    }
+  }
+
+  const modeRaw = flagStr(flags, "mode") ?? "rewrite";
+  if (modeRaw !== "rewrite" && modeRaw !== "improve") {
+    throw new Error(`--mode debe ser 'rewrite' o 'improve', recibido: '${modeRaw}'.`);
+  }
+  const baseFlag = flagStr(flags, "base");
+  if (baseFlag !== undefined) {
+    if (modeRaw !== "improve") throw new Error("--base solo vale con --mode=improve.");
+    if (seedTop.length > 0) throw new Error("--base y --seed-top no se combinan: --base ya fija la variante inicial.");
+    if (baseFlag.includes("+")) throw new Error("--base: las variantes no se componen con '+'.");
+    seedTop = [baseFlag];
   }
 
   const { model, decisionModel } = resolveEvaluatedModels(flags);
@@ -181,9 +217,11 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
     optimizerApiKeyEnv,
     optimizerTimeoutMs: flagInt(flags, "optimizer-timeout", 1) ?? DEFAULT_OPTIMIZER_TIMEOUT_MS,
     optimizerThinking: optimizerThinkingRaw,
-    conclusionsPath: flagStr(flags, "conclusions") ?? defaultConclusionsPath(stage),
+    ledgerPath: flagStr(flags, "ledger") ?? defaultLedgerPath(stage),
     datasetSpecs: dedupedCsv(flags, "dataset"),
     holdoutSpecs: dedupedCsv(flags, "holdout"),
+    ...(holdoutMargin !== undefined ? { holdoutMargin } : {}),
+    mode: modeRaw,
     model,
     decisionModel,
     url: flagStr(flags, "url") ?? DEFAULT_URL,
@@ -246,7 +284,10 @@ Ejemplo con modelo evaluado explícito:
   npm run eval -- --auto --stage=route --decision-model=${DEFAULT_DECISION_MODEL} --optimizer-model=qwen3:32b --max-loops=4 --target=0.95
 
 Flags obligatorios:
-  --stage=<etapa>               Etapa única (${stages})
+  --stage=<etapa[,etapa]>       Una o varias etapas (${stages}) o all | decision | generative.
+                                Con varias corren en serie (decisión primero) con los mismos --max-loops y --target;
+                                no admiten --dataset, --seed-top, --base ni --ledger, y --holdout solo como --holdout=auto
+                                (usa los *_holdout*.jsonl de cada etapa). Una etapa sin alcanzar el objetivo no corta a las demás
   --max-loops=<n>               Entero >= 1. Iteraciones máximas de generación + evaluación
   --target=<decimal>            Decimal en (0, 1] (ej. 0.80). Umbral sobre --metric
   --optimizer-model=<id>        Modelo LLM optimizador (coordina/propone variantes vía /v1/chat/completions)
@@ -263,15 +304,18 @@ Flags opcionales del optimizador y ejecución:
   --optimizer-api-key-env=<v>   Variable de entorno para Bearer token del optimizador
   --optimizer-timeout=<ms>      Timeout HTTP del optimizador en ms (default: ${DEFAULT_OPTIMIZER_TIMEOUT_MS})
   --optimizer-thinking=<off|on> Razonamiento del optimizador: off | on (default: off)
-  --conclusions=<ruta>          Markdown por etapa (default: eval/variants/_auto/<stage>/conclusiones.md)
+  --ledger=<ruta>               Registro de ideas probadas, escrito por el código (default: eval/variants/_auto/<stage>/ledger.jsonl)
   --dataset=<csv>               Datasets de trabajo (default: todos los de --stage, sin smoke ni holdout)
   --holdout=<csv>               Dataset(s) ocultos al feedback; confirman solo al alcanzar --target
+  --holdout-margin=<decimal>    Con --holdout: se confirma si la variante supera a prod en el holdout por este margen (ej. 0.10), en vez de llegar a --target
+  --mode=<rewrite|improve>      rewrite: prompts nuevos (default). improve: mejora un prompt base agregando y quitando, o cambiándolo entero si hace falta
+  --base=<variante>             Solo con --mode=improve: prompt base inicial (equivale a --seed-top=<variante>; default: el mejor de la Vuelta 0)
   --repeat=<n>                  Repeticiones por caso (default: 1)
   --concurrency=<n>             Concurrencia del runner (default: 3)
   --thinking=<modo>             Thinking del generativo evaluado: prod | on | off | both (default: off)
   --timeout=<ms>                Timeout de llamadas evaluadas en ms
   --metric=<m>                  passRate | macroPassRate (default: passRate)
-  --seed-top=<v1,v2>            Salta Vuelta 0 fijando hasta 2 variantes iniciales
+  --seed-top=<v1,v2>            Fija hasta 2 variantes iniciales (reutiliza caché compatible; si no hay, hace la Vuelta 0 solo con prod + ellas)
   --archive-losers=<bool>       Mueve perdedoras generadas a descartadas/ (default: true)
   --client=<real|mock>          Cliente evaluado (default: real)
   --include-shortcut            Incluye casos prod_shortcut en el bucket canonical

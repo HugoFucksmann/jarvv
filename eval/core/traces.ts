@@ -571,7 +571,6 @@ function sliceSnapshotForQuery(
 function buildDraftExpect(
   stage: StageName,
   q: TraceSlimQuery,
-  slice: ReconstructedSlice,
   at: ScenarioAt,
   snapshot: ContextData,
 ): { expect: Record<string, unknown> } | { skipReason: string } {
@@ -859,7 +858,7 @@ export function convertTraceBundle(
 
     if (Object.keys(at).length > 0) scenario.at = at;
 
-    const draft = buildDraftExpect(evalStage, q, slice, at, snapshot);
+    const draft = buildDraftExpect(evalStage, q, at, snapshot);
     if ("skipReason" in draft) {
       skipped.push({ taskId, seq: q.seq, traceStage: q.stage, reason: draft.skipReason });
       continue;

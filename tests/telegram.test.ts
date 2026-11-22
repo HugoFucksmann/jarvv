@@ -139,3 +139,14 @@ test("comandos: modo se abrevia con la inicial", () => {
   assert.equal(parseMode("r"), "reactive");
   assert.equal(parseMode("D"), "deliberative");
 });
+
+test("Progress tacha un paso descartado aunque el parche traiga solo superseded (como lo emite el planner)", () => {
+  const p = new Progress();
+  const [step, replaced] = ops(
+    { op: "add", target: "steps", value: { id: "s1", instruction: "leer", route: null, state: "pending", superseded: false } },
+    { op: "update", target: "s1", value: { superseded: true } },
+  );
+  p.apply(step);
+  assert.equal(p.apply(replaced), true);
+  assert.ok(p.render("h").includes("<s>⏳ 1. leer</s> (descartado)"));
+});

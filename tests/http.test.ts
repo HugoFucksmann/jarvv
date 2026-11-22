@@ -270,3 +270,13 @@ test("API JSON: un payload mayor a 256kb responde 413 y un JSON malformado respo
   });
   assert.equal(malformed.status, 400);
 });
+
+test("legacyTraceDir: un tracePath anterior (archivo .jsonl) da la misma carpeta sin extensión; sin valor usa el de respaldo", async () => {
+  const { legacyTraceDir } = await import("../src/core/config.ts");
+  assert.equal(legacyTraceDir("jarvis-traces.jsonl", "d"), "jarvis-traces");
+  assert.equal(legacyTraceDir("datos/trazas.jsonl", "d"), "datos/trazas");
+  assert.equal(legacyTraceDir("datos/trazas", "d"), "datos/trazas", "sin extensión queda igual");
+  assert.equal(legacyTraceDir(undefined, "d"), "d");
+  assert.equal(legacyTraceDir("   ", "d"), "d");
+  assert.equal(legacyTraceDir(42, "d"), "d");
+});

@@ -75,6 +75,8 @@ test("niveles de open_on_screen: una URL o una carpeta del usuario es verde; una
   assert.equal(tier("open_on_screen", { target: "C:\\Users\\Ana\\Documents\\manual.pdf" }), "green");
   assert.equal(tier("open_on_screen", { target: "D:\\datos\\x.pdf" }), "yellow", "fuera de las carpetas del usuario");
   assert.equal(tier("open_on_screen", { target: "Calculadora", type: "app" }), "yellow");
+  assert.equal(tier("open_on_screen", { target: "downloads\\..\\..\\Windows\\x.exe" }), "yellow", "alias con ..");
+  assert.equal(tier("open_on_screen", { target: "{{ruta}}\\x.pdf", type: "path" }), "yellow", "marcador sin resolver");
   assert.equal(tier("open_on_screen", { target: "https://example.com", type: "url" }), "green");
 });
 

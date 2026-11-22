@@ -3,7 +3,7 @@
  *
  * Descubrimiento automático de datasets y variantes aplicables a `--stage`.
  * - Excluye `smoke.jsonl` y `*_holdout*.jsonl` del conjunto de entrenamiento salvo que se pasen explícitamente.
- * - Excluye `prod`, `decision_all_stages_example`, `_archivo_*`, `_auto/<otra_etapa>/` y `descartadas/`
+ * - Excluye `prod`, `_archivo_*`, `_auto/<otra_etapa>/` y `descartadas/`
  *   al descubrir variantes activas iniciales para Vuelta 0.
  */
 
@@ -17,7 +17,7 @@ import { listActiveVariantFiles, VARIANTS_DIR } from "../core/variants/load.ts";
 import { loadVariantSpecEphemeral } from "./ephemeralVariant.ts";
 import { getStageContract } from "./stageContract.ts";
 
-const HOLDOUT_FILENAME_RE = /(?:^|[_-])holdout\d*\.jsonl$/i;
+export const HOLDOUT_FILENAME_RE = /(?:^|[_-])holdout\d*\.jsonl$/i;
 
 export interface DiscoveredDatasets {
   dev: Dataset[];
@@ -148,7 +148,7 @@ function belongsToOtherAutoStage(filePath: string, stage: StageName, variantsRoo
 
 /**
  * Descubre todas las variantes activas en `variantsRoot` que definen el prompt de `stage`
- * (excluyendo `prod`, `decision_all_stages_example`, `descartadas/`, `_archivo_*` y `_auto/<otra_etapa>/`).
+ * (excluyendo `prod`, `descartadas/`, `_archivo_*` y `_auto/<otra_etapa>/`).
  */
 export async function discoverStageVariants(stage: StageName, variantsRoot = VARIANTS_DIR): Promise<DiscoveredVariant[]> {
   const contract = getStageContract(stage);
@@ -157,7 +157,7 @@ export async function discoverStageVariants(stage: StageName, variantsRoot = VAR
 
   for (const filePath of files) {
     const name = basename(filePath, ".ts");
-    if (name === "prod" || name === "decision_all_stages_example") continue;
+    if (name === "prod") continue;
     if (belongsToOtherAutoStage(filePath, stage, variantsRoot)) continue;
 
     // Filtro rápido por texto antes de importar dinámicamente módulos de otras etapas.

@@ -159,7 +159,12 @@ const TIER_RULES: ReadonlyMap<string, TierRule> = new Map<string, TierRule>([
       if (kind === "url") return "green"; // la herramienta rechaza esquemas peligrosos
       if (kind === "path") {
         const resolved = absolute(target, c.canon);
-        return resolved === null || underUserFolder(resolved, c.env, c.canon) ? "green" : "yellow";
+        if (resolved !== null) return underUserFolder(resolved, c.env, c.canon) ? "green" : "yellow";
+        // Sin ruta absoluta solo es verde el alias de carpeta del usuario (`downloads\x.pdf`, `~`),
+        // sin `..`, marcadores `{{…}}` ni NUL; cualquier otra ruta sin resolver es amarilla.
+        const isAlias = /^(?:home|desktop|documents|downloads|~)(?:[\\/]|$)/i.test(target);
+        const unsafe = /(?:^|[\\/])\.\.(?:[\\/]|$)|\{\{|\0/.test(target);
+        return isAlias && !unsafe ? "green" : "yellow";
       }
       return "yellow"; // lanzar una aplicación
     }],

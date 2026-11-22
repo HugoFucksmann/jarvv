@@ -6,12 +6,9 @@
  * a lo que cabe en `qwenNumCtx` y un prompt sin margen de salida no se envía (`reserveCompletionTokens`).
  */
 
-import { ConfigManager, estimateTokens, postJson as prodPostJson, TransportError } from "../contract.ts";
+import { chatCompletionsUrl, ConfigManager, estimateTokens, MIN_COMPLETION_TOKENS, postJson as prodPostJson, TransportError } from "../contract.ts";
 import type { ToolInputSchema } from "../contract.ts";
 import type { GenerativeRequest } from "../types.ts";
-
-/** Margen mínimo de salida (`MIN_COMPLETION_TOKENS` de producción, que no lo exporta). */
-const MIN_COMPLETION_TOKENS = 256;
 
 /** Prefijo del error de un prompt que no deja margen de salida: no se envió nada y repetir no sirve. No es un fallo de transporte. */
 export const CONTEXT_OVERFLOW_PREFIX = "context_overflow:";
@@ -70,18 +67,15 @@ export async function postJson(url: string, body: unknown, timeoutMs: number): P
   }
 }
 
-/** `resolveUrl` de producción. Lanza si la URL está vacía o apunta a un endpoint no soportado. */
+/** URL de chat con la regla de producción (`chatCompletionsUrl`). Lanza si la URL está vacía o apunta a un endpoint no soportado. */
 export function resolveUrl(rawUrl: string): string {
-  const base = rawUrl.trim().replace(/\/+$/, "");
-  if (!base) throw new Error("La URL de Qwen no está configurada. Configúrela con --url o en jarvis-config.json.");
-  if (base.endsWith("/v1/chat/completions")) return base;
-  if (base.endsWith("/generate") || base.endsWith("/api/chat")) {
-    throw new Error(
-      `URL generativa no soportada: '${rawUrl}' (use la base del servidor o /v1/chat/completions).`,
-    );
-  }
-  if (base.endsWith("/v1")) return `${base}/chat/completions`;
-  return `${base}/v1/chat/completions`;
+  const result = chatCompletionsUrl(rawUrl);
+  if (result.ok) return result.url;
+  throw new Error(
+    result.reason === "empty"
+      ? "La URL de Qwen no está configurada. Configúrela con --url o en jarvis-config.json."
+      : `URL generativa no soportada: '${rawUrl}' (use la base del servidor o /v1/chat/completions).`,
+  );
 }
 
 export interface GenerativeClientConfig {
@@ -117,7 +111,7 @@ export interface GenerativeClient {
   call(req: GenerativeRequest, timeoutMs: number, ctx?: GenerativeCallContext): Promise<GenerativeCallResult>;
 }
 
-/** Body de producción. Orden de claves: model, messages, temperature, max_tokens, stream, reasoning_effort, response_format. */
+/** Body de producción. Orden de claves: model, messages, temperature, max_tokens, stream, reasoning_effort, keep_alive, response_format. */
 export function buildGenerativeBody(model: string, req: GenerativeRequest, maxTokens: number = req.maxTokens): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
@@ -129,6 +123,8 @@ export function buildGenerativeBody(model: string, req: GenerativeRequest, maxTo
     max_tokens: maxTokens,
     stream: false,
     reasoning_effort: req.reasoningEffort ?? (req.thinking ? "low" : "none"),
+    // Como producción: mantiene el modelo cargado (sin él, la primera llamada tras una descarga mide también la recarga).
+    keep_alive: ConfigManager.getConfig().modelKeepAlive,
   };
 
   if (req.schema) {
@@ -204,7 +200,7 @@ export function createGenerativeClient(cfg: GenerativeClientConfig): GenerativeC
       if (!res.ok) return res;
       const parsed = parseGenerativeResponse(res.text);
       if (!parsed) {
-        return { ok: false, error: "network: la respuesta no es JSON válido", durationMs: res.durationMs };
+        return { ok: false, error: "invalid_response: la respuesta no es JSON válido", durationMs: res.durationMs };
       }
       return { ok: true, ...parsed, durationMs: res.durationMs };
     },

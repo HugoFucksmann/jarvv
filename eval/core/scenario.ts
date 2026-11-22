@@ -17,6 +17,7 @@ import {
   argsMax,
   BASE_TEMPERATURE,
   BUDGET,
+  applyDestination,
   collectSources,
   ConfigManager,
   create,
@@ -66,8 +67,8 @@ export type {
 export function promptEnvironment(): { date: string; stageConfigHash: string } {
   const d = new Date();
   const two = (n: number): string => String(n).padStart(2, "0");
-  const { qwenMaxTokens, thinking } = ConfigManager.getConfig();
-  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, askMaxTokens: BUDGET.ask.maxTokens, pendingMaxTokens: BUDGET.pending.maxTokens });
+  const { qwenMaxTokens, thinking, approvalTiers, reviewFullView, blacklist, qwenNumCtx, decisionMaxContext } = ConfigManager.getConfig();
+  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, qwenNumCtx, decisionMaxContext, approvalTiers, reviewFullView, blacklist, askMaxTokens: BUDGET.ask.maxTokens, pendingMaxTokens: BUDGET.pending.maxTokens });
   return {
     date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`,
     stageConfigHash: createHash("sha256").update(stageConfig).digest("hex").slice(0, 16),
@@ -224,11 +225,24 @@ function buildContext(sc: Scenario): Built {
 
 // ───────────────────────── Herramientas del manifest ─────────────────────────
 
-/** Herramienta con la descripción real del manifest y el schema del escenario (el del servidor no es estático). */
+/**
+ * La herramienta tal como producción se la muestra al modelo: descripción del manifest, schema del escenario (el del servidor no es estático)
+ * recortado a los `params` del manifest (los que el caso no declara se agregan sin tipo), con sus notas de formato como descripciones y sin
+ * parámetros extra (`applyDestination`).
+ * Un caso que declare parámetros que producción no ofrece es un caso mal armado.
+ */
 function toolOf(route: ExecutableRoute, name: string, inputSchema?: ToolInputSchema): MCPTool {
   const def = SYSTEM_TOOL_MANIFEST.find((d) => d.name === name && d.route === route);
   if (!def) throw new Error(`la herramienta '${name}' no está en el manifest de la ruta '${route}'.`);
-  return { name, description: def.description, inputSchema: inputSchema ?? { type: "object", properties: {} } } as MCPTool;
+  const base = { name, description: def.description, inputSchema: inputSchema ?? { type: "object", properties: {} } } as MCPTool;
+  const extra = def.params ? Object.keys(base.inputSchema.properties ?? {}).filter((k) => !def.params!.includes(k)) : [];
+  if (extra.length > 0) {
+    throw new Error(`'${name}': el schema del caso declara parámetros que producción no ofrece al modelo (${extra.join(", ")}); los ofrecidos son: ${def.params!.join(", ")}.`);
+  }
+  // Producción ofrece todos los `params` del manifest; un caso puede declarar solo los que usa, así que los demás se agregan sin tipo.
+  const properties: Record<string, unknown> = { ...(base.inputSchema.properties ?? {}) };
+  for (const param of def.params ?? []) if (!(param in properties)) properties[param] = {};
+  return applyDestination(route, [{ ...base, inputSchema: { ...base.inputSchema, properties } } as MCPTool])[0] ?? base;
 }
 
 function need<T>(value: T | undefined, what: string, stage: string): T {

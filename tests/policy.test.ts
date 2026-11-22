@@ -126,7 +126,7 @@ test("invariante 8 en run_command: leer sigue permitido y lo que no toca lo prot
 
 test("createEngineServices: el alcance del Guard cubre refs, logs, proyecto y el memory.json de la carpeta de datos", () => {
   const root = path.resolve("datos-prueba");
-  const config = { refsDir: path.join(root, "refs"), tracePath: path.join(root, "traces.jsonl"), blacklist: [] } as unknown as JarvisConfig;
+  const config = { refsDir: path.join(root, "refs"), traceDir: path.join(root, "traces"), blacklist: [] } as unknown as JarvisConfig;
   const { guardScope } = createEngineServices(() => config);
   assert.deepEqual(guardScope.protectedDirs, [path.join(root, "refs"), path.join(root, "tasks"), process.cwd()]);
   assert.deepEqual(guardScope.protectedFiles, [path.join(root, "memory.json")]);

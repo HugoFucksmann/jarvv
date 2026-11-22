@@ -8,7 +8,7 @@
 import { COMPLETION_APPROVE, COMPLETION_KEY, completionInput } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { D5LabelGrader } from "../graders/label.ts";
-import type { ChoiceQ, D5Expect, D5Output, DecisionRequest, NoulQ } from "../types.ts";
+import type { ChoiceQ, D5Expect, D5Output, NoulQ } from "../types.ts";
 import { extractNoul, parseAnswers } from "../variants/labels.ts";
 import { checkRange01, NO, YES } from "./shared.ts";
 import type { DecisionStageEntry } from "./types.ts";

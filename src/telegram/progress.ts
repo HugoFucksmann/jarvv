@@ -99,7 +99,8 @@ export class Progress {
       // El destino de un `update` es el id del elemento (`s1`, `c1`).
       const patch = op.value;
       const step = this.steps.get(op.target);
-      if (step && "state" in patch) {
+      // `planner.ts` descarta pasos con `{ superseded: true }` sin `state`: ambos casos se dibujan.
+      if (step && ("state" in patch || "superseded" in patch)) {
         if (patch.state) step.state = patch.state;
         if (patch.superseded) step.superseded = true;
         return true;

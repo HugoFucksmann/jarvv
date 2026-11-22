@@ -14,6 +14,7 @@ import { after, test } from "node:test";
 
 import type { UserEnvironment } from "../src/core/environment.ts";
 import { readToolResult } from "../src/core/tools/result.ts";
+import { SYMLINKS_SKIP } from "./helpers/symlinks.ts";
 import {
   FilesWriteProvider,
   type ConvertDriver,
@@ -104,7 +105,7 @@ test("create_folder: crea carpetas anidadas, es idempotente y rechaza colisión 
 
 // ───────────────────────── write_file ─────────────────────────
 
-test("write_file: soporta create_only, rewrite, append, createFolders, driver por formato y resguardos de seguridad", async () => {
+test("write_file: soporta create_only, rewrite, append, createFolders, driver por formato y resguardos de seguridad", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-writefile-out-");
   const outsideFile = path.join(outside, "ext.txt");
@@ -258,7 +259,7 @@ test("edit_file: edita coincidencia única, exige desambiguación si hay múltip
 
 // ───────────────────────── copy_file ─────────────────────────
 
-test("copy_file: copia archivo y árbol recursivo, impide autocopia y symlinks salientes, y respeta límites/overwrite", async () => {
+test("copy_file: copia archivo y árbol recursivo, impide autocopia y symlinks salientes, y respeta límites/overwrite", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-copy-out-");
   const srcFile = path.join(root, "orig.txt");
@@ -384,7 +385,7 @@ test("move_file: mueve en lote con resultado parcial, impide mover raíces prote
 
 // ───────────────────────── delete_file ─────────────────────────
 
-test("delete_file: envía a papelera por defecto, borra permanente, protege carpetas raíz y no sigue symlinks", async () => {
+test("delete_file: envía a papelera por defecto, borra permanente, protege carpetas raíz y no sigue symlinks", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-del-out-");
   const env = makeEnv(root);
@@ -524,7 +525,7 @@ function buildRawZipWithEntry(entryName: string, data: Buffer): Buffer {
   return Buffer.concat([local, nameBuf, data, cd, nameBuf, eocd]);
 }
 
-test("archive_files: comprime y extrae .zip, bloquea Zip Slip, symlinks salientes y exceso de tamaño", async () => {
+test("archive_files: comprime y extrae .zip, bloquea Zip Slip, symlinks salientes y exceso de tamaño", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-zip-out-");
   const env = makeEnv(root);
@@ -722,7 +723,7 @@ test("convert_file: convierte/redimensiona mediante driver, valida categorías, 
 
 // ───────────────────────── Regresiones de symlinks y lotes ─────────────────────────
 
-test("regresiones files_write: bloquea symlinks colgantes en destino, symlinks preexistentes al extraer y symlinks rotos en origen", async () => {
+test("regresiones files_write: bloquea symlinks colgantes en destino, symlinks preexistentes al extraer y symlinks rotos en origen", { skip: SYMLINKS_SKIP }, async () => {
   const root = makeTempDir();
   const outside = makeTempDir("jarvis-reg-out-");
   const env = makeEnv(root);
@@ -867,3 +868,41 @@ test("regresiones files_write: bloquea symlinks colgantes en destino, symlinks p
   assert.equal(fs.existsSync(path.join(root, "m2_movido.txt")), true);
 });
 
+
+test("move_file: al sobrescribir una carpeta conserva el destino si el movimiento falla y no deja respaldos si sale bien", async () => {
+  const root = makeTempDir();
+  const env = makeEnv(root);
+  const provider = new FilesWriteProvider({ allowedDirectories: () => [root], environment: async () => env });
+  const mk = (dir: string, file: string, text: string) => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, file), text);
+  };
+
+  // Éxito: el destino se reemplaza y no queda ningún respaldo `.jarvis-bak-*`.
+  mk(path.join(root, "src1"), "nuevo.txt", "nuevo");
+  mk(path.join(root, "dst1"), "viejo.txt", "viejo");
+  const ok = await provider.callTool("move_file", { items: [{ source: path.join(root, "src1"), destination: path.join(root, "dst1") }], overwrite: true });
+  assert.equal(ok.isError, false);
+  assert.equal(fs.existsSync(path.join(root, "dst1", "viejo.txt")), false);
+  assert.equal(fs.readFileSync(path.join(root, "dst1", "nuevo.txt"), "utf8"), "nuevo");
+  assert.deepEqual(fs.readdirSync(root).filter((n) => n.includes(".jarvis-bak-")), []);
+
+  // Fallo del rename final (p. ej. EBUSY): el destino original sigue intacto.
+  mk(path.join(root, "src2"), "nuevo.txt", "nuevo");
+  mk(path.join(root, "dst2"), "viejo.txt", "viejo");
+  const realRename = fs.promises.rename;
+  const src2 = path.join(root, "src2");
+  fs.promises.rename = (async (from: fs.PathLike, to: fs.PathLike) => {
+    if (String(from) === src2) throw Object.assign(new Error("busy"), { code: "EBUSY" });
+    return realRename(from, to);
+  }) as typeof fs.promises.rename;
+  try {
+    const bad = await provider.callTool("move_file", { items: [{ source: src2, destination: path.join(root, "dst2") }], overwrite: true });
+    assert.equal(bad.isError, true);
+  } finally {
+    fs.promises.rename = realRename;
+  }
+  assert.equal(fs.readFileSync(path.join(root, "dst2", "viejo.txt"), "utf8"), "viejo");
+  assert.equal(fs.existsSync(path.join(src2, "nuevo.txt")), true);
+  assert.deepEqual(fs.readdirSync(root).filter((n) => n.includes(".jarvis-bak-")), []);
+});
