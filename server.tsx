@@ -11,9 +11,9 @@
 import 'dotenv/config';
 import { parse as parseDotenv } from 'dotenv';
 import express from 'express';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FreeSearchMCPServer } from './src/core/mcp/freeSearchMcp.ts';
 import type { IMCPServer } from './src/core/mcp/types.ts';
 import { DiscoveryEngine } from './src/core/mcp/discovery.ts';
@@ -26,6 +26,7 @@ import { apiErrorHandler, createJarvisRouter } from './src/server/jarvisRouter.t
 import { createMcpRouter } from './src/server/mcpRouter.ts';
 import { getUserEnvironment } from './src/core/environment.ts';
 import { ConfigManager } from './src/core/config.ts';
+import type { ConfigSource } from './src/core/config.ts';
 import { warmUpModels } from './src/core/models/warmup.ts';
 import { startRetention } from './src/core/retention.ts';
 import { SystemProvider } from './src/tools/system/systemProvider.ts';
@@ -34,6 +35,7 @@ import { FilesWriteProvider } from './src/tools/files_write/filesWriteProvider.t
 import { MultimediaProvider } from './src/tools/multimedia/multimediaProvider.ts';
 import { TerminalProvider } from './src/tools/terminal/terminalProvider.ts';
 import { WebSearchProvider } from './src/tools/web/webSearchProvider.ts';
+import { isLoopbackHost, localOnly, proxyHostAllowed } from './src/server/localOnly.ts';
 import { startTelegram } from './src/telegram/bot.ts';
 import { telegramConfigFromEnv } from './src/telegram/config.ts';
 import type { VoiceConfig } from './src/voice/tts.ts';
@@ -59,44 +61,22 @@ function dotenvKeys(): string[] {
 /** Secretos de voz y Telegram: los comandos de `run_command` no los heredan aunque vengan del entorno y no de `.env`. */
 const SECRET_KEYS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'HF_TOKEN'];
 
-async function main() {
-  const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '0.0.0.0';
-  // [AI-STUDIO-COMPAT] La validación de loopback está comentada para permitir que el servidor
-  // escuche en cualquier interfaz (0.0.0.0) y sea accesible desde Google AI Studio Build.
-  // En producción local esta restricción tiene sentido (la API no tiene autenticación),
-  // pero en el sandbox de AI Studio el HOST asignado no es loopback y el throw bloqueaba el arranque.
-  // NO restaurar este bloque sin coordinar con el equipo — ver auditoría de compatibilidad.
-  // Al restaurarlo (y `app.use(localOnly())` más abajo) hay que volver a importar:
-  //   import { isLoopbackHost, localOnly } from './src/server/localOnly.ts';
-  //
-  // if (!isLoopbackHost(HOST)) {
-  //   throw new Error(
-  //     `[Security] HOST='${HOST}' no es loopback (use 127.0.0.1, localhost o ::1). ` +
-  //     'La API local no tiene autenticación; no se permite escuchar fuera de loopback.',
-  //   );
-  // }
+/** La API local no tiene autenticación: por defecto solo se escucha en loopback. Para sandboxes con proxy (AI Studio Build) se define `ALLOW_PROXY_HOST=1`. */
+function assertListenable(host: string): void {
+  if (proxyHostAllowed() || isLoopbackHost(host)) return;
+  throw new Error(
+    `[Security] HOST='${host}' no es loopback (use 127.0.0.1, localhost o ::1). ` +
+    'La API local no tiene autenticación; para un sandbox con proxy defina ALLOW_PROXY_HOST=1.',
+  );
+}
 
-  const app = express();
-  app.use(express.json({ limit: '256kb' }));
-
-  // [AI-STUDIO-COMPAT] localOnly() bloqueaba con 403 el health-check de AI Studio Build:
-  // su proxy envía un Host header no-loopback y el middleware rechazaba toda request externa,
-  // lo que hacía que AI Studio interpretara el servidor como "muerto" y lo matara por timeout.
-  // Comentado para permitir el entorno de sandbox. NO descomentar sin verificar que el HOST
-  // del entorno sea loopback o que exista otra capa de autenticación.
-  // app.use(localOnly());
-
-  const getConfig = () => ConfigManager.getConfig();
-
-  const freeSearchServer = new FreeSearchMCPServer(getConfig);
-
-  // El 2B de las decisiones puntúa los fragmentos de `web_search` solo si la configuración lo enciende (se lee en cada llamada).
-  const decisionEngine = new Decision20Engine(getConfig);
-  const servers: Record<string, IMCPServer> = {
-    free_search: freeSearchServer,
-    // Proveedores nativos (`src/tools/`): módulos en proceso que implementan la misma interfaz que los servidores MCP.
-    // Los comandos no heredan los secretos que Jarvis cargó de `.env` (RC-16).
+/**
+ * Los servidores de herramientas: el MCP de búsqueda libre y los proveedores nativos (`src/tools/`), módulos en proceso que implementan la misma interfaz.
+ * Los comandos de terminal no heredan los secretos que Jarvis cargó de `.env` (RC-16).
+ */
+function buildServers(getConfig: ConfigSource, decisionEngine: Decision20Engine): Record<string, IMCPServer> {
+  return {
+    free_search: new FreeSearchMCPServer(getConfig),
     jarvis_system: new SystemProvider({
       allowedDirectories: () => getConfig().allowedDirectories,
       environment: getUserEnvironment,
@@ -117,27 +97,26 @@ async function main() {
       allowedDirectories: () => getConfig().allowedDirectories,
       waitSec: () => ({ default: getConfig().runCommandDefaultWaitSec, max: getConfig().runCommandMaxWaitSec }),
     }),
-    jarvis_web: new WebSearchProvider({ allowedDirectories: () => getConfig().allowedDirectories, environment: getUserEnvironment, judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined), judgeTimeoutMs: () => getConfig().webJudgeTimeoutMs }),
+    // El 2B de las decisiones puntúa los fragmentos de `web_search` solo si la configuración lo enciende (se lee en cada llamada).
+    jarvis_web: new WebSearchProvider({
+      allowedDirectories: () => getConfig().allowedDirectories,
+      environment: getUserEnvironment,
+      judge: () => (getConfig().webSearchUseJudge ? decisionEngine : undefined),
+      judgeTimeoutMs: () => getConfig().webJudgeTimeoutMs,
+    }),
   };
+}
 
-  const discoveryEngine = new DiscoveryEngine(servers);
-  const llm = new QwenEngine(getConfig);
+interface ShutdownDeps {
+  readonly servers: Record<string, IMCPServer>;
+  readonly tasks: TaskManager;
+  readonly getConfig: ConfigSource;
+  /** Los apagadores que dependen de lo que se haya arrancado (retención, Telegram): se consultan al cerrar. */
+  readonly stoppers: () => ReadonlyArray<(() => void) | undefined>;
+}
 
-  // La memoria de hechos del usuario (`data/memory.json`) la elige esta raíz de composición; el motor solo recibe el puerto (`MemoryProvider`).
-  const services = createEngineServices(getConfig, { memoryProvider: createJsonMemoryProvider(memoryFileOf(getConfig())) });
-  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig, services);
-
-  // Limpieza por antigüedad de las refs y las trazas (`retentionDays`): al arrancar y cada 6 horas.
-  const stopRetention = startRetention(getConfig, () => tasks.taskIds());
-
-  // Voz: la configuración se lee en cada uso (se cambia en caliente desde la interfaz). `ui`: ¿la interfaz lee las respuestas?; `telegram`: ¿notas de voz?
-  const voiceFor = (target: 'ui' | 'telegram'): VoiceConfig | null => {
-    const cfg = getConfig();
-    if (!(target === 'ui' ? cfg.voiceEnabled : cfg.telegramVoice)) return null;
-    return { voice: cfg.voiceName, baseUrl: cfg.voiceUrl };
-  };
-
-  let stopTelegram: (() => void) | undefined;
+/** SIGINT/SIGTERM: cancela las tareas, espera sus cierres y apaga los servidores y sus procesos hijos. Un segundo aviso no repite el cierre. */
+function installGracefulShutdown({ servers, tasks, getConfig, stoppers }: ShutdownDeps): void {
   let isShuttingDown = false;
   const cleanShutdown = async (signal: string) => {
     if (isShuttingDown) return;
@@ -148,8 +127,7 @@ async function main() {
       process.exit(1);
     }, 5000).unref();
     console.log(`\n[Host] Señal ${signal} recibida. Finalizando servidores MCP y procesos hijos...`);
-    stopRetention();
-    stopTelegram?.();
+    for (const stop of stoppers()) stop?.();
     tasks.cancelAll();
     // Cada tarea cancelada cierra sus procesos en segundo plano (necesita los servidores vivos) y escribe su traza: se espera un momento.
     await tasks.drain(getConfig().shutdownDrainMs);
@@ -168,6 +146,71 @@ async function main() {
 
   process.on('SIGINT', () => cleanShutdown('SIGINT'));
   process.on('SIGTERM', () => cleanShutdown('SIGTERM'));
+}
+
+/** La interfaz: en desarrollo, el middleware de Vite; en producción, lo compilado en `dist/`. */
+async function mountFrontend(app: express.Express): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.resolve(__dirname, 'dist')));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+    });
+    return;
+  }
+
+  const { createServer: createViteServer } = await import('vite');
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: 'custom',
+  });
+
+  app.use(vite.middlewares);
+
+  // Fallback: index.html de Vite para cualquier otra ruta
+  app.use('*', async (req, res, next) => {
+    try {
+      const template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+      const html = await vite.transformIndexHtml(req.originalUrl, template);
+      res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+    } catch (e: unknown) {
+      if (e instanceof Error) vite.ssrFixStacktrace(e);
+      next(e);
+    }
+  });
+}
+
+async function main() {
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || '127.0.0.1';
+  assertListenable(HOST);
+
+  const app = express();
+  app.use(express.json({ limit: '256kb' }));
+  app.use(localOnly());
+
+  const getConfig: ConfigSource = () => ConfigManager.getConfig();
+
+  const decisionEngine = new Decision20Engine(getConfig);
+  const servers = buildServers(getConfig, decisionEngine);
+  const discoveryEngine = new DiscoveryEngine(servers);
+  const llm = new QwenEngine(getConfig);
+
+  // La memoria de hechos del usuario (`data/memory.json`) la elige esta raíz de composición; el motor solo recibe el puerto (`MemoryProvider`).
+  const services = createEngineServices(getConfig, { memoryProvider: createJsonMemoryProvider(memoryFileOf(getConfig())) });
+  const tasks = new TaskManager({ decision: decisionEngine, discovery: discoveryEngine, llm }, getConfig, services);
+
+  // Limpieza por antigüedad de las refs y las trazas (`retentionDays`): al arrancar y cada 6 horas.
+  const stopRetention = startRetention(getConfig, () => tasks.taskIds());
+
+  // Voz: la configuración se lee en cada uso (se cambia en caliente desde la interfaz). `ui`: ¿la interfaz lee las respuestas?; `telegram`: ¿notas de voz?
+  const voiceFor = (target: 'ui' | 'telegram'): VoiceConfig | null => {
+    const cfg = getConfig();
+    if (!(target === 'ui' ? cfg.voiceEnabled : cfg.telegramVoice)) return null;
+    return { voice: cfg.voiceName, baseUrl: cfg.voiceUrl };
+  };
+
+  let stopTelegram: (() => void) | undefined;
+  installGracefulShutdown({ servers, tasks, getConfig, stoppers: () => [stopRetention, stopTelegram] });
 
   app.use('/api/jarvis', createJarvisRouter(tasks, discoveryEngine, () => voiceFor('ui'), () => getConfig().sseKeepAliveMs));
   app.use(['/api/mcp', '/mcp'], createMcpRouter(discoveryEngine));
@@ -176,37 +219,10 @@ async function main() {
   app.use(['/api', '/mcp'], (req, res) => {
     res.status(404).json({ error: `Ruta API '${req.originalUrl}' no encontrada.` });
   });
-
   app.use(['/api', '/mcp'], apiErrorHandler);
 
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'custom',
-    });
+  await mountFrontend(app);
 
-    app.use(vite.middlewares);
-
-    // Fallback: index.html de Vite para cualquier otra ruta
-    app.use('*', async (req, res, next) => {
-      try {
-        const template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
-        const html = await vite.transformIndexHtml(req.originalUrl, template);
-        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
-      } catch (e: unknown) {
-        if (e instanceof Error) vite.ssrFixStacktrace(e);
-        next(e);
-      }
-    });
-  } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  }
-
-  // Loopback validado al arranque: sin autenticación, no se permite exponer el servidor fuera de loopback.
   // Datos de esta PC (carpetas del usuario): se consultan ahora y no en la primera tarea; la primera tarea espera la misma promesa.
   void getUserEnvironment();
   // Precalienta los dos modelos (carga en GPU + `keep_alive`) sin bloquear el arranque; un fallo solo se registra.
@@ -219,7 +235,7 @@ async function main() {
   // Telegram (opcional): segunda vía de entrada de tareas desde un único chat privado. Habla con esta misma API por loopback.
   const telegram = telegramConfigFromEnv(process.env, PORT);
   if (telegram.config) {
-    telegram.warnings.forEach((warning) => console.warn(`[Telegram] ${warning}`));
+    for (const warning of telegram.warnings) console.warn(`[Telegram] ${warning}`);
     stopTelegram = startTelegram({
       cfg: telegram.config,
       getVoice: () => voiceFor('telegram'),

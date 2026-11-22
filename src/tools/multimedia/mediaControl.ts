@@ -181,7 +181,7 @@ const CORE_AUDIO_CSHARP = [
 
 const PS_VOLUME_SCRIPT = [
   PS_UTF8_PREFIX,
-  "if (-not ('JarvisCoreAudio' -as [type])) { Add-Type -TypeDefinition '" + CORE_AUDIO_CSHARP + "' }",
+  `if (-not ('JarvisCoreAudio' -as [type])) { Add-Type -TypeDefinition '${CORE_AUDIO_CSHARP}' }`,
   "$r = [JarvisCoreAudio]::Apply($env:JARVIS_MEDIA_ACTION, [int]$env:JARVIS_MEDIA_LEVEL, [float]::Parse($env:JARVIS_MEDIA_STEP, [System.Globalization.CultureInfo]::InvariantCulture))",
   "[pscustomobject]@{ level = $r[0]; muted = ($r[1] -eq 1) } | ConvertTo-Json -Compress",
 ].join("; ");
@@ -329,7 +329,7 @@ export async function runMediaControl(
 
     if (action === "now_playing") {
       const np = out.nowPlaying;
-      if (!np || !np.active) {
+      if (!np?.active) {
         const text = "status: ok · no active media session playing";
         return toolResult({
           text,

@@ -302,7 +302,7 @@ export class SystemProvider implements ToolProvider {
       case SYSTEM_INFO: {
         const limitMs = effectiveTimeoutMs(this.systemTimeoutMs, options.timeoutMs);
         const reader = limitMs === this.systemTimeoutMs ? this.defaultReader : this.buildReader(limitMs);
-        return runSystemInfo(args, { reader, defaultTimeoutMs: limitMs }, { signal: options.signal });
+        return runSystemInfo(args, { reader }, { signal: options.signal });
       }
       case STOP_PROCESS:
         return runStopProcess(

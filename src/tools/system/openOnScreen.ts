@@ -13,7 +13,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { isAnyAbsolute } from "../../core/policy/allowedDirs.ts";
-import { effectiveTimeoutMs, KNOWN_ALIASES, resolveExistingPath } from "../../core/tools/filePaths.ts";
+import { effectiveTimeoutMs, KNOWN_ALIASES, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -133,9 +133,7 @@ export async function runOpenOnScreen(
       paramName: "target",
     });
     if (!resolved.ok) {
-      return fail(resolved.message, {
-        ...(resolved.denied ? { reason: "denied" } : resolved.notFound ? { reason: "not_found" } : {}),
-      });
+      return fail(resolved.message, pathFailureData(resolved));
     }
     resolvedTarget = resolved.targetPath;
   } else {

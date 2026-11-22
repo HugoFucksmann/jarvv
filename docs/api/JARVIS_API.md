@@ -1,6 +1,6 @@
 # JARVIS API — lo que necesita saber la UI
 
-Base: `/api/jarvis` (más endpoints directos en `/api/mcp` y alias `/mcp`). Diseñada para entorno local (`localOnly.ts` define la validación de `Host` y `Origin` en `localhost`, `127.0.0.1` o `[::1]`; actualmente el middleware `localOnly()` y la validación de `HOST` loopback están comentados en `server.tsx`, y el chequeo de `Host` en `localOnly.ts`, por compatibilidad con el proxy de AI Studio Build). JSON con límite de **256 KB**. Los errores son siempre `{ "error": string }`: **400** entrada o JSON inválido, **404** tarea/ref/traza inexistente, **409** la tarea no espera eso, **413** cuerpo mayor a 256 KB, **429** tope de tareas o SSE.
+Base: `/api/jarvis` (más endpoints directos en `/api/mcp` y alias `/mcp`). Diseñada para entorno local (`localOnly.ts` valida `Host` y `Origin` en `localhost`, `127.0.0.1` o `[::1]` y responde **403** si no coinciden; `ALLOW_PROXY_HOST=1` apaga solo el chequeo de `Host`, para sandboxes con proxy). JSON con límite de **256 KB**. Los errores son siempre `{ "error": string }`: **400** entrada o JSON inválido, **404** tarea/ref/traza inexistente, **409** la tarea no espera eso, **413** cuerpo mayor a 256 KB, **429** tope de tareas o SSE.
 
 ## Modelo
 

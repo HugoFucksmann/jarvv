@@ -1,0 +1,19 @@
+# Texto normalizado a LF en el repositorio y en el árbol de trabajo (la mezcla CRLF/LF rompía ediciones y diffs).
+* text=auto eol=lf
+
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binarios: no tocar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.gz binary
+*.zip binary
+*.wav binary
+*.mp3 binary
+*.opus binary

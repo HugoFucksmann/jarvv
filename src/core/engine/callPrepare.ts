@@ -12,6 +12,7 @@ import type { UserEnvironment } from "../environment.ts";
 import type { IMCPServer } from "../mcp/types.ts";
 import { isReadOnlyCall } from "../policy/readOnly.ts";
 import { ContextOverflowError } from "../render/index.ts";
+import { expandPathAliases } from "../tools/filePaths.ts";
 import { getToolPolicy, serverOf, sortByCatalog } from "../tools/manifest.ts";
 import type { MCPTool } from "../types.ts";
 import type { ExecutableRoute } from "../types/routes.ts";
@@ -122,7 +123,6 @@ export async function prepareArgs(env: EngineEnv, stepId: string, route: Executa
   if (runtime.cancelled || ctx.isClosed()) return STOP_CANCELLED;
   if (!generation.ok) {
     if (generation.failure !== "invalid") return stop(fromFailure(env, stepId, generation.failure, generation.error));
-    console.error("[Engine] argumentos inválidos:", errorMessage(generation.error));
     const callId = register(ctx, {
       stepId,
       route,
@@ -136,7 +136,8 @@ export async function prepareArgs(env: EngineEnv, stepId: string, route: Executa
     });
     return stop(registered(callId, "args_invalid"));
   }
-  const resolved = generation.value.args;
+  // Un alias de carpeta (`desktop`, `desktop\Archivos`) pasa a ruta absoluta ahora: Guard, pre-chequeo, `allowedDirectories` y la herramienta ven la misma ruta.
+  const resolved = expandPathAliases(generation.value.args, environment);
   const recorded = clipArgs(mcp, tool.name, resolved);
 
   // 4. Un comando de terminal que solo lee es una lectura aunque `run_command` sea una escritura por catálogo (`policy/readOnly.ts`): su salida va a DATA, no pide

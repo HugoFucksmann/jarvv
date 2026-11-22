@@ -86,7 +86,7 @@ export async function discoverTools(env: EngineEnv, stepId: string, route: Execu
   if (cataloged.length === 0) {
     const down = deps.discovery.getUnavailableServers()[mcp];
     return unavailable(
-      `Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${mcp}'` + (down ? `: servidor no disponible (${down.reason}).` : "."),
+      `Discovery: no hay herramientas catalogadas disponibles para el destino '${route}' en '${mcp}'${down ? `: servidor no disponible (${down.reason}).` : "."}`,
     );
   }
 

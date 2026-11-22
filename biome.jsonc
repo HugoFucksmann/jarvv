@@ -1,0 +1,56 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
+	// Solo linter: el formateador queda apagado hasta normalizar los finales de línea del árbol de trabajo (ver .gitattributes).
+	"files": {
+		"includes": [
+			"src/**",
+			"ui/**",
+			"server.tsx",
+			"vite.config.ts",
+			"eval/**",
+			"tests/**",
+			"scripts/**",
+			"mcp/**",
+			"!**/node_modules",
+			"!eval/results",
+			"!eval/variants/_auto",
+			"!eval/variants/_ganadoras",
+			"!**/*.json",
+			"!**/*.jsonl",
+			"!**/*.css",
+			"!**/__golden__"
+		]
+	},
+	"formatter": { "enabled": false },
+	"assist": { "enabled": false },
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			// Reglas recomendadas que hoy marcan código intencional o un pendiente de interfaz: se dejan visibles como aviso (no rompen `npm run lint`)
+			// o apagadas, con el motivo. Todo lo que sigue en "error" es un fallo real y debe estar en 0.
+			// `Guard` y `ConfigManager` son espacios de nombres con estado estático a propósito (los usan el motor, las rutas y los tests).
+			"complexity": { "noStaticOnlyClass": "off" },
+			"suspicious": {
+				// Los saneadores de salida de terminal y de texto quitan caracteres de control a propósito.
+				"noControlCharactersInRegex": "off",
+				// `while ((m = re.exec(s)))` y similares: idioma deliberado.
+				"noAssignInExpressions": "warn",
+				"useIterableCallbackReturn": "warn",
+				"noImplicitAnyLet": "warn",
+				"noExplicitAny": "warn",
+				"noArrayIndexKey": "warn"
+			},
+			// Dependencias de efectos de la interfaz: pendiente de revisar caso por caso (cambiarlas altera cuándo corren).
+			"correctness": { "useExhaustiveDependencies": "warn" },
+			// Accesibilidad de la interfaz: pendiente.
+			"a11y": {
+				"useSemanticElements": "warn",
+				"useAriaPropsSupportedByRole": "warn",
+				"noStaticElementInteractions": "warn",
+				"noAutofocus": "warn",
+				"useKeyWithClickEvents": "warn"
+			}
+		}
+	}
+}

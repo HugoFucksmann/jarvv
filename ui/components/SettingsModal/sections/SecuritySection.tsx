@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { FolderLock, Plus, ShieldAlert, Trash2, X } from "lucide-react";
 import type { BlacklistEntry, JarvisConfig } from "../../../types/api.ts";
 import { GroupHeading, INPUT_BASE, SectionHeader, ToggleRow } from "../components/FieldPrimitives.tsx";

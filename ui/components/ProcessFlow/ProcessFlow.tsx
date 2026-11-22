@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, History, Loader2, PauseCircle, Terminal, ArrowUpRight } from "lucide-react";
 import type { TaskDto, TaskSummary, RefDto } from "../../types/api.ts";
 import { PlanReview } from "./components/PlanReview.tsx";

@@ -13,7 +13,7 @@ import { BUDGET } from "../src/core/budget.ts";
 import { create } from "../src/core/ctx/index.ts";
 import type { ContextLimits, TaskContext } from "../src/core/ctx/index.ts";
 import { terminalStateFor } from "../src/core/ctx/closure.ts";
-import { LOG_SCHEMA_VERSION, listTaskLogFiles, openTaskLog, readTaskLog, summarizeClosedTaskLog, taskLogPath, tasksDirFromConfig } from "../src/core/taskLog.ts";
+import { LOG_SCHEMA_VERSION, isTaskLogTerminal, listTaskLogFiles, openTaskLog, readTaskLog, summarizeClosedTaskLog, taskLogPath, tasksDirFromConfig } from "../src/core/taskLog.ts";
 
 const LIMITS: ContextLimits = {
   summaryMax: BUDGET.summaryMax,
@@ -251,4 +251,33 @@ test("`restart` cierra como `partial` si la tarea dejó efectos y como `failed` 
   assert.equal(terminalStateFor("restart", [write]), "partial");
   assert.equal(terminalStateFor("restart", [read]), "partial", "una llamada aprobada con éxito también cuenta");
   assert.equal(terminalStateFor("restart", [write]), terminalStateFor("unrecoverable", [write]));
+});
+
+test("isTaskLogTerminal: igual que reproducir el log completo, con la vía rápida para lo cerrado y con respuesta", () => {
+  const dir = tempDir();
+  const replayed = (file: string): boolean => {
+    const result = readTaskLog(file);
+    return result.ok && result.ctx.isClosed();
+  };
+
+  const closed = closedTask(dir, ID);
+  assert.equal(isTaskLogTerminal(closed.file), true);
+
+  const open = openTask(dir, "task_1700000000001_open");
+  open.ctx.apply(STEP);
+  assert.equal(isTaskLogTerminal(open.file), false);
+
+  const noResult = openTask(dir, "task_1700000000002_nores");
+  noResult.ctx.apply(FINISH);
+  assert.equal(isTaskLogTerminal(noResult.file), true, "cerrada sin respuesta: se reproduce y está cerrada");
+
+  const torn = closedTask(dir, "task_1700000000003_torn");
+  fs.appendFileSync(torn.file, '{"n":99');
+  const broken = path.join(dir, "task_1700000000004_junk.jsonl");
+  fs.writeFileSync(broken, "no es un log\n");
+
+  for (const file of [closed.file, open.file, noResult.file, torn.file, broken, path.join(dir, "no-existe.jsonl")]) {
+    assert.equal(isTaskLogTerminal(file), replayed(file), path.basename(file));
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
 });

@@ -62,11 +62,13 @@ let cached: Promise<UserEnvironment> | undefined;
 
 /**
  * Rutas reales del usuario de esta PC. Se consultan una sola vez por proceso; si la consulta falla (o no hay
- * PowerShell) se informa solo la carpeta personal, que sale del sistema operativo sin consultas externas.
+ * PowerShell, o no es Windows) se informa solo la carpeta personal, que sale del sistema operativo sin consultas externas.
  */
 export function getUserEnvironment(): Promise<UserEnvironment> {
     cached ??= (async (): Promise<UserEnvironment> => {
         const home = os.homedir();
+        // Las carpetas conocidas se consultan con PowerShell: fuera de Windows no hay nada que consultar (y no es un fallo que avisar).
+        if (currentPlatform() !== "windows") return { platform: currentPlatform(), home };
         try {
             return { platform: currentPlatform(), home, ...(await queryKnownFolders()) };
         } catch (err) {

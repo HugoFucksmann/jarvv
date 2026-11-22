@@ -18,7 +18,7 @@ import { verifyInput } from "./adapters.ts";
 import { ARGS_REVIEWS, VERIFY_CHECKS } from "../contracts.ts";
 import type { ArgsReview, ReviewDecision, VerifyCheckKey } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
-import { codeAnswersOk, postconditionOf } from "./postcondition.ts";
+import { knownVerifyAnswers, postconditionOf } from "./postcondition.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
 import { runProbes } from "./probes.ts";
 
@@ -89,6 +89,8 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
 
   // D3: sin consulta al modelo.
   if (call.status === "tool_error" || call.status === "exception") return record("rejected", "no_usable_data");
+  // Una escritura que no halló la ruta o la carpeta no escribió nada: no hay resultado que juzgar.
+  if (call.status === "not_found" && call.kind === "write") return record("rejected", "no_usable_data");
   // Sin datos (`no_data`: la herramienta dice que no hubo resultado; en las de lectura, un resultado vacío es un error por política): tampoco hace falta preguntar.
   if (call.status === "no_data") return record("rejected", "no_usable_data");
 
@@ -100,9 +102,13 @@ export async function verifyCall(env: EngineEnv, callId: string): Promise<Verify
   }
 
   const view = verifyInput(ctx.view.forVerify(callId));
-  // Una lectura determinista con contenido (listado, archivo, procesos) ya tiene `ok` resuelto: el modelo solo juzga si cumple lo pedido.
-  const input = codeAnswersOk(call.tool, call.status, call.summary) ? { ...view, known: { ok: 1 } } : view;
-  const query = await queryModel(() => env.decision.verifyResult(input, runtime.signal), pauseOf(env, "decision"));
+  // Lo que el código ya sabe no se le pregunta al modelo (`knownVerifyAnswers`): si lo sabe todo, ni se consulta.
+  const known = knownVerifyAnswers(call.tool, call.status, call.summary);
+  if (VERIFY_CHECKS.every(({ key }) => known[key] !== undefined)) {
+    const { verdict, reason } = verdictOf(known as Record<VerifyCheckKey, number>);
+    return withProbes(verdict, reason);
+  }
+  const query = await queryModel(() => env.decision.verifyResult({ ...view, known }, runtime.signal), pauseOf(env, "decision"));
 
   if (!query.ok) {
     const closure = closeOnFailure(env, call.stepId, query.failure, query.error);

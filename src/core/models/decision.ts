@@ -13,13 +13,13 @@
  * - Transporte (reintento único en red/503, timeout, cancelación): models/transport.ts.
  */
 
-import {
-  type DecisionAnswer,
-  type DecisionAnswerChoice,
-  type DecisionAnswerNoul,
-  type DecisionQuestion,
-  type DecisionResponse,
-  type TimeSpan,
+import type {
+  DecisionAnswer,
+  DecisionAnswerChoice,
+  DecisionAnswerNoul,
+  DecisionQuestion,
+  DecisionResponse,
+  TimeSpan,
 } from "../types.ts";
 import type {
   CompletionDecision,
@@ -52,13 +52,13 @@ import { DECISION_PROMPTS } from "./prompts.ts";
 import {
   estimateTokens,
   postJson,
+  type PostJsonResult,
   DecisionServiceUnavailableError,
   DecisionValidationError,
-  RequestAbortedError,
   TransportError,
 } from "./transport.ts";
 import { resolveModelTimeoutMs } from "../timeouts.ts";
-import { errorMessage, isRecord } from "../utils.ts";
+import { isRecord, RequestAbortedError } from "../utils.ts";
 import type { FragmentJudge, FragmentScores } from "../tools/judge.ts";
 
 /** URL y body serializado de la consulta: `/v1/systemone` sobre `decisionUrl`, con el modelo configurado. */
@@ -70,13 +70,6 @@ export function buildDecisionRequest(
   const url = base.endsWith("/v1/systemone") ? base : `${base}/v1/systemone`;
   return { url, body: JSON.stringify({ model: config.decisionModel, ...payload, keep_alive: config.modelKeepAlive }) };
 }
-
-const pct = (probabilities: Record<string, number>): string =>
-  Object.entries(probabilities)
-    .sort(([, a], [, b]) => b - a)
-    .map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`)
-    .join(", ");
-
 /**
  * Respuesta de `key` con el tipo esperado. `parseResponse` ya garantizó la forma: el chequeo solo estrecha el tipo.
  */
@@ -161,9 +154,8 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     }
 
     const { url, body } = buildDecisionRequest(config, payload);
-    console.log(`[Decision → SEND] model=${config.decisionModel} url=${url} state=${JSON.stringify(state).slice(0, 200)} questions=${JSON.stringify(questions).slice(0, 200)}`);
 
-    let result;
+    let result: PostJsonResult;
     const startedAt = Date.now();
     const decisionTimeout = resolveModelTimeoutMs(config, config.decisionModel, "decision");
     try {
@@ -185,7 +177,6 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
         `HTTP ${result.status} (${result.statusText}): ${result.text.slice(0, 300)}`
       );
     }
-    console.log(`[Decision ← RECV] ${result.text.slice(0, 600)}`);
 
     const rawInput = JSON.stringify(payload, null, 2);
     const timing: TimeSpan = { startedAt, durationMs: Date.now() - startedAt };
@@ -216,15 +207,12 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     if (options.length === 1) {
       const choice = options[0];
-      console.log(`[Decision #1] action=${choice} (única opción) duration=0ms`);
       return routeDecisionOf(choice, shortcutTrace(choice, state), true);
     }
 
-    const t0 = Date.now();
-    const response = await this.ask("Decision #1", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const { choice, probabilities } = choiceAnswer(response, "route");
-      console.log(`[Decision #1] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
       const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
       // `parseResponse` validó la pertenencia a `criteria`; `routeDecisionOf` solo estrecha el tipo.
@@ -244,7 +232,6 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     if (tools.length === 1) {
       const tool = tools[0];
-      console.log(`[Decision] tool=${tool.name} (única opción) duration=0ms`);
       return {
         action: "tool",
         tool,
@@ -257,11 +244,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
 
     const { state, questions } = this.prompts.buildToolChoice(input);
 
-    const t0 = Date.now();
-    const response = await this.ask("Decision #2", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const { choice, probabilities } = choiceAnswer(response, "selected_tool");
-      console.log(`[Decision] action=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
       const trace = { probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
       const selected = tools.find((t) => t.name === choice);
@@ -279,11 +264,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async reviewArgs(input: ReviewDecisionInput, signal?: AbortSignal): Promise<ReviewDecision> {
     const { state, questions } = this.prompts.buildArgsReview(input, { fullView: this.getConfig().reviewFullView === true });
 
-    const t0 = Date.now();
-    const response = await this.ask("Decision #3", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const { choice, probabilities } = choiceAnswer(response, "review");
-      console.log(`[Decision #3] review=${choice} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
 
       // `parseResponse` validó la pertenencia a `criteria`; aquí solo se estrecha el tipo.
       const review = ARGS_REVIEWS.find((r) => r === choice);
@@ -301,16 +284,11 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async verifyResult(input: VerifyDecisionInput, signal?: AbortSignal): Promise<VerifyDecision> {
     const { state, questions } = this.prompts.buildResultVerification(input);
 
-    const t0 = Date.now();
-    const response = await this.ask("Verification", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const known = input.known ?? {};
       const answers = Object.fromEntries(VERIFY_CHECKS.map(({ key }) => [key, known[key] ?? noulAnswer(response, key).noul])) as Record<VerifyCheckKey, number>;
 
-      const probabilities = VERIFY_CHECKS.map(({ key }) => `${key}=${answers[key].toFixed(2)}`).join(" ");
-      console.log(
-        `[Verification ${this.getConfig().decisionModel}] ${input.call.split("\n", 1)[0]} ${probabilities} duration=${Date.now() - t0}ms`
-      );
       return { answers, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
@@ -324,11 +302,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async checkCompletion(input: CompletionDecisionInput, signal?: AbortSignal): Promise<CompletionDecision> {
     const { state, questions } = this.prompts.buildCompletionCheck(input);
 
-    const t0 = Date.now();
-    const response = await this.ask("Completion", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const requestComplete = noulAnswer(response, COMPLETION_KEY).noul;
-      console.log(`[Completion ${this.getConfig().decisionModel}] ${COMPLETION_KEY}=${requestComplete.toFixed(2)} duration=${Date.now() - t0}ms`);
       return { requestComplete, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
@@ -342,13 +318,11 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async firstQuery(input: FirstQueryInput, signal?: AbortSignal): Promise<FirstQueryDecision> {
     const { state, questions } = this.prompts.buildFirstQuery(input);
 
-    const t0 = Date.now();
-    const response = await this.ask("First query", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const { probabilities } = choiceAnswer(response, "kind");
       const multi = noulAnswer(response, "multi").noul;
       const kind = firstQueryKind(probabilities.chat, multi);
-      console.log(`[First query ${this.getConfig().decisionModel}] kind=${kind} probabilities=[${pct(probabilities)}] multi=${multi.toFixed(2)} duration=${Date.now() - t0}ms`);
       return { kind, probabilities, multi, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
@@ -360,11 +334,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
    * qué es «bien» y el umbral los decide `engine/probes.ts`.
    */
   async probe(input: ProbeQuery, signal?: AbortSignal): Promise<ProbeAnswer> {
-    const t0 = Date.now();
-    const response = await this.ask("Probe", input.state, { probe: { type: "noul", instructions: input.question.instructions, criteria: input.question.criteria } }, signal);
+    const response = await this.systemOne(input.state, { probe: { type: "noul", instructions: input.question.instructions, criteria: input.question.criteria } }, { signal });
     try {
       const probability = noulAnswer(response, "probe").noul;
-      console.log(`[Probe ${this.getConfig().decisionModel}] p=${probability.toFixed(2)} duration=${Date.now() - t0}ms | ${input.question.instructions.slice(0, 60)}`);
       return { probability, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
@@ -378,11 +350,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async continuation(input: ContinuationInput, signal?: AbortSignal): Promise<ContinuationDecision> {
     const { state, questions } = this.prompts.buildContinuation(input);
 
-    const t0 = Date.now();
-    const response = await this.ask("Continuation", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const follows = noulAnswer(response, "follow").noul;
-      console.log(`[Continuation ${this.getConfig().decisionModel}] follow=${follows.toFixed(2)} duration=${Date.now() - t0}ms`);
       return { follows, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
@@ -396,13 +366,11 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
   async chooseRecovery(input: RecoveryDecisionInput, signal?: AbortSignal): Promise<RecoveryDecision> {
     const { state, questions } = this.prompts.buildRecovery(input);
 
-    const t0 = Date.now();
-    const response = await this.ask("Recovery", state, questions, signal);
+    const response = await this.systemOne(state, questions, { signal });
     try {
       const { choice, probabilities } = choiceAnswer(response, RECOVERY_KEY);
       const action = (RECOVERY_ACTIONS as readonly string[]).includes(choice) ? (choice as RecoveryDecision["action"]) : null;
       if (action === null) throw new DecisionValidationError(`Recovery: acción desconocida '${choice}'.`);
-      console.log(`[Recovery ${this.getConfig().decisionModel}] action=${action} probabilities=[${pct(probabilities)}] duration=${Date.now() - t0}ms`);
       return { action, probabilities, rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing };
     } catch (err) {
       withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
@@ -423,9 +391,9 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     for (let start = 0; start < fragments.length; start += JUDGE_BATCH) {
       const batch = fragments.slice(start, start + JUDGE_BATCH);
       const { state, questions } = this.prompts.buildFragmentJudge({ need, fragments: batch });
-      const response = await this.ask("Judge", state, questions, signal);
+      const response = await this.systemOne(state, questions, { signal });
       try {
-        batch.forEach((_, i) => probabilities.push(noulAnswer(response, `f${i}`).noul));
+        for (let i = 0; i < batch.length; i++) probabilities.push(noulAnswer(response, `f${i}`).noul);
       } catch (err) {
         withRaw(err, { rawInput: response.rawInput, rawOutput: response.rawOutput, timing: response.timing });
       }
@@ -434,22 +402,6 @@ export class Decision20Engine implements IActionDecision, FragmentJudge {
     }
     return { probabilities, rawInput: inputs.join("\n"), rawOutput: outputs.join("\n"), durationMs: Date.now() - t0 };
   }
-
-  /** `systemOne` con el registro de error común a todas las evaluaciones. */
-  private async ask(
-    label: string,
-    state: string,
-    questions: Record<string, DecisionQuestion>,
-    signal?: AbortSignal
-  ): Promise<DecisionResponse> {
-    try {
-      return await this.systemOne(state, questions, { signal });
-    } catch (err) {
-      console.error(`[${label}] ${errorMessage(err)}`);
-      throw err;
-    }
-  }
-
 }
 
 // ───────────────────────── Validación de la respuesta ─────────────────────────

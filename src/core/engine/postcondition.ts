@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import type { VerifyCheckKey } from "../contracts.ts";
 import type { DiskView } from "../types/disk.ts";
 
 export type Postcondition = "met" | "unmet" | null;
@@ -161,4 +162,26 @@ export function codeAnswersOk(tool: string, status: string, summary: string | nu
   if (!DETERMINISTIC_READS.has(tool) || status !== "ok") return false;
   if (summary === null || summary.trim() === "") return false;
   return !EMPTY_RESULT.test(summary);
+}
+
+/**
+ * Búsqueda web que ya respondió su consulta: `web_search` cierra `found` solo cuando su propio juez puntuó los fragmentos contra el `need` y alguno responde (sin modelo, el techo es `partial`;
+ * ver `tools/web`). Preguntarle a Decisión 4 «¿cumple el paso?» sobre ese mismo resultado es juzgar dos veces lo mismo con un modelo más débil, y falló en trazas reales (`cumple` 0,44 sobre una
+ * búsqueda `found` de hospedaje: el paso pedía «ubicación, precio, tipo» y el `need` era el tema). Que el resultado cubra TODO el pedido lo decide la lista de pendientes y la confirmación D5.
+ * `partial`, `not_found` y `no_results` siguen yendo al modelo (o al rechazo por falta de datos).
+ */
+const WEB_FOUND = /^\s*status:\s*found\b/i;
+
+/** ¿El código puede responder la pregunta `cumple` de la verificación? Una `web_search` con estado `found` del propio buscador. */
+export function codeAnswersCumple(tool: string, status: string, summary: string | null): boolean {
+  return tool === "web_search" && status === "ok" && summary !== null && WEB_FOUND.test(summary);
+}
+
+/**
+ * Las preguntas de `VERIFY_CHECKS` que el código ya responde para esta llamada, con su valor: no se le preguntan al modelo y entran tal cual al veredicto (`verdictOf`). Una sola definición para producción
+ * (`verifyCall`) y para el laboratorio de eval, que arma la misma consulta. Una búsqueda `found` trae datos, así que resuelve también `ok`.
+ */
+export function knownVerifyAnswers(tool: string, status: string, summary: string | null): Partial<Record<VerifyCheckKey, number>> {
+  const cumple = codeAnswersCumple(tool, status, summary);
+  return { ...(cumple || codeAnswersOk(tool, status, summary) ? { ok: 1 } : {}), ...(cumple ? { cumple: 1 } : {}) };
 }

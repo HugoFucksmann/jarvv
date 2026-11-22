@@ -22,6 +22,7 @@ import {
   resolveExistingPath,
   resolvePathTarget,
   yieldEventLoop,
+  pathFailureData,
 } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
@@ -264,9 +265,7 @@ export async function runCopyFile(
     paramName: "source",
   });
   if (!srcResolved.ok) {
-    return fail(srcResolved.message, {
-      ...(srcResolved.denied ? { reason: "denied" } : srcResolved.notFound ? { reason: "not_found" } : {}),
-    });
+    return fail(srcResolved.message, pathFailureData(srcResolved));
   }
 
   const dstResolved = await resolvePathTarget(args.destination, deps.getEnvironment, allowedDirs, {

@@ -23,7 +23,7 @@ export const TERMINATED_PROMPT_IDLE_MS = FIXED_TIMEOUTS.terminatedPromptIdleMs;
 /** Largo máximo de la línea que se toma por prompt. */
 export const PROMPT_MAX_CHARS = 300;
 
-const CHOICE = String.raw`(?:y|n|s|a|q|yes|no|si|sí|all|todo)`;
+const CHOICE = `(?:y|n|s|a|q|yes|no|si|sí|all|todo)`;
 /** Una elección (`[S/N]`, `(y/n)`, `yes/no`) o una tecla (`Press any key`, `Presione una tecla`). Vale también con salto de línea. */
 const CHOICE_OR_KEY = new RegExp(
   [
@@ -37,7 +37,7 @@ const CHOICE_OR_KEY = new RegExp(
 /** Preguntas típicas sin la forma de una elección: solo cuentan sin salto de línea. */
 const ASKS = /\b(?:password|passphrase|contraseña|are you sure|est[aá]s? segur[oa]|desea continuar|do you want to|continue\?|continuar\?)/i;
 /** Termina como un prompt. */
-const PROMPT_END = /[:?>\]\)#$=»]\s*$/;
+const PROMPT_END = /[:?>\])#$=»]\s*$/;
 /** Un avance que se detuvo: no es un prompt. */
 const PROGRESS_END = /(?:\.\s*\.\s*\.|…|\d+(?:[.,]\d+)?\s*%|\[[#=>\-.*\s|]*\]|[|/\\-])\s*$/;
 

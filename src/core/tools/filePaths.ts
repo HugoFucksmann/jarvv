@@ -6,6 +6,7 @@
  * `system`, `web`) puedan compartirlo sin importarse entre sí (`tests/architecture.test.ts`).
  */
 
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { UserEnvironment } from "../environment.ts";
@@ -18,6 +19,7 @@ import {
   isWinPath,
   stripExtendedPrefix,
 } from "../policy/allowedDirs.ts";
+import { isPathArgKey, PATH_LIST_KEY } from "../policy/pathArgs.ts";
 import { errorMessage } from "../utils.ts";
 
 export const KNOWN_ALIASES = ["home", "desktop", "documents", "downloads"] as const;
@@ -66,6 +68,12 @@ export type ResolvedExistingTarget =
       readonly env: UserEnvironment;
     }
   | { readonly ok: false; readonly denied: boolean; readonly notFound?: boolean; readonly message: string };
+
+/** Datos de error de una ruta que no se pudo resolver: el motivo (`denied`, `not_found`) para quien lee el resultado. Una ruta que falla por otra causa no lleva motivo. */
+export function pathFailureData(failure: { readonly denied: boolean; readonly notFound?: boolean }): Record<string, unknown> {
+  if (failure.denied) return { reason: "denied" };
+  return failure.notFound === true ? { reason: "not_found" } : {};
+}
 
 const KB = 1024;
 const MB = KB * 1024;
@@ -128,16 +136,55 @@ export function isCanonicalDescendant(realRoot: string, realTarget: string): boo
   return rel === "" || (rel !== ".." && !rel.startsWith("../") && !path.posix.isAbsolute(rel));
 }
 
+/** `alias` solo, o `alias` seguido de una subruta con `\` o `/` (`desktop\Archivos\Docs`). El alias no distingue mayúsculas. */
+const ALIAS_PATH = /^(home|desktop|documents|downloads)(?:[\\/]+(.*))?$/i;
+
+/**
+ * Resuelve un alias de carpeta del usuario, solo (`desktop`) o con una subruta (`desktop\Archivos`). La subruta se une a la carpeta real del alias con las reglas de la plataforma del
+ * usuario (la carpeta puede estar redirigida, p. ej. OneDrive, y no es `home\Desktop`). Un `..` se normaliza al unir; los controles de `allowedDirectories` y del Guard se aplican después
+ * sobre la ruta ya resuelta.
+ */
 export function resolveAlias(
   raw: string,
   env: UserEnvironment,
 ): { readonly found: true; readonly path: string } | { readonly found: false; readonly missingAlias?: KnownAlias } {
-  const lower = raw.toLowerCase();
-  if (lower === "home") return env.home ? { found: true, path: env.home } : { found: false, missingAlias: "home" };
-  if (lower === "desktop") return env.desktop ? { found: true, path: env.desktop } : { found: false, missingAlias: "desktop" };
-  if (lower === "documents") return env.documents ? { found: true, path: env.documents } : { found: false, missingAlias: "documents" };
-  if (lower === "downloads") return env.downloads ? { found: true, path: env.downloads } : { found: false, missingAlias: "downloads" };
-  return { found: false };
+  const match = ALIAS_PATH.exec(raw.trim());
+  if (match === null) return { found: false };
+  const alias = match[1].toLowerCase() as KnownAlias;
+  const root = env[alias];
+  if (!root) return { found: false, missingAlias: alias };
+  const rest = (match[2] ?? "").trim();
+  if (rest === "") return { found: true, path: root };
+  return { found: true, path: (env.platform === "windows" ? path.win32 : path.posix).join(root, rest) };
+}
+
+/** `raw` con el alias (solo o con subruta) reemplazado por la ruta real; el mismo texto si no es un alias o la carpeta no existe en este entorno. */
+export function expandAliasPath(raw: string, env: UserEnvironment): string {
+  const resolved = resolveAlias(raw, env);
+  return resolved.found ? resolved.path : raw;
+}
+
+/**
+ * Los argumentos de una herramienta con cada ruta que empieza por un alias ya expandida (`path`, `source`, `destination`…, las listas `paths` y `sources` y los pares de `items`; las
+ * claves son las de `policy/pathArgs.ts`). Se hace UNA vez, al preparar la llamada, y desde ahí el Guard, el pre-chequeo, `allowedDirectories`, la aprobación y la herramienta ven la misma
+ * ruta absoluta: sin esto el Guard resolvía `desktop\x` contra la carpeta del proyecto (protegida) y la herramienta lo rechazaba por no ser absoluta.
+ */
+export function expandPathAliases(args: Readonly<Record<string, unknown>>, env: UserEnvironment): Record<string, unknown> {
+  const expand = (value: unknown): unknown => (typeof value === "string" ? expandAliasPath(value, env) : value);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    const k = key.toLowerCase();
+    if (isPathArgKey(k)) out[key] = expand(value);
+    else if ((k === PATH_LIST_KEY || k === "sources") && Array.isArray(value)) out[key] = value.map(expand);
+    else if (k === "items" && Array.isArray(value)) {
+      out[key] = value.map((item) =>
+        item !== null && typeof item === "object" && !Array.isArray(item)
+          ? Object.fromEntries(Object.entries(item).map(([ik, iv]) => [ik, isPathArgKey(ik) ? expand(iv) : iv]))
+          : item,
+      );
+    } else out[key] = value;
+  }
+  return out;
 }
 
 /** Indica si `targetPath` coincide exactamente con una raíz del sistema o carpeta raíz del usuario (`home`, `desktop`, etc.). */
@@ -486,6 +533,27 @@ export function effectiveTimeoutMs(defaultMs: number, optionTimeoutMs?: number, 
     return Math.min(defaultMs, Math.max(optionTimeoutMs, 1));
   }
   return Math.min(defaultMs, optionTimeoutMs - marginMs);
+}
+
+/** Sufijo de un archivo temporal o de respaldo junto al destino: dos operaciones simultáneas (aun en el mismo milisegundo) no comparten nombre. */
+export const tempSuffix = (): string => `${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+
+/** Cuántos bytes del comienzo de un archivo se miran para decidir si es binario. */
+export const BINARY_PROBE_BYTES = 8_192;
+
+/** ¿Estos bytes parecen de un archivo binario? Un byte NUL en el primer bloque (`BINARY_PROBE_BYTES`) lo delata. */
+export const looksBinary = (bytes: Uint8Array): boolean => bytes.subarray(0, BINARY_PROBE_BYTES).includes(0);
+
+/** Lo mismo, leyendo solo el primer bloque del archivo (sin cargarlo entero). */
+export async function isBinaryFile(filePath: string): Promise<boolean> {
+  const handle = await fs.promises.open(filePath, "r");
+  try {
+    const block = Buffer.allocUnsafe(BINARY_PROBE_BYTES);
+    const { bytesRead } = await handle.read(block, 0, BINARY_PROBE_BYTES, 0);
+    return looksBinary(block.subarray(0, bytesRead));
+  } finally {
+    await handle.close();
+  }
 }
 
 /** Cede el turno al bucle de eventos para no bloquearlo en recorridos largos. */

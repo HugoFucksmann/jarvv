@@ -6,6 +6,10 @@ Dos vías opcionales sobre la misma API HTTP ([`../api/JARVIS_API.md`](../api/JA
 
 El bot (`src/telegram/`) es un cliente más de la API, como la interfaz web: inicia tareas con `POST /process`, sigue los eventos por SSE y resuelve las esperas con `/confirm-plan`, `/approve`, `/deny`, `/user-answer` y `/cancel`.
 
+**Cómo está hecho.** `bot.ts` tiene `TelegramBridge`: guarda el estado de la única tarea en curso y se divide en lo que se envía al chat, lo que llega de la API (los eventos) y lo que llega del chat (comandos, botones y mensajes). Lo demás está en módulos chicos: `waitingPrompt.ts` (el texto y los botones de un plan, una aprobación o una pregunta), `switches.ts` (`/auto` y `/voz`), `statusMessage.ts` (el mensaje de progreso que se edita) y `format.ts` (Markdown a HTML). Solo importa del núcleo tipos (`core/types/waiting.ts`, los eventos de `core/tasks.ts`): no ve el motor.
+
+**Pruebas sin red.** `tests/telegram_bot.test.ts` levanta el puente completo contra un servidor HTTP local que hace de API de JARVIS (con su SSE) y un transformador de la API de grammY que anota cada llamada a Telegram; las actualizaciones del chat se entregan con `bot.handleUpdate`. `startTelegram` acepta `bot` y `polling: false` para eso: el bot real se prueba abriendo `/start` en el chat.
+
 **Configuración** (`.env` en la raíz; ver `.env.example`):
 
 | Variable | Qué es |

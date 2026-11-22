@@ -92,7 +92,7 @@ function isReadInvocation(tokens: readonly string[]): boolean {
   const name = raw.replace(/\.(exe|cmd)$/, "");
   if (name === "where" && raw === "where") return false;
   const check = READ_INVOCATIONS.get(name);
-  return check !== undefined && check(tokens.slice(1));
+  return check?.(tokens.slice(1)) ?? false;
 }
 
 /** Cualquiera de estos fuera de comillas lo descarta: redirección, llamada, bloque, paréntesis, corchete o acento grave. */
@@ -162,7 +162,8 @@ export const noCommandRule = (command: string, homeDirs: readonly string[] = def
 /** ¿El comando solo lee? Ver el criterio en la cabecera del archivo. */
 export function isReadOnlyCommand(command: string, homeDirs: readonly string[] = defaultHomeDirs()): boolean {
   const segments = analyzableSegments(command);
-  return segments !== null && segments.every(isReadOnlySegment) && noCommandRule(command, homeDirs);
+  if (segments === null) return false;
+  return segments.every(isReadOnlySegment) && noCommandRule(command, homeDirs);
 }
 
 /**

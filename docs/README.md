@@ -7,6 +7,7 @@
 - [`arquitectura/CORE_FLOW.md`](arquitectura/CORE_FLOW.md) — Ciclo de vida de las tareas, modos reactivo/deliberativo, decisiones D0–D5, Guard, verificación y límites.
 - [`arquitectura/CONTEXT_AND_MEMORY.md`](arquitectura/CONTEXT_AND_MEMORY.md) — `TaskContext`, derivaciones, vistas de prompts, refs en disco, trazas y memoria entre tareas.
 - [`arquitectura/TOOLS.md`](arquitectura/TOOLS.md) — Catálogo cerrado (6 rutas), contrato de proveedores nativos/MCP y pipeline de `web_search`.
+- [`arquitectura/JARVIS_TOOLS_Y_GRUPOS_revisado.md`](arquitectura/JARVIS_TOOLS_Y_GRUPOS_revisado.md) — Listado de tools y su agrupación por ruta *(revisión)*.
 
 ## API HTTP
 - [`api/JARVIS_API.md`](api/JARVIS_API.md) — Contrato HTTP/SSE (`/api/jarvis/*` y `/api/mcp/*`), `TaskDto`, esperas y errores.
@@ -21,7 +22,11 @@
 - [`operacion/free_search_mcp.md`](operacion/free_search_mcp.md) — Referencia externa de `free-search-mcp 0.18.0` (herramientas, filtros, motores y variables).
 - [`operacion/REVISION_run_command.md`](operacion/REVISION_run_command.md) — Bitácora histórica de la revisión de `run_command` (hallazgos `RC-01` a `RC-41`).
 
+## Auditorías
+- [`auditorias/auditoria-src-2026-11-22.md`](auditorias/auditoria-src-2026-11-22.md) — Auditoría técnica del backend (`src/`): hallazgos críticos, importantes y menores. El estado de cada uno está en `pendientes/PLAN_PULIDO_CODIGO.md`.
+
 ## Pendientes
+- [`pendientes/PLAN_PULIDO_CODIGO.md`](pendientes/PLAN_PULIDO_CODIGO.md) — Plan de pulido del backend (orden, refactors, decisiones y estado de la auditoría).
 - [`pendientes/PENDIENTES_EVAL.md`](pendientes/PENDIENTES_EVAL.md) — Todo lo pendiente que depende de eval, mediciones o pruebas en otro entorno (D3, `PENDING_FACTS_LOOKUP`, D5, `web_search`, calibración).
 - [`pendientes/PENDIENTES_CODIGO.md`](pendientes/PENDIENTES_CODIGO.md) — Todo lo pendiente que depende de código o de decisiones de producto y seguridad (memoria, herramientas nativas, terminal, seguridad, 2.0).
 

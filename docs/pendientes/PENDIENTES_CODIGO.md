@@ -22,7 +22,7 @@ Todo lo que se cierra **programando** o con una **decisión de producto o de seg
 
 ## 1. Guard de `Host` y tests que fallan
 
-- **Guard de `Host` desactivado.** En [`src/server/localOnly.ts`](../../src/server/localOnly.ts) el chequeo de `Host` está comentado por compatibilidad con el proxy de AI Studio Build. Mientras esté así, un sitio web puede llegar a la API local con un dominio que resuelve a `127.0.0.1` (DNS rebinding), y esa API ejecuta comandos en la PC sin autenticación. Hoy tampoco rigen la validación de loopback del arranque ni el middleware `localOnly` (están comentados en `server.tsx` y `HOST` es `0.0.0.0` por defecto): el proyecto se corre así a propósito en otros entornos durante el desarrollo. **Decisión:** restaurar el guard (y perder esa compatibilidad) o dejarlo así y cambiar el test para que lo refleje.
+- **Guard de `Host`: resuelto.** [`src/server/localOnly.ts`](../../src/server/localOnly.ts) vuelve a validar `Host` y `Origin`, `server.tsx` monta el middleware y exige un `HOST` de loopback (por defecto `127.0.0.1`). Para un sandbox con proxy (AI Studio Build) se define `ALLOW_PROXY_HOST=1`, que apaga solo el chequeo de `Host` y la validación del arranque.
 - **Test que falla por lo anterior:**
   - `tests/http.test.ts:86` («Host local… DNS rebinding»): responde 200 en vez de 403 mientras el guard esté desactivado.
 
@@ -137,5 +137,5 @@ Estado: ninguna herramienta de archivos se ofrece hoy a D1/D2 (la ruta `locate` 
 - `src/telegram/bot.ts:70,128`: `waitKey` usa `` `q${w.question.stepId}` ``; si en un mismo paso hay más de una pregunta (p. ej. prompts de proceso con `maxProcessPromptsPerStep = 3`), la segunda colisiona en `t.shown`.
 - `ui/components/SettingsModal/sections/SecuritySection.tsx:179-244`: el formulario de `blacklist` no expone el campo `level` (`blocked` | `sensitive`) y el texto explicativo de la lista negra no distingue ambos niveles.
 - `src/tools/web/webSearchProvider.ts:227`: `AbortSignal.timeout(...)` puede dejar timers colgados en pruebas (`tests/web_search.test.ts:751`).
-- `http.test.ts:86`: sigue fallando mientras el guard de `Host` / `localOnly` esté desactivado (§1).
+- `http.test.ts:86` (el guard de `Host`): pasa desde que se restauró el guard (§1).
 - `tsc --noEmit` (`npm run lint`) compila limpio con 0 errores.

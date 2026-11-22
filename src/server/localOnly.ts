@@ -24,14 +24,14 @@ export function isLoopbackHost(host: string): boolean {
   );
 }
 
+/** `ALLOW_PROXY_HOST=1` desactiva SOLO el chequeo de `Host` (sandboxes tipo AI Studio Build, cuyo proxy manda un Host no loopback). Por defecto está activo. */
+export const proxyHostAllowed = (): boolean => process.env.ALLOW_PROXY_HOST === '1';
+
 export function localOnly(): express.RequestHandler {
   return (req, res, next) => {
-    // [AI-STUDIO-COMPAT] El guard de Host bloqueaba con 403 las requests del proxy de AI Studio Build,
-    // cuyo Host header no es loopback. Comentado para compatibilidad con el sandbox.
-    // En despliegue local puro se puede restaurar, pero NO sin verificar antes que el HOST sea loopback.
-    // if (!LOCAL_HOST.test(req.headers.host ?? '')) {
-    //   return void res.status(403).json({ error: 'Host no permitido.' });
-    // }
+    if (!proxyHostAllowed() && !LOCAL_HOST.test(req.headers.host ?? '')) {
+      return void res.status(403).json({ error: 'Host no permitido.' });
+    }
     const origin = req.headers.origin;
     if (origin) {
       if (!LOCAL_ORIGIN.test(origin)) {

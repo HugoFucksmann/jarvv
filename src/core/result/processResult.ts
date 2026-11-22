@@ -114,7 +114,7 @@ export function processResult(
   const native = readToolResult(rawResult);
   const fullText = native === null ? text : native.raw.trim();
   // Forma libre: los extractores leen los campos propios de cada servidor (process_id, exit_code…).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: forma libre; cada extractor lee los campos propios de su servidor.
   const mergedData: Record<string, any> = { ...rawResult, ...embeddedPayload };
   const policy = getToolPolicy(mcp, tool);
 
@@ -124,7 +124,11 @@ export function processResult(
   // Los marcadores de error se buscan en lo que ve el modelo (en un resultado nativo, `raw` puede ser una página cualquiera).
   const lowerText = text.toLowerCase();
   const denied = isError && (text.includes("[DENIED]") || lowerText.includes("access denied"));
+  // Una escritura nativa que declara `reason: "not_found"` (la ruta o la carpeta de destino no existe) no escribió nada: es `not_found` y no un error de la herramienta,
+  // así lleva `WRITE_NOT_FOUND_NOTE` y no cuenta como posible cambio. Las lecturas siguen siendo `tool_error`: su mensaje ya dice qué falta y se rechazan sin consultar al modelo.
+  const nativeWriteNotFound = isError && policy.mutates && native?.data.reason === "not_found";
   const notFound =
+    nativeWriteNotFound ||
     text.startsWith("[NOT_FOUND]") ||
     (isError && (text.includes("[NOT_FOUND]") || lowerText.includes("not found") || /\benoent\b|no such file or directory/.test(lowerText)));
 

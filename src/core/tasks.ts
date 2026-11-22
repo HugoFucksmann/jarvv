@@ -35,7 +35,7 @@ import { createEngineServices } from "./engine/services.ts";
 import type { ConfigSource } from "./config.ts";
 import { runTask } from "./engine/runTask.ts";
 import { TaskRuntime } from "./engine/runtime.ts";
-import type { ModelPause, Waiting } from "./engine/runtime.ts";
+import type { ModelPause, Waiting } from "./types/waiting.ts";
 import { renderFallback } from "./render/index.ts";
 import { windowOptions } from "./engine/adapters.ts";
 import { listTaskLogFiles, openTaskLog, readTaskLog, summarizeClosedTaskLog, taskLogPath, tasksDirFromSource } from "./taskLog.ts";
@@ -198,7 +198,6 @@ export class TaskManager {
     this.prune();
     this.emit({ type: "created", taskId: id, n: ctx.n, summary });
 
-    console.log(`[Task] start id=${id} mode=${mode}`);
     const previousActive = this.previous !== null && Date.now() - this.previous.at < THREAD_TTL_MS ? this.previous : null;
     const previousTask = previousActive?.task ?? null;
     const previousTaskId = previousActive?.id ?? null;
@@ -483,14 +482,16 @@ export class TaskManager {
     }
   }
 
-  /** Tope de tareas retenidas: expulsa las terminales con respuesta y, si aun así se excede, cancela la espera más antigua. */
+  /** Tope de tareas retenidas: expulsa las terminales con respuesta y, si aun así se excede, cancela las esperas más antiguas hasta cubrir el excedente. */
   private prune(): void {
     this.evictFinished();
-    if (this.tasks.size <= MAX_RETAINED_TASKS) return;
-    const abandoned = [...this.tasks.values()].find((e) => e.runtime.waiting !== null);
-    if (!abandoned) return;
-    console.warn(`[Tasks] Tope de ${MAX_RETAINED_TASKS} tareas: se cancela la tarea en espera más antigua '${abandoned.ctx.task.id}'.`);
-    abandoned.runtime.cancel(); // cierra de forma asíncrona: se expulsa en la próxima tarea
+    const excess = this.tasks.size - MAX_RETAINED_TASKS;
+    if (excess <= 0) return;
+    const abandoned = [...this.tasks.values()].filter((e) => e.runtime.waiting !== null).slice(0, excess);
+    for (const entry of abandoned) {
+      console.warn(`[Tasks] Tope de ${MAX_RETAINED_TASKS} tareas: se cancela la tarea en espera más antigua '${entry.ctx.task.id}'.`);
+      entry.runtime.cancel(); // cierra de forma asíncrona: se expulsa en la próxima tarea
+    }
   }
 
   private evictFinished(): void {

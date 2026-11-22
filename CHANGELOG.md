@@ -4,6 +4,31 @@ Todos los cambios relevantes de JARVIS. El formato sigue [Keep a Changelog](http
 
 ## [Sin publicar]
 
+### Pulido del backend (sin cambio de comportamiento salvo lo indicado en «Corregido»)
+- **Herramientas:** `.editorconfig`, `.gitattributes` (texto en LF) y Biome como linter (`npm run lint` = `tsc` + Biome; errores en 0, avisos de estilo como pendiente). `engines` de Node y `clean` multiplataforma.
+- **Recorrido de carpetas compartido** (`core/tools/walkFolder.ts`): `find_files` y `search_content` dejan de duplicar el recorrido (plazo, tope de entradas, profundidad, enlaces que salen de la raíz, carpetas excluidas, cancelación). Ahora una carpeta enlazada desde dentro de la raíz se visita una sola vez también en `find_files`.
+- **Funciones largas partidas por responsabilidad:** `parseSnapshot`, `runDownloadFile`, `moveSingleItem`, `runListFolder`, `runConvertFile`, `runArchiveFiles`, `runSearchContent`, `runSystemInfo` (una función por sección), `createJarvisRouter` (rutas por recurso), `main` de `server.tsx` y `startTelegram` (ahora `TelegramBridge`, una clase de métodos cortos; los prompts de espera, los interruptores y el mensaje de progreso pasan a módulos propios). `tests/telegram_bot.test.ts` prueba el puente de punta a punta sin red.
+- **Duplicados:** `fitLines` de `list_folder`, el cálculo de plazo de `find_files`/`list_folder`, la sonda de binarios (3 copias), la serialización JSON canónica (`canonicalJson`) y el mapeo `denied`/`not_found` de 7 herramientas (`pathFailureData`) quedan en una sola definición. La verificación que el código ya responde (`knownVerifyAnswers`) la comparten el motor y el laboratorio de eval.
+- **Código muerto:** `needsParentFolder`, `"refs"` en `ReviewView`, el ternario idéntico de `play_media` y `SystemInfoDeps.defaultTimeoutMs`.
+- **Logs:** se quitan los que repetían la traza (envío y recepción de cada consulta y de cada llamada, tiempos por etapa). Quedan los de arranque, cierre, procesos de terminal, retención y los avisos de fallo.
+
+### Arquitectura
+- **Pruebas de aislamiento** (`tests/architecture.test.ts`): `core/ctx` no depende de nada fuera de sí; el motor no importa `core/models`; la traza y el cliente MCP no dependen del motor ni de los modelos; Telegram y la voz no importan el motor.
+- **Acoplamientos cortados:** `RequestAbortedError` pasa a `core/utils.ts`; los errores de modelo, a `core/types/modelErrors.ts` (`models/transport.ts` los re-exporta); y lo que espera una tarea (`Waiting`, `ModelPause` y sus solicitudes), a `core/types/waiting.ts`.
+
+### Corregido
+- **`verify`:** una `web_search` con estado `found` ya no pasa por Decisión 4 (el juez del buscador ya respondió la consulta); antes un `cumple` bajo del 2B la rechazaba.
+- **Argumentos:** una URL que no sale del pedido ni de resultados previos se rechaza diciendo cuáles se conocen. Tras `review_rejected`, repetir el ítem se acepta una vez (solo en el primer fallo del ítem).
+- **Alias de carpetas con subruta** (`desktop\Archivos\Docs`): se expanden a la ruta real al preparar la llamada (antes el Guard los resolvía contra el proyecto y los negaba).
+- **`write_file`:** un formato sin driver (`.xlsx`, `.docx`…) falla antes de crear carpetas y con un mensaje que no manda a «instalar» nada; `append` rechaza reenviar el documento entero. `system_info`: `npm` y `code` se detectan en Windows.
+- **Auditoría de `src/` (`docs/auditorias/auditoria-src-2026-11-22.md`):** CRIT-01 (contrato de las reglas del pre-chequeo), CRIT-02 (el enlace nuevo de un `move_file` entre volúmenes reemplaza al destino con `rename`: si falla, el destino queda), CRIT-03 (el relanzamiento de la terminal sin ayudas ya no puede repetirse sin fin), IMP-03 (`shown` con `total: 0` en `system_info`), IMP-04 (`stderr` de `ffmpeg` se lee y explica el fallo), IMP-06 (`write_file` no deja carpetas de una llamada fallida), CRIT-04 (una escritura nativa que declara `reason: "not_found"` es `not_found`: lleva la nota de escritura, se rechaza sin consultar al modelo, cuenta como error de la herramienta en los topes y ya no figura como «posible cambio»; las lecturas siguen como `tool_error`), IMP-01 (la retención ya no reproduce cada log completo para saber si la tarea terminó), IMP-02 (la lectura del portapapeles tiene tope), IMP-05 (el respaldo de wifi no repite el plazo), IMP-07 (`close()` del transporte MCP espera la salida del hijo y atiende los errores de `taskkill` y de `spawn`), IMP-09 (el espacio entre frases cuenta en `speechExcerpt`), IMP-10 (`prune` cubre todo el excedente de tareas, sin PowerShell fuera de Windows, `move_file` usa los topes de `copy_file`) y MIN-03 (índice del catálogo, NUL en `mdToHtml`, cierre idempotente de SSE, sufijos temporales únicos). El estado del resto está en `docs/pendientes/PLAN_PULIDO_CODIGO.md`.
+
+### Documentación
+- `docs/arquitectura`, `docs/api`, `docs/configuracion`, `docs/operacion/TELEGRAM_Y_VOZ.md`, `docs/pendientes/PENDIENTES_CODIGO.md` y el `readme`: describen el guard de `Host` restaurado (`HOST` por defecto `127.0.0.1`, `ALLOW_PROXY_HOST=1`), el recorrido compartido, los módulos nuevos de Telegram y los tipos de `core/types/`.
+
+### Seguridad
+- **API local:** vuelve el chequeo de `Host` y la validación de loopback al arrancar (`HOST` por defecto `127.0.0.1`). Para un sandbox con proxy: `ALLOW_PROXY_HOST=1`.
+
 ### Agregado
 - **Grupos nativos de archivos y multimedia:** las rutas de D1 pasan a `files_read`, `files_write`, `terminal`, `multimedia` y `web`. Se cablean `find_files`, `list_folder`, `search_content`, `read_file`, `write_file`, `edit_file`, `convert_file`, `create_folder`, `copy_file`, `move_file`, `delete_file`, `archive_files`, `play_media` y `media_control`, con regla de nivel, poscondición y destino por herramienta. El motor ahora revisa las rutas dentro de lotes (`items`, `sources`) en Guard, aprobaciones, pre-chequeo y `allowedDirectories`.
 

@@ -236,7 +236,8 @@ export async function runStopProcess(
     const stopped =
       pid !== undefined
         ? await killer.stopByPid(pid, force, options.signal)
-        : await killer.stopByName(name!, force, options.signal);
+        : // biome-ignore lint/style/noNonNullAssertion: sin `pid`, `name` está presente: se validó que venga exactamente uno de los dos.
+          await killer.stopByName(name!, force, options.signal);
 
     if (options.signal?.aborted) return cancelledResult();
 

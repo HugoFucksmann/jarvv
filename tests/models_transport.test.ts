@@ -28,12 +28,11 @@ import {
   DecisionValidationError,
   LLMServiceUnavailableError,
   LLMValidationError,
-  RequestAbortedError,
   TransportError,
   postJson,
 } from "../src/core/models/transport.ts";
 import type { DecisionQuestion, MCPTool } from "../src/core/types.ts";
-import { cleanInputSchema } from "../src/core/utils.ts";
+import { cleanInputSchema, RequestAbortedError } from "../src/core/utils.ts";
 
 // ───────────────────────── Servidor HTTP efímero compartido ─────────────────────────
 

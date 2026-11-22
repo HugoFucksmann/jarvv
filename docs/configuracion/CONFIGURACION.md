@@ -37,7 +37,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 ## 3. Variables de entorno (`.env`) y memoria (`data/memory.json`)
 
 - **`.env`** (`.env.example` incluye solo `HF_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` y `TELEGRAM_MODE`):
-  - `PORT` (`3000` por defecto) y `HOST` (`0.0.0.0` por defecto en `server.tsx`; no figuran en `.env.example`): puerto e interfaz de escucha. La validación estricta de loopback (`127.0.0.1`, `localhost` o `::1`) y `localOnly()` están comentados actualmente en `server.tsx` por compatibilidad con el sandbox de AI Studio Build (ver [`../pendientes/PENDIENTES_CODIGO.md`](../pendientes/PENDIENTES_CODIGO.md) §1); en despliegue local puro se recomienda `HOST=127.0.0.1` porque la API no tiene autenticación.
+  - `PORT` (`3000` por defecto) y `HOST` (`127.0.0.1` por defecto en `server.tsx`; no figuran en `.env.example`): puerto e interfaz de escucha. La API no tiene autenticación: el arranque rechaza un `HOST` que no sea loopback (`127.0.0.1`, `localhost` o `::1`) y `localOnly()` exige un `Host` local. `ALLOW_PROXY_HOST=1` apaga esas dos validaciones (para un sandbox con proxy, como AI Studio Build; el chequeo de `Origin` sigue activo).
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_MODE`: configuración del bot ([`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)).
   - `HF_TOKEN`: token de Hugging Face para `scripts/phonon_server.py`.
   - Los comandos de `run_command` no heredan las variables cargadas desde `.env` ni los secretos de Telegram/voz.

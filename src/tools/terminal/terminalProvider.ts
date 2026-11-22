@@ -322,7 +322,8 @@ export class TerminalProvider implements ToolProvider {
     return n;
   }
 
-  private async start(command: string, cwd: string, waitMs: number, options: ToolCallOptions): Promise<MCPCallResult> {
+  /** `rewroteHelpers`: ya se volvió a escribir el archivo de ayudas en esta llamada; si vuelve a fallar, se apagan (así el relanzamiento no puede repetirse sin fin). */
+  private async start(command: string, cwd: string, waitMs: number, options: ToolCallOptions, rewroteHelpers = false): Promise<MCPCallResult> {
     const taskId = options.taskId ?? "";
     try {
       if (!fs.statSync(cwd).isDirectory()) return fail(`'${cwd}' is not a folder.`);
@@ -353,13 +354,13 @@ export class TerminalProvider implements ToolProvider {
     const result = await this.settle(tracked, waitMs, options.signal, { started: true });
     if (!tracked.helpersUnavailable) return result;
     // Las ayudas no se cargaron (el comando no llegó a correr): se apagan para el resto de la sesión y se relanza sin ellas, como antes de tenerlas.
-    if (this.helpersFile && !fs.existsSync(this.helpersFile)) {
-      this.helpersFile = undefined; // alguien borró el archivo (limpieza de temporales): se vuelve a escribir
+    if (!rewroteHelpers && this.helpersFile && !fs.existsSync(this.helpersFile)) {
+      this.helpersFile = undefined; // alguien borró el archivo (limpieza de temporales): se vuelve a escribir, una sola vez
     } else {
       console.warn("[Terminal] no se pudieron cargar las ayudas de PowerShell (Read-Host, herramientas del sistema): se sigue sin ellas.");
       this.helpersDisabled = true;
     }
-    return this.start(command, cwd, waitMs, options);
+    return this.start(command, cwd, waitMs, options, true);
   }
 
   /** Archivo de ayudas de PowerShell (`powershell.ts`), o `null` si están apagadas o no se pudo escribir. */
@@ -632,7 +633,10 @@ export class TerminalProvider implements ToolProvider {
       };
       const onAbort = (): void => finish("cancelled");
       const evaluate = (): void => {
-        if (t.done) return finish("finished");
+        if (t.done) {
+          finish("finished");
+          return;
+        }
         clearTimeout(idleTimer);
         const candidate = this.promptCandidate(t);
         if (candidate === null) return;

@@ -54,7 +54,7 @@ export { FIRST_QUERY_CHAT_APPROVE, FIRST_QUERY_KINDS, FIRST_QUERY_MULTI_APPROVE,
 export type { FirstQueryKind } from "../../src/core/types/firstQuery.ts";
 export { STEP_FAILURE_CAUSES } from "../../src/core/engine/outcomes.ts";
 export type { StepFailureCause } from "../../src/core/engine/outcomes.ts";
-export { codeAnswersOk } from "../../src/core/engine/postcondition.ts";
+export { knownVerifyAnswers } from "../../src/core/engine/postcondition.ts";
 export { analyzePowerShell, collectSources, MAY_BE_EMPTY, precheckCall } from "../../src/core/engine/precheck.ts";
 export type { CommandAnalyzer, CommandReport, PrecheckFinding, PrecheckSources } from "../../src/core/engine/precheck.ts";
 export { NOUL_APPROVE, OK_APPROVE, VERIFY_APPROVE, reviewOutcome } from "../../src/core/engine/verify.ts";

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { X, FileText, Loader2, AlertCircle, Copy, Check, HardDrive, Hash, Clock } from "lucide-react";
 import type { RefDto } from "../../../types/api.ts";
 import { jarvisApi } from "../../../services/jarvisApi.ts";

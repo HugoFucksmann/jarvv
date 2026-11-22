@@ -30,11 +30,12 @@ export type ContinuationOutcome =
 
 export async function classifyRequest(env: EngineEnv): Promise<ClassifyOutcome> {
   const { ctx, runtime, decision } = env;
-  if (decision.firstQuery === undefined) return { kind: "classified", first: null };
+  const firstQuery = decision.firstQuery?.bind(decision);
+  if (firstQuery === undefined) return { kind: "classified", first: null };
   // Solo al empezar: con pasos o llamadas la solicitud ya tomó un camino.
   if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return { kind: "classified", first: null };
 
-  const query = await queryModel(() => decision.firstQuery!({ request: ctx.task.request }, runtime.signal), pauseOf(env, "decision"));
+  const query = await queryModel(() => firstQuery({ request: ctx.task.request }, runtime.signal), pauseOf(env, "decision"));
   if (!query.ok) {
     if (degradesToDefault(query.failure)) {
       console.warn(`[Engine] D0 sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); la tarea sigue por el flujo de siempre.`);
@@ -54,10 +55,11 @@ export async function classifyRequest(env: EngineEnv): Promise<ClassifyOutcome> 
 export async function detectContinuation(env: EngineEnv): Promise<ContinuationOutcome> {
   const { ctx, runtime, decision, deps } = env;
   const previous = deps.previousTask ?? null;
-  if (previous === null || decision.continuation === undefined) return { kind: "resolved", previous: null };
+  const continuation = decision.continuation?.bind(decision);
+  if (previous === null || continuation === undefined) return { kind: "resolved", previous: null };
   if (ctx.find("steps", {}).length > 0 || ctx.find("calls", {}).length > 0) return { kind: "resolved", previous: null };
 
-  const query = await queryModel(() => decision.continuation!({ previous, request: ctx.task.request }, runtime.signal), pauseOf(env, "decision"));
+  const query = await queryModel(() => continuation({ previous, request: ctx.task.request }, runtime.signal), pauseOf(env, "decision"));
   if (!query.ok) {
     if (degradesToDefault(query.failure)) {
       console.warn(`[Engine] continuación sin respuesta utilizable (${query.failure}: ${errorMessage(query.error)}); sin hilo.`);

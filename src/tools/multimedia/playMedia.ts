@@ -35,6 +35,7 @@ export interface PlayMediaRequest {
 }
 
 export interface PlayMediaDriver {
+  // biome-ignore lint/suspicious/noConfusingVoidType: un driver sin nada que informar no devuelve valor.
   play(req: PlayMediaRequest): Promise<{ readonly title?: string; readonly launchedTarget?: string } | void>;
 }
 
@@ -115,7 +116,7 @@ function buildTarget(
   }
 
   const chosenPlatform: Exclude<MediaPlatform, "auto"> =
-    platformPref !== "auto" ? platformPref : mediaType === "music" ? "youtube" : "youtube";
+    platformPref !== "auto" ? platformPref : "youtube";
 
   if (chosenPlatform === "spotify") {
     return {

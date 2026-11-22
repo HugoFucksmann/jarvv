@@ -1,4 +1,5 @@
-import React, { memo, useState } from "react";
+import type React from "react";
+import { memo, useState } from "react";
 import { HelpCircle, Send, Loader2, Terminal } from "lucide-react";
 import type { QuestionSource, Waiting } from "../../types/api.ts";
 import type { ActionResult } from "../../types/ui.ts";

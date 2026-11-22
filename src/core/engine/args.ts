@@ -15,7 +15,7 @@ import { BUDGET } from "../budget.ts";
 import type { JsonObject, JsonValue } from "../ctx/index.ts";
 import { clipMarked, oneLine } from "../render/shared.ts";
 import { argCapsOf } from "../tools/manifest.ts";
-import { isRecord } from "../utils.ts";
+import { canonicalJson, isRecord } from "../utils.ts";
 
 // ───────────────────────── Recorte ─────────────────────────
 
@@ -80,21 +80,9 @@ export function clipArgs(mcp: string, tool: string, args: Record<string, unknown
 
 // ───────────────────────── Huella (sig) ─────────────────────────
 
-/** JSON canónico: claves ordenadas y sin `undefined`, para que dos argumentos iguales den la misma huella. */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  if (isRecord(value)) {
-    const keys = Object.keys(value)
-      .filter((k) => value[k] !== undefined)
-      .sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
 /** Huella (16 hex) de los argumentos resueltos. Se compara siempre junto con la herramienta (`ctx.isRepeat`). */
 export function computeSig(resolvedArgs: Record<string, unknown>): string {
-  return createHash("sha256").update(canonical(resolvedArgs)).digest("hex").slice(0, 16);
+  return createHash("sha256").update(canonicalJson(resolvedArgs)).digest("hex").slice(0, 16);
 }
 
 // ───────────────────────── Etiqueta de una ref ─────────────────────────

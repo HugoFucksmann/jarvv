@@ -31,11 +31,11 @@ export const errorMessage = (err: unknown): string => (err instanceof Error ? er
 
 /** Recorta a `n` caracteres como máximo (la elipsis cuenta). */
 export const clip = (s: string, n: number): string =>
-    s.length > n ? s.slice(0, n - 1) + "…" : s;
+    s.length > n ? `${s.slice(0, n - 1)}…` : s;
 
 /** Como `clip`, pero conserva el final (lo más reciente). */
 export const clipTail = (s: string, n: number): string =>
-    s.length > n ? "…" + s.slice(-(n - 1)) : s;
+    s.length > n ? `…${s.slice(-(n - 1))}` : s;
 
 export const newId = (prefix: string): string =>
     `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -45,10 +45,32 @@ export function schemaTypes(schema: unknown, out = new Set<string>()): Set<strin
   if (!isRecord(schema)) return out;
   const t = schema.type;
   if (typeof t === "string") out.add(t);
-  else if (Array.isArray(t)) t.forEach((x) => typeof x === "string" && out.add(x));
+  else if (Array.isArray(t)) {
+    for (const x of t) if (typeof x === "string") out.add(x);
+  }
   for (const key of ["anyOf", "oneOf"] as const) {
     const branches = schema[key];
-    if (Array.isArray(branches)) branches.forEach((b) => schemaTypes(b, out));
+    if (Array.isArray(branches)) for (const b of branches) schemaTypes(b, out);
   }
   return out;
+}
+
+/** JSON canónico: claves ordenadas y sin `undefined`, para que dos valores iguales den siempre el mismo texto (huellas y claves de comparación). */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) {
+    const keys = Object.keys(value)
+      .filter((k) => value[k] !== undefined)
+      .sort();
+    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/** El usuario canceló (AbortSignal propio). Se propaga sin ser reclasificada. */
+export class RequestAbortedError extends Error {
+  constructor(message = "Operación cancelada por el usuario.") {
+    super(message);
+    this.name = "RequestAbortedError";
+  }
 }

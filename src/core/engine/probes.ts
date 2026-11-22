@@ -47,11 +47,12 @@ export function applicableProbes(call: Call, probeCall: ProbeCall): readonly Pro
 
 export async function runProbes(env: EngineEnv, call: Call): Promise<ProbesOutcome> {
   const { ctx, runtime, decision } = env;
-  if (decision.probe === undefined) return { kind: "pass" };
+  const askProbe = decision.probe?.bind(decision);
+  if (askProbe === undefined) return { kind: "pass" };
   const probeCall = probeCallOf(env, call);
   for (const probe of applicableProbes(call, probeCall)) {
     for (const stage of probe.stages(probeCall)) {
-      const answered = await queryModel(() => decision.probe!({ state: stage.state, question: stage.question }, runtime.signal), pauseOf(env, "decision"));
+      const answered = await queryModel(() => askProbe({ state: stage.state, question: stage.question }, runtime.signal), pauseOf(env, "decision"));
       if (!answered.ok) {
         const closure = closeOnFailure(env, call.stepId, answered.failure, answered.error);
         return closure.kind === "cancelled" ? { kind: "cancelled" } : { kind: "close", stopReason: closure.stopReason };

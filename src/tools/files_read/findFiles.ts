@@ -14,16 +14,8 @@ import { BUDGET } from "../../core/budget.ts";
 import { omissionMarker } from "../../core/text.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
-import {
-  formatSize,
-  isCanonicalDescendant,
-  joinEntryPath,
-  resolveFolderPath,
-  yieldEventLoop,
-  fitLinesToBudget,
-  isExcludedSubdir,
-  raceAbort,
-} from "../../core/tools/filePaths.ts";
+import { effectiveTimeoutMs, formatSize, resolveFolderPath, fitLinesToBudget } from "../../core/tools/filePaths.ts";
+import { settle, walkFolder } from "../../core/tools/walkFolder.ts";
 import { matchName, parsePattern, type MatchRank } from "../../core/tools/globPattern.ts";
 
 export const DEFAULT_FIND_TIMEOUT_MS = 8_000;
@@ -37,7 +29,6 @@ type EntryTypeFilter = (typeof VALID_TYPES)[number];
 type StoppedBy = "time" | "entries" | "depth";
 type FindState = "found" | "partial" | "no_results" | "incomplete" | "cancelled";
 
-const YIELD_EVERY_ENTRIES = 64;
 
 export interface FindFilesDeps {
   readonly getAllowedDirectories: () => readonly string[];
@@ -97,12 +88,6 @@ function parseArgs(raw: Record<string, unknown>): { readonly ok: true; readonly 
   return { ok: true, args: { pattern: raw.pattern, path: pathArg, type: typeArg, maxResults } };
 }
 
-function effectiveLimitMs(defaultTimeoutMs: number, optionTimeoutMs: number | undefined): number {
-  if (optionTimeoutMs === undefined) return defaultTimeoutMs;
-  if (optionTimeoutMs <= 2_000) return Math.min(defaultTimeoutMs, Math.max(optionTimeoutMs, 0));
-  return Math.min(defaultTimeoutMs, optionTimeoutMs - 1_500);
-}
-
 function formatMatchLine(m: FindMatch): string {
   return m.isDir ? `[DIR]  ${m.path}` : `[FILE] ${m.path} (${formatSize(m.size)})`;
 }
@@ -139,20 +124,48 @@ export async function runFindFiles(
   const { matchers } = patternParsed;
   const { type: wantType, maxResults } = parsed.args;
 
-  const limitMs = effectiveLimitMs(deps.defaultTimeoutMs, options.timeoutMs);
+  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
   const startedAt = deps.now();
   const deadline = startedAt + limitMs;
 
-  const visitedDirs = new Set<string>([realRoot]);
-  const queue: Array<{ readonly dirPath: string; readonly depth: number }> = [{ dirPath: targetPath, depth: 0 }];
+  const walk = walkFolder({
+    root: targetPath,
+    realRoot,
+    maxDepth: deps.maxDepth,
+    maxEntries: deps.maxEntries,
+    deadline,
+    now: deps.now,
+    signal: options.signal,
+  });
   const buckets: [FindMatch[], FindMatch[], FindMatch[]] = [[], [], []];
-
-  let scanned = 0;
-  let skipped = 0;
   let totalMatches = 0;
-  let hitDepthLimit = false;
-  let stoppedBy: StoppedBy | undefined;
   let cancelled = false;
+
+  for await (const entry of walk.entries) {
+    const typeMatches = wantType === "any" || (wantType === "folder" && entry.isDir) || (wantType === "file" && entry.isFile);
+    if (!typeMatches) continue;
+    const rank = matchName(entry.name, matchers);
+    if (rank === null) continue;
+
+    // El tamaño solo se pide de lo que coincide (el recorrido no hace un `stat` por archivo).
+    let size = entry.size ?? 0;
+    if (entry.isFile && entry.size === undefined) {
+      const info = await settle(fs.promises.stat(entry.path), options.signal);
+      if (info.status === "aborted") {
+        cancelled = true;
+        break;
+      }
+      if (info.status === "ok") size = info.value.size;
+    }
+    totalMatches++;
+    if (buckets[rank].length < maxResults) {
+      buckets[rank].push({ path: entry.path, name: entry.name, isDir: entry.isDir, size, depth: entry.depth, rank });
+    }
+  }
+
+  const { seen: scanned, skipped, hitDepthLimit } = walk.state;
+  cancelled ||= walk.state.cancelled;
+  let stoppedBy: StoppedBy | undefined = walk.state.stoppedBy;
 
   const cancelledResult = (): MCPCallResult =>
     toolResult({
@@ -160,195 +173,6 @@ export async function runFindFiles(
       raw: "",
       data: { state: "cancelled", count: 0, complete: false, scanned, skipped, truncated: false },
     });
-
-  for (let qi = 0; qi < queue.length; qi++) {
-    if (options.signal?.aborted) {
-      cancelled = true;
-      break;
-    }
-    if (deps.now() >= deadline) {
-      stoppedBy = "time";
-      break;
-    }
-
-    const current = queue[qi];
-    const dirRead = await raceAbort(
-      fs.promises.readdir(current.dirPath, { withFileTypes: true }).then(
-        (entries) => ({ ok: true as const, entries }),
-        (error: unknown) => ({ ok: false as const, error }),
-      ),
-      options.signal,
-    );
-    if (dirRead.aborted) {
-      cancelled = true;
-      break;
-    }
-    if (!dirRead.value.ok) {
-      skipped++;
-      continue;
-    }
-
-    for (const entry of dirRead.value.entries) {
-      if (options.signal?.aborted) {
-        cancelled = true;
-        break;
-      }
-      if (deps.now() >= deadline) {
-        stoppedBy = "time";
-        break;
-      }
-      if (scanned >= deps.maxEntries) {
-        stoppedBy = "entries";
-        break;
-      }
-
-      scanned++;
-      if (scanned % YIELD_EVERY_ENTRIES === 0) {
-        await yieldEventLoop();
-        if (options.signal?.aborted) {
-          cancelled = true;
-          break;
-        }
-        if (deps.now() >= deadline) {
-          stoppedBy = "time";
-          break;
-        }
-      }
-
-      const fullPath = joinEntryPath(current.dirPath, entry.name);
-      let isDir = false;
-      let isFile = false;
-      let size = 0;
-      let hasSize = false;
-      let realTarget: string | undefined;
-
-      if (entry.isSymbolicLink()) {
-        const targetRes = await raceAbort(
-          fs.promises.realpath(fullPath).then(
-            (r) => ({ ok: true as const, real: r }),
-            () => ({ ok: false as const }),
-          ),
-          options.signal,
-        );
-        if (targetRes.aborted) {
-          cancelled = true;
-          break;
-        }
-        if (!targetRes.value.ok) {
-          skipped++;
-          continue;
-        }
-        realTarget = targetRes.value.real;
-        if (!isCanonicalDescendant(realRoot, realTarget)) {
-          skipped++;
-          continue;
-        }
-        const statRes = await raceAbort(
-          fs.promises.stat(realTarget).then(
-            (s) => ({ ok: true as const, stat: s }),
-            () => ({ ok: false as const }),
-          ),
-          options.signal,
-        );
-        if (statRes.aborted) {
-          cancelled = true;
-          break;
-        }
-        if (!statRes.value.ok) {
-          skipped++;
-          continue;
-        }
-        isDir = statRes.value.stat.isDirectory();
-        isFile = statRes.value.stat.isFile();
-        size = isDir ? 0 : statRes.value.stat.size;
-        hasSize = true;
-      } else {
-        isDir = entry.isDirectory();
-        isFile = entry.isFile();
-        if (isDir && isExcludedSubdir(entry.name, fullPath)) {
-          continue;
-        }
-        if (!isDir && !isFile) {
-          // Entrada sin tipo en el dirent o tipo especial (p. ej. socket/FIFO).
-          const lstatRes = await raceAbort(
-            fs.promises.lstat(fullPath).then(
-              (s) => ({ ok: true as const, stat: s }),
-              () => ({ ok: false as const }),
-            ),
-            options.signal,
-          );
-          if (lstatRes.aborted) {
-            cancelled = true;
-            break;
-          }
-          if (!lstatRes.value.ok) {
-            skipped++;
-            continue;
-          }
-          isDir = lstatRes.value.stat.isDirectory();
-          isFile = lstatRes.value.stat.isFile();
-          if (isDir && isExcludedSubdir(entry.name, fullPath)) {
-            continue;
-          }
-          if (!isDir && !isFile) continue;
-          size = isDir ? 0 : lstatRes.value.stat.size;
-          hasSize = true;
-        }
-      }
-
-      const typeMatches = wantType === "any" || (wantType === "folder" && isDir) || (wantType === "file" && isFile);
-      if (typeMatches) {
-        const rank = matchName(entry.name, matchers);
-        if (rank !== null) {
-          if (isFile && !hasSize) {
-            const statRes = await raceAbort(
-              fs.promises.stat(fullPath).then(
-                (s) => ({ ok: true as const, stat: s }),
-                () => ({ ok: false as const }),
-              ),
-              options.signal,
-            );
-            if (statRes.aborted) {
-              cancelled = true;
-              break;
-            }
-            if (statRes.value.ok) {
-              size = statRes.value.stat.size;
-            }
-          }
-          totalMatches++;
-          if (buckets[rank].length < maxResults) {
-            buckets[rank].push({
-              path: fullPath,
-              name: entry.name,
-              isDir,
-              size,
-              depth: current.depth + 1,
-              rank,
-            });
-          }
-        }
-      }
-
-      if (isDir) {
-        const nextDepth = current.depth + 1;
-        if (nextDepth < deps.maxDepth) {
-          if (realTarget !== undefined) {
-            if (!visitedDirs.has(realTarget)) {
-              visitedDirs.add(realTarget);
-              queue.push({ dirPath: fullPath, depth: nextDepth });
-            }
-          } else {
-            queue.push({ dirPath: fullPath, depth: nextDepth });
-          }
-        } else {
-          hitDepthLimit = true;
-        }
-      }
-    }
-
-    if (cancelled || stoppedBy !== undefined) break;
-  }
 
   if (cancelled) return cancelledResult();
   if (stoppedBy === undefined && hitDepthLimit) stoppedBy = "depth";

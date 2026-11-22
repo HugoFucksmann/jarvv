@@ -61,7 +61,7 @@ const SECRET_PATTERNS: readonly PathRule[] = [
   ),
   rule("env-listing", "The list of environment variables (may include API keys).", String.raw`(?:^|[\s;|(])(get-childitem|gci|dir|ls|get-item|gi|printenv|env|set)\s+(-path\s+)?(env:|variable:)\*?(?=$|[\s;|)])|(?:^|[\s;|])printenv(?=$|[\s;|])|(?:^|[\s;|])env:(?=$|[\s;|*])`),
   rule("env-secret", "An environment variable that looks like a secret.", String.raw`\$?env:\w*(key|token|secret|pass|pwd|cred|auth)\w*`),
-  rule("registry-secrets", "Registry hives with accounts and secrets.", String.raw`(hklm|hkey_local_machine)[:/]*(sam|security)${END}|(hklm|hkey_local_machine)[:/]*system/currentcontrolset/control/lsa`),
+  rule("registry-secrets", "Registry hives with accounts and secrets.", `(hklm|hkey_local_machine)[:/]*(sam|security)${END}|(hklm|hkey_local_machine)[:/]*system/currentcontrolset/control/lsa`),
   rule("credential-dumping", "Tools that dump credentials.", String.raw`\b(lsass|mimikatz|procdump)\b`),
 ];
 
@@ -69,7 +69,7 @@ const WRITE_PATTERNS: readonly PathRule[] = [
   rule(
     "startup-folders",
     "A startup folder: whatever is written there runs at every login.",
-    String.raw`/(start menu|startm~[1-9])/(programs|progra~[1-9])/startup(/|$)|/(programdata|progra~[1-9])/(microsoft|micros~[1-9])/windows/(start menu|startm~[1-9])`,
+    `/(start menu|startm~[1-9])/(programs|progra~[1-9])/startup(/|$)|/(programdata|progra~[1-9])/(microsoft|micros~[1-9])/windows/(start menu|startm~[1-9])`,
   ),
   rule(
     "shell-profiles",

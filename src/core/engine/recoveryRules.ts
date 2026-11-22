@@ -30,7 +30,7 @@ export interface FailedCallText {
 // Los mensajes de PowerShell, de .NET y de Windows salen en el idioma del sistema: acá se reconocen los de inglés y los de español (el equipo de desarrollo es es-AR; con
 // solo los de inglés, en las trazas reales ninguna regla por texto llegó a disparar). Otro idioma: no hay regla y decide el modelo.
 const PORT_IN_USE = /EADDRINUSE|address already in use|solo se permite un uso de cada direcci[óo]n de socket/i;
-const UNSUPPORTED_FORMAT = /\bUnsupported (?:image |file |binary )?(?:format|type)\b/i;
+const UNSUPPORTED_FORMAT = /\bUnsupported (?:image |file |binary )?(?:format|type)\b|requires a format driver that is not installed/i;
 const MISSING_PART_OF_PATH = /Could not find a part of the path|No se encontr[óo] una parte de la ruta/i;
 const WRITE_ENOENT = /\bENOENT\b/;
 // Dos grupos de captura (inglés y español): el nombre del programa es el que haya coincidido.

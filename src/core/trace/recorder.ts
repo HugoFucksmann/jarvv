@@ -36,7 +36,7 @@ import type { ChangeEvent, TaskContext } from "../ctx/index.ts";
 import { traceBaseDir } from "./files.ts";
 import { NULL_SINK } from "./sink.ts";
 import type { CaptureSink, LlmCapture, ToolCapture } from "./sink.ts";
-import type { ModelPause, Waiting } from "../engine/runtime.ts";
+import type { ModelPause, Waiting } from "../types/waiting.ts";
 import type { MCPCallResult } from "../types.ts";
 import type { ModelLink, ModelRecord, PauseRecord, ToolRecord, WaitRecord } from "./types.ts";
 import { errorMessage } from "../utils.ts";
@@ -221,7 +221,10 @@ export class TaskTraceRecorder {
     if (this.done !== null) return this.done;
     this.finished = true;
     this.unsubscribe();
-    if (!this.enabled) return (this.done = Promise.resolve());
+    if (!this.enabled) {
+      this.done = Promise.resolve();
+      return this.done;
+    }
     this.closeWait();
     this.closePause();
     const captured = this.capture();

@@ -19,6 +19,7 @@ export interface ExtractorInput {
     /** Texto de todos los bloques `text`, unido con `\n` y sin espacios en los extremos: el resultado crudo. */
     fullText: string;
     /** Resultado del MCP más el JSON embebido en su texto (si lo hay). */
+    // biome-ignore lint/suspicious/noExplicitAny: forma libre; cada extractor lee los campos propios de su servidor.
     mergedData: Record<string, any>;
     /** Solo si el resultado es de un proveedor nativo (`tools/result.ts`): `text`, `raw`, `data` y `meta` ya separados. */
     native?: NativeResult;

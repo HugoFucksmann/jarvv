@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, ArrowDown, CheckCircle2, Loader2, Plus, XCircle, Activity, Cpu, Clock } from "lucide-react";
 import type { StepState, TaskDto, TaskState, EngineLimits } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";

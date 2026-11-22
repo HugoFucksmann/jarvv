@@ -1,4 +1,5 @@
-import React, { useRef } from "react";
+import type React from "react";
+import { useRef } from "react";
 import type { TraceQuery } from "../../types/trace.ts";
 import { formatMs, stageInfo } from "../../utils/traceStages.ts";
 import { analyzeNoul, LOW_CONFIDENCE, type Answers } from "./ProbBars.tsx";

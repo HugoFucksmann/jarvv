@@ -4,7 +4,7 @@
  * Etapa `result_verification` (Decisión 4): verificar si el resultado cumple el paso.
  */
 
-import { codeAnswersOk, VERIFY_APPROVE, verifyInput } from "../contract.ts";
+import { knownVerifyAnswers, VERIFY_APPROVE, verifyInput } from "../contract.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { ResultVerificationGrader } from "../graders/label.ts";
 import type { ChoiceQ, DecisionRequest, NoulQ, ResultVerificationExpect, ResultVerificationOutput } from "../types.ts";
@@ -36,9 +36,9 @@ export const resultVerificationStage: DecisionStageEntry<ResultVerificationOutpu
     const id = callIds[at.call ?? callIds.length - 1];
     if (id === undefined) throw new Error("etapa 'result_verification': el escenario no tiene la llamada a evaluar (scenario.calls / at.call).");
     const input = verifyInput(ctx.view.forVerify(id));
-    // Como producción (`verifyCall`): en una lectura determinista con contenido, `ok` lo responde el código y no se le pregunta al modelo.
+    // Como producción (`verifyCall`): lo que el código ya responde (`knownVerifyAnswers`) no se le pregunta al modelo.
     const evaluated = ctx.find("calls", { id })[0];
-    const known = evaluated !== undefined && codeAnswersOk(evaluated.tool, evaluated.status, evaluated.summary) ? { ok: 1 } : undefined;
+    const known = evaluated === undefined ? undefined : knownVerifyAnswers(evaluated.tool, evaluated.status, evaluated.summary);
     // En reactivo el contexto exige `expected: null` en el paso (validate.ts): el `expected` del escenario se inyecta aquí, solo en eval.
     const steps = sc.steps ?? [];
     const ci = at.call ?? callIds.length - 1;
@@ -47,7 +47,7 @@ export const resultVerificationStage: DecisionStageEntry<ResultVerificationOutpu
     return h.decision(
       h.effectivePrompts(ov).D.buildResultVerification({
         ...input,
-        ...(known === undefined ? {} : { known }),
+        ...(known === undefined || Object.keys(known).length === 0 ? {} : { known }),
         criterion: expected === null ? input.criterion : { ...input.criterion, expected },
         request: at.lastItem ? sc.request : null,
       }),

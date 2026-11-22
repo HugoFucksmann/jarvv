@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, AlertCircle, RefreshCw, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { jarvisApi } from "../../services/jarvisApi.ts";
 import type { FullTrace, SlimTrace, TraceQuery } from "../../types/trace.ts";

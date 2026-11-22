@@ -130,7 +130,8 @@ export function countStep(calls: readonly Call[]): StepCounters {
     if (c.status === "loop_blocked") blocked++;
     else if (c.status === "args_invalid") argsInvalid++;
     else if (c.status === "tool_rejected" || c.status === "denied") denied++;
-    if (c.status === "tool_error" || c.status === "exception") {
+    // Una escritura que no halló la ruta (`not_found`) falla igual que un error de la herramienta: el generador ve el motivo y puede corregirla.
+    if (c.status === "tool_error" || c.status === "exception" || (c.status === "not_found" && c.kind === "write")) {
       toolFailed++;
       const signature = toolErrorSignature(c.summary);
       sameToolError = signature === lastSignature ? sameToolError + 1 : 1;

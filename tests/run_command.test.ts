@@ -251,8 +251,9 @@ test("salida grande: el resumen respeta el tope y el texto completo va en raw", 
 });
 
 test("vence el plazo: running sin matar el proceso, y con {pid} se recoge el resto y el código de salida", { skip: !windows }, async () => {
+  // El plazo da margen al arranque de PowerShell: con la PC cargada (la suite corre varios en paralelo) uno de 1 s no alcanzaba a ver la primera línea.
   const task = nextTask();
-  const first = read(await run({ command: "Write-Output 'empiezo'; Start-Sleep 4; Write-Output 'listo'; exit 5", timeoutSec: 1 }, task));
+  const first = read(await run({ command: "Write-Output 'empiezo'; Start-Sleep 10; Write-Output 'listo'; exit 5", timeoutSec: 3 }, task));
   assert.equal(first.data.state, "running");
   assert.match(first.text, new RegExp(`run_command with \\{ "pid": ${first.data.pid} \\}`));
   assert.match(first.raw, /empiezo/);
@@ -260,7 +261,7 @@ test("vence el plazo: running sin matar el proceso, y con {pid} se recoge el res
   const pid = first.data.pid as number;
   assert.ok(alive(pid));
 
-  const second = read(await run({ pid, timeoutSec: 20 }, task));
+  const second = read(await run({ pid, timeoutSec: 30 }, task));
   assert.equal(second.data.state, "finished");
   assert.equal(second.data.exitCode, 5);
   assert.match(second.raw, /listo/);

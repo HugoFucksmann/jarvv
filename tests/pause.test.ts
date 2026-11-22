@@ -11,7 +11,7 @@ import { classifyRequest, detectContinuation } from "../src/core/engine/classify
 import { queryModel } from "../src/core/engine/failures.ts";
 import type { ModelPauseContext } from "../src/core/engine/failures.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
-import type { ModelPause } from "../src/core/engine/runtime.ts";
+import type { ModelPause } from "../src/core/types/waiting.ts";
 import { DecisionServiceUnavailableError, DecisionValidationError, LLMServiceUnavailableError, LLMValidationError } from "../src/core/models/transport.ts";
 import { PAUSE_RETRY_MIN_MS } from "../src/core/timeouts.ts";
 import { newContext } from "./fixtures.ts";

@@ -28,6 +28,8 @@ import {
   resolveExistingPath,
   resolvePathTarget,
   yieldEventLoop,
+  pathFailureData,
+  tempSuffix,
 } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
@@ -623,146 +625,132 @@ async function collectCompressEntries(params: {
 
 // ───────────────────────── Public Entry Point ─────────────────────────
 
-export async function runArchiveFiles(
-  rawArgs: Record<string, unknown>,
-  deps: ArchiveFilesDeps,
-  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
-): Promise<MCPCallResult> {
-  if (options.signal?.aborted) return cancelledResult();
+/** Lo que comparten las dos acciones: dependencias, señal, topes y las opciones comunes ya validadas. */
+interface ArchiveContext {
+  readonly deps: ArchiveFilesDeps;
+  readonly options: { readonly signal?: AbortSignal; readonly timeoutMs?: number };
+  readonly allowedDirs: readonly string[];
+  readonly deadline: number;
+  readonly maxEntries: number;
+  readonly maxInputBytes: number;
+  readonly maxExtractBytes: number;
+  readonly overwrite: boolean;
+  readonly includeHidden: boolean;
+}
 
-  if (typeof rawArgs.action !== "string" || !(VALID_ACTIONS as readonly string[]).includes(rawArgs.action)) {
-    return fail(`'action' is required and must be one of: ${VALID_ACTIONS.join(", ")}.`);
+/** Acción `compress`: junta los orígenes en un `.zip` (se escribe a un temporal y se renombra al terminar). */
+async function compressAction(rawArgs: Record<string, unknown>, ctx: ArchiveContext): Promise<MCPCallResult> {
+  const { deps, options, allowedDirs, deadline, maxEntries, maxInputBytes, overwrite, includeHidden } = ctx;
+  if (!Array.isArray(rawArgs.sources) || rawArgs.sources.length === 0) {
+    return fail("'sources' is required when action is 'compress' (non-empty array of file/folder paths).");
   }
-  const action = rawArgs.action as ArchiveAction;
-
-  let overwrite = false;
-  if (rawArgs.overwrite !== undefined && rawArgs.overwrite !== null) {
-    if (typeof rawArgs.overwrite !== "boolean") return fail("'overwrite' must be true or false.");
-    overwrite = rawArgs.overwrite;
+  if (rawArgs.sources.length > MAX_SOURCES) {
+    return fail(`'sources' supports at most ${MAX_SOURCES} entries.`);
+  }
+  const sources: string[] = [];
+  for (let i = 0; i < rawArgs.sources.length; i++) {
+    const s = rawArgs.sources[i];
+    if (typeof s !== "string" || s.trim() === "") {
+      return fail(`sources[${i}] must be a non-empty path string.`);
+    }
+    sources.push(s.trim());
+  }
+  if (typeof rawArgs.destination !== "string" || rawArgs.destination.trim() === "") {
+    return fail("'destination' is required: output .zip file path.");
   }
 
-  let includeHidden = false;
-  if (rawArgs.includeHidden !== undefined && rawArgs.includeHidden !== null) {
-    if (typeof rawArgs.includeHidden !== "boolean") return fail("'includeHidden' must be true or false.");
-    includeHidden = rawArgs.includeHidden;
+  const dstResolved = await resolvePathTarget(rawArgs.destination, deps.getEnvironment, allowedDirs, {
+    allowEmptyAsHome: false,
+    paramName: "destination",
+  });
+  if (!dstResolved.ok) {
+    return fail(dstResolved.message, dstResolved.denied ? { reason: "denied" } : {});
   }
 
-  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_ARCHIVE_TIMEOUT_MS, options.timeoutMs);
-  const deadline = deps.now() + limitMs;
-  const maxEntries = deps.maxEntries ?? DEFAULT_ARCHIVE_MAX_ENTRIES;
-  const maxInputBytes = deps.maxInputBytes ?? DEFAULT_ARCHIVE_MAX_INPUT_BYTES;
-  const maxExtractBytes = deps.maxExtractBytes ?? DEFAULT_ARCHIVE_MAX_EXTRACT_BYTES;
-  const allowedDirs = deps.getAllowedDirectories();
+  const dstPath = dstResolved.targetPath;
+  if (!dstPath.toLowerCase().endsWith(".zip")) {
+    return fail(`Only '.zip' archives are supported for 'destination' (got '${dstPath}').`);
+  }
 
-  if (action === "compress") {
-    if (!Array.isArray(rawArgs.sources) || rawArgs.sources.length === 0) {
-      return fail("'sources' is required when action is 'compress' (non-empty array of file/folder paths).");
+  const parentDir = dirnameOf(dstPath);
+  let realParentDir: string;
+  try {
+    const parentStat = await fs.promises.stat(parentDir);
+    if (!parentStat.isDirectory()) return fail(`Destination parent '${parentDir}' is not a folder.`);
+    realParentDir = await fs.promises.realpath(parentDir);
+    if (!isCanonicalWithinAllowedDirs(realParentDir, allowedDirs, dstResolved.env.home)) {
+      return fail(`[DENIED] Destination parent '${parentDir}' resolves outside allowedDirectories.`, { reason: "denied" });
     }
-    if (rawArgs.sources.length > MAX_SOURCES) {
-      return fail(`'sources' supports at most ${MAX_SOURCES} entries.`);
-    }
-    const sources: string[] = [];
-    for (let i = 0; i < rawArgs.sources.length; i++) {
-      const s = rawArgs.sources[i];
-      if (typeof s !== "string" || s.trim() === "") {
-        return fail(`sources[${i}] must be a non-empty path string.`);
-      }
-      sources.push(s.trim());
-    }
-    if (typeof rawArgs.destination !== "string" || rawArgs.destination.trim() === "") {
-      return fail("'destination' is required: output .zip file path.");
-    }
+  } catch {
+    return fail(`Destination parent folder does not exist: '${parentDir}'.`);
+  }
 
-    const dstResolved = await resolvePathTarget(rawArgs.destination, deps.getEnvironment, allowedDirs, {
-      allowEmptyAsHome: false,
-      paramName: "destination",
-    });
-    if (!dstResolved.ok) {
-      return fail(dstResolved.message, dstResolved.denied ? { reason: "denied" } : {});
-    }
-
-    const dstPath = dstResolved.targetPath;
-    if (!dstPath.toLowerCase().endsWith(".zip")) {
-      return fail(`Only '.zip' archives are supported for 'destination' (got '${dstPath}').`);
-    }
-
-    const parentDir = dirnameOf(dstPath);
-    let realParentDir: string;
-    try {
-      const parentStat = await fs.promises.stat(parentDir);
-      if (!parentStat.isDirectory()) return fail(`Destination parent '${parentDir}' is not a folder.`);
-      realParentDir = await fs.promises.realpath(parentDir);
-      if (!isCanonicalWithinAllowedDirs(realParentDir, allowedDirs, dstResolved.env.home)) {
-        return fail(`[DENIED] Destination parent '${parentDir}' resolves outside allowedDirectories.`, { reason: "denied" });
-      }
-    } catch {
-      return fail(`Destination parent folder does not exist: '${parentDir}'.`);
-    }
-
-    const dstInspection = await inspectDestinationTarget(dstPath, allowedDirs, dstResolved.env.home);
-    if (dstInspection.status === "denied") {
-      return fail(dstInspection.message, { reason: "denied" });
-    }
-    if (dstInspection.status === "error") {
-      return fail(dstInspection.message);
-    }
-    if (dstInspection.status === "exists") {
-      if (dstInspection.isDirectory) return fail(`Destination '${dstPath}' is a folder, not a file.`);
-      if (!overwrite) {
-        return fail(`Destination archive already exists: '${dstPath}'. Pass overwrite: true to replace.`, {
-          reason: "already_exists",
-        });
-      }
-    }
-
-    const destinationCanon = canonicalPath(joinEntryPath(realParentDir, path.basename(dstPath)));
-    const gathered = await collectCompressEntries({
-      sources,
-      getEnvironment: deps.getEnvironment,
-      allowedDirs,
-      destinationCanon,
-      includeHidden,
-      maxEntries,
-      maxInputBytes,
-      now: deps.now,
-      deadline,
-      signal: options.signal,
-    });
-    if (!gathered.ok) {
-      if (gathered.cancelled) return cancelledResult();
-      return fail(gathered.message, gathered.denied ? { reason: "denied" } : {});
-    }
-
-    const tempZip = `${dstPath}.jarvis-zip-${process.pid}-${Date.now()}.tmp`;
-    try {
-      const written = await writeZipArchive(tempZip, gathered.entries, options.signal);
-      if (options.signal?.aborted) return cancelledResult();
-      await fs.promises.rename(tempZip, dstPath);
-      const outStat = await fs.promises.stat(dstPath);
-
-      const text = `status: ok · compressed ${written.entryCount} entry(ies) (${formatSize(written.totalUncompressedBytes)} -> ${formatSize(outStat.size)}) into ${dstPath}`;
-      return toolResult({
-        text,
-        raw: text,
-        data: {
-          state: "ok",
-          action: "compress",
-          destination: dstPath,
-          entries: written.entryCount,
-          uncompressedBytes: written.totalUncompressedBytes,
-          archiveBytes: outStat.size,
-          truncated: false,
-        },
+  const dstInspection = await inspectDestinationTarget(dstPath, allowedDirs, dstResolved.env.home);
+  if (dstInspection.status === "denied") {
+    return fail(dstInspection.message, { reason: "denied" });
+  }
+  if (dstInspection.status === "error") {
+    return fail(dstInspection.message);
+  }
+  if (dstInspection.status === "exists") {
+    if (dstInspection.isDirectory) return fail(`Destination '${dstPath}' is a folder, not a file.`);
+    if (!overwrite) {
+      return fail(`Destination archive already exists: '${dstPath}'. Pass overwrite: true to replace.`, {
+        reason: "already_exists",
       });
-    } catch (error) {
-      if (options.signal?.aborted) return cancelledResult();
-      return fail(`Compression failed: ${errorMessage(error)}`);
-    } finally {
-      await fs.promises.rm(tempZip, { force: true }).catch(() => {});
     }
   }
 
-  // action === "extract"
+  const destinationCanon = canonicalPath(joinEntryPath(realParentDir, path.basename(dstPath)));
+  const gathered = await collectCompressEntries({
+    sources,
+    getEnvironment: deps.getEnvironment,
+    allowedDirs,
+    destinationCanon,
+    includeHidden,
+    maxEntries,
+    maxInputBytes,
+    now: deps.now,
+    deadline,
+    signal: options.signal,
+  });
+  if (!gathered.ok) {
+    if (gathered.cancelled) return cancelledResult();
+    return fail(gathered.message, gathered.denied ? { reason: "denied" } : {});
+  }
+
+  const tempZip = `${dstPath}.jarvis-zip-${tempSuffix()}.tmp`;
+  try {
+    const written = await writeZipArchive(tempZip, gathered.entries, options.signal);
+    if (options.signal?.aborted) return cancelledResult();
+    await fs.promises.rename(tempZip, dstPath);
+    const outStat = await fs.promises.stat(dstPath);
+
+    const text = `status: ok · compressed ${written.entryCount} entry(ies) (${formatSize(written.totalUncompressedBytes)} -> ${formatSize(outStat.size)}) into ${dstPath}`;
+    return toolResult({
+      text,
+      raw: text,
+      data: {
+        state: "ok",
+        action: "compress",
+        destination: dstPath,
+        entries: written.entryCount,
+        uncompressedBytes: written.totalUncompressedBytes,
+        archiveBytes: outStat.size,
+        truncated: false,
+      },
+    });
+  } catch (error) {
+    if (options.signal?.aborted) return cancelledResult();
+    return fail(`Compression failed: ${errorMessage(error)}`);
+  } finally {
+    await fs.promises.rm(tempZip, { force: true }).catch(() => {});
+  }
+}
+
+/** Acción `extract`: descomprime un `.zip` en una carpeta, sin salir de ella ni de `allowedDirectories`. */
+async function extractAction(rawArgs: Record<string, unknown>, ctx: ArchiveContext): Promise<MCPCallResult> {
+  const { deps, options, allowedDirs, deadline, maxEntries, maxExtractBytes, overwrite } = ctx;
   if (typeof rawArgs.source !== "string" || rawArgs.source.trim() === "") {
     return fail("'source' is required when action is 'extract': existing .zip file path.");
   }
@@ -776,9 +764,7 @@ export async function runArchiveFiles(
     paramName: "source",
   });
   if (!srcResolved.ok) {
-    return fail(srcResolved.message, {
-      ...(srcResolved.denied ? { reason: "denied" } : srcResolved.notFound ? { reason: "not_found" } : {}),
-    });
+    return fail(srcResolved.message, pathFailureData(srcResolved));
   }
   if (srcResolved.size > maxExtractBytes) {
     return fail(`Archive '${srcResolved.targetPath}' exceeds maximum allowed size (${formatSize(maxExtractBytes)}).`);
@@ -843,4 +829,43 @@ export async function runArchiveFiles(
       ...(msg.startsWith("[DENIED]") ? { reason: "denied" } : (error as NodeJS.ErrnoException).code === "EEXIST" ? { reason: "already_exists" } : {}),
     });
   }
+}
+
+export async function runArchiveFiles(
+  rawArgs: Record<string, unknown>,
+  deps: ArchiveFilesDeps,
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+): Promise<MCPCallResult> {
+  if (options.signal?.aborted) return cancelledResult();
+
+  if (typeof rawArgs.action !== "string" || !(VALID_ACTIONS as readonly string[]).includes(rawArgs.action)) {
+    return fail(`'action' is required and must be one of: ${VALID_ACTIONS.join(", ")}.`);
+  }
+  const action = rawArgs.action as ArchiveAction;
+
+  let overwrite = false;
+  if (rawArgs.overwrite !== undefined && rawArgs.overwrite !== null) {
+    if (typeof rawArgs.overwrite !== "boolean") return fail("'overwrite' must be true or false.");
+    overwrite = rawArgs.overwrite;
+  }
+
+  let includeHidden = false;
+  if (rawArgs.includeHidden !== undefined && rawArgs.includeHidden !== null) {
+    if (typeof rawArgs.includeHidden !== "boolean") return fail("'includeHidden' must be true or false.");
+    includeHidden = rawArgs.includeHidden;
+  }
+
+  const limitMs = effectiveTimeoutMs(deps.defaultTimeoutMs ?? DEFAULT_ARCHIVE_TIMEOUT_MS, options.timeoutMs);
+  const ctx: ArchiveContext = {
+    deps,
+    options,
+    allowedDirs: deps.getAllowedDirectories(),
+    deadline: deps.now() + limitMs,
+    maxEntries: deps.maxEntries ?? DEFAULT_ARCHIVE_MAX_ENTRIES,
+    maxInputBytes: deps.maxInputBytes ?? DEFAULT_ARCHIVE_MAX_INPUT_BYTES,
+    maxExtractBytes: deps.maxExtractBytes ?? DEFAULT_ARCHIVE_MAX_EXTRACT_BYTES,
+    overwrite,
+    includeHidden,
+  };
+  return action === "compress" ? compressAction(rawArgs, ctx) : extractAction(rawArgs, ctx);
 }

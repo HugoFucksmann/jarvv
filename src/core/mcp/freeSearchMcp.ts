@@ -4,7 +4,7 @@
  */
 
 import type { ConfigSource } from "../config.ts";
-import { IMCPTransport, StdioMcpTransport } from "./transport.ts";
+import { type IMCPTransport, StdioMcpTransport } from "./transport.ts";
 import { StdioMcpServer } from "./stdioServer.ts";
 
 export class FreeSearchMCPServer extends StdioMcpServer {

@@ -290,3 +290,17 @@ test("los errores de la herramienta son por paso", () => {
   failedCall(ctx, b, "tool_error", 1, "EBUSY: resource busy");
   assert.equal(checkStepLimits(ctx, b), null, "el error del paso anterior no se arrastra, ni siquiera como «el mismo error»");
 });
+
+test("countStep: una escritura `not_found` (la carpeta no existe) cuenta como error de la herramienta, no como rechazo de la verificación; una lectura `not_found` no", () => {
+  const ctx = newContext("reactive");
+  const stepId = ctx.apply({ op: "add", target: "steps", value: { planId: null, instruction: "paso", route: null, expected: null } }).ids[0];
+  const add = (kind: "read" | "write", n: number) =>
+    ctx.apply({ op: "add", target: "calls", value: { stepId, route: "files_write", tool: "write_file", kind, args: {}, sig: `s${n}`, status: "not_found", summary: "no existe", ref: null } }).ids[0];
+  add("write", 1);
+  add("write", 2);
+  const read = add("read", 3);
+  ctx.apply({ op: "update", target: read, value: { verdict: "rejected", reason: "no_usable_data" } });
+  const counters = countStep(ctx.find("calls", { stepId }));
+  assert.equal(counters.toolFailed, 2);
+  assert.equal(counters.rejected, 1, "la lectura rechazada por la verificación sí es un rechazo");
+});

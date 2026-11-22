@@ -4,7 +4,7 @@
  * La lista la mantiene el código (ver `pendingList.ts`): el modelo la genera al empezar, el paso que termina bien quita su ítem y solo se consulta de nuevo al modelo
  * tras un paso fallido (reescribir el ítem) o al vaciarse (confirmar que no falta nada). Un ítem nunca se abandona: si `pending` repite exactamente el texto
  * normalizado del ítem fallido, devuelve `done` o solo ítems ya cumplidos, u omite el ítem fallido y sigue con uno de los de atrás, la lista señala cierre `no_alternatives`.
- * Excepción: tras `tool_failed` se acepta un reintento idéntico por ítem. Una reescritura distinta es un intento nuevo y no hay un tope por ítem: la racha la acota el tope de pasos fallidos seguidos (`escalationsExceeded`).
+ * Excepción: tras `tool_failed` o `review_rejected` (`canRetryIdentical`) se acepta un reintento idéntico por ítem. Una reescritura distinta es un intento nuevo y no hay un tope por ítem: la racha la acota el tope de pasos fallidos seguidos (`escalationsExceeded`).
  */
 
 import type { StepFailureCause } from "./outcomes.ts";
@@ -13,7 +13,7 @@ import { itemKey, reconcileList, sameItem, sameNormalizedText } from "./pendingL
 /** Reaperturas de la lista por tarea cuando Decisión 5 dice con seguridad que falta algo. */
 export const MAX_REOPENS = 2;
 
-/** `identical_retry`: el modelo repitió el ítem fallido y se acepta UN reintento idéntico porque la falla fue un error de la herramienta (el resto cierra la tarea). */
+/** `identical_retry`: el modelo repitió el ítem fallido y se acepta UN reintento idéntico porque la falla fue informativa para el generador de argumentos (`canRetryIdentical`; el resto cierra la tarea). */
 export type ModelListTransition = "accepted" | "identical_retry" | "identical_rewrite" | "no_replacement" | "skips_failed_item";
 
 export class ReactiveList {
@@ -29,6 +29,8 @@ export class ReactiveList {
   private failedCause: StepFailureCause | null = null;
   /** Ítems (por texto normalizado) que ya usaron su único reintento idéntico tras un error de la herramienta. */
   private readonly identicalRetried = new Set<string>();
+  /** Pasos fallidos seguidos del ítem de adelante (se reinicia al completarlo): un ítem reescrito que vuelve a fallar ya no es su primer fallo. */
+  private failStreak = 0;
   /** Veces que Decisión 5 reabrió la lista tras vaciarla `reconcileList`. */
   private reopens = 0;
 
@@ -112,13 +114,24 @@ export class ReactiveList {
   }
 
   /**
+   * ¿El fallo da pie a repetir el ítem tal cual? Solo cuando el generador de argumentos ve por qué falló el intento anterior (`LAST ERROR`, `attemptText`) y puede corregirlo:
+   * - `tool_failed`: el error de la herramienta es información nueva en cada intento.
+   * - `review_rejected` (`args_invalid`: p. ej. una URL inventada, con las conocidas en el mensaje): igual, pero solo en el PRIMER fallo del ítem; si una reescritura ya falló la revisión, el generador no
+   *   está convergiendo y repetir solo gasta intentos.
+   * Las demás causas (`verify_rejected`: mismos argumentos, mismo resultado; `call_cap`, `repeat_blocked`, `denied`, `user_rejected`) no cambian nada con otro intento y cierran.
+   */
+  private canRetryIdentical(): boolean {
+    return this.failedCause === "tool_failed" || (this.failedCause === "review_rejected" && this.failStreak === 1);
+  }
+
+  /**
    * El modelo repitió el ítem que falló. Lo normal es cerrar (`identical_rewrite`): el mismo texto da la misma respuesta de Decisión y ya se sabe que fallará. Una
-   * excepción: si el paso falló por errores de la herramienta (`tool_failed`), un paso nuevo con el mismo ítem NO es igual al anterior, porque el generador de
+   * excepción: si el paso falló por errores de la herramienta (`tool_failed`) o por argumentos rechazados (`review_rejected`), un paso nuevo con el mismo ítem NO es igual al anterior, porque el generador de
    * argumentos ve el error anterior (`LAST ERROR`) y puede corregirlos. Se permite UN reintento idéntico por ítem; el segundo cierra. La lista no cambia.
    */
   private identical(): ModelListTransition {
     const key = itemKey(this.failedHead ?? "");
-    if (this.failedCause === "tool_failed" && key !== "" && !this.identicalRetried.has(key)) {
+    if (this.canRetryIdentical() && key !== "" && !this.identicalRetried.has(key)) {
       this.identicalRetried.add(key);
       this.failedHead = null;
       this.failedCause = null;
@@ -138,6 +151,7 @@ export class ReactiveList {
 
   /** El paso del ítem de adelante terminó bien: se quita de la lista. */
   completeHead(): void {
+    this.failStreak = 0;
     this.done.push(this.head);
     this.items = this.items.slice(1);
     this.failedHead = null;
@@ -150,6 +164,7 @@ export class ReactiveList {
    * (`applyModelList` la corta). Lo que acota la racha es el tope de pasos fallidos seguidos (`escalationsExceeded`).
    */
   failHead(cause: StepFailureCause | null = null): void {
+    this.failStreak++;
     this.failedHead = this.head;
     this.failedCause = cause;
     this.asking = true;

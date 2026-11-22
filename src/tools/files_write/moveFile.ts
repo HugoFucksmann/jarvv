@@ -20,6 +20,9 @@ import {
   isProtectedUserOrSystemRoot,
   resolveExistingPath,
   resolvePathTarget,
+  type ResolvedExistingTarget,
+  type ResolvedTarget,
+  tempSuffix,
 } from "../../core/tools/filePaths.ts";
 import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
@@ -38,6 +41,9 @@ export interface MoveFileDeps {
   readonly getEnvironment: () => Promise<UserEnvironment>;
   readonly now: () => number;
   readonly defaultTimeoutMs?: number;
+  /** Topes de la copia que reemplaza al `rename` cuando origen y destino están en volúmenes distintos (los mismos que `copy_file`). */
+  readonly maxEntries?: number;
+  readonly maxBytes?: number;
 }
 
 interface MoveItemArg {
@@ -88,6 +94,180 @@ function parseArgs(
   return { ok: true, items, overwrite };
 }
 
+const failedMove = (source: string, destination: string, message: string): MoveItemOutcome => ({ source, destination, status: "failed", message });
+const movedItem = (source: string, destination: string): MoveItemOutcome => ({ source, destination, status: "moved" });
+
+type ExistingSource = Extract<ResolvedExistingTarget, { readonly ok: true }>;
+type ResolvedDestination = Extract<ResolvedTarget, { readonly ok: true }>;
+type DestinationState = Exclude<Awaited<ReturnType<typeof inspectDestinationTarget>>, { readonly status: "denied" | "error" }>;
+
+/** Lo que ya se comprobó de un movimiento: origen y destino resueltos, y el estado actual del destino. */
+interface MovePlan {
+  readonly src: ExistingSource;
+  readonly dst: ResolvedDestination;
+  readonly destination: DestinationState;
+}
+
+/**
+ * Las comprobaciones previas de un movimiento, en orden: origen existente y no protegido, destino válido, no mover algo a sí mismo ni una carpeta dentro de sí,
+ * carpeta padre del destino y qué hay ya en el destino. Si algo falla, el resultado del ítem ya viene armado.
+ */
+async function planMove(
+  item: MoveItemArg,
+  overwrite: boolean,
+  deps: MoveFileDeps,
+  allowedDirs: readonly string[],
+): Promise<{ readonly ok: true; readonly plan: MovePlan } | { readonly ok: false; readonly outcome: MoveItemOutcome }> {
+  const refuse = (source: string, destination: string, message: string) => ({ ok: false as const, outcome: failedMove(source, destination, message) });
+
+  const src = await resolveExistingPath(item.source, deps.getEnvironment, allowedDirs, {
+    expectedKind: "any",
+    followSymlinkForAllowedCheck: false,
+    paramName: "source",
+  });
+  if (!src.ok) return refuse(item.source, item.destination, src.message);
+
+  if (isProtectedUserOrSystemRoot(src.targetPath, src.env)) {
+    return refuse(src.targetPath, item.destination, `[DENIED] Refusing to move protected root folder '${src.targetPath}'.`);
+  }
+
+  const dst = await resolvePathTarget(item.destination, deps.getEnvironment, allowedDirs, {
+    allowEmptyAsHome: false,
+    paramName: "destination",
+  });
+  if (!dst.ok) return refuse(src.targetPath, item.destination, dst.message);
+  const refuseHere = (message: string) => refuse(src.targetPath, dst.targetPath, message);
+
+  const canonicalSrc = canonicalPath(src.targetPath);
+  const canonicalDst = canonicalPath(dst.targetPath);
+  if (isCanonicalDescendant(canonicalSrc, canonicalDst) && isCanonicalDescendant(canonicalDst, canonicalSrc)) {
+    return refuseHere("Source and destination refer to the same path.");
+  }
+  if (src.isDirectory && isCanonicalDescendant(src.realTarget, canonicalDst)) {
+    return refuseHere(`Cannot move folder '${src.targetPath}' into itself or its subfolder.`);
+  }
+
+  const parentDir = dirnameOf(dst.targetPath);
+  try {
+    const parentStat = await fs.promises.stat(parentDir);
+    if (!parentStat.isDirectory()) return refuseHere(`Destination parent '${parentDir}' is not a folder.`);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return refuseHere(code === "ENOENT" ? `Destination parent folder does not exist: '${parentDir}'.` : errorMessage(error));
+  }
+
+  const destination = await inspectDestinationTarget(dst.targetPath, allowedDirs, dst.env.home);
+  if (destination.status === "denied" || destination.status === "error") return refuseHere(destination.message);
+  if (destination.status === "exists") {
+    if (!overwrite) return refuseHere(`Destination already exists: '${dst.targetPath}'. Pass overwrite: true to replace.`);
+    if (destination.isDirectory !== src.isDirectory) {
+      return refuseHere(`Cannot overwrite ${destination.isDirectory ? "folder" : "file"} with a ${src.isDirectory ? "folder" : "file"}.`);
+    }
+  }
+
+  return { ok: true, plan: { src, dst, destination } };
+}
+
+/** Mueve con `rename`; entre volúmenes distintos (`EXDEV`) copia de forma controlada y borra el origen. */
+async function renameOrCopy(
+  { src, dst }: MovePlan,
+  overwrite: boolean,
+  deps: MoveFileDeps,
+  allowedDirs: readonly string[],
+  deadline: number,
+  signal?: AbortSignal,
+): Promise<MoveItemOutcome> {
+  try {
+    await fs.promises.rename(src.targetPath, dst.targetPath);
+    return movedItem(src.targetPath, dst.targetPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "EXDEV") return failedMove(src.targetPath, dst.targetPath, errorMessage(error));
+  }
+
+  if (src.isSymlink) {
+    const linkTarget = await fs.promises.readlink(src.targetPath);
+    // El enlace nuevo se crea aparte y reemplaza al destino con un `rename`: si algo falla antes, lo que había en el destino queda como estaba.
+    const staging = `${dst.targetPath}.jarvis-ln-${tempSuffix()}`;
+    try {
+      await fs.promises.symlink(linkTarget, staging);
+      await fs.promises.rename(staging, dst.targetPath);
+    } catch (error) {
+      await fs.promises.rm(staging, { force: true }).catch(() => {});
+      throw error;
+    }
+    await fs.promises.unlink(src.targetPath);
+    return movedItem(src.targetPath, dst.targetPath);
+  }
+
+  const copied = await copyPathControlled({
+    sourcePath: src.targetPath,
+    realSource: src.realTarget,
+    isSourceDir: src.isDirectory,
+    destinationPath: dst.targetPath,
+    overwrite,
+    allowedDirs,
+    home: dst.env.home,
+    now: deps.now,
+    deadline,
+    maxEntries: deps.maxEntries ?? DEFAULT_COPY_MAX_ENTRIES,
+    maxBytes: deps.maxBytes ?? DEFAULT_COPY_MAX_BYTES,
+    signal,
+  });
+  if (!copied.ok) return failedMove(src.targetPath, dst.targetPath, copied.message);
+  await fs.promises.rm(src.targetPath, { recursive: src.isDirectory, force: false });
+  return movedItem(src.targetPath, dst.targetPath);
+}
+
+/**
+ * Al sobrescribir una carpeta real no se borra el destino por adelantado: se aparta como respaldo y solo se elimina cuando el movimiento termina bien
+ * (si falla, se restaura).
+ */
+class OverwriteBackup {
+  private backupPath: string | null = null;
+
+  constructor(private readonly targetPath: string) {}
+
+  /** Aparta el destino actual (un enlace simplemente se quita). */
+  async setAside(isSymlink: boolean): Promise<void> {
+    if (isSymlink) {
+      await fs.promises.unlink(this.targetPath);
+      return;
+    }
+    this.backupPath = `${this.targetPath}.jarvis-bak-${tempSuffix()}`;
+    await fs.promises.rename(this.targetPath, this.backupPath);
+  }
+
+  private async restore(): Promise<void> {
+    if (this.backupPath === null) return;
+    try {
+      await fs.promises.rm(this.targetPath, { recursive: true, force: true });
+      await fs.promises.rename(this.backupPath, this.targetPath);
+      this.backupPath = null;
+    } catch {
+      /* no se pudo restaurar: el respaldo queda en disco y se informa en el resultado */
+    }
+  }
+
+  /** Cierra el movimiento: con éxito se descarta el respaldo; con fallo se restaura y, si no se pudo, se dice dónde quedó. */
+  async settle(result: MoveItemOutcome): Promise<MoveItemOutcome> {
+    if (this.backupPath === null) return result;
+    if (result.status === "moved") {
+      try {
+        await fs.promises.rm(this.backupPath, { recursive: true, force: true });
+      } catch {
+        return { ...result, message: `Moved, but the previous destination backup could not be removed: '${this.backupPath}'.` };
+      }
+      return result;
+    }
+    await this.restore();
+    if (this.backupPath !== null) {
+      return { ...result, message: `${result.message ?? "failed"} (the previous destination was kept at '${this.backupPath}')` };
+    }
+    return result;
+  }
+}
+
 async function moveSingleItem(
   item: MoveItemArg,
   overwrite: boolean,
@@ -96,194 +276,19 @@ async function moveSingleItem(
   signal?: AbortSignal,
 ): Promise<MoveItemOutcome> {
   const allowedDirs = deps.getAllowedDirectories();
+  const planned = await planMove(item, overwrite, deps, allowedDirs);
+  if (!planned.ok) return planned.outcome;
+  const { plan } = planned;
+  const { src, dst, destination } = plan;
 
-  const srcResolved = await resolveExistingPath(item.source, deps.getEnvironment, allowedDirs, {
-    expectedKind: "any",
-    followSymlinkForAllowedCheck: false,
-    paramName: "source",
-  });
-  if (!srcResolved.ok) {
-    return { source: item.source, destination: item.destination, status: "failed", message: srcResolved.message };
-  }
+  if (signal?.aborted) return failedMove(src.targetPath, dst.targetPath, "cancelled");
 
-  if (isProtectedUserOrSystemRoot(srcResolved.targetPath, srcResolved.env)) {
-    return {
-      source: srcResolved.targetPath,
-      destination: item.destination,
-      status: "failed",
-      message: `[DENIED] Refusing to move protected root folder '${srcResolved.targetPath}'.`,
-    };
-  }
-
-  const dstResolved = await resolvePathTarget(item.destination, deps.getEnvironment, allowedDirs, {
-    allowEmptyAsHome: false,
-    paramName: "destination",
-  });
-  if (!dstResolved.ok) {
-    return { source: srcResolved.targetPath, destination: item.destination, status: "failed", message: dstResolved.message };
-  }
-
-  const canonicalSrc = canonicalPath(srcResolved.targetPath);
-  const canonicalDst = canonicalPath(dstResolved.targetPath);
-  if (isCanonicalDescendant(canonicalSrc, canonicalDst) && isCanonicalDescendant(canonicalDst, canonicalSrc)) {
-    return {
-      source: srcResolved.targetPath,
-      destination: dstResolved.targetPath,
-      status: "failed",
-      message: "Source and destination refer to the same path.",
-    };
-  }
-  if (srcResolved.isDirectory && isCanonicalDescendant(srcResolved.realTarget, canonicalDst)) {
-    return {
-      source: srcResolved.targetPath,
-      destination: dstResolved.targetPath,
-      status: "failed",
-      message: `Cannot move folder '${srcResolved.targetPath}' into itself or its subfolder.`,
-    };
-  }
-
-  const parentDir = dirnameOf(dstResolved.targetPath);
+  const backup = new OverwriteBackup(dst.targetPath);
   try {
-    const parentStat = await fs.promises.stat(parentDir);
-    if (!parentStat.isDirectory()) {
-      return {
-        source: srcResolved.targetPath,
-        destination: dstResolved.targetPath,
-        status: "failed",
-        message: `Destination parent '${parentDir}' is not a folder.`,
-      };
-    }
+    if (destination.status === "exists" && overwrite && src.isDirectory) await backup.setAside(destination.isSymlink);
+    return await backup.settle(await renameOrCopy(plan, overwrite, deps, allowedDirs, deadline, signal));
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    return {
-      source: srcResolved.targetPath,
-      destination: dstResolved.targetPath,
-      status: "failed",
-      message: code === "ENOENT" ? `Destination parent folder does not exist: '${parentDir}'.` : errorMessage(error),
-    };
-  }
-
-  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
-  if (dstInspection.status === "denied" || dstInspection.status === "error") {
-    return {
-      source: srcResolved.targetPath,
-      destination: dstResolved.targetPath,
-      status: "failed",
-      message: dstInspection.message,
-    };
-  }
-  const dstExists = dstInspection.status === "exists";
-  if (dstInspection.status === "exists") {
-    if (!overwrite) {
-      return {
-        source: srcResolved.targetPath,
-        destination: dstResolved.targetPath,
-        status: "failed",
-        message: `Destination already exists: '${dstResolved.targetPath}'. Pass overwrite: true to replace.`,
-      };
-    }
-    if (dstInspection.isDirectory !== srcResolved.isDirectory) {
-      return {
-        source: srcResolved.targetPath,
-        destination: dstResolved.targetPath,
-        status: "failed",
-        message: `Cannot overwrite ${dstInspection.isDirectory ? "folder" : "file"} with a ${srcResolved.isDirectory ? "folder" : "file"}.`,
-      };
-    }
-  }
-
-  if (signal?.aborted) {
-    return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: "cancelled" };
-  }
-
-  const performMove = async (): Promise<MoveItemOutcome> => {
-    try {
-      await fs.promises.rename(srcResolved.targetPath, dstResolved.targetPath);
-      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "EXDEV") {
-        return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: errorMessage(error) };
-      }
-    }
-
-    // Fallback entre volúmenes distintos (`EXDEV`): copia controlada + borrado del origen.
-    if (srcResolved.isSymlink) {
-      const linkTarget = await fs.promises.readlink(srcResolved.targetPath);
-      if (dstExists && overwrite) await fs.promises.rm(dstResolved.targetPath, { force: true });
-      await fs.promises.symlink(linkTarget, dstResolved.targetPath);
-      await fs.promises.unlink(srcResolved.targetPath);
-      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
-    }
-
-    const copied = await copyPathControlled({
-      sourcePath: srcResolved.targetPath,
-      realSource: srcResolved.realTarget,
-      isSourceDir: srcResolved.isDirectory,
-      destinationPath: dstResolved.targetPath,
-      overwrite,
-      allowedDirs,
-      home: dstResolved.env.home,
-      now: deps.now,
-      deadline,
-      maxEntries: DEFAULT_COPY_MAX_ENTRIES,
-      maxBytes: DEFAULT_COPY_MAX_BYTES,
-      signal,
-    });
-    if (!copied.ok) {
-      return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "failed", message: copied.message };
-    }
-    await fs.promises.rm(srcResolved.targetPath, { recursive: srcResolved.isDirectory, force: false });
-    return { source: srcResolved.targetPath, destination: dstResolved.targetPath, status: "moved" };
-  };
-
-  // Al sobrescribir una carpeta real no se borra el destino por adelantado: se aparta como
-  // respaldo y solo se elimina cuando el movimiento termina bien (si falla, se restaura).
-  let backupPath: string | null = null;
-  const restoreBackup = async (): Promise<void> => {
-    if (backupPath === null) return;
-    try {
-      await fs.promises.rm(dstResolved.targetPath, { recursive: true, force: true });
-      await fs.promises.rename(backupPath, dstResolved.targetPath);
-      backupPath = null;
-    } catch {
-      /* no se pudo restaurar: el respaldo queda en disco y se informa abajo */
-    }
-  };
-  const settle = async (result: MoveItemOutcome): Promise<MoveItemOutcome> => {
-    if (backupPath === null) return result;
-    if (result.status === "moved") {
-      try {
-        await fs.promises.rm(backupPath, { recursive: true, force: true });
-      } catch {
-        return { ...result, message: `Moved, but the previous destination backup could not be removed: '${backupPath}'.` };
-      }
-      return result;
-    }
-    await restoreBackup();
-    if (backupPath !== null) {
-      return { ...result, message: `${result.message ?? "failed"} (the previous destination was kept at '${backupPath}')` };
-    }
-    return result;
-  };
-
-  try {
-    if (dstInspection.status === "exists" && overwrite && srcResolved.isDirectory) {
-      if (dstInspection.isSymlink) {
-        await fs.promises.unlink(dstResolved.targetPath);
-      } else {
-        backupPath = `${dstResolved.targetPath}.jarvis-bak-${process.pid}-${Date.now()}`;
-        await fs.promises.rename(dstResolved.targetPath, backupPath);
-      }
-    }
-    return await settle(await performMove());
-  } catch (error) {
-    return settle({
-      source: srcResolved.targetPath,
-      destination: dstResolved.targetPath,
-      status: "failed",
-      message: errorMessage(error),
-    });
+    return backup.settle(failedMove(src.targetPath, dst.targetPath, errorMessage(error)));
   }
 }
 

@@ -14,7 +14,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { promisify } from "node:util";
 import type { UserEnvironment } from "../../core/environment.ts";
-import { effectiveTimeoutMs, isProtectedUserOrSystemRoot, resolveExistingPath } from "../../core/tools/filePaths.ts";
+import { effectiveTimeoutMs, isProtectedUserOrSystemRoot, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -105,9 +105,7 @@ export async function runDeleteFile(
     paramName: "path",
   });
   if (!resolved.ok) {
-    return fail(resolved.message, {
-      ...(resolved.denied ? { reason: "denied" } : resolved.notFound ? { reason: "not_found" } : {}),
-    });
+    return fail(resolved.message, pathFailureData(resolved));
   }
   if (options.signal?.aborted) return cancelledResult();
 

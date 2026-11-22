@@ -58,7 +58,7 @@ export const tailLines = (lines: readonly string[], maxChars: number): string[] 
 
 /** Bloque de datos externos: etiquetado, delimitado y acotado. Vacío => null. */
 export const dataBlock = (label: string, body: string | undefined | null, maxChars: number): string | null =>
-  body && body.trim() ? `${label}:\n<obs>\n${safe(clipTail(body, maxChars))}\n</obs>` : null;
+  body?.trim() ? `${label}:\n<obs>\n${safe(clipTail(body, maxChars))}\n</obs>` : null;
 
 export const linesBlock = (label: string, lines: readonly string[] | undefined, maxChars: number): string | null =>
   lines && lines.length > 0 ? dataBlock(label, tailLines(lines, maxChars).join("\n"), maxChars) : null;

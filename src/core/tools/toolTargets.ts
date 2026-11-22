@@ -6,26 +6,20 @@
  * a su vez importa el manifest) y `render/`, así que no puede depender de ellos.
  */
 
-interface WriteTarget {
-  /** Argumento que nombra el archivo o la carpeta que la herramienta deja (en un movimiento, el destino). */
-  readonly arg: string;
-  /** La herramienta no crea las carpetas que contienen el destino: si no existen, falla (`ENOENT`). */
-  readonly needsParentFolder: boolean;
-}
-
-const WRITE_TARGETS: ReadonlyMap<string, WriteTarget> = new Map<string, WriteTarget>([
-  ["write_file", { arg: "path", needsParentFolder: true }],
-  ["edit_file", { arg: "path", needsParentFolder: false }],
-  ["create_folder", { arg: "path", needsParentFolder: false }],
-  ["copy_file", { arg: "destination", needsParentFolder: true }],
-  ["move_file", { arg: "destination", needsParentFolder: true }],
-  ["archive_files", { arg: "destination", needsParentFolder: false }],
-  ["convert_file", { arg: "destination", needsParentFolder: false }],
-  ["download_file", { arg: "destination", needsParentFolder: true }],
+/** Argumento que nombra el archivo o la carpeta que deja cada herramienta que escribe (en un movimiento, el destino). */
+const WRITE_TARGET_ARG: ReadonlyMap<string, string> = new Map<string, string>([
+  ["write_file", "path"],
+  ["edit_file", "path"],
+  ["create_folder", "path"],
+  ["copy_file", "destination"],
+  ["move_file", "destination"],
+  ["archive_files", "destination"],
+  ["convert_file", "destination"],
+  ["download_file", "destination"],
 ]);
 
 /** ¿La herramienta crea o reemplaza lo que hay en una ruta (ahí no valen comodines ni nombres que Windows no admite)? */
-export const isPathWriteTool = (tool: string): boolean => WRITE_TARGETS.has(tool);
+export const isPathWriteTool = (tool: string): boolean => WRITE_TARGET_ARG.has(tool);
 
 /** El argumento con la ruta que dejó la llamada. Las herramientas que no están en la tabla usan `path`. */
-export const placedPathArg = (tool: string): string => WRITE_TARGETS.get(tool)?.arg ?? "path";
+export const placedPathArg = (tool: string): string => WRITE_TARGET_ARG.get(tool) ?? "path";

@@ -23,7 +23,7 @@ export function sanitizeForMemory(text: string, maxLen = 120): string {
         .replace(BLOCK_LABELS, "$1_")
         .trim();
     if (clean.length > maxLen) {
-        clean = clean.substring(0, maxLen - 3) + "...";
+        clean = `${clean.substring(0, maxLen - 3)}...`;
     }
     return clean;
 }

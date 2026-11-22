@@ -906,3 +906,35 @@ test("move_file: al sobrescribir una carpeta conserva el destino si el movimient
   assert.equal(fs.existsSync(path.join(src2, "nuevo.txt")), true);
   assert.deepEqual(fs.readdirSync(root).filter((n) => n.includes(".jarvis-bak-")), []);
 });
+
+test("write_file append: reenviar el documento entero se rechaza (duplicaría); agregar líneas nuevas pasa", async () => {
+  const root = makeTempDir();
+  const provider = new FilesWriteProvider({
+    allowedDirectories: () => [root],
+    environment: async () => makeEnv(root),
+  });
+  const file = path.join(root, "doc.md");
+  const doc = "# Viaje a Mendoza\n\n## Hospedaje\n- Hotel A\n";
+  assert.equal((await provider.callTool("write_file", { path: file, content: doc, mode: "create_only" })).isError, false);
+
+  const dup = await provider.callTool("write_file", { path: file, content: doc + "- Hotel B\n", mode: "append" });
+  assert.equal(dup.isError, true);
+  assert.equal(readToolResult(dup)?.data.reason, "append_duplicates");
+  assert.equal(fs.readFileSync(file, "utf8"), doc, "el archivo no cambió");
+
+  assert.equal((await provider.callTool("write_file", { path: file, content: "- Hotel B\n", mode: "append" })).isError, false);
+  assert.equal(fs.readFileSync(file, "utf8"), doc + "- Hotel B\n");
+});
+
+test("write_file: un formato sin driver falla ANTES de crear carpetas (no deja carpetas vacías de una llamada fallida)", async () => {
+  const root = makeTempDir();
+  const provider = new FilesWriteProvider({
+    allowedDirectories: () => [root],
+    environment: async () => makeEnv(root),
+  });
+  const target = path.join(root, "nueva", "carpeta", "informe.docx");
+  const res = await provider.callTool("write_file", { path: target, content: "x", createFolders: true });
+  assert.equal(res.isError, true);
+  assert.equal(readToolResult(res)?.data.reason, "unsupported_format");
+  assert.equal(fs.existsSync(path.join(root, "nueva")), false, "la carpeta padre no se creó");
+});

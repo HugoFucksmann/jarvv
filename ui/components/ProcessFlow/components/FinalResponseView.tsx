@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { CheckCheck, Info, Activity, Volume2, VolumeX, Loader2, AlertTriangle, AlertCircle, XCircle } from "lucide-react";
 import type { TaskResult, TaskState } from "../../../types/api.ts";
 import type { SpeechStatus } from "../../../hooks/useSpeech.ts";

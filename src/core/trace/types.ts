@@ -4,7 +4,7 @@
  * Aparte de `recorder.ts` para que `format.ts` no importe del archivo que lo importa.
  */
 
-import type { Waiting } from "../engine/runtime.ts";
+import type { Waiting } from "../types/waiting.ts";
 import type { StageId } from "../types.ts";
 
 /** A qué quedó enlazada una consulta: como máximo una de las claves. */

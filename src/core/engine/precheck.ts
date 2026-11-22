@@ -44,6 +44,8 @@ export interface PrecheckSources {
   readonly text: string;
   /** false si hay resultados guardados aparte: lo que no aparece en `text` puede estar ahí. */
   readonly complete: boolean;
+  /** Las URLs que la tarea conoce, tal como están escritas (con mayúsculas), para decirle al modelo cuáles puede usar cuando inventa una. */
+  readonly urls?: readonly string[];
 }
 
 export interface PrecheckInput {
@@ -66,6 +68,15 @@ export interface CommandReport {
 export type CommandAnalyzer = (command: string) => Promise<CommandReport | null>;
 
 // ───────────────────────── Utilidades ─────────────────────────
+
+/** Direcciones `http(s)` de un texto, sin repetir y en orden de aparición. */
+function urlsIn(text: string): string[] {
+  const found = text.match(/https?:\/\/[^\s"'<>)\]\\]+/gi) ?? [];
+  return [...new Set(found.map((u) => u.replace(/[.,;:]+$/, "")))];
+}
+
+/** Cuántas URLs conocidas se le muestran al modelo en el mensaje de rechazo (las demás ocupan lugar sin ayudar a elegir). */
+const URL_HINTS = 6;
 
 /** Minúsculas y `/` como separador: la comparación no distingue mayúsculas ni `\` de `/`. */
 export function normalizeText(text: string): string {
@@ -178,7 +189,8 @@ export function collectSources(ctx: TaskContext, extra: readonly string[] = []):
       }
     }
   }
-  return { text: normalizeText(parts.join("\n")), complete };
+  const raw = parts.join("\n");
+  return { text: normalizeText(raw), complete, urls: urlsIn(raw) };
 }
 
 // ───────────────────────── Reglas ─────────────────────────
@@ -228,6 +240,13 @@ function pathHasSource(path: string, input: PrecheckInput): boolean {
   if (input.sources.text.includes(p)) return true;
   if (knownFolders(input.environment).some((f) => f === p || f.startsWith(`${p}/`))) return true;
   return input.sources.text.includes(baseName(p));
+}
+
+/** Qué hacer ante una URL inventada: elegir una de las que la tarea ya conoce, o buscar sin `urls`. */
+function urlSuggestion(known: readonly string[]): string {
+  return known.length === 0
+    ? "Search first (omit `urls`) and use a URL from the results."
+    : `Use one of these known URLs: ${known.slice(0, URL_HINTS).join(" , ")} — or omit \`urls\` to search by need.`;
 }
 
 function normalizeUrl(url: string): string {
@@ -385,10 +404,15 @@ export const analyzePowerShell: CommandAnalyzer = async (command) => {
 // Convenciones para una regla nueva: determinista y sin modelos; ante la duda, `null`; si mira el disco, solo con rutas absolutas y solo si existe la carpeta de inicio del
 // entorno (`diskIsReal`: un entorno inventado, como el de un caso de prueba, no se juzga); la razón dice qué hacer en su lugar (llega a la línea FAIL del LLM de argumentos).
 
-/** Una regla del pre-chequeo sobre un contexto `C`. */
+/** Una regla del pre-chequeo sobre un contexto `C`. Las de valor y de origen son sincrónicas: `firstValueFinding` las evalúa sin `await`. */
 export interface PrecheckRule<C> {
   readonly name: string;
   readonly applies: (ctx: C) => boolean;
+  readonly check: (ctx: C) => PrecheckFinding | null;
+}
+
+/** Una regla por llamada: puede ser asincrónica porque algunas analizan el comando con PowerShell (`precheckCall` hace `await`). */
+export interface CallRule<C> extends Omit<PrecheckRule<C>, "check"> {
   readonly check: (ctx: C) => PrecheckFinding | null | Promise<PrecheckFinding | null>;
 }
 
@@ -501,7 +525,7 @@ export const SOURCE_RULES: readonly PrecheckRule<ValueContext>[] = [
     check: (c) =>
       c.input.sources.text.includes(normalizeUrl(c.value))
         ? null
-        : invalid(`The URL '${c.value}' does not appear in the request or in earlier results. Use a URL from the results, or search first.`),
+        : invalid(`The URL '${c.value}' does not appear in the request or in earlier results. ${urlSuggestion(c.input.sources.urls ?? [])}`),
   },
   {
     // Destino de una escritura (`path`, `destination`…): si no es una carpeta del usuario, tiene que salir de algún lado.
@@ -535,7 +559,7 @@ function firstValueFinding(input: PrecheckInput, rules: readonly PrecheckRule<Va
       if (!keep(ctx)) continue;
       for (const rule of rules) {
         if (!rule.applies(ctx)) continue;
-        const found = rule.check(ctx) as PrecheckFinding | null;
+        const found = rule.check(ctx);
         if (found !== null) return found;
       }
     }
@@ -570,7 +594,7 @@ export function unknownEnvVariable(command: string): string | null {
 const isPowerShellCommand = (input: PrecheckInput): boolean =>
   input.tool === "run_command" && typeof input.args.command === "string" && input.environment.platform === "windows";
 
-export const CALL_RULES: readonly PrecheckRule<CallContext>[] = [
+export const CALL_RULES: readonly CallRule<CallContext>[] = [
   {
     name: "argument-values",
     applies: () => true,

@@ -66,7 +66,7 @@ export function ensureKeys(obj: Record<string, unknown>, required: readonly stri
     }
   }
   for (const key of required) {
-    if (!Object.prototype.hasOwnProperty.call(obj, key)) {
+    if (!Object.hasOwn(obj, key)) {
       violation("invalid_value", 3, `${what}: falta el campo "${key}" (todos los campos están siempre presentes; lo que no aplica vale null)`);
     }
   }
@@ -248,8 +248,8 @@ export function checkStepPatch(raw: unknown, env: CheckEnv): StepPatch {
     }
   }
   const patch: StepPatch = {};
-  if (Object.prototype.hasOwnProperty.call(o, "state")) patch.state = oneOf(o.state, STEP_STATES, "step.state");
-  if (Object.prototype.hasOwnProperty.call(o, "superseded")) {
+  if (Object.hasOwn(o, "state")) patch.state = oneOf(o.state, STEP_STATES, "step.state");
+  if (Object.hasOwn(o, "superseded")) {
     if (typeof o.superseded !== "boolean") violation("invalid_value", 3, "step.superseded debe ser booleano");
     if (o.superseded && env.mode !== "deliberative") violation("invalid_value", 3, "`superseded` solo existe en modo deliberativo");
     patch.superseded = o.superseded;

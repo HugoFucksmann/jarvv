@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import type React from "react";
+import { useMemo } from "react";
 import { Terminal } from "lucide-react";
 import { CopyButton } from "./CopyButton.tsx";
 import { JsonText, tryParseJson } from "./JsonView.tsx";

@@ -133,3 +133,16 @@ test("los bloques que no son texto no aportan contenido", () => {
 test("schemaTypes: incluye las ramas anyOf/oneOf", () => {
   assert.deepEqual([...schemaTypes({ anyOf: [{ type: "string" }, { type: ["object", "null"] }] })].sort(), ["null", "object", "string"]);
 });
+test("una escritura nativa que declara reason not_found es `not_found` (no escribió nada); una lectura, otro motivo o un éxito no cambian", () => {
+  const folderMissing = native({ state: "error", reason: "not_found" }, "Parent folder does not exist: 'C:/x'.", "Parent folder does not exist: 'C:/x'.", true);
+  assert.equal(processResult("jarvis_files_write", "write_file", folderMissing, {}).status, "not_found");
+  assert.equal(processResult("jarvis_files_write", "create_folder", folderMissing, {}).status, "not_found");
+  // Una lectura sigue siendo un error de la herramienta: su mensaje ya dice qué falta y se rechaza sin consultar al modelo.
+  assert.equal(processResult("jarvis_files_read", "read_file", folderMissing, {}).status, "tool_error");
+  // Otro motivo de fallo de una escritura: sigue siendo un error de la herramienta.
+  const other = native({ state: "error", reason: "unsupported_format" }, "Writing '.xlsx' files requires a format driver.", "Writing '.xlsx' files requires a format driver.", true);
+  assert.equal(processResult("jarvis_files_write", "write_file", other, {}).status, "tool_error");
+  // Sin error, `not_found` es el estado de una búsqueda sin hallazgos (`no_data`), no un fallo.
+  const searched = native({ state: "not_found" }, "status: not_found", "status: not_found", false);
+  assert.equal(processResult(WEB, "web_search", searched, {}).status, "no_data");
+});

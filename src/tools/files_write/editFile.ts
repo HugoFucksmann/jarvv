@@ -9,13 +9,12 @@
 
 import fs from "node:fs";
 import type { UserEnvironment } from "../../core/environment.ts";
-import { resolveExistingPath } from "../../core/tools/filePaths.ts";
+import { looksBinary, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
 export const DEFAULT_EDIT_MAX_FILE_BYTES = 10 * 1024 * 1024;
-const BINARY_PROBE_BYTES = 8_192;
 
 export interface EditFileDeps {
   readonly getAllowedDirectories: () => readonly string[];
@@ -115,9 +114,7 @@ export async function runEditFile(
     paramName: "path",
   });
   if (!resolved.ok) {
-    return fail(resolved.message, {
-      ...(resolved.denied ? { reason: "denied" } : resolved.notFound ? { reason: "not_found" } : {}),
-    });
+    return fail(resolved.message, pathFailureData(resolved));
   }
   if (options.signal?.aborted) return cancelledResult();
 
@@ -135,8 +132,7 @@ export async function runEditFile(
   }
   if (options.signal?.aborted) return cancelledResult();
 
-  const probeLen = Math.min(rawBuffer.length, BINARY_PROBE_BYTES);
-  if (rawBuffer.subarray(0, probeLen).includes(0)) {
+  if (looksBinary(rawBuffer)) {
     return fail(`'${resolved.targetPath}' appears to be a binary file and cannot be edited with edit_file.`, {
       reason: "binary_file",
     });

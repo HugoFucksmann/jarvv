@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import type { JarvisConfig } from "../../../types/api.ts";
 import { GroupHeading, SectionHeader, TextField, ToggleRow, UrlField } from "../components/FieldPrimitives.tsx";
 

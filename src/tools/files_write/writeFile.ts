@@ -123,6 +123,18 @@ function parseArgs(
   };
 }
 
+/** `true` si el contenido a agregar arranca igual que el archivo (primeros 80 caracteres no vacíos, mínimo 20). */
+async function repeatsExistingStart(ctx: WriteDriverContext): Promise<boolean> {
+  try {
+    const existing = (await fs.promises.readFile(ctx.targetPath, { encoding: ctx.encoding })).trimStart();
+    const added = ctx.content.trimStart();
+    const n = Math.min(80, existing.length, added.length);
+    return n >= 20 && existing.slice(0, n) === added.slice(0, n);
+  } catch {
+    return false;
+  }
+}
+
 async function writePlainText(ctx: WriteDriverContext): Promise<MCPCallResult> {
   if (ctx.signal?.aborted) return cancelledResult();
 
@@ -130,6 +142,15 @@ async function writePlainText(ctx: WriteDriverContext): Promise<MCPCallResult> {
   if (ctx.mode === "create_only") {
     await fs.promises.writeFile(ctx.targetPath, ctx.content, { encoding: ctx.encoding, flag: "wx" });
   } else if (ctx.mode === "append") {
+    // Un modelo chico suele reenviar el documento ENTERO con `append`: el archivo queda con el contenido repetido. Si lo que se agrega ya empieza como el archivo, se rechaza.
+    if (ctx.existedBefore && (await repeatsExistingStart(ctx))) {
+      return toolResult({
+        text: `The content to append starts with the same text the file already has, so appending would duplicate it. Use mode 'rewrite' with the complete updated content, or append only the NEW lines.`,
+        raw: "append would duplicate existing content",
+        isError: true,
+        data: { state: "error", reason: "append_duplicates", path: ctx.targetPath },
+      });
+    }
     await fs.promises.appendFile(ctx.targetPath, ctx.content, { encoding: ctx.encoding });
   } else {
     await fs.promises.writeFile(ctx.targetPath, ctx.content, { encoding: ctx.encoding });
@@ -179,6 +200,16 @@ export async function runWriteFile(
   const { targetPath, env } = resolved;
   const parentDir = dirnameOf(targetPath);
 
+  // Qué driver escribe este formato se decide antes de tocar el disco: una llamada que va a fallar por el formato no deja carpetas creadas.
+  const ext = path.extname(targetPath).replace(/^\./, "").toLowerCase();
+  const customDriver = ext === "" ? undefined : deps.drivers?.find((d) => d.extensions.some((supported) => supported.replace(/^\./, "").toLowerCase() === ext));
+  if (customDriver === undefined && STRUCTURED_EXTS.has(ext)) {
+    return fail(
+      `Writing '.${ext}' files requires a format driver that is not installed yet (file: '${targetPath}'). Nothing can be installed from here: tell the user, or write a '.csv' (opens in Excel) / '.txt' / '.md' instead.`,
+      { reason: "unsupported_format", extension: ext },
+    );
+  }
+
   if (args.createFolders) {
     try {
       await fs.promises.mkdir(parentDir, { recursive: true });
@@ -216,7 +247,6 @@ export async function runWriteFile(
     return fail(`File '${targetPath}' already exists and mode is 'create_only'.`, { reason: "already_exists" });
   }
 
-  const ext = path.extname(targetPath).replace(/^\./, "").toLowerCase();
   const driverCtx: WriteDriverContext = {
     targetPath,
     extension: ext,
@@ -228,25 +258,13 @@ export async function runWriteFile(
     signal: options.signal,
   };
 
-  if (ext !== "" && deps.drivers !== undefined) {
-    const customDriver = deps.drivers.find((d) =>
-      d.extensions.some((supported) => supported.replace(/^\./, "").toLowerCase() === ext),
-    );
-    if (customDriver !== undefined) {
-      try {
-        return await customDriver.write(driverCtx);
-      } catch (error) {
-        if (options.signal?.aborted) return cancelledResult();
-        return fail(`Driver '${customDriver.id}' failed writing '${targetPath}': ${errorMessage(error)}`);
-      }
+  if (customDriver !== undefined) {
+    try {
+      return await customDriver.write(driverCtx);
+    } catch (error) {
+      if (options.signal?.aborted) return cancelledResult();
+      return fail(`Driver '${customDriver.id}' failed writing '${targetPath}': ${errorMessage(error)}`);
     }
-  }
-
-  if (STRUCTURED_EXTS.has(ext)) {
-    return fail(
-      `Writing '.${ext}' files requires a format driver that is not installed yet (file: '${targetPath}').`,
-      { reason: "unsupported_format", extension: ext },
-    );
   }
 
   try {

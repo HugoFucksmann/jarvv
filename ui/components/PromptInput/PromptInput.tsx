@@ -1,4 +1,5 @@
-import React, { memo, useLayoutEffect, useRef, useState } from "react";
+import type React from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import { CornerDownLeft, XCircle } from "lucide-react";
 import type { ActionResult, ExecutionMode } from "../../types/ui.ts";
 import { FOCUS_SHORTCUT_LABEL } from "../../utils/platform.ts";

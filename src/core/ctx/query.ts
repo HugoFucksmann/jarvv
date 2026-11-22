@@ -12,7 +12,7 @@ const FACT_PREFIX = "facts.";
 export function getElement(data: ContextData, id: string): ContextElement | undefined {
   if (id.startsWith(FACT_PREFIX)) {
     const key = id.slice(FACT_PREFIX.length);
-    return Object.prototype.hasOwnProperty.call(data.facts, key) ? data.facts[key] : undefined;
+    return Object.hasOwn(data.facts, key) ? data.facts[key] : undefined;
   }
   const parsed = parseId(id);
   if (parsed === null) return undefined;

@@ -344,8 +344,12 @@ export function readTaskLog(
   }
 }
 
-/** Indica si el log es legible y corresponde a una tarea terminal cerrada. */
+/**
+ * Indica si el log es legible y corresponde a una tarea terminal cerrada. Lo habitual (cerrada y con respuesta) se resuelve con el resumen, que lee solo la cabecera y
+ * los dos últimos registros; el resto (sin respuesta, cola dañada…) se reproduce completo. La retención lo pregunta por cada log cada pocas horas: reproducirlos todos era el costo.
+ */
 export function isTaskLogTerminal(filePath: string): boolean {
+  if (summarizeClosedTaskLog(filePath) !== null) return true;
   const result = readTaskLog(filePath);
   return result.ok && result.ctx.isClosed();
 }

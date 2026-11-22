@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { Copy, Check } from "lucide-react";
 import { useClipboardCopy } from "../../hooks/useClipboardCopy.ts";
 

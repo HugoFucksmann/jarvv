@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import type React from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { CopyButton } from "./CopyButton.tsx";
 

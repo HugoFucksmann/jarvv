@@ -89,19 +89,15 @@ function elementsOf(raw: unknown, section: SectionName): Record<string, unknown>
   });
 }
 
-function parseBody(raw: Record<string, unknown>, limits: ContextLimits): ContextData {
-  ensureKeys(raw, ["v", "task", "plans", "steps", "calls", "errors", "facts", "refs", "recalled", "result"], [], "snapshot");
-  // Raíz → sección → elemento → args: tres niveles más que la profundidad permitida a un valor JSON.
-  const problem = jsonProblem(raw, { maxDepth: limits.jsonMaxDepth + 3, maxString: null });
-  if (problem) violation("invalid_value", 3, `snapshot${problem.path.slice(1)}: ${problem.detail}`);
+type Elements = Record<string, unknown>[];
 
-  // ── task
-  const t = ensureObject(raw.task, "task");
+function parseTask(rawTask: unknown): TaskInfo {
+  const t = ensureObject(rawTask, "task");
   ensureKeys(t, ["id", "mode", "request", "state", "stopReason", "startedAt"], [], "task");
   const mode = oneOf(t.mode, TASK_MODES, "task.mode");
   const state = oneOf(t.state, TASK_STATES, "task.state");
   const stopReason = nullableOneOf(t.stopReason, STOP_REASONS, "task.stopReason");
-  const task: TaskInfo = deepFreeze({
+  return deepFreeze({
     id: reqText(t.id, "task.id"),
     mode,
     request: reqText(t.request, "task.request"),
@@ -109,30 +105,18 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
     stopReason,
     startedAt: finiteNumber(t.startedAt, "task.startedAt"),
   });
+}
 
-  // ── ids en orden y tamaños, antes de resolver referencias
-  const [rawPlans, rawSteps, rawCalls, rawErrors, rawRefs, rawRecalled] = SECTION_NAMES.map((section) => elementsOf(raw[section], section));
-  const sizes = { plans: rawPlans.length, steps: rawSteps.length, refs: rawRefs.length };
-  const inRange = (section: "plans" | "steps" | "refs", id: string): boolean => {
-    const parsed = parseId(id);
-    return parsed !== null && parsed.section === section && parsed.index < sizes[section];
-  };
-  const lookup: CheckEnv = {
-    mode,
-    limits,
-    hasPlan: (id) => inRange("plans", id),
-    hasStep: (id) => inRange("steps", id),
-    hasRef: (id) => inRange("refs", id),
-  };
-
-  // ── elementos
-  const plans: Plan[] = rawPlans.map((el, i) => {
+function parsePlans(elements: Elements, lookup: CheckEnv): Plan[] {
+  return elements.map((el, i) => {
     ensureKeys(el, ["id", "at", "trigger", "feedback", "stepId"], [], "plan");
     const v = checkPlanInput({ trigger: el.trigger, feedback: el.feedback, stepId: el.stepId }, lookup);
     return deepFreeze({ id: makeId("plans", i), at: finiteNumber(el.at, "plan.at"), trigger: v.trigger, feedback: v.feedback, stepId: v.stepId });
   });
+}
 
-  const steps: Step[] = rawSteps.map((el, i) => {
+function parseSteps(elements: Elements, mode: TaskInfo["mode"], lookup: CheckEnv): Step[] {
+  return elements.map((el, i) => {
     ensureKeys(el, ["id", "at", "planId", "instruction", "route", "expected", "state", "superseded"], [], "step");
     const v = checkStepInput({ planId: el.planId, instruction: el.instruction, route: el.route, expected: el.expected }, lookup);
     const stepState = oneOf(el.state, STEP_STATES, "step.state");
@@ -149,8 +133,10 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
       superseded: el.superseded,
     });
   });
+}
 
-  const calls: Call[] = rawCalls.map((el, i) => {
+function parseCalls(elements: Elements, lookup: CheckEnv): Call[] {
+  return elements.map((el, i) => {
     ensureKeys(el, ["id", "stepId", "at", "route", "tool", "kind", "args", "sig", "status", "verdict", "reason", "summary", "ref"], [], "call");
     const v = checkCallInput(
       { stepId: el.stepId, route: el.route, tool: el.tool, kind: el.kind, args: el.args, sig: el.sig, status: el.status, summary: el.summary, ref: el.ref },
@@ -183,28 +169,34 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
       ref: v.ref,
     });
   });
+}
 
-  const errors: ErrorEntry[] = rawErrors.map((el, i) => {
+function parseErrors(elements: Elements, lookup: CheckEnv): ErrorEntry[] {
+  return elements.map((el, i) => {
     ensureKeys(el, ["id", "stepId", "at", "kind"], [], "error");
     const v = checkErrorInput({ stepId: el.stepId, kind: el.kind }, lookup);
     return deepFreeze({ id: makeId("errors", i), stepId: v.stepId, at: finiteNumber(el.at, "error.at"), kind: v.kind });
   });
+}
 
-  const refs: Ref[] = rawRefs.map((el, i) => {
+function parseRefs(elements: Elements, lookup: CheckEnv): Ref[] {
+  return elements.map((el, i) => {
     ensureKeys(el, ["id", "stepId", "at", "label", "size", "where"], [], "ref");
     const v = checkRefInput({ stepId: el.stepId, label: el.label, size: el.size, where: el.where }, lookup);
     return deepFreeze({ id: makeId("refs", i), stepId: v.stepId, at: finiteNumber(el.at, "ref.at"), label: v.label, size: v.size, where: v.where });
   });
+}
 
-  const seenRecalled = new Set<string>();
-  const recalled: RecalledEntry[] = rawRecalled.map((el, i) => {
+function parseRecalled(elements: Elements, lookup: CheckEnv): RecalledEntry[] {
+  const seen = new Set<string>();
+  return elements.map((el, i) => {
     ensureKeys(el, ["id", "at", "stepId", "source", "key", "value", "from"], [], "recalled");
     const v = checkRecalledInput({ stepId: el.stepId, source: el.source, key: el.key, value: el.value, from: el.from }, lookup);
     const dedupKey = `${v.source}\u0000${v.key}`;
-    if (seenRecalled.has(dedupKey)) {
+    if (seen.has(dedupKey)) {
       violation("invariant", 6, `invariante: clave duplicada en recalled para fuente "${v.source}": "${v.key}"`);
     }
-    seenRecalled.add(dedupKey);
+    seen.add(dedupKey);
     return deepFreeze({
       id: makeId("recalled", i),
       at: finiteNumber(el.at, "recalled.at"),
@@ -215,20 +207,23 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
       from: v.from,
     });
   });
+}
 
-  // ── hechos y resultado
-  const rawFacts = ensureObject(raw.facts, "facts");
+function parseFacts(rawFacts: unknown, lookup: CheckEnv): { [key: string]: Fact } {
+  const entries = ensureObject(rawFacts, "facts");
   const facts: { [key: string]: Fact } = {};
-  for (const key of Object.keys(rawFacts)) {
+  for (const key of Object.keys(entries)) {
     checkFactKey(key);
-    const f = ensureObject(rawFacts[key], `facts.${key}`);
+    const f = ensureObject(entries[key], `facts.${key}`);
     ensureKeys(f, ["value", "stepId", "at"], [], `facts.${key}`);
     const v = checkFactInput({ value: f.value, stepId: f.stepId }, lookup);
     facts[key] = deepFreeze({ value: v.value, stepId: v.stepId, at: finiteNumber(f.at, `facts.${key}.at`) });
   }
-  const result = raw.result === null ? null : deepFreeze(checkResultInput(raw.result));
+  return facts;
+}
 
-  // ── consistencia: invariantes 1 y 2 y estado terminal por motivo (5.3)
+/** Consistencia entre secciones: invariantes 1 y 2 y estado terminal por motivo (5.3). */
+function assertConsistent(task: TaskInfo, steps: readonly Step[], calls: readonly Call[]): void {
   let running = 0;
   for (const step of steps) {
     if (step.superseded && step.state === "completed") violation("invariant", 6, `invariante 1: el paso ${step.id} está \`completed\` y \`superseded\``);
@@ -239,8 +234,43 @@ function parseBody(raw: Record<string, unknown>, limits: ContextLimits): Context
   if (task.state === "running") {
     if (task.stopReason !== null) violation("finish_table", 6, "una tarea `running` no lleva `stopReason`");
   } else {
-    assertFinalState(mode, task.state, task.stopReason, steps, calls);
+    assertFinalState(task.mode, task.state, task.stopReason, steps, calls);
   }
+}
+
+function parseBody(raw: Record<string, unknown>, limits: ContextLimits): ContextData {
+  ensureKeys(raw, ["v", "task", "plans", "steps", "calls", "errors", "facts", "refs", "recalled", "result"], [], "snapshot");
+  // Raíz → sección → elemento → args: tres niveles más que la profundidad permitida a un valor JSON.
+  const problem = jsonProblem(raw, { maxDepth: limits.jsonMaxDepth + 3, maxString: null });
+  if (problem) violation("invalid_value", 3, `snapshot${problem.path.slice(1)}: ${problem.detail}`);
+
+  const task = parseTask(raw.task);
+
+  // Ids en orden y tamaños, antes de resolver referencias.
+  const [rawPlans, rawSteps, rawCalls, rawErrors, rawRefs, rawRecalled] = SECTION_NAMES.map((section) => elementsOf(raw[section], section));
+  const sizes = { plans: rawPlans.length, steps: rawSteps.length, refs: rawRefs.length };
+  const inRange = (section: "plans" | "steps" | "refs", id: string): boolean => {
+    const parsed = parseId(id);
+    return parsed !== null && parsed.section === section && parsed.index < sizes[section];
+  };
+  const lookup: CheckEnv = {
+    mode: task.mode,
+    limits,
+    hasPlan: (id) => inRange("plans", id),
+    hasStep: (id) => inRange("steps", id),
+    hasRef: (id) => inRange("refs", id),
+  };
+
+  const plans = parsePlans(rawPlans, lookup);
+  const steps = parseSteps(rawSteps, task.mode, lookup);
+  const calls = parseCalls(rawCalls, lookup);
+  const errors = parseErrors(rawErrors, lookup);
+  const refs = parseRefs(rawRefs, lookup);
+  const recalled = parseRecalled(rawRecalled, lookup);
+  const facts = parseFacts(raw.facts, lookup);
+  const result = raw.result === null ? null : deepFreeze(checkResultInput(raw.result));
+
+  assertConsistent(task, steps, calls);
 
   return { v: CONTEXT_VERSION, task, plans, steps, calls, errors, facts, refs, recalled, result };
 }

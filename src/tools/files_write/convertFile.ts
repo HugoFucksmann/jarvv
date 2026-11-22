@@ -23,6 +23,9 @@ import {
   joinEntryPath,
   resolveExistingPath,
   resolvePathTarget,
+  pathFailureData,
+  type ResolvedExistingTarget,
+  type ResolvedTarget,
 } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
@@ -268,6 +271,154 @@ export function createDefaultConvertDriver(platform: NodeJS.Platform = process.p
   };
 }
 
+/** A dónde convertir: la ruta que dio el usuario (con su formato, si lo dio) o solo el formato (el archivo queda junto al origen, con otra extensión). */
+type ConvertTarget =
+  | { readonly kind: "destination"; readonly destination: string; readonly format: string | undefined }
+  | { readonly kind: "format"; readonly format: string };
+
+interface ConvertArgs {
+  readonly source: string;
+  readonly target: ConvertTarget;
+  readonly width: number | undefined;
+  readonly height: number | undefined;
+  readonly quality: number | undefined;
+  readonly overwrite: boolean;
+}
+
+/** Entero opcional dentro de un rango: `undefined` si no vino, `null` si vino mal. */
+function optionalInteger(value: unknown, min: number, max: number): number | undefined | null {
+  if (value === undefined || value === null) return undefined;
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max ? value : null;
+}
+
+function parseConvertArgs(raw: Record<string, unknown>): { readonly ok: true; readonly args: ConvertArgs } | { readonly ok: false; readonly message: string } {
+  const invalid = (message: string) => ({ ok: false as const, message });
+
+  if (typeof raw.source !== "string" || raw.source.trim() === "") {
+    return invalid("'source' is required: existing image, audio, or video file path.");
+  }
+
+  let destination: string | undefined;
+  if (raw.destination !== undefined && raw.destination !== null) {
+    if (typeof raw.destination !== "string" || raw.destination.trim() === "") return invalid("'destination' must be a non-empty file path.");
+    destination = raw.destination.trim();
+  }
+
+  let format: string | undefined;
+  if (raw.format !== undefined && raw.format !== null) {
+    if (typeof raw.format !== "string" || raw.format.trim() === "") {
+      return invalid("'format' must be a non-empty extension like 'png', 'mp3', or 'mp4'.");
+    }
+    format = raw.format.trim().replace(/^\./, "").toLowerCase();
+  }
+
+  const target: ConvertTarget | null = destination !== undefined ? { kind: "destination", destination, format } : format !== undefined ? { kind: "format", format } : null;
+  if (target === null) return invalid("Provide 'destination' or target 'format' (e.g. 'webp', 'mp3', 'mp4').");
+
+  const width = optionalInteger(raw.width, 1, MAX_DIMENSION);
+  if (width === null) return invalid(`'width' must be an integer between 1 and ${MAX_DIMENSION}.`);
+  const height = optionalInteger(raw.height, 1, MAX_DIMENSION);
+  if (height === null) return invalid(`'height' must be an integer between 1 and ${MAX_DIMENSION}.`);
+  const quality = optionalInteger(raw.quality, 1, 100);
+  if (quality === null) return invalid("'quality' must be an integer between 1 and 100.");
+
+  let overwrite = false;
+  if (raw.overwrite !== undefined && raw.overwrite !== null) {
+    if (typeof raw.overwrite !== "boolean") return invalid("'overwrite' must be true or false.");
+    overwrite = raw.overwrite;
+  }
+
+  return { ok: true, args: { source: raw.source, target, width, height, quality, overwrite } };
+}
+
+/** Lo que ya se comprobó de una conversión: origen y destino resueltos, y los formatos y categorías de ambos. */
+interface ConversionPlan {
+  readonly srcResolved: Extract<ResolvedExistingTarget, { readonly ok: true }>;
+  readonly dstResolved: Extract<ResolvedTarget, { readonly ok: true }>;
+  readonly sourceExt: string;
+  readonly targetExt: string;
+  readonly sourceCategory: MediaCategory;
+  readonly targetCategory: MediaCategory;
+}
+
+/**
+ * Las comprobaciones previas, en orden: origen existente y de un tipo de medio conocido, formato de destino y que se pueda convertir de uno a otro, destino válido,
+ * distinto del origen, con carpeta padre, y qué hay ya en él.
+ */
+async function planConversion(args: ConvertArgs, deps: ConvertFileDeps): Promise<{ readonly ok: true; readonly plan: ConversionPlan } | { readonly ok: false; readonly result: MCPCallResult }> {
+  const refuse = (result: MCPCallResult) => ({ ok: false as const, result });
+  const allowedDirs = deps.getAllowedDirectories();
+
+  const srcResolved = await resolveExistingPath(args.source, deps.getEnvironment, allowedDirs, {
+    expectedKind: "file",
+    followSymlinkForAllowedCheck: true,
+    paramName: "source",
+  });
+  if (!srcResolved.ok) return refuse(fail(srcResolved.message, pathFailureData(srcResolved)));
+
+  const sourceExt = path.extname(srcResolved.realTarget).replace(/^\./, "").toLowerCase();
+  const sourceCategory = detectMediaCategory(sourceExt);
+  if (sourceCategory === undefined) {
+    return refuse(fail(`Unsupported source media format '.${sourceExt || "none"}' for convert_file.`, { reason: "unsupported_format" }));
+  }
+  if ((args.width !== undefined || args.height !== undefined) && sourceCategory === "audio") {
+    return refuse(fail("Cannot resize an audio file with 'width' or 'height'."));
+  }
+
+  let targetExt: string;
+  let rawDestPath: string;
+  if (args.target.kind === "destination") {
+    const { destination, format } = args.target;
+    const extFromDest = path.extname(destination).replace(/^\./, "").toLowerCase();
+    targetExt = extFromDest || format || "";
+    if (format !== undefined && extFromDest !== "" && format !== extFromDest) {
+      return refuse(fail(`'format' ('${format}') does not match 'destination' extension ('.${extFromDest}').`));
+    }
+    rawDestPath = destination;
+  } else {
+    targetExt = args.target.format;
+    const stem = path.basename(srcResolved.targetPath, path.extname(srcResolved.targetPath));
+    rawDestPath = joinEntryPath(dirnameOf(srcResolved.targetPath), `${stem}.${targetExt}`);
+  }
+
+  const targetCategory = detectMediaCategory(targetExt);
+  if (targetCategory === undefined) {
+    return refuse(fail(`Unsupported target media format '.${targetExt || "none"}' for convert_file.`, { reason: "unsupported_format" }));
+  }
+  if (!isConversionAllowed(sourceCategory, targetCategory, targetExt)) {
+    return refuse(fail(`Cannot convert ${sourceCategory} ('.${sourceExt}') to ${targetCategory} ('.${targetExt}').`, { reason: "incompatible_formats" }));
+  }
+
+  const dstResolved = await resolvePathTarget(rawDestPath, deps.getEnvironment, allowedDirs, {
+    allowEmptyAsHome: false,
+    paramName: "destination",
+  });
+  if (!dstResolved.ok) return refuse(fail(dstResolved.message, dstResolved.denied ? { reason: "denied" } : {}));
+  if (dstResolved.targetPath === srcResolved.targetPath) {
+    return refuse(fail("Source and destination refer to the same path; provide a distinct destination path or format.", { reason: "same_path" }));
+  }
+
+  const dstParent = dirnameOf(dstResolved.targetPath);
+  try {
+    const parentStat = await fs.promises.stat(dstParent);
+    if (!parentStat.isDirectory()) return refuse(fail(`Destination parent '${dstParent}' is not a folder.`));
+  } catch {
+    return refuse(fail(`Destination parent folder does not exist: '${dstParent}'.`));
+  }
+
+  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
+  if (dstInspection.status === "denied") return refuse(fail(dstInspection.message, { reason: "denied" }));
+  if (dstInspection.status === "error") return refuse(fail(dstInspection.message));
+  if (dstInspection.status === "exists") {
+    if (dstInspection.isDirectory) return refuse(fail(`Destination '${dstResolved.targetPath}' is a folder, not a file.`));
+    if (!args.overwrite) {
+      return refuse(fail(`Destination already exists: '${dstResolved.targetPath}'. Pass overwrite: true to replace.`, { reason: "already_exists" }));
+    }
+  }
+
+  return { ok: true, plan: { srcResolved, dstResolved, sourceExt, targetExt, sourceCategory, targetCategory } };
+}
+
 export async function runConvertFile(
   rawArgs: Record<string, unknown>,
   deps: ConvertFileDeps,
@@ -275,149 +426,13 @@ export async function runConvertFile(
 ): Promise<MCPCallResult> {
   if (options.signal?.aborted) return cancelledResult();
 
-  if (typeof rawArgs.source !== "string" || rawArgs.source.trim() === "") {
-    return fail("'source' is required: existing image, audio, or video file path.");
-  }
+  const parsed = parseConvertArgs(rawArgs);
+  if (!parsed.ok) return fail(parsed.message);
+  const { width, height, quality, overwrite } = parsed.args;
 
-  let destinationArg: string | undefined;
-  if (rawArgs.destination !== undefined && rawArgs.destination !== null) {
-    if (typeof rawArgs.destination !== "string" || rawArgs.destination.trim() === "") {
-      return fail("'destination' must be a non-empty file path.");
-    }
-    destinationArg = rawArgs.destination.trim();
-  }
-
-  let formatArg: string | undefined;
-  if (rawArgs.format !== undefined && rawArgs.format !== null) {
-    if (typeof rawArgs.format !== "string" || rawArgs.format.trim() === "") {
-      return fail("'format' must be a non-empty extension like 'png', 'mp3', or 'mp4'.");
-    }
-    formatArg = rawArgs.format.trim().replace(/^\./, "").toLowerCase();
-  }
-
-  if (destinationArg === undefined && formatArg === undefined) {
-    return fail("Provide 'destination' or target 'format' (e.g. 'webp', 'mp3', 'mp4').");
-  }
-
-  let width: number | undefined;
-  if (rawArgs.width !== undefined && rawArgs.width !== null) {
-    if (typeof rawArgs.width !== "number" || !Number.isInteger(rawArgs.width) || rawArgs.width < 1 || rawArgs.width > MAX_DIMENSION) {
-      return fail(`'width' must be an integer between 1 and ${MAX_DIMENSION}.`);
-    }
-    width = rawArgs.width;
-  }
-
-  let height: number | undefined;
-  if (rawArgs.height !== undefined && rawArgs.height !== null) {
-    if (typeof rawArgs.height !== "number" || !Number.isInteger(rawArgs.height) || rawArgs.height < 1 || rawArgs.height > MAX_DIMENSION) {
-      return fail(`'height' must be an integer between 1 and ${MAX_DIMENSION}.`);
-    }
-    height = rawArgs.height;
-  }
-
-  let quality: number | undefined;
-  if (rawArgs.quality !== undefined && rawArgs.quality !== null) {
-    if (typeof rawArgs.quality !== "number" || !Number.isInteger(rawArgs.quality) || rawArgs.quality < 1 || rawArgs.quality > 100) {
-      return fail("'quality' must be an integer between 1 and 100.");
-    }
-    quality = rawArgs.quality;
-  }
-
-  let overwrite = false;
-  if (rawArgs.overwrite !== undefined && rawArgs.overwrite !== null) {
-    if (typeof rawArgs.overwrite !== "boolean") return fail("'overwrite' must be true or false.");
-    overwrite = rawArgs.overwrite;
-  }
-
-  const allowedDirs = deps.getAllowedDirectories();
-  const srcResolved = await resolveExistingPath(rawArgs.source, deps.getEnvironment, allowedDirs, {
-    expectedKind: "file",
-    followSymlinkForAllowedCheck: true,
-    paramName: "source",
-  });
-  if (!srcResolved.ok) {
-    return fail(srcResolved.message, {
-      ...(srcResolved.denied ? { reason: "denied" } : srcResolved.notFound ? { reason: "not_found" } : {}),
-    });
-  }
-
-  const sourceExt = path.extname(srcResolved.realTarget).replace(/^\./, "").toLowerCase();
-  const sourceCategory = detectMediaCategory(sourceExt);
-  if (sourceCategory === undefined) {
-    return fail(`Unsupported source media format '.${sourceExt || "none"}' for convert_file.`, {
-      reason: "unsupported_format",
-    });
-  }
-
-  if ((width !== undefined || height !== undefined) && sourceCategory === "audio") {
-    return fail("Cannot resize an audio file with 'width' or 'height'.");
-  }
-
-  let targetExt: string;
-  let rawDestPath: string;
-  if (destinationArg !== undefined) {
-    rawDestPath = destinationArg;
-    const extFromDest = path.extname(destinationArg).replace(/^\./, "").toLowerCase();
-    targetExt = extFromDest || formatArg || "";
-    if (formatArg !== undefined && extFromDest !== "" && formatArg !== extFromDest) {
-      return fail(`'format' ('${formatArg}') does not match 'destination' extension ('.${extFromDest}').`);
-    }
-  } else {
-    targetExt = formatArg!;
-    const parent = dirnameOf(srcResolved.targetPath);
-    const stem = path.basename(srcResolved.targetPath, path.extname(srcResolved.targetPath));
-    rawDestPath = joinEntryPath(parent, `${stem}.${targetExt}`);
-  }
-
-  const targetCategory = detectMediaCategory(targetExt);
-  if (targetCategory === undefined) {
-    return fail(`Unsupported target media format '.${targetExt || "none"}' for convert_file.`, {
-      reason: "unsupported_format",
-    });
-  }
-  if (!isConversionAllowed(sourceCategory, targetCategory, targetExt)) {
-    return fail(`Cannot convert ${sourceCategory} ('.${sourceExt}') to ${targetCategory} ('.${targetExt}').`, {
-      reason: "incompatible_formats",
-    });
-  }
-
-  const dstResolved = await resolvePathTarget(rawDestPath, deps.getEnvironment, allowedDirs, {
-    allowEmptyAsHome: false,
-    paramName: "destination",
-  });
-  if (!dstResolved.ok) {
-    return fail(dstResolved.message, dstResolved.denied ? { reason: "denied" } : {});
-  }
-
-  if (dstResolved.targetPath === srcResolved.targetPath) {
-    return fail("Source and destination refer to the same path; provide a distinct destination path or format.", {
-      reason: "same_path",
-    });
-  }
-
-  const dstParent = dirnameOf(dstResolved.targetPath);
-  try {
-    const parentStat = await fs.promises.stat(dstParent);
-    if (!parentStat.isDirectory()) return fail(`Destination parent '${dstParent}' is not a folder.`);
-  } catch {
-    return fail(`Destination parent folder does not exist: '${dstParent}'.`);
-  }
-
-  const dstInspection = await inspectDestinationTarget(dstResolved.targetPath, allowedDirs, dstResolved.env.home);
-  if (dstInspection.status === "denied") {
-    return fail(dstInspection.message, { reason: "denied" });
-  }
-  if (dstInspection.status === "error") {
-    return fail(dstInspection.message);
-  }
-  if (dstInspection.status === "exists") {
-    if (dstInspection.isDirectory) return fail(`Destination '${dstResolved.targetPath}' is a folder, not a file.`);
-    if (!overwrite) {
-      return fail(`Destination already exists: '${dstResolved.targetPath}'. Pass overwrite: true to replace.`, {
-        reason: "already_exists",
-      });
-    }
-  }
+  const planned = await planConversion(parsed.args, deps);
+  if (!planned.ok) return planned.result;
+  const { srcResolved, dstResolved, sourceExt, targetExt, sourceCategory, targetCategory } = planned.plan;
 
   if (options.signal?.aborted) return cancelledResult();
 

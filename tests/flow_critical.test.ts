@@ -12,6 +12,7 @@ import { test } from "node:test";
 import { BUDGET } from "../src/core/budget.ts";
 import type { EngineDeps } from "../src/core/contracts.ts";
 import { create } from "../src/core/ctx/index.ts";
+import { possibleEffectsOf } from "../src/core/ctx/derive.ts";
 import type { TaskContext } from "../src/core/ctx/index.ts";
 import { FAKE_DISK } from "./fixtures.ts";
 import { LLMServiceUnavailableError } from "../src/core/models/transport.ts";
@@ -20,6 +21,7 @@ import { TaskRuntime } from "../src/core/engine/runtime.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";
 import { createRefVault, RefVaultError } from "../src/core/refs/refVault.ts";
+import { toolResult } from "../src/core/tools/result.ts";
 import type { MCPCallResult, MCPTool } from "../src/core/types.ts";
 
 const TIMING = { start: 0, end: 0, durationMs: 0 } as never;
@@ -718,3 +720,193 @@ test("reactivo: una racha de pasos fallidos SEGUIDOS corta recién al 7.º (maxE
   assert.equal(ctx.consecutiveFailures(), 7);
 });
 
+
+test("verificación: una web_search `found` no se le pregunta al modelo de decisión (el juez del buscador ya respondió la consulta)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-webfound-"));
+  try {
+    let verifyCalls = 0;
+    let pendingN = 0;
+    const ctx = makeCtx("task_webfound", "Busca opciones de hospedaje en Mendoza");
+    const webTools = [{ name: "web_search", description: "web_search", inputSchema: { type: "object", properties: { need: { type: "string" } } } } as MCPTool];
+    const server: IMCPServer = {
+      name: "jarvis_web",
+      version: "t",
+      listTools: async () => webTools,
+      callTool: async () => ({ content: [{ type: "text", text: "status: found · 3 passages from 3 sources\n[1] Hoteles en Mendoza desde $18.565" }] }),
+      isConnected: () => true,
+      reconnect: async () => undefined,
+    };
+    const deps: EngineDeps = {
+      discovery: {
+        getServer: (n) => (n === "jarvis_web" ? server : undefined),
+        getDiscoveredTools: async (n) => (n === "jarvis_web" ? webTools : []),
+        getUnavailableServers: () => ({}),
+        validateToolExists: async () => true,
+        notifyTaskEnd: async () => undefined,
+      },
+      decision: {
+        chooseRoute: async () => ({ action: "route", route: "web", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        chooseTool: async () => ({ action: "tool", tool: webTools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
+        // Si se la consultara, rechazaría (cumple 0,1): el paso solo completa si el código resolvió la verificación.
+        verifyResult: async () => {
+          verifyCalls++;
+          return { answers: { ok: 0.9, cumple: 0.1 }, rawInput: "", rawOutput: "" };
+        },
+        checkCompletion: async () => ({ requestComplete: 1, rawInput: "", rawOutput: "" }),
+      },
+      llm: {
+        generatePendingFromView: async () => ({ pending: ++pendingN === 1 ? ["Buscar opciones de hospedaje en Mendoza"] : [], rawInput: "", rawOutput: "" }),
+        generateArgumentsFromView: async () => ({ args: { need: "Opciones de hospedaje en Mendoza, Argentina" }, rawInput: "", rawOutput: "", timing: TIMING }),
+        generatePlanFromView: async () => {
+          throw new Error("no se usa");
+        },
+        generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
+        generateFinalFromView: async () => ({ response: "Listo.", rawInput: "", rawOutput: "" }),
+      },
+      vault: createRefVault({ dir: path.join(dir, "refs") }),
+      guardScope: { protectedDirs: [], relativeBases: [dir] },
+      blacklist: EMPTY_BLACKLIST,
+      environment: async () => ({ platform: "windows", home: "C:\Users\Ana" }),
+      autoMode: () => true,
+      approvalTiers: () => false,
+      disk: FAKE_DISK,
+    };
+    await runTask(ctx, new TaskRuntime(), deps);
+    assert.equal(verifyCalls, 0, "la verificación por código resolvió ok y cumple");
+    assert.equal(ctx.find("calls", {})[0]?.verdict, "approved");
+    assert.equal(ctx.task.state, "completed");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("alias con subruta: `desktop/Archivos/Documentos` se expande a la ruta real antes del Guard y se ejecuta (antes el Guard lo negaba como ruta del proyecto)", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-aliasflow-"));
+  try {
+    let pendingN = 0;
+    const received: Array<Record<string, unknown>> = [];
+    const ctx = makeCtx("task_aliasflow", "Crea la carpeta Archivos/Documentos en el escritorio");
+    const fileTools = [tool("create_folder")];
+    const server: IMCPServer = {
+      name: "jarvis_files_write",
+      version: "t",
+      listTools: async () => fileTools,
+      callTool: async (_name, args) => {
+        received.push(args);
+        return { content: [{ type: "text", text: "status: ok · created folder" }] };
+      },
+      isConnected: () => true,
+      reconnect: async () => undefined,
+    };
+    const deps: EngineDeps = {
+      discovery: {
+        getServer: (n) => (n.startsWith("jarvis_files_") ? server : undefined),
+        getDiscoveredTools: async (n) => (n.startsWith("jarvis_files_") ? fileTools : []),
+        getUnavailableServers: () => ({}),
+        validateToolExists: async () => true,
+        notifyTaskEnd: async () => undefined,
+      },
+      decision: {
+        chooseRoute: async () => ({ action: "route", route: "files_write", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        chooseTool: async () => ({ action: "tool", tool: fileTools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
+        verifyResult: async () => ({ answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" }),
+        checkCompletion: async () => ({ requestComplete: 1, rawInput: "", rawOutput: "" }),
+      },
+      llm: {
+        generatePendingFromView: async () => ({ pending: ++pendingN === 1 ? ["Crear la carpeta Archivos/Documentos en el escritorio"] : [], rawInput: "", rawOutput: "" }),
+        generateArgumentsFromView: async () => ({ args: { path: "desktop/Archivos/Documentos" }, rawInput: "", rawOutput: "", timing: TIMING }),
+        generatePlanFromView: async () => {
+          throw new Error("no se usa");
+        },
+        generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
+        generateFinalFromView: async () => ({ response: "Listo.", rawInput: "", rawOutput: "" }),
+      },
+      vault: createRefVault({ dir: path.join(dir, "refs") }),
+      // El proyecto es protegido y las rutas relativas se resuelven contra él: sin expandir el alias, `desktop/...` caía acá.
+      guardScope: { protectedDirs: [process.cwd()], relativeBases: [process.cwd()] },
+      blacklist: EMPTY_BLACKLIST,
+      environment: async () => ({ platform: "windows", home: "C:/Users/Ana", desktop: "C:/Users/Ana/Desktop" }),
+      autoMode: () => true,
+      approvalTiers: () => false,
+      disk: FAKE_DISK,
+    };
+    await runTask(ctx, new TaskRuntime(), deps);
+    assert.equal(received.length, 1, "la herramienta recibió la llamada");
+    assert.equal(String(received[0].path).replaceAll("\\", "/"), "C:/Users/Ana/Desktop/Archivos/Documentos", "con la ruta real, no con el alias");
+    assert.equal(ctx.find("calls", {})[0]?.status, "ok");
+    assert.equal(ctx.task.state, "completed");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("una escritura que no halló la carpeta (`not_found`) se rechaza sin consultar al modelo de verificación y no cuenta como posible cambio", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-wnf-"));
+  try {
+    let verifyCalls = 0;
+    let argN = 0;
+    const ctx = makeCtx("task_wnf", "Crea la carpeta Informes/2026 en mis documentos");
+    const writeTools = [tool("create_folder")];
+    const server: IMCPServer = {
+      name: "jarvis_files_write",
+      version: "t",
+      listTools: async () => writeTools,
+      callTool: async () =>
+        toolResult({
+          text: "Parent folder does not exist: 'C:/Users/Ana/Documents/Informes'.",
+          raw: "Parent folder does not exist: 'C:/Users/Ana/Documents/Informes'.",
+          data: { state: "error", reason: "not_found" },
+          isError: true,
+        }),
+      isConnected: () => true,
+      reconnect: async () => undefined,
+    };
+    const deps: EngineDeps = {
+      discovery: {
+        getServer: (n) => (n.startsWith("jarvis_files_") ? server : undefined),
+        getDiscoveredTools: async (n) => (n.startsWith("jarvis_files_") ? writeTools : []),
+        getUnavailableServers: () => ({}),
+        validateToolExists: async () => true,
+        notifyTaskEnd: async () => undefined,
+      },
+      decision: {
+        chooseRoute: async () => ({ action: "route", route: "files_write", probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        chooseTool: async () => ({ action: "tool", tool: writeTools[0], probabilities: {}, rawInput: "", rawOutput: "", shortcut: true }),
+        reviewArgs: async () => ({ review: "approved", probabilities: { approved: 1 }, rawInput: "", rawOutput: "" }),
+        verifyResult: async () => {
+          verifyCalls++;
+          return { answers: { ok: 0.95, cumple: 0.95 }, rawInput: "", rawOutput: "" };
+        },
+        checkCompletion: async () => ({ requestComplete: 0, rawInput: "", rawOutput: "" }),
+      },
+      llm: {
+        generatePendingFromView: async () => ({ pending: ["Crear la carpeta Informes/2026"], rawInput: "", rawOutput: "" }),
+        generateArgumentsFromView: async () => ({ args: { path: `C:/Users/Ana/Documents/Informes/${argN++}` }, rawInput: "", rawOutput: "", timing: TIMING }),
+        generatePlanFromView: async () => {
+          throw new Error("no se usa");
+        },
+        generateQuestion: async () => ({ question: "¿?", rawInput: "", rawOutput: "" }),
+        generateFinalFromView: async () => ({ response: "No pude.", rawInput: "", rawOutput: "" }),
+      },
+      vault: createRefVault({ dir: path.join(dir, "refs") }),
+      guardScope: { protectedDirs: [], relativeBases: [dir] },
+      blacklist: EMPTY_BLACKLIST,
+      environment: async () => ({ platform: "windows", home: "C:/Users/Ana", documents: "C:/Users/Ana/Documents" }),
+      autoMode: () => true,
+      approvalTiers: () => false,
+      disk: FAKE_DISK,
+    };
+    await runTask(ctx, new TaskRuntime(), deps);
+    const calls = ctx.find("calls", {});
+    assert.ok(calls.length > 0);
+    assert.equal(calls[0].status, "not_found");
+    assert.equal(calls[0].verdict, "rejected");
+    assert.equal(calls[0].reason, "no_usable_data");
+    assert.equal(verifyCalls, 0, "el rechazo es determinista: el modelo no se consulta");
+    assert.equal(possibleEffectsOf(calls).length, 0, "no se escribió nada: no es un posible cambio");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

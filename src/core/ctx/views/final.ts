@@ -26,7 +26,7 @@ export function buildFinalView(data: ContextData, options: FinalViewOptions): Fi
   const shown = effectIdsOf(data);
 
   const reads = lastReadsWithData(data.calls, options.lastReads).filter((c) => !shown.has(c.id));
-  reads.forEach((c) => shown.add(c.id));
+  for (const c of reads) shown.add(c.id);
 
   // Evidencia: las aprobadas primero (con su resumen) y, con los lugares que queden, las más recientes (líneas `L`).
   const rest = data.calls.filter((c) => !shown.has(c.id));

@@ -50,15 +50,20 @@ export function memoizeDecision(decision: IActionDecision): IActionDecision {
       if (key !== null) cache.set(key, result);
       return result;
     };
+  const { probe, continuation, firstQuery } = {
+    probe: decision.probe?.bind(decision),
+    continuation: decision.continuation?.bind(decision),
+    firstQuery: decision.firstQuery?.bind(decision),
+  };
   return {
     chooseRoute: memo("route", (i, s) => decision.chooseRoute(i, s)),
     chooseTool: memo("tool", (i, s) => decision.chooseTool(i, s)),
     reviewArgs: memo("review", (i, s) => decision.reviewArgs(i, s)),
     verifyResult: memo("verify", (i, s) => decision.verifyResult(i, s)),
     checkCompletion: memo("completion", (i, s) => decision.checkCompletion(i, s)),
-    ...(decision.probe === undefined ? {} : { probe: memo("probe", (i: ProbeQuery, s?: AbortSignal) => decision.probe!(i, s)) }),
-    ...(decision.continuation === undefined ? {} : { continuation: memo("continuation", (i: ContinuationInput, s?: AbortSignal) => decision.continuation!(i, s)) }),
-    ...(decision.firstQuery === undefined ? {} : { firstQuery: memo("first_query", (i: FirstQueryInput, s?: AbortSignal) => decision.firstQuery!(i, s)) }),
+    ...(probe === undefined ? {} : { probe: memo("probe", (i: ProbeQuery, s?: AbortSignal) => probe(i, s)) }),
+    ...(continuation === undefined ? {} : { continuation: memo("continuation", (i: ContinuationInput, s?: AbortSignal) => continuation(i, s)) }),
+    ...(firstQuery === undefined ? {} : { firstQuery: memo("first_query", (i: FirstQueryInput, s?: AbortSignal) => firstQuery(i, s)) }),
   };
 }
 

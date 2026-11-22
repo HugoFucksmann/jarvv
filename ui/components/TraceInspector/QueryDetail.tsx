@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Columns2, Rows2 } from "lucide-react";
 import type { TraceQuery } from "../../types/trace.ts";
 import { formatMs, stageInfo } from "../../utils/traceStages.ts";

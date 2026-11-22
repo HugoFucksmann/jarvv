@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { ShieldAlert, Check, X, Loader2, Terminal } from "lucide-react";
 import type { WaitingApproval } from "../../../types/api.ts";
 import type { ActionResult } from "../../../types/ui.ts";

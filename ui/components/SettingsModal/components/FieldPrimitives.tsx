@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Lock } from "lucide-react";
 
 export const INPUT_BASE =

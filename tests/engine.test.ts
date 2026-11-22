@@ -15,7 +15,7 @@ import { create } from "../src/core/ctx/index.ts";
 import type { TaskContext } from "../src/core/ctx/index.ts";
 import { runTask } from "../src/core/engine/runTask.ts";
 import { TaskRuntime } from "../src/core/engine/runtime.ts";
-import type { Waiting } from "../src/core/engine/runtime.ts";
+import type { Waiting } from "../src/core/types/waiting.ts";
 import { DecisionServiceUnavailableError, DecisionValidationError } from "../src/core/models/transport.ts";
 import type { IMCPServer } from "../src/core/mcp/types.ts";
 import { EMPTY_BLACKLIST } from "../src/core/policy/blacklist.ts";

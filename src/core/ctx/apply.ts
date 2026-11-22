@@ -76,7 +76,7 @@ interface Added {
 }
 
 function has(obj: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, key);
+  return Object.hasOwn(obj, key);
 }
 
 class Draft {

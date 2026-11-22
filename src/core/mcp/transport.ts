@@ -11,14 +11,13 @@
  *   directo.
  */
 
-import { MCPTool, MCPCallResult } from "../types.ts";
+import type { MCPTool, MCPCallResult } from "../types.ts";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { StdioServerConfig } from "../config.ts";
-import { RequestAbortedError } from "../models/transport.ts";
 import type { ToolCallOptions } from "../tools/provider.ts";
-import { errorMessage } from "../utils.ts";
+import { errorMessage, isRecord, RequestAbortedError } from "../utils.ts";
 
 /** Tope de una línea de salida del servidor sin salto de línea: un mensaje JSON-RPC es una línea; más que esto no es una respuesta, es un servidor descontrolado. */
 const MAX_STDOUT_BUFFER_CHARS = 32 * 1024 * 1024;
@@ -64,6 +63,61 @@ export interface IMCPTransport {
   isConnected(): boolean;
   reconnect(): Promise<void>;
   close?(): Promise<void>;
+}
+
+/** Lo que este cliente lee de un mensaje JSON-RPC del servidor (respuesta a una petición, o petición/notificación del servidor). */
+interface JsonRpcMessage {
+  readonly id?: unknown;
+  readonly method?: unknown;
+  readonly result?: unknown;
+  readonly error?: { readonly code?: unknown; readonly message?: unknown };
+}
+
+/** `null` si la línea no es un objeto JSON. */
+function parseRpcMessage(line: string): JsonRpcMessage | null {
+  try {
+    const value: unknown = JSON.parse(line);
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Cuánto se espera, como máximo, a que el proceso hijo salga tras pedirle que termine. */
+const TERMINATE_GRACE_MS = 2_000;
+
+/**
+ * Termina el proceso hijo (en Windows, todo su árbol: `/T`, forzado con `/F`, para no dejar `cmd.exe` huérfanos) y espera a que salga, con un tope.
+ * Así `reconnect()` no arranca el servidor nuevo mientras el viejo todavía está cerrándose.
+ */
+async function terminateProcess(child: ChildProcess, graceMs: number): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  const forceKill = (): void => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Último recurso: si ni `SIGKILL` pudo enviarse, el proceso ya no existe.
+    }
+  };
+  if (child.pid && process.platform === "win32") {
+    const killer = spawn("taskkill", ["/pid", child.pid.toString(), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    killer.once("error", forceKill);
+  } else {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // El fallo al terminar el proceso se ignora.
+    }
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    exited,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, graceMs);
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 export class StdioMcpTransport implements IMCPTransport {
@@ -126,7 +180,7 @@ export class StdioMcpTransport implements IMCPTransport {
     }
 
     this.initPromise = (async () => {
-      if (!this.config.command || !this.config.command.trim()) {
+      if (!this.config.command?.trim()) {
         const err = new MCPTransportError(
           this.serverName,
           `El comando stdio para '${this.serverName}' no está configurado.`
@@ -193,6 +247,8 @@ export class StdioMcpTransport implements IMCPTransport {
           this.connected = false;
           this.initialized = false;
           this.initPromise = null;
+          // Sin `pid` el proceso nunca arrancó (`spawn` falló): no hay nada que matar después.
+          if (child.pid === undefined) this.childProcess = null;
           const lastStderr = this.getLastStderr();
           if (lastStderr) {
             console.error(`[MCP] ${this.serverName} stderr: ${lastStderr}`);
@@ -296,23 +352,19 @@ export class StdioMcpTransport implements IMCPTransport {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      let msg: any;
-      try {
-        msg = JSON.parse(trimmed);
-      } catch {
-        continue;
-      }
+      const msg = parseRpcMessage(trimmed);
+      if (msg === null) continue;
 
       // Petición o notificación originada en el servidor: no es la respuesta a ninguna petición del
       // cliente, aunque su `id` coincida con el de una pendiente.
-      if (msg && typeof msg === "object" && typeof msg.method === "string") {
+      if (typeof msg.method === "string") {
         continue;
       }
 
-      if (msg && typeof msg === "object" && typeof msg.id !== "undefined") {
-        const reqId = msg.id;
+      const reqId = msg.id;
+      if (typeof reqId === "string" || typeof reqId === "number") {
         let pending = this.pendingRequests.get(reqId);
-        if (!pending && typeof reqId === "string" && !isNaN(Number(reqId))) {
+        if (!pending && typeof reqId === "string" && !Number.isNaN(Number(reqId))) {
           pending = this.pendingRequests.get(Number(reqId));
         } else if (!pending && typeof reqId === "number") {
           pending = this.pendingRequests.get(String(reqId));
@@ -353,7 +405,7 @@ export class StdioMcpTransport implements IMCPTransport {
   }
 
   private sendNotification(method: string, params: Record<string, unknown> = {}): void {
-    if (!this.childProcess || !this.childProcess.stdin || this.childProcess.stdin.destroyed) {
+    if (!this.childProcess?.stdin || this.childProcess.stdin.destroyed) {
       return;
     }
     const payload = {
@@ -362,7 +414,7 @@ export class StdioMcpTransport implements IMCPTransport {
       params,
     };
     try {
-      this.childProcess.stdin.write(JSON.stringify(payload) + "\n", "utf8");
+      this.childProcess.stdin.write(`${JSON.stringify(payload)}\n`, "utf8");
     } catch {
       // Una notificación no espera respuesta: un fallo de escritura se ignora.
     }
@@ -372,10 +424,11 @@ export class StdioMcpTransport implements IMCPTransport {
     if (signal?.aborted) {
       throw new RequestAbortedError();
     }
-    if (!this.childProcess || !this.childProcess.stdin || this.childProcess.stdin.destroyed) {
+    if (!this.childProcess?.stdin || this.childProcess.stdin.destroyed) {
       throw new MCPTransportError(this.serverName, "El stream stdin del proceso MCP no está disponible o fue cerrado.");
     }
 
+    const stdin = this.childProcess.stdin;
     const id = ++this.requestId;
     const payload = {
       jsonrpc: "2.0",
@@ -421,8 +474,7 @@ export class StdioMcpTransport implements IMCPTransport {
       signal?.addEventListener("abort", onAbort, { once: true });
 
       try {
-        const line = JSON.stringify(payload) + "\n";
-        this.childProcess!.stdin!.write(line, "utf8", (err) => {
+        stdin.write(`${JSON.stringify(payload)}\n`, "utf8", (err) => {
           if (err) {
             clearTimeout(timer);
             cleanup();
@@ -481,28 +533,8 @@ export class StdioMcpTransport implements IMCPTransport {
     this.stdoutBuffer = "";
     this.rejectAllPending(new MCPTransportError(this.serverName, "Transporte cerrado por reconexión o terminación."));
 
-    if (this.childProcess && !this.childProcess.killed) {
-      const pid = this.childProcess.pid;
-      if (pid && process.platform === "win32") {
-        try {
-          // En Windows, termina el árbol de procesos completo (/T) forzadamente (/F) para evitar huérfanos de cmd.exe
-          spawn("taskkill", ["/pid", pid.toString(), "/T", "/F"], {
-            stdio: "ignore",
-            windowsHide: true,
-          });
-        } catch {
-          try {
-            this.childProcess.kill("SIGKILL");
-          } catch { }
-        }
-      } else {
-        try {
-          this.childProcess.kill("SIGTERM");
-        } catch {
-          // El fallo al terminar el proceso se ignora.
-        }
-      }
-      this.childProcess = null;
-    }
+    const child = this.childProcess;
+    this.childProcess = null;
+    if (child && !child.killed) await terminateProcess(child, TERMINATE_GRACE_MS);
   }
 }

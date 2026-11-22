@@ -7,6 +7,7 @@
  */
 
 import { canonicalPath, isAnyAbsolute, stripExtendedPrefix } from "./allowedDirs.ts";
+import { canonicalJson } from "../utils.ts";
 import { pathValuesOf } from "./pathArgs.ts";
 
 const normPath = (value: string): string => {
@@ -19,15 +20,6 @@ const normPath = (value: string): string => {
   }
 };
 
-function stable(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
-  if (value !== null && typeof value === "object") {
-    const o = value as Record<string, unknown>;
-    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${stable(o[k])}`).join(",")}}`;
-  }
-  return JSON.stringify(value) ?? "null";
-}
-
 export function approvalKey(tool: string, args: Readonly<Record<string, unknown>>): string {
   if (typeof args.command === "string" && args.command.trim() !== "") {
     const cwd = typeof args.cwd === "string" ? normPath(args.cwd) : "";
@@ -35,5 +27,5 @@ export function approvalKey(tool: string, args: Readonly<Record<string, unknown>
   }
   const paths = pathValuesOf(args).map(normPath);
   if (paths.length > 0) return `${tool}|path|${paths.join(">")}`;
-  return `${tool}|args|${stable(args)}`;
+  return `${tool}|args|${canonicalJson(args)}`;
 }

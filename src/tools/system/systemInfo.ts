@@ -150,9 +150,9 @@ export interface SystemReader {
   readDateTime(): DateTimeInfo;
 }
 
+/** El plazo de las lecturas ya viene en el lector (`createDefaultSystemReader`): no hace falta repetirlo acá. */
 export interface SystemInfoDeps {
   readonly reader: SystemReader;
-  readonly defaultTimeoutMs: number;
 }
 
 type UnknownValue = { readonly status: "unknown"; readonly reason: string };
@@ -281,8 +281,10 @@ function firstLine(text: string): string {
 
 async function probeDevTool(tool: string, timeoutMs: number, signal?: AbortSignal): Promise<DevToolInfo> {
   const args = tool === "java" ? ["-version"] : tool === "go" ? ["version"] : ["--version"];
+  // En Windows npm/code son `.cmd`: Node no los ejecuta sin shell, así que se pasan por cmd.exe (nombre y argumentos fijos, sin entrada del usuario).
+  const viaCmd = process.platform === "win32" && (tool === "npm" || tool === "code");
   try {
-    const { stdout, stderr } = await execFileAsync(tool, args, {
+    const { stdout, stderr } = await execFileAsync(viaCmd ? "cmd.exe" : tool, viaCmd ? ["/d", "/s", "/c", `${tool} ${args.join(" ")}`] : args, {
       timeout: Math.min(timeoutMs, 3_000),
       windowsHide: true,
       signal,
@@ -292,6 +294,9 @@ async function probeDevTool(tool: string, timeoutMs: number, signal?: AbortSigna
   } catch (error) {
     const err = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
     if (err.code === "ENOENT") return { name: tool, installed: false };
+    // Vía cmd.exe, un programa que no está en el PATH no da ENOENT sino exit 1 con "no se reconoce / is not recognized".
+    if (viaCmd && /is not recognized|no se reconoce/i.test(`${err.stdout ?? ""}
+${err.stderr ?? ""}`)) return { name: tool, installed: false };
     const output = firstLine(`${err.stdout ?? ""}\n${err.stderr ?? ""}`);
     if (err.code === undefined && output !== "") return { name: tool, installed: true, version: output };
     return { name: tool, installed: "unknown", reason: errorMessage(error) };
@@ -503,6 +508,271 @@ function formatDiskLine(d: DiskInfo): string {
   return `${d.letter}${label} [${d.fileSystem}] ${formatSize(d.freeBytes)} free / ${formatSize(d.sizeBytes)} (${d.usedPercent}% used)`;
 }
 
+/** Lo que recibe cada sección: el lector del sistema, la señal de cancelación y los argumentos ya validados. */
+interface SectionContext {
+  readonly reader: SystemReader;
+  readonly signal: AbortSignal | undefined;
+  readonly args: ParsedSystemArgs;
+}
+
+type SectionRunner = (ctx: SectionContext) => Promise<MCPCallResult>;
+
+const sectionResult = (text: string, raw: string, truncated: boolean, sections: Record<string, unknown>): MCPCallResult =>
+  toolResult({ text, raw, data: { state: "ok", truncated, sections } });
+
+/** Cabecera y líneas ajustadas al presupuesto de texto (con el marcador de lo omitido); `raw` conserva todas las líneas. */
+function fitSection(header: string, lines: readonly string[], noun: string) {
+  const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax);
+  const omitted = lines.length - fitted.shown.length;
+  return {
+    text: [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, noun)] : [])].join("\n"),
+    raw: [header, ...lines].join("\n"),
+    truncated: fitted.truncated,
+    shown: fitted.shown.length,
+  };
+}
+
+/** Una lectura que puede fallar: si la cancelaron es `cancelled`; si falla por otra causa, un error que empieza con `failure`. */
+async function guarded(failure: string, signal: AbortSignal | undefined, read: () => Promise<MCPCallResult>): Promise<MCPCallResult> {
+  try {
+    return await read();
+  } catch (error) {
+    if (signal?.aborted) return cancelledResult();
+    return fail(`${failure}: ${errorMessage(error)}`);
+  }
+}
+
+// ───────────────────────── Lecturas que no abortan la sección si fallan ─────────────────────────
+
+type Safe<T, K extends string> = ({ readonly ok: true } & { readonly [P in K]: T }) | { readonly ok: false; readonly reason: string };
+
+function readHostSafe(reader: SystemReader): Safe<HostOsInfo, "host"> {
+  try {
+    return { ok: true, host: reader.readHost() };
+  } catch (error) {
+    return { ok: false, reason: errorMessage(error) };
+  }
+}
+
+async function readGpusSafe(reader: SystemReader, signal: AbortSignal | undefined): Promise<Safe<readonly string[], "gpus">> {
+  try {
+    return { ok: true, gpus: await reader.readGpus(signal) };
+  } catch (error) {
+    return { ok: false, reason: errorMessage(error) };
+  }
+}
+
+async function readDisksSafe(reader: SystemReader, signal: AbortSignal | undefined): Promise<Safe<readonly DiskInfo[], "disks">> {
+  try {
+    return { ok: true, disks: await reader.readDisks(signal) };
+  } catch (error) {
+    return { ok: false, reason: errorMessage(error) };
+  }
+}
+
+/** CPU, RAM y GPU: si falla una parte, esa parte sale como desconocida; solo si fallan las dos no hay sección. */
+async function buildHardware({ reader, signal }: SectionContext) {
+  const [hostRes, gpusRes] = [readHostSafe(reader), await readGpusSafe(reader, signal)];
+  if (!hostRes.ok && !gpusRes.ok) return { ok: false as const, reason: hostRes.reason };
+  const gpusValue = gpusRes.ok ? gpusRes.gpus : unknownValue(gpusRes.reason);
+  const gpuText = gpusRes.ok ? (gpusRes.gpus.length > 0 ? gpusRes.gpus.join(", ") : "none detected") : `unknown (${gpusRes.reason})`;
+
+  if (!hostRes.ok) {
+    return {
+      ok: true as const,
+      data: { cpuModel: unknownValue(hostRes.reason), cores: unknownValue(hostRes.reason), totalMemBytes: unknownValue(hostRes.reason), gpus: gpusValue },
+      lines: [`CPU: unknown (${hostRes.reason})`, `RAM: unknown (${hostRes.reason})`, `GPU: ${gpuText}`],
+    };
+  }
+  const h = hostRes.host;
+  return {
+    ok: true as const,
+    data: { cpuModel: h.cpuModel, cores: h.cores, totalMemBytes: h.totalMemBytes, freeMemBytes: h.freeMemBytes, gpus: gpusValue },
+    lines: [`CPU: ${h.cpuModel} (${h.cores} cores)`, `RAM: ${formatSize(h.freeMemBytes)} free / ${formatSize(h.totalMemBytes)}`, `GPU: ${gpuText}`],
+  };
+}
+
+function buildOs({ reader }: SectionContext) {
+  const hostRes = readHostSafe(reader);
+  if (!hostRes.ok) return { ok: false as const, reason: hostRes.reason };
+  const h = hostRes.host;
+  const userText = typeof h.user === "string" ? h.user : `unknown (${h.user.reason})`;
+  return {
+    ok: true as const,
+    data: { name: h.osName, version: h.osVersion, build: h.osBuild, arch: h.arch, uptimeSec: h.uptimeSec, user: h.user },
+    lines: [`OS: ${h.osName} ${h.osVersion} (build ${h.osBuild}, ${h.arch})`, `Uptime: ${formatUptime(h.uptimeSec)}`, `User: ${userText}`],
+  };
+}
+
+// ───────────────────────── Secciones ─────────────────────────
+
+const datetimeSection: SectionRunner = async ({ reader, signal }) =>
+  guarded("Could not read date/time", signal, async () => {
+    const dt = reader.readDateTime();
+    const sign = dt.utcOffsetMinutes >= 0 ? "+" : "-";
+    const absMins = Math.abs(dt.utcOffsetMinutes);
+    const offH = String(Math.floor(absMins / 60)).padStart(2, "0");
+    const offM = String(absMins % 60).padStart(2, "0");
+    const text = [
+      "status: ok · section: datetime",
+      `Local: ${dt.localDateTime} (UTC${sign}${offH}:${offM})`,
+      `Time zone: ${dt.timeZone}`,
+      `ISO: ${dt.iso}`,
+    ].join("\n");
+    return sectionResult(text, text, false, { datetime: dt });
+  });
+
+const networkSection: SectionRunner = async ({ reader, signal }) =>
+  guarded("Could not read network info", signal, async () => {
+    const net = await reader.readNetwork(signal);
+    if (signal?.aborted) return cancelledResult();
+    const lines: string[] = [`Hostname: ${net.hostname}`];
+    if (net.wifiSsid) lines.push(`Wi-Fi SSID: ${net.wifiSsid}`);
+    if (net.defaultGateway) lines.push(`Gateway: ${net.defaultGateway}`);
+    if (net.dnsServers && net.dnsServers.length > 0) lines.push(`DNS: ${net.dnsServers.join(", ")}`);
+    for (const iface of net.interfaces) {
+      const tag = iface.internal ? "loopback" : "external";
+      lines.push(`[${tag}] ${iface.name}: ${iface.addresses.join(", ")}${iface.mac ? ` (MAC ${iface.mac})` : ""}`);
+    }
+    const fitted = fitSection(`status: ok · section: network (${net.interfaces.length} interface(s))`, lines, "interfaces");
+    return sectionResult(fitted.text, fitted.raw, fitted.truncated, { network: net });
+  });
+
+const processesSection: SectionRunner = async ({ reader, signal, args }) =>
+  guarded("Could not list processes", signal, async () => {
+    const { sortBy, nameFilter, limit } = args;
+    const all = await reader.readProcesses(signal);
+    if (signal?.aborted) return cancelledResult();
+    const filtered = nameFilter ? all.filter((p) => p.name.toLowerCase().includes(nameFilter)) : [...all];
+    filtered.sort((a, b) => {
+      if (sortBy === "cpu") return b.cpuSec - a.cpuSec || b.memoryBytes - a.memoryBytes;
+      if (sortBy === "name") return a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.pid - b.pid;
+      return b.memoryBytes - a.memoryBytes || b.cpuSec - a.cpuSec;
+    });
+    const limited = filtered.slice(0, limit);
+    const lines =
+      limited.length === 0
+        ? ["No matching processes."]
+        : limited.map((p) => `PID ${p.pid} · ${p.name} · RAM ${formatSize(p.memoryBytes)} · CPU ${p.cpuSec.toFixed(1)}s${p.windowTitle ? ` · "${p.windowTitle}"` : ""}`);
+    const fitted = fitSection(`status: ok · section: processes (showing ${limited.length} of ${filtered.length}, sorted by ${sortBy})`, lines, "procesos");
+    return sectionResult(fitted.text, fitted.raw, fitted.truncated || limited.length < filtered.length, {
+      processes: { total: filtered.length, shown: Math.min(fitted.shown, limited.length), sortBy, items: limited },
+    });
+  });
+
+const portsSection: SectionRunner = async ({ reader, signal, args }) =>
+  guarded("Could not list ports", signal, async () => {
+    const { protocol, nameFilter, limit } = args;
+    const all = await reader.readPorts(signal);
+    if (signal?.aborted) return cancelledResult();
+    const filtered = all
+      .filter((p) => protocol === "all" || p.protocol === protocol)
+      .filter((p) => !nameFilter || (p.processName?.toLowerCase().includes(nameFilter) ?? false))
+      .sort((a, b) => a.localPort - b.localPort || a.protocol.localeCompare(b.protocol));
+    const limited = filtered.slice(0, limit);
+    const lines =
+      limited.length === 0
+        ? ["No listening ports matched."]
+        : limited.map((p) => `${p.protocol.toUpperCase()} ${p.localAddress}:${p.localPort}${p.state ? ` [${p.state}]` : ""} · PID ${p.pid}${p.processName ? ` (${p.processName})` : ""}`);
+    const fitted = fitSection(`status: ok · section: ports (${protocol}, showing ${limited.length} of ${filtered.length})`, lines, "puertos");
+    return sectionResult(fitted.text, fitted.raw, fitted.truncated || limited.length < filtered.length, {
+      ports: { total: filtered.length, shown: Math.min(fitted.shown, limited.length), protocol, items: limited },
+    });
+  });
+
+const servicesSection: SectionRunner = async ({ reader, signal, args }) =>
+  guarded("Could not read services", signal, async () => {
+    const { status, nameFilter, limit } = args;
+    const all = await reader.readServices(signal);
+    if (signal?.aborted) return cancelledResult();
+    const filtered = all
+      .filter((s) => status === "all" || s.status.toLowerCase() === status)
+      .filter((s) => !nameFilter || s.name.toLowerCase().includes(nameFilter) || s.displayName.toLowerCase().includes(nameFilter))
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const limited = filtered.slice(0, limit);
+    const lines = limited.length === 0 ? ["No matching services."] : limited.map((s) => `[${s.status}] ${s.name} — ${s.displayName}`);
+    const fitted = fitSection(`status: ok · section: services (${status}) · showing ${limited.length} of ${filtered.length}`, lines, "servicios");
+    return sectionResult(fitted.text, fitted.raw, fitted.truncated || limited.length < filtered.length, {
+      services: { filter: status, total: filtered.length, shown: Math.min(fitted.shown, limited.length), items: limited },
+    });
+  });
+
+const devToolsSection: SectionRunner = async ({ reader, signal }) =>
+  guarded("Could not check dev tools", signal, async () => {
+    const tools = await reader.readDevTools(DEV_TOOLS_LIST, signal);
+    if (signal?.aborted) return cancelledResult();
+    const lines = tools.map((t) =>
+      t.installed === true
+        ? `[installed] ${t.name}: ${t.version ?? "yes"}`
+        : t.installed === false
+          ? `[missing]   ${t.name}`
+          : `[unknown]   ${t.name}: ${t.reason ?? "unreadable"}`,
+    );
+    const installedCount = tools.filter((t) => t.installed === true).length;
+    const text = [`status: ok · section: dev_tools (${installedCount}/${tools.length} installed)`, ...lines].join("\n");
+    return sectionResult(text, text, false, { dev_tools: tools });
+  });
+
+const hardwareSection: SectionRunner = async (ctx) => {
+  const hw = await buildHardware(ctx);
+  if (ctx.signal?.aborted) return cancelledResult();
+  if (!hw.ok) return fail(`Could not read hardware info: ${hw.reason}`);
+  const text = ["status: ok · section: hardware", ...hw.lines].join("\n");
+  return sectionResult(text, text, false, { hardware: hw.data });
+};
+
+const osSection: SectionRunner = async (ctx) => {
+  const os = buildOs(ctx);
+  if (!os.ok) return fail(`Could not read OS info: ${os.reason}`);
+  const text = ["status: ok · section: os", ...os.lines].join("\n");
+  return sectionResult(text, text, false, { os: os.data });
+};
+
+const disksSection: SectionRunner = async ({ reader, signal }) => {
+  const res = await readDisksSafe(reader, signal);
+  if (signal?.aborted) return cancelledResult();
+  if (!res.ok) return fail(`Could not read disk info: ${res.reason}`);
+  const lines = res.disks.length === 0 ? ["No fixed disks detected."] : res.disks.map(formatDiskLine);
+  const fitted = fitSection(`status: ok · section: disks (${res.disks.length})`, lines, "discos");
+  return sectionResult(fitted.text, fitted.raw, fitted.truncated, { disks: res.disks });
+};
+
+/** Hardware, sistema y discos en una sola respuesta: lo que falla sale como desconocido; solo si falla todo es un error. */
+const overviewSection: SectionRunner = async (ctx) => {
+  const [hw, os, disks] = await Promise.all([buildHardware(ctx), Promise.resolve(buildOs(ctx)), readDisksSafe(ctx.reader, ctx.signal)]);
+  if (ctx.signal?.aborted) return cancelledResult();
+  if (!hw.ok && !os.ok && !disks.ok) return fail(`Could not read system overview: ${hw.reason}; ${os.reason}; ${disks.reason}`);
+  const text = [
+    "status: ok · section: overview",
+    ...(hw.ok ? hw.lines : [`Hardware: unknown (${hw.reason})`]),
+    ...(os.ok ? os.lines : [`OS: unknown (${os.reason})`]),
+    ...(disks.ok
+      ? disks.disks.length === 0
+        ? ["Disks: none detected"]
+        : ["Disks:", ...disks.disks.map((d) => `  ${formatDiskLine(d)}`)]
+      : [`Disks: unknown (${disks.reason})`]),
+  ].join("\n");
+  return sectionResult(text, text, false, {
+    hardware: hw.ok ? hw.data : unknownValue(hw.reason),
+    os: os.ok ? os.data : unknownValue(os.reason),
+    disks: disks.ok ? disks.disks : unknownValue(disks.reason),
+  });
+};
+
+/** Una función por sección: agregar una sección es agregar una fila (y su nombre en `SYSTEM_SECTIONS`). */
+const SECTION_RUNNERS: Record<SystemSection, SectionRunner> = {
+  overview: overviewSection,
+  hardware: hardwareSection,
+  os: osSection,
+  disks: disksSection,
+  services: servicesSection,
+  dev_tools: devToolsSection,
+  processes: processesSection,
+  ports: portsSection,
+  network: networkSection,
+  datetime: datetimeSection,
+};
+
 export async function runSystemInfo(
   rawArgs: Record<string, unknown>,
   deps: SystemInfoDeps,
@@ -512,308 +782,5 @@ export async function runSystemInfo(
 
   const parsed = parseArgs(rawArgs);
   if (!parsed.ok) return fail(parsed.message);
-  const { section, status, sortBy, protocol, nameFilter, limit } = parsed.args;
-  const reader = deps.reader;
-
-  const readHostSafe = (): { readonly ok: true; readonly host: HostOsInfo } | { readonly ok: false; readonly reason: string } => {
-    try {
-      return { ok: true, host: reader.readHost() };
-    } catch (error) {
-      return { ok: false, reason: errorMessage(error) };
-    }
-  };
-
-  if (section === "datetime") {
-    try {
-      const dt = reader.readDateTime();
-      const sign = dt.utcOffsetMinutes >= 0 ? "+" : "-";
-      const absMins = Math.abs(dt.utcOffsetMinutes);
-      const offH = String(Math.floor(absMins / 60)).padStart(2, "0");
-      const offM = String(absMins % 60).padStart(2, "0");
-      const lines = [
-        "status: ok · section: datetime",
-        `Local: ${dt.localDateTime} (UTC${sign}${offH}:${offM})`,
-        `Time zone: ${dt.timeZone}`,
-        `ISO: ${dt.iso}`,
-      ];
-      const text = lines.join("\n");
-      return toolResult({
-        text,
-        raw: text,
-        data: { state: "ok", truncated: false, sections: { datetime: dt } },
-      });
-    } catch (error) {
-      return fail(`Could not read date/time: ${errorMessage(error)}`);
-    }
-  }
-
-  if (section === "network") {
-    try {
-      const netInfo = await reader.readNetwork(options.signal);
-      if (options.signal?.aborted) return cancelledResult();
-      const lines: string[] = [`Hostname: ${netInfo.hostname}`];
-      if (netInfo.wifiSsid) lines.push(`Wi-Fi SSID: ${netInfo.wifiSsid}`);
-      if (netInfo.defaultGateway) lines.push(`Gateway: ${netInfo.defaultGateway}`);
-      if (netInfo.dnsServers && netInfo.dnsServers.length > 0) {
-        lines.push(`DNS: ${netInfo.dnsServers.join(", ")}`);
-      }
-      for (const iface of netInfo.interfaces) {
-        const tag = iface.internal ? "loopback" : "external";
-        lines.push(`[${tag}] ${iface.name}: ${iface.addresses.join(", ")}${iface.mac ? ` (MAC ${iface.mac})` : ""}`);
-      }
-      const header = `status: ok · section: network (${netInfo.interfaces.length} interface(s))`;
-      const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax);
-      const omitted = lines.length - fitted.shown.length;
-      const text = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "interfaces")] : [])].join("\n");
-      const raw = [header, ...lines].join("\n");
-      return toolResult({
-        text,
-        raw,
-        data: { state: "ok", truncated: fitted.truncated, sections: { network: netInfo } },
-      });
-    } catch (error) {
-      if (options.signal?.aborted) return cancelledResult();
-      return fail(`Could not read network info: ${errorMessage(error)}`);
-    }
-  }
-
-  if (section === "processes") {
-    try {
-      const all = await reader.readProcesses(options.signal);
-      if (options.signal?.aborted) return cancelledResult();
-      const filtered = nameFilter ? all.filter((p) => p.name.toLowerCase().includes(nameFilter)) : [...all];
-      filtered.sort((a, b) => {
-        if (sortBy === "cpu") return b.cpuSec - a.cpuSec || b.memoryBytes - a.memoryBytes;
-        if (sortBy === "name") return a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.pid - b.pid;
-        return b.memoryBytes - a.memoryBytes || b.cpuSec - a.cpuSec;
-      });
-      const limited = filtered.slice(0, limit);
-      const lines =
-        limited.length === 0
-          ? ["No matching processes."]
-          : limited.map(
-              (p) =>
-                `PID ${p.pid} · ${p.name} · RAM ${formatSize(p.memoryBytes)} · CPU ${p.cpuSec.toFixed(1)}s${p.windowTitle ? ` · "${p.windowTitle}"` : ""}`,
-            );
-      const header = `status: ok · section: processes (showing ${limited.length} of ${filtered.length}, sorted by ${sortBy})`;
-      const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax);
-      const omitted = lines.length - fitted.shown.length;
-      const text = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "procesos")] : [])].join("\n");
-      const raw = [header, ...lines].join("\n");
-      return toolResult({
-        text,
-        raw,
-        data: {
-          state: "ok",
-          truncated: fitted.truncated || limited.length < filtered.length,
-          sections: {
-            processes: { total: filtered.length, shown: fitted.shown.length, sortBy, items: limited },
-          },
-        },
-      });
-    } catch (error) {
-      if (options.signal?.aborted) return cancelledResult();
-      return fail(`Could not list processes: ${errorMessage(error)}`);
-    }
-  }
-
-  if (section === "ports") {
-    try {
-      const all = await reader.readPorts(options.signal);
-      if (options.signal?.aborted) return cancelledResult();
-      const filtered = all
-        .filter((p) => protocol === "all" || p.protocol === protocol)
-        .filter((p) => !nameFilter || (p.processName?.toLowerCase().includes(nameFilter) ?? false))
-        .sort((a, b) => a.localPort - b.localPort || a.protocol.localeCompare(b.protocol));
-      const limited = filtered.slice(0, limit);
-      const lines =
-        limited.length === 0
-          ? ["No listening ports matched."]
-          : limited.map(
-              (p) =>
-                `${p.protocol.toUpperCase()} ${p.localAddress}:${p.localPort}${p.state ? ` [${p.state}]` : ""} · PID ${p.pid}${p.processName ? ` (${p.processName})` : ""}`,
-            );
-      const header = `status: ok · section: ports (${protocol}, showing ${limited.length} of ${filtered.length})`;
-      const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax);
-      const omitted = lines.length - fitted.shown.length;
-      const text = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "puertos")] : [])].join("\n");
-      const raw = [header, ...lines].join("\n");
-      return toolResult({
-        text,
-        raw,
-        data: {
-          state: "ok",
-          truncated: fitted.truncated || limited.length < filtered.length,
-          sections: { ports: { total: filtered.length, shown: fitted.shown.length, protocol, items: limited } },
-        },
-      });
-    } catch (error) {
-      if (options.signal?.aborted) return cancelledResult();
-      return fail(`Could not list ports: ${errorMessage(error)}`);
-    }
-  }
-
-  const readGpusSafe = async () => {
-    try {
-      return { ok: true as const, gpus: await reader.readGpus(options.signal) };
-    } catch (error) {
-      return { ok: false as const, reason: errorMessage(error) };
-    }
-  };
-
-  const readDisksSafe = async () => {
-    try {
-      return { ok: true as const, disks: await reader.readDisks(options.signal) };
-    } catch (error) {
-      return { ok: false as const, reason: errorMessage(error) };
-    }
-  };
-
-  const buildHardware = async () => {
-    const [hostRes, gpusRes] = [readHostSafe(), await readGpusSafe()];
-    if (!hostRes.ok && !gpusRes.ok) return { ok: false as const, reason: hostRes.reason };
-    const gpusValue = gpusRes.ok ? gpusRes.gpus : unknownValue(gpusRes.reason);
-    const gpuText = gpusRes.ok ? (gpusRes.gpus.length > 0 ? gpusRes.gpus.join(", ") : "none detected") : `unknown (${gpusRes.reason})`;
-
-    if (!hostRes.ok) {
-      return {
-        ok: true as const,
-        data: { cpuModel: unknownValue(hostRes.reason), cores: unknownValue(hostRes.reason), totalMemBytes: unknownValue(hostRes.reason), gpus: gpusValue },
-        lines: [`CPU: unknown (${hostRes.reason})`, `RAM: unknown (${hostRes.reason})`, `GPU: ${gpuText}`],
-      };
-    }
-    const h = hostRes.host;
-    return {
-      ok: true as const,
-      data: { cpuModel: h.cpuModel, cores: h.cores, totalMemBytes: h.totalMemBytes, freeMemBytes: h.freeMemBytes, gpus: gpusValue },
-      lines: [
-        `CPU: ${h.cpuModel} (${h.cores} cores)`,
-        `RAM: ${formatSize(h.freeMemBytes)} free / ${formatSize(h.totalMemBytes)}`,
-        `GPU: ${gpuText}`,
-      ],
-    };
-  };
-
-  const buildOs = () => {
-    const hostRes = readHostSafe();
-    if (!hostRes.ok) return { ok: false as const, reason: hostRes.reason };
-    const h = hostRes.host;
-    const userText = typeof h.user === "string" ? h.user : `unknown (${h.user.reason})`;
-    return {
-      ok: true as const,
-      data: { name: h.osName, version: h.osVersion, build: h.osBuild, arch: h.arch, uptimeSec: h.uptimeSec, user: h.user },
-      lines: [
-        `OS: ${h.osName} ${h.osVersion} (build ${h.osBuild}, ${h.arch})`,
-        `Uptime: ${formatUptime(h.uptimeSec)}`,
-        `User: ${userText}`,
-      ],
-    };
-  };
-
-  if (section === "hardware") {
-    const hw = await buildHardware();
-    if (options.signal?.aborted) return cancelledResult();
-    if (!hw.ok) return fail(`Could not read hardware info: ${hw.reason}`);
-    const text = ["status: ok · section: hardware", ...hw.lines].join("\n");
-    return toolResult({ text, raw: text, data: { state: "ok", truncated: false, sections: { hardware: hw.data } } });
-  }
-
-  if (section === "os") {
-    const osSec = buildOs();
-    if (!osSec.ok) return fail(`Could not read OS info: ${osSec.reason}`);
-    const text = ["status: ok · section: os", ...osSec.lines].join("\n");
-    return toolResult({ text, raw: text, data: { state: "ok", truncated: false, sections: { os: osSec.data } } });
-  }
-
-  if (section === "disks") {
-    const disksRes = await readDisksSafe();
-    if (options.signal?.aborted) return cancelledResult();
-    if (!disksRes.ok) return fail(`Could not read disk info: ${disksRes.reason}`);
-    const lines = disksRes.disks.length === 0 ? ["No fixed disks detected."] : disksRes.disks.map(formatDiskLine);
-    const header = `status: ok · section: disks (${disksRes.disks.length})`;
-    const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax);
-    const omitted = lines.length - fitted.shown.length;
-    const text = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "discos")] : [])].join("\n");
-    return toolResult({ text, raw: [header, ...lines].join("\n"), data: { state: "ok", truncated: fitted.truncated, sections: { disks: disksRes.disks } } });
-  }
-
-  if (section === "overview") {
-    const [hw, osSec, disksRes] = await Promise.all([buildHardware(), Promise.resolve(buildOs()), readDisksSafe()]);
-    if (options.signal?.aborted) return cancelledResult();
-    if (!hw.ok && !osSec.ok && !disksRes.ok) {
-      return fail(`Could not read system overview: ${hw.reason}; ${osSec.reason}; ${disksRes.reason}`);
-    }
-    const text = [
-      "status: ok · section: overview",
-      ...(hw.ok ? hw.lines : [`Hardware: unknown (${hw.reason})`]),
-      ...(osSec.ok ? osSec.lines : [`OS: unknown (${osSec.reason})`]),
-      ...(disksRes.ok
-        ? disksRes.disks.length === 0
-          ? ["Disks: none detected"]
-          : ["Disks:", ...disksRes.disks.map((d) => `  ${formatDiskLine(d)}`)]
-        : [`Disks: unknown (${disksRes.reason})`]),
-    ].join("\n");
-    return toolResult({
-      text,
-      raw: text,
-      data: {
-        state: "ok",
-        truncated: false,
-        sections: {
-          hardware: hw.ok ? hw.data : unknownValue(hw.reason),
-          os: osSec.ok ? osSec.data : unknownValue(osSec.reason),
-          disks: disksRes.ok ? disksRes.disks : unknownValue(disksRes.reason),
-        },
-      },
-    });
-  }
-
-  if (section === "services") {
-    try {
-      const allServices = await reader.readServices(options.signal);
-      if (options.signal?.aborted) return cancelledResult();
-      const filtered = allServices
-        .filter((s) => status === "all" || s.status.toLowerCase() === status)
-        .filter((s) => !nameFilter || s.name.toLowerCase().includes(nameFilter) || s.displayName.toLowerCase().includes(nameFilter))
-        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      const limited = filtered.slice(0, limit);
-      const lines = limited.length === 0 ? ["No matching services."] : limited.map((s) => `[${s.status}] ${s.name} — ${s.displayName}`);
-      const header = `status: ok · section: services (${status}) · showing ${limited.length} of ${filtered.length}`;
-      const fitted = fitLinesToBudget(header, lines, BUDGET.summaryMax);
-      const omitted = lines.length - fitted.shown.length;
-      const text = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "servicios")] : [])].join("\n");
-      return toolResult({
-        text,
-        raw: [header, ...lines].join("\n"),
-        data: {
-          state: "ok",
-          truncated: fitted.truncated || limited.length < filtered.length,
-          sections: { services: { filter: status, total: filtered.length, shown: fitted.shown.length, items: limited } },
-        },
-      });
-    } catch (error) {
-      if (options.signal?.aborted) return cancelledResult();
-      return fail(`Could not read services: ${errorMessage(error)}`);
-    }
-  }
-
-  // section === "dev_tools"
-  try {
-    const toolsInfo = await reader.readDevTools(DEV_TOOLS_LIST, options.signal);
-    if (options.signal?.aborted) return cancelledResult();
-    const lines = toolsInfo.map((t) =>
-      t.installed === true
-        ? `[installed] ${t.name}: ${t.version ?? "yes"}`
-        : t.installed === false
-          ? `[missing]   ${t.name}`
-          : `[unknown]   ${t.name}: ${t.reason ?? "unreadable"}`,
-    );
-    const installedCount = toolsInfo.filter((t) => t.installed === true).length;
-    const header = `status: ok · section: dev_tools (${installedCount}/${toolsInfo.length} installed)`;
-    const text = [header, ...lines].join("\n");
-    return toolResult({ text, raw: text, data: { state: "ok", truncated: false, sections: { dev_tools: toolsInfo } } });
-  } catch (error) {
-    if (options.signal?.aborted) return cancelledResult();
-    return fail(`Could not check dev tools: ${errorMessage(error)}`);
-  }
+  return SECTION_RUNNERS[parsed.args.section]({ reader: deps.reader, signal: options.signal, args: parsed.args });
 }

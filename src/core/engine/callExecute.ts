@@ -91,7 +91,6 @@ export async function executeAndRecord(env: EngineEnv, call: PreparedCall): Prom
 
   // 9. Despacho: compite contra la cancelación.
   if (runtime.cancelled || ctx.isClosed()) return CANCELLED;
-  console.log(`[MCP → SEND] server=${mcp} tool=${toolName} args=${JSON.stringify(resolved).slice(0, 300)}`);
   const callOptions: ToolCallOptions = {
     signal: runtime.signal,
     taskId: ctx.task.id,
@@ -103,7 +102,6 @@ export async function executeAndRecord(env: EngineEnv, call: PreparedCall): Prom
   if (raced.kind === "cancelled") {
     if (ctx.isClosed()) return CANCELLED;
     const callId = recordCall(ctx, call, "interrupted");
-    console.warn(`[Engine] '${toolName}' interrumpida por la cancelación; si responde después, el resultado se descarta.`);
     return { kind: "cancelled", callId };
   }
   if (ctx.isClosed()) return CANCELLED;
@@ -124,13 +122,11 @@ export async function executeAndRecord(env: EngineEnv, call: PreparedCall): Prom
 
   if (raced.kind === "failed") {
     // `callTool` lanzó: la herramienta no produjo resultado. `exception` es de quien ejecuta (el procesador no lo produce).
-    console.error(`[MCP ← ERROR] server=${mcp} tool=${toolName}: ${errorMessage(raced.error)}`);
     const summary = summaryText(errorMessage(raced.error)) ?? "La herramienta lanzó una excepción.";
     return finishWithVerification(recordCall(ctx, call, "exception", summary), "exception");
   }
 
   // 10. Procesar el resultado.
-  console.log(`[MCP ← RECV] server=${mcp} tool=${toolName} result=${JSON.stringify(raced.value).slice(0, 400)}`);
   const processed = processResult(mcp, toolName, raced.value, resolved);
 
   // 11. Con `ref` (el resumen no contiene el resultado completo): disco → `add ref` → `add call` con `ref = rN`.

@@ -1,6 +1,6 @@
 import express from 'express';
-import { DiscoveryEngine } from '../core/mcp/discovery.ts';
-import { IMCPServer } from '../core/mcp/types.ts';
+import type { DiscoveryEngine } from '../core/mcp/discovery.ts';
+import type { IMCPServer } from '../core/mcp/types.ts';
 import { Guard } from '../core/policy/guard.ts';
 import { getToolPolicy } from '../core/tools/manifest.ts';
 import { errorMessage } from '../core/utils.ts';

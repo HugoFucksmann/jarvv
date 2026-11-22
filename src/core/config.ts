@@ -358,35 +358,35 @@ export class ConfigManager {
 
   /** Suscribe un oyente a los cambios de configuración (`updateConfig`). Devuelve la función para desuscribirse. */
   static onChange(listener: ConfigChangeListener): () => void {
-    this.changeListeners.add(listener);
+    ConfigManager.changeListeners.add(listener);
     return () => {
-      this.changeListeners.delete(listener);
+      ConfigManager.changeListeners.delete(listener);
     };
   }
 
   /** Copia profunda: modificarla no altera la configuración activa. */
   static getConfig(): JarvisConfig {
-    return structuredClone(this.currentConfig);
+    return structuredClone(ConfigManager.currentConfig);
   }
 
   static updateConfig(patch: ConfigPatch): JarvisConfig {
-    const prev = this.currentConfig;
+    const prev = ConfigManager.currentConfig;
     const next = normalize({
       ...prev,
       ...patch,
       freeSearchMcp: { ...prev.freeSearchMcp, ...patch.freeSearchMcp },
       qwenMaxTokens: { ...prev.qwenMaxTokens, ...patch.qwenMaxTokens },
     }, prev);
-    this.currentConfig = next;
-    this.saveConfig(next);
-    for (const listener of [...this.changeListeners]) {
+    ConfigManager.currentConfig = next;
+    ConfigManager.saveConfig(next);
+    for (const listener of [...ConfigManager.changeListeners]) {
       try {
         listener({ prev: structuredClone(prev), next: structuredClone(next) });
       } catch (error) {
         console.error("[ConfigManager] un suscriptor de onChange falló:", error);
       }
     }
-    return this.getConfig();
+    return ConfigManager.getConfig();
   }
 
   private static loadConfig(): JarvisConfig {

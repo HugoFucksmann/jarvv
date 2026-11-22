@@ -39,7 +39,7 @@ Mientras trabaja, vas viendo en la interfaz cada paso, cada herramienta y cada d
 <td width="50%" valign="top">
 
 ### 🏠 Local por diseño
-Los modelos corren en tu equipo con [Ollama](https://ollama.com). Tus instrucciones y tus archivos no viajan a ningún servicio de IA. El diseño está pensado para escucha local (`127.0.0.1` y filtro `Host`/`Origin` en `localOnly.ts`; actualmente el chequeo de arranque y `localOnly()` están comentados en `server.tsx` por compatibilidad con el sandbox de AI Studio Build).
+Los modelos corren en tu equipo con [Ollama](https://ollama.com). Tus instrucciones y tus archivos no viajan a ningún servicio de IA. El diseño está pensado para escucha local (`127.0.0.1` y filtro `Host`/`Origin` en `localOnly.ts`; `ALLOW_PROXY_HOST=1` apaga solo el chequeo de `Host`, para un sandbox con proxy).
 
 </td>
 <td width="50%" valign="top">
@@ -158,7 +158,7 @@ Luego iniciá con `NODE_ENV=production` y `npm start`.
 | Variable | Por defecto | Descripción |
 |---|---|---|
 | `PORT` | `3000` | Puerto del servidor (opcional; no viene en `.env.example`) |
-| `HOST` | `0.0.0.0` | Interfaz de red (no viene en `.env.example`; en uso local conviene fijar `HOST=127.0.0.1` porque la API no tiene autenticación; el chequeo estricto de loopback en `server.tsx` está comentado temporalmente por compatibilidad con AI Studio Build) |
+| `HOST` | `127.0.0.1` | Interfaz de red (no viene en `.env.example`). La API no tiene autenticación: el arranque rechaza un `HOST` que no sea loopback salvo `ALLOW_PROXY_HOST=1` |
 | `TELEGRAM_BOT_TOKEN` · `TELEGRAM_CHAT_ID` · `TELEGRAM_MODE` | — | Telegram, opcional (se leen del entorno o de `.env`; ver `.env.example` y [`TELEGRAM_Y_VOZ`](docs/operacion/TELEGRAM_Y_VOZ.md)). Sin token o sin `TELEGRAM_CHAT_ID` el bot no arranca |
 | `HF_TOKEN` | — | Solo para `scripts/phonon_server.py` (modelo de voz *gated* en Hugging Face) |
 
@@ -237,7 +237,7 @@ Esta es una **versión temprana ([v0.7.0](CHANGELOG.md))**: el flujo completo fu
 | **Tareas largas** | ⚠️ Con muchos pasos y reintentos el contexto crece y el modelo chico pierde precisión; hay compactación, pero falta medirla |
 | **Validaciones** | ⚠️ La revisión de argumentos (Decisión 3) y la verificación de resultados (Decisión 4) usan umbrales iniciales (0,6) sin calibrar con uso real |
 | **Evaluación** | ⚠️ El laboratorio funciona, pero los datasets y las variantes se cargan a mano: no es 100 % autónomo y aún no evalúa tareas completas de punta a punta |
-| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` es `false` por defecto en código (`true` en el `jarvis-config.json` incluido, junto con `approvalTiers: true`); con niveles activos solo lo rojo y lo obligatorio piden confirmación humana. La API no tiene autenticación (`localOnly.ts` define el filtro de `Host`/`Origin`, actualmente comentado junto al chequeo de loopback en `server.tsx` por compatibilidad con AI Studio Build) y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Los servidores MCP se lanzan con versión fija. **No expongas el servidor fuera de `localhost`** |
+| **Seguridad** | ⚠️ Guard y las reglas de comando integradas cubren lo destructivo de Windows y Linux (borrados, apagado, discos, usuarios, registro…), incluidos Defender, firewall, descargas a disco y tareas programadas, pero no son una barrera contra un atacante (no resuelven variables definidas por el mismo comando ni comandos armados por concatenación). `autoMode` es `false` por defecto en código (`true` en el `jarvis-config.json` incluido, junto con `approvalTiers: true`); con niveles activos solo lo rojo y lo obligatorio piden confirmación humana. La API no tiene autenticación (`localOnly.ts` filtra `Host` y `Origin`, y el arranque exige escuchar en loopback; `ALLOW_PROXY_HOST=1` apaga lo segundo y el chequeo de `Host`, para un sandbox con proxy) y `POST /config` no puede cambiar el comando de los servidores MCP ni las carpetas de escritura. Los servidores MCP se lanzan con versión fija. **No expongas el servidor fuera de `localhost`** |
 | **Plataforma** | ⚠️ Pensado y probado en Windows con PowerShell. No se ofrece un shell Linux dentro de Windows (WSL, Git Bash) y en otros sistemas no está validado |
 | **Herramientas** | Herramientas en tres destinos; el catálogo es cerrado a propósito |
 

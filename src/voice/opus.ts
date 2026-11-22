@@ -47,8 +47,17 @@ export function pcmToOggOpus(pcm: Buffer): Promise<Buffer> {
     ]);
     const out: Buffer[] = [];
     ff.stdout.on("data", (d: Buffer) => out.push(d));
+    // `stderr` se consume siempre (si no, un pipe lleno frena a ffmpeg) y su última línea explica el fallo.
+    let stderr = "";
+    ff.stderr.on("data", (d: Buffer) => {
+      stderr = (stderr + d.toString("utf8")).slice(-2_000);
+    });
     ff.on("error", (e: NodeJS.ErrnoException) => reject(e.code === "ENOENT" ? new Error(MISSING) : e));
-    ff.on("close", (code) => (code === 0 ? resolve(Buffer.concat(out)) : reject(new Error(`ffmpeg terminó con código ${code}`))));
+    ff.on("close", (code) => {
+      if (code === 0) return resolve(Buffer.concat(out));
+      const reason = stderr.trim().split(/\r?\n/).pop();
+      reject(new Error(`ffmpeg terminó con código ${code}${reason ? `: ${reason}` : ""}`));
+    });
     ff.stdin.on("error", () => { /* ffmpeg cerró la entrada antes de tiempo: el error sale por `close` */ });
     ff.stdin.end(pcm);
   });

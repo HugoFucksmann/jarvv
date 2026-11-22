@@ -150,3 +150,110 @@ test("Progress tacha un paso descartado aunque el parche traiga solo superseded 
   assert.equal(p.apply(replaced), true);
   assert.ok(p.render("h").includes("<s>⏳ 1. leer</s> (descartado)"));
 });
+
+import type { Waiting } from "../src/core/types/waiting.ts";
+import { AUTO_SPEC, runSwitch, voiceSwitchOf } from "../src/telegram/switches.ts";
+import { APPROVAL_ARGS_MAX, describeWaiting, tagOf, waitKey } from "../src/telegram/waitingPrompt.ts";
+
+const callbacks = (kb: { readonly inline_keyboard: readonly (readonly object[])[] }): string[] =>
+  kb.inline_keyboard.flat().map((b) => ("callback_data" in b && typeof b.callback_data === "string" ? b.callback_data : ""));
+
+const planWait = { kind: "plan", request: { id: "plan-wait-id-1", steps: [{ instruction: "Hacer A" }, { instruction: "Hacer B" }] } } as unknown as Waiting;
+const approvalWait = (args: unknown, canRemember: boolean): Waiting =>
+  ({ kind: "approval", request: { id: "approval-id-1", mcp: "jarvis_files_write", tool: "write_file", capability: "FILE_WRITE", reason: "porque sí", args, canRemember } }) as unknown as Waiting;
+const questionWait = { kind: "question", question: { stepId: "s3", question: "¿Qué nombre?" } } as unknown as Waiting;
+
+test("describeWaiting: un plan muestra sus pasos y ofrece aceptar, modificar y rechazar con la etiqueta de la espera", () => {
+  const { markdown, keyboard } = describeWaiting(planWait);
+  assert.ok(markdown.includes("1. Hacer A") && markdown.includes("2. Hacer B"));
+  const tag = tagOf(planWait);
+  assert.deepEqual(callbacks(keyboard), [`pa:${tag}`, `pm:${tag}`, `pr:${tag}`]);
+  assert.equal(tag.length, 8, "Telegram limita el callback_data a 64 bytes");
+});
+
+test("describeWaiting: una aprobación revisable ofrece aprobar (y «siempre» solo si se puede recordar); si no cabe en el chat, solo denegar o cancelar", () => {
+  const small = describeWaiting(approvalWait({ path: "a.txt" }, true));
+  assert.deepEqual(callbacks(small.keyboard).map((c) => c.split(":")[0]), ["aa", "al", "ad", "cx"]);
+  assert.ok(small.markdown.includes("jarvis_files_write/write_file") && small.markdown.includes("porque sí"));
+
+  const noRemember = describeWaiting(approvalWait({ path: "a.txt" }, false));
+  assert.deepEqual(callbacks(noRemember.keyboard).map((c) => c.split(":")[0]), ["aa", "ad", "cx"]);
+
+  const long = describeWaiting(approvalWait({ content: "x".repeat(APPROVAL_ARGS_MAX + 10) }, true));
+  assert.deepEqual(callbacks(long.keyboard).map((c) => c.split(":")[0]), ["ad", "cx"], "lo que no se pudo leer entero no se aprueba desde el chat");
+  assert.ok(long.markdown.includes("demasiado largos"));
+});
+
+test("describeWaiting: una pregunta pide responder con un mensaje y solo ofrece cancelar; la clave de la espera distingue pregunta de petición", () => {
+  const { markdown, keyboard } = describeWaiting(questionWait);
+  assert.ok(markdown.includes("¿Qué nombre?") && markdown.includes("Responde con un mensaje"));
+  assert.deepEqual(callbacks(keyboard), [`cx:${tagOf(questionWait)}`]);
+  assert.equal(waitKey(questionWait), "qs3");
+  assert.equal(waitKey(planWait), "plan-wait-id-1");
+});
+
+test("voiceSwitchOf: `/voz on|off` es la nota de voz de Telegram y `/voz ui on|off` la voz de la interfaz", () => {
+  assert.deepEqual([voiceSwitchOf("on").spec.key, voiceSwitchOf("on").arg], ["telegramVoice", "on"]);
+  assert.deepEqual([voiceSwitchOf("").spec.key, voiceSwitchOf("").arg], ["telegramVoice", ""]);
+  assert.deepEqual([voiceSwitchOf("ui off").spec.key, voiceSwitchOf("ui off").arg], ["voiceEnabled", "off"]);
+  assert.deepEqual([voiceSwitchOf("UI").spec.key, voiceSwitchOf("UI").arg], ["voiceEnabled", ""]);
+});
+
+function fakeSwitchApi(current: boolean | null) {
+  const posts: unknown[] = [];
+  const api = {
+    get: async () => (current === null ? { ok: false as const, error: "caído" } : { ok: true as const, data: { autoMode: current } }),
+    post: async (_path: string, body: unknown) => {
+      posts.push(body);
+      return { ok: true as const, data: {} };
+    },
+  };
+  return { api: api as never, posts };
+}
+function fakeCtx() {
+  const replies: { text: string; markup: unknown }[] = [];
+  const ctx = { reply: async (text: string, extra?: { reply_markup?: unknown }) => void replies.push({ text, markup: extra?.reply_markup }) };
+  return { ctx: ctx as never, replies };
+}
+
+test("runSwitch: sin argumento muestra el estado; un argumento inválido da el uso; repetir el estado no escribe", async () => {
+  const state = fakeSwitchApi(true);
+  const c1 = fakeCtx();
+  await runSwitch(state.api, c1.ctx, AUTO_SPEC, "");
+  assert.match(c1.replies[0].text, /Modo automático de Guard: activado/);
+
+  const c2 = fakeCtx();
+  await runSwitch(state.api, c2.ctx, AUTO_SPEC, "quizás");
+  assert.match(c2.replies[0].text, /^Uso: \/auto on o \/auto off/);
+
+  const c3 = fakeCtx();
+  await runSwitch(state.api, c3.ctx, AUTO_SPEC, "on");
+  assert.match(c3.replies[0].text, /ya está activado/);
+  assert.equal(state.posts.length, 0);
+});
+
+test("runSwitch: encender el modo automático pide confirmar con botones; apagarlo escribe directo; sin poder leer la configuración, avisa", async () => {
+  const off = fakeSwitchApi(false);
+  const ask = fakeCtx();
+  await runSwitch(off.api, ask.ctx, AUTO_SPEC, "on");
+  assert.deepEqual(callbacks(ask.replies[0].markup as never), ["ao:y", "ao:n"]);
+  assert.equal(off.posts.length, 0, "no se escribe hasta confirmar");
+
+  const on = fakeSwitchApi(true);
+  const done = fakeCtx();
+  await runSwitch(on.api, done.ctx, AUTO_SPEC, "off");
+  assert.deepEqual(on.posts, [{ autoMode: false }]);
+  assert.match(done.replies[0].text, /desactivado/);
+
+  const down = fakeSwitchApi(null);
+  const warn = fakeCtx();
+  await runSwitch(down.api, warn.ctx, AUTO_SPEC, "on");
+  assert.match(warn.replies[0].text, /No se pudo leer la configuración/);
+});
+
+test("mdToHtml: un NUL que venga en el texto no se confunde con la marca de un bloque de código", () => {
+  const html = mdToHtml("antes \u00000\u0000 despues\n```\ncodigo\n```");
+  assert.ok(html.includes("<pre>codigo</pre>"), "el bloque de código real se restaura");
+  assert.equal(html.includes("\u0000"), false);
+  assert.ok(html.includes("antes 0 despues"), "el NUL de la entrada se descarta y su texto queda");
+});

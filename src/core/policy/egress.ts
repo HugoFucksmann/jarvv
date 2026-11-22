@@ -56,7 +56,7 @@ export function egressFinding(mcp: string, tool: string, args: Readonly<Record<s
       if (isUrlArg(key) && !rule.inUrls) continue;
       if (rule.id === "long-blob") {
         const tokens = text.match(LONG_BLOB_TOKENS);
-        if (tokens && tokens.some((tok) => tok.length >= 40 && !HEX_SHA_RE.test(tok))) {
+        if (tokens?.some((tok) => tok.length >= 40 && !HEX_SHA_RE.test(tok))) {
           return { id: rule.id, reason: rule.reason };
         }
         continue;

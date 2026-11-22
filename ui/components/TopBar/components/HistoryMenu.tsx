@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from "react";
+import type React from "react";
+import { useState, useRef, useEffect } from "react";
 import { History, ChevronDown, Check } from "lucide-react";
 import type { TaskSummary } from "../../../types/api.ts";
 import { StatusDot } from "../../Shared/StatusDot.tsx";

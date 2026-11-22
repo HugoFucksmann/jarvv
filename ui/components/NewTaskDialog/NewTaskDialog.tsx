@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import type React from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 interface NewTaskDialogProps {

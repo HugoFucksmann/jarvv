@@ -25,7 +25,7 @@ import { clipWithin } from "./args.ts";
 import type { PlanFromViewInput } from "../contracts.ts";
 import type { EngineEnv } from "./env.ts";
 import { closeOnFailure, pauseOf, queryModel } from "./failures.ts";
-import type { PlanApprovalOutcome } from "./runtime.ts";
+import type { PlanApprovalOutcome } from "../types/waiting.ts";
 
 export type PlanRequest =
   | { readonly kind: "initial" }

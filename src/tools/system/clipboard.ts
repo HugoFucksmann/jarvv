@@ -18,6 +18,8 @@ import { errorMessage } from "../../core/utils.ts";
 export const DEFAULT_CLIPBOARD_TIMEOUT_MS = 5_000;
 export const MAX_CLIPBOARD_WRITE_CHARS = 1_000_000;
 const MAX_STDERR_BYTES = 64 * 1024;
+/** Lo máximo que se lee del portapapeles: el doble de lo que se deja escribir, en bytes (UTF-8 usa hasta 4 por carácter). Más que eso es un error, no un texto cortado. */
+export const MAX_CLIPBOARD_READ_BYTES = MAX_CLIPBOARD_WRITE_CHARS * 4;
 
 export interface ClipboardDriver {
   read(signal?: AbortSignal): Promise<string>;
@@ -48,7 +50,7 @@ const PS_WRITE_CLIPBOARD = [
   "Set-Clipboard -Value $text",
 ].join("; ");
 
-function runPowerShellIo(
+export function runPowerShellIo(
   script: string,
   stdinText: string | undefined,
   timeoutMs: number,
@@ -68,6 +70,7 @@ function runPowerShellIo(
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let stderrBytes = 0;
+    let stdoutBytes = 0;
     let settled = false;
 
     const cleanup = () => {
@@ -114,7 +117,19 @@ function runPowerShellIo(
     child.stdin.on("error", () => {});
     child.stdout.on("error", () => {});
     child.stderr.on("error", () => {});
-    child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > MAX_CLIPBOARD_READ_BYTES) {
+        try {
+          child.kill();
+        } catch {
+          // ignore
+        }
+        finishErr(new Error(`The clipboard holds more than ${MAX_CLIPBOARD_READ_BYTES} bytes: too large to read.`));
+        return;
+      }
+      stdoutChunks.push(chunk);
+    });
     child.stderr.on("data", (chunk: Buffer) => {
       if (stderrBytes >= MAX_STDERR_BYTES) return;
       const slice = chunk.length + stderrBytes > MAX_STDERR_BYTES ? chunk.subarray(0, MAX_STDERR_BYTES - stderrBytes) : chunk;

@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { Zap, ListChecks } from "lucide-react";
 import type { ExecutionMode } from "../../../types/ui.ts";
 import { MODE_LABELS } from "../../../utils/taskStatus.ts";

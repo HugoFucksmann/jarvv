@@ -160,7 +160,8 @@ test("system_info: cubre hardware, os, disks, services, dev_tools, overview, net
   assert.ok(procLines[1].includes("chrome"));
 
   const procFilter = await provider.callTool("system_info", { section: "processes", nameFilter: "node" });
-  assert.equal(((readToolResult(procFilter)?.data.sections as any).processes.total), 1);
+  const sections = readToolResult(procFilter)?.data.sections as { processes: { total: number } } | undefined;
+  assert.equal(sections?.processes.total, 1);
 
   // ports con filtro por protocolo
   const tcpRes = await provider.callTool("system_info", { section: "ports", protocol: "tcp" });

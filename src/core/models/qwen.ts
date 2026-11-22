@@ -55,13 +55,13 @@ import type { PromptSet, StageRequest } from "./stageRequests.ts";
 import {
   estimateTokens,
   postJson,
+  type PostJsonResult,
   LLMServiceUnavailableError,
   LLMValidationError,
-  RequestAbortedError,
   TransportError,
 } from "./transport.ts";
 import { resolveModelTimeoutMs } from "../timeouts.ts";
-import { errorMessage, isRecord, schemaTypes } from "../utils.ts";
+import { isRecord, schemaTypes } from "../utils.ts";
 
 type JsonSchema = Record<string, unknown>;
 
@@ -331,26 +331,6 @@ export class QwenEngine implements EngineLLM {
     private readonly prompts: PromptSet = PROMPTS,
   ) { }
 
-  /** Registro de duración y errores por etapa. La cancelación no se registra como error. */
-  private async executeStage<T>(stage: string, fn: () => Promise<T>): Promise<T> {
-    const t0 = Date.now();
-    console.log(`[Qwen] ${stage} start`);
-    try {
-      const result = await fn();
-      console.log(`[Qwen] ${stage} done duration=${Date.now() - t0}ms`);
-      return result;
-    } catch (err) {
-      const duration = Date.now() - t0;
-      if (err instanceof RequestAbortedError) {
-        console.log(`[Qwen] ${stage} cancelled duration=${duration}ms`);
-      } else {
-        const msg = errorMessage(err).replace(/\r?\n/g, " ").slice(0, 160);
-        console.error(`[Qwen] ${stage} error=${msg} duration=${duration}ms`);
-      }
-      throw err;
-    }
-  }
-
   private resolveUrl(raw: string): string {
     const result = chatCompletionsUrl(raw);
     if (result.ok) return result.url;
@@ -420,12 +400,10 @@ export class QwenEngine implements EngineLLM {
     const body = this.buildRequestBody(o, config.qwenModel, maxTokens);
     const rawInput = JSON.stringify(body, null, 2);
 
-    console.log(`[Qwen → SEND] stage=${o.stage} system=${JSON.stringify(o.system).slice(0, 200)} user=${JSON.stringify(o.user).slice(0, 300)}`);
-
     const t0 = Date.now();
     const elapsed = (): TimeSpan => ({ startedAt: t0, durationMs: Date.now() - t0 });
     const timeoutMs = resolveModelTimeoutMs(config, config.qwenModel, o.thinking ? "qwenThinking" : "qwen");
-    let result;
+    let result: PostJsonResult;
     try {
       result = await postJson({ url, body: JSON.stringify(body), timeoutMs, signal: o.signal });
     } catch (err) {
@@ -460,10 +438,6 @@ export class QwenEngine implements EngineLLM {
     const { content, finishReason, promptTokens, completionTokens, rawOutput } = readCompletion(data);
     const truncated = finishReason === "length";
 
-    console.log(`[Qwen ← RECV] stage=${o.stage} raw=${rawOutput.slice(0, 400)}`);
-    console.log(
-      `[Qwen] stage=${o.stage} tokens=(in=${promptTokens}, out=${completionTokens}, max=${maxTokens}) finish_reason=${finishReason}${truncated ? " [LENGTH_EXCEEDED]" : ""} thinking=${o.thinking ? "yes" : "no"} duration=${Date.now() - t0}ms`
-    );
     if (promptTokens + completionTokens >= config.qwenNumCtx) {
       console.warn(`[Qwen] stage=${o.stage} agotó el contexto (${promptTokens + completionTokens}/${config.qwenNumCtx}); el servidor pudo recortar el prompt.`);
     }
@@ -513,27 +487,23 @@ export class QwenEngine implements EngineLLM {
 
   /** Argumentos desde la vista estructurada: validados contra el schema de la herramienta, con un reintento. */
   async generateArgumentsFromView(input: ArgsFromViewInput, signal?: AbortSignal): Promise<ArgumentsGenerationResult> {
-    return this.executeStage("generateArgumentsFromView", () =>
-      this.runArguments(input.tool, argumentsStageRequest(input, this.getConfig(), this.prompts), signal)
-    );
+    return this.runArguments(input.tool, argumentsStageRequest(input, this.getConfig(), this.prompts), signal);
   }
 
   /** Texto de la pregunta al usuario (`ask_user`, Fase 5). Salida vacía: un reintento aquí; si persiste, `LLMValidationError`. */
   async generateQuestion(input: QuestionInput, signal?: AbortSignal): Promise<QuestionGenerationResult> {
-    return this.executeStage("generateQuestion", async () => {
-      const { value, res } = await this.dispatchValidated<string>({
-        ...questionStageRequest(input, this.prompts),
-        signal,
-        validate: (r, isLast) => {
-          const text = stripThink(r.content).trim();
-          if (!text) return fail("salida vacía");
-          if (!r.truncated) return ok(text);
-          return isLast ? ok(text) : fail(TRUNCATED);
-        },
-      });
-
-      return { question: value, ...rawOf(res) };
+    const { value, res } = await this.dispatchValidated<string>({
+      ...questionStageRequest(input, this.prompts),
+      signal,
+      validate: (r, isLast) => {
+        const text = stripThink(r.content).trim();
+        if (!text) return fail("salida vacía");
+        if (!r.truncated) return ok(text);
+        return isLast ? ok(text) : fail(TRUNCATED);
+      },
     });
+
+    return { question: value, ...rawOf(res) };
   }
 
   /**
@@ -541,19 +511,17 @@ export class QwenEngine implements EngineLLM {
    * ítem que no es texto o está vacío es salida inválida y se repite una vez.
    */
   async generatePendingFromView(input: PendingFromViewInput, signal?: AbortSignal): Promise<PendingGenerationResult> {
-    return this.executeStage("generatePendingFromView", async () => {
-      const { value, res } = await this.dispatchValidated<string[]>({
-        ...pendingStageRequest(input, this.prompts),
-        signal,
-        validate: (r) => {
-          const out = parseObjectOutput(r);
-          if (!out.ok) return out;
-          const parsed = parsePendingList(out.value.pending);
-          return "error" in parsed ? fail(parsed.error) : ok(parsed.pending);
-        },
-      });
-      return { pending: value, ...rawOf(res) };
+    const { value, res } = await this.dispatchValidated<string[]>({
+      ...pendingStageRequest(input, this.prompts),
+      signal,
+      validate: (r) => {
+        const out = parseObjectOutput(r);
+        if (!out.ok) return out;
+        const parsed = parsePendingList(out.value.pending);
+        return "error" in parsed ? fail(parsed.error) : ok(parsed.pending);
+      },
     });
+    return { pending: value, ...rawOf(res) };
   }
 
   /**
@@ -561,38 +529,34 @@ export class QwenEngine implements EngineLLM {
    * y `maxSteps` pasos; el cliente valida el rango para que cuente como salida inválida y se repita una vez.
    */
   async generatePlanFromView(input: PlanFromViewInput, signal?: AbortSignal): Promise<PlanGenerationResult> {
-    return this.executeStage("generatePlanFromView", async () => {
-      const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
-        ...planStageRequest(input, this.getConfig(), this.prompts),
-        signal,
-        validate: (r) => {
-          const out = parseObjectOutput(r);
-          if (!out.ok) return out;
-          const parsed = parsePlanSteps(out.value.steps, 1, false);
-          if ("error" in parsed) return fail(parsed.error);
-          if (parsed.steps.length > input.maxSteps) return fail(`máximo ${input.maxSteps} pasos; se recibieron ${parsed.steps.length}`);
-          return ok(parsed.steps.map((s) => ({ instruction: s.instruction, route: s.route, expected: s.expectedOutcome })));
-        },
-      });
-      return { steps: value, ...rawOf(res) };
+    const { value, res } = await this.dispatchValidated<GeneratedStep[]>({
+      ...planStageRequest(input, this.getConfig(), this.prompts),
+      signal,
+      validate: (r) => {
+        const out = parseObjectOutput(r);
+        if (!out.ok) return out;
+        const parsed = parsePlanSteps(out.value.steps, 1, false);
+        if ("error" in parsed) return fail(parsed.error);
+        if (parsed.steps.length > input.maxSteps) return fail(`máximo ${input.maxSteps} pasos; se recibieron ${parsed.steps.length}`);
+        return ok(parsed.steps.map((s) => ({ instruction: s.instruction, route: s.route, expected: s.expectedOutcome })));
+      },
     });
+    return { steps: value, ...rawOf(res) };
   }
 
   /** LLM 3 desde la vista (Fase 6): respuesta final. Misma política de salida vacía o truncada que `generateFinalResponse`. */
   async generateFinalFromView(input: FinalFromViewInput, signal?: AbortSignal): Promise<FinalGenerationResult> {
-    return this.executeStage("generateFinalFromView", async () => {
-      const { value, res } = await this.dispatchValidated<string>({
-        ...finalStageRequest(input, this.getConfig(), this.prompts),
-        signal,
-        validate: (r, isLast) => {
-          const text = stripThink(r.content);
-          if (!text) return fail("salida vacía");
-          if (!r.truncated) return ok(text);
-          return isLast ? ok(`${text}\n\n[Respuesta truncada por el límite de tokens]`) : fail(TRUNCATED);
-        },
-      });
-      return { response: value, ...rawOf(res) };
+    const { value, res } = await this.dispatchValidated<string>({
+      ...finalStageRequest(input, this.getConfig(), this.prompts),
+      signal,
+      validate: (r, isLast) => {
+        const text = stripThink(r.content);
+        if (!text) return fail("salida vacía");
+        if (!r.truncated) return ok(text);
+        return isLast ? ok(`${text}\n\n[Respuesta truncada por el límite de tokens]`) : fail(TRUNCATED);
+      },
     });
+    return { response: value, ...rawOf(res) };
   }
 
   /** Núcleo común de la generación de argumentos: despacho, validación contra el schema de la herramienta y reintento. */

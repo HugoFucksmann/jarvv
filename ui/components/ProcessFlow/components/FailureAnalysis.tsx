@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { AlertOctagon, CheckCircle, AlertTriangle, ShieldX, ShieldAlert, Terminal, FileCode } from "lucide-react";
 import type { TaskDto, StopReason, CallDto } from "../../../types/api.ts";
 import { formatVerdictReason } from "../../../utils/taskStatus.ts";

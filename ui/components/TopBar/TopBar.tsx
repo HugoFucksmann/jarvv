@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { Settings } from "lucide-react";
 import type { ExecutionMode } from "../../types/ui.ts";
 import type { TaskSummary } from "../../types/api.ts";

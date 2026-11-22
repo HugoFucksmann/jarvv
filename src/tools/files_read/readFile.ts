@@ -16,7 +16,7 @@ import readline from "node:readline";
 import { BUDGET } from "../../core/budget.ts";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { omissionMarker } from "../../core/text.ts";
-import { fitLinesToBudget, formatSize, resolveExistingPath } from "../../core/tools/filePaths.ts";
+import { fitLinesToBudget, formatSize, isBinaryFile, resolveExistingPath, pathFailureData } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
@@ -25,7 +25,6 @@ export const DEFAULT_READ_OFFSET = 1;
 export const DEFAULT_READ_LIMIT = 200;
 export const MAX_READ_LIMIT = 2_000;
 export const MAX_DISPLAY_LINE_CHARS = 500;
-export const BINARY_PROBE_BYTES = 8_192;
 
 const STRUCTURED_BINARY_EXTS: ReadonlySet<string> = new Set([
   "pdf",
@@ -123,18 +122,6 @@ function parseArgs(
   return { ok: true, args: { path: raw.path.trim(), offset, limit, encoding } };
 }
 
-/** Comprueba en el primer bloque si el archivo contiene bytes NUL (indicador de binario). */
-async function hasNullByte(filePath: string): Promise<boolean> {
-  const handle = await fs.promises.open(filePath, "r");
-  try {
-    const buf = Buffer.allocUnsafe(BINARY_PROBE_BYTES);
-    const { bytesRead } = await handle.read(buf, 0, BINARY_PROBE_BYTES, 0);
-    return buf.subarray(0, bytesRead).includes(0);
-  } finally {
-    await handle.close();
-  }
-}
-
 function clipDisplayLine(line: string): string {
   if (line.length <= MAX_DISPLAY_LINE_CHARS) return line;
   return `${line.slice(0, MAX_DISPLAY_LINE_CHARS)}… (+${line.length - MAX_DISPLAY_LINE_CHARS} chars)`;
@@ -144,7 +131,7 @@ function clipDisplayLine(line: string): string {
 async function readPlainText(ctx: ReadDriverContext): Promise<MCPCallResult> {
   if (ctx.signal?.aborted) return cancelledResult();
 
-  if (ctx.size > 0 && (await hasNullByte(ctx.realTarget))) {
+  if (ctx.size > 0 && (await isBinaryFile(ctx.realTarget))) {
     return fail(`'${ctx.targetPath}' appears to be a binary file and cannot be read as plain text.`, {
       reason: "binary_file",
     });
@@ -280,9 +267,7 @@ export async function runReadFile(
     paramName: "path",
   });
   if (!resolved.ok) {
-    return fail(resolved.message, {
-      ...(resolved.denied ? { reason: "denied" } : resolved.notFound ? { reason: "not_found" } : {}),
-    });
+    return fail(resolved.message, pathFailureData(resolved));
   }
   if (options.signal?.aborted) return cancelledResult();
 

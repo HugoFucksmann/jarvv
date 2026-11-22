@@ -192,9 +192,7 @@ export class Guard {
     const segments = new Set([...splitSegments(command, false), ...splitSegments(command, true)]);
 
     for (const segment of segments) {
-      let match: RegExpExecArray | null;
-      REDIRECT_TARGET.lastIndex = 0;
-      while ((match = REDIRECT_TARGET.exec(segment)) !== null) {
+      for (const match of segment.matchAll(REDIRECT_TARGET)) {
         const target = match[1] ?? match[2] ?? match[3] ?? "";
         if (target && !/^(&|\$null|\/dev\/null|nul)$/i.test(target)) found.push(target);
       }

@@ -1,4 +1,5 @@
-import React, { memo, useState } from "react";
+import type React from "react";
+import { memo, useState } from "react";
 import { ChevronDown, ChevronRight, Terminal, FileText, Clock, ShieldCheck, ShieldAlert, ListTree, Timer, AlertCircle, Cpu } from "lucide-react";
 import type { CallDto, ErrorDto, StepDto, TaskState } from "../../../types/api.ts";
 import { STEP_STATE_LABELS, formatVerdictReason } from "../../../utils/taskStatus.ts";

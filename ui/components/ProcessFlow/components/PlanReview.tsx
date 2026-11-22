@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { Check, X, Pencil, Loader2, Sparkles, Send } from "lucide-react";
 import type { WaitingPlanStep } from "../../../types/api.ts";
 import { getRouteLabel } from "../../../utils/routeLabels.ts";

@@ -7,7 +7,8 @@ export const MESSAGE_MAX = 3500;
 
 export function mdToHtml(md: string): string {
   const blocks: string[] = [];
-  let s = md.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_m, c: string) => {
+  // Los NUL del texto se quitan: `\u0000<n>\u0000` marca dónde va cada bloque de código y no puede confundirse con uno que venga en la entrada.
+  let s = md.replaceAll("\u0000", "").replace(/```[^\n]*\n?([\s\S]*?)```/g, (_m, c: string) => {
     blocks.push(`<pre>${esc(c.trimEnd())}</pre>`);
     return `\u0000${blocks.length - 1}\u0000`;
   });

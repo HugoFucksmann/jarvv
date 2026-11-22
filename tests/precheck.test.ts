@@ -270,3 +270,20 @@ test("`paths`: un valor vacío del arreglo pide información; con las fuentes in
   const sources = { text: "nada", complete: false };
   assert.equal(await precheckCall(input({ tool: "read_multiple_files", args: { paths: ["C:\\Datos\\otro.txt"] }, sources }), noAnalyzer), null);
 });
+
+test("una URL inventada se rechaza diciendo cuáles conoce la tarea (con su escritura original); sin ninguna, manda a buscar sin `urls`", async () => {
+  const known = "https://www.Booking.com/city/ar/Mendoza.es";
+  const withKnown = { text: normalizeText(`busca hoteles ${known}`), complete: true, urls: [known] };
+  const found = await precheckCall(input({ tool: "web_search", args: { urls: ["https://www.booking.com/destinationsplace/mendoza.html"] }, sources: withKnown }), noAnalyzer);
+  assert.equal(found?.review, "args_invalid");
+  assert.ok(found?.reason.includes(known), "lista la URL conocida tal como está escrita");
+  assert.equal((await precheckCall(input({ tool: "web_search", args: { urls: [known] }, sources: withKnown }), noAnalyzer)), null, "una conocida pasa");
+
+  const none = await precheckCall(input({ tool: "web_search", args: { urls: ["https://inventada.org/x"] }, sources: { text: "nada", complete: true } }), noAnalyzer);
+  assert.match(none?.reason ?? "", /omit `urls`/);
+});
+
+test("collectSources junta las URLs de la solicitud y de los resultados, sin repetir", () => {
+  const ctx = newContext("reactive");
+  assert.deepEqual(collectSources(ctx, ["mirá https://a.org/x y https://a.org/x."]).urls, ["https://a.org/x"]);
+});

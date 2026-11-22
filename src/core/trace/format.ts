@@ -262,7 +262,11 @@ function linkedNotes(call: Call, queries: readonly SlimQuery[]): string[] {
       const prob = choice !== null && p !== null && typeof p[choice] === "number" ? Math.round(100 * (p[choice] as number)) : null;
       if (choice !== null) notes.push(`${{ route: "D1", tool: "D2", review: "D3" }[q.stage]} ${choice}${prob === null ? "" : ` ${prob}%`}`);
     } else if (q.stage === "verify") {
-      const parts = Object.entries(out).map(([k, v]) => `${k} ${typeof asRecord(v)?.noul === "number" ? (asRecord(v)?.noul as number).toFixed(2) : "?"}`);
+      const noulOf = (v: unknown): string => {
+        const noul = asRecord(v)?.noul;
+        return typeof noul === "number" ? noul.toFixed(2) : "?";
+      };
+      const parts = Object.entries(out).map(([k, v]) => `${k} ${noulOf(v)}`);
       if (parts.length > 0) notes.push(`D4 ${parts.join(" · ")}`);
     }
   }
@@ -338,7 +342,8 @@ export function buildSummary(input: SummaryInput): string {
     md.push("## Lista de pendientes por vuelta", "");
     for (const q of pendingOut) {
       const o = asRecord(q.output);
-      const list = Array.isArray(o?.pending) ? (o?.pending as unknown[]).map((x) => oneLine(String(x), 100)) : null;
+      const pending = o?.pending;
+      const list = Array.isArray(pending) ? pending.map((x: unknown) => oneLine(String(x), 100)) : null;
       md.push(`- #${q.seq}: ${list === null ? oneLine(JSON.stringify(q.output), 160) : list.length === 0 ? "(vacía)" : list.join(" | ")}`);
     }
     md.push("");

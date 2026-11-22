@@ -159,6 +159,10 @@ export function createDefaultPcSettingsDriver(
     }
   };
 
+  // El plazo es de toda la operación: el respaldo (NetAdapter) solo usa lo que sobró y no corre si ya se canceló o se agotó el tiempo.
+  const remainingMs = (startedAt: number): number => Math.max(timeoutMs - (Date.now() - startedAt), 1);
+  const canFallBack = (startedAt: number, signal?: AbortSignal): boolean => signal?.aborted !== true && remainingMs(startedAt) > 1;
+
   return {
     async get(setting: PcSettingName, signal?: AbortSignal): Promise<SettingValue | "unknown"> {
       requireWindows();
@@ -173,13 +177,15 @@ export function createDefaultPcSettingsDriver(
           return out === "on" || out === "off" ? out : "unknown";
         }
         case "wifi": {
+          const startedAt = Date.now();
           try {
             const out = await runPs(PS_RADIO_SCRIPT, { JARVIS_RADIO_KIND: "wifi", JARVIS_RADIO_ACTION: "get" }, timeoutMs, signal);
             if (out === "on" || out === "off") return out;
-          } catch {
+          } catch (error) {
+            if (!canFallBack(startedAt, signal)) throw error;
             // Fallback a NetAdapter
           }
-          const out = await runPs(PS_GET_WIFI, {}, timeoutMs, signal);
+          const out = await runPs(PS_GET_WIFI, {}, remainingMs(startedAt), signal);
           return out === "on" || out === "off" ? out : "unknown";
         }
         case "bluetooth": {
@@ -205,6 +211,7 @@ export function createDefaultPcSettingsDriver(
           return value;
         }
         case "wifi": {
+          const startedAt = Date.now();
           try {
             await runPs(
               PS_RADIO_SCRIPT,
@@ -213,8 +220,9 @@ export function createDefaultPcSettingsDriver(
               signal,
             );
             return value;
-          } catch {
-            await runPs(PS_SET_WIFI, { JARVIS_TOGGLE: String(value) }, timeoutMs, signal);
+          } catch (error) {
+            if (!canFallBack(startedAt, signal)) throw error;
+            await runPs(PS_SET_WIFI, { JARVIS_TOGGLE: String(value) }, remainingMs(startedAt), signal);
             return value;
           }
         }

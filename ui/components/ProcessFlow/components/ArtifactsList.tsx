@@ -1,4 +1,4 @@
-import React from "react";
+import type React from "react";
 import { Cpu, FileText, ExternalLink, HelpCircle, AlertCircle, HardDrive, Clock, Database } from "lucide-react";
 import type { TaskDto, RefDto } from "../../../types/api.ts";
 import { parseProcessPids } from "../../../utils/taskStatus.ts";

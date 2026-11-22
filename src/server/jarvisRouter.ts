@@ -90,19 +90,26 @@ const SSE_MAX_BUFFERED_BYTES = 4 * 1024 * 1024;
 /** Tope del texto que se sintetiza en un request (una respuesta final larga ya es mucho audio). */
 const TTS_MAX_CHARS = 20000;
 
-/**
- * `getVoice`: la configuración de voz vigente (se lee en cada request) o `null` si está apagada. Sin ella `POST /tts` responde 503.
- */
-export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine, getVoice: () => VoiceConfig | null = () => null, getSseKeepAliveMs: () => number = () => TIMEOUT_DEFAULTS.sseKeepAliveMs): express.Router {
-  const router = express.Router();
+const messageOf = (err: unknown, fallback: string): string => (err instanceof Error ? err.message : fallback);
 
+/** El catálogo de herramientas que ven la interfaz y el evento inicial de SSE (cacheado: no bloquea en `discoverAll`). */
+const catalogOf = (discoveryEngine: DiscoveryEngine) => ({
+  discoveredTools: discoveryEngine.getCachedTools?.() ?? {},
+  unavailableServers: discoveryEngine.getUnavailableServers?.() ?? {},
+});
+
+/** Qué tarea se pide: la del `taskId` indicado o, si falta, la última retenida. */
+const requestedOrLatest = (tasks: TaskManager, requested: string | undefined): { readonly list: ReturnType<TaskManager['list']>; readonly id: string | undefined } => {
+  const list = tasks.list();
+  return { list, id: requested ?? list[list.length - 1]?.id };
+};
+
+// ───────────────────────── Órdenes sobre las tareas ─────────────────────────
+
+/** Iniciar, cancelar y responder lo que la tarea espera (plan, aprobación, pregunta). */
+function registerTaskCommands(router: express.Router, tasks: TaskManager): void {
   /** `taskId` del cuerpo o, si falta, la última tarea retenida (compatibilidad con clientes de una sola tarea). */
-  const targetOf = (body: unknown): string | undefined => {
-    const id = text((body as { taskId?: unknown } | undefined)?.taskId);
-    if (id) return id;
-    const all = tasks.list();
-    return all[all.length - 1]?.id;
-  };
+  const targetOf = (body: unknown): string | undefined => requestedOrLatest(tasks, text((body as { taskId?: unknown } | undefined)?.taskId)).id;
 
   const reply = (res: express.Response, result: ControlResult, notWaiting: string): void => {
     if (result === 'ok') res.json({ ok: true });
@@ -110,10 +117,9 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     else res.status(409).json({ error: notWaiting });
   };
 
-  /** Ejecuta una orden sobre la tarea indicada; 404 si no hay ninguna. */
   /**
-   * `strict`: una decisión (aprobar, rechazar, confirmar o modificar un plan) exige `taskId` y `waitId`: sin ellos se aplicaría a "la última
-   * tarea" y un cliente podría aprobar a ciegas lo que no vio. Cancelar y responder una pregunta conservan el atajo.
+   * Ejecuta una orden sobre la tarea indicada; 404 si no hay ninguna. `strict`: una decisión (aprobar, rechazar, confirmar o modificar un plan) exige `taskId`
+   * y `waitId`: sin ellos se aplicaría a "la última tarea" y un cliente podría aprobar a ciegas lo que no vio. Cancelar y responder una pregunta conservan el atajo.
    */
   const control = (notWaiting: string, run: (taskId: string, body: Record<string, unknown>) => ControlResult, strict = false): express.RequestHandler =>
     (req, res) => {
@@ -148,26 +154,19 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   });
 
   // Plan (deliberativo): confirmar, pedir cambios (nuevo plan con la instrucción) o rechazar (cancela la tarea).
-  router.post(
-    '/confirm-plan',
-    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.approvePlan(id, text(b.waitId)), true),
-  );
+  const NOT_WAITING_PLAN = 'La tarea no espera la confirmación de un plan.';
+  router.post('/confirm-plan', control(NOT_WAITING_PLAN, (id, b) => tasks.approvePlan(id, text(b.waitId)), true));
   router.post('/modify-plan', (req, res) => {
     const feedback = text(req.body?.feedback);
     if (!feedback) return void res.status(400).json({ error: 'Se requiere feedback.' });
-    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.modifyPlan(id, feedback, text(b.waitId)), true)(req, res, () => undefined);
+    control(NOT_WAITING_PLAN, (id, b) => tasks.modifyPlan(id, feedback, text(b.waitId)), true)(req, res, () => undefined);
   });
-  router.post(
-    '/reject-plan',
-    control('La tarea no espera la confirmación de un plan.', (id, b) => tasks.rejectPlan(id, text(b.waitId)), true),
-  );
+  router.post('/reject-plan', control(NOT_WAITING_PLAN, (id, b) => tasks.rejectPlan(id, text(b.waitId)), true));
 
   // Mutación sensible: aprobar o rechazar (con una instrucción opcional en `reason`).
-  router.post('/approve', control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.approveCall(id, text(b.waitId), b.remember === true), true));
-  router.post(
-    '/deny',
-    control('La tarea no espera la aprobación de una operación.', (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId)), true),
-  );
+  const NOT_WAITING_APPROVAL = 'La tarea no espera la aprobación de una operación.';
+  router.post('/approve', control(NOT_WAITING_APPROVAL, (id, b) => tasks.approveCall(id, text(b.waitId), b.remember === true), true));
+  router.post('/deny', control(NOT_WAITING_APPROVAL, (id, b) => tasks.denyCall(id, text(b.reason), text(b.waitId)), true));
 
   // Responder la pregunta abierta de la tarea (`waitId` opcional por retrocompatibilidad; si se envía, debe coincidir con `question.id`).
   router.post('/user-answer', (req, res) => {
@@ -175,25 +174,22 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     if (!answer) return void res.status(400).json({ error: 'Se requiere una respuesta no vacía.' });
     control('La tarea no espera una respuesta.', (id, b) => tasks.answer(id, answer, text(b.waitId)))(req, res, () => undefined);
   });
+}
 
+// ───────────────────────── Lecturas para la interfaz ─────────────────────────
+
+/** Estado, tarea individual, refs, traza, entorno y topes: solo lectura, sin efecto en el motor. */
+function registerReads(router: express.Router, tasks: TaskManager, discoveryEngine: DiscoveryEngine): void {
   // Estado: la tarea pedida (o la última), el listado y el catálogo de herramientas cacheado (sin bloquear en discoverAll).
   router.get('/state', (req, res) => {
     try {
-      const requested = text(req.query.taskId);
-      const list = tasks.list();
-      const id = requested ?? list[list.length - 1]?.id;
-      res.json({
-        task: id ? (tasks.get?.(id) ?? null) : null,
-        tasks: list,
-        discoveredTools: discoveryEngine.getCachedTools?.() ?? {},
-        unavailableServers: discoveryEngine.getUnavailableServers?.() ?? {},
-      });
+      const { list, id } = requestedOrLatest(tasks, text(req.query.taskId));
+      res.json({ task: id ? (tasks.get?.(id) ?? null) : null, tasks: list, ...catalogOf(discoveryEngine) });
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar el estado.' });
+      res.status(500).json({ error: messageOf(err, 'Error al consultar el estado.') });
     }
   });
 
-  // Lecturas para la UI (solo lectura, sin efecto en el motor).
   // Estado completo de una tarea individual (liviano: sin listado global ni catálogo de herramientas).
   router.get('/tasks/:taskId', (req, res) => {
     try {
@@ -201,7 +197,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       if (!task) return void res.status(404).json({ error: 'Tarea no encontrada.' });
       res.json(task);
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar la tarea.' });
+      res.status(500).json({ error: messageOf(err, 'Error al consultar la tarea.') });
     }
   });
 
@@ -211,7 +207,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     try {
       result = await tasks.readRef(req.params.taskId, req.params.refId);
     } catch (err: unknown) {
-      return void res.status(500).json({ error: err instanceof Error ? err.message : 'Error al leer la referencia.' });
+      return void res.status(500).json({ error: messageOf(err, 'Error al leer la referencia.') });
     }
     if (result === 'unknown_task') return void res.status(404).json({ error: 'Tarea no encontrada.' });
     if (result === 'unknown_ref') return void res.status(404).json({ error: 'Referencia no encontrada.' });
@@ -233,7 +229,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     try {
       res.json({ ...(await getUserEnvironment()), now: new Date().toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Error al consultar el entorno.' });
+      res.status(500).json({ error: messageOf(err, 'Error al consultar el entorno.') });
     }
   });
 
@@ -241,8 +237,12 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
   router.get('/limits', (_req, res) => {
     res.json(limitValues());
   });
+}
 
-  // Eventos en tiempo real (SSE): evento inicial `snapshot` seguido de eventos de tarea, todos con `id:` y `data:`.
+// ───────────────────────── Eventos en tiempo real (SSE) ─────────────────────────
+
+/** Evento inicial `snapshot` seguido de los eventos de tarea, todos con `id:` y `data:`. */
+function registerEvents(router: express.Router, tasks: TaskManager, discoveryEngine: DiscoveryEngine, getSseKeepAliveMs: () => number): void {
   let sseClients = 0;
   let nextSseEventId = 1;
   router.get('/events', (req, res) => {
@@ -255,6 +255,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
 
     // Un cliente que no lee no puede hacer crecer la memoria del servidor: pasado el tope de bytes sin enviar, se lo desconecta.
     const send = (chunk: string): void => {
+      if (res.destroyed || res.writableEnded) return;
       if (res.writableLength > SSE_MAX_BUFFERED_BYTES) {
         res.destroy();
         return;
@@ -266,27 +267,39 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       send(`id: ${id}\ndata: ${JSON.stringify(payload)}\n\n`);
     };
 
-    const requested = text(req.query.taskId);
-    const list = tasks.list();
-    const taskId = requested ?? list[list.length - 1]?.id;
+    const { list, id } = requestedOrLatest(tasks, text(req.query.taskId));
     const unsubscribe = tasks.addEventListener((event) => sendEvent(event));
-    sendEvent({
-      type: 'snapshot',
-      task: taskId ? (tasks.get?.(taskId) ?? null) : null,
-      tasks: list,
-      discoveredTools: discoveryEngine.getCachedTools?.() ?? {},
-      unavailableServers: discoveryEngine.getUnavailableServers?.() ?? {},
-    });
+    sendEvent({ type: 'snapshot', task: id ? (tasks.get?.(id) ?? null) : null, tasks: list, ...catalogOf(discoveryEngine) });
 
     const keepAlive = setInterval(() => send(': ping\n\n'), getSseKeepAliveMs());
+    let closed = false;
     req.on('close', () => {
+      if (closed) return;
+      closed = true;
       sseClients--;
       clearInterval(keepAlive);
       unsubscribe();
     });
   });
+}
 
-  // Voz: `{ text }` -> audio PCM 16-bit, mono, 24 kHz, en streaming (`audio/L16`).
+// ───────────────────────── Voz ─────────────────────────
+
+/** Espera el `drain` de `res`; el `close` también destraba (cliente que se fue). Cada espera retira el oyente que no se usó. */
+function waitForDrain(res: express.Response): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = (): void => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolve();
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
+}
+
+/** `{ text }` -> audio PCM 16-bit, mono, 24 kHz, en streaming (`audio/L16`). Sin voz configurada responde 503. */
+function registerSpeech(router: express.Router, getVoice: () => VoiceConfig | null): void {
   router.post('/tts', async (req, res) => {
     const input = text(req.body?.text);
     if (!input) return void res.status(400).json({ error: 'Se requiere text.' });
@@ -304,18 +317,7 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       res.setHeader('Content-Type', 'audio/L16;rate=24000;channels=1');
       res.setHeader('Cache-Control', 'no-store');
       while (!next.done && !abort.signal.aborted) {
-        if (!res.write(next.value)) {
-          // Espera el `drain`; el `close` también destraba (cliente que se fue). Cada espera retira el oyente que no se usó.
-          await new Promise<void>((resolve) => {
-            const done = (): void => {
-              res.off('drain', done);
-              res.off('close', done);
-              resolve();
-            };
-            res.on('drain', done);
-            res.on('close', done);
-          });
-        }
+        if (!res.write(next.value)) await waitForDrain(res);
         next = await stream.next();
       }
       res.end();
@@ -323,19 +325,23 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
       if (abort.signal.aborted) return;
       // `fetch failed` esconde la causa real (ECONNREFUSED, timeout…) en `cause`.
       const cause = err instanceof Error && err.cause instanceof Error ? ` (${(err.cause as NodeJS.ErrnoException).code ?? err.cause.message})` : '';
-      console.warn(`[TTS] ${err instanceof Error ? err.message : err}${cause}: ${voice.baseUrl}`);
+      console.warn(`[TTS] ${messageOf(err, String(err))}${cause}: ${voice.baseUrl}`);
       if (!res.headersSent) res.status(502).json({ error: 'No se pudo conectar con el servidor de voz (voiceUrl). ¿Está corriendo scripts/phonon_server.py?' });
       else res.destroy();
     }
   });
+}
 
+// ───────────────────────── Catálogo y configuración ─────────────────────────
+
+function registerDiscoveryAndConfig(router: express.Router, discoveryEngine: DiscoveryEngine): void {
   // Refrescar el catálogo de herramientas.
   router.post('/refresh-discovery', async (_req, res) => {
     try {
       const tools = await discoveryEngine.discoverAll(true);
       res.json({ tools, unavailableServers: discoveryEngine.getUnavailableServers() });
     } catch (err: unknown) {
-      res.json({ tools: {}, error: err instanceof Error ? err.message : 'Error al refrescar el catálogo.' });
+      res.json({ tools: {}, error: messageOf(err, 'Error al refrescar el catálogo.') });
     }
   });
 
@@ -349,6 +355,17 @@ export function createJarvisRouter(tasks: TaskManager, discoveryEngine: Discover
     }
     res.json(sanitizeConfigForHttp(ConfigManager.updateConfig(withoutLaunchFields(req.body) as Parameters<typeof ConfigManager.updateConfig>[0])));
   });
+}
 
+/**
+ * `getVoice`: la configuración de voz vigente (se lee en cada request) o `null` si está apagada. Sin ella `POST /tts` responde 503.
+ */
+export function createJarvisRouter(tasks: TaskManager, discoveryEngine: DiscoveryEngine, getVoice: () => VoiceConfig | null = () => null, getSseKeepAliveMs: () => number = () => TIMEOUT_DEFAULTS.sseKeepAliveMs): express.Router {
+  const router = express.Router();
+  registerTaskCommands(router, tasks);
+  registerReads(router, tasks, discoveryEngine);
+  registerEvents(router, tasks, discoveryEngine, getSseKeepAliveMs);
+  registerSpeech(router, getVoice);
+  registerDiscoveryAndConfig(router, discoveryEngine);
   return router;
 }

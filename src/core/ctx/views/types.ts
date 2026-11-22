@@ -226,12 +226,12 @@ export interface ArgsView {
 }
 
 /**
- * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `request`, `refs`, `lastError`, `effects` ni `recalled`: las refs
+ * `forReview` (8.3): Decisión 3. Lo mismo que vio LLM 2 (`forArgs`) sin `request`, `lastError`, `effects` ni `recalled`: las refs
  * sin resolver y el anti-loop se resuelven antes, de forma determinista, y la seguridad de una escritura es del Guard y de
  * la confirmación del usuario. El candidato (ruta, herramienta, descripción y `args`) es un parámetro: lo pasa el motor, no
  * vive en el contexto.
  */
-export type ReviewView = Omit<ArgsView, "request" | "refs" | "lastError" | "effects" | "recalled">;
+export type ReviewView = Omit<ArgsView, "request" | "lastError" | "effects" | "recalled">;
 
 /** Criterio contra el que se juzga la llamada: el del paso (`expected` solo en deliberativo). */
 export interface CriterionView {

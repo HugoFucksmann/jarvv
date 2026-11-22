@@ -22,10 +22,9 @@ import {
   DecisionValidationError,
   LLMServiceUnavailableError,
   LLMValidationError,
-  RequestAbortedError,
-} from "../models/transport.ts";
+} from "../types/modelErrors.ts";
 import { PAUSE_RETRY_MAX_MS, PAUSE_RETRY_MIN_MS } from "../timeouts.ts";
-import { errorMessage } from "../utils.ts";
+import { errorMessage, RequestAbortedError } from "../utils.ts";
 import type { EngineEnv } from "./env.ts";
 import type { TaskRuntime } from "./runtime.ts";
 

@@ -68,7 +68,7 @@ const WRITE_FILE_TOOL: MCPTool = {
       mode: {
         type: "string",
         enum: ["rewrite", "append", "create_only"],
-        description: "Write mode: 'rewrite' (default), 'append', or 'create_only'.",
+        description: "Write mode: 'rewrite' (default; replaces the whole file, send the COMPLETE content), 'append' (adds ONLY the new lines at the end; never resend existing content), or 'create_only'.",
       },
       createFolders: {
         type: "boolean",
@@ -351,6 +351,8 @@ export class FilesWriteProvider implements ToolProvider {
             getEnvironment: this.getEnvironment,
             now: this.now,
             defaultTimeoutMs: this.copyTimeoutMs,
+            maxEntries: this.copyMaxEntries,
+            maxBytes: this.copyMaxBytes,
           },
           { signal: options.signal, timeoutMs: options.timeoutMs },
         );

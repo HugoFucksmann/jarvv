@@ -39,14 +39,14 @@ export function splitForSpeech(text: string, max = MAX_CHARS): string[] {
   );
 }
 
-/** El comienzo de `text` listo para leerse, de a lo sumo `max` caracteres y cortado en una frase entera (una respuesta larga no se lee entera). */
+/** El comienzo de `text` listo para leerse, de a lo sumo `max` caracteres (el espacio entre frases cuenta) y cortado en una frase entera: una respuesta larga no se lee entera. Solo la primera frase puede pasarse de `max`. */
 export function speechExcerpt(text: string, max: number): string {
   let spoken = "";
   for (const sentence of sentencesOf(cleanForSpeech(text))) {
-    if (spoken && spoken.length + sentence.length > max) break;
+    if (spoken && spoken.length + 1 + sentence.length > max) break;
     spoken = spoken ? `${spoken} ${sentence}` : sentence;
   }
-  return spoken;
+  return spoken; // la primera frase se devuelve entera aunque supere `max`: es preferible a cortarla a mitad y nunca se devuelve vacío
 }
 
 /** Streams PCM 16-bit LE, mono, 24 kHz (los chunks se pueden concatenar). */

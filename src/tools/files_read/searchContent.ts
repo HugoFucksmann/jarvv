@@ -13,18 +13,10 @@ import readline from "node:readline";
 import { BUDGET } from "../../core/budget.ts";
 import type { UserEnvironment } from "../../core/environment.ts";
 import { omissionMarker } from "../../core/text.ts";
-import {
-  effectiveTimeoutMs,
-  fitLinesToBudget,
-  isCanonicalDescendant,
-  isExcludedSubdir,
-  joinEntryPath,
-  raceAbort,
-  resolveExistingPath,
-  yieldEventLoop,
-} from "../../core/tools/filePaths.ts";
+import { effectiveTimeoutMs, fitLinesToBudget, isBinaryFile, resolveExistingPath } from "../../core/tools/filePaths.ts";
 import { matchName, parsePattern, type PatternMatcher } from "../../core/tools/globPattern.ts";
 import { toolResult } from "../../core/tools/result.ts";
+import { walkFolder } from "../../core/tools/walkFolder.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 
@@ -37,8 +29,6 @@ export const MAX_SEARCH_RESULTS = 200;
 export const DEFAULT_MAX_MATCHES_PER_FILE = 10;
 export const MAX_LINE_SNIPPET_CHARS = 220;
 
-const YIELD_EVERY_ENTRIES = 64;
-const BINARY_PROBE_BYTES = 8_192;
 
 export interface SearchContentDeps {
   readonly getAllowedDirectories: () => readonly string[];
@@ -169,17 +159,6 @@ function buildLineMatcher(query: string, regex: boolean, caseSensitive: boolean)
   }
 }
 
-async function isBinaryFile(filePath: string): Promise<boolean> {
-  const handle = await fs.promises.open(filePath, "r");
-  try {
-    const buf = Buffer.allocUnsafe(BINARY_PROBE_BYTES);
-    const { bytesRead } = await handle.read(buf, 0, BINARY_PROBE_BYTES, 0);
-    return buf.subarray(0, bytesRead).includes(0);
-  } finally {
-    await handle.close();
-  }
-}
-
 function clipSnippet(line: string): string {
   const trimmed = line.trim();
   if (trimmed.length <= MAX_LINE_SNIPPET_CHARS) return trimmed;
@@ -242,6 +221,65 @@ async function scanSingleFile(
   }
 }
 
+interface SearchSummary {
+  readonly query: string;
+  readonly targetPath: string;
+  readonly scannedFiles: number;
+  readonly skipped: number;
+  readonly skippedBinary: number;
+  readonly skippedLarge: number;
+  /** Por qué se cortó el recorrido; `undefined` si terminó (el resultado es completo). */
+  readonly stoppedBy: StoppedBy | undefined;
+  readonly durationMs: number;
+}
+
+/** El resultado: honesto sobre si fue completo (`found`, `no_results`) o se cortó (`partial`, `incomplete`), con las líneas ajustadas al presupuesto de texto. */
+function renderSearchResult(results: readonly ContentMatch[], summary: SearchSummary): MCPCallResult {
+  const { query, targetPath, scannedFiles, skipped, skippedBinary, skippedLarge, stoppedBy, durationMs } = summary;
+  const complete = stoppedBy === undefined;
+  const state: Exclude<SearchState, "cancelled"> =
+    results.length > 0 ? (complete ? "found" : "partial") : complete ? "no_results" : "incomplete";
+
+  const matchWord = results.length === 1 ? "match" : "matches";
+  let header: string;
+  switch (state) {
+    case "found":
+      header = `status: found · ${results.length} ${matchWord} · scanned ${scannedFiles} file(s) · complete`;
+      break;
+    case "partial":
+      header = `status: partial · ${results.length} ${matchWord} · stopped by ${stoppedBy} (scanned ${scannedFiles} file(s))`;
+      break;
+    case "no_results":
+      header = `status: no_results · 0 matches · scanned ${scannedFiles} file(s) in ${targetPath} · complete`;
+      break;
+    case "incomplete":
+      header = `status: incomplete · 0 matches · stopped by ${stoppedBy} (scanned ${scannedFiles} file(s))`;
+      break;
+  }
+
+  const allLines = results.map((m) => `${m.filePath}:${m.line}: ${m.text}`);
+  const fitted = fitLinesToBudget(header, allLines, BUDGET.summaryMax);
+  const omitted = allLines.length - fitted.shown.length;
+  const textLines = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "coincidencias")] : [])];
+
+  return toolResult({
+    text: textLines.join("\n"),
+    raw: [header, ...allLines].join("\n"),
+    data: {
+      state,
+      count: results.length,
+      complete,
+      scannedFiles,
+      skipped,
+      skippedBinary,
+      skippedLarge,
+      ...(stoppedBy === undefined ? {} : { stoppedBy }),
+      truncated: fitted.truncated,
+    },
+    meta: { query, path: targetPath, durationMs },
+  });
+}
+
 export async function runSearchContent(
   rawArgs: Record<string, unknown>,
   deps: SearchContentDeps,
@@ -283,7 +321,6 @@ export async function runSearchContent(
   let skipped = 0;
   let skippedBinary = 0;
   let skippedLarge = 0;
-  let seen = 0;
   let hitDepthLimit = false;
   let stoppedBy: StoppedBy | undefined;
   let cancelled = false;
@@ -330,144 +367,37 @@ export async function runSearchContent(
   if (resolved.isFile) {
     await inspectFile(resolved.targetPath, resolved.realTarget, resolved.size);
   } else if (resolved.isDirectory) {
-    const realRoot = resolved.realTarget;
-    const visitedDirs = new Set<string>([realRoot]);
-    const queue: Array<{ readonly dirPath: string; readonly depth: number }> = [{ dirPath: resolved.targetPath, depth: 0 }];
+    const walk = walkFolder({
+      root: resolved.targetPath,
+      realRoot: resolved.realTarget,
+      maxDepth: deps.maxDepth,
+      deadline,
+      now: deps.now,
+      signal: options.signal,
+      includeHidden: args.includeHidden,
+      statFiles: true,
+    });
 
-    for (let qi = 0; qi < queue.length; qi++) {
-      if (options.signal?.aborted) {
-        cancelled = true;
-        break;
-      }
-      if (deps.now() >= deadline) {
-        stoppedBy = "time";
-        break;
-      }
+    for await (const entry of walk.entries) {
       if (results.length >= args.maxResults) {
         stoppedBy = "limit";
         break;
       }
-
-      const current = queue[qi];
-      const dirRead = await raceAbort(
-        fs.promises.readdir(current.dirPath, { withFileTypes: true }).then(
-          (entries) => ({ ok: true as const, entries }),
-          (error: unknown) => ({ ok: false as const, error }),
-        ),
-        options.signal,
-      );
-      if (dirRead.aborted) {
-        cancelled = true;
+      if (scannedFiles >= deps.maxFiles) {
+        stoppedBy = "files";
         break;
       }
-      if (!dirRead.value.ok) {
-        skipped++;
-        continue;
-      }
+      if (!entry.isFile) continue;
+      if (fileMatchers !== undefined && matchName(entry.name, fileMatchers) === null) continue;
 
-      for (const entry of dirRead.value.entries) {
-        if (options.signal?.aborted) {
-          cancelled = true;
-          break;
-        }
-        if (deps.now() >= deadline) {
-          stoppedBy = "time";
-          break;
-        }
-        if (scannedFiles >= deps.maxFiles) {
-          stoppedBy = "files";
-          break;
-        }
-
-        seen++;
-        if (seen % YIELD_EVERY_ENTRIES === 0) {
-          await yieldEventLoop();
-          if (options.signal?.aborted) {
-            cancelled = true;
-            break;
-          }
-          if (deps.now() >= deadline) {
-            stoppedBy = "time";
-            break;
-          }
-        }
-
-        if (!args.includeHidden && entry.name.startsWith(".")) continue;
-
-        const fullPath = joinEntryPath(current.dirPath, entry.name);
-        let isDir = false;
-        let isFile = false;
-        let realTarget = fullPath;
-        let size = 0;
-
-        if (entry.isSymbolicLink()) {
-          const targetRes = await raceAbort(
-            fs.promises.realpath(fullPath).then(
-              (r) => ({ ok: true as const, real: r }),
-              () => ({ ok: false as const }),
-            ),
-            options.signal,
-          );
-          if (targetRes.aborted) {
-            cancelled = true;
-            break;
-          }
-          if (!targetRes.value.ok) {
-            skipped++;
-            continue;
-          }
-          realTarget = targetRes.value.real;
-          if (!isCanonicalDescendant(realRoot, realTarget)) {
-            skipped++;
-            continue;
-          }
-          try {
-            const st = await fs.promises.stat(realTarget);
-            isDir = st.isDirectory();
-            isFile = st.isFile();
-            size = isDir ? 0 : st.size;
-          } catch {
-            skipped++;
-            continue;
-          }
-        } else {
-          isDir = entry.isDirectory();
-          isFile = entry.isFile();
-          if (isDir && isExcludedSubdir(entry.name, fullPath)) continue;
-          if (isFile) {
-            try {
-              const st = await fs.promises.stat(fullPath);
-              size = st.size;
-            } catch {
-              skipped++;
-              continue;
-            }
-          }
-        }
-
-        if (isDir) {
-          if (isExcludedSubdir(entry.name, fullPath)) continue;
-          const nextDepth = current.depth + 1;
-          if (nextDepth < deps.maxDepth) {
-            if (!visitedDirs.has(realTarget)) {
-              visitedDirs.add(realTarget);
-              queue.push({ dirPath: fullPath, depth: nextDepth });
-            }
-          } else {
-            hitDepthLimit = true;
-          }
-          continue;
-        }
-
-        if (!isFile) continue;
-        if (fileMatchers !== undefined && matchName(entry.name, fileMatchers) === null) continue;
-
-        await inspectFile(fullPath, realTarget, size);
-        if (cancelled || stoppedBy !== undefined) break;
-      }
-
+      await inspectFile(entry.path, entry.realPath, entry.size ?? 0);
       if (cancelled || stoppedBy !== undefined) break;
     }
+
+    skipped += walk.state.skipped;
+    hitDepthLimit = walk.state.hitDepthLimit;
+    cancelled ||= walk.state.cancelled;
+    if (walk.state.stoppedBy === "time") stoppedBy ??= "time";
   } else {
     return fail(`'${resolved.targetPath}' is neither a regular file nor a folder.`);
   }
@@ -475,50 +405,14 @@ export async function runSearchContent(
   if (cancelled) return cancelledResult(scannedFiles, skipped);
   if (stoppedBy === undefined && hitDepthLimit) stoppedBy = "depth";
 
-  const complete = stoppedBy === undefined;
-  const state: Exclude<SearchState, "cancelled"> =
-    results.length > 0 ? (complete ? "found" : "partial") : complete ? "no_results" : "incomplete";
-
-  const matchWord = results.length === 1 ? "match" : "matches";
-  let header: string;
-  switch (state) {
-    case "found":
-      header = `status: found · ${results.length} ${matchWord} · scanned ${scannedFiles} file(s) · complete`;
-      break;
-    case "partial":
-      header = `status: partial · ${results.length} ${matchWord} · stopped by ${stoppedBy} (scanned ${scannedFiles} file(s))`;
-      break;
-    case "no_results":
-      header = `status: no_results · 0 matches · scanned ${scannedFiles} file(s) in ${resolved.targetPath} · complete`;
-      break;
-    case "incomplete":
-      header = `status: incomplete · 0 matches · stopped by ${stoppedBy} (scanned ${scannedFiles} file(s))`;
-      break;
-  }
-
-  const allLines = results.map((m) => `${m.filePath}:${m.line}: ${m.text}`);
-  const fitted = fitLinesToBudget(header, allLines, BUDGET.summaryMax);
-  const omitted = allLines.length - fitted.shown.length;
-  const textLines = [header, ...fitted.shown, ...(omitted > 0 ? [omissionMarker(omitted, "coincidencias")] : [])];
-
-  return toolResult({
-    text: textLines.join("\n"),
-    raw: [header, ...allLines].join("\n"),
-    data: {
-      state,
-      count: results.length,
-      complete,
-      scannedFiles,
-      skipped,
-      skippedBinary,
-      skippedLarge,
-      ...(stoppedBy === undefined ? {} : { stoppedBy }),
-      truncated: fitted.truncated,
-    },
-    meta: {
-      query: args.query,
-      path: resolved.targetPath,
-      durationMs: deps.now() - startedAt,
-    },
+  return renderSearchResult(results, {
+    query: args.query,
+    targetPath: resolved.targetPath,
+    scannedFiles,
+    skipped,
+    skippedBinary,
+    skippedLarge,
+    stoppedBy,
+    durationMs: deps.now() - startedAt,
   });
 }

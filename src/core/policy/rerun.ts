@@ -75,7 +75,7 @@ const programOf = (token: string): string =>
 function isRunnerSegment(segment: string): boolean {
   const tokens = segment.split(/\s+/).map((t) => t.replace(/^["']|["']$/g, ""));
   const check = RUNNERS.get(programOf(tokens[0] ?? ""));
-  return check !== undefined && check(tokens.slice(1));
+  return check?.(tokens.slice(1)) ?? false;
 }
 
 /** ¿El comando se puede volver a correr tras un cambio sin duplicar efectos? Ver el criterio en la cabecera. */

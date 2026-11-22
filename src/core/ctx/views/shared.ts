@@ -89,9 +89,8 @@ export function envViewsOf(data: ContextData): FactView[] {
 
 /** Aportes de `recalled` filtrados por política de fuentes y topes por vista, conservando el orden cronológico. */
 export function recalledViewsOf(data: ContextData, filter?: RecalledFilterOptions): RecalledView[] {
-  const entries = filter?.sources
-    ? data.recalled.filter((r) => filter.sources!.includes(r.source))
-    : data.recalled;
+  const sources = filter?.sources;
+  const entries = sources ? data.recalled.filter((r) => sources.includes(r.source)) : data.recalled;
   if (entries.length === 0) return [];
 
   const maxBySource = filter?.maxBySource;
@@ -166,7 +165,7 @@ export function taskPartsOf(data: ContextData, options: ReviewViewOptions, exclu
 
   // `done` (reactivo): líneas `L`.
   const done = reactive ? doneCalls(data.calls).filter((c) => !shown.has(c.id)) : [];
-  done.forEach((c) => shown.add(c.id));
+  for (const c of done) shown.add(c.id);
 
   const stepsDone = reactive ? [] : stepsDoneViews(data, shown);
 

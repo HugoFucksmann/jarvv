@@ -33,6 +33,8 @@ test("speechExcerpt corta en una frase entera y siempre devuelve algo", () => {
   const text = "Primera frase. Segunda frase. Tercera frase.";
   assert.equal(speechExcerpt(text, 30), "Primera frase. Segunda frase.");
   assert.equal(speechExcerpt(text, 1000), text);
+  assert.equal(speechExcerpt("aaaa. bbbb.", 11), "aaaa. bbbb.", "justo en el tope entra");
+  assert.equal(speechExcerpt("aaaa. bbbb.", 10), "aaaa.", "el espacio entre frases cuenta: 5 + 1 + 5 supera 10");
   assert.equal(speechExcerpt("Una frase muy larga que no entra.", 5), "Una frase muy larga que no entra.");
   assert.equal(speechExcerpt("```js\ncodigo\n```", 100), "");
 });

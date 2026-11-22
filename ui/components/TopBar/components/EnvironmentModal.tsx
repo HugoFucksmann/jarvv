@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import type React from "react";
+import { useEffect } from "react";
 import { X, Laptop, Folder, Clock, Globe, Shield, Gauge, Copy, Check } from "lucide-react";
 import type { UserEnvironment, EngineLimits } from "../../../types/api.ts";
 import { useClipboardCopy } from "../../../hooks/useClipboardCopy.ts";

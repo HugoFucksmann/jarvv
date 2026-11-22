@@ -124,3 +124,39 @@ test("el contexto (`ctx/`) no importa nada fuera de `ctx/`: ni el núcleo, ni pa
   });
   assert.deepEqual(offenders, []);
 });
+
+// ───────────────────────── Aislamiento del contexto y del flujo ─────────────────────────
+
+/** `origen → destino` de cada import de `fromDirs` (carpetas de `src/`) que cae dentro de alguna de `forbiddenDirs`. */
+function violations(fromDirs: string[], forbiddenDirs: string[]): string[] {
+  const abs = (name: string) => path.join(SRC, name);
+  return fromDirs.flatMap((from) =>
+    files(abs(from)).flatMap((file) =>
+      relativeImports(file)
+        .filter((target) => forbiddenDirs.some((name) => inside(abs(name), target)))
+        .map((target) => `${path.relative(SRC, file)} → ${path.relative(SRC, target)}`),
+    ),
+  );
+}
+
+test("el contexto (`core/ctx`) no depende de nada fuera de sí: es el estado de la tarea y no conoce motor, modelos, herramientas ni políticas", () => {
+  const ctx = path.join(CORE, "ctx");
+  const offenders = files(ctx).flatMap((file) =>
+    relativeImports(file)
+      .filter((target) => !inside(ctx, target) && path.dirname(target) !== ctx && target !== ctx)
+      .map((target) => `${path.relative(SRC, file)} → ${path.relative(SRC, target)}`),
+  );
+  assert.deepEqual(offenders, []);
+});
+
+test("el motor no importa los modelos: recibe sus decisiones y su generación por los contratos (`contracts.ts`), así se prueba con falsos", () => {
+  assert.deepEqual(violations(["core/engine"], ["core/models", "tools", "server", "telegram", "voice"]), []);
+});
+
+test("la traza y el cliente MCP no dependen del motor ni de los modelos: leen datos (`core/types`) y errores comunes (`core/utils`)", () => {
+  assert.deepEqual(violations(["core/trace", "core/mcp"], ["core/engine", "core/models"]), []);
+});
+
+test("las vías externas (Telegram, voz) no importan el motor ni los modelos: el núcleo les llega por la API HTTP y por tipos (los eventos de `core/ctx`, los de `core/types`)", () => {
+  assert.deepEqual(violations(["telegram", "voice"], ["core/engine", "core/models"]), []);
+});

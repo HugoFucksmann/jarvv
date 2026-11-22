@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import type React from "react";
+import { useState } from "react";
 import { Brain, ChevronDown, ChevronRight, Clock, History, ArrowUpRight } from "lucide-react";
 import type { RecalledDto } from "../../../types/api.ts";
 

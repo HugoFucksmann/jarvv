@@ -189,8 +189,9 @@ export async function checkCallArgs(env: EngineEnv, call: PreparedCall, environm
             allowedUnresolvableReason ??= `La ruta '${dp}' detectada en el comando no se pudo resolver contra allowedDirectories.`;
           }
         }
-        if ((cmdReport.unresolvablePaths?.length ?? 0) > 0) {
-          allowedUnresolvableReason ??= `El comando usa rutas o variables sin resolver (${cmdReport.unresolvablePaths![0]}) que no pueden verificarse contra allowedDirectories.`;
+        const unresolvable = cmdReport.unresolvablePaths?.[0];
+        if (unresolvable !== undefined) {
+          allowedUnresolvableReason ??= `El comando usa rutas o variables sin resolver (${unresolvable}) que no pueden verificarse contra allowedDirectories.`;
         }
       }
     }

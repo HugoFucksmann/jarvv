@@ -15,7 +15,9 @@ import { toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
 import { errorMessage } from "../../core/utils.ts";
 import {
+  effectiveTimeoutMs,
   formatLocalDateTime,
+  fitLinesToBudget,
   formatSize,
   isCanonicalDescendant,
   joinEntryPath,
@@ -37,7 +39,6 @@ type SortBy = (typeof VALID_SORT_BY)[number];
 type SortOrder = (typeof VALID_ORDER)[number];
 type EntryTypeFilter = (typeof VALID_TYPES)[number];
 
-const HEADER_RESERVE_CHARS = 180;
 const YIELD_EVERY_ENTRIES = 64;
 
 export interface ListFolderDeps {
@@ -172,161 +173,54 @@ function formatRawLine(entry: FolderEntry, multiDepth: boolean): string {
     : `[FILE] ${label}  ${entry.size} B (${formatSize(entry.size)})  —  ${date}`;
 }
 
-function fitLines(header: string, lines: readonly string[], budget: number): readonly string[] {
-  const maxBody = Math.max(budget - Math.max(header.length + 1, HEADER_RESERVE_CHARS), 200);
-  const shown: string[] = [];
-  let used = 0;
+const cancelledResult = (): MCPCallResult =>
+  toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", count: 0, shown: 0, truncated: false, total: 0 } });
 
-  for (const line of lines) {
-    const cost = line.length + (shown.length > 0 ? 1 : 0);
-    if (shown.length > 0 && used + cost > maxBody) break;
-    shown.push(line);
-    used += cost;
+type EntryInfo =
+  | { readonly kind: "entry"; readonly isDir: boolean; readonly isFile: boolean; readonly size: number; readonly mtimeMs: number; readonly realTarget: string | undefined }
+  | { readonly kind: "skipped" };
+
+const SKIPPED_ENTRY: EntryInfo = { kind: "skipped" };
+
+/** Tipo, tamaño y fecha de una entrada. Un enlace que sale de `realRoot` se omite; uno roto se muestra como archivo; lo ilegible se omite. */
+async function statEntry(dirent: fs.Dirent, fullPath: string, realRoot: string): Promise<EntryInfo> {
+  if (!dirent.isSymbolicLink()) {
+    try {
+      const st = await fs.promises.stat(fullPath);
+      const isDir = st.isDirectory();
+      return { kind: "entry", isDir, isFile: st.isFile(), size: isDir ? 0 : st.size, mtimeMs: st.mtimeMs, realTarget: undefined };
+    } catch {
+      return SKIPPED_ENTRY;
+    }
   }
-  return shown;
+
+  try {
+    const realTarget = await fs.promises.realpath(fullPath);
+    if (!isCanonicalDescendant(realRoot, realTarget)) return SKIPPED_ENTRY;
+    const st = await fs.promises.stat(realTarget);
+    const isDir = st.isDirectory();
+    return { kind: "entry", isDir, isFile: st.isFile(), size: isDir ? 0 : st.size, mtimeMs: st.mtimeMs, realTarget };
+  } catch {
+    // Enlace simbólico roto o inaccesible: se intenta lstat o se omite sin fallar.
+    try {
+      const lst = await fs.promises.lstat(fullPath);
+      return { kind: "entry", isDir: false, isFile: true, size: 0, mtimeMs: lst.mtimeMs, realTarget: undefined };
+    } catch {
+      return SKIPPED_ENTRY;
+    }
+  }
 }
 
-export async function runListFolder(
-  rawArgs: Record<string, unknown>,
-  deps: ListFolderDeps,
-  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
-): Promise<MCPCallResult> {
-  if (options.signal?.aborted) {
-    return toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", count: 0, shown: 0, truncated: false, total: 0 } });
-  }
+interface ListingContext {
+  readonly targetPath: string;
+  /** Entradas que había antes de aplicar los filtros de tipo y extensión. */
+  readonly rawCount: number;
+  readonly skipped: number;
+}
 
-  const parsed = parseArgs(rawArgs);
-  if (!parsed.ok) return fail(parsed.message);
-  const args = parsed.args;
-
-  const resolved = await resolveFolderPath(args.path, deps.getEnvironment, deps.getAllowedDirectories());
-  if (!resolved.ok) return fail(resolved.message, resolved.denied ? { reason: "denied" } : {});
-  if (options.signal?.aborted) {
-    return toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", count: 0, shown: 0, truncated: false, total: 0 } });
-  }
-
-  const { targetPath, realRoot } = resolved;
-  const limitMs = options.timeoutMs !== undefined
-    ? Math.min(deps.defaultTimeoutMs, Math.max(options.timeoutMs > 2_000 ? options.timeoutMs - 1_500 : options.timeoutMs, 1))
-    : deps.defaultTimeoutMs;
-  const deadline = deps.now() + limitMs;
-
-  const visitedDirs = new Set<string>([realRoot]);
-  const queue: Array<{ readonly dirPath: string; readonly relPrefix: string; readonly depth: number }> = [
-    { dirPath: targetPath, relPrefix: "", depth: 1 },
-  ];
-
-  const entries: FolderEntry[] = [];
-  let rawCount = 0;
-  let skipped = 0;
-  let seen = 0;
-
-  for (let qi = 0; qi < queue.length; qi++) {
-    if (options.signal?.aborted) {
-      return toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", count: 0, shown: 0, truncated: false, total: 0 } });
-    }
-    if (deps.now() >= deadline) {
-      return fail(`Listing folder '${targetPath}' exceeded the time limit.`, { reason: "timeout" });
-    }
-
-    const current = queue[qi];
-    let dirEntries: fs.Dirent[];
-    try {
-      dirEntries = await fs.promises.readdir(current.dirPath, { withFileTypes: true });
-    } catch (error) {
-      if (qi === 0) {
-        return fail(`Cannot read folder '${targetPath}': ${errorMessage(error)}`);
-      }
-      skipped++;
-      continue;
-    }
-
-    for (const dirent of dirEntries) {
-      if (options.signal?.aborted) {
-        return toolResult({ text: "status: cancelled", raw: "", data: { state: "cancelled", count: 0, shown: 0, truncated: false, total: 0 } });
-      }
-      seen++;
-      if (seen % YIELD_EVERY_ENTRIES === 0) await yieldEventLoop();
-
-      if (!args.includeHidden && dirent.name.startsWith(".")) {
-        continue;
-      }
-
-      const fullPath = joinEntryPath(current.dirPath, dirent.name);
-      const relPath = current.relPrefix === "" ? dirent.name : `${current.relPrefix}/${dirent.name}`;
-      let isDir = false;
-      let isFile = false;
-      let size = 0;
-      let mtimeMs = 0;
-      let realTarget: string | undefined;
-
-      if (dirent.isSymbolicLink()) {
-        try {
-          realTarget = await fs.promises.realpath(fullPath);
-          if (!isCanonicalDescendant(realRoot, realTarget)) {
-            skipped++;
-            continue;
-          }
-          const st = await fs.promises.stat(realTarget);
-          isDir = st.isDirectory();
-          isFile = st.isFile();
-          size = isDir ? 0 : st.size;
-          mtimeMs = st.mtimeMs;
-        } catch {
-          // Enlace simbólico roto o inaccesible: se intenta lstat o se omite sin fallar.
-          try {
-            const lst = await fs.promises.lstat(fullPath);
-            mtimeMs = lst.mtimeMs;
-            isFile = true;
-          } catch {
-            skipped++;
-            continue;
-          }
-        }
-      } else {
-        try {
-          const st = await fs.promises.stat(fullPath);
-          isDir = st.isDirectory();
-          isFile = st.isFile();
-          size = isDir ? 0 : st.size;
-          mtimeMs = st.mtimeMs;
-        } catch {
-          skipped++;
-          continue;
-        }
-      }
-
-      if (!isDir && !isFile) continue;
-      rawCount++;
-
-      const ext = isFile ? path.extname(dirent.name).replace(/^\./, "").toLowerCase() : "";
-      const passesType = args.type === "any" || (args.type === "folder" && isDir) || (args.type === "file" && isFile);
-      const passesExt = args.extensions.length === 0 || (isFile && args.extensions.includes(ext));
-
-      if (passesType && passesExt) {
-        entries.push({
-          name: dirent.name,
-          relPath,
-          isDir,
-          size,
-          mtimeMs,
-          ext,
-        });
-      }
-
-      if (isDir && current.depth < args.depth) {
-        if (realTarget !== undefined) {
-          if (!visitedDirs.has(realTarget)) {
-            visitedDirs.add(realTarget);
-            queue.push({ dirPath: fullPath, relPrefix: relPath, depth: current.depth + 1 });
-          }
-        } else {
-          queue.push({ dirPath: fullPath, relPrefix: relPath, depth: current.depth + 1 });
-        }
-      }
-    }
-  }
-
+/** El resultado: ordena, recorta al `limit` y al presupuesto de texto, y deja el listado completo (con bytes exactos) en `raw`. */
+function renderListing(entries: FolderEntry[], args: ParsedListArgs, ctx: ListingContext): MCPCallResult {
+  const { targetPath, rawCount, skipped } = ctx;
   entries.sort((a, b) => compareEntries(a, b, args.sortBy, args.order));
   const total = entries.length;
 
@@ -346,7 +240,7 @@ export async function runListFolder(
   const rawBodyLines = entries.map((e) => formatRawLine(e, multiDepth));
 
   const prelimHeader = `status: ok · showing ${limited.length} of ${total} (sorted by ${args.sortBy} ${args.order})`;
-  const shownTextLines = fitLines(prelimHeader, textBodyLines, BUDGET.summaryMax);
+  const shownTextLines = fitLinesToBudget(prelimHeader, textBodyLines, BUDGET.summaryMax).shown;
   const shown = shownTextLines.length;
   const truncated = shown < total;
 
@@ -385,4 +279,87 @@ export async function runListFolder(
       skipped,
     },
   });
+}
+
+export async function runListFolder(
+  rawArgs: Record<string, unknown>,
+  deps: ListFolderDeps,
+  options: { readonly signal?: AbortSignal; readonly timeoutMs?: number } = {},
+): Promise<MCPCallResult> {
+  if (options.signal?.aborted) return cancelledResult();
+
+  const parsed = parseArgs(rawArgs);
+  if (!parsed.ok) return fail(parsed.message);
+  const args = parsed.args;
+
+  const resolved = await resolveFolderPath(args.path, deps.getEnvironment, deps.getAllowedDirectories());
+  if (!resolved.ok) return fail(resolved.message, resolved.denied ? { reason: "denied" } : {});
+  if (options.signal?.aborted) return cancelledResult();
+
+  const { targetPath, realRoot } = resolved;
+  const deadline = deps.now() + effectiveTimeoutMs(deps.defaultTimeoutMs, options.timeoutMs);
+
+  const visitedDirs = new Set<string>([realRoot]);
+  const queue: Array<{ readonly dirPath: string; readonly relPrefix: string; readonly depth: number }> = [
+    { dirPath: targetPath, relPrefix: "", depth: 1 },
+  ];
+
+  const entries: FolderEntry[] = [];
+  let rawCount = 0;
+  let skipped = 0;
+  let seen = 0;
+
+  for (let qi = 0; qi < queue.length; qi++) {
+    if (options.signal?.aborted) return cancelledResult();
+    if (deps.now() >= deadline) {
+      return fail(`Listing folder '${targetPath}' exceeded the time limit.`, { reason: "timeout" });
+    }
+
+    const current = queue[qi];
+    let dirEntries: fs.Dirent[];
+    try {
+      dirEntries = await fs.promises.readdir(current.dirPath, { withFileTypes: true });
+    } catch (error) {
+      if (qi === 0) {
+        return fail(`Cannot read folder '${targetPath}': ${errorMessage(error)}`);
+      }
+      skipped++;
+      continue;
+    }
+
+    for (const dirent of dirEntries) {
+      if (options.signal?.aborted) return cancelledResult();
+      seen++;
+      if (seen % YIELD_EVERY_ENTRIES === 0) await yieldEventLoop();
+
+      if (!args.includeHidden && dirent.name.startsWith(".")) continue;
+
+      const fullPath = joinEntryPath(current.dirPath, dirent.name);
+      const relPath = current.relPrefix === "" ? dirent.name : `${current.relPrefix}/${dirent.name}`;
+      const info = await statEntry(dirent, fullPath, realRoot);
+      if (info.kind === "skipped") {
+        skipped++;
+        continue;
+      }
+      const { isDir, isFile, size, mtimeMs, realTarget } = info;
+      if (!isDir && !isFile) continue;
+      rawCount++;
+
+      const ext = isFile ? path.extname(dirent.name).replace(/^\./, "").toLowerCase() : "";
+      const passesType = args.type === "any" || (args.type === "folder" && isDir) || (args.type === "file" && isFile);
+      const passesExt = args.extensions.length === 0 || (isFile && args.extensions.includes(ext));
+      if (passesType && passesExt) entries.push({ name: dirent.name, relPath, isDir, size, mtimeMs, ext });
+
+      if (isDir && current.depth < args.depth) {
+        if (realTarget === undefined) {
+          queue.push({ dirPath: fullPath, relPrefix: relPath, depth: current.depth + 1 });
+        } else if (!visitedDirs.has(realTarget)) {
+          visitedDirs.add(realTarget);
+          queue.push({ dirPath: fullPath, relPrefix: relPath, depth: current.depth + 1 });
+        }
+      }
+    }
+  }
+
+  return renderListing(entries, args, { targetPath, rawCount, skipped });
 }

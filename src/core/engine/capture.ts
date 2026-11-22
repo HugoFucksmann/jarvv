@@ -73,15 +73,20 @@ export function captureDecision(
   sink: CaptureSink,
   version: () => number,
 ): IActionDecision {
+  const { probe, continuation, firstQuery } = {
+    probe: decision.probe?.bind(decision),
+    continuation: decision.continuation?.bind(decision),
+    firstQuery: decision.firstQuery?.bind(decision),
+  };
   return {
     chooseRoute: (input, signal) => observe("route", sink, version, () => decision.chooseRoute(input, signal)),
     chooseTool: (input, signal) => observe("tool", sink, version, () => decision.chooseTool(input, signal)),
     reviewArgs: (input, signal) => observe("review", sink, version, () => decision.reviewArgs(input, signal)),
     verifyResult: (input, signal) => observe("verify", sink, version, () => decision.verifyResult(input, signal)),
     checkCompletion: (input, signal) => observe("completion", sink, version, () => decision.checkCompletion(input, signal)),
-    ...(decision.probe === undefined ? {} : { probe: (input: ProbeQuery, signal?: AbortSignal) => observe("probe", sink, version, () => decision.probe!(input, signal)) }),
-    ...(decision.continuation === undefined ? {} : { continuation: (input: ContinuationInput, signal?: AbortSignal) => observe("continuation", sink, version, () => decision.continuation!(input, signal)) }),
-    ...(decision.firstQuery === undefined ? {} : { firstQuery: (input: FirstQueryInput, signal?: AbortSignal) => observe("first_query", sink, version, () => decision.firstQuery!(input, signal)) }),
+    ...(probe === undefined ? {} : { probe: (input: ProbeQuery, signal?: AbortSignal) => observe("probe", sink, version, () => probe(input, signal)) }),
+    ...(continuation === undefined ? {} : { continuation: (input: ContinuationInput, signal?: AbortSignal) => observe("continuation", sink, version, () => continuation(input, signal)) }),
+    ...(firstQuery === undefined ? {} : { firstQuery: (input: FirstQueryInput, signal?: AbortSignal) => observe("first_query", sink, version, () => firstQuery(input, signal)) }),
   };
 }
 

@@ -175,14 +175,34 @@ test("tras `tool_failed`, repetir el ítem se acepta UNA vez (`identical_retry`)
   assert.equal(list.applyModelList(["Escribir el informe en informe.md", "Enviar el informe"], false), "identical_rewrite", "el reintento idéntico es uno por ítem");
 });
 
-test("el reintento idéntico es solo para errores de la herramienta: con otra causa, o sin causa, repetir el ítem cierra", () => {
-  for (const cause of ["verify_rejected", "call_cap", "review_rejected", "repeat_blocked", null] as const) {
+test("el reintento idéntico es solo para fallos que el generador de argumentos puede corregir: con otra causa, o sin causa, repetir el ítem cierra", () => {
+  for (const cause of ["verify_rejected", "call_cap", "repeat_blocked", "denied", "user_rejected", null] as const) {
     const list = new ReactiveList();
     list.applyModelList(["Leer el archivo datos.json"], false);
     list.modelAnswered();
     list.failHead(cause);
     assert.equal(list.applyModelList(["Leer el archivo datos.json"], false), "identical_rewrite", String(cause));
   }
+});
+
+test("tras `review_rejected` en el PRIMER fallo del ítem se acepta UN reintento idéntico (el generador ve el motivo); si una reescritura ya falló, cierra", () => {
+  const list = new ReactiveList();
+  list.applyModelList(["Buscar hospedaje en Mendoza"], false);
+  list.modelAnswered();
+  list.failHead("review_rejected");
+  assert.equal(list.applyModelList(["Buscar hospedaje en Mendoza"], false), "identical_retry");
+  list.modelAnswered();
+  list.failHead("review_rejected");
+  assert.equal(list.applyModelList(["Buscar hospedaje en Mendoza"], false), "identical_rewrite", "uno por ítem");
+
+  const rewritten = new ReactiveList();
+  rewritten.applyModelList(["Buscar hospedaje en Mendoza"], false);
+  rewritten.modelAnswered();
+  rewritten.failHead("review_rejected");
+  assert.equal(rewritten.applyModelList(["Buscar hospedaje con precios en Mendoza"], false), "accepted", "una reescritura distinta siempre es un intento nuevo");
+  rewritten.modelAnswered();
+  rewritten.failHead("review_rejected"); // la reescritura también falló la revisión
+  assert.equal(rewritten.applyModelList(["Buscar hospedaje con precios en Mendoza"], false), "identical_rewrite", "ya no es el primer fallo: no converge, cierra");
 });
 
 test("cada ítem tiene su propio reintento idéntico", () => {

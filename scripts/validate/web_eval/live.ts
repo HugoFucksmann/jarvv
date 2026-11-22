@@ -19,7 +19,7 @@ const discovery = new DiscoveryEngine([server]);
 const decision = new Decision20Engine(getConfig);
 const provider = new WebSearchProvider({ judge: () => decision });
 
-let hit = 0, n = 0, bad = 0, fp = 0, neg = 0, ms = 0, pages = 0, errors = 0, answered = 0;
+let hit = 0, n = 0, bad = 0, fp = 0, neg = 0, ms = 0, pages = 0, errors = 0;
 try {
   for (const c of CASES.filter((x) => only === undefined || only.includes(x.id))) {
     const host = createToolHost(discovery, WEB_DEPENDENCIES, DIRECT_CALL, "live");
@@ -32,7 +32,6 @@ try {
     const read = Number((native.meta.judge as { pagesRead?: number }).pagesRead ?? native.data.read ?? 0);
     ms += took; pages += read;
     const isAnswer = state === "found" || state === "partial";
-    if (isAnswer) answered++;
     let mark: string;
     if (c.gold) { n++; const h = c.gold.test(native.text); const b = c.bad?.test(native.text) ?? false; if (h) hit++; if (b) bad++; mark = (h ? "OK" : "NO") + (b ? " +VIEJO" : ""); }
     else { neg++; if (isAnswer) fp++; mark = isAnswer ? "NO (responde algo)" : "OK (no inventa)"; }

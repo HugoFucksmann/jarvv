@@ -22,6 +22,7 @@ import {
   raceAbort,
   resolveFolderPath,
   resolvePathTarget,
+  tempSuffix,
 } from "../../core/tools/filePaths.ts";
 import { cancelledResult, toolResult } from "../../core/tools/result.ts";
 import type { MCPCallResult } from "../../core/types.ts";
@@ -386,6 +387,94 @@ async function writeBodyStreamToFile(
   }
 }
 
+/** El resultado de un paso de la descarga: lo que produjo, o la respuesta de error con la que `runDownloadFile` termina. */
+type Step<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly result: MCPCallResult };
+const stop = (result: MCPCallResult): { readonly ok: false; readonly result: MCPCallResult } => ({ ok: false, result });
+
+/** Dónde se guarda: el archivo que pidió el usuario, o una carpeta (el nombre sale de `filename`, de los encabezados o de la URL). */
+type Destination = { readonly file: string } | { readonly folder: string };
+
+/** Valida el destino antes de iniciar tráfico de red. */
+async function resolveDestination(
+  args: ParsedDownloadArgs,
+  deps: DownloadFileDeps,
+  allowedDirs: readonly string[],
+): Promise<Step<{ readonly destination: Destination; readonly userHome: string }>> {
+  if (args.destination !== undefined) {
+    const res = await resolvePathTarget(args.destination, deps.getEnvironment, allowedDirs, {
+      allowEmptyAsHome: false,
+      paramName: "destination",
+    });
+    if (!res.ok) return stop(fail(res.message, res.denied ? { reason: "denied" } : {}));
+
+    const parent = dirnameOf(res.targetPath);
+    try {
+      const parentStat = await fs.promises.stat(parent);
+      if (!parentStat.isDirectory()) return stop(fail(`Destination parent '${parent}' is not a folder.`));
+    } catch {
+      return stop(fail(`Destination parent folder does not exist: '${parent}'.`));
+    }
+    return { ok: true, value: { destination: { file: res.targetPath }, userHome: res.env.home } };
+  }
+
+  const folderRes = await resolveFolderPath(args.folder ?? "downloads", deps.getEnvironment, allowedDirs);
+  if (!folderRes.ok) return stop(fail(folderRes.message, folderRes.denied ? { reason: "denied" } : {}));
+  const env = await deps.getEnvironment();
+  return { ok: true, value: { destination: { folder: folderRes.targetPath }, userHome: env.home } };
+}
+
+interface FetchContext {
+  readonly fetchFn: FetchLike;
+  readonly lookupHost: LookupLike;
+  readonly allowPrivate: boolean;
+  readonly signal: AbortSignal;
+}
+
+/** GET con redirecciones manuales: cada salto revalida la URL (no se llega a una red privada por un redirect). */
+async function fetchFollowingRedirects(startUrl: string, ctx: FetchContext): Promise<Step<{ readonly response: Response; readonly finalUrl: URL }>> {
+  let currentUrl = startUrl;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const urlCheck = await validateRemoteUrl(currentUrl, ctx.lookupHost, ctx.allowPrivate);
+    if (!urlCheck.ok) {
+      return stop(fail(urlCheck.message, urlCheck.message.startsWith("[DENIED]") ? { reason: "denied" } : {}));
+    }
+    const finalUrl = urlCheck.url;
+
+    const res = await ctx.fetchFn(finalUrl.toString(), { method: "GET", redirect: "manual", signal: ctx.signal });
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      await res.body?.cancel().catch(() => {});
+      if (!loc) return stop(fail(`Redirect (${res.status}) missing Location header.`));
+      if (hop === MAX_REDIRECTS) return stop(fail(`Too many redirects (max ${MAX_REDIRECTS}).`));
+      currentUrl = new URL(loc, finalUrl).toString();
+      continue;
+    }
+    return { ok: true, value: { response: res, finalUrl } };
+  }
+  return stop(fail("Download did not produce an HTTP response."));
+}
+
+/** El tamaño que declara el servidor (`Content-Length`) ya supera el tope: se rechaza sin descargar. `null` si no hay problema. */
+function declaredSizeProblem(response: Response, maxBytes: number): MCPCallResult | null {
+  const header = response.headers.get("content-length");
+  if (header === null) return null;
+  const declared = Number(header);
+  if (!Number.isFinite(declared) || declared <= maxBytes) return null;
+  return fail(`File size (${formatSize(declared)}) exceeds maxBytes limit (${formatSize(maxBytes)}).`, { reason: "too_large", contentLength: declared });
+}
+
+/** `allowedDirectories` y enlaces sobre la ruta final resuelta; no se pisa lo que existe salvo `overwrite`. `null` si se puede escribir ahí. */
+async function destinationProblem(finalPath: string, allowedDirs: readonly string[], userHome: string, overwrite: boolean): Promise<MCPCallResult | null> {
+  const inspection = await inspectDestinationTarget(finalPath, allowedDirs, userHome);
+  if (inspection.status === "denied") return fail(inspection.message, { reason: "denied" });
+  if (inspection.status === "error") return fail(inspection.message);
+  if (inspection.status === "exists") {
+    if (inspection.isDirectory) return fail(`Destination '${finalPath}' is a folder, not a file.`);
+    if (!overwrite) return fail(`Destination already exists: '${finalPath}'. Pass overwrite: true to replace.`, { reason: "already_exists" });
+  }
+  return null;
+}
+
 export async function runDownloadFile(
   rawArgs: Record<string, unknown>,
   deps: DownloadFileDeps,
@@ -400,128 +489,48 @@ export async function runDownloadFile(
   const args = parsed.args;
 
   const effectiveTimeoutMs = computeEffectiveTimeoutMs(args.timeoutMs, options.timeoutMs, 1_000);
-  const fetchFn: FetchLike = deps.fetchFn ?? fetch;
-  const lookupHost: LookupLike = deps.lookupHost ?? defaultLookupHost;
-  const allowPrivate = deps.allowPrivateNetwork === true;
   const allowedDirs = deps.getAllowedDirectories();
 
-  // Validar carpeta/destino antes de iniciar tráfico de red.
-  let targetFolder: string | undefined;
-  let explicitTargetPath: string | undefined;
-  let userHome = "";
-
-  if (args.destination !== undefined) {
-    const res = await resolvePathTarget(args.destination, deps.getEnvironment, allowedDirs, {
-      allowEmptyAsHome: false,
-      paramName: "destination",
-    });
-    if (!res.ok) return fail(res.message, res.denied ? { reason: "denied" } : {});
-    explicitTargetPath = res.targetPath;
-    userHome = res.env.home;
-
-    const parent = dirnameOf(explicitTargetPath);
-    try {
-      const parentStat = await fs.promises.stat(parent);
-      if (!parentStat.isDirectory()) return fail(`Destination parent '${parent}' is not a folder.`);
-    } catch {
-      return fail(`Destination parent folder does not exist: '${parent}'.`);
-    }
-  } else {
-    const folderRes = await resolveFolderPath(args.folder ?? "downloads", deps.getEnvironment, allowedDirs);
-    if (!folderRes.ok) return fail(folderRes.message, folderRes.denied ? { reason: "denied" } : {});
-    targetFolder = folderRes.targetPath;
-    const env = await deps.getEnvironment();
-    userHome = env.home;
-  }
+  const target = await resolveDestination(args, deps, allowedDirs);
+  if (!target.ok) return target.result;
+  const { destination, userHome } = target.value;
 
   const linked = createLinkedController(effectiveTimeoutMs, options.signal);
   let partPath: string | undefined;
 
   try {
-    let currentUrl = args.url;
-    let response: Response | undefined;
-    let finalUrl: URL | undefined;
+    const fetched = await fetchFollowingRedirects(args.url, {
+      fetchFn: deps.fetchFn ?? fetch,
+      lookupHost: deps.lookupHost ?? defaultLookupHost,
+      allowPrivate: deps.allowPrivateNetwork === true,
+      signal: linked.controller.signal,
+    });
+    if (!fetched.ok) return fetched.result;
+    const { response, finalUrl } = fetched.value;
 
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      const urlCheck = await validateRemoteUrl(currentUrl, lookupHost, allowPrivate);
-      if (!urlCheck.ok) {
-        return fail(urlCheck.message, urlCheck.message.startsWith("[DENIED]") ? { reason: "denied" } : {});
-      }
-      finalUrl = urlCheck.url;
-
-      const res = await fetchFn(finalUrl.toString(), {
-        method: "GET",
-        redirect: "manual",
-        signal: linked.controller.signal,
-      });
-
-      if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers.get("location");
-        await res.body?.cancel().catch(() => {});
-        if (!loc) return fail(`Redirect (${res.status}) missing Location header.`);
-        if (hop === MAX_REDIRECTS) return fail(`Too many redirects (max ${MAX_REDIRECTS}).`);
-        currentUrl = new URL(loc, finalUrl).toString();
-        continue;
-      }
-
-      response = res;
-      break;
-    }
-
-    if (!response || !finalUrl) {
-      return fail("Download did not produce an HTTP response.");
-    }
+    // Desde acá la respuesta tiene cuerpo sin leer: si se rechaza la descarga, se cancela para liberar la conexión.
+    const reject = async (result: MCPCallResult): Promise<MCPCallResult> => {
+      await response.body?.cancel().catch(() => {});
+      return result;
+    };
 
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      return fail(`Download failed with HTTP ${response.status} ${response.statusText || ""}`.trim(), {
-        httpStatus: response.status,
-      });
+      return reject(fail(`Download failed with HTTP ${response.status} ${response.statusText || ""}`.trim(), { httpStatus: response.status }));
     }
-
-    const clHeader = response.headers.get("content-length");
-    if (clHeader !== null) {
-      const declared = Number(clHeader);
-      if (Number.isFinite(declared) && declared > args.maxBytes) {
-        await response.body?.cancel().catch(() => {});
-        return fail(
-          `File size (${formatSize(declared)}) exceeds maxBytes limit (${formatSize(args.maxBytes)}).`,
-          { reason: "too_large", contentLength: declared },
-        );
-      }
-    }
+    const tooLarge = declaredSizeProblem(response, args.maxBytes);
+    if (tooLarge !== null) return reject(tooLarge);
 
     const finalPath =
-      explicitTargetPath ??
-      joinEntryPath(
-        targetFolder!,
-        args.filename !== undefined ? sanitizeFileName(args.filename) : filenameFromHeadersOrUrl(response.headers, finalUrl),
-      );
+      "file" in destination
+        ? destination.file
+        : joinEntryPath(
+            destination.folder,
+            args.filename !== undefined ? sanitizeFileName(args.filename) : filenameFromHeadersOrUrl(response.headers, finalUrl),
+          );
+    const unwritable = await destinationProblem(finalPath, allowedDirs, userHome, args.overwrite);
+    if (unwritable !== null) return reject(unwritable);
 
-    // Verificar allowedDirectories + symlinks sobre la ruta final resuelta.
-    const dstInspection = await inspectDestinationTarget(finalPath, allowedDirs, userHome);
-    if (dstInspection.status === "denied") {
-      await response.body?.cancel().catch(() => {});
-      return fail(dstInspection.message, { reason: "denied" });
-    }
-    if (dstInspection.status === "error") {
-      await response.body?.cancel().catch(() => {});
-      return fail(dstInspection.message);
-    }
-    if (dstInspection.status === "exists") {
-      if (dstInspection.isDirectory) {
-        await response.body?.cancel().catch(() => {});
-        return fail(`Destination '${finalPath}' is a folder, not a file.`);
-      }
-      if (!args.overwrite) {
-        await response.body?.cancel().catch(() => {});
-        return fail(`Destination already exists: '${finalPath}'. Pass overwrite: true to replace.`, {
-          reason: "already_exists",
-        });
-      }
-    }
-
-    partPath = `${finalPath}.jarvis-dl-${process.pid}-${Date.now()}.part`;
+    partPath = `${finalPath}.jarvis-dl-${tempSuffix()}.part`;
     let bytesDownloaded = 0;
 
     if (response.body === null) {

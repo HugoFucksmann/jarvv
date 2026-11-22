@@ -124,7 +124,7 @@ El resultado de cada llamada se determina una sola vez y se guarda en `status`; 
 |---|---|---|
 | Ejecutadas | `ok` | Se ejecutó y devolvió datos |
 | | `no_data` | Se ejecutó, pero no hay datos (archivo vacío, búsqueda sin resultados) |
-| | `not_found` | El recurso no existe |
+| | `not_found` | El recurso no existe. En una escritura nativa (`reason: "not_found"`: la ruta o la carpeta de destino no existe) significa además que no se escribió nada: la verificación la rechaza sin consultar al modelo, cuenta como error de la herramienta en los topes del paso y no es un posible cambio. Una lectura que falla así queda como `tool_error` |
 | | `tool_error` | Error, timeout o código de salida distinto de 0 |
 | | `exception` | La ejecución lanzó una excepción |
 | | `interrupted` | La cancelación llegó con la herramienta ya despachada |
