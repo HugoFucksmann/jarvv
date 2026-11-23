@@ -5,7 +5,7 @@
  */
 
 import { finalRenderOptions, finalStageRequest, finalViewOptions, renderFinal, stripThink } from "../contract.ts";
-import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
+import { LatencyGrader, TruncationNoteGrader } from "../graders/common.ts";
 import { FinalResponseGrader } from "../graders/final.ts";
 import type { FinalExpect, FinalOutput } from "../types.ts";
 import { noLabel } from "./shared.ts";
@@ -25,7 +25,7 @@ export const finalStage: GenerativeStageEntry<FinalOutput, FinalExpect> = {
       }
     },
   },
-  graders: [LatencyGrader, NotTruncatedGrader, FinalResponseGrader],
+  graders: [LatencyGrader, TruncationNoteGrader, FinalResponseGrader],
   buildRequest(sc, ov, h) {
     const { ctx } = h.buildContext(sc);
     return {

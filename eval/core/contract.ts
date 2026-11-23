@@ -47,6 +47,7 @@ export {
   toolInput,
   verifyInput,
 } from "../../src/core/engine/adapters.ts";
+export { clipWithin } from "../../src/core/engine/args.ts";
 export { CONTINUATION_APPROVE, previousTaskOf } from "../../src/core/engine/thread.ts";
 export const CONTINUATION_KEY = "follow";
 export { COMPLETION_APPROVE } from "../../src/core/engine/completion.ts";

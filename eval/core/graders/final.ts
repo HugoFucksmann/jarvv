@@ -8,7 +8,8 @@ import type { FinalExpect, FinalOutput, Grader } from "../types.ts";
 import { containsTerm, findInternalLeak } from "./common.ts";
 
 /** El prompt pide empezar directo con la respuesta, sin saludo. */
-const GREETING_RE = /^[\s¡!¿?"'«*_#>-]*(?:hola|buen(?:os|as)|hello|hi|hey|saludos|estimad[oa])\b/i;
+// «Buenas noticias» o «Buenos Aires» no son saludos: solo «buenos días», «buenas tardes/noches» o un «¡Buenas!» suelto.
+const GREETING_RE = /^[\s¡!¿?"'«*_#>-]*(?:hola|buenos\s+d[ií]as|buenas\s+(?:tardes|noches|d[ií]as)|buenas(?=\s*[,!])|hello|hi|hey|saludos|estimad[oa])\b/i;
 
 export const FinalResponseGrader: Grader<FinalOutput, FinalExpect> = {
   name: "final_response",

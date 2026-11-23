@@ -5,7 +5,7 @@
  */
 
 import { askRenderOptions, questionStageRequest, renderAsk, stripThink } from "../contract.ts";
-import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
+import { LatencyGrader, TruncationNoteGrader } from "../graders/common.ts";
 import { QuestionGrader } from "../graders/question.ts";
 import type { QuestionExpect, QuestionOutput } from "../types.ts";
 import { checkIntMin1, noLabel } from "./shared.ts";
@@ -24,7 +24,7 @@ export const questionStage: GenerativeStageEntry<QuestionOutput, QuestionExpect>
       if (expectObj.mustContainKeywords === undefined) errs.push("expect.mustContainKeywords es obligatorio: sin él no se mide que la pregunta pida lo que falta.");
     },
   },
-  graders: [LatencyGrader, NotTruncatedGrader, QuestionGrader],
+  graders: [LatencyGrader, TruncationNoteGrader, QuestionGrader],
   buildRequest(sc, ov, h) {
     const { ctx } = h.buildContext(sc);
     return {

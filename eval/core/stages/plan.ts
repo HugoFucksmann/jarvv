@@ -4,7 +4,7 @@
  * Etapa generativa `plan`: planificación deliberativa por pasos.
  */
 
-import { MAX_STEPS, NOT_JSON_ERROR, parseJsonObject, parsePlanStepsResult, planInput, planStageRequest } from "../contract.ts";
+import { BUDGET, clipWithin, MAX_STEPS, NOT_JSON_ERROR, parseJsonObject, parsePlanStepsResult, planInput, planStageRequest } from "../contract.ts";
 import { LatencyGrader, NotTruncatedGrader } from "../graders/common.ts";
 import { PlanStepsGrader } from "../graders/plan.ts";
 import type { GenerativeRequest, PlanExpect, PlanOutput, PlanStep } from "../types.ts";
@@ -51,8 +51,10 @@ export const planStage: GenerativeStageEntry<PlanOutput, PlanExpect> = {
   buildRequest(sc, ov, h) {
     const { ctx } = h.buildContext(sc);
     const at = sc.at ?? {};
+    // Como el motor (`generatePlan`): el feedback del usuario se recorta a `BUDGET.feedbackMax`.
+    const feedback = at.feedback === undefined ? null : clipWithin(at.feedback, BUDGET.feedbackMax);
     return {
-      request: h.generative(planStageRequest(planInput(ctx, at.feedback ?? null), h.config(), h.effectivePrompts(ov).P), "plan"),
+      request: h.generative(planStageRequest(planInput(ctx, feedback), h.config(), h.effectivePrompts(ov).P), "plan"),
     };
   },
   parseOutput(rawOutput: string, sentReq: GenerativeRequest): PlanOutput {

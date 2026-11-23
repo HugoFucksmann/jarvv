@@ -1434,7 +1434,7 @@ describe("eval/auto variantes de decisión armadas por código (solo textos)", (
     assert.ok(out.state.startsWith("Be specific.\n"));
     const criteria = (out.questions.route as { criteria: Record<string, string> }).criteria;
     assert.match(criteria.web, /^Online lookups only./);
-    assert.match(criteria.terminal, /Run a command/, "las opciones sin cambio quedan como en producción");
+    assert.match(criteria.terminal, /Run commands and programs/, "las opciones sin cambio quedan como en producción");
   });
 });
 

@@ -46,7 +46,8 @@ export function containsTerm(haystack: string, needle: string): boolean {
  * (todos con guion bajo, así que no chocan con palabras comunes ni con nombres de carpetas del usuario) e ids de llamadas, pasos y resultados.
  */
 const INTERNAL_TERMS: readonly string[] = [...new Set([...SYSTEM_TOOL_MANIFEST.map((t) => t.name), ...CALL_STATUSES, ...VERDICT_REASONS].filter((w) => w.includes("_")))];
-const INTERNAL_ID_RE = /\b[csr]\d+\b/;
+// Un id suelto (`c1`, «el paso s2»). No cuenta si es parte de un nombre de archivo o de una ruta del usuario (`c1.csv`, `datos/r2/`, `a-s3`).
+const INTERNAL_ID_RE = /(?<![\w./\\-])[csr]\d+(?![\w/\\-]|\.\w)/;
 
 /** El primer término interno (herramienta, estado, razón o id `c1`/`s2`/`r3`) que aparece en `text`, o undefined. */
 export function findInternalLeak(text: string): string | undefined {
@@ -100,7 +101,10 @@ export function createCollector(): {
   };
 }
 
-/** Solo etapas generativas. */
+/**
+ * Solo etapas generativas que producción rechaza si la salida quedó cortada (`rejectTruncated: true`: `plan`, `arguments` y `pending`, cuyo JSON
+ * truncado es inválido). Una salida cortada es un fallo del run, como lo es para el motor.
+ */
 export const NotTruncatedGrader: Grader<unknown, unknown> = {
   name: "not_truncated",
   grade(_output, _expect, ctx, col) {
@@ -108,6 +112,21 @@ export const NotTruncatedGrader: Grader<unknown, unknown> = {
       "not_truncated",
       ctx.finishReason !== "length",
       "La salida fue truncada por límite de tokens (finish_reason=length).",
+    );
+  },
+};
+
+/**
+ * Etapas de texto libre (`final`, `question`): producción pide un reintento si la salida quedó cortada, pero en el último intento la acepta
+ * (`final` le agrega un aviso). El run no falla; la clave `not_truncated` queda en falso y se avisa, para ver cuánto texto sale cortado.
+ */
+export const TruncationNoteGrader: Grader<unknown, unknown> = {
+  name: "truncation_note",
+  grade(_output, _expect, ctx, col) {
+    col.soft(
+      "not_truncated",
+      ctx.finishReason !== "length",
+      "La salida quedó cortada por el límite de tokens (finish_reason=length): producción la acepta en el último intento, pero el texto está incompleto.",
     );
   },
 };

@@ -346,13 +346,6 @@ export const lastFailedBy = (attempts: readonly DecisionAttempt[], key: (a: Deci
   return m;
 };
 
-/** Aclaraciones de D1 por ruta (medidas en el eval: los grupos de archivos no abren aplicaciones, `terminal` sí). */
-const ROUTE_HINTS: Record<string, string> = {
-  files_read: "Not for opening or launching applications.",
-  files_write: "Not for opening or launching applications.",
-  terminal: "Opening an application such as Notepad or the calculator belongs here.",
-};
-
 /**
  * Pasos que piden mover o renombrar (español e inglés). Solo a ellos D4 les suma "A copy is not a move.": sin esa condición la frase subía `cumple` en casos ajenos
  * (eval 2026-11-12: la frase sin condición dio -3 casos en 164 ajenos; con la condición, 0 regresiones; en los 8 casos de copiar y mover, de 2/8 a 5/8).
@@ -503,9 +496,7 @@ Does the PASSAGE contain information that answers the QUESTION?`,
     const criteria: Record<string, string> = {};
     for (const route of data.routes) {
       const desc = DESTINATIONS[route].description;
-      const base = failed.get(route) === true ? `${desc} [the last attempt on this route failed]` : desc;
-      const hint = ROUTE_HINTS[route];
-      criteria[route] = hint ? `${base} ${hint}` : base;
+      criteria[route] = failed.get(route) === true ? `${desc} [the last attempt on this route failed]` : desc;
     }
 
     return {

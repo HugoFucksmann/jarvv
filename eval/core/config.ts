@@ -218,7 +218,8 @@ export function parseConfig(argv: string[]): EvalConfig {
   }
 
   // thinking
-  // Por defecto SIN thinking: con él cada llamada generativa tarda decenas de segundos y Jarvis no lo usa; sin la bandera el modelo piensa por su cuenta.
+  // Por defecto SIN thinking: con él cada llamada generativa tarda decenas de segundos. Ojo: producción solo piensa en `plan` (fijo en `planStageRequest`) y en `final` si
+  // `jarvis-config.json` lo activa (hoy no): para medir `plan` como producción hay que pasar `--thinking=prod`.
   const thinkingRaw = flagStr(flags, "thinking") ?? "off";
   if (!["prod", "on", "off", "both"].includes(thinkingRaw)) {
     throw new Error(`--thinking: valor inválido '${thinkingRaw}' (prod|on|off|both).`);

@@ -71,10 +71,12 @@ Producción descarta en tiempo de ejecución algunas rutas y herramientas (lista
 2. **No uses a `prod` para etiquetar** ni para decidir qué casos conservar.
 3. Si según la documentación un caso admite dos etiquetas razonables, **descartalo**. Si solo una es defendible pero un modelo podría dudar, conservalo con el tag `ambiguous` y explicá el criterio en `description`.
 4. Cada `description` dice qué distingue al caso y por qué la etiqueta es la correcta (una frase).
+5. **Si el propio backend es ambiguo, descartá el caso y reportalo.** Ejemplo: abrir una aplicación en pantalla figura en `system` (`open_on_screen`) pero una aclaración de D1 dice que abrir el Bloc de notas o la calculadora va en `terminal`. Un pedido así no tiene una etiqueta defendible: no se escribe, y el reporte lo lista para que se decida en `src/`.
+6. **`status` de una llamada:** solo valen los de `CALL_STATUSES` (`ok`, `no_data`, `not_found`, `tool_error`, `exception`, `interrupted`, `waiting_input`, `args_invalid`, `loop_blocked`, `user_rejected`, `tool_rejected`, `info_missing`, `denied`). Un estado como `partial` (de `find_files` o `web_search`) no es un `status`: va dentro del `summary` de una llamada `ok`, tal como lo devuelve la herramienta.
 
 ## 4. Composición
 
-- **Etiquetas balanceadas:** ninguna etiqueta supera el 35 % del archivo; ninguna queda por debajo del 5 % si el sistema la usa. Documentá el motivo de cualquier excepción.
+- **Etiquetas balanceadas.** En las etapas con 3 o más etiquetas (`d0`, `route`, `args_review`, `recovery`): ninguna supera el 35 % del archivo y ninguna queda por debajo del 5 % si el sistema la usa. En las **binarias** (`d5`, `continuation`, `fragment_judge` por fragmento, y cada booleano de `result_verification`) esa regla es imposible: balanceá entre 40 % y 60 % por etiqueta. En `tool_choice` la etiqueta es la herramienta y se balancea **por grupo**: dentro de cada ruta, cada herramienta tiene al menos 2 casos en desarrollo y 3 en holdout (el mínimo por grupo pasa a ser el mayor entre 8 y 2 × herramientas en desarrollo, y entre 12 y 3 × herramientas en holdout), sin que una sola concentre más de la mitad de los casos del grupo. Documentá en el reporte cualquier otra excepción.
 - **Tags** (en `tags`): `typical` (caso claro), `edge` (límite entre dos etiquetas), `hard` (confusión típica entre etiquetas, pensada por diseño), `ambiguous`, `negative` (parece de una etiqueta pero es de otra), `recovery` (con intento previo fallido en `calls`).
 - **Proporciones orientativas por archivo:** 50 a 60 % `typical`, 25 a 30 % `hard`, el resto `edge`, `ambiguous`, `negative` y `recovery`.
 - **Variedad:** distintos verbos y estructuras de pedido; con y sin ruta o archivo mencionado; con y sin contexto previo (`steps` y `calls`). Para variar la dificultad se varía el pedido y el contexto, nunca las opciones ofrecidas.
@@ -83,7 +85,7 @@ Producción descarta en tiempo de ejecución algunas rutas y herramientas (lista
 **Cobertura propia de cada etapa:**
 
 - **`route`:** las 6 etiquetas con casos; ninguna ruta debe quedar fuera. Incluí las confusiones entre rutas vecinas (`files_read` contra `files_write`, `system` contra `terminal`, `web` contra `files_read`).
-- **`tool_choice`:** casos de **cada grupo con más de una herramienta** (`files_read`, `files_write`, `system`, `multimedia`, `web`), repartidos de forma pareja: como mínimo 8 por grupo en desarrollo y 12 en holdout, y todas las herramientas del grupo como respuesta correcta en algún caso (donde la mayoría tiene que ser una herramienta distinta de la más obvia). Sin casos de `terminal`.
+- **`tool_choice`:** casos de **cada grupo con más de una herramienta** (`files_read`, `files_write`, `system`, `multimedia`, `web`), repartidos de forma pareja, con los mínimos por grupo y por herramienta de «Etiquetas balanceadas» (todas las herramientas del grupo son la respuesta correcta en algún caso, y en la mayoría de los casos no es la herramienta más obvia). Sin casos de `terminal`.
 - **`args_review`, `result_verification`, `recovery`, `d5`, `continuation`:** casos con y sin historia previa de la tarea (`steps`, `calls`), con resultados de herramientas reales del manifest y errores plausibles (`status`, `summary`).
 - **`fragment_judge`:** fragmentos relevantes, de navegación, de publicidad y parcialmente relevantes; de 1 a 5 fragmentos por caso.
 

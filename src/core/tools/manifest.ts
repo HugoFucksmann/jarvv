@@ -77,28 +77,27 @@ export const DESTINATIONS: Readonly<
 > = {
   files_read: {
     server: "jarvis_files_read",
-    description: "Find, list and read files and folders: look a file up by name, search text inside files, see what a folder contains, read a file.",
+    description: "Find and list files and folders, search text inside files, and read file content.",
   },
   files_write: {
     server: "jarvis_files_write",
-    description: "Create, write, edit, copy, move, rename, delete, compress or convert files and folders.",
+    description: "Create, write, edit, copy, move, rename, delete, compress and convert files and folders.",
   },
   terminal: {
     server: "jarvis_terminal",
-    description:
-      "Run a command or program (including launching apps), and read its output or send it input while it runs. Also for information about files that a plain listing does not give: sizes, dates, sorting, filtering or totals.",
+    description: "Run commands and programs, read their output and send them input while they run.",
   },
   system: {
     server: "jarvis_system",
-    description: "Check the state of the PC (hardware, system, disks, services, network, processes, ports, date and time), stop processes, change PC settings, lock, sleep, restart or shut down, open an application, a URL or a folder on screen, and use the clipboard.",
+    description: "Check the state of the PC (hardware, operating system, disks, services, network, processes, ports, date and time), stop processes, change PC settings, lock, sleep, restart or shut down the PC, open an application, a URL or a folder on the screen, and use the clipboard.",
   },
   multimedia: {
     server: "jarvis_multimedia",
-    description: "Play music or video, and control the playback and the volume.",
+    description: "Play music or video, and control playback and volume.",
   },
   web: {
     server: "jarvis_web",
-    description: "Look up information online, read the content of web pages (including known URLs), and download a file from a URL.",
+    description: "Search for information online, read the content of web pages from URLs, and download files from URLs.",
   },
 };
 
@@ -174,7 +173,7 @@ const internalDef = (server: McpServerName, route: ExecutableRoute, name: string
 
 export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // ── Grupo `files_read` (proveedor nativo `jarvis_files_read`): encontrar, listar y leer. Solo lectura, sin confirmación; los límites de cada tool están en su módulo. ──
-  def("files_read", "find_files", "FILE_READ", "Find files or folders by name (wildcards like *.csv).", {
+  def("files_read", "find_files", "FILE_READ", "Find files and folders by name.", {
     repeat: "retry_failed",
     params: ["pattern", "path", "type", "maxResults"],
     notes: {
@@ -185,7 +184,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 15_000,
   }),
-  def("files_read", "list_folder", "FILE_READ", "List a folder with type, size and date; can sort and filter by extension.", {
+  def("files_read", "list_folder", "FILE_READ", "List a folder with type, size and date, sorted and filtered by extension.", {
     repeat: "retry_failed",
     params: ["path", "sortBy", "order", "type", "extensions", "depth", "limit", "includeHidden"],
     notes: {
@@ -213,7 +212,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 15_000,
   }),
-  def("files_read", "read_file", "FILE_READ", "Read the content of a local file (text lines; offset, limit).", {
+  def("files_read", "read_file", "FILE_READ", "Read the content of a local text file.", {
     emptyIsError: true,
     params: ["path", "offset", "limit"],
     notes: {
@@ -225,7 +224,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   }),
 
   // ── Grupo `files_write` (proveedor nativo `jarvis_files_write`): crear, modificar, mover, borrar y convertir. Toda escritura tiene su regla de nivel, su poscondición y su destino. ──
-  def("files_write", "write_file", "FILE_WRITE", "Create or write a text file (rewrite, append or create_only).", {
+  def("files_write", "write_file", "FILE_WRITE", "Create a text file or write content to it.", {
     params: ["path", "content", "mode", "createFolders"],
     notes: {
       path: "Absolute file path or ~ relative path.",
@@ -278,7 +277,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 35_000,
   }),
-  def("files_write", "delete_file", "FILE_WRITE", "Delete a file or folder (Recycle Bin unless permanent).", {
+  def("files_write", "delete_file", "FILE_WRITE", "Delete a file or folder.", {
     params: ["path", "recursive", "permanent"],
     notes: {
       path: "Existing file or folder path to delete.",
@@ -287,7 +286,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 20_000,
   }),
-  def("files_write", "archive_files", "FILE_WRITE", "Compress files into a .zip, or extract a .zip.", {
+  def("files_write", "archive_files", "FILE_WRITE", "Compress files into a .zip file, or extract a .zip file.", {
     params: ["action", "sources", "source", "destination", "overwrite", "includeHidden"],
     notes: {
       action: "'compress' or 'extract'.",
@@ -314,7 +313,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 15_000,
   }),
-  def("system", "stop_process", "PROCESS_CONTROL", "Stop a running process by its pid or name.", {
+  def("system", "stop_process", "PROCESS_CONTROL", "Stop a running process by pid or name.", {
     params: ["pid", "name", "force"],
     notes: {
       pid: "Process id to stop (give pid or name).",
@@ -323,7 +322,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 12_000,
   }),
-  def("system", "pc_settings", "CONFIGURATION", "Get or set brightness, wifi, bluetooth, dark mode or do not disturb.", {
+  def("system", "pc_settings", "CONFIGURATION", "Get or set brightness, wifi, bluetooth, dark mode and do not disturb.", {
     params: ["setting", "action", "value"],
     notes: {
       setting: "Setting to read or change: brightness, wifi, bluetooth, dark_mode or do_not_disturb.",
@@ -341,7 +340,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
     },
     timeoutMs: 12_000,
   }),
-  def("system", "open_on_screen", "PROCESS_CONTROL", "Open an app, a URL or a path on the user's screen.", {
+  def("system", "open_on_screen", "PROCESS_CONTROL", "Open an application, a URL or a path on the user's screen.", {
     params: ["target", "type"],
     notes: {
       target: "Application name (e.g. 'notepad'), http(s) URL, or local path or alias (home, desktop, documents, downloads). It does not return the content: use read_file to read a file.",
@@ -385,7 +384,7 @@ export const SYSTEM_TOOL_MANIFEST: readonly ToolDefinition[] = [
   // Repetición: un comando nuevo es `strict` (repetir una escritura idéntica pudo duplicar sus efectos), salvo uno de comprobación o compilación que
   // `policy/rerun.ts` reconoce (`npm test`, `dotnet build`…): `rerun`, que se puede repetir tras un cambio intermedio (RC-21). Una continuación por `pid` es
   // `allow`, porque esperar más salida repite los mismos argumentos (los topes del paso, `maxCallsPerStep`, acotan las vueltas).
-  def("terminal", "run_command", "PROCESS_CONTROL", "Run a PowerShell command, or continue a running one by its pid.", {
+  def("terminal", "run_command", "PROCESS_CONTROL", "Run a PowerShell command, or continue one that is still running.", {
     repeatByArgs: (args) => (typeof args.pid === "number" ? "allow" : typeof args.command === "string" && isRerunnableCommand(args.command) ? "rerun" : "strict"),
     params: ["command", "pid", "input", "timeoutSec", "cwd"],
     notes: {

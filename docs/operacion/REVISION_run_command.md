@@ -96,7 +96,7 @@ Con `-NonInteractive`, `Read-Host`, `pause` y `-Confirm` fallan en el acto (`New
 En la tarea real `cmd /c pause`:
 - *Primera corrida (antes de agregar frases llanas):* tras la pregunta al usuario, el modelo lanzó un comando **nuevo** (`pause`), que falló; luego sí continuó con `{pid, input:"ok"}`, pero el verificador rechazó (`not_accomplished`) un `finished` sin salida y el modelo intentó `write_file` dentro de la carpeta de refs: el Guard lo denegó (regla B) y la tarea cerró con `security_denied`.
 - *Segunda corrida (con texto que dice "continue THIS process with run_command { pid, input }" y "The command finished successfully."):* completó, pero igual lanzó antes un comando de más (`echo ok | cmd /c pause`) antes de continuar por el `pid`.
-*Contexto:* la herramienta se describe en 80 caracteres ("Run a PowerShell command, or continue a running one by its pid.") más notas por parámetro; el generador de argumentos ve el hecho `process` (el pid) y la respuesta del usuario como `answer_<paso>_<n>`.
+*Contexto:* la herramienta se describe en 80 caracteres ("Run a PowerShell command, or continue one that is still running.") más notas por parámetro; el generador de argumentos ve el hecho `process` (el pid) y la respuesta del usuario como `answer_<paso>_<n>`.
 *Investigar:* la descripción y las notas del manifiesto, qué ve exactamente el generador en la vista de argumentos, y por qué el verificador no entiende un `finished` sin salida.
 
 **RC-13 · Riesgo · Media · [Vivo] — Un desvío del modelo puede cerrar la tarea entera.**
@@ -164,7 +164,7 @@ Un comando nuevo es `strict`: un comando de escritura idéntico a uno ya ejecuta
 ### Faltantes y cosas sin probar
 
 **RC-23 · Falta · Media · [Sin probar] — Lanzar aplicaciones gráficas.**
-La descripción de la ruta promete "launching apps". `windowsHide: true` oculta la consola de PowerShell; no se verificó si una aplicación gráfica lanzada con `Start-Process` o directamente se ve o queda oculta, ni qué pasa con su pid. Probarlo abre una ventana en la PC del usuario.
+La descripción de la ruta ya no menciona lanzar aplicaciones (se quitó en 2026-11-23 para que sea neutra; abrir una app en pantalla es de `system`), pero `run_command` puede lanzarlas igual. `windowsHide: true` oculta la consola de PowerShell; no se verificó si una aplicación gráfica lanzada con `Start-Process` o directamente se ve o queda oculta, ni qué pasa con su pid. Probarlo abre una ventana en la PC del usuario.
 **RC-24 · Observación · Baja · [Vivo] — D1 puede ignorar "usando la terminal".**
 "Creá una carpeta … usando la terminal" fue a la ruta `files` y usó `create_directory`. El resultado fue correcto; no es un defecto de la tool. Pertenece al pendiente de la salida de escape (cambios de ruta de D1).
 **RC-25 · Falta · Baja — Sin listar ni parar procesos como herramienta.**

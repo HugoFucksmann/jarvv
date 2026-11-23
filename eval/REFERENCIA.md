@@ -39,7 +39,7 @@ Estructura de `eval/results/`: `evals/<modelo evaluado>/<YYYY-MM-DD_HHmmss>[_<la
 | `<variante>__<dataset>/scores.json` | Métricas agregadas de la celda. |
 | `<variante>__<dataset>/meta.json` | Configuración, commit, hashes de dataset y variante, `filters` y `cases`. |
 
-Un run **pasa** solo si no registró ningún error (llamada al cliente, aplicación de la variante, parseo y todos los checks). Las llamadas fallidas (red, timeout, HTTP, prompt sin margen de contexto) cuentan como falla pero no entran en latencias ni aparecen como regresión o mejora.
+Un run **pasa** solo si no registró ningún error (llamada al cliente, aplicación de la variante, parseo y todos los checks). **Salida cortada por el límite de tokens:** se trata como producción. En `plan`, `arguments` y `pending` (JSON, que cortado es inválido) hace fallar el run. En `final` y `question` (texto libre) producción reintenta y, en el último intento, acepta el texto cortado: el run no falla, pero queda un aviso y la métrica `not_truncated` en falso. Las llamadas fallidas (red, timeout, HTTP, prompt sin margen de contexto) cuentan como falla pero no entran en latencias ni aparecen como regresión o mejora.
 
 ---
 
