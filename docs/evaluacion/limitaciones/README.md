@@ -25,6 +25,6 @@ Un caso no entra en las fichas si se explicaba por nuestras instrucciones, confi
 
 ## Cómo se midió
 
-- `eval/exp/first_query.ts` (primera consulta de `pending`), `eval/exp/select_tools.ts` (D1, D2 y la cadena solicitud → `pending` → D1) y `eval/exp/close_check.ts` (cierre de la tarea). Resultados en `eval/results/_exp/` (no versionados).
+- `eval/exp/first_query.ts` (primera consulta de `pending`), `eval/exp/select_tools.ts` (D1, D2 y la cadena solicitud → `pending` → D1) y `eval/exp/close_check.ts` (cierre de la tarea). Resultados en `eval/results/_exp/` (no versionados). Esos scripts ya no están en `eval/exp/` (hoy solo quedan `d0_rules.ts` y `noul_cuts.ts`): son evidencia histórica y su código está en el historial.
 - Datasets nuevos para vigilar el comportamiento: `eval/datasets/route_D1/route_terminal_explicit.jsonl` y `route_terminal_goals.jsonl` (D1), `eval/datasets/d4/verify_copy_move.jsonl` y `verify_expected_request_done.jsonl` (D4).
 - Los casos de los experimentos los escribió una sola persona (yo) y las variantes se eligieron mirando un conjunto de desarrollo. Las diferencias de 2 casos entre corridas idénticas son ruido.

@@ -210,7 +210,7 @@ export function computeScoreSummary(records: RunRecord[]): GlobalScoreSummary {
       const variance: number | null =
         n > 1
           ? Math.round(
-            ((cPassed * Math.pow(1 - passRate, 2) + (n - cPassed) * Math.pow(passRate, 2)) / (n - 1)) * 1000,
+            ((cPassed * (1 - passRate) ** 2 + (n - cPassed) * passRate ** 2) / (n - 1)) * 1000,
           ) / 1000
           : null;
 

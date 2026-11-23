@@ -46,7 +46,7 @@ export const continuationStage: DecisionStageEntry<ContinuationOutput, Continuat
     );
   },
   validateRequest(req) {
-    if (!req.questions[CONTINUATION_KEY] || req.questions[CONTINUATION_KEY].type !== "noul") {
+    if (req.questions[CONTINUATION_KEY]?.type !== "noul") {
       return `continuation requiere pregunta noul '${CONTINUATION_KEY}'.`;
     }
     return null;

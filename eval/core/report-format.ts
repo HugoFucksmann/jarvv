@@ -73,7 +73,7 @@ export function variantTableRows(report: ComparisonReport): string[][] {
     const macroDelta = v.deltaMacroPassRate === undefined ? "" : ` (${fmtDeltaPct(v.deltaMacroPassRate)})`;
     return [
       ...(withKind ? [KIND_LABEL[v.kind ?? "total"]] : []),
-      isBase ? `${v.variant} (baseline)` : v.variant,
+      isBase ? `${v.variant} (baseline)` : v.comparable === false ? `${v.variant} (structure, no comparable)` : v.variant,
       `${fmtPct(v.passRate)} (${v.passedRuns}/${v.totalRuns})`,
       v.deltaPassRate === undefined ? "—" : fmtDeltaPct(v.deltaPassRate),
       `${fmtPct(v.macroPassRate)}${macroDelta}`,

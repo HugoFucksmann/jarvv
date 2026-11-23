@@ -4,4 +4,5 @@
  * Re-exporta los tipos de variante desde `types.ts`. No contiene lógica: es solo el contrato de tipos de este submódulo.
  */
 
-export type { Variant } from "../types.ts";
+export type { Variant, VariantMode } from "../types.ts";
+export { VARIANT_MODES } from "../types.ts";

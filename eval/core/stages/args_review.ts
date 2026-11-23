@@ -56,7 +56,7 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
   },
   validateRequest(req) {
     const rev = req.questions.review;
-    if (!rev || rev.type !== "choice") return "args_review requiere pregunta choice 'review'.";
+    if (rev?.type !== "choice") return "args_review requiere pregunta choice 'review'.";
     for (const opt of ARGS_REVIEWS) {
       if (!(opt in rev.criteria)) return `questions.review.criteria debe incluir '${opt}'.`;
     }

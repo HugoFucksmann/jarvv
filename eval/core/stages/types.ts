@@ -66,12 +66,8 @@ export interface ScenarioCall {
 
 /** Parámetros del punto de decisión; cada etapa lee solo los suyos. */
 export interface ScenarioAt {
-  // route
-  routes?: ExecutableRoute[];
-  // tool_choice, args_review, arguments
+  // tool_choice, args_review, arguments: la ruta. Las opciones de `route` y de `tool_choice` no se declaran en el caso: son las del backend (ver `offeredRoutes` y `offeredTools`).
   route?: ExecutableRoute;
-  /** tool_choice: nombres del manifest (default: todas las de la ruta). */
-  tools?: string[];
   /** args_review y arguments: herramienta (nombre del manifest) con su schema de entrada. */
   tool?: string;
   inputSchema?: ToolInputSchema;
@@ -242,4 +238,6 @@ export interface GenerativeStageEntry<TOutput, TExpect> {
   ): string;
 }
 
+// El registro guarda etapas con tipos de salida y de `expect` distintos: solo `any` acepta todas las instancias a la vez.
+// biome-ignore lint/suspicious/noExplicitAny: registro heterogéneo de etapas
 export type AnyStageEntry = DecisionStageEntry<any, any> | GenerativeStageEntry<any, any>;

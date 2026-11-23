@@ -24,7 +24,7 @@ const pctDelta = (r: number): string => colorDelta(fmtDeltaPct(r));
 function yesNoFpFn(q: QuestionScore): { fp: number; fn: number } | undefined {
   const keys = Object.keys(q.perClass);
   if (keys.length === 0 || !keys.every((k) => k === "yes" || k === "no")) return undefined;
-  return { fp: q.confusionMatrix["no"]?.["yes"] ?? 0, fn: q.confusionMatrix["yes"]?.["no"] ?? 0 };
+  return { fp: q.confusionMatrix.no?.yes ?? 0, fn: q.confusionMatrix.yes?.no ?? 0 };
 }
 
 /** "FP 1, FN 2, sin respuesta 1" para preguntas sí/no (suman los errores); "errores N" para el resto. */

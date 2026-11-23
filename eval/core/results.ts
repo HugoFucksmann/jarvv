@@ -29,7 +29,7 @@ export function objectHash(obj: unknown): string {
  * Para nombres ya válidos (p. ej. `qwen3.5:4b` → `qwen3.5_4b`) el resultado no cambia.
  */
 export function safeName(name: string): string {
-  const out = name.replace(/[<>:"\/\\|?*\x00-\x1f]/g, "_").replace(/[. ]+$/, "");
+  const out = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/[. ]+$/, "");
   return out || "_";
 }
 
@@ -140,7 +140,7 @@ export function createCellWriter(rootDir: string, variantSpec: string, datasetNa
     get records() { return records; },
     writeRun(record: RunRecord) {
       if (fd === null) throw new Error("CellWriter ya cerrado.");
-      writeSync(fd, JSON.stringify(record) + "\n", null, "utf8");
+      writeSync(fd, `${JSON.stringify(record)}\n`, null, "utf8");
       // En RAM retenemos solo lo necesario para scoring/report; el detalle completo queda en runs.jsonl.
       records.push({
         ...record,

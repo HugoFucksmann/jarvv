@@ -120,5 +120,5 @@ function buildRecovery(data: RecoveryDecisionInput): DecisionInput {
   };
 }
 
-const recovery_three_options_nobehind: Variant = { name: "recovery_three_options_nobehind", prompts: { DECISION_PROMPTS: { buildRecovery } } };
+const recovery_three_options_nobehind: Variant = { name: "recovery_three_options_nobehind", mode: "prompt", prompts: { DECISION_PROMPTS: { buildRecovery } } };
 export default recovery_three_options_nobehind;

@@ -23,7 +23,7 @@ function stableStringify(v: unknown): string {
 /** Todos los strings que son VALORES de un valor JSON, sin escapar (las claves no cuentan). */
 export function collectStrings(v: unknown, out: string[] = []): string[] {
   if (typeof v === "string") out.push(v);
-  else if (Array.isArray(v)) v.forEach((x) => collectStrings(x, out));
+  else if (Array.isArray(v)) for (const x of v) collectStrings(x, out);
   else if (v && typeof v === "object") {
     for (const x of Object.values(v as Record<string, unknown>)) collectStrings(x, out);
   }

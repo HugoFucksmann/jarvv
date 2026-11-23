@@ -131,7 +131,7 @@ function writeRunManifest(
     baseline: cfg.baseline,
     repeat: cfg.repeat,
     thinking: cfg.thinking,
-    variants: info.variants.map((v) => ({ name: v.spec, hash: v.hash })),
+    variants: info.variants.map((v) => ({ name: v.spec, mode: v.variant.mode, hash: v.hash })),
     datasets: [...datasets.values()],
     ...(git.gitCommit ? { gitCommit: git.gitCommit } : {}),
     ...(git.gitDirty !== undefined ? { gitDirty: git.gitDirty } : {}),
@@ -186,13 +186,12 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
         caseIds: cases.filter((k) => stageFilter.includes(k.stage as StageName)).map((k) => k.id),
       });
 
-      let result;
-      let scores;
+      let result: Awaited<ReturnType<typeof runDataset>>;
+      let scores: ReturnType<typeof writer.close>;
       try {
         result = await runDataset({
           cases,
           datasetName: ds.name,
-          variant: vr.variant,
           variantSpec: vr.spec,
           cfg,
           genClient: clients.genClient,
@@ -223,6 +222,7 @@ export async function executeComparisonBatch(opts: ExecuteBatchOptions): Promise
 
       comparisonCells.push({
         variantSpec: vr.spec,
+        variantMode: vr.variant.mode,
         datasetName: ds.name,
         scores,
         records: writer.records,

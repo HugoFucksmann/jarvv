@@ -128,8 +128,11 @@ function validateRuntimeVariantShape(variant: unknown, variantName: string, stag
   if (v.name !== variantName) {
     return `Variant.name ('${String(v.name)}') no coincide con '${variantName}'.`;
   }
+  if (v.mode !== "prompt") {
+    return `Una variante generada es mode "prompt" (solo textos; recibido: ${JSON.stringify(v.mode)}).`;
+  }
   if (("params" in v && v.params !== undefined) || ("read" in v && v.read !== undefined)) {
-    return "Una variante generada solo puede definir `name` y `prompts` (no `params` ni `read`).";
+    return "Una variante generada solo puede definir `name`, `mode` y `prompts` (no `params` ni `read`).";
   }
   const contract = getStageContract(stage);
   const prompts = v.prompts as Record<string, unknown> | undefined;
@@ -175,7 +178,7 @@ function validateStageRequestsAndContext(
     for (const fc of ds.cases) {
       if (fc.request.type === "decision") {
         const req: DecisionRequest = fc.request;
-        if (!req.state || !req.state.trim()) {
+        if (!req.state?.trim()) {
           return `Caso '${ds.name}/${fc.id}': DecisionRequest.state quedó vacío.`;
         }
         if (Object.keys(req.questions ?? {}).length === 0) {
@@ -193,10 +196,10 @@ function validateStageRequestsAndContext(
         }
       } else {
         const req: GenerativeRequest = fc.request;
-        if (!req.system || !req.system.trim()) {
+        if (!req.system?.trim()) {
           return `Caso '${ds.name}/${fc.id}': GenerativeRequest.system quedó vacío.`;
         }
-        if (!req.user || !req.user.trim()) {
+        if (!req.user?.trim()) {
           return `Caso '${ds.name}/${fc.id}': GenerativeRequest.user quedó vacío.`;
         }
         if (stageEntry.requestType === "generative" && stageEntry.validateRequest) {
@@ -232,7 +235,7 @@ export async function validateAndWriteVariant(opts: {
 }): Promise<ValidationSuccess | ValidationFailure> {
   const { stage, variantName, rawCode, devDatasetPaths, knownHashes, variantsRoot } = opts;
 
-  if (!rawCode || !rawCode.trim()) {
+  if (!rawCode?.trim()) {
     return { ok: false, error: "El código de la variante está vacío." };
   }
 

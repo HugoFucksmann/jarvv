@@ -31,11 +31,11 @@ export const d0Stage: DecisionStageEntry<D0Output, D0Expect> = {
   },
   validateRequest(req) {
     const kindQ = req.questions.kind;
-    if (!kindQ || kindQ.type !== "choice") return "d0 requiere pregunta choice 'kind'.";
+    if (kindQ?.type !== "choice") return "d0 requiere pregunta choice 'kind'.";
     for (const k of FIRST_QUERY_KINDS) {
       if (!(k in kindQ.criteria)) return `kind.criteria debe incluir '${k}'.`;
     }
-    if (!req.questions.multi || req.questions.multi.type !== "noul") {
+    if (req.questions.multi?.type !== "noul") {
       return "d0 requiere pregunta noul 'multi'.";
     }
     return null;

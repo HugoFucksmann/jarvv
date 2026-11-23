@@ -70,7 +70,7 @@ export function box(lines: string[], opts: { title?: string; color?: (s: string)
   const inner = getWidth() - 2;
   const title = opts.title ? clip(opts.title, inner - 4) : undefined;
   const top = title
-    ? `${color("╭─")} ${c.bold(title)} ${color("─".repeat(Math.max(0, inner - vlen(title) - 3)) + "╮")}`
+    ? `${color("╭─")} ${c.bold(title)} ${color(`${"─".repeat(Math.max(0, inner - vlen(title) - 3))}╮`)}`
     : color(`╭${"─".repeat(inner)}╮`);
   const body = lines.map((l) => `${color("│")} ${padEnd(clip(l, inner - 2), inner - 2)} ${color("│")}`);
   return [top, ...body, color(`╰${"─".repeat(inner)}╯`)].join("\n");

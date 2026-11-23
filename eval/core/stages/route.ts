@@ -5,6 +5,7 @@
  */
 
 import { EXECUTABLE_ROUTES, isExecutableRoute, routeInput, routeViewOptions } from "../contract.ts";
+import { offeredRoutes } from "../offered.ts";
 import { LatencyGrader } from "../graders/common.ts";
 import { RouteLabelGrader } from "../graders/label.ts";
 import type { ChoiceQ, DecisionRequest, NoulQ, RouteExpect, RouteOutput } from "../types.ts";
@@ -27,11 +28,10 @@ export const routeStage: DecisionStageEntry<RouteOutput, RouteExpect> = {
   graders: [LatencyGrader, RouteLabelGrader],
   buildRequest(sc, ov, h) {
     const { ctx } = h.buildContext(sc);
-    const flags = { routes: sc.at?.routes ?? [...EXECUTABLE_ROUTES] };
-    return h.decision(h.effectivePrompts(ov).D.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), flags)));
+    return h.decision(h.effectivePrompts(ov).D.buildRouteChoice(routeInput(ctx.view.forRoute(routeViewOptions()), { routes: offeredRoutes() })));
   },
   validateRequest(req) {
-    if (!req.questions.route || req.questions.route.type !== "choice") {
+    if (req.questions.route?.type !== "choice") {
       return "route requiere pregunta choice 'route'.";
     }
     return null;

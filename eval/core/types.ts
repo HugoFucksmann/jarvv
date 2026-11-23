@@ -311,9 +311,21 @@ export type StageExpect =
  * Una variante es un archivo `variants/<nombre>.ts` con prompts ENTEROS (ver `VariantPrompts`). No hay ediciones sobre el prompt de
  * producción ni composición de variantes: el texto que se prueba es el que está escrito en el archivo.
  */
+/**
+ * Qué cambia una variante respecto de producción.
+ * - `prompt`: solo textos (instrucciones, descripciones de opciones, `SYSTEM`). Las preguntas y las opciones de las etapas de decisión son las del
+ *   backend, en su orden: el eval lo comprueba contra el request de `prod` y un desvío es error de carga. Es comparable contra `prod`.
+ * - `structure`: puede cambiar todo (preguntas, opciones, estado, flujo). No es comparable contra `prod`: el reporte muestra sus métricas absolutas
+ *   sin deltas, regresiones ni mejoras, y `--auto` no la considera.
+ */
+export type VariantMode = "prompt" | "structure";
+export const VARIANT_MODES: readonly VariantMode[] = ["prompt", "structure"];
+
 export interface Variant {
   /** Debe coincidir con el nombre del archivo. */
   name: string;
+  /** Qué clase de experimento es; obligatorio (ver `VariantMode`). */
+  mode: VariantMode;
   /** Vistas generativas completas (`PROMPTS.<vista>`) y constructores de decisión completos (`DECISION_PROMPTS.<constructor>`). */
   prompts?: VariantPrompts;
 }

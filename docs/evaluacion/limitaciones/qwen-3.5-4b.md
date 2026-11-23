@@ -2,7 +2,7 @@
 
 Modelo **generativo**. Escribe la lista de pendientes (`pending`), los argumentos, la pregunta al usuario y la respuesta final. Esta ficha solo reúne lo medido sobre él, sobre todo en `pending`. Lo de los modelos de decisión (D1 a D4) está en [d3-2b.md](./d3-2b.md).
 
-Fecha: 2026-11-13. Evidencia: `eval/exp/first_query.ts`, `eval/exp/select_tools.ts` (resultados en `eval/results/_exp/`) y los A/B de `pending` del eval (`--repeat=3`, 77 casos).
+Fecha: 2026-11-13. Evidencia (scripts ya retirados de `eval/exp/`; están en el historial): `eval/exp/first_query.ts`, `eval/exp/select_tools.ts` (resultados en `eval/results/_exp/`) y los A/B de `pending` del eval (`--repeat=3`, 77 casos).
 
 Antes de llamar «limitación» a algo se descartó que fuera culpa de nuestras instrucciones; lo que sí era nuestro está en el [índice](./README.md).
 

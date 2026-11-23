@@ -46,7 +46,6 @@ async function correr(id: string, salida: string): Promise<RunRecord> {
   const { records } = await runDataset({
     cases: ds.cases,
     datasetName: "args",
-    variant,
     variantSpec: "prod",
     cfg,
     genClient: createMockGenerativeClient({ url: cfg.url, model: cfg.model }, () => salida),

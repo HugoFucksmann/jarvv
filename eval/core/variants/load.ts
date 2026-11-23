@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Variant } from "./types.ts";
+import { VARIANT_MODES, type Variant, type VariantMode } from "./types.ts";
 
 /** Directorio por defecto donde viven las variantes (relativo al CWD). */
 export const VARIANTS_DIR = "eval/variants";
@@ -104,14 +104,22 @@ export function requireVariantFile(name: string, variantsRoot = VARIANTS_DIR): s
   return resolveUniqueVariantFile(name, variantsRoot);
 }
 
+/** Valida el export de un archivo de variante: `name` igual al del archivo y `mode` declarado. */
+export function parseVariantExport(name: string, exported: unknown): Variant {
+  if (!exported || typeof exported !== "object" || (exported as Record<string, unknown>).name !== name) {
+    throw new Error(`Variante '${name}': el export default debe ser un objeto con name="${name}".`);
+  }
+  const mode = (exported as Record<string, unknown>).mode;
+  if (!VARIANT_MODES.includes(mode as VariantMode)) {
+    throw new Error(`Variante '${name}': falta \`mode\` o no es válido (recibido: ${JSON.stringify(mode)}; válidos: ${VARIANT_MODES.join(", ")}).`);
+  }
+  return exported as Variant;
+}
+
 async function importVariantFromPath(name: string, path: string): Promise<Variant> {
   // En Windows `import("E:\\...")` falla: el loader ESM toma "E:" como esquema de URL. `pathToFileURL` produce un file:// válido.
   const mod = (await import(pathToFileURL(path).href)) as { default?: unknown; [k: string]: unknown };
-  const v = mod.default ?? mod;
-  if (!v || typeof v !== "object" || (v as Record<string, unknown>).name !== name) {
-    throw new Error(`Variante '${name}': el export default debe ser un objeto con name="${name}".`);
-  }
-  return v as Variant;
+  return parseVariantExport(name, mod.default ?? mod);
 }
 
 /** Carga una variante desde su archivo mediante dynamic import. Lanza si no existe o `name` no coincide con el archivo. */

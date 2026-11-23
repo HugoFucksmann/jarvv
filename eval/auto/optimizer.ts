@@ -168,7 +168,7 @@ export async function defaultOptimizerLlmCall(params: OptimizerCallParams): Prom
         ...(responseFormat ? { response_format: responseFormat } : {}),
       };
 
-      let res;
+      let res: Awaited<ReturnType<typeof prodPostJson>>;
       try {
         res = await prodPostJson({
           url: endpoint,
@@ -541,6 +541,7 @@ export async function generateVariantsForRound(opts: {
     : buildSystemTextMessages({
         cfg,
         round,
+        // biome-ignore lint/style/noNonNullAssertion: validado arriba: sin `decision` la etapa es generativa y `generative` existe
         context: generative!,
         ledgerText: opts.ledgerText,
         top2Contexts: opts.top2Contexts,
@@ -607,6 +608,7 @@ export async function generateVariantsForRound(opts: {
         const finalPatch = decision.mode === "improve" && decision.base ? mergePatch(decision.base, patch) : patch;
         rawCode = buildPatchedVariantSource({ promptKey: getStageContract(cfg.stage).promptKey, variantName, patch: finalPatch, dynamic: decision.shape.dynamic });
       } else {
+        // biome-ignore lint/style/noNonNullAssertion: este camino solo corre en etapas generativas, donde `generative` existe (validado arriba)
         const { system: text, error } = systemFromRaw(candidate.systemRaw, generative!.current, getGenerativeContract(cfg.stage).requiredText);
         if (text === undefined) {
           attemptErrors.push(`- ${variantName} (suffix '${s}'): ${error}`);

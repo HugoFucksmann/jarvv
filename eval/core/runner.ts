@@ -37,7 +37,6 @@ import type {
   RunRecord,
   StageName,
 } from "./types.ts";
-import type { Variant } from "./variants/types.ts";
 
 // ───────────────────────── Helpers ─────────────────────────
 
@@ -121,7 +120,6 @@ function resolveBucket(fc: Case, cfg: EvalConfig): "canonical" | "raw" {
 
 export interface RunTask {
   fc: Case;
-  variant: Variant;
   variantSpec: string;
   datasetName: string;
   iteration: number;
@@ -214,7 +212,7 @@ function finalizeAttemptChecks(
   const parseOk = parseError === undefined;
   collector.check("output_parse_ok", parseOk, parseOk ? "" : parseError);
   measurements.attempts = retryErrors.length + 1;
-  retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por ${retryKindLabel}: ${e}`));
+  for (const [i, e] of retryErrors.entries()) warnings.push(`Reintento ${i + 1} por ${retryKindLabel}: ${e}`);
 }
 
 // ── Decisión ──
@@ -359,6 +357,7 @@ async function runGenerative(
     timeoutMs: resolveGenerativeTimeout(cfg, r.thinking),
   });
 
+  // Dry run: se imprime el request y no se llama al modelo (el run no cuenta como pasado).
   if (dryRun) {
     return makeRecord(baseRecord, {
       rawInput: prepared.body,
@@ -419,7 +418,7 @@ async function runGenerative(
   const requestParams = paramsOf(curReq);
 
   if (!result.ok) {
-    retryErrors.forEach((e, i) => warnings.push(`Reintento ${i + 1} por salida inválida: ${e}`));
+    for (const [i, e] of retryErrors.entries()) warnings.push(`Reintento ${i + 1} por salida inválida: ${e}`);
     if (retryErrors.length > 0) measurements.attempts = retryErrors.length + 1;
     collector.check("client_call_ok", false, result.error);
     return makeRecord(baseRecord, {
@@ -526,21 +525,15 @@ function makeRecord(
 // ───────────────────────── Concurrencia ─────────────────────────
 
 /** Ejecuta `tasks` en paralelo con concurrencia máxima `limit`. */
-async function runWithConcurrency<T>(
-  tasks: (() => Promise<T>)[],
-  limit: number,
-): Promise<T[]> {
-  const results: T[] = new Array(tasks.length);
-  let idx = 0;
-  async function worker() {
-    while (idx < tasks.length) {
-      const i = idx++;
-      results[i] = await tasks[i]();
+async function runWithConcurrency(tasks: (() => Promise<void>)[], limit: number): Promise<void> {
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < tasks.length) {
+      const task = tasks[next++];
+      await task();
     }
   }
-  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
-  await Promise.all(workers);
-  return results;
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, () => worker()));
 }
 
 // ───────────────────────── Punto de entrada ─────────────────────────
@@ -548,8 +541,7 @@ async function runWithConcurrency<T>(
 export interface RunnerInput {
   cases: Case[];
   datasetName: string;
-  /** La variante usada en la ejecución; los casos ya traen sus prompts materializados. */
-  variant: Variant;
+  /** Nombre de la variante con que se armaron los casos (los casos ya traen sus prompts materializados). */
   variantSpec: string;
   cfg: EvalConfig;
   genClient: GenerativeClient;
@@ -569,7 +561,7 @@ export interface RunnerOutput {
 
 export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
   const {
-    cases, datasetName, variant, variantSpec, cfg,
+    cases, datasetName, variantSpec, cfg,
     genClient, decClient, stageFilter, onRecord, collectRecords = true, dryRun = false,
   } = input;
 
@@ -584,7 +576,7 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
 
     for (const exp of expansions) {
       for (let iter = 1; iter <= cfg.repeat; iter++) {
-        tasks.push({ fc, variant, variantSpec, datasetName, iteration: iter, thinkingExp: exp });
+        tasks.push({ fc, variantSpec, datasetName, iteration: iter, thinkingExp: exp });
       }
     }
   }
@@ -592,7 +584,9 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
   let networkFailCount = 0;
   let callCount = 0;
 
-  const fns = tasks.map((task) => async () => {
+  // Los records quedan en el orden de los casos aunque terminen en otro orden (concurrencia).
+  const collected: RunRecord[] = [];
+  const fns = tasks.map((task, i) => async (): Promise<void> => {
     const result = await runOne(task, cfg, genClient, decClient, dryRun);
     if (!dryRun && result.record.metrics.client_call_ok === false) {
       const err = result.record.errors[result.record.errors.length - 1] ?? "";
@@ -600,13 +594,13 @@ export async function runDataset(input: RunnerInput): Promise<RunnerOutput> {
     }
     if (!dryRun && result.record.metrics.client_call_ok !== undefined) callCount++;
     onRecord?.(result.record);
-    return collectRecords ? result.record : (undefined as unknown as RunRecord);
+    if (collectRecords) collected[i] = result.record;
   });
 
-  const collected = await runWithConcurrency(fns, cfg.concurrency);
+  await runWithConcurrency(fns, cfg.concurrency);
 
   return {
-    records: collectRecords ? collected : [],
+    records: collected,
     allNetworkFailed: callCount > 0 && networkFailCount === callCount,
   };
 }

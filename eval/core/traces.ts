@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { validateCase } from "./case.ts";
+import { offeredTools } from "./offered.ts";
 import {
   ARGS_REVIEWS,
   COMPLETION_APPROVE,
@@ -447,7 +448,8 @@ function sliceSnapshotForQuery(
   }
 
   const calls: ScenarioCall[] = filteredCalls.map((c) => {
-    const stepIdx = stepIndexById.get(c.stepId)!;
+    const stepIdx = stepIndexById.get(c.stepId);
+    if (stepIdx === undefined) throw new Error(`la llamada ${c.id ?? "?"} refiere a un paso desconocido (${c.stepId}).`);
     const rawRef = c.ref ? allRefs.get(c.ref) : undefined;
     const args: JsonObject | null =
       c.args === null ? (c.status === "args_invalid" ? null : {}) : sanitizeJson(c.args, anonymize);
@@ -591,12 +593,11 @@ function buildDraftExpect(
     }
     case "route": {
       const route = choiceLabel(out, "route");
-      const fallback = (at.routes && at.routes[0]) ?? EXECUTABLE_ROUTES[0];
-      return { expect: { expectedRoute: route && isExecutableRoute(route) ? route : fallback } };
+      return { expect: { expectedRoute: route && isExecutableRoute(route) ? route : EXECUTABLE_ROUTES[0] } };
     }
     case "tool_choice": {
       const selected = choiceLabel(out, "selected_tool");
-      const fallback = at.tools?.[0] ?? SYSTEM_TOOL_MANIFEST.find((t) => t.route === at.route && t.internal !== true)?.name;
+      const fallback = at.route ? offeredTools(at.route)[0] : undefined;
       const chosen = selected && SYSTEM_TOOL_MANIFEST.some((t) => t.name === selected && t.route === at.route) ? selected : fallback;
       if (!chosen) return { skipReason: "tool_choice sin herramienta válida para expectedTool" };
       return { expect: { expectedTool: chosen } };
@@ -636,11 +637,13 @@ function buildDraftExpect(
       return { expect: { minSteps: 1 } };
     }
     case "arguments": {
-      const required = Array.isArray(at.inputSchema?.required)
-        ? at.inputSchema!.required.filter((r): r is string => typeof r === "string" && r.length > 0)
+      const schemaRequired = at.inputSchema?.required;
+      const required = Array.isArray(schemaRequired)
+        ? schemaRequired.filter((r): r is string => typeof r === "string" && r.length > 0)
         : [];
       const outKeys = isRecord(out) ? Object.keys(out).filter((k) => k.length > 0) : [];
-      const propKeys = isRecord(at.inputSchema?.properties) ? Object.keys(at.inputSchema!.properties) : [];
+      const schemaProps = at.inputSchema?.properties;
+      const propKeys = isRecord(schemaProps) ? Object.keys(schemaProps) : [];
       const fields = required.length > 0 ? required : outKeys.length > 0 ? outKeys : propKeys.slice(0, 1);
       if (fields.length === 0) return { skipReason: "arguments sin propiedades en schema ni claves en salida" };
       return { expect: { requiredFields: fields } };
@@ -743,8 +746,7 @@ export function convertTraceBundle(
         skipReason = "continuation sin contexto de hilo previo (recalled.thread)";
       }
     } else if (evalStage === "route") {
-      const routes = (q.offered ?? []).filter((r): r is ExecutableRoute => isExecutableRoute(r));
-      if (routes.length > 0) at.routes = routes;
+      // Las rutas que vio el modelo en la traza no se copian: D1 ofrece siempre todas las del backend.
     } else if (evalStage === "tool_choice") {
       const linkedCall = q.link?.call ? callsById.get(q.link.call) : undefined;
       const firstOffered = q.offered?.[0] ?? choiceLabel(q.output, "selected_tool");
@@ -755,8 +757,6 @@ export function convertTraceBundle(
         skipReason = "tool_choice sin ruta determinable";
       } else {
         at.route = route;
-        const offeredTools = (q.offered ?? []).filter((name) => SYSTEM_TOOL_MANIFEST.some((t) => t.route === route && t.name === name));
-        if (offeredTools.length > 0) at.tools = offeredTools;
       }
     } else if (evalStage === "args_review") {
       const linkedCall = q.link?.call ? callsById.get(q.link.call) : undefined;
@@ -918,8 +918,9 @@ export function convertTraces(options: ConvertTracesOptions): ConvertTracesResul
   const dryRun = options.dryRun ?? false;
 
   let files = discoverTraceFiles(options.inputPath);
-  if (options.taskFilters && options.taskFilters.length > 0) {
-    files = files.filter((f) => options.taskFilters!.some((flt) => f.includes(flt)));
+  const taskFilters = options.taskFilters;
+  if (taskFilters && taskFilters.length > 0) {
+    files = files.filter((f) => taskFilters.some((flt) => f.includes(flt)));
   }
   if (options.limit !== undefined) {
     files = files.slice(0, options.limit);
@@ -977,7 +978,7 @@ export function convertTraces(options: ConvertTracesOptions): ConvertTracesResul
     const target = options.outPath ?? "eval/traces_export";
     if (target.endsWith(".jsonl")) {
       mkdirSync(dirname(target), { recursive: true });
-      const lines = allCases.map((c) => JSON.stringify(c)).join("\n") + "\n";
+      const lines = `${allCases.map((c) => JSON.stringify(c)).join("\n")}\n`;
       writeFileSync(target, lines, "utf8");
       writtenFiles.push(target);
     } else {
@@ -990,7 +991,7 @@ export function convertTraces(options: ConvertTracesOptions): ConvertTracesResul
       }
       for (const [st, list] of grouped) {
         const fileOut = join(target, `traces_${st}.jsonl`);
-        writeFileSync(fileOut, list.map((c) => JSON.stringify(c)).join("\n") + "\n", "utf8");
+        writeFileSync(fileOut, `${list.map((c) => JSON.stringify(c)).join("\n")}\n`, "utf8");
         writtenFiles.push(fileOut);
       }
     }

@@ -328,11 +328,9 @@ describe("eval/core runner + batch con cliente oracle", () => {
 
     const [d0Ds] = loadDatasets(resolveDatasetPaths(["smoke"]), { stages: ["route"] });
     assert.ok(d0Ds.cases.length >= 1);
-    const prod = await loadVariantSpec("prod");
     const runOut = await runDataset({
       cases: d0Ds.cases.slice(0, 1),
       datasetName: d0Ds.name,
-      variant: prod.variant,
       variantSpec: "prod",
       cfg: decCfg,
       genClient: createMockGenerativeClient({ url: decCfg.url, model: decCfg.model }),
@@ -356,10 +354,10 @@ describe("eval/core runner + batch con cliente oracle", () => {
     const origErr = console.error;
     let out = "";
     console.log = (...args: unknown[]) => {
-      out += args.map(String).join(" ") + "\n";
+      out += `${args.map(String).join(" ")}\n`;
     };
     console.error = (...args: unknown[]) => {
-      out += args.map(String).join(" ") + "\n";
+      out += `${args.map(String).join(" ")}\n`;
     };
     try {
       assert.equal(await runCrossCli(["--help"]), 0);
@@ -465,7 +463,7 @@ describe("eval/core runner + batch con cliente oracle", () => {
     const smokeArgs = readFileSync("eval/datasets/smoke.jsonl", "utf8").split(/\r?\n/).filter((l) => l.includes('"smoke-args"')).map((l) => JSON.parse(l));
     smokeArgs[0].scenario.at.priorAttempts = 2;
     const blockedDir = createTempDir("eval-blocked-");
-    writeFileSync(join(blockedDir, "args_blocked.jsonl"), JSON.stringify(smokeArgs[0]) + "\n");
+    writeFileSync(join(blockedDir, "args_blocked.jsonl"), `${JSON.stringify(smokeArgs[0])}\n`);
     const [blockedDs] = loadDatasets(resolveDatasetPaths([join(blockedDir, "args_blocked.jsonl")]));
     assert.ok(blockedDs.cases.length >= 1);
     for (const c of blockedDs.cases) {
@@ -627,7 +625,7 @@ describe("eval/core runner + batch con cliente oracle", () => {
     // CLI config + flags + help
     assert.throws(() => parseTracesConfig(["--unknown=1"]), /Flag desconocido/);
     assert.equal(await runTracesCli(["--help"]), 0);
-    assert.equal(await runTracesCli(["--input=" + join(tracesRoot, "no-existe")]), 2);
+    assert.equal(await runTracesCli([`--input=${join(tracesRoot, "no-existe")}`]), 2);
     assert.equal(await runTracesCli([`--input=${tracesRoot}`, `--out=${outJsonl}`, "--dry-run"]), 0);
   });
 });
@@ -702,7 +700,7 @@ describe("datasets: --limit no oculta casos rotos (EV-008)", () => {
     const lines = readFileSync("eval/datasets/smoke.jsonl", "utf8").split(/\r?\n/).filter((l) => l.trim() !== "");
     const good = lines.slice(0, 2);
     const bad = JSON.stringify({ id: "roto", stage: "d0", scenario: { mode: "reactive", request: "x" }, expect: {} });
-    writeFileSync(join(dir, "mixto.jsonl"), [...good, bad].join("\n") + "\n");
+    writeFileSync(join(dir, "mixto.jsonl"), `${[...good, bad].join("\n")}\n`);
     const path = join(dir, "mixto.jsonl");
     assert.throws(() => loadDatasets(resolveDatasetPaths([path]), { limit: 1 }), /mixto\.jsonl:3/);
   });

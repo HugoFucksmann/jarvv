@@ -41,7 +41,7 @@ export const d5Stage: DecisionStageEntry<D5Output, D5Expect> = {
     return h.decision(h.effectivePrompts(ov).D.buildCompletionCheck(completionInput(ctx)));
   },
   validateRequest(req) {
-    if (!req.questions[COMPLETION_KEY] || req.questions[COMPLETION_KEY].type !== "noul") {
+    if (req.questions[COMPLETION_KEY]?.type !== "noul") {
       return `d5 requiere pregunta noul '${COMPLETION_KEY}'.`;
     }
     return null;

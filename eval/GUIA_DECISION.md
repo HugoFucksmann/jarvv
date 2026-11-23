@@ -2,6 +2,8 @@
 
 Leer **antes** de tocar un prompt, una variante o un dataset de una etapa de decisión. Es una entrada corta: lo que ya se sabe, lo que no vale la pena probar y cómo medir sin engañarse. El detalle histórico está en los documentos enlazados al final; si algo de acá lo contradice una medición nueva y bien hecha, actualizar esta guía.
 
+> **Estado (2026-11-23).** Los datasets y las variantes de decisión anteriores se eliminaron y se rehacen (`docs/evaluacion/INSTRUCCIONES_AGENTE_DATASETS.md`). Las cifras y los nombres de datasets de esta guía son históricos: sirven como contexto de lo que se aprendió, no como línea base vigente. Además, las opciones de `route` y `tool_choice` ahora son siempre las del backend y cada variante declara su `mode` (`prompt` o `structure`; ver `REFERENCIA.md` §4).
+
 Etapas de decisión del eval: `d0`, `route`, `tool_choice`, `args_review`, `result_verification`, `fragment_judge`, `d5`, `recovery`, `continuation` (`plan`, `arguments`, `pending`, `question` y `final` son del generativo, no de este modelo).
 
 ---

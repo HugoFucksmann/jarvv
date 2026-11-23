@@ -50,7 +50,7 @@ async function main(): Promise<number> {
   }
 
   // ── Parseo de config ──
-  let cfg;
+  let cfg: ReturnType<typeof parseConfig>;
   try {
     cfg = parseConfig(argv);
   } catch (e) {
@@ -72,7 +72,7 @@ async function main(): Promise<number> {
     limit: cfg.limit,
   };
   const rawDatasetCache = createRawDatasetCache();
-  let datasets;
+  let datasets: ReturnType<typeof loadDatasets>;
   try {
     datasets = loadDatasets(cfg.datasetSpecs, datasetFilters, undefined, rawDatasetCache);
   } catch (e) {
@@ -129,7 +129,7 @@ async function main(): Promise<number> {
   }
 
   // ── Clientes: un modelo generativo y uno de decisión ──
-  let clients;
+  let clients: ReturnType<typeof createEvalClients>;
   try {
     clients = createEvalClients(cfg);
   } catch (e) {
@@ -146,7 +146,6 @@ async function main(): Promise<number> {
         await runDataset({
           cases: ds.cases,
           datasetName: ds.name,
-          variant: vr.variant,
           variantSpec: vr.spec,
           cfg,
           genClient: clients.genClient,
@@ -198,16 +197,18 @@ async function main(): Promise<number> {
   log(`\n${c.gray("Comparación")} ${c.cyan(`${batch.rootDir}/comparison.md`)}\n`);
 
   // ── --min-pass-rate ──
-  if (cfg.minPassRate !== undefined) {
+  const minPassRate = cfg.minPassRate;
+  if (minPassRate !== undefined) {
     // Aplica a TODAS las celdas no baseline (variante × dataset); si solo corrió la baseline, a esas.
-    const nonBaseline = batch.cells.filter((cell) => cell.variantSpec !== cfg.baseline);
+    // Las variantes `structure` no son comparables con la baseline y no cuentan para el umbral.
+    const nonBaseline = batch.cells.filter((cell) => cell.variantSpec !== cfg.baseline && cell.variantMode !== "structure");
     const cells = nonBaseline.length > 0 ? nonBaseline : batch.cells;
-    const failing = cells.filter((cell) => cell.scores.totalRuns === 0 || !(cell.scores.passRate >= cfg.minPassRate!));
+    const failing = cells.filter((cell) => cell.scores.totalRuns === 0 || !(cell.scores.passRate >= minPassRate));
     if (failing.length > 0) {
       for (const cell of failing) {
         fail(
           `${cell.variantSpec}/${cell.datasetName}: passRate ${cell.scores.totalRuns === 0 ? "sin runs" : fmtPct(cell.scores.passRate)} ` +
-          `por debajo del umbral ${fmtPct(cfg.minPassRate)}.`,
+          `por debajo del umbral ${fmtPct(minPassRate)}.`,
         );
       }
       return 1;

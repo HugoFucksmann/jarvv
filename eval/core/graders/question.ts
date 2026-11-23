@@ -10,7 +10,7 @@ import { containsTerm, findInternalLeak } from "./common.ts";
 export const QuestionGrader: Grader<QuestionOutput, QuestionExpect> = {
   name: "question",
   grade(output, expect, _ctx, col) {
-    if (!output || !output.question || typeof output.question !== "string") {
+    if (!output?.question || typeof output.question !== "string") {
       col.check("valid_question", false, "Salida no contiene un texto de pregunta válido.");
       return;
     }

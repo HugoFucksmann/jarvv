@@ -50,6 +50,7 @@ import type {
   ScenarioStep,
 } from "./stages/types.ts";
 import type { DecisionRequest, GenerativeRequest, Variant } from "./types.ts";
+import { decisionStructureDiff } from "./variants/structure.ts";
 
 export type {
   Materialized,
@@ -163,9 +164,9 @@ function buildContext(sc: Scenario): Built {
 
   if (deliberative) {
     // Los pasos nacen `pending`: se crean todos, después las llamadas y al final los estados (de a uno y en orden).
-    stepSpecs.forEach((s) => addStep(s));
-    callSpecs.forEach((_, k) => addCall(k));
-    stepSpecs.forEach((_, i) => settle(i));
+    for (const s of stepSpecs) addStep(s);
+    for (let k = 0; k < callSpecs.length; k++) addCall(k);
+    for (let i = 0; i < stepSpecs.length; i++) settle(i);
   } else {
     // Reactivo: un paso nuevo nace `running` y el contexto admite uno solo (invariante 2): cada paso se crea, recibe sus
     // llamadas y llega a su estado final antes de crear el siguiente.
@@ -235,9 +236,10 @@ function toolOf(route: ExecutableRoute, name: string, inputSchema?: ToolInputSch
   const def = SYSTEM_TOOL_MANIFEST.find((d) => d.name === name && d.route === route);
   if (!def) throw new Error(`la herramienta '${name}' no está en el manifest de la ruta '${route}'.`);
   const base = { name, description: def.description, inputSchema: inputSchema ?? { type: "object", properties: {} } } as MCPTool;
-  const extra = def.params ? Object.keys(base.inputSchema.properties ?? {}).filter((k) => !def.params!.includes(k)) : [];
-  if (extra.length > 0) {
-    throw new Error(`'${name}': el schema del caso declara parámetros que producción no ofrece al modelo (${extra.join(", ")}); los ofrecidos son: ${def.params!.join(", ")}.`);
+  const offered = def.params;
+  const extra = offered ? Object.keys(base.inputSchema.properties ?? {}).filter((k) => !offered.includes(k)) : [];
+  if (offered && extra.length > 0) {
+    throw new Error(`'${name}': el schema del caso declara parámetros que producción no ofrece al modelo (${extra.join(", ")}); los ofrecidos son: ${offered.join(", ")}.`);
   }
   // Producción ofrece todos los `params` del manifest; un caso puede declarar solo los que usa, así que los demás se agregan sin tipo.
   const properties: Record<string, unknown> = { ...(base.inputSchema.properties ?? {}) };
@@ -327,5 +329,34 @@ export async function scenarioPrecheck(sc: Scenario, analyze?: CommandAnalyzer):
  */
 export function materializeScenario(stage: string, sc: Scenario, variant?: Variant): Materialized {
   if (!hasStage(stage)) throw new Error(`etapa '${stage}' desconocida para un escenario.`);
-  return getStage(stage).buildRequest(sc, variant?.prompts, scenarioHelpers);
+  checkAtKeys(sc.at);
+  const entry = getStage(stage);
+  const built = entry.buildRequest(sc, variant?.prompts, scenarioHelpers);
+  // Una variante `prompt` solo cambia textos: las preguntas y opciones son las de producción para este mismo escenario.
+  if (variant?.mode === "prompt" && variant.prompts?.DECISION_PROMPTS !== undefined && built.request.type === "decision") {
+    const base = entry.buildRequest(sc, undefined, scenarioHelpers).request as DecisionRequest;
+    const diffs = decisionStructureDiff(base, built.request);
+    if (diffs.length > 0) {
+      throw new Error(
+        `la variante '${variant.name}' es mode "prompt" pero cambia la estructura de la decisión (${diffs.join("; ")}). ` +
+        `Con mode "prompt" solo se cambian textos; para probar otras preguntas u opciones, declarala mode "structure".`,
+      );
+    }
+  }
+  return built;
+}
+
+/** Claves de `scenario.at`: todas las que alguna etapa lee. Una desconocida es un typo y se informa en vez de ignorarla. */
+const AT_KEYS: Record<keyof ScenarioAt, true> = {
+  route: true, tool: true, inputSchema: true, args: true, call: true, lastItem: true, feedback: true, previous: true,
+  cause: true, attempts: true, need: true, fragments: true, environment: true, priorAttempts: true,
+};
+
+function checkAtKeys(at: ScenarioAt | undefined): void {
+  for (const key of Object.keys(at ?? {})) {
+    if (key === "routes" || key === "tools") {
+      throw new Error(`at.${key} ya no existe: las opciones de route y de tool_choice son las del backend (todas las rutas; todas las herramientas de la ruta).`);
+    }
+    if (!(key in AT_KEYS)) throw new Error(`clave desconocida 'at.${key}' (válidas: ${Object.keys(AT_KEYS).join(", ")}).`);
+  }
 }

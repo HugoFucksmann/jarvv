@@ -103,7 +103,7 @@ function noulOf(run: Record<string, unknown>, key: string): Sample | null {
 function collect(options: Options): Map<Family, Sample[]> {
   const byFamily = new Map<Family, Sample[]>(FAMILIES.map((f) => [f, []]));
   const add = (family: Family, sample: Sample | null, dataset: string): void => {
-    if (sample !== null) byFamily.get(family)!.push({ ...sample, id: `${dataset}:${sample.id}` });
+    if (sample !== null) byFamily.get(family)?.push({ ...sample, id: `${dataset}:${sample.id}` });
   };
 
   for (const file of findRuns(options.root)) {
@@ -179,18 +179,19 @@ function evaluate(samples: readonly Sample[], cut: number): CutResult {
 
 /** El corte con menos errores dentro de `range`; ante un empate, el más cercano al de producción. */
 function bestCut(samples: readonly Sample[], range: readonly [number, number], production: number): CutResult {
-  let best: CutResult | null = null;
+  let best: CutResult | undefined;
   for (let c = Math.round(range[0] * 100); c <= Math.round(range[1] * 100); c += 5) {
     const result = evaluate(samples, c / 100);
     if (
-      best === null ||
+      best === undefined ||
       errorsOf(result) < errorsOf(best) ||
       (errorsOf(result) === errorsOf(best) && Math.abs(result.cut - production) < Math.abs(best.cut - production))
     ) {
       best = result;
     }
   }
-  return best!;
+  // Un rango vacío no deja ningún corte que evaluar: se usa el de producción.
+  return best ?? evaluate(samples, production);
 }
 
 function printFamily(family: Family, samples: readonly Sample[], options: Options): { readonly best: CutResult } {
@@ -224,7 +225,7 @@ function main(): void {
     process.exit(2);
   }
   const byFamily = collect(options);
-  const present = FAMILIES.filter((f) => byFamily.get(f)!.length > 0);
+  const present = FAMILIES.filter((f) => (byFamily.get(f) ?? []).length > 0);
   if (present.length === 0) {
     console.error(`No hay respuestas \`noul\` con respuesta esperada en '${options.root}' (variante '${options.variant}', bucket '${options.bucket}').`);
     process.exit(2);
@@ -233,7 +234,7 @@ function main(): void {
   console.log(`# Cortes de las preguntas noul\n\nCarpeta: \`${options.root}\` · variante: \`${options.variant}\` · bucket: \`${options.bucket}\`${options.dataset ? ` · dataset: \`${options.dataset}\`` : ""} · rango del «mejor medido»: ${options.bestRange[0]} a ${options.bestRange[1]}`);
 
   const bests = new Map<Family, CutResult>();
-  for (const family of present) bests.set(family, printFamily(family, byFamily.get(family)!, options).best);
+  for (const family of present) bests.set(family, printFamily(family, byFamily.get(family) ?? [], options).best);
 
   console.log("\n## Comparativo de tres juegos de cortes\n");
   console.log("| Pregunta | Producción: corte (malas / buenas) | Mejor medido: corte (malas / buenas) | Mejor menos 5 puntos: corte (malas / buenas) |\n|---|---|---|---|");
@@ -243,8 +244,9 @@ function main(): void {
     { bad: 0, good: 0 },
   ];
   for (const family of present) {
-    const samples = byFamily.get(family)!;
-    const best = bests.get(family)!;
+    const samples = byFamily.get(family) ?? [];
+    const best = bests.get(family);
+    if (!best) continue;
     const sets = [evaluate(samples, PRODUCTION_CUTS[family]), best, evaluate(samples, round(best.cut - 0.05))];
     sets.forEach((r, i) => {
       totals[i].bad += r.badApproved;

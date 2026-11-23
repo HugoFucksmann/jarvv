@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import vm from "node:vm";
-import { requireVariantFile, VARIANTS_DIR } from "../core/variants/load.ts";
+import { parseVariantExport, requireVariantFile, VARIANTS_DIR } from "../core/variants/load.ts";
 import type { Variant } from "../core/variants/types.ts";
 
 export type SpecifierValidator = (specifier: string, targetFilePath: string) => string | null;
@@ -66,10 +66,6 @@ export function loadVariantSpecEphemeral(
     sourcefile: filePath,
   }).code;
 
-  const loaded = evaluateCjsVariantModule(cjsCode, filePath);
-  if (!loaded || typeof loaded !== "object" || (loaded as Record<string, unknown>).name !== spec) {
-    throw new Error(`Variante '${spec}': el export default debe ser un objeto con name="${spec}".`);
-  }
-
-  return { variant: loaded as Variant, hash, filePath };
+  const variant = parseVariantExport(spec, evaluateCjsVariantModule(cjsCode, filePath));
+  return { variant, hash, filePath };
 }

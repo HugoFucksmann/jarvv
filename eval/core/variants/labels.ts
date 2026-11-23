@@ -75,7 +75,7 @@ export function mainChoice(
   sentReq: DecisionRequest,
 ): { choice: string; probabilities: Record<string, number> } {
   const q = sentReq.questions[questionKey];
-  if (!q || q.type !== "choice") {
+  if (q?.type !== "choice") {
     throw new DecisionParseError(`La pregunta '${questionKey}' de la etapa '${stage}' no es choice o no existe.`);
   }
   return extractChoice(answers, questionKey, (q as ChoiceQ).criteria);

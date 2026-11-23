@@ -157,6 +157,8 @@ export function generateComparisonReport(opts: {
   concurrency?: number;
 }): ComparisonReport {
   const { baseline, cells } = opts;
+  // Una variante `structure` cambia lo que se pregunta o se ofrece: compararla contra la baseline no mide un mejor prompt.
+  const structureVariants = new Set(cells.filter((c) => c.variantMode === "structure").map((c) => c.variantSpec));
 
   // 1. Extraer resúmenes por (variante, dataset, stageKey)
   const cellReports: CellStageReport[] = [];
@@ -216,7 +218,7 @@ export function generateComparisonReport(opts: {
     reportsByCell.get(cellKey(cell.variantSpec, cell.datasetName)) ?? [];
 
   for (const cell of cells) {
-    if (cell.variantSpec === baseline) continue;
+    if (cell.variantSpec === baseline || structureVariants.has(cell.variantSpec)) continue;
     const base = cellsByKey.get(cellKey(baseline, cell.datasetName));
     if (!base) continue;
 
@@ -294,7 +296,14 @@ export function generateComparisonReport(opts: {
     );
   }
 
-  const variantSummaries = summarizeVariants(baseline, cells);
+  for (const variant of structureVariants) {
+    warnings.push(
+      `\`${variant}\` es mode "structure": cambia preguntas u opciones respecto de producción, así que no es comparable con la baseline. ` +
+      "Se muestran sus métricas absolutas, sin Δ, regresiones, mejoras ni prueba de signos.",
+    );
+  }
+
+  const variantSummaries = summarizeVariants(baseline, cells, structureVariants);
   warnings.push(...mixedVerdictWarnings(variantSummaries));
 
   return {
@@ -328,7 +337,7 @@ function kindOfStage(stageOrKey: string): "generative" | "decision" {
  * El total solo se agrega cuando hay ambos tipos. Los deltas son contra la baseline del mismo tipo, sobre los
  * casos medidos en ambos lados; regresiones y mejoras salen de esos mismos pares.
  */
-function summarizeVariants(baseline: string, cells: InputCell[]): VariantSummary[] {
+function summarizeVariants(baseline: string, cells: InputCell[], structureVariants: ReadonlySet<string>): VariantSummary[] {
   const variants: string[] = [];
   for (const c of cells) {
     if (!variants.includes(c.variantSpec)) variants.push(c.variantSpec);
@@ -367,8 +376,10 @@ function summarizeVariants(baseline: string, cells: InputCell[]): VariantSummary
       }
       const stageRates = [...byStage.values()].map((rs) => rs.filter((r) => r.passed).length / rs.length);
 
+      const comparable = !structureVariants.has(variant);
       const row: VariantSummary = {
         variant,
+        ...(comparable ? {} : { comparable: false as const }),
         kind,
         totalRuns: canonical.length,
         passedRuns,
@@ -382,7 +393,7 @@ function summarizeVariants(baseline: string, cells: InputCell[]): VariantSummary
         ...(kind !== "total" ? { p50DurationMs: latencies(canonical).p50 } : {}),
       };
 
-      if (variant !== baseline && baseRecords.length > 0) {
+      if (variant !== baseline && comparable && baseRecords.length > 0) {
         const { pairs } = pairCases(baseRecords, canonical);
         const paired = pairedSummary(pairs);
         row.regressions = paired.worse;
@@ -674,7 +685,7 @@ export function renderComparisonMarkdown(report: ComparisonReport): string {
     lines.push("", `## ${section++}. Matrices de Confusión`, "");
     for (const c of withConfusion) {
       lines.push(`### \`${c.variant}\` — ${c.dataset} — \`${c.stageKey}\``, "");
-      const matrix = c.confusionMatrix!;
+      const matrix = c.confusionMatrix ?? {};
       const expectedKeys = Object.keys(matrix).sort();
       const predictedKeys = Array.from(
         new Set(expectedKeys.flatMap((k) => Object.keys(matrix[k]))),
@@ -695,7 +706,7 @@ export function renderComparisonMarkdown(report: ComparisonReport): string {
 
   lines.push(...renderQuestionsMarkdown(report, section));
 
-  return lines.join("\n") + "\n";
+  return `${lines.join("\n")}\n`;
 }
 
 /**

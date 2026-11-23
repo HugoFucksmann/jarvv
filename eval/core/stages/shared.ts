@@ -21,7 +21,7 @@ export function checkRoute(key: string, v: unknown, errs: string[]): void {
 }
 
 export function checkRouteList(key: string, v: unknown, errs: string[]): void {
-  if (Array.isArray(v)) v.forEach((r) => checkRoute(`${key}[]`, r, errs));
+  if (Array.isArray(v)) for (const r of v) checkRoute(`${key}[]`, r, errs);
 }
 
 export function checkRange01(expectObj: Record<string, unknown>, keys: readonly string[], errs: string[]): void {

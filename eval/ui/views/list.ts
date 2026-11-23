@@ -80,7 +80,7 @@ function renderStages(d: ListData): string[] {
   const out: string[] = [];
   for (const [label, items] of groups) {
     const lines = wrapList(items.map((s) => c.cyan(s)), getWidth() - 2 - labelW, c.gray(" · "));
-    lines.forEach((ln, i) => out.push(`  ${i === 0 ? c.gray(label.padEnd(labelW)) : " ".repeat(labelW)}${ln}`));
+    for (const [i, ln] of lines.entries()) out.push(`  ${i === 0 ? c.gray(label.padEnd(labelW)) : " ".repeat(labelW)}${ln}`);
   }
   return out;
 }

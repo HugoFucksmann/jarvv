@@ -1,10 +1,12 @@
 # Instrucciones para el agente que crea datasets de `eval` (etapas generativas)
 
-Este documento es el encargo completo. Lo que no está acá no se asume. El formato de los archivos está en `eval/REFERENCIA.md`, sección 3; este documento agrega el método, la calidad exigida y la validación. Para las etapas de decisión hay otro encargo (`INSTRUCCIONES_AGENTE_DATASETS.md`): no se mezclan.
+Este documento es el encargo completo. Lo que no está acá no se asume. El formato de los archivos está en `eval/REFERENCIA.md`, sección 3; este documento agrega el método, la calidad exigida y la validación. Para las etapas de decisión hay otro encargo (`INSTRUCCIONES_AGENTE_DATASETS.md`): no se mezclan. Los datasets de decisión se rehacen con ese encargo; no los toques ni los uses de ejemplo.
+
+**Qué podés y qué no podés hacer.** Tenés acceso a los archivos del proyecto y a una consola que corre TypeScript y las pruebas del eval. **No tenés acceso a los modelos reales** (no hay Ollama): no podés medir cómo responde `prod` ni ninguna variante. Tu trabajo es **escribir bien los datasets y unas variantes de arranque**; quien tiene los modelos los mide después. La calidad tiene que venir del diseño, de la contraprueba de la sección 3 y de la validación sin modelos (sección 7), y el reporte debe decir qué quedó sin medir.
 
 ## 1. Qué hay que producir
 
-Para **una etapa generativa** indicada en el pedido (`arguments`, `final`, `question`, `pending` o `plan`), dos archivos en `eval/datasets/<etapa>/`:
+Para **una etapa generativa** indicada en el pedido (`arguments`, `final`, `question`, `pending` o `plan`), dos archivos de datasets en `eval/datasets/<etapa>/` y de 1 a 3 variantes de arranque en `eval/variants/<etapa>/` (sección 8):
 
 | Archivo | Uso | Casos mínimos |
 |---|---|---:|
@@ -48,7 +50,7 @@ Esto decide si un caso es justo o no, así que se lee con cuidado (detalle compl
 ## 3. Cómo se decide qué exige un caso
 
 1. **Lo que se exige sale de lo que la situación necesita, no de lo que responda un modelo.** Las fuentes son `src/core/tools/manifest.ts` (rutas y herramientas con su esquema de entrada), el prompt de la etapa en `src/core/models/prompts.ts` (qué se le pide al modelo) y el código de la etapa en `eval/core/stages/<etapa>.ts`.
-2. **No uses a `prod` para decidir qué exigir ni qué casos conservar.**
+2. **Desde acá no se puede medir a `prod`**, así que no hay forma de usarlo para decidir qué exigir ni qué casos conservar: todo sale de la situación y de la documentación.
 3. **Exigí lo mínimo necesario.** Cada clave de `expect` es un riesgo de rechazar una respuesta correcta. Una respuesta distinta de la que imaginaste, pero correcta, tiene que pasar. Por eso:
    - Usá **alternativas con `|`** para sinónimos y variantes de género o número.
    - No exijas redacciones: exigí **datos** (valores, nombres de archivo, rutas, cantidades).
@@ -93,15 +95,14 @@ Cubrí al menos estas situaciones (cada una con varias formulaciones, y con y si
   - Pedidos de un solo paso (`maxSteps: 1`) para detectar el exceso de pasos; pedidos de varias rutas (`requiredRoutes`); orden de rutas (`firstRoute`).
   - Replan por feedback del usuario (`mustReflectFeedback`) y por pasos fallidos (`forbiddenRepeatedGoals`, `forbiddenExecutedEffects`).
 
-## 5. Calibración de dificultad
+## 5. Dificultad: se diseña, no se mide
 
-El holdout debe poder distinguir una mejora real. Un holdout donde `prod` ya saca 95 % no lo permite.
+El holdout tiene que poder distinguir una mejora real, y un holdout donde `prod` ya acierta casi todo no lo permite. Desde acá no se puede medir a `prod`, así que la dificultad se garantiza **por diseño**:
 
-1. Escribí los casos por diseño, **sin mirar cómo responde `prod`**.
-2. Validá el formato (sección 7).
-3. Medí `prod` sobre cada archivo **dos veces** y reportá `n/N` de ambas corridas. Estas etapas generan texto: la diferencia entre las dos corridas es el ruido de medición del dataset, y hay que conocerlo.
-4. **No agregues ni quites casos por haber visto fallar a `prod`.** Eso sesga el dataset. Si el resultado de `prod` en el holdout es mayor o igual a 90 %, reportalo tal cual; se puede ampliar con casos **nuevos** `hard` escritos por diseño, nunca copiando los que `prod` falló.
-5. La única excepción es un **caso injusto** (la contraprueba de la sección 3 lo habría rechazado): se corrige o se descarta, y se reporta cuál fue y por qué.
+1. Escribí los casos `hard` enumerando antes los errores típicos de la etapa (sección 4) y cubriendo cada uno con varias formulaciones.
+2. Cada caso pasa la **contraprueba de la sección 3**: una segunda respuesta correcta con otra redacción cumple todo `expect`, y en los `hard` una respuesta incorrecta típica queda rechazada. Esa es la única defensa contra casos injustos, porque no se puede ver cómo responde un modelo real.
+3. Estas etapas generan texto y el modelo no es determinista: con 30 o 50 casos, un caso vale 2 a 3 puntos y la misma variante puede variar uno o dos casos entre corridas. Por eso los mínimos de la sección 1 no se reducen. Quien mide después corre `prod` más de una vez para conocer ese ruido.
+4. Tu reporte lista qué situaciones de la sección 4 cubriste y cuáles quedaron sin cubrir, para que quien mide sepa dónde ampliar.
 
 ## 6. Uso de trazas reales
 
@@ -111,7 +112,11 @@ Las trazas están en `jarvis-traces/<carpeta>/` (`summary.md` legible, `trace.js
 - **Reescribí los textos**, no los copies literales.
 - Una traza produce, como mucho, uno o dos casos por etapa; no la uses para llenar un dataset.
 
-## 7. Validación (en este orden)
+## 7. Validación (en este orden, todo sin modelos)
+
+```powershell
+npx tsc --noEmit
+```
 
 ```powershell
 npx tsx eval/cli.ts --dataset=<nombre> --stages=<etapa> --dry-run
@@ -121,35 +126,72 @@ npx tsx eval/cli.ts --dataset=<nombre> --stages=<etapa> --dry-run
 npx tsx eval/cli.ts --client=oracle --dataset=<nombre> --stages=<etapa> --label=oraculo
 ```
 
-El cliente `oracle` arma una salida que cumple `expect`: debe dar 100 %. Confirma que el formato es válido y que `expect` no se contradice (por ejemplo, un dato exigido que también está prohibido). **No prueba que `expect` sea justo**: para eso es la contraprueba de la sección 3. Después, con Ollama activo, medí `prod` real (dos veces, con otra etiqueta cada una):
+El cliente `oracle` arma una salida que cumple `expect`: debe dar **100 %**. Confirma que el formato es válido y que `expect` no se contradice (por ejemplo, un dato exigido que también está prohibido). **No prueba que `expect` sea justo**: para eso es la contraprueba de la sección 3. El oráculo solo corre con `prod` (no con variantes). Para las variantes:
 
 ```powershell
-npx tsx eval/cli.ts --dataset=<nombre> --stages=<etapa> --label=base_prod_1
+npx tsx eval/cli.ts --client=mock --dataset=<nombre> --stages=<etapa> --variant=prod,<variante>
 ```
+
+El cliente `mock` no mide nada: comprueba que la variante carga y arma todos los casos. Por último, corré las pruebas del eval, que tienen que seguir pasando:
 
 ```powershell
-npx tsx eval/cli.ts --dataset=<nombre> --stages=<etapa> --label=base_prod_2
+npx tsx --test --test-timeout=60000 eval/core/*.test.ts eval/auto/*.test.ts
 ```
 
-Los comandos con `--client=oracle` y los de `prod` escriben en `eval/results/`; borrá esas carpetas al terminar.
+Las corridas con `--client=oracle` y `--client=mock` escriben en `eval/results/`; borrá esas carpetas al terminar. **No uses `--client=real` ni `--auto`**: necesitan los modelos.
 
-## 8. Qué no hacer
+## 8. Variantes iniciales
 
-- No modificar `src/`, `eval/core/`, `eval/auto/`, `eval/datasets/smoke.jsonl` ni datasets existentes.
-- No crear variantes ni ejecutar `--auto`.
+Además de los datasets, se escriben **variantes de arranque** de la etapa: de 1 a 3 archivos en `eval/variants/<etapa>/<etapa>_v<N>.ts` (el nombre del archivo, el `name` y la constante deben coincidir; es único en todo `eval/variants/`). Son hipótesis para que quien tiene los modelos las mida; **no se pueden probar acá**, así que cada una lleva su hipótesis escrita y un solo cambio claro. Su `mode` es `"prompt"`: solo cambia textos y es comparable contra `prod`.
+
+En las etapas generativas el texto que se cambia es el `SYSTEM` de la vista de producción; el resto de la vista (cómo se arma el mensaje del usuario) queda como en producción. Las vistas son `PLAN_VIEW`, `ARGUMENTS_VIEW`, `FINAL_VIEW`, `QUESTION` y `PENDING_VIEW` (en `PROMPTS`, `src/core/models/prompts.ts`). El `SYSTEM` conserva el formato de respuesta que exige la etapa (el JSON, el esquema de `pending`, etc.: léelo en la vista de producción antes de cambiarlo). Se escribe **a partir del `SYSTEM` de producción**, sin copiarlo entero, y el cambio sale de la documentación del sistema y del análisis de los errores típicos, no de cómo responde `prod`.
+
+Plantilla (etapa `final`; para otra etapa se cambia la vista):
+
+```ts
+/**
+ * eval/variants/final/final_v1.ts
+ *
+ * Hipótesis: <qué se cambia y por qué debería mejorar, en una frase>.
+ */
+
+import { PROMPTS } from "../../../src/core/models/prompts.ts";
+import type { Variant } from "../../core/variants/types.ts";
+
+// Solo el texto SYSTEM; el resto de la vista (cómo se arma el mensaje del usuario) es el de producción.
+const SYSTEM = `${PROMPTS.FINAL_VIEW.SYSTEM}\nCopy numbers and units exactly as they appear in the results.`;
+
+const final_v1: Variant = {
+  name: "final_v1",
+  mode: "prompt",
+  prompts: { PROMPTS: { FINAL_VIEW: { ...PROMPTS.FINAL_VIEW, SYSTEM } } },
+};
+export default final_v1;
+```
+
+Validación de una variante: `npx tsc --noEmit` y el comando con `--client=mock` de la sección 7. Un error de carga dice el archivo, la línea y el motivo.
+
+## 9. Qué no hacer
+
+- No modificar `src/`, `eval/core/`, `eval/auto/`, `eval/datasets/smoke.jsonl` ni datasets existentes (los de otras etapas, y los `*_v1` de la etapa pedida si ya están: el archivo nuevo lleva el número siguiente).
+- No declarar `at.routes` ni `at.tools`, ni ninguna clave de `at` que no use la etapa: una clave desconocida es error de carga.
+- No ejecutar `--auto` ni ninguna corrida con modelos reales.
+- No crear variantes `mode: "structure"`.
 - No copiar ni reutilizar casos de `eval/auto/fixtures/`.
 - No repetir `id` ni reutilizar los de otros archivos.
 - No incluir datos personales.
 - No escribir en `expect` la redacción de la respuesta ideal: se exigen datos, no frases.
 
-## 9. Reporte final que debe entregar
+## 10. Reporte final que debe entregar
 
-1. Archivos creados, con cantidad de casos.
+1. Archivos creados (datasets y variantes), con cantidad de casos.
 2. Tabla de casos por tag y por situación de la sección 4, para cada archivo.
-3. Resultado del oráculo (`n/N`) y de las dos corridas de `prod` (`n/N` cada una) en desarrollo y en holdout.
-4. Casos corregidos o descartados por injustos, con el motivo.
-5. Lista de casos `ambiguous` con el criterio aplicado.
-6. Supuestos.
+3. Resultado de las validaciones sin modelos: `tsc`, `--dry-run`, oráculo (`n/N`), `mock` con cada variante y las pruebas.
+4. Casos corregidos o descartados por injustos en la contraprueba, con el motivo.
+5. Por cada variante: su hipótesis y qué cambia del `SYSTEM`.
+6. **Qué quedó sin medir:** el resultado de `prod` y el de cada variante (lo mide quien tiene los modelos), y las situaciones de la sección 4 que no se cubrieron.
+7. Lista de casos `ambiguous` con el criterio aplicado.
+8. Supuestos.
 
 ---
 

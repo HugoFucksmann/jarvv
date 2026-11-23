@@ -56,6 +56,6 @@ export const questionStage: GenerativeStageEntry<QuestionOutput, QuestionExpect>
         ];
     const valid = (t: string) => !forbidden.some((w) => h.fold(t).includes(w)) && (max === undefined || t.length <= max);
     const text = candidates.find(valid) ?? candidates[0];
-    return max !== undefined && text.length > max ? text.slice(0, Math.max(1, max - 1)) + "?" : text;
+    return max !== undefined && text.length > max ? `${text.slice(0, Math.max(1, max - 1))}?` : text;
   },
 };

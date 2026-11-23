@@ -387,6 +387,7 @@ function buildRecovery(data: RecoveryDecisionInput): DecisionInput {
 
 const auto_recovery_twoaxes_legacy: Variant = {
   name: "auto_recovery_twoaxes_legacy",
+  mode: "prompt",
   prompts: { DECISION_PROMPTS: { buildRecovery } },
 };
 
@@ -400,7 +401,7 @@ export default auto_recovery_twoaxes_legacy;`;
       variantsRoot,
     });
     assert.equal(legacyRes.ok, false);
-    assert.match(legacyRes.error, /recovery requiere pregunta choice/);
+    assert.match(legacyRes.error, /cambia la estructura de la decisión|recovery requiere pregunta choice/);
 
     // Un constructor que lanza al ejecutarse sobre los casos: la validación debe rechazarlo sin escribir nada.
     const badRtName = "auto_recovery_badrt_test_a";
@@ -627,7 +628,7 @@ describe("eval/auto ranking, archiving y feedback", () => {
 describe("eval/auto optimizer reparación", () => {
   it("reintenta reparación cuando una variante de decisión falla validación y conserva la válida", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("repair");
-    const devPath = resolve("eval/datasets/d0/d0_v1.jsonl");
+    const devPath = resolve("eval/auto/fixtures/datasets/d0_variedad.jsonl");
     const shape = shapeFromRequests(collectDecisionRequests("d0", [devPath]));
     const cfg = parseAutoConfig(["--stage=d0", "--max-loops=2", "--target=0.90", "--optimizer-model=mock-opt", "--client=mock"]);
 
@@ -683,7 +684,7 @@ describe("eval/auto optimizer reparación", () => {
           ledgerText: "(vacío)",
           top2Contexts: [],
           allRanked: [],
-              devDatasetPaths: [resolve("eval/datasets/d0/d0_v1.jsonl")],
+              devDatasetPaths: [resolve("eval/auto/fixtures/datasets/d0_variedad.jsonl")],
           knownHashes: new Set(),
           variantsRoot,
           callLlm: async () => "{}",
@@ -724,7 +725,7 @@ describe("eval/auto optimizer reparación", () => {
     assert.ok(res.rejectedNotes.some((n) => /igual al texto vigente/.test(n)));
     assert.equal(systemFromRaw("", current).error !== undefined, true);
     assert.match(systemFromRaw("Hacé una lista.", current, ["\"pending\""]).error ?? "", /conservar el formato/);
-    assert.equal(systemFromRaw(`${current} \"pending\"`, current, ["\"pending\""]).error, undefined);
+    assert.equal(systemFromRaw(`${current} "pending"`, current, ["\"pending\""]).error, undefined);
     assert.equal(systemFromRaw("x".repeat(7000), current).error !== undefined, true);
   });
 
@@ -1143,10 +1144,10 @@ describe("eval/auto E2E runAutoLoop", () => {
     const origErr = console.error;
     let output = "";
     console.log = (...args: unknown[]) => {
-      output += args.map(String).join(" ") + "\n";
+      output += `${args.map(String).join(" ")}\n`;
     };
     console.error = (...args: unknown[]) => {
-      output += args.map(String).join(" ") + "\n";
+      output += `${args.map(String).join(" ")}\n`;
     };
     try {
       const helpCode = await runAutoCli(["--help"]);
@@ -1369,19 +1370,19 @@ describe("eval/auto ledger (historial de ideas probadas)", () => {
     const file = join(dir, "ledger.jsonl");
     assert.match(formatLedgerForPrompt(file), /primera iteración/);
     appendLedger(file, [{ round: 1, variant: "a", summary: "ok", status: "top2" }]);
-    writeFileSync(file, readFileSync(file, "utf8") + "{no es json\n", "utf8");
+    writeFileSync(file, `${readFileSync(file, "utf8")}{no es json\n`, "utf8");
     assert.equal(readLedger(file).length, 1);
   });
 });
 
 describe("eval/auto variantes de decisión armadas por código (solo textos)", () => {
-  const routeShape = () => shapeFromRequests(collectDecisionRequests("route", [resolve("eval/datasets/route/route_v1.jsonl")]));
+  const routeShape = () => shapeFromRequests(collectDecisionRequests("route", [resolve("eval/auto/fixtures/datasets/route_16_cases.jsonl")]));
 
   it("conoce las preguntas y opciones reales de la etapa a partir de los casos", () => {
     const shape = routeShape();
     assert.deepEqual(shape.questions.map((q) => q.key), ["route"]);
     assert.ok(shape.questions[0].options.includes("files_read") && shape.questions[0].options.includes("web"));
-    const texts = formatCurrentTexts(collectDecisionRequests("route", [resolve("eval/datasets/route/route_v1.jsonl")]));
+    const texts = formatCurrentTexts(collectDecisionRequests("route", [resolve("eval/auto/fixtures/datasets/route_16_cases.jsonl")]));
     assert.match(texts, /^instructions.route: "/m);
     assert.match(texts, /^criteria.route.web: "/m);
   });
@@ -1410,7 +1411,7 @@ describe("eval/auto variantes de decisión armadas por código (solo textos)", (
       stage: "route",
       variantName: "auto_route_patchtest_r1_a",
       rawCode: code,
-      devDatasetPaths: [resolve("eval/datasets/route/route_v1.jsonl")],
+      devDatasetPaths: [resolve("eval/auto/fixtures/datasets/route_16_cases.jsonl")],
       knownHashes: new Set<string>(),
       variantsRoot,
     });
@@ -1491,7 +1492,7 @@ describe("eval/auto: umbral de holdout relativo a prod y modo improve", () => {
 
   it("el modo improve muestra solo el prompt base, aplica los cambios sobre sus textos y el modo rewrite no", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("improvemode");
-    const devPath = resolve("eval/datasets/route/route_v1.jsonl");
+    const devPath = resolve("eval/auto/fixtures/datasets/route_16_cases.jsonl");
     const requests = collectDecisionRequests("route", [devPath]);
     const shape = shapeFromRequests(requests);
     const base = patchFromRequests(requests);
@@ -1575,7 +1576,7 @@ describe("eval/auto: resumen de confusiones para el optimizador (solo etiquetas)
 
   it("el prompt de decisión incluye el resumen de confusiones y ningún caso ni respuesta esperada", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("confusions");
-    const devPath = resolve("eval/datasets/route/route_v1.jsonl");
+    const devPath = resolve("eval/auto/fixtures/datasets/route_16_cases.jsonl");
     const requests = collectDecisionRequests("route", [devPath]);
     let prompt = "";
     await generateVariantsForRound({
@@ -1639,14 +1640,15 @@ describe("eval/auto: bucle completo en las 14 etapas (cliente y optimizador simu
   for (const stage of allStageNames()) {
     it(`${stage}: genera variantes válidas, las evalúa y registra el historial sin errores`, async () => {
       const { ledgerPath, resultsRoot, variantsRoot } = setupTempAutoDir(stage, `all-${stage}`);
-      const datasetPath = resolve(`eval/datasets/${stage}/${stage}_v1.jsonl`);
+      // El humo trae un caso por etapa: el bucle se prueba sin depender de los datasets de trabajo, que se rehacen aparte.
+      const datasetPath = resolve("eval/datasets/smoke.jsonl");
       const cfg: AutoConfig = parseAutoConfig([
         `--stage=${stage}`,
         "--max-loops=1",
         "--target=0.99",
         "--optimizer-model=mock-opt",
         `--ledger=${ledgerPath}`,
-        `--dataset=${stage}_v1`,
+        "--dataset=smoke",
         "--seed-top=prod",
         "--client=mock",
         "--concurrency=2",
@@ -1684,7 +1686,7 @@ describe("eval/auto: bucle completo en las 14 etapas (cliente y optimizador simu
 });
 
 describe("eval/auto: instrucciones con texto propio de cada caso", () => {
-  const devPath = resolve("eval/datasets/fragment_judge/fragment_judge_v1.jsonl");
+  const devPath = resolve("eval/auto/fixtures/datasets/fragment_judge_min.jsonl");
 
   it("el texto editable no trae datos de casos: lleva {{DATA}} y agrupa f0, f1… bajo f*", () => {
     const reqs = collectDecisionRequests("fragment_judge", [devPath]);
@@ -1742,18 +1744,27 @@ describe("eval/auto: varias etapas en una corrida", () => {
   });
 
   it("holdoutFilesOf solo devuelve los *_holdout*.jsonl de la etapa", () => {
-    const files = holdoutFilesOf("route");
-    assert.ok(files.length > 0 && files.every((f) => /holdout\d*\.jsonl$/.test(f) && f.includes("route")));
+    const dir = trackTemp(mkdtempSync(join(tmpdir(), "jarvis-eval-holdouts-")));
+    mkdirSync(join(dir, "route"));
+    for (const name of ["route_v1.jsonl", "route_v1_holdout.jsonl", "route_v2-holdout2.jsonl"]) writeFileSync(join(dir, "route", name), "", "utf8");
+    const files = holdoutFilesOf("route", dir);
+    assert.deepEqual(files.map((f) => basename(f)), ["route_v1_holdout.jsonl", "route_v2-holdout2.jsonl"]);
     assert.deepEqual(holdoutFilesOf("route", "carpeta/que/no/existe"), []);
   });
 
   it("corre las etapas en serie con decisión primero y sigue con la siguiente aunque una no alcance el objetivo", async () => {
+    // Los datasets de trabajo se rehacen aparte: la prueba usa los fixtures que `before()` instala en eval/datasets.
+    const multiStageFixtures: Record<string, string> = {
+      d0: resolve("eval/auto/fixtures/datasets/d0_variedad.jsonl"),
+      route: resolve("eval/auto/fixtures/datasets/route_16_cases.jsonl"),
+    };
     const { resultsRoot, variantsRoot } = setupTempAutoDir("d0", "multi");
     const order: string[] = [];
     const mockOptimizer: OptimizerLlmCaller = async ({ messages }) => {
       const stage = /Etapa\n- `(\w+)`/.exec(messages.at(-1)?.content ?? "")?.[1] ?? "";
-      const firstKey = isDecisionStage(stage as StageName) ? shapeFromRequests(collectDecisionRequests(stage as StageName, [resolve(`eval/datasets/${stage}/${stage}_v1.jsonl`)])).questions[0].key : "";
-      const text = (suffix: string) => `Variante ${suffix}: elegí con cuidado la opción correcta.${firstKey && shapeFromRequests(collectDecisionRequests(stage as StageName, [resolve(`eval/datasets/${stage}/${stage}_v1.jsonl`)])).dynamic?.[firstKey] ? " {{DATA}}" : ""}`;
+      const shape = isDecisionStage(stage as StageName) ? shapeFromRequests(collectDecisionRequests(stage as StageName, [multiStageFixtures[stage]])) : undefined;
+      const firstKey = shape?.questions[0].key ?? "";
+      const text = (suffix: string) => `Variante ${suffix}: elegí con cuidado la opción correcta.${firstKey && shape?.dynamic?.[firstKey] ? " {{DATA}}" : ""}`;
       const variants = isDecisionStage(stage as StageName)
         ? ["a", "b"].map((suffix) => ({ suffix, hypothesis: `Prueba ${suffix}`, instructions: { [firstKey]: text(suffix) } }))
         : ["a", "b"].map((suffix) => ({ suffix, hypothesis: `Prueba ${suffix}`, system: `${currentSystemText(getStageContract(stage as StageName).promptKey)}\nVariante ${suffix}.` }));

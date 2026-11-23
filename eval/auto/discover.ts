@@ -166,6 +166,8 @@ export async function discoverStageVariants(stage: StageName, variantsRoot = VAR
 
     try {
       const { variant, hash } = loadVariantSpecEphemeral(name, filePath, variantsRoot);
+      // `--auto` optimiza textos contra `prod`: una variante `structure` no es comparable y no participa.
+      if (variant.mode === "structure") continue;
       const groupObj = variant.prompts?.[contract.promptGroup] as Record<string, unknown> | undefined;
       if (!groupObj || !(contract.promptKey in groupObj) || groupObj[contract.promptKey] === undefined) {
         continue;

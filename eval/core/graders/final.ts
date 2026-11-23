@@ -13,7 +13,7 @@ const GREETING_RE = /^[\s¡!¿?"'«*_#>-]*(?:hola|buen(?:os|as)|hello|hi|hey|sal
 export const FinalResponseGrader: Grader<FinalOutput, FinalExpect> = {
   name: "final_response",
   grade(output, expect, _ctx, col) {
-    if (!output || !output.response || typeof output.response !== "string") {
+    if (!output?.response || typeof output.response !== "string") {
       col.check("valid_final_response", false, "Salida no es un texto de respuesta válido.");
       return;
     }

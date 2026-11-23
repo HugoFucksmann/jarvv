@@ -64,8 +64,9 @@ Una línea por caso; las vacías y las que empiezan con `#` se ignoran. Un caso 
 | `tags`, `description` | Opcionales; los tags sirven con `--tags=` |
 | `isRaw` | Caso adversarial: se reporta aparte, fuera del `passRate` canónico |
 
-`scenario`: `mode` (`reactive` | `deliberative`), `request`, `steps`, `calls` (`status`, `args`, `summary`, `verdict`, `ref`), `facts` (clave `answer_<paso>_<n>` o libre), `recalled` (`{ user_memory?: [{ key, value, from? }], thread?: { previous_request?, previous_answer? } }` aplicados al contexto para `arguments`, `final` y `pending`), `userInput`, `finish` (cierre, para `final`) y `at` (punto de decisión: `routes`, `route`, `tools`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `previous`, `environment`). Los tipos están en `core/scenario.ts`.
+`scenario`: `mode` (`reactive` | `deliberative`), `request`, `steps`, `calls` (`status`, `args`, `summary`, `verdict`, `ref`), `facts` (clave `answer_<paso>_<n>` o libre), `recalled` (`{ user_memory?: [{ key, value, from? }], thread?: { previous_request?, previous_answer? } }` aplicados al contexto para `arguments`, `final` y `pending`), `userInput`, `finish` (cierre, para `final`) y `at` (punto de decisión: `route`, `tool`, `inputSchema`, `args`, `call`, `feedback`, `previous`, `environment`; una clave desconocida es error de carga). Los tipos están en `core/scenario.ts`.
 
+- **Las opciones de `route` y `tool_choice` no las declara el caso.** `route` ofrece siempre todas las rutas ejecutables y `tool_choice` todas las herramientas visibles de la ruta de `at.route` (un grupo por ruta; las internas no se ofrecen), tal cual salen del catálogo (`core/offered.ts`). `at.routes` y `at.tools` ya no existen y son error de carga. Producción además descarta rutas y herramientas en tiempo de ejecución (`availableRoutes`, lista negra, ruta agotada): es un parche que se revisará aparte y el eval no lo reproduce. Los marcadores de intento fallido (`[FAILED - AVOID]`…) sí salen, porque los pone la función de producción cuando el escenario trae llamadas fallidas.
 - Un escenario deliberativo necesita `steps` con `instruction`, `route` y `expected`.
 - `pending`: solo en `reactive`; `at.previous` es la lista de la vuelta anterior; `expect` admite `expectEmpty`, `maxItems`, `requiredKeywordsInFirst` y `forbiddenKeywords`.
 - `arguments`: el cargador agrega `meta.toolSchema`; sin él el caso falla.
@@ -131,7 +132,14 @@ Checks: `fragment_<i>_match`, `fragment_<i>_min_probability` (si pide `minProbab
 
 ## 4. Escribir una variante
 
-Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es único en todo el árbol y debe coincidir con el `name`) con prompts **enteros**: no hay ediciones parciales del prompt de producción ni composición (`a+b`). `prod` no define nada: usa el prompt de `src/` tal cual. Lo que la variante no nombra usa producción.
+Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es único en todo el árbol y debe coincidir con el `name`) con prompts **enteros** y un `mode` declarado (obligatorio): no hay ediciones parciales del prompt de producción ni composición (`a+b`). `prod` no define nada: usa el prompt de `src/` tal cual. Lo que la variante no nombra usa producción.
+
+**`mode`: qué clase de experimento es.**
+
+| `mode` | Qué cambia | Cómo se mide |
+|---|---|---|
+| `prompt` | Solo textos: instrucciones, descripciones de opciones, `state`, o el `SYSTEM` de una etapa generativa. Preguntas y opciones son las del backend. | Comparable contra `prod`. En las decisiones, el eval arma también el request de `prod` y exige las mismas preguntas y las mismas opciones, en su orden: un desvío es error de carga (`archivo:línea: … declarala mode "structure"`). Es el uso normal: afinar prompts. |
+| `structure` | Todo: otras preguntas, otras opciones, otro estado u otro flujo de decisión. | **No comparable.** El reporte muestra sus métricas absolutas con la marca «structure, no comparable», sin Δ, regresiones, mejoras ni prueba de signos; no cuenta para `--min-pass-rate` y `--auto` la ignora. Si renombra o quita la opción esperada, el caso falla. |
 
 | Etapa | Qué escribe la variante |
 |---|---|
@@ -155,12 +163,14 @@ function buildRouteChoice(data: RouteDecisionInput): DecisionInput {
 
 const mi_variante: Variant = {
   name: "mi_variante",
+  mode: "structure", // este ejemplo reescribe `criteria` a mano; para solo cambiar textos, "prompt"
   prompts: { DECISION_PROMPTS: { buildRouteChoice } },
 };
 export default mi_variante;
 ```
 
-- Una variante solo define `name` y `prompts` (`DECISION_PROMPTS` o `PROMPTS`); no admite `params` ni `read`.
+- Una variante solo define `name`, `mode` y `prompts` (`DECISION_PROMPTS` o `PROMPTS`); no admite `params` ni `read`. Sin `mode` (o con uno inválido) no carga.
+- Para afinar textos sin tocar las opciones, lo más simple es envolver la función de producción (`DECISION_PROMPTS.<constructor>`) y reemplazar solo `instructions` y `criteria[opción]`, como hacen las variantes que genera `--auto`.
 - Los helpers de `prompts.ts` (`frameLines`, `listBlock`, `lastFailedBy`, `REVIEW_OPTIONS`, `VERIFY_QUESTIONS`, `join`, `todayLine`…) están exportados para reutilizar lo que no cambia. Para partir del texto actual, usar `--dry-run`.
 - Un error en el constructor o un request mal formado es error de carga.
 - Punto de partida: `variants/prod.ts`. Se corre con `--variant=prod,mi_variante`.

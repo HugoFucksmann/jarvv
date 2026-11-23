@@ -6,10 +6,12 @@
  * Extraídos fuera de `report.ts` para evitar dependencias circulares con `report-format.ts`.
  */
 
-import type { GlobalScoreSummary, QuestionCross, QuestionScore, RunRecord } from "./types.ts";
+import type { GlobalScoreSummary, QuestionCross, QuestionScore, RunRecord, VariantMode } from "./types.ts";
 
 export interface InputCell {
   variantSpec: string;
+  /** `structure`: la variante cambia preguntas u opciones y no es comparable contra la baseline (sin deltas, regresiones ni mejoras). Ausente = `prompt`. */
+  variantMode?: VariantMode;
   datasetName: string;
   scores: GlobalScoreSummary;
   records: RunRecord[];
@@ -75,6 +77,8 @@ export interface CaseComparison {
 /** Una fila por variante, agregada sobre todos los datasets y etapas corridos. */
 export interface VariantSummary {
   variant: string;
+  /** `false` en las variantes `structure`: sus métricas son absolutas, sin deltas ni prueba de signos contra la baseline. */
+  comparable?: false;
   /** Tipo de etapas que resume la fila; `total` mezcla ambos y solo existe si la corrida tiene los dos tipos. */
   kind?: "generative" | "decision" | "total";
   totalRuns: number;

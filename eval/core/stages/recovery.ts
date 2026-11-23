@@ -57,7 +57,7 @@ export const recoveryStage: DecisionStageEntry<RecoveryOutput, RecoveryExpect> =
   },
   validateRequest(req) {
     const act = req.questions[RECOVERY_KEY];
-    if (!act || act.type !== "choice") {
+    if (act?.type !== "choice") {
       return `recovery requiere pregunta choice '${RECOVERY_KEY}'.`;
     }
     for (const opt of RECOVERY_ACTIONS) {

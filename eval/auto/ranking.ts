@@ -336,7 +336,6 @@ export function scanReusableInitialRanking(opts: {
             matches.push({ variantName: v.name, datasetName: ds.name, cellDir });
           }
         } catch {
-          continue;
         }
       }
 
@@ -374,7 +373,6 @@ export function scanReusableInitialRanking(opts: {
           };
           break;
         } catch {
-          continue;
         }
       }
 

@@ -54,7 +54,7 @@ export const resultVerificationStage: DecisionStageEntry<ResultVerificationOutpu
     );
   },
   validateRequest(req) {
-    if (!req.questions.cumple || req.questions.cumple.type !== "noul") {
+    if (req.questions.cumple?.type !== "noul") {
       return "result_verification requiere pregunta noul 'cumple'.";
     }
     if (req.questions.ok !== undefined && req.questions.ok.type !== "noul") {

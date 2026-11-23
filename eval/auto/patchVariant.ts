@@ -99,7 +99,9 @@ export function shapeFromRequests(requests: readonly DecisionRequest[]): Decisio
         for (const opt of Object.keys(q.criteria)) if (!entry.options.includes(opt)) entry.options.push(opt);
       }
       byKey.set(key, entry);
-      (texts.get(key) ?? texts.set(key, []).get(key)!).push(q.instructions);
+      const list = texts.get(key);
+      if (list) list.push(q.instructions);
+      else texts.set(key, [q.instructions]);
     }
   }
   const dynamic: Record<string, DynamicSplit> = {};
@@ -150,7 +152,10 @@ export function patchFromRaw(
         const text = checkText(value, PATCH_LIMITS.instruction, `instructions.${key}`, errors);
         if (text !== null && shape.dynamic?.[key] && text.split(DATA_MARK).length !== 2) {
           errors.push(`instructions.${key}: debe contener \`${DATA_MARK}\` exactamente una vez, donde va el texto propio de cada caso (como en el texto actual).`);
-        } else if (text !== null) (patch.instructions ??= {})[key] = text;
+        } else if (text !== null) {
+          patch.instructions ??= {};
+          patch.instructions[key] = text;
+        }
       }
     }
   }
@@ -179,7 +184,11 @@ export function patchFromRaw(
             continue;
           }
           const text = checkText(value, PATCH_LIMITS.criterion, `criteria.${key}.${option}`, errors);
-          if (text !== null) ((patch.criteria ??= {})[key] ??= {})[option] = text;
+          if (text !== null) {
+            patch.criteria ??= {};
+            patch.criteria[key] ??= {};
+            patch.criteria[key][option] = text;
+          }
         }
       }
     }
@@ -254,6 +263,7 @@ function ${promptKey}(data: Parameters<typeof DECISION_PROMPTS.${promptKey}>[0])
 
 const ${variantName}: Variant = {
   name: "${variantName}",
+  mode: "prompt",
   prompts: { DECISION_PROMPTS: { ${promptKey} } },
 };
 export default ${variantName};
@@ -272,10 +282,12 @@ export function patchFromRequests(requests: readonly DecisionRequest[]): PromptP
   for (const req of requests) {
     for (const [rawKey, q] of Object.entries(req.questions)) {
       const key = groupOf(rawKey);
-      (texts[key] ??= []).push(q.instructions);
+      texts[key] ??= [];
+      texts[key].push(q.instructions);
       if (q.type !== "choice") continue;
       for (const [option, text] of Object.entries(q.criteria)) {
-        const bucket = (criteria[key] ??= {});
+        criteria[key] ??= {};
+        const bucket = criteria[key];
         // Preferir una aparición sin marca; si solo hay con marca, se la quita.
         if (bucket[option] === undefined || (MARK_RE.test(bucket[option]) && !MARK_RE.test(text))) bucket[option] = text.replace(MARK_RE, "");
       }
@@ -364,7 +376,7 @@ export function systemFromRaw(raw: unknown, current: string, requiredText: reado
   if (text.length > SYSTEM_TEXT_MAX) return { error: `\`system\` tiene ${text.length} caracteres y el máximo es ${SYSTEM_TEXT_MAX}.` };
   if (text === current.trim()) return { error: "`system` es igual al texto vigente: escribí una versión que cambie algo." };
   const missing = requiredText.filter((r) => !text.includes(r));
-  if (missing.length > 0) return { error: "`system` debe conservar el formato de respuesta exigido: falta " + missing.map((m) => `«${m}»`).join(", ") + "." };
+  if (missing.length > 0) return { error: `\`system\` debe conservar el formato de respuesta exigido: falta ${missing.map((m) => `«${m}»`).join(", ")}.` };
   return { system: text };
 }
 
@@ -382,6 +394,7 @@ const SYSTEM: string = ${JSON.stringify(system)};
 
 const ${variantName}: Variant = {
   name: "${variantName}",
+  mode: "prompt",
   prompts: { PROMPTS: { ${promptKey}: { ...PROMPTS.${promptKey}, SYSTEM } } },
 };
 export default ${variantName};
