@@ -180,11 +180,7 @@ async function mountFrontend(app: express.Express): Promise<void> {
 }
 
 async function main() {
-  // En sandboxes con proxy (p. ej. AI Studio Build), `PORT` suele coincidir con `NGINX_PORT` (8080) mientras el backend debe escuchar en `DEFAULT_APP_PORT` (3000).
-  const rawPort =
-    process.env.DEFAULT_APP_PORT ??
-    (process.env.PORT && process.env.PORT !== process.env.NGINX_PORT ? process.env.PORT : undefined);
-  const PORT = Number(rawPort) || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || '127.0.0.1';
   assertListenable(HOST);
 
