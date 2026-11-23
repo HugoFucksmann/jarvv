@@ -27,14 +27,49 @@ export function isLoopbackHost(host: string): boolean {
 /** `ALLOW_PROXY_HOST=1` desactiva SOLO el chequeo de `Host` (sandboxes tipo AI Studio Build, cuyo proxy manda un Host no loopback). Por defecto está activo. */
 export const proxyHostAllowed = (): boolean => process.env.ALLOW_PROXY_HOST === '1';
 
+function allowedProxyHosts(): Set<string> {
+  const hosts = new Set<string>();
+  for (const item of (process.env.NG_ALLOWED_HOSTS ?? '').split(',')) {
+    const clean = item.trim().toLowerCase();
+    if (clean) hosts.add(clean);
+  }
+  const appUrl = process.env.APP_URL?.trim();
+  if (appUrl) {
+    try {
+      hosts.add(new URL(appUrl).hostname.toLowerCase());
+    } catch {
+      // Ignora APP_URL malformada.
+    }
+  }
+  return hosts;
+}
+
+function isAllowedProxyHostHeader(hostHeader: string, allowed: ReadonlySet<string>): boolean {
+  if (allowed.size === 0 || !hostHeader) return false;
+  const clean = hostHeader.trim().toLowerCase().replace(/:\d+$/, '').replace(/^\[(.*)\]$/, '$1');
+  return allowed.has(clean);
+}
+
+function isAllowedProxyOrigin(origin: string, allowed: ReadonlySet<string>): boolean {
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    return allowed.has(url.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 export function localOnly(): express.RequestHandler {
   return (req, res, next) => {
-    if (!proxyHostAllowed() && !LOCAL_HOST.test(req.headers.host ?? '')) {
+    const proxyHosts = allowedProxyHosts();
+    const hostHeader = req.headers.host ?? '';
+    if (!proxyHostAllowed() && !LOCAL_HOST.test(hostHeader) && !isAllowedProxyHostHeader(hostHeader, proxyHosts)) {
       return void res.status(403).json({ error: 'Host no permitido.' });
     }
     const origin = req.headers.origin;
     if (origin) {
-      if (!LOCAL_ORIGIN.test(origin)) {
+      if (!LOCAL_ORIGIN.test(origin) && !isAllowedProxyOrigin(origin, proxyHosts)) {
         return void res.status(403).json({ error: 'Origen no permitido.' });
       }
       res.setHeader('Access-Control-Allow-Origin', origin);
