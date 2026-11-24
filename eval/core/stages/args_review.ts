@@ -47,10 +47,10 @@ export const argsReviewStage: DecisionStageEntry<ArgsReviewOutput, ArgsReviewExp
     const built = h.decision(h.effectivePrompts(ov).D.buildArgsReview(input, { fullView: cfg.reviewFullView === true }));
 
     // Igual que `evaluatePolicy` + `reviewIfNeeded` (producción): umbral estricto si la escritura es de nivel amarillo
-    // (solo con `approvalTiers`) o coincide con una entrada `sensitive` de la lista negra.
+    // o coincide con una entrada `sensitive` de la lista negra.
     const mcp = serverOf(route);
     const { kind, environment } = h.precheckBase(ctx, route, tool.name, at.environment);
-    const tier = cfg.approvalTiers === true && kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, args, environment) : "red") : null;
+    const tier = kind === "write" ? (isKnownTool(mcp, tool.name) ? approvalTierOf(tool.name, args, environment) : "red") : null;
     const listed = blacklistMatch(compileBlacklist(cfg.blacklist), mcp, tool.name, kind === "write", args);
     return { ...built, reviewStrict: listed?.level === "sensitive" || tier === "yellow" };
   },

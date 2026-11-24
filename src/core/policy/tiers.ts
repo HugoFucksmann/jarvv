@@ -1,7 +1,7 @@
 /**
  * JARVIS Core — Aprobación por niveles (idea 5 de `docs/evaluacion/JARVIS_EVALUACION.md`), decidida por código.
  *
- * Con `approvalTiers` activo (por defecto encendido) clasifica las escrituras por riesgo en lugar de aplicar `autoMode` binario:
+ * Siempre activa: clasifica las escrituras por riesgo y `autoMode` (único switch) decide solo quién se encarga del amarillo:
  * - **Verde** — reversible y sin sobrescribir, dentro de las carpetas del usuario (crear una carpeta, un archivo que no existe, mover a un destino que no existe): sin
  *   confirmación y sin revisión de Decisión 3; la poscondición se comprueba en el disco (`engine/postcondition.ts`).
  * - **Amarillo** — el resto de las escrituras del catálogo (agregar a un archivo, fuera de las carpetas del usuario, herramientas no clasificadas): sin confirmación con `autoMode`, con

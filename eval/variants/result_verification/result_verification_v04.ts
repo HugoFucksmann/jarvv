@@ -27,7 +27,6 @@ const PATCH: Patch = {
     "Focus on the strict boundary: 'ok' is purely existence (tokens), 'cumple' is strictly full satisfaction (no partials).",
 };
 
-const MARKER = /\s*(\[[^\]]*\])\s*$/;
 
 function buildResultVerification(data: Parameters<typeof DECISION_PROMPTS.buildResultVerification>[0]): DecisionInput {
   const base = DECISION_PROMPTS.buildResultVerification(data);

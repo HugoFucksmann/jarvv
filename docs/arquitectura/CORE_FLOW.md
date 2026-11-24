@@ -169,8 +169,8 @@ Compara la llamada propuesta (herramienta y huella de los argumentos resueltos) 
 
 Una escritura idéntica no se relaja (pudo dejar cambios parciales), salvo con la política `rerun`: `run_command` la declara para comandos de comprobación o compilación que `policy/rerun.ts` reconoce (`npm test`, `dotnet build`), y entonces se repite si hubo un efecto en el medio. La política sale del catálogo (`repeat` de cada herramienta): `strict` (por defecto), `retry_failed` (`web_search` y las internas de Free Search `search`, `read_doc` y `fetch`: su resultado puede cambiar entre dos llamadas iguales) y `allow` (`run_command`, que repite los mismos argumentos al esperar más salida de un `pid`, y el sondeo `get_more_search_results`).
 
-### Aprobación por niveles (`approvalTiers`)
-Con `approvalTiers: true` (**encendida por defecto**) la aprobación de las escrituras la decide el código por nivel (`policy/tiers.ts`). Los niveles funcionan **con `autoMode` activo**: es el caso para el que están diseñados.
+### Aprobación por niveles
+La aprobación de las escrituras la decide el código por nivel (`policy/tiers.ts`), **siempre activa**. `autoMode` es el único switch: decide quién se encarga del amarillo (el usuario o D3).
 
 | Nivel | Qué es | Con `autoMode` | Decisión 3 |
 |---|---|---|---|

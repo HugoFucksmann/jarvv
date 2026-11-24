@@ -13,7 +13,6 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | `autoMode` | `false` | `true` | Omitir la confirmación humana de lo amarillo (D3 lo revisa; lo verde nunca pide); lo rojo y lo obligatorio de Guard siempre se confirman |
 | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | `false` | `false` | Experimentales, apagados: D3 con lecturas y entorno; lecturas por D3; D5 con guarda de cobertura (ver `PENDIENTES_EVAL.md` §1 y §3) |
 | `recoveryShadow` | `true` | `true` | Modo sombra de la recuperación tras un paso fallido del reactivo: calcula qué haría (reglas de `recoveryRules.ts` y, si no deciden, una consulta de Decisión) y lo registra en la traza (etapa `recovery`). **No actúa ni cambia lo que hace Jarvis**; agrega una consulta a Decisión por fallo solo cuando las reglas no deciden. Se lee en cada fallo (ver `eval/GUIA_DECISION.md`, sección 5) |
-| `approvalTiers` | `true` | `true` | Clasificación verde/amarillo/rojo para escrituras; funciona con `autoMode` activo (ver `CORE_FLOW.md`) |
 
 ## 2. Claves principales (`jarvis-config.json`)
 
@@ -26,7 +25,7 @@ Si falta `jarvis-config.json`, `ConfigManager` aplica `DEFAULT_CONFIG` (`src/cor
 | **Trazas, refs y logs** | `traceEnabled`, `traceDir`, `refsDir`, `retentionDays`, `logRetentionDays`, `retentionMaxMb` | `true`, `"jarvis-traces"` (carpeta de las trazas; un `jarvis-traces.jsonl` anterior en la clave `tracePath` sigue funcionando), `"data/refs"`, `10` días para refs y trazas, `30` días para el log de eventos de cada tarea (`data/tasks/`, junto a `refsDir`), `250` MB (tope de tamaño en disco compartido entre refs, trazas y logs; `0` lo desactiva) |
 | **Pausa por modelo caído** | `modelUnavailablePauseMaxMs` | `600000` (10 min): una tarea espera ese tiempo a que vuelva un modelo que no responde antes de cerrarse; `0` = no espera |
 | **Experimentales** (apagados) | `reviewFullView`, `reviewReads`, `completionCoverageGuard` | ver `PENDIENTES_EVAL.md` §1 y §3 |
-| **Políticas y web** | `blacklist`, `autoMode`, `approvalTiers`, `webSearchUseJudge`, `webJudgeTimeoutMs` | `[]`, ver §1 arriba, `20000` ms para el juez web y detalle de reglas en [`../api/JARVIS_API.md`](../api/JARVIS_API.md) y [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md) |
+| **Políticas y web** | `blacklist`, `autoMode`, `webSearchUseJudge`, `webJudgeTimeoutMs` | `[]`, ver §1 arriba, `20000` ms para el juez web y detalle de reglas en [`../api/JARVIS_API.md`](../api/JARVIS_API.md) y [`../arquitectura/CORE_FLOW.md`](../arquitectura/CORE_FLOW.md) |
 | **Voz (TTS)** | `voiceEnabled`, `telegramVoice`, `voiceUrl`, `voiceName` | `false`, `false`, `"http://127.0.0.1:8880"`, `"default"` (detalle en [`../operacion/TELEGRAM_Y_VOZ.md`](../operacion/TELEGRAM_Y_VOZ.md)) |
 
 ### Reglas de seguridad HTTP (`POST /api/jarvis/config` y `GET /config`)

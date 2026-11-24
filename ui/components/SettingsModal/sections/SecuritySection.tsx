@@ -74,21 +74,10 @@ export const SecuritySection: React.FC<SecuritySectionProps> = ({
           statusText={{ on: "Activado", off: "Interactivo" }}
           description={
             <>
-              Con niveles de riesgo encendidos, las operaciones amarillas pasan por Decisión 3 sin pedirte aprobación manual; las operaciones rojas (sobrescribir, eliminar, comandos o procesos) y rutas sensibles{" "}
-              <strong className="text-slate-200">siguen pidiendo confirmación</strong>.
+              Verde (creaciones reversibles en carpetas del usuario) ejecuta directo. Las operaciones amarillas pasan por Decisión 3 estricta sin pedirte aprobación; sin modo automático te las pregunta. Las rojas (sobrescribir, eliminar, comandos o procesos) y rutas sensibles{" "}
+              <strong className="text-slate-200">siempre piden confirmación</strong>.
             </>
           }
-        />
-
-        <ToggleRow
-          id="cfg-approval-tiers"
-          title="Niveles de riesgo"
-          codeKey="approvalTiers"
-          tone="emerald"
-          checked={Boolean(config.approvalTiers)}
-          onChange={(approvalTiers) => onUpdate({ approvalTiers })}
-          statusText={{ on: "Activado", off: "Desactivado" }}
-          description="Verde (lecturas y creaciones reversibles en carpetas del usuario) ejecuta directo; amarillo usa Decisión 3 estricta con modo automático; rojo siempre solicita aprobación al usuario."
         />
       </div>
 

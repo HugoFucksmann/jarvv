@@ -375,8 +375,6 @@ export interface EngineDeps {
   readonly disk?: DiskView;
   /** ¿Modo automático? (`autoMode` de la configuración, leído en cada llamada). */
   readonly autoMode: () => boolean;
-  /** Aprobación por niveles (`policy/tiers.ts`); activa por defecto. Omitida = apagada (en pruebas heredadas). */
-  readonly approvalTiers?: () => boolean;
   /** Experimental (config `reviewReads`): las lecturas también pasan por Decisión 3. Omitida = apagada. */
   readonly reviewReads?: () => boolean;
   /** Experimental (config `completionCoverageGuard`): Decisión 5 no cierra si un archivo nombrado en el pedido no aparece en ninguna llamada. Omitida = apagada. */

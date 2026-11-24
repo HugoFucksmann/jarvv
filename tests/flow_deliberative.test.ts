@@ -132,7 +132,6 @@ async function runDelib(s: DelibScenario) {
     blacklist: EMPTY_BLACKLIST,
     environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
     autoMode: () => true,
-    approvalTiers: () => false,
     disk: FAKE_DISK,
   };
 

@@ -84,15 +84,11 @@ export interface JarvisConfig {
   /** Lista negra de herramientas que modifican el sistema (rechazo `tool_rejected`; ver `policy/blacklist.ts`). */
   blacklist: BlacklistEntry[];
   /**
-   * Modo automático: las operaciones que piden aprobación (escrituras y comandos) no se la piden al usuario y las valida la revisión de
-   * argumentos (Decisión 3). Lo prohibido (Guard, lista negra) sigue rechazado. Se lee en cada llamada: se puede cambiar con la tarea en curso.
+   * Único switch de aprobación. Los niveles de riesgo (`policy/tiers.ts`) están siempre activos: verde sin confirmación ni revisión; amarillo lo confirma el usuario,
+   * o con `autoMode` lo valida la revisión de argumentos (Decisión 3) con umbral estricto; rojo (borrar, sobrescribir, comandos que modifican) siempre lo confirma el
+   * usuario. Lo prohibido (Guard, lista negra `blocked`) sigue rechazado. Se lee en cada llamada: se puede cambiar con la tarea en curso.
    */
   autoMode: boolean;
-  /**
-   * Aprobación por niveles (`policy/tiers.ts`): verde sin confirmación ni revisión, amarillo con Decisión 3 estricta, rojo siempre confirma el usuario.
-   * Activa por defecto: el nivel amarillo respeta `autoMode` para pedir o no al usuario antes de Decisión 3.
-   */
-  approvalTiers: boolean;
   /**
    * EXPERIMENTAL (apagado por defecto; cambian lo que ve o decide el modelo y hay que medirlos antes de encenderlos). Se leen en cada llamada.
    * - `reviewFullView`: Decisión 3 recibe además las últimas lecturas y los datos del entorno (hoy solo `Target`, `User Input`, `Previous Errors`, `Call` y `Args`).
@@ -208,7 +204,6 @@ const DEFAULT_CONFIG: JarvisConfig = {
   retentionMaxMb: 250,
   blacklist: [],
   autoMode: false,
-  approvalTiers: true,
   reviewFullView: false,
   reviewReads: false,
   completionCoverageGuard: false,
@@ -339,7 +334,6 @@ function normalize(raw: unknown, base: JarvisConfig = DEFAULT_CONFIG): JarvisCon
     retentionMaxMb: nonNegativeInt(r.retentionMaxMb, d.retentionMaxMb),
     blacklist: blacklistEntries(r.blacklist) ?? d.blacklist.map((e) => ({ ...e })),
     autoMode: typeof r.autoMode === "boolean" ? r.autoMode : d.autoMode,
-    approvalTiers: typeof r.approvalTiers === "boolean" ? r.approvalTiers : d.approvalTiers,
     reviewFullView: typeof r.reviewFullView === "boolean" ? r.reviewFullView : d.reviewFullView,
     reviewReads: typeof r.reviewReads === "boolean" ? r.reviewReads : d.reviewReads,
     completionCoverageGuard: typeof r.completionCoverageGuard === "boolean" ? r.completionCoverageGuard : d.completionCoverageGuard,

@@ -2,7 +2,7 @@
  * Matriz de caracterización de la autorización de una llamada (`runCall`, fases 6 a 8: Guard, lista negra, niveles, confirmación del usuario y revisión D3).
  *
  * Fija lo que el código HACE hoy, combinando las variables que deciden si una llamada pide confirmación al usuario, pasa por Decisión 3 o se rechaza:
- * `approvalTiers` × `autoMode` × nivel de la operación (verde, amarillo, rojo) × coincidencia con la lista negra (`blocked`/`sensitive`) × ruta sensible
+ * `autoMode` × nivel de la operación (verde, amarillo, rojo) × coincidencia con la lista negra (`blocked`/`sensitive`) × ruta sensible
  * obligatoria × umbral de D3 (normal o estricto) × `allowedDirectories` × rechazo del usuario.
  *
  * Es la red de seguridad del refactor de `runCall` (`docs/pendientes/REFACTOR_CORE.md`, punto 1): extraer `authorize` no debe cambiar ninguna fila. Si una fila
@@ -85,7 +85,6 @@ function buildOp(name: OpName, dir: string): Op {
 
 interface Scenario {
   readonly op: OpName;
-  readonly tiers: boolean;
   readonly auto: boolean;
   /** Entrada de la lista negra que coincide con la operación (patrón sobre los argumentos). */
   readonly list?: "blocked" | "sensitive";
@@ -187,7 +186,6 @@ async function observe(s: Scenario): Promise<Observed> {
       blacklist: compileBlacklist(entries),
       environment: async () => ({ platform: "windows", home: dir }),
       autoMode: () => s.auto,
-      approvalTiers: () => s.tiers,
       disk: FAKE_DISK,
       ...(s.outside === true ? { allowedDirectories: () => [path.join(dir, "otra-carpeta")] } : {}),
     };
@@ -227,7 +225,7 @@ async function observe(s: Scenario): Promise<Observed> {
 }
 
 const label = (s: Scenario): string =>
-  [s.op, `tiers=${s.tiers ? "on" : "off"}`, `auto=${s.auto ? "on" : "off"}`, s.list ? `lista=${s.list}` : null, s.outside ? "fuera de allowedDirectories" : null, s.deny !== undefined ? "usuario rechaza" : null, s.review ? `D3=${JSON.stringify(s.review)}` : null]
+  [s.op, `auto=${s.auto ? "on" : "off"}`, s.list ? `lista=${s.list}` : null, s.outside ? "fuera de allowedDirectories" : null, s.deny !== undefined ? "usuario rechaza" : null, s.review ? `D3=${JSON.stringify(s.review)}` : null]
     .filter(Boolean)
     .join(" · ");
 
@@ -257,59 +255,49 @@ function check(name: string, s: Scenario, e: Expect): void {
   });
 }
 
-const MODES = [
-  { tiers: true, auto: false },
-  { tiers: true, auto: true },
-  { tiers: false, auto: false },
-  { tiers: false, auto: true },
-] as const;
+const MODES = [{ auto: false }, { auto: true }] as const;
 
 // ───────────────────────── 1. Escrituras del catálogo, sin lista ni ruta sensible ─────────────────────────
 
-/** Con niveles: verde no pide ni revisa; rojo siempre pide; amarillo pide sin `autoMode` y con él pasa por D3. Sin niveles: sin `autoMode` pide, con él pasa por D3. */
-function baseline(op: "new_file" | "overwrite" | "append", tiers: boolean, auto: boolean): Pick<Expect, "asked" | "reviews"> {
-  if (tiers) {
-    if (op === "new_file") return { asked: 0, reviews: 0 };
-    if (op === "overwrite") return { asked: 1, reviews: 0 };
-    return auto ? { asked: 0, reviews: 1 } : { asked: 1, reviews: 0 };
-  }
+/** Verde no pide ni revisa; rojo siempre pide; amarillo pide sin `autoMode` y con él pasa por D3. */
+function baseline(op: "new_file" | "overwrite" | "append", auto: boolean): Pick<Expect, "asked" | "reviews"> {
+  if (op === "new_file") return { asked: 0, reviews: 0 };
+  if (op === "overwrite") return { asked: 1, reviews: 0 };
   return auto ? { asked: 0, reviews: 1 } : { asked: 1, reviews: 0 };
 }
 
 for (const op of ["new_file", "overwrite", "append"] as const) {
-  for (const { tiers, auto } of MODES) {
-    const s: Scenario = { op, tiers, auto };
-    check(label(s), s, { ...baseline(op, tiers, auto), status: "ok", ...(tiers && op === "overwrite" ? { tier: "red", canRemember: true } : {}) });
+  for (const { auto } of MODES) {
+    const s: Scenario = { op, auto };
+    check(label(s), s, { ...baseline(op, auto), status: "ok", ...(op === "overwrite" ? { tier: "red", canRemember: true } : {}) });
   }
 }
 
 // ───────────────────────── 2. Las lecturas nunca piden confirmación ni pasan por D3 ─────────────────────────
 
-for (const { tiers, auto } of MODES) {
-  const s: Scenario = { op: "read", tiers, auto };
+for (const { auto } of MODES) {
+  const s: Scenario = { op: "read", auto };
   check(label(s), s, { asked: 0, reviews: 0, status: "ok" });
 }
 
 // ───────────────────────── 3. Lista negra ─────────────────────────
 
-// `sensitive`: con niveles siempre pregunta; sin niveles pregunta solo sin `autoMode` y con él pasa por D3 (umbral estricto).
-for (const { tiers, auto } of MODES) {
-  const s: Scenario = { op: "new_file", tiers, auto, list: "sensitive" };
-  const asks = tiers || !auto;
-  check(label(s), s, { asked: asks ? 1 : 0, reviews: asks ? 0 : 1, status: "ok", ...(asks ? { canRemember: false, listLevel: "sensitive" } : {}) });
+// `sensitive`: siempre pregunta al usuario (con o sin `autoMode`).
+for (const { auto } of MODES) {
+  const s: Scenario = { op: "new_file", auto, list: "sensitive" };
+  check(label(s), s, { asked: 1, reviews: 0, status: "ok", canRemember: false, listLevel: "sensitive" });
 }
 
-// `blocked`: con niveles o con `autoMode` se rechaza sin preguntar; solo sin niveles y sin `autoMode` se le pregunta al usuario.
-for (const { tiers, auto } of MODES) {
-  const s: Scenario = { op: "new_file", tiers, auto, list: "blocked" };
-  if (tiers || auto) check(label(s), s, { asked: 0, reviews: 0, status: "tool_rejected", summary: /Regla de prueba\./ });
-  else check(label(s), s, { asked: 1, reviews: 0, status: "ok", canRemember: false, listLevel: "blocked" });
+// `blocked`: se rechaza siempre sin preguntar.
+for (const { auto } of MODES) {
+  const s: Scenario = { op: "new_file", auto, list: "blocked" };
+  check(label(s), s, { asked: 0, reviews: 0, status: "tool_rejected", summary: /Regla de prueba\./ });
 }
 
 // ───────────────────────── 4. Ruta sensible: confirmación obligatoria en todos los modos ─────────────────────────
 
-for (const { tiers, auto } of MODES) {
-  const s: Scenario = { op: "sensitive_path", tiers, auto };
+for (const { auto } of MODES) {
+  const s: Scenario = { op: "sensitive_path", auto };
   check(label(s), s, { asked: 1, reviews: 0, status: "ok", canRemember: false });
 }
 
@@ -321,61 +309,52 @@ const REJECT_ARGS = { approved: 0.3, args_invalid: 0.6, info_missing: 0.1 };
 const REJECT_INFO = { approved: 0.3, args_invalid: 0.2, info_missing: 0.5 };
 
 // Amarillo con `autoMode` (umbral estricto): 0,62 pasa el normal pero no el estricto → `tool_rejected`, no `args_invalid`.
-check("amarillo + auto: D3 con 0,62 no alcanza el umbral estricto → tool_rejected", { op: "append", tiers: true, auto: true, review: APPROVED_062 }, { asked: 0, reviews: 1, status: "tool_rejected", summary: /safety review was not confident/ });
-check("amarillo + auto: D3 con 0,70 supera el umbral estricto → se ejecuta", { op: "append", tiers: true, auto: true, review: APPROVED_070 }, { asked: 0, reviews: 1, status: "ok" });
-check("amarillo + auto: D3 rechaza con args_invalid → args_invalid", { op: "append", tiers: true, auto: true, review: REJECT_ARGS }, { asked: 0, reviews: 1, status: "args_invalid" });
-check("amarillo + auto: D3 rechaza con info_missing → info_missing", { op: "append", tiers: true, auto: true, review: REJECT_INFO }, { asked: 0, reviews: 1, status: "info_missing" });
-
-// Sin niveles y con `autoMode` (umbral normal): 0,62 aprueba; un rechazo claro es `args_invalid`.
-check("sin niveles + auto: D3 con 0,62 supera el umbral normal → se ejecuta", { op: "new_file", tiers: false, auto: true, review: APPROVED_062 }, { asked: 0, reviews: 1, status: "ok" });
-check("sin niveles + auto: D3 rechaza con args_invalid → args_invalid", { op: "new_file", tiers: false, auto: true, review: REJECT_ARGS }, { asked: 0, reviews: 1, status: "args_invalid" });
-
-// Lista negra `sensitive` con `autoMode` y sin niveles: umbral estricto.
-check("lista sensitive + auto sin niveles: D3 con 0,62 → tool_rejected", { op: "new_file", tiers: false, auto: true, list: "sensitive", review: APPROVED_062 }, { asked: 0, reviews: 1, status: "tool_rejected", summary: /Regla de prueba\./ });
-check("lista sensitive + auto sin niveles: D3 con 0,70 → se ejecuta", { op: "new_file", tiers: false, auto: true, list: "sensitive", review: APPROVED_070 }, { asked: 0, reviews: 1, status: "ok" });
+check("amarillo + auto: D3 con 0,62 no alcanza el umbral estricto → tool_rejected", { op: "append", auto: true, review: APPROVED_062 }, { asked: 0, reviews: 1, status: "tool_rejected", summary: /safety review was not confident/ });
+check("amarillo + auto: D3 con 0,70 supera el umbral estricto → se ejecuta", { op: "append", auto: true, review: APPROVED_070 }, { asked: 0, reviews: 1, status: "ok" });
+check("amarillo + auto: D3 rechaza con args_invalid → args_invalid", { op: "append", auto: true, review: REJECT_ARGS }, { asked: 0, reviews: 1, status: "args_invalid" });
+check("amarillo + auto: D3 rechaza con info_missing → info_missing", { op: "append", auto: true, review: REJECT_INFO }, { asked: 0, reviews: 1, status: "info_missing" });
 
 // Verde y confirmación del usuario sustituyen a D3: aunque D3 rechazara, no se consulta.
-check("verde: D3 no se consulta aunque rechazaría", { op: "new_file", tiers: true, auto: true, review: REJECT_ARGS }, { asked: 0, reviews: 0, status: "ok" });
-check("rojo: la aprobación del usuario sustituye a D3 aunque rechazaría", { op: "overwrite", tiers: true, auto: true, review: REJECT_ARGS }, { asked: 1, reviews: 0, status: "ok" });
+check("verde: D3 no se consulta aunque rechazaría", { op: "new_file", auto: true, review: REJECT_ARGS }, { asked: 0, reviews: 0, status: "ok" });
+check("rojo: la aprobación del usuario sustituye a D3 aunque rechazaría", { op: "overwrite", auto: true, review: REJECT_ARGS }, { asked: 1, reviews: 0, status: "ok" });
 
 // ───────────────────────── 6. Rechazo del usuario ─────────────────────────
 
-check("rojo: el usuario rechaza → user_rejected con su instrucción; no se despacha", { op: "overwrite", tiers: true, auto: false, deny: "no lo sobrescribas" }, { asked: 1, reviews: 0, status: "user_rejected", summary: /no lo sobrescribas/ });
+check("rojo: el usuario rechaza → user_rejected con su instrucción; no se despacha", { op: "overwrite", auto: false, deny: "no lo sobrescribas" }, { asked: 1, reviews: 0, status: "user_rejected", summary: /no lo sobrescribas/ });
 
 // ───────────────────────── 7. allowedDirectories ─────────────────────────
 
-for (const tiers of [true, false]) {
-  const s: Scenario = { op: "new_file", tiers, auto: true, outside: true };
+{
+  const s: Scenario = { op: "new_file", auto: true, outside: true };
   check(label(s), s, { asked: 0, reviews: 0, status: "tool_rejected", summary: /allowedDirectories/ });
 }
 
 // ───────────────────────── 8. run_command ─────────────────────────
 
 // Un comando de solo lectura es una lectura: ni confirmación ni D3.
-for (const { tiers, auto } of MODES) {
-  const s: Scenario = { op: "run_readonly", tiers, auto };
+for (const { auto } of MODES) {
+  const s: Scenario = { op: "run_readonly", auto };
   check(label(s), s, { asked: 0, reviews: 0, status: "ok" });
 }
 
-// Un comando que modifica es rojo con niveles (siempre pide); sin niveles sigue la regla general del catálogo.
-for (const { tiers, auto } of MODES) {
-  const s: Scenario = { op: "run_modify", tiers, auto };
-  const asks = tiers || !auto;
-  check(label(s), s, { asked: asks ? 1 : 0, reviews: asks ? 0 : 1, status: "ok" });
+// Un comando que modifica es rojo: siempre pide.
+for (const { auto } of MODES) {
+  const s: Scenario = { op: "run_modify", auto };
+  check(label(s), s, { asked: 1, reviews: 0, status: "ok" });
 }
 
 // ───────────────────────── 9. «Aprobar siempre en esta tarea» ─────────────────────────
 
 // La misma operación se pide dos veces (la primera ejecución falla y el modelo reintenta con otro contenido). Con «siempre», lo común no se vuelve a preguntar; lo obligatorio
 // de Guard y la lista negra solo admiten «una vez» (`canRemember = false`): se pregunta de nuevo.
-check("rojo + «siempre»: la misma ruta no se vuelve a preguntar", { op: "overwrite", tiers: true, auto: false, remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 1, canRemember: true });
-check("rojo sin «siempre»: se vuelve a preguntar", { op: "overwrite", tiers: true, auto: false, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2 });
-check("ruta sensible + «siempre»: solo admite «una vez», se vuelve a preguntar", { op: "sensitive_path", tiers: true, auto: true, remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2, canRemember: false });
-check("lista sensitive + «siempre»: solo admite «una vez», se vuelve a preguntar", { op: "new_file", tiers: true, auto: false, list: "sensitive", remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2, canRemember: false });
+check("rojo + «siempre»: la misma ruta no se vuelve a preguntar", { op: "overwrite", auto: false, remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 1, canRemember: true });
+check("rojo sin «siempre»: se vuelve a preguntar", { op: "overwrite", auto: false, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2 });
+check("ruta sensible + «siempre»: solo admite «una vez», se vuelve a preguntar", { op: "sensitive_path", auto: true, remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2, canRemember: false });
+check("lista sensitive + «siempre»: solo admite «una vez», se vuelve a preguntar", { op: "new_file", auto: false, list: "sensitive", remember: true, retry: true }, { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2, canRemember: false });
 
 // «Siempre» vale por herramienta y ruta, no por contenido: si el reintento pasa a coincidir con la lista negra, ya no se puede dar por aprobado.
 check(
   "«siempre» aprobado con un contenido inocuo no cubre el reintento que coincide con la lista negra",
-  { op: "overwrite", tiers: true, auto: false, remember: true, retry: true, list: "sensitive", listPattern: "peligro", retryContent: (n) => (n === 0 ? "seguro" : "peligro") },
+  { op: "overwrite", auto: false, remember: true, retry: true, list: "sensitive", listPattern: "peligro", retryContent: (n) => (n === 0 ? "seguro" : "peligro") },
   { asked: 1, reviews: 0, status: "tool_error", totalAsked: 2 },
 );

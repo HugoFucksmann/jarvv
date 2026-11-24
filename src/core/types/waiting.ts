@@ -28,7 +28,7 @@ export interface ApprovalRequest {
   readonly args: JsonObject;
   /** ¿Se ofrece «aprobar siempre en esta tarea»? Falso para lo obligatorio de Guard, la lista negra y lo que no se pudo resolver: solo admiten «una vez». */
   readonly canRemember?: boolean;
-  /** Nivel de riesgo calculado cuando `approvalTiers` está activo (`green` | `yellow` | `red`). */
+  /** Nivel de riesgo de la escritura (`green` | `yellow` | `red`). */
   readonly tier?: ApprovalTier;
   /** Regla de lista negra que motivó o condicionó la aprobación. */
   readonly blacklist?: ApprovalBlacklist;

@@ -38,6 +38,12 @@ const SCHEMA = {
 };
 const tool = (name: string): MCPTool => ({ name, description: name, inputSchema: SCHEMA });
 
+/** Un `TaskRuntime` que aprueba toda confirmación pedida (los niveles de riesgo siempre están activos: rojo siempre pregunta al usuario). */
+function approvingRuntime(): TaskRuntime {
+  const runtime: TaskRuntime = new TaskRuntime({ onChange: (w) => w?.kind === "approval" && queueMicrotask(() => runtime.resolveApproval(w.request.id, true)) });
+  return runtime;
+}
+
 function makeCtx(id: string, request: string) {
   let t = 1_700_000_000_000;
   return create.context(
@@ -104,7 +110,6 @@ test("reactivo: MAX_REOPENS = 2 detiene reaperturas infinitas provocadas por D5"
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
@@ -174,7 +179,6 @@ test("reactivo: un solo ítem cierra no_alternatives al 2.º fallo y respuestas 
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     const rt = new TaskRuntime({
@@ -248,7 +252,6 @@ test("callRunner: raceCancel registra interrupted ante cancelación en vuelo y d
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     });
 
@@ -376,10 +379,9 @@ test("RC-21 + maxCallsPerStep: rerun bloqueado hasta escritura intermedia", asyn
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
-    await runTask(ctx, new TaskRuntime(), deps);
+    await runTask(ctx, approvingRuntime(), deps);
     assert.deepEqual(dispatched, ["run_command", "write_file", "run_command"]);
     assert.equal(ctx.task.state, "completed");
   } finally {
@@ -443,7 +445,6 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
 
@@ -547,7 +548,6 @@ test("stepLoop: maxCallsPerStep pregunta al usuario antes de fallar (askFirst) y
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctxFinOver, new TaskRuntime(), depsFinOver);
@@ -617,7 +617,6 @@ test("reactivo: si pending tras un fallo devuelve solo un ítem ya cumplido, no 
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
@@ -693,7 +692,6 @@ async function escalationScenario(recovers: boolean): Promise<TaskContext> {
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\\Users\\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
@@ -769,7 +767,6 @@ test("verificación: una web_search `found` no se le pregunta al modelo de decis
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:\Users\Ana" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
@@ -829,7 +826,6 @@ test("alias con subruta: `desktop/Archivos/Documentos` se expande a la ruta real
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:/Users/Ana", desktop: "C:/Users/Ana/Desktop" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);
@@ -895,7 +891,6 @@ test("una escritura que no halló la carpeta (`not_found`) se rechaza sin consul
       blacklist: EMPTY_BLACKLIST,
       environment: async () => ({ platform: "windows", home: "C:/Users/Ana", documents: "C:/Users/Ana/Documents" }),
       autoMode: () => true,
-      approvalTiers: () => false,
       disk: FAKE_DISK,
     };
     await runTask(ctx, new TaskRuntime(), deps);

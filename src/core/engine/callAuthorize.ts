@@ -7,7 +7,7 @@
  *
  * Tiene tres piezas, de la más pura a la que toca el disco:
  * - `evaluatePolicy` (síncrona, sin disco de la tarea ni modelos): Guard, modo automático, nivel de la operación y lista negra. Se prueba con una tabla.
- * - `needsConfirmation` (pura): dada la política y lo que dejó el pre-chequeo, ¿se le pide al usuario? Es la regla central de `autoMode` y `approvalTiers`.
+ * - `needsConfirmation` (pura): dada la política y lo que dejó el pre-chequeo, ¿se le pide al usuario? Es la regla central de `autoMode` y los niveles.
  * - `checkCallArgs` (asíncrona; analiza el comando y mira el disco): pre-chequeo y `allowedDirectories`.
  * `authorize` las compone. No registra nada: devuelve un rechazo (que `runCall` registra) o la decisión con la que siguen la confirmación y la revisión.
  */
@@ -54,9 +54,7 @@ const reject = (status: CallStatus, summary: string | null = null): Rejection =>
 export interface PolicyFacts {
   readonly guard: GuardVerdict;
   readonly auto: boolean;
-  /** Aprobación por niveles activa. */
-  readonly tiered: boolean;
-  /** Nivel de la operación; `null` si no es una escritura o los niveles están apagados. */
+  /** Nivel de la operación; `null` si no es una escritura. */
   readonly tier: ApprovalTier | null;
   /** Coincidencia con la lista negra (reglas de comando integradas o configuración), o `null`. */
   readonly listed: ListHit | null;
@@ -67,9 +65,8 @@ export type PolicyVerdict = PolicyFacts & { readonly kind: "ok" };
 
 /**
  * Política (fases 6 y 6a). `DENY` de Guard (comando catastrófico, regla B de las carpetas protegidas): no se ejecuta y queda `tool_rejected` con la razón, como un
- * rechazo de la lista negra; la tarea NO cierra (`maxDeniedPerStep` corta el paso si el modelo insiste). Lista negra nivel `blocked` con modo automático o con
- * niveles: se rechaza acá con la razón escrita; sin ellos, cualquier coincidencia se le pregunta al usuario. Nivel `sensitive` con modo automático: sigue a D3 con
- * umbral estricto. El nivel por aprobación (`tier`) clasifica las escrituras en verde, amarillo y rojo (`policy/tiers.ts`).
+ * rechazo de la lista negra; la tarea NO cierra (`maxDeniedPerStep` corta el paso si el modelo insiste). Lista negra nivel `blocked`: se rechaza acá con la razón
+ * escrita, siempre. Nivel `sensitive`: lo confirma el usuario (con modo automático también), y si lo aprueba D3 no entra. El nivel por aprobación (`tier`) clasifica las escrituras en verde, amarillo y rojo (`policy/tiers.ts`).
  */
 export function evaluatePolicy(call: PreparedCall, environment: UserEnvironment, deps: EngineDeps): PolicyVerdict | Rejection {
   const { mcp, resolved, kind, policy } = call;
@@ -79,20 +76,17 @@ export function evaluatePolicy(call: PreparedCall, environment: UserEnvironment,
   if (guard.decision === "DENY") return reject("tool_rejected", policyDenialNote(guard.reason));
 
   const auto = deps.autoMode();
-  const tiered = deps.approvalTiers?.() === true;
-  const tier: ApprovalTier | null = tiered && kind === "write" ? (isKnownTool(mcp, toolName) ? approvalTierOf(toolName, resolved, environment) : "red") : null;
+  const tier: ApprovalTier | null = kind === "write" ? (isKnownTool(mcp, toolName) ? approvalTierOf(toolName, resolved, environment) : "red") : null;
   const listed = blacklistMatch(currentBlacklist(deps), mcp, toolName, policy.mutates, resolved, deps.guardScope.homeDirs);
-  if (listed !== null && (auto || tiered) && listed.level === "blocked") return reject("tool_rejected", listed.reason);
+  if (listed !== null && listed.level === "blocked") return reject("tool_rejected", listed.reason);
 
-  return { kind: "ok", guard, auto, tiered, tier, listed };
+  return { kind: "ok", guard, auto, tier, listed };
 }
 
 // ───────────────────────── ¿Se le pide confirmación al usuario? ─────────────────────────
 
 export interface ConfirmationInput {
   readonly verdict: PolicyFacts;
-  /** La herramienta está en el catálogo (`isKnownTool`). */
-  readonly known: boolean;
   /** `allowedDirectories` no pudo resolver una ruta (con la razón), o `null`. */
   readonly allowedUnresolvableReason: string | null;
   /** La respuesta del usuario a un proceso, enviada tal cual a ese proceso (RC-20). */
@@ -100,17 +94,15 @@ export interface ConfirmationInput {
 }
 
 /**
- * ¿La llamada pide confirmación al usuario? Una ruta sensible (`guard.mandatory`) o una ruta no resoluble en `allowedDirectories` la piden también en modo
- * automático. Con niveles: la piden lo obligatorio de Guard, lo rojo, el amarillo sin modo automático y toda coincidencia de la lista negra; lo verde no. Sin niveles:
- * la pide Guard (`APPROVAL`) salvo que el modo automático la omita para una herramienta del catálogo, y la lista negra sin modo automático. Lo que el usuario ya
+ * ¿La llamada pide confirmación al usuario? La piden siempre (con o sin modo automático) lo obligatorio de Guard (rutas sensibles), lo rojo, toda coincidencia de la
+ * lista negra y una ruta no resoluble en `allowedDirectories`. El amarillo la pide solo sin modo automático (con él lo valida D3); lo verde no. Lo que el usuario ya
  * escribió (`userAuthored`) no se le vuelve a pedir, salvo una ruta no resoluble.
  */
-export function needsConfirmation({ verdict, known, allowedUnresolvableReason, userAuthored }: ConfirmationInput): boolean {
-  const { guard, auto, tiered, tier, listed } = verdict;
+export function needsConfirmation({ verdict, allowedUnresolvableReason, userAuthored }: ConfirmationInput): boolean {
+  const { guard, auto, tier, listed } = verdict;
   if (allowedUnresolvableReason !== null) return true;
   if (userAuthored) return false;
-  if (tiered) return guard.mandatory === true || tier === "red" || (tier === "yellow" && !auto) || listed !== null;
-  return (guard.decision === "APPROVAL" && (guard.mandatory === true || !(auto && known))) || (listed !== null && !auto);
+  return guard.mandatory === true || tier === "red" || (tier === "yellow" && !auto) || listed !== null;
 }
 
 // ───────────────────────── Pre-chequeo y allowedDirectories ─────────────────────────
@@ -232,7 +224,7 @@ export async function authorize(env: EngineEnv, call: PreparedCall, environment:
     verdict.listed === null &&
     allowedUnresolvableReason === null &&
     inputAnswersProcess(ctx, call.stepId, call.tool.name, call.resolved, call.recorded.input);
-  const askUser = needsConfirmation({ verdict, known: isKnownTool(call.mcp, call.tool.name), allowedUnresolvableReason, userAuthored });
+  const askUser = needsConfirmation({ verdict, allowedUnresolvableReason, userAuthored });
 
   return { kind: "proceed", ...verdict, allowedUnresolvableReason, userAuthored, askUser };
 }

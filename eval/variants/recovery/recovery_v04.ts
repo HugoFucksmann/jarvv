@@ -1,6 +1,6 @@
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
-import type { Variant } from "../../../core/variants/types.ts";
+import type { Variant } from "../../core/variants/types.ts";
 
 // Variante generada por código: la salida de producción (DECISION_PROMPTS.buildRecovery) con estos textos reemplazados.
 interface Patch {

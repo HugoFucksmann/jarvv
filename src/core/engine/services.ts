@@ -27,8 +27,6 @@ export interface EngineServices {
   /** Datos de esta PC; inyectable para que una prueba o el eval no consulte el sistema. */
   readonly environment: () => Promise<UserEnvironment>;
   readonly autoMode: () => boolean;
-  /** Aprobación por niveles (`approvalTiers` de la configuración, leída en cada llamada). */
-  readonly approvalTiers?: () => boolean;
   readonly reviewReads?: () => boolean;
   readonly completionCoverageGuard?: () => boolean;
   /** Modo sombra de `recovery` (config `recoveryShadow`, leída en cada fallo): registra qué haría, no actúa. */
@@ -87,7 +85,6 @@ export function createEngineServices(getConfig: ConfigSource, options: EngineSer
     blacklist: getBlacklist,
     environment: getUserEnvironment,
     autoMode: () => getConfig().autoMode,
-    approvalTiers: () => getConfig().approvalTiers,
     reviewReads: () => getConfig().reviewReads,
     completionCoverageGuard: () => getConfig().completionCoverageGuard,
     recoveryShadow: () => getConfig().recoveryShadow,

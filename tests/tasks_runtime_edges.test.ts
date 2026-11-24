@@ -31,7 +31,6 @@ function makeTempEnv() {
     qwenModel: "q",
     decisionModel: "d",
     autoMode: false,
-    approvalTiers: false,
     allowedDirectories: [],
   });
   const services: EngineServices = {

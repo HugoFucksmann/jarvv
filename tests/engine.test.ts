@@ -47,8 +47,6 @@ interface Scenario {
   readonly onVerify?: (runtime: TaskRuntime) => void;
   /** Carpeta de inicio del entorno del escenario (por defecto `C:\Users\Ana`). */
   readonly home?: string;
-  /** Aprobación por niveles encendida (`approvalTiers`). */
-  readonly tiers?: boolean;
   /** Probabilidad que da toda pregunta de sonda (`probe`); sin ella el doble no la implementa. */
   readonly place?: number;
   /** Probabilidad por pregunta de sonda (según su texto); gana sobre `place`. */
@@ -213,7 +211,6 @@ async function run(s: Scenario): Promise<Outcome> {
     blacklist: EMPTY_BLACKLIST,
     environment: async () => ({ platform: "windows", home: s.home ?? "C:\\Users\\Ana" }),
     autoMode: () => s.autoMode ?? false,
-    approvalTiers: () => s.tiers ?? false,
     completionCoverageGuard: () => s.coverageGuard ?? false,
     previousTask: s.previous ?? null,
     ...(s.shadow === undefined ? {} : { recoveryShadow: () => true, sink: { llm: (e) => void (e.stage === "recovery" && shadowEvents.push({ stage: e.stage, input: e.input, output: e.output, error: e.error })), tool: () => undefined } }),
@@ -669,7 +666,8 @@ test("RC-20: la respuesta del usuario enviada tal cual a ese proceso no pide otr
   assert.equal(ctx.find("calls", { status: "user_rejected" }).length, 0);
 });
 
-test("RC-20: tampoco pasa por la revisión D3 en modo automático (la escribió el usuario), pero un texto distinto sí", async () => {
+test("RC-20: en modo automático el comando nuevo (rojo) pide confirmación; la respuesta del usuario al proceso no pide ni pasa por D3", async () => {
+  const approvals: string[] = [];
   const { reviews } = await run({
     request: "Instalar el programa",
     tool: "run_command",
@@ -677,9 +675,16 @@ test("RC-20: tampoco pasa por la revisión D3 en modo automático (la escribió 
     autoMode: true,
     argsFor: (n) => [{ command: "Read-Host instalar" }, { pid: 4321, input: "s" }][n] ?? { pid: 4321 },
     resultFor: (n) => [waitingFor("¿Continuar? (s/n)"), FINISHED][n] ?? FINISHED,
-    onWait: (w, runtime) => w.kind === "question" && runtime.answer("s"),
+    onWait: (w, runtime) => {
+      if (w.kind === "approval") {
+        approvals.push(JSON.stringify(w.request.args));
+        runtime.resolveApproval(w.request.id, true);
+      }
+      if (w.kind === "question") runtime.answer("s");
+    },
   });
-  assert.equal(reviews, 1, "solo el comando nuevo pasó por D3");
+  assert.deepEqual(approvals, ['{"command":"Read-Host instalar"}'], "solo el comando nuevo pide confirmación");
+  assert.equal(reviews, 0, "ni el comando (lo aprobó el usuario) ni su respuesta pasan por D3");
 });
 
 test("RC-14: el hecho process lista todos los procesos vivos de la tarea y quita los que terminan", async () => {
@@ -885,7 +890,7 @@ test("verificación: un resultado sin datos (no_data) se rechaza por código sin
 
 // ───────────────────────── Aprobación por niveles ─────────────────────────
 
-/** Escribe `args` con `write_file` en una carpeta temporal que es el «inicio» del entorno, con la aprobación por niveles encendida. Cuenta aprobaciones pedidas y revisiones de Decisión 3. */
+/** Escribe `args` con `write_file` en una carpeta temporal que es el «inicio» del entorno Cuenta aprobaciones pedidas y revisiones de Decisión 3. */
 async function tiered(setup: (dir: string) => { file: string; args: Record<string, unknown> }, extra: Partial<Scenario> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "jarvis-tier-"));
   const { file, args } = setup(dir);
@@ -896,7 +901,6 @@ async function tiered(setup: (dir: string) => { file: string; args: Record<strin
     args,
     first: "single",
     home: dir,
-    tiers: true,
     completion: 1,
     onWait: (w, runtime) => {
       if (w.kind === "approval") {
@@ -956,17 +960,6 @@ test("niveles: sin autoMode, amarillo pide confirmación al usuario (su aprobaci
     return { file, args: { path: file, content: "hola" } };
   });
   assert.equal(green.approvals, 0);
-});
-
-test("niveles apagados (por defecto): el comportamiento de `autoMode` no cambia, una escritura del catálogo pide confirmación", async () => {
-  const { approvals } = await tiered(
-    (dir) => {
-      const file = path.join(dir, "nueva.txt");
-      return { file, args: { path: file, content: "hola" } };
-    },
-    { tiers: false },
-  );
-  assert.equal(approvals, 1);
 });
 
 // ───────────────────────── Decisión 5 segura de que falta algo ─────────────────────────

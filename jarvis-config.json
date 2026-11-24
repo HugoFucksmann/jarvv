@@ -49,7 +49,6 @@
   "retentionMaxMb": 250,
   "blacklist": [],
   "autoMode": true,
-  "approvalTiers": true,
   "reviewFullView": false,
   "reviewReads": false,
   "completionCoverageGuard": false,

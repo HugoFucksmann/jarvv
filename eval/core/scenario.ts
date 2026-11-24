@@ -69,8 +69,8 @@ export type {
 export function promptEnvironment(): { date: string; stageConfigHash: string } {
   const d = new Date();
   const two = (n: number): string => String(n).padStart(2, "0");
-  const { qwenMaxTokens, thinking, approvalTiers, reviewFullView, blacklist, qwenNumCtx, decisionMaxContext } = ConfigManager.getConfig();
-  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, qwenNumCtx, decisionMaxContext, approvalTiers, reviewFullView, blacklist, askMaxTokens: BUDGET.ask.maxTokens, pendingMaxTokens: BUDGET.pending.maxTokens });
+  const { qwenMaxTokens, thinking, reviewFullView, blacklist, qwenNumCtx, decisionMaxContext } = ConfigManager.getConfig();
+  const stageConfig = JSON.stringify({ qwenMaxTokens, thinking, qwenNumCtx, decisionMaxContext, reviewFullView, blacklist, askMaxTokens: BUDGET.ask.maxTokens, pendingMaxTokens: BUDGET.pending.maxTokens });
   return {
     date: `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`,
     stageConfigHash: createHash("sha256").update(stageConfig).digest("hex").slice(0, 16),

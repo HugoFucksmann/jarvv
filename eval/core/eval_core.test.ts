@@ -638,7 +638,7 @@ describe("args_review: reglas de producción (umbral estricto y vista completa)"
     at: { route, tool, args },
   });
 
-  it("marca reviewStrict solo para escrituras amarillas con approvalTiers activo", async () => {
+  it("marca reviewStrict solo para escrituras amarillas", async () => {
     const { ConfigManager } = await import("../../src/core/config.ts");
     const real = ConfigManager.getConfig();
     const original = ConfigManager.getConfig;
@@ -651,9 +651,9 @@ describe("args_review: reglas de producción (umbral estricto y vista completa)"
         ConfigManager.getConfig = original;
       }
     };
-    assert.equal(strictOf({ approvalTiers: true, blacklist: [] }, "system", "power", { action: "sleep" }).strict, true, "power/sleep es amarillo");
-    assert.equal(strictOf({ approvalTiers: false, blacklist: [] }, "system", "power", { action: "sleep" }).strict, false, "sin approvalTiers no hay nivel");
-    assert.equal(strictOf({ approvalTiers: true, blacklist: [] }, "files_read", "read_file", { path: "C:/Users/hugof/Desktop/n.txt" }).strict, false, "una lectura no es estricta");
+    assert.equal(strictOf({ blacklist: [] }, "system", "power", { action: "sleep" }).strict, true, "power/sleep es amarillo");
+    assert.equal(strictOf({ blacklist: [] }, "system", "power", { action: "sleep" }).strict, true, "la config ya no puede apagar los niveles");
+    assert.equal(strictOf({ blacklist: [] }, "files_read", "read_file", { path: "C:/Users/hugof/Desktop/n.txt" }).strict, false, "una lectura no es estricta");
   });
 
   it("parseOutput aplica 0.65 cuando el caso es estricto y 0.60 cuando no", async () => {

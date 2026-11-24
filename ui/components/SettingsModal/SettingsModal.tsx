@@ -88,7 +88,6 @@ const CATEGORIES: CategoryMeta[] = [
       "automode",
       "niveles",
       "riesgo",
-      "approvaltiers",
       "carpetas",
       "directorios",
       "alloweddirectories",

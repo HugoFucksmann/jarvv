@@ -1,11 +1,10 @@
 /**
- * Una tarea real de punta a punta con la configuración de `jarvis-config.json` (incluidos `autoMode` y `approvalTiers`), en una carpeta de inicio TEMPORAL con la
+ * Una tarea real de punta a punta con la configuración de `jarvis-config.json` (incluido `autoMode`), en una carpeta de inicio TEMPORAL con la
  * misma forma que la del usuario (Desktop, Documents, Downloads y `Desktop\jarvis`), para repetir un pedido sin tocar sus carpetas. Imprime las consultas a los modelos
  * (con el tiempo desde el inicio), las llamadas con su veredicto, las confirmaciones pedidas y la respuesta.
  *
  *   npx tsx scripts/validate/rerun_task.ts "Crea un md dentro de la carpeta jarvis con la informacion que sepas de gpt"
  *   npx tsx scripts/validate/rerun_task.ts "Creá gpt.md en {home}\proyectos"   # {home} = la carpeta de inicio temporal
- *   npx tsx scripts/validate/rerun_task.ts "<pedido>" --tiers=false      # compara con la aprobación por niveles apagada
  *   npx tsx scripts/validate/rerun_task.ts "<pedido>" --auto=false       # sin autoMode (el arnés aprueba las confirmaciones)
  *
  * Necesita Ollama con los modelos de la configuración, `uvx` (Free Search) y red. Windows.
@@ -34,7 +33,7 @@ import { WebSearchProvider } from "../../src/tools/web/webSearchProvider.ts";
 
 const rawMessage = process.argv.slice(2).find((a) => !a.startsWith("--"));
 if (rawMessage === undefined) {
-  console.error('Uso: npx tsx scripts/validate/rerun_task.ts "<pedido>" [--tiers=false] [--auto=false]');
+  console.error('Uso: npx tsx scripts/validate/rerun_task.ts "<pedido>" [--auto=false]');
   process.exit(1);
 }
 const flag = (name: string): boolean | undefined => {
@@ -53,7 +52,6 @@ const base = ConfigManager.getConfig();
 const getConfig = (): JarvisConfig => ({
   ...base,
   autoMode: flag("auto") ?? base.autoMode,
-  approvalTiers: flag("tiers") ?? base.approvalTiers,
   traceEnabled: true,
   traceDir: path.join(root, "traces"),
   refsDir: path.join(root, "refs"),
@@ -90,7 +88,7 @@ tasks.addEventListener((event) => {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 try {
-  console.log(`(autoMode ${getConfig().autoMode}, approvalTiers ${getConfig().approvalTiers}, home temporal ${home})`);
+  console.log(`(autoMode ${getConfig().autoMode}, home temporal ${home})`);
   const started = Date.now();
   const id = tasks.start(message, "reactive").task.id;
   let snap = tasks.get(id);

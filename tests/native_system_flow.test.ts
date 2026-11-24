@@ -126,21 +126,15 @@ test("portapapeles: leer es verde (sin confirmación); escribir es amarillo (pid
   assert.deepEqual(auto.fakes.clipboard, ["auto"]);
 });
 
-test("energía: apagar y reiniciar son «blocked» como su comando: con niveles o modo automático se rechazan; sin ellos se le pregunta al usuario", async () => {
+test("energía: apagar y reiniciar son «blocked» como su comando: se rechazan siempre, con o sin modo automático", async () => {
   for (const action of ["shutdown", "restart"]) {
-    for (const options of [{ tiers: true }, { tiers: false, autoMode: true }] as const) {
+    for (const options of [{ autoMode: false }, { autoMode: true }] as const) {
       const rejected = await run("power", { action }, { ...options, approve: true });
       assert.equal(rejected.outcome.approvals, 0, `${action}: no se le pregunta al usuario, se rechaza`);
       assert.deepEqual(rejected.fakes.power, [], `${action}: no se ejecuta`);
       assert.equal(rejected.outcome.calls[0]?.status, "tool_rejected", action);
     }
-    const asked = await run("power", { action }, { tiers: false, autoMode: false, approve: false });
-    assert.equal(asked.outcome.approvals >= 1, true, `${action}: sin niveles ni modo automático se pregunta`);
-    assert.deepEqual(asked.fakes.power, []);
   }
-  const accepted = await run("power", { action: "restart", delaySec: 30 }, { tiers: false, autoMode: false, approve: true });
-  assert.equal(accepted.fakes.power.length, 1, "con la confirmación del usuario, sin niveles, se ejecuta");
-  assert.equal(accepted.fakes.power[0].action, "restart");
   const lock = await run("power", { action: "lock" }, { approve: true });
   assert.equal(lock.outcome.approvals >= 1, true, "bloquear es amarillo: pide al usuario sin modo automático");
   assert.equal(lock.fakes.power[0]?.action, "lock");

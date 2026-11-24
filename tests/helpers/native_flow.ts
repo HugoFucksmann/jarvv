@@ -33,7 +33,6 @@ export interface NativeOptions {
   readonly approve?: boolean;
   readonly autoMode?: boolean;
   /** Aprobación por niveles (por defecto, encendida). */
-  readonly tiers?: boolean;
   /** Probabilidad de «aprobado» que da Decisión 3 (por defecto 1; el umbral estricto del nivel amarillo es 0,65 y el normal 0,6). */
   readonly review?: number;
   /** Respuestas de Decisión 4 (por defecto aprueba con 0,95). */
@@ -123,7 +122,6 @@ export async function runNative(
     blacklist: EMPTY_BLACKLIST,
     environment: async () => ({ platform: "windows", home: root }),
     autoMode: () => options.autoMode ?? false,
-    approvalTiers: () => options.tiers ?? true,
   };
   try {
     await runTask(ctx, rt, deps);

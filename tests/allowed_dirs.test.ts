@@ -123,7 +123,6 @@ async function runSingleCall(opts: Step6cHarnessOptions) {
     blacklist: EMPTY_BLACKLIST,
     environment: async () => ({ platform: opts.platform ?? "linux", home: opts.home }),
     autoMode: () => opts.autoMode ?? true,
-    approvalTiers: () => true,
     allowedDirectories: opts.allowedDirs,
     ...(opts.analyzeCommand === undefined ? {} : { analyzeCommand: opts.analyzeCommand }),
   };

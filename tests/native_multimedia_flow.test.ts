@@ -54,12 +54,10 @@ test("media_control: pausar, subir el volumen y ver qué suena corren sin confir
   }
 });
 
-test("multimedia sin niveles: la aprobación vuelve a ser la de cualquier escritura, y un «no» no reproduce nada", async () => {
-  const refused = await run("play_media", { query: "jazz" }, { tiers: false, approve: false });
-  assert.equal(refused.outcome.approvals >= 1, true);
-  assert.deepEqual(refused.played, []);
-  const accepted = await run("play_media", { query: "jazz" }, { tiers: false, approve: true });
-  assert.equal(accepted.played.length, 1);
+test("multimedia: reproducir es verde, no pide aprobación aun sin modo automático y reproduce", async () => {
+  const out = await run("play_media", { query: "jazz" }, { autoMode: false, approve: false });
+  assert.equal(out.outcome.approvals, 0);
+  assert.equal(out.played.length, 1);
 });
 
 test("play_media: un esquema peligroso se rechaza dentro de la herramienta y la tarea no cuenta una reproducción", async () => {

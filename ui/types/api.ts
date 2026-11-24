@@ -364,7 +364,6 @@ export interface JarvisConfig {
   retentionMaxMb?: number;
   blacklist?: BlacklistEntry[];
   autoMode?: boolean;
-  approvalTiers?: boolean;
   reviewFullView?: boolean;
   reviewReads?: boolean;
   completionCoverageGuard?: boolean;
