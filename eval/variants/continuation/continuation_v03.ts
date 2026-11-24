@@ -1,49 +1,55 @@
-/**
- * eval/variants/continuation/continuation_v03.ts
- *
- * Continuation — variante v03.
- *
- * Resultado del eval:
- * - v02 ganó (+5.2%, 0 regresiones): añadir dependencia semántica funcionó.
- * - v01 empató con prod: los pronombres como única señal no bastan.
- * - Casos restantes que fallan (3): cont-h2h-43, cont-h2h-48, cont-h2h-56.
- *   Hipótesis: son casos donde el nuevo pedido parece autónomo pero usa el RESULTADO
- *   de la tarea anterior como input implícito (sin mencionarlo).
- *
- * Hipótesis v03: partir de v02 y añadir una señal de CAMBIO DE TEMA como desempate
- * para falsos negativos: si el nuevo pedido CAMBIA completamente de dominio/objeto
- * → false; si opera sobre lo mismo → true. Esto ancla la independencia en términos
- * de objeto/dominio, no solo en sintaxis.
- */
-
-import type { ContinuationInput } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
-import type { Variant } from "../../core/variants/types.ts";
+import type { Variant } from "../../../core/variants/types.ts";
 
-const FOLLOW_CRITERIA = {
-  true: 'The new request refers to the previous task (using pronouns like "it", "that", "also", "now", or implying the previous result) OR cannot be understood or executed without knowing the previous answer OR operates on the same object, file, or subject as the previous task.',
-  false:
-    "The new request is fully self-contained, can be understood and executed without any knowledge of the previous task, AND switches to a completely different object or domain.",
+// Variante generada por código: la salida de producción (DECISION_PROMPTS.buildContinuation) con estos textos reemplazados.
+interface Patch {
+  instructions?: Record<string, string>;
+  criteria?: Record<string, Record<string, string>>;
+  stateNote?: string;
+}
+
+const PATCH: Patch = {
+  "instructions": {
+    "follow": "A request is a continuation if it makes sense only because of the previous task's specific output (active dependency on result). A request is NOT a continuation if it is an independent query, a general conversation flow, or continues a topic without referencing or depending on the specific details of the prior response."
+  }
 };
 
-function buildContinuation(data: ContinuationInput): DecisionInput {
-  const base = DECISION_PROMPTS.buildContinuation(data);
-  const followQ = base.questions.follow;
-  if (!followQ || followQ.type !== "noul") return base;
+// Preguntas cuya instrucción lleva texto propio de cada caso: lo fijo de producción (antes y después) y el marcador donde va ese texto.
+const DYNAMIC: Record<string, { before: string; after: string }> = {};
+const DATA_MARK = "{{DATA}}";
+const groupOf = (key: string): string => (/\d+$/.test(key) ? `${key.replace(/\d+$/, "")}*` : key);
 
-  return {
-    ...base,
-    questions: {
-      follow: {
-        ...followQ,
-        // Instrucción de v02 + señal de cambio de dominio/objeto.
-        instructions:
-          'Does the new request depend on the previous task? Answer true if: (a) it refers to it ("it", "that", "also", "now", or similar); OR (b) it cannot be fully understood without the previous answer; OR (c) it operates on the same object, file, or subject. Answer false only if it is completely independent AND switches to a different topic.',
-        criteria: FOLLOW_CRITERIA,
-      },
-    },
-  };
+// Conserva la marca final entre corchetes que producción agrega a una opción (por ejemplo `[the last attempt on this route failed]`).
+const MARKER = /\s*(\[[^\]]*\])\s*$/;
+
+function buildContinuation(data: Parameters<typeof DECISION_PROMPTS.buildContinuation>[0]): DecisionInput {
+  const base = DECISION_PROMPTS.buildContinuation(data);
+  const questions: DecisionInput["questions"] = {};
+  for (const [key, question] of Object.entries(base.questions)) {
+    const next = { ...question };
+    const group = groupOf(key);
+    const instructions = PATCH.instructions?.[group];
+    const split = DYNAMIC[group];
+    if (instructions !== undefined && split === undefined) next.instructions = instructions;
+    if (instructions !== undefined && split !== undefined && question.instructions.startsWith(split.before) && question.instructions.endsWith(split.after)) {
+      const data = question.instructions.slice(split.before.length, question.instructions.length - split.after.length);
+      next.instructions = instructions.replace(DATA_MARK, () => data);
+    }
+    const criteria = PATCH.criteria?.[group];
+    if (next.type === "choice" && criteria !== undefined) {
+      const merged: Record<string, string> = { ...next.criteria };
+      for (const [option, text] of Object.entries(criteria)) {
+        if (!(option in merged)) continue;
+        const marker = MARKER.exec(merged[option]);
+        merged[option] = marker ? `${text} ${marker[1]}` : text;
+      }
+      next.criteria = merged;
+    }
+    questions[key] = next;
+  }
+  const state = PATCH.stateNote === undefined ? base.state : `${PATCH.stateNote}\n${base.state}`;
+  return { ...base, state, questions };
 }
 
 const continuation_v03: Variant = {
