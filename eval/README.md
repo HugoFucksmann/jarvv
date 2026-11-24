@@ -39,7 +39,7 @@ npm run eval -- --variant=mi_variante --no-baseline --dataset=smoke   # sin prod
 | `--list` | Lista etapas, variantes y datasets disponibles |
 | `--menu` | Asistente interactivo que arma y ejecuta el comando |
 | `--client=oracle` | Valida casos y graders sin modelos |
-| `--dataset=smoke` | Corrida real con los modelos de `jarvis-config.json` (hoy `qwen3.5:4b-text` y `d3:2b-text`; sin el archivo, `qwen3.5:4b` y `d3:2b`) |
+| `--dataset=smoke` | Corrida real con los modelos por defecto del eval (por defecto `qwen3.5:4b-text` y `d3:4b-text`; las URLs salen de ese archivo) |
 | `--variant=… --repeat=3` | Compara una variante contra `prod` con tres repeticiones |
 
 ---
@@ -81,7 +81,7 @@ Una colisión en el mismo segundo agrega `-2`, `-3`. Las carpetas anteriores a e
 
 ## Datasets y cruce con el pre-chequeo
 
-Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). `eval/datasets/smoke.jsonl` es el humo del arnés (un caso por etapa); los datasets de trabajo y los holdouts de cada etapa están en `eval/datasets/<etapa>/`.
+Los datasets de `eval/datasets/<etapa>/` se mantienen directamente como archivos `.jsonl`. En `--auto`, sin `--dataset` ni `--holdout`: **desarrollo** = los de la etapa que no son holdout (los `*_hard_*` y los sueltos `<etapa>_<n>`), y **holdout** = los `<etapa>_holdout_<n>.jsonl` (los casos fáciles, que pasan todas las variantes). Una variante solo se acepta si supera a `prod` en desarrollo (además de llegar a `--target`) y en el holdout obtiene al menos lo de `prod` (`--holdout-margin` ajusta ese umbral; negativo tolera una caída pequeña). `npm run eval:psvalid` mide la validez PowerShell de los `command` de una corrida. `npm run eval:cross` mide el pre-chequeo determinista (`src/core/engine/precheck.ts`) sobre los casos `args_review` y lo cruza con los resultados de una corrida (falsos rechazos, recall por modo de falla, test pareado). `eval/datasets/smoke.jsonl` es el humo del arnés (un caso por etapa); los datasets de trabajo y los holdouts de cada etapa están en `eval/datasets/<etapa>/`.
 
 ## Mapa del código (para quien desarrolla el eval)
 

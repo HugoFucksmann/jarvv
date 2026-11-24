@@ -23,6 +23,7 @@ import { materializeScenario } from "./scenario.ts";
 import type { Scenario } from "./stages/types.ts";
 import type { ChoiceQ, DecisionRequest, Variant } from "./types.ts";
 import { loadVariantSpec, parseVariantExport } from "./variants/load.ts";
+import { mergePatch, patchFromRequests } from "../auto/patchVariant.ts";
 
 const tmp: string[] = [];
 after(() => {
@@ -89,7 +90,7 @@ describe("modos de variante", () => {
   });
 
   it("una variante prompt que solo cambia textos pasa y se ve en el request", () => {
-    const v = routeVariant("prompt", (c) => Object.fromEntries(Object.entries(c).map(([k, t]) => [k, `${t} (nuevo texto)`])));
+    const v = routeVariant("prompt", (c) => Object.fromEntries(Object.keys(c).map((k) => [k, `${k} (nuevo texto)`])));
     const req = materializeScenario("route", routeScenario, v).request as DecisionRequest;
     const criteria = choiceOf(req, "route").criteria;
     assert.deepEqual(Object.keys(criteria), [...EXECUTABLE_ROUTES]);
@@ -103,6 +104,37 @@ describe("modos de variante", () => {
     assert.throws(() => materializeScenario("route", routeScenario, agrega), /inventada/);
     const reordena = routeVariant("prompt", (c) => Object.fromEntries(Object.entries(c).reverse()));
     assert.throws(() => materializeScenario("route", routeScenario, reordena), /mode "prompt"/);
+  });
+
+  it("una variante prompt incompleta falla: las opciones que no escribió salen del texto de producción", () => {
+    // Pisa solo `web` y hereda las otras cinco de `src`.
+    const incompleta = routeVariant("prompt", (c) => ({ ...c, web: "Todo lo que sea internet." }));
+    assert.throws(
+      () => materializeScenario("route", routeScenario, incompleta),
+      /incompleta: las opciones route\.terminal, route\.files_read, route\.files_write, route\.system, route\.multimedia/,
+    );
+    // Pisa todas, y una con el mismo texto que producción: es escribirla a propósito, no heredarla.
+    const prodRoute = choiceOf(materializeScenario("route", routeScenario).request as DecisionRequest, "route").criteria;
+    const completa = routeVariant("prompt", (c) => Object.fromEntries(Object.keys(c).map((k) => [k, k === "web" ? prodRoute.web : `${k} propio`])));
+    const criteria = choiceOf(materializeScenario("route", routeScenario, completa).request as DecisionRequest, "route").criteria;
+    assert.equal(criteria.web, prodRoute.web);
+    assert.equal(criteria.terminal, "terminal propio");
+  });
+
+  it("la marca de producción no queda en los builders después de validar", () => {
+    const incompleta = routeVariant("prompt", (c) => ({ ...c, web: "x" }));
+    assert.throws(() => materializeScenario("route", routeScenario, incompleta));
+    const req = materializeScenario("route", routeScenario).request as DecisionRequest;
+    assert.ok(Object.values(choiceOf(req, "route").criteria).every((t) => !t.includes("⁣")));
+  });
+
+  it("`--auto`: lo que el optimizador no escribe se completa con el texto de producción de cada opción", () => {
+    const prodReq = materializeScenario("route", routeScenario).request as DecisionRequest;
+    const patch = mergePatch(patchFromRequests([prodReq]), { criteria: { route: { web: "Todo lo de internet." } } });
+    const route = patch.criteria?.route ?? {};
+    assert.deepEqual(Object.keys(route), [...EXECUTABLE_ROUTES]);
+    assert.equal(route.web, "Todo lo de internet.");
+    assert.equal(route.terminal, choiceOf(prodReq, "route").criteria.terminal);
   });
 
   it("una variante structure puede cambiar las opciones", () => {

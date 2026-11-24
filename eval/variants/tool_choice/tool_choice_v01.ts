@@ -1,7 +1,8 @@
 /**
  * eval/variants/tool_choice/tool_choice_v01.ts
  *
- * Hipótesis: Enriquecer la instrucción de `tool_choice` para distinguir pares cercanos (nombre vs contenido en `files_read`, edición puntual vs escritura completa en `files_write`, leer web vs descargar a disco en `web`, reproducir nuevo vs controlar reproducción actual en `multimedia`) mejora la selección cuando el contexto incluye detalles parecidos.
+ * Tool Choice completa:
+ * - selected_tool (choice): criterios y descripción clara de cada herramienta ofrecida en la ruta.
  */
 
 import type { ToolDecisionInput } from "../../../src/core/contracts.ts";
@@ -9,14 +10,27 @@ import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
-const INSTRUCTIONS =
-  "Choose the single tool that directly matches the Step: distinguish finding by name vs searching text inside files vs listing a folder, editing a snippet vs writing a file, playing new media vs controlling current playback/volume, and reading online info vs downloading a file to disk. Avoid tools marked [FAILED - AVOID] when an alternative fits.";
-
 function buildToolChoice(data: ToolDecisionInput): DecisionInput {
   const base = DECISION_PROMPTS.buildToolChoice(data);
-  const q = base.questions.selected_tool;
-  if (q.type !== "choice") return base;
-  return { ...base, questions: { selected_tool: { ...q, instructions: INSTRUCTIONS } } };
+  const toolQ = base.questions.selected_tool;
+  if (toolQ.type !== "choice") return base;
+
+  const criteria: Record<string, string> = {};
+  for (const t of data.tools) {
+    const desc = t.description ? t.description.trim() : t.name;
+    criteria[t.name] = desc;
+  }
+
+  return {
+    ...base,
+    questions: {
+      selected_tool: {
+        ...toolQ,
+        instructions: "Choose the tool that directly accomplishes the step instruction without side-effects or detour.",
+        criteria,
+      },
+    },
+  };
 }
 
 const tool_choice_v01: Variant = {

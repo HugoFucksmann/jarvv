@@ -15,15 +15,19 @@ import { runAutoLoop, runAutoStages } from "../auto.ts";
 import { argvForStage, checkMultiStageFlags, combineExitCodes, expandStages, formatStageSummary, holdoutFilesOf, isMultiStageArg } from "./stages.ts";
 import { autoStageDir, autoStatePath, parseAutoConfig, toEvalConfig, winnersStageDir, type AutoConfig } from "./config.ts";
 import { appendLedger, clipSummary, formatLedgerForPrompt, LEDGER_PROMPT_ENTRIES, readLedger } from "./ledger.ts";
-import { discoverStageDatasets, discoverStageVariants } from "./discover.ts";
+import { HOLDOUT_FILENAME_RE, discoverStageDatasets, discoverStageVariants } from "./discover.ts";
+import { checkTarget } from "./holdout.ts";
+import type { RankedVariant } from "./ranking.ts";
+import { LoopMemory, type AutoRun } from "./runContext.ts";
 import { extractConfusions, formatConfusions } from "./feedback.ts";
-import { buildPatchedVariantSource, buildSystemVariantSource, collectDecisionRequests, currentSystemText, formatCurrentTexts, mergePatch, patchFromRaw, patchFromRequests, shapeFromRequests, systemFromRaw } from "./patchVariant.ts";
+import { buildPatchedVariantSource, buildSystemVariantSource, collectDecisionRequests, currentSystemText, decisionRuleIn, formatCurrentTexts, mergePatch, patchFromRaw, patchFromRequests, shapeFromRequests, systemFromRaw } from "./patchVariant.ts";
 import { loadVariantSpecEphemeral } from "./ephemeralVariant.ts";
 import { extractFailureKinds, failureKindOf, formatFailureKinds } from "./feedback.ts";
 import {
   defaultOptimizerLlmCall,
   generateVariantsForRound,
   OptimizerTransportError,
+  optimizerStyle,
   type OptimizerLlmCaller,
 } from "./optimizer.ts";
 import { archiveLosingAutoVariants, promoteWinningAutoVariants, rankParticipants, reusableResultsDirs, scanReusableInitialRanking } from "./ranking.ts";
@@ -667,7 +671,7 @@ describe("eval/auto optimizer reparación", () => {
     });
 
     assert.equal(calls, 2);
-    assert.match(repairs[0], /la pregunta no existe/, "la reparación le devuelve el error exacto");
+    assert.match(repairs[0], /the question does not exist/, "la reparación le devuelve el error exacto");
     assert.equal(res.validVariants.length, 2);
     assert.equal(res.validVariants[0].name, "auto_d0_repairtest_r1_a");
     assert.equal(res.validVariants[1].name, "auto_d0_repairtest_r1_b");
@@ -840,7 +844,7 @@ describe("eval/auto E2E runAutoLoop", () => {
         return JSON.stringify({
           analysis: "Enfocar criterios por ruta",
           variants: [
-            { suffix: "a", hypothesis: "Ganadora A", instructions: { route: "MOCK_WIN_MARKER: Prioritize the exact matching route." } },
+            { suffix: "a", hypothesis: "Ganadora A", instructions: { route: "MOCK_WIN_MARKER: Match the exact route." } },
             { suffix: "b", hypothesis: "Perdedora B", instructions: { route: "MOCK_LOSE_MARKER: Broad route check." } },
           ],
         });
@@ -897,6 +901,7 @@ describe("eval/auto E2E runAutoLoop", () => {
       `--ledger=${ledgerPath}`,
       "--dataset=route_16_cases",
       "--holdout=route_gemai",
+      "--holdout-margin=1",
       "--seed-top=prod",
       "--client=mock",
       "--concurrency=2",
@@ -1198,6 +1203,7 @@ describe("eval/auto E2E runAutoLoop", () => {
       `--ledger=${hoLedger}`,
       "--dataset=route_16_cases",
       "--holdout=route_gemai",
+      "--holdout-margin=1",
       "--seed-top=prod",
       "--client=mock",
       "--concurrency=2",
@@ -1389,18 +1395,18 @@ describe("eval/auto variantes de decisión armadas por código (solo textos)", (
 
   it("patchFromRaw rechaza preguntas u opciones inexistentes, textos vacíos o largos y variantes que no cambian nada", () => {
     const shape = routeShape();
-    assert.match(patchFromRaw({ instructions: { pregunta: "x" } }, shape).errors.join(" "), /la pregunta no existe/);
-    assert.match(patchFromRaw({ criteria: { route: { nube: "x" } } }, shape).errors.join(" "), /la opción no existe/);
-    assert.match(patchFromRaw({ instructions: { route: "  " } }, shape).errors.join(" "), /texto no vacío/);
-    assert.match(patchFromRaw({ instructions: { route: "x".repeat(5000) } }, shape).errors.join(" "), /máximo/);
-    assert.match(patchFromRaw({}, shape).errors.join(" "), /no cambia nada/);
+    assert.match(patchFromRaw({ instructions: { pregunta: "x" } }, shape).errors.join(" "), /the question does not exist/);
+    assert.match(patchFromRaw({ criteria: { route: { nube: "x" } } }, shape).errors.join(" "), /the option does not exist/);
+    assert.match(patchFromRaw({ instructions: { route: "  " } }, shape).errors.join(" "), /non-empty text/);
+    assert.match(patchFromRaw({ instructions: { route: "x".repeat(5000) } }, shape).errors.join(" "), /maximum/);
+    assert.match(patchFromRaw({}, shape).errors.join(" "), /changes nothing/);
     const ok = patchFromRaw({ instructions: { route: " Pick one. " }, state_note: "Be specific." }, shape);
     assert.deepEqual(ok.patch, { instructions: { route: "Pick one." }, stateNote: "Be specific." });
   });
 
   it("el archivo generado pasa la validación, aplica solo los textos, conserva la marca de intento fallido y no ejecuta texto del modelo", async () => {
     const variantsRoot = setupIsolatedVariantsRoot("patchbuild");
-    const hostile = "Use `terminal` ${globalThis.hacked = true} */ process.exit(1) //";
+    const hostile = "Use the shell ${globalThis.hacked = true} */ process.exit(1) //";
     const { patch, errors } = patchFromRaw(
       { instructions: { route: hostile }, criteria: { route: { web: "Online lookups only." } }, state_note: "Be specific." },
       routeShape(),
@@ -1442,8 +1448,8 @@ describe("eval/auto: umbral de holdout relativo a prod y modo improve", () => {
   const baseArgs = (extra: string[]) => ["--stage=route", "--max-loops=1", "--optimizer-model=mock-opt", "--client=mock", ...extra];
 
   it("valida las opciones --holdout-margin, --mode y --base", () => {
-    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--holdout-margin=0.1"])), /requiere --holdout/);
-    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--holdout=route_gemai", "--holdout-margin=2"])), /\(0, 1\]/);
+    assert.equal(parseAutoConfig(baseArgs(["--target=0.9", "--holdout-margin=-0.02"])).holdoutMargin, -0.02);
+    assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--holdout=route_gemai", "--holdout-margin=2"])), /\[-1, 1\]/);
     assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--mode=otro"])), /rewrite' o 'improve/);
     assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--base=prod"])), /solo vale con --mode=improve/);
     assert.throws(() => parseAutoConfig(baseArgs(["--target=0.9", "--mode=improve", "--base=prod", "--seed-top=prod"])), /no se combinan/);
@@ -1528,10 +1534,10 @@ describe("eval/auto: umbral de holdout relativo a prod y modo improve", () => {
     const improved = await make("improve");
     const rewritten = await make("rewrite");
     assert.equal(improved.validVariants.length, 2);
-    assert.match(seen[0], /Te damos un prompt base/);
-    assert.match(seen[0], /Prompt base \(el que tenés que mejorar\)/);
-    assert.match(seen[1], /Proponé prompts nuevos/);
-    assert.doesNotMatch(seen[1], /Te damos un prompt base/);
+    assert.match(seen[0], /You get a base prompt/);
+    assert.match(seen[0], /Base prompt \(the one to improve\)/);
+    assert.match(seen[1], /Write new texts/);
+    assert.doesNotMatch(seen[1], /You get a base prompt/);
     // improve conserva los textos base de las opciones que el modelo no tocó; rewrite las deja a cargo de producción.
     const unchangedBaseText = base.criteria!.route.web;
     assert.ok(improved.validVariants[0].code.includes(JSON.stringify(unchangedBaseText).slice(1, -1)));
@@ -1600,7 +1606,7 @@ describe("eval/auto: resumen de confusiones para el optimizador (solo etiquetas)
         return JSON.stringify({ analysis: "x", variants: [{ suffix: "a", hypothesis: "A", instructions: { route: "Pick A." } }, { suffix: "b", hypothesis: "B", instructions: { route: "Pick B." } }] });
       },
     });
-    assert.match(prompt, /## Errores del Top-1 en desarrollo \(solo etiquetas; sin casos ni textos\)/);
+    assert.match(prompt, /## Top-1 errors on development \(labels only; no cases or texts\)/);
     assert.match(prompt, /Cuando lo correcto era `system`, eligió `terminal`: 3 de 7 casos\./);
     assert.doesNotMatch(prompt, /Expected:|Predicted:|expectedRoute|route-v1-|Request:/);
   });
@@ -1761,7 +1767,7 @@ describe("eval/auto: varias etapas en una corrida", () => {
     const { resultsRoot, variantsRoot } = setupTempAutoDir("d0", "multi");
     const order: string[] = [];
     const mockOptimizer: OptimizerLlmCaller = async ({ messages }) => {
-      const stage = /Etapa\n- `(\w+)`/.exec(messages.at(-1)?.content ?? "")?.[1] ?? "";
+      const stage = /(?:Etapa|Stage)\n- `(\w+)`/.exec(messages.at(-1)?.content ?? "")?.[1] ?? "";
       const shape = isDecisionStage(stage as StageName) ? shapeFromRequests(collectDecisionRequests(stage as StageName, [multiStageFixtures[stage]])) : undefined;
       const firstKey = shape?.questions[0].key ?? "";
       const text = (suffix: string) => `Variante ${suffix}: elegí con cuidado la opción correcta.${firstKey && shape?.dynamic?.[firstKey] ? " {{DATA}}" : ""}`;
@@ -1804,5 +1810,62 @@ describe("eval/auto: varias etapas en una corrida", () => {
     const table = formatStageSummary([{ stage: "d0", code: 0, prodScore: 0.9, best: { variant: "auto_d0_x", score: 1 } }, { stage: "route", code: "skipped" }]);
     assert.match(table, /d0\s+objetivo alcanzado\s+90\.0%\s+100\.0%\s+auto_d0_x/);
     assert.match(table, /route\s+sin datasets/);
+  });
+});
+
+describe("eval/auto: holdout por nombre y objetivo contra prod", () => {
+  it("reconoce `<etapa>_holdout_<n>.jsonl` y las formas anteriores como holdout", () => {
+    for (const name of ["route_holdout_1.jsonl", "route_holdout1.jsonl", "route_v01_holdout.jsonl", "route_holdout.jsonl"]) {
+      assert.ok(HOLDOUT_FILENAME_RE.test(name), name);
+    }
+    for (const name of ["route_hard_1.jsonl", "route_1.jsonl", "route_holdout_x.jsonl"]) assert.ok(!HOLDOUT_FILENAME_RE.test(name), name);
+  });
+
+  it("llegar a --target no alcanza si la variante no supera a prod en desarrollo", async () => {
+    const row = (variant: string, score: number) => ({ variant, score }) as RankedVariant;
+    const run = { cfg: { target: 0.9 }, log: () => undefined, silent: true, holdoutPaths: [] } as unknown as AutoRun;
+    const mem = new LoopMemory(undefined);
+    const peor = [row("prod", 0.94), row("v", 0.91)];
+    assert.equal((await checkTarget(run, mem, peor, peor[1], 1, 0))?.confirmed, false);
+    const mejor = [row("prod", 0.8), row("v", 0.92)];
+    assert.equal((await checkTarget(run, mem, mejor, mejor[1], 1, 0))?.confirmed, true);
+  });
+});
+
+describe("eval/auto: versiones del pedido al optimizador", () => {
+  it("alternan por vuelta con enfoque y temperatura propios, y vuelven a la primera", () => {
+    const [r1, r2, r3, r4] = [1, 2, 3, 4].map(optimizerStyle);
+    assert.equal(new Set([r1.focus, r2.focus, r3.focus]).size, 3);
+    assert.equal(new Set([r1.temperature, r2.temperature, r3.temperature]).size, 3);
+    assert.deepEqual(r4, r1);
+    assert.deepEqual(optimizerStyle(0), r1);
+  });
+});
+
+describe("eval/auto: las descripciones del optimizador son criterios neutros", () => {
+  const routes = ["terminal", "files_read", "files_write", "system", "multimedia", "web"];
+
+  it("rechaza textos que nombran una opción por su identificador o fijan prioridades", () => {
+    assert.match(decisionRuleIn("If the step involves a command, select 'terminal'.", routes) ?? "", /names the option 'terminal'/);
+    assert.match(decisionRuleIn("Use `web` for lookups.", routes) ?? "", /names the option 'web'/);
+    assert.match(decisionRuleIn("Reading is files_read, not this.", routes) ?? "", /names the option 'files_read'/);
+    assert.match(decisionRuleIn("Prioritize this option over the others.", routes) ?? "", /priority/);
+  });
+
+  it("acepta descripciones que solo dicen qué cubre cada opción, aunque contengan palabras como system o web", () => {
+    for (const text of [
+      "Check the state of the PC (hardware, operating system, disks, services), stop processes and use the clipboard.",
+      "Search for information online and read the content of web pages from URLs.",
+      "Run commands and programs and read their output while they run.",
+      "Where should this step run? If the step says where or how to do it, follow it.",
+    ]) {
+      assert.equal(decisionRuleIn(text, routes), undefined, text);
+    }
+  });
+
+  it("patchFromRaw devuelve el motivo en inglés para el optimizador", () => {
+    const shape = { questions: [{ key: "route", type: "choice" as const, options: routes }] };
+    const { errors } = patchFromRaw({ instructions: { route: "If it is a script, select 'terminal'." } }, shape);
+    assert.match(errors.join(" "), /instructions\.route: it names the option 'terminal'.*do not tell the model which option to pick/);
   });
 });

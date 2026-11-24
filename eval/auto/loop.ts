@@ -22,6 +22,7 @@ import { initializeTop2 } from "./initialRanking.ts";
 import { createPromptContext } from "./promptContext.ts";
 import { buildFingerprint, fingerprintsEqual, loadAutoState } from "./ranking.ts";
 import { runRound } from "./round.ts";
+import { holdoutFilesOf } from "./stages.ts";
 import { LoopMemory, type AutoLoopDeps, type AutoRun } from "./runContext.ts";
 import { openAutoSession } from "./session.ts";
 import { collectKnownVariantHashes } from "./validateVariant.ts";
@@ -53,6 +54,9 @@ function prepareRun(cfg: AutoConfig, deps: AutoLoopDeps): AutoRun | undefined {
   const silent = deps.silent ?? false;
   const rawCache = createRawDatasetCache();
 
+  // Sin `--dataset` ni `--holdout`: desarrollo = los datasets de la etapa y holdout = sus `*_holdout*.jsonl` (los casos fáciles, que sirven para
+  // comprobar que una variante no empeora lo que ya andaba).
+  if (cfg.datasetSpecs.length === 0 && cfg.holdoutSpecs.length === 0) cfg.holdoutSpecs = holdoutFilesOf(cfg.stage);
   let discovered: AutoRun["discovered"];
   try {
     discovered = discoverStageDatasets(cfg.stage, cfg.datasetSpecs, cfg.holdoutSpecs, rawCache);

@@ -1,49 +1,37 @@
 /**
  * eval/variants/args_review/args_review_v01.ts
  *
- * Variante `mode: "prompt"` de `args_review`.
- * Hipótesis: separar explícitamente en `criteria` cuándo el argumento viola sintaxis/reglas/seguridad/Target (`args_invalid`)
- * vs cuándo falta información que solo el usuario puede aportar (`info_missing`, p. ej. cadenas vacías o marcadores de falta de dato)
- * reduce la confusión entre ambos rechazos sin alargar el estado compacto de `prod`.
+ * Args Review completa:
+ * - review (choice): todas las opciones válidas del contrato (approved, args_invalid, info_missing).
  */
 
-import type { ArgsReview, ReviewDecisionInput } from "../../../src/core/contracts.ts";
-import { ARGS_REVIEWS } from "../../../src/core/contracts.ts";
+import type { ReviewDecisionInput } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
-import { DECISION_PROMPTS, listBlock } from "../../../src/core/models/prompts.ts";
+import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
-const CRITERIA: Record<ArgsReview, string> = {
-  approved: "Arguments match Target and User Input, use valid syntax and real values, and are safe.",
-  args_invalid:
-    "Syntax error (e.g. && or POSIX commands on Windows), out-of-range value, wrong parameter format, dangerous command, or path/value contradicting Target.",
-  info_missing:
-    "Target lacks a required detail only the user can provide (unspecified path, content, URL, credential, or target choice) and the argument is empty or missing that user input.",
+const REVIEW_CRITERIA: Record<string, string> = {
+  approved: "Arguments are accurate, safe, completely specified, and directly align with the step target.",
+  args_invalid: "Arguments contain fixable flaws: typo, missing parameter, invalid path format, wrong flag, or slightly off values.",
+  info_missing: "The call is missing required user information, context is ambiguous, or prerequisite information must be requested first.",
 };
 
-function buildArgsReview(data: ReviewDecisionInput, options: { readonly fullView?: boolean } = {}): DecisionInput {
-  const base = DECISION_PROMPTS.buildArgsReview(data, options);
-  const q = base.questions.review;
-  const c = data.candidate;
-  const state = [
-    data.step === null ? null : `Target: ${data.step.instruction}`,
-    listBlock("User Input", data.userInput),
-    options.fullView === true ? listBlock("Recent reads", data.lastReads) : null,
-    options.fullView === true ? listBlock("Environment", data.env) : null,
-    listBlock("Previous Errors", data.stepFailures),
-    `Call: ${c.route}/${c.tool}`,
-    `Args: ${c.args}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+function buildArgsReview(data: ReviewDecisionInput): DecisionInput {
+  const base = DECISION_PROMPTS.buildArgsReview(data);
+  const reviewQ = base.questions.review;
+  if (reviewQ.type !== "choice") return base;
 
   return {
-    state,
+    ...base,
     questions: {
       review: {
-        type: "choice",
-        instructions: q.instructions,
-        criteria: Object.fromEntries(ARGS_REVIEWS.map((r) => [r, CRITERIA[r]])),
+        ...reviewQ,
+        instructions: "Validate tool arguments concisely against target requirements and previous errors.",
+        criteria: {
+          approved: REVIEW_CRITERIA.approved,
+          args_invalid: REVIEW_CRITERIA.args_invalid,
+          info_missing: REVIEW_CRITERIA.info_missing,
+        },
       },
     },
   };
@@ -54,5 +42,4 @@ const args_review_v01: Variant = {
   mode: "prompt",
   prompts: { DECISION_PROMPTS: { buildArgsReview } },
 };
-
 export default args_review_v01;

@@ -1,43 +1,51 @@
 /**
  * eval/variants/route/route_v01.ts
  *
- * Hipótesis: Alinear las notas de ruta con `manifest.ts` (corrigiendo la contradicción de abrir apps/URLs/carpetas en pantalla hacia `system` y aclarando que comandos, ping y totales de carpetas van a `terminal`) reduce errores entre `system`, `terminal` y `files_*`.
+ * Route completa:
+ * - route (choice): criterios explícitos para todas las rutas ejecutables disponibles.
  */
 
-import type { RouteDecisionInput } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
 import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
-const MARK = /\s*(\[[^\]]*\])\s*$/;
-
-const CRITERIA: Record<string, string> = {
-  files_read:
-    "Read-only local file and folder inspection: find by name, list and sort/filter a folder, search text inside files, read a file. Never for URLs or opening apps.",
-  files_write:
-    "Create, write, edit, copy, move, rename, delete, compress (.zip) or convert local files and folders. Never for explicit terminal commands.",
-  terminal:
-    "Run a shell/PowerShell command, script or CLI tool (git, npm, python, ping, curl, hashes), continue a running PID, or compute recursive totals/line counts. Follow explicit terminal/PowerShell requests.",
-  system:
-    "Inspect PC state (hardware, OS, disks, services, dev_tools, network, processes, ports, datetime), stop a process, change settings (brightness, wifi, bluetooth, dark mode, do not disturb), power, clipboard, or open an app/URL/folder on screen.",
-  multimedia:
-    "Search and play music or video on YouTube or Spotify, or control playback and audio volume (play, pause, skip, seek, mute, now playing).",
-  web:
-    "Look up information online, read content from http(s) URLs, or download a file from a URL to disk.",
+// Un texto por cada ruta ejecutable: si falta una, la variante no carga.
+const ROUTE_CRITERIA: Record<string, string> = {
+  terminal: "Run PowerShell commands and programs, read their output and answer their prompts while they run.",
+  files_read: "Inspect files and folders without changing them: find, list, search inside files and read content.",
+  files_write: "Change files and folders: create, write, edit, copy, move, rename, delete, compress and convert.",
+  system: "Query or control the PC: hardware, operating system, disks, services, network, processes, settings, power, clipboard, and opening an application, a URL or a folder.",
+  multimedia: "Play music or video and control playback and volume.",
+  web: "Search the web, query live internet facts, fetch online documentation, read websites or URLs, and look up current information.",
 };
 
-function buildRouteChoice(data: RouteDecisionInput): DecisionInput {
+// Producción agrega al final de una opción una marca entre corchetes (por ejemplo `[the last attempt on this route failed]`); se conserva.
+const MARK = /\s*(\[[^\]]*\])\s*$/;
+
+function buildRouteChoice(data: Parameters<typeof DECISION_PROMPTS.buildRouteChoice>[0]): DecisionInput {
   const base = DECISION_PROMPTS.buildRouteChoice(data);
-  const question = base.questions.route;
-  if (question.type !== "choice") return base;
+  const routeQ = base.questions.route;
+  if (routeQ.type !== "choice") return base;
+
   const criteria = Object.fromEntries(
-    Object.entries(question.criteria).map(([option, text]) => {
-      const own = CRITERIA[option];
+    Object.entries(routeQ.criteria).map(([route, text]) => {
+      const own = ROUTE_CRITERIA[route];
+      if (own === undefined) throw new Error(`falta el texto de la ruta '${route}'`);
       const mark = MARK.exec(text)?.[1];
-      return [option, own === undefined ? text : `${own}${mark ? ` ${mark}` : ""}`];
+      return [route, mark === undefined ? own : `${own} ${mark}`];
     }),
   );
-  return { ...base, questions: { route: { ...question, criteria } } };
+
+  return {
+    ...base,
+    questions: {
+      route: {
+        ...routeQ,
+        instructions: "Choose the single destination route that directly solves the next step instruction.",
+        criteria,
+      },
+    },
+  };
 }
 
 const route_v01: Variant = {

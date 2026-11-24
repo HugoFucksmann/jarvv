@@ -1,29 +1,33 @@
 /**
  * eval/variants/d5/d5_v01.ts
  *
- * Variante `mode: "prompt"` de `d5`.
- * Hipótesis: agregar en `instructions` y `criteria` la verificación explícita de que todas las partes, restricciones
- * de USER y requisitos de mover (no solo copiar) estén presentes en DONE reduce falsos "sí" manteniendo formato corto.
+ * D5 (Completion Check) completa:
+ * - completion (noul): true / false
  */
 
 import type { CompletionDecisionInput } from "../../../src/core/contracts.ts";
-import { COMPLETION_KEY } from "../../../src/core/contracts.ts";
 import type { DecisionInput } from "../../../src/core/models/prompts.ts";
-import { PROMPTS } from "../../../src/core/models/prompts.ts";
+import { DECISION_PROMPTS } from "../../../src/core/models/prompts.ts";
+import { COMPLETION_KEY } from "../../../src/core/contracts.ts";
 import type { Variant } from "../../core/variants/types.ts";
 
+const COMPLETION_CRITERIA = {
+  true: "Every single part, constraint, and item of the original REQUEST is fully completed according to DONE.",
+  false: "Any part of the REQUEST is missing, unfinished, failed, or still requires action.",
+};
+
 function buildCompletionCheck(data: CompletionDecisionInput): DecisionInput {
+  const base = DECISION_PROMPTS.buildCompletionCheck(data);
+  const compQ = base.questions[COMPLETION_KEY];
+  if (!compQ || compQ.type !== "noul") return base;
+
   return {
-    state: PROMPTS.PENDING_VIEW.buildUserPrompt({ view: data.view }),
+    ...base,
     questions: {
       [COMPLETION_KEY]: {
-        type: "noul",
-        instructions:
-          "Using only DONE and USER, is every part, target file, and constraint of REQUEST finished? Copy is not move; unrecovered FAIL or empty DONE means false.",
-        criteria: {
-          true: "Every requested item, destination, and constraint in REQUEST and USER is visibly finished in DONE.",
-          false: "DONE is empty, a step/item/file from REQUEST is missing, a move only copied, or FAIL was not recovered.",
-        },
+        ...compQ,
+        instructions: "Using only what DONE shows, is every part of REQUEST already done? False if any part is missing or was never done.",
+        criteria: COMPLETION_CRITERIA,
       },
     },
   };
@@ -34,5 +38,4 @@ const d5_v01: Variant = {
   mode: "prompt",
   prompts: { DECISION_PROMPTS: { buildCompletionCheck } },
 };
-
 export default d5_v01;

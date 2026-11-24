@@ -114,17 +114,42 @@ export function shapeFromRequests(requests: readonly DecisionRequest[]): Decisio
 
 const isRec = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-function checkText(value: unknown, max: number, where: string, errors: string[]): string | null {
+function checkText(value: unknown, max: number, where: string, errors: string[], optionNames: readonly string[] = []): string | null {
   if (typeof value !== "string" || value.trim() === "") {
-    errors.push(`${where}: debe ser un texto no vacío.`);
+    errors.push(`${where}: must be a non-empty text.`);
     return null;
   }
   const text = value.replace(/\r\n/g, "\n").trim();
   if (text.length > max) {
-    errors.push(`${where}: tiene ${text.length} caracteres y el máximo es ${max}.`);
+    errors.push(`${where}: has ${text.length} characters and the maximum is ${max}.`);
+    return null;
+  }
+  const rule = decisionRuleIn(text, optionNames);
+  if (rule !== undefined) {
+    errors.push(`${where}: ${rule} Describe what the option covers; do not tell the model which option to pick.`);
     return null;
   }
   return text;
+}
+
+/** Palabras de prioridad: una descripción define qué cubre una opción, no cuál tiene precedencia. */
+const PRIORITY_RE = /\b(?:prioriti[sz]e[sd]?|takes? precedence|precedence|overrides?|prefer(?:red|ably)?)\b/i;
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Si el texto le dice al modelo qué opción elegir en vez de describir qué cubre cada una, el motivo; si no, `undefined`. Se detecta nombrar una opción
+ * con su identificador (entre comillas o comillas invertidas; los identificadores con guion bajo, también sueltos) y las palabras de prioridad.
+ */
+export function decisionRuleIn(text: string, optionNames: readonly string[]): string | undefined {
+  for (const name of new Set(optionNames)) {
+    const quoted = new RegExp(`(['"\`])${escapeRe(name)}\\1`);
+    const bare = name.includes("_") ? new RegExp(`(?<![\\w])${escapeRe(name)}(?![\\w])`) : undefined;
+    if (quoted.test(text) || bare?.test(text)) return `it names the option '${name}' by its identifier.`;
+  }
+  const priority = PRIORITY_RE.exec(text);
+  if (priority) return `it sets a priority between options ("${priority[0]}").`;
+  return undefined;
 }
 
 /**
@@ -139,19 +164,20 @@ export function patchFromRaw(
   const patch: PromptPatch = {};
   const keys = shape.questions.map((q) => q.key);
   const known = (key: string): QuestionShape | undefined => shape.questions.find((q) => q.key === key);
+  const optionNames = shape.questions.flatMap((q) => q.options);
 
   if (raw.instructions !== undefined && raw.instructions !== null) {
     if (!isRec(raw.instructions)) {
-      errors.push("`instructions` debe ser un objeto {pregunta: texto}.");
+      errors.push("`instructions` must be an object {question: text}.");
     } else {
       for (const [key, value] of Object.entries(raw.instructions)) {
         if (!known(key)) {
-          errors.push(`instructions.${key}: la pregunta no existe (preguntas válidas: ${keys.join(", ")}).`);
+          errors.push(`instructions.${key}: the question does not exist (valid questions: ${keys.join(", ")}).`);
           continue;
         }
-        const text = checkText(value, PATCH_LIMITS.instruction, `instructions.${key}`, errors);
+        const text = checkText(value, PATCH_LIMITS.instruction, `instructions.${key}`, errors, optionNames);
         if (text !== null && shape.dynamic?.[key] && text.split(DATA_MARK).length !== 2) {
-          errors.push(`instructions.${key}: debe contener \`${DATA_MARK}\` exactamente una vez, donde va el texto propio de cada caso (como en el texto actual).`);
+          errors.push(`instructions.${key}: must contain \`${DATA_MARK}\` exactly once, where the text of each case goes (as in the current text).`);
         } else if (text !== null) {
           patch.instructions ??= {};
           patch.instructions[key] = text;
@@ -162,28 +188,28 @@ export function patchFromRaw(
 
   if (raw.criteria !== undefined && raw.criteria !== null) {
     if (!isRec(raw.criteria)) {
-      errors.push("`criteria` debe ser un objeto {pregunta: {opción: texto}}.");
+      errors.push("`criteria` must be an object {question: {option: text}}.");
     } else {
       for (const [key, options] of Object.entries(raw.criteria)) {
         const q = known(key);
         if (!q) {
-          errors.push(`criteria.${key}: la pregunta no existe (preguntas válidas: ${keys.join(", ")}).`);
+          errors.push(`criteria.${key}: the question does not exist (valid questions: ${keys.join(", ")}).`);
           continue;
         }
         if (q.type !== "choice") {
-          errors.push(`criteria.${key}: la pregunta no tiene opciones; solo se puede cambiar su instrucción.`);
+          errors.push(`criteria.${key}: the question has no options; only its instruction can change.`);
           continue;
         }
         if (!isRec(options)) {
-          errors.push(`criteria.${key}: debe ser un objeto {opción: texto}.`);
+          errors.push(`criteria.${key}: must be an object {option: text}.`);
           continue;
         }
         for (const [option, value] of Object.entries(options)) {
           if (!q.options.includes(option)) {
-            errors.push(`criteria.${key}.${option}: la opción no existe (opciones válidas: ${q.options.join(", ")}).`);
+            errors.push(`criteria.${key}.${option}: the option does not exist (valid options: ${q.options.join(", ")}).`);
             continue;
           }
-          const text = checkText(value, PATCH_LIMITS.criterion, `criteria.${key}.${option}`, errors);
+          const text = checkText(value, PATCH_LIMITS.criterion, `criteria.${key}.${option}`, errors, optionNames);
           if (text !== null) {
             patch.criteria ??= {};
             patch.criteria[key] ??= {};
@@ -200,7 +226,7 @@ export function patchFromRaw(
   }
 
   if (errors.length === 0 && patch.instructions === undefined && patch.criteria === undefined && patch.stateNote === undefined) {
-    errors.push("La variante no cambia nada: escribí al menos una instrucción, una descripción de opción o `state_note`.");
+    errors.push("The variant changes nothing: write at least one instruction, one option description or `state_note`.");
   }
   return errors.length > 0 ? { errors } : { patch, errors };
 }

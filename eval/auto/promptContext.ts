@@ -47,7 +47,7 @@ export function buildTop2Contexts(top2Names: string[], ranked: RankedVariant[], 
  * cada variante, en cada vuelta, porque el Top-2 cambia.
  */
 export function createPromptContext(run: AutoRun, mem: LoopMemory) {
-  const { cfg, devPaths, rawCache, variantsRoot } = run;
+  const { cfg, devPaths, holdoutPaths, rawCache, variantsRoot } = run;
   const metricText = (name: string, contexts: TopVariantContext[]): string => {
     const score = contexts.find((c) => c.name === name)?.summary.score;
     return score !== undefined ? ` (${cfg.metric}=${fmtPct(score)})` : "";
@@ -57,6 +57,9 @@ export function createPromptContext(run: AutoRun, mem: LoopMemory) {
   // Etapas de decisión: el optimizador escribe solo textos. Las preguntas válidas salen de los casos y los textos vigentes de cada Top-2.
   const prodRequests = isDecisionStage(cfg.stage) ? collectDecisionRequests(cfg.stage, devPaths, undefined, rawCache) : [];
   const shape = isDecisionStage(cfg.stage) ? shapeFromRequests(prodRequests) : undefined;
+  // Textos de producción de TODAS las opciones que aparecen en dev y holdout: con ellos se completa toda variante generada, así que el archivo
+  // siempre escribe cada opción (lo que el optimizador no cambia queda con el texto de `prod`, explícito en el archivo).
+  const prodTexts = isDecisionStage(cfg.stage) ? patchFromRequests(collectDecisionRequests(cfg.stage, [...devPaths, ...holdoutPaths], undefined, rawCache)) : undefined;
   const requestsOf = (name: string) => collectDecisionRequests(cfg.stage, devPaths, variantOf(name), rawCache);
 
   // Etapas generativas: el optimizador escribe el texto SYSTEM completo.
@@ -75,12 +78,12 @@ export function createPromptContext(run: AutoRun, mem: LoopMemory) {
         const reqs = requestsOf(baseName);
         const stateNote = baseName === "prod" ? undefined : deriveStateNote(reqs, prodRequests);
         const base = { ...patchFromRequests(reqs), ...(stateNote !== undefined ? { stateNote } : {}) };
-        return { shape, mode: cfg.mode, base, confusions, topTexts: `### Base: \`${baseName}\`${metricText(baseName, contexts)}\n${formatCurrentTexts(reqs, stateNote)}` };
+        return { shape, mode: cfg.mode, base, prodTexts, confusions, topTexts: `### Base: \`${baseName}\`${metricText(baseName, contexts)}\n${formatCurrentTexts(reqs, stateNote)}` };
       }
       const topTexts = names
         .map((name, i) => `### Top-${i + 1}: \`${name}\`${metricText(name, contexts)}\n${formatCurrentTexts(requestsOf(name))}`)
         .join("\n\n");
-      return { shape, mode: cfg.mode, confusions, topTexts };
+      return { shape, mode: cfg.mode, prodTexts, confusions, topTexts };
     },
     /** improve: solo el texto del Top-1, que es el base. */
     generative(names: string[], contexts: TopVariantContext[]) {

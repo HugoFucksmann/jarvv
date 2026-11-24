@@ -17,7 +17,7 @@ import { listActiveVariantFiles, VARIANTS_DIR } from "../core/variants/load.ts";
 import { loadVariantSpecEphemeral } from "./ephemeralVariant.ts";
 import { getStageContract } from "./stageContract.ts";
 
-export const HOLDOUT_FILENAME_RE = /(?:^|[_-])holdout\d*\.jsonl$/i;
+export const HOLDOUT_FILENAME_RE = /(?:^|[_-])holdout(?:[_-]?\d+)?\.jsonl$/i;
 
 export interface DiscoveredDatasets {
   dev: Dataset[];

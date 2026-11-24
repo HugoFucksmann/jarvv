@@ -132,13 +132,13 @@ Checks: `fragment_<i>_match`, `fragment_<i>_min_probability` (si pide `minProbab
 
 ## 4. Escribir una variante
 
-Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es único en todo el árbol y debe coincidir con el `name`) con prompts **enteros** y un `mode` declarado (obligatorio): no hay ediciones parciales del prompt de producción ni composición (`a+b`). `prod` no define nada: usa el prompt de `src/` tal cual. Lo que la variante no nombra usa producción.
+Un archivo `<nombre>.ts` bajo `eval/variants/` (raíz o subcarpeta; el nombre es único en todo el árbol y debe coincidir con el `name`) con prompts **enteros** y un `mode` declarado (obligatorio): no hay ediciones parciales del prompt de producción ni composición (`a+b`). `prod` no define nada: usa el prompt de `src/` tal cual. Lo que la variante no nombra usa producción (en las decisiones, salvo las opciones: todas se escriben, ver más abajo).
 
 **`mode`: qué clase de experimento es.**
 
 | `mode` | Qué cambia | Cómo se mide |
 |---|---|---|
-| `prompt` | Solo textos: instrucciones, descripciones de opciones, `state`, o el `SYSTEM` de una etapa generativa. Preguntas y opciones son las del backend. | Comparable contra `prod`. En las decisiones, el eval arma también el request de `prod` y exige las mismas preguntas y las mismas opciones, en su orden: un desvío es error de carga (`archivo:línea: … declarala mode "structure"`). Es el uso normal: afinar prompts. |
+| `prompt` | Solo textos: instrucciones, descripciones de opciones, `state`, o el `SYSTEM` de una etapa generativa. Preguntas y opciones son las del backend. | Comparable contra `prod`. En las decisiones, el eval arma también el request de `prod` y exige las mismas preguntas y las mismas opciones, en su orden: un desvío es error de carga (`archivo:línea: … declarala mode "structure"`). Además la variante debe estar **completa**: tiene que escribir el texto de todas las opciones de todas las preguntas de la etapa; una que conserva el texto de producción en alguna (porque no la pisó) es error de carga (`… está incompleta: las opciones … salen del texto de producción`). Escribir a propósito el mismo texto que `prod` sí vale. Es el uso normal: afinar prompts. |
 | `structure` | Todo: otras preguntas, otras opciones, otro estado u otro flujo de decisión. | **No comparable.** El reporte muestra sus métricas absolutas con la marca «structure, no comparable», sin Δ, regresiones, mejoras ni prueba de signos; no cuenta para `--min-pass-rate` y `--auto` la ignora. Si renombra o quita la opción esperada, el caso falla. |
 
 | Etapa | Qué escribe la variante |

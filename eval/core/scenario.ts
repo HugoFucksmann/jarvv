@@ -50,6 +50,7 @@ import type {
   ScenarioStep,
 } from "./stages/types.ts";
 import type { DecisionRequest, GenerativeRequest, Variant } from "./types.ts";
+import { inheritedOptions, withTaggedProd } from "./variants/inherited.ts";
 import { decisionStructureDiff } from "./variants/structure.ts";
 
 export type {
@@ -341,6 +342,18 @@ export function materializeScenario(stage: string, sc: Scenario, variant?: Varia
         `la variante '${variant.name}' es mode "prompt" pero cambia la estructura de la decisión (${diffs.join("; ")}). ` +
         `Con mode "prompt" solo se cambian textos; para probar otras preguntas u opciones, declarala mode "structure".`,
       );
+    }
+    // Completitud: si la variante cambia esta etapa, escribe el texto de TODAS sus opciones. Se arma el request otra vez con los textos de
+    // producción marcados; una opción que conserva la marca la heredó de `src` (la variante no la escribió).
+    if (JSON.stringify(built.request) !== JSON.stringify(base)) {
+      const tagged = withTaggedProd(() => entry.buildRequest(sc, variant.prompts, scenarioHelpers).request as DecisionRequest);
+      const inherited = inheritedOptions(tagged);
+      if (inherited.length > 0) {
+        throw new Error(
+          `la variante '${variant.name}' está incompleta: ${inherited.length === 1 ? "la opción" : "las opciones"} ${inherited.join(", ")} ${inherited.length === 1 ? "sale" : "salen"} del texto de producción. ` +
+          `Una variante escribe el texto de todas las opciones de todas las preguntas de la etapa, aunque coincida con el de producción.`,
+        );
+      }
     }
   }
   return built;

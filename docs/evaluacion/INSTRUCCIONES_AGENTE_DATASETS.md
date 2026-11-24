@@ -15,7 +15,7 @@ Para **una etapa de decisión** indicada en el pedido (`d0`, `route`, `tool_choi
 | `<etapa>_v1.jsonl` | **Desarrollo**: el optimizador del modo `--auto` mide variantes con este dataset (ve solo un resumen de errores por etiqueta, nunca los casos) | 40 |
 | `<etapa>_v1_holdout.jsonl` | **Holdout**: el optimizador nunca lo ve; solo confirma que una variante mejora de verdad | 60 |
 
-- El nombre del holdout debe terminar en `_holdout.jsonl` (el cargador lo reconoce por `(?:^|[_-])holdout\d*\.jsonl$`). Con otro nombre se mezcla con los de desarrollo.
+- El nombre del holdout debe terminar en `_holdout.jsonl` (el cargador lo reconoce por `(?:^|[_-])holdout(?:[_-]?\d+)?\.jsonl$`: `<etapa>_holdout_1.jsonl`, `<etapa>_1_holdout.jsonl`…). Con otro nombre se mezcla con los de desarrollo.
 - Si la carpeta de la etapa ya tiene archivos, `N` es el número siguiente al último; si no, `1`.
 - **Desarrollo y holdout no comparten casos**, ni el mismo pedido con cambios triviales de redacción. Si dos casos se parecen, van los dos al mismo archivo.
 
@@ -141,6 +141,7 @@ Además de los datasets, se escriben **variantes de arranque** de la etapa: de 1
 
 - **`mode: "prompt"`** (el valor por defecto de este encargo): la variante solo cambia textos (instrucción de cada pregunta, descripción de cada opción, nota de estado). Las preguntas y las opciones, y su orden, son las del backend: el eval arma también el request de `prod` y rechaza al cargar cualquier desvío. Una variante con otras preguntas u opciones es `mode: "structure"` y solo se escribe si el pedido lo indica.
 - Se escribe **envolviendo la función de producción** (`DECISION_PROMPTS.<constructor>`) y reemplazando solo textos. No se copia ni se reescribe el constructor entero.
+- **La variante es completa: escribe el texto de TODAS las opciones de TODAS las preguntas de la etapa** (todas las rutas, todas las herramientas del grupo, `true` y `false` de cada pregunta `noul`, todas las acciones). Una opción que se deja sin escribir hereda el texto de `src` y mezclaría prompt de la variante con prompt de `prod`, así que el eval la rechaza al cargar (`la variante '<nombre>' está incompleta: las opciones … salen del texto de producción`), igual en `--dry-run`, `--client=mock` y en una corrida real. Escribir una opción con el mismo texto que `prod` es válido (se escribe a propósito); lo que no vale es dejarla sin escribir, ni armarla a partir del texto de producción (`${texto de prod} …`, `...criteria` sin pisar). La instrucción de cada pregunta es opcional.
 - Los textos de la variante salen de la documentación del sistema (`manifest.ts`, el código de la etapa), no de cómo responde `prod`: no hay forma de verlo desde acá.
 - Constructor de cada etapa: `d0` → `buildFirstQuery`, `route` → `buildRouteChoice`, `tool_choice` → `buildToolChoice`, `args_review` → `buildArgsReview`, `result_verification` → `buildResultVerification`, `fragment_judge` → `buildFragmentJudge`, `d5` → `buildCompletionCheck`, `recovery` → `buildRecovery`, `continuation` → `buildContinuation`. Las claves de pregunta y de opción se ven armando un caso: `npx tsx eval/cli.ts --client=mock --dataset=smoke --stages=<etapa> --dry-run`.
 
@@ -159,8 +160,14 @@ import type { Variant } from "../../core/variants/types.ts";
 
 // Solo textos. Las preguntas y las opciones (y su orden) son las de producción: el eval lo comprueba al cargar.
 const INSTRUCTIONS = "Pick the single best executable route for the current step.";
+// Un texto por CADA opción de la etapa (acá, las 6 rutas). Si falta una, la variante no carga.
 const CRITERIA: Record<string, string> = {
-  files_read: "Read-only file and folder inspection: find, list, search inside files, read content.",
+  terminal: "<texto de la variante>",
+  files_read: "<texto de la variante>",
+  files_write: "<texto de la variante>",
+  system: "<texto de la variante>",
+  multimedia: "<texto de la variante>",
+  web: "<texto de la variante>",
 };
 
 // Producción agrega al final de una opción una marca entre corchetes (por ejemplo `[FAILED - AVOID]`); se conserva.
@@ -173,7 +180,8 @@ function buildRouteChoice(data: Parameters<typeof DECISION_PROMPTS.buildRouteCho
   const criteria = Object.fromEntries(
     Object.entries(question.criteria).map(([option, text]) => {
       const own = CRITERIA[option];
-      return [option, own === undefined ? text : `${own}${MARK.exec(text) ? ` ${MARK.exec(text)?.[1]}` : ""}`];
+      if (own === undefined) throw new Error(`falta el texto de la opción '${option}'`);
+      return [option, `${own}${MARK.exec(text) ? ` ${MARK.exec(text)?.[1]}` : ""}`];
     }),
   );
   return { ...base, questions: { route: { ...question, instructions: INSTRUCTIONS, criteria } } };
@@ -194,6 +202,7 @@ Validación de una variante (sin modelos): `npx tsc --noEmit` y `npx tsx eval/cl
 - No modificar `src/`, `eval/core/`, `eval/auto/`, `eval/datasets/smoke.jsonl` ni datasets de otras etapas.
 - No ejecutar `--auto` ni ninguna corrida con modelos reales.
 - No crear variantes `mode: "structure"` salvo que el pedido lo indique.
+- No dejar opciones sin escribir en una variante: todas las de la etapa llevan texto propio (ver §8).
 - No copiar ni reutilizar casos de `eval/auto/fixtures/`.
 - No declarar `at.routes` ni `at.tools`: no existen.
 - No repetir `id` ni reutilizar los de otros archivos.

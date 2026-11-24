@@ -12,8 +12,8 @@ import type { RankedVariant } from "./ranking.ts";
 import type { AutoRun, LoopMemory } from "./runContext.ts";
 
 /**
- * Mide `prod` sobre el holdout. El umbral para confirmar es `--target` o, con `--holdout-margin`, el puntaje de `prod` más el margen.
- * `undefined` si el lote falló.
+ * Mide `prod` sobre el holdout. El umbral para confirmar es el puntaje de `prod` más `--holdout-margin` (por defecto 0: no empeorar a `prod`;
+ * un margen negativo tolera una caída pequeña). `undefined` si el lote falló.
  */
 export async function measureProdHoldout(run: AutoRun): Promise<{ threshold: number } | undefined> {
   const { cfg, log } = run;
@@ -24,10 +24,10 @@ export async function measureProdHoldout(run: AutoRun): Promise<{ threshold: num
   }
   const row = batch.ranked.find((r) => r.variant === "prod");
   const prodScore = row?.score ?? 0;
-  const threshold = cfg.holdoutMargin !== undefined ? prodScore + cfg.holdoutMargin : cfg.target;
+  const threshold = prodScore + (cfg.holdoutMargin ?? 0);
   log(
     `\n  ${sym.bullet} Holdout: prod obtiene ${fmtPct(prodScore)} (${row?.passedRuns ?? 0}/${row?.totalRuns ?? 0}). Umbral para confirmar: ${fmtPct(Math.min(threshold, 1))}${
-      cfg.holdoutMargin !== undefined ? ` (prod + ${fmtPct(cfg.holdoutMargin)})` : " (--target)"
+      cfg.holdoutMargin !== undefined && cfg.holdoutMargin !== 0 ? ` (prod ${cfg.holdoutMargin > 0 ? "+" : "−"} ${fmtPct(Math.abs(cfg.holdoutMargin))})` : " (igual a prod)"
     }.`,
   );
   if (threshold > 1) {
@@ -59,10 +59,13 @@ export async function checkTarget(
   holdoutThreshold: number,
 ): Promise<TargetVerdict | undefined> {
   const { cfg, log, silent } = run;
-  if (!best || best.score < cfg.target) return { confirmed: false };
+  // El objetivo es absoluto y además la variante tiene que superar a `prod` en desarrollo: llegar al umbral con un resultado peor que el de prod no cuenta.
+  const prodScore = ranked.find((r) => r.variant === "prod")?.score ?? 0;
+  const beatsProd = (r: RankedVariant): boolean => r.variant !== "prod" && r.score >= cfg.target && r.score > prodScore;
+  if (!best || !beatsProd(best)) return { confirmed: false };
   if (run.holdoutPaths.length === 0) return { confirmed: true, evaluated: best };
 
-  const candidate = ranked.find((r) => r.variant !== "prod" && r.score >= cfg.target && !mem.testedHoldout.has(r.variant));
+  const candidate = ranked.find((r) => beatsProd(r) && !mem.testedHoldout.has(r.variant));
   if (!candidate) {
     const prev = mem.testedHoldout.get(best.variant);
     log(`\n  ${sym.warn} '${best.variant}' alcanzó ${fmtPct(best.score)} en dev pero ya falló --holdout en R${prev?.round ?? "?"} (${fmtPct(prev?.score ?? 0)}); se omite re-evaluación.`);

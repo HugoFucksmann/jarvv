@@ -56,13 +56,13 @@ export interface EvalConfig {
 
 // ───────────────────────── Defaults ─────────────────────────
 
-// Los defaults salen de la configuración de producción (`jarvis-config.json`; sin él, sus valores por defecto), así el eval
-// mide por defecto lo que corre Jarvis y no puede divergir en silencio.
+// Las URLs salen de la configuración de producción (`jarvis-config.json`; sin él, sus valores por defecto). Los modelos por defecto son las
+// compilaciones `-text` (sin visión: más rápidas para evaluar) de los de producción: generativo qwen y decisión d3, en 4b.
 const PROD = ConfigManager.getConfig();
-export const DEFAULT_MODEL = PROD.qwenModel;
+export const DEFAULT_MODEL = "qwen3.5:4b-text";
 export const DEFAULT_URL = PROD.qwenUrl;
 export const DEFAULT_DECISION_URL = PROD.decisionUrl;
-export const DEFAULT_DECISION_MODEL = PROD.decisionModel;
+export const DEFAULT_DECISION_MODEL = "d3:4b-text";
 export const DEFAULT_DATASETS = "eval/datasets/";
 
 /** Timeout por tipo de llamada (ms): los de la configuración de producción. */
@@ -272,7 +272,7 @@ export function parseConfig(argv: string[]): EvalConfig {
     ids: flagCsv(flags, "ids"),
     limit: flagInt(flags, "limit", 1),
     repeat: flagInt(flags, "repeat", 1) ?? 1,
-    concurrency: flagInt(flags, "concurrency", 1) ?? 3,
+    concurrency: flagInt(flags, "concurrency", 1) ?? 1,
     model,
     url: flagStr(flags, "url") ?? DEFAULT_URL,
     decisionUrl,

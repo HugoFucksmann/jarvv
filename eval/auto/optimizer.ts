@@ -340,6 +340,21 @@ function buildSystemTextMessages(opts: {
   ];
 }
 
+/**
+ * Versiones del pedido al optimizador: cada vuelta usa una (alternan en orden) con su propio enfoque y su temperatura, para que las variantes de vueltas
+ * distintas no salgan del mismo molde. La primera tentativa de cada vuelta usa `temperature`; los reintentos de reparación, una más baja y fija.
+ */
+export const OPTIMIZER_STYLES: ReadonlyArray<{ focus: string; temperature: number }> = [
+  { focus: "make small, targeted edits: change only the options involved in the errors.", temperature: 0.3 },
+  { focus: "make the scope of each confused option precise: what it covers and where it ends.", temperature: 0.5 },
+  { focus: "simplify: shorter, plainer wording that removes ambiguous phrases.", temperature: 0.7 },
+];
+
+/** Versión del pedido (y temperatura) que toca en la vuelta `round` (1, 2, 3…). */
+export function optimizerStyle(round: number): { focus: string; temperature: number } {
+  return OPTIMIZER_STYLES[(Math.max(1, round) - 1) % OPTIMIZER_STYLES.length];
+}
+
 /** Contexto extra de las etapas de decisión: preguntas válidas y los textos vigentes del Top-2 (ya armados por quien llama). */
 export interface DecisionPromptContext {
   shape: DecisionShape;
@@ -349,6 +364,8 @@ export interface DecisionPromptContext {
   mode: AutoMode;
   /** Solo `improve`: textos completos del prompt base; los cambios del modelo se aplican encima. */
   base?: PromptPatch;
+  /** Textos de producción de todas las opciones de dev y holdout: completan la variante con lo que el modelo no escribe. */
+  prodTexts?: PromptPatch;
   /** Errores del Top-1 por etiqueta (solo etiquetas y conteos; ya formateado). */
   confusions?: string;
 }
@@ -388,50 +405,46 @@ function buildDecisionPatchMessages(opts: {
       state_note: "...",
     });
   const improve = context.mode === "improve";
+  const style = optimizerStyle(round);
   const system = [
-    `Mejorás los textos del prompt de una etapa de decisión de JARVIS. El modelo que los lee es \`${cfg.decisionModel}\`.`,
-    ...(improve
-      ? [
-          "Te damos un prompt base. Mejoralo agregando y quitando lo que haga falta; si lo necesitás, podés cambiarlo entero.",
-          "Devolvé exactamente 2 variantes (a y b), distintas entre sí. Cada una cambia solo textos; no escribas código.",
-        ]
-      : [
-          "Proponé prompts nuevos: podés reescribir los textos por completo.",
-          "Devolvé exactamente 2 variantes (a y b), con enfoques distintos entre sí. Cada una cambia solo textos; no escribas código.",
-        ]),
-    "No se te muestran casos de evaluación: guiate por los textos actuales, el resumen de errores por etiqueta, el historial de ideas probadas y las notas.",
-    "",
-    "Reglas:",
-    "1. Escribí los textos en inglés, igual que los actuales, y sin ejemplos de pedidos concretos de usuarios.",
+    `You improve the prompt texts of a JARVIS decision stage. The model that reads them is \`${cfg.decisionModel}\`.`,
     improve
-      ? "2. Lo que no escribas queda igual que en el prompt base."
-      : "2. Lo que no escribas queda como en producción (`prod`).",
-    "3. No repitas lo que perdió en el historial.",
-    "4. Cada error de la lista dice que el modelo eligió una etiqueta (la \"elegida\") cuando lo correcto era otra (la \"correcta\"). Para corregirlo, ampliá la descripción de la correcta para que cubra esos pedidos, o acotá la de la elegida. No hagas lo contrario: no quites de la correcta lo que ya le pertenece.",
+      ? "You get a base prompt. Change only the texts that need it; whatever you leave out stays as in the base."
+      : "Write new texts. Whatever you leave out stays as in production (`prod`).",
+    "Return exactly 2 variants (a and b), different from each other. Each one changes texts only; do not write code.",
+    "You are not shown evaluation cases: use the current texts, the error summary by label, the history of tried ideas and the notes.",
     "",
-    "Respondé solo con JSON, con este formato (los \"...\" son los textos que escribís; los nombres de pregunta y opción son los reales de esta etapa; `criteria` y `state_note` son opcionales):",
+    "Rules:",
+    "1. Write every text in English, like the current ones.",
+    "2. An option description is a neutral criterion: it says what the option covers. No examples, no priority rules, no mention of other options.",
+    "3. Keep each text about as long as the current one.",
+    "4. Each error says the model chose a label (\"chosen\") when the right one was another (\"correct\"). Fix it by widening the description of the correct one, or narrowing the chosen one. Do not remove from the correct one what already belongs to it.",
+    "5. Do not repeat what lost in the history.",
+    `6. Approach for this round: ${style.focus}`,
+    "",
+    "Answer with JSON only, in this format (the \"...\" are the texts you write; question and option names are the real ones of this stage; `criteria` and `state_note` are optional; `instructions` only has question names, `criteria` has question and then option names):",
     `{"analysis":"...","variants":[${exampleVariant("a")},${exampleVariant("b")}]}`,
   ].join("\n");
 
   const user = [
-    "## Etapa",
-    `- \`${cfg.stage}\` · Vuelta ${round} de ${cfg.maxLoops} · meta: \`${cfg.metric} >= ${fmtPct(cfg.target)}\``,
+    "## Stage",
+    `- \`${cfg.stage}\` · Round ${round} of ${cfg.maxLoops} · goal: \`${cfg.metric} >= ${fmtPct(cfg.target)}\``,
     "",
-    "## Qué podés cambiar",
-    "- `instructions.<pregunta>`: la instrucción de la pregunta.",
-    "- `criteria.<pregunta>.<opción>`: la descripción de una opción.",
-    "- `state_note`: una línea breve que se antepone al estado (opcional).",
-    "Preguntas y opciones válidas:",
+    "## What you can change",
+    "- `instructions.<question>`: the question instruction.",
+    "- `criteria.<question>.<option>`: the description of an option.",
+    "- `state_note`: a short line put before the state (optional).",
+    "Valid questions and options:",
     formatShape(context.shape),
     "",
-    improve ? "## Prompt base (el que tenés que mejorar)" : "## Textos de referencia",
+    improve ? "## Base prompt (the one to improve)" : "## Reference texts",
     context.topTexts,
     "",
-    ...(context.confusions !== undefined ? ["## Errores del Top-1 en desarrollo (solo etiquetas; sin casos ni textos)", context.confusions, ""] : []),
-    "## Historial de ideas probadas (lo mide el código; no repitas lo que perdió)",
+    ...(context.confusions !== undefined ? ["## Top-1 errors on development (labels only; no cases or texts)", context.confusions, ""] : []),
+    "## History of tried ideas (measured by the code; do not repeat what lost)",
     ledgerText,
     "",
-    "## Notas actuales",
+    "## Current notes",
     formatMetricsSummary(top2Contexts, allRanked, cfg),
   ].join("\n");
 
@@ -557,7 +570,7 @@ export async function generateVariantsForRound(opts: {
       messages,
       schemaName: "optimizer_variants",
       schema: decision ? DECISION_PATCH_SCHEMA : SYSTEM_TEXT_SCHEMA,
-      temperature: attempt === 0 ? 0.35 : 0.2,
+      temperature: attempt === 0 ? optimizerStyle(round).temperature : 0.2,
       maxTokens: decision ? 2048 : 4096,
       reasoningEffort: cfg.optimizerThinking === "on" ? "low" : "none",
     });
@@ -576,7 +589,7 @@ export async function generateVariantsForRound(opts: {
         { role: "assistant", content: raw.slice(0, 3000) },
         {
           role: "user",
-          content: `Tu respuesta anterior falló al parsear el JSON: ${errMsg}\nCorregí la respuesta devolviendo EXCLUSIVAMENTE JSON válido con \`{ "analysis": "...", "variants": [...] }\` para: ${pendingSuffixes.map(nameFor).join(", ")}.`,
+          content: `Your previous answer failed to parse as JSON: ${errMsg}\nAnswer again with ONLY valid JSON, \`{ "analysis": "...", "variants": [...] }\`, for: ${pendingSuffixes.map(nameFor).join(", ")}.`,
         },
       ];
       continue;
@@ -592,7 +605,7 @@ export async function generateVariantsForRound(opts: {
       const candidate = extracted.proposal.entries.find((e) => e.suffix === s);
       const variantName = nameFor(s);
       if (!candidate) {
-        attemptErrors.push(`- ${variantName} (suffix '${s}'): faltó en el arreglo \`variants\`.`);
+        attemptErrors.push(`- ${variantName} (suffix '${s}'): missing from the \`variants\` array.`);
         continue;
       }
 
@@ -604,8 +617,9 @@ export async function generateVariantsForRound(opts: {
           attemptErrors.push(`- ${variantName} (suffix '${s}'): ${errors.join(" ")}`);
           continue;
         }
-        // `improve`: los cambios se aplican sobre los textos del prompt base (lo que el modelo no escribe queda como en el base).
-        const finalPatch = decision.mode === "improve" && decision.base ? mergePatch(decision.base, patch) : patch;
+        // La variante sale completa: los textos de `prod` de todas las opciones, encima los del prompt base (`improve`) y encima los del modelo.
+        // Lo que el modelo no escribe queda con el texto de base o de `prod`, escrito en el archivo.
+        const finalPatch = mergePatch(mergePatch(decision.prodTexts ?? {}, decision.mode === "improve" && decision.base ? decision.base : {}), patch);
         rawCode = buildPatchedVariantSource({ promptKey: getStageContract(cfg.stage).promptKey, variantName, patch: finalPatch, dynamic: decision.shape.dynamic });
       } else {
         // biome-ignore lint/style/noNonNullAssertion: este camino solo corre en etapas generativas, donde `generative` existe (validado arriba)
@@ -654,10 +668,10 @@ export async function generateVariantsForRound(opts: {
     const stillMissing = (["a", "b"] as const).filter((s) => !validBySuffix.has(s));
     const repairPrompt = decision
       ? [
-          "Falló la validación de una o ambas variantes:",
+          "Validation failed for one or both variants:",
           ...attemptErrors,
           "",
-          `Devolvé el JSON completo con el mismo formato, corrigiendo solo: ${stillMissing.map((s) => `suffix '${s}'`).join(", ")}. Usá exactamente los nombres de preguntas y opciones válidos.`,
+          `Return the full JSON in the same format, fixing only: ${stillMissing.map((s) => `suffix '${s}'`).join(", ")}. Use exactly the valid question and option names.`,
         ].join("\n")
       : [
           "Falló la validación de una o ambas variantes:",

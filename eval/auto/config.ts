@@ -39,7 +39,7 @@ export interface AutoConfig {
   ledgerPath: string;
   datasetSpecs: string[];
   holdoutSpecs: string[];
-  /** Con holdout: la variante lo confirma si supera a `prod` en el holdout por al menos este margen (en lugar de llegar a `--target`). */
+  /** Con holdout: la variante lo confirma si obtiene en él al menos el puntaje de `prod` más este margen (default 0; negativo tolera una caída). */
   holdoutMargin?: number;
   /** `rewrite`: propone prompts nuevos; `improve`: parte de un prompt base y lo mejora agregando y quitando (puede cambiarlo entero). */
   mode: AutoMode;
@@ -181,11 +181,8 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
 
   const holdoutMargin = flagFloat(flags, "holdout-margin");
   if (holdoutMargin !== undefined) {
-    if (!(holdoutMargin > 0 && holdoutMargin <= 1)) {
-      throw new Error(`--holdout-margin debe estar en (0, 1] (ej. 0.10 = 10 puntos sobre prod), recibido: '${holdoutMargin}'.`);
-    }
-    if (dedupedCsv(flags, "holdout").length === 0) {
-      throw new Error("--holdout-margin requiere --holdout=<dataset>.");
+    if (!(holdoutMargin >= -1 && holdoutMargin <= 1)) {
+      throw new Error(`--holdout-margin debe estar en [-1, 1] (ej. 0.10 = 10 puntos sobre prod, -0.02 = tolera 2 puntos menos), recibido: '${holdoutMargin}'.`);
     }
   }
 
@@ -227,7 +224,7 @@ export function parseAutoConfig(argv: string[]): AutoConfig {
     url: flagStr(flags, "url") ?? DEFAULT_URL,
     decisionUrl: flagStr(flags, "decision-url") ?? DEFAULT_DECISION_URL,
     repeat: flagInt(flags, "repeat", 1) ?? 1,
-    concurrency: flagInt(flags, "concurrency", 1) ?? 3,
+    concurrency: flagInt(flags, "concurrency", 1) ?? 1,
     thinking: thinkingRaw as ThinkingMode,
     timeoutMs: flagInt(flags, "timeout", 1),
     metric: metricRaw,
@@ -306,12 +303,14 @@ Flags opcionales del optimizador y ejecución:
   --optimizer-thinking=<off|on> Razonamiento del optimizador: off | on (default: off)
   --ledger=<ruta>               Registro de ideas probadas, escrito por el código (default: eval/variants/_auto/<stage>/ledger.jsonl)
   --dataset=<csv>               Datasets de trabajo (default: todos los de --stage, sin smoke ni holdout)
-  --holdout=<csv>               Dataset(s) ocultos al feedback; confirman solo al alcanzar --target
-  --holdout-margin=<decimal>    Con --holdout: se confirma si la variante supera a prod en el holdout por este margen (ej. 0.10), en vez de llegar a --target
+  --holdout=<csv>               Dataset(s) ocultos al feedback; confirman una variante que ya alcanzó --target en desarrollo.
+                                Sin --dataset ni --holdout, el holdout son los *_holdout*.jsonl de la etapa (los casos fáciles)
+  --holdout-margin=<decimal>    Con holdout: la variante se confirma si obtiene en él al menos lo de prod más este margen (default 0: no empeorar a prod;
+                                negativo, p. ej. -0.02, tolera una caída pequeña)
   --mode=<rewrite|improve>      rewrite: prompts nuevos (default). improve: mejora un prompt base agregando y quitando, o cambiándolo entero si hace falta
   --base=<variante>             Solo con --mode=improve: prompt base inicial (equivale a --seed-top=<variante>; default: el mejor de la Vuelta 0)
   --repeat=<n>                  Repeticiones por caso (default: 1)
-  --concurrency=<n>             Concurrencia del runner (default: 3)
+  --concurrency=<n>             Concurrencia del runner (default: 1)
   --thinking=<modo>             Thinking del generativo evaluado: prod | on | off | both (default: off)
   --timeout=<ms>                Timeout de llamadas evaluadas en ms
   --metric=<m>                  passRate | macroPassRate (default: passRate)
